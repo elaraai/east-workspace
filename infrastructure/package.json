@@ -1,0 +1,25 @@
+{
+  "name": "@elaraai/e3-aws-infrastructure",
+  "version": "0.0.1-alpha.0",
+  "private": true,
+  "type": "module",
+  "description": "AWS CDK infrastructure for e3 cloud",
+  "main": "dist/bin/e3-aws.js",
+  "scripts": {
+    "build": "tsc --build",
+    "watch": "tsc --build --watch",
+    "cdk": "cdk",
+    "synth": "cdk synth",
+    "deploy": "cdk deploy --all",
+    "destroy": "cdk destroy --all"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.170.0",
+    "constructs": "^10.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "aws-cdk": "^2.170.0",
+    "typescript": "^5.6.0"
+  }
+}

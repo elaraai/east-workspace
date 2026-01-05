@@ -1,0 +1,26 @@
+{
+  "name": "@elaraai/e3-cloud-storage",
+  "version": "0.0.1-alpha.0",
+  "private": true,
+  "type": "module",
+  "description": "EFS-backed StorageBackend for e3 cloud",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "test": "node --enable-source-maps --test 'dist/src/**/*.spec.js'"
+  },
+  "peerDependencies": {
+    "@elaraai/e3-core": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}

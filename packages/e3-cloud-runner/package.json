@@ -1,0 +1,24 @@
+{
+  "name": "@elaraai/e3-cloud-runner",
+  "version": "0.0.1-alpha.0",
+  "private": true,
+  "type": "module",
+  "description": "Lambda handlers for Step Functions task execution",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "scripts": {
+    "build": "tsc --build",
+    "test": "node --enable-source-maps --test 'dist/src/**/*.spec.js'"
+  },
+  "dependencies": {
+    "@elaraai/e3-cloud-storage": "*"
+  },
+  "peerDependencies": {
+    "@elaraai/e3-core": "*"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.145",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}
