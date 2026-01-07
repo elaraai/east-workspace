@@ -97,6 +97,27 @@ export default [
       }]
     }
   },
+  // Organization (CDK for account management)
+  {
+    files: ['organization/**/*.ts'],
+    languageOptions: {
+      parser: tsparser,
+      parserOptions: {
+        project: true
+      }
+    },
+    plugins: {
+      '@typescript-eslint': tseslint,
+      'headers': headers
+    },
+    rules: {
+      ...baseRules,
+      'headers/header-format': ['error', {
+        source: 'string',
+        content: proprietaryHeader
+      }]
+    }
+  },
   // Apps (frontend) - different config for React/Vite
   {
     files: ['apps/*/src/**/*.ts', 'apps/*/src/**/*.tsx'],

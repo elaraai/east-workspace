@@ -1,0 +1,9 @@
+{
+  "deploymentId": "prod",
+  "callbackUrls": [
+    "https://platform.elaraai.com/callback"
+  ],
+  "allowedOrigins": [
+    "https://platform.elaraai.com"
+  ]
+}

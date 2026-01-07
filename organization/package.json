@@ -1,0 +1,27 @@
+{
+  "name": "@elaraai/e3-aws-organization",
+  "version": "0.0.1-alpha.0",
+  "private": true,
+  "type": "module",
+  "description": "AWS Organization and account management for e3 cloud",
+  "main": "dist/bin/e3-org.js",
+  "scripts": {
+    "build": "tsc --build",
+    "watch": "tsc --build --watch",
+    "cdk": "cdk",
+    "synth": "cdk synth",
+    "diff": "cdk diff",
+    "deploy": "cdk deploy",
+    "destroy": "cdk destroy",
+    "list-accounts": "aws organizations list-accounts --query 'Accounts[*].[Id,Name,Status]' --output table"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.170.0",
+    "constructs": "^10.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "aws-cdk": "^2.170.0",
+    "typescript": "^5.6.0"
+  }
+}
