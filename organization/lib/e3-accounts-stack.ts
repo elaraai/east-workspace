@@ -491,8 +491,14 @@ export class E3AccountBootstrapStack extends cdk.Stack {
     });
 
     // ========================================
-    // Security Hub (Security Posture Management)
+    // Security Hub CSPM (Security Posture Management)
     // ========================================
+    // TODO: As of Jan 2026, the new unified Security Hub (with risk prioritization,
+    // threat correlation, OCSF schema) is GA but has no CloudFormation resource yet.
+    // Currently only CfnHub exists which enables Security Hub CSPM.
+    // Monitor for AWS::SecurityHub::SecurityHub or similar resource in future CDK releases.
+    // For now, enable the new Security Hub manually via console.
+    // See: https://aws.amazon.com/blogs/aws/aws-security-hub-now-generally-available-with-near-real-time-analytics-and-risk-prioritization/
     const securityHubHub = new securityhub.CfnHub(this, 'SecurityHub', {
       enableDefaultStandards: false, // We'll enable specific standards
       tags: {
@@ -502,14 +508,16 @@ export class E3AccountBootstrapStack extends cdk.Stack {
     });
 
     // Enable AWS Foundational Security Best Practices standard
-    new securityhub.CfnStandard(this, 'SecurityHubAWSFoundational', {
+    const awsFoundationalStandard = new securityhub.CfnStandard(this, 'SecurityHubAWSFoundational', {
       standardsArn: `arn:aws:securityhub:${cdk.Stack.of(this).region}::standards/aws-foundational-security-best-practices/v/1.0.0`,
-    }).addDependency(securityHubHub);
+    });
+    awsFoundationalStandard.addDependency(securityHubHub);
 
-    // Enable CIS AWS Foundations Benchmark
-    new securityhub.CfnStandard(this, 'SecurityHubCIS', {
+    // Enable CIS AWS Foundations Benchmark (sequential to avoid rate limits)
+    const cisStandard = new securityhub.CfnStandard(this, 'SecurityHubCIS', {
       standardsArn: `arn:aws:securityhub:${cdk.Stack.of(this).region}::standards/cis-aws-foundations-benchmark/v/1.4.0`,
-    }).addDependency(securityHubHub);
+    });
+    cisStandard.addDependency(awsFoundationalStandard);
 
     // ========================================
     // Budget Alerts
