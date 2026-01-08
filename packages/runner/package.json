@@ -1,5 +1,5 @@
 {
-  "name": "@elaraai/e3-cloud-runner",
+  "name": "@elaraai/e3-runner",
   "version": "0.0.1-alpha.0",
   "private": true,
   "type": "module",
@@ -11,7 +11,7 @@
     "test": "node --enable-source-maps --test 'dist/src/**/*.spec.js'"
   },
   "dependencies": {
-    "@elaraai/e3-cloud-storage": "*"
+    "@elaraai/e3-storage": "*"
   },
   "peerDependencies": {
     "@elaraai/e3-core": "*"

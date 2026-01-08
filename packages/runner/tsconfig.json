@@ -1,16 +1,17 @@
 {
-  "extends": "../tsconfig.json",
+  "extends": "../../tsconfig.json",
   "compilerOptions": {
     "outDir": "./dist",
     "rootDir": "."
   },
   "include": [
-    "bin/**/*",
-    "lib/**/*"
+    "src/**/*"
   ],
   "exclude": [
     "node_modules",
-    "dist",
-    "cdk.out"
+    "dist"
+  ],
+  "references": [
+    { "path": "../storage" }
   ]
 }

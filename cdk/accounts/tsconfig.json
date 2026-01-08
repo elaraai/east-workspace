@@ -5,13 +5,12 @@
     "rootDir": "."
   },
   "include": [
-    "src/**/*"
+    "bin/**/*",
+    "lib/**/*"
   ],
   "exclude": [
     "node_modules",
-    "dist"
-  ],
-  "references": [
-    { "path": "../e3-cloud-storage" }
+    "dist",
+    "cdk.out"
   ]
 }

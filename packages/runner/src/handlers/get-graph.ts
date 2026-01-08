@@ -3,7 +3,7 @@
  * Proprietary and confidential.
  */
 
-import { EfsBackend } from '@elaraai/e3-cloud-storage';
+import { EfsBackend } from '@elaraai/e3-storage';
 
 interface GetGraphEvent {
   tenantId: string;
@@ -18,7 +18,7 @@ interface TaskGraph {
  * Lambda handler: Get the task dependency graph for a workspace.
  * Called by Step Functions at the start of dataflow execution.
  */
-export async function handler(event: GetGraphEvent): Promise<TaskGraph> {
+export function handler(event: GetGraphEvent): TaskGraph {
   const { tenantId, workspace } = event;
 
   const storage = new EfsBackend(tenantId);

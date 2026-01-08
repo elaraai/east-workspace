@@ -1,5 +1,5 @@
 {
-  "name": "@elaraai/e3-aws-organization",
+  "name": "@elaraai/e3-accounts",
   "version": "0.0.1-alpha.0",
   "private": true,
   "type": "module",

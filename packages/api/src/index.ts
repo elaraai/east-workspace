@@ -12,20 +12,20 @@ const app = new Hono();
 app.get('/health', (c) => c.json({ status: 'ok' }));
 
 // Tenant-scoped routes: /repos/{tenant}/api/...
-app.get('/repos/:tenant/api/workspaces', async (c) => {
+app.get('/repos/:tenant/api/workspaces', (c) => {
   const tenant = c.req.param('tenant');
   // TODO: Implement workspace list using e3-core + EfsBackend
   return c.json({ tenant, workspaces: [] });
 });
 
-app.get('/repos/:tenant/api/workspaces/:ws', async (c) => {
+app.get('/repos/:tenant/api/workspaces/:ws', (c) => {
   const tenant = c.req.param('tenant');
   const ws = c.req.param('ws');
   // TODO: Implement workspace get
   return c.json({ tenant, workspace: ws });
 });
 
-app.post('/repos/:tenant/api/workspaces/:ws/start', async (c) => {
+app.post('/repos/:tenant/api/workspaces/:ws/start', (c) => {
   const tenant = c.req.param('tenant');
   const ws = c.req.param('ws');
   // TODO: Start Step Functions execution

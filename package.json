@@ -5,17 +5,18 @@
   "description": "AWS cloud infrastructure for e3",
   "type": "module",
   "workspaces": [
-    "infrastructure",
+    "cdk/accounts",
+    "cdk/platform",
     "packages/*",
-    "apps/*"
+    "web"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "cdk": "npm run cdk --workspace=@elaraai/e3-aws-infrastructure",
-    "dev": "npm run dev --workspace=@elaraai/e3-cloud-main"
+    "cdk": "npm run cdk --workspace=@elaraai/e3-platform",
+    "dev": "npm run dev --workspace=@elaraai/e3-web"
   },
   "keywords": [
     "e3",

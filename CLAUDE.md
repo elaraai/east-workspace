@@ -14,30 +14,33 @@ See `design/cloud-options.md` for architecture decisions and `design/cloud-devpl
 
 ```
 e3-aws/
-├── infrastructure/           # AWS CDK stacks (TypeScript)
-│   ├── lib/
-│   │   ├── api-stack.ts      # API Gateway + Lambda
-│   │   ├── storage-stack.ts  # EFS + DynamoDB
-│   │   ├── compute-stack.ts  # Step Functions + runners
-│   │   ├── auth-stack.ts     # Cognito
-│   │   └── frontend-stack.ts # CloudFront + S3
-│   └── bin/
-│       └── e3-aws.ts         # CDK app entry
+├── cdk/
+│   ├── accounts/             # AWS Organization & account provisioning
+│   │   ├── lib/
+│   │   │   ├── accounts.ts           # Account definitions
+│   │   │   └── e3-accounts-stack.ts  # Account creation + bootstrap stacks
+│   │   └── bin/
+│   │       └── e3-org.ts             # CDK app entry
+│   │
+│   └── platform/             # e3 cloud application infrastructure
+│       ├── lib/
+│       │   └── e3-platform-stack.ts  # Single consolidated stack
+│       └── bin/
+│           └── e3-aws.ts             # CDK app entry
 │
 ├── packages/
-│   ├── e3-cloud-api/         # Lambda handlers for API
+│   ├── api/                  # Lambda handlers for API (@elaraai/e3-api)
 │   │   └── src/handlers/     # Route handlers
 │   │
-│   ├── e3-cloud-storage/     # EFS-backed StorageBackend
+│   ├── storage/              # EFS-backed StorageBackend (@elaraai/e3-storage)
 │   │   └── src/
 │   │       └── efs-backend.ts
 │   │
-│   └── e3-cloud-runner/      # Task execution handlers
+│   └── runner/               # Task execution handlers (@elaraai/e3-runner)
 │       └── src/handlers/     # Step Functions Lambda handlers
 │
-├── apps/
-│   └── main/                 # Default Vite frontend app
-│       └── src/
+├── web/                      # Vite frontend app (@elaraai/e3-web)
+│   └── src/
 │
 └── design/                   # Architecture documentation
     ├── cloud-options.md      # Architecture decisions
@@ -69,22 +72,25 @@ npm install
 # Build all packages
 npm run build
 
-# Deploy to AWS (requires credentials)
-npm run cdk deploy
+# Deploy e3 platform to AWS (requires credentials)
+cd cdk/platform
+npm run deploy
+
+# Deploy account provisioning (management account only)
+cd cdk/accounts
+npm run deploy
 
 # Run frontend locally
-npm run dev -w @elaraai/e3-cloud-main
+npm run dev
 ```
 
-## CDK Stacks
+## CDK Deployments
 
-| Stack | Purpose |
-|-------|---------|
-| `StorageStack` | EFS filesystem, DynamoDB tables (tenants, permissions) |
-| `AuthStack` | Cognito User Pool, JWT configuration |
-| `ApiStack` | API Gateway, Lambda functions, EFS mount |
-| `ComputeStack` | Step Functions state machines, task runners |
-| `FrontendStack` | CloudFront distribution, S3 bucket for apps |
+| Directory | Stack | Purpose |
+|-----------|-------|---------|
+| `cdk/accounts` | `E3Accounts` | Creates member accounts in AWS Organizations |
+| `cdk/accounts` | `E3AccountBootstrap-*` | Security baseline for new accounts |
+| `cdk/platform` | `E3Platform` | Full e3 cloud app (API, storage, auth, frontend) |
 
 ## References
 

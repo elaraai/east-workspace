@@ -19,14 +19,32 @@ import * as efs from 'aws-cdk-lib/aws-efs';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import * as apigatewayv2 from 'aws-cdk-lib/aws-apigatewayv2';
+import * as apigatewayv2Authorizers from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
 import * as apigatewayv2Integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import * as sfn from 'aws-cdk-lib/aws-stepfunctions';
 import * as tasks from 'aws-cdk-lib/aws-stepfunctions-tasks';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
+import * as ssm from 'aws-cdk-lib/aws-ssm';
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import { Construct } from 'constructs';
+
+/**
+ * SSM parameter paths for optional OIDC identity provider configuration.
+ * If these parameters exist in the account, the stack will automatically
+ * configure an OIDC identity provider (e.g., Azure AD) for Cognito.
+ */
+const SSM_OIDC_PREFIX = '/e3/auth/oidc';
+const SSM_OIDC_ENABLED = `${SSM_OIDC_PREFIX}/enabled`;  // 'true' to enable
+const SSM_OIDC_PROVIDER_NAME = `${SSM_OIDC_PREFIX}/provider-name`;  // e.g., 'AzureAD'
+const SSM_OIDC_CLIENT_ID = `${SSM_OIDC_PREFIX}/client-id`;
+const SSM_OIDC_ISSUER_URL = `${SSM_OIDC_PREFIX}/issuer-url`;
+const SSM_OIDC_SECRET_ARN = `${SSM_OIDC_PREFIX}/client-secret-arn`;  // ARN to Secrets Manager secret
 
 export interface E3PlatformStackProps extends cdk.StackProps {
   /**
@@ -63,7 +81,7 @@ export class E3PlatformStack extends cdk.Stack {
 
   // API
   public readonly httpApi: apigatewayv2.HttpApi;
-  public readonly apiHandler: lambda.IFunction;
+  public readonly apiHandler: nodejs.NodejsFunction;
 
   // Compute
   public readonly taskRunner: lambda.IFunction;
@@ -109,7 +127,9 @@ export class E3PlatformStack extends cdk.Stack {
       vpc: this.vpc,
       lifecyclePolicy: efs.LifecyclePolicy.AFTER_30_DAYS,
       performanceMode: efs.PerformanceMode.GENERAL_PURPOSE,
-      throughputMode: efs.ThroughputMode.BURSTING,
+      // ELASTIC throughput scales automatically with workload (up to 10 GiB/s read, 3 GiB/s write)
+      // Cost: $0.04/GB transferred vs BURSTING's burst credit model
+      throughputMode: efs.ThroughputMode.ELASTIC,
       encrypted: true,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
@@ -118,7 +138,7 @@ export class E3PlatformStack extends cdk.Stack {
       tableName: `${prefix}-tenants`,
       partitionKey: { name: 'PK', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      pointInTimeRecovery: true,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
@@ -127,7 +147,7 @@ export class E3PlatformStack extends cdk.Stack {
       partitionKey: { name: 'PK', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'SK', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      pointInTimeRecovery: true,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
@@ -161,7 +181,7 @@ export class E3PlatformStack extends cdk.Stack {
     });
     this.userPool = userPool;
 
-    this.userPoolClient = new cognito.UserPoolClient(this, 'UserPoolClient', {
+    const userPoolClient = new cognito.UserPoolClient(this, 'UserPoolClient', {
       userPool,
       userPoolClientName: `${prefix}-web-client`,
       authFlows: { userSrp: true },
@@ -178,6 +198,86 @@ export class E3PlatformStack extends cdk.Stack {
       generateSecret: false,
       preventUserExistenceErrors: true,
     });
+    this.userPoolClient = userPoolClient;
+
+    // Cognito hosted UI domain (required for OAuth flows)
+    // Uses Cognito-provided domain: {prefix}.auth.{region}.amazoncognito.com
+    const cognitoDomain = userPool.addDomain('CognitoDomain', {
+      cognitoDomain: {
+        domainPrefix: prefix, // e.g., e3-elara-dev-e3
+      },
+    });
+
+    // ============================================================
+    // OPTIONAL: OIDC IDENTITY PROVIDER (from SSM parameters)
+    // ============================================================
+    // Check if OIDC configuration exists in SSM Parameter Store.
+    // If the /e3/auth/oidc/enabled parameter is 'true', configure the provider.
+    // This allows account-wide SSO configuration without hardcoding in CDK.
+    //
+    // SSM lookups require stack environment to be configured. If not configured,
+    // OIDC can still be enabled via context: --context oidcEnabled=true
+    // along with other oidc* context variables.
+
+    const hasEnvironment = this.account !== cdk.Aws.ACCOUNT_ID;
+
+    // Check for context-based config first (works without environment)
+    const oidcEnabledContext = this.node.tryGetContext('oidcEnabled');
+    const oidcProviderNameContext = this.node.tryGetContext('oidcProviderName');
+    const oidcClientIdContext = this.node.tryGetContext('oidcClientId');
+    const oidcIssuerUrlContext = this.node.tryGetContext('oidcIssuerUrl');
+    const oidcSecretArnContext = this.node.tryGetContext('oidcSecretArn');
+
+    let isOidcEnabled = oidcEnabledContext === 'true';
+    let oidcProviderName = oidcProviderNameContext;
+    let oidcClientId = oidcClientIdContext;
+    let oidcIssuerUrl = oidcIssuerUrlContext;
+    let oidcSecretArn = oidcSecretArnContext;
+
+    // If not configured via context and we have an environment, try SSM
+    if (!isOidcEnabled && hasEnvironment) {
+      const ssmEnabled = ssm.StringParameter.valueFromLookup(this, SSM_OIDC_ENABLED);
+      isOidcEnabled = ssmEnabled === 'true';
+
+      if (isOidcEnabled) {
+        oidcProviderName = ssm.StringParameter.valueFromLookup(this, SSM_OIDC_PROVIDER_NAME);
+        oidcClientId = ssm.StringParameter.valueFromLookup(this, SSM_OIDC_CLIENT_ID);
+        oidcIssuerUrl = ssm.StringParameter.valueFromLookup(this, SSM_OIDC_ISSUER_URL);
+        oidcSecretArn = ssm.StringParameter.valueFromLookup(this, SSM_OIDC_SECRET_ARN);
+      }
+    }
+
+    // Configure OIDC provider if enabled and we have real values
+    if (isOidcEnabled && oidcClientId && !oidcClientId.startsWith('dummy-value-for-')) {
+      const clientSecret = secretsmanager.Secret.fromSecretCompleteArn(
+        this,
+        'OidcClientSecret',
+        oidcSecretArn
+      );
+
+      const oidcProvider = new cognito.UserPoolIdentityProviderOidc(this, 'OidcProvider', {
+        userPool,
+        name: oidcProviderName,
+        clientId: oidcClientId,
+        clientSecret: clientSecret.secretValue.unsafeUnwrap(),
+        issuerUrl: oidcIssuerUrl,
+        scopes: ['openid', 'email', 'profile'],
+        attributeMapping: {
+          email: cognito.ProviderAttribute.other('email'),
+          fullname: cognito.ProviderAttribute.other('name'),
+          givenName: cognito.ProviderAttribute.other('given_name'),
+          familyName: cognito.ProviderAttribute.other('family_name'),
+        },
+      });
+
+      // Ensure the provider is created before the client references it
+      userPoolClient.node.addDependency(oidcProvider);
+
+      new cdk.CfnOutput(this, 'OidcProviderName', {
+        value: oidcProviderName,
+        description: 'Configured OIDC identity provider name',
+      });
+    }
 
     // ============================================================
     // API
@@ -203,23 +303,25 @@ export class E3PlatformStack extends cdk.Stack {
       securityGroupName: `${prefix}-api-sg`,
     });
 
-    this.apiHandler = new lambda.Function(this, 'ApiHandler', {
+    // Path to API package source (relative to this CDK project)
+    // Use import.meta.url for ES module compatibility
+    // At runtime, __dirname is dist/lib/, so we go up 4 levels to reach repo root
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = path.dirname(__filename);
+    const repoRoot = path.join(__dirname, '..', '..', '..', '..');
+    const apiPackagePath = path.join(repoRoot, 'packages', 'api');
+
+    this.apiHandler = new nodejs.NodejsFunction(this, 'ApiHandler', {
       functionName: `${prefix}-api`,
       runtime: lambda.Runtime.NODEJS_22_X,
-      handler: 'index.handler',
-      code: lambda.Code.fromInline(`
-        exports.handler = async (event) => {
-          return {
-            statusCode: 200,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              message: 'e3-cloud-api placeholder',
-              path: event.rawPath,
-              tenant: event.pathParameters?.tenant,
-            }),
-          };
-        };
-      `),
+      entry: path.join(apiPackagePath, 'src', 'index.ts'),
+      handler: 'handler',
+      bundling: {
+        minify: true,
+        sourceMap: true,
+        externalModules: [],
+        format: nodejs.OutputFormat.ESM,
+      },
       vpc: this.vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
       securityGroups: [apiSecurityGroup],
@@ -248,22 +350,34 @@ export class E3PlatformStack extends cdk.Stack {
       },
     });
 
+    // JWT authorizer using Cognito User Pool
+    const jwtAuthorizer = new apigatewayv2Authorizers.HttpJwtAuthorizer(
+      'CognitoAuthorizer',
+      `https://cognito-idp.${this.region}.amazonaws.com/${userPool.userPoolId}`,
+      {
+        jwtAudience: [this.userPoolClient.userPoolClientId],
+        identitySource: ['$request.header.Authorization'],
+      }
+    );
+
     const apiIntegration = new apigatewayv2Integrations.HttpLambdaIntegration(
       'ApiIntegration',
       this.apiHandler
     );
 
-    this.httpApi.addRoutes({
-      path: '/repos/{tenant}/{proxy+}',
-      methods: [apigatewayv2.HttpMethod.ANY],
-      integration: apiIntegration,
-    });
-
-    // Health check route
+    // Health check route (public, no auth required)
     this.httpApi.addRoutes({
       path: '/health',
       methods: [apigatewayv2.HttpMethod.GET],
       integration: apiIntegration,
+    });
+
+    // Tenant API routes (requires JWT auth)
+    this.httpApi.addRoutes({
+      path: '/repos/{tenant}/{proxy+}',
+      methods: [apigatewayv2.HttpMethod.ANY],
+      integration: apiIntegration,
+      authorizer: jwtAuthorizer,
     });
 
     // ============================================================
@@ -447,9 +561,16 @@ export class E3PlatformStack extends cdk.Stack {
       description: 'Cognito User Pool Client ID',
     });
 
-    new cdk.CfnOutput(this, 'CognitoDomain', {
+    new cdk.CfnOutput(this, 'CognitoIssuer', {
       value: `https://cognito-idp.${this.region}.amazonaws.com/${this.userPool.userPoolId}`,
-      description: 'Cognito domain for OAuth',
+      description: 'Cognito JWT issuer URL',
+    });
+
+    new cdk.CfnOutput(this, 'CognitoLoginUrl', {
+      value: cognitoDomain.signInUrl(userPoolClient, {
+        redirectUri: callbackUrls[0],
+      }),
+      description: 'Cognito hosted UI login URL',
     });
 
     // API

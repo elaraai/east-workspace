@@ -30,11 +30,19 @@ const testRules = {
 
 export default [
   {
-    ignores: ['**/dist/**', '**/node_modules/**', '**/coverage/**', '**/cdk.out/**']
+    ignores: [
+      '**/dist/**',
+      '**/node_modules/**',
+      '**/coverage/**',
+      '**/cdk.out/**',
+      '**/.legacy/**',
+      '**/vitest.config.ts',
+      'cdk/platform/test/**',
+    ]
   },
-  // Infrastructure (CDK)
+  // CDK - Platform (e3 cloud app)
   {
-    files: ['infrastructure/**/*.ts'],
+    files: ['cdk/platform/**/*.ts'],
     ignores: ['**/*.spec.ts', '**/*.test.ts'],
     languageOptions: {
       parser: tsparser,
@@ -97,9 +105,9 @@ export default [
       }]
     }
   },
-  // Organization (CDK for account management)
+  // CDK - Accounts (AWS Organization management)
   {
-    files: ['organization/**/*.ts'],
+    files: ['cdk/accounts/**/*.ts'],
     languageOptions: {
       parser: tsparser,
       parserOptions: {
@@ -118,9 +126,9 @@ export default [
       }]
     }
   },
-  // Apps (frontend) - different config for React/Vite
+  // Web (frontend) - different config for React/Vite
   {
-    files: ['apps/*/src/**/*.ts', 'apps/*/src/**/*.tsx'],
+    files: ['web/src/**/*.ts', 'web/src/**/*.tsx'],
     languageOptions: {
       parser: tsparser,
       parserOptions: {
@@ -135,6 +143,7 @@ export default [
       ...baseRules,
       // Relax some rules for React apps
       '@typescript-eslint/no-floating-promises': 'off',
+      '@typescript-eslint/no-misused-promises': 'off',
       'headers/header-format': ['error', {
         source: 'string',
         content: proprietaryHeader

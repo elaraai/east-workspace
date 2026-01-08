@@ -3,7 +3,7 @@
  * Proprietary and confidential.
  */
 
-import { EfsBackend } from '@elaraai/e3-cloud-storage';
+import { EfsBackend } from '@elaraai/e3-storage';
 
 interface CheckCacheEvent {
   tenantId: string;
@@ -20,8 +20,8 @@ interface CheckCacheResult {
  * Lambda handler: Check if a task's output is cached.
  * Called by Step Functions before executing each task.
  */
-export async function handler(event: CheckCacheEvent): Promise<CheckCacheResult> {
-  const { tenantId, taskHash, inputHashes } = event;
+export function handler(event: CheckCacheEvent): CheckCacheResult {
+  const { tenantId, taskHash, inputHashes: _inputHashes } = event;
 
   const storage = new EfsBackend(tenantId);
   console.log(`Checking cache for task ${taskHash} at ${storage.repoPath}`);

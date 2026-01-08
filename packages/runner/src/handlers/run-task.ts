@@ -3,7 +3,7 @@
  * Proprietary and confidential.
  */
 
-import { EfsBackend } from '@elaraai/e3-cloud-storage';
+import { EfsBackend } from '@elaraai/e3-storage';
 
 interface RunTaskEvent {
   tenantId: string;
@@ -22,7 +22,7 @@ interface RunTaskResult {
  * Lambda handler: Execute a task.
  * Called by Step Functions to run east-node tasks.
  */
-export async function handler(event: RunTaskEvent): Promise<RunTaskResult> {
+export function handler(event: RunTaskEvent): RunTaskResult {
   const { tenantId, taskHash, inputHashes } = event;
 
   const storage = new EfsBackend(tenantId);

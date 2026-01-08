@@ -3,7 +3,7 @@
  * Proprietary and confidential.
  */
 
-import { EfsBackend } from '@elaraai/e3-cloud-storage';
+import { EfsBackend } from '@elaraai/e3-storage';
 
 interface WriteResultEvent {
   tenantId: string;
@@ -16,10 +16,10 @@ interface WriteResultEvent {
  * Lambda handler: Write task output to workspace tree.
  * Called by Step Functions after successful task execution.
  */
-export async function handler(event: WriteResultEvent): Promise<void> {
+export function handler(event: WriteResultEvent): void {
   const { tenantId, workspace, taskHash, outputHash } = event;
 
-  const storage = new EfsBackend(tenantId);
+  const _storage = new EfsBackend(tenantId);
   console.log(`Writing result for task ${taskHash} to workspace ${workspace}`);
   console.log(`Output hash: ${outputHash}`);
 
