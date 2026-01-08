@@ -319,9 +319,6 @@ interface ServerConfig {
 **CLI usage:**
 
 ```bash
-# Single repo (current behavior, local dev)
-e3-api-server .
-
 # Multi-repo directory mode (mirrors cloud)
 e3-api-server --repos /path/to/repos/
 # Serves /repos/alpha/api/..., /repos/beta/api/...

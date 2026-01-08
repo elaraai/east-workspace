@@ -3,10 +3,20 @@
  * Proprietary and confidential.
  */
 
-import { EfsBackend } from '@elaraai/e3-storage';
+import { S3Client } from '@aws-sdk/client-s3';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { S3DynamoStorage } from '@elaraai/e3-storage';
+
+// Initialize storage once at Lambda cold start
+const storage = new S3DynamoStorage(
+  new S3Client({}),
+  new DynamoDBClient({}),
+  process.env.BUCKET_NAME!,
+  process.env.TABLE_NAME!
+);
 
 interface GetGraphEvent {
-  tenantId: string;
+  repo: string;
   workspace: string;
 }
 
@@ -18,17 +28,17 @@ interface TaskGraph {
  * Lambda handler: Get the task dependency graph for a workspace.
  * Called by Step Functions at the start of dataflow execution.
  */
-export function handler(event: GetGraphEvent): TaskGraph {
-  const { tenantId, workspace } = event;
+export async function handler(event: GetGraphEvent): Promise<TaskGraph> {
+  const { repo, workspace } = event;
 
-  const storage = new EfsBackend(tenantId);
-  console.log(`Getting graph for ${workspace} at ${storage.repoPath}`);
+  console.log(`Getting graph for workspace ${workspace} in repo ${repo}`);
 
-  // TODO: Call e3-core dataflowGetGraph() once StorageBackend is implemented
-  // const graph = await dataflowGetGraph(storage, workspace);
+  // TODO: Call e3-core dataflowGetGraph() once integrated
+  // const graph = await dataflowGetGraph(storage, repo, workspace);
   // return graph;
 
   // Placeholder
+  void storage;
   return {
     tasks: {},
   };

@@ -5,8 +5,7 @@
  * E3 Platform Stack - Single deployable stack for e3 cloud infrastructure.
  *
  * This consolidated stack contains all infrastructure components:
- * - Networking (VPC)
- * - Storage (EFS, DynamoDB)
+ * - Storage (S3, DynamoDB)
  * - Auth (Cognito)
  * - API (API Gateway, Lambda)
  * - Compute (Step Functions, Lambda runners)
@@ -14,8 +13,6 @@
  */
 
 import * as cdk from 'aws-cdk-lib';
-import * as ec2 from 'aws-cdk-lib/aws-ec2';
-import * as efs from 'aws-cdk-lib/aws-efs';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
@@ -67,13 +64,9 @@ export interface E3PlatformStackProps extends cdk.StackProps {
 }
 
 export class E3PlatformStack extends cdk.Stack {
-  // Networking
-  public readonly vpc: ec2.IVpc;
-
   // Storage
-  public readonly fileSystem: efs.FileSystem;
-  public readonly tenantsTable: dynamodb.Table;
-  public readonly permissionsTable: dynamodb.Table;
+  public readonly dataBucket: s3.Bucket;
+  public readonly dataTable: dynamodb.Table;
 
   // Auth
   public readonly userPool: cognito.IUserPool;
@@ -109,51 +102,33 @@ export class E3PlatformStack extends cdk.Stack {
     const logoutUrls = [...defaultLogouts, ...(props.allowedOrigins?.map(o => `${o}/`) ?? [])];
 
     // ============================================================
-    // NETWORKING
-    // ============================================================
-
-    this.vpc = new ec2.Vpc(this, 'Vpc', {
-      vpcName: `${prefix}-vpc`,
-      maxAzs: 2,
-      natGateways: 1,
-    });
-
-    // ============================================================
     // STORAGE
     // ============================================================
 
-    this.fileSystem = new efs.FileSystem(this, 'FileSystem', {
-      fileSystemName: `${prefix}-efs`,
-      vpc: this.vpc,
-      lifecyclePolicy: efs.LifecyclePolicy.AFTER_30_DAYS,
-      performanceMode: efs.PerformanceMode.GENERAL_PURPOSE,
-      // ELASTIC throughput scales automatically with workload (up to 10 GiB/s read, 3 GiB/s write)
-      // Cost: $0.04/GB transferred vs BURSTING's burst credit model
-      throughputMode: efs.ThroughputMode.ELASTIC,
-      encrypted: true,
+    // S3 bucket for content-addressed objects
+    this.dataBucket = new s3.Bucket(this, 'DataBucket', {
+      bucketName: `${prefix}-data-${this.account}`,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      encryption: s3.BucketEncryption.S3_MANAGED,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
-    this.tenantsTable = new dynamodb.Table(this, 'TenantsTable', {
-      tableName: `${prefix}-tenants`,
-      partitionKey: { name: 'PK', type: dynamodb.AttributeType.STRING },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
-      removalPolicy: cdk.RemovalPolicy.RETAIN,
-    });
-
-    this.permissionsTable = new dynamodb.Table(this, 'PermissionsTable', {
-      tableName: `${prefix}-permissions`,
+    // Single DynamoDB table for all data (packages, workspaces, executions, locks, logs)
+    this.dataTable = new dynamodb.Table(this, 'DataTable', {
+      tableName: `${prefix}-data`,
       partitionKey: { name: 'PK', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'SK', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      timeToLiveAttribute: 'ttl',
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
-    this.permissionsTable.addGlobalSecondaryIndex({
-      indexName: 'TenantIndex',
-      partitionKey: { name: 'SK', type: dynamodb.AttributeType.STRING },
+    // GSI for user->repos lookup (permissions)
+    this.dataTable.addGlobalSecondaryIndex({
+      indexName: 'GSI1',
+      partitionKey: { name: 'GSI1PK', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'GSI1SK', type: dynamodb.AttributeType.STRING },
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
@@ -283,26 +258,6 @@ export class E3PlatformStack extends cdk.Stack {
     // API
     // ============================================================
 
-    const apiAccessPoint = new efs.AccessPoint(this, 'ApiAccessPoint', {
-      fileSystem: this.fileSystem,
-      path: '/tenants',
-      createAcl: {
-        ownerGid: '1001',
-        ownerUid: '1001',
-        permissions: '755',
-      },
-      posixUser: {
-        gid: '1001',
-        uid: '1001',
-      },
-    });
-
-    const apiSecurityGroup = new ec2.SecurityGroup(this, 'ApiSecurityGroup', {
-      vpc: this.vpc,
-      description: 'Security group for e3 API Lambda',
-      securityGroupName: `${prefix}-api-sg`,
-    });
-
     // Path to API package source (relative to this CDK project)
     // Use import.meta.url for ES module compatibility
     // At runtime, __dirname is dist/lib/, so we go up 4 levels to reach repo root
@@ -322,23 +277,18 @@ export class E3PlatformStack extends cdk.Stack {
         externalModules: [],
         format: nodejs.OutputFormat.ESM,
       },
-      vpc: this.vpc,
-      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
-      securityGroups: [apiSecurityGroup],
-      filesystem: lambda.FileSystem.fromEfsAccessPoint(apiAccessPoint, '/mnt/efs'),
       timeout: cdk.Duration.seconds(30),
       memorySize: 1024,
       environment: {
         DEPLOYMENT_ID: deploymentId,
-        TENANTS_TABLE: this.tenantsTable.tableName,
-        PERMISSIONS_TABLE: this.permissionsTable.tableName,
+        TABLE_NAME: this.dataTable.tableName,
+        BUCKET_NAME: this.dataBucket.bucketName,
         USER_POOL_ID: this.userPool.userPoolId,
-        EFS_MOUNT_PATH: '/mnt/efs',
       },
     });
 
-    this.tenantsTable.grantReadWriteData(this.apiHandler);
-    this.permissionsTable.grantReadWriteData(this.apiHandler);
+    this.dataTable.grantReadWriteData(this.apiHandler);
+    this.dataBucket.grantReadWrite(this.apiHandler);
 
     this.httpApi = new apigatewayv2.HttpApi(this, 'HttpApi', {
       apiName: `${prefix}-api`,
@@ -384,26 +334,6 @@ export class E3PlatformStack extends cdk.Stack {
     // COMPUTE
     // ============================================================
 
-    const runnerAccessPoint = new efs.AccessPoint(this, 'RunnerAccessPoint', {
-      fileSystem: this.fileSystem,
-      path: '/runners',
-      createAcl: {
-        ownerGid: '1001',
-        ownerUid: '1001',
-        permissions: '755',
-      },
-      posixUser: {
-        gid: '1001',
-        uid: '1001',
-      },
-    });
-
-    const runnerSecurityGroup = new ec2.SecurityGroup(this, 'RunnerSecurityGroup', {
-      vpc: this.vpc,
-      description: 'Security group for e3 task runners',
-      securityGroupName: `${prefix}-runner-sg`,
-    });
-
     this.taskRunner = new lambda.Function(this, 'TaskRunner', {
       functionName: `${prefix}-task-runner`,
       runtime: lambda.Runtime.NODEJS_22_X,
@@ -418,17 +348,17 @@ export class E3PlatformStack extends cdk.Stack {
           };
         };
       `),
-      vpc: this.vpc,
-      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
-      securityGroups: [runnerSecurityGroup],
-      filesystem: lambda.FileSystem.fromEfsAccessPoint(runnerAccessPoint, '/mnt/efs'),
       timeout: cdk.Duration.minutes(15),
       memorySize: 3008,
       environment: {
         DEPLOYMENT_ID: deploymentId,
-        EFS_MOUNT_PATH: '/mnt/efs',
+        TABLE_NAME: this.dataTable.tableName,
+        BUCKET_NAME: this.dataBucket.bucketName,
       },
     });
+
+    this.dataTable.grantReadWriteData(this.taskRunner);
+    this.dataBucket.grantReadWrite(this.taskRunner);
 
     // Task execution state machine
     const runTaskState = new tasks.LambdaInvoke(this, 'RunTask', {
@@ -528,26 +458,15 @@ export class E3PlatformStack extends cdk.Stack {
       description: 'Deployment identifier',
     });
 
-    // Networking
-    new cdk.CfnOutput(this, 'VpcId', {
-      value: this.vpc.vpcId,
-      description: 'VPC ID',
-    });
-
     // Storage
-    new cdk.CfnOutput(this, 'FileSystemId', {
-      value: this.fileSystem.fileSystemId,
-      description: 'EFS filesystem ID',
+    new cdk.CfnOutput(this, 'DataBucketName', {
+      value: this.dataBucket.bucketName,
+      description: 'Data S3 bucket name',
     });
 
-    new cdk.CfnOutput(this, 'TenantsTableName', {
-      value: this.tenantsTable.tableName,
-      description: 'Tenants DynamoDB table name',
-    });
-
-    new cdk.CfnOutput(this, 'PermissionsTableName', {
-      value: this.permissionsTable.tableName,
-      description: 'Permissions DynamoDB table name',
+    new cdk.CfnOutput(this, 'DataTableName', {
+      value: this.dataTable.tableName,
+      description: 'Data DynamoDB table name',
     });
 
     // Auth

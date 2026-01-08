@@ -3,7 +3,7 @@
   "version": "0.0.1-alpha.0",
   "private": true,
   "type": "module",
-  "description": "EFS-backed StorageBackend for e3 cloud",
+  "description": "S3 + DynamoDB StorageBackend for e3 cloud",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
   "exports": {
@@ -16,8 +16,15 @@
     "build": "tsc --build",
     "test": "node --enable-source-maps --test 'dist/src/**/*.spec.js'"
   },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.700.0",
+    "@aws-sdk/client-dynamodb": "^3.700.0",
+    "@aws-sdk/util-dynamodb": "^3.700.0"
+  },
   "peerDependencies": {
-    "@elaraai/e3-core": "*"
+    "@elaraai/e3-core": "*",
+    "@elaraai/e3-types": "*",
+    "@elaraai/east": "*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

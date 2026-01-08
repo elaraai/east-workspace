@@ -3,10 +3,20 @@
  * Proprietary and confidential.
  */
 
-import { EfsBackend } from '@elaraai/e3-storage';
+import { S3Client } from '@aws-sdk/client-s3';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { S3DynamoStorage } from '@elaraai/e3-storage';
+
+// Initialize storage once at Lambda cold start
+const storage = new S3DynamoStorage(
+  new S3Client({}),
+  new DynamoDBClient({}),
+  process.env.BUCKET_NAME!,
+  process.env.TABLE_NAME!
+);
 
 interface CheckCacheEvent {
-  tenantId: string;
+  repo: string;
   taskHash: string;
   inputHashes: string[];
 }
@@ -20,17 +30,19 @@ interface CheckCacheResult {
  * Lambda handler: Check if a task's output is cached.
  * Called by Step Functions before executing each task.
  */
-export function handler(event: CheckCacheEvent): CheckCacheResult {
-  const { tenantId, taskHash, inputHashes: _inputHashes } = event;
+export async function handler(event: CheckCacheEvent): Promise<CheckCacheResult> {
+  const { repo, taskHash, inputHashes } = event;
 
-  const storage = new EfsBackend(tenantId);
-  console.log(`Checking cache for task ${taskHash} at ${storage.repoPath}`);
+  console.log(`Checking cache for task ${taskHash} in repo ${repo}`);
 
-  // TODO: Call e3-core dataflowCheckCache() once StorageBackend is implemented
-  // const outputHash = await dataflowCheckCache(storage, taskHash, inputHashes);
+  // TODO: Call e3-core dataflowCheckCache() once integrated
+  // const inputsHash = inputsHash(inputHashes);
+  // const outputHash = await storage.refs.executionGetOutput(repo, taskHash, inputsHash);
   // return { cached: outputHash !== null, outputHash: outputHash ?? undefined };
 
   // Placeholder - always miss
+  void storage;
+  void inputHashes;
   return {
     cached: false,
   };
