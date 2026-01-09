@@ -550,10 +550,42 @@ export class E3AccountBootstrapStack extends cdk.Stack {
       ],
     });
 
+    // ========================================
+    // Domain Configuration SSM Parameters
+    // ========================================
+    // These parameters enable zero-config domain setup in the e3 platform stack.
+    // The platform stack will automatically look up these values.
+    if (config.domain) {
+      new ssm.StringParameter(this, 'DomainBaseDomain', {
+        parameterName: '/e3/domain/base-domain',
+        stringValue: config.domain.baseDomain,
+        description: 'Base domain for e3 platform (e.g., platform.elaraai.com)',
+      });
+
+      new ssm.StringParameter(this, 'DomainHostedZoneId', {
+        parameterName: '/e3/domain/hosted-zone-id',
+        stringValue: config.domain.hostedZoneId,
+        description: 'Route53 hosted zone ID for the base domain',
+      });
+
+      new ssm.StringParameter(this, 'DomainCertificateArn', {
+        parameterName: '/e3/domain/certificate-arn',
+        stringValue: config.domain.certificateArn,
+        description: 'ACM wildcard certificate ARN for CloudFront',
+      });
+    }
+
     // Outputs
     new cdk.CfnOutput(this, 'InfraDeployRoleArn', {
       value: infraDeployRole.roleArn,
       description: 'Role ARN for infrastructure deployment',
     });
+
+    if (config.domain) {
+      new cdk.CfnOutput(this, 'DomainBaseDomain', {
+        value: config.domain.baseDomain,
+        description: 'Base domain for e3 platform',
+      });
+    }
   }
 }

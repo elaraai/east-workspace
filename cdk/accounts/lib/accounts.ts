@@ -8,6 +8,35 @@
  * to create them in AWS Organizations.
  */
 
+/**
+ * Domain configuration for e3 platform deployments.
+ *
+ * Prerequisites:
+ * - Route53 hosted zone must exist for the base domain
+ * - ACM wildcard certificate must exist (e.g., *.platform.elaraai.com)
+ * - Certificate must be in the same region as the CloudFront distribution (us-east-1 for global)
+ */
+export interface DomainConfig {
+  /**
+   * Base domain for e3 platform deployments.
+   * Subdomains will be created as {deploymentId}.{baseDomain}.
+   * Example: 'platform.elaraai.com' → 'dev.platform.elaraai.com'
+   */
+  baseDomain: string;
+
+  /**
+   * Route53 hosted zone ID for the base domain.
+   */
+  hostedZoneId: string;
+
+  /**
+   * ARN of the ACM wildcard certificate.
+   * Must cover *.{baseDomain} (e.g., *.platform.elaraai.com).
+   * Must be in us-east-1 for CloudFront.
+   */
+  certificateArn: string;
+}
+
 export interface AccountConfig {
   /**
    * Organization this account belongs to.
@@ -30,6 +59,13 @@ export interface AccountConfig {
    * Optional: Description for the account.
    */
   description?: string;
+
+  /**
+   * Optional: Domain configuration for e3 platform.
+   * If provided, SSM parameters will be created for zero-config domain setup.
+   * The platform stack will automatically use these for CloudFront custom domain.
+   */
+  domain?: DomainConfig;
 }
 
 /**
@@ -73,6 +109,14 @@ export const accounts: AccountConfig[] = [
     environment: 'dev',
     budgetLimitUsd: 200,
     description: 'e3 cloud development and testing',
+    // Domain configuration for e3 platform.
+    // See README.md "Domain Configuration" section for setup instructions.
+    // After central hosted zone is created and ACM cert is validated, fill in:
+    // domain: {
+    //   baseDomain: 'e3.elaraai.com',
+    //   hostedZoneId: 'Z0XXXXXXXXXXXXXXXX',  // Central hosted zone ID (shared services account)
+    //   certificateArn: 'arn:aws:acm:us-east-1:ACCOUNT:certificate/CERT-ID',  // This account's cert
+    // },
   },
   // Uncomment to add more accounts:
   // {

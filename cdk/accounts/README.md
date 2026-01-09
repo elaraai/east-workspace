@@ -85,7 +85,11 @@ The bootstrap stack configures:
 - Security Hub (CIS + AWS Foundational Security standards)
 - Budget alerts
 
-### 4. Deploy e3 Platform to the Account
+### 4. Configure Domain (Optional but Recommended)
+
+See [Domain Configuration](#domain-configuration) below for setting up custom domains like `dev.e3.elaraai.com`.
+
+### 5. Deploy e3 Platform to the Account
 
 ```bash
 # Clear the assumed role credentials
@@ -95,8 +99,8 @@ unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
 aws sso login --profile elaraai-dev-elara-e3
 
 # Deploy e3 platform
-cd ../infrastructure
-AWS_PROFILE=elaraai-dev-elara-e3 npm run deploy -- --context deploymentId=elara-dev-e3
+cd ../platform
+AWS_PROFILE=elaraai-dev-elara-e3 npm run deploy -- --context deploymentId=dev
 ```
 
 ## Account Lifecycle
@@ -171,6 +175,240 @@ For Microsoft 365/Exchange Online, plus addressing must be enabled:
 Connect-ExchangeOnline
 Set-OrganizationConfig -AllowPlusAddressInRecipients $true
 ```
+
+## Domain Configuration
+
+Custom domains enable clean URLs like `e3 login https://dev.e3.elaraai.com` instead of CloudFront's generated domains.
+
+### Architecture Overview
+
+```
+elaraai.com (parent zone - existing)
+  └── NS e3.elaraai.com → [central hosted zone nameservers]
+
+e3.elaraai.com (central hosted zone - shared services account)
+  ├── A dev.e3.elaraai.com    → CloudFront (elara-dev-e3 account)
+  ├── A test.e3.elaraai.com   → CloudFront (elara-test-e3 account)
+  ├── A e3.elaraai.com        → CloudFront (elara-prod-e3 account) ← apex
+  └── A acme.e3.elaraai.com   → CloudFront (acme-prod-e3 account) ← client
+```
+
+**Key points:**
+- Single hosted zone (`e3.elaraai.com`) in a central account (shared services)
+- Each deployment account creates its own ACM certificate (certs can't be shared cross-account)
+- Each deployment creates an A record pointing to its CloudFront distribution
+- The platform stack reads domain config from SSM parameters (zero-config per deployment)
+
+### One-Time Setup (Central Account)
+
+These steps are performed once in the shared services account to set up the central DNS infrastructure.
+
+> **TODO:** Create a `cdk/shared` project for this infrastructure, similar to elara-infra's shared terraform.
+
+#### 1. Create the Hosted Zone
+
+```bash
+# In shared services account
+aws route53 create-hosted-zone \
+  --name e3.elaraai.com \
+  --caller-reference "e3-platform-$(date +%s)"
+```
+
+Note the hosted zone ID and nameservers from the output.
+
+#### 2. Delegate from Parent Zone
+
+Add NS records in the parent `elaraai.com` zone pointing to the new hosted zone's nameservers:
+
+```
+e3.elaraai.com.  NS  ns-xxx.awsdns-xx.org.
+e3.elaraai.com.  NS  ns-xxx.awsdns-xx.co.uk.
+e3.elaraai.com.  NS  ns-xxx.awsdns-xx.com.
+e3.elaraai.com.  NS  ns-xxx.awsdns-xx.net.
+```
+
+#### 3. Create Wildcard Certificate
+
+Each deployment account needs its own ACM certificate. However, DNS validation requires access to the central hosted zone.
+
+**Option A: Manual cert creation per account**
+```bash
+# In each deployment account (us-east-1 for CloudFront)
+aws acm request-certificate \
+  --domain-name "*.e3.elaraai.com" \
+  --validation-method DNS \
+  --region us-east-1
+```
+
+Then add the DNS validation records to the central hosted zone.
+
+**Option B: Cross-account certificate validation (automated)**
+
+Grant deployment accounts permission to create validation records:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {"AWS": "arn:aws:iam::DEPLOYMENT_ACCOUNT:root"},
+    "Action": [
+      "route53:ChangeResourceRecordSets",
+      "route53:GetHostedZone"
+    ],
+    "Resource": "arn:aws:route53:::hostedzone/HOSTED_ZONE_ID",
+    "Condition": {
+      "ForAllValues:StringLike": {
+        "route53:ChangeResourceRecordSetsNormalizedRecordNames": [
+          "_acme-challenge.*.e3.elaraai.com",
+          "*.e3.elaraai.com"
+        ]
+      }
+    }
+  }]
+}
+```
+
+#### 4. Grant Cross-Account Route53 Access
+
+Deployment accounts need permission to create A records in the central zone. Add a resource policy to the hosted zone (via Route53 console or CLI):
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Sid": "AllowE3DeploymentAccounts",
+    "Effect": "Allow",
+    "Principal": {"AWS": [
+      "arn:aws:iam::DEV_ACCOUNT_ID:root",
+      "arn:aws:iam::TEST_ACCOUNT_ID:root",
+      "arn:aws:iam::PROD_ACCOUNT_ID:root"
+    ]},
+    "Action": [
+      "route53:ChangeResourceRecordSets",
+      "route53:GetHostedZone",
+      "route53:ListResourceRecordSets"
+    ],
+    "Resource": "arn:aws:route53:::hostedzone/HOSTED_ZONE_ID",
+    "Condition": {
+      "ForAllValues:StringLike": {
+        "route53:ChangeResourceRecordSetsNormalizedRecordNames": [
+          "*.e3.elaraai.com"
+        ]
+      }
+    }
+  }]
+}
+```
+
+### Per-Account Setup
+
+After the central infrastructure exists, configure each deployment account:
+
+#### 1. Create ACM Certificate
+
+Request a wildcard certificate in us-east-1:
+
+```bash
+# In deployment account
+aws acm request-certificate \
+  --domain-name "*.e3.elaraai.com" \
+  --subject-alternative-names "e3.elaraai.com" \
+  --validation-method DNS \
+  --region us-east-1
+
+# Note the certificate ARN
+```
+
+Add the DNS validation CNAME to the central hosted zone, then wait for validation:
+
+```bash
+aws acm wait certificate-validated \
+  --certificate-arn arn:aws:acm:us-east-1:ACCOUNT:certificate/CERT_ID \
+  --region us-east-1
+```
+
+#### 2. Configure Domain in accounts.ts
+
+Update `lib/accounts.ts` with the domain configuration:
+
+```typescript
+{
+  organization: 'elara',
+  environment: 'dev',
+  budgetLimitUsd: 200,
+  description: 'e3 cloud development and testing',
+  domain: {
+    baseDomain: 'e3.elaraai.com',
+    hostedZoneId: 'Z0XXXXXXXXXXXXXXXX',  // Central hosted zone ID
+    certificateArn: 'arn:aws:acm:us-east-1:DEV_ACCOUNT:certificate/CERT_ID',
+  },
+},
+```
+
+#### 3. Redeploy Bootstrap Stack
+
+```bash
+npm run deploy -- --context bootstrapAccount=elara-dev-e3
+```
+
+This creates SSM parameters that the platform stack reads:
+- `/e3/domain/base-domain` → `e3.elaraai.com`
+- `/e3/domain/hosted-zone-id` → `Z0XXXXXXXXXXXXXXXX`
+- `/e3/domain/certificate-arn` → `arn:aws:acm:...`
+
+#### 4. Deploy Platform
+
+The platform stack automatically picks up domain config from SSM:
+
+```bash
+cd ../platform
+npm run deploy -- --context deploymentId=dev
+```
+
+This creates:
+- CloudFront distribution with custom domain and certificate
+- Route53 A record: `dev.e3.elaraai.com` → CloudFront
+- Lambda environment variable: `BASE_URL=https://dev.e3.elaraai.com`
+
+### Domain Naming Convention
+
+| Account | DeploymentId | Domain |
+|---------|--------------|--------|
+| elara-dev-e3 | `dev` | `dev.e3.elaraai.com` |
+| elara-test-e3 | `test` | `test.e3.elaraai.com` |
+| elara-prod-e3 | `prod` or empty | `e3.elaraai.com` (apex) |
+| acme-prod-e3 | `acme` | `acme.e3.elaraai.com` |
+
+For production, use `deploymentId=prod` for `prod.e3.elaraai.com`, or configure the platform stack to use the apex domain directly.
+
+### Client Deployments
+
+Clients can either:
+
+1. **Use a subdomain of `e3.elaraai.com`** (managed by Elara)
+   - Domain: `clientname.e3.elaraai.com`
+   - Same setup as above
+
+2. **Use their own domain** (managed by client)
+   - Client creates hosted zone for their domain
+   - Client creates ACM certificate
+   - Client provides zone ID and cert ARN as stack props (not SSM)
+
+   ```typescript
+   new E3PlatformStack(app, 'E3Platform', {
+     deploymentId: 'prod',
+     domain: {
+       baseDomain: 'e3.clientdomain.com',
+       hostedZoneId: 'ZXXXXXXXXXXXXX',
+       certificateArn: 'arn:aws:acm:us-east-1:...',
+     },
+   });
+   ```
+
+### Without Custom Domain
+
+If domain configuration is not set, the platform uses the CloudFront-generated domain (e.g., `d1234567890.cloudfront.net`). The OIDC discovery endpoint will return URLs based on request headers.
 
 ## Troubleshooting
 

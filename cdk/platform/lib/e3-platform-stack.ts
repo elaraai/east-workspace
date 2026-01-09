@@ -27,6 +27,9 @@ import * as tasks from 'aws-cdk-lib/aws-stepfunctions-tasks';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
+import * as acm from 'aws-cdk-lib/aws-certificatemanager';
+import * as route53 from 'aws-cdk-lib/aws-route53';
+import * as route53Targets from 'aws-cdk-lib/aws-route53-targets';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import { Construct } from 'constructs';
@@ -43,12 +46,57 @@ const SSM_OIDC_CLIENT_ID = `${SSM_OIDC_PREFIX}/client-id`;
 const SSM_OIDC_ISSUER_URL = `${SSM_OIDC_PREFIX}/issuer-url`;
 const SSM_OIDC_SECRET_ARN = `${SSM_OIDC_PREFIX}/client-secret-arn`;  // ARN to Secrets Manager secret
 
+/**
+ * SSM parameter paths for domain configuration.
+ * If these parameters exist, the stack will automatically configure
+ * a custom domain: {deploymentId}.{baseDomain}
+ *
+ * For Elara accounts, these are pre-configured.
+ * For client deployments, pass domain config via props instead.
+ */
+const SSM_DOMAIN_PREFIX = '/e3/domain';
+const SSM_DOMAIN_BASE = `${SSM_DOMAIN_PREFIX}/base-domain`;        // e.g., 'platform.elaraai.com'
+const SSM_DOMAIN_HOSTED_ZONE_ID = `${SSM_DOMAIN_PREFIX}/hosted-zone-id`;
+const SSM_DOMAIN_CERTIFICATE_ARN = `${SSM_DOMAIN_PREFIX}/certificate-arn`;  // Wildcard cert for *.baseDomain
+
+/**
+ * Domain configuration for custom domain setup.
+ * If not provided, the stack will attempt to read from SSM parameters.
+ * If SSM parameters are not found, CloudFront's default domain is used.
+ */
+export interface DomainConfig {
+  /**
+   * Base domain for this account (e.g., "platform.elaraai.com").
+   * The deployment will be accessible at {deploymentId}.{baseDomain}
+   */
+  baseDomain: string;
+
+  /**
+   * Route53 Hosted Zone ID for the base domain.
+   * Used to create the subdomain DNS record.
+   */
+  hostedZoneId: string;
+
+  /**
+   * ACM certificate ARN. Should be a wildcard cert for *.{baseDomain}.
+   * Must be in us-east-1 region for CloudFront.
+   */
+  certificateArn: string;
+}
+
 export interface E3PlatformStackProps extends cdk.StackProps {
   /**
    * Deployment identifier for resource naming (e.g., 'dev', 'prod', 'acme').
    * Used to isolate multiple deployments in the same account.
    */
   deploymentId: string;
+
+  /**
+   * Custom domain configuration.
+   * If not provided, reads from SSM parameters (/e3/domain/*).
+   * If SSM parameters not found, uses CloudFront's default domain.
+   */
+  domain?: DomainConfig;
 
   /**
    * Additional callback URLs for Cognito OAuth (beyond localhost).
@@ -85,21 +133,66 @@ export class E3PlatformStack extends cdk.Stack {
   public readonly appsBucket: s3.Bucket;
   public readonly distribution: cloudfront.Distribution;
 
+  // Domain (if configured)
+  public readonly platformUrl: string;
+  public readonly domainName?: string;
+
   constructor(scope: Construct, id: string, props: E3PlatformStackProps) {
     super(scope, id, props);
 
     const { deploymentId } = props;
     const prefix = `e3-${deploymentId}`;
 
+    // ============================================================
+    // DOMAIN CONFIGURATION
+    // ============================================================
+    // Try props first, then SSM parameters, then fall back to CloudFront domain
+    const hasEnvironment = this.account !== cdk.Aws.ACCOUNT_ID;
+
+    let domainConfig: DomainConfig | undefined = props.domain;
+
+    // If not provided via props and we have an environment, try SSM
+    if (!domainConfig && hasEnvironment) {
+      const ssmBaseDomain = ssm.StringParameter.valueFromLookup(this, SSM_DOMAIN_BASE);
+
+      // SSM lookup returns 'dummy-value-for-...' during synthesis if not found
+      if (ssmBaseDomain && !ssmBaseDomain.startsWith('dummy-value-for-')) {
+        domainConfig = {
+          baseDomain: ssmBaseDomain,
+          hostedZoneId: ssm.StringParameter.valueFromLookup(this, SSM_DOMAIN_HOSTED_ZONE_ID),
+          certificateArn: ssm.StringParameter.valueFromLookup(this, SSM_DOMAIN_CERTIFICATE_ARN),
+        };
+      }
+    }
+
+    // Compute the full domain name if configured
+    // Format: {deploymentId}.{baseDomain} (e.g., dev.platform.elaraai.com)
+    const customDomainName = domainConfig ? `${deploymentId}.${domainConfig.baseDomain}` : undefined;
+
     // Merge default origins with custom ones
     const defaultOrigins = ['http://localhost:5173'];
     const allowedOrigins = [...defaultOrigins, ...(props.allowedOrigins ?? [])];
 
-    const defaultCallbacks = ['http://localhost:5173/callback'];
+    // Add custom domain to allowed origins if configured
+    if (customDomainName) {
+      allowedOrigins.push(`https://${customDomainName}`);
+    }
+
+    const defaultCallbacks = ['http://localhost:5173/callback', 'http://localhost:3000/oauth2/callback'];
     const callbackUrls = [...defaultCallbacks, ...(props.callbackUrls ?? [])];
 
-    const defaultLogouts = ['http://localhost:5173/'];
+    // Add custom domain callback URL if configured
+    if (customDomainName) {
+      callbackUrls.push(`https://${customDomainName}/oauth2/callback`);
+    }
+
+    const defaultLogouts = ['http://localhost:5173/', 'http://localhost:3000/'];
     const logoutUrls = [...defaultLogouts, ...(props.allowedOrigins?.map(o => `${o}/`) ?? [])];
+
+    // Add custom domain logout URL if configured
+    if (customDomainName) {
+      logoutUrls.push(`https://${customDomainName}/`);
+    }
 
     // ============================================================
     // STORAGE
@@ -193,8 +286,7 @@ export class E3PlatformStack extends cdk.Stack {
     // SSM lookups require stack environment to be configured. If not configured,
     // OIDC can still be enabled via context: --context oidcEnabled=true
     // along with other oidc* context variables.
-
-    const hasEnvironment = this.account !== cdk.Aws.ACCOUNT_ID;
+    // Note: hasEnvironment is defined earlier in the domain configuration section.
 
     // Check for context-based config first (works without environment)
     const oidcEnabledContext = this.node.tryGetContext('oidcEnabled');
@@ -266,6 +358,10 @@ export class E3PlatformStack extends cdk.Stack {
     const repoRoot = path.join(__dirname, '..', '..', '..', '..');
     const apiPackagePath = path.join(repoRoot, 'packages', 'api');
 
+    // Cognito domain URL (e.g., e3-dev.auth.ap-southeast-2.amazoncognito.com)
+    const cognitoDomainUrl = `${prefix}.auth.${this.region}.amazoncognito.com`;
+    const cognitoIssuer = `https://cognito-idp.${this.region}.amazonaws.com/${userPool.userPoolId}`;
+
     this.apiHandler = new nodejs.NodejsFunction(this, 'ApiHandler', {
       functionName: `${prefix}-api`,
       runtime: lambda.Runtime.NODEJS_22_X,
@@ -284,6 +380,13 @@ export class E3PlatformStack extends cdk.Stack {
         TABLE_NAME: this.dataTable.tableName,
         BUCKET_NAME: this.dataBucket.bucketName,
         USER_POOL_ID: this.userPool.userPoolId,
+        // Cognito configuration for device flow proxy
+        COGNITO_DOMAIN: cognitoDomainUrl,
+        COGNITO_ISSUER: cognitoIssuer,
+        COGNITO_CLIENT_ID: userPoolClient.userPoolClientId,
+        // Base URL for the platform (used for device flow callbacks)
+        // If custom domain is configured, use it; otherwise Lambda determines from request headers
+        ...(customDomainName ? { BASE_URL: `https://${customDomainName}` } : {}),
       },
     });
 
@@ -322,9 +425,56 @@ export class E3PlatformStack extends cdk.Stack {
       integration: apiIntegration,
     });
 
+    // OIDC discovery endpoint (public, required for e3 login)
+    this.httpApi.addRoutes({
+      path: '/.well-known/openid-configuration',
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: apiIntegration,
+    });
+
+    // Device flow auth endpoints (public, no auth required)
+    this.httpApi.addRoutes({
+      path: '/oauth2/device_authorization',
+      methods: [apigatewayv2.HttpMethod.POST],
+      integration: apiIntegration,
+    });
+
+    this.httpApi.addRoutes({
+      path: '/oauth2/token',
+      methods: [apigatewayv2.HttpMethod.POST],
+      integration: apiIntegration,
+    });
+
+    this.httpApi.addRoutes({
+      path: '/oauth2/callback',
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: apiIntegration,
+    });
+
+    this.httpApi.addRoutes({
+      path: '/device',
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: apiIntegration,
+    });
+
+    // Repository list endpoint (public, returns empty if not authenticated)
+    this.httpApi.addRoutes({
+      path: '/api/repos',
+      methods: [apigatewayv2.HttpMethod.GET, apigatewayv2.HttpMethod.PUT],
+      integration: apiIntegration,
+      authorizer: jwtAuthorizer,
+    });
+
     // Tenant API routes (requires JWT auth)
     this.httpApi.addRoutes({
-      path: '/repos/{tenant}/{proxy+}',
+      path: '/api/repos/{repo}',
+      methods: [apigatewayv2.HttpMethod.ANY],
+      integration: apiIntegration,
+      authorizer: jwtAuthorizer,
+    });
+
+    this.httpApi.addRoutes({
+      path: '/api/repos/{repo}/{proxy+}',
       methods: [apigatewayv2.HttpMethod.ANY],
       integration: apiIntegration,
       authorizer: jwtAuthorizer,
@@ -407,8 +557,17 @@ export class E3PlatformStack extends cdk.Stack {
       protocolPolicy: cloudfront.OriginProtocolPolicy.HTTPS_ONLY,
     });
 
+    // Prepare domain configuration for CloudFront
+    const certificate = domainConfig
+      ? acm.Certificate.fromCertificateArn(this, 'Certificate', domainConfig.certificateArn)
+      : undefined;
+
     this.distribution = new cloudfront.Distribution(this, 'Distribution', {
       comment: `e3 Platform - ${deploymentId}`,
+
+      // Custom domain configuration (if available)
+      domainNames: customDomainName ? [customDomainName] : undefined,
+      certificate,
 
       defaultBehavior: {
         origin: s3Origin,
@@ -417,7 +576,17 @@ export class E3PlatformStack extends cdk.Stack {
       },
 
       additionalBehaviors: {
-        '/repos/*/api/*': {
+        // OIDC discovery endpoint
+        '/.well-known/openid-configuration': {
+          origin: apiOrigin,
+          viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
+          cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
+          originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+          allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD,
+        },
+
+        // OAuth2/device flow endpoints
+        '/oauth2/*': {
           origin: apiOrigin,
           viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
           cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
@@ -425,6 +594,34 @@ export class E3PlatformStack extends cdk.Stack {
           allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
         },
 
+        // Device approval page
+        '/device': {
+          origin: apiOrigin,
+          viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
+          cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
+          originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+          allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD,
+        },
+
+        // Health check
+        '/health': {
+          origin: apiOrigin,
+          viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
+          cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
+          originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+          allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD,
+        },
+
+        // API routes (repos endpoints)
+        '/api/*': {
+          origin: apiOrigin,
+          viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
+          cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
+          originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+          allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
+        },
+
+        // Per-repo frontend apps
         '/repos/*': {
           origin: s3Origin,
           viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
@@ -447,6 +644,27 @@ export class E3PlatformStack extends cdk.Stack {
         },
       ],
     });
+
+    // Create Route53 record if domain is configured
+    if (domainConfig && customDomainName) {
+      const hostedZone = route53.HostedZone.fromHostedZoneAttributes(this, 'HostedZone', {
+        hostedZoneId: domainConfig.hostedZoneId,
+        zoneName: domainConfig.baseDomain,
+      });
+
+      new route53.ARecord(this, 'DomainRecord', {
+        zone: hostedZone,
+        recordName: deploymentId, // Creates {deploymentId}.{baseDomain}
+        target: route53.RecordTarget.fromAlias(
+          new route53Targets.CloudFrontTarget(this.distribution)
+        ),
+      });
+
+      this.domainName = customDomainName;
+      this.platformUrl = `https://${customDomainName}`;
+    } else {
+      this.platformUrl = `https://${this.distribution.distributionDomainName}`;
+    }
 
     // ============================================================
     // OUTPUTS
@@ -483,6 +701,11 @@ export class E3PlatformStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'CognitoIssuer', {
       value: `https://cognito-idp.${this.region}.amazonaws.com/${this.userPool.userPoolId}`,
       description: 'Cognito JWT issuer URL',
+    });
+
+    new cdk.CfnOutput(this, 'CognitoDomain', {
+      value: cognitoDomainUrl,
+      description: 'Cognito hosted UI domain (for device flow)',
     });
 
     new cdk.CfnOutput(this, 'CognitoLoginUrl', {
@@ -526,8 +749,15 @@ export class E3PlatformStack extends cdk.Stack {
     });
 
     new cdk.CfnOutput(this, 'PlatformUrl', {
-      value: `https://${this.distribution.distributionDomainName}`,
-      description: 'Platform URL (CloudFront)',
+      value: this.platformUrl,
+      description: 'Platform URL (custom domain or CloudFront)',
     });
+
+    if (this.domainName) {
+      new cdk.CfnOutput(this, 'CustomDomainName', {
+        value: this.domainName,
+        description: 'Custom domain name for the platform',
+      });
+    }
   }
 }

@@ -59,15 +59,30 @@ abstractions         refactoring          S3DynamoStorage      (frontend +      
 **e3 repository:**
 - [x] e3-api-server with all endpoints implemented
 - [x] e3-api-client with full HTTP client library
-- [x] Storage interfaces implemented (PR #30) - **needs update to repo-as-parameter pattern**
+- [x] Storage interfaces implemented (PR #30)
+- [x] Storage interfaces updated to repo-as-parameter pattern (LocalStorage)
+- [x] e3-api-server multi-repo mode with `--repos` option
+- [x] e3-api-server repo create/remove endpoints (`PUT/DELETE /api/repos/:repo`)
+- [x] e3-api-client `repoCreate`, `repoRemove`, `repoStatus`, `repoGc` functions
+- [x] e3-cli `repo` command group (`create`, `remove`, `status`, `gc`)
+- [x] e3-cli remote URL support for repo commands (unified URL format)
 
 ### Remaining
 
 - [x] Update e3-core storage interfaces to use `repo` as parameter (not in constructor)
 - [x] Update e3-core functions to `(storage, repo, ...)` signature
-- [ ] e3-api-server handler extraction and multi-repo mode
-- [ ] e3-cli remote URL support and auth
-- [ ] S3DynamoStorage implementation
+- [x] e3-api-server multi-repo mode (`--repos` option)
+- [x] e3-api-server repo create/remove API endpoints
+- [x] e3-api-client repo create/remove functions
+- [x] e3-cli remote URL support for repo commands
+- [x] e3-cli auth (`login`, `logout`, `auth status`, `whoami`)
+- [x] e3-api-server OIDC provider (discovery, device flow, token endpoint)
+- [x] e3-api-server JWT authentication middleware
+- [x] S3DynamoStorage implementation (S3ObjectStore, DynamoRefStore, DynamoLockService, DynamoLogStore)
+- [ ] e3-api-server route factory exports (for Lambda reuse)
+- [ ] e3-aws device flow proxy (Cognito doesn't support native device flow)
+- [ ] e3-aws Lambda API routes (import from e3-api-server)
+- [ ] e3-aws repo management endpoints (list, create, delete)
 - [ ] Step Functions orchestration
 - [ ] Frontend integration
 - [ ] Fargate runners for heavy compute
@@ -325,65 +340,134 @@ e3-api-server --repos /path/to/repos/
 # where alpha/ and beta/ are subdirectories with .e3/
 ```
 
-### 2.3 JWT Authentication Middleware
+### 2.3 Authentication Architecture
+
+**Design principles:**
+- **OIDC everywhere** - local server and cloud use identical OAuth2/OIDC flows
+- **No PATs** - only JWTs (access tokens + refresh tokens), stateless validation
+- **No token database** - server validates JWT signatures, no per-request DB lookups
+- **Cloud auth = Cognito** - e3-aws Lambda just validates Cognito-issued JWTs
+
+**Token types:**
+
+| Token | Lifetime | Purpose |
+|-------|----------|---------|
+| Access token | 1 hour (configurable, 15 min for cloud) | API authorization |
+| Refresh token | 90 days | Get new access tokens without re-login |
+
+**Local server as OIDC provider:**
+
+```bash
+# Start server (generates RSA keys on startup)
+e3-api-server --repos ./repos
+
+# Configure token expiry for testing
+e3-api-server --repos ./repos --token-expiry 5s
+
+# CI mode: auto-approve device flow (no browser interaction)
+E3_AUTH_AUTO_APPROVE=1 e3-api-server --repos ./repos
+```
+
+**OIDC endpoints (local server provides these, cloud points to Cognito):**
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /.well-known/openid-configuration` | Discovery - tells CLI where auth endpoints are |
+| `POST /oauth2/device_authorization` | Start device flow, returns device_code + user_code |
+| `GET /device` | HTML page for user to approve (auto-approves in dev) |
+| `POST /oauth2/token` | Exchange code for tokens OR refresh tokens |
+| `GET /.well-known/jwks.json` | Public keys for JWT verification |
+
+**JWT validation middleware (already exists):**
 
 ```typescript
-// auth.ts
-export function createJwtMiddleware(config: AuthConfig): MiddlewareHandler {
-  const publicKey = fs.readFileSync(config.publicKeyPath);
-
-  return async (c, next) => {
-    const header = c.req.header('Authorization');
-    if (!header?.startsWith('Bearer ')) {
-      return c.json({ error: 'unauthorized' }, 401);
-    }
-
-    const token = header.slice(7);
-    const payload = jwt.verify(token, publicKey, {
-      issuer: config.issuer,
-      audience: config.audience,
-    });
-
-    c.set('identity', payload);
-    await next();
-  };
-}
+// packages/e3-api-server/src/middleware/auth.ts
+// Validates JWT signature using public key (from JWKS or config)
+// Sets identity on context: { sub, email, roles }
 ```
 
 ### 2.4 CLI Auth Support
 
 **Location:** `../e3/packages/e3-cli/`
 
+**Login flow (Device Flow - RFC 8628):**
+
+```
+CLI                           Browser                    Server/Cognito
+ │                              │                              │
+ │ POST /oauth2/device_authorization                           │
+ │─────────────────────────────────────────────────────────────>│
+ │                              │                              │
+ │ { device_code, user_code: "ABCD-1234", verification_uri }   │
+ │<─────────────────────────────────────────────────────────────│
+ │                              │                              │
+ │ (opens browser)              │                              │
+ │ ─────────────────────────────>                              │
+ │                              │ GET /device?user_code=...    │
+ │                              │─────────────────────────────>│
+ │                              │                              │
+ │                              │ (shows code, user clicks     │
+ │                              │  Approve - or auto-approve)  │
+ │                              │                              │
+ │ (polls token endpoint)       │                              │
+ │ POST /oauth2/token { device_code, grant_type }              │
+ │─────────────────────────────────────────────────────────────>│
+ │                              │                              │
+ │ { access_token, refresh_token, expires_in }                 │
+ │<─────────────────────────────────────────────────────────────│
+```
+
 **Credential storage:**
 
 ```
-~/.e3/
-└── credentials.json
-    {
-      "https://platform.example.com": {
-        "token": "eyJ...",
-        "expiresAt": "2025-01-10T..."
-      }
+~/.e3/credentials.json
+{
+  "version": 1,
+  "credentials": {
+    "http://localhost:3000": {
+      "accessToken": "eyJ...",
+      "refreshToken": "eyJ...",
+      "expiresAt": "2025-01-09T12:00:00Z"
+    },
+    "https://platform.example.com": {
+      "accessToken": "eyJ...",
+      "refreshToken": "eyJ...",
+      "expiresAt": "2025-01-09T11:00:00Z"
     }
+  }
+}
+```
+
+**CLI token refresh logic:**
+
+```typescript
+async function getValidToken(serverUrl: string): Promise<string> {
+  const creds = loadCredentials(serverUrl);
+
+  if (!isExpired(creds.expiresAt)) {
+    return creds.accessToken;
+  }
+
+  // Token expired - use refresh token to get new one
+  const discovery = await fetchDiscovery(serverUrl);
+  const newTokens = await refreshToken(discovery.token_endpoint, creds.refreshToken);
+  saveCredentials(serverUrl, newTokens);
+  return newTokens.accessToken;
+}
 ```
 
 **New commands:**
 
 ```bash
-# Store token manually (for local servers with auth)
-e3 login https://localhost:3000 --token <paste-token>
-
-# OAuth browser flow (for cloud with Cognito)
-e3 login https://platform.example.com
-
-# Check stored credentials
-e3 auth status
-
-# Remove stored credentials
-e3 logout https://platform.example.com
+e3 login <server>           # Device flow login (opens browser)
+e3 logout <server>          # Remove stored credentials
+e3 auth status              # Show all stored credentials and expiry
+e3 auth whoami [server]     # Show current user identity
 ```
 
 **URL detection in CLI:**
+
+All commands use a unified URL format: `http://server/repos/{name}` for remote repos, or a local path.
 
 ```typescript
 // utils.ts
@@ -391,14 +475,41 @@ type RepoLocation =
   | { type: 'local'; path: string }
   | { type: 'remote'; baseUrl: string; repo: string };
 
+// For most commands - validates repo exists
 function parseRepoLocation(arg: string): RepoLocation {
   if (arg.startsWith('https://') || arg.startsWith('http://')) {
     const url = new URL(arg);
     const match = url.pathname.match(/^\/repos\/([^\/]+)/);
     return { type: 'remote', baseUrl: url.origin, repo: match[1] };
   }
-  return { type: 'local', path: resolveRepo(arg) };
+  return { type: 'local', path: resolveRepo(arg) };  // resolveRepo validates existence
 }
+
+// For `repo create` - doesn't validate existence (repo is being created)
+function parseRepoForCreate(arg: string): RepoLocation {
+  if (arg.startsWith('https://') || arg.startsWith('http://')) {
+    const url = new URL(arg);
+    const match = url.pathname.match(/^\/repos\/([^\/]+)/);
+    if (!match) throw new Error(`Invalid URL: expected /repos/{repo} in path`);
+    return { type: 'remote', baseUrl: url.origin, repo: match[1] };
+  }
+  return { type: 'local', path: resolve(arg) };  // No existence check
+}
+```
+
+**CLI command examples:**
+
+```bash
+# Local repository operations
+e3 repo create .                              # Create repo at current dir
+e3 repo status .                              # Show status
+e3 repo remove .                              # Remove repo
+
+# Remote repository operations (unified URL format)
+e3 repo create http://localhost:3000/repos/my-repo   # Create remote repo
+e3 repo status http://localhost:3000/repos/my-repo   # Show status
+e3 repo remove http://localhost:3000/repos/my-repo   # Remove repo
+e3 repo gc http://localhost:3000/repos/my-repo       # Garbage collection
 ```
 
 **Update all CLI commands** to support remote:
@@ -422,37 +533,110 @@ if (location.type === 'local') {
 ### 2.5 e3-api-client Auth Headers
 
 ```typescript
-// http.ts
-interface ClientOptions {
-  baseUrl: string;
+// packages/e3-api-client/src/http.ts
+export interface RequestOptions {
   token?: string;
-  getToken?: () => Promise<string | null>;
 }
 
-export function createClient(options: ClientOptions) {
-  async function getHeaders(): Promise<Record<string, string>> {
-    const headers: Record<string, string> = { 'Accept': 'application/beast2' };
-    const token = options.token ?? (await options.getToken?.());
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-    return headers;
+export async function get<T>(
+  url: string,
+  path: string,
+  successType: T,
+  options?: RequestOptions
+): Promise<Response<ValueTypeOf<T>>> {
+  const headers: Record<string, string> = {
+    'Accept': 'application/beast2',
+  };
+
+  if (options?.token) {
+    headers['Authorization'] = `Bearer ${options.token}`;
   }
-  // ...
+
+  // ... existing fetch logic
 }
 ```
 
+### 2.6 Cloud (e3-aws) Integration
+
+**Important:** AWS Cognito does NOT natively support OAuth 2.0 Device Authorization Grant (RFC 8628).
+We must implement a device flow proxy in Lambda that wraps Cognito's authorization code flow.
+
+**Reference:** [AWS Blog: Implement OAuth 2.0 device grant flow](https://aws.amazon.com/blogs/security/implement-oauth-2-0-device-grant-flow-by-using-amazon-cognito-and-aws-lambda/)
+
+**Device flow proxy endpoints (served by Lambda):**
+
+```typescript
+// Discovery - points to our Lambda endpoints + Cognito JWKS
+app.get('/.well-known/openid-configuration', (c) => {
+  const baseUrl = process.env.BASE_URL;  // CloudFront URL
+  const cognitoIssuer = process.env.COGNITO_ISSUER;
+  return c.json({
+    issuer: cognitoIssuer,
+    device_authorization_endpoint: `${baseUrl}/oauth2/device_authorization`,
+    token_endpoint: `${baseUrl}/oauth2/token`,
+    jwks_uri: `${cognitoIssuer}/.well-known/jwks.json`,
+  });
+});
+
+// POST /oauth2/device_authorization - Generate device_code, user_code
+// Stores in DynamoDB: { device_code, user_code, status: 'pending', ttl: 5min }
+
+// GET /device - HTML page for user approval
+// Redirects to Cognito hosted UI with state=device_code
+
+// GET /oauth2/callback - Cognito callback
+// Exchanges auth code for tokens, stores in DynamoDB keyed by device_code
+
+// POST /oauth2/token - CLI polls here
+// Returns tokens if approved, "authorization_pending" if waiting
+```
+
+**CLI flow with Cognito (via device flow proxy):**
+1. CLI fetches `/.well-known/openid-configuration` from e3-aws
+2. Discovery points to Lambda's device flow endpoints
+3. CLI starts device flow via `POST /oauth2/device_authorization`
+4. User opens browser, approves via Cognito hosted UI
+5. Callback stores Cognito tokens in DynamoDB
+6. CLI polls `POST /oauth2/token` until approved
+7. e3-aws Lambda validates Cognito-issued JWTs via API Gateway authorizer
+
+**Authorization (future enhancement):**
+- Cognito handles authentication (identity)
+- e3-aws can add authorization (permissions) via DynamoDB later
+- Token blacklist in DynamoDB if instant revocation needed
+- For now: rely on short token expiry (15 min) and Cognito refresh token revocation
+
 ### Deliverables
 
-- [ ] Handlers extracted to `handlers/` directory
-- [ ] Routes refactored to use handlers
-- [ ] Multi-repo directory mode (`--repos` option)
-- [ ] JWT authentication middleware
-- [ ] e3-cli credential storage (`~/.e3/credentials.json`)
-- [ ] e3-cli `login`, `logout`, `auth status` commands
-- [ ] e3-api-client updated with auth header support
-- [ ] All CLI commands updated for remote URL support
-- [ ] Tests passing (local and remote modes)
+- [x] Handlers extracted to `handlers/` directory
+- [x] Routes refactored to use handlers (route factories: `createPackageRoutes`, etc.)
+- [x] Multi-repo directory mode (`--repos` option)
+- [x] JWT authentication middleware
+- [x] **OIDC provider in e3-api-server:**
+  - [x] Auto-generate RSA keys on startup
+  - [x] `/.well-known/openid-configuration` discovery endpoint
+  - [x] `/oauth2/device_authorization` endpoint
+  - [x] `/device` HTML approval page (auto-approve in dev)
+  - [x] `/oauth2/token` endpoint (code exchange + refresh)
+  - [x] `/.well-known/jwks.json` endpoint
+  - [x] `--token-expiry` CLI option
+  - [x] `E3_AUTH_AUTO_APPROVE` env var for CI
+- [x] **e3-cli auth:**
+  - [x] Credential storage (`~/.e3/credentials.json`)
+  - [x] `e3 login` with device flow
+  - [x] `e3 logout` command
+  - [x] `e3 auth status` command
+  - [x] `e3 auth whoami` command
+  - [x] Token refresh before API calls
+- [x] e3-api-client updated with auth header support
+- [x] All CLI commands inject auth token for remote URLs
+- [ ] Route factory barrel export (`src/routes/index.ts`) for Lambda import
+- [ ] Package.json exports field for `@elaraai/e3-api-server/routes`
+- [ ] **e3-aws device flow proxy:**
+  - [ ] `POST /oauth2/device_authorization` (generate codes, store in DynamoDB)
+  - [ ] `GET /device` (approval page, redirects to Cognito)
+  - [ ] `GET /oauth2/callback` (Cognito callback, exchange + store tokens)
+  - [ ] `POST /oauth2/token` (CLI polls for tokens)
 
 ---
 
@@ -627,12 +811,13 @@ app.get('/repos/:repo/api/workspaces', async (c) => {
 
 ### Deliverables
 
-- [ ] S3ObjectStore implementation (repo as prefix)
-- [ ] DynamoRefStore implementation (repo in partition key)
-- [ ] DynamoLockService implementation (with TTL)
-- [ ] S3LogStore implementation
-- [ ] S3DynamoStorage class (initialized once, no repo in constructor)
-- [ ] CDK stack updated (S3 bucket, single DynamoDB table, remove EFS)
+- [x] S3ObjectStore implementation (repo as prefix)
+- [x] DynamoRefStore implementation (repo in partition key)
+- [x] DynamoLockService implementation (with TTL, East text holder encoding)
+- [x] DynamoLogStore implementation (chunked logs in DynamoDB)
+- [x] S3DynamoStorage class (initialized once, no repo in constructor)
+- [x] CDK stack updated (S3 bucket, single DynamoDB table, no EFS)
+- [ ] DynamoRefStore repo management: `listRepos()`, `createRepo()`, `deleteRepo()`
 - [ ] Lambda using shared routes from e3-api-server
 - [ ] Integration tests
 

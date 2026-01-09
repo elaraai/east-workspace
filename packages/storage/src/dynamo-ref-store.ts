@@ -9,6 +9,8 @@ import {
   GetItemCommand,
   PutItemCommand,
   DeleteItemCommand,
+  ScanCommand,
+  BatchWriteItemCommand,
 } from '@aws-sdk/client-dynamodb';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import type { RefStore } from '@elaraai/e3-core';
@@ -156,6 +158,141 @@ export class DynamoRefStore implements RefStore {
       const prefixLen = 5 + taskHash.length + 1; // 'EXEC#' + taskHash + '#'
       return sk.slice(prefixLen);
     });
+  }
+
+  // ===========================================================================
+  // Repository Management (cloud-specific, not part of RefStore interface)
+  // ===========================================================================
+
+  /**
+   * List all repository names.
+   *
+   * Scans for items with SK=#META (each repo has a metadata item).
+   * Extracts repo name from PK (format: REPO#{repo}).
+   */
+  async listRepos(): Promise<string[]> {
+    const repos: string[] = [];
+    let exclusiveStartKey: Record<string, any> | undefined;
+
+    do {
+      const response = await this.dynamo.send(
+        new ScanCommand({
+          TableName: this.tableName,
+          FilterExpression: 'SK = :sk',
+          ExpressionAttributeValues: marshall({
+            ':sk': '#META',
+          }),
+          ProjectionExpression: 'PK',
+          ExclusiveStartKey: exclusiveStartKey,
+        })
+      );
+
+      if (response.Items) {
+        for (const item of response.Items) {
+          const pk = unmarshall(item).PK as string;
+          // PK format: REPO#{repo}
+          if (pk.startsWith('REPO#')) {
+            repos.push(pk.slice(5));
+          }
+        }
+      }
+
+      exclusiveStartKey = response.LastEvaluatedKey;
+    } while (exclusiveStartKey);
+
+    return repos;
+  }
+
+  /**
+   * Create a repository (add metadata item).
+   *
+   * @param repo - Repository name
+   */
+  async createRepo(repo: string): Promise<void> {
+    await this.dynamo.send(
+      new PutItemCommand({
+        TableName: this.tableName,
+        Item: marshall({
+          PK: `REPO#${repo}`,
+          SK: '#META',
+          name: repo,
+          createdAt: new Date().toISOString(),
+        }),
+        // Only succeed if repo doesn't already exist
+        ConditionExpression: 'attribute_not_exists(PK)',
+      })
+    );
+  }
+
+  /**
+   * Check if a repository exists.
+   *
+   * @param repo - Repository name
+   */
+  async repoExists(repo: string): Promise<boolean> {
+    const response = await this.dynamo.send(
+      new GetItemCommand({
+        TableName: this.tableName,
+        Key: marshall({
+          PK: `REPO#${repo}`,
+          SK: '#META',
+        }),
+      })
+    );
+    return response.Item !== undefined;
+  }
+
+  /**
+   * Delete a repository and all its items.
+   *
+   * Queries all items with PK=REPO#{repo} and batch deletes them.
+   *
+   * @param repo - Repository name
+   */
+  async deleteRepo(repo: string): Promise<void> {
+    // First, get all items for this repo
+    const items: { PK: string; SK: string }[] = [];
+    let exclusiveStartKey: Record<string, any> | undefined;
+
+    do {
+      const response = await this.dynamo.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          KeyConditionExpression: 'PK = :pk',
+          ExpressionAttributeValues: marshall({
+            ':pk': `REPO#${repo}`,
+          }),
+          ProjectionExpression: 'PK, SK',
+          ExclusiveStartKey: exclusiveStartKey,
+        })
+      );
+
+      if (response.Items) {
+        for (const item of response.Items) {
+          const unmarshalled = unmarshall(item);
+          items.push({ PK: unmarshalled.PK as string, SK: unmarshalled.SK as string });
+        }
+      }
+
+      exclusiveStartKey = response.LastEvaluatedKey;
+    } while (exclusiveStartKey);
+
+    // Batch delete in groups of 25 (DynamoDB limit)
+    const batchSize = 25;
+    for (let i = 0; i < items.length; i += batchSize) {
+      const batch = items.slice(i, i + batchSize);
+      await this.dynamo.send(
+        new BatchWriteItemCommand({
+          RequestItems: {
+            [this.tableName]: batch.map((item) => ({
+              DeleteRequest: {
+                Key: marshall({ PK: item.PK, SK: item.SK }),
+              },
+            })),
+          },
+        })
+      );
+    }
   }
 
   // ===========================================================================
