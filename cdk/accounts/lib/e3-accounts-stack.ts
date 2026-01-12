@@ -589,3 +589,170 @@ export class E3AccountBootstrapStack extends cdk.Stack {
     }
   }
 }
+
+/**
+ * Shared infrastructure configuration.
+ */
+export interface E3SharedInfraConfig {
+  /**
+   * Base domain for e3 platform (e.g., 'e3.elaraai.com').
+   */
+  baseDomain: string;
+
+  /**
+   * Account IDs that should have cross-account access to Route53.
+   * These accounts can create A records for their subdomains.
+   */
+  deploymentAccountIds: string[];
+}
+
+/**
+ * Stack for shared e3 infrastructure.
+ *
+ * This stack is deployed to the shared services account and creates:
+ * - Route53 hosted zone for the e3 platform domain
+ * - Cross-account IAM policy for deployment accounts to create DNS records
+ *
+ * Usage:
+ *   1. Deploy from shared services account
+ *   2. Add NS records to parent domain (e.g., elaraai.com)
+ *   3. Use the hosted zone ID in deployment account configurations
+ *
+ * Deploy with:
+ *   npm run deploy -- --context shared=true
+ */
+export class E3SharedInfraStack extends cdk.Stack {
+  public readonly hostedZone: cdk.aws_route53.HostedZone;
+  public readonly hostedZoneId: string;
+
+  constructor(scope: Construct, id: string, props: cdk.StackProps & { config: E3SharedInfraConfig }) {
+    super(scope, id, props);
+
+    const { config } = props;
+
+    // Validate we're deploying to the shared services account
+    const currentAccount = cdk.Stack.of(this).account;
+    if (currentAccount !== orgConfig.sharedServicesAccountId) {
+      throw new Error(
+        `This stack should be deployed to the shared services account (${orgConfig.sharedServicesAccountId}), ` +
+          `but is being deployed to ${currentAccount}. ` +
+          `Use: aws sso login --profile <shared-services-profile>`
+      );
+    }
+
+    // ========================================
+    // Route53 Hosted Zone
+    // ========================================
+    this.hostedZone = new cdk.aws_route53.HostedZone(this, 'E3HostedZone', {
+      zoneName: config.baseDomain,
+      comment: 'Hosted zone for e3 platform deployments',
+    });
+    this.hostedZoneId = this.hostedZone.hostedZoneId;
+
+    // ========================================
+    // Cross-Account Route53 Access
+    // ========================================
+    // Allow deployment accounts to create/modify records in this zone.
+    // Note: Route53 doesn't support resource-based policies directly on hosted zones.
+    // Instead, we create an IAM role that deployment accounts can assume.
+    let route53AccessRole: iam.Role | undefined;
+
+    if (config.deploymentAccountIds.length > 0) {
+      route53AccessRole = new iam.Role(this, 'Route53AccessRole', {
+        roleName: 'E3-Route53-CrossAccount',
+        description: 'Role for e3 deployment accounts to manage Route53 records',
+        assumedBy: new iam.CompositePrincipal(
+          ...config.deploymentAccountIds.map(
+            (accountId) => new iam.AccountPrincipal(accountId)
+          )
+        ),
+        maxSessionDuration: cdk.Duration.hours(1),
+      });
+
+      // Grant permissions to manage records in the hosted zone
+      route53AccessRole.addToPolicy(
+        new iam.PolicyStatement({
+          sid: 'AllowRoute53RecordManagement',
+          effect: iam.Effect.ALLOW,
+          actions: [
+            'route53:ChangeResourceRecordSets',
+            'route53:GetHostedZone',
+            'route53:ListResourceRecordSets',
+          ],
+          resources: [this.hostedZone.hostedZoneArn],
+        })
+      );
+
+      // Allow listing hosted zones (needed for lookups)
+      route53AccessRole.addToPolicy(
+        new iam.PolicyStatement({
+          sid: 'AllowRoute53List',
+          effect: iam.Effect.ALLOW,
+          actions: ['route53:ListHostedZones', 'route53:ListHostedZonesByName'],
+          resources: ['*'],
+        })
+      );
+    }
+
+    // ========================================
+    // SSM Parameters (for reference by other stacks)
+    // ========================================
+    new ssm.StringParameter(this, 'HostedZoneIdParam', {
+      parameterName: '/e3/shared/hosted-zone-id',
+      stringValue: this.hostedZone.hostedZoneId,
+      description: 'Route53 hosted zone ID for e3 platform',
+    });
+
+    new ssm.StringParameter(this, 'BaseDomainParam', {
+      parameterName: '/e3/shared/base-domain',
+      stringValue: config.baseDomain,
+      description: 'Base domain for e3 platform',
+    });
+
+    if (route53AccessRole) {
+      new ssm.StringParameter(this, 'Route53RoleArnParam', {
+        parameterName: '/e3/shared/route53-role-arn',
+        stringValue: route53AccessRole.roleArn,
+        description: 'IAM role ARN for cross-account Route53 access',
+      });
+    }
+
+    // ========================================
+    // Outputs
+    // ========================================
+    new cdk.CfnOutput(this, 'HostedZoneId', {
+      value: this.hostedZone.hostedZoneId,
+      description: 'Route53 hosted zone ID - use this in deployment account domain config',
+      exportName: 'E3-HostedZoneId',
+    });
+
+    new cdk.CfnOutput(this, 'HostedZoneName', {
+      value: config.baseDomain,
+      description: 'Route53 hosted zone name',
+    });
+
+    new cdk.CfnOutput(this, 'NameServers', {
+      value: cdk.Fn.join(', ', this.hostedZone.hostedZoneNameServers ?? []),
+      description: 'Nameservers - add these as NS records in parent domain',
+    });
+
+    if (route53AccessRole) {
+      new cdk.CfnOutput(this, 'Route53AccessRoleArn', {
+        value: route53AccessRole.roleArn,
+        description: 'IAM role ARN for cross-account Route53 access',
+        exportName: 'E3-Route53AccessRoleArn',
+      });
+    } else {
+      new cdk.CfnOutput(this, 'Route53AccessRoleNote', {
+        value: 'No deployment accounts configured - add account IDs to sharedInfraConfig.deploymentAccountIds and redeploy',
+        description: 'Cross-account role not created',
+      });
+    }
+
+    // Instructions output
+    new cdk.CfnOutput(this, 'NextSteps', {
+      value: `Add NS records for ${config.baseDomain} to parent zone pointing to the nameservers above`,
+      description: 'Next steps after deployment',
+    });
+  }
+}

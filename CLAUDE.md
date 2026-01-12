@@ -98,3 +98,8 @@ npm run dev
 - e3 design: `../e3/design/e3-mvp.md`
 - e3-core interfaces: `../e3/packages/e3-core/src/` (StorageBackend, DataflowExecutor)
 - east-ui components: `../east-ui/packages/east-ui-components/src/`
+
+## Making changes
+
+Ensure all changes are reflected in the project REAMDE.md files.
+In particular deployment instructions and project structures must be kept up-to-date at all times.

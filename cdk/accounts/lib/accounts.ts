@@ -243,3 +243,33 @@ export const orgConfig = {
    */
   sharedServicesAccountId: '064741130885',
 };
+
+/**
+ * Shared infrastructure configuration.
+ *
+ * This configures the central Route53 hosted zone and cross-account access
+ * for e3 platform deployments. Deployed to the shared services account.
+ */
+export const sharedInfraConfig = {
+  /**
+   * Base domain for all e3 platform deployments.
+   * Subdomains will be: dev.e3.elaraai.com, test.e3.elaraai.com, etc.
+   */
+  baseDomain: 'e3.elaraai.com',
+
+  /**
+   * Account IDs that can create Route53 records in the shared hosted zone.
+   * Add account IDs here after creating them with E3AccountsStack.
+   *
+   * To get account IDs after deployment:
+   *   aws cloudformation describe-stacks --stack-name E3Accounts \
+   *     --query 'Stacks[0].Outputs[?contains(OutputKey, `AccountId`)].OutputValue' \
+   *     --output text
+   */
+  deploymentAccountIds: [
+    // Add account IDs here after they are created:
+    // 'xxxxxxxxxxxx',  // elara-dev-e3
+    // 'xxxxxxxxxxxx',  // elara-test-e3
+    // 'xxxxxxxxxxxx',  // elara-prod-e3
+  ] as string[],
+};

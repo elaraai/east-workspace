@@ -1,35 +1,107 @@
 # E3 Platform
 
-CDK infrastructure for the e3 cloud application.
+CDK infrastructure for deploying e3 platform instances.
 
 ## Overview
 
-This stack deploys the complete e3 cloud platform:
-- **Networking**: VPC with NAT gateway
-- **Storage**: EFS (elastic throughput), DynamoDB tables
-- **Auth**: Cognito User Pool with OAuth/OIDC support
-- **API**: API Gateway + Lambda with JWT authorization
-- **Compute**: Step Functions for dataflow orchestration
-- **Frontend**: CloudFront + S3
+The `E3PlatformStack` deploys a complete e3 platform with:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        CloudFront Distribution                       │
+│                    (dev.e3.elaraai.com or d123.cloudfront.net)      │
+├─────────────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐    ┌─────────────────────────────────────────────┐ │
+│  │ Static Apps │    │              API Gateway                     │ │
+│  │  (S3)       │    │                                              │ │
+│  │  /          │    │  /api/*  ──► Lambda (API Handler)            │ │
+│  │  /index.html│    │  /.well-known/* ──► Lambda (OIDC Discovery)  │ │
+│  │             │    │  /oauth2/* ──► Lambda (Device Flow)          │ │
+│  └─────────────┘    │  /device ──► Lambda (Approval Page)          │ │
+│                     └─────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────┘
+                                        │
+                    ┌───────────────────┼───────────────────┐
+                    ▼                   ▼                   ▼
+             ┌───────────┐       ┌─────────────┐     ┌─────────────┐
+             │    S3     │       │  DynamoDB   │     │  Cognito    │
+             │  (Data)   │       │  (Refs)     │     │ (User Pool) │
+             │           │       │             │     │             │
+             │ Packages  │       │ Repo meta   │     │ JWT tokens  │
+             │ Artifacts │       │ Workspaces  │     │ Device flow │
+             │ Blobs     │       │ Device codes│     │ OIDC        │
+             └───────────┘       └─────────────┘     └─────────────┘
+```
+
+## Resources Created
+
+| Resource | Name Pattern | Purpose |
+|----------|--------------|---------|
+| S3 Bucket | `e3-{id}-data-{account}` | Package storage, artifacts |
+| DynamoDB Table | `e3-{id}-data` | Refs, metadata, device codes |
+| Cognito User Pool | `e3-{id}-users` | Authentication, JWT tokens |
+| Lambda Function | `e3-{id}-api` | API request handler |
+| Lambda Function | `e3-{id}-task-runner` | Task execution |
+| API Gateway | `e3-{id}-api` | HTTP API with JWT auth |
+| Step Functions | `e3-{id}-task`, `e3-{id}-dataflow` | Orchestration |
+| S3 Bucket | `e3-{id}-apps-{account}` | Static web apps |
+| CloudFront | - | CDN, custom domain |
+| Route53 A Record | `{id}.{baseDomain}` | DNS (if domain configured) |
 
 ## Deployment
 
-```bash
-# From repo root
-cd cdk/platform
-npm run build
+### Prerequisites
 
-# Deploy (requires AWS credentials for target account)
-npx cdk deploy --context deploymentId=elara-dev-e3
+1. **AWS Account** - Bootstrapped deployment account (via `cdk/accounts`)
+2. **Build dependencies**:
+   ```bash
+   npm run build --workspace=@elaraai/e3-api
+   ```
+
+### Basic Deployment
+
+```bash
+cd cdk/platform
+aws sso login --profile elaraai-dev-elara-e3
+npm run deploy -- --context deploymentId=dev
 ```
+
+### With Custom Domain
+
+If the account was bootstrapped with domain config (SSM parameters), custom domain is automatic:
+
+```bash
+npm run deploy -- --context deploymentId=dev
+# Creates: dev.e3.elaraai.com
+```
+
+For client deployments with explicit domain config, see [accounts README](../accounts/README.md#client-deployments).
 
 ### Stack Outputs
 
 After deployment, note these outputs:
-- `ApiEndpoint` - API Gateway URL
-- `CognitoLoginUrl` - Hosted UI login URL
-- `UserPoolId` - For IdP configuration
-- `UserPoolClientId` - For frontend configuration
+
+| Output | Description |
+|--------|-------------|
+| `PlatformUrl` | Full URL to access the platform |
+| `ApiEndpoint` | API Gateway URL |
+| `CognitoLoginUrl` | Hosted UI login URL |
+| `UserPoolId` | For IdP configuration |
+| `UserPoolClientId` | For CLI/frontend configuration |
+| `CognitoIssuer` | JWT issuer for token validation |
+| `DataBucketName` | S3 bucket for data |
+| `DataTableName` | DynamoDB table name |
+
+## SSM Parameters
+
+These are automatically read if present:
+
+| Parameter | Purpose |
+|-----------|---------|
+| `/e3/domain/base-domain` | Base domain (e.g., `e3.elaraai.com`) |
+| `/e3/domain/hosted-zone-id` | Route53 hosted zone ID |
+| `/e3/domain/certificate-arn` | ACM wildcard certificate ARN |
+| `/e3/auth/oidc/*` | External OIDC provider config (see below)
 
 ## Identity Provider Setup
 
@@ -311,3 +383,16 @@ Check that:
 ### Users can't see the SSO button
 
 Ensure the identity provider is enabled on the App Client (Step 3 above).
+
+## Files
+
+| File | Purpose |
+|------|---------|
+| `lib/e3-platform-stack.ts` | Main stack definition |
+| `bin/e3-platform.ts` | CDK app entry point |
+
+## Related
+
+- [CDK Overview](../README.md) - High-level infrastructure architecture
+- [Accounts Setup](../accounts/README.md) - Account creation and domain configuration
+- [API Package](../../packages/api/) - Lambda handler source code

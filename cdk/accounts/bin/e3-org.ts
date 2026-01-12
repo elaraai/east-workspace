@@ -15,18 +15,38 @@
  *   aws sso login --profile management
  *   # Assume OrganizationAccountAccessRole in new account, then:
  *   npm run deploy -- --context bootstrapAccount=elara-dev-e3
+ *
+ *   # Deploy shared infrastructure (Route53 hosted zone, cross-account access)
+ *   aws sso login --profile shared-services
+ *   npm run deploy -- --context shared=true
  */
 
 import * as cdk from 'aws-cdk-lib';
-import { E3AccountsStack, E3AccountBootstrapStack } from '../lib/e3-accounts-stack.js';
-import { derivedAccounts, orgConfig } from '../lib/accounts.js';
+import { E3AccountsStack, E3AccountBootstrapStack, E3SharedInfraStack } from '../lib/e3-accounts-stack.js';
+import { derivedAccounts, orgConfig, sharedInfraConfig } from '../lib/accounts.js';
 
 const app = new cdk.App();
 
-// Check if we're bootstrapping a specific account
+// Check context flags
 const bootstrapAccount = app.node.tryGetContext('bootstrapAccount');
+const deployShared = app.node.tryGetContext('shared');
 
-if (bootstrapAccount) {
+if (deployShared) {
+  // Shared infrastructure mode: Deploy to shared services account
+  new E3SharedInfraStack(app, 'E3SharedInfra', {
+    env: {
+      account: orgConfig.sharedServicesAccountId,
+      region: orgConfig.region,
+    },
+    config: sharedInfraConfig,
+    description: 'Shared infrastructure for e3 platform (Route53, cross-account access)',
+    tags: {
+      Application: 'e3',
+      Component: 'shared-infrastructure',
+      ManagedBy: 'CDK',
+    },
+  });
+} else if (bootstrapAccount) {
   // Bootstrap mode: Deploy to a specific member account
   const accountConfig = derivedAccounts.find((a) => a.name === bootstrapAccount);
 

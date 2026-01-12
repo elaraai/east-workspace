@@ -16,12 +16,12 @@
     "list-accounts": "aws organizations list-accounts --query 'Accounts[*].[Id,Name,Status]' --output table"
   },
   "dependencies": {
-    "aws-cdk-lib": "^2.233.0",
+    "aws-cdk-lib": "^2.234.0",
     "constructs": "^10.4.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "aws-cdk": "^2.1100.3",
-    "typescript": "^5.6.0"
+    "typescript": "~5.9.2"
   }
 }

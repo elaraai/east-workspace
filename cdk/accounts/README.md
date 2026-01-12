@@ -161,9 +161,17 @@ AWS_PROFILE=elaraai-dev-elara-e3 npm run deploy
 
 | File | Purpose |
 |------|---------|
-| `lib/accounts.ts` | Account definitions, SSO config, helper functions |
-| `lib/e3-accounts-stack.ts` | CDK stacks for account creation and bootstrap |
+| `lib/accounts.ts` | Account definitions, SSO config, shared infra config |
+| `lib/e3-accounts-stack.ts` | CDK stacks (E3AccountsStack, E3AccountBootstrapStack, E3SharedInfraStack) |
 | `bin/e3-org.ts` | CDK app entry point |
+
+## Stacks
+
+| Stack | Target Account | Context Flag | Purpose |
+|-------|----------------|--------------|---------|
+| `E3AccountsStack` | Management | (default) | Creates member accounts in AWS Organizations |
+| `E3AccountBootstrapStack` | Member account | `--context bootstrapAccount=NAME` | Security baseline, InfraDeployRole, CloudTrail, etc. |
+| `E3SharedInfraStack` | Shared services | `--context shared=true` | Route53 hosted zone, cross-account access |
 
 ## Email Configuration
 
@@ -199,26 +207,57 @@ e3.elaraai.com (central hosted zone - shared services account)
 - Each deployment creates an A record pointing to its CloudFront distribution
 - The platform stack reads domain config from SSM parameters (zero-config per deployment)
 
-### One-Time Setup (Central Account)
+### One-Time Setup (Shared Services Account)
 
-These steps are performed once in the shared services account to set up the central DNS infrastructure.
+These steps are performed once to set up the central DNS infrastructure in the shared services account.
 
-> **TODO:** Create a `cdk/shared` project for this infrastructure, similar to elara-infra's shared terraform.
+#### 1. Configure Deployment Account IDs
 
-#### 1. Create the Hosted Zone
+After creating e3 accounts with `E3AccountsStack`, add their account IDs to `lib/accounts.ts`:
 
-```bash
-# In shared services account
-aws route53 create-hosted-zone \
-  --name e3.elaraai.com \
-  --caller-reference "e3-platform-$(date +%s)"
+```typescript
+export const sharedInfraConfig = {
+  baseDomain: 'e3.elaraai.com',
+  deploymentAccountIds: [
+    'xxxxxxxxxxxx',  // elara-dev-e3
+    'xxxxxxxxxxxx',  // elara-test-e3
+    'xxxxxxxxxxxx',  // elara-prod-e3
+  ],
+};
 ```
 
-Note the hosted zone ID and nameservers from the output.
+Get account IDs from the E3Accounts stack outputs:
 
-#### 2. Delegate from Parent Zone
+```bash
+aws cloudformation describe-stacks --stack-name E3Accounts \
+  --query 'Stacks[0].Outputs[?contains(OutputKey, `AccountId`)].OutputValue' \
+  --output text --region ap-southeast-2
+```
 
-Add NS records in the parent `elaraai.com` zone pointing to the new hosted zone's nameservers:
+#### 2. Deploy Shared Infrastructure
+
+```bash
+# Login to shared services account
+aws sso login --profile elaraai-prod-shared-services
+
+# Deploy the shared infrastructure stack
+cd cdk/accounts
+npm run build
+AWS_PROFILE=elaraai-prod-shared-services npm run deploy -- --context shared=true
+```
+
+This creates:
+- Route53 hosted zone for `e3.elaraai.com`
+- Cross-account IAM role (`E3-Route53-CrossAccount`) for deployment accounts
+- SSM parameters for the hosted zone ID and base domain
+
+Note the outputs:
+- **HostedZoneId** - Use this in deployment account domain config
+- **NameServers** - Add these to the parent zone
+
+#### 3. Delegate from Parent Zone
+
+Add NS records in the parent `elaraai.com` zone pointing to the nameservers from the stack output:
 
 ```
 e3.elaraai.com.  NS  ns-xxx.awsdns-xx.org.
@@ -227,78 +266,27 @@ e3.elaraai.com.  NS  ns-xxx.awsdns-xx.com.
 e3.elaraai.com.  NS  ns-xxx.awsdns-xx.net.
 ```
 
-#### 3. Create Wildcard Certificate
+#### 4. Create ACM Certificates (Per Deployment Account)
 
-Each deployment account needs its own ACM certificate. However, DNS validation requires access to the central hosted zone.
+Each deployment account needs its own ACM certificate in us-east-1 (for CloudFront):
 
-**Option A: Manual cert creation per account**
 ```bash
-# In each deployment account (us-east-1 for CloudFront)
+# In deployment account (e.g., elara-dev-e3)
+aws sso login --profile elaraai-dev-elara-e3
+
 aws acm request-certificate \
   --domain-name "*.e3.elaraai.com" \
+  --subject-alternative-names "e3.elaraai.com" \
   --validation-method DNS \
   --region us-east-1
 ```
 
-Then add the DNS validation records to the central hosted zone.
+Add the DNS validation CNAME to the central hosted zone (in shared services account), then wait:
 
-**Option B: Cross-account certificate validation (automated)**
-
-Grant deployment accounts permission to create validation records:
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [{
-    "Effect": "Allow",
-    "Principal": {"AWS": "arn:aws:iam::DEPLOYMENT_ACCOUNT:root"},
-    "Action": [
-      "route53:ChangeResourceRecordSets",
-      "route53:GetHostedZone"
-    ],
-    "Resource": "arn:aws:route53:::hostedzone/HOSTED_ZONE_ID",
-    "Condition": {
-      "ForAllValues:StringLike": {
-        "route53:ChangeResourceRecordSetsNormalizedRecordNames": [
-          "_acme-challenge.*.e3.elaraai.com",
-          "*.e3.elaraai.com"
-        ]
-      }
-    }
-  }]
-}
-```
-
-#### 4. Grant Cross-Account Route53 Access
-
-Deployment accounts need permission to create A records in the central zone. Add a resource policy to the hosted zone (via Route53 console or CLI):
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [{
-    "Sid": "AllowE3DeploymentAccounts",
-    "Effect": "Allow",
-    "Principal": {"AWS": [
-      "arn:aws:iam::DEV_ACCOUNT_ID:root",
-      "arn:aws:iam::TEST_ACCOUNT_ID:root",
-      "arn:aws:iam::PROD_ACCOUNT_ID:root"
-    ]},
-    "Action": [
-      "route53:ChangeResourceRecordSets",
-      "route53:GetHostedZone",
-      "route53:ListResourceRecordSets"
-    ],
-    "Resource": "arn:aws:route53:::hostedzone/HOSTED_ZONE_ID",
-    "Condition": {
-      "ForAllValues:StringLike": {
-        "route53:ChangeResourceRecordSetsNormalizedRecordNames": [
-          "*.e3.elaraai.com"
-        ]
-      }
-    }
-  }]
-}
+```bash
+aws acm wait certificate-validated \
+  --certificate-arn arn:aws:acm:us-east-1:ACCOUNT:certificate/CERT_ID \
+  --region us-east-1
 ```
 
 ### Per-Account Setup
