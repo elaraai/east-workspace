@@ -39,13 +39,12 @@ The following are derived automatically:
 ### 2. Deploy from Management Account
 
 ```bash
-# Login to management account via SSO
+# Login to management account via SSO (one-time per session)
 aws sso login --profile elaraai-prod-management-root
 
 # Deploy (creates accounts in AWS Organizations)
-cd organization
-npm install
-npm run build
+cd cdk/accounts
+npm install && npm run build
 AWS_PROFILE=elaraai-prod-management-root npm run deploy
 ```
 
@@ -55,24 +54,25 @@ After the account is created, bootstrap it to configure security baseline and In
 
 ```bash
 # Get the new account ID from the stack outputs
-NEW_ACCOUNT_ID=$(aws cloudformation describe-stacks --stack-name E3Accounts \
+NEW_ACCOUNT_ID=$(AWS_PROFILE=elaraai-prod-management-root aws cloudformation describe-stacks \
+  --stack-name E3Accounts \
   --query 'Stacks[0].Outputs[?contains(OutputKey, `elara-dev-e3-AccountId`)].OutputValue' \
   --output text --region ap-southeast-2)
 echo "New account ID: $NEW_ACCOUNT_ID"
 
 # Assume the OrganizationAccountAccessRole in the new account
-eval $(aws sts assume-role \
+eval $(AWS_PROFILE=elaraai-prod-management-root aws sts assume-role \
   --role-arn arn:aws:iam::${NEW_ACCOUNT_ID}:role/OrganizationAccountAccessRole \
   --role-session-name bootstrap \
   --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' \
   --output text | \
   awk '{print "export AWS_ACCESS_KEY_ID="$1" AWS_SECRET_ACCESS_KEY="$2" AWS_SESSION_TOKEN="$3}')
 
-# Bootstrap CDK in the new account (must specify account explicitly)
+# Bootstrap CDK in the new account
 npx cdk bootstrap aws://${NEW_ACCOUNT_ID}/ap-southeast-2
 
-# Deploy the bootstrap stack (security baseline, InfraDeployRole, etc.)
-npm run deploy -- --context bootstrapAccount=elara-dev-e3
+# Deploy the account stack (security baseline, InfraDeployRole, etc.)
+npm run deploy -- --context account=elara-dev-e3
 ```
 
 The bootstrap stack configures:
@@ -92,10 +92,10 @@ See [Domain Configuration](#domain-configuration) below for setting up custom do
 ### 5. Deploy e3 Platform to the Account
 
 ```bash
-# Clear the assumed role credentials
+# Clear the assumed role credentials from bootstrap
 unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
 
-# Add profile to ~/.aws/config (see AWS Profiles section), then:
+# Add profile to ~/.aws/config (see AWS Profiles section), then login:
 aws sso login --profile elaraai-dev-elara-e3
 
 # Deploy e3 platform
@@ -170,8 +170,10 @@ AWS_PROFILE=elaraai-dev-elara-e3 npm run deploy
 | Stack | Target Account | Context Flag | Purpose |
 |-------|----------------|--------------|---------|
 | `E3AccountsStack` | Management | (default) | Creates member accounts in AWS Organizations |
-| `E3AccountBootstrapStack` | Member account | `--context bootstrapAccount=NAME` | Security baseline, InfraDeployRole, CloudTrail, etc. |
+| `E3AccountBootstrapStack` | Member account | `--context account=NAME` | Security baseline, InfraDeployRole, CloudTrail, etc. |
 | `E3SharedInfraStack` | Shared services | `--context shared=true` | Route53 hosted zone, cross-account access |
+
+Note: The `--context account=NAME` deployment is idempotent - run it for initial setup or anytime you need to update account settings (domain config, security baseline, etc.).
 
 ## Email Configuration
 
@@ -229,7 +231,8 @@ export const sharedInfraConfig = {
 Get account IDs from the E3Accounts stack outputs:
 
 ```bash
-aws cloudformation describe-stacks --stack-name E3Accounts \
+AWS_PROFILE=elaraai-prod-management-root aws cloudformation describe-stacks \
+  --stack-name E3Accounts \
   --query 'Stacks[0].Outputs[?contains(OutputKey, `AccountId`)].OutputValue' \
   --output text --region ap-southeast-2
 ```
@@ -237,13 +240,13 @@ aws cloudformation describe-stacks --stack-name E3Accounts \
 #### 2. Deploy Shared Infrastructure
 
 ```bash
-# Login to shared services account
-aws sso login --profile elaraai-prod-shared-services
+# Login to shared services account (one-time per session)
+aws sso login --profile elaraai-prod-shared-services-core
 
 # Deploy the shared infrastructure stack
 cd cdk/accounts
 npm run build
-AWS_PROFILE=elaraai-prod-shared-services npm run deploy -- --context shared=true
+AWS_PROFILE=elaraai-prod-shared-services-core npm run deploy -- --context shared=true
 ```
 
 This creates:
@@ -255,26 +258,42 @@ Note the outputs:
 - **HostedZoneId** - Use this in deployment account domain config
 - **NameServers** - Add these to the parent zone
 
-#### 3. Delegate from Parent Zone
+#### 3. NS Delegation (Automatic)
 
-Add NS records in the parent `elaraai.com` zone pointing to the nameservers from the stack output:
+NS delegation from `elaraai.com` to `e3.elaraai.com` is handled automatically by the CDK stack.
 
+**Prerequisites:**
+1. First deploy `E3AccountsStack` to the management account - this creates the `E3-Route53-DelegationRole` that allows cross-account Route53 access
+2. Then deploy `E3SharedInfraStack` to shared services - this creates the hosted zone AND the NS delegation record
+
+The stack automatically:
+1. Creates the `e3.elaraai.com` hosted zone
+2. Assumes the cross-account role in management account
+3. Creates NS records in `elaraai.com` pointing to the new hosted zone's nameservers
+
+**Deployment order:**
+```bash
+# 1. Deploy to management account (creates delegation role)
+AWS_PROFILE=elaraai-prod-management-root npm run deploy
+
+# 2. Deploy to shared services (creates zone + NS delegation)
+AWS_PROFILE=elaraai-prod-shared-services-core npm run deploy -- --context shared=true
 ```
-e3.elaraai.com.  NS  ns-xxx.awsdns-xx.org.
-e3.elaraai.com.  NS  ns-xxx.awsdns-xx.co.uk.
-e3.elaraai.com.  NS  ns-xxx.awsdns-xx.com.
-e3.elaraai.com.  NS  ns-xxx.awsdns-xx.net.
-```
+
+The stack outputs will confirm:
+- `NSDelegationStatus`: Indicates the NS delegation was created automatically
+- `NameServers`: The nameservers (for reference)
 
 #### 4. Create ACM Certificates (Per Deployment Account)
 
 Each deployment account needs its own ACM certificate in us-east-1 (for CloudFront):
 
 ```bash
-# In deployment account (e.g., elara-dev-e3)
+# Login to deployment account (one-time per session)
 aws sso login --profile elaraai-dev-elara-e3
 
-aws acm request-certificate \
+# Request wildcard certificate
+AWS_PROFILE=elaraai-dev-elara-e3 aws acm request-certificate \
   --domain-name "*.e3.elaraai.com" \
   --subject-alternative-names "e3.elaraai.com" \
   --validation-method DNS \
@@ -284,7 +303,7 @@ aws acm request-certificate \
 Add the DNS validation CNAME to the central hosted zone (in shared services account), then wait:
 
 ```bash
-aws acm wait certificate-validated \
+AWS_PROFILE=elaraai-dev-elara-e3 aws acm wait certificate-validated \
   --certificate-arn arn:aws:acm:us-east-1:ACCOUNT:certificate/CERT_ID \
   --region us-east-1
 ```
@@ -298,20 +317,20 @@ After the central infrastructure exists, configure each deployment account:
 Request a wildcard certificate in us-east-1:
 
 ```bash
-# In deployment account
-aws acm request-certificate \
+# In deployment account (replace PROFILE with your account's profile)
+AWS_PROFILE=elaraai-dev-elara-e3 aws acm request-certificate \
   --domain-name "*.e3.elaraai.com" \
   --subject-alternative-names "e3.elaraai.com" \
   --validation-method DNS \
   --region us-east-1
 
-# Note the certificate ARN
+# Note the certificate ARN from output
 ```
 
 Add the DNS validation CNAME to the central hosted zone, then wait for validation:
 
 ```bash
-aws acm wait certificate-validated \
+AWS_PROFILE=elaraai-dev-elara-e3 aws acm wait certificate-validated \
   --certificate-arn arn:aws:acm:us-east-1:ACCOUNT:certificate/CERT_ID \
   --region us-east-1
 ```
@@ -337,7 +356,7 @@ Update `lib/accounts.ts` with the domain configuration:
 #### 3. Redeploy Bootstrap Stack
 
 ```bash
-npm run deploy -- --context bootstrapAccount=elara-dev-e3
+npm run deploy -- --context account=elara-dev-e3
 ```
 
 This creates SSM parameters that the platform stack reads:
@@ -412,8 +431,8 @@ This role is only assumable from the management account. Make sure you're logged
 
 Delete the failed stack and retry:
 ```bash
-aws cloudformation delete-stack --stack-name E3Accounts
-npm run deploy
+AWS_PROFILE=elaraai-prod-management-root aws cloudformation delete-stack --stack-name E3Accounts
+AWS_PROFILE=elaraai-prod-management-root npm run deploy
 ```
 
 ### "Client accounts only support 'prod' environment"

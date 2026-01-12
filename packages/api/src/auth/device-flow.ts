@@ -164,12 +164,19 @@ export function createDeviceFlowRoutes() {
       const callbackUrl = `${baseUrl}/oauth2/callback`;
 
       // Redirect to Cognito hosted UI with state=deviceCode
+      // If OIDC provider is configured, skip Cognito's login page and go directly to IdP
       const cognitoUrl = new URL(`https://${cognitoDomain}/oauth2/authorize`);
       cognitoUrl.searchParams.set('response_type', 'code');
       cognitoUrl.searchParams.set('client_id', clientId);
       cognitoUrl.searchParams.set('redirect_uri', callbackUrl);
       cognitoUrl.searchParams.set('scope', 'openid email profile');
       cognitoUrl.searchParams.set('state', deviceCode);
+
+      // Use OIDC identity provider if configured (e.g., EntraID)
+      const identityProvider = process.env.OIDC_PROVIDER_NAME;
+      if (identityProvider) {
+        cognitoUrl.searchParams.set('identity_provider', identityProvider);
+      }
 
       return c.redirect(cognitoUrl.toString());
     }

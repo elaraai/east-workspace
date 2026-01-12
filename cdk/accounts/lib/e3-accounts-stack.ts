@@ -136,9 +136,92 @@ exports.handler = async (event) => {
       permissionSetArns[psName] = lookup.getAttString('PermissionSetArn');
     }
 
-    // Create each account
+    // ========================================
+    // Organizational Unit for e3 Accounts
+    // ========================================
+    let e3OuId: string;
+
+    if (orgConfig.e3OuId) {
+      // Use existing OU (already created manually or by previous deployment)
+      e3OuId = orgConfig.e3OuId;
+
+      new cdk.CfnOutput(this, 'E3OrganizationalUnitId', {
+        value: e3OuId,
+        description: 'Organizational Unit ID for e3 accounts (pre-existing)',
+      });
+    } else {
+      // Create the e3 OU under the organization root
+      const e3Ou = new organizations.CfnOrganizationalUnit(this, 'E3OrganizationalUnit', {
+        name: 'e3',
+        parentId: orgConfig.rootId,
+        tags: [
+          { key: 'Application', value: 'e3' },
+          { key: 'ManagedBy', value: 'CDK' },
+          { key: 'Purpose', value: 'e3 cloud deployment accounts' },
+        ],
+      });
+      e3OuId = e3Ou.attrId;
+
+      // Output the OU ID for manual account moves
+      new cdk.CfnOutput(this, 'E3OrganizationalUnitId', {
+        value: e3Ou.attrId,
+        description: 'Organizational Unit ID for e3 accounts - use to move existing accounts',
+      });
+    }
+
+    // Create each account in the e3 OU
     for (const accountConfig of derivedAccounts) {
-      this.createAccount(accountConfig, ssoInstanceArn, identityStoreId, permissionSetArns);
+      this.createAccount(accountConfig, ssoInstanceArn, identityStoreId, permissionSetArns, e3OuId);
+    }
+
+    // ========================================
+    // Route53 Delegation Role
+    // ========================================
+    // This role allows the shared services account to create NS records
+    // in the root domain (elaraai.com) for delegating e3.elaraai.com.
+    if (orgConfig.rootDomain?.hostedZoneId) {
+      const route53DelegationRole = new iam.Role(this, 'Route53DelegationRole', {
+        roleName: 'E3-Route53-DelegationRole',
+        description: 'Allows shared services to create NS delegation records in root zone',
+        assumedBy: new iam.AccountPrincipal(orgConfig.sharedServicesAccountId),
+        maxSessionDuration: cdk.Duration.hours(1),
+      });
+
+      // Grant permission to create/modify NS records in the root zone
+      route53DelegationRole.addToPolicy(
+        new iam.PolicyStatement({
+          sid: 'AllowNSDelegation',
+          effect: iam.Effect.ALLOW,
+          actions: [
+            'route53:ChangeResourceRecordSets',
+            'route53:GetHostedZone',
+            'route53:ListResourceRecordSets',
+          ],
+          resources: [`arn:aws:route53:::hostedzone/${orgConfig.rootDomain.hostedZoneId}`],
+        })
+      );
+
+      // Allow listing hosted zones (needed for lookups)
+      route53DelegationRole.addToPolicy(
+        new iam.PolicyStatement({
+          sid: 'AllowRoute53List',
+          effect: iam.Effect.ALLOW,
+          actions: ['route53:ListHostedZones', 'route53:ListHostedZonesByName'],
+          resources: ['*'],
+        })
+      );
+
+      // Store role ARN in SSM for E3SharedInfraStack to reference
+      new ssm.StringParameter(this, 'Route53DelegationRoleArnParam', {
+        parameterName: '/e3/org/route53-delegation-role-arn',
+        stringValue: route53DelegationRole.roleArn,
+        description: 'IAM role ARN for creating NS delegation in root zone',
+      });
+
+      new cdk.CfnOutput(this, 'Route53DelegationRoleArn', {
+        value: route53DelegationRole.roleArn,
+        description: 'Role ARN for NS delegation in root zone',
+      });
     }
 
     // Output summary
@@ -157,16 +240,22 @@ exports.handler = async (event) => {
     config: DerivedAccountConfig,
     ssoInstanceArn: string,
     identityStoreId: string,
-    permissionSetArns: Record<string, string>
+    permissionSetArns: Record<string, string>,
+    parentOuId: string
   ): void {
-    const accountName = `e3-${config.name}`;
+    // Account name in AWS Organizations.
+    // Note: CloudFormation cannot rename existing accounts - only root user via console.
+    // If you rename an account manually, update this to match or CloudFormation will fail.
+    // Legacy accounts may have "e3-" prefix; new accounts use just the derived name.
+    const accountName = config.name;
     const roleName = getInfraDeployRoleName(config);
     const ssoGroupName = getSsoGroupName(config);
 
-    // Create the member account
+    // Create the member account in the e3 OU
     const account = new organizations.CfnAccount(this, `Account-${config.name}`, {
       accountName,
       email: config.email,
+      parentIds: [parentOuId],
       roleName: 'OrganizationAccountAccessRole', // Default AWS Organizations role
       tags: [
         { key: 'Application', value: 'e3' },
@@ -554,12 +643,13 @@ export class E3AccountBootstrapStack extends cdk.Stack {
     // Domain Configuration SSM Parameters
     // ========================================
     // These parameters enable zero-config domain setup in the e3 platform stack.
-    // The platform stack will automatically look up these values.
+    // The platform stack will automatically look up these values and create the
+    // ACM certificate during deployment.
     if (config.domain) {
       new ssm.StringParameter(this, 'DomainBaseDomain', {
         parameterName: '/e3/domain/base-domain',
         stringValue: config.domain.baseDomain,
-        description: 'Base domain for e3 platform (e.g., platform.elaraai.com)',
+        description: 'Base domain for e3 platform (e.g., e3.elaraai.com)',
       });
 
       new ssm.StringParameter(this, 'DomainHostedZoneId', {
@@ -568,11 +658,14 @@ export class E3AccountBootstrapStack extends cdk.Stack {
         description: 'Route53 hosted zone ID for the base domain',
       });
 
-      new ssm.StringParameter(this, 'DomainCertificateArn', {
-        parameterName: '/e3/domain/certificate-arn',
-        stringValue: config.domain.certificateArn,
-        description: 'ACM wildcard certificate ARN for CloudFront',
-      });
+      // Route53 role is optional - only needed for cross-account setups
+      if (config.domain.route53RoleArn) {
+        new ssm.StringParameter(this, 'DomainRoute53RoleArn', {
+          parameterName: '/e3/domain/route53-role-arn',
+          stringValue: config.domain.route53RoleArn,
+          description: 'IAM role ARN for cross-account Route53 access',
+        });
+      }
     }
 
     // Outputs
@@ -582,10 +675,22 @@ export class E3AccountBootstrapStack extends cdk.Stack {
     });
 
     if (config.domain) {
-      new cdk.CfnOutput(this, 'DomainBaseDomain', {
+      new cdk.CfnOutput(this, 'DomainBaseDomainOutput', {
         value: config.domain.baseDomain,
         description: 'Base domain for e3 platform',
       });
+
+      new cdk.CfnOutput(this, 'DomainHostedZoneIdOutput', {
+        value: config.domain.hostedZoneId,
+        description: 'Route53 hosted zone ID',
+      });
+
+      if (config.domain.route53RoleArn) {
+        new cdk.CfnOutput(this, 'DomainRoute53RoleArnOutput', {
+          value: config.domain.route53RoleArn,
+          description: 'Cross-account Route53 role ARN',
+        });
+      }
     }
   }
 }
@@ -683,6 +788,16 @@ export class E3SharedInfraStack extends cdk.Stack {
         })
       );
 
+      // Allow checking change status (needed for waiting on DNS propagation)
+      route53AccessRole.addToPolicy(
+        new iam.PolicyStatement({
+          sid: 'AllowRoute53GetChange',
+          effect: iam.Effect.ALLOW,
+          actions: ['route53:GetChange'],
+          resources: ['arn:aws:route53:::change/*'],
+        })
+      );
+
       // Allow listing hosted zones (needed for lookups)
       route53AccessRole.addToPolicy(
         new iam.PolicyStatement({
@@ -692,6 +807,140 @@ export class E3SharedInfraStack extends cdk.Stack {
           resources: ['*'],
         })
       );
+    }
+
+    // ========================================
+    // NS Delegation in Root Zone
+    // ========================================
+    // Create NS record in elaraai.com pointing to e3.elaraai.com nameservers.
+    // This uses cross-account role assumption to the management account.
+    if (orgConfig.rootDomain?.hostedZoneId) {
+      const delegationRoleArn = `arn:aws:iam::${orgConfig.managementAccountId}:role/E3-Route53-DelegationRole`;
+
+      // Custom resource to create NS delegation record
+      // Note: We use a Lambda because AwsCustomResource doesn't support cross-account role assumption
+      const nsDelegationFn = new lambda.Function(this, 'NSDelegationFunction', {
+        runtime: lambda.Runtime.NODEJS_20_X,
+        handler: 'index.handler',
+        timeout: cdk.Duration.seconds(60),
+        code: lambda.Code.fromInline(`
+const { STSClient, AssumeRoleCommand } = require('@aws-sdk/client-sts');
+const { Route53Client, ChangeResourceRecordSetsCommand, ListResourceRecordSetsCommand } = require('@aws-sdk/client-route-53');
+
+exports.handler = async (event) => {
+  console.log('Event:', JSON.stringify(event, null, 2));
+
+  const { RoleArn, HostedZoneId, SubdomainName, NameServers } = event.ResourceProperties;
+  const requestType = event.RequestType;
+
+  // Assume cross-account role
+  const stsClient = new STSClient({});
+  const assumeRoleResponse = await stsClient.send(new AssumeRoleCommand({
+    RoleArn,
+    RoleSessionName: 'E3NSDelegation',
+    DurationSeconds: 900,
+  }));
+
+  const route53Client = new Route53Client({
+    credentials: {
+      accessKeyId: assumeRoleResponse.Credentials.AccessKeyId,
+      secretAccessKey: assumeRoleResponse.Credentials.SecretAccessKey,
+      sessionToken: assumeRoleResponse.Credentials.SessionToken,
+    },
+  });
+
+  const nsRecords = NameServers.map(ns => ({ Value: ns }));
+
+  if (requestType === 'Delete') {
+    // Check if record exists before trying to delete
+    try {
+      const listResult = await route53Client.send(new ListResourceRecordSetsCommand({
+        HostedZoneId,
+        StartRecordName: SubdomainName,
+        StartRecordType: 'NS',
+        MaxItems: '1',
+      }));
+
+      const existingRecord = listResult.ResourceRecordSets?.find(
+        r => r.Name === SubdomainName + '.' && r.Type === 'NS'
+      );
+
+      if (existingRecord) {
+        await route53Client.send(new ChangeResourceRecordSetsCommand({
+          HostedZoneId,
+          ChangeBatch: {
+            Changes: [{
+              Action: 'DELETE',
+              ResourceRecordSet: {
+                Name: SubdomainName,
+                Type: 'NS',
+                TTL: existingRecord.TTL,
+                ResourceRecords: existingRecord.ResourceRecords,
+              },
+            }],
+          },
+        }));
+        console.log('Deleted NS record');
+      }
+    } catch (err) {
+      console.log('Error during delete (may be ok if record does not exist):', err.message);
+    }
+  } else {
+    // Create or Update
+    await route53Client.send(new ChangeResourceRecordSetsCommand({
+      HostedZoneId,
+      ChangeBatch: {
+        Comment: 'NS delegation for e3 platform subdomain',
+        Changes: [{
+          Action: 'UPSERT',
+          ResourceRecordSet: {
+            Name: SubdomainName,
+            Type: 'NS',
+            TTL: 300,
+            ResourceRecords: nsRecords,
+          },
+        }],
+      },
+    }));
+    console.log('Created/Updated NS record');
+  }
+
+  return {
+    PhysicalResourceId: \`ns-delegation-\${SubdomainName}\`,
+    Data: {
+      SubdomainName,
+      HostedZoneId,
+    },
+  };
+};
+        `),
+      });
+
+      // Grant STS AssumeRole permission
+      nsDelegationFn.addToRolePolicy(
+        new iam.PolicyStatement({
+          actions: ['sts:AssumeRole'],
+          resources: [delegationRoleArn],
+        })
+      );
+
+      const nsDelegationProvider = new cr.Provider(this, 'NSDelegationProvider', {
+        onEventHandler: nsDelegationFn,
+      });
+
+      // Create the NS delegation record
+      const nsDelegation = new cdk.CustomResource(this, 'NSDelegation', {
+        serviceToken: nsDelegationProvider.serviceToken,
+        properties: {
+          RoleArn: delegationRoleArn,
+          HostedZoneId: orgConfig.rootDomain.hostedZoneId,
+          SubdomainName: config.baseDomain,
+          NameServers: this.hostedZone.hostedZoneNameServers ?? [],
+        },
+      });
+
+      // Ensure hosted zone exists before creating delegation
+      nsDelegation.node.addDependency(this.hostedZone);
     }
 
     // ========================================
@@ -750,9 +999,16 @@ export class E3SharedInfraStack extends cdk.Stack {
     }
 
     // Instructions output
-    new cdk.CfnOutput(this, 'NextSteps', {
-      value: `Add NS records for ${config.baseDomain} to parent zone pointing to the nameservers above`,
-      description: 'Next steps after deployment',
-    });
+    if (orgConfig.rootDomain?.hostedZoneId) {
+      new cdk.CfnOutput(this, 'NSDelegationStatus', {
+        value: `NS delegation for ${config.baseDomain} created automatically in ${orgConfig.rootDomain.domain}`,
+        description: 'NS delegation status',
+      });
+    } else {
+      new cdk.CfnOutput(this, 'NextSteps', {
+        value: `Add NS records for ${config.baseDomain} to parent zone pointing to the nameservers above`,
+        description: 'Next steps after deployment',
+      });
+    }
   }
 }

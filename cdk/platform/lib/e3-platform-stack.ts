@@ -33,6 +33,8 @@ import * as route53Targets from 'aws-cdk-lib/aws-route53-targets';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import { Construct } from 'constructs';
+import { CrossRegionCertificate } from './cross-region-certificate.js';
+import { CrossAccountRoute53Record } from './cross-account-route53-record.js';
 
 /**
  * SSM parameter paths for optional OIDC identity provider configuration.
@@ -51,37 +53,43 @@ const SSM_OIDC_SECRET_ARN = `${SSM_OIDC_PREFIX}/client-secret-arn`;  // ARN to S
  * If these parameters exist, the stack will automatically configure
  * a custom domain: {deploymentId}.{baseDomain}
  *
- * For Elara accounts, these are pre-configured.
+ * For Elara accounts, these are pre-configured by E3AccountBootstrapStack.
  * For client deployments, pass domain config via props instead.
  */
 const SSM_DOMAIN_PREFIX = '/e3/domain';
-const SSM_DOMAIN_BASE = `${SSM_DOMAIN_PREFIX}/base-domain`;        // e.g., 'platform.elaraai.com'
+const SSM_DOMAIN_BASE = `${SSM_DOMAIN_PREFIX}/base-domain`;        // e.g., 'e3.elaraai.com'
 const SSM_DOMAIN_HOSTED_ZONE_ID = `${SSM_DOMAIN_PREFIX}/hosted-zone-id`;
-const SSM_DOMAIN_CERTIFICATE_ARN = `${SSM_DOMAIN_PREFIX}/certificate-arn`;  // Wildcard cert for *.baseDomain
+const SSM_DOMAIN_ROUTE53_ROLE_ARN = `${SSM_DOMAIN_PREFIX}/route53-role-arn`; // Optional cross-account role
 
 /**
  * Domain configuration for custom domain setup.
- * If not provided, the stack will attempt to read from SSM parameters.
- * If SSM parameters are not found, CloudFront's default domain is used.
+ *
+ * The ACM certificate is created automatically during deployment.
+ * For cross-account hosted zones (e.g., Elara's shared services setup),
+ * provide the route53RoleArn to allow DNS validation record creation.
  */
 export interface DomainConfig {
   /**
-   * Base domain for this account (e.g., "platform.elaraai.com").
+   * Base domain for this deployment (e.g., "e3.elaraai.com").
    * The deployment will be accessible at {deploymentId}.{baseDomain}
+   * (e.g., dev.e3.elaraai.com, prod.e3.elaraai.com)
    */
   baseDomain: string;
 
   /**
    * Route53 Hosted Zone ID for the base domain.
-   * Used to create the subdomain DNS record.
+   * Used to create the subdomain DNS record and certificate validation.
    */
   hostedZoneId: string;
 
   /**
-   * ACM certificate ARN. Should be a wildcard cert for *.{baseDomain}.
-   * Must be in us-east-1 region for CloudFront.
+   * Optional: IAM role ARN to assume for cross-account Route53 access.
+   * Required when the hosted zone is in a different AWS account.
+   *
+   * For Elara deployments: This is the E3-Route53-CrossAccount role in shared services.
+   * For client self-hosted: Leave undefined if hosted zone is in the same account.
    */
-  certificateArn: string;
+  route53RoleArn?: string;
 }
 
 export interface E3PlatformStackProps extends cdk.StackProps {
@@ -157,17 +165,44 @@ export class E3PlatformStack extends cdk.Stack {
 
       // SSM lookup returns 'dummy-value-for-...' during synthesis if not found
       if (ssmBaseDomain && !ssmBaseDomain.startsWith('dummy-value-for-')) {
+        const ssmHostedZoneId = ssm.StringParameter.valueFromLookup(this, SSM_DOMAIN_HOSTED_ZONE_ID);
+        // Route53 role is optional - only needed for cross-account setups
+        let ssmRoute53RoleArn: string | undefined;
+        try {
+          const roleArn = ssm.StringParameter.valueFromLookup(this, SSM_DOMAIN_ROUTE53_ROLE_ARN);
+          if (roleArn && !roleArn.startsWith('dummy-value-for-')) {
+            ssmRoute53RoleArn = roleArn;
+          }
+        } catch {
+          // Parameter doesn't exist - that's fine for same-account setups
+        }
+
         domainConfig = {
           baseDomain: ssmBaseDomain,
-          hostedZoneId: ssm.StringParameter.valueFromLookup(this, SSM_DOMAIN_HOSTED_ZONE_ID),
-          certificateArn: ssm.StringParameter.valueFromLookup(this, SSM_DOMAIN_CERTIFICATE_ARN),
+          hostedZoneId: ssmHostedZoneId,
+          route53RoleArn: ssmRoute53RoleArn,
         };
       }
     }
 
     // Compute the full domain name if configured
-    // Format: {deploymentId}.{baseDomain} (e.g., dev.platform.elaraai.com)
+    // Format: {deploymentId}.{baseDomain} (e.g., dev.e3.elaraai.com)
     const customDomainName = domainConfig ? `${deploymentId}.${domainConfig.baseDomain}` : undefined;
+
+    // Create ACM certificate if domain is configured
+    // Certificate is created in us-east-1 (required for CloudFront)
+    let certificate: acm.ICertificate | undefined;
+    if (domainConfig && customDomainName) {
+      const cert = new CrossRegionCertificate(this, 'DomainCertificate', {
+        domainName: customDomainName,
+        hostedZoneId: domainConfig.hostedZoneId,
+        hostedZoneName: domainConfig.baseDomain,
+        route53RoleArn: domainConfig.route53RoleArn,
+        removalPolicy: cdk.RemovalPolicy.DESTROY,
+      });
+
+      certificate = acm.Certificate.fromCertificateArn(this, 'Certificate', cert.certificateArn);
+    }
 
     // Merge default origins with custom ones
     const defaultOrigins = ['http://localhost:5173'];
@@ -249,33 +284,6 @@ export class E3PlatformStack extends cdk.Stack {
     });
     this.userPool = userPool;
 
-    const userPoolClient = new cognito.UserPoolClient(this, 'UserPoolClient', {
-      userPool,
-      userPoolClientName: `${prefix}-web-client`,
-      authFlows: { userSrp: true },
-      oAuth: {
-        flows: { authorizationCodeGrant: true },
-        scopes: [
-          cognito.OAuthScope.OPENID,
-          cognito.OAuthScope.EMAIL,
-          cognito.OAuthScope.PROFILE,
-        ],
-        callbackUrls,
-        logoutUrls,
-      },
-      generateSecret: false,
-      preventUserExistenceErrors: true,
-    });
-    this.userPoolClient = userPoolClient;
-
-    // Cognito hosted UI domain (required for OAuth flows)
-    // Uses Cognito-provided domain: {prefix}.auth.{region}.amazoncognito.com
-    const cognitoDomain = userPool.addDomain('CognitoDomain', {
-      cognitoDomain: {
-        domainPrefix: prefix, // e.g., e3-elara-dev-e3
-      },
-    });
-
     // ============================================================
     // OPTIONAL: OIDC IDENTITY PROVIDER (from SSM parameters)
     // ============================================================
@@ -314,7 +322,8 @@ export class E3PlatformStack extends cdk.Stack {
       }
     }
 
-    // Configure OIDC provider if enabled and we have real values
+    // Create OIDC provider if enabled (must be created before the User Pool Client)
+    let oidcProvider: cognito.UserPoolIdentityProviderOidc | undefined;
     if (isOidcEnabled && oidcClientId && !oidcClientId.startsWith('dummy-value-for-')) {
       const clientSecret = secretsmanager.Secret.fromSecretCompleteArn(
         this,
@@ -322,7 +331,7 @@ export class E3PlatformStack extends cdk.Stack {
         oidcSecretArn
       );
 
-      const oidcProvider = new cognito.UserPoolIdentityProviderOidc(this, 'OidcProvider', {
+      oidcProvider = new cognito.UserPoolIdentityProviderOidc(this, 'OidcProvider', {
         userPool,
         name: oidcProviderName,
         clientId: oidcClientId,
@@ -337,14 +346,54 @@ export class E3PlatformStack extends cdk.Stack {
         },
       });
 
-      // Ensure the provider is created before the client references it
-      userPoolClient.node.addDependency(oidcProvider);
-
       new cdk.CfnOutput(this, 'OidcProviderName', {
         value: oidcProviderName,
         description: 'Configured OIDC identity provider name',
       });
     }
+
+    // Build list of supported identity providers for the User Pool Client
+    const supportedIdentityProviders: cognito.UserPoolClientIdentityProvider[] = [
+      cognito.UserPoolClientIdentityProvider.COGNITO,
+    ];
+    if (oidcProvider) {
+      supportedIdentityProviders.push(
+        cognito.UserPoolClientIdentityProvider.custom(oidcProviderName)
+      );
+    }
+
+    const userPoolClient = new cognito.UserPoolClient(this, 'UserPoolClient', {
+      userPool,
+      userPoolClientName: `${prefix}-web-client`,
+      authFlows: { userSrp: true },
+      oAuth: {
+        flows: { authorizationCodeGrant: true },
+        scopes: [
+          cognito.OAuthScope.OPENID,
+          cognito.OAuthScope.EMAIL,
+          cognito.OAuthScope.PROFILE,
+        ],
+        callbackUrls,
+        logoutUrls,
+      },
+      supportedIdentityProviders,
+      generateSecret: false,
+      preventUserExistenceErrors: true,
+    });
+    this.userPoolClient = userPoolClient;
+
+    // Ensure the provider is created before the client references it
+    if (oidcProvider) {
+      userPoolClient.node.addDependency(oidcProvider);
+    }
+
+    // Cognito hosted UI domain (required for OAuth flows)
+    // Uses Cognito-provided domain: {prefix}.auth.{region}.amazoncognito.com
+    const cognitoDomain = userPool.addDomain('CognitoDomain', {
+      cognitoDomain: {
+        domainPrefix: prefix, // e.g., e3-elara-dev-e3
+      },
+    });
 
     // ============================================================
     // API
@@ -370,8 +419,9 @@ export class E3PlatformStack extends cdk.Stack {
       bundling: {
         minify: true,
         sourceMap: true,
-        externalModules: [],
         format: nodejs.OutputFormat.ESM,
+        // Shim require() for CJS dependencies using Node.js builtins
+        banner: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
       },
       timeout: cdk.Duration.seconds(30),
       memorySize: 1024,
@@ -384,6 +434,8 @@ export class E3PlatformStack extends cdk.Stack {
         COGNITO_DOMAIN: cognitoDomainUrl,
         COGNITO_ISSUER: cognitoIssuer,
         COGNITO_CLIENT_ID: userPoolClient.userPoolClientId,
+        // OIDC provider name (if configured) - used to skip Cognito login page
+        ...(isOidcEnabled && oidcProviderName ? { OIDC_PROVIDER_NAME: oidcProviderName } : {}),
         // Base URL for the platform (used for device flow callbacks)
         // If custom domain is configured, use it; otherwise Lambda determines from request headers
         ...(customDomainName ? { BASE_URL: `https://${customDomainName}` } : {}),
@@ -557,11 +609,6 @@ export class E3PlatformStack extends cdk.Stack {
       protocolPolicy: cloudfront.OriginProtocolPolicy.HTTPS_ONLY,
     });
 
-    // Prepare domain configuration for CloudFront
-    const certificate = domainConfig
-      ? acm.Certificate.fromCertificateArn(this, 'Certificate', domainConfig.certificateArn)
-      : undefined;
-
     this.distribution = new cloudfront.Distribution(this, 'Distribution', {
       comment: `e3 Platform - ${deploymentId}`,
 
@@ -647,18 +694,33 @@ export class E3PlatformStack extends cdk.Stack {
 
     // Create Route53 record if domain is configured
     if (domainConfig && customDomainName) {
-      const hostedZone = route53.HostedZone.fromHostedZoneAttributes(this, 'HostedZone', {
-        hostedZoneId: domainConfig.hostedZoneId,
-        zoneName: domainConfig.baseDomain,
-      });
+      // CloudFront's hosted zone ID (constant for all CloudFront distributions)
+      const cloudfrontHostedZoneId = 'Z2FDTNDATAQYW2';
 
-      new route53.ARecord(this, 'DomainRecord', {
-        zone: hostedZone,
-        recordName: deploymentId, // Creates {deploymentId}.{baseDomain}
-        target: route53.RecordTarget.fromAlias(
-          new route53Targets.CloudFrontTarget(this.distribution)
-        ),
-      });
+      if (domainConfig.route53RoleArn) {
+        // Cross-account: use custom resource with role assumption
+        new CrossAccountRoute53Record(this, 'DomainRecord', {
+          recordName: customDomainName,
+          hostedZoneId: domainConfig.hostedZoneId,
+          aliasTarget: this.distribution.distributionDomainName,
+          aliasHostedZoneId: cloudfrontHostedZoneId,
+          route53RoleArn: domainConfig.route53RoleArn,
+        });
+      } else {
+        // Same account: use standard CDK construct
+        const hostedZone = route53.HostedZone.fromHostedZoneAttributes(this, 'HostedZone', {
+          hostedZoneId: domainConfig.hostedZoneId,
+          zoneName: domainConfig.baseDomain,
+        });
+
+        new route53.ARecord(this, 'DomainARecord', {
+          zone: hostedZone,
+          recordName: deploymentId, // Creates {deploymentId}.{baseDomain}
+          target: route53.RecordTarget.fromAlias(
+            new route53Targets.CloudFrontTarget(this.distribution)
+          ),
+        });
+      }
 
       this.domainName = customDomainName;
       this.platformUrl = `https://${customDomainName}`;

@@ -11,10 +11,10 @@
  *   aws sso login --profile management
  *   npm run deploy
  *
- *   # Bootstrap a new account (run after account creation)
- *   aws sso login --profile management
- *   # Assume OrganizationAccountAccessRole in new account, then:
- *   npm run deploy -- --context bootstrapAccount=elara-dev-e3
+ *   # Deploy to a specific member account (initial setup or updates)
+ *   # First time: assume OrganizationAccountAccessRole
+ *   # After SSO configured: use SSO profile
+ *   npm run deploy -- --context account=elara-dev-e3
  *
  *   # Deploy shared infrastructure (Route53 hosted zone, cross-account access)
  *   aws sso login --profile shared-services
@@ -28,7 +28,7 @@ import { derivedAccounts, orgConfig, sharedInfraConfig } from '../lib/accounts.j
 const app = new cdk.App();
 
 // Check context flags
-const bootstrapAccount = app.node.tryGetContext('bootstrapAccount');
+const targetAccount = app.node.tryGetContext('account');
 const deployShared = app.node.tryGetContext('shared');
 
 if (deployShared) {
@@ -46,26 +46,28 @@ if (deployShared) {
       ManagedBy: 'CDK',
     },
   });
-} else if (bootstrapAccount) {
-  // Bootstrap mode: Deploy to a specific member account
-  const accountConfig = derivedAccounts.find((a) => a.name === bootstrapAccount);
+} else if (targetAccount) {
+  // Account mode: Deploy to a specific member account
+  // This is idempotent - run for initial setup or to update settings
+  const accountConfig = derivedAccounts.find((a) => a.name === targetAccount);
 
   if (!accountConfig) {
     throw new Error(
-      `Account '${bootstrapAccount}' not found in accounts.ts. ` +
+      `Account '${targetAccount}' not found in accounts.ts. ` +
       `Available accounts: ${derivedAccounts.map((a) => a.name).join(', ')}`
     );
   }
 
   // This stack is deployed TO the member account
-  // Requires assuming OrganizationAccountAccessRole first
-  new E3AccountBootstrapStack(app, `E3Bootstrap-${bootstrapAccount}`, {
+  // First time: assume OrganizationAccountAccessRole
+  // After SSO configured: use SSO profile for the account
+  new E3AccountBootstrapStack(app, `E3Account-${targetAccount}`, {
     env: {
       region: orgConfig.region,
-      // Account is determined by current credentials (assumed role)
+      // Account is determined by current credentials (assumed role or SSO)
     },
     config: accountConfig,
-    description: `Bootstrap stack for e3 account: ${bootstrapAccount}`,
+    description: `Account configuration for e3 deployment: ${targetAccount}`,
     tags: {
       Application: 'e3',
       Environment: accountConfig.environment,

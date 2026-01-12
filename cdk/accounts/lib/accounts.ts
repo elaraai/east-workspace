@@ -11,30 +11,29 @@
 /**
  * Domain configuration for e3 platform deployments.
  *
- * Prerequisites:
- * - Route53 hosted zone must exist for the base domain
- * - ACM wildcard certificate must exist (e.g., *.platform.elaraai.com)
- * - Certificate must be in the same region as the CloudFront distribution (us-east-1 for global)
+ * The ACM certificate is created automatically by the platform stack.
+ * Only the hosted zone information and cross-account role are needed here.
  */
 export interface DomainConfig {
   /**
    * Base domain for e3 platform deployments.
    * Subdomains will be created as {deploymentId}.{baseDomain}.
-   * Example: 'platform.elaraai.com' → 'dev.platform.elaraai.com'
+   * Example: 'e3.elaraai.com' → 'dev.e3.elaraai.com'
    */
   baseDomain: string;
 
   /**
    * Route53 hosted zone ID for the base domain.
+   * For Elara: This is the shared services hosted zone (e3.elaraai.com).
    */
   hostedZoneId: string;
 
   /**
-   * ARN of the ACM wildcard certificate.
-   * Must cover *.{baseDomain} (e.g., *.platform.elaraai.com).
-   * Must be in us-east-1 for CloudFront.
+   * Optional: IAM role ARN to assume for cross-account Route53 access.
+   * Required when the hosted zone is in a different account than the deployment.
+   * For Elara: This is the E3-Route53-CrossAccount role in shared services.
    */
-  certificateArn: string;
+  route53RoleArn?: string;
 }
 
 export interface AccountConfig {
@@ -242,6 +241,37 @@ export const orgConfig = {
    * Shared services account ID (for cross-account automation).
    */
   sharedServicesAccountId: '064741130885',
+
+  /**
+   * Organization root ID.
+   * Find with: aws organizations list-roots --query 'Roots[0].Id'
+   */
+  rootId: 'r-7q9n',
+
+  /**
+   * Organizational Unit ID for e3 accounts.
+   * If set, uses existing OU. If undefined, creates a new "e3" OU.
+   * Find with: aws organizations list-organizational-units-for-parent --parent-id r-7q9n
+   */
+  e3OuId: 'ou-7q9n-vdll74n9',
+
+  /**
+   * Root domain hosted zone configuration.
+   * The elaraai.com zone is in the management account.
+   * Used for NS delegation to e3.elaraai.com.
+   */
+  rootDomain: {
+    /**
+     * The root domain name.
+     */
+    domain: 'elaraai.com',
+
+    /**
+     * Route53 hosted zone ID for elaraai.com in the management account.
+     * Find with: aws route53 list-hosted-zones-by-name --dns-name elaraai.com --query 'HostedZones[0].Id'
+     */
+    hostedZoneId: 'Z03944413S71PZFFXXBES',
+  },
 };
 
 /**
@@ -268,7 +298,7 @@ export const sharedInfraConfig = {
    */
   deploymentAccountIds: [
     // Add account IDs here after they are created:
-    // 'xxxxxxxxxxxx',  // elara-dev-e3
+    '925445553972',  // elara-dev-e3
     // 'xxxxxxxxxxxx',  // elara-test-e3
     // 'xxxxxxxxxxxx',  // elara-prod-e3
   ] as string[],

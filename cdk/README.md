@@ -6,8 +6,8 @@ AWS CDK projects for e3 cloud platform infrastructure.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                         AWS Organization                                     │
-│                                                                              │
+│                         AWS Organization                                    │
+│                                                                             │
 │  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────────────┐   │
 │  │   Management     │  │ Shared Services  │  │   Deployment Accounts    │   │
 │  │   Account        │  │    Account       │  │                          │   │
@@ -25,7 +25,7 @@ AWS CDK projects for e3 cloud platform infrastructure.
 │  │                  │  │                  │  │  │  E3Platform      │    │   │
 │  │                  │  │                  │  │  └──────────────────┘    │   │
 │  └──────────────────┘  └──────────────────┘  └──────────────────────────┘   │
-│                                                                              │
+│                                                                             │
 │  cdk/accounts ─────────────────────────────► cdk/platform                   │
 │  (organization-level)                        (per-deployment)               │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -60,34 +60,23 @@ e3.elaraai.com (shared services account)
 
 ## Deployment Workflow
 
-### Initial Setup (One-Time)
+### Initial Setup (new accounts, infrastructure changes)
 
-```bash
-# 1. Create member accounts (management account)
-cd cdk/accounts
-aws sso login --profile management
-npm run deploy
+1. **Create member accounts** → Deploy `E3AccountsStack` from management account
+2. **Deploy shared infrastructure** → Deploy `E3SharedInfraStack` from shared services account
+3. **Bootstrap each deployment account** → Deploy `E3AccountBootstrapStack` to member account
 
-# 2. Deploy shared infrastructure (shared services account)
-# First: add account IDs to sharedInfraConfig in lib/accounts.ts
-aws sso login --profile shared-services
-npm run deploy -- --context shared=true
-# Then: add NS records to parent zone (elaraai.com)
-
-# 3. Bootstrap each deployment account
-aws sso login --profile management
-# Assume OrganizationAccountAccessRole, then:
-npm run deploy -- --context bootstrapAccount=elara-dev-e3
-```
+See [accounts/README.md](accounts/README.md) for detailed step-by-step instructions.
 
 ### Deploy e3 Platform
 
 ```bash
-# Per deployment account
 cd cdk/platform
 aws sso login --profile elaraai-dev-elara-e3
-npm run deploy -- --context deploymentId=dev
+AWS_PROFILE=elaraai-dev-elara-e3 npm run deploy -- --context deploymentId=dev
 ```
+
+See [platform/README.md](platform/README.md) for detailed instructions.
 
 ## Project Details
 
@@ -149,7 +138,7 @@ E3SharedInfraStack                    (subdomain in shared zone)
 | Context | Purpose |
 |---------|---------|
 | (none) | Deploy E3AccountsStack to management account |
-| `--context bootstrapAccount=NAME` | Deploy E3AccountBootstrapStack to member account |
+| `--context account=NAME` | Deploy E3AccountBootstrapStack to member account (idempotent) |
 | `--context shared=true` | Deploy E3SharedInfraStack to shared services |
 
 ### cdk/platform

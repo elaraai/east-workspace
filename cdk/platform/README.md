@@ -117,17 +117,26 @@ For development environments or accounts where you want consistent SSO across al
 
 Follow the manual steps below (Option A, Step 1) to create an Azure AD App Registration.
 
-#### Step 2: Store Client Secret in Secrets Manager
+#### Step 2: Store Client Secret in AWS Secrets Manager
+
+Store the client secret from Step 1.7 in AWS Secrets Manager. Include the Entra Secret ID
+in the description for easier tracking when rotating secrets later.
 
 ```bash
-# Store the client secret (from App Registration)
 aws secretsmanager create-secret \
   --name /e3/auth/oidc/client-secret \
-  --secret-string "your-client-secret-here" \
+  --description "Entra ID client secret for {account-name} (Secret ID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)" \
+  --secret-string "your-client-secret-value-here" \
   --region ap-southeast-2
 ```
 
-Note the ARN from the output (e.g., `arn:aws:secretsmanager:ap-southeast-2:123456789:secret:/e3/auth/oidc/client-secret-AbCdEf`).
+Note the **ARN** from the output - you'll need it for the next step:
+```json
+{
+    "ARN": "arn:aws:secretsmanager:ap-southeast-2:123456789:secret:/e3/auth/oidc/client-secret-AbCdEf",
+    "Name": "/e3/auth/oidc/client-secret"
+}
+```
 
 #### Step 3: Configure SSM Parameters
 
@@ -204,34 +213,52 @@ Use this for organizations using Microsoft 365 / Azure AD.
 2. Navigate to **Applications → App registrations → New registration**
 
 3. Configure the registration:
-   - **Name**: `e3 Platform` (or `e3 Platform - {client name}` for clients)
+   - **Name**: `{account-name}` (e.g., `elara-dev-e3`)
    - **Supported account types**:
      - For single org: "Accounts in this organizational directory only"
-     - For multi-tenant: "Accounts in any organizational directory"
-   - **Redirect URI**:
-     - Platform: `Web`
-     - URI: `https://{cognito-domain}.auth.{region}.amazoncognito.com/oauth2/idpresponse`
-
-     The Cognito domain is output as `CognitoDomain` from the CDK stack, e.g.:
-     ```
-     https://e3-elara-dev-e3.auth.ap-southeast-2.amazoncognito.com/oauth2/idpresponse
-     ```
+     - For multi-tenant: "Accounts in any organizational directory" (or "Multiple organizations")
+   - **Redirect URI**: Leave blank for now (we'll add it in step 6)
 
 4. Click **Register**
 
-5. Note the **Application (client) ID** and **Directory (tenant) ID** from the Overview page
+5. Note these values from the **Overview** page:
+   - **Application (client) ID** - e.g., `ecd3a920-ef9a-495c-b1ef-f5c8ce71304a`
+   - **Directory (tenant) ID** - e.g., `f6e3d4a6-dd46-4950-ba59-d96255494980`
 
-6. Create a client secret:
+6. Configure **Authentication** settings:
+   - Go to **Authentication → Add a platform → Web**
+   - **Redirect URI**: `https://{cognito-domain}.auth.{region}.amazoncognito.com/oauth2/idpresponse`
+
+     The Cognito domain follows the pattern `e3-{deploymentId}`, e.g.:
+     ```
+     https://e3-dev.auth.ap-southeast-2.amazoncognito.com/oauth2/idpresponse
+     ```
+   - **Front-channel logout URL** (optional but recommended):
+     ```
+     https://e3-dev.auth.ap-southeast-2.amazoncognito.com/logout
+     ```
+   - Under **Implicit grant and hybrid flows**, check: ☑️ **ID tokens**
+   - Click **Configure**
+
+7. Create a **client secret**:
    - Go to **Certificates & secrets → Client secrets → New client secret**
-   - Description: `e3 Platform Cognito`
-   - Expiry: Choose appropriate (e.g., 24 months)
+   - **Description**: `e3-cognito-integration`
+   - **Expiry**: 24 months (or your preference)
    - Click **Add**
-   - **Copy the Value immediately** (you won't see it again)
+   - **Copy the Value immediately** (it won't be shown again)
+   - Also note the **Secret ID** (useful for tracking when rotating secrets)
 
-7. Configure token claims (optional but recommended):
+8. Configure **token claims**:
    - Go to **Token configuration → Add optional claim**
-   - Token type: `ID`
-   - Claims: `email`, `given_name`, `family_name`
+   - Token type: **ID**
+   - Select claims: `email`, `given_name`, `family_name`
+   - Click **Add**
+   - When prompted "Turn on the Microsoft Graph email, profile permission?", click **Add**
+
+9. Verify **API permissions**:
+   - Go to **API permissions**
+   - Ensure these delegated permissions are present: `email`, `profile`, `User.Read`
+   - (The `openid` scope is implicit in OIDC flows)
 
 #### Step 2: Configure Cognito Identity Provider
 

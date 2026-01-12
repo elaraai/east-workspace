@@ -9,12 +9,12 @@
     "build": "tsc --build",
     "watch": "tsc --build --watch",
     "cdk": "cdk",
-    "synth": "cdk synth",
-    "diff": "cdk diff",
-    "deploy": "cdk deploy",
-    "deploy:prod": "cdk deploy --context deploymentId=prod --context callbackUrls='[\"https://platform.elaraai.com/callback\"]' --context allowedOrigins='[\"https://platform.elaraai.com\"]'",
-    "destroy": "cdk destroy",
-    "outputs": "aws cloudformation describe-stacks --query 'Stacks[0].Outputs' --output table",
+    "deploy:list": "npx tsx scripts/deploy.ts list",
+    "deploy:info": "npx tsx scripts/deploy.ts info",
+    "deploy:synth": "npx tsx scripts/deploy.ts synth",
+    "deploy:diff": "npx tsx scripts/deploy.ts diff",
+    "deploy:run": "npx tsx scripts/deploy.ts deploy",
+    "deploy:destroy": "npx tsx scripts/deploy.ts destroy",
     "test:integration": "vitest run",
     "test:integration:watch": "vitest"
   },
@@ -31,6 +31,7 @@
     "@types/node": "^22.0.0",
     "aws-cdk": "^2.1100.3",
     "esbuild": "^0.27.0",
+    "tsx": "^4.21.0",
     "typescript": "~5.9.2",
     "vitest": "^4.0.0"
   }
