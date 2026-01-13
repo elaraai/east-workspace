@@ -1,12 +1,12 @@
 /**
- * Integration tests for AWS services (DynamoDB, EFS, Cognito, Step Functions).
+ * Integration tests for AWS services (S3, DynamoDB, Cognito, Step Functions).
  *
  * These tests validate that the AWS resources are created and accessible.
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
+import { S3Client, HeadBucketCommand } from '@aws-sdk/client-s3';
 import { DynamoDBClient, DescribeTableCommand } from '@aws-sdk/client-dynamodb';
-import { EFSClient, DescribeFileSystemsCommand } from '@aws-sdk/client-efs';
 import {
   CognitoIdentityProviderClient,
   DescribeUserPoolCommand,
@@ -23,56 +23,59 @@ describe('AWS Services Integration Tests', () => {
     outputs = await getStackOutputs(deploymentId);
   }, 30000);
 
+  describe('S3 Buckets', () => {
+    const s3 = new S3Client({ region });
+
+    it('should have data bucket', async () => {
+      const command = new HeadBucketCommand({
+        Bucket: outputs.dataBucketName,
+      });
+
+      // HeadBucket returns 200 if bucket exists and is accessible
+      const response = await s3.send(command);
+      expect(response.$metadata.httpStatusCode).toBe(200);
+    });
+
+    it('should have apps bucket', async () => {
+      const command = new HeadBucketCommand({
+        Bucket: outputs.appsBucketName,
+      });
+
+      const response = await s3.send(command);
+      expect(response.$metadata.httpStatusCode).toBe(200);
+    });
+  });
+
   describe('DynamoDB Tables', () => {
     const dynamodb = new DynamoDBClient({ region });
 
-    it('should have tenants table', async () => {
+    it('should have data table', async () => {
       const command = new DescribeTableCommand({
-        TableName: outputs.tenantsTableName,
+        TableName: outputs.dataTableName,
       });
 
       const response = await dynamodb.send(command);
 
       expect(response.Table).toBeDefined();
       expect(response.Table?.TableStatus).toBe('ACTIVE');
+    });
+
+    it('should have correct key schema', async () => {
+      const command = new DescribeTableCommand({
+        TableName: outputs.dataTableName,
+      });
+
+      const response = await dynamodb.send(command);
+
+      // Single-table design: PK (partition key), SK (sort key)
       expect(response.Table?.KeySchema).toContainEqual({
         AttributeName: 'PK',
         KeyType: 'HASH',
       });
-    });
-
-    it('should have permissions table with GSI', async () => {
-      const command = new DescribeTableCommand({
-        TableName: outputs.permissionsTableName,
+      expect(response.Table?.KeySchema).toContainEqual({
+        AttributeName: 'SK',
+        KeyType: 'RANGE',
       });
-
-      const response = await dynamodb.send(command);
-
-      expect(response.Table).toBeDefined();
-      expect(response.Table?.TableStatus).toBe('ACTIVE');
-
-      // Check for TenantIndex GSI
-      const gsi = response.Table?.GlobalSecondaryIndexes?.find(
-        (idx) => idx.IndexName === 'TenantIndex'
-      );
-      expect(gsi).toBeDefined();
-      expect(gsi?.IndexStatus).toBe('ACTIVE');
-    });
-  });
-
-  describe('EFS FileSystem', () => {
-    const efs = new EFSClient({ region });
-
-    it('should have filesystem', async () => {
-      const command = new DescribeFileSystemsCommand({
-        FileSystemId: outputs.fileSystemId,
-      });
-
-      const response = await efs.send(command);
-
-      expect(response.FileSystems).toHaveLength(1);
-      expect(response.FileSystems?.[0].LifeCycleState).toBe('available');
-      expect(response.FileSystems?.[0].Encrypted).toBe(true);
     });
   });
 
@@ -87,7 +90,8 @@ describe('AWS Services Integration Tests', () => {
       const response = await cognito.send(command);
 
       expect(response.UserPool).toBeDefined();
-      expect(response.UserPool?.Status).toBe('Enabled');
+      expect(response.UserPool?.Id).toBe(outputs.userPoolId);
+      expect(response.UserPool?.Name).toBeDefined();
     });
 
     it('should have correct password policy', async () => {
@@ -106,7 +110,7 @@ describe('AWS Services Integration Tests', () => {
     });
   });
 
-  describe('Step Functions', () => {
+  describe('Step Functions State Machines', () => {
     const sfn = new SFNClient({ region });
 
     it('should have task execution state machine', async () => {
@@ -129,6 +133,40 @@ describe('AWS Services Integration Tests', () => {
 
       expect(response.status).toBe('ACTIVE');
       expect(response.name).toContain('dataflow');
+    });
+
+    it('should have delete repo state machine', async () => {
+      const command = new DescribeStateMachineCommand({
+        stateMachineArn: outputs.deleteRepoStateMachineArn,
+      });
+
+      const response = await sfn.send(command);
+
+      expect(response.status).toBe('ACTIVE');
+      expect(response.name).toContain('delete-repo');
+    });
+
+    it('should have GC state machine', async () => {
+      const command = new DescribeStateMachineCommand({
+        stateMachineArn: outputs.gcStateMachineArn,
+      });
+
+      const response = await sfn.send(command);
+
+      expect(response.status).toBe('ACTIVE');
+      expect(response.name).toContain('gc');
+    });
+  });
+
+  describe('Resource Naming', () => {
+    it('should use consistent deployment prefix', () => {
+      // All resources should include the deployment ID for isolation
+      expect(outputs.dataBucketName).toContain(deploymentId);
+      expect(outputs.dataTableName).toContain(deploymentId);
+      expect(outputs.taskStateMachineArn).toContain(deploymentId);
+      expect(outputs.dataflowStateMachineArn).toContain(deploymentId);
+      expect(outputs.deleteRepoStateMachineArn).toContain(deploymentId);
+      expect(outputs.gcStateMachineArn).toContain(deploymentId);
     });
   });
 });

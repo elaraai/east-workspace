@@ -9,12 +9,59 @@ import {
   GetItemCommand,
   PutItemCommand,
   DeleteItemCommand,
+  UpdateItemCommand,
   ScanCommand,
   BatchWriteItemCommand,
+  ConditionalCheckFailedException,
 } from '@aws-sdk/client-dynamodb';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import type { RefStore } from '@elaraai/e3-core';
 import type { ExecutionStatus } from '@elaraai/e3-types';
+
+/**
+ * Repository lifecycle status.
+ *
+ * State transitions:
+ *   CREATING → ACTIVE (on successful creation)
+ *   ACTIVE → GC (on GC start)
+ *   ACTIVE → DELETING (on delete start)
+ *   GC → ACTIVE (on GC complete)
+ *   DELETING → (repo removed)
+ *
+ * Note: GC → DELETING is blocked (must wait for GC to complete)
+ */
+export type RepoStatus = 'creating' | 'active' | 'gc' | 'deleting';
+
+/**
+ * Repository metadata stored in DynamoDB.
+ */
+export interface RepoMetadata {
+  /** Repository name */
+  name: string;
+  /** Current lifecycle status */
+  status: RepoStatus;
+  /** When the repo was created */
+  createdAt: string;
+  /** When the repo entered its current status */
+  statusChangedAt: string;
+  /** Step Function execution ARN for current operation (if any) */
+  executionArn?: string;
+}
+
+/**
+ * Error thrown when a repo status transition is invalid.
+ */
+export class InvalidRepoStatusError extends Error {
+  constructor(
+    public readonly repo: string,
+    public readonly expectedStatus: RepoStatus | RepoStatus[],
+    public readonly actualStatus: RepoStatus | 'not_found'
+  ) {
+    const expected = Array.isArray(expectedStatus) ? expectedStatus.join(' or ') : expectedStatus;
+    super(`Repository '${repo}' status is '${actualStatus}', expected '${expected}'`);
+    this.name = 'InvalidRepoStatusError';
+  }
+}
 
 /**
  * DynamoDB-backed RefStore implementation.
@@ -165,12 +212,14 @@ export class DynamoRefStore implements RefStore {
   // ===========================================================================
 
   /**
-   * List all repository names.
+   * List all repositories with their status.
    *
    * Scans for items with SK=#META (each repo has a metadata item).
-   * Extracts repo name from PK (format: REPO#{repo}).
+   * Only returns repos with status='active' by default.
+   *
+   * @param includeAll - If true, include repos in all statuses
    */
-  async listRepos(): Promise<string[]> {
+  async listRepos(includeAll = false): Promise<string[]> {
     const repos: string[] = [];
     let exclusiveStartKey: Record<string, any> | undefined;
 
@@ -178,10 +227,15 @@ export class DynamoRefStore implements RefStore {
       const response = await this.dynamo.send(
         new ScanCommand({
           TableName: this.tableName,
-          FilterExpression: 'SK = :sk',
-          ExpressionAttributeValues: marshall({
-            ':sk': '#META',
-          }),
+          FilterExpression: includeAll
+            ? 'SK = :sk'
+            : 'SK = :sk AND #status = :active',
+          ExpressionAttributeNames: includeAll ? undefined : { '#status': 'status' },
+          ExpressionAttributeValues: marshall(
+            includeAll
+              ? { ':sk': '#META' }
+              : { ':sk': '#META', ':active': 'active' }
+          ),
           ProjectionExpression: 'PK',
           ExclusiveStartKey: exclusiveStartKey,
         })
@@ -204,11 +258,47 @@ export class DynamoRefStore implements RefStore {
   }
 
   /**
-   * Create a repository (add metadata item).
+   * Get repository metadata.
    *
    * @param repo - Repository name
+   * @returns Metadata if repo exists, null otherwise
+   */
+  async getRepoMetadata(repo: string): Promise<RepoMetadata | null> {
+    const response = await this.dynamo.send(
+      new GetItemCommand({
+        TableName: this.tableName,
+        Key: marshall({
+          PK: `REPO#${repo}`,
+          SK: '#META',
+        }),
+      })
+    );
+
+    if (!response.Item) {
+      return null;
+    }
+
+    const item = unmarshall(response.Item);
+    return {
+      name: item.name as string,
+      status: (item.status as RepoStatus) ?? 'active', // Default for legacy repos
+      createdAt: item.createdAt as string,
+      statusChangedAt: (item.statusChangedAt as string) ?? item.createdAt,
+      executionArn: item.executionArn as string | undefined,
+    };
+  }
+
+  /**
+   * Create a repository with status='active'.
+   *
+   * This is an atomic operation - either the repo is created successfully
+   * or it fails (e.g., if repo already exists).
+   *
+   * @param repo - Repository name
+   * @throws ConditionalCheckFailedException if repo already exists
    */
   async createRepo(repo: string): Promise<void> {
+    const now = new Date().toISOString();
     await this.dynamo.send(
       new PutItemCommand({
         TableName: this.tableName,
@@ -216,12 +306,83 @@ export class DynamoRefStore implements RefStore {
           PK: `REPO#${repo}`,
           SK: '#META',
           name: repo,
-          createdAt: new Date().toISOString(),
+          status: 'active',
+          createdAt: now,
+          statusChangedAt: now,
         }),
         // Only succeed if repo doesn't already exist
         ConditionExpression: 'attribute_not_exists(PK)',
       })
     );
+  }
+
+  /**
+   * Transition repository to a new status.
+   *
+   * Uses conditional write to ensure atomic state transition.
+   * Optionally stores the Step Function execution ARN for tracking.
+   *
+   * @param repo - Repository name
+   * @param expectedStatus - Current status(es) required for transition
+   * @param newStatus - Target status
+   * @param executionArn - Optional Step Function execution ARN
+   * @throws InvalidRepoStatusError if current status doesn't match expected
+   */
+  async setRepoStatus(
+    repo: string,
+    expectedStatus: RepoStatus | RepoStatus[],
+    newStatus: RepoStatus,
+    executionArn?: string
+  ): Promise<void> {
+    const expected = Array.isArray(expectedStatus) ? expectedStatus : [expectedStatus];
+    const now = new Date().toISOString();
+
+    // Build condition expression for expected statuses
+    const statusConditions = expected.map((_, i) => `#status = :expected${i}`).join(' OR ');
+
+    const expressionAttributeValues: Record<string, any> = {
+      ':newStatus': newStatus,
+      ':now': now,
+    };
+    expected.forEach((status, i) => {
+      expressionAttributeValues[`:expected${i}`] = status;
+    });
+
+    // Build update expression
+    let updateExpression = 'SET #status = :newStatus, statusChangedAt = :now';
+    if (executionArn !== undefined) {
+      updateExpression += ', executionArn = :executionArn';
+      expressionAttributeValues[':executionArn'] = executionArn;
+    } else {
+      updateExpression += ' REMOVE executionArn';
+    }
+
+    try {
+      await this.dynamo.send(
+        new UpdateItemCommand({
+          TableName: this.tableName,
+          Key: marshall({
+            PK: `REPO#${repo}`,
+            SK: '#META',
+          }),
+          UpdateExpression: updateExpression,
+          ConditionExpression: `attribute_exists(PK) AND (${statusConditions})`,
+          ExpressionAttributeNames: { '#status': 'status' },
+          ExpressionAttributeValues: marshall(expressionAttributeValues),
+        })
+      );
+    } catch (error) {
+      if (error instanceof ConditionalCheckFailedException) {
+        // Get actual status to provide better error message
+        const metadata = await this.getRepoMetadata(repo);
+        throw new InvalidRepoStatusError(
+          repo,
+          expectedStatus,
+          metadata?.status ?? 'not_found'
+        );
+      }
+      throw error;
+    }
   }
 
   /**
@@ -243,44 +404,50 @@ export class DynamoRefStore implements RefStore {
   }
 
   /**
-   * Delete a repository and all its items.
+   * Delete a batch of DynamoDB items for a repository.
    *
-   * Queries all items with PK=REPO#{repo} and batch deletes them.
+   * This is used by the delete state machine for incremental deletion.
+   * Returns a cursor for pagination.
    *
    * @param repo - Repository name
+   * @param cursor - Optional pagination cursor (lastEvaluatedKey as JSON)
+   * @param batchSize - Number of items to delete per call
+   * @returns Object with deleted count and optional cursor for next batch
    */
-  async deleteRepo(repo: string): Promise<void> {
-    // First, get all items for this repo
-    const items: { PK: string; SK: string }[] = [];
-    let exclusiveStartKey: Record<string, any> | undefined;
+  async deleteRepoBatch(
+    repo: string,
+    cursor?: string,
+    batchSize = 100
+  ): Promise<{ deleted: number; cursor?: string }> {
+    const exclusiveStartKey = cursor ? JSON.parse(cursor) : undefined;
 
-    do {
-      const response = await this.dynamo.send(
-        new QueryCommand({
-          TableName: this.tableName,
-          KeyConditionExpression: 'PK = :pk',
-          ExpressionAttributeValues: marshall({
-            ':pk': `REPO#${repo}`,
-          }),
-          ProjectionExpression: 'PK, SK',
-          ExclusiveStartKey: exclusiveStartKey,
-        })
-      );
+    // Query for items to delete
+    const response = await this.dynamo.send(
+      new QueryCommand({
+        TableName: this.tableName,
+        KeyConditionExpression: 'PK = :pk',
+        ExpressionAttributeValues: marshall({
+          ':pk': `REPO#${repo}`,
+        }),
+        ProjectionExpression: 'PK, SK',
+        Limit: batchSize,
+        ExclusiveStartKey: exclusiveStartKey,
+      })
+    );
 
-      if (response.Items) {
-        for (const item of response.Items) {
-          const unmarshalled = unmarshall(item);
-          items.push({ PK: unmarshalled.PK as string, SK: unmarshalled.SK as string });
-        }
-      }
+    if (!response.Items || response.Items.length === 0) {
+      return { deleted: 0 };
+    }
 
-      exclusiveStartKey = response.LastEvaluatedKey;
-    } while (exclusiveStartKey);
+    const items = response.Items.map((item) => {
+      const unmarshalled = unmarshall(item);
+      return { PK: unmarshalled.PK as string, SK: unmarshalled.SK as string };
+    });
 
     // Batch delete in groups of 25 (DynamoDB limit)
-    const batchSize = 25;
-    for (let i = 0; i < items.length; i += batchSize) {
-      const batch = items.slice(i, i + batchSize);
+    const deleteBatchSize = 25;
+    for (let i = 0; i < items.length; i += deleteBatchSize) {
+      const batch = items.slice(i, i + deleteBatchSize);
       await this.dynamo.send(
         new BatchWriteItemCommand({
           RequestItems: {
@@ -293,6 +460,48 @@ export class DynamoRefStore implements RefStore {
         })
       );
     }
+
+    return {
+      deleted: items.length,
+      cursor: response.LastEvaluatedKey
+        ? JSON.stringify(response.LastEvaluatedKey)
+        : undefined,
+    };
+  }
+
+  /**
+   * Delete a repository and all its items.
+   *
+   * @deprecated Use deleteRepoBatch with state machine for large repos.
+   * This synchronous method is kept for backwards compatibility.
+   *
+   * @param repo - Repository name
+   */
+  async deleteRepo(repo: string): Promise<void> {
+    let cursor: string | undefined;
+    do {
+      const result = await this.deleteRepoBatch(repo, cursor, 100);
+      cursor = result.cursor;
+    } while (cursor);
+  }
+
+  /**
+   * Remove only the repository metadata item.
+   *
+   * Called as the final step after all other repo items are deleted.
+   *
+   * @param repo - Repository name
+   */
+  async removeRepoMetadata(repo: string): Promise<void> {
+    await this.dynamo.send(
+      new DeleteItemCommand({
+        TableName: this.tableName,
+        Key: marshall({
+          PK: `REPO#${repo}`,
+          SK: '#META',
+        }),
+      })
+    );
   }
 
   // ===========================================================================

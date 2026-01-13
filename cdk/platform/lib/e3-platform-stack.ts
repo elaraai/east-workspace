@@ -32,6 +32,8 @@ import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as route53Targets from 'aws-cdk-lib/aws-route53-targets';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
+import * as events from 'aws-cdk-lib/aws-events';
+import * as targets from 'aws-cdk-lib/aws-events-targets';
 import { Construct } from 'constructs';
 import { CrossRegionCertificate } from './cross-region-certificate.js';
 import { CrossAccountRoute53Record } from './cross-account-route53-record.js';
@@ -136,6 +138,8 @@ export class E3PlatformStack extends cdk.Stack {
   public readonly taskRunner: lambda.IFunction;
   public readonly taskStateMachine: sfn.IStateMachine;
   public readonly dataflowStateMachine: sfn.IStateMachine;
+  public readonly deleteRepoStateMachine: sfn.IStateMachine;
+  public readonly gcStateMachine: sfn.IStateMachine;
 
   // Frontend
   public readonly appsBucket: s3.Bucket;
@@ -439,6 +443,7 @@ export class E3PlatformStack extends cdk.Stack {
         // Base URL for the platform (used for device flow callbacks)
         // If custom domain is configured, use it; otherwise Lambda determines from request headers
         ...(customDomainName ? { BASE_URL: `https://${customDomainName}` } : {}),
+        // Note: DELETE_REPO_STATE_MACHINE_ARN is added after state machine creation
       },
     });
 
@@ -587,6 +592,360 @@ export class E3PlatformStack extends cdk.Stack {
       stateMachineName: `${prefix}-dataflow`,
       definitionBody: sfn.DefinitionBody.fromChainable(startState.next(endState)),
       timeout: cdk.Duration.hours(24),
+    });
+
+    // ============================================================
+    // DELETE REPO STATE MACHINE
+    // ============================================================
+
+    // Lambda: Set repo status to 'deleting'
+    const setDeletingFn = new nodejs.NodejsFunction(this, 'SetDeletingHandler', {
+      functionName: `${prefix}-set-deleting`,
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(apiPackagePath, 'src', 'repo-lifecycle', 'set-status.ts'),
+      handler: 'setDeletingHandler',
+      bundling: {
+        minify: true,
+        sourceMap: true,
+        format: nodejs.OutputFormat.ESM,
+        banner: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
+      },
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 256,
+      environment: {
+        TABLE_NAME: this.dataTable.tableName,
+      },
+    });
+    this.dataTable.grantReadWriteData(setDeletingFn);
+
+    // Lambda: Delete S3 objects and DynamoDB items in batches
+    const deleteBatchFn = new nodejs.NodejsFunction(this, 'DeleteBatchHandler', {
+      functionName: `${prefix}-delete-batch`,
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(apiPackagePath, 'src', 'repo-lifecycle', 'delete-batch.ts'),
+      handler: 'handler',
+      bundling: {
+        minify: true,
+        sourceMap: true,
+        format: nodejs.OutputFormat.ESM,
+        banner: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
+      },
+      timeout: cdk.Duration.minutes(15),
+      memorySize: 1024,
+      environment: {
+        TABLE_NAME: this.dataTable.tableName,
+        BUCKET_NAME: this.dataBucket.bucketName,
+      },
+    });
+    this.dataTable.grantReadWriteData(deleteBatchFn);
+    this.dataBucket.grantReadWrite(deleteBatchFn);
+
+    // Lambda: Remove repo metadata (final step)
+    const removeMetadataFn = new nodejs.NodejsFunction(this, 'RemoveMetadataHandler', {
+      functionName: `${prefix}-remove-metadata`,
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(apiPackagePath, 'src', 'repo-lifecycle', 'set-status.ts'),
+      handler: 'removeMetadataHandler',
+      bundling: {
+        minify: true,
+        sourceMap: true,
+        format: nodejs.OutputFormat.ESM,
+        banner: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
+      },
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 256,
+      environment: {
+        TABLE_NAME: this.dataTable.tableName,
+      },
+    });
+    this.dataTable.grantReadWriteData(removeMetadataFn);
+
+    // Step Function: DeleteRepo
+    // Flow: SetDeleting -> DeleteBatch (loop) -> RemoveMetadata
+    const setDeletingState = new tasks.LambdaInvoke(this, 'SetDeletingState', {
+      lambdaFunction: setDeletingFn,
+      outputPath: '$.Payload',
+      retryOnServiceExceptions: true,
+    });
+
+    const deleteBatchState = new tasks.LambdaInvoke(this, 'DeleteBatchState', {
+      lambdaFunction: deleteBatchFn,
+      outputPath: '$.Payload',
+      retryOnServiceExceptions: true,
+    });
+
+    const removeMetadataState = new tasks.LambdaInvoke(this, 'RemoveMetadataState', {
+      lambdaFunction: removeMetadataFn,
+      outputPath: '$.Payload',
+      retryOnServiceExceptions: true,
+    });
+
+    const deletionComplete = new sfn.Succeed(this, 'DeletionComplete', {
+      comment: 'Repository deleted successfully',
+    });
+
+    const deletionFailed = new sfn.Fail(this, 'DeletionFailed', {
+      error: 'DeletionFailed',
+      cause: 'Failed to transition repo to deleting state',
+    });
+
+    // Check if SetDeleting succeeded
+    const checkSetDeletingResult = new sfn.Choice(this, 'CheckSetDeletingResult')
+      .when(sfn.Condition.booleanEquals('$.success', false), deletionFailed)
+      .otherwise(deleteBatchState);
+
+    // Check if we need to continue deleting
+    const checkDeleteBatchResult = new sfn.Choice(this, 'CheckDeleteBatchResult')
+      .when(sfn.Condition.stringEquals('$.status', 'continue'), deleteBatchState)
+      .otherwise(removeMetadataState);
+
+    // Wire up the state machine
+    const deleteRepoDefinition = setDeletingState
+      .next(checkSetDeletingResult);
+
+    deleteBatchState.next(checkDeleteBatchResult);
+    removeMetadataState.next(deletionComplete);
+
+    this.deleteRepoStateMachine = new sfn.StateMachine(this, 'DeleteRepoStateMachine', {
+      stateMachineName: `${prefix}-delete-repo`,
+      definitionBody: sfn.DefinitionBody.fromChainable(deleteRepoDefinition),
+      timeout: cdk.Duration.hours(24),
+    });
+
+    // Grant API handler permission to start delete state machine
+    this.deleteRepoStateMachine.grantStartExecution(this.apiHandler);
+
+    // Add state machine ARN to API handler environment
+    this.apiHandler.addEnvironment('DELETE_REPO_STATE_MACHINE_ARN', this.deleteRepoStateMachine.stateMachineArn);
+
+    // ============================================================
+    // GC STATE MACHINE
+    // ============================================================
+
+    // Lambda: Set repo status to 'gc'
+    const setGcFn = new nodejs.NodejsFunction(this, 'SetGcHandler', {
+      functionName: `${prefix}-set-gc`,
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(apiPackagePath, 'src', 'repo-lifecycle', 'set-status.ts'),
+      handler: 'setGCHandler',
+      bundling: {
+        minify: true,
+        sourceMap: true,
+        format: nodejs.OutputFormat.ESM,
+        banner: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
+      },
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 256,
+      environment: {
+        TABLE_NAME: this.dataTable.tableName,
+      },
+    });
+    this.dataTable.grantReadWriteData(setGcFn);
+
+    // Lambda: GC Mark phase (collect roots, trace object graph, write reachable set)
+    const gcMarkFn = new nodejs.NodejsFunction(this, 'GcMarkHandler', {
+      functionName: `${prefix}-gc-mark`,
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(apiPackagePath, 'src', 'repo-lifecycle', 'gc-mark.ts'),
+      handler: 'handler',
+      bundling: {
+        minify: true,
+        sourceMap: true,
+        format: nodejs.OutputFormat.ESM,
+        banner: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
+      },
+      timeout: cdk.Duration.minutes(15),
+      memorySize: 3008, // Higher memory for object graph traversal
+      environment: {
+        TABLE_NAME: this.dataTable.tableName,
+        BUCKET_NAME: this.dataBucket.bucketName,
+      },
+    });
+    this.dataTable.grantReadData(gcMarkFn);
+    this.dataBucket.grantReadWrite(gcMarkFn);
+
+    // Lambda: GC Sweep phase (delete unreachable objects)
+    const gcSweepFn = new nodejs.NodejsFunction(this, 'GcSweepHandler', {
+      functionName: `${prefix}-gc-sweep`,
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(apiPackagePath, 'src', 'repo-lifecycle', 'gc-sweep.ts'),
+      handler: 'handler',
+      bundling: {
+        minify: true,
+        sourceMap: true,
+        format: nodejs.OutputFormat.ESM,
+        banner: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
+      },
+      timeout: cdk.Duration.minutes(15),
+      memorySize: 3008, // Higher memory for reachable set
+      environment: {
+        BUCKET_NAME: this.dataBucket.bucketName,
+      },
+    });
+    this.dataBucket.grantReadWrite(gcSweepFn);
+
+    // Lambda: GC Cleanup (delete temp files)
+    const gcCleanupFn = new nodejs.NodejsFunction(this, 'GcCleanupHandler', {
+      functionName: `${prefix}-gc-cleanup`,
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(apiPackagePath, 'src', 'repo-lifecycle', 'gc-cleanup.ts'),
+      handler: 'handler',
+      bundling: {
+        minify: true,
+        sourceMap: true,
+        format: nodejs.OutputFormat.ESM,
+        banner: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
+      },
+      timeout: cdk.Duration.seconds(60),
+      memorySize: 256,
+      environment: {
+        BUCKET_NAME: this.dataBucket.bucketName,
+      },
+    });
+    this.dataBucket.grantReadWrite(gcCleanupFn);
+
+    // Lambda: Set repo status back to 'active'
+    const setActiveFn = new nodejs.NodejsFunction(this, 'SetActiveHandler', {
+      functionName: `${prefix}-set-active`,
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(apiPackagePath, 'src', 'repo-lifecycle', 'set-status.ts'),
+      handler: 'setActiveHandler',
+      bundling: {
+        minify: true,
+        sourceMap: true,
+        format: nodejs.OutputFormat.ESM,
+        banner: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
+      },
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 256,
+      environment: {
+        TABLE_NAME: this.dataTable.tableName,
+      },
+    });
+    this.dataTable.grantReadWriteData(setActiveFn);
+
+    // Step Function: GC
+    // Flow: CheckJitter -> (GenerateJitter?) -> ApplyJitter -> SetGC -> MarkPhase -> SweepPhase (loop) -> Cleanup -> SetActive
+
+    // Wait state for jitter (spreads GC runs to avoid thundering herd)
+    const applyJitterState = new sfn.Wait(this, 'ApplyJitter', {
+      time: sfn.WaitTime.secondsPath('$.jitterSeconds'),
+    });
+
+    // Pass state to generate random jitter (only used if jitterSeconds not provided)
+    const generateJitterState = new sfn.Pass(this, 'GenerateJitter', {
+      parameters: {
+        'repo.$': '$.repo',
+        'gcId.$': '$.gcId',
+        'startTime.$': '$.startTime',
+        'jitterSeconds.$': "States.MathAdd(0, States.MathRandom(0, 3600))",
+      },
+    });
+
+    // Choice state to check if jitterSeconds was provided
+    const checkJitterProvided = new sfn.Choice(this, 'CheckJitterProvided')
+      .when(sfn.Condition.isPresent('$.jitterSeconds'), applyJitterState)
+      .otherwise(generateJitterState);
+
+    const setGcState = new tasks.LambdaInvoke(this, 'SetGcState', {
+      lambdaFunction: setGcFn,
+      outputPath: '$.Payload',
+      retryOnServiceExceptions: true,
+    });
+
+    const gcMarkState = new tasks.LambdaInvoke(this, 'GcMarkState', {
+      lambdaFunction: gcMarkFn,
+      outputPath: '$.Payload',
+      retryOnServiceExceptions: true,
+    });
+
+    const gcSweepState = new tasks.LambdaInvoke(this, 'GcSweepState', {
+      lambdaFunction: gcSweepFn,
+      outputPath: '$.Payload',
+      retryOnServiceExceptions: true,
+    });
+
+    const gcCleanupState = new tasks.LambdaInvoke(this, 'GcCleanupState', {
+      lambdaFunction: gcCleanupFn,
+      outputPath: '$.Payload',
+      retryOnServiceExceptions: true,
+    });
+
+    const setActiveState = new tasks.LambdaInvoke(this, 'SetActiveState', {
+      lambdaFunction: setActiveFn,
+      outputPath: '$.Payload',
+      retryOnServiceExceptions: true,
+    });
+
+    const gcComplete = new sfn.Succeed(this, 'GcComplete', {
+      comment: 'Garbage collection completed successfully',
+    });
+
+    const gcFailed = new sfn.Fail(this, 'GcFailed', {
+      error: 'GcFailed',
+      cause: 'Failed to transition repo to gc state',
+    });
+
+    // Check if SetGC succeeded
+    const checkSetGcResult = new sfn.Choice(this, 'CheckSetGcResult')
+      .when(sfn.Condition.booleanEquals('$.success', false), gcFailed)
+      .otherwise(gcMarkState);
+
+    // Check if we need to continue sweeping
+    const checkGcSweepResult = new sfn.Choice(this, 'CheckGcSweepResult')
+      .when(sfn.Condition.stringEquals('$.status', 'continue'), gcSweepState)
+      .otherwise(gcCleanupState);
+
+    // Wire up the state machine
+    // GenerateJitter flows into ApplyJitter
+    generateJitterState.next(applyJitterState);
+    // ApplyJitter flows into SetGC
+    applyJitterState.next(setGcState);
+    // SetGC flows into CheckSetGcResult
+    setGcState.next(checkSetGcResult);
+
+    const gcDefinition = checkJitterProvided;
+
+    gcMarkState.next(gcSweepState);
+    gcSweepState.next(checkGcSweepResult);
+    gcCleanupState.next(setActiveState);
+    setActiveState.next(gcComplete);
+
+    this.gcStateMachine = new sfn.StateMachine(this, 'GcStateMachine', {
+      stateMachineName: `${prefix}-gc`,
+      definitionBody: sfn.DefinitionBody.fromChainable(gcDefinition),
+      timeout: cdk.Duration.hours(24),
+    });
+
+    // Lambda: GC Scheduler (triggered by EventBridge)
+    const gcSchedulerFn = new nodejs.NodejsFunction(this, 'GcSchedulerHandler', {
+      functionName: `${prefix}-gc-scheduler`,
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(apiPackagePath, 'src', 'repo-lifecycle', 'gc-scheduler.ts'),
+      handler: 'handler',
+      bundling: {
+        minify: true,
+        sourceMap: true,
+        format: nodejs.OutputFormat.ESM,
+        banner: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
+      },
+      timeout: cdk.Duration.minutes(5),
+      memorySize: 256,
+      environment: {
+        TABLE_NAME: this.dataTable.tableName,
+        GC_STATE_MACHINE_ARN: this.gcStateMachine.stateMachineArn,
+        MAX_JITTER_MS: '3600000', // 1 hour max jitter
+      },
+    });
+    this.dataTable.grantReadData(gcSchedulerFn);
+    this.gcStateMachine.grantStartExecution(gcSchedulerFn);
+
+    // EventBridge rule to run GC scheduler daily at 2 AM UTC
+    new events.Rule(this, 'GcScheduleRule', {
+      ruleName: `${prefix}-gc-schedule`,
+      description: 'Triggers garbage collection for all repos daily',
+      schedule: events.Schedule.cron({ hour: '2', minute: '0' }),
+      targets: [new targets.LambdaFunction(gcSchedulerFn)],
     });
 
     // ============================================================
@@ -792,6 +1151,16 @@ export class E3PlatformStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'DataflowStateMachineArn', {
       value: this.dataflowStateMachine.stateMachineArn,
       description: 'Dataflow orchestration state machine ARN',
+    });
+
+    new cdk.CfnOutput(this, 'DeleteRepoStateMachineArn', {
+      value: this.deleteRepoStateMachine.stateMachineArn,
+      description: 'Delete repo state machine ARN',
+    });
+
+    new cdk.CfnOutput(this, 'GcStateMachineArn', {
+      value: this.gcStateMachine.stateMachineArn,
+      description: 'GC state machine ARN',
     });
 
     // Frontend

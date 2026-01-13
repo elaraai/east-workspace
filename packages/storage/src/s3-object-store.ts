@@ -10,6 +10,7 @@ import {
   GetObjectCommand,
   HeadObjectCommand,
   ListObjectsV2Command,
+  DeleteObjectsCommand,
 } from '@aws-sdk/client-s3';
 import type { ObjectStore } from '@elaraai/e3-core';
 
@@ -153,6 +154,60 @@ export class S3ObjectStore implements ObjectStore {
     } while (continuationToken);
 
     return hashes;
+  }
+
+  /**
+   * Delete a batch of S3 objects for a repository.
+   *
+   * This is used by the delete state machine for incremental deletion.
+   * Returns a cursor for pagination.
+   *
+   * @param repo - Repository name
+   * @param cursor - Optional pagination cursor (S3 continuation token)
+   * @param batchSize - Number of objects to delete per call (max 1000)
+   * @returns Object with deleted count and optional cursor for next batch
+   */
+  async deleteRepoBatch(
+    repo: string,
+    cursor?: string,
+    batchSize = 1000
+  ): Promise<{ deleted: number; cursor?: string }> {
+    const prefix = `${repo}/`;
+
+    // List objects to delete
+    const listResponse = await this.s3.send(
+      new ListObjectsV2Command({
+        Bucket: this.bucket,
+        Prefix: prefix,
+        MaxKeys: Math.min(batchSize, 1000), // S3 DeleteObjects max is 1000
+        ContinuationToken: cursor,
+      })
+    );
+
+    if (!listResponse.Contents || listResponse.Contents.length === 0) {
+      return { deleted: 0 };
+    }
+
+    const keys = listResponse.Contents
+      .filter((obj) => obj.Key)
+      .map((obj) => ({ Key: obj.Key! }));
+
+    if (keys.length > 0) {
+      await this.s3.send(
+        new DeleteObjectsCommand({
+          Bucket: this.bucket,
+          Delete: {
+            Objects: keys,
+            Quiet: true,
+          },
+        })
+      );
+    }
+
+    return {
+      deleted: keys.length,
+      cursor: listResponse.NextContinuationToken,
+    };
   }
 
   /**

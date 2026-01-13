@@ -15,8 +15,15 @@ import { handle } from 'hono/aws-lambda';
 import type { LambdaContext } from 'hono/aws-lambda';
 import { S3Client } from '@aws-sdk/client-s3';
 import { DynamoDBClient, ConditionalCheckFailedException } from '@aws-sdk/client-dynamodb';
-import { S3DynamoStorage, setLambdaRequestId, DynamoRefStore } from '@elaraai/e3-storage';
-import { StringType, NullType, ArrayType, variant } from '@elaraai/east';
+import { SFNClient, StartExecutionCommand, DescribeExecutionCommand } from '@aws-sdk/client-sfn';
+import { randomUUID } from 'node:crypto';
+import {
+  S3DynamoStorage,
+  setLambdaRequestId,
+  DynamoRefStore,
+  InvalidRepoStatusError,
+} from '@elaraai/e3-storage';
+import { StringType, NullType, ArrayType, IntegerType, StructType, variant } from '@elaraai/east';
 
 // Auth routes
 import { createDiscoveryRoutes, createDeviceFlowRoutes } from './auth/index.js';
@@ -38,6 +45,11 @@ const internalError = (message: string) => variant('internal', { message });
 // Initialize AWS clients once at Lambda cold start
 const s3 = new S3Client({});
 const dynamo = new DynamoDBClient({});
+const sfn = new SFNClient({});
+
+// State machine ARNs (set by CDK)
+const DELETE_REPO_STATE_MACHINE_ARN = process.env.DELETE_REPO_STATE_MACHINE_ARN;
+const GC_STATE_MACHINE_ARN = process.env.GC_STATE_MACHINE_ARN;
 
 // Initialize storage
 const storage = new S3DynamoStorage(
@@ -97,10 +109,26 @@ app.put('/api/repos/:repo', async (c) => {
   }
 
   try {
+    // Check if repo already exists with a non-active status
+    const existing = await refStore.getRepoMetadata(repo);
+    if (existing) {
+      switch (existing.status) {
+        case 'active':
+          return sendError(StringType, internalError(`Repository '${repo}' already exists`));
+        case 'creating':
+          return sendError(StringType, internalError(`Repository '${repo}' is being created. Please wait.`));
+        case 'deleting':
+          return sendError(StringType, internalError(`Repository '${repo}' is being deleted. Please wait and try again.`));
+        case 'gc':
+          return sendError(StringType, internalError(`Repository '${repo}' already exists (currently running GC)`));
+      }
+    }
+
     await refStore.createRepo(repo);
     return sendSuccessWithStatus(StringType, repo, 201);
   } catch (err) {
     if (err instanceof ConditionalCheckFailedException) {
+      // Race condition - repo was created between check and create
       return sendError(StringType, internalError(`Repository '${repo}' already exists`));
     }
     console.error('Failed to create repo:', err);
@@ -109,24 +137,55 @@ app.put('/api/repos/:repo', async (c) => {
 });
 
 // DELETE /api/repos/:repo - Delete a repository
-// Returns: NullType
+// Returns: NullType with 202 Accepted (async deletion via Step Functions)
 app.delete('/api/repos/:repo', async (c) => {
   const repo = c.req.param('repo');
 
   try {
-    // Check if repo exists
-    const exists = await refStore.repoExists(repo);
-    if (!exists) {
+    // Check if repo exists and get its status
+    const metadata = await refStore.getRepoMetadata(repo);
+    if (!metadata) {
       return sendError(NullType, internalError(`Repository '${repo}' not found`));
     }
 
-    // Delete repo and all its items
-    await refStore.deleteRepo(repo);
+    // Check if repo is in a valid state for deletion
+    if (metadata.status === 'deleting') {
+      return sendError(NullType, internalError(`Repository '${repo}' is already being deleted`));
+    }
+    if (metadata.status === 'gc') {
+      return sendError(NullType, internalError(`Repository '${repo}' is currently running GC. Please wait for GC to complete.`));
+    }
+    if (metadata.status === 'creating') {
+      return sendError(NullType, internalError(`Repository '${repo}' is still being created. Please wait.`));
+    }
 
-    // TODO: Also delete S3 objects with prefix {repo}/
+    // Start the delete state machine
+    if (!DELETE_REPO_STATE_MACHINE_ARN) {
+      // Fallback to synchronous deletion if state machine not configured
+      console.warn('DELETE_REPO_STATE_MACHINE_ARN not set, using synchronous deletion');
+      await refStore.setRepoStatus(repo, 'active', 'deleting');
+      await refStore.deleteRepo(repo);
+      return sendSuccess(NullType, null);
+    }
 
-    return sendSuccess(NullType, null);
+    // Start async deletion via Step Functions
+    const executionName = `delete-${repo}-${Date.now()}`;
+    const execution = await sfn.send(
+      new StartExecutionCommand({
+        stateMachineArn: DELETE_REPO_STATE_MACHINE_ARN,
+        name: executionName,
+        input: JSON.stringify({ repo }),
+      })
+    );
+
+    console.log(`Started delete state machine for repo ${repo}:`, execution.executionArn);
+
+    // Return 202 Accepted - deletion is in progress
+    return sendSuccessWithStatus(NullType, null, 202);
   } catch (err) {
+    if (err instanceof InvalidRepoStatusError) {
+      return sendError(NullType, internalError(err.message));
+    }
     console.error('Failed to delete repo:', err);
     return sendError(NullType, internalError('Failed to delete repository'));
   }

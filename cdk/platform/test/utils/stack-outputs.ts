@@ -8,19 +8,37 @@ import {
 } from '@aws-sdk/client-cloudformation';
 
 export interface StackOutputs {
+  // Deployment
   deploymentId: string;
-  apiEndpoint: string;
-  platformUrl: string;
+
+  // Storage
+  dataBucketName: string;
+  dataTableName: string;
+
+  // Auth
   userPoolId: string;
   userPoolClientId: string;
+  cognitoIssuer: string;
   cognitoDomain: string;
-  fileSystemId: string;
-  tenantsTableName: string;
-  permissionsTableName: string;
-  appsBucketName: string;
-  distributionId: string;
+
+  // API
+  apiEndpoint: string;
+
+  // Compute
   taskStateMachineArn: string;
   dataflowStateMachineArn: string;
+  deleteRepoStateMachineArn: string;
+  gcStateMachineArn: string;
+
+  // Frontend
+  appsBucketName: string;
+  distributionId: string;
+  distributionDomainName: string;
+  platformUrl: string;
+
+  // Optional
+  customDomainName?: string;
+  oidcProviderName?: string;
 }
 
 export async function getStackOutputs(deploymentId: string): Promise<StackOutputs> {
@@ -43,6 +61,7 @@ export async function getStackOutputs(deploymentId: string): Promise<StackOutput
   }
 
   const outputs = stack.Outputs ?? [];
+
   const getOutput = (key: string): string => {
     const output = outputs.find((o) => o.OutputKey === key);
     if (!output?.OutputValue) {
@@ -51,20 +70,43 @@ export async function getStackOutputs(deploymentId: string): Promise<StackOutput
     return output.OutputValue;
   };
 
+  const getOptionalOutput = (key: string): string | undefined => {
+    const output = outputs.find((o) => o.OutputKey === key);
+    return output?.OutputValue;
+  };
+
   return {
+    // Deployment
     deploymentId,
-    apiEndpoint: getOutput('ApiEndpoint'),
-    platformUrl: getOutput('PlatformUrl'),
+
+    // Storage
+    dataBucketName: getOutput('DataBucketName'),
+    dataTableName: getOutput('DataTableName'),
+
+    // Auth
     userPoolId: getOutput('UserPoolId'),
     userPoolClientId: getOutput('UserPoolClientId'),
+    cognitoIssuer: getOutput('CognitoIssuer'),
     cognitoDomain: getOutput('CognitoDomain'),
-    fileSystemId: getOutput('FileSystemId'),
-    tenantsTableName: getOutput('TenantsTableName'),
-    permissionsTableName: getOutput('PermissionsTableName'),
-    appsBucketName: getOutput('AppsBucketName'),
-    distributionId: getOutput('DistributionId'),
+
+    // API
+    apiEndpoint: getOutput('ApiEndpoint'),
+
+    // Compute
     taskStateMachineArn: getOutput('TaskStateMachineArn'),
     dataflowStateMachineArn: getOutput('DataflowStateMachineArn'),
+    deleteRepoStateMachineArn: getOutput('DeleteRepoStateMachineArn'),
+    gcStateMachineArn: getOutput('GcStateMachineArn'),
+
+    // Frontend
+    appsBucketName: getOutput('AppsBucketName'),
+    distributionId: getOutput('DistributionId'),
+    distributionDomainName: getOutput('DistributionDomainName'),
+    platformUrl: getOutput('PlatformUrl'),
+
+    // Optional
+    customDomainName: getOptionalOutput('CustomDomainName'),
+    oidcProviderName: getOptionalOutput('OidcProviderName'),
   };
 }
 

@@ -27,7 +27,9 @@
   ],
   "license": "SEE LICENSE IN LICENSE.md",
   "dependencies": {
-    "@elaraai/e3-api-server": "file:../e3/packages/e3-api-server"
+    "@elaraai/e3-api-server": "file:../e3/packages/e3-api-server",
+    "@elaraai/e3-core": "file:../e3/packages/e3-core",
+    "@elaraai/e3-types": "file:../e3/packages/e3-types"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
