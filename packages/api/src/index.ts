@@ -16,11 +16,12 @@ import type { LambdaContext } from 'hono/aws-lambda';
 import { S3Client } from '@aws-sdk/client-s3';
 import { DynamoDBClient, ConditionalCheckFailedException } from '@aws-sdk/client-dynamodb';
 import { S3DynamoStorage, setLambdaRequestId, DynamoRefStore } from '@elaraai/e3-storage';
+import { StringType, NullType, ArrayType, variant } from '@elaraai/east';
 
 // Auth routes
 import { createDiscoveryRoutes, createDeviceFlowRoutes } from './auth/index.js';
 
-// e3-api-server routes
+// e3-api-server routes and BEAST2 utilities
 import {
   createRepositoryRoutes,
   createPackageRoutes,
@@ -29,6 +30,10 @@ import {
   createTaskRoutes,
   createExecutionRoutes,
 } from '@elaraai/e3-api-server/routes';
+import { sendSuccess, sendError, sendSuccessWithStatus } from '@elaraai/e3-api-server/beast2';
+
+// Helper to create internal API errors
+const internalError = (message: string) => variant('internal', { message });
 
 // Initialize AWS clients once at Lambda cold start
 const s3 = new S3Client({});
@@ -66,42 +71,45 @@ app.route('/', createDiscoveryRoutes());
 app.route('/', createDeviceFlowRoutes());
 
 // ============================================================
-// Repository Management
+// Repository Management (BEAST2 format for e3-cli compatibility)
 // ============================================================
 
 // GET /api/repos - List all repositories
-app.get('/api/repos', async (c) => {
+// Returns: ArrayType(StringType)
+app.get('/api/repos', async () => {
   try {
     const repos = await refStore.listRepos();
-    return c.json({ repos });
+    return sendSuccess(ArrayType(StringType), repos);
   } catch (err) {
     console.error('Failed to list repos:', err);
-    return c.json({ error: 'Failed to list repositories' }, 500);
+    return sendError(ArrayType(StringType), internalError('Failed to list repositories'));
   }
 });
 
 // PUT /api/repos/:repo - Create a repository
+// Returns: StringType (repo name) with 201 status
 app.put('/api/repos/:repo', async (c) => {
   const repo = c.req.param('repo');
 
   // Validate repo name (alphanumeric, hyphens, underscores)
   if (!/^[a-zA-Z0-9_-]+$/.test(repo)) {
-    return c.json({ error: 'Invalid repository name. Use only letters, numbers, hyphens, and underscores.' }, 400);
+    return sendError(StringType, internalError('Invalid repository name. Use only letters, numbers, hyphens, and underscores.'));
   }
 
   try {
     await refStore.createRepo(repo);
-    return c.json({ repo }, 201);
+    return sendSuccessWithStatus(StringType, repo, 201);
   } catch (err) {
     if (err instanceof ConditionalCheckFailedException) {
-      return c.json({ error: `Repository '${repo}' already exists` }, 409);
+      return sendError(StringType, internalError(`Repository '${repo}' already exists`));
     }
     console.error('Failed to create repo:', err);
-    return c.json({ error: 'Failed to create repository' }, 500);
+    return sendError(StringType, internalError('Failed to create repository'));
   }
 });
 
 // DELETE /api/repos/:repo - Delete a repository
+// Returns: NullType
 app.delete('/api/repos/:repo', async (c) => {
   const repo = c.req.param('repo');
 
@@ -109,7 +117,7 @@ app.delete('/api/repos/:repo', async (c) => {
     // Check if repo exists
     const exists = await refStore.repoExists(repo);
     if (!exists) {
-      return c.json({ error: `Repository '${repo}' not found` }, 404);
+      return sendError(NullType, internalError(`Repository '${repo}' not found`));
     }
 
     // Delete repo and all its items
@@ -117,10 +125,10 @@ app.delete('/api/repos/:repo', async (c) => {
 
     // TODO: Also delete S3 objects with prefix {repo}/
 
-    return c.json({ deleted: true });
+    return sendSuccess(NullType, null);
   } catch (err) {
     console.error('Failed to delete repo:', err);
-    return c.json({ error: 'Failed to delete repository' }, 500);
+    return sendError(NullType, internalError('Failed to delete repository'));
   }
 });
 
