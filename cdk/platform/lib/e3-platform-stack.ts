@@ -881,14 +881,15 @@ export class E3PlatformStack extends cdk.Stack {
       comment: 'Garbage collection completed successfully',
     });
 
-    const gcFailed = new sfn.Fail(this, 'GcFailed', {
-      error: 'GcFailed',
-      cause: 'Failed to transition repo to gc state',
+    // GcSkipped: When repo isn't in valid state for GC (e.g., already running GC, being deleted)
+    // This is a graceful "nothing to do" rather than an error
+    const gcSkipped = new sfn.Succeed(this, 'GcSkipped', {
+      comment: 'GC skipped - repo not in valid state',
     });
 
     // Check if SetGC succeeded
     const checkSetGcResult = new sfn.Choice(this, 'CheckSetGcResult')
-      .when(sfn.Condition.booleanEquals('$.success', false), gcFailed)
+      .when(sfn.Condition.booleanEquals('$.success', false), gcSkipped)
       .otherwise(gcMarkState);
 
     // Check if we need to continue sweeping
@@ -916,6 +917,11 @@ export class E3PlatformStack extends cdk.Stack {
       definitionBody: sfn.DefinitionBody.fromChainable(gcDefinition),
       timeout: cdk.Duration.hours(24),
     });
+
+    // Grant API handler permission to start and query GC state machine
+    this.gcStateMachine.grantStartExecution(this.apiHandler);
+    this.gcStateMachine.grantRead(this.apiHandler); // For DescribeExecution
+    this.apiHandler.addEnvironment('GC_STATE_MACHINE_ARN', this.gcStateMachine.stateMachineArn);
 
     // Lambda: GC Scheduler (triggered by EventBridge)
     const gcSchedulerFn = new nodejs.NodejsFunction(this, 'GcSchedulerHandler', {

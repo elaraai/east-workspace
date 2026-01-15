@@ -8,11 +8,13 @@
     "cdk/accounts",
     "cdk/platform",
     "packages/*",
-    "web"
+    "web",
+    "test/integration"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
+    "test:integration": "npm run test -w e3-aws-integration-tests",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "cdk": "npm run cdk --workspace=@elaraai/e3-platform",
@@ -27,7 +29,9 @@
   ],
   "license": "SEE LICENSE IN LICENSE.md",
   "dependencies": {
+    "@elaraai/e3-api-client": "file:../e3/packages/e3-api-client",
     "@elaraai/e3-api-server": "file:../e3/packages/e3-api-server",
+    "@elaraai/e3-api-tests": "file:../e3/packages/e3-api-tests",
     "@elaraai/e3-core": "file:../e3/packages/e3-core",
     "@elaraai/e3-types": "file:../e3/packages/e3-types"
   },

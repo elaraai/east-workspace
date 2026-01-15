@@ -29,6 +29,13 @@ export interface SetStatusInput {
   startTime?: number;
   /** Jitter in seconds (for GC handlers) */
   jitterSeconds?: number;
+  /** GC stats (for pass-through from cleanup to final output) */
+  stats?: {
+    deletedObjects: number;
+    retainedObjects: number;
+    skippedYoung: number;
+    bytesFreed: number;
+  };
 }
 
 /**
@@ -48,6 +55,13 @@ export interface SetStatusOutput {
   gcId?: string;
   /** GC start time (pass-through) */
   startTime?: number;
+  /** GC stats (pass-through from cleanup) */
+  stats?: {
+    deletedObjects: number;
+    retainedObjects: number;
+    skippedYoung: number;
+    bytesFreed: number;
+  };
 }
 
 /**
@@ -116,13 +130,14 @@ export const setGCHandler = async (input: SetStatusInput): Promise<SetStatusOutp
  * Called at the end of the GC state machine.
  */
 export const setActiveHandler = async (input: SetStatusInput): Promise<SetStatusOutput> => {
-  const { repo } = input;
+  const { repo, stats } = input;
 
   console.log(`Setting repo ${repo} to 'active'`);
 
   try {
     await refStore.setRepoStatus(repo, 'gc', 'active');
-    return { repo, status: 'active', success: true };
+    // Pass through stats from cleanup phase for final output
+    return { repo, status: 'active', success: true, stats };
   } catch (error) {
     if (error instanceof InvalidRepoStatusError) {
       console.error(`Failed to set active: ${error.message}`);
@@ -131,6 +146,7 @@ export const setActiveHandler = async (input: SetStatusInput): Promise<SetStatus
         status: error.actualStatus as RepoStatus,
         success: false,
         error: error.message,
+        stats,
       };
     }
     throw error;

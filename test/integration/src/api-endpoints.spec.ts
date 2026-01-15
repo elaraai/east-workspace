@@ -1,7 +1,8 @@
 /**
- * Integration tests for deployed e3 API endpoints.
+ * Copyright (c) 2025 Elara AI Pty Ltd. All rights reserved.
+ * Proprietary and confidential.
  *
- * Run with: npm run test:integration
+ * Integration tests for deployed e3 API endpoints.
  *
  * These tests validate that:
  * 1. The infrastructure is deployed correctly
@@ -11,54 +12,59 @@
  * 5. CloudFront properly routes requests
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
-import { getStackOutputs, getDeploymentId, type StackOutputs } from '../utils/stack-outputs.js';
+import { describe, it, before } from 'node:test';
+import assert from 'node:assert/strict';
+import { getStackOutputs, getDeploymentId, type StackOutputs } from './helpers/stack-outputs.js';
 
-describe('E3 Platform Integration Tests', () => {
+describe('E3 Platform API Endpoints', { timeout: 60000 }, () => {
   let outputs: StackOutputs;
   const deploymentId = getDeploymentId();
 
-  beforeAll(async () => {
+  before(async () => {
     console.log(`\nRunning integration tests against deployment: ${deploymentId}`);
     outputs = await getStackOutputs(deploymentId);
     console.log(`API Endpoint: ${outputs.apiEndpoint}`);
     console.log(`Platform URL: ${outputs.platformUrl}\n`);
-  }, 30000); // 30s timeout for stack lookup
+  });
 
   describe('Stack Outputs', () => {
     it('should have all required outputs', () => {
       // Storage
-      expect(outputs.dataBucketName).toBeDefined();
-      expect(outputs.dataTableName).toBeDefined();
+      assert.ok(outputs.dataBucketName, 'dataBucketName should be defined');
+      assert.ok(outputs.dataTableName, 'dataTableName should be defined');
 
       // Auth
-      expect(outputs.userPoolId).toBeDefined();
-      expect(outputs.userPoolClientId).toBeDefined();
-      expect(outputs.cognitoIssuer).toBeDefined();
-      expect(outputs.cognitoDomain).toBeDefined();
+      assert.ok(outputs.userPoolId, 'userPoolId should be defined');
+      assert.ok(outputs.userPoolClientId, 'userPoolClientId should be defined');
+      assert.ok(outputs.cognitoIssuer, 'cognitoIssuer should be defined');
+      assert.ok(outputs.cognitoDomain, 'cognitoDomain should be defined');
 
       // API
-      expect(outputs.apiEndpoint).toBeDefined();
+      assert.ok(outputs.apiEndpoint, 'apiEndpoint should be defined');
 
       // Compute
-      expect(outputs.taskStateMachineArn).toBeDefined();
-      expect(outputs.dataflowStateMachineArn).toBeDefined();
-      expect(outputs.deleteRepoStateMachineArn).toBeDefined();
-      expect(outputs.gcStateMachineArn).toBeDefined();
+      assert.ok(outputs.taskStateMachineArn, 'taskStateMachineArn should be defined');
+      assert.ok(outputs.dataflowStateMachineArn, 'dataflowStateMachineArn should be defined');
+      assert.ok(outputs.deleteRepoStateMachineArn, 'deleteRepoStateMachineArn should be defined');
+      assert.ok(outputs.gcStateMachineArn, 'gcStateMachineArn should be defined');
 
       // Frontend
-      expect(outputs.appsBucketName).toBeDefined();
-      expect(outputs.distributionId).toBeDefined();
-      expect(outputs.platformUrl).toBeDefined();
+      assert.ok(outputs.appsBucketName, 'appsBucketName should be defined');
+      assert.ok(outputs.distributionId, 'distributionId should be defined');
+      assert.ok(outputs.platformUrl, 'platformUrl should be defined');
     });
 
     it('should have valid API endpoint URL', () => {
-      expect(outputs.apiEndpoint).toMatch(/^https:\/\/.+\.execute-api\..+\.amazonaws\.com$/);
+      assert.match(
+        outputs.apiEndpoint,
+        /^https:\/\/.+\.execute-api\..+\.amazonaws\.com$/,
+        'apiEndpoint should match API Gateway URL pattern'
+      );
     });
 
     it('should have valid Platform URL', () => {
       // Could be CloudFront domain or custom domain
-      expect(outputs.platformUrl).toMatch(/^https:\/\/.+/);
+      assert.match(outputs.platformUrl, /^https:\/\/.+/, 'platformUrl should be HTTPS');
     });
   });
 
@@ -66,44 +72,58 @@ describe('E3 Platform Integration Tests', () => {
     it('should respond to health check via API Gateway', async () => {
       const response = await fetch(`${outputs.apiEndpoint}/health`);
 
-      expect(response.status).toBe(200);
-      expect(response.headers.get('content-type')).toContain('application/json');
+      assert.strictEqual(response.status, 200);
+      assert.ok(
+        response.headers.get('content-type')?.includes('application/json'),
+        'Content-Type should be application/json'
+      );
 
       const body = await response.json();
-      expect(body).toEqual({ status: 'ok' });
+      assert.deepStrictEqual(body, { status: 'ok' });
     });
 
     it('should respond to health check via CloudFront', async () => {
       const response = await fetch(`${outputs.platformUrl}/health`);
 
-      expect(response.status).toBe(200);
+      assert.strictEqual(response.status, 200);
 
       const body = await response.json();
-      expect(body).toEqual({ status: 'ok' });
+      assert.deepStrictEqual(body, { status: 'ok' });
     });
   });
 
   describe('OIDC Discovery (Public)', () => {
+    interface OIDCConfig {
+      issuer?: string;
+      device_authorization_endpoint?: string;
+      token_endpoint?: string;
+      jwks_uri?: string;
+      grant_types_supported?: string[];
+    }
+
     it('should return OIDC configuration', async () => {
       const response = await fetch(`${outputs.apiEndpoint}/.well-known/openid-configuration`);
 
-      expect(response.status).toBe(200);
+      assert.strictEqual(response.status, 200);
 
-      const config = await response.json();
-      expect(config.issuer).toBeDefined();
-      expect(config.device_authorization_endpoint).toBeDefined();
-      expect(config.token_endpoint).toBeDefined();
-      expect(config.jwks_uri).toBeDefined();
-      expect(config.grant_types_supported).toContain('urn:ietf:params:oauth:grant-type:device_code');
+      const config = (await response.json()) as OIDCConfig;
+      assert.ok(config.issuer, 'issuer should be defined');
+      assert.ok(config.device_authorization_endpoint, 'device_authorization_endpoint should be defined');
+      assert.ok(config.token_endpoint, 'token_endpoint should be defined');
+      assert.ok(config.jwks_uri, 'jwks_uri should be defined');
+      assert.ok(
+        config.grant_types_supported?.includes('urn:ietf:params:oauth:grant-type:device_code'),
+        'grant_types_supported should include device_code'
+      );
     });
 
     it('should return OIDC configuration via CloudFront', async () => {
       const response = await fetch(`${outputs.platformUrl}/.well-known/openid-configuration`);
 
-      expect(response.status).toBe(200);
+      assert.strictEqual(response.status, 200);
 
-      const config = await response.json();
-      expect(config.issuer).toBeDefined();
+      const config = (await response.json()) as OIDCConfig;
+      assert.ok(config.issuer, 'issuer should be defined');
     });
   });
 
@@ -116,14 +136,20 @@ describe('E3 Platform Integration Tests', () => {
       });
 
       // Should return 200 with device code, or 400 if client_id invalid
-      expect([200, 400]).toContain(response.status);
+      assert.ok(
+        [200, 400].includes(response.status),
+        `Expected 200 or 400, got ${response.status}`
+      );
     });
 
     it('should serve device approval page', async () => {
       const response = await fetch(`${outputs.apiEndpoint}/device`);
 
-      expect(response.status).toBe(200);
-      expect(response.headers.get('content-type')).toContain('text/html');
+      assert.strictEqual(response.status, 200);
+      assert.ok(
+        response.headers.get('content-type')?.includes('text/html'),
+        'Content-Type should be text/html'
+      );
     });
   });
 
@@ -132,19 +158,19 @@ describe('E3 Platform Integration Tests', () => {
       const response = await fetch(`${outputs.apiEndpoint}/api/repos`);
 
       // API Gateway JWT authorizer returns 401
-      expect(response.status).toBe(401);
+      assert.strictEqual(response.status, 401);
     });
 
     it('should require authentication for repo operations', async () => {
       const response = await fetch(`${outputs.apiEndpoint}/api/repos/test-repo/packages`);
 
-      expect(response.status).toBe(401);
+      assert.strictEqual(response.status, 401);
     });
 
     it('should require authentication for workspace operations', async () => {
       const response = await fetch(`${outputs.apiEndpoint}/api/repos/test-repo/workspaces`);
 
-      expect(response.status).toBe(401);
+      assert.strictEqual(response.status, 401);
     });
   });
 
@@ -156,7 +182,10 @@ describe('E3 Platform Integration Tests', () => {
         },
       });
 
-      expect(response.headers.get('access-control-allow-origin')).toBe('http://localhost:5173');
+      assert.strictEqual(
+        response.headers.get('access-control-allow-origin'),
+        'http://localhost:5173'
+      );
     });
 
     it('should handle preflight requests', async () => {
@@ -169,9 +198,15 @@ describe('E3 Platform Integration Tests', () => {
         },
       });
 
-      expect(response.status).toBe(204);
-      expect(response.headers.get('access-control-allow-methods')).toBeDefined();
-      expect(response.headers.get('access-control-allow-headers')).toBeDefined();
+      assert.strictEqual(response.status, 204);
+      assert.ok(
+        response.headers.get('access-control-allow-methods'),
+        'access-control-allow-methods should be defined'
+      );
+      assert.ok(
+        response.headers.get('access-control-allow-headers'),
+        'access-control-allow-headers should be defined'
+      );
     });
 
     it('should allow credentials for allowed origins', async () => {
@@ -181,7 +216,7 @@ describe('E3 Platform Integration Tests', () => {
         },
       });
 
-      expect(response.headers.get('access-control-allow-credentials')).toBe('true');
+      assert.strictEqual(response.headers.get('access-control-allow-credentials'), 'true');
     });
   });
 
@@ -196,7 +231,7 @@ describe('E3 Platform Integration Tests', () => {
       });
 
       // CloudFront should forward to API Gateway
-      expect(response.status).toBe(204);
+      assert.strictEqual(response.status, 204);
     });
 
     it('should serve frontend for root path', async () => {
@@ -205,7 +240,10 @@ describe('E3 Platform Integration Tests', () => {
       });
 
       // Might be 200 (index.html), 403 (no index.html yet), or redirect
-      expect([200, 301, 302, 403, 404]).toContain(response.status);
+      assert.ok(
+        [200, 301, 302, 403, 404].includes(response.status),
+        `Expected 200, 301, 302, 403, or 404, got ${response.status}`
+      );
     });
   });
 });

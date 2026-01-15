@@ -14,25 +14,17 @@
     "deploy:synth": "npx tsx scripts/deploy.ts synth",
     "deploy:diff": "npx tsx scripts/deploy.ts diff",
     "deploy:run": "npx tsx scripts/deploy.ts deploy",
-    "deploy:destroy": "npx tsx scripts/deploy.ts destroy",
-    "test:integration": "vitest run",
-    "test:integration:watch": "vitest"
+    "deploy:destroy": "npx tsx scripts/deploy.ts destroy"
   },
   "dependencies": {
     "aws-cdk-lib": "^2.234.0",
     "constructs": "^10.4.0"
   },
   "devDependencies": {
-    "@aws-sdk/client-cloudformation": "^3.966.0",
-    "@aws-sdk/client-cognito-identity-provider": "^3.966.0",
-    "@aws-sdk/client-dynamodb": "^3.966.0",
-    "@aws-sdk/client-s3": "^3.966.0",
-    "@aws-sdk/client-sfn": "^3.966.0",
     "@types/node": "^22.0.0",
     "aws-cdk": "^2.1100.3",
     "esbuild": "^0.27.0",
     "tsx": "^4.21.0",
-    "typescript": "~5.9.2",
-    "vitest": "^4.0.0"
+    "typescript": "~5.9.2"
   }
 }
