@@ -13,7 +13,7 @@
  * - AWS credentials must be available for stack lookups
  */
 
-import { describe, before, after } from 'node:test';
+import { describe, beforeEach, afterEach } from 'node:test';
 import { getStackOutputs, getDeploymentId } from './helpers/stack-outputs.js';
 import { getToken, hasCredentials } from './helpers/credentials.js';
 import { createTestContext, allApiTests, type TestContext } from '@elaraai/e3-api-tests';
@@ -24,34 +24,29 @@ describe('API Compliance Tests', { timeout: 300000 }, () => {
   let context: TestContext;
   let baseUrl: string;
 
-  before(async () => {
+  beforeEach(async () => {
     // Get deployment info
     const deploymentId = getDeploymentId();
     const outputs = await getStackOutputs(deploymentId);
     baseUrl = outputs.platformUrl ?? DEFAULT_SERVER;
 
-    console.log(`\nRunning API compliance tests against: ${baseUrl}`);
-
-    // Check credentials before running tests
+    // Check credentials before running tests (only log once)
     if (!hasCredentials(baseUrl)) {
       console.error(`\nError: Not logged in to ${baseUrl}`);
       console.error(`Run: e3 login ${baseUrl}\n`);
       throw new Error(`Not logged in. Run: e3 login ${baseUrl}`);
     }
 
-    // Create test context
+    // Create fresh test context for each test
     context = await createTestContext({
       baseUrl,
       getToken: async () => getToken(baseUrl),
       cleanup: true,
     });
-
-    console.log(`Test repository: ${context.repoName}\n`);
   });
 
-  after(async () => {
+  afterEach(async () => {
     if (context) {
-      console.log('\nCleaning up test resources...');
       await context.cleanup();
     }
   });

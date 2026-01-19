@@ -15,8 +15,13 @@ import {
   ConditionalCheckFailedException,
 } from '@aws-sdk/client-dynamodb';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
+import { encodeBeast2For, decodeBeast2For } from '@elaraai/east';
 import type { RefStore } from '@elaraai/e3-core';
-import type { ExecutionStatus } from '@elaraai/e3-types';
+import { ExecutionStatusType, type ExecutionStatus } from '@elaraai/e3-types';
+
+// BEAST2 encoder/decoder for ExecutionStatus (includes Date fields)
+const encodeExecutionStatus = encodeBeast2For(ExecutionStatusType);
+const decodeExecutionStatus = decodeBeast2For(ExecutionStatusType);
 
 /**
  * Repository lifecycle status.
@@ -61,6 +66,33 @@ export class InvalidRepoStatusError extends Error {
     super(`Repository '${repo}' status is '${actualStatus}', expected '${expected}'`);
     this.name = 'InvalidRepoStatusError';
   }
+}
+
+/**
+ * Execution state for a workspace dataflow.
+ */
+export interface DataflowExecutionState {
+  executionId: string;
+  status: 'running' | 'completed' | 'failed';
+  startedAt: string;
+  completedAt?: string;
+  taskCount: number;
+  completedCount: number;
+  failedCount: number;
+  skippedCount: number;
+  cachedCount: number;
+}
+
+/**
+ * Task status within a dataflow execution.
+ */
+export interface TaskExecutionStatus {
+  taskName: string;
+  status: 'dispatched' | 'running' | 'success' | 'cached' | 'failed' | 'error' | 'skipped';
+  outputHash?: string;
+  exitCode?: number;
+  error?: string;
+  duration?: number;
 }
 
 /**
@@ -150,13 +182,16 @@ export class DynamoRefStore implements RefStore {
     if (!item?.status) {
       return null;
     }
-    // Status is stored as Binary (encoded ExecutionStatus)
-    return item.status as ExecutionStatus;
+    // Status is stored as Binary (BEAST2-encoded ExecutionStatus)
+    const statusBytes = item.status as Uint8Array;
+    return decodeExecutionStatus(statusBytes) as unknown as ExecutionStatus;
   }
 
   async executionWrite(repo: string, taskHash: string, inputsHash: string, status: ExecutionStatus): Promise<void> {
+    // Encode status as BEAST2 binary (ExecutionStatus contains Date fields)
+    const statusBytes = encodeExecutionStatus(status as unknown as Parameters<typeof encodeExecutionStatus>[0]);
     await this.putItem(repo, `EXEC#${taskHash}#${inputsHash}`, {
-      status,
+      status: statusBytes,
       updatedAt: new Date().toISOString(),
     });
   }
@@ -502,6 +537,59 @@ export class DynamoRefStore implements RefStore {
         }),
       })
     );
+  }
+
+  // ===========================================================================
+  // Dataflow Execution State (for Step Functions orchestration)
+  // ===========================================================================
+
+  /**
+   * Get the current execution state for a workspace.
+   */
+  async getExecutionState(repo: string, workspace: string): Promise<DataflowExecutionState | null> {
+    const item = await this.getItem(repo, `EXEC#STATE#${workspace}`);
+    if (!item) return null;
+
+    return {
+      executionId: item.executionId as string,
+      status: item.status as 'running' | 'completed' | 'failed',
+      startedAt: item.startedAt as string,
+      completedAt: item.completedAt as string | undefined,
+      taskCount: item.taskCount as number,
+      completedCount: (item.completedCount as number) || 0,
+      failedCount: (item.failedCount as number) || 0,
+      skippedCount: (item.skippedCount as number) || 0,
+      cachedCount: (item.cachedCount as number) || 0,
+    };
+  }
+
+  /**
+   * Get all task statuses for a dataflow execution.
+   */
+  async getExecutionTasks(repo: string, executionId: string): Promise<TaskExecutionStatus[]> {
+    const items = await this.queryByPrefix(repo, `EXEC#TASK#${executionId}#`);
+    return items.map(item => {
+      const sk = item.SK as string;
+      const prefixLen = `EXEC#TASK#${executionId}#`.length;
+      const taskName = sk.slice(prefixLen);
+
+      return {
+        taskName,
+        status: item.status as TaskExecutionStatus['status'],
+        outputHash: item.outputHash as string | undefined,
+        exitCode: item.exitCode as number | undefined,
+        error: item.error as string | undefined,
+        duration: item.duration as number | undefined,
+      };
+    });
+  }
+
+  /**
+   * Get stored graph for an execution.
+   */
+  async getExecutionGraph(repo: string, executionId: string): Promise<string | null> {
+    const item = await this.getItem(repo, `EXEC#GRAPH#${executionId}`);
+    return item?.graph as string | null;
   }
 
   // ===========================================================================

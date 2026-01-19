@@ -5,11 +5,13 @@ Development roadmap for cloud deployment of e3, using S3 + DynamoDB storage (see
 **Technology choices:**
 - Infrastructure: AWS CDK (TypeScript)
 - API: Lambda + API Gateway (HTTP API)
-- Storage: S3 (objects), DynamoDB (refs, metadata, auth)
+- Storage: S3 (objects), DynamoDB (refs, metadata, auth, execution state)
 - Orchestration: Step Functions
-- Compute: Lambda (east-node), Fargate (east-py, julia)
+- Compute: Fargate ECS Service (east-py) - warm pool pattern for <1s latency
 - Frontend: CloudFront + S3 (Vite/React)
 - Auth: Cognito with optional OIDC federation
+
+**MVP simplification:** Single runner type (east-py via ECS Service). No Lambda-based east-node runner in MVP.
 
 ## Overview
 
@@ -52,8 +54,13 @@ abstractions         refactoring          S3DynamoStorage      (frontend +      
 - [x] Cognito User Pool with hosted UI
 - [x] Optional OIDC provider via SSM parameters
 - [x] API Gateway HTTP API with JWT authorizer
-- [x] Basic Lambda handler scaffolding (`packages/api/`)
-- [x] Runner handler stubs (`packages/runner/`)
+- [x] Lambda API handlers (`packages/api/`)
+- [x] S3DynamoStorage implementation (`packages/storage/`)
+- [x] Device flow proxy (Cognito doesn't support native device flow)
+- [x] Repo management endpoints (list, create, delete, status)
+- [x] Repo lifecycle state machines (delete-repo, GC) with Step Functions
+- [x] GC API endpoints (`POST /api/repos/{repo}/gc`, `GET /api/repos/{repo}/gc/{id}`)
+- [x] Integration tests with node:test (`test/integration/`)
 - [x] Frontend app scaffolding (`web/`)
 
 **e3 repository:**
@@ -66,26 +73,17 @@ abstractions         refactoring          S3DynamoStorage      (frontend +      
 - [x] e3-api-client `repoCreate`, `repoRemove`, `repoStatus`, `repoGc` functions
 - [x] e3-cli `repo` command group (`create`, `remove`, `status`, `gc`)
 - [x] e3-cli remote URL support for repo commands (unified URL format)
-
-### Remaining
-
-- [x] Update e3-core storage interfaces to use `repo` as parameter (not in constructor)
-- [x] Update e3-core functions to `(storage, repo, ...)` signature
-- [x] e3-api-server multi-repo mode (`--repos` option)
-- [x] e3-api-server repo create/remove API endpoints
-- [x] e3-api-client repo create/remove functions
-- [x] e3-cli remote URL support for repo commands
 - [x] e3-cli auth (`login`, `logout`, `auth status`, `whoami`)
 - [x] e3-api-server OIDC provider (discovery, device flow, token endpoint)
 - [x] e3-api-server JWT authentication middleware
-- [x] S3DynamoStorage implementation (S3ObjectStore, DynamoRefStore, DynamoLockService, DynamoLogStore)
-- [ ] e3-api-server route factory exports (for Lambda reuse)
-- [ ] e3-aws device flow proxy (Cognito doesn't support native device flow)
-- [ ] e3-aws Lambda API routes (import from e3-api-server)
-- [ ] e3-aws repo management endpoints (list, create, delete)
-- [ ] Step Functions orchestration
-- [ ] Frontend integration
-- [ ] Fargate runners for heavy compute
+
+### Remaining
+
+- [ ] Step Functions dataflow state machine
+- [ ] Lambda handlers for dataflow execution (`packages/runner/`)
+- [ ] ECS Service warm pool for Fargate runners
+- [ ] Frontend integration (east-ui rendering)
+- [ ] e3-api-tests consumption in integration tests
 
 ---
 
@@ -829,45 +827,144 @@ app.get('/repos/:repo/api/workspaces', async (c) => {
 
 ### 4.1 Step Functions Orchestration
 
-Step Functions manages the dataflow DAG execution, calling e3-core functions via Lambda:
+Step Functions manages the dataflow DAG execution using external state in DynamoDB (not Step Functions state) to handle large DAGs that exceed state size limits.
+
+**Architecture principles:**
+- **Dataflow-centric execution** - All execution goes through dataflow, no separate task execution path
+- **External state** - Task completion tracked in DynamoDB, not Step Functions state
+- **Polling loop** - State machine polls for ready tasks, dispatches them, waits for completion
+- **Ephemeral workspaces** - Ad hoc tasks execute as single-task dataflows in temporary workspaces
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │  Dataflow State Machine                                         │
 │                                                                 │
 │  ┌─────────────┐                                                │
-│  │ AcquireLock │                                                │
+│  │ Initialize  │ → Create execution record in DynamoDB          │
 │  └──────┬──────┘                                                │
 │         │                                                       │
 │  ┌──────▼──────┐                                                │
-│  │  GetGraph   │ (Lambda: dataflowGetGraph)                     │
+│  │  GetGraph   │ → Lambda: dataflowGetGraph()                   │
+│  │             │   Store graph in DynamoDB, mark all pending    │
 │  └──────┬──────┘                                                │
 │         │                                                       │
-│  ┌──────▼──────┐                                                │
-│  │ ExecuteDAG  │ (Map state with dependency ordering)           │
-│  │             │                                                │
-│  │  Per task:  │                                                │
-│  │  ┌─────────────────────────────────────────────────────┐     │
-│  │  │ CheckCache → (hit) → Skip                           │     │
-│  │  │     ↓ (miss)                                        │     │
-│  │  │ RunTask → WriteResult                               │     │
-│  │  └─────────────────────────────────────────────────────┘     │
-│  └──────┬──────┘                                                │
-│         │                                                       │
-│  ┌──────▼──────┐                                                │
-│  │ ReleaseLock │                                                │
+│  ┌──────▼──────────────────────────────────────────────┐        │
+│  │ ExecutionLoop (polling pattern)                     │        │
+│  │                                                     │        │
+│  │  ┌─────────────┐                                    │        │
+│  │  │ GetReady    │ → Query DynamoDB for tasks with    │        │
+│  │  │   Tasks     │   all dependencies completed       │        │
+│  │  └──────┬──────┘                                    │        │
+│  │         │                                           │        │
+│  │  ┌──────▼──────┐     ┌──────────────┐               │        │
+│  │  │DispatchTasks│ →→→ │ Task Workers │ (parallel)    │        │
+│  │  │  (Map)      │     │ Lambda/ECS   │               │        │
+│  │  └──────┬──────┘     └──────────────┘               │        │
+│  │         │                                           │        │
+│  │  ┌──────▼──────┐                                    │        │
+│  │  │   Wait      │ → Short delay before next poll     │        │
+│  │  └──────┬──────┘                                    │        │
+│  │         │                                           │        │
+│  │  ┌──────▼──────┐   No ┌─────────────┐               │        │
+│  │  │ AllComplete?│ ───→ │ Loop back   │               │        │
+│  │  └──────┬──────┘      └─────────────┘               │        │
+│  │         │ Yes                                       │        │
+│  └─────────┼───────────────────────────────────────────┘        │
+│            │                                                    │
+│  ┌─────────▼───┐                                                │
+│  │  Finalize   │ → Update workspace state, cleanup              │
 │  └─────────────┘                                                │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+**DynamoDB execution state:**
+
+```
+# Execution graph (for large DAGs exceeding Step Functions 256KB limit)
+PK: REPO#{repo}  SK: EXEC#GRAPH#{executionId}
+Attributes:
+  - graph: JSON-encoded DataflowGraph
+  - createdAt: timestamp
+
+# Task execution status (with claim tracking for long-running tasks)
+PK: REPO#{repo}  SK: EXEC#TASK#{executionId}#{taskName}
+Attributes:
+  - status: dispatched | running | success | failed | error
+  - claimedBy: string (container ID that claimed the task)
+  - claimedAt: number (timestamp when claimed)
+  - heartbeat: number (last heartbeat timestamp, updated every 60s)
+  - outputHash: string (if success)
+  - exitCode: number (if failed)
+  - error: string (error message)
+  - duration: number (execution time in ms)
+
+# Execution state (for API polling)
+PK: REPO#{repo}  SK: EXEC#STATE#{workspace}
+Attributes:
+  - executionId: string
+  - status: running | completed | failed
+  - startedAt, completedAt: timestamps
+  - summary: { executed, cached, failed, skipped, duration }
+```
+
+**Task claim tracking:** SQS visibility timeout is finite (15 min). For long-running tasks:
+- Container claims task via conditional DynamoDB write (prevents duplicate execution)
+- Heartbeat updated every 60s to extend claim
+- Stale claims (heartbeat > 5 min old) detected by Step Functions and marked failed
+- SQS DLQ handles persistent failures after 3 retries
+
 **Lambda handlers** (in `packages/runner/`):
 
-| Handler | e3-core Function |
-|---------|------------------|
-| `get-graph.ts` | `dataflowGetGraph()` |
-| `check-cache.ts` | `dataflowCheckCache()` |
-| `run-task.ts` | `dataflowExecuteTask()` |
-| `write-result.ts` | `dataflowWriteOutput()` |
+| Handler | e3-core Function | Purpose |
+|---------|------------------|---------|
+| `get-graph.ts` | `dataflowGetGraph()` | Build task graph, store in DynamoDB |
+| `get-ready.ts` | `dataflowGetReadyTasks()` | Find tasks with all dependencies completed |
+| `dispatch-task.ts` | `dataflowCheckCache()`, SQS | Check cache, dispatch to SQS queue |
+| `check-completion.ts` | DynamoDB query | Poll task status, detect stale claims |
+| `write-result.ts` | `workspaceSetDatasetByHash()` | Update workspace with task output |
+| `mark-skipped.ts` | `dataflowGetDependentsToSkip()` | Mark downstream tasks as skipped on failure |
+
+**ECS container** (in `containers/east-py-runner/`):
+- Polls SQS for tasks
+- Claims task in DynamoDB (prevents duplicate execution)
+- Runs `east-py run <ir> -p ... -i ... -o ...`
+- Heartbeats every 60s to extend claim
+- Updates DynamoDB on completion/failure
+
+### 4.1.1 Ephemeral Workspaces for Ad Hoc Tasks
+
+Ad hoc task execution uses the same dataflow machinery via ephemeral workspaces:
+
+```
+Ad hoc task execution:
+1. Create ephemeral workspace (unique name, e.g., "adhoc-{uuid}")
+2. Set input datasets in workspace
+3. Execute dataflow (single task in graph)
+4. Read output dataset
+5. Delete workspace (or auto-expire via TTL)
+```
+
+**Benefits:**
+- No separate code path for ad hoc vs scheduled execution
+- Same caching, logging, and monitoring
+- Workspace provides isolation and cleanup boundary
+
+**API pattern:**
+```
+POST /api/repos/{repo}/execute
+{
+  "package": "my-package",
+  "version": "1.0.0",
+  "task": "my-task",
+  "inputs": { "x": 42, "y": "hello" }
+}
+
+→ Creates ephemeral workspace
+→ Sets inputs
+→ Executes single-task dataflow
+→ Returns output (or execution handle for async)
+→ Cleans up workspace
+```
 
 ### 4.2 Frontend
 
@@ -890,18 +987,44 @@ CloudFront (platform.elaraai.com)
 
 ### 4.3 API Endpoints
 
+**Dataflow-centric design:** All execution goes through dataflow. There is no separate task execution endpoint - ad hoc tasks use ephemeral workspaces with single-task dataflows.
+
 ```
-GET  /repos                                    # List repositories (user has access to)
-POST /repos                                    # Create repository (admin)
-GET  /repos/{repo}/api/workspaces              # List workspaces
-POST /repos/{repo}/api/workspaces              # Create workspace
-GET  /repos/{repo}/api/workspaces/{ws}         # Get workspace state
-POST /repos/{repo}/api/workspaces/{ws}/start   # Start dataflow execution
-GET  /repos/{repo}/api/workspaces/{ws}/status  # Get execution status
-GET  /repos/{repo}/api/workspaces/{ws}/graph   # Get task dependency graph
-GET  /repos/{repo}/api/workspaces/{ws}/get/*   # Get dataset value
-PUT  /repos/{repo}/api/workspaces/{ws}/set/*   # Set dataset value
-...
+# Repository management
+GET  /api/repos                                # List repositories
+POST /api/repos                                # Create repository
+GET  /api/repos/{repo}                         # Get repository status
+DELETE /api/repos/{repo}                       # Delete repository (async)
+POST /api/repos/{repo}/gc                      # Start garbage collection
+GET  /api/repos/{repo}/gc/{id}                 # Get GC status
+
+# Package management
+GET  /api/repos/{repo}/packages                # List packages
+POST /api/repos/{repo}/packages/import         # Import package
+
+# Workspace management
+GET  /api/repos/{repo}/workspaces              # List workspaces
+POST /api/repos/{repo}/workspaces              # Create workspace
+GET  /api/repos/{repo}/workspaces/{ws}         # Get workspace state
+DELETE /api/repos/{repo}/workspaces/{ws}       # Delete workspace
+
+# Dataset operations
+GET  /api/repos/{repo}/workspaces/{ws}/datasets/{path}    # Get dataset value
+PUT  /api/repos/{repo}/workspaces/{ws}/datasets/{path}    # Set dataset value
+
+# Execution (dataflow only)
+POST /api/repos/{repo}/workspaces/{ws}/execute            # Start dataflow execution
+GET  /api/repos/{repo}/workspaces/{ws}/executions/{id}    # Get execution status
+GET  /api/repos/{repo}/workspaces/{ws}/graph              # Get task dependency graph
+
+# Ad hoc execution (ephemeral workspace, single-task dataflow)
+POST /api/repos/{repo}/execute                 # Execute task in ephemeral workspace
+{
+  "package": "pkg-name",
+  "version": "1.0.0",
+  "task": "task-name",
+  "inputs": { ... }
+}
 ```
 
 ### Deliverables
@@ -917,51 +1040,302 @@ PUT  /repos/{repo}/api/workspaces/{ws}/set/*   # Set dataset value
 
 ## Phase 5: Production Runners (Fargate)
 
-**Goal:** Add support for heavy compute tasks (east-py, julia) on Fargate.
+**Goal:** Implement east-py task execution on Fargate with sub-second latency.
 
-### 5.1 Task Routing
+**MVP scope:** Single runner type (east-py). No Lambda-based runners or Julia support in MVP.
 
-Step Functions routes to Lambda or Fargate based on runner type:
+### 5.1 Latency Requirements
 
-```typescript
-// In Step Functions ASL
-{
-  "RunTask": {
-    "Type": "Choice",
-    "Choices": [
-      {
-        "Variable": "$.task.runner",
-        "StringEquals": "east-node",
-        "Next": "RunLambda"
-      }
-    ],
-    "Default": "RunFargate"
-  }
-}
+| Approach | Cold Start | Use Case |
+|----------|------------|----------|
+| Fargate RunTask | 30-60s | Unacceptable for interactive use |
+| **ECS Service (warm pool)** | **<1s** | east-py tasks |
+
+Fargate's `RunTask` API has 30-60 second cold start latency due to container image pull and initialization. For interactive workloads, this is unacceptable. Instead, we use an ECS Service pattern with warm containers.
+
+### 5.2 ECS Service Warm Pool Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  ECS Service (east-py runner)                                   │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │ Auto-scaling configuration:                              │    │
+│  │   - Min capacity: 0 (scale to zero when idle)            │    │
+│  │   - Max capacity: N (based on expected load)             │    │
+│  │   - Scale-out: Fast (target tracking on queue depth)     │    │
+│  │   - Scale-in: Slow (keep warm containers available)      │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                                                                 │
+│  ┌─────────┐  ┌─────────┐  ┌─────────┐                          │
+│  │Container│  │Container│  │Container│  (warm, polling)         │
+│  │  (idle) │  │(running)│  │  (idle) │                          │
+│  └────┬────┘  └────┬────┘  └────┬────┘                          │
+│       │            │            │                               │
+│       └────────────┼────────────┘                               │
+│                    │                                            │
+│              ┌─────▼─────┐                                      │
+│              │ SQS Queue │ ← Task dispatch from Step Functions  │
+│              └───────────┘                                      │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-### 5.2 Fargate Configuration
+**Container lifecycle:**
 
-- ECS Cluster (Fargate)
-- Task definitions for east-py, julia runners
-- Container images with dependencies pre-installed
-- S3 access for reading inputs, writing outputs
+```
+┌──────────────────────────────────────────────────────────────┐
+│  Container (long-running)                                    │
+│                                                              │
+│  startup:                                                    │
+│    - Load runtime (Python/Julia)                             │
+│    - Pre-warm interpreters                                   │
+│    - Connect to SQS                                          │
+│                                                              │
+│  loop:                                                       │
+│    1. Poll SQS for task (long poll, 20s)                     │
+│    2. Receive task: { repo, taskHash, inputHashes }          │
+│    3. Read inputs from S3                                    │
+│    4. Execute task                                           │
+│    5. Write output to S3                                     │
+│    6. Update DynamoDB: task status = completed               │
+│    7. Delete SQS message                                     │
+│    8. Return to polling                                      │
+│                                                              │
+│  graceful shutdown:                                          │
+│    - Finish current task                                     │
+│    - Stop accepting new tasks                                │
+└──────────────────────────────────────────────────────────────┘
+```
 
-### 5.3 Warm Pool (Optional)
+**Task dispatch flow:**
 
-For lower latency:
+```
+Step Functions                     SQS                    ECS Container
+      │                             │                           │
+      │ SendMessage(task)           │                           │
+      │────────────────────────────>│                           │
+      │                             │                           │
+      │                             │ ReceiveMessage            │
+      │                             │<──────────────────────────│
+      │                             │                           │
+      │                             │ task: {repo, hash, ...}   │
+      │                             │──────────────────────────>│
+      │                             │                           │
+      │                             │           [execute task]  │
+      │                             │                           │
+      │                             │ DeleteMessage             │
+      │                             │<──────────────────────────│
+      │                             │                           │
+      │                     [Update DynamoDB: completed]        │
+      │                             │                           │
+      │ [Poll DynamoDB for status]  │                           │
+      │<────────────────────────────────────────────────────────│
+```
 
-- SQS queue for task dispatch
-- Long-running Fargate tasks that poll for work
-- Auto-scaling based on queue depth
+### 5.3 Task Dispatch (MVP)
+
+MVP uses single runner (east-py via ECS Service). No routing logic needed:
+
+```typescript
+// In dispatch-task Lambda
+// All tasks go to the east-py SQS queue
+await sqs.sendMessage({
+  QueueUrl: TASK_QUEUE_URL,
+  MessageBody: JSON.stringify({
+    repo,
+    workspace,
+    executionId,
+    taskName,
+    taskHash,
+    inputHashes,
+  }),
+  MessageGroupId: repo,  // FIFO queue
+  MessageDeduplicationId: `${executionId}-${taskName}`,
+});
+
+// Write "dispatched" status to DynamoDB
+await dynamodb.putItem({
+  TableName: TABLE_NAME,
+  Item: {
+    PK: { S: `REPO#${repo}` },
+    SK: { S: `EXEC#TASK#${executionId}#${taskName}` },
+    status: { S: 'dispatched' },
+    dispatchedAt: { N: String(Date.now()) },
+  },
+});
+```
+
+**Future:** Add task routing for multiple runners (east-node via Lambda, julia via separate ECS Service).
+
+### 5.4 Runner Registry (MVP)
+
+**MVP: Single runner type** (east-py via ECS Service):
+
+| Runner | Compute | Image | Packages |
+|--------|---------|-------|----------|
+| `east-py` | ECS Service | `{account}.dkr.ecr.{region}.amazonaws.com/{prefix}-east-py-runner` | east-py, east-py-std, east-py-io, east-py-datascience |
+
+**Container includes:**
+- Python 3.11 runtime
+- All east-py packages (core, std, io, datascience)
+- boto3 for S3/DynamoDB access
+- SQS long-polling for task dispatch
+- Heartbeat mechanism for long-running tasks
+
+**Future:** Add east-node (Lambda), julia (ECS Service), user-defined runners.
+
+### 5.5 CDK Resources
+
+```typescript
+// SQS FIFO Queue for task dispatch
+const taskQueue = new sqs.Queue(this, 'TaskQueue', {
+  queueName: `${prefix}-tasks.fifo`,
+  fifo: true,
+  visibilityTimeout: Duration.minutes(15),
+  deadLetterQueue: {
+    queue: new sqs.Queue(this, 'TaskDLQ', {
+      queueName: `${prefix}-tasks-dlq.fifo`,
+      fifo: true,
+    }),
+    maxReceiveCount: 3,
+  },
+});
+
+// ECS Cluster and Service
+const cluster = new ecs.Cluster(this, 'RunnerCluster', {
+  clusterName: `${prefix}-runners`,
+  vpc,
+});
+
+const taskDef = new ecs.FargateTaskDefinition(this, 'RunnerTaskDef', {
+  memoryLimitMiB: 4096,
+  cpu: 2048,
+});
+
+taskDef.addContainer('runner', {
+  image: ecs.ContainerImage.fromEcrRepository(runnerRepo, 'latest'),
+  environment: {
+    TASK_QUEUE_URL: taskQueue.queueUrl,
+    BUCKET_NAME: dataBucket.bucketName,
+    TABLE_NAME: dataTable.tableName,
+  },
+});
+
+const service = new ecs.FargateService(this, 'RunnerService', {
+  cluster,
+  taskDefinition: taskDef,
+  desiredCount: 1,  // Warm pool
+});
+
+// Auto-scaling based on queue depth
+const scaling = service.autoScaleTaskCount({
+  minCapacity: 0,
+  maxCapacity: 10,
+});
+
+scaling.scaleOnMetric('QueueScaling', {
+  metric: taskQueue.metricApproximateNumberOfMessagesVisible(),
+  scalingSteps: [
+    { upper: 0, change: -1 },   // Scale to 0 when queue empty
+    { lower: 1, change: +1 },   // Scale up on messages
+  ],
+  cooldown: Duration.seconds(60),
+});
+```
+
+### 5.6 Failure Handling (MVP)
+
+**MVP approach:** Users "babysit" dataflows and restart on persistent failure.
+
+- **Transient failure:** Task fails, message returns to queue via SQS visibility timeout
+- **Persistent failure:** After 3 retries, message goes to DLQ; downstream tasks skipped
+- **Long-running tasks:** Heartbeat extends claim; if heartbeat stops (crash), claim expires after 5 min
+- **Stale claim detection:** `check-completion` Lambda detects claims with old heartbeats and marks as failed
+
+**Future:** Automatic retries, exponential backoff, alerting.
 
 ### Deliverables
 
-- [ ] Fargate task definitions and container images
-- [ ] Step Functions updated with runner routing
-- [ ] S3 integration for task I/O
-- [ ] (Optional) Warm pool with SQS
-- [ ] Performance testing with heavy workloads
+- [ ] SQS FIFO queue for task dispatch
+- [ ] ECS Cluster with Fargate capacity provider
+- [ ] ECR repository for east-py runner image
+- [ ] Dockerfile for east-py runner (includes datascience package)
+- [ ] Python runner script with SQS polling and heartbeat
+- [ ] ECS Service with auto-scaling on queue depth
+- [ ] Task claim tracking in DynamoDB
+- [ ] Stale claim detection in check-completion Lambda
+- [ ] CloudWatch metrics and alarms
+- [ ] Integration tests (e3-api-tests dataflow suite)
+
+---
+
+## Future: Scatter-Gather Patterns
+
+**Goal:** Support parallel processing of array datasets with automatic fan-out and fan-in.
+
+### Pachyderm-like Pattern
+
+East dataflows can express array processing with type-aware glob patterns:
+
+```
+input[*] → task → output[*]
+```
+
+**Semantics:**
+- `dataset[*]` expands to N parallel tasks (one per array element)
+- Each task receives a single element as input
+- Outputs are gathered into the result array
+
+**Example:**
+
+```typescript
+// East package definition
+const processImages = task({
+  inputs: { image: ImageType },
+  outputs: { thumbnail: ThumbnailType },
+  runner: 'east-py',
+  fn: async ({ image }) => ({ thumbnail: resize(image, 100, 100) }),
+});
+
+const workspace = {
+  images: ArrayType(ImageType),     // Input: 1000 images
+  thumbnails: ArrayType(ThumbnailType), // Output: 1000 thumbnails
+
+  dataflow: {
+    'thumbnails[*]': processImages({ image: 'images[*]' }),
+  },
+};
+```
+
+**Execution:**
+1. Dataflow executor detects `[*]` pattern
+2. Expands to 1000 parallel tasks
+3. Each task processes one image
+4. Results gathered into `thumbnails` array
+
+### Implementation Considerations
+
+**Static vs Dynamic expansion:**
+- **Static:** Expand at dataflow build time (requires knowing array size)
+- **Dynamic:** Expand at execution time (more flexible, but complex state)
+
+**State management:**
+- Track individual element tasks in DynamoDB
+- Completion = all elements completed
+- Partial results available as elements complete
+
+**Chunking for efficiency:**
+- For very large arrays, chunk into batches
+- Single task processes N elements instead of 1
+- Reduces orchestration overhead
+
+### Deliverables (Future)
+
+- [ ] `[*]` pattern support in dataflow graph builder
+- [ ] Scatter state machine pattern (fan-out)
+- [ ] Gather state machine pattern (fan-in)
+- [ ] Chunking configuration
+- [ ] Progress tracking for partial completion
 
 ---
 
@@ -993,9 +1367,10 @@ For lower latency:
 | 1 | e3-core abstractions | StorageBackend interface with repo parameter, LocalStorage |
 | 2 | e3-api-server refactoring | Shared handlers/routes, multi-repo mode, JWT auth, CLI remote |
 | 3 | S3DynamoStorage | Cloud storage implementation, CDK updates |
-| 4 | MVP | Frontend, Step Functions, end-to-end flow |
-| 5 | Production runners | Fargate for heavy compute |
+| 4 | MVP | Frontend, Step Functions dataflow execution, dataflow-centric API |
+| 5 | Production runners | ECS Service warm pool for Fargate, <1s latency |
 | 6 | White-labelling | Custom apps, theming |
+| Future | Scatter-gather | Parallel array processing with fan-out/fan-in |
 
 **Architecture:**
 
@@ -1022,6 +1397,42 @@ For lower latency:
 │ • Multi-repo    │                     │ repo from URL         │
 │ • JWT auth      │                     │                         │
 └─────────────────┘                     └─────────────────────────┘
+
+**Cloud execution architecture (MVP):**
+
+┌──────────────────────────────────────────────────────────────────────┐
+│  API Gateway                                                          │
+│    │                                                                  │
+│    ├── /api/* ────────────────────────> Lambda (API handlers)         │
+│    │                                        │                         │
+│    │                            POST /execute                         │
+│    │                                        │                         │
+│    │                                        ▼                         │
+│    │                              ┌─────────────────┐                  │
+│    │                              │ Step Functions  │                  │
+│    │                              │ (Dataflow SM)   │                  │
+│    │                              └────────┬────────┘                  │
+│    │                                       │                          │
+│    │                              GetGraph │ GetReady                  │
+│    │                              Dispatch │ CheckCompletion           │
+│    │                                       │                          │
+│    │                                       ▼                          │
+│    │                              ┌───────────────┐                   │
+│    │                              │  SQS Queue    │                   │
+│    │                              │  (FIFO)       │                   │
+│    │                              └───────┬───────┘                   │
+│    │                                      │                          │
+│    │                                      ▼                          │
+│    │                              ┌───────────────────────────────┐  │
+│    │                              │  ECS Service (east-py)         │  │
+│    │                              │  - Polls SQS for tasks         │  │
+│    │                              │  - Claims task in DynamoDB     │  │
+│    │                              │  - Runs east-py CLI            │  │
+│    │                              │  - Heartbeats every 60s        │  │
+│    │                              │  - Writes output to S3         │  │
+│    │                              │  - Updates status in DynamoDB  │  │
+│    │                              └───────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 **Key insight:** Storage backends are initialized once (at server/Lambda startup).

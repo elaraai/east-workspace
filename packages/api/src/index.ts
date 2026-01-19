@@ -23,7 +23,75 @@ import {
   DynamoRefStore,
   InvalidRepoStatusError,
 } from '@elaraai/e3-storage';
-import { StringType, NullType, ArrayType, IntegerType, StructType, variant, some, none } from '@elaraai/east';
+import { StringType, NullType, ArrayType, IntegerType, StructType, OptionType, VariantType, FloatType, variant, some, none } from '@elaraai/east';
+
+// =============================================================================
+// Cloud-specific Dataflow Types
+// =============================================================================
+
+/**
+ * Result of starting a dataflow execution via Step Functions.
+ */
+const DataflowStartResultType = StructType({
+  executionId: StringType,
+});
+
+/**
+ * Task status variant for cloud execution.
+ */
+const CloudTaskStatusType = VariantType({
+  dispatched: NullType,
+  running: NullType,
+  success: NullType,
+  failed: NullType,
+  error: NullType,
+  skipped: NullType,
+  cached: NullType,
+});
+
+/**
+ * Task execution info for cloud dataflow.
+ */
+const CloudTaskInfoType = StructType({
+  name: StringType,
+  status: CloudTaskStatusType,
+  outputHash: OptionType(StringType),
+  exitCode: OptionType(IntegerType),
+  error: OptionType(StringType),
+  duration: OptionType(IntegerType),
+});
+
+/**
+ * Execution status variant for cloud dataflow.
+ */
+const CloudExecutionStatusType = VariantType({
+  running: NullType,
+  completed: NullType,
+  failed: NullType,
+});
+
+/**
+ * Summary of cloud dataflow execution.
+ */
+const CloudExecutionSummaryType = StructType({
+  taskCount: IntegerType,
+  completedCount: IntegerType,
+  failedCount: IntegerType,
+  skippedCount: IntegerType,
+  cachedCount: IntegerType,
+});
+
+/**
+ * Full execution state for cloud dataflow (for polling).
+ */
+const CloudDataflowExecutionStateType = StructType({
+  executionId: StringType,
+  status: CloudExecutionStatusType,
+  startedAt: StringType,
+  completedAt: OptionType(StringType),
+  summary: CloudExecutionSummaryType,
+  tasks: ArrayType(CloudTaskInfoType),
+});
 
 // Auth routes
 import { createDiscoveryRoutes, createDeviceFlowRoutes } from './auth/index.js';
@@ -37,7 +105,7 @@ import {
   createTaskRoutes,
   createExecutionRoutes,
 } from '@elaraai/e3-api-server/routes';
-import { sendSuccess, sendError, sendSuccessWithStatus } from '@elaraai/e3-api-server/beast2';
+import { sendSuccess, sendError, sendSuccessWithStatus, decodeBody } from '@elaraai/e3-api-server/beast2';
 import { ApiTypes } from '@elaraai/e3-api-server';
 
 // Helper to create internal API errors
@@ -51,6 +119,7 @@ const sfn = new SFNClient({});
 // State machine ARNs (set by CDK)
 const DELETE_REPO_STATE_MACHINE_ARN = process.env.DELETE_REPO_STATE_MACHINE_ARN;
 const GC_STATE_MACHINE_ARN = process.env.GC_STATE_MACHINE_ARN;
+const DATAFLOW_STATE_MACHINE_ARN = process.env.DATAFLOW_STATE_MACHINE_ARN;
 
 // Initialize storage
 const storage = new S3DynamoStorage(
@@ -138,7 +207,7 @@ app.put('/api/repos/:repo', async (c) => {
 });
 
 // DELETE /api/repos/:repo - Delete a repository
-// Returns: NullType with 202 Accepted (async deletion via Step Functions)
+// Returns: RepoDeleteStartResultType with 202 Accepted (async deletion via Step Functions)
 app.delete('/api/repos/:repo', async (c) => {
   const repo = c.req.param('repo');
 
@@ -146,18 +215,18 @@ app.delete('/api/repos/:repo', async (c) => {
     // Check if repo exists and get its status
     const metadata = await refStore.getRepoMetadata(repo);
     if (!metadata) {
-      return sendError(NullType, internalError(`Repository '${repo}' not found`));
+      return sendError(ApiTypes.RepoDeleteStartResultType, internalError(`Repository '${repo}' not found`));
     }
 
     // Check if repo is in a valid state for deletion
     if (metadata.status === 'deleting') {
-      return sendError(NullType, internalError(`Repository '${repo}' is already being deleted`));
+      return sendError(ApiTypes.RepoDeleteStartResultType, internalError(`Repository '${repo}' is already being deleted`));
     }
     if (metadata.status === 'gc') {
-      return sendError(NullType, internalError(`Repository '${repo}' is currently running GC. Please wait for GC to complete.`));
+      return sendError(ApiTypes.RepoDeleteStartResultType, internalError(`Repository '${repo}' is currently running GC. Please wait for GC to complete.`));
     }
     if (metadata.status === 'creating') {
-      return sendError(NullType, internalError(`Repository '${repo}' is still being created. Please wait.`));
+      return sendError(ApiTypes.RepoDeleteStartResultType, internalError(`Repository '${repo}' is still being created. Please wait.`));
     }
 
     // Start the delete state machine
@@ -166,7 +235,9 @@ app.delete('/api/repos/:repo', async (c) => {
       console.warn('DELETE_REPO_STATE_MACHINE_ARN not set, using synchronous deletion');
       await refStore.setRepoStatus(repo, 'active', 'deleting');
       await refStore.deleteRepo(repo);
-      return sendSuccess(NullType, null);
+      // For sync deletion, use a generated executionId
+      const executionId = `sync-delete-${repo}-${Date.now()}`;
+      return sendSuccessWithStatus(ApiTypes.RepoDeleteStartResultType, { executionId }, 202);
     }
 
     // Start async deletion via Step Functions
@@ -181,14 +252,77 @@ app.delete('/api/repos/:repo', async (c) => {
 
     console.log(`Started delete state machine for repo ${repo}:`, execution.executionArn);
 
-    // Return 202 Accepted - deletion is in progress
-    return sendSuccessWithStatus(NullType, null, 202);
+    // Return 202 Accepted with executionId for status polling
+    return sendSuccessWithStatus(ApiTypes.RepoDeleteStartResultType, { executionId: executionName }, 202);
   } catch (err) {
     if (err instanceof InvalidRepoStatusError) {
-      return sendError(NullType, internalError(err.message));
+      return sendError(ApiTypes.RepoDeleteStartResultType, internalError(err.message));
     }
     console.error('Failed to delete repo:', err);
-    return sendError(NullType, internalError('Failed to delete repository'));
+    return sendError(ApiTypes.RepoDeleteStartResultType, internalError('Failed to delete repository'));
+  }
+});
+
+// GET /api/repos/:repo/delete/:executionId - Get repo delete status
+// Returns: { status: running|succeeded|failed, error?: string }
+app.get('/api/repos/:repo/delete/:executionId', async (c) => {
+  const executionId = c.req.param('executionId');
+
+  if (!DELETE_REPO_STATE_MACHINE_ARN) {
+    return sendError(ApiTypes.RepoDeleteStatusResultType, internalError('Delete status not available'));
+  }
+
+  // Construct execution ARN from state machine ARN and execution name
+  const arnParts = DELETE_REPO_STATE_MACHINE_ARN.split(':');
+  const region = arnParts[3];
+  const account = arnParts[4];
+  const stateMachineName = arnParts[6];
+  const executionArn = `arn:aws:states:${region}:${account}:execution:${stateMachineName}:${executionId}`;
+
+  try {
+    const execution = await sfn.send(
+      new DescribeExecutionCommand({ executionArn })
+    );
+
+    // Map Step Functions status to our API status
+    switch (execution.status) {
+      case 'RUNNING':
+        return sendSuccess(ApiTypes.RepoDeleteStatusResultType, {
+          status: variant('running', null),
+          error: none,
+        });
+
+      case 'SUCCEEDED':
+        return sendSuccess(ApiTypes.RepoDeleteStatusResultType, {
+          status: variant('succeeded', null),
+          error: none,
+        });
+
+      case 'FAILED':
+      case 'TIMED_OUT':
+      case 'ABORTED': {
+        const errorMessage = execution.error
+          ? `${execution.error}: ${execution.cause ?? ''}`
+          : `Delete ${execution.status.toLowerCase()}`;
+        return sendSuccess(ApiTypes.RepoDeleteStatusResultType, {
+          status: variant('failed', null),
+          error: some(errorMessage),
+        });
+      }
+
+      default:
+        // PENDING or other states - treat as running
+        return sendSuccess(ApiTypes.RepoDeleteStatusResultType, {
+          status: variant('running', null),
+          error: none,
+        });
+    }
+  } catch (err: any) {
+    if (err.name === 'ExecutionDoesNotExist') {
+      return sendError(ApiTypes.RepoDeleteStatusResultType, internalError(`Delete execution not found: ${executionId}`));
+    }
+    console.error('Failed to get delete status:', err);
+    return sendError(ApiTypes.RepoDeleteStatusResultType, internalError('Failed to get delete status'));
   }
 });
 
@@ -349,6 +483,220 @@ app.get('/api/repos/:repo/gc/:executionId', async (c) => {
 });
 
 // ============================================================
+// Cloud Dataflow Endpoints (override e3-api-server's local execution)
+// ============================================================
+
+// POST /api/repos/:repo/workspaces/:ws/dataflow - Start dataflow execution via Step Functions
+app.post('/api/repos/:repo/workspaces/:ws/dataflow', async (c) => {
+  const repo = c.req.param('repo');
+  const workspace = c.req.param('ws');
+
+  if (!DATAFLOW_STATE_MACHINE_ARN) {
+    return sendError(DataflowStartResultType, internalError('Dataflow execution not available - state machine not configured'));
+  }
+
+  try {
+    // Generate unique execution ID
+    const executionId = randomUUID();
+    const executionName = `dataflow-${repo}-${workspace}-${executionId}`.slice(0, 80);
+
+    // Start the dataflow state machine
+    await sfn.send(
+      new StartExecutionCommand({
+        stateMachineArn: DATAFLOW_STATE_MACHINE_ARN,
+        name: executionName,
+        input: JSON.stringify({
+          repo,
+          workspace,
+          executionId,
+        }),
+      })
+    );
+
+    console.log(`Started dataflow state machine for ${repo}/${workspace}: ${executionId}`);
+
+    // Return 202 Accepted with executionId for status polling
+    return sendSuccessWithStatus(DataflowStartResultType, { executionId }, 202);
+  } catch (err) {
+    console.error('Failed to start dataflow:', err);
+    return sendError(DataflowStartResultType, internalError('Failed to start dataflow execution'));
+  }
+});
+
+// POST /api/repos/:repo/workspaces/:ws/dataflow/execute - Execute dataflow (blocking)
+// This endpoint starts Step Functions and polls until completion, matching the e3-api-server API contract
+app.post('/api/repos/:repo/workspaces/:ws/dataflow/execute', async (c) => {
+  const repo = c.req.param('repo');
+  const workspace = c.req.param('ws');
+
+  if (!DATAFLOW_STATE_MACHINE_ARN) {
+    return sendError(ApiTypes.DataflowResultType, internalError('Dataflow execution not available - state machine not configured'));
+  }
+
+  try {
+    // Decode request body
+    const body = await decodeBody(c, ApiTypes.DataflowRequestType);
+    const _concurrency = body.concurrency.type === 'some' ? Number(body.concurrency.value) : 4;
+    const _force = body.force;
+    const _filter = body.filter.type === 'some' ? body.filter.value : undefined;
+
+    // Generate unique execution ID
+    const executionId = randomUUID();
+    const executionName = `dataflow-${repo}-${workspace}-${executionId}`.slice(0, 80);
+    const startTime = Date.now();
+
+    // Start the dataflow state machine
+    await sfn.send(
+      new StartExecutionCommand({
+        stateMachineArn: DATAFLOW_STATE_MACHINE_ARN,
+        name: executionName,
+        input: JSON.stringify({
+          repo,
+          workspace,
+          executionId,
+          // TODO: Pass concurrency, force, filter to state machine
+        }),
+      })
+    );
+
+    console.log(`Started blocking dataflow execution for ${repo}/${workspace}: ${executionId}`);
+
+    // Construct execution ARN for polling
+    const arnParts = DATAFLOW_STATE_MACHINE_ARN.split(':');
+    const region = arnParts[3];
+    const account = arnParts[4];
+    const stateMachineName = arnParts[6];
+    const executionArn = `arn:aws:states:${region}:${account}:execution:${stateMachineName}:${executionName}`;
+
+    // Poll until completion
+    const MAX_POLL_TIME_MS = 5 * 60 * 1000; // 5 minutes max
+    const POLL_INTERVAL_MS = 500; // Check every 500ms
+
+    let elapsed = 0;
+    let finalStatus: string | undefined;
+
+    while (elapsed < MAX_POLL_TIME_MS) {
+      await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+      elapsed += POLL_INTERVAL_MS;
+
+      const execution = await sfn.send(
+        new DescribeExecutionCommand({ executionArn })
+      );
+
+      if (execution.status === 'RUNNING') {
+        continue;
+      }
+
+      finalStatus = execution.status;
+      break;
+    }
+
+    const duration = Date.now() - startTime;
+
+    // Get execution results from DynamoDB
+    const execState = await refStore.getExecutionState(repo, workspace);
+    const tasks = execState ? await refStore.getExecutionTasks(repo, execState.executionId) : [];
+
+    // Build task results
+    const taskResults = tasks.map(t => {
+      let state: { type: string; value: any };
+      switch (t.status) {
+        case 'success':
+          state = { type: 'success', value: null };
+          break;
+        case 'failed':
+          state = { type: 'failed', value: { exitCode: BigInt(t.exitCode ?? -1) } };
+          break;
+        case 'error':
+          state = { type: 'error', value: { message: t.error ?? 'Unknown error' } };
+          break;
+        case 'skipped':
+          state = { type: 'skipped', value: null };
+          break;
+        default:
+          // dispatched, running, cached → success if completed, skipped otherwise
+          state = t.status === 'cached'
+            ? { type: 'success', value: null }
+            : { type: 'skipped', value: null };
+      }
+
+      return {
+        name: t.taskName,
+        cached: t.status === 'cached',
+        state: variant(state.type as any, state.value),
+        duration: t.duration ?? 0,
+      };
+    });
+
+    // Calculate summary
+    const executed = tasks.filter(t => t.status === 'success').length;
+    const cached = tasks.filter(t => t.status === 'cached').length;
+    const failed = tasks.filter(t => t.status === 'failed' || t.status === 'error').length;
+    const skipped = tasks.filter(t => t.status === 'skipped').length;
+    const success = finalStatus === 'SUCCEEDED' && failed === 0;
+
+    return sendSuccess(ApiTypes.DataflowResultType, {
+      success,
+      executed: BigInt(executed),
+      cached: BigInt(cached),
+      failed: BigInt(failed),
+      skipped: BigInt(skipped),
+      tasks: taskResults,
+      duration: duration / 1000, // Convert to seconds
+    });
+  } catch (err) {
+    console.error('Failed to execute dataflow:', err);
+    return sendError(ApiTypes.DataflowResultType, internalError('Failed to execute dataflow'));
+  }
+});
+
+// GET /api/repos/:repo/workspaces/:ws/dataflow/execution - Get dataflow execution status
+app.get('/api/repos/:repo/workspaces/:ws/dataflow/execution', async (c) => {
+  const repo = c.req.param('repo');
+  const workspace = c.req.param('ws');
+
+  try {
+    // Get execution state from DynamoDB
+    const execState = await refStore.getExecutionState(repo, workspace);
+
+    if (!execState) {
+      return sendError(CloudDataflowExecutionStateType, internalError('No execution found for this workspace'));
+    }
+
+    // Get task statuses
+    const tasks = await refStore.getExecutionTasks(repo, execState.executionId);
+
+    // Build response
+    const result = {
+      executionId: execState.executionId,
+      status: variant(execState.status as 'running' | 'completed' | 'failed', null),
+      startedAt: execState.startedAt,
+      completedAt: execState.completedAt ? some(execState.completedAt) : none,
+      summary: {
+        taskCount: BigInt(execState.taskCount),
+        completedCount: BigInt(execState.completedCount),
+        failedCount: BigInt(execState.failedCount),
+        skippedCount: BigInt(execState.skippedCount),
+        cachedCount: BigInt(execState.cachedCount),
+      },
+      tasks: tasks.map(t => ({
+        name: t.taskName,
+        status: variant(t.status as 'dispatched' | 'running' | 'success' | 'failed' | 'error' | 'skipped' | 'cached', null),
+        outputHash: t.outputHash ? some(t.outputHash) : none,
+        exitCode: t.exitCode !== undefined ? some(BigInt(t.exitCode)) : none,
+        error: t.error ? some(t.error) : none,
+        duration: t.duration !== undefined ? some(BigInt(t.duration)) : none,
+      })),
+    };
+
+    return sendSuccess(CloudDataflowExecutionStateType, result);
+  } catch (err) {
+    console.error('Failed to get dataflow execution:', err);
+    return sendError(CloudDataflowExecutionStateType, internalError('Failed to get dataflow execution status'));
+  }
+});
+
+// ============================================================
 // e3-api-server Routes
 // ============================================================
 
@@ -369,6 +717,8 @@ app.route('/api/repos/:repo/workspaces/:ws/datasets', createDatasetRoutes(storag
 app.route('/api/repos/:repo/workspaces/:ws/tasks', createTaskRoutes(storage, getRepoPath));
 
 // Execution/Dataflow routes: /api/repos/:repo/workspaces/:ws/dataflow/*
+// Note: POST and /execution are overridden above for cloud Step Functions execution
+// Other routes (GET graph, logs) pass through to e3-api-server
 app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(storage, getRepoPath));
 
 // ============================================================
