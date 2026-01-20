@@ -1345,6 +1345,169 @@ scaling.scaleOnMetric('QueueScaling', {
 
 ---
 
+## Future: Log Sharding by Execution
+
+**Goal:** Prevent log-heavy tasks from creating hot partitions that slow down other repo operations.
+
+### Problem
+
+Current log storage uses `PK: REPO#{repo}`, meaning all log writes for a repository share the same DynamoDB partition:
+
+```
+Current schema:
+PK: REPO#{repo}
+SK: LOG#{taskHash}#{inputsHash}#{stream}#{timestamp}#{seq}
+```
+
+DynamoDB partitions have throughput limits (~1000 WCU per partition). A task producing heavy log output can:
+- Exhaust the partition's write capacity
+- Cause throttling on unrelated operations (workspace reads, dataset gets, etc.)
+- Create latency spikes across the entire repository
+
+### Solution: Execution-Scoped Partition Keys
+
+Move logs to execution-scoped partitions, isolating log traffic from repo metadata operations:
+
+```
+New schema:
+PK: LOG#{repo}#{executionId}#{taskName}
+SK: {stream}#{timestamp}#{seq}
+
+Example:
+PK: LOG#demo#abc123#format
+SK: stdout#000001737388800000#000001
+Attributes: data, timestamp, ttl
+```
+
+**Benefits:**
+- Each task's logs go to a separate partition
+- Repo operations (`REPO#{repo}`) unaffected by log traffic
+- Better parallelism for concurrent task log writes
+- Natural isolation between executions
+
+### Schema Design
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ LOG CHUNKS (sharded by execution + task)                            │
+│ PK: LOG#{repo}#{executionId}#{taskName}                            │
+│ SK: {stream}#{timestamp}#{seq}                                     │
+│ Attributes:                                                         │
+│   - data: string (log chunk content)                                │
+│   - timestamp: number (ms since epoch)                              │
+│   - ttl: number (DynamoDB TTL for auto-cleanup)                     │
+├─────────────────────────────────────────────────────────────────────┤
+│ LOG INDEX (for cleanup - tracks which log partitions exist)         │
+│ PK: REPO#{repo}                                                    │
+│ SK: LOGIDX#{executionId}#{taskName}                                │
+│ Attributes:                                                         │
+│   - createdAt: timestamp                                            │
+│   - ttl: number (same as log chunks)                                │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Log Index purpose:**
+- Track which log partitions exist for an execution
+- Enable cleanup when execution/repo is deleted (can't query across partition keys)
+- Auto-expires with same TTL as log chunks
+
+### Interface Changes
+
+**Current LogStore interface (e3-core):**
+```typescript
+interface LogStore {
+  append(repo: string, taskHash: string, inputsHash: string,
+         stream: 'stdout' | 'stderr', data: string): Promise<void>;
+  read(repo: string, taskHash: string, inputsHash: string,
+       stream: 'stdout' | 'stderr', options?: LogReadOptions): Promise<LogChunk>;
+}
+```
+
+**New LogStore interface:**
+```typescript
+interface LogStore {
+  // Append requires executionId and taskName for partition routing
+  append(repo: string, executionId: string, taskName: string,
+         stream: 'stdout' | 'stderr', data: string): Promise<void>;
+
+  // Read by execution context (primary use case)
+  read(repo: string, executionId: string, taskName: string,
+       stream: 'stdout' | 'stderr', options?: LogReadOptions): Promise<LogChunk>;
+
+  // Legacy read by hash (for cached task log lookup)
+  readByHash(repo: string, taskHash: string, inputsHash: string,
+             stream: 'stdout' | 'stderr', options?: LogReadOptions): Promise<LogChunk>;
+
+  // Cleanup all logs for an execution
+  deleteExecution(repo: string, executionId: string): Promise<void>;
+}
+```
+
+### Concurrency Considerations
+
+**Write concurrency (multiple tasks writing simultaneously):**
+- Different tasks → different partition keys → no contention
+- Same task, different streams (stdout/stderr) → same partition, different SK prefix → no contention
+- Same task, same stream → timestamp + sequence ensures ordering
+
+**Sequence number generation:**
+- Current: In-memory counter per Lambda instance (can have gaps across instances)
+- New: Keep same approach - gaps are acceptable, ordering within instance is preserved
+- Alternative: Use DynamoDB atomic counter (adds latency, probably not worth it)
+
+**Read-your-writes for log tailing:**
+- DynamoDB eventually consistent reads are typically <100ms
+- For real-time tailing, use consistent reads (slightly higher latency/cost)
+- Current behavior is acceptable for most use cases
+
+**Cleanup race conditions:**
+- Log writes may arrive after execution marked complete
+- TTL handles this - stale log chunks auto-delete after 7 days
+- Explicit cleanup can skip in-progress writes (they'll TTL out)
+
+### Migration Strategy
+
+**Phase 1: Add new interface, keep old working**
+1. Add `executionId` and `taskName` to LogStore interface (optional params initially)
+2. Update DynamoLogStore to write to new PK pattern when params provided
+3. Update task execution to pass execution context to log writes
+4. Old logs continue working with legacy read path
+
+**Phase 2: Migrate reads**
+1. Update log read APIs to use execution context when available
+2. Fall back to hash-based lookup for cached task logs
+3. Add log index writes for cleanup tracking
+
+**Phase 3: Cleanup and deprecation**
+1. Remove legacy PK pattern from new writes
+2. Keep legacy read support for old logs (they'll TTL out)
+3. Update GC to clean up log indexes
+
+### Code Changes Required
+
+| File | Change |
+|------|--------|
+| `e3-core/src/storage/interfaces.ts` | Update LogStore interface |
+| `e3-core/src/storage/local/LocalLogStore.ts` | Update local implementation |
+| `e3-core/src/executions.ts` | Pass executionId/taskName to log writes |
+| `e3-aws/packages/storage/src/dynamo-log-store.ts` | New PK pattern, log index |
+| `e3-aws/packages/runner/src/handlers/execute-task.ts` | Pass execution context |
+| `e3-aws/packages/api/src/index.ts` | Update log read endpoints |
+
+### Deliverables
+
+- [ ] Update LogStore interface with execution context parameters
+- [ ] Update DynamoLogStore with new partition key pattern
+- [ ] Add log index writes for cleanup tracking
+- [ ] Update task execution to pass execution context
+- [ ] Update log read API to use execution context
+- [ ] Add `deleteExecution` for explicit log cleanup
+- [ ] Update GC to clean up orphaned log indexes
+- [ ] Migration support for legacy logs (read fallback)
+- [ ] Integration tests for new log patterns
+
+---
+
 ## Future: Scatter-Gather Patterns
 
 **Goal:** Support parallel processing of array datasets with automatic fan-out and fan-in.

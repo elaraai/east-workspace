@@ -15,18 +15,123 @@
  * Step Functions handles retries.
  */
 
-import { spawnSync } from 'child_process';
+import { spawn } from 'child_process';
 import { createHash } from 'crypto';
 import { writeFileSync, readFileSync, mkdtempSync, rmSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { DynamoDBClient, PutItemCommand } from '@aws-sdk/client-dynamodb';
+import { marshall } from '@aws-sdk/util-dynamodb';
 
 const s3 = new S3Client({});
+const dynamo = new DynamoDBClient({});
 const BUCKET_NAME = process.env.BUCKET_NAME!;
+const TABLE_NAME = process.env.TABLE_NAME!;
+
+// Default TTL for log chunks in seconds (7 days)
+const LOG_TTL_SECONDS = 7 * 24 * 60 * 60;
+
+// Sequence counter for log ordering within same millisecond
+let logSequence = 0;
 
 // Timeout buffer: leave 1 minute for Lambda overhead
 const TASK_TIMEOUT_MS = 14 * 60 * 1000;
+
+// Log chunking configuration
+const LOG_CHUNK_SIZE = 64 * 1024; // 64KB - flush when buffer reaches this size
+const LOG_FLUSH_INTERVAL_MS = 2000; // 2 seconds - flush at least this often
+
+/**
+ * Buffered log writer that chunks and streams logs to DynamoDB.
+ *
+ * Flushes when:
+ * - Buffer exceeds LOG_CHUNK_SIZE (64KB)
+ * - LOG_FLUSH_INTERVAL_MS (2s) has passed since last flush
+ * - Explicitly flushed (e.g., on process completion)
+ */
+class LogBuffer {
+  private buffer = '';
+  private lastFlush = Date.now();
+  private flushTimer: ReturnType<typeof setTimeout> | null = null;
+  private flushPromise: Promise<void> = Promise.resolve();
+
+  constructor(
+    private readonly repo: string,
+    private readonly taskHash: string,
+    private readonly inputsHash: string,
+    private readonly stream: 'stdout' | 'stderr'
+  ) {}
+
+  /**
+   * Append data to the buffer, flushing if needed.
+   */
+  async write(data: string): Promise<void> {
+    this.buffer += data;
+
+    // Flush if buffer is large enough
+    if (this.buffer.length >= LOG_CHUNK_SIZE) {
+      await this.flush();
+    } else {
+      // Schedule a timed flush if not already scheduled
+      this.scheduleFlush();
+    }
+  }
+
+  /**
+   * Schedule a flush after the interval if not already scheduled.
+   */
+  private scheduleFlush(): void {
+    if (this.flushTimer) return;
+
+    const elapsed = Date.now() - this.lastFlush;
+    const delay = Math.max(0, LOG_FLUSH_INTERVAL_MS - elapsed);
+
+    this.flushTimer = setTimeout(() => {
+      this.flushTimer = null;
+      if (this.buffer.length > 0) {
+        // Fire and forget - don't block the event loop
+        this.flush().catch(err => console.error('Log flush error:', err));
+      }
+    }, delay);
+  }
+
+  /**
+   * Flush the buffer to DynamoDB.
+   */
+  async flush(): Promise<void> {
+    if (this.buffer.length === 0) return;
+
+    // Clear timer if pending
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+
+    const data = this.buffer;
+    this.buffer = '';
+    this.lastFlush = Date.now();
+
+    // Chain flush operations to ensure ordering
+    this.flushPromise = this.flushPromise.then(async () => {
+      await writeLog(this.repo, this.taskHash, this.inputsHash, this.stream, data);
+    });
+
+    await this.flushPromise;
+  }
+
+  /**
+   * Wait for all pending flushes to complete.
+   */
+  async finalize(): Promise<void> {
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+    await this.flush();
+    await this.flushPromise;
+  }
+}
 
 export interface TaskExecutionEvent {
   repo: string;
@@ -62,11 +167,21 @@ export async function handler(event: TaskExecutionEvent): Promise<TaskExecutionR
   const { repo, taskName, taskHash, inputHashes } = event;
   const startTime = Date.now();
   const workDir = mkdtempSync(join(tmpdir(), 'task-'));
+  const inputsHash = computeInputsHash(inputHashes);
+
+  // Helper to write progress logs
+  const log = async (message: string) => {
+    await writeLog(repo, taskHash, inputsHash, 'stdout', message);
+  };
 
   console.log(`Executing task ${taskName} (hash: ${taskHash.slice(0, 12)}...)`);
   console.log(`Input hashes: ${inputHashes.length} inputs`);
 
   try {
+    // Log download phase
+    const inputCount = inputHashes.length - 1; // First is task IR
+    await log(`Downloading task IR and ${inputCount} input${inputCount !== 1 ? 's' : ''}...\n`);
+
     // Download task IR (first input hash is the function IR, stored as BEAST2 encoded data)
     const taskIrPath = join(workDir, 'task.beast2');
     await downloadObject(repo, inputHashes[0], taskIrPath);
@@ -96,61 +211,114 @@ export async function handler(event: TaskExecutionEvent): Promise<TaskExecutionR
 
     console.log(`Running: east-py ${args.join(' ')}`);
 
-    // Execute task via east-py CLI
-    const result = spawnSync('east-py', args, {
-      timeout: TASK_TIMEOUT_MS,
-      maxBuffer: 50 * 1024 * 1024, // 50MB buffer for stdout/stderr
-      encoding: 'utf-8',
+    // Log task starting
+    await log(`Task starting...\n`);
+
+    // Create streaming log buffers for stdout/stderr
+    const stdoutBuffer = new LogBuffer(repo, taskHash, inputsHash, 'stdout');
+    const stderrBuffer = new LogBuffer(repo, taskHash, inputsHash, 'stderr');
+
+    // Track last chunks for error reporting
+    let lastStdout = '';
+    let lastStderr = '';
+
+    // Execute task via east-py CLI with streaming
+    const { exitCode, error } = await new Promise<{ exitCode: number | null; error?: Error }>((resolve) => {
+      const child = spawn('east-py', args, {
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+
+      // Set up timeout
+      const timeoutId = setTimeout(() => {
+        child.kill('SIGKILL');
+        resolve({ exitCode: null, error: new Error(`Task timed out after ${TASK_TIMEOUT_MS / 1000}s`) });
+      }, TASK_TIMEOUT_MS);
+
+      // Stream stdout - read both into buffer for streaming and keep last chunk for errors
+      child.stdout.setEncoding('utf-8');
+      child.stdout.on('data', (chunk: string) => {
+        lastStdout = (lastStdout + chunk).slice(-10000); // Keep last 10KB for error reporting
+        stdoutBuffer.write(chunk).catch(err => console.error('stdout write error:', err));
+      });
+
+      // Stream stderr - same pattern
+      child.stderr.setEncoding('utf-8');
+      child.stderr.on('data', (chunk: string) => {
+        lastStderr = (lastStderr + chunk).slice(-10000);
+        stderrBuffer.write(chunk).catch(err => console.error('stderr write error:', err));
+      });
+
+      child.on('error', (err) => {
+        clearTimeout(timeoutId);
+        resolve({ exitCode: null, error: err });
+      });
+
+      child.on('close', (code) => {
+        clearTimeout(timeoutId);
+        resolve({ exitCode: code });
+      });
     });
+
+    // Finalize log buffers - ensure all chunks are flushed
+    await Promise.all([
+      stdoutBuffer.finalize(),
+      stderrBuffer.finalize(),
+    ]);
 
     const duration = Date.now() - startTime;
 
     // Check for execution errors
-    if (result.error) {
-      const errorMsg = result.error.message || 'Unknown spawn error';
+    if (error) {
+      const errorMsg = error.message || 'Unknown spawn error';
       console.error(`Task ${taskName} spawn error: ${errorMsg}`);
+      await log(`Task failed: ${errorMsg}\n`);
       return {
         taskName,
         status: 'failed',
         error: errorMsg,
         duration,
-        stdout: result.stdout?.slice(0, 10000),
-        stderr: result.stderr?.slice(0, 10000),
+        stdout: lastStdout.slice(0, 10000),
+        stderr: lastStderr.slice(0, 10000),
       };
     }
 
-    if (result.status !== 0) {
-      const errorMsg = result.stderr?.slice(0, 1000) || result.stdout?.slice(0, 1000) || 'Unknown error';
-      console.error(`Task ${taskName} failed with exit code ${result.status}: ${errorMsg}`);
+    if (exitCode !== 0) {
+      const errorMsg = lastStderr.slice(0, 1000) || lastStdout.slice(0, 1000) || 'Unknown error';
+      console.error(`Task ${taskName} failed with exit code ${exitCode}: ${errorMsg}`);
+      await log(`Task failed with exit code ${exitCode}\n`);
       return {
         taskName,
         status: 'failed',
-        exitCode: result.status ?? -1,
+        exitCode: exitCode ?? -1,
         error: errorMsg,
         duration,
-        stdout: result.stdout?.slice(0, 10000),
-        stderr: result.stderr?.slice(0, 10000),
+        stdout: lastStdout.slice(0, 10000),
+        stderr: lastStderr.slice(0, 10000),
       };
     }
 
     // Check output file exists
     if (!existsSync(outputFilePath)) {
       console.error(`Task ${taskName} did not create output file`);
+      await log(`Task failed: output file not created\n`);
       return {
         taskName,
         status: 'failed',
         error: 'Output file not created',
         duration,
-        stdout: result.stdout?.slice(0, 10000),
-        stderr: result.stderr?.slice(0, 10000),
+        stdout: lastStdout.slice(0, 10000),
+        stderr: lastStderr.slice(0, 10000),
       };
     }
 
     // Upload output and compute hash
+    await log(`Uploading output...\n`);
     const outputContent = readFileSync(outputFilePath);
     const outputHash = createHash('sha256').update(outputContent).digest('hex');
     await uploadObject(repo, outputHash, outputContent);
 
+    const durationSecs = (duration / 1000).toFixed(2);
+    await log(`Task complete (${durationSecs}s)\n`);
     console.log(`Task ${taskName} succeeded in ${duration}ms, output: ${outputHash.slice(0, 12)}...`);
 
     return {
@@ -205,6 +373,45 @@ async function uploadObject(repo: string, hash: string, content: Buffer): Promis
       Bucket: BUCKET_NAME,
       Key: key,
       Body: content,
+    })
+  );
+}
+
+/**
+ * Compute the combined hash of input hashes.
+ * This matches e3-core's inputsHash function.
+ */
+function computeInputsHash(inputHashes: string[]): string {
+  const data = inputHashes.join('\0');
+  return createHash('sha256').update(data).digest('hex');
+}
+
+/**
+ * Write a log message to DynamoDB.
+ * Uses the same schema as DynamoLogStore for consistency.
+ */
+async function writeLog(
+  repo: string,
+  taskHash: string,
+  inputsHash: string,
+  stream: 'stdout' | 'stderr',
+  message: string
+): Promise<void> {
+  const now = Date.now();
+  const timestamp = now.toString().padStart(15, '0');
+  const seq = (logSequence++).toString().padStart(6, '0');
+  const ttl = Math.floor(now / 1000) + LOG_TTL_SECONDS;
+
+  await dynamo.send(
+    new PutItemCommand({
+      TableName: TABLE_NAME,
+      Item: marshall({
+        PK: `REPO#${repo}`,
+        SK: `LOG#${taskHash}#${inputsHash}#${stream}#${timestamp}#${seq}`,
+        data: message,
+        timestamp: now,
+        ttl,
+      }),
     })
   );
 }
