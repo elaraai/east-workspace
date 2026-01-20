@@ -14,7 +14,8 @@ import { Hono } from 'hono';
 import { handle } from 'hono/aws-lambda';
 import type { LambdaContext } from 'hono/aws-lambda';
 import { S3Client } from '@aws-sdk/client-s3';
-import { DynamoDBClient, ConditionalCheckFailedException } from '@aws-sdk/client-dynamodb';
+import { DynamoDBClient, ConditionalCheckFailedException, PutItemCommand } from '@aws-sdk/client-dynamodb';
+import { marshall } from '@aws-sdk/util-dynamodb';
 import { SFNClient, StartExecutionCommand, DescribeExecutionCommand } from '@aws-sdk/client-sfn';
 import { randomUUID } from 'node:crypto';
 import {
@@ -26,72 +27,13 @@ import {
 import { StringType, NullType, ArrayType, IntegerType, StructType, OptionType, VariantType, FloatType, variant, some, none } from '@elaraai/east';
 
 // =============================================================================
-// Cloud-specific Dataflow Types
+// Cloud Dataflow Notes
 // =============================================================================
-
-/**
- * Result of starting a dataflow execution via Step Functions.
- */
-const DataflowStartResultType = StructType({
-  executionId: StringType,
-});
-
-/**
- * Task status variant for cloud execution.
- */
-const CloudTaskStatusType = VariantType({
-  dispatched: NullType,
-  running: NullType,
-  success: NullType,
-  failed: NullType,
-  error: NullType,
-  skipped: NullType,
-  cached: NullType,
-});
-
-/**
- * Task execution info for cloud dataflow.
- */
-const CloudTaskInfoType = StructType({
-  name: StringType,
-  status: CloudTaskStatusType,
-  outputHash: OptionType(StringType),
-  exitCode: OptionType(IntegerType),
-  error: OptionType(StringType),
-  duration: OptionType(IntegerType),
-});
-
-/**
- * Execution status variant for cloud dataflow.
- */
-const CloudExecutionStatusType = VariantType({
-  running: NullType,
-  completed: NullType,
-  failed: NullType,
-});
-
-/**
- * Summary of cloud dataflow execution.
- */
-const CloudExecutionSummaryType = StructType({
-  taskCount: IntegerType,
-  completedCount: IntegerType,
-  failedCount: IntegerType,
-  skippedCount: IntegerType,
-  cachedCount: IntegerType,
-});
-
-/**
- * Full execution state for cloud dataflow (for polling).
- */
-const CloudDataflowExecutionStateType = StructType({
-  executionId: StringType,
-  status: CloudExecutionStatusType,
-  startedAt: StringType,
-  completedAt: OptionType(StringType),
-  summary: CloudExecutionSummaryType,
-  tasks: ArrayType(CloudTaskInfoType),
-});
+// The cloud implementation uses Step Functions for dataflow execution.
+// We must match the e3-api-server's API contract exactly:
+// - dataflowStart: Returns NullType (202 Accepted, no body)
+// - dataflowExecute: Returns ApiTypes.DataflowResultType
+// - dataflowExecution: Returns ApiTypes.DataflowExecutionStateType
 
 // Auth routes
 import { createDiscoveryRoutes, createDeviceFlowRoutes } from './auth/index.js';
@@ -116,10 +58,11 @@ const s3 = new S3Client({});
 const dynamo = new DynamoDBClient({});
 const sfn = new SFNClient({});
 
-// State machine ARNs (set by CDK)
+// State machine ARNs and table name (set by CDK)
 const DELETE_REPO_STATE_MACHINE_ARN = process.env.DELETE_REPO_STATE_MACHINE_ARN;
 const GC_STATE_MACHINE_ARN = process.env.GC_STATE_MACHINE_ARN;
 const DATAFLOW_STATE_MACHINE_ARN = process.env.DATAFLOW_STATE_MACHINE_ARN;
+const TABLE_NAME = process.env.TABLE_NAME!;
 
 // Initialize storage
 const storage = new S3DynamoStorage(
@@ -487,18 +430,44 @@ app.get('/api/repos/:repo/gc/:executionId', async (c) => {
 // ============================================================
 
 // POST /api/repos/:repo/workspaces/:ws/dataflow - Start dataflow execution via Step Functions
+// Returns 202 Accepted with null body (matches e3-api-server's API contract)
 app.post('/api/repos/:repo/workspaces/:ws/dataflow', async (c) => {
   const repo = c.req.param('repo');
   const workspace = c.req.param('ws');
 
   if (!DATAFLOW_STATE_MACHINE_ARN) {
-    return sendError(DataflowStartResultType, internalError('Dataflow execution not available - state machine not configured'));
+    return sendError(NullType, internalError('Dataflow execution not available - state machine not configured'));
   }
 
   try {
+    // Decode BEAST2-encoded body to get force flag
+    const body = await decodeBody(c, ApiTypes.DataflowRequestType);
+    const force = body.force;
+
     // Generate unique execution ID
     const executionId = randomUUID();
     const executionName = `dataflow-${repo}-${workspace}-${executionId}`.slice(0, 80);
+
+    // Create initial execution state in DynamoDB
+    // This makes the execution immediately visible for polling, like e3-api-server does
+    await dynamo.send(
+      new PutItemCommand({
+        TableName: TABLE_NAME,
+        Item: marshall({
+          PK: `REPO#${repo}`,
+          SK: `EXEC#STATE#${workspace}`,
+          executionId,
+          status: 'running',
+          startedAt: new Date().toISOString(),
+          taskCount: 0, // Will be updated by get-graph
+          completedCount: 0,
+          failedCount: 0,
+          skippedCount: 0,
+          cachedCount: 0,
+          force, // Store force flag for potential use
+        }),
+      })
+    );
 
     // Start the dataflow state machine
     await sfn.send(
@@ -509,190 +478,129 @@ app.post('/api/repos/:repo/workspaces/:ws/dataflow', async (c) => {
           repo,
           workspace,
           executionId,
+          force, // Pass force flag to state machine
         }),
       })
     );
 
-    console.log(`Started dataflow state machine for ${repo}/${workspace}: ${executionId}`);
+    console.log(`Started dataflow state machine for ${repo}/${workspace}: ${executionId} (force=${force})`);
 
-    // Return 202 Accepted with executionId for status polling
-    return sendSuccessWithStatus(DataflowStartResultType, { executionId }, 202);
+    // Return 202 Accepted with null body (matches e3-api-server)
+    return sendSuccessWithStatus(NullType, null, 202);
   } catch (err) {
     console.error('Failed to start dataflow:', err);
-    return sendError(DataflowStartResultType, internalError('Failed to start dataflow execution'));
-  }
-});
-
-// POST /api/repos/:repo/workspaces/:ws/dataflow/execute - Execute dataflow (blocking)
-// This endpoint starts Step Functions and polls until completion, matching the e3-api-server API contract
-app.post('/api/repos/:repo/workspaces/:ws/dataflow/execute', async (c) => {
-  const repo = c.req.param('repo');
-  const workspace = c.req.param('ws');
-
-  if (!DATAFLOW_STATE_MACHINE_ARN) {
-    return sendError(ApiTypes.DataflowResultType, internalError('Dataflow execution not available - state machine not configured'));
-  }
-
-  try {
-    // Decode request body
-    const body = await decodeBody(c, ApiTypes.DataflowRequestType);
-    const _concurrency = body.concurrency.type === 'some' ? Number(body.concurrency.value) : 4;
-    const _force = body.force;
-    const _filter = body.filter.type === 'some' ? body.filter.value : undefined;
-
-    // Generate unique execution ID
-    const executionId = randomUUID();
-    const executionName = `dataflow-${repo}-${workspace}-${executionId}`.slice(0, 80);
-    const startTime = Date.now();
-
-    // Start the dataflow state machine
-    await sfn.send(
-      new StartExecutionCommand({
-        stateMachineArn: DATAFLOW_STATE_MACHINE_ARN,
-        name: executionName,
-        input: JSON.stringify({
-          repo,
-          workspace,
-          executionId,
-          // TODO: Pass concurrency, force, filter to state machine
-        }),
-      })
-    );
-
-    console.log(`Started blocking dataflow execution for ${repo}/${workspace}: ${executionId}`);
-
-    // Construct execution ARN for polling
-    const arnParts = DATAFLOW_STATE_MACHINE_ARN.split(':');
-    const region = arnParts[3];
-    const account = arnParts[4];
-    const stateMachineName = arnParts[6];
-    const executionArn = `arn:aws:states:${region}:${account}:execution:${stateMachineName}:${executionName}`;
-
-    // Poll until completion
-    const MAX_POLL_TIME_MS = 5 * 60 * 1000; // 5 minutes max
-    const POLL_INTERVAL_MS = 500; // Check every 500ms
-
-    let elapsed = 0;
-    let finalStatus: string | undefined;
-
-    while (elapsed < MAX_POLL_TIME_MS) {
-      await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
-      elapsed += POLL_INTERVAL_MS;
-
-      const execution = await sfn.send(
-        new DescribeExecutionCommand({ executionArn })
-      );
-
-      if (execution.status === 'RUNNING') {
-        continue;
-      }
-
-      finalStatus = execution.status;
-      break;
-    }
-
-    const duration = Date.now() - startTime;
-
-    // Get execution results from DynamoDB
-    const execState = await refStore.getExecutionState(repo, workspace);
-    const tasks = execState ? await refStore.getExecutionTasks(repo, execState.executionId) : [];
-
-    // Build task results
-    const taskResults = tasks.map(t => {
-      let state: { type: string; value: any };
-      switch (t.status) {
-        case 'success':
-          state = { type: 'success', value: null };
-          break;
-        case 'failed':
-          state = { type: 'failed', value: { exitCode: BigInt(t.exitCode ?? -1) } };
-          break;
-        case 'error':
-          state = { type: 'error', value: { message: t.error ?? 'Unknown error' } };
-          break;
-        case 'skipped':
-          state = { type: 'skipped', value: null };
-          break;
-        default:
-          // dispatched, running, cached → success if completed, skipped otherwise
-          state = t.status === 'cached'
-            ? { type: 'success', value: null }
-            : { type: 'skipped', value: null };
-      }
-
-      return {
-        name: t.taskName,
-        cached: t.status === 'cached',
-        state: variant(state.type as any, state.value),
-        duration: t.duration ?? 0,
-      };
-    });
-
-    // Calculate summary
-    const executed = tasks.filter(t => t.status === 'success').length;
-    const cached = tasks.filter(t => t.status === 'cached').length;
-    const failed = tasks.filter(t => t.status === 'failed' || t.status === 'error').length;
-    const skipped = tasks.filter(t => t.status === 'skipped').length;
-    const success = finalStatus === 'SUCCEEDED' && failed === 0;
-
-    return sendSuccess(ApiTypes.DataflowResultType, {
-      success,
-      executed: BigInt(executed),
-      cached: BigInt(cached),
-      failed: BigInt(failed),
-      skipped: BigInt(skipped),
-      tasks: taskResults,
-      duration: duration / 1000, // Convert to seconds
-    });
-  } catch (err) {
-    console.error('Failed to execute dataflow:', err);
-    return sendError(ApiTypes.DataflowResultType, internalError('Failed to execute dataflow'));
+    return sendError(NullType, internalError('Failed to start dataflow execution'));
   }
 });
 
 // GET /api/repos/:repo/workspaces/:ws/dataflow/execution - Get dataflow execution status
+// Returns ApiTypes.DataflowExecutionStateType to match e3-api-server contract
 app.get('/api/repos/:repo/workspaces/:ws/dataflow/execution', async (c) => {
   const repo = c.req.param('repo');
   const workspace = c.req.param('ws');
+
+  // Get query params for pagination
+  const offset = c.req.query('offset') ? parseInt(c.req.query('offset')!, 10) : 0;
+  const limit = c.req.query('limit') ? parseInt(c.req.query('limit')!, 10) : undefined;
 
   try {
     // Get execution state from DynamoDB
     const execState = await refStore.getExecutionState(repo, workspace);
 
     if (!execState) {
-      return sendError(CloudDataflowExecutionStateType, internalError('No execution found for this workspace'));
+      return sendError(ApiTypes.DataflowExecutionStateType, internalError('No execution found for this workspace'));
     }
 
-    // Get task statuses
-    const tasks = await refStore.getExecutionTasks(repo, execState.executionId);
+    // Get events from DynamoDB (written by the Step Function orchestrator)
+    // Events are stored with sequence numbers for stable offset-based pagination
+    const { events: rawEvents, total: totalEvents } = await refStore.getExecutionEvents(
+      repo,
+      execState.executionId,
+      offset,
+      limit
+    );
 
-    // Build response
-    const result = {
-      executionId: execState.executionId,
-      status: variant(execState.status as 'running' | 'completed' | 'failed', null),
+    // Convert DataflowEvent records to API variant format
+    const events = rawEvents.map(e => {
+      switch (e.type) {
+        case 'start':
+          return variant('start', {
+            task: e.task,
+            timestamp: e.timestamp,
+          });
+        case 'complete':
+          return variant('complete', {
+            task: e.task,
+            timestamp: e.timestamp,
+            duration: e.duration ?? 0,
+          });
+        case 'cached':
+          return variant('cached', {
+            task: e.task,
+            timestamp: e.timestamp,
+          });
+        case 'failed':
+          return variant('failed', {
+            task: e.task,
+            timestamp: e.timestamp,
+            duration: e.duration ?? 0,
+            exitCode: BigInt(e.exitCode ?? -1),
+          });
+        case 'error':
+          return variant('error', {
+            task: e.task,
+            timestamp: e.timestamp,
+            message: e.message ?? 'Unknown error',
+          });
+        case 'skipped':
+          return variant('input_unavailable', {
+            task: e.task,
+            timestamp: e.timestamp,
+            reason: e.reason ?? 'Upstream task failed',
+          });
+        default:
+          return variant('error', {
+            task: e.task,
+            timestamp: e.timestamp,
+            message: `Unknown event type: ${e.type}`,
+          });
+      }
+    });
+
+    console.log(`Loaded ${events.length} events (offset=${offset}, total=${totalEvents}) for execution ${execState.executionId}`);
+
+    // Build summary if execution is complete
+    // Calculate duration from timestamps if available
+    const durationMs = execState.completedAt
+      ? new Date(execState.completedAt).getTime() - new Date(execState.startedAt).getTime()
+      : 0;
+    const summary = execState.status !== 'running' ? some({
+      executed: BigInt(execState.completedCount - execState.cachedCount),
+      cached: BigInt(execState.cachedCount),
+      failed: BigInt(execState.failedCount),
+      skipped: BigInt(execState.skippedCount),
+      duration: durationMs / 1000, // Convert ms to seconds
+    }) : none;
+
+    // Build response matching DataflowExecutionStateType
+    // Map execution status to variant
+    const statusVariant = execState.status === 'running'
+      ? variant('running', null)
+      : execState.status === 'completed'
+        ? variant('completed', null)
+        : variant('failed', null);
+
+    return sendSuccess(ApiTypes.DataflowExecutionStateType, {
+      status: statusVariant,
       startedAt: execState.startedAt,
       completedAt: execState.completedAt ? some(execState.completedAt) : none,
-      summary: {
-        taskCount: BigInt(execState.taskCount),
-        completedCount: BigInt(execState.completedCount),
-        failedCount: BigInt(execState.failedCount),
-        skippedCount: BigInt(execState.skippedCount),
-        cachedCount: BigInt(execState.cachedCount),
-      },
-      tasks: tasks.map(t => ({
-        name: t.taskName,
-        status: variant(t.status as 'dispatched' | 'running' | 'success' | 'failed' | 'error' | 'skipped' | 'cached', null),
-        outputHash: t.outputHash ? some(t.outputHash) : none,
-        exitCode: t.exitCode !== undefined ? some(BigInt(t.exitCode)) : none,
-        error: t.error ? some(t.error) : none,
-        duration: t.duration !== undefined ? some(BigInt(t.duration)) : none,
-      })),
-    };
-
-    return sendSuccess(CloudDataflowExecutionStateType, result);
+      summary,
+      events, // Already paginated by getExecutionEvents
+      totalEvents: BigInt(totalEvents),
+    });
   } catch (err) {
     console.error('Failed to get dataflow execution:', err);
-    return sendError(CloudDataflowExecutionStateType, internalError('Failed to get dataflow execution status'));
+    return sendError(ApiTypes.DataflowExecutionStateType, internalError('Failed to get dataflow execution status'));
   }
 });
 
@@ -702,24 +610,30 @@ app.get('/api/repos/:repo/workspaces/:ws/dataflow/execution', async (c) => {
 
 // Repository status: /api/repos/:repo/status
 // Note: GC endpoints are handled above with Step Functions, but other routes pass through
-app.route('/api/repos/:repo', createRepositoryRoutes(storage, getRepoPath));
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+app.route('/api/repos/:repo', createRepositoryRoutes(storage, getRepoPath) as any);
 
 // Package routes: /api/repos/:repo/packages/*
-app.route('/api/repos/:repo/packages', createPackageRoutes(storage, getRepoPath));
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+app.route('/api/repos/:repo/packages', createPackageRoutes(storage, getRepoPath) as any);
 
 // Workspace routes: /api/repos/:repo/workspaces/*
-app.route('/api/repos/:repo/workspaces', createWorkspaceRoutes(storage, getRepoPath));
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+app.route('/api/repos/:repo/workspaces', createWorkspaceRoutes(storage, getRepoPath) as any);
 
 // Dataset routes: /api/repos/:repo/workspaces/:ws/datasets/*
-app.route('/api/repos/:repo/workspaces/:ws/datasets', createDatasetRoutes(storage, getRepoPath));
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+app.route('/api/repos/:repo/workspaces/:ws/datasets', createDatasetRoutes(storage, getRepoPath) as any);
 
 // Task routes: /api/repos/:repo/workspaces/:ws/tasks/*
-app.route('/api/repos/:repo/workspaces/:ws/tasks', createTaskRoutes(storage, getRepoPath));
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+app.route('/api/repos/:repo/workspaces/:ws/tasks', createTaskRoutes(storage, getRepoPath) as any);
 
 // Execution/Dataflow routes: /api/repos/:repo/workspaces/:ws/dataflow/*
 // Note: POST and /execution are overridden above for cloud Step Functions execution
 // Other routes (GET graph, logs) pass through to e3-api-server
-app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(storage, getRepoPath));
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(storage, getRepoPath) as any);
 
 // ============================================================
 // Export Lambda Handler

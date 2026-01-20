@@ -14,7 +14,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { DynamoDBClient, ScanCommand } from '@aws-sdk/client-dynamodb';
+import { DynamoDBClient, ScanCommand, GetItemCommand } from '@aws-sdk/client-dynamodb';
 import { SFNClient, StartExecutionCommand } from '@aws-sdk/client-sfn';
 import { unmarshall } from '@aws-sdk/util-dynamodb';
 
@@ -181,20 +181,24 @@ async function listActiveRepos(): Promise<string[]> {
  */
 async function canRunGc(repo: string): Promise<boolean> {
   const response = await dynamo.send(
-    new ScanCommand({
+    new GetItemCommand({
       TableName: TABLE_NAME,
-      FilterExpression: 'PK = :pk AND SK = :sk AND #status = :active',
-      ExpressionAttributeNames: { '#status': 'status' },
-      ExpressionAttributeValues: {
-        ':pk': { S: `REPO#${repo}` },
-        ':sk': { S: '#META' },
-        ':active': { S: 'active' },
+      Key: {
+        PK: { S: `REPO#${repo}` },
+        SK: { S: '#META' },
       },
-      Limit: 1,
+      ConsistentRead: true,
+      ProjectionExpression: '#status',
+      ExpressionAttributeNames: { '#status': 'status' },
     })
   );
 
-  return (response.Items?.length ?? 0) > 0;
+  if (!response.Item) {
+    return false;
+  }
+
+  const status = response.Item.status?.S;
+  return status === 'active';
 }
 
 /**

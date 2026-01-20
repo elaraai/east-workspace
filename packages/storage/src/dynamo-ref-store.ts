@@ -88,11 +88,27 @@ export interface DataflowExecutionState {
  */
 export interface TaskExecutionStatus {
   taskName: string;
-  status: 'dispatched' | 'running' | 'success' | 'cached' | 'failed' | 'error' | 'skipped';
+  status: 'dispatched' | 'running' | 'success' | 'cached' | 'failed' | 'error' | 'skipped' | 'ready';
   outputHash?: string;
   exitCode?: number;
   error?: string;
   duration?: number;
+  readyAt?: string;     // ISO timestamp when task became ready
+  completedAt?: string; // ISO timestamp when task completed
+}
+
+/**
+ * Dataflow event types recorded by the orchestrator.
+ */
+export interface DataflowEvent {
+  seq: number;
+  type: 'start' | 'complete' | 'cached' | 'failed' | 'error' | 'skipped';
+  task: string;
+  timestamp: string;
+  duration?: number;
+  exitCode?: number;
+  message?: string;
+  reason?: string;
 }
 
 /**
@@ -198,7 +214,16 @@ export class DynamoRefStore implements RefStore {
 
   async executionGetOutput(repo: string, taskHash: string, inputsHash: string): Promise<string | null> {
     const item = await this.getItem(repo, `EXEC#${taskHash}#${inputsHash}`);
-    return item?.outputHash as string | null;
+    if (!item?.status) {
+      return null;
+    }
+    // Decode BEAST2-encoded status and extract outputHash from success variant
+    const statusBytes = item.status as Uint8Array;
+    const status = decodeExecutionStatus(statusBytes) as unknown as ExecutionStatus;
+    if (status.type === 'success') {
+      return status.value.outputHash;
+    }
+    return null;
   }
 
   async executionWriteOutput(repo: string, taskHash: string, inputsHash: string, outputHash: string): Promise<void> {
@@ -580,6 +605,8 @@ export class DynamoRefStore implements RefStore {
         exitCode: item.exitCode as number | undefined,
         error: item.error as string | undefined,
         duration: item.duration as number | undefined,
+        readyAt: item.readyAt as string | undefined,
+        completedAt: item.completedAt as string | undefined,
       };
     });
   }
@@ -592,12 +619,64 @@ export class DynamoRefStore implements RefStore {
     return item?.graph as string | null;
   }
 
+  /**
+   * Get events for a dataflow execution with pagination.
+   *
+   * Events are stored with sequence numbers (SK: EXEC#EVENT#{executionId}#{seq})
+   * which provides stable ordering for offset-based pagination.
+   *
+   * @param repo - Repository name
+   * @param executionId - Execution ID
+   * @param offset - Number of events to skip (default: 0)
+   * @param limit - Maximum number of events to return (default: all)
+   * @returns Object with events array and total count
+   */
+  async getExecutionEvents(
+    repo: string,
+    executionId: string,
+    offset = 0,
+    limit?: number
+  ): Promise<{ events: DataflowEvent[]; total: number }> {
+    // Query all events for this execution (they're sorted by sequence number)
+    const items = await this.queryByPrefix(repo, `EXEC#EVENT#${executionId}#`);
+
+    const total = items.length;
+
+    // Apply pagination
+    const start = offset;
+    const end = limit !== undefined ? offset + limit : items.length;
+    const paginatedItems = items.slice(start, end);
+
+    // Map to DataflowEvent
+    const events: DataflowEvent[] = paginatedItems.map(item => {
+      const sk = item.SK as string;
+      // SK format: EXEC#EVENT#{executionId}#{seq}
+      const seqStr = sk.split('#').pop()!;
+      const seq = parseInt(seqStr, 10);
+
+      return {
+        seq,
+        type: item.eventType as DataflowEvent['type'],
+        task: item.task as string,
+        timestamp: item.timestamp as string,
+        duration: item.duration as number | undefined,
+        exitCode: item.exitCode as number | undefined,
+        message: item.message as string | undefined,
+        reason: item.reason as string | undefined,
+      };
+    });
+
+    return { events, total };
+  }
+
   // ===========================================================================
   // Internal Helpers
   // ===========================================================================
 
   /**
    * Query items by SK prefix.
+   *
+   * Uses strongly consistent reads to avoid eventual consistency issues.
    */
   private async queryByPrefix(repo: string, skPrefix: string): Promise<Record<string, unknown>[]> {
     const items: Record<string, unknown>[] = [];
@@ -613,6 +692,7 @@ export class DynamoRefStore implements RefStore {
             ':prefix': skPrefix,
           }),
           ExclusiveStartKey: exclusiveStartKey,
+          ConsistentRead: true,
         })
       );
 
@@ -630,6 +710,10 @@ export class DynamoRefStore implements RefStore {
 
   /**
    * Get a single item by PK and SK.
+   *
+   * Uses strongly consistent reads to avoid eventual consistency issues
+   * where a write from one Lambda invocation might not be visible to
+   * another Lambda invocation hitting a different DynamoDB replica.
    */
   private async getItem(repo: string, sk: string): Promise<Record<string, unknown> | null> {
     const response = await this.dynamo.send(
@@ -639,6 +723,7 @@ export class DynamoRefStore implements RefStore {
           PK: `REPO#${repo}`,
           SK: sk,
         }),
+        ConsistentRead: true,
       })
     );
 

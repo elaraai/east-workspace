@@ -7,6 +7,7 @@ import {
   DynamoDBClient,
   QueryCommand,
   UpdateItemCommand,
+  PutItemCommand,
 } from '@aws-sdk/client-dynamodb';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 
@@ -133,6 +134,18 @@ export async function handler(event: CheckCompletionEvent): Promise<CheckComplet
 
   console.log(`Completed: ${completed.length}, Failed: ${failedTasks.length}, Still running: ${stillRunning.length}`);
 
+  // Record events for completed and failed tasks (orchestrator observes state changes)
+  if (completed.length > 0 || failedTasks.length > 0) {
+    await recordTaskEvents(
+      repo,
+      event.workspace,
+      executionId,
+      completed,
+      failedTasks,
+      taskStatuses
+    );
+  }
+
   return {
     repo,
     workspace: event.workspace,
@@ -174,6 +187,7 @@ async function getTaskStatuses(
           ':prefix': `EXEC#TASK#${executionId}#`,
         }),
         ExclusiveStartKey: exclusiveStartKey,
+        ConsistentRead: true,
       })
     );
 
@@ -229,4 +243,133 @@ async function markTaskFailed(
       }),
     })
   );
+}
+
+/**
+ * Event types that can be recorded.
+ */
+export type DataflowEventType =
+  | { type: 'start'; task: string; timestamp: string }
+  | { type: 'complete'; task: string; timestamp: string; duration: number }
+  | { type: 'cached'; task: string; timestamp: string }
+  | { type: 'failed'; task: string; timestamp: string; duration: number; exitCode: number }
+  | { type: 'error'; task: string; timestamp: string; message: string }
+  | { type: 'skipped'; task: string; timestamp: string; reason: string };
+
+/**
+ * Write an event to DynamoDB with the next sequence number.
+ * Uses atomic increment to get unique, ordered sequence numbers.
+ */
+async function writeEvent(
+  repo: string,
+  workspace: string,
+  executionId: string,
+  event: DataflowEventType
+): Promise<number> {
+  // Atomically increment the event sequence counter and get the new value
+  const updateResult = await dynamo.send(
+    new UpdateItemCommand({
+      TableName: TABLE_NAME,
+      Key: marshall({
+        PK: `REPO#${repo}`,
+        SK: `EXEC#STATE#${workspace}`,
+      }),
+      UpdateExpression: 'SET eventSeq = if_not_exists(eventSeq, :zero) + :one',
+      ExpressionAttributeValues: marshall({
+        ':zero': 0,
+        ':one': 1,
+      }),
+      ReturnValues: 'UPDATED_NEW',
+    })
+  );
+
+  const seq = updateResult.Attributes
+    ? (unmarshall(updateResult.Attributes).eventSeq as number)
+    : 1;
+
+  // Write the event with zero-padded sequence number for string sorting
+  const seqStr = seq.toString().padStart(10, '0');
+  await dynamo.send(
+    new PutItemCommand({
+      TableName: TABLE_NAME,
+      Item: marshall({
+        PK: `REPO#${repo}`,
+        SK: `EXEC#EVENT#${executionId}#${seqStr}`,
+        eventType: event.type,
+        task: event.task,
+        timestamp: event.timestamp,
+        ...(event.type === 'complete' && { duration: event.duration }),
+        ...(event.type === 'failed' && { duration: event.duration, exitCode: event.exitCode }),
+        ...(event.type === 'error' && { message: event.message }),
+        ...(event.type === 'skipped' && { reason: event.reason }),
+      }),
+    })
+  );
+
+  return seq;
+}
+
+/**
+ * Record events for completed/failed tasks observed by the orchestrator.
+ */
+async function recordTaskEvents(
+  repo: string,
+  workspace: string,
+  executionId: string,
+  completed: TaskCompletion[],
+  failedTasks: string[],
+  taskStatuses: Map<string, TaskStatusItem>
+): Promise<void> {
+  const now = new Date().toISOString();
+
+  // Record events for successfully completed tasks
+  for (const task of completed) {
+    if (task.status === 'cached') {
+      await writeEvent(repo, workspace, executionId, {
+        type: 'cached',
+        task: task.taskName,
+        timestamp: now,
+      });
+    } else {
+      // For executed tasks, we write both start and complete events
+      await writeEvent(repo, workspace, executionId, {
+        type: 'start',
+        task: task.taskName,
+        timestamp: now,
+      });
+      await writeEvent(repo, workspace, executionId, {
+        type: 'complete',
+        task: task.taskName,
+        timestamp: now,
+        duration: 0, // Duration not tracked at task level currently
+      });
+    }
+  }
+
+  // Record events for failed tasks
+  for (const taskName of failedTasks) {
+    const status = taskStatuses.get(taskName);
+    await writeEvent(repo, workspace, executionId, {
+      type: 'start',
+      task: taskName,
+      timestamp: now,
+    });
+
+    if (status?.status === 'error') {
+      await writeEvent(repo, workspace, executionId, {
+        type: 'error',
+        task: taskName,
+        timestamp: now,
+        message: status.error ?? 'Unknown error',
+      });
+    } else {
+      await writeEvent(repo, workspace, executionId, {
+        type: 'failed',
+        task: taskName,
+        timestamp: now,
+        duration: 0,
+        exitCode: status?.exitCode ?? -1,
+      });
+    }
+  }
 }

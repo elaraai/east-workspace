@@ -7,11 +7,12 @@ Development roadmap for cloud deployment of e3, using S3 + DynamoDB storage (see
 - API: Lambda + API Gateway (HTTP API)
 - Storage: S3 (objects), DynamoDB (refs, metadata, auth, execution state)
 - Orchestration: Step Functions
-- Compute: Fargate ECS Service (east-py) - warm pool pattern for <1s latency
+- Compute: Lambda with container image (default), Fargate ECS fallback for long tasks
+- Base Image: `ghcr.io/elaraai/e3` from east-plugin (includes Node.js 22 + Python 3.11 + east-py + e3)
 - Frontend: CloudFront + S3 (Vite/React)
 - Auth: Cognito with optional OIDC federation
 
-**MVP simplification:** Single runner type (east-py via ECS Service). No Lambda-based east-node runner in MVP.
+**MVP simplification:** Lambda-based east-py execution using `ghcr.io/elaraai/e3` base image. ECS Fargate available as fallback for tasks >15min or >10GB memory.
 
 ## Overview
 
@@ -598,9 +599,59 @@ app.get('/.well-known/openid-configuration', (c) => {
 6. CLI polls `POST /oauth2/token` until approved
 7. e3-aws Lambda validates Cognito-issued JWTs via API Gateway authorizer
 
-**Authorization (future enhancement):**
+**User Identity and Authorization:**
+
+The API is the source of truth for user identity. When the API sees a new `sub` (user ID) in an access token, it queries Cognito to fetch and cache the user's profile.
+
+*Identity flow:*
+```
+CLI                         API Lambda                  Cognito
+ │                              │                          │
+ │ GET /api/... (Bearer token)  │                          │
+ │─────────────────────────────>│                          │
+ │                              │                          │
+ │                              │ (decode JWT, extract sub)│
+ │                              │                          │
+ │                              │ (check DynamoDB cache)   │
+ │                              │                          │
+ │                              │ AdminGetUser(sub)        │
+ │                              │─────────────────────────>│
+ │                              │                          │
+ │                              │ {name, email, ...}       │
+ │                              │<─────────────────────────│
+ │                              │                          │
+ │                              │ (cache in DynamoDB)      │
+```
+
+*DynamoDB user profile cache:*
+```
+PK: USER#{sub}              SK: #PROFILE
+Attributes:
+  - sub: string (Cognito subject, e.g., "99bef4d8-0051-7059-...")
+  - email: string
+  - name: string (display name)
+  - givenName: string (first name)
+  - familyName: string (last name)
+  - cachedAt: timestamp
+  - cognitoUsername: string (federated ID, e.g., "EntraID_GJ9K...")
+```
+
+*Key design decisions:*
+- **Authz keyed by `sub`**: Permissions stored by Cognito subject ID (stable UUID)
+- **Display via cached profile**: UI shows name/email from cached profile, not from JWT
+- **CLI doesn't store id_token**: If CLI needs to display user info, it calls `GET /api/whoami`
+- **Profile refresh**: Re-fetch from Cognito if cache is stale (e.g., >24 hours)
+
+*API endpoint for CLI:*
+```
+GET /api/whoami
+Response: { sub, email, name, givenName, familyName }
+```
+
+*Authorization (repo-level, future):*
 - Cognito handles authentication (identity)
-- e3-aws can add authorization (permissions) via DynamoDB later
+- e3-aws handles authorization (permissions) via DynamoDB
+- Permissions keyed by `sub`, not email (emails can change)
 - Token blacklist in DynamoDB if instant revocation needed
 - For now: rely on short token expiry (15 min) and Cognito refresh token revocation
 
@@ -674,10 +725,14 @@ Primary Key: PK (String), SK (String)
 │ PK: REPO#{repo}           SK: LOCK#{resource}                     │
 │ Attributes: holder, acquiredAt, ttl (DynamoDB TTL for auto-delete)  │
 ├─────────────────────────────────────────────────────────────────────┤
+│ USER PROFILES (cached from Cognito)                                  │
+│ PK: USER#{sub}              SK: #PROFILE                           │
+│ Attributes: email, name, givenName, familyName, cachedAt             │
+├─────────────────────────────────────────────────────────────────────┤
 │ PERMISSIONS (e3-aws authz only)                                      │
-│ PK: USER#{userId}           SK: REPO#{repo}                       │
+│ PK: USER#{sub}              SK: REPO#{repo}                        │
 │ Attributes: role (admin|member), grantedAt, grantedBy               │
-│ GSI1: PK=REPO#{repo} SK=USER#{userId} (query users per repo)      │
+│ GSI1: PK=REPO#{repo} SK=USER#{sub} (query users per repo)         │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -832,7 +887,7 @@ Step Functions manages the dataflow DAG execution using external state in Dynamo
 **Architecture principles:**
 - **Dataflow-centric execution** - All execution goes through dataflow, no separate task execution path
 - **External state** - Task completion tracked in DynamoDB, not Step Functions state
-- **Polling loop** - State machine polls for ready tasks, dispatches them, waits for completion
+- **Direct Lambda invocation** - Tasks execute synchronously via Lambda container images
 - **Ephemeral workspaces** - Ad hoc tasks execute as single-task dataflows in temporary workspaces
 
 ```
@@ -849,20 +904,36 @@ Step Functions manages the dataflow DAG execution using external state in Dynamo
 │  └──────┬──────┘                                                │
 │         │                                                       │
 │  ┌──────▼──────────────────────────────────────────────┐        │
-│  │ ExecutionLoop (polling pattern)                     │        │
+│  │ ExecutionLoop                                        │        │
 │  │                                                     │        │
 │  │  ┌─────────────┐                                    │        │
 │  │  │ GetReady    │ → Query DynamoDB for tasks with    │        │
 │  │  │   Tasks     │   all dependencies completed       │        │
 │  │  └──────┬──────┘                                    │        │
 │  │         │                                           │        │
-│  │  ┌──────▼──────┐     ┌──────────────┐               │        │
-│  │  │DispatchTasks│ →→→ │ Task Workers │ (parallel)    │        │
-│  │  │  (Map)      │     │ Lambda/ECS   │               │        │
-│  │  └──────┬──────┘     └──────────────┘               │        │
+│  │  ┌──────▼──────────────────────────────────┐        │        │
+│  │  │DispatchTasksMap (parallel, max 10)      │        │        │
+│  │  │                                         │        │        │
+│  │  │  For each ready task:                   │        │        │
+│  │  │  ┌───────────────┐                      │        │        │
+│  │  │  │ DispatchTask  │ → Check cache        │        │        │
+│  │  │  └───────┬───────┘                      │        │        │
+│  │  │          │                              │        │        │
+│  │  │  ┌───────▼───────┐                      │        │        │
+│  │  │  │ ExecuteOrSkip │ → If cached, skip    │        │        │
+│  │  │  └───────┬───────┘                      │        │        │
+│  │  │          │                              │        │        │
+│  │  │  ┌───────▼───────────────────────┐      │        │        │
+│  │  │  │ ExecuteTask (Lambda container)│      │        │        │
+│  │  │  │ - Download inputs from S3     │      │        │        │
+│  │  │  │ - Run east-py CLI             │      │        │        │
+│  │  │  │ - Upload output to S3         │      │        │        │
+│  │  │  │ - Return outputHash           │      │        │        │
+│  │  │  └───────────────────────────────┘      │        │        │
+│  │  └─────────────────────────────────────────┘        │        │
 │  │         │                                           │        │
 │  │  ┌──────▼──────┐                                    │        │
-│  │  │   Wait      │ → Short delay before next poll     │        │
+│  │  │WriteResults │ → Update workspace with outputs    │        │
 │  │  └──────┬──────┘                                    │        │
 │  │         │                                           │        │
 │  │  ┌──────▼──────┐   No ┌─────────────┐               │        │
@@ -919,17 +990,17 @@ Attributes:
 |---------|------------------|---------|
 | `get-graph.ts` | `dataflowGetGraph()` | Build task graph, store in DynamoDB |
 | `get-ready.ts` | `dataflowGetReadyTasks()` | Find tasks with all dependencies completed |
-| `dispatch-task.ts` | `dataflowCheckCache()`, SQS | Check cache, dispatch to SQS queue |
-| `check-completion.ts` | DynamoDB query | Poll task status, detect stale claims |
+| `dispatch-task.ts` | `dataflowCheckCache()` | Check cache, return task info for execution |
+| `execute-task.ts` | Container Lambda | Execute task via east-py CLI, upload output |
 | `write-result.ts` | `workspaceSetDatasetByHash()` | Update workspace with task output |
 | `mark-skipped.ts` | `dataflowGetDependentsToSkip()` | Mark downstream tasks as skipped on failure |
 
-**ECS container** (in `containers/east-py-runner/`):
-- Polls SQS for tasks
-- Claims task in DynamoDB (prevents duplicate execution)
+**Execute-task Lambda** (container image from `ghcr.io/elaraai/e3`):
+- Invoked directly by Step Functions (no SQS polling)
+- Downloads inputs from S3
 - Runs `east-py run <ir> -p ... -i ... -o ...`
-- Heartbeats every 60s to extend claim
-- Updates DynamoDB on completion/failure
+- Uploads output to S3
+- Returns outputHash (Step Functions handles retries)
 
 ### 4.1.1 Ephemeral Workspaces for Ad Hoc Tasks
 
@@ -1038,11 +1109,16 @@ POST /api/repos/{repo}/execute                 # Execute task in ephemeral works
 
 ---
 
-## Phase 5: Production Runners (Fargate)
+## Phase 5: Fallback Runners (Fargate) - Optional
 
-**Goal:** Implement east-py task execution on Fargate with sub-second latency.
+**Goal:** Provide Fargate-based task execution for tasks exceeding Lambda limits (>15min or >10GB memory).
 
-**MVP scope:** Single runner type (east-py). No Lambda-based runners or Julia support in MVP.
+**Note:** Lambda is the default execution path. Fargate is only needed for long-running or memory-intensive tasks.
+
+**When to use Fargate:**
+- Tasks that run longer than 15 minutes
+- Tasks requiring more than 10GB memory
+- Tasks with specific hardware requirements (GPU, etc.)
 
 ### 5.1 Latency Requirements
 
@@ -1398,7 +1474,7 @@ const workspace = {
 │ • JWT auth      │                     │                         │
 └─────────────────┘                     └─────────────────────────┘
 
-**Cloud execution architecture (MVP):**
+**Cloud execution architecture (Lambda-based):**
 
 ┌──────────────────────────────────────────────────────────────────────┐
 │  API Gateway                                                          │
@@ -1414,24 +1490,18 @@ const workspace = {
 │    │                              └────────┬────────┘                  │
 │    │                                       │                          │
 │    │                              GetGraph │ GetReady                  │
-│    │                              Dispatch │ CheckCompletion           │
+│    │                              Dispatch │ WriteResults              │
 │    │                                       │                          │
 │    │                                       ▼                          │
-│    │                              ┌───────────────┐                   │
-│    │                              │  SQS Queue    │                   │
-│    │                              │  (FIFO)       │                   │
-│    │                              └───────┬───────┘                   │
-│    │                                      │                          │
-│    │                                      ▼                          │
-│    │                              ┌───────────────────────────────┐  │
-│    │                              │  ECS Service (east-py)         │  │
-│    │                              │  - Polls SQS for tasks         │  │
-│    │                              │  - Claims task in DynamoDB     │  │
-│    │                              │  - Runs east-py CLI            │  │
-│    │                              │  - Heartbeats every 60s        │  │
-│    │                              │  - Writes output to S3         │  │
-│    │                              │  - Updates status in DynamoDB  │  │
-│    │                              └───────────────────────────────┘  │
+│    │                              ┌───────────────────────────────┐   │
+│    │                              │  ExecuteTask Lambda           │   │
+│    │                              │  (Container: ghcr.io/elaraai/e3) │
+│    │                              │  - Download inputs from S3    │   │
+│    │                              │  - Run east-py CLI            │   │
+│    │                              │  - Upload output to S3        │   │
+│    │                              │  - Return outputHash          │   │
+│    │                              │  (15min timeout, 10GB memory) │   │
+│    │                              └───────────────────────────────┘   │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 

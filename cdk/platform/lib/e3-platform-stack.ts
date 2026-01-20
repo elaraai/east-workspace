@@ -34,12 +34,7 @@ import * as ssm from 'aws-cdk-lib/aws-ssm';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as events from 'aws-cdk-lib/aws-events';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
-import * as sqs from 'aws-cdk-lib/aws-sqs';
-import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
-import * as ec2 from 'aws-cdk-lib/aws-ec2';
-import * as iam from 'aws-cdk-lib/aws-iam';
-import * as logs from 'aws-cdk-lib/aws-logs';
 import { Construct } from 'constructs';
 import { CrossRegionCertificate } from './cross-region-certificate.js';
 import { CrossAccountRoute53Record } from './cross-account-route53-record.js';
@@ -647,9 +642,10 @@ export class E3PlatformStack extends cdk.Stack {
         TABLE_NAME: this.dataTable.tableName,
       },
     });
-    this.dataTable.grantReadData(getReadyFn);
+    // GetReady needs write access to record events and mark tasks as event-recorded
+    this.dataTable.grantReadWriteData(getReadyFn);
 
-    // Lambda: Dispatch task to SQS (created later with SQS queue)
+    // Lambda: Dispatch task (checks cache, returns task execution params if not cached)
     const dispatchTaskFn = new nodejs.NodejsFunction(this, 'DispatchTaskHandler', {
       functionName: `${prefix}-dispatch-task`,
       runtime: lambda.Runtime.NODEJS_22_X,
@@ -666,31 +662,10 @@ export class E3PlatformStack extends cdk.Stack {
       environment: {
         TABLE_NAME: this.dataTable.tableName,
         BUCKET_NAME: this.dataBucket.bucketName,
-        // TASK_QUEUE_URL added after SQS queue is created
       },
     });
     this.dataTable.grantReadWriteData(dispatchTaskFn);
     this.dataBucket.grantRead(dispatchTaskFn);
-
-    // Lambda: Check task completion status
-    const checkCompletionFn = new nodejs.NodejsFunction(this, 'CheckCompletionHandler', {
-      functionName: `${prefix}-check-completion`,
-      runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(runnerPackagePath, 'src', 'handlers', 'check-completion.ts'),
-      handler: 'handler',
-      bundling: {
-        minify: true,
-        sourceMap: true,
-        format: nodejs.OutputFormat.ESM,
-        banner: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
-      },
-      timeout: cdk.Duration.seconds(30),
-      memorySize: 512,
-      environment: {
-        TABLE_NAME: this.dataTable.tableName,
-      },
-    });
-    this.dataTable.grantReadWriteData(checkCompletionFn);
 
     // Lambda: Write task result to workspace
     const writeResultFn = new nodejs.NodejsFunction(this, 'WriteResultHandler', {
@@ -734,7 +709,68 @@ export class E3PlatformStack extends cdk.Stack {
     });
     this.dataTable.grantReadWriteData(markSkippedFn);
 
+    // Lambda: Finalize execution state (update status to completed/failed)
+    const finalizeExecutionFn = new nodejs.NodejsFunction(this, 'FinalizeExecutionHandler', {
+      functionName: `${prefix}-finalize-execution`,
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(runnerPackagePath, 'src', 'handlers', 'finalize-execution.ts'),
+      handler: 'handler',
+      bundling: {
+        minify: true,
+        sourceMap: true,
+        format: nodejs.OutputFormat.ESM,
+        banner: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
+      },
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 256,
+      environment: {
+        TABLE_NAME: this.dataTable.tableName,
+      },
+    });
+    this.dataTable.grantReadWriteData(finalizeExecutionFn);
+
     // Step Function states for dataflow
+    // Note: We need to define executeTaskFn first before using it in the state machine.
+    // The executeTaskFn is created after this section, so we use a forward reference pattern.
+
+    // ECR Repository for runner container image (needed early for executeTaskFn)
+    // Note: Repository must be created manually before deployment:
+    //   aws ecr create-repository --repository-name e3-${deploymentId}-runner --region <region>
+    // Then push the image with: ./scripts/build-runner.sh --push
+    const runnerRepo = ecr.Repository.fromRepositoryName(
+      this,
+      'RunnerRepo',
+      `${prefix}-runner`
+    );
+
+    // Lambda function with container image for task execution
+    // Note: Image must be pushed to ECR before deployment
+    // Use scripts/build-runner.sh to build and push the image
+    const executeTaskFn = new lambda.DockerImageFunction(this, 'ExecuteTaskFn', {
+      functionName: `${prefix}-execute-task`,
+      code: lambda.DockerImageCode.fromEcr(runnerRepo, { tagOrDigest: 'latest' }),
+      memorySize: 10240, // 10GB max for Lambda
+      timeout: cdk.Duration.minutes(15), // 15 min max for Lambda
+      environment: {
+        BUCKET_NAME: this.dataBucket.bucketName,
+        TABLE_NAME: this.dataTable.tableName,
+      },
+    });
+    this.dataBucket.grantReadWrite(executeTaskFn);
+    this.dataTable.grantReadWriteData(executeTaskFn);
+
+    // Outputs for execute-task Lambda
+    new cdk.CfnOutput(this, 'RunnerRepoUri', {
+      value: runnerRepo.repositoryUri,
+      description: 'ECR repository URI for runner image',
+    });
+
+    new cdk.CfnOutput(this, 'ExecuteTaskFnArn', {
+      value: executeTaskFn.functionArn,
+      description: 'Execute task Lambda function ARN',
+    });
+
+    // Now define the dataflow state machine states
     const getGraphState = new tasks.LambdaInvoke(this, 'GetGraphState', {
       lambdaFunction: getGraphFn,
       outputPath: '$.Payload',
@@ -743,119 +779,280 @@ export class E3PlatformStack extends cdk.Stack {
 
     const getReadyState = new tasks.LambdaInvoke(this, 'GetReadyState', {
       lambdaFunction: getReadyFn,
-      outputPath: '$.Payload',
+      // Merge GetReady result with existing state (preserves graph from GetGraph)
+      resultPath: '$.readyResult',
       retryOnServiceExceptions: true,
     });
-
-    // Dispatch tasks in parallel using Map state
-    const dispatchTasksState = new sfn.Map(this, 'DispatchTasksMap', {
-      inputPath: '$',
-      itemsPath: '$.readyTasks',
-      maxConcurrency: 10,
-      parameters: {
-        'repo.$': '$.repo',
-        'workspace.$': '$.workspace',
-        'executionId.$': '$.executionId',
-        'taskName.$': '$$.Map.Item.Value',
-      },
-      resultPath: '$.dispatchResults',
-    }).itemProcessor(
-      new tasks.LambdaInvoke(this, 'DispatchTaskState', {
-        lambdaFunction: dispatchTaskFn,
-        outputPath: '$.Payload',
-        retryOnServiceExceptions: true,
-      })
-    );
-
-    // Poll loop: Wait -> CheckCompletion -> Choice
-    const pollWaitState = new sfn.Wait(this, 'PollWait', {
-      time: sfn.WaitTime.duration(cdk.Duration.seconds(2)),
-    });
-
-    const checkCompletionState = new tasks.LambdaInvoke(this, 'CheckCompletionState', {
-      lambdaFunction: checkCompletionFn,
-      outputPath: '$.Payload',
-      retryOnServiceExceptions: true,
-    });
-
-    // Write results for completed tasks (Map state)
-    const writeResultsState = new sfn.Map(this, 'WriteResultsMap', {
-      inputPath: '$',
-      itemsPath: '$.completed',
-      maxConcurrency: 5,
-      parameters: {
-        'repo.$': '$.repo',
-        'workspace.$': '$.workspace',
-        'executionId.$': '$.executionId',
-        'taskName.$': '$$.Map.Item.Value.taskName',
-        'outputPath.$': '$$.Map.Item.Value.outputPath',
-        'outputHash.$': '$$.Map.Item.Value.outputHash',
-      },
-      resultPath: '$.writeResults',
-    }).itemProcessor(
-      new tasks.LambdaInvoke(this, 'WriteResultState', {
-        lambdaFunction: writeResultFn,
-        outputPath: '$.Payload',
-        retryOnServiceExceptions: true,
-      })
-    );
-
-    // Mark skipped tasks for each failed task
-    const markSkippedState = new sfn.Map(this, 'MarkSkippedMap', {
-      inputPath: '$',
-      itemsPath: '$.failedTasks',
-      maxConcurrency: 5,
-      parameters: {
-        'repo.$': '$.repo',
-        'executionId.$': '$.executionId',
-        'failedTask.$': '$$.Map.Item.Value',
-      },
-      resultPath: '$.skippedResults',
-    }).itemProcessor(
-      new tasks.LambdaInvoke(this, 'MarkSkippedState', {
-        lambdaFunction: markSkippedFn,
-        outputPath: '$.Payload',
-        retryOnServiceExceptions: true,
-      })
-    );
 
     // Terminal states
     const dataflowSuccess = new sfn.Succeed(this, 'DataflowSuccess', {
       comment: 'Dataflow completed successfully',
     });
 
-    // Choice: All tasks completed?
-    const isAllComplete = new sfn.Choice(this, 'IsAllComplete')
-      .when(sfn.Condition.booleanEquals('$.allCompleted', true), dataflowSuccess)
-      .otherwise(dispatchTasksState);
+    const dataflowFailed = new sfn.Fail(this, 'DataflowFailed', {
+      error: 'DataflowFailed',
+      cause: 'One or more tasks failed during execution',
+    });
 
-    // Choice: Any tasks completed in this poll iteration?
-    const isAnyCompleted = new sfn.Choice(this, 'IsAnyCompleted')
-      .when(sfn.Condition.booleanEquals('$.anyCompleted', true), writeResultsState)
-      .otherwise(pollWaitState);
+    // Finalize states - update execution state in DynamoDB before terminal states
+    // Finalize only sets status and completedAt - counts are already set by write-result
+    const prepareFinalizeSuccess = new sfn.Pass(this, 'PrepareFinalizeSuccess', {
+      parameters: {
+        'repo.$': '$.repo',
+        'workspace.$': '$.workspace',
+        'executionId.$': '$.executionId',
+        'status': 'completed',
+      },
+    });
 
-    // Choice: Has any task failed?
-    const hasFailures = new sfn.Choice(this, 'HasFailures')
-      .when(sfn.Condition.numberGreaterThan('$.failedCount', 0), markSkippedState)
-      .otherwise(getReadyState);
+    const prepareFinalizeFailure = new sfn.Pass(this, 'PrepareFinalizeFailure', {
+      parameters: {
+        'repo.$': '$.repo',
+        'workspace.$': '$.workspace',
+        'executionId.$': '$.executionId',
+        'status': 'failed',
+      },
+    });
 
-    // Wire up the state machine
-    // Main flow
-    getGraphState.next(getReadyState);
-    getReadyState.next(isAllComplete);
+    const finalizeExecutionState = new tasks.LambdaInvoke(this, 'FinalizeExecutionState', {
+      lambdaFunction: finalizeExecutionFn,
+      outputPath: '$.Payload',
+      retryOnServiceExceptions: true,
+    });
 
-    // Dispatch -> Poll loop
-    dispatchTasksState.next(pollWaitState);
-    pollWaitState.next(checkCompletionState);
-    checkCompletionState.next(isAnyCompleted);
+    // Wire finalize -> terminal states
+    // For success path
+    const finalizeSuccessState = new tasks.LambdaInvoke(this, 'FinalizeSuccessState', {
+      lambdaFunction: finalizeExecutionFn,
+      outputPath: '$.Payload',
+      retryOnServiceExceptions: true,
+    });
+    prepareFinalizeSuccess.next(finalizeSuccessState);
+    finalizeSuccessState.next(dataflowSuccess);
 
-    // Write results -> Check failures -> Back to GetReady
-    writeResultsState.next(hasFailures);
-    markSkippedState.next(getReadyState);
+    // For failure path
+    const finalizeFailureState = new tasks.LambdaInvoke(this, 'FinalizeFailureState', {
+      lambdaFunction: finalizeExecutionFn,
+      outputPath: '$.Payload',
+      retryOnServiceExceptions: true,
+    });
+    prepareFinalizeFailure.next(finalizeFailureState);
+    finalizeFailureState.next(dataflowFailed);
+
+    // States for task execution within the Map iterator
+    // Each state needs to preserve the context (repo, workspace, executionId) through the chain
+
+    // DispatchTask: checks cache, resolves input hashes, returns task params or cached result
+    // Merge result into $.dispatch to preserve context
+    const dispatchTaskState = new tasks.LambdaInvoke(this, 'DispatchTaskState', {
+      lambdaFunction: dispatchTaskFn,
+      resultPath: '$.dispatch',
+      retryOnServiceExceptions: true,
+    });
+
+    // Flatten dispatch result while preserving context
+    // Note: outputHash only exists for cached results, not for ready tasks
+    const prepareExecutionState = new sfn.Pass(this, 'PrepareExecution', {
+      parameters: {
+        'repo.$': '$.repo',
+        'workspace.$': '$.workspace',
+        'executionId.$': '$.executionId',
+        'taskName.$': '$.dispatch.Payload.taskName',
+        'status.$': '$.dispatch.Payload.status',
+        'taskHash.$': '$.dispatch.Payload.taskHash',
+        'inputHashes.$': '$.dispatch.Payload.inputHashes',
+        'outputPath.$': '$.dispatch.Payload.outputPath',
+        // Pass through the entire dispatch payload so we can access outputHash if it exists
+        'dispatchResult.$': '$.dispatch.Payload',
+      },
+    });
+
+    // ExecuteTask: runs the actual task computation
+    // Merge result into $.execution to preserve context
+    const executeTaskState = new tasks.LambdaInvoke(this, 'ExecuteTaskState', {
+      lambdaFunction: executeTaskFn,
+      resultPath: '$.execution',
+      retryOnServiceExceptions: true,
+    }).addRetry({
+      errors: ['States.TaskFailed', 'States.Timeout'],
+      maxAttempts: 2,
+      backoffRate: 2,
+    }).addCatch(new sfn.Pass(this, 'TaskExecutionFailed', {
+      parameters: {
+        'status': 'failed',
+        'error': 'Task execution failed',
+      },
+      resultPath: '$.execution.Payload',
+    }), {
+      resultPath: '$.execution.error',
+    });
+
+    // Prepare write for successful execution
+    const prepareSuccessWriteState = new sfn.Pass(this, 'PrepareSuccessWrite', {
+      parameters: {
+        'repo.$': '$.repo',
+        'workspace.$': '$.workspace',
+        'executionId.$': '$.executionId',
+        'taskName.$': '$.taskName',
+        'outputPath.$': '$.outputPath',
+        'taskHash.$': '$.taskHash',
+        'inputHashes.$': '$.inputHashes',
+        'status': 'completed',
+        'outputHash.$': '$.execution.Payload.outputHash',
+        'duration.$': '$.execution.Payload.duration',
+      },
+    });
+
+    // Prepare write for failed execution
+    const prepareFailureWriteState = new sfn.Pass(this, 'PrepareFailureWrite', {
+      parameters: {
+        'repo.$': '$.repo',
+        'workspace.$': '$.workspace',
+        'executionId.$': '$.executionId',
+        'taskName.$': '$.taskName',
+        'outputPath.$': '$.outputPath',
+        'status': 'failed',
+        'error.$': '$.execution.Payload.error',
+      },
+    });
+
+    // Choice: Did execution succeed?
+    const didExecutionSucceedChoice = new sfn.Choice(this, 'DidExecutionSucceed')
+      .when(
+        sfn.Condition.stringEquals('$.execution.Payload.status', 'success'),
+        prepareSuccessWriteState
+      )
+      .otherwise(prepareFailureWriteState);
+
+    // WriteResult: writes task output to workspace
+    const writeResultState = new tasks.LambdaInvoke(this, 'WriteResultState', {
+      lambdaFunction: writeResultFn,
+      outputPath: '$.Payload',
+      retryOnServiceExceptions: true,
+    });
+
+    // Wire prepare states to writeResult (must be after writeResultState is defined)
+    prepareSuccessWriteState.next(writeResultState);
+    prepareFailureWriteState.next(writeResultState);
+
+    // Prepare write for cached results (outputHash comes from dispatch)
+    const prepareCachedWriteState = new sfn.Pass(this, 'PrepareCachedWrite', {
+      parameters: {
+        'repo.$': '$.repo',
+        'workspace.$': '$.workspace',
+        'executionId.$': '$.executionId',
+        'taskName.$': '$.taskName',
+        'outputPath.$': '$.outputPath',
+        'taskHash.$': '$.taskHash',
+        'inputHashes.$': '$.inputHashes',
+        'status': 'cached',  // Preserve cached status for proper counting
+        'outputHash.$': '$.dispatchResult.outputHash',
+      },
+    });
+    prepareCachedWriteState.next(writeResultState);
+
+    // Choice: Is task result cached?
+    const isCachedChoice = new sfn.Choice(this, 'IsCached')
+      .when(
+        sfn.Condition.stringEquals('$.status', 'cached'),
+        prepareCachedWriteState  // Cached results - prepare and write
+      )
+      .otherwise(executeTaskState);
+
+    // Wire up the task execution chain
+    dispatchTaskState.next(prepareExecutionState);
+    prepareExecutionState.next(isCachedChoice);
+    executeTaskState.next(didExecutionSucceedChoice);
+
+    // Map iterator definition: dispatch -> prepare -> (cached? -> write) or (execute -> prepare -> write)
+    // The chain is already wired above, dispatchTaskState is the entry point
+    const taskIterator = dispatchTaskState;
+
+    // Map state for parallel task execution
+    // Use high concurrency - each task runs in its own Lambda, limited only by Lambda service limits
+    const dispatchTasksMap = new sfn.Map(this, 'DispatchTasksMap', {
+      maxConcurrency: 100,
+      itemsPath: '$.readyTasks',
+      itemSelector: {
+        'taskName.$': '$$.Map.Item.Value',
+        'repo.$': '$.repo',
+        'workspace.$': '$.workspace',
+        'executionId.$': '$.executionId',
+        'graph.$': '$.graph',
+        'force.$': '$.force',
+      },
+      resultPath: '$.taskResults',
+    }).itemProcessor(taskIterator);
+
+    // After map completes, loop back to GetReady to check status
+    // GetReady will recompute failure counts from DynamoDB after write-result updates
+    // We don't check failures here because the Map results don't directly indicate
+    // which tasks failed - that info is written to DynamoDB by write-result Lambda
+    const afterMapLoop = new sfn.Pass(this, 'AfterMapLoop', {
+      parameters: {
+        'repo.$': '$.repo',
+        'workspace.$': '$.workspace',
+        'executionId.$': '$.executionId',
+        'graph.$': '$.graph',
+        'force.$': '$.force',
+      },
+    });
+
+    dispatchTasksMap.next(afterMapLoop);
+    afterMapLoop.next(getReadyState);
+
+    // Pass state to flatten GetReady result and add readyCount
+    // Input has $.graph from GetGraph and $.readyResult.Payload from GetReady
+    const checkReadyTasks = new sfn.Pass(this, 'CheckReadyTasks', {
+      parameters: {
+        'repo.$': '$.repo',
+        'workspace.$': '$.workspace',
+        'executionId.$': '$.executionId',
+        'graph.$': '$.graph',
+        'force.$': '$.force',
+        'readyTasks.$': '$.readyResult.Payload.readyTasks',
+        'allCompleted.$': '$.readyResult.Payload.allCompleted',
+        'completedCount.$': '$.readyResult.Payload.completedCount',
+        'failedCount.$': '$.readyResult.Payload.failedCount',
+        'skippedCount.$': '$.readyResult.Payload.skippedCount',
+        'inProgressCount.$': '$.readyResult.Payload.inProgressCount',
+        'readyCount.$': 'States.ArrayLength($.readyResult.Payload.readyTasks)',
+      },
+    });
+
+    // Choice: All tasks complete?
+    // Check completion status and handle success/failure appropriately
+    const isAllCompleteChoice = new sfn.Choice(this, 'IsAllComplete')
+      .when(
+        // All complete with failures -> finalize as failed
+        sfn.Condition.and(
+          sfn.Condition.booleanEquals('$.allCompleted', true),
+          sfn.Condition.numberGreaterThan('$.failedCount', 0)
+        ),
+        prepareFinalizeFailure
+      )
+      .when(
+        // All complete with no failures -> finalize as success
+        sfn.Condition.booleanEquals('$.allCompleted', true),
+        prepareFinalizeSuccess
+      )
+      .when(
+        sfn.Condition.numberEquals('$.readyCount', 0),
+        // No ready tasks but not complete - deadlock or waiting for in-progress
+        new sfn.Wait(this, 'WaitForProgress', {
+          time: sfn.WaitTime.duration(cdk.Duration.seconds(5)),
+        }).next(getReadyState)
+      )
+      .otherwise(dispatchTasksMap);
+
+    getReadyState.next(checkReadyTasks);
+    checkReadyTasks.next(isAllCompleteChoice);
 
     this.dataflowStateMachine = new sfn.StateMachine(this, 'DataflowStateMachine', {
       stateMachineName: `${prefix}-dataflow`,
-      definitionBody: sfn.DefinitionBody.fromChainable(getGraphState),
+      definitionBody: sfn.DefinitionBody.fromChainable(
+        getGraphState.next(getReadyState)
+      ),
       timeout: cdk.Duration.hours(24),
     });
 
@@ -863,181 +1060,6 @@ export class E3PlatformStack extends cdk.Stack {
     this.dataflowStateMachine.grantStartExecution(this.apiHandler);
     this.dataflowStateMachine.grantRead(this.apiHandler);
     this.apiHandler.addEnvironment('DATAFLOW_STATE_MACHINE_ARN', this.dataflowStateMachine.stateMachineArn);
-
-    // ============================================================
-    // TASK QUEUE AND ECS RUNNER
-    // ============================================================
-    // SQS FIFO queue for task dispatch to ECS containers.
-    // ECS Fargate service with warm pool pattern for sub-second latency.
-
-    // SQS Dead Letter Queue for failed tasks
-    const taskDlq = new sqs.Queue(this, 'TaskDLQ', {
-      queueName: `${prefix}-tasks-dlq.fifo`,
-      fifo: true,
-      retentionPeriod: cdk.Duration.days(14),
-    });
-
-    // SQS FIFO Queue for task dispatch
-    const taskQueue = new sqs.Queue(this, 'TaskQueue', {
-      queueName: `${prefix}-tasks.fifo`,
-      fifo: true,
-      contentBasedDeduplication: false, // We provide MessageDeduplicationId
-      visibilityTimeout: cdk.Duration.minutes(15),
-      deadLetterQueue: {
-        queue: taskDlq,
-        maxReceiveCount: 3,
-      },
-    });
-
-    // Grant dispatch Lambda permission to send messages
-    taskQueue.grantSendMessages(dispatchTaskFn);
-    dispatchTaskFn.addEnvironment('TASK_QUEUE_URL', taskQueue.queueUrl);
-
-    // ECR Repository for runner image
-    const runnerRepo = new ecr.Repository(this, 'RunnerRepo', {
-      repositoryName: `${prefix}-east-py-runner`,
-      removalPolicy: cdk.RemovalPolicy.RETAIN,
-      lifecycleRules: [
-        {
-          maxImageCount: 10,
-          description: 'Keep only 10 images',
-        },
-      ],
-    });
-
-    // VPC for ECS (public subnets only, no NAT needed)
-    const vpc = new ec2.Vpc(this, 'RunnerVpc', {
-      vpcName: `${prefix}-runner-vpc`,
-      maxAzs: 2,
-      natGateways: 0, // Save cost - use public subnets
-      subnetConfiguration: [
-        {
-          name: 'public',
-          subnetType: ec2.SubnetType.PUBLIC,
-          cidrMask: 24,
-        },
-      ],
-    });
-
-    // ECS Cluster
-    const cluster = new ecs.Cluster(this, 'RunnerCluster', {
-      clusterName: `${prefix}-runners`,
-      vpc,
-      containerInsightsV2: ecs.ContainerInsights.ENABLED,
-    });
-
-    // Task execution role (for ECR pull, logs)
-    const executionRole = new iam.Role(this, 'RunnerExecutionRole', {
-      roleName: `${prefix}-runner-execution`,
-      assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
-      managedPolicies: [
-        iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AmazonECSTaskExecutionRolePolicy'),
-      ],
-    });
-
-    // Task role (for S3, DynamoDB, SQS access)
-    const taskRole = new iam.Role(this, 'RunnerTaskRole', {
-      roleName: `${prefix}-runner-task`,
-      assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
-    });
-    this.dataBucket.grantReadWrite(taskRole);
-    this.dataTable.grantReadWriteData(taskRole);
-    taskQueue.grantConsumeMessages(taskRole);
-
-    // CloudWatch log group
-    const runnerLogGroup = new logs.LogGroup(this, 'RunnerLogGroup', {
-      logGroupName: `/ecs/${prefix}/runner`,
-      retention: logs.RetentionDays.ONE_MONTH,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-    });
-
-    // Fargate task definition
-    const taskDefinition = new ecs.FargateTaskDefinition(this, 'RunnerTaskDef', {
-      family: `${prefix}-runner`,
-      memoryLimitMiB: 4096,
-      cpu: 2048,
-      executionRole,
-      taskRole,
-    });
-
-    taskDefinition.addContainer('runner', {
-      containerName: 'runner',
-      image: ecs.ContainerImage.fromEcrRepository(runnerRepo, 'latest'),
-      logging: ecs.LogDrivers.awsLogs({
-        logGroup: runnerLogGroup,
-        streamPrefix: 'runner',
-      }),
-      environment: {
-        TASK_QUEUE_URL: taskQueue.queueUrl,
-        BUCKET_NAME: this.dataBucket.bucketName,
-        TABLE_NAME: this.dataTable.tableName,
-        AWS_REGION: this.region,
-      },
-    });
-
-    // Security group for runner tasks
-    const runnerSecurityGroup = new ec2.SecurityGroup(this, 'RunnerSecurityGroup', {
-      vpc,
-      securityGroupName: `${prefix}-runner-sg`,
-      description: 'Security group for east-py runner tasks',
-      allowAllOutbound: true, // Allow outbound for S3, DynamoDB, SQS
-    });
-
-    // ECS Fargate Service with auto-scaling
-    const service = new ecs.FargateService(this, 'RunnerService', {
-      serviceName: `${prefix}-runner`,
-      cluster,
-      taskDefinition,
-      desiredCount: 0, // Start at 0 - scale up after pushing image to ECR
-      assignPublicIp: true, // Required for public subnet
-      securityGroups: [runnerSecurityGroup],
-      capacityProviderStrategies: [
-        {
-          capacityProvider: 'FARGATE_SPOT',
-          weight: 2,
-        },
-        {
-          capacityProvider: 'FARGATE',
-          weight: 1,
-        },
-      ],
-    });
-
-    // Auto-scaling based on queue depth
-    const scaling = service.autoScaleTaskCount({
-      minCapacity: 0,
-      maxCapacity: 10,
-    });
-
-    scaling.scaleOnMetric('QueueDepthScaling', {
-      metric: taskQueue.metricApproximateNumberOfMessagesVisible({
-        period: cdk.Duration.minutes(1),
-        statistic: 'Average',
-      }),
-      scalingSteps: [
-        { upper: 0, change: -1 },   // Scale to 0 when queue empty
-        { lower: 1, change: +1 },   // Scale up when messages arrive
-        { lower: 10, change: +2 },  // Scale faster with more messages
-      ],
-      cooldown: cdk.Duration.seconds(60),
-      adjustmentType: cdk.aws_applicationautoscaling.AdjustmentType.CHANGE_IN_CAPACITY,
-    });
-
-    // Outputs
-    new cdk.CfnOutput(this, 'TaskQueueUrl', {
-      value: taskQueue.queueUrl,
-      description: 'SQS queue URL for task dispatch',
-    });
-
-    new cdk.CfnOutput(this, 'RunnerRepoUri', {
-      value: runnerRepo.repositoryUri,
-      description: 'ECR repository URI for runner image',
-    });
-
-    new cdk.CfnOutput(this, 'RunnerClusterArn', {
-      value: cluster.clusterArn,
-      description: 'ECS cluster ARN for runners',
-    });
 
     // ============================================================
     // DELETE REPO STATE MACHINE

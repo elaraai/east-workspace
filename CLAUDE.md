@@ -72,16 +72,59 @@ npm install
 # Build all packages
 npm run build
 
-# Deploy e3 platform to AWS (requires credentials)
-cd cdk/platform
-npm run deploy
-
-# Deploy account provisioning (management account only)
-cd cdk/accounts
-npm run deploy
-
 # Run frontend locally
 npm run dev
+```
+
+## Deployment
+
+### AWS Profiles
+
+Available AWS SSO profiles for e3 deployments:
+- `elaraai-dev-elara-e3` - Development environment (dev.e3.elaraai.com)
+- Future: `elaraai-test-elara-e3`, `elaraai-prod-elara-e3`
+
+### Deploy to Dev
+
+```bash
+# 1. Login to AWS SSO (opens browser)
+aws sso login --profile elaraai-dev-elara-e3
+
+# 2. Build all packages
+npm run build
+
+# 3. Deploy platform (from cdk/platform directory)
+cd cdk/platform
+AWS_PROFILE=elaraai-dev-elara-e3 npx cdk deploy --context deploymentId=dev --require-approval never
+```
+
+The `--context deploymentId=dev` is required to specify the target environment. This controls:
+- Stack name: `E3Platform-dev`
+- Resource naming: `e3-dev-*`
+- Domain: `dev.e3.elaraai.com`
+
+### Deploy Account Infrastructure (Management Account Only)
+
+```bash
+cd cdk/accounts
+AWS_PROFILE=elaraai-prod-management-root npm run deploy
+```
+
+## Integration Tests
+
+Integration tests run against the deployed cloud environment.
+
+```bash
+# 1. Ensure you're logged in to both AWS and e3
+aws sso login --profile elaraai-dev-elara-e3
+e3 login https://dev.e3.elaraai.com
+
+# 2. Run integration tests
+cd test/integration
+AWS_PROFILE=elaraai-dev-elara-e3 npm test
+
+# Or run specific test file:
+AWS_PROFILE=elaraai-dev-elara-e3 npm test -- --test-name-pattern "diamond"
 ```
 
 ## CDK Deployments

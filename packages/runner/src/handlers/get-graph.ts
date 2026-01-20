@@ -25,6 +25,7 @@ export interface GetGraphEvent {
   repo: string;
   workspace: string;
   executionId: string;
+  force?: boolean; // Skip cache check if true
 }
 
 export interface GetGraphResult {
@@ -33,6 +34,7 @@ export interface GetGraphResult {
   executionId: string;
   graph: DataflowGraph;
   taskCount: number;
+  force: boolean; // Pass through force flag
 }
 
 /**
@@ -45,10 +47,10 @@ export interface GetGraphResult {
  * 3. Returns the graph with task count for the state machine
  */
 export async function handler(event: GetGraphEvent): Promise<GetGraphResult> {
-  const { repo, workspace, executionId } = event;
+  const { repo, workspace, executionId, force } = event;
 
   console.log(`Getting graph for workspace ${workspace} in repo ${repo}`);
-  console.log(`Execution ID: ${executionId}`);
+  console.log(`Execution ID: ${executionId}, force: ${force ?? false}`);
 
   // Build the dependency graph from workspace state
   const graph = await dataflowGetGraph(storage, repo, workspace);
@@ -70,7 +72,7 @@ export async function handler(event: GetGraphEvent): Promise<GetGraphResult> {
     })
   );
 
-  // Initialize execution state
+  // Initialize execution state (including event sequence counter at 0)
   await dynamo.send(
     new PutItemCommand({
       TableName: TABLE_NAME,
@@ -85,6 +87,7 @@ export async function handler(event: GetGraphEvent): Promise<GetGraphResult> {
         failedCount: 0,
         skippedCount: 0,
         cachedCount: 0,
+        eventSeq: 0, // Event sequence counter (incremented by check-completion)
       }),
     })
   );
@@ -95,5 +98,6 @@ export async function handler(event: GetGraphEvent): Promise<GetGraphResult> {
     executionId,
     graph,
     taskCount: graph.tasks.length,
+    force: force ?? false,
   };
 }

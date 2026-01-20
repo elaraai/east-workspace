@@ -1,0 +1,16 @@
+{
+  "name": "e3-demo",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --build && node dist/index.js"
+  },
+  "dependencies": {
+    "@elaraai/e3": "^0.0.2-beta.16",
+    "@elaraai/east": "^0.0.1-beta.30"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}

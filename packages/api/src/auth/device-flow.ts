@@ -147,7 +147,8 @@ export function createDeviceFlowRoutes() {
             PK: `USERCODE#${userCode}`,
             SK: '#META',
           }),
-        })
+          ConsistentRead: true
+        }),
       );
 
       if (response.Item) {
@@ -511,6 +512,7 @@ export function createDeviceFlowRoutes() {
           PK: `DEVICE#${deviceCode}`,
           SK: '#META',
         }),
+        ConsistentRead: true
       })
     );
 

@@ -13,6 +13,7 @@ export {
   InvalidRepoStatusError,
   type RepoStatus,
   type RepoMetadata,
+  type DataflowEvent,
 } from './dynamo-ref-store.js';
 export { DynamoLockService, setLambdaRequestId } from './dynamo-lock-service.js';
 export { DynamoLogStore } from './dynamo-log-store.js';

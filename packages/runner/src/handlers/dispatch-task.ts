@@ -5,7 +5,6 @@
 
 import { S3Client } from '@aws-sdk/client-s3';
 import { DynamoDBClient, PutItemCommand, GetItemCommand } from '@aws-sdk/client-dynamodb';
-import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import { S3DynamoStorage } from '@elaraai/e3-storage';
 import {
@@ -17,7 +16,6 @@ import {
 // Initialize clients once at Lambda cold start
 const s3 = new S3Client({});
 const dynamo = new DynamoDBClient({});
-const sqs = new SQSClient({});
 const storage = new S3DynamoStorage(
   s3,
   dynamo,
@@ -26,7 +24,6 @@ const storage = new S3DynamoStorage(
 );
 
 const TABLE_NAME = process.env.TABLE_NAME!;
-const TASK_QUEUE_URL = process.env.TASK_QUEUE_URL!;
 
 export interface DispatchTaskEvent {
   repo: string;
@@ -34,12 +31,17 @@ export interface DispatchTaskEvent {
   executionId: string;
   taskName: string;
   graph?: DataflowGraph;
+  force?: boolean; // Skip cache check if true
 }
 
 export interface DispatchTaskResult {
   taskName: string;
-  status: 'dispatched' | 'cached' | 'not_ready';
+  status: 'ready' | 'cached' | 'not_ready';
   outputHash?: string;
+  // Task execution parameters (when status is 'ready')
+  taskHash?: string;
+  inputHashes?: string[];
+  outputPath?: string;
 }
 
 /**
@@ -49,12 +51,13 @@ export interface DispatchTaskResult {
  * 1. Resolves input hashes from the workspace
  * 2. Checks if the task is cached
  * 3. If cached, marks as cached and returns the output hash
- * 4. If not cached, writes "dispatched" status to DynamoDB and sends to SQS
+ * 4. If not cached, returns task execution parameters for Step Functions
+ *    to invoke the execute-task Lambda directly
  */
 export async function handler(event: DispatchTaskEvent): Promise<DispatchTaskResult> {
-  const { repo, workspace, executionId, taskName } = event;
+  const { repo, workspace, executionId, taskName, force } = event;
 
-  console.log(`Dispatching task ${taskName} for execution ${executionId}`);
+  console.log(`Dispatching task ${taskName} for execution ${executionId} (force=${force ?? false})`);
 
   // Get graph from event or DynamoDB
   let graph = event.graph;
@@ -83,8 +86,8 @@ export async function handler(event: DispatchTaskEvent): Promise<DispatchTaskRes
   // All inputs are assigned - cast to string[]
   const resolvedInputHashes = inputHashes as string[];
 
-  // Check cache
-  const cachedOutput = await dataflowCheckCache(storage, repo, task.hash, resolvedInputHashes);
+  // Check cache (skip if force=true)
+  const cachedOutput = force ? null : await dataflowCheckCache(storage, repo, task.hash, resolvedInputHashes);
   if (cachedOutput) {
     console.log(`Task ${taskName} is cached with output ${cachedOutput}`);
 
@@ -102,48 +105,45 @@ export async function handler(event: DispatchTaskEvent): Promise<DispatchTaskRes
       })
     );
 
-    return { taskName, status: 'cached', outputHash: cachedOutput };
+    // Return all fields needed by Step Functions state machine
+    return {
+      taskName,
+      status: 'cached',
+      outputHash: cachedOutput,
+      taskHash: task.hash,
+      inputHashes: resolvedInputHashes,
+      outputPath: task.output,
+    };
   }
 
-  // Not cached - dispatch to SQS
-  console.log(`Dispatching task ${taskName} to SQS`);
+  // Not cached - return task execution parameters for Step Functions
+  // to invoke execute-task Lambda directly
+  console.log(`Task ${taskName} ready for execution`);
 
-  // Write dispatched status to DynamoDB
+  // Write ready status to DynamoDB (for tracking)
   await dynamo.send(
     new PutItemCommand({
       TableName: TABLE_NAME,
       Item: marshall({
         PK: `REPO#${repo}`,
         SK: `EXEC#TASK#${executionId}#${taskName}`,
-        status: 'dispatched',
+        status: 'ready',
         taskHash: task.hash,
         inputHashes: resolvedInputHashes,
         outputPath: task.output,
-        dispatchedAt: new Date().toISOString(),
+        readyAt: new Date().toISOString(),
       }),
     })
   );
 
-  // Send to SQS FIFO queue
-  await sqs.send(
-    new SendMessageCommand({
-      QueueUrl: TASK_QUEUE_URL,
-      MessageBody: JSON.stringify({
-        repo,
-        workspace,
-        executionId,
-        taskName,
-        taskHash: task.hash,
-        inputHashes: resolvedInputHashes,
-        outputPath: task.output,
-      }),
-      // FIFO queue attributes
-      MessageGroupId: repo,
-      MessageDeduplicationId: `${executionId}-${taskName}`,
-    })
-  );
-
-  return { taskName, status: 'dispatched' };
+  // Return task execution parameters for Step Functions
+  return {
+    taskName,
+    status: 'ready',
+    taskHash: task.hash,
+    inputHashes: resolvedInputHashes,
+    outputPath: task.output,
+  };
 }
 
 /**
@@ -157,6 +157,7 @@ async function getStoredGraph(repo: string, executionId: string): Promise<Datafl
         PK: `REPO#${repo}`,
         SK: `EXEC#GRAPH#${executionId}`,
       }),
+      ConsistentRead: true,
     })
   );
 

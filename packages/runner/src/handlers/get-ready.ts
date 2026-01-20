@@ -3,7 +3,13 @@
  * Proprietary and confidential.
  */
 
-import { DynamoDBClient, QueryCommand, GetItemCommand } from '@aws-sdk/client-dynamodb';
+import {
+  DynamoDBClient,
+  QueryCommand,
+  GetItemCommand,
+  PutItemCommand,
+  UpdateItemCommand,
+} from '@aws-sdk/client-dynamodb';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import { dataflowGetReadyTasks, type DataflowGraph } from '@elaraai/e3-core';
 
@@ -56,8 +62,8 @@ export async function handler(event: GetReadyEvent): Promise<GetReadyResult> {
   const failed = new Set<string>();
   const skipped = new Set<string>();
 
-  for (const [taskName, status] of taskStatuses) {
-    switch (status) {
+  for (const [taskName, info] of taskStatuses) {
+    switch (info.status) {
       case 'success':
       case 'cached':
         completed.add(taskName);
@@ -75,6 +81,9 @@ export async function handler(event: GetReadyEvent): Promise<GetReadyResult> {
         break;
     }
   }
+
+  // Record events for newly completed tasks (orchestrator observes state changes)
+  await recordEventsForCompletedTasks(repo, event.workspace, executionId, taskStatuses);
 
   // Get tasks that have all dependencies satisfied
   const readyCandidates = dataflowGetReadyTasks(graph, completed);
@@ -116,6 +125,7 @@ async function getStoredGraph(repo: string, executionId: string): Promise<Datafl
         PK: `REPO#${repo}`,
         SK: `EXEC#GRAPH#${executionId}`,
       }),
+      ConsistentRead: true,
     })
   );
 
@@ -127,14 +137,19 @@ async function getStoredGraph(repo: string, executionId: string): Promise<Datafl
   return JSON.parse(item.graph as string) as DataflowGraph;
 }
 
+interface TaskStatusInfo {
+  status: string;
+  eventRecorded?: boolean;
+}
+
 /**
- * Get all task statuses for an execution.
+ * Get all task statuses for an execution, including event tracking.
  */
 async function getTaskStatuses(
   repo: string,
   executionId: string
-): Promise<Map<string, string>> {
-  const statuses = new Map<string, string>();
+): Promise<Map<string, TaskStatusInfo>> {
+  const statuses = new Map<string, TaskStatusInfo>();
   let exclusiveStartKey: Record<string, any> | undefined;
 
   do {
@@ -147,6 +162,7 @@ async function getTaskStatuses(
           ':prefix': `EXEC#TASK#${executionId}#`,
         }),
         ExclusiveStartKey: exclusiveStartKey,
+        ConsistentRead: true,
       })
     );
 
@@ -157,7 +173,10 @@ async function getTaskStatuses(
         const sk = unmarshalled.SK as string;
         const prefixLen = `EXEC#TASK#${executionId}#`.length;
         const taskName = sk.slice(prefixLen);
-        statuses.set(taskName, unmarshalled.status as string);
+        statuses.set(taskName, {
+          status: unmarshalled.status as string,
+          eventRecorded: unmarshalled.eventRecorded as boolean | undefined,
+        });
       }
     }
 
@@ -165,4 +184,184 @@ async function getTaskStatuses(
   } while (exclusiveStartKey);
 
   return statuses;
+}
+
+/**
+ * Event types for dataflow events.
+ */
+type DataflowEventType =
+  | { type: 'start'; task: string; timestamp: string }
+  | { type: 'complete'; task: string; timestamp: string; duration: number }
+  | { type: 'cached'; task: string; timestamp: string }
+  | { type: 'failed'; task: string; timestamp: string; duration: number; exitCode: number }
+  | { type: 'error'; task: string; timestamp: string; message: string }
+  | { type: 'skipped'; task: string; timestamp: string; reason: string };
+
+/**
+ * Write an event to DynamoDB with the next sequence number.
+ * Uses atomic increment to get unique, ordered sequence numbers.
+ */
+async function writeEvent(
+  repo: string,
+  workspace: string,
+  executionId: string,
+  event: DataflowEventType
+): Promise<number> {
+  // Atomically increment the event sequence counter and get the new value
+  const updateResult = await dynamo.send(
+    new UpdateItemCommand({
+      TableName: TABLE_NAME,
+      Key: marshall({
+        PK: `REPO#${repo}`,
+        SK: `EXEC#STATE#${workspace}`,
+      }),
+      UpdateExpression: 'SET eventSeq = if_not_exists(eventSeq, :zero) + :one',
+      ExpressionAttributeValues: marshall({
+        ':zero': 0,
+        ':one': 1,
+      }),
+      ReturnValues: 'UPDATED_NEW',
+    })
+  );
+
+  const seq = updateResult.Attributes
+    ? (unmarshall(updateResult.Attributes).eventSeq as number)
+    : 1;
+
+  // Write the event with zero-padded sequence number for string sorting
+  const seqStr = seq.toString().padStart(10, '0');
+  await dynamo.send(
+    new PutItemCommand({
+      TableName: TABLE_NAME,
+      Item: marshall({
+        PK: `REPO#${repo}`,
+        SK: `EXEC#EVENT#${executionId}#${seqStr}`,
+        eventType: event.type,
+        task: event.task,
+        timestamp: event.timestamp,
+        ...(event.type === 'complete' && { duration: event.duration }),
+        ...(event.type === 'failed' && { duration: event.duration, exitCode: event.exitCode }),
+        ...(event.type === 'error' && { message: event.message }),
+        ...(event.type === 'skipped' && { reason: event.reason }),
+      }),
+    })
+  );
+
+  return seq;
+}
+
+/**
+ * Mark a task as having its event recorded.
+ */
+async function markEventRecorded(
+  repo: string,
+  executionId: string,
+  taskName: string
+): Promise<void> {
+  await dynamo.send(
+    new UpdateItemCommand({
+      TableName: TABLE_NAME,
+      Key: marshall({
+        PK: `REPO#${repo}`,
+        SK: `EXEC#TASK#${executionId}#${taskName}`,
+      }),
+      UpdateExpression: 'SET eventRecorded = :true',
+      ExpressionAttributeValues: marshall({
+        ':true': true,
+      }),
+    })
+  );
+}
+
+/**
+ * Record events for newly completed tasks.
+ * Only records events for tasks that haven't had events recorded yet.
+ */
+async function recordEventsForCompletedTasks(
+  repo: string,
+  workspace: string,
+  executionId: string,
+  taskStatuses: Map<string, TaskStatusInfo>
+): Promise<void> {
+  const now = new Date().toISOString();
+
+  for (const [taskName, info] of taskStatuses) {
+    // Skip if event already recorded
+    if (info.eventRecorded) {
+      continue;
+    }
+
+    // Only record events for terminal states
+    const terminalStates = ['success', 'cached', 'failed', 'error', 'skipped'];
+    if (!terminalStates.includes(info.status)) {
+      continue;
+    }
+
+    // Record appropriate event based on status
+    switch (info.status) {
+      case 'cached':
+        await writeEvent(repo, workspace, executionId, {
+          type: 'cached',
+          task: taskName,
+          timestamp: now,
+        });
+        break;
+
+      case 'success':
+        // Write both start and complete events for executed tasks
+        await writeEvent(repo, workspace, executionId, {
+          type: 'start',
+          task: taskName,
+          timestamp: now,
+        });
+        await writeEvent(repo, workspace, executionId, {
+          type: 'complete',
+          task: taskName,
+          timestamp: now,
+          duration: 0, // Duration not tracked at this level
+        });
+        break;
+
+      case 'failed':
+        await writeEvent(repo, workspace, executionId, {
+          type: 'start',
+          task: taskName,
+          timestamp: now,
+        });
+        await writeEvent(repo, workspace, executionId, {
+          type: 'failed',
+          task: taskName,
+          timestamp: now,
+          duration: 0,
+          exitCode: -1,
+        });
+        break;
+
+      case 'error':
+        await writeEvent(repo, workspace, executionId, {
+          type: 'start',
+          task: taskName,
+          timestamp: now,
+        });
+        await writeEvent(repo, workspace, executionId, {
+          type: 'error',
+          task: taskName,
+          timestamp: now,
+          message: 'Task error',
+        });
+        break;
+
+      case 'skipped':
+        await writeEvent(repo, workspace, executionId, {
+          type: 'skipped',
+          task: taskName,
+          timestamp: now,
+          reason: 'Upstream task failed',
+        });
+        break;
+    }
+
+    // Mark event as recorded
+    await markEventRecorded(repo, executionId, taskName);
+  }
 }

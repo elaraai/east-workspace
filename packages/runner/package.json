@@ -13,14 +13,13 @@
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.966.0",
     "@aws-sdk/client-s3": "^3.966.0",
-    "@aws-sdk/client-sqs": "^3.966.0",
     "@aws-sdk/util-dynamodb": "^3.966.0",
-    "@elaraai/e3-storage": "*"
+    "@elaraai/e3-storage": "^0.0.1-alpha.0"
   },
   "peerDependencies": {
-    "@elaraai/e3-core": "*",
-    "@elaraai/e3-types": "*",
-    "@elaraai/east": "*"
+    "@elaraai/e3-core": "^0.0.2-beta.16",
+    "@elaraai/e3-types": "^0.0.2-beta.16",
+    "@elaraai/east": "^0.0.1-beta.30"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.145",

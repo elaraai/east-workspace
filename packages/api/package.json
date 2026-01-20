@@ -15,9 +15,9 @@
     "@aws-sdk/client-s3": "^3.966.0",
     "@aws-sdk/client-sfn": "^3.966.0",
     "@aws-sdk/util-dynamodb": "^3.966.0",
-    "@elaraai/e3-api-server": "*",
-    "@elaraai/e3-storage": "*",
-    "@elaraai/east": "0.0.1-beta.26",
+    "@elaraai/e3-api-server": "^0.0.2-beta.16",
+    "@elaraai/e3-storage": "^0.0.1-alpha.0",
+    "@elaraai/east": "^0.0.1-beta.30",
     "hono": "4.11.0"
   },
   "devDependencies": {
