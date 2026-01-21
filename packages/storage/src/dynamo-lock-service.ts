@@ -136,9 +136,10 @@ export class DynamoLockService implements LockService {
       new GetItemCommand({
         TableName: this.tableName,
         Key: marshall({
-          PK: `REPO#${repo}`,
-          SK: `LOCK#${resource}`,
+          PK: `LOCK/${repo}`,
+          SK: resource,
         }),
+        ConsistentRead: true,
       })
     );
 
@@ -216,8 +217,8 @@ export class DynamoLockService implements LockService {
         new PutItemCommand({
           TableName: this.tableName,
           Item: marshall({
-            PK: `REPO#${repo}`,
-            SK: `LOCK#${resource}`,
+            PK: `LOCK/${repo}`,
+            SK: resource,
             holder, // Stored as plain string, reconstructed as opaque variant on read
             operation,
             acquiredAt: now.toISOString(),
@@ -262,8 +263,8 @@ export class DynamoLockService implements LockService {
             new DeleteItemCommand({
               TableName: this.tableName,
               Key: marshall({
-                PK: `REPO#${repo}`,
-                SK: `LOCK#${resource}`,
+                PK: `LOCK/${repo}`,
+                SK: resource,
               }),
             })
           );

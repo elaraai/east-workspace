@@ -14,9 +14,9 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { DynamoDBClient, ScanCommand, GetItemCommand } from '@aws-sdk/client-dynamodb';
+import { DynamoDBClient, QueryCommand, GetItemCommand } from '@aws-sdk/client-dynamodb';
 import { SFNClient, StartExecutionCommand } from '@aws-sdk/client-sfn';
-import { unmarshall } from '@aws-sdk/util-dynamodb';
+import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 
 // Initialize AWS clients once at Lambda cold start
 const dynamo = new DynamoDBClient({});
@@ -148,25 +148,26 @@ async function listActiveRepos(): Promise<string[]> {
 
   do {
     const response = await dynamo.send(
-      new ScanCommand({
+      new QueryCommand({
         TableName: TABLE_NAME,
-        FilterExpression: 'SK = :sk AND #status = :active',
+        KeyConditionExpression: 'PK = :pk',
+        FilterExpression: '#status = :active',
         ExpressionAttributeNames: { '#status': 'status' },
-        ExpressionAttributeValues: {
-          ':sk': { S: '#META' },
-          ':active': { S: 'active' },
-        },
-        ProjectionExpression: 'PK',
+        ExpressionAttributeValues: marshall({
+          ':pk': 'REPO',
+          ':active': 'active',
+        }),
+        ProjectionExpression: 'SK',
         ExclusiveStartKey: exclusiveStartKey,
+        ConsistentRead: true,
       })
     );
 
     if (response.Items) {
       for (const item of response.Items) {
-        const pk = unmarshall(item).PK as string;
-        if (pk.startsWith('REPO#')) {
-          repos.push(pk.slice(5));
-        }
+        // SK is the repo name directly
+        const sk = unmarshall(item).SK as string;
+        repos.push(sk);
       }
     }
 
@@ -183,10 +184,10 @@ async function canRunGc(repo: string): Promise<boolean> {
   const response = await dynamo.send(
     new GetItemCommand({
       TableName: TABLE_NAME,
-      Key: {
-        PK: { S: `REPO#${repo}` },
-        SK: { S: '#META' },
-      },
+      Key: marshall({
+        PK: 'REPO',
+        SK: repo,
+      }),
       ConsistentRead: true,
       ProjectionExpression: '#status',
       ExpressionAttributeNames: { '#status': 'status' },

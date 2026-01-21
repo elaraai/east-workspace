@@ -44,6 +44,8 @@ export interface DeleteBatchInput {
  * Output from the delete batch handler.
  */
 export interface DeleteBatchOutput {
+  /** Repository name (passed through for state machine) */
+  repo: string;
   /** Whether to continue ('continue') or if deletion is complete ('done') */
   status: 'continue' | 'done';
   /** S3 continuation token for next batch (if any) */
@@ -84,6 +86,7 @@ export const handler = async (input: DeleteBatchInput): Promise<DeleteBatchOutpu
     if (Date.now() - startTime > TIME_LIMIT_MS) {
       console.log('Time limit reached during S3 deletion, continuing...');
       return {
+        repo,
         status: 'continue',
         s3Cursor: s3Cursor ?? undefined,
         dynamoCursor,
@@ -111,6 +114,7 @@ export const handler = async (input: DeleteBatchInput): Promise<DeleteBatchOutpu
     if (Date.now() - startTime > TIME_LIMIT_MS) {
       console.log('Time limit reached during DynamoDB deletion, continuing...');
       return {
+        repo,
         status: 'continue',
         s3Cursor: undefined, // S3 is done
         dynamoCursor: dynamoCursor ?? undefined,
@@ -139,6 +143,7 @@ export const handler = async (input: DeleteBatchInput): Promise<DeleteBatchOutpu
   });
 
   return {
+    repo,
     status: 'done',
     s3Deleted,
     dynamoDeleted,

@@ -25,8 +25,8 @@ Primary Key: PK (String), SK (String)
 Stores lifecycle state for each repository.
 
 ```
-PK: REPO#{repo}
-SK: #META
+PK: REPO
+SK: {repo}
 Attributes:
   - name: string           # Repository name
   - status: string         # 'creating' | 'active' | 'gc' | 'deleting'
@@ -40,8 +40,8 @@ Attributes:
 Package references mapping name+version to content hash.
 
 ```
-PK: REPO#{repo}
-SK: PKG#{name}#{version}
+PK: PKG/{repo}
+SK: {name}/{version}
 Attributes:
   - hash: string           # SHA256 hash of package content
   - createdAt: string      # ISO timestamp
@@ -52,8 +52,8 @@ Attributes:
 Workspace state stored as BEAST2-encoded binary.
 
 ```
-PK: REPO#{repo}
-SK: WS#{name}
+PK: WS/{repo}
+SK: {name}
 Attributes:
   - state: Binary          # BEAST2-encoded workspace state
   - updatedAt: string      # ISO timestamp
@@ -142,8 +142,8 @@ Attributes:
 Distributed locks with automatic expiry.
 
 ```
-PK: REPO#{repo}
-SK: LOCK#{resource}
+PK: LOCK/{repo}
+SK: {resource}
 Attributes:
   - holder: string         # East-encoded holder info (.lambda (...))
   - operation: string      # Lock operation type
@@ -183,20 +183,20 @@ s3://{bucket}/
 
 | Operation | Key Pattern | Query Type |
 |-----------|-------------|------------|
-| List repos | SK = #META | Scan + Filter |
-| Get repo metadata | PK = REPO#{repo}, SK = #META | GetItem |
-| List packages | PK = REPO#{repo}, SK begins_with PKG# | Query |
-| Get package | PK = REPO#{repo}, SK = PKG#{name}#{version} | GetItem |
-| List workspaces | PK = REPO#{repo}, SK begins_with WS# | Query |
-| Get workspace | PK = REPO#{repo}, SK = WS#{name} | GetItem |
+| List repos | PK = REPO | Query |
+| Get repo metadata | PK = REPO, SK = {repo} | GetItem |
+| List packages | PK = PKG/{repo} | Query |
+| Get package | PK = PKG/{repo}, SK = {name}/{version} | GetItem |
+| List workspaces | PK = WS/{repo} | Query |
+| Get workspace | PK = WS/{repo}, SK = {name} | GetItem |
 | Get execution | PK = REPO#{repo}, SK = EXEC#{taskHash}#{inputsHash} | GetItem |
 | List executions | PK = REPO#{repo}, SK begins_with EXEC# | Query |
 | Get execution state | PK = REPO#{repo}, SK = EXEC#STATE#{workspace} | GetItem |
 | Get task statuses | PK = REPO#{repo}, SK begins_with EXEC#TASK#{executionId}# | Query |
 | Get events | PK = REPO#{repo}, SK begins_with EXEC#EVENT#{executionId}# | Query |
-| Get lock | PK = REPO#{repo}, SK = LOCK#{resource} | GetItem |
+| Get lock | PK = LOCK/{repo}, SK = {resource} | GetItem |
 | Read logs | PK = REPO#{repo}, SK begins_with LOG#{taskHash}#{inputsHash}#{stream}# | Query |
-| Delete repo | PK = REPO#{repo} | Query + BatchDelete |
+| Delete repo | PKG/{repo}, WS/{repo}, LOCK/{repo}, REPO#{repo} | Query + BatchDelete |
 
 ## Files
 

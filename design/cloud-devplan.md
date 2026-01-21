@@ -984,13 +984,15 @@ No other GSIs needed - the partition key design supports all current access patt
 
 **Migration Strategy:** Incremental migration in 3 phases to minimize risk and allow validation at each step.
 
-| Phase | Items | Rationale |
-|-------|-------|-----------|
-| 1 | REPOS, PACKAGES, WORKSPACES, LOCKS | Independent, low-volume, validates approach |
-| 2 | LOGS, CACHE | Highest write volume, biggest hot partition benefit |
-| 3 | EXEC, TASK, EVENT | Coupled items, introduces execution history semantics |
+| Phase | Items | Rationale | Status |
+|-------|-------|-----------|--------|
+| 1 | REPOS, PACKAGES, WORKSPACES, LOCKS | Independent, low-volume, validates approach | ✅ Complete |
+| 2 | LOGS, CACHE | Highest write volume, biggest hot partition benefit | Pending |
+| 3 | EXEC, TASK, EVENT | Coupled items, introduces execution history semantics | Pending |
 
 Each phase follows: (1) dual-write to old+new PK patterns, (2) migrate reads to prefer new, (3) let TTL expire or backfill, (4) remove old pattern support.
+
+**Phase 1 Complete:** REPOS, PACKAGES, WORKSPACES, and LOCKS now use the new partition key patterns. Pre-MVP work - no dual-write was needed, existing data can be trashed.
 
 ---
 

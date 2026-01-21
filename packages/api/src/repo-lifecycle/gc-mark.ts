@@ -15,7 +15,7 @@
 
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { DynamoDBClient, QueryCommand } from '@aws-sdk/client-dynamodb';
-import { unmarshall } from '@aws-sdk/util-dynamodb';
+import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import { decodeBeast2For } from '@elaraai/east';
 import { WorkspaceStateType } from '@elaraai/e3-types';
 
@@ -114,75 +114,93 @@ export const handler = async (input: GcMarkInput): Promise<GcMarkOutput> => {
 };
 
 /**
- * Collect all root hashes from DynamoDB refs.
- *
- * Roots come from:
- * - Package refs (PKG#name#version -> hash)
- * - Workspace state (WS#name -> state with packageHash, rootHash)
- * - Execution outputs (EXEC#taskHash#inputsHash -> outputHash)
+ * Query all items from a partition, handling pagination.
  */
-async function collectRoots(repo: string): Promise<Set<string>> {
-  const roots = new Set<string>();
-
-  // Query all items for this repo
+async function queryPartition(
+  pk: string,
+  skPrefix?: string
+): Promise<Record<string, unknown>[]> {
+  const items: Record<string, unknown>[] = [];
   let exclusiveStartKey: Record<string, any> | undefined;
+
+  const keyCondition = skPrefix
+    ? 'PK = :pk AND begins_with(SK, :prefix)'
+    : 'PK = :pk';
+  const expressionValues = skPrefix
+    ? { ':pk': pk, ':prefix': skPrefix }
+    : { ':pk': pk };
 
   do {
     const response = await dynamo.send(
       new QueryCommand({
         TableName: TABLE_NAME,
-        KeyConditionExpression: 'PK = :pk',
-        ExpressionAttributeValues: {
-          ':pk': { S: `REPO#${repo}` },
-        },
+        KeyConditionExpression: keyCondition,
+        ExpressionAttributeValues: marshall(expressionValues),
         ExclusiveStartKey: exclusiveStartKey,
+        ConsistentRead: true,
       })
     );
 
     if (response.Items) {
       for (const item of response.Items) {
-        const unmarshalled = unmarshall(item);
-        const sk = unmarshalled.SK as string;
-
-        // Package refs: PKG#name#version -> hash stored in 'hash' attribute
-        if (sk.startsWith('PKG#') && unmarshalled.hash) {
-          const hash = unmarshalled.hash as string;
-          if (isValidHash(hash)) {
-            roots.add(hash);
-          }
-        }
-
-        // Workspace state: WS#name -> state stored in 'state' attribute (BEAST2 encoded)
-        if (sk.startsWith('WS#') && unmarshalled.state) {
-          try {
-            const stateData = unmarshalled.state as Uint8Array;
-            if (stateData.length > 0) {
-              const decoder = decodeBeast2For(WorkspaceStateType);
-              const state = decoder(stateData);
-              if (isValidHash(state.packageHash)) {
-                roots.add(state.packageHash);
-              }
-              if (isValidHash(state.rootHash)) {
-                roots.add(state.rootHash);
-              }
-            }
-          } catch (err) {
-            console.warn(`Failed to decode workspace state for ${sk}:`, err);
-          }
-        }
-
-        // Execution outputs: EXEC#taskHash#inputsHash -> outputHash stored in 'outputHash' attribute
-        if (sk.startsWith('EXEC#') && unmarshalled.outputHash) {
-          const hash = unmarshalled.outputHash as string;
-          if (isValidHash(hash)) {
-            roots.add(hash);
-          }
-        }
+        items.push(unmarshall(item));
       }
     }
 
     exclusiveStartKey = response.LastEvaluatedKey;
   } while (exclusiveStartKey);
+
+  return items;
+}
+
+/**
+ * Collect all root hashes from DynamoDB refs.
+ *
+ * Roots come from:
+ * - Package refs (PK: PKG/{repo}, SK: {name}/{version} -> hash)
+ * - Workspace state (PK: WS/{repo}, SK: {name} -> state with packageHash, rootHash)
+ * - Execution outputs (PK: REPO#{repo}, SK: EXEC#... -> outputHash) - legacy, unchanged until Phase 3
+ */
+async function collectRoots(repo: string): Promise<Set<string>> {
+  const roots = new Set<string>();
+
+  // 1. Query packages (PK: PKG/{repo})
+  const packages = await queryPartition(`PKG/${repo}`);
+  for (const item of packages) {
+    if (item.hash && isValidHash(item.hash)) {
+      roots.add(item.hash as string);
+    }
+  }
+
+  // 2. Query workspaces (PK: WS/{repo})
+  const workspaces = await queryPartition(`WS/${repo}`);
+  for (const item of workspaces) {
+    if (item.state) {
+      try {
+        const stateData = item.state as Uint8Array;
+        if (stateData.length > 0) {
+          const decoder = decodeBeast2For(WorkspaceStateType);
+          const state = decoder(stateData);
+          if (isValidHash(state.packageHash)) {
+            roots.add(state.packageHash);
+          }
+          if (isValidHash(state.rootHash)) {
+            roots.add(state.rootHash);
+          }
+        }
+      } catch (err) {
+        console.warn(`Failed to decode workspace state for ${item.SK}:`, err);
+      }
+    }
+  }
+
+  // 3. Query execution outputs (PK: REPO#{repo}, SK: EXEC#...) - legacy, unchanged until Phase 3
+  const executions = await queryPartition(`REPO#${repo}`, 'EXEC#');
+  for (const item of executions) {
+    if (item.outputHash && isValidHash(item.outputHash)) {
+      roots.add(item.outputHash as string);
+    }
+  }
 
   return roots;
 }

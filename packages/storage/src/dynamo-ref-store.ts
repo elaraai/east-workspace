@@ -132,29 +132,32 @@ export class DynamoRefStore implements RefStore {
   // ===========================================================================
 
   async packageList(repo: string): Promise<{ name: string; version: string }[]> {
-    const items = await this.queryByPrefix(repo, 'PKG#');
+    const items = await this.queryByPkAndSkPrefix(`PKG/${repo}`);
     return items.map((item) => {
-      // SK format: PKG#{name}#{version}
+      // SK format: {name}/{version}
       const sk = item.SK as string;
-      const parts = sk.slice(4).split('#'); // Remove 'PKG#' prefix
-      return { name: parts[0], version: parts.slice(1).join('#') };
+      const slashIndex = sk.indexOf('/');
+      return {
+        name: sk.slice(0, slashIndex),
+        version: sk.slice(slashIndex + 1),
+      };
     });
   }
 
   async packageResolve(repo: string, name: string, version: string): Promise<string | null> {
-    const item = await this.getItem(repo, `PKG#${name}#${version}`);
+    const item = await this.getItemByKey(`PKG/${repo}`, `${name}/${version}`);
     return item?.hash as string | null;
   }
 
   async packageWrite(repo: string, name: string, version: string, hash: string): Promise<void> {
-    await this.putItem(repo, `PKG#${name}#${version}`, {
+    await this.putItemByKey(`PKG/${repo}`, `${name}/${version}`, {
       hash,
       createdAt: new Date().toISOString(),
     });
   }
 
   async packageRemove(repo: string, name: string, version: string): Promise<void> {
-    await this.deleteItem(repo, `PKG#${name}#${version}`);
+    await this.deleteItemByKey(`PKG/${repo}`, `${name}/${version}`);
   }
 
   // ===========================================================================
@@ -162,15 +165,15 @@ export class DynamoRefStore implements RefStore {
   // ===========================================================================
 
   async workspaceList(repo: string): Promise<string[]> {
-    const items = await this.queryByPrefix(repo, 'WS#');
+    const items = await this.queryByPkAndSkPrefix(`WS/${repo}`);
     return items.map((item) => {
-      // SK format: WS#{name}
-      return (item.SK as string).slice(3); // Remove 'WS#' prefix
+      // SK is the workspace name directly
+      return item.SK as string;
     });
   }
 
   async workspaceRead(repo: string, name: string): Promise<Uint8Array | null> {
-    const item = await this.getItem(repo, `WS#${name}`);
+    const item = await this.getItemByKey(`WS/${repo}`, name);
     if (!item?.state) {
       return null;
     }
@@ -179,14 +182,14 @@ export class DynamoRefStore implements RefStore {
   }
 
   async workspaceWrite(repo: string, name: string, state: Uint8Array): Promise<void> {
-    await this.putItem(repo, `WS#${name}`, {
+    await this.putItemByKey(`WS/${repo}`, name, {
       state,
       updatedAt: new Date().toISOString(),
     });
   }
 
   async workspaceRemove(repo: string, name: string): Promise<void> {
-    await this.deleteItem(repo, `WS#${name}`);
+    await this.deleteItemByKey(`WS/${repo}`, name);
   }
 
   // ===========================================================================
@@ -274,7 +277,7 @@ export class DynamoRefStore implements RefStore {
   /**
    * List all repositories with their status.
    *
-   * Scans for items with SK=#META (each repo has a metadata item).
+   * Queries on PK=REPO (each repo is an item with SK={repo}).
    * Only returns repos with status='active' by default.
    *
    * @param includeAll - If true, include repos in all statuses
@@ -285,29 +288,27 @@ export class DynamoRefStore implements RefStore {
 
     do {
       const response = await this.dynamo.send(
-        new ScanCommand({
+        new QueryCommand({
           TableName: this.tableName,
-          FilterExpression: includeAll
-            ? 'SK = :sk'
-            : 'SK = :sk AND #status = :active',
+          KeyConditionExpression: 'PK = :pk',
+          FilterExpression: includeAll ? undefined : '#status = :active',
           ExpressionAttributeNames: includeAll ? undefined : { '#status': 'status' },
           ExpressionAttributeValues: marshall(
             includeAll
-              ? { ':sk': '#META' }
-              : { ':sk': '#META', ':active': 'active' }
+              ? { ':pk': 'REPO' }
+              : { ':pk': 'REPO', ':active': 'active' }
           ),
-          ProjectionExpression: 'PK',
+          ProjectionExpression: 'SK',
           ExclusiveStartKey: exclusiveStartKey,
+          ConsistentRead: true,
         })
       );
 
       if (response.Items) {
         for (const item of response.Items) {
-          const pk = unmarshall(item).PK as string;
-          // PK format: REPO#{repo}
-          if (pk.startsWith('REPO#')) {
-            repos.push(pk.slice(5));
-          }
+          const sk = unmarshall(item).SK as string;
+          // SK is the repo name directly
+          repos.push(sk);
         }
       }
 
@@ -324,21 +325,12 @@ export class DynamoRefStore implements RefStore {
    * @returns Metadata if repo exists, null otherwise
    */
   async getRepoMetadata(repo: string): Promise<RepoMetadata | null> {
-    const response = await this.dynamo.send(
-      new GetItemCommand({
-        TableName: this.tableName,
-        Key: marshall({
-          PK: `REPO#${repo}`,
-          SK: '#META',
-        }),
-      })
-    );
+    const item = await this.getItemByKey('REPO', repo);
 
-    if (!response.Item) {
+    if (!item) {
       return null;
     }
 
-    const item = unmarshall(response.Item);
     return {
       name: item.name as string,
       status: (item.status as RepoStatus) ?? 'active', // Default for legacy repos
@@ -363,15 +355,15 @@ export class DynamoRefStore implements RefStore {
       new PutItemCommand({
         TableName: this.tableName,
         Item: marshall({
-          PK: `REPO#${repo}`,
-          SK: '#META',
+          PK: 'REPO',
+          SK: repo,
           name: repo,
           status: 'active',
           createdAt: now,
           statusChangedAt: now,
         }),
         // Only succeed if repo doesn't already exist
-        ConditionExpression: 'attribute_not_exists(PK)',
+        ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
       })
     );
   }
@@ -422,8 +414,8 @@ export class DynamoRefStore implements RefStore {
         new UpdateItemCommand({
           TableName: this.tableName,
           Key: marshall({
-            PK: `REPO#${repo}`,
-            SK: '#META',
+            PK: 'REPO',
+            SK: repo,
           }),
           UpdateExpression: updateExpression,
           ConditionExpression: `attribute_exists(PK) AND (${statusConditions})`,
@@ -451,26 +443,23 @@ export class DynamoRefStore implements RefStore {
    * @param repo - Repository name
    */
   async repoExists(repo: string): Promise<boolean> {
-    const response = await this.dynamo.send(
-      new GetItemCommand({
-        TableName: this.tableName,
-        Key: marshall({
-          PK: `REPO#${repo}`,
-          SK: '#META',
-        }),
-      })
-    );
-    return response.Item !== undefined;
+    const item = await this.getItemByKey('REPO', repo);
+    return item !== null;
   }
 
   /**
    * Delete a batch of DynamoDB items for a repository.
    *
    * This is used by the delete state machine for incremental deletion.
-   * Returns a cursor for pagination.
+   * Items are spread across multiple partitions, so we delete from each in order:
+   *   0. PKG/{repo} - packages
+   *   1. WS/{repo} - workspaces
+   *   2. LOCK/{repo} - locks
+   *   3. REPO#{repo} - execution data (legacy EXEC#*, LOG#* items - Phase 3)
+   *   4. (repo metadata is deleted separately via removeRepoMetadata)
    *
    * @param repo - Repository name
-   * @param cursor - Optional pagination cursor (lastEvaluatedKey as JSON)
+   * @param cursor - Optional pagination cursor encoding { partitionIndex, lastKey }
    * @param batchSize - Number of items to delete per call
    * @returns Object with deleted count and optional cursor for next batch
    */
@@ -479,52 +468,89 @@ export class DynamoRefStore implements RefStore {
     cursor?: string,
     batchSize = 100
   ): Promise<{ deleted: number; cursor?: string }> {
-    const exclusiveStartKey = cursor ? JSON.parse(cursor) : undefined;
+    // Partitions to delete from (in order)
+    const partitions = [
+      `PKG/${repo}`,
+      `WS/${repo}`,
+      `LOCK/${repo}`,
+      `REPO#${repo}`, // Legacy: execution data (EXEC#*, LOG#*)
+    ];
 
-    // Query for items to delete
-    const response = await this.dynamo.send(
-      new QueryCommand({
-        TableName: this.tableName,
-        KeyConditionExpression: 'PK = :pk',
-        ExpressionAttributeValues: marshall({
-          ':pk': `REPO#${repo}`,
-        }),
-        ProjectionExpression: 'PK, SK',
-        Limit: batchSize,
-        ExclusiveStartKey: exclusiveStartKey,
-      })
-    );
-
-    if (!response.Items || response.Items.length === 0) {
-      return { deleted: 0 };
+    // Parse cursor
+    let partitionIndex = 0;
+    let exclusiveStartKey: Record<string, any> | undefined;
+    if (cursor) {
+      const parsed = JSON.parse(cursor);
+      partitionIndex = parsed.partitionIndex ?? 0;
+      exclusiveStartKey = parsed.lastKey;
     }
 
-    const items = response.Items.map((item) => {
-      const unmarshalled = unmarshall(item);
-      return { PK: unmarshalled.PK as string, SK: unmarshalled.SK as string };
-    });
+    // Process partitions starting from current index
+    let totalDeleted = 0;
 
-    // Batch delete in groups of 25 (DynamoDB limit)
-    const deleteBatchSize = 25;
-    for (let i = 0; i < items.length; i += deleteBatchSize) {
-      const batch = items.slice(i, i + deleteBatchSize);
-      await this.dynamo.send(
-        new BatchWriteItemCommand({
-          RequestItems: {
-            [this.tableName]: batch.map((item) => ({
-              DeleteRequest: {
-                Key: marshall({ PK: item.PK, SK: item.SK }),
-              },
-            })),
-          },
+    while (partitionIndex < partitions.length && totalDeleted < batchSize) {
+      const pk = partitions[partitionIndex];
+      const remainingBatchSize = batchSize - totalDeleted;
+
+      // Query for items to delete
+      const response = await this.dynamo.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          KeyConditionExpression: 'PK = :pk',
+          ExpressionAttributeValues: marshall({ ':pk': pk }),
+          ProjectionExpression: 'PK, SK',
+          Limit: remainingBatchSize,
+          ExclusiveStartKey: exclusiveStartKey,
         })
       );
+
+      if (response.Items && response.Items.length > 0) {
+        const items = response.Items.map((item) => {
+          const unmarshalled = unmarshall(item);
+          return { PK: unmarshalled.PK as string, SK: unmarshalled.SK as string };
+        });
+
+        // Batch delete in groups of 25 (DynamoDB limit)
+        const deleteBatchSize = 25;
+        for (let i = 0; i < items.length; i += deleteBatchSize) {
+          const batch = items.slice(i, i + deleteBatchSize);
+          await this.dynamo.send(
+            new BatchWriteItemCommand({
+              RequestItems: {
+                [this.tableName]: batch.map((item) => ({
+                  DeleteRequest: {
+                    Key: marshall({ PK: item.PK, SK: item.SK }),
+                  },
+                })),
+              },
+            })
+          );
+        }
+
+        totalDeleted += items.length;
+
+        // If there are more items in this partition, return cursor
+        if (response.LastEvaluatedKey) {
+          return {
+            deleted: totalDeleted,
+            cursor: JSON.stringify({
+              partitionIndex,
+              lastKey: response.LastEvaluatedKey,
+            }),
+          };
+        }
+      }
+
+      // Move to next partition
+      partitionIndex++;
+      exclusiveStartKey = undefined;
     }
 
+    // All partitions processed
     return {
-      deleted: items.length,
-      cursor: response.LastEvaluatedKey
-        ? JSON.stringify(response.LastEvaluatedKey)
+      deleted: totalDeleted,
+      cursor: partitionIndex < partitions.length
+        ? JSON.stringify({ partitionIndex, lastKey: undefined })
         : undefined,
     };
   }
@@ -553,15 +579,7 @@ export class DynamoRefStore implements RefStore {
    * @param repo - Repository name
    */
   async removeRepoMetadata(repo: string): Promise<void> {
-    await this.dynamo.send(
-      new DeleteItemCommand({
-        TableName: this.tableName,
-        Key: marshall({
-          PK: `REPO#${repo}`,
-          SK: '#META',
-        }),
-      })
-    );
+    await this.deleteItemByKey('REPO', repo);
   }
 
   // ===========================================================================
@@ -674,7 +692,90 @@ export class DynamoRefStore implements RefStore {
   // ===========================================================================
 
   /**
-   * Query items by SK prefix.
+   * Query items by explicit PK and optional SK prefix.
+   *
+   * Uses strongly consistent reads to avoid eventual consistency issues.
+   */
+  private async queryByPkAndSkPrefix(pk: string, skPrefix?: string): Promise<Record<string, unknown>[]> {
+    const items: Record<string, unknown>[] = [];
+    let exclusiveStartKey: Record<string, any> | undefined;
+
+    const keyCondition = skPrefix
+      ? 'PK = :pk AND begins_with(SK, :prefix)'
+      : 'PK = :pk';
+    const expressionValues = skPrefix
+      ? { ':pk': pk, ':prefix': skPrefix }
+      : { ':pk': pk };
+
+    do {
+      const response = await this.dynamo.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          KeyConditionExpression: keyCondition,
+          ExpressionAttributeValues: marshall(expressionValues),
+          ExclusiveStartKey: exclusiveStartKey,
+          ConsistentRead: true,
+        })
+      );
+
+      if (response.Items) {
+        for (const item of response.Items) {
+          items.push(unmarshall(item));
+        }
+      }
+
+      exclusiveStartKey = response.LastEvaluatedKey;
+    } while (exclusiveStartKey);
+
+    return items;
+  }
+
+  /**
+   * Get a single item by explicit PK and SK.
+   *
+   * Uses strongly consistent reads.
+   */
+  private async getItemByKey(pk: string, sk: string): Promise<Record<string, unknown> | null> {
+    const response = await this.dynamo.send(
+      new GetItemCommand({
+        TableName: this.tableName,
+        Key: marshall({ PK: pk, SK: sk }),
+        ConsistentRead: true,
+      })
+    );
+
+    return response.Item ? unmarshall(response.Item) : null;
+  }
+
+  /**
+   * Put an item with explicit PK, SK, and additional attributes.
+   */
+  private async putItemByKey(pk: string, sk: string, attributes: Record<string, unknown>): Promise<void> {
+    await this.dynamo.send(
+      new PutItemCommand({
+        TableName: this.tableName,
+        Item: marshall(
+          { PK: pk, SK: sk, ...attributes },
+          { removeUndefinedValues: true }
+        ),
+      })
+    );
+  }
+
+  /**
+   * Delete an item by explicit PK and SK.
+   */
+  private async deleteItemByKey(pk: string, sk: string): Promise<void> {
+    await this.dynamo.send(
+      new DeleteItemCommand({
+        TableName: this.tableName,
+        Key: marshall({ PK: pk, SK: sk }, { removeUndefinedValues: true }),
+      })
+    );
+  }
+
+  /**
+   * Query items by SK prefix (legacy helper for repo-scoped queries).
    *
    * Uses strongly consistent reads to avoid eventual consistency issues.
    */
