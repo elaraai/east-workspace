@@ -10,6 +10,16 @@ import {
   DescribeStacksCommand,
 } from '@aws-sdk/client-cloudformation';
 
+/**
+ * Set default AWS profile if no credentials are configured.
+ * Profile follows convention: elaraai-{deploymentId}-elara-e3
+ */
+function ensureAwsCredentials(deploymentId: string): void {
+  if (!process.env.AWS_PROFILE && !process.env.AWS_ACCESS_KEY_ID) {
+    process.env.AWS_PROFILE = `elaraai-${deploymentId}-elara-e3`;
+  }
+}
+
 export interface StackOutputs {
   // Deployment
   deploymentId: string;
@@ -45,6 +55,9 @@ export interface StackOutputs {
 }
 
 export async function getStackOutputs(deploymentId: string): Promise<StackOutputs> {
+  // Ensure AWS credentials are available (sets default profile if needed)
+  ensureAwsCredentials(deploymentId);
+
   const client = new CloudFormationClient({
     region: process.env.AWS_REGION ?? 'ap-southeast-2',
   });

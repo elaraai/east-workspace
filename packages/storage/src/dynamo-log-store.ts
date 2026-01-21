@@ -21,19 +21,21 @@ const DEFAULT_LOG_TTL_SECONDS = 7 * 24 * 60 * 60;
  * DynamoDB-backed LogStore implementation.
  *
  * Logs are stored as chunks with the key pattern:
- *   PK: REPO#{repo}
- *   SK: LOG#{taskHash}#{inputsHash}#{stream}#{timestamp}#{sequence}
+ *   PK: LOG/{repo}/{taskHash}/{inputsHash}
+ *   SK: {stream}/{chunk_index}  (chunk_index: 6-digit zero-padded)
  *
  * This enables:
+ * - Per-task-execution partitions (isolates log writes from other repo operations)
  * - Near real-time log viewing (~100ms latency)
  * - Non-blocking writes from task runners
  * - Automatic cleanup via TTL
+ * - Efficient stream-specific reads via SK prefix
  *
  * The task runner should buffer logs and flush periodically (e.g., every 2s
  * or 64KB) rather than writing every line individually.
  */
 export class DynamoLogStore implements LogStore {
-  private sequenceCounters = new Map<string, number>();
+  private chunkCounters = new Map<string, number>();
 
   constructor(
     private readonly dynamo: DynamoDBClient,
@@ -43,7 +45,7 @@ export class DynamoLogStore implements LogStore {
   /**
    * Append data to a log stream.
    *
-   * Creates a new chunk item with a timestamp-based sort key.
+   * Creates a new chunk item with a contiguous index-based sort key.
    * The caller should batch data to reduce write frequency.
    */
   async append(
@@ -58,19 +60,18 @@ export class DynamoLogStore implements LogStore {
     }
 
     const now = Date.now();
-    const sequence = this.getNextSequence(taskHash, inputsHash, stream);
+    const chunkIndex = this.getNextChunkIndex(repo, taskHash, inputsHash, stream);
     const ttl = Math.floor(now / 1000) + DEFAULT_LOG_TTL_SECONDS;
 
-    // Pad timestamp and sequence for correct lexicographic ordering
-    const timestamp = now.toString().padStart(15, '0');
-    const seq = sequence.toString().padStart(6, '0');
+    // Pad chunk index for correct lexicographic ordering
+    const paddedIndex = chunkIndex.toString().padStart(6, '0');
 
     await this.dynamo.send(
       new PutItemCommand({
         TableName: this.tableName,
         Item: marshall({
-          PK: `REPO#${repo}`,
-          SK: `LOG#${taskHash}#${inputsHash}#${stream}#${timestamp}#${seq}`,
+          PK: `LOG/${repo}/${taskHash}/${inputsHash}`,
+          SK: `${stream}/${paddedIndex}`,
           data,
           timestamp: now,
           ttl,
@@ -96,8 +97,9 @@ export class DynamoLogStore implements LogStore {
     const limit = options?.limit;
 
     // Query all chunks for this stream
-    const prefix = `LOG#${taskHash}#${inputsHash}#${stream}#`;
-    const chunks = await this.queryChunks(repo, prefix);
+    const pk = `LOG/${repo}/${taskHash}/${inputsHash}`;
+    const skPrefix = `${stream}/`;
+    const chunks = await this.queryChunks(pk, skPrefix);
 
     // Concatenate all chunk data
     const fullLog = chunks.map((c) => c.data as string).join('');
@@ -137,9 +139,9 @@ export class DynamoLogStore implements LogStore {
   }
 
   /**
-   * Query all chunks for a given prefix.
+   * Query all chunks for a given PK and SK prefix.
    */
-  private async queryChunks(repo: string, skPrefix: string): Promise<Record<string, unknown>[]> {
+  private async queryChunks(pk: string, skPrefix: string): Promise<Record<string, unknown>[]> {
     const items: Record<string, unknown>[] = [];
     let exclusiveStartKey: Record<string, any> | undefined;
 
@@ -149,11 +151,11 @@ export class DynamoLogStore implements LogStore {
           TableName: this.tableName,
           KeyConditionExpression: 'PK = :pk AND begins_with(SK, :prefix)',
           ExpressionAttributeValues: marshall({
-            ':pk': `REPO#${repo}`,
+            ':pk': pk,
             ':prefix': skPrefix,
           }),
           ExclusiveStartKey: exclusiveStartKey,
-          ScanIndexForward: true, // Ascending order by SK (timestamp)
+          ScanIndexForward: true, // Ascending order by SK (chunk index)
         })
       );
 
@@ -170,12 +172,13 @@ export class DynamoLogStore implements LogStore {
   }
 
   /**
-   * Get the next sequence number for ordering within the same millisecond.
+   * Get the next chunk index for a log stream.
+   * Contiguous index ensures correct ordering when reading.
    */
-  private getNextSequence(taskHash: string, inputsHash: string, stream: string): number {
-    const key = `${taskHash}#${inputsHash}#${stream}`;
-    const current = this.sequenceCounters.get(key) ?? 0;
-    this.sequenceCounters.set(key, current + 1);
+  private getNextChunkIndex(repo: string, taskHash: string, inputsHash: string, stream: string): number {
+    const key = `${repo}#${taskHash}#${inputsHash}#${stream}`;
+    const current = this.chunkCounters.get(key) ?? 0;
+    this.chunkCounters.set(key, current + 1);
     return current;
   }
 }

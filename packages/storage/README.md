@@ -61,11 +61,11 @@ Attributes:
 
 ### Execution Cache
 
-Task execution results keyed by task hash + inputs hash.
+Task execution results keyed by task hash + inputs hash. Each task hash gets its own partition for write distribution.
 
 ```
-PK: REPO#{repo}
-SK: EXEC#{taskHash}#{inputsHash}
+PK: CACHE/{repo}/{taskHash}
+SK: {inputsHash}
 Attributes:
   - status: Binary         # BEAST2-encoded ExecutionStatus
   - outputHash?: string    # SHA256 hash of output (if success)
@@ -154,11 +154,11 @@ Attributes:
 
 ### Log Chunks
 
-Streaming log chunks for near real-time access.
+Streaming log chunks for near real-time access. Each task execution gets its own partition for write distribution.
 
 ```
-PK: REPO#{repo}
-SK: LOG#{taskHash}#{inputsHash}#{stream}#{timestamp}#{seq}
+PK: LOG/{repo}/{taskHash}/{inputsHash}
+SK: {stream}/{chunk}
 Attributes:
   - data: string           # Log chunk content
   - timestamp: number      # Milliseconds since epoch
@@ -166,8 +166,7 @@ Attributes:
 
 Where:
   - stream: 'stdout' | 'stderr'
-  - timestamp: 15-digit zero-padded ms
-  - seq: 6-digit zero-padded sequence number
+  - chunk: 6-digit zero-padded contiguous index (000000, 000001, ...)
 ```
 
 ## S3 Object Layout
@@ -189,14 +188,15 @@ s3://{bucket}/
 | Get package | PK = PKG/{repo}, SK = {name}/{version} | GetItem |
 | List workspaces | PK = WS/{repo} | Query |
 | Get workspace | PK = WS/{repo}, SK = {name} | GetItem |
-| Get execution | PK = REPO#{repo}, SK = EXEC#{taskHash}#{inputsHash} | GetItem |
-| List executions | PK = REPO#{repo}, SK begins_with EXEC# | Query |
+| Get execution | PK = CACHE/{repo}/{taskHash}, SK = {inputsHash} | GetItem |
+| List executions (repo) | PK begins_with CACHE/{repo}/ | Scan (filter) |
+| List executions (task) | PK = CACHE/{repo}/{taskHash} | Query |
 | Get execution state | PK = REPO#{repo}, SK = EXEC#STATE#{workspace} | GetItem |
 | Get task statuses | PK = REPO#{repo}, SK begins_with EXEC#TASK#{executionId}# | Query |
 | Get events | PK = REPO#{repo}, SK begins_with EXEC#EVENT#{executionId}# | Query |
 | Get lock | PK = LOCK/{repo}, SK = {resource} | GetItem |
-| Read logs | PK = REPO#{repo}, SK begins_with LOG#{taskHash}#{inputsHash}#{stream}# | Query |
-| Delete repo | PKG/{repo}, WS/{repo}, LOCK/{repo}, REPO#{repo} | Query + BatchDelete |
+| Read logs | PK = LOG/{repo}/{taskHash}/{inputsHash}, SK begins_with {stream}/ | Query |
+| Delete repo | PKG/{repo}, WS/{repo}, LOCK/{repo}, REPO#{repo} (Query) + CACHE/{repo}/, LOG/{repo}/ (Scan) | Query + Scan + BatchDelete |
 
 ## Files
 

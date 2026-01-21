@@ -14,7 +14,7 @@
  */
 
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
-import { DynamoDBClient, QueryCommand } from '@aws-sdk/client-dynamodb';
+import { DynamoDBClient, QueryCommand, ScanCommand } from '@aws-sdk/client-dynamodb';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import { decodeBeast2For } from '@elaraai/east';
 import { WorkspaceStateType } from '@elaraai/e3-types';
@@ -154,12 +154,42 @@ async function queryPartition(
 }
 
 /**
+ * Scan for items with PK matching a prefix (for multi-partition items).
+ */
+async function scanByPkPrefix(prefix: string): Promise<Record<string, unknown>[]> {
+  const items: Record<string, unknown>[] = [];
+  let exclusiveStartKey: Record<string, any> | undefined;
+
+  do {
+    const response = await dynamo.send(
+      new ScanCommand({
+        TableName: TABLE_NAME,
+        FilterExpression: 'begins_with(PK, :prefix)',
+        ExpressionAttributeValues: marshall({ ':prefix': prefix }),
+        ExclusiveStartKey: exclusiveStartKey,
+      })
+    );
+
+    if (response.Items) {
+      for (const item of response.Items) {
+        items.push(unmarshall(item));
+      }
+    }
+
+    exclusiveStartKey = response.LastEvaluatedKey;
+  } while (exclusiveStartKey);
+
+  return items;
+}
+
+/**
  * Collect all root hashes from DynamoDB refs.
  *
  * Roots come from:
  * - Package refs (PK: PKG/{repo}, SK: {name}/{version} -> hash)
  * - Workspace state (PK: WS/{repo}, SK: {name} -> state with packageHash, rootHash)
- * - Execution outputs (PK: REPO#{repo}, SK: EXEC#... -> outputHash) - legacy, unchanged until Phase 3
+ * - Execution cache (PK: CACHE/{repo}/{taskHash}, SK: {inputsHash} -> outputHash)
+ * - Legacy execution outputs (PK: REPO#{repo}, SK: EXEC#STATE#*, EXEC#TASK#*, etc.)
  */
 async function collectRoots(repo: string): Promise<Set<string>> {
   const roots = new Set<string>();
@@ -194,7 +224,15 @@ async function collectRoots(repo: string): Promise<Set<string>> {
     }
   }
 
-  // 3. Query execution outputs (PK: REPO#{repo}, SK: EXEC#...) - legacy, unchanged until Phase 3
+  // 3. Scan execution cache (PK: CACHE/{repo}/* -> outputHash)
+  const cacheItems = await scanByPkPrefix(`CACHE/${repo}/`);
+  for (const item of cacheItems) {
+    if (item.outputHash && isValidHash(item.outputHash)) {
+      roots.add(item.outputHash as string);
+    }
+  }
+
+  // 4. Query legacy execution state (PK: REPO#{repo}, SK: EXEC#...) - for Phase 3 items
   const executions = await queryPartition(`REPO#${repo}`, 'EXEC#');
   for (const item of executions) {
     if (item.outputHash && isValidHash(item.outputHash)) {
