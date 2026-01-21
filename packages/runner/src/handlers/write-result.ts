@@ -30,21 +30,68 @@ export interface WriteResultEvent {
   executionId: string;
   taskName: string;
   outputPath: string;
-  outputHash: string;
-  taskHash: string;
-  inputHashes: string[];
+  outputHash?: string; // Undefined for failed tasks
+  taskHash?: string; // Undefined for failed tasks
+  inputHashes?: string[]; // Undefined for failed tasks
   status: 'completed' | 'cached' | 'failed'; // Task status from Step Functions
   duration?: number; // Task execution duration in ms (only for executed tasks)
+  error?: string; // Error message for failed tasks
 }
 
 /**
  * Lambda handler: Write task output to workspace tree.
  *
- * Called by Step Functions after successful task execution to update
- * the workspace with the task's output.
+ * Called by Step Functions after task execution to update the workspace.
+ * Handles success, cached, and failed statuses.
  */
 export async function handler(event: WriteResultEvent): Promise<void> {
-  const { repo, workspace, executionId, taskName, outputPath, outputHash, taskHash, inputHashes, status, duration } = event;
+  const { repo, workspace, executionId, taskName, outputPath, outputHash, taskHash, inputHashes, status, duration, error } = event;
+
+  // Handle failed tasks differently - no output to write
+  if (status === 'failed') {
+    console.log(`Recording failure for task ${taskName} in workspace ${workspace}`);
+    console.log(`Error: ${error ?? 'unknown'}`);
+
+    // Update task status to 'failed'
+    await dynamo.send(
+      new UpdateItemCommand({
+        TableName: TABLE_NAME,
+        Key: marshall({
+          PK: `REPO#${repo}`,
+          SK: `EXEC#TASK#${executionId}#${taskName}`,
+        }),
+        UpdateExpression: 'SET #status = :status, #error = :error, completedAt = :completedAt',
+        ExpressionAttributeNames: {
+          '#status': 'status',
+          '#error': 'error',
+        },
+        ExpressionAttributeValues: marshall({
+          ':status': 'failed',
+          ':error': error ?? 'Task execution failed',
+          ':completedAt': new Date().toISOString(),
+        }),
+      })
+    );
+
+    // Update execution state counters
+    await dynamo.send(
+      new UpdateItemCommand({
+        TableName: TABLE_NAME,
+        Key: marshall({
+          PK: `REPO#${repo}`,
+          SK: `EXEC#STATE#${workspace}`,
+        }),
+        UpdateExpression: 'SET failedCount = if_not_exists(failedCount, :zero) + :one',
+        ExpressionAttributeValues: marshall({
+          ':zero': 0,
+          ':one': 1,
+        }),
+      })
+    );
+
+    console.log(`Recorded failure for task ${taskName}`);
+    return;
+  }
 
   const isCached = status === 'cached';
   console.log(`Writing result for task ${taskName} to workspace ${workspace} (${isCached ? 'cached' : 'executed'})`);
@@ -54,7 +101,7 @@ export async function handler(event: WriteResultEvent): Promise<void> {
   const treePath = parsePathString(outputPath);
 
   // Update workspace tree with the output
-  await workspaceSetDatasetByHash(storage, repo, workspace, treePath, outputHash);
+  await workspaceSetDatasetByHash(storage, repo, workspace, treePath, outputHash!);
 
   if (isCached) {
     // Cached task: dispatch-task already set status to 'cached', just increment counter
@@ -115,14 +162,14 @@ export async function handler(event: WriteResultEvent): Promise<void> {
     // Write execution cache record for e3-core's workspaceStatus to detect 'up-to-date'
     // This is the record that executionGet() looks for when computing task status
     const now = new Date();
-    const inHash = computeInputsHash(inputHashes);
+    const inHash = computeInputsHash(inputHashes!);
     const executionStatus: ExecutionStatus = variant('success', {
-      inputHashes,
-      outputHash,
+      inputHashes: inputHashes!,
+      outputHash: outputHash!,
       startedAt: now,  // We don't have the actual start time, use completion time
       completedAt: now,
     });
-    await storage.refs.executionWrite(repo, taskHash, inHash, executionStatus);
+    await storage.refs.executionWrite(repo, taskHash!, inHash, executionStatus);
   }
 
   console.log(`Successfully wrote output for task ${taskName} (${isCached ? 'cached' : 'executed'})`);
