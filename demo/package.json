@@ -7,8 +7,8 @@
     "build": "tsc --build && node dist/index.js"
   },
   "dependencies": {
-    "@elaraai/e3": "^0.0.2-beta.16",
-    "@elaraai/east": "^0.0.1-beta.30"
+    "@elaraai/e3": "^0.0.2-beta.18",
+    "@elaraai/east": "^0.0.1-beta.31"
   },
   "devDependencies": {
     "typescript": "^5.5.0"
