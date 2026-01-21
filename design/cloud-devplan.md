@@ -707,7 +707,8 @@ Primary Key: PK (String), SK (String)
 ┌─────────────────────────────────────────────────────────────────────┐
 │ REPOSITORY METADATA                                                  │
 │ PK: REPO#{repo}           SK: #META                               │
-│ Attributes: name, createdAt, settings                               │
+│ Attributes: name, status, createdAt, statusChangedAt, executionArn? │
+│ (status: 'creating' | 'active' | 'gc' | 'deleting')                  │
 ├─────────────────────────────────────────────────────────────────────┤
 │ PACKAGES                                                             │
 │ PK: REPO#{repo}           SK: PKG#{name}#{version}                │
@@ -717,32 +718,287 @@ Primary Key: PK (String), SK (String)
 │ PK: REPO#{repo}           SK: WS#{name}                           │
 │ Attributes: state (Binary/BEAST2), updatedAt                        │
 ├─────────────────────────────────────────────────────────────────────┤
-│ EXECUTIONS                                                           │
+│ EXECUTION CACHE                                                      │
 │ PK: REPO#{repo}           SK: EXEC#{taskHash}#{inputsHash}        │
-│ Attributes: status (Binary), outputHash, completedAt                │
+│ Attributes: status (Binary/BEAST2), outputHash, updatedAt           │
+├─────────────────────────────────────────────────────────────────────┤
+│ DATAFLOW EXECUTION STATE                                             │
+│ PK: REPO#{repo}           SK: EXEC#STATE#{workspace}              │
+│ Attributes: executionId, status, startedAt, completedAt?,           │
+│             taskCount, completedCount, failedCount, skippedCount,   │
+│             cachedCount                                              │
+├─────────────────────────────────────────────────────────────────────┤
+│ DATAFLOW TASK STATUS                                                 │
+│ PK: REPO#{repo}           SK: EXEC#TASK#{executionId}#{taskName}  │
+│ Attributes: status, outputHash?, exitCode?, error?, duration?,      │
+│             readyAt?, completedAt?                                   │
+├─────────────────────────────────────────────────────────────────────┤
+│ DATAFLOW GRAPH                                                       │
+│ PK: REPO#{repo}           SK: EXEC#GRAPH#{executionId}            │
+│ Attributes: graph (JSON string)                                      │
+├─────────────────────────────────────────────────────────────────────┤
+│ DATAFLOW EVENTS                                                      │
+│ PK: REPO#{repo}           SK: EXEC#EVENT#{executionId}#{seq}      │
+│ Attributes: eventType, task, timestamp, duration?, exitCode?,       │
+│             message?, reason?                                        │
 ├─────────────────────────────────────────────────────────────────────┤
 │ LOCKS                                                                │
 │ PK: REPO#{repo}           SK: LOCK#{resource}                     │
-│ Attributes: holder, acquiredAt, ttl (DynamoDB TTL for auto-delete)  │
+│ Attributes: holder, operation, acquiredAt, expiresAt, ttl           │
 ├─────────────────────────────────────────────────────────────────────┤
-│ USER PROFILES (cached from Cognito)                                  │
+│ LOG CHUNKS                                                           │
+│ PK: REPO#{repo}           SK: LOG#{taskHash}#{inputsHash}#{stream}│
+│                               #{timestamp}#{seq}                   │
+│ Attributes: data, timestamp, ttl (7 days)                            │
+├─────────────────────────────────────────────────────────────────────┤
+│ USER PROFILES (cached from Cognito) - TODO                           │
 │ PK: USER#{sub}              SK: #PROFILE                           │
 │ Attributes: email, name, givenName, familyName, cachedAt             │
 ├─────────────────────────────────────────────────────────────────────┤
-│ PERMISSIONS (e3-aws authz only)                                      │
+│ PERMISSIONS (e3-aws authz only) - TODO                               │
 │ PK: USER#{sub}              SK: REPO#{repo}                        │
 │ Attributes: role (admin|member), grantedAt, grantedBy               │
 │ GSI1: PK=REPO#{repo} SK=USER#{sub} (query users per repo)         │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
+### 3.1.1 Future Schema: Optimized Partitioning
+
+**Goal:** Redesign DynamoDB schema to maximize partitioning and eliminate hot partition risks.
+
+**Problem:** All items currently share `PK: REPO#{repo}`, creating hot partition risks:
+
+| Item Type | Write Frequency | Read Frequency | Hot Partition Risk |
+|-----------|-----------------|----------------|-------------------|
+| Logs | **VERY HIGH** (64KB chunks every 2s per task) | Moderate | **CRITICAL** |
+| Execution events | High (2 per task) | Low | Medium |
+| Task statuses | High (1-3 per task) | Medium | Medium |
+| Execution state counters | **VERY HIGH** (1 per task completion) | Medium | **HIGH** |
+| Execution cache | Moderate (1 per task) | High (cache check) | Low |
+| Packages | Low | Moderate | Low |
+| Workspaces | Low | Moderate | Low |
+| Repo metadata | Rare | Low | Low |
+
+**Access Pattern Analysis:**
+
+*Hierarchical Navigation (UI-driven):*
+1. List repos → Choose repo
+2. List workspaces in repo → Choose workspace
+3. View tasks/datasets in workspace
+4. View task execution history
+5. View logs for specific execution
+
+*Dataflow Execution (Write-heavy):*
+1. Read task graph from workspace
+2. Query all task statuses to find ready tasks
+3. Check cache by `taskHash + inputsHash` (exact lookup)
+4. Write task status updates
+5. Increment execution counters (single item, concurrent updates!)
+6. Append log chunks (many writes per task)
+7. Write execution cache entry on completion
+
+**Key Insight:** Execution cache is **repo-scoped, NOT workspace-scoped**. Same `taskHash + inputsHash` = same output, regardless of workspace. This enables cross-workspace cache sharing. Logs follow the same pattern.
+
+---
+
+**Future Schema:**
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ 1. REPOS                                                             │
+│ PK: REPO                    SK: {repo}                              │
+│ Attributes: name, status, createdAt, statusChangedAt, executionArn? │
+│                                                                     │
+│ Rationale: Listing repos becomes Query PK=REPO. Repos rarely        │
+│ created/updated so shared partition is fine.                        │
+│                                                                     │
+│ Access patterns:                                                    │
+│   - List repos: Query PK=REPO                                       │
+│   - Get repo: GetItem PK=REPO, SK={repo}                            │
+├─────────────────────────────────────────────────────────────────────┤
+│ 2. PACKAGES                                                          │
+│ PK: PKG/{repo}              SK: {name}/{version}                    │
+│ Attributes: hash, createdAt                                         │
+│                                                                     │
+│ Rationale: Separates package operations from other repo operations. │
+│ Moderate write load during `e3 push`.                               │
+│                                                                     │
+│ Access patterns:                                                    │
+│   - List packages: Query PK=PKG/{repo}                              │
+│   - Get package: GetItem PK=PKG/{repo}, SK={name}/{version}         │
+├─────────────────────────────────────────────────────────────────────┤
+│ 3. WORKSPACES                                                        │
+│ PK: WS/{repo}               SK: {name}                              │
+│ Attributes: state (Binary/BEAST2), updatedAt                        │
+│                                                                     │
+│ Rationale: Separates workspace state from other repo operations.    │
+│                                                                     │
+│ Access patterns:                                                    │
+│   - List workspaces: Query PK=WS/{repo}                             │
+│   - Get workspace: GetItem PK=WS/{repo}, SK={name}                  │
+├─────────────────────────────────────────────────────────────────────┤
+│ 4. EXECUTION CACHE                                                   │
+│ PK: CACHE/{repo}/{taskHash} SK: {inputsHash}                        │
+│ Attributes: status (Binary/BEAST2), outputHash, updatedAt           │
+│                                                                     │
+│ Rationale: Partitioning by taskHash provides:                       │
+│   - Better write distribution during scatter-gather patterns        │
+│   - Higher capacity per task (up to 10GB of cache entries)          │
+│   - Efficient per-task queries                                      │
+│                                                                     │
+│ Access patterns:                                                    │
+│   - Check cache: GetItem PK=CACHE/{repo}/{taskHash}, SK={inputsHash}│
+│   - List for task: Query PK=CACHE/{repo}/{taskHash}                 │
+│   - List for GC: Parallel scan with PK begins_with CACHE/{repo}/    │
+├─────────────────────────────────────────────────────────────────────┤
+│ 5. DATAFLOW EXECUTIONS (with history)                                │
+│ PK: EXEC/{repo}/{workspace} SK: 0 (Number) → counter: {nextId}      │
+│                             SK: 1, 2, 3... (Number) → executions    │
+│                                                                     │
+│ Execution attributes: status, startedAt, completedAt?,              │
+│   taskCount, completedCount, failedCount, skippedCount, cachedCount,│
+│   eventSeq, graph (JSON string - stored as attribute)               │
+│                                                                     │
+│ Design notes:                                                       │
+│   - SK=0 is counter; executions start at 1                          │
+│   - Graph is attribute of execution item (no separate item)         │
+│   - Number type SK gives natural ordering without padding           │
+│                                                                     │
+│ Creating new execution (atomic):                                    │
+│   1. Use DynamoDB transaction or workspace lock                     │
+│   2. Increment SK=0 nextId                                          │
+│   3. Create new execution item at SK={nextId}                       │
+│                                                                     │
+│ Access patterns:                                                    │
+│   - List executions (newest first):                                 │
+│       Query PK=EXEC/{repo}/{ws}, SK > 0, ScanIndexForward=false     │
+│   - Get latest: Same query with Limit=1                             │
+│   - Get specific: GetItem PK=EXEC/{repo}/{ws}, SK={id}              │
+│   - Update counters: UpdateItem on execution item                   │
+│   - Create: Transaction (increment SK=0.nextId + put new item)      │
+├─────────────────────────────────────────────────────────────────────┤
+│ 6. DATAFLOW TASK STATUS (per execution)                              │
+│ PK: TASK/{repo}/{executionId}  SK: {taskName}                       │
+│ Attributes: status, outputHash?, exitCode?, error?, duration?,      │
+│             readyAt?, completedAt?                                  │
+│                                                                     │
+│ Rationale: Each execution gets own partition for task statuses:     │
+│   - Preserves task status history (not overwritten each run)        │
+│   - Avoids 10GB partition limit accumulation                        │
+│   - Efficient batch read for getReadyTasks() within single exec     │
+│                                                                     │
+│ Access patterns:                                                    │
+│   - Get all task statuses: Query PK=TASK/{repo}/{executionId}       │
+│   - Get single task: GetItem PK=TASK/{repo}/{execId}, SK={taskName} │
+├─────────────────────────────────────────────────────────────────────┤
+│ 7. DATAFLOW EVENTS (per execution)                                   │
+│ PK: EVENT/{repo}/{executionId}  SK: {seq} (10-digit zero-padded)    │
+│ Attributes: eventType, task, timestamp, duration?, exitCode?,       │
+│             message?, reason?                                       │
+│                                                                     │
+│ Rationale: Events are append-only. Separate partition per exec:     │
+│   - Write isolation (no contention with task status updates)        │
+│   - Efficient pagination for event log viewing                      │
+│   - Natural cleanup (delete all events for an execution)            │
+│                                                                     │
+│ Access patterns:                                                    │
+│   - Append event: PutItem (seq from atomic counter in exec metadata)│
+│   - List events: Query PK=EVENT/{repo}/{executionId} with pagination│
+├─────────────────────────────────────────────────────────────────────┤
+│ 8. LOCKS                                                             │
+│ PK: LOCK/{repo}             SK: {resource}                          │
+│ Attributes: holder, operation, acquiredAt, expiresAt, ttl           │
+│                                                                     │
+│ Rationale: Separates lock operations from other repo operations.    │
+│ Lock contention is per-resource, so partition isolation helps.      │
+├─────────────────────────────────────────────────────────────────────┤
+│ 9. LOG CHUNKS                                                        │
+│ PK: LOG/{repo}/{taskHash}/{inputsHash}                              │
+│ SK: {stream}/{chunk_index}  (chunk_index: 6-digit zero-padded)      │
+│ Attributes: data, timestamp, ttl (7 days)                           │
+│                                                                     │
+│ Key changes:                                                        │
+│   - Partition per task execution (isolates log writes)              │
+│   - Contiguous chunk index instead of timestamp+seq                 │
+│   - Stream in SK enables reading stdout/stderr independently        │
+│                                                                     │
+│ Rationale: Logs are highest-volume writes. Each task execution's    │
+│ logs go to own partition, eliminating hot partition issues.         │
+│                                                                     │
+│ Access patterns:                                                    │
+│   - Append chunk: PutItem with next chunk index                     │
+│   - Read stream: Query PK=LOG/..., SK begins_with {stream}/         │
+│   - Full read: Query PK=LOG/{repo}/{taskHash}/{inputsHash}          │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Summary Table:**
+
+| Item Type | Current PK | Future PK | Future SK | Benefit |
+|-----------|------------|-----------|-----------|---------|
+| Repos | `REPO#{repo}` | `REPO` | `{repo}` | List without scan |
+| Packages | `REPO#{repo}` | `PKG/{repo}` | `{name}/{version}` | Isolated writes |
+| Workspaces | `REPO#{repo}` | `WS/{repo}` | `{name}` | Isolated writes |
+| Exec cache | `REPO#{repo}` | `CACHE/{repo}/{taskHash}` | `{inputsHash}` | **Per-task partition** |
+| Exec counter | (none) | `EXEC/{repo}/{workspace}` | `0` (Number) | Atomic ID generation |
+| Exec metadata | `REPO#{repo}` | `EXEC/{repo}/{workspace}` | `{id}` (Number, 1+) | **History + graph as attr** |
+| Task status | `REPO#{repo}` | `TASK/{repo}/{id}` | `{taskName}` | **Per-exec partition** |
+| Events | `REPO#{repo}` | `EVENT/{repo}/{id}` | `{seq}` | Append isolation |
+| Locks | `REPO#{repo}` | `LOCK/{repo}` | `{resource}` | Isolated contention |
+| Logs | `REPO#{repo}` | `LOG/{repo}/{taskHash}/{inputsHash}` | `{stream}/{chunk}` | **Per-task partition** |
+
+**GSI Requirements:**
+
+```
+GSI1: Repo membership (for future authz)
+GSI1PK: USER/{sub}
+GSI1SK: REPO/{repo}
+Enables: "List repos for user"
+```
+
+No other GSIs needed - the partition key design supports all current access patterns.
+
+**Design Decisions:**
+
+1. **Execution cache scope**: Workspace-agnostic (keyed by `taskHash+inputsHash`). Enables cross-workspace cache sharing.
+
+2. **Execution cache partitioning**: Per-task partitions (`CACHE/{repo}/{taskHash}`). Distributes write load during scatter-gather patterns.
+
+3. **Execution history**: Preserved. Each execution gets own SK (Number type, starting at 1).
+
+4. **Execution ID format**: Autoincrement numeric IDs with Number-type SK. SK=0 is counter, executions are 1+.
+
+5. **Graph storage**: Graph is an attribute of the execution item (not a separate item).
+
+6. **Task status isolation**: Per-execution partitions (`TASK/{repo}/{executionId}`) to avoid 10GB limit and preserve history.
+
+7. **History retention**: No TTL on execution metadata. Cleanup handled by custom GC process.
+
+8. **SK prefixes**: Only used where multiple item types share a partition. Currently none needed.
+
+**Open Questions:**
+
+1. **Log retention**: Current 7-day TTL on logs. Should this be configurable? Logs are keyed by taskHash+inputsHash, so shared across executions of same task+inputs.
+
+2. **GC scope**: When GC runs, should it clean up old executions? Need to define policy (e.g., keep last N executions per workspace).
+
+**Migration Strategy:** Incremental migration in 3 phases to minimize risk and allow validation at each step.
+
+| Phase | Items | Rationale |
+|-------|-------|-----------|
+| 1 | REPOS, PACKAGES, WORKSPACES, LOCKS | Independent, low-volume, validates approach |
+| 2 | LOGS, CACHE | Highest write volume, biggest hot partition benefit |
+| 3 | EXEC, TASK, EVENT | Coupled items, introduces execution history semantics |
+
+Each phase follows: (1) dual-write to old+new PK patterns, (2) migrate reads to prefer new, (3) let TTL expire or backfill, (4) remove old pattern support.
+
+---
+
 ### 3.2 S3 Layout
 
 ```
 s3://{bucket}/
-  {repo}/objects/{hash}                              # Content-addressed blobs
-  {repo}/logs/{taskHash}/{inputsHash}/stdout.txt     # Execution logs
-  {repo}/logs/{taskHash}/{inputsHash}/stderr.txt
+  {repo}/objects/{hash}    # Content-addressed blobs
 ```
 
 ### 3.3 Implementation
@@ -751,9 +1007,9 @@ s3://{bucket}/
 packages/storage/src/
 ├── s3-dynamo-storage.ts      # S3DynamoStorage class
 ├── s3-object-store.ts        # S3-backed ObjectStore
-├── dynamo-ref-store.ts       # DynamoDB-backed RefStore
+├── dynamo-ref-store.ts       # DynamoDB-backed RefStore + repo management
 ├── dynamo-lock-service.ts    # DynamoDB-backed LockService (with TTL)
-├── s3-log-store.ts           # S3-backed LogStore
+├── dynamo-log-store.ts       # DynamoDB-backed LogStore (chunked for streaming)
 └── index.ts                  # Exports
 ```
 
@@ -775,7 +1031,7 @@ export class S3DynamoStorage implements StorageBackend {
     this.objects = new S3ObjectStore(s3, bucket);
     this.refs = new DynamoRefStore(dynamo, tableName);
     this.locks = new DynamoLockService(dynamo, tableName);
-    this.logs = new S3LogStore(s3, bucket);
+    this.logs = new DynamoLogStore(dynamo, tableName);
   }
 }
 
@@ -825,7 +1081,7 @@ class DynamoRefStore implements RefStore {
 **Update `cdk/platform/lib/e3-platform-stack.ts`:**
 
 - Remove: EFS filesystem, access points, VPC NAT gateway (not needed without EFS)
-- Add: S3 bucket for objects and logs
+- Add: S3 bucket for objects
 - Change: Single DynamoDB table (`e3-{deploymentId}-data`) instead of separate tables
 - Update: Lambda environment variables, IAM permissions
 
