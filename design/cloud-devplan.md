@@ -80,9 +80,10 @@ abstractions         refactoring          S3DynamoStorage      (frontend +      
 
 ### Remaining
 
-- [ ] Step Functions dataflow state machine
-- [ ] Lambda handlers for dataflow execution (`packages/runner/`)
-- [ ] ECS Service warm pool for Fargate runners
+- [x] Step Functions dataflow state machine
+- [x] Lambda handlers for dataflow execution (`packages/runner/`)
+- [x] DynamoDB schema migration (Phase 3: EXEC, TASK, EVENT)
+- [ ] ECS Service warm pool for Fargate runners (Phase 5 - optional)
 - [ ] Frontend integration (east-ui rendering)
 - [ ] e3-api-tests consumption in integration tests
 
@@ -988,7 +989,7 @@ No other GSIs needed - the partition key design supports all current access patt
 |-------|-------|-----------|--------|
 | 1 | REPOS, PACKAGES, WORKSPACES, LOCKS | Independent, low-volume, validates approach | ✅ Complete |
 | 2 | LOGS, CACHE | Highest write volume, biggest hot partition benefit | ✅ Complete |
-| 3 | EXEC, TASK, EVENT | Coupled items, introduces execution history semantics | Pending |
+| 3 | EXEC, TASK, EVENT | Coupled items, introduces execution history semantics | ✅ Complete |
 
 Each phase follows: (1) dual-write to old+new PK patterns, (2) migrate reads to prefer new, (3) let TTL expire or backfill, (4) remove old pattern support.
 
@@ -999,6 +1000,13 @@ Each phase follows: (1) dual-write to old+new PK patterns, (2) migrate reads to 
 - LOGS: `PK: LOG/{repo}/{taskHash}/{inputsHash}, SK: {stream}/{chunk}` - per-task-execution partitions with contiguous chunk indices
 
 Delete repo batch operation updated to scan across multi-partition items. GC mark phase updated to scan CACHE partitions for root collection.
+
+**Phase 3 Complete:** EXEC, TASK, and EVENT now use the new partition key patterns:
+- EXEC: `PK: EXEC/{repo}/{workspace}, SK: 0 (counter) | {padded-id} (record)` - per-workspace partition with auto-increment IDs
+- TASK: `PK: TASK/{repo}/{executionId}, SK: {taskName}` - per-execution partition for task statuses
+- EVENT: `PK: EVENT/{repo}/{executionId}, SK: {seq}` - per-execution partition for event log
+
+Execution lifecycle: 'starting' → 'running' → 'completed'/'failed'. The 'starting' status is set when the API creates the execution record (before Step Functions starts), allowing immediate client polling. Events are recorded by execute-task (start), write-result (complete/failed/cached), and mark-skipped (skipped).
 
 ---
 
@@ -1134,9 +1142,9 @@ app.get('/repos/:repo/api/workspaces', async (c) => {
 - [x] DynamoLogStore implementation (chunked logs in DynamoDB)
 - [x] S3DynamoStorage class (initialized once, no repo in constructor)
 - [x] CDK stack updated (S3 bucket, single DynamoDB table, no EFS)
-- [ ] DynamoRefStore repo management: `listRepos()`, `createRepo()`, `deleteRepo()`
-- [ ] Lambda using shared routes from e3-api-server
-- [ ] Integration tests
+- [x] DynamoRefStore repo management: `listRepos()`, `createRepo()`, `deleteRepo()`
+- [x] DynamoDB schema migration complete (all 3 phases)
+- [x] Integration tests (62 tests passing)
 
 ---
 
@@ -1364,9 +1372,10 @@ POST /api/repos/{repo}/execute                 # Execute task in ephemeral works
 
 ### Deliverables
 
-- [ ] Step Functions state machine (CDK)
-- [ ] Lambda handlers for dataflow execution
-- [ ] CloudFront distribution with S3 + API Gateway routing
+- [x] Step Functions state machine (CDK)
+- [x] Lambda handlers for dataflow execution (get-graph, get-ready, dispatch-task, execute-task, write-result, mark-skipped, finalize-execution)
+- [x] CloudFront distribution with S3 + API Gateway routing
+- [x] Integration tests (62 tests passing)
 - [ ] Frontend app with Cognito login
 - [ ] Workspace list and UI rendering
 - [ ] End-to-end test (create repo → deploy package → execute → view UI)

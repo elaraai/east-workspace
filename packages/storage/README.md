@@ -88,16 +88,16 @@ Execution record (SK: "0000000001", "0000000002", ...):
   - id: number             # Numeric execution ID
   - repo: string           # Repository name
   - workspace: string      # Workspace name
-  - status: string         # 'running' | 'completed' | 'failed'
+  - status: string         # 'starting' | 'running' | 'completed' | 'failed'
   - startedAt: string      # ISO timestamp
   - completedAt?: string   # ISO timestamp
-  - taskCount: number      # Total tasks in graph
+  - taskCount?: number     # Total tasks in graph (set when execution starts)
   - completedCount: number # Successfully completed tasks
   - failedCount: number    # Failed tasks
   - skippedCount: number   # Skipped tasks (due to upstream failure)
   - cachedCount: number    # Tasks served from cache
   - eventSeq: number       # Counter for event sequence numbers
-  - graph: string          # JSON-serialized task graph
+  - graph?: string         # JSON-serialized task graph (set when execution starts)
 ```
 
 ### Dataflow Tasks (Phase 3)
@@ -130,7 +130,7 @@ Event log for dataflow execution (for UI/monitoring). Each execution gets its ow
 
 ```
 PK: EVENT/{repo}/{executionId}
-SK: {seq} (zero-padded 10 digits)
+SK: {seq} (zero-padded 6 digits)
 Attributes:
   - eventType: string      # 'start' | 'complete' | 'cached' | 'failed' | 'error' | 'skipped'
   - task: string           # Task name

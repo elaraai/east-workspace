@@ -38,12 +38,15 @@ The `E3PlatformStack` deploys a complete e3 platform with:
 | Resource | Name Pattern | Purpose |
 |----------|--------------|---------|
 | S3 Bucket | `e3-{id}-data-{account}` | Package storage, artifacts |
-| DynamoDB Table | `e3-{id}-data` | Refs, metadata, device codes |
+| DynamoDB Table | `e3-{id}-data` | Refs, metadata, executions, events |
 | Cognito User Pool | `e3-{id}-users` | Authentication, JWT tokens |
 | Lambda Function | `e3-{id}-api` | API request handler |
-| Lambda Function | `e3-{id}-task-runner` | Task execution |
+| Lambda Function | `e3-{id}-execute-task` | Task execution (Docker/ECR) |
+| Lambda Functions | `e3-{id}-get-graph`, `-get-ready`, `-dispatch-task`, `-write-result`, `-mark-skipped`, `-finalize-execution` | Dataflow orchestration handlers |
 | API Gateway | `e3-{id}-api` | HTTP API with JWT auth |
-| Step Functions | `e3-{id}-task`, `e3-{id}-dataflow` | Orchestration |
+| Step Functions | `e3-{id}-dataflow` | Dataflow orchestration |
+| Step Functions | `e3-{id}-delete-repo`, `e3-{id}-gc` | Repo lifecycle |
+| ECR Repository | `e3-{id}-runner` | Task execution container image |
 | S3 Bucket | `e3-{id}-apps-{account}` | Static web apps |
 | CloudFront | - | CDN, custom domain |
 | Route53 A Record | `{id}.{baseDomain}` | DNS (if domain configured) |
