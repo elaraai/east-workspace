@@ -3,16 +3,19 @@
  * Proprietary and confidential.
  */
 
-import {
-  DynamoDBClient,
-  QueryCommand,
-  UpdateItemCommand,
-  PutItemCommand,
-} from '@aws-sdk/client-dynamodb';
-import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
+import { S3Client } from '@aws-sdk/client-s3';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { S3DynamoStorage } from '@elaraai/e3-storage';
 
+// Initialize clients once at Lambda cold start
+const s3 = new S3Client({});
 const dynamo = new DynamoDBClient({});
-const TABLE_NAME = process.env.TABLE_NAME!;
+const storage = new S3DynamoStorage(
+  s3,
+  dynamo,
+  process.env.BUCKET_NAME!,
+  process.env.TABLE_NAME!
+);
 
 // Stale claim threshold: 5 minutes
 const STALE_CLAIM_THRESHOLD_MS = 5 * 60 * 1000;
@@ -26,7 +29,8 @@ export interface DispatchResult {
 export interface CheckCompletionEvent {
   repo: string;
   workspace: string;
-  executionId: string;
+  /** Numeric execution ID */
+  executionId: number;
   dispatchResults?: DispatchResult[];
 }
 
@@ -42,7 +46,8 @@ export interface TaskCompletion {
 export interface CheckCompletionResult {
   repo: string;
   workspace: string;
-  executionId: string;
+  /** Numeric execution ID */
+  executionId: number;
   completed: TaskCompletion[];
   failedTasks: string[];
   failedCount: number;
@@ -169,80 +174,46 @@ interface TaskStatusItem {
 
 /**
  * Get all task statuses for an execution.
+ * Phase 3 schema: TASK/{repo}/{executionId}
  */
 async function getTaskStatuses(
   repo: string,
-  executionId: string
+  executionId: number
 ): Promise<Map<string, TaskStatusItem>> {
   const statuses = new Map<string, TaskStatusItem>();
-  let exclusiveStartKey: Record<string, any> | undefined;
 
-  do {
-    const response = await dynamo.send(
-      new QueryCommand({
-        TableName: TABLE_NAME,
-        KeyConditionExpression: 'PK = :pk AND begins_with(SK, :prefix)',
-        ExpressionAttributeValues: marshall({
-          ':pk': `REPO#${repo}`,
-          ':prefix': `EXEC#TASK#${executionId}#`,
-        }),
-        ExclusiveStartKey: exclusiveStartKey,
-        ConsistentRead: true,
-      })
-    );
+  // Use the storage helper for Phase 3 schema
+  const tasks = await storage.refs.getExecutionTasksV2(repo, executionId);
 
-    if (response.Items) {
-      for (const item of response.Items) {
-        const unmarshalled = unmarshall(item);
-        // SK format: EXEC#TASK#{executionId}#{taskName}
-        const sk = unmarshalled.SK as string;
-        const prefixLen = `EXEC#TASK#${executionId}#`.length;
-        const taskName = sk.slice(prefixLen);
-        statuses.set(taskName, {
-          status: unmarshalled.status as string,
-          outputPath: unmarshalled.outputPath as string | undefined,
-          outputHash: unmarshalled.outputHash as string | undefined,
-          exitCode: unmarshalled.exitCode as number | undefined,
-          error: unmarshalled.error as string | undefined,
-          heartbeat: unmarshalled.heartbeat as number | undefined,
-        });
-      }
-    }
-
-    exclusiveStartKey = response.LastEvaluatedKey;
-  } while (exclusiveStartKey);
+  for (const task of tasks) {
+    statuses.set(task.taskName, {
+      status: task.status,
+      outputPath: task.outputPath,
+      outputHash: task.outputHash,
+      exitCode: task.exitCode,
+      error: task.error,
+      heartbeat: task.heartbeat,
+    });
+  }
 
   return statuses;
 }
 
 /**
  * Mark a task as failed due to stale heartbeat.
+ * Phase 3 schema: TASK/{repo}/{executionId}
  */
 async function markTaskFailed(
   repo: string,
-  executionId: string,
+  executionId: number,
   taskName: string,
   error: string
 ): Promise<void> {
-  await dynamo.send(
-    new UpdateItemCommand({
-      TableName: TABLE_NAME,
-      Key: marshall({
-        PK: `REPO#${repo}`,
-        SK: `EXEC#TASK#${executionId}#${taskName}`,
-      }),
-      UpdateExpression: 'SET #status = :status, #error = :error, failedAt = :now',
-      ExpressionAttributeNames: {
-        '#status': 'status',
-        '#error': 'error',
-      },
-      ExpressionAttributeValues: marshall({
-        ':status': 'error',
-        ':error': error,
-        ':now': new Date().toISOString(),
-      }),
-    })
-  );
+  await storage.refs.updateTaskStatus(repo, executionId, taskName, {
+    status: 'error',
+    error,
+    failedAt: new Date().toISOString(),
+  });
 }
 
 /**
@@ -258,55 +229,16 @@ export type DataflowEventType =
 
 /**
  * Write an event to DynamoDB with the next sequence number.
- * Uses atomic increment to get unique, ordered sequence numbers.
+ * Phase 3 schema: EVENT/{repo}/{executionId}
  */
 async function writeEvent(
   repo: string,
   workspace: string,
-  executionId: string,
+  executionId: number,
   event: DataflowEventType
 ): Promise<number> {
-  // Atomically increment the event sequence counter and get the new value
-  const updateResult = await dynamo.send(
-    new UpdateItemCommand({
-      TableName: TABLE_NAME,
-      Key: marshall({
-        PK: `REPO#${repo}`,
-        SK: `EXEC#STATE#${workspace}`,
-      }),
-      UpdateExpression: 'SET eventSeq = if_not_exists(eventSeq, :zero) + :one',
-      ExpressionAttributeValues: marshall({
-        ':zero': 0,
-        ':one': 1,
-      }),
-      ReturnValues: 'UPDATED_NEW',
-    })
-  );
-
-  const seq = updateResult.Attributes
-    ? (unmarshall(updateResult.Attributes).eventSeq as number)
-    : 1;
-
-  // Write the event with zero-padded sequence number for string sorting
-  const seqStr = seq.toString().padStart(10, '0');
-  await dynamo.send(
-    new PutItemCommand({
-      TableName: TABLE_NAME,
-      Item: marshall({
-        PK: `REPO#${repo}`,
-        SK: `EXEC#EVENT#${executionId}#${seqStr}`,
-        eventType: event.type,
-        task: event.task,
-        timestamp: event.timestamp,
-        ...(event.type === 'complete' && { duration: event.duration }),
-        ...(event.type === 'failed' && { duration: event.duration, exitCode: event.exitCode }),
-        ...(event.type === 'error' && { message: event.message }),
-        ...(event.type === 'skipped' && { reason: event.reason }),
-      }),
-    })
-  );
-
-  return seq;
+  // Use the storage helper for Phase 3 schema
+  return storage.refs.addExecutionEvent(repo, workspace, executionId, event);
 }
 
 /**
@@ -315,7 +247,7 @@ async function writeEvent(
 async function recordTaskEvents(
   repo: string,
   workspace: string,
-  executionId: string,
+  executionId: number,
   completed: TaskCompletion[],
   failedTasks: string[],
   taskStatuses: Map<string, TaskStatusItem>

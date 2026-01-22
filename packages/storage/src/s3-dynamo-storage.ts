@@ -42,11 +42,9 @@ import { DynamoLogStore } from './dynamo-log-store.js';
  */
 export class S3DynamoStorage implements StorageBackend {
   public readonly objects: ObjectStore;
-  public readonly refs: RefStore;
+  public readonly refs: DynamoRefStore;
   public readonly locks: LockService;
   public readonly logs: LogStore;
-
-  private readonly refStore: DynamoRefStore;
 
   constructor(
     s3: S3Client,
@@ -55,8 +53,7 @@ export class S3DynamoStorage implements StorageBackend {
     tableName: string
   ) {
     this.objects = new S3ObjectStore(s3, bucket);
-    this.refStore = new DynamoRefStore(dynamo, tableName);
-    this.refs = this.refStore;
+    this.refs = new DynamoRefStore(dynamo, tableName);
     this.locks = new DynamoLockService(dynamo, tableName);
     this.logs = new DynamoLogStore(dynamo, tableName);
   }
@@ -72,7 +69,7 @@ export class S3DynamoStorage implements StorageBackend {
    * @throws {RepositoryNotFoundError} If repository doesn't exist or is not accessible
    */
   async validateRepository(repo: string): Promise<void> {
-    const metadata = await this.refStore.getRepoMetadata(repo);
+    const metadata = await this.refs.getRepoMetadata(repo);
 
     if (!metadata) {
       throw new RepositoryNotFoundError(repo);

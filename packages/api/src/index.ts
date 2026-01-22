@@ -14,8 +14,7 @@ import { Hono } from 'hono';
 import { handle } from 'hono/aws-lambda';
 import type { LambdaContext } from 'hono/aws-lambda';
 import { S3Client } from '@aws-sdk/client-s3';
-import { DynamoDBClient, ConditionalCheckFailedException, PutItemCommand } from '@aws-sdk/client-dynamodb';
-import { marshall } from '@aws-sdk/util-dynamodb';
+import { DynamoDBClient, ConditionalCheckFailedException } from '@aws-sdk/client-dynamodb';
 import { SFNClient, StartExecutionCommand, DescribeExecutionCommand } from '@aws-sdk/client-sfn';
 import { randomUUID } from 'node:crypto';
 import {
@@ -444,32 +443,16 @@ app.post('/api/repos/:repo/workspaces/:ws/dataflow', async (c) => {
     const body = await decodeBody(c, ApiTypes.DataflowRequestType);
     const force = body.force;
 
-    // Generate unique execution ID
-    const executionId = randomUUID();
-    const executionName = `dataflow-${repo}-${workspace}-${executionId}`.slice(0, 80);
+    // Create execution record in 'starting' status before starting Step Function
+    // This ensures polling can see the execution immediately
+    const execution = await refStore.createExecution(repo, workspace);
+    console.log(`Created execution ${execution.id} for ${repo}/${workspace} in 'starting' status`);
 
-    // Create initial execution state in DynamoDB
-    // This makes the execution immediately visible for polling, like e3-api-server does
-    await dynamo.send(
-      new PutItemCommand({
-        TableName: TABLE_NAME,
-        Item: marshall({
-          PK: `REPO#${repo}`,
-          SK: `EXEC#STATE#${workspace}`,
-          executionId,
-          status: 'running',
-          startedAt: new Date().toISOString(),
-          taskCount: 0, // Will be updated by get-graph
-          completedCount: 0,
-          failedCount: 0,
-          skippedCount: 0,
-          cachedCount: 0,
-          force, // Store force flag for potential use
-        }),
-      })
-    );
+    // Generate unique Step Functions execution name
+    const sfnExecutionId = randomUUID();
+    const executionName = `dataflow-${repo}-${workspace}-${sfnExecutionId}`.slice(0, 80);
 
-    // Start the dataflow state machine
+    // Start the dataflow state machine with the execution ID
     await sfn.send(
       new StartExecutionCommand({
         stateMachineArn: DATAFLOW_STATE_MACHINE_ARN,
@@ -477,13 +460,13 @@ app.post('/api/repos/:repo/workspaces/:ws/dataflow', async (c) => {
         input: JSON.stringify({
           repo,
           workspace,
-          executionId,
+          executionId: execution.id,
           force, // Pass force flag to state machine
         }),
       })
     );
 
-    console.log(`Started dataflow state machine for ${repo}/${workspace}: ${executionId} (force=${force})`);
+    console.log(`Started dataflow state machine for ${repo}/${workspace} (force=${force}, executionId=${execution.id})`);
 
     // Return 202 Accepted with null body (matches e3-api-server)
     return sendSuccessWithStatus(NullType, null, 202);
@@ -504,18 +487,18 @@ app.get('/api/repos/:repo/workspaces/:ws/dataflow/execution', async (c) => {
   const limit = c.req.query('limit') ? parseInt(c.req.query('limit')!, 10) : undefined;
 
   try {
-    // Get execution state from DynamoDB
-    const execState = await refStore.getExecutionState(repo, workspace);
+    // Get latest execution state from DynamoDB (Phase 3 schema)
+    const execState = await refStore.getExecution(repo, workspace);
 
     if (!execState) {
       return sendError(ApiTypes.DataflowExecutionStateType, internalError('No execution found for this workspace'));
     }
 
-    // Get events from DynamoDB (written by the Step Function orchestrator)
+    // Get events from DynamoDB (Phase 3 schema: EVENT/{repo}/{executionId})
     // Events are stored with sequence numbers for stable offset-based pagination
-    const { events: rawEvents, total: totalEvents } = await refStore.getExecutionEvents(
+    const { events: rawEvents, total: totalEvents } = await refStore.getExecutionEventsV2(
       repo,
-      execState.executionId,
+      execState.id,
       offset,
       limit
     );
@@ -567,24 +550,26 @@ app.get('/api/repos/:repo/workspaces/:ws/dataflow/execution', async (c) => {
       }
     });
 
-    console.log(`Loaded ${events.length} events (offset=${offset}, total=${totalEvents}) for execution ${execState.executionId}`);
+    console.log(`Loaded ${events.length} events (offset=${offset}, total=${totalEvents}) for execution ${execState.id}`);
 
     // Build summary if execution is complete
     // Calculate duration from timestamps if available
     const durationMs = execState.completedAt
       ? new Date(execState.completedAt).getTime() - new Date(execState.startedAt).getTime()
       : 0;
-    const summary = execState.status !== 'running' ? some({
+    // No summary while starting or running
+    const isInProgress = execState.status === 'starting' || execState.status === 'running';
+    const summary = isInProgress ? none : some({
       executed: BigInt(execState.completedCount - execState.cachedCount),
       cached: BigInt(execState.cachedCount),
       failed: BigInt(execState.failedCount),
       skipped: BigInt(execState.skippedCount),
       duration: durationMs / 1000, // Convert ms to seconds
-    }) : none;
+    });
 
     // Build response matching DataflowExecutionStateType
-    // Map execution status to variant
-    const statusVariant = execState.status === 'running'
+    // Map execution status to variant ('starting' maps to 'running' for API compatibility)
+    const statusVariant = execState.status === 'starting' || execState.status === 'running'
       ? variant('running', null)
       : execState.status === 'completed'
         ? variant('completed', null)
@@ -595,7 +580,7 @@ app.get('/api/repos/:repo/workspaces/:ws/dataflow/execution', async (c) => {
       startedAt: execState.startedAt,
       completedAt: execState.completedAt ? some(execState.completedAt) : none,
       summary,
-      events, // Already paginated by getExecutionEvents
+      events, // Already paginated by getExecutionEventsV2
       totalEvents: BigInt(totalEvents),
     });
   } catch (err) {

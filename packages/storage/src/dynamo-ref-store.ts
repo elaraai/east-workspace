@@ -69,7 +69,8 @@ export class InvalidRepoStatusError extends Error {
 }
 
 /**
- * Execution state for a workspace dataflow.
+ * Execution state for a workspace dataflow (legacy format).
+ * @deprecated Use DataflowExecution instead
  */
 export interface DataflowExecutionState {
   executionId: string;
@@ -84,17 +85,59 @@ export interface DataflowExecutionState {
 }
 
 /**
+ * Dataflow execution record (Phase 3 schema).
+ *
+ * Stored at PK: EXEC/{repo}/{workspace}, SK: {id} (Number)
+ * Counter stored at SK: 0
+ */
+export interface DataflowExecution {
+  /** Numeric execution ID (same as SK) */
+  id: number;
+  /** Repository name */
+  repo: string;
+  /** Workspace name */
+  workspace: string;
+  /** Execution status */
+  status: 'starting' | 'running' | 'completed' | 'failed';
+  /** When execution started */
+  startedAt: string;
+  /** When execution completed (if finished) */
+  completedAt?: string;
+  /** Total number of tasks (set when execution starts running) */
+  taskCount?: number;
+  /** Number of successfully completed tasks */
+  completedCount: number;
+  /** Number of failed tasks */
+  failedCount: number;
+  /** Number of skipped tasks */
+  skippedCount: number;
+  /** Number of cached tasks */
+  cachedCount: number;
+  /** Counter for next event sequence number */
+  eventSeq: number;
+  /** JSON-serialized task graph (set when execution starts running) */
+  graph?: string;
+}
+
+/**
  * Task status within a dataflow execution.
  */
 export interface TaskExecutionStatus {
   taskName: string;
   status: 'dispatched' | 'running' | 'success' | 'cached' | 'failed' | 'error' | 'skipped' | 'ready';
   outputHash?: string;
+  outputPath?: string;   // Path where output is written
+  taskHash?: string;     // Hash of the task definition
+  inputHashes?: string[];// Hashes of task inputs
   exitCode?: number;
   error?: string;
+  reason?: string;       // Reason for skipped tasks
   duration?: number;
-  readyAt?: string;     // ISO timestamp when task became ready
-  completedAt?: string; // ISO timestamp when task completed
+  heartbeat?: number;    // Unix timestamp of last heartbeat
+  readyAt?: string;      // ISO timestamp when task became ready
+  completedAt?: string;  // ISO timestamp when task completed
+  failedAt?: string;     // ISO timestamp when task failed
+  skippedAt?: string;    // ISO timestamp when task was skipped
 }
 
 /**
@@ -495,6 +538,10 @@ export class DynamoRefStore implements RefStore {
     const scanPrefixes = [
       `CACHE/${repo}/`,
       `LOG/${repo}/`,
+      // Phase 3 partitions
+      `EXEC/${repo}/`,
+      `TASK/${repo}/`,
+      `EVENT/${repo}/`,
     ];
 
     // Parse cursor
@@ -747,6 +794,567 @@ export class DynamoRefStore implements RefStore {
     });
 
     return { events, total };
+  }
+
+  // ===========================================================================
+  // Phase 3: New Execution Schema
+  // PK: EXEC/{repo}/{workspace}, SK: 0 (counter) or {id} (Number)
+  // PK: TASK/{repo}/{executionId}, SK: {taskName}
+  // PK: EVENT/{repo}/{executionId}, SK: {seq}
+  // ===========================================================================
+
+  /**
+   * Create a new dataflow execution in 'starting' status.
+   *
+   * Atomically increments the counter at SK=0 and creates the execution record.
+   * The execution will have no graph or taskCount until startExecution is called.
+   * Returns the new execution with its assigned numeric ID.
+   */
+  async createExecution(
+    repo: string,
+    workspace: string
+  ): Promise<DataflowExecution> {
+    const pk = `EXEC/${repo}/${workspace}`;
+    const now = new Date().toISOString();
+
+    // Atomically increment counter and get new ID
+    // Counter is stored at SK = "0" (string)
+    const counterResponse = await this.dynamo.send(
+      new UpdateItemCommand({
+        TableName: this.tableName,
+        Key: marshall({ PK: pk, SK: '0' }),
+        UpdateExpression: 'SET nextId = if_not_exists(nextId, :zero) + :one',
+        ExpressionAttributeValues: marshall({ ':zero': 0, ':one': 1 }),
+        ReturnValues: 'UPDATED_NEW',
+      })
+    );
+
+    const newId = counterResponse.Attributes
+      ? (unmarshall(counterResponse.Attributes).nextId as number)
+      : 1;
+
+    // Execution records use zero-padded SK for proper string sorting
+    const sk = this.executionIdToSk(newId);
+
+    // Create execution record in 'starting' status
+    const execution: DataflowExecution = {
+      id: newId,
+      repo,
+      workspace,
+      status: 'starting',
+      startedAt: now,
+      completedCount: 0,
+      failedCount: 0,
+      skippedCount: 0,
+      cachedCount: 0,
+      eventSeq: 0,
+    };
+
+    await this.dynamo.send(
+      new PutItemCommand({
+        TableName: this.tableName,
+        Item: marshall(
+          { PK: pk, SK: sk, ...execution },
+          { removeUndefinedValues: true }
+        ),
+      })
+    );
+
+    return execution;
+  }
+
+  /**
+   * Transition an execution from 'starting' to 'running'.
+   *
+   * Sets the graph and taskCount, marking the execution as actively running.
+   * This is called by the get-graph Lambda after building the dependency graph.
+   *
+   * @param repo - Repository name
+   * @param workspace - Workspace name
+   * @param executionId - Execution ID to update
+   * @param graph - JSON-serialized task dependency graph
+   * @param taskCount - Total number of tasks in the graph
+   */
+  async startExecution(
+    repo: string,
+    workspace: string,
+    executionId: number,
+    graph: string,
+    taskCount: number
+  ): Promise<void> {
+    const pk = `EXEC/${repo}/${workspace}`;
+    const sk = this.executionIdToSk(executionId);
+
+    await this.dynamo.send(
+      new UpdateItemCommand({
+        TableName: this.tableName,
+        Key: marshall({ PK: pk, SK: sk }),
+        UpdateExpression: 'SET #status = :running, #graph = :graph, taskCount = :taskCount',
+        ConditionExpression: '#status = :starting',
+        ExpressionAttributeNames: {
+          '#status': 'status',
+          '#graph': 'graph',
+        },
+        ExpressionAttributeValues: marshall({
+          ':running': 'running',
+          ':graph': graph,
+          ':taskCount': taskCount,
+          ':starting': 'starting',
+        }),
+      })
+    );
+  }
+
+  /**
+   * Get an execution by workspace (latest) or by specific ID.
+   *
+   * @param repo - Repository name
+   * @param workspace - Workspace name
+   * @param executionId - Optional specific execution ID (if omitted, returns latest)
+   */
+  async getExecution(
+    repo: string,
+    workspace: string,
+    executionId?: number
+  ): Promise<DataflowExecution | null> {
+    const pk = `EXEC/${repo}/${workspace}`;
+
+    if (executionId !== undefined) {
+      // Get specific execution using zero-padded string SK
+      const sk = this.executionIdToSk(executionId);
+      const response = await this.dynamo.send(
+        new GetItemCommand({
+          TableName: this.tableName,
+          Key: marshall({ PK: pk, SK: sk }),
+          ConsistentRead: true,
+        })
+      );
+
+      if (!response.Item) return null;
+      const item = unmarshall(response.Item);
+      return this.itemToExecution(item);
+    }
+
+    // Get latest execution (SK > "0" to exclude counter, descending, limit 1)
+    const response = await this.dynamo.send(
+      new QueryCommand({
+        TableName: this.tableName,
+        KeyConditionExpression: 'PK = :pk AND SK > :zero',
+        ExpressionAttributeValues: marshall({ ':pk': pk, ':zero': '0' }),
+        ScanIndexForward: false, // Descending order
+        Limit: 1,
+        ConsistentRead: true,
+      })
+    );
+
+    if (!response.Items || response.Items.length === 0) return null;
+    const item = unmarshall(response.Items[0]);
+    return this.itemToExecution(item);
+  }
+
+  /**
+   * Update an execution's status and/or counters.
+   */
+  async updateExecution(
+    repo: string,
+    workspace: string,
+    executionId: number,
+    updates: Partial<Pick<DataflowExecution, 'status' | 'completedAt' | 'completedCount' | 'failedCount' | 'skippedCount' | 'cachedCount' | 'eventSeq'>>
+  ): Promise<void> {
+    const pk = `EXEC/${repo}/${workspace}`;
+    const sk = this.executionIdToSk(executionId);
+
+    const updateParts: string[] = [];
+    const expressionNames: Record<string, string> = {};
+    const expressionValues: Record<string, unknown> = {};
+
+    if (updates.status !== undefined) {
+      updateParts.push('#status = :status');
+      expressionNames['#status'] = 'status';
+      expressionValues[':status'] = updates.status;
+    }
+    if (updates.completedAt !== undefined) {
+      updateParts.push('completedAt = :completedAt');
+      expressionValues[':completedAt'] = updates.completedAt;
+    }
+    if (updates.completedCount !== undefined) {
+      updateParts.push('completedCount = :completedCount');
+      expressionValues[':completedCount'] = updates.completedCount;
+    }
+    if (updates.failedCount !== undefined) {
+      updateParts.push('failedCount = :failedCount');
+      expressionValues[':failedCount'] = updates.failedCount;
+    }
+    if (updates.skippedCount !== undefined) {
+      updateParts.push('skippedCount = :skippedCount');
+      expressionValues[':skippedCount'] = updates.skippedCount;
+    }
+    if (updates.cachedCount !== undefined) {
+      updateParts.push('cachedCount = :cachedCount');
+      expressionValues[':cachedCount'] = updates.cachedCount;
+    }
+    if (updates.eventSeq !== undefined) {
+      updateParts.push('eventSeq = :eventSeq');
+      expressionValues[':eventSeq'] = updates.eventSeq;
+    }
+
+    if (updateParts.length === 0) return;
+
+    await this.dynamo.send(
+      new UpdateItemCommand({
+        TableName: this.tableName,
+        Key: marshall({ PK: pk, SK: sk }),
+        UpdateExpression: `SET ${updateParts.join(', ')}`,
+        ExpressionAttributeNames: Object.keys(expressionNames).length > 0 ? expressionNames : undefined,
+        ExpressionAttributeValues: marshall(expressionValues),
+      })
+    );
+  }
+
+  /**
+   * Increment execution counters atomically.
+   */
+  async incrementExecutionCounters(
+    repo: string,
+    workspace: string,
+    executionId: number,
+    increments: { completedCount?: number; failedCount?: number; skippedCount?: number; cachedCount?: number }
+  ): Promise<void> {
+    const pk = `EXEC/${repo}/${workspace}`;
+    const sk = this.executionIdToSk(executionId);
+    const updateParts: string[] = [];
+    const expressionValues: Record<string, unknown> = { ':zero': 0 };
+
+    if (increments.completedCount) {
+      updateParts.push('completedCount = if_not_exists(completedCount, :zero) + :completedInc');
+      expressionValues[':completedInc'] = increments.completedCount;
+    }
+    if (increments.failedCount) {
+      updateParts.push('failedCount = if_not_exists(failedCount, :zero) + :failedInc');
+      expressionValues[':failedInc'] = increments.failedCount;
+    }
+    if (increments.skippedCount) {
+      updateParts.push('skippedCount = if_not_exists(skippedCount, :zero) + :skippedInc');
+      expressionValues[':skippedInc'] = increments.skippedCount;
+    }
+    if (increments.cachedCount) {
+      updateParts.push('cachedCount = if_not_exists(cachedCount, :zero) + :cachedInc');
+      expressionValues[':cachedInc'] = increments.cachedCount;
+    }
+
+    if (updateParts.length === 0) return;
+
+    await this.dynamo.send(
+      new UpdateItemCommand({
+        TableName: this.tableName,
+        Key: marshall({ PK: pk, SK: sk }),
+        UpdateExpression: `SET ${updateParts.join(', ')}`,
+        ExpressionAttributeValues: marshall(expressionValues),
+      })
+    );
+  }
+
+  /**
+   * List executions for a workspace (newest first).
+   */
+  async listExecutions(
+    repo: string,
+    workspace: string,
+    limit?: number
+  ): Promise<DataflowExecution[]> {
+    const pk = `EXEC/${repo}/${workspace}`;
+
+    // Query with SK > "0" to exclude the counter record (which is at SK = "0")
+    const response = await this.dynamo.send(
+      new QueryCommand({
+        TableName: this.tableName,
+        KeyConditionExpression: 'PK = :pk AND SK > :zero',
+        ExpressionAttributeValues: marshall({ ':pk': pk, ':zero': '0' }),
+        ScanIndexForward: false, // Descending order (newest first)
+        Limit: limit,
+        ConsistentRead: true,
+      })
+    );
+
+    if (!response.Items) return [];
+    return response.Items.map(item => this.itemToExecution(unmarshall(item)));
+  }
+
+  /**
+   * Get task statuses for an execution (Phase 3 schema).
+   *
+   * PK: TASK/{repo}/{executionId}
+   */
+  async getExecutionTasksV2(repo: string, executionId: number): Promise<TaskExecutionStatus[]> {
+    const pk = `TASK/${repo}/${executionId}`;
+    const items = await this.queryByPkAndSkPrefix(pk);
+
+    return items.map(item => ({
+      taskName: item.SK as string,
+      status: item.status as TaskExecutionStatus['status'],
+      outputHash: item.outputHash as string | undefined,
+      outputPath: item.outputPath as string | undefined,
+      taskHash: item.taskHash as string | undefined,
+      inputHashes: item.inputHashes as string[] | undefined,
+      exitCode: item.exitCode as number | undefined,
+      error: item.error as string | undefined,
+      reason: item.reason as string | undefined,
+      duration: item.duration as number | undefined,
+      heartbeat: item.heartbeat as number | undefined,
+      readyAt: item.readyAt as string | undefined,
+      completedAt: item.completedAt as string | undefined,
+      failedAt: item.failedAt as string | undefined,
+      skippedAt: item.skippedAt as string | undefined,
+    }));
+  }
+
+  /**
+   * Set task status for an execution (Phase 3 schema).
+   *
+   * PK: TASK/{repo}/{executionId}, SK: {taskName}
+   */
+  async setTaskStatus(
+    repo: string,
+    executionId: number,
+    taskName: string,
+    status: Omit<TaskExecutionStatus, 'taskName'>
+  ): Promise<void> {
+    const pk = `TASK/${repo}/${executionId}`;
+    await this.dynamo.send(
+      new PutItemCommand({
+        TableName: this.tableName,
+        Item: marshall(
+          {
+            PK: pk,
+            SK: taskName,
+            status: status.status,
+            outputHash: status.outputHash,
+            outputPath: status.outputPath,
+            taskHash: status.taskHash,
+            inputHashes: status.inputHashes,
+            exitCode: status.exitCode,
+            error: status.error,
+            reason: status.reason,
+            duration: status.duration,
+            heartbeat: status.heartbeat,
+            readyAt: status.readyAt,
+            completedAt: status.completedAt,
+            failedAt: status.failedAt,
+            skippedAt: status.skippedAt,
+          },
+          { removeUndefinedValues: true }
+        ),
+      })
+    );
+  }
+
+  /**
+   * Update task status fields (Phase 3 schema).
+   */
+  async updateTaskStatus(
+    repo: string,
+    executionId: number,
+    taskName: string,
+    updates: Partial<Omit<TaskExecutionStatus, 'taskName'>>
+  ): Promise<void> {
+    const pk = `TASK/${repo}/${executionId}`;
+    const updateParts: string[] = [];
+    const expressionNames: Record<string, string> = {};
+    const expressionValues: Record<string, unknown> = {};
+
+    if (updates.status !== undefined) {
+      updateParts.push('#status = :status');
+      expressionNames['#status'] = 'status';
+      expressionValues[':status'] = updates.status;
+    }
+    if (updates.outputHash !== undefined) {
+      updateParts.push('outputHash = :outputHash');
+      expressionValues[':outputHash'] = updates.outputHash;
+    }
+    if (updates.exitCode !== undefined) {
+      updateParts.push('exitCode = :exitCode');
+      expressionValues[':exitCode'] = updates.exitCode;
+    }
+    if (updates.error !== undefined) {
+      updateParts.push('#error = :error');
+      expressionNames['#error'] = 'error';
+      expressionValues[':error'] = updates.error;
+    }
+    if (updates.duration !== undefined) {
+      updateParts.push('#duration = :duration');
+      expressionNames['#duration'] = 'duration';
+      expressionValues[':duration'] = updates.duration;
+    }
+    if (updates.readyAt !== undefined) {
+      updateParts.push('readyAt = :readyAt');
+      expressionValues[':readyAt'] = updates.readyAt;
+    }
+    if (updates.completedAt !== undefined) {
+      updateParts.push('completedAt = :completedAt');
+      expressionValues[':completedAt'] = updates.completedAt;
+    }
+    if (updates.failedAt !== undefined) {
+      updateParts.push('failedAt = :failedAt');
+      expressionValues[':failedAt'] = updates.failedAt;
+    }
+    if (updates.skippedAt !== undefined) {
+      updateParts.push('skippedAt = :skippedAt');
+      expressionValues[':skippedAt'] = updates.skippedAt;
+    }
+    if (updates.reason !== undefined) {
+      updateParts.push('reason = :reason');
+      expressionValues[':reason'] = updates.reason;
+    }
+    if (updates.outputPath !== undefined) {
+      updateParts.push('outputPath = :outputPath');
+      expressionValues[':outputPath'] = updates.outputPath;
+    }
+    if (updates.taskHash !== undefined) {
+      updateParts.push('taskHash = :taskHash');
+      expressionValues[':taskHash'] = updates.taskHash;
+    }
+    if (updates.inputHashes !== undefined) {
+      updateParts.push('inputHashes = :inputHashes');
+      expressionValues[':inputHashes'] = updates.inputHashes;
+    }
+    if (updates.heartbeat !== undefined) {
+      updateParts.push('heartbeat = :heartbeat');
+      expressionValues[':heartbeat'] = updates.heartbeat;
+    }
+
+    if (updateParts.length === 0) return;
+
+    await this.dynamo.send(
+      new UpdateItemCommand({
+        TableName: this.tableName,
+        Key: marshall({ PK: pk, SK: taskName }),
+        UpdateExpression: `SET ${updateParts.join(', ')}`,
+        ExpressionAttributeNames: Object.keys(expressionNames).length > 0 ? expressionNames : undefined,
+        ExpressionAttributeValues: marshall(expressionValues),
+      })
+    );
+  }
+
+  /**
+   * Get events for an execution (Phase 3 schema).
+   *
+   * PK: EVENT/{repo}/{executionId}
+   */
+  async getExecutionEventsV2(
+    repo: string,
+    executionId: number,
+    offset = 0,
+    limit?: number
+  ): Promise<{ events: DataflowEvent[]; total: number }> {
+    const pk = `EVENT/${repo}/${executionId}`;
+    const items = await this.queryByPkAndSkPrefix(pk);
+
+    const total = items.length;
+    const start = offset;
+    const end = limit !== undefined ? offset + limit : items.length;
+    const paginatedItems = items.slice(start, end);
+
+    const events: DataflowEvent[] = paginatedItems.map(item => {
+      const sk = item.SK as string;
+      const seq = parseInt(sk, 10);
+
+      return {
+        seq,
+        type: item.eventType as DataflowEvent['type'],
+        task: item.task as string,
+        timestamp: item.timestamp as string,
+        duration: item.duration as number | undefined,
+        exitCode: item.exitCode as number | undefined,
+        message: item.message as string | undefined,
+        reason: item.reason as string | undefined,
+      };
+    });
+
+    return { events, total };
+  }
+
+  /**
+   * Add an event to an execution (Phase 3 schema).
+   *
+   * Atomically increments eventSeq on the execution and writes the event.
+   */
+  async addExecutionEvent(
+    repo: string,
+    workspace: string,
+    executionId: number,
+    event: Omit<DataflowEvent, 'seq'>
+  ): Promise<number> {
+    // Increment eventSeq and get new sequence number
+    const execPk = `EXEC/${repo}/${workspace}`;
+    const execSk = this.executionIdToSk(executionId);
+    const seqResponse = await this.dynamo.send(
+      new UpdateItemCommand({
+        TableName: this.tableName,
+        Key: marshall({ PK: execPk, SK: execSk }),
+        UpdateExpression: 'SET eventSeq = if_not_exists(eventSeq, :zero) + :one',
+        ExpressionAttributeValues: marshall({ ':zero': 0, ':one': 1 }),
+        ReturnValues: 'UPDATED_NEW',
+      })
+    );
+
+    const seq = seqResponse.Attributes
+      ? (unmarshall(seqResponse.Attributes).eventSeq as number)
+      : 1;
+
+    // Write event with padded sequence number for proper ordering
+    const eventPk = `EVENT/${repo}/${executionId}`;
+    const paddedSeq = seq.toString().padStart(6, '0');
+
+    await this.dynamo.send(
+      new PutItemCommand({
+        TableName: this.tableName,
+        Item: marshall(
+          {
+            PK: eventPk,
+            SK: paddedSeq,
+            eventType: event.type,
+            task: event.task,
+            timestamp: event.timestamp,
+            duration: event.duration,
+            exitCode: event.exitCode,
+            message: event.message,
+            reason: event.reason,
+          },
+          { removeUndefinedValues: true }
+        ),
+      })
+    );
+
+    return seq;
+  }
+
+  /**
+   * Convert a DynamoDB item to DataflowExecution.
+   */
+  private itemToExecution(item: Record<string, unknown>): DataflowExecution {
+    return {
+      id: item.id as number,  // Use the id attribute, not SK (SK is now a string)
+      repo: item.repo as string,
+      workspace: item.workspace as string,
+      status: item.status as DataflowExecution['status'],
+      startedAt: item.startedAt as string,
+      completedAt: item.completedAt as string | undefined,
+      taskCount: (item.taskCount as number) || 0,
+      completedCount: (item.completedCount as number) || 0,
+      failedCount: (item.failedCount as number) || 0,
+      skippedCount: (item.skippedCount as number) || 0,
+      cachedCount: (item.cachedCount as number) || 0,
+      eventSeq: (item.eventSeq as number) || 0,
+      graph: item.graph as string,
+    };
+  }
+
+  /**
+   * Convert a numeric execution ID to a zero-padded string SK.
+   * Uses 10 digits for proper alphanumeric sorting.
+   */
+  private executionIdToSk(id: number): string {
+    return id.toString().padStart(10, '0');
   }
 
   // ===========================================================================

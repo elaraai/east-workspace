@@ -4,8 +4,7 @@
  */
 
 import { S3Client } from '@aws-sdk/client-s3';
-import { DynamoDBClient, PutItemCommand } from '@aws-sdk/client-dynamodb';
-import { marshall } from '@aws-sdk/util-dynamodb';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { S3DynamoStorage } from '@elaraai/e3-storage';
 import { dataflowGetGraph, type DataflowGraph } from '@elaraai/e3-core';
 
@@ -19,19 +18,19 @@ const storage = new S3DynamoStorage(
   process.env.TABLE_NAME!
 );
 
-const TABLE_NAME = process.env.TABLE_NAME!;
-
 export interface GetGraphEvent {
   repo: string;
   workspace: string;
-  executionId: string;
+  /** Execution ID created by API handler (passed from Step Function input) */
+  executionId: number;
   force?: boolean; // Skip cache check if true
 }
 
 export interface GetGraphResult {
   repo: string;
   workspace: string;
-  executionId: string;
+  /** Numeric execution ID (from API handler) */
+  executionId: number;
   graph: DataflowGraph;
   taskCount: number;
   force: boolean; // Pass through force flag
@@ -43,54 +42,33 @@ export interface GetGraphResult {
  *
  * This handler:
  * 1. Calls e3-core dataflowGetGraph to build the dependency graph
- * 2. Stores the graph in DynamoDB (for large DAGs >256KB limit)
- * 3. Returns the graph with task count for the state machine
+ * 2. Transitions the execution from 'starting' to 'running'
+ * 3. Stores the graph as an attribute of the execution record
+ * 4. Returns the execution ID and graph for the state machine
+ *
+ * The execution record is pre-created by the API handler with 'starting' status.
+ * This ensures clients can poll for status immediately after the API call returns.
  */
 export async function handler(event: GetGraphEvent): Promise<GetGraphResult> {
   const { repo, workspace, executionId, force } = event;
 
-  console.log(`Getting graph for workspace ${workspace} in repo ${repo}`);
-  console.log(`Execution ID: ${executionId}, force: ${force ?? false}`);
+  console.log(`Getting graph for workspace ${workspace} in repo ${repo} (execution ${executionId})`);
 
-  // Build the dependency graph from workspace state
+  // Build the dependency graph
   const graph = await dataflowGetGraph(storage, repo, workspace);
 
   console.log(`Graph has ${graph.tasks.length} tasks`);
 
-  // Store graph in DynamoDB for later retrieval
-  // This handles large DAGs that might exceed Step Functions state size limits
-  await dynamo.send(
-    new PutItemCommand({
-      TableName: TABLE_NAME,
-      Item: marshall({
-        PK: `REPO#${repo}`,
-        SK: `EXEC#GRAPH#${executionId}`,
-        graph: JSON.stringify(graph),
-        workspace,
-        createdAt: new Date().toISOString(),
-      }),
-    })
+  // Transition execution from 'starting' to 'running' and store the graph
+  await storage.refs.startExecution(
+    repo,
+    workspace,
+    executionId,
+    JSON.stringify(graph),
+    graph.tasks.length
   );
 
-  // Initialize execution state (including event sequence counter at 0)
-  await dynamo.send(
-    new PutItemCommand({
-      TableName: TABLE_NAME,
-      Item: marshall({
-        PK: `REPO#${repo}`,
-        SK: `EXEC#STATE#${workspace}`,
-        executionId,
-        status: 'running',
-        startedAt: new Date().toISOString(),
-        taskCount: graph.tasks.length,
-        completedCount: 0,
-        failedCount: 0,
-        skippedCount: 0,
-        cachedCount: 0,
-        eventSeq: 0, // Event sequence counter (incremented by check-completion)
-      }),
-    })
-  );
+  console.log(`Started execution ${executionId} for workspace ${workspace}`);
 
   return {
     repo,

@@ -189,7 +189,8 @@ async function scanByPkPrefix(prefix: string): Promise<Record<string, unknown>[]
  * - Package refs (PK: PKG/{repo}, SK: {name}/{version} -> hash)
  * - Workspace state (PK: WS/{repo}, SK: {name} -> state with packageHash, rootHash)
  * - Execution cache (PK: CACHE/{repo}/{taskHash}, SK: {inputsHash} -> outputHash)
- * - Legacy execution outputs (PK: REPO#{repo}, SK: EXEC#STATE#*, EXEC#TASK#*, etc.)
+ * - Phase 3 task outputs (PK: TASK/{repo}/{executionId}, SK: {taskName} -> outputHash)
+ * - Legacy execution outputs (PK: REPO#{repo}, SK: EXEC#...) - for backward compatibility
  */
 async function collectRoots(repo: string): Promise<Set<string>> {
   const roots = new Set<string>();
@@ -232,7 +233,15 @@ async function collectRoots(repo: string): Promise<Set<string>> {
     }
   }
 
-  // 4. Query legacy execution state (PK: REPO#{repo}, SK: EXEC#...) - for Phase 3 items
+  // 4. Phase 3: Scan task partitions (PK: TASK/{repo}/* -> outputHash)
+  const taskItems = await scanByPkPrefix(`TASK/${repo}/`);
+  for (const item of taskItems) {
+    if (item.outputHash && isValidHash(item.outputHash)) {
+      roots.add(item.outputHash as string);
+    }
+  }
+
+  // 5. Legacy: Query execution state (PK: REPO#{repo}, SK: EXEC#...) - for backward compatibility
   const executions = await queryPartition(`REPO#${repo}`, 'EXEC#');
   for (const item of executions) {
     if (item.outputHash && isValidHash(item.outputHash)) {

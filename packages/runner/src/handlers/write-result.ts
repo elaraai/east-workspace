@@ -5,8 +5,7 @@
 
 import { createHash } from 'crypto';
 import { S3Client } from '@aws-sdk/client-s3';
-import { DynamoDBClient, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
-import { marshall } from '@aws-sdk/util-dynamodb';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { S3DynamoStorage } from '@elaraai/e3-storage';
 import { workspaceSetDatasetByHash } from '@elaraai/e3-core';
 import { variant } from '@elaraai/east';
@@ -22,12 +21,11 @@ const storage = new S3DynamoStorage(
   process.env.TABLE_NAME!
 );
 
-const TABLE_NAME = process.env.TABLE_NAME!;
-
 export interface WriteResultEvent {
   repo: string;
   workspace: string;
-  executionId: string;
+  /** Numeric execution ID */
+  executionId: number;
   taskName: string;
   outputPath: string;
   outputHash?: string; // Undefined for failed tasks
@@ -52,42 +50,17 @@ export async function handler(event: WriteResultEvent): Promise<void> {
     console.log(`Recording failure for task ${taskName} in workspace ${workspace}`);
     console.log(`Error: ${error ?? 'unknown'}`);
 
-    // Update task status to 'failed'
-    await dynamo.send(
-      new UpdateItemCommand({
-        TableName: TABLE_NAME,
-        Key: marshall({
-          PK: `REPO#${repo}`,
-          SK: `EXEC#TASK#${executionId}#${taskName}`,
-        }),
-        UpdateExpression: 'SET #status = :status, #error = :error, completedAt = :completedAt',
-        ExpressionAttributeNames: {
-          '#status': 'status',
-          '#error': 'error',
-        },
-        ExpressionAttributeValues: marshall({
-          ':status': 'failed',
-          ':error': error ?? 'Task execution failed',
-          ':completedAt': new Date().toISOString(),
-        }),
-      })
-    );
+    // Update task status to 'failed' (Phase 3 schema: TASK/{repo}/{executionId})
+    await storage.refs.updateTaskStatus(repo, executionId, taskName, {
+      status: 'failed',
+      error: error ?? 'Task execution failed',
+      completedAt: new Date().toISOString(),
+    });
 
-    // Update execution state counters
-    await dynamo.send(
-      new UpdateItemCommand({
-        TableName: TABLE_NAME,
-        Key: marshall({
-          PK: `REPO#${repo}`,
-          SK: `EXEC#STATE#${workspace}`,
-        }),
-        UpdateExpression: 'SET failedCount = if_not_exists(failedCount, :zero) + :one',
-        ExpressionAttributeValues: marshall({
-          ':zero': 0,
-          ':one': 1,
-        }),
-      })
-    );
+    // Update execution counters (Phase 3 schema: EXEC/{repo}/{workspace})
+    await storage.refs.incrementExecutionCounters(repo, workspace, executionId, {
+      failedCount: 1,
+    });
 
     console.log(`Recorded failure for task ${taskName}`);
     return;
@@ -105,59 +78,26 @@ export async function handler(event: WriteResultEvent): Promise<void> {
 
   if (isCached) {
     // Cached task: dispatch-task already set status to 'cached', just increment counter
-    await dynamo.send(
-      new UpdateItemCommand({
-        TableName: TABLE_NAME,
-        Key: marshall({
-          PK: `REPO#${repo}`,
-          SK: `EXEC#STATE#${workspace}`,
-        }),
-        UpdateExpression: 'SET cachedCount = if_not_exists(cachedCount, :zero) + :one, completedCount = if_not_exists(completedCount, :zero) + :one',
-        ExpressionAttributeValues: marshall({
-          ':zero': 0,
-          ':one': 1,
-        }),
-      })
-    );
+    // Phase 3 schema: EXEC/{repo}/{workspace}
+    await storage.refs.incrementExecutionCounters(repo, workspace, executionId, {
+      cachedCount: 1,
+      completedCount: 1,
+    });
     // No need to write execution cache - already exists from previous run
   } else {
     // Executed task: update status to 'success' with duration
-    await dynamo.send(
-      new UpdateItemCommand({
-        TableName: TABLE_NAME,
-        Key: marshall({
-          PK: `REPO#${repo}`,
-          SK: `EXEC#TASK#${executionId}#${taskName}`,
-        }),
-        UpdateExpression: 'SET #status = :status, outputHash = :outputHash, completedAt = :completedAt, #duration = :duration',
-        ExpressionAttributeNames: {
-          '#status': 'status',
-          '#duration': 'duration',
-        },
-        ExpressionAttributeValues: marshall({
-          ':status': 'success',
-          ':outputHash': outputHash,
-          ':completedAt': new Date().toISOString(),
-          ':duration': duration ?? 0,
-        }),
-      })
-    );
+    // Phase 3 schema: TASK/{repo}/{executionId}
+    await storage.refs.updateTaskStatus(repo, executionId, taskName, {
+      status: 'success',
+      outputHash: outputHash,
+      completedAt: new Date().toISOString(),
+      duration: duration ?? 0,
+    });
 
-    // Update execution state counters
-    await dynamo.send(
-      new UpdateItemCommand({
-        TableName: TABLE_NAME,
-        Key: marshall({
-          PK: `REPO#${repo}`,
-          SK: `EXEC#STATE#${workspace}`,
-        }),
-        UpdateExpression: 'SET completedCount = if_not_exists(completedCount, :zero) + :one',
-        ExpressionAttributeValues: marshall({
-          ':zero': 0,
-          ':one': 1,
-        }),
-      })
-    );
+    // Update execution counters (Phase 3 schema: EXEC/{repo}/{workspace})
+    await storage.refs.incrementExecutionCounters(repo, workspace, executionId, {
+      completedCount: 1,
+    });
 
     // Write execution cache record for e3-core's workspaceStatus to detect 'up-to-date'
     // This is the record that executionGet() looks for when computing task status

@@ -73,15 +73,21 @@ Attributes:
   - completedAt?: string   # ISO timestamp
 ```
 
-### Dataflow Execution State
+### Dataflow Executions (Phase 3)
 
-Current execution state for a workspace (Step Functions orchestration).
+Execution records with auto-increment numeric IDs. Each workspace gets its own partition, with SK="0" as the counter. Execution records use zero-padded string SKs (e.g., "0000000001") for proper alphanumeric sorting.
 
 ```
-PK: REPO#{repo}
-SK: EXEC#STATE#{workspace}
-Attributes:
-  - executionId: string    # Unique execution ID
+PK: EXEC/{repo}/{workspace}
+SK: "0" (counter) | {zero-padded id} (execution record)
+
+Counter record (SK: "0"):
+  - nextId: number         # Next execution ID to allocate
+
+Execution record (SK: "0000000001", "0000000002", ...):
+  - id: number             # Numeric execution ID
+  - repo: string           # Repository name
+  - workspace: string      # Workspace name
   - status: string         # 'running' | 'completed' | 'failed'
   - startedAt: string      # ISO timestamp
   - completedAt?: string   # ISO timestamp
@@ -90,43 +96,41 @@ Attributes:
   - failedCount: number    # Failed tasks
   - skippedCount: number   # Skipped tasks (due to upstream failure)
   - cachedCount: number    # Tasks served from cache
-```
-
-### Dataflow Task Status
-
-Per-task status within a dataflow execution.
-
-```
-PK: REPO#{repo}
-SK: EXEC#TASK#{executionId}#{taskName}
-Attributes:
-  - status: string         # 'dispatched' | 'running' | 'success' | 'cached' | 'failed' | 'error' | 'skipped' | 'ready'
-  - outputHash?: string    # SHA256 hash of output
-  - exitCode?: number      # Process exit code
-  - error?: string         # Error message
-  - duration?: number      # Execution duration (ms)
-  - readyAt?: string       # ISO timestamp when task became ready
-  - completedAt?: string   # ISO timestamp when task completed
-```
-
-### Dataflow Graph
-
-Stored task graph for an execution.
-
-```
-PK: REPO#{repo}
-SK: EXEC#GRAPH#{executionId}
-Attributes:
+  - eventSeq: number       # Counter for event sequence numbers
   - graph: string          # JSON-serialized task graph
 ```
 
-### Dataflow Events
+### Dataflow Tasks (Phase 3)
 
-Event log for dataflow execution (for UI/monitoring).
+Per-task status within a dataflow execution. Each execution gets its own partition.
 
 ```
-PK: REPO#{repo}
-SK: EXEC#EVENT#{executionId}#{seq}
+PK: TASK/{repo}/{executionId}
+SK: {taskName}
+Attributes:
+  - status: string         # 'dispatched' | 'running' | 'success' | 'cached' | 'failed' | 'error' | 'skipped' | 'ready'
+  - outputHash?: string    # SHA256 hash of output
+  - outputPath?: string    # Path where output is written
+  - taskHash?: string      # Hash of the task definition
+  - inputHashes?: string[] # Hashes of task inputs
+  - exitCode?: number      # Process exit code
+  - error?: string         # Error message
+  - reason?: string        # Reason for skipped tasks
+  - duration?: number      # Execution duration (ms)
+  - heartbeat?: number     # Unix timestamp of last heartbeat
+  - readyAt?: string       # ISO timestamp when task became ready
+  - completedAt?: string   # ISO timestamp when task completed
+  - failedAt?: string      # ISO timestamp when task failed
+  - skippedAt?: string     # ISO timestamp when task was skipped
+```
+
+### Dataflow Events (Phase 3)
+
+Event log for dataflow execution (for UI/monitoring). Each execution gets its own partition.
+
+```
+PK: EVENT/{repo}/{executionId}
+SK: {seq} (zero-padded 10 digits)
 Attributes:
   - eventType: string      # 'start' | 'complete' | 'cached' | 'failed' | 'error' | 'skipped'
   - task: string           # Task name
@@ -188,15 +192,17 @@ s3://{bucket}/
 | Get package | PK = PKG/{repo}, SK = {name}/{version} | GetItem |
 | List workspaces | PK = WS/{repo} | Query |
 | Get workspace | PK = WS/{repo}, SK = {name} | GetItem |
-| Get execution | PK = CACHE/{repo}/{taskHash}, SK = {inputsHash} | GetItem |
-| List executions (repo) | PK begins_with CACHE/{repo}/ | Scan (filter) |
-| List executions (task) | PK = CACHE/{repo}/{taskHash} | Query |
-| Get execution state | PK = REPO#{repo}, SK = EXEC#STATE#{workspace} | GetItem |
-| Get task statuses | PK = REPO#{repo}, SK begins_with EXEC#TASK#{executionId}# | Query |
-| Get events | PK = REPO#{repo}, SK begins_with EXEC#EVENT#{executionId}# | Query |
+| Get execution cache | PK = CACHE/{repo}/{taskHash}, SK = {inputsHash} | GetItem |
+| List cache entries (repo) | PK begins_with CACHE/{repo}/ | Scan (filter) |
+| List cache entries (task) | PK = CACHE/{repo}/{taskHash} | Query |
+| Create execution (Phase 3) | PK = EXEC/{repo}/{workspace}, SK = "0" | UpdateItem (atomic increment) |
+| Get execution (Phase 3) | PK = EXEC/{repo}/{workspace}, SK = {padded-id} | GetItem |
+| List executions (Phase 3) | PK = EXEC/{repo}/{workspace}, SK > "0" | Query (descending) |
+| Get task statuses (Phase 3) | PK = TASK/{repo}/{executionId} | Query |
+| Get events (Phase 3) | PK = EVENT/{repo}/{executionId} | Query |
 | Get lock | PK = LOCK/{repo}, SK = {resource} | GetItem |
 | Read logs | PK = LOG/{repo}/{taskHash}/{inputsHash}, SK begins_with {stream}/ | Query |
-| Delete repo | PKG/{repo}, WS/{repo}, LOCK/{repo}, REPO#{repo} (Query) + CACHE/{repo}/, LOG/{repo}/ (Scan) | Query + Scan + BatchDelete |
+| Delete repo | PKG/{repo}, WS/{repo}, LOCK/{repo}, REPO#{repo} (Query) + CACHE/{repo}/, LOG/{repo}/, EXEC/{repo}/, TASK/{repo}/, EVENT/{repo}/ (Scan) | Query + Scan + BatchDelete |
 
 ## Files
 

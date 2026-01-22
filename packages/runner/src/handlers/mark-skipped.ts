@@ -3,22 +3,26 @@
  * Proprietary and confidential.
  */
 
-import {
-  DynamoDBClient,
-  GetItemCommand,
-  PutItemCommand,
-  QueryCommand,
-  UpdateItemCommand,
-} from '@aws-sdk/client-dynamodb';
-import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
+import { S3Client } from '@aws-sdk/client-s3';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { S3DynamoStorage } from '@elaraai/e3-storage';
 import { dataflowGetDependentsToSkip, type DataflowGraph } from '@elaraai/e3-core';
 
+// Initialize clients once at Lambda cold start
+const s3 = new S3Client({});
 const dynamo = new DynamoDBClient({});
-const TABLE_NAME = process.env.TABLE_NAME!;
+const storage = new S3DynamoStorage(
+  s3,
+  dynamo,
+  process.env.BUCKET_NAME!,
+  process.env.TABLE_NAME!
+);
 
 export interface MarkSkippedEvent {
   repo: string;
-  executionId: string;
+  workspace: string;
+  /** Numeric execution ID */
+  executionId: number;
   failedTask: string;
   graph?: DataflowGraph;
 }
@@ -33,16 +37,18 @@ export interface MarkSkippedResult {
  *
  * When a task fails, all tasks that transitively depend on it should be
  * marked as skipped since they cannot execute without their dependency.
+ *
+ * Phase 3 schema: TASK/{repo}/{executionId}
  */
 export async function handler(event: MarkSkippedEvent): Promise<MarkSkippedResult> {
-  const { repo, executionId, failedTask } = event;
+  const { repo, workspace, executionId, failedTask } = event;
 
   console.log(`Marking dependents of failed task ${failedTask} as skipped`);
 
-  // Get graph from event or DynamoDB
+  // Get graph from event or execution record
   let graph = event.graph;
   if (!graph) {
-    graph = await getStoredGraph(repo, executionId);
+    graph = await getStoredGraph(repo, workspace, executionId);
   }
 
   // Get current task states
@@ -65,39 +71,21 @@ export async function handler(event: MarkSkippedEvent): Promise<MarkSkippedResul
 
   console.log(`Found ${toSkip.length} tasks to skip: ${toSkip.join(', ')}`);
 
-  // Mark each task as skipped
+  // Mark each task as skipped (Phase 3 schema)
   const now = new Date().toISOString();
   for (const taskName of toSkip) {
-    await dynamo.send(
-      new PutItemCommand({
-        TableName: TABLE_NAME,
-        Item: marshall({
-          PK: `REPO#${repo}`,
-          SK: `EXEC#TASK#${executionId}#${taskName}`,
-          status: 'skipped',
-          reason: `Dependency '${failedTask}' failed`,
-          skippedAt: now,
-        }),
-      })
-    );
+    await storage.refs.setTaskStatus(repo, executionId, taskName, {
+      status: 'skipped',
+      reason: `Dependency '${failedTask}' failed`,
+      skippedAt: now,
+    });
   }
 
-  // Update execution state counters
+  // Update execution counters (Phase 3 schema)
   if (toSkip.length > 0) {
-    await dynamo.send(
-      new UpdateItemCommand({
-        TableName: TABLE_NAME,
-        Key: marshall({
-          PK: `REPO#${repo}`,
-          SK: `EXEC#STATE#${executionId}`,
-        }),
-        UpdateExpression: 'SET skippedCount = if_not_exists(skippedCount, :zero) + :count',
-        ExpressionAttributeValues: marshall({
-          ':zero': 0,
-          ':count': toSkip.length,
-        }),
-      })
-    );
+    await storage.refs.incrementExecutionCounters(repo, workspace, executionId, {
+      skippedCount: toSkip.length,
+    });
   }
 
   return {
@@ -107,63 +95,36 @@ export async function handler(event: MarkSkippedEvent): Promise<MarkSkippedResul
 }
 
 /**
- * Get stored graph from DynamoDB.
+ * Get stored graph from execution record.
+ * Phase 3 schema: Graph is stored as an attribute of the execution record.
  */
-async function getStoredGraph(repo: string, executionId: string): Promise<DataflowGraph> {
-  const response = await dynamo.send(
-    new GetItemCommand({
-      TableName: TABLE_NAME,
-      Key: marshall({
-        PK: `REPO#${repo}`,
-        SK: `EXEC#GRAPH#${executionId}`,
-      }),
-    })
-  );
-
-  if (!response.Item) {
-    throw new Error(`Graph not found for execution ${executionId}`);
+async function getStoredGraph(repo: string, workspace: string, executionId: number): Promise<DataflowGraph> {
+  const execution = await storage.refs.getExecution(repo, workspace, executionId);
+  if (!execution) {
+    throw new Error(`Execution ${executionId} not found for workspace ${workspace}`);
   }
-
-  const item = unmarshall(response.Item);
-  return JSON.parse(item.graph as string) as DataflowGraph;
+  if (!execution.graph) {
+    throw new Error(`Execution ${executionId} has no graph (status: ${execution.status})`);
+  }
+  return JSON.parse(execution.graph) as DataflowGraph;
 }
 
 /**
  * Get all task states for an execution.
+ * Phase 3 schema: TASK/{repo}/{executionId}
  */
 async function getTaskStates(
   repo: string,
-  executionId: string
+  executionId: number
 ): Promise<Map<string, string>> {
   const states = new Map<string, string>();
-  let exclusiveStartKey: Record<string, any> | undefined;
 
-  do {
-    const response = await dynamo.send(
-      new QueryCommand({
-        TableName: TABLE_NAME,
-        KeyConditionExpression: 'PK = :pk AND begins_with(SK, :prefix)',
-        ExpressionAttributeValues: marshall({
-          ':pk': `REPO#${repo}`,
-          ':prefix': `EXEC#TASK#${executionId}#`,
-        }),
-        ExclusiveStartKey: exclusiveStartKey,
-      })
-    );
+  // Use the storage helper for Phase 3 schema
+  const tasks = await storage.refs.getExecutionTasksV2(repo, executionId);
 
-    if (response.Items) {
-      for (const item of response.Items) {
-        const unmarshalled = unmarshall(item);
-        // SK format: EXEC#TASK#{executionId}#{taskName}
-        const sk = unmarshalled.SK as string;
-        const prefixLen = `EXEC#TASK#${executionId}#`.length;
-        const taskName = sk.slice(prefixLen);
-        states.set(taskName, unmarshalled.status as string);
-      }
-    }
-
-    exclusiveStartKey = response.LastEvaluatedKey;
-  } while (exclusiveStartKey);
+  for (const task of tasks) {
+    states.set(task.taskName, task.status);
+  }
 
   return states;
 }

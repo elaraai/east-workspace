@@ -4,8 +4,7 @@
  */
 
 import { S3Client } from '@aws-sdk/client-s3';
-import { DynamoDBClient, PutItemCommand, GetItemCommand } from '@aws-sdk/client-dynamodb';
-import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { S3DynamoStorage } from '@elaraai/e3-storage';
 import {
   dataflowResolveInputHashes,
@@ -23,12 +22,11 @@ const storage = new S3DynamoStorage(
   process.env.TABLE_NAME!
 );
 
-const TABLE_NAME = process.env.TABLE_NAME!;
-
 export interface DispatchTaskEvent {
   repo: string;
   workspace: string;
-  executionId: string;
+  /** Numeric execution ID */
+  executionId: number;
   taskName: string;
   graph?: DataflowGraph;
   force?: boolean; // Skip cache check if true
@@ -59,10 +57,10 @@ export async function handler(event: DispatchTaskEvent): Promise<DispatchTaskRes
 
   console.log(`Dispatching task ${taskName} for execution ${executionId} (force=${force ?? false})`);
 
-  // Get graph from event or DynamoDB
+  // Get graph from event or execution record
   let graph = event.graph;
   if (!graph) {
-    graph = await getStoredGraph(repo, executionId);
+    graph = await getStoredGraph(repo, workspace, executionId);
   }
 
   // Find the task in the graph
@@ -91,19 +89,15 @@ export async function handler(event: DispatchTaskEvent): Promise<DispatchTaskRes
   if (cachedOutput) {
     console.log(`Task ${taskName} is cached with output ${cachedOutput}`);
 
-    // Mark as cached in DynamoDB
-    await dynamo.send(
-      new PutItemCommand({
-        TableName: TABLE_NAME,
-        Item: marshall({
-          PK: `REPO#${repo}`,
-          SK: `EXEC#TASK#${executionId}#${taskName}`,
-          status: 'cached',
-          outputHash: cachedOutput,
-          completedAt: new Date().toISOString(),
-        }),
-      })
-    );
+    // Mark as cached in DynamoDB (Phase 3 schema: TASK/{repo}/{executionId})
+    await storage.refs.setTaskStatus(repo, executionId, taskName, {
+      status: 'cached',
+      outputHash: cachedOutput,
+      taskHash: task.hash,
+      inputHashes: resolvedInputHashes,
+      outputPath: task.output,
+      completedAt: new Date().toISOString(),
+    });
 
     // Return all fields needed by Step Functions state machine
     return {
@@ -120,21 +114,14 @@ export async function handler(event: DispatchTaskEvent): Promise<DispatchTaskRes
   // to invoke execute-task Lambda directly
   console.log(`Task ${taskName} ready for execution`);
 
-  // Write ready status to DynamoDB (for tracking)
-  await dynamo.send(
-    new PutItemCommand({
-      TableName: TABLE_NAME,
-      Item: marshall({
-        PK: `REPO#${repo}`,
-        SK: `EXEC#TASK#${executionId}#${taskName}`,
-        status: 'ready',
-        taskHash: task.hash,
-        inputHashes: resolvedInputHashes,
-        outputPath: task.output,
-        readyAt: new Date().toISOString(),
-      }),
-    })
-  );
+  // Write ready status to DynamoDB (Phase 3 schema: TASK/{repo}/{executionId})
+  await storage.refs.setTaskStatus(repo, executionId, taskName, {
+    status: 'ready',
+    taskHash: task.hash,
+    inputHashes: resolvedInputHashes,
+    outputPath: task.output,
+    readyAt: new Date().toISOString(),
+  });
 
   // Return task execution parameters for Step Functions
   return {
@@ -147,24 +134,17 @@ export async function handler(event: DispatchTaskEvent): Promise<DispatchTaskRes
 }
 
 /**
- * Get stored graph from DynamoDB.
+ * Get stored graph from execution record.
+ * Phase 3 schema: Graph is stored as an attribute of the execution record
+ * at PK: EXEC/{repo}/{workspace}, SK: {executionId}
  */
-async function getStoredGraph(repo: string, executionId: string): Promise<DataflowGraph> {
-  const response = await dynamo.send(
-    new GetItemCommand({
-      TableName: TABLE_NAME,
-      Key: marshall({
-        PK: `REPO#${repo}`,
-        SK: `EXEC#GRAPH#${executionId}`,
-      }),
-      ConsistentRead: true,
-    })
-  );
-
-  if (!response.Item) {
-    throw new Error(`Graph not found for execution ${executionId}`);
+async function getStoredGraph(repo: string, workspace: string, executionId: number): Promise<DataflowGraph> {
+  const execution = await storage.refs.getExecution(repo, workspace, executionId);
+  if (!execution) {
+    throw new Error(`Execution ${executionId} not found for workspace ${workspace}`);
   }
-
-  const item = unmarshall(response.Item);
-  return JSON.parse(item.graph as string) as DataflowGraph;
+  if (!execution.graph) {
+    throw new Error(`Execution ${executionId} has no graph (status: ${execution.status})`);
+  }
+  return JSON.parse(execution.graph) as DataflowGraph;
 }
