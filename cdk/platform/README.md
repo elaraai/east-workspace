@@ -61,21 +61,49 @@ The `E3PlatformStack` deploys a complete e3 platform with:
    npm run build --workspace=@elaraai/e3-api
    ```
 
-### Basic Deployment
+### Deployment CLI
+
+Deployments are managed via configuration files in `deployments/` and a CLI wrapper:
 
 ```bash
 cd cdk/platform
+
+# List available deployments
+npm run deploy:list
+
+# Show deployment details
+npm run deploy:info elara-dev
+
+# Preview changes
+npm run deploy:diff elara-dev
+
+# Deploy
 aws sso login --profile elaraai-dev-elara-e3
-npm run deploy -- --context deploymentId=dev
+npm run deploy:run elara-dev
 ```
 
-### With Custom Domain
+### Creating New Deployments
 
-If the account was bootstrapped with domain config (SSM parameters), custom domain is automatic:
+Create a JSON file in `deployments/` (see `deployments/elara-dev.json` as a template):
 
-```bash
-npm run deploy -- --context deploymentId=dev
-# Creates: dev.e3.elaraai.com
+```json
+{
+  "$schema": "../schemas/deployment.schema.json",
+  "name": "my-deployment",
+  "description": "Description of this deployment",
+  "aws": {
+    "accountId": "123456789012",
+    "region": "ap-southeast-2",
+    "profile": "my-aws-profile"
+  },
+  "deployment": {
+    "id": "dev"
+  },
+  "domain": {
+    "baseDomain": "e3.example.com",
+    "hostedZoneId": "Z0XXXXXXXXXX"
+  }
+}
 ```
 
 For client deployments with explicit domain config, see [accounts README](../accounts/README.md#client-deployments).

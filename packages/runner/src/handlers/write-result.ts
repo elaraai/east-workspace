@@ -7,9 +7,8 @@ import { createHash } from 'crypto';
 import { S3Client } from '@aws-sdk/client-s3';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { S3DynamoStorage } from '@elaraai/e3-storage';
-import { workspaceSetDatasetByHash } from '@elaraai/e3-core';
 import { variant } from '@elaraai/east';
-import type { TreePath, ExecutionStatus } from '@elaraai/e3-types';
+import type { ExecutionStatus } from '@elaraai/e3-types';
 
 // Initialize clients once at Lambda cold start
 const s3 = new S3Client({});
@@ -36,13 +35,25 @@ export interface WriteResultEvent {
   error?: string; // Error message for failed tasks
 }
 
+export interface WriteResultOutput {
+  /** Output path in workspace tree (e.g., ".tasks.add.output") */
+  outputPath?: string;
+  /** Hash of the output value in S3 */
+  outputHash?: string;
+  /** Whether this task needs a tree update (false for failed tasks) */
+  needsTreeUpdate: boolean;
+}
+
 /**
- * Lambda handler: Write task output to workspace tree.
+ * Lambda handler: Record task result and return tree update info.
  *
- * Called by Step Functions after task execution to update the workspace.
- * Handles success, cached, and failed statuses.
+ * Called by Step Functions after task execution. Updates task status and counters,
+ * but does NOT write to workspace tree directly. Tree updates are collected and
+ * applied serially by the ApplyTreeUpdates step to avoid lost update race conditions.
+ *
+ * @returns Tree update info (outputPath, outputHash) for successful tasks
  */
-export async function handler(event: WriteResultEvent): Promise<void> {
+export async function handler(event: WriteResultEvent): Promise<WriteResultOutput> {
   const { repo, workspace, executionId, taskName, outputPath, outputHash, taskHash, inputHashes, status, duration, error } = event;
   const now = new Date().toISOString();
 
@@ -73,18 +84,12 @@ export async function handler(event: WriteResultEvent): Promise<void> {
     });
 
     console.log(`Recorded failure for task ${taskName}`);
-    return;
+    return { needsTreeUpdate: false };
   }
 
   const isCached = status === 'cached';
-  console.log(`Writing result for task ${taskName} to workspace ${workspace} (${isCached ? 'cached' : 'executed'})`);
+  console.log(`Recording result for task ${taskName} in workspace ${workspace} (${isCached ? 'cached' : 'executed'})`);
   console.log(`Output path: ${outputPath}, hash: ${outputHash}${isCached ? '' : `, duration: ${duration ?? 0}ms`}`);
-
-  // Parse the output path string to TreePath
-  const treePath = parsePathString(outputPath);
-
-  // Update workspace tree with the output
-  await workspaceSetDatasetByHash(storage, repo, workspace, treePath, outputHash!);
 
   if (isCached) {
     // Cached task: dispatch-task already set status to 'cached', just increment counter
@@ -137,7 +142,14 @@ export async function handler(event: WriteResultEvent): Promise<void> {
     });
   }
 
-  console.log(`Successfully wrote output for task ${taskName} (${isCached ? 'cached' : 'executed'})`);
+  console.log(`Recorded result for task ${taskName} (${isCached ? 'cached' : 'executed'})`);
+
+  // Return tree update info - actual tree write happens in ApplyTreeUpdates step
+  return {
+    outputPath,
+    outputHash: outputHash!,
+    needsTreeUpdate: true,
+  };
 }
 
 /**
@@ -147,50 +159,4 @@ export async function handler(event: WriteResultEvent): Promise<void> {
 function computeInputsHash(inputHashes: string[]): string {
   const data = inputHashes.join('\0');
   return createHash('sha256').update(data).digest('hex');
-}
-
-/**
- * Parse a keypath string (from pathToString) back to TreePath.
- *
- * The keypath format is: .field1.field2 (dot-separated field names)
- * Quoted identifiers use backticks: .field1.`complex/name`
- */
-function parsePathString(pathStr: string): TreePath {
-  if (!pathStr.startsWith('.')) {
-    throw new Error(`Invalid path string: expected '.' prefix, got '${pathStr}'`);
-  }
-
-  const segments: TreePath = [];
-  let i = 1; // Skip the leading '.'
-
-  while (i < pathStr.length) {
-    let fieldName: string;
-
-    if (pathStr[i] === '`') {
-      // Quoted identifier: find closing backtick
-      const endQuote = pathStr.indexOf('`', i + 1);
-      if (endQuote === -1) {
-        throw new Error(`Invalid path string: unclosed backtick at position ${i}`);
-      }
-      fieldName = pathStr.slice(i + 1, endQuote);
-      i = endQuote + 1;
-    } else {
-      // Unquoted identifier: read until '.' or end
-      let end = pathStr.indexOf('.', i);
-      if (end === -1) {
-        end = pathStr.length;
-      }
-      fieldName = pathStr.slice(i, end);
-      i = end;
-    }
-
-    segments.push(variant('field', fieldName) as unknown as TreePath[number]);
-
-    // Skip the dot separator if present
-    if (i < pathStr.length && pathStr[i] === '.') {
-      i++;
-    }
-  }
-
-  return segments;
 }
