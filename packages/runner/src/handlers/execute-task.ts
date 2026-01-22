@@ -21,8 +21,8 @@ import { writeFileSync, readFileSync, mkdtempSync, rmSync, existsSync } from 'fs
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
-import { DynamoDBClient, PutItemCommand } from '@aws-sdk/client-dynamodb';
-import { marshall } from '@aws-sdk/util-dynamodb';
+import { DynamoDBClient, PutItemCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
+import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 
 const s3 = new S3Client({});
 const dynamo = new DynamoDBClient({});
@@ -136,7 +136,7 @@ class LogBuffer {
 export interface TaskExecutionEvent {
   repo: string;
   workspace: string;
-  executionId: string;
+  executionId: number;
   taskName: string;
   taskHash: string;
   inputHashes: string[];
@@ -164,10 +164,18 @@ export interface TaskExecutionResult {
  * 4. Returns output hash for Step Functions
  */
 export async function handler(event: TaskExecutionEvent): Promise<TaskExecutionResult> {
-  const { repo, taskName, taskHash, inputHashes } = event;
+  const { repo, workspace, executionId, taskName, taskHash, inputHashes } = event;
   const startTime = Date.now();
   const workDir = mkdtempSync(join(tmpdir(), 'task-'));
   const inputsHash = computeInputsHash(inputHashes);
+
+  // Record 'start' event immediately when task begins execution
+  try {
+    await recordStartEvent(repo, workspace, executionId, taskName);
+  } catch (err) {
+    console.error(`Failed to record start event: ${err}`);
+    // Continue execution even if event recording fails
+  }
 
   // Helper to write progress logs
   const log = async (message: string) => {
@@ -411,6 +419,54 @@ async function writeLog(
         data: message,
         timestamp: now,
         ttl,
+      }),
+    })
+  );
+}
+
+/**
+ * Record a 'start' event for a task execution.
+ * Phase 3 schema: EVENT/{repo}/{executionId}
+ */
+async function recordStartEvent(
+  repo: string,
+  workspace: string,
+  executionId: number,
+  taskName: string
+): Promise<void> {
+  const now = new Date().toISOString();
+
+  // Step 1: Atomically increment eventSeq on the execution record
+  const execPk = `EXEC/${repo}/${workspace}`;
+  const execSk = executionId.toString().padStart(10, '0');
+
+  const seqResponse = await dynamo.send(
+    new UpdateItemCommand({
+      TableName: TABLE_NAME,
+      Key: marshall({ PK: execPk, SK: execSk }),
+      UpdateExpression: 'SET eventSeq = if_not_exists(eventSeq, :zero) + :one',
+      ExpressionAttributeValues: marshall({ ':zero': 0, ':one': 1 }),
+      ReturnValues: 'UPDATED_NEW',
+    })
+  );
+
+  const seq = seqResponse.Attributes
+    ? (unmarshall(seqResponse.Attributes).eventSeq as number)
+    : 1;
+
+  // Step 2: Write the start event
+  const eventPk = `EVENT/${repo}/${executionId}`;
+  const paddedSeq = seq.toString().padStart(6, '0');
+
+  await dynamo.send(
+    new PutItemCommand({
+      TableName: TABLE_NAME,
+      Item: marshall({
+        PK: eventPk,
+        SK: paddedSeq,
+        eventType: 'start',
+        task: taskName,
+        timestamp: now,
       }),
     })
   );

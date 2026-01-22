@@ -44,6 +44,7 @@ export interface WriteResultEvent {
  */
 export async function handler(event: WriteResultEvent): Promise<void> {
   const { repo, workspace, executionId, taskName, outputPath, outputHash, taskHash, inputHashes, status, duration, error } = event;
+  const now = new Date().toISOString();
 
   // Handle failed tasks differently - no output to write
   if (status === 'failed') {
@@ -54,12 +55,21 @@ export async function handler(event: WriteResultEvent): Promise<void> {
     await storage.refs.updateTaskStatus(repo, executionId, taskName, {
       status: 'failed',
       error: error ?? 'Task execution failed',
-      completedAt: new Date().toISOString(),
+      completedAt: now,
     });
 
     // Update execution counters (Phase 3 schema: EXEC/{repo}/{workspace})
     await storage.refs.incrementExecutionCounters(repo, workspace, executionId, {
       failedCount: 1,
+    });
+
+    // Record 'failed' event (start event already recorded by execute-task)
+    await storage.refs.addExecutionEvent(repo, workspace, executionId, {
+      type: 'failed',
+      task: taskName,
+      timestamp: now,
+      duration: duration ?? 0,
+      exitCode: -1,
     });
 
     console.log(`Recorded failure for task ${taskName}`);
@@ -84,6 +94,13 @@ export async function handler(event: WriteResultEvent): Promise<void> {
       completedCount: 1,
     });
     // No need to write execution cache - already exists from previous run
+
+    // Record cached event
+    await storage.refs.addExecutionEvent(repo, workspace, executionId, {
+      type: 'cached',
+      task: taskName,
+      timestamp: now,
+    });
   } else {
     // Executed task: update status to 'success' with duration
     // Phase 3 schema: TASK/{repo}/{executionId}
@@ -101,15 +118,23 @@ export async function handler(event: WriteResultEvent): Promise<void> {
 
     // Write execution cache record for e3-core's workspaceStatus to detect 'up-to-date'
     // This is the record that executionGet() looks for when computing task status
-    const now = new Date();
+    const cacheTime = new Date();
     const inHash = computeInputsHash(inputHashes!);
     const executionStatus: ExecutionStatus = variant('success', {
       inputHashes: inputHashes!,
       outputHash: outputHash!,
-      startedAt: now,  // We don't have the actual start time, use completion time
-      completedAt: now,
+      startedAt: cacheTime,  // We don't have the actual start time, use completion time
+      completedAt: cacheTime,
     });
     await storage.refs.executionWrite(repo, taskHash!, inHash, executionStatus);
+
+    // Record 'complete' event (start event already recorded by execute-task)
+    await storage.refs.addExecutionEvent(repo, workspace, executionId, {
+      type: 'complete',
+      task: taskName,
+      timestamp: now,
+      duration: duration ?? 0,
+    });
   }
 
   console.log(`Successfully wrote output for task ${taskName} (${isCached ? 'cached' : 'executed'})`);

@@ -71,13 +71,21 @@ export async function handler(event: MarkSkippedEvent): Promise<MarkSkippedResul
 
   console.log(`Found ${toSkip.length} tasks to skip: ${toSkip.join(', ')}`);
 
-  // Mark each task as skipped (Phase 3 schema)
+  // Mark each task as skipped and record event (Phase 3 schema)
   const now = new Date().toISOString();
   for (const taskName of toSkip) {
     await storage.refs.setTaskStatus(repo, executionId, taskName, {
       status: 'skipped',
       reason: `Dependency '${failedTask}' failed`,
       skippedAt: now,
+    });
+
+    // Record 'skipped' event
+    await storage.refs.addExecutionEvent(repo, workspace, executionId, {
+      type: 'skipped',
+      task: taskName,
+      timestamp: now,
+      reason: `Dependency '${failedTask}' failed`,
     });
   }
 
