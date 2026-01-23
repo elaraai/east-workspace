@@ -3,10 +3,10 @@
  * Proprietary and confidential.
  */
 
-import { createHash } from 'crypto';
 import { S3Client } from '@aws-sdk/client-s3';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { S3DynamoStorage } from '@elaraai/e3-storage';
+import { inputsHash } from '@elaraai/e3-core';
 import { variant } from '@elaraai/east';
 import type { ExecutionStatus } from '@elaraai/e3-types';
 
@@ -124,7 +124,7 @@ export async function handler(event: WriteResultEvent): Promise<WriteResultOutpu
     // Write execution cache record for e3-core's workspaceStatus to detect 'up-to-date'
     // This is the record that executionGet() looks for when computing task status
     const cacheTime = new Date();
-    const inHash = computeInputsHash(inputHashes!);
+    const inHash = inputsHash(inputHashes!);
     const executionStatus: ExecutionStatus = variant('success', {
       inputHashes: inputHashes!,
       outputHash: outputHash!,
@@ -150,13 +150,4 @@ export async function handler(event: WriteResultEvent): Promise<WriteResultOutpu
     outputHash: outputHash!,
     needsTreeUpdate: true,
   };
-}
-
-/**
- * Compute the combined hash of input hashes.
- * This matches e3-core's inputsHash function.
- */
-function computeInputsHash(inputHashes: string[]): string {
-  const data = inputHashes.join('\0');
-  return createHash('sha256').update(data).digest('hex');
 }

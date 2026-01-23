@@ -29,11 +29,11 @@
   ],
   "license": "SEE LICENSE IN LICENSE.md",
   "dependencies": {
-    "@elaraai/e3-api-client": "^0.0.2-beta.18",
-    "@elaraai/e3-api-server": "^0.0.2-beta.18",
-    "@elaraai/e3-api-tests": "^0.0.2-beta.18",
-    "@elaraai/e3-core": "^0.0.2-beta.18",
-    "@elaraai/e3-types": "^0.0.2-beta.18"
+    "@elaraai/e3-api-client": "^0.0.2-beta.19",
+    "@elaraai/e3-api-server": "^0.0.2-beta.19",
+    "@elaraai/e3-api-tests": "^0.0.2-beta.19",
+    "@elaraai/e3-core": "^0.0.2-beta.19",
+    "@elaraai/e3-types": "^0.0.2-beta.19"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

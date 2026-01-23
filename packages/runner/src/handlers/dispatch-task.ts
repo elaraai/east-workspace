@@ -11,6 +11,7 @@ import {
   dataflowCheckCache,
   type DataflowGraph,
 } from '@elaraai/e3-core';
+import { getStoredGraph } from './shared/graph-utils.js';
 
 // Initialize clients once at Lambda cold start
 const s3 = new S3Client({});
@@ -60,7 +61,7 @@ export async function handler(event: DispatchTaskEvent): Promise<DispatchTaskRes
   // Get graph from event or execution record
   let graph = event.graph;
   if (!graph) {
-    graph = await getStoredGraph(repo, workspace, executionId);
+    graph = await getStoredGraph(storage, repo, workspace, executionId);
   }
 
   // Find the task in the graph
@@ -131,20 +132,4 @@ export async function handler(event: DispatchTaskEvent): Promise<DispatchTaskRes
     inputHashes: resolvedInputHashes,
     outputPath: task.output,
   };
-}
-
-/**
- * Get stored graph from execution record.
- * Phase 3 schema: Graph is stored as an attribute of the execution record
- * at PK: EXEC/{repo}/{workspace}, SK: {executionId}
- */
-async function getStoredGraph(repo: string, workspace: string, executionId: number): Promise<DataflowGraph> {
-  const execution = await storage.refs.getExecution(repo, workspace, executionId);
-  if (!execution) {
-    throw new Error(`Execution ${executionId} not found for workspace ${workspace}`);
-  }
-  if (!execution.graph) {
-    throw new Error(`Execution ${executionId} has no graph (status: ${execution.status})`);
-  }
-  return JSON.parse(execution.graph) as DataflowGraph;
 }
