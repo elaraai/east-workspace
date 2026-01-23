@@ -1236,3 +1236,103 @@ Some handlers correctly use e3-core building block functions for the core datafl
 The problem is that **orchestration state methods** (setTaskStatus, addExecutionEvent, incrementExecutionCounters, getExecution, etc.) are called directly on `DynamoRefStore` instead of through an interface. These methods exist only on the concrete AWS implementation and cannot be mocked or swapped.
 
 Additionally, `execute-task.ts` bypasses the storage abstraction entirely for performance reasons (direct S3/DynamoDB access), which is the most significant abstraction violation.
+
+---
+
+## Lock Holder Liveness Checks
+
+### Motivation
+
+Currently, `DynamoLockService.isHolderAlive()` returns a static value because Lambda request IDs are not queryable after completion. The implementation relies on TTL-based expiry for stale lock cleanup.
+
+With Step Functions orchestrating dataflow execution, we have access to the **execution ARN** which *is* queryable via `sfn.describeExecution()`. This enables active liveness checks: if the Step Functions execution has terminated (succeeded, failed, aborted, or timed out), any locks it holds are definitively stale.
+
+### Benefits
+
+1. **Faster stale lock detection** - No need to wait for TTL expiry
+2. **More accurate** - Distinguishes "still running" from "crashed/timed out"
+3. **Enables lock stealing** - Safely acquire locks held by dead executions
+
+### Implementation Plan
+
+#### 1. Thread Execution ARN Through State Machine
+
+Step Functions provides `$$.Execution.Id` (the full ARN) as an intrinsic variable. Add to Lambda inputs:
+
+```typescript
+// In CDK state machine definition (itemSelector, Lambda inputs)
+{
+  'repo.$': '$.repo',
+  'workspace.$': '$.workspace',
+  'executionId.$': '$.executionId',
+  'sfnExecutionArn.$': '$$.Execution.Id',  // ADD
+  // ...
+}
+```
+
+#### 2. Extend Lambda Holder Info
+
+```typescript
+interface LambdaHolderInfo {
+  requestId: string;
+  functionName: string;
+  executionArn?: string;  // ADD - Step Functions execution ARN
+}
+```
+
+Store in lock:
+```typescript
+const holderInfo: LambdaHolderInfo = {
+  requestId: getRequestId(),
+  functionName: process.env.AWS_LAMBDA_FUNCTION_NAME ?? 'unknown',
+  executionArn: event.sfnExecutionArn,  // From Step Functions input
+};
+```
+
+#### 3. Implement Active Liveness Check
+
+```typescript
+// In DynamoLockService
+async isHolderAlive(holderStr: string): Promise<boolean> {
+  const holder = parseLambdaHolder(holderStr);
+  if (!holder) return true;  // Can't parse, assume alive
+
+  if (holder.executionArn) {
+    try {
+      const result = await sfn.describeExecution({
+        executionArn: holder.executionArn
+      });
+      // RUNNING means still executing
+      return result.status === 'RUNNING';
+    } catch (err) {
+      // ExecutionDoesNotExist means it's been deleted/expired
+      if (err.name === 'ExecutionDoesNotExist') return false;
+      // Other errors: fail safe, assume alive
+      return true;
+    }
+  }
+
+  // No execution ARN (legacy or local): fall back to TTL
+  return true;
+}
+```
+
+#### 4. Files to Modify
+
+| File | Changes |
+|------|---------|
+| `cdk/platform/lib/e3-platform-stack.ts` | Add `sfnExecutionArn.$` to all Lambda task inputs |
+| `packages/storage/src/dynamo-lock-service.ts` | Add SFN client, implement `describeExecution` check |
+| Lambda handlers (`execute-task.ts`, etc.) | Accept `sfnExecutionArn` from event, pass to lock service |
+
+#### 5. IAM Permissions
+
+Add `states:DescribeExecution` to Lambda execution role:
+
+```typescript
+dataTable.grantReadWriteData(apiHandler);
+apiHandler.addToRolePolicy(new iam.PolicyStatement({
+  actions: ['states:DescribeExecution'],
+  resources: ['*'],  // Or scope to specific state machines
+}));
+```

@@ -170,27 +170,27 @@ export class DynamoLockService implements LockService {
    *
    * @param holderStr - East text-encoded holder string
    */
-  async isHolderAlive(holderStr: string): Promise<boolean> {
+  isHolderAlive(holderStr: string): Promise<boolean> {
     const holder = parseHolder(holderStr);
     if (!holder) {
       // Can't parse - assume alive (safer default)
-      return true;
+      return Promise.resolve(true);
     }
 
     if (holder.type === 'lambda') {
       // Lambda holder - can't check remotely, assume alive
       // TTL and conditional writes handle actual expiry
-      return true;
+      return Promise.resolve(true);
     }
 
     if (holder.type === 'process') {
       // Process locks from local machines are not checkable from cloud
       // Assume dead - the lock will be stale anyway
-      return false;
+      return Promise.resolve(false);
     }
 
     // Unknown holder type - assume alive (safer default)
-    return true;
+    return Promise.resolve(true);
   }
 
   /**

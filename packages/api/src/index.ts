@@ -23,7 +23,7 @@ import {
   DynamoRefStore,
   InvalidRepoStatusError,
 } from '@elaraai/e3-storage';
-import { StringType, NullType, ArrayType, IntegerType, StructType, OptionType, VariantType, FloatType, variant, some, none } from '@elaraai/east';
+import { StringType, NullType, ArrayType, variant, some, none } from '@elaraai/east';
 
 // =============================================================================
 // Cloud Dataflow Notes
@@ -61,7 +61,7 @@ const sfn = new SFNClient({});
 const DELETE_REPO_STATE_MACHINE_ARN = process.env.DELETE_REPO_STATE_MACHINE_ARN;
 const GC_STATE_MACHINE_ARN = process.env.GC_STATE_MACHINE_ARN;
 const DATAFLOW_STATE_MACHINE_ARN = process.env.DATAFLOW_STATE_MACHINE_ARN;
-const TABLE_NAME = process.env.TABLE_NAME!;
+const _TABLE_NAME = process.env.TABLE_NAME!;
 
 // Initialize storage
 const storage = new S3DynamoStorage(
@@ -595,29 +595,23 @@ app.get('/api/repos/:repo/workspaces/:ws/dataflow/execution', async (c) => {
 
 // Repository status: /api/repos/:repo/status
 // Note: GC endpoints are handled above with Step Functions, but other routes pass through
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 app.route('/api/repos/:repo', createRepositoryRoutes(storage, getRepoPath) as any);
 
 // Package routes: /api/repos/:repo/packages/*
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 app.route('/api/repos/:repo/packages', createPackageRoutes(storage, getRepoPath) as any);
 
 // Workspace routes: /api/repos/:repo/workspaces/*
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 app.route('/api/repos/:repo/workspaces', createWorkspaceRoutes(storage, getRepoPath) as any);
 
 // Dataset routes: /api/repos/:repo/workspaces/:ws/datasets/*
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 app.route('/api/repos/:repo/workspaces/:ws/datasets', createDatasetRoutes(storage, getRepoPath) as any);
 
 // Task routes: /api/repos/:repo/workspaces/:ws/tasks/*
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 app.route('/api/repos/:repo/workspaces/:ws/tasks', createTaskRoutes(storage, getRepoPath) as any);
 
 // Execution/Dataflow routes: /api/repos/:repo/workspaces/:ws/dataflow/*
 // Note: POST and /execution are overridden above for cloud Step Functions execution
 // Other routes (GET graph, logs) pass through to e3-api-server
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(storage, getRepoPath) as any);
 
 // ============================================================

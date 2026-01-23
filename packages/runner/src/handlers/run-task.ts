@@ -31,8 +31,11 @@ interface RunTaskResult {
 /**
  * Lambda handler: Execute a task.
  * Called by Step Functions to run east-node tasks.
+ *
+ * Note: Currently a placeholder that returns success.
+ * TODO: Integrate with e3-core dataflowExecuteTask() once ready.
  */
-export async function handler(event: RunTaskEvent): Promise<RunTaskResult> {
+export function handler(event: RunTaskEvent): RunTaskResult {
   const { repo, taskHash, inputHashes } = event;
 
   console.log(`Running task ${taskHash} in repo ${repo}`);

@@ -5,7 +5,7 @@
 
 import type { S3Client } from '@aws-sdk/client-s3';
 import type { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import type { StorageBackend, ObjectStore, RefStore, LockService, LogStore } from '@elaraai/e3-core';
+import type { StorageBackend, ObjectStore, LockService, LogStore } from '@elaraai/e3-core';
 import { RepositoryNotFoundError } from '@elaraai/e3-core';
 
 import { S3ObjectStore } from './s3-object-store.js';

@@ -30,7 +30,7 @@ interface CheckCacheResult {
  * Lambda handler: Check if a task's output is cached.
  * Called by Step Functions before executing each task.
  */
-export async function handler(event: CheckCacheEvent): Promise<CheckCacheResult> {
+export function handler(event: CheckCacheEvent): CheckCacheResult {
   const { repo, taskHash, inputHashes } = event;
 
   console.log(`Checking cache for task ${taskHash} in repo ${repo}`);

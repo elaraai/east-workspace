@@ -840,7 +840,7 @@ export class E3PlatformStack extends cdk.Stack {
       },
     });
 
-    const finalizeExecutionState = new tasks.LambdaInvoke(this, 'FinalizeExecutionState', {
+    const _finalizeExecutionState = new tasks.LambdaInvoke(this, 'FinalizeExecutionState', {
       lambdaFunction: finalizeExecutionFn,
       outputPath: '$.Payload',
       retryOnServiceExceptions: true,

@@ -131,12 +131,16 @@ export async function handler(event: GetReadyEvent): Promise<GetReadyResult> {
 /**
  * Record events for newly completed tasks.
  * Only records events for tasks that haven't had events recorded yet.
+ *
+ * Note: Currently a no-op - events are recorded in write-result handler.
+ * This function exists for potential future use when we might want to
+ * record events during get-ready polling.
  */
-async function recordEventsForCompletedTasks(
-  repo: string,
-  workspace: string,
-  executionId: number,
-  taskStatuses: Array<{
+function recordEventsForCompletedTasks(
+  _repo: string,
+  _workspace: string,
+  _executionId: number,
+  _taskStatuses: Array<{
     taskName: string;
     status: string;
     duration?: number;
@@ -144,20 +148,7 @@ async function recordEventsForCompletedTasks(
     error?: string;
   }>
 ): Promise<void> {
-  const now = new Date().toISOString();
-
-  for (const task of taskStatuses) {
-    // Only record events for terminal states
-    const terminalStates = ['success', 'cached', 'failed', 'error', 'skipped'];
-    if (!terminalStates.includes(task.status)) {
-      continue;
-    }
-
-    // Check if event already recorded by looking at completedAt
-    // (Events are recorded when task completes, so if completedAt exists, event is recorded)
-    // For now, we skip event recording here - events are recorded by write-result handler
-
-    // TODO: Consider whether to record events here or only in write-result
-    // For Phase 3, events are recorded in write-result to avoid duplicate events
-  }
+  // Events are recorded in write-result handler to avoid duplicate events.
+  // This function is kept for potential future use.
+  return Promise.resolve();
 }

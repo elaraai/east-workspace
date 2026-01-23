@@ -38,6 +38,7 @@ export default [
       '**/.legacy/**',
       '**/vitest.config.ts',
       'cdk/platform/test/**',
+      'cdk/platform/scripts/**',  // Standalone scripts run with npx tsx
     ]
   },
   // CDK - Platform (e3 cloud app)

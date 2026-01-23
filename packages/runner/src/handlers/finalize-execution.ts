@@ -1,4 +1,7 @@
 /**
+ * Copyright (c) 2025 Elara AI Pty Ltd. All rights reserved.
+ * Proprietary and confidential.
+ *
  * finalize-execution.ts - Updates execution state when dataflow completes
  *
  * Called at the end of Step Functions before success/fail terminal states.
