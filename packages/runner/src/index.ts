@@ -11,8 +11,6 @@
  * - checkCompletionHandler: Poll for task completion status
  * - writeResultHandler: Write task output to workspace
  * - markSkippedHandler: Mark downstream tasks as skipped after failure
- * - checkCacheHandler: (legacy) Direct cache check
- * - runTaskHandler: (legacy) Direct task execution
  */
 
 // Dataflow state machine handlers
@@ -22,10 +20,6 @@ export { handler as dispatchTaskHandler } from './handlers/dispatch-task.js';
 export { handler as checkCompletionHandler } from './handlers/check-completion.js';
 export { handler as writeResultHandler } from './handlers/write-result.js';
 export { handler as markSkippedHandler } from './handlers/mark-skipped.js';
-
-// Legacy handlers (may be removed in future)
-export { handler as checkCacheHandler } from './handlers/check-cache.js';
-export { handler as runTaskHandler } from './handlers/run-task.js';
 
 // Type exports
 export type { GetGraphEvent, GetGraphResult } from './handlers/get-graph.js';

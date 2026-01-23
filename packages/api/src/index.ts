@@ -496,7 +496,7 @@ app.get('/api/repos/:repo/workspaces/:ws/dataflow/execution', async (c) => {
 
     // Get events from DynamoDB (Phase 3 schema: EVENT/{repo}/{executionId})
     // Events are stored with sequence numbers for stable offset-based pagination
-    const { events: rawEvents, total: totalEvents } = await refStore.getExecutionEventsV2(
+    const { events: rawEvents, total: totalEvents } = await refStore.getExecutionEvents(
       repo,
       execState.id,
       offset,
@@ -580,7 +580,7 @@ app.get('/api/repos/:repo/workspaces/:ws/dataflow/execution', async (c) => {
       startedAt: execState.startedAt,
       completedAt: execState.completedAt ? some(execState.completedAt) : none,
       summary,
-      events, // Already paginated by getExecutionEventsV2
+      events, // Already paginated by getExecutionEvents
       totalEvents: BigInt(totalEvents),
     });
   } catch (err) {

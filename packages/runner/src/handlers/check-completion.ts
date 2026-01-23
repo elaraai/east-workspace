@@ -183,7 +183,7 @@ async function getTaskStatuses(
   const statuses = new Map<string, TaskStatusItem>();
 
   // Use the storage helper for Phase 3 schema
-  const tasks = await storage.refs.getExecutionTasksV2(repo, executionId);
+  const tasks = await storage.refs.getExecutionTasks(repo, executionId);
 
   for (const task of tasks) {
     statuses.set(task.taskName, {

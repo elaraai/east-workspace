@@ -68,7 +68,7 @@ export async function handler(event: GetReadyEvent): Promise<GetReadyResult> {
   }
 
   // Query all task statuses for this execution (Phase 3 schema)
-  const taskStatuses = await storage.refs.getExecutionTasksV2(repo, executionId);
+  const taskStatuses = await storage.refs.getExecutionTasks(repo, executionId);
 
   // Build sets of task states
   const completed = new Set<string>();

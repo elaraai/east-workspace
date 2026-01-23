@@ -69,22 +69,6 @@ export class InvalidRepoStatusError extends Error {
 }
 
 /**
- * Execution state for a workspace dataflow (legacy format).
- * @deprecated Use DataflowExecution instead
- */
-export interface DataflowExecutionState {
-  executionId: string;
-  status: 'running' | 'completed' | 'failed';
-  startedAt: string;
-  completedAt?: string;
-  taskCount: number;
-  completedCount: number;
-  failedCount: number;
-  skippedCount: number;
-  cachedCount: number;
-}
-
-/**
  * Dataflow execution record (Phase 3 schema).
  *
  * Stored at PK: EXEC/{repo}/{workspace}, SK: {id} (Number)
@@ -693,112 +677,7 @@ export class DynamoRefStore implements RefStore {
   }
 
   // ===========================================================================
-  // Dataflow Execution State (for Step Functions orchestration)
-  // ===========================================================================
-
-  /**
-   * Get the current execution state for a workspace.
-   */
-  async getExecutionState(repo: string, workspace: string): Promise<DataflowExecutionState | null> {
-    const item = await this.getItem(repo, `EXEC#STATE#${workspace}`);
-    if (!item) return null;
-
-    return {
-      executionId: item.executionId as string,
-      status: item.status as 'running' | 'completed' | 'failed',
-      startedAt: item.startedAt as string,
-      completedAt: item.completedAt as string | undefined,
-      taskCount: item.taskCount as number,
-      completedCount: (item.completedCount as number) || 0,
-      failedCount: (item.failedCount as number) || 0,
-      skippedCount: (item.skippedCount as number) || 0,
-      cachedCount: (item.cachedCount as number) || 0,
-    };
-  }
-
-  /**
-   * Get all task statuses for a dataflow execution.
-   */
-  async getExecutionTasks(repo: string, executionId: string): Promise<TaskExecutionStatus[]> {
-    const items = await this.queryByPrefix(repo, `EXEC#TASK#${executionId}#`);
-    return items.map(item => {
-      const sk = item.SK as string;
-      const prefixLen = `EXEC#TASK#${executionId}#`.length;
-      const taskName = sk.slice(prefixLen);
-
-      return {
-        taskName,
-        status: item.status as TaskExecutionStatus['status'],
-        outputHash: item.outputHash as string | undefined,
-        exitCode: item.exitCode as number | undefined,
-        error: item.error as string | undefined,
-        duration: item.duration as number | undefined,
-        readyAt: item.readyAt as string | undefined,
-        completedAt: item.completedAt as string | undefined,
-      };
-    });
-  }
-
-  /**
-   * Get stored graph for an execution.
-   */
-  async getExecutionGraph(repo: string, executionId: string): Promise<string | null> {
-    const item = await this.getItem(repo, `EXEC#GRAPH#${executionId}`);
-    return item?.graph as string | null;
-  }
-
-  /**
-   * Get events for a dataflow execution with pagination.
-   *
-   * Events are stored with sequence numbers (SK: EXEC#EVENT#{executionId}#{seq})
-   * which provides stable ordering for offset-based pagination.
-   *
-   * @param repo - Repository name
-   * @param executionId - Execution ID
-   * @param offset - Number of events to skip (default: 0)
-   * @param limit - Maximum number of events to return (default: all)
-   * @returns Object with events array and total count
-   */
-  async getExecutionEvents(
-    repo: string,
-    executionId: string,
-    offset = 0,
-    limit?: number
-  ): Promise<{ events: DataflowEvent[]; total: number }> {
-    // Query all events for this execution (they're sorted by sequence number)
-    const items = await this.queryByPrefix(repo, `EXEC#EVENT#${executionId}#`);
-
-    const total = items.length;
-
-    // Apply pagination
-    const start = offset;
-    const end = limit !== undefined ? offset + limit : items.length;
-    const paginatedItems = items.slice(start, end);
-
-    // Map to DataflowEvent
-    const events: DataflowEvent[] = paginatedItems.map(item => {
-      const sk = item.SK as string;
-      // SK format: EXEC#EVENT#{executionId}#{seq}
-      const seqStr = sk.split('#').pop()!;
-      const seq = parseInt(seqStr, 10);
-
-      return {
-        seq,
-        type: item.eventType as DataflowEvent['type'],
-        task: item.task as string,
-        timestamp: item.timestamp as string,
-        duration: item.duration as number | undefined,
-        exitCode: item.exitCode as number | undefined,
-        message: item.message as string | undefined,
-        reason: item.reason as string | undefined,
-      };
-    });
-
-    return { events, total };
-  }
-
-  // ===========================================================================
-  // Phase 3: New Execution Schema
+  // Dataflow Execution State (Phase 3 Schema)
   // PK: EXEC/{repo}/{workspace}, SK: 0 (counter) or {id} (Number)
   // PK: TASK/{repo}/{executionId}, SK: {taskName}
   // PK: EVENT/{repo}/{executionId}, SK: {seq}
@@ -1086,7 +965,7 @@ export class DynamoRefStore implements RefStore {
    *
    * PK: TASK/{repo}/{executionId}
    */
-  async getExecutionTasksV2(repo: string, executionId: number): Promise<TaskExecutionStatus[]> {
+  async getExecutionTasks(repo: string, executionId: number): Promise<TaskExecutionStatus[]> {
     const pk = `TASK/${repo}/${executionId}`;
     const items = await this.queryByPkAndSkPrefix(pk);
 
@@ -1241,7 +1120,7 @@ export class DynamoRefStore implements RefStore {
    *
    * PK: EVENT/{repo}/{executionId}
    */
-  async getExecutionEventsV2(
+  async getExecutionEvents(
     repo: string,
     executionId: number,
     offset = 0,
