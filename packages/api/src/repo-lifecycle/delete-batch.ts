@@ -23,8 +23,11 @@ import { S3ObjectStore, DynamoRefStore } from '@elaraai/e3-storage';
 const s3 = new S3Client({});
 const dynamo = new DynamoDBClient({});
 
-const objectStore = new S3ObjectStore(s3, process.env.BUCKET_NAME!);
-const refStore = new DynamoRefStore(dynamo, process.env.TABLE_NAME!);
+const BUCKET_NAME = process.env.BUCKET_NAME!;
+const TABLE_NAME = process.env.TABLE_NAME!;
+
+const objectStore = new S3ObjectStore(s3, dynamo, BUCKET_NAME, TABLE_NAME);
+const refStore = new DynamoRefStore(dynamo, TABLE_NAME);
 
 /**
  * Input for the delete batch handler.

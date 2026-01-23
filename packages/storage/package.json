@@ -10,6 +10,10 @@
     ".": {
       "types": "./dist/src/index.d.ts",
       "default": "./dist/src/index.js"
+    },
+    "./s3-object-store": {
+      "types": "./dist/src/s3-object-store.d.ts",
+      "default": "./dist/src/s3-object-store.js"
     }
   },
   "scripts": {

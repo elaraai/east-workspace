@@ -532,6 +532,7 @@ export class DynamoRefStore implements RefStore {
       `WS/${repo}`,
       `LOCK/${repo}`,
       `REPO#${repo}`, // Legacy execution state
+      `OBJ/${repo}`, // Object catalogue
     ];
 
     // Phase 2: Scan-based multi-partition items (prefix patterns)

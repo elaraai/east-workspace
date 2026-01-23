@@ -239,11 +239,14 @@ export class E3PlatformStack extends cdk.Stack {
     // ============================================================
 
     // S3 bucket for content-addressed objects
+    // Versioning is enabled to support concurrent-safe GC via version pinning.
+    // GC cleanup handles version deletion - do NOT add lifecycle rules for noncurrent versions.
     this.dataBucket = new s3.Bucket(this, 'DataBucket', {
       bucketName: `${prefix}-data-${this.account}`,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       encryption: s3.BucketEncryption.S3_MANAGED,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
+      versioned: true,
     });
 
     // Single DynamoDB table for all data (packages, workspaces, executions, locks, logs)
@@ -1281,7 +1284,7 @@ export class E3PlatformStack extends cdk.Stack {
     this.dataTable.grantReadData(gcMarkFn);
     this.dataBucket.grantReadWrite(gcMarkFn);
 
-    // Lambda: GC Sweep phase (delete unreachable objects)
+    // Lambda: GC Sweep phase (delete unreachable catalogue entries)
     const gcSweepFn = new nodejs.NodejsFunction(this, 'GcSweepHandler', {
       functionName: `${prefix}-gc-sweep`,
       runtime: lambda.Runtime.NODEJS_22_X,
@@ -1297,11 +1300,13 @@ export class E3PlatformStack extends cdk.Stack {
       memorySize: 3008, // Higher memory for reachable set
       environment: {
         BUCKET_NAME: this.dataBucket.bucketName,
+        TABLE_NAME: this.dataTable.tableName,
       },
     });
-    this.dataBucket.grantReadWrite(gcSweepFn);
+    this.dataBucket.grantRead(gcSweepFn); // Only needs read for reachable set
+    this.dataTable.grantReadWriteData(gcSweepFn); // For catalogue deletion
 
-    // Lambda: GC Cleanup (delete temp files)
+    // Lambda: GC Cleanup (delete orphaned S3 versions and temp files)
     const gcCleanupFn = new nodejs.NodejsFunction(this, 'GcCleanupHandler', {
       functionName: `${prefix}-gc-cleanup`,
       runtime: lambda.Runtime.NODEJS_22_X,
@@ -1313,13 +1318,15 @@ export class E3PlatformStack extends cdk.Stack {
         format: nodejs.OutputFormat.ESM,
         banner: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
       },
-      timeout: cdk.Duration.seconds(60),
-      memorySize: 256,
+      timeout: cdk.Duration.minutes(15),
+      memorySize: 1024,
       environment: {
         BUCKET_NAME: this.dataBucket.bucketName,
+        TABLE_NAME: this.dataTable.tableName,
       },
     });
     this.dataBucket.grantReadWrite(gcCleanupFn);
+    this.dataTable.grantReadData(gcCleanupFn);
 
     // Lambda: Set repo status back to 'active'
     const setActiveFn = new nodejs.NodejsFunction(this, 'SetActiveHandler', {
@@ -1414,6 +1421,11 @@ export class E3PlatformStack extends cdk.Stack {
       .when(sfn.Condition.stringEquals('$.status', 'continue'), gcSweepState)
       .otherwise(gcCleanupState);
 
+    // Check if we need to continue cleanup (version scanning is paginated)
+    const checkGcCleanupResult = new sfn.Choice(this, 'CheckGcCleanupResult')
+      .when(sfn.Condition.stringEquals('$.status', 'continue'), gcCleanupState)
+      .otherwise(setActiveState);
+
     // Wire up the state machine
     // GenerateJitter flows into ApplyJitter
     generateJitterState.next(applyJitterState);
@@ -1426,7 +1438,7 @@ export class E3PlatformStack extends cdk.Stack {
 
     gcMarkState.next(gcSweepState);
     gcSweepState.next(checkGcSweepResult);
-    gcCleanupState.next(setActiveState);
+    gcCleanupState.next(checkGcCleanupResult);
     setActiveState.next(gcComplete);
 
     this.gcStateMachine = new sfn.StateMachine(this, 'GcStateMachine', {

@@ -6,34 +6,41 @@
  *
  * Implements the sweep phase of mark-and-sweep garbage collection:
  * 1. Load reachable set from S3 temp file (created by mark phase)
- * 2. List S3 objects with pagination
- * 3. Delete unreachable objects (respecting minAge and startTime)
+ * 2. Query object catalogue entries with pagination
+ * 3. Delete unreachable catalogue entries (respecting lastReferencedAt for race protection)
  * 4. Self-terminate before timeout and return cursor for continuation
+ *
+ * This phase deletes catalogue entries only - orphaned S3 versions are cleaned up
+ * by the cleanup phase.
  *
  * Designed to be called repeatedly by Step Functions until complete.
  */
 
+import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import {
-  S3Client,
-  GetObjectCommand,
-  ListObjectsV2Command,
-  DeleteObjectsCommand,
-  DeleteObjectCommand,
-} from '@aws-sdk/client-s3';
+  DynamoDBClient,
+  QueryCommand,
+  BatchWriteItemCommand,
+} from '@aws-sdk/client-dynamodb';
+import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 
 // Initialize AWS clients once at Lambda cold start
 const s3 = new S3Client({});
+const dynamo = new DynamoDBClient({});
 
 const BUCKET_NAME = process.env.BUCKET_NAME!;
+const TABLE_NAME = process.env.TABLE_NAME!;
 
 // Time limit: quit at 13 minutes to leave buffer before 15 min Lambda timeout
 const TIME_LIMIT_MS = 13 * 60 * 1000;
 
-// Default minimum age for objects to be considered for deletion (60 seconds)
+// Default minimum age for catalogue entries to be considered for deletion (60 seconds)
+// This protects against race conditions where an object is written during GC
 const DEFAULT_MIN_AGE_MS = 60 * 1000;
 
-// Batch size for S3 list and delete operations
-const LIST_BATCH_SIZE = 1000;
+// Batch sizes for DynamoDB operations
+const QUERY_BATCH_SIZE = 1000;
+const DELETE_BATCH_SIZE = 25; // BatchWriteItem limit
 
 /**
  * Input for the GC sweep phase handler.
@@ -47,11 +54,11 @@ export interface GcSweepInput {
   startTime: number;
   /** S3 key where reachable set is stored */
   reachableSetKey: string;
-  /** S3 continuation token for resuming list operation */
-  s3Cursor?: string;
+  /** DynamoDB pagination cursor for resuming catalogue query */
+  catalogueCursor?: string;
   /** Accumulated stats from previous iterations */
   stats?: GcSweepStats;
-  /** Minimum age in ms for objects to be deleted (default: 60000) */
+  /** Minimum age in ms for catalogue entries to be deleted (default: 60000) */
   minAge?: number;
 }
 
@@ -59,14 +66,12 @@ export interface GcSweepInput {
  * Stats tracked during sweep phase.
  */
 export interface GcSweepStats {
-  /** Number of objects deleted */
-  deletedObjects: number;
-  /** Number of objects retained (reachable) */
-  retainedObjects: number;
-  /** Number of objects skipped due to being too young */
+  /** Number of catalogue entries deleted */
+  deletedEntries: number;
+  /** Number of catalogue entries retained (reachable) */
+  retainedEntries: number;
+  /** Number of catalogue entries skipped due to being too young */
   skippedYoung: number;
-  /** Total bytes freed */
-  bytesFreed: number;
 }
 
 /**
@@ -83,8 +88,8 @@ export interface GcSweepOutput {
   reachableSetKey: string;
   /** Whether to continue ('continue') or if sweep is complete ('done') */
   status: 'continue' | 'done';
-  /** S3 continuation token for next batch (if any) */
-  s3Cursor?: string;
+  /** DynamoDB pagination cursor for next batch (if any) */
+  catalogueCursor?: string;
   /** Accumulated stats */
   stats: GcSweepStats;
 }
@@ -92,24 +97,24 @@ export interface GcSweepOutput {
 /**
  * GC Sweep phase handler.
  *
- * Deletes unreachable objects from S3, respecting minAge to avoid race conditions.
+ * Deletes unreachable catalogue entries from DynamoDB, respecting lastReferencedAt
+ * to avoid race conditions with concurrent writes.
  */
 export const handler = async (input: GcSweepInput): Promise<GcSweepOutput> => {
   const { repo, gcId, startTime, reachableSetKey } = input;
   const minAge = input.minAge ?? DEFAULT_MIN_AGE_MS;
   const sweepStartTime = Date.now();
-  let s3Cursor = input.s3Cursor;
+  let catalogueCursor = input.catalogueCursor;
 
   // Initialize or continue stats
   const stats: GcSweepStats = input.stats ?? {
-    deletedObjects: 0,
-    retainedObjects: 0,
+    deletedEntries: 0,
+    retainedEntries: 0,
     skippedYoung: 0,
-    bytesFreed: 0,
   };
 
   console.log(`Starting GC sweep phase for repo: ${repo}, gcId: ${gcId}`, {
-    hasCursor: !!s3Cursor,
+    hasCursor: !!catalogueCursor,
     currentStats: stats,
   });
 
@@ -117,12 +122,10 @@ export const handler = async (input: GcSweepInput): Promise<GcSweepOutput> => {
   const reachable = await loadReachableSet(reachableSetKey);
   console.log(`Loaded ${reachable.size} reachable hashes`);
 
-  // Calculate cutoff time: objects created after this time are skipped
-  const cutoffTime = startTime - minAge;
+  // Calculate cutoff time: catalogue entries updated after this time are skipped
+  const cutoffTime = new Date(startTime - minAge).toISOString();
 
-  // Sweep S3 objects
-  const prefix = `${repo}/objects/`;
-
+  // Query and process catalogue entries
   while (true) {
     // Check time limit
     if (Date.now() - sweepStartTime > TIME_LIMIT_MS) {
@@ -133,77 +136,74 @@ export const handler = async (input: GcSweepInput): Promise<GcSweepOutput> => {
         startTime,
         reachableSetKey,
         status: 'continue',
-        s3Cursor,
+        catalogueCursor,
         stats,
       };
     }
 
-    // List objects
-    const listResponse = await s3.send(
-      new ListObjectsV2Command({
-        Bucket: BUCKET_NAME,
-        Prefix: prefix,
-        MaxKeys: LIST_BATCH_SIZE,
-        ContinuationToken: s3Cursor,
+    // Query catalogue entries
+    let exclusiveStartKey: Record<string, any> | undefined;
+    if (catalogueCursor) {
+      exclusiveStartKey = JSON.parse(catalogueCursor);
+    }
+
+    const queryResponse = await dynamo.send(
+      new QueryCommand({
+        TableName: TABLE_NAME,
+        KeyConditionExpression: 'PK = :pk',
+        ExpressionAttributeValues: marshall({ ':pk': `OBJ/${repo}` }),
+        ProjectionExpression: 'PK, SK, lastReferencedAt',
+        ExclusiveStartKey: exclusiveStartKey,
+        Limit: QUERY_BATCH_SIZE,
+        ConsistentRead: true,
       })
     );
 
-    if (!listResponse.Contents || listResponse.Contents.length === 0) {
-      // No more objects
+    if (!queryResponse.Items || queryResponse.Items.length === 0) {
+      // No more entries
       break;
     }
 
-    // Collect objects to delete
-    const toDelete: { Key: string }[] = [];
+    // Collect entries to delete
+    const toDelete: { PK: string; SK: string }[] = [];
 
-    for (const obj of listResponse.Contents) {
-      if (!obj.Key) continue;
+    for (const item of queryResponse.Items) {
+      const unmarshalled = unmarshall(item);
+      const hash = unmarshalled.SK as string;
+      const lastReferencedAt = unmarshalled.lastReferencedAt as string;
 
-      // Extract hash from key: {repo}/objects/{hash}
-      const hash = obj.Key.slice(prefix.length);
-      if (!hash || !/^[a-f0-9]{64}$/.test(hash)) {
-        // Not a valid object hash (might be a directory marker or other file)
-        continue;
-      }
-
-      // Check if object is reachable
+      // Check if hash is reachable
       if (reachable.has(hash)) {
-        stats.retainedObjects++;
+        stats.retainedEntries++;
         continue;
       }
 
-      // Check if object is too young (created after cutoffTime)
-      if (obj.LastModified && obj.LastModified.getTime() > cutoffTime) {
+      // Check if entry was updated after cutoff (race protection)
+      if (lastReferencedAt && lastReferencedAt > cutoffTime) {
         stats.skippedYoung++;
         continue;
       }
 
-      // Object is unreachable and old enough - mark for deletion
-      toDelete.push({ Key: obj.Key });
-      stats.bytesFreed += obj.Size ?? 0;
+      // Entry is unreachable and old enough - mark for deletion
+      toDelete.push({
+        PK: unmarshalled.PK as string,
+        SK: hash,
+      });
     }
 
-    // Batch delete unreachable objects
+    // Batch delete unreachable entries
     if (toDelete.length > 0) {
-      await s3.send(
-        new DeleteObjectsCommand({
-          Bucket: BUCKET_NAME,
-          Delete: {
-            Objects: toDelete,
-            Quiet: true,
-          },
-        })
-      );
-      stats.deletedObjects += toDelete.length;
-      console.log(`Deleted ${toDelete.length} objects in this batch`);
+      await batchDeleteCatalogueEntries(toDelete);
+      stats.deletedEntries += toDelete.length;
+      console.log(`Deleted ${toDelete.length} catalogue entries in this batch`);
     }
 
-    // Check for more objects
-    if (listResponse.IsTruncated && listResponse.NextContinuationToken) {
-      s3Cursor = listResponse.NextContinuationToken;
+    // Check for more entries
+    if (queryResponse.LastEvaluatedKey) {
+      catalogueCursor = JSON.stringify(queryResponse.LastEvaluatedKey);
     } else {
-      // No more objects
-      s3Cursor = undefined;
+      // No more entries
+      catalogueCursor = undefined;
       break;
     }
   }
@@ -240,4 +240,27 @@ async function loadReachableSet(key: string): Promise<Set<string>> {
   const hashes = data.split('\n').filter((h) => h.length === 64);
 
   return new Set(hashes);
+}
+
+/**
+ * Batch delete catalogue entries from DynamoDB.
+ */
+async function batchDeleteCatalogueEntries(
+  entries: Array<{ PK: string; SK: string }>
+): Promise<void> {
+  for (let i = 0; i < entries.length; i += DELETE_BATCH_SIZE) {
+    const batch = entries.slice(i, i + DELETE_BATCH_SIZE);
+
+    await dynamo.send(
+      new BatchWriteItemCommand({
+        RequestItems: {
+          [TABLE_NAME]: batch.map((entry) => ({
+            DeleteRequest: {
+              Key: marshall({ PK: entry.PK, SK: entry.SK }),
+            },
+          })),
+        },
+      })
+    );
+  }
 }

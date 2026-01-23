@@ -52,7 +52,7 @@ export class S3DynamoStorage implements StorageBackend {
     bucket: string,
     tableName: string
   ) {
-    this.objects = new S3ObjectStore(s3, bucket);
+    this.objects = new S3ObjectStore(s3, dynamo, bucket, tableName);
     this.refs = new DynamoRefStore(dynamo, tableName);
     this.locks = new DynamoLockService(dynamo, tableName);
     this.logs = new DynamoLogStore(dynamo, tableName);

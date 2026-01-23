@@ -20,14 +20,19 @@ import { createHash } from 'crypto';
 import { writeFileSync, readFileSync, mkdtempSync, rmSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
-import { DynamoDBClient, PutItemCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
+import { S3Client } from '@aws-sdk/client-s3';
+import { DynamoDBClient, UpdateItemCommand, PutItemCommand } from '@aws-sdk/client-dynamodb';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
+// Import directly from s3-object-store to avoid loading s3-dynamo-storage which has e3-core dependencies
+import { S3ObjectStore } from '@elaraai/e3-storage/s3-object-store';
 
 const s3 = new S3Client({});
 const dynamo = new DynamoDBClient({});
 const BUCKET_NAME = process.env.BUCKET_NAME!;
 const TABLE_NAME = process.env.TABLE_NAME!;
+
+// Object store handles catalogue-aware reads/writes
+const objectStore = new S3ObjectStore(s3, dynamo, BUCKET_NAME, TABLE_NAME);
 
 // Default TTL for log chunks in seconds (7 days)
 const LOG_TTL_SECONDS = 7 * 24 * 60 * 60;
@@ -319,11 +324,10 @@ export async function handler(event: TaskExecutionEvent): Promise<TaskExecutionR
       };
     }
 
-    // Upload output and compute hash
+    // Upload output (objectStore.write computes hash)
     await log(`Uploading output...\n`);
     const outputContent = readFileSync(outputFilePath);
-    const outputHash = createHash('sha256').update(outputContent).digest('hex');
-    await uploadObject(repo, outputHash, outputContent);
+    const outputHash = await uploadObject(repo, outputContent);
 
     const durationSecs = (duration / 1000).toFixed(2);
     await log(`Task complete (${durationSecs}s)\n`);
@@ -356,33 +360,18 @@ export async function handler(event: TaskExecutionEvent): Promise<TaskExecutionR
 }
 
 /**
- * Download an object from S3 to a local file.
+ * Download an object to a local file using the object store.
  */
 async function downloadObject(repo: string, hash: string, localPath: string): Promise<void> {
-  const key = `${repo}/objects/${hash}`;
-  const response = await s3.send(
-    new GetObjectCommand({
-      Bucket: BUCKET_NAME,
-      Key: key,
-    })
-  );
-
-  const body = await response.Body!.transformToByteArray();
-  writeFileSync(localPath, body);
+  const data = await objectStore.read(repo, hash);
+  writeFileSync(localPath, data);
 }
 
 /**
- * Upload an object to S3 (content-addressed).
+ * Upload an object using the object store and return its hash.
  */
-async function uploadObject(repo: string, hash: string, content: Buffer): Promise<void> {
-  const key = `${repo}/objects/${hash}`;
-  await s3.send(
-    new PutObjectCommand({
-      Bucket: BUCKET_NAME,
-      Key: key,
-      Body: content,
-    })
-  );
+async function uploadObject(repo: string, content: Buffer): Promise<string> {
+  return objectStore.write(repo, content);
 }
 
 /**

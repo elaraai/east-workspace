@@ -141,6 +141,25 @@ Attributes:
   - reason?: string        # Failure/skip reason
 ```
 
+### Object Catalogue
+
+Tracks current S3 version and metadata for content-addressed objects. Small objects (≤4KB) are stored inline to avoid S3 overhead.
+
+```
+PK: OBJ/{repo}
+SK: {hash}
+Attributes:
+  - currentVersion?: string    # S3 version ID (null for inline objects)
+  - lastReferencedAt: string   # ISO timestamp of last write
+  - size: number               # Object size in bytes
+  - inline?: Binary            # Object data (only for size ≤ 4KB)
+```
+
+**Invariants:**
+1. Catalogue entry exists → Object is readable via `currentVersion` or `inline`
+2. S3 version matches `currentVersion` → Never deleted by GC cleanup
+3. S3 version age < 24h → Never deleted by GC cleanup (MIN_AGE protection)
+
 ### Locks
 
 Distributed locks with automatic expiry.
@@ -175,12 +194,15 @@ Where:
 
 ## S3 Object Layout
 
-Content-addressed objects stored in S3:
+Content-addressed objects stored in S3 with versioning enabled for concurrent-safe GC:
 
 ```
 s3://{bucket}/
-  {repo}/objects/{hash}    # SHA256-addressed blobs
+  {repo}/objects/{hash}    # SHA256-addressed blobs (versioned)
+  gc-temp/{gcId}/          # Temporary files during GC (reachable set)
 ```
+
+**Note:** S3 versioning is enabled to support concurrent-safe garbage collection. The GC cleanup phase handles version deletion based on the object catalogue - do NOT configure S3 lifecycle rules for noncurrent version expiration.
 
 ## Access Patterns
 
@@ -202,7 +224,9 @@ s3://{bucket}/
 | Get events (Phase 3) | PK = EVENT/{repo}/{executionId} | Query |
 | Get lock | PK = LOCK/{repo}, SK = {resource} | GetItem |
 | Read logs | PK = LOG/{repo}/{taskHash}/{inputsHash}, SK begins_with {stream}/ | Query |
-| Delete repo | PKG/{repo}, WS/{repo}, LOCK/{repo}, REPO#{repo} (Query) + CACHE/{repo}/, LOG/{repo}/, EXEC/{repo}/, TASK/{repo}/, EVENT/{repo}/ (Scan) | Query + Scan + BatchDelete |
+| Get object catalogue entry | PK = OBJ/{repo}, SK = {hash} | GetItem |
+| List objects (catalogue) | PK = OBJ/{repo} | Query |
+| Delete repo | PKG/{repo}, WS/{repo}, LOCK/{repo}, REPO#{repo}, OBJ/{repo} (Query) + CACHE/{repo}/, LOG/{repo}/, EXEC/{repo}/, TASK/{repo}/, EVENT/{repo}/ (Scan) | Query + Scan + BatchDelete |
 
 ## Files
 
