@@ -40,7 +40,6 @@ export interface StackOutputs {
   // Compute
   taskStateMachineArn: string;
   dataflowStateMachineArn: string;
-  deleteRepoStateMachineArn: string;
   gcStateMachineArn: string;
 
   // Frontend
@@ -111,7 +110,6 @@ export async function getStackOutputs(deploymentId: string): Promise<StackOutput
     // Compute
     taskStateMachineArn: getOutput('TaskStateMachineArn'),
     dataflowStateMachineArn: getOutput('DataflowStateMachineArn'),
-    deleteRepoStateMachineArn: getOutput('DeleteRepoStateMachineArn'),
     gcStateMachineArn: getOutput('GcStateMachineArn'),
 
     // Frontend

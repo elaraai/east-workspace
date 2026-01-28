@@ -45,7 +45,6 @@ describe('E3 Platform API Endpoints', { timeout: 60000 }, () => {
       // Compute
       assert.ok(outputs.taskStateMachineArn, 'taskStateMachineArn should be defined');
       assert.ok(outputs.dataflowStateMachineArn, 'dataflowStateMachineArn should be defined');
-      assert.ok(outputs.deleteRepoStateMachineArn, 'deleteRepoStateMachineArn should be defined');
       assert.ok(outputs.gcStateMachineArn, 'gcStateMachineArn should be defined');
 
       // Frontend

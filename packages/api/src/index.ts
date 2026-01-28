@@ -58,7 +58,6 @@ const dynamo = new DynamoDBClient({});
 const sfn = new SFNClient({});
 
 // State machine ARNs and table name (set by CDK)
-const DELETE_REPO_STATE_MACHINE_ARN = process.env.DELETE_REPO_STATE_MACHINE_ARN;
 const GC_STATE_MACHINE_ARN = process.env.GC_STATE_MACHINE_ARN;
 const DATAFLOW_STATE_MACHINE_ARN = process.env.DATAFLOW_STATE_MACHINE_ARN;
 const _TABLE_NAME = process.env.TABLE_NAME!;
@@ -148,8 +147,8 @@ app.put('/api/repos/:repo', async (c) => {
   }
 });
 
-// DELETE /api/repos/:repo - Delete a repository
-// Returns: RepoDeleteStartResultType with 202 Accepted (async deletion via Step Functions)
+// DELETE /api/repos/:repo - Delete a repository (synchronous)
+// Returns: NullType (void) - deletion completes synchronously
 app.delete('/api/repos/:repo', async (c) => {
   const repo = c.req.param('repo');
 
@@ -157,114 +156,45 @@ app.delete('/api/repos/:repo', async (c) => {
     // Check if repo exists and get its status
     const metadata = await refStore.getRepoMetadata(repo);
     if (!metadata) {
-      return sendError(ApiTypes.RepoDeleteStartResultType, internalError(`Repository '${repo}' not found`));
+      return sendError(NullType, variant('repository_not_found', { repo }));
     }
 
-    // Check if repo is in a valid state for deletion
+    // If already deleting, return success (idempotent)
     if (metadata.status === 'deleting') {
-      return sendError(ApiTypes.RepoDeleteStartResultType, internalError(`Repository '${repo}' is already being deleted`));
+      return sendSuccess(NullType, null);
     }
+
+    // Block deletion during GC or creation
     if (metadata.status === 'gc') {
-      return sendError(ApiTypes.RepoDeleteStartResultType, internalError(`Repository '${repo}' is currently running GC. Please wait for GC to complete.`));
+      return sendError(NullType, internalError(`Repository '${repo}' is currently running GC. Please wait for GC to complete.`));
     }
     if (metadata.status === 'creating') {
-      return sendError(ApiTypes.RepoDeleteStartResultType, internalError(`Repository '${repo}' is still being created. Please wait.`));
+      return sendError(NullType, internalError(`Repository '${repo}' is still being created. Please wait.`));
     }
 
-    // Start the delete state machine
-    if (!DELETE_REPO_STATE_MACHINE_ARN) {
-      // Fallback to synchronous deletion if state machine not configured
-      console.warn('DELETE_REPO_STATE_MACHINE_ARN not set, using synchronous deletion');
-      await refStore.setRepoStatus(repo, 'active', 'deleting');
-      await refStore.deleteRepo(repo);
-      // For sync deletion, use a generated executionId
-      const executionId = `sync-delete-${repo}-${Date.now()}`;
-      return sendSuccessWithStatus(ApiTypes.RepoDeleteStartResultType, { executionId }, 202);
-    }
+    // 1. Mark as 'deleting'
+    await refStore.setRepoStatus(repo, 'active', 'deleting');
 
-    // Start async deletion via Step Functions
-    const executionName = `delete-${repo}-${Date.now()}`;
-    const execution = await sfn.send(
-      new StartExecutionCommand({
-        stateMachineArn: DELETE_REPO_STATE_MACHINE_ARN,
-        name: executionName,
-        input: JSON.stringify({ repo }),
-      })
-    );
+    // 2. Delete refs synchronously
+    let cursor: string | undefined;
+    do {
+      const result = await storage.repos.deleteRefsBatch(repo, cursor);
+      cursor = result.status === 'continue' ? result.cursor : undefined;
+    } while (cursor);
 
-    console.log(`Started delete state machine for repo ${repo}:`, execution.executionArn);
+    // 3. Objects cleaned up by GC later (orphaned S3 versions are handled by GC cleanup)
 
-    // Return 202 Accepted with executionId for status polling
-    return sendSuccessWithStatus(ApiTypes.RepoDeleteStartResultType, { executionId: executionName }, 202);
+    // 4. Remove repo metadata
+    await storage.repos.remove(repo);
+
+    console.log(`Repository '${repo}' deleted successfully`);
+    return sendSuccess(NullType, null);
   } catch (err) {
     if (err instanceof InvalidRepoStatusError) {
-      return sendError(ApiTypes.RepoDeleteStartResultType, internalError(err.message));
+      return sendError(NullType, internalError(err.message));
     }
     console.error('Failed to delete repo:', err);
-    return sendError(ApiTypes.RepoDeleteStartResultType, internalError('Failed to delete repository'));
-  }
-});
-
-// GET /api/repos/:repo/delete/:executionId - Get repo delete status
-// Returns: { status: running|succeeded|failed, error?: string }
-app.get('/api/repos/:repo/delete/:executionId', async (c) => {
-  const executionId = c.req.param('executionId');
-
-  if (!DELETE_REPO_STATE_MACHINE_ARN) {
-    return sendError(ApiTypes.RepoDeleteStatusResultType, internalError('Delete status not available'));
-  }
-
-  // Construct execution ARN from state machine ARN and execution name
-  const arnParts = DELETE_REPO_STATE_MACHINE_ARN.split(':');
-  const region = arnParts[3];
-  const account = arnParts[4];
-  const stateMachineName = arnParts[6];
-  const executionArn = `arn:aws:states:${region}:${account}:execution:${stateMachineName}:${executionId}`;
-
-  try {
-    const execution = await sfn.send(
-      new DescribeExecutionCommand({ executionArn })
-    );
-
-    // Map Step Functions status to our API status
-    switch (execution.status) {
-      case 'RUNNING':
-        return sendSuccess(ApiTypes.RepoDeleteStatusResultType, {
-          status: variant('running', null),
-          error: none,
-        });
-
-      case 'SUCCEEDED':
-        return sendSuccess(ApiTypes.RepoDeleteStatusResultType, {
-          status: variant('succeeded', null),
-          error: none,
-        });
-
-      case 'FAILED':
-      case 'TIMED_OUT':
-      case 'ABORTED': {
-        const errorMessage = execution.error
-          ? `${execution.error}: ${execution.cause ?? ''}`
-          : `Delete ${execution.status.toLowerCase()}`;
-        return sendSuccess(ApiTypes.RepoDeleteStatusResultType, {
-          status: variant('failed', null),
-          error: some(errorMessage),
-        });
-      }
-
-      default:
-        // PENDING or other states - treat as running
-        return sendSuccess(ApiTypes.RepoDeleteStatusResultType, {
-          status: variant('running', null),
-          error: none,
-        });
-    }
-  } catch (err: any) {
-    if (err.name === 'ExecutionDoesNotExist') {
-      return sendError(ApiTypes.RepoDeleteStatusResultType, internalError(`Delete execution not found: ${executionId}`));
-    }
-    console.error('Failed to get delete status:', err);
-    return sendError(ApiTypes.RepoDeleteStatusResultType, internalError('Failed to get delete status'));
+    return sendError(NullType, internalError('Failed to delete repository'));
   }
 });
 

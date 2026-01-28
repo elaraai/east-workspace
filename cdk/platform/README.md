@@ -45,7 +45,7 @@ The `E3PlatformStack` deploys a complete e3 platform with:
 | Lambda Functions | `e3-{id}-get-graph`, `-get-ready`, `-dispatch-task`, `-write-result`, `-mark-skipped`, `-finalize-execution` | Dataflow orchestration handlers |
 | API Gateway | `e3-{id}-api` | HTTP API with JWT auth |
 | Step Functions | `e3-{id}-dataflow` | Dataflow orchestration |
-| Step Functions | `e3-{id}-delete-repo`, `e3-{id}-gc` | Repo lifecycle |
+| Step Functions | `e3-{id}-gc` | Garbage collection |
 | ECR Repository | `e3-{id}-runner` | Task execution container image |
 | S3 Bucket | `e3-{id}-apps-{account}` | Static web apps |
 | CloudFront | - | CDN, custom domain |

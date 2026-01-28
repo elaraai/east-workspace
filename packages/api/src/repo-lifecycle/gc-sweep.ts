@@ -16,13 +16,9 @@
  * Designed to be called repeatedly by Step Functions until complete.
  */
 
-import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
-import {
-  DynamoDBClient,
-  QueryCommand,
-  BatchWriteItemCommand,
-} from '@aws-sdk/client-dynamodb';
-import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
+import { S3Client } from '@aws-sdk/client-s3';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoS3RepoStore, DynamoRefStore, S3ObjectStore } from '@elaraai/e3-storage';
 
 // Initialize AWS clients once at Lambda cold start
 const s3 = new S3Client({});
@@ -31,16 +27,14 @@ const dynamo = new DynamoDBClient({});
 const BUCKET_NAME = process.env.BUCKET_NAME!;
 const TABLE_NAME = process.env.TABLE_NAME!;
 
-// Time limit: quit at 13 minutes to leave buffer before 15 min Lambda timeout
-const TIME_LIMIT_MS = 13 * 60 * 1000;
+// Create stores for RepoStore
+const refStore = new DynamoRefStore(dynamo, TABLE_NAME);
+const objectStore = new S3ObjectStore(s3, dynamo, BUCKET_NAME, TABLE_NAME);
+const repoStore = new DynamoS3RepoStore(s3, dynamo, BUCKET_NAME, TABLE_NAME, refStore, objectStore);
 
 // Default minimum age for catalogue entries to be considered for deletion (60 seconds)
 // This protects against race conditions where an object is written during GC
 const DEFAULT_MIN_AGE_MS = 60 * 1000;
-
-// Batch sizes for DynamoDB operations
-const QUERY_BATCH_SIZE = 1000;
-const DELETE_BATCH_SIZE = 25; // BatchWriteItem limit
 
 /**
  * Input for the GC sweep phase handler.
@@ -99,12 +93,12 @@ export interface GcSweepOutput {
  *
  * Deletes unreachable catalogue entries from DynamoDB, respecting lastReferencedAt
  * to avoid race conditions with concurrent writes.
+ * Uses the RepoStore interface for the sweep operation.
  */
 export const handler = async (input: GcSweepInput): Promise<GcSweepOutput> => {
   const { repo, gcId, startTime, reachableSetKey } = input;
   const minAge = input.minAge ?? DEFAULT_MIN_AGE_MS;
-  const sweepStartTime = Date.now();
-  let catalogueCursor = input.catalogueCursor;
+  const catalogueCursor = input.catalogueCursor;
 
   // Initialize or continue stats
   const stats: GcSweepStats = input.stats ?? {
@@ -118,94 +112,31 @@ export const handler = async (input: GcSweepInput): Promise<GcSweepOutput> => {
     currentStats: stats,
   });
 
-  // Load reachable set from S3 (only on first iteration or if not cached)
-  const reachable = await loadReachableSet(reachableSetKey);
-  console.log(`Loaded ${reachable.size} reachable hashes`);
+  // Use RepoStore.gcSweep() for the sweep operation
+  const result = await repoStore.gcSweep(repo, reachableSetKey, {
+    minAge,
+    cursor: catalogueCursor,
+  });
 
-  // Calculate cutoff time: catalogue entries updated after this time are skipped
-  const cutoffTime = new Date(startTime - minAge).toISOString();
+  // Update stats with this batch's results
+  stats.deletedEntries += result.deleted;
+  stats.skippedYoung += result.skippedYoung;
+  // Note: retainedEntries is tracked in stats but not returned by RepoStore.gcSweep
 
-  // Query and process catalogue entries
-  while (true) {
-    // Check time limit
-    if (Date.now() - sweepStartTime > TIME_LIMIT_MS) {
-      console.log('Time limit reached during sweep, continuing...');
-      return {
-        repo,
-        gcId,
-        startTime,
-        reachableSetKey,
-        status: 'continue',
-        catalogueCursor,
-        stats,
-      };
-    }
-
-    // Query catalogue entries
-    let exclusiveStartKey: Record<string, any> | undefined;
-    if (catalogueCursor) {
-      exclusiveStartKey = JSON.parse(catalogueCursor);
-    }
-
-    const queryResponse = await dynamo.send(
-      new QueryCommand({
-        TableName: TABLE_NAME,
-        KeyConditionExpression: 'PK = :pk',
-        ExpressionAttributeValues: marshall({ ':pk': `OBJ/${repo}` }),
-        ProjectionExpression: 'PK, SK, lastReferencedAt',
-        ExclusiveStartKey: exclusiveStartKey,
-        Limit: QUERY_BATCH_SIZE,
-        ConsistentRead: true,
-      })
-    );
-
-    if (!queryResponse.Items || queryResponse.Items.length === 0) {
-      // No more entries
-      break;
-    }
-
-    // Collect entries to delete
-    const toDelete: { PK: string; SK: string }[] = [];
-
-    for (const item of queryResponse.Items) {
-      const unmarshalled = unmarshall(item);
-      const hash = unmarshalled.SK as string;
-      const lastReferencedAt = unmarshalled.lastReferencedAt as string;
-
-      // Check if hash is reachable
-      if (reachable.has(hash)) {
-        stats.retainedEntries++;
-        continue;
-      }
-
-      // Check if entry was updated after cutoff (race protection)
-      if (lastReferencedAt && lastReferencedAt > cutoffTime) {
-        stats.skippedYoung++;
-        continue;
-      }
-
-      // Entry is unreachable and old enough - mark for deletion
-      toDelete.push({
-        PK: unmarshalled.PK as string,
-        SK: hash,
-      });
-    }
-
-    // Batch delete unreachable entries
-    if (toDelete.length > 0) {
-      await batchDeleteCatalogueEntries(toDelete);
-      stats.deletedEntries += toDelete.length;
-      console.log(`Deleted ${toDelete.length} catalogue entries in this batch`);
-    }
-
-    // Check for more entries
-    if (queryResponse.LastEvaluatedKey) {
-      catalogueCursor = JSON.stringify(queryResponse.LastEvaluatedKey);
-    } else {
-      // No more entries
-      catalogueCursor = undefined;
-      break;
-    }
+  if (result.status === 'continue') {
+    console.log(`Sweep batch complete, continuing...`, {
+      deletedThisBatch: result.deleted,
+      skippedYoung: result.skippedYoung,
+    });
+    return {
+      repo,
+      gcId,
+      startTime,
+      reachableSetKey,
+      status: 'continue',
+      catalogueCursor: result.cursor,
+      stats,
+    };
   }
 
   // Sweep complete
@@ -220,47 +151,3 @@ export const handler = async (input: GcSweepInput): Promise<GcSweepOutput> => {
     stats,
   };
 };
-
-/**
- * Load the reachable set from S3.
- */
-async function loadReachableSet(key: string): Promise<Set<string>> {
-  const response = await s3.send(
-    new GetObjectCommand({
-      Bucket: BUCKET_NAME,
-      Key: key,
-    })
-  );
-
-  if (!response.Body) {
-    return new Set();
-  }
-
-  const data = await response.Body.transformToString();
-  const hashes = data.split('\n').filter((h) => h.length === 64);
-
-  return new Set(hashes);
-}
-
-/**
- * Batch delete catalogue entries from DynamoDB.
- */
-async function batchDeleteCatalogueEntries(
-  entries: Array<{ PK: string; SK: string }>
-): Promise<void> {
-  for (let i = 0; i < entries.length; i += DELETE_BATCH_SIZE) {
-    const batch = entries.slice(i, i + DELETE_BATCH_SIZE);
-
-    await dynamo.send(
-      new BatchWriteItemCommand({
-        RequestItems: {
-          [TABLE_NAME]: batch.map((entry) => ({
-            DeleteRequest: {
-              Key: marshall({ PK: entry.PK, SK: entry.SK }),
-            },
-          })),
-        },
-      })
-    );
-  }
-}

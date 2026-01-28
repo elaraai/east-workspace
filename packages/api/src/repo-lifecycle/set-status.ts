@@ -4,7 +4,7 @@
  *
  * Set Status Lambda Handlers
  *
- * Handlers for transitioning repository status in the state machine.
+ * Handlers for transitioning repository status in the GC state machine.
  * Each handler is a separate export for use in different Step Function states.
  */
 
@@ -65,34 +65,6 @@ export interface SetStatusOutput {
 }
 
 /**
- * Set repo status to 'deleting'.
- *
- * Only succeeds if current status is 'active'.
- * Called at the start of the delete state machine.
- */
-export const setDeletingHandler = async (input: SetStatusInput): Promise<SetStatusOutput> => {
-  const { repo, executionArn } = input;
-
-  console.log(`Setting repo ${repo} to 'deleting'`);
-
-  try {
-    await refStore.setRepoStatus(repo, 'active', 'deleting', executionArn);
-    return { repo, status: 'deleting', success: true };
-  } catch (error) {
-    if (error instanceof InvalidRepoStatusError) {
-      console.error(`Failed to set deleting: ${error.message}`);
-      return {
-        repo,
-        status: error.actualStatus as RepoStatus,
-        success: false,
-        error: error.message,
-      };
-    }
-    throw error;
-  }
-};
-
-/**
  * Set repo status to 'gc'.
  *
  * Only succeeds if current status is 'active'.
@@ -151,19 +123,4 @@ export const setActiveHandler = async (input: SetStatusInput): Promise<SetStatus
     }
     throw error;
   }
-};
-
-/**
- * Remove repo metadata (final deletion step).
- *
- * Called after all S3 objects and DynamoDB items are deleted.
- * Removes the repo metadata item, completing the deletion.
- */
-export const removeMetadataHandler = async (input: { repo: string }): Promise<{ repo: string; removed: boolean }> => {
-  const { repo } = input;
-
-  console.log(`Removing metadata for repo ${repo}`);
-
-  await refStore.removeRepoMetadata(repo);
-  return { repo, removed: true };
 };

@@ -10,6 +10,7 @@ This package provides the cloud storage backend for e3, implementing the `Storag
 - **Refs**: DynamoDB (packages, workspaces, executions)
 - **Locks**: DynamoDB (with TTL for automatic cleanup)
 - **Logs**: DynamoDB (chunked for real-time streaming)
+- **Repos**: DynamoDB + S3 (repository lifecycle and GC)
 
 ## DynamoDB Single-Table Schema
 
@@ -232,10 +233,48 @@ s3://{bucket}/
 
 ```
 packages/storage/src/
-├── s3-dynamo-storage.ts    # Main StorageBackend implementation
-├── s3-object-store.ts      # S3-backed ObjectStore
-├── dynamo-ref-store.ts     # DynamoDB-backed RefStore + repo management
-├── dynamo-lock-service.ts  # DynamoDB-backed LockService
-├── dynamo-log-store.ts     # DynamoDB-backed LogStore
-└── index.ts                # Exports
+├── s3-dynamo-storage.ts      # Main StorageBackend implementation
+├── s3-object-store.ts        # S3-backed ObjectStore
+├── dynamo-ref-store.ts       # DynamoDB-backed RefStore + repo management
+├── dynamo-s3-repo-store.ts   # DynamoDB + S3-backed RepoStore (lifecycle & GC)
+├── dynamo-lock-service.ts    # DynamoDB-backed LockService
+├── dynamo-log-store.ts       # DynamoDB-backed LogStore
+└── index.ts                  # Exports
 ```
+
+## RepoStore Interface
+
+The `DynamoS3RepoStore` class implements the `RepoStore` interface from `@elaraai/e3-core`, providing repository lifecycle management:
+
+### Methods
+
+| Method | Description |
+|--------|-------------|
+| `list()` | List all repository names (excludes non-active repos) |
+| `exists(repo)` | Check if a repository exists |
+| `getMetadata(repo)` | Get repository status and timestamps |
+| `create(repo)` | Create a new repository (atomic) |
+| `setStatus(repo, status, expected?)` | Atomic status transition with optional CAS |
+| `remove(repo)` | Remove repository metadata (final cleanup step) |
+| `deleteRefsBatch(repo, cursor?)` | Delete DynamoDB refs in batches |
+| `deleteObjectsBatch(repo, cursor?)` | Delete S3 objects in batches |
+| `gcMark(repo)` | GC mark phase - collect roots and trace reachable objects |
+| `gcSweep(repo, ref, opts?)` | GC sweep phase - delete unreachable objects in batches |
+| `gcCleanup(repo, ref)` | GC cleanup - delete orphaned S3 versions and temp files |
+
+### AWS-Specific Extensions
+
+For Lambda handlers that need to track Step Functions executions:
+
+| Method | Description |
+|--------|-------------|
+| `setStatusWithExecutionArn(repo, status, expected, arn?)` | Set status with execution ARN |
+| `getCloudMetadata(repo)` | Get metadata including execution ARN |
+
+### Error Types
+
+The interface uses standard e3-core error types:
+
+- `RepoAlreadyExistsError` - Thrown when creating a repo that already exists
+- `RepoNotFoundError` - Thrown when repo doesn't exist
+- `RepoStatusConflictError` - Thrown when CAS check fails (expected status doesn't match)

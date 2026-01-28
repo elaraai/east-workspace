@@ -139,7 +139,6 @@ export class E3PlatformStack extends cdk.Stack {
   public readonly taskRunner: lambda.IFunction;
   public readonly taskStateMachine: sfn.IStateMachine;
   public readonly dataflowStateMachine: sfn.IStateMachine;
-  public readonly deleteRepoStateMachine: sfn.IStateMachine;
   public readonly gcStateMachine: sfn.IStateMachine;
 
   // Frontend
@@ -1114,131 +1113,6 @@ export class E3PlatformStack extends cdk.Stack {
     this.apiHandler.addEnvironment('DATAFLOW_STATE_MACHINE_ARN', this.dataflowStateMachine.stateMachineArn);
 
     // ============================================================
-    // DELETE REPO STATE MACHINE
-    // ============================================================
-
-    // Lambda: Set repo status to 'deleting'
-    const setDeletingFn = new nodejs.NodejsFunction(this, 'SetDeletingHandler', {
-      functionName: `${prefix}-set-deleting`,
-      runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(apiPackagePath, 'src', 'repo-lifecycle', 'set-status.ts'),
-      handler: 'setDeletingHandler',
-      bundling: {
-        minify: true,
-        sourceMap: true,
-        format: nodejs.OutputFormat.ESM,
-        banner: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
-      },
-      timeout: cdk.Duration.seconds(30),
-      memorySize: 256,
-      environment: {
-        TABLE_NAME: this.dataTable.tableName,
-      },
-    });
-    this.dataTable.grantReadWriteData(setDeletingFn);
-
-    // Lambda: Delete S3 objects and DynamoDB items in batches
-    const deleteBatchFn = new nodejs.NodejsFunction(this, 'DeleteBatchHandler', {
-      functionName: `${prefix}-delete-batch`,
-      runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(apiPackagePath, 'src', 'repo-lifecycle', 'delete-batch.ts'),
-      handler: 'handler',
-      bundling: {
-        minify: true,
-        sourceMap: true,
-        format: nodejs.OutputFormat.ESM,
-        banner: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
-      },
-      timeout: cdk.Duration.minutes(15),
-      memorySize: 1024,
-      environment: {
-        TABLE_NAME: this.dataTable.tableName,
-        BUCKET_NAME: this.dataBucket.bucketName,
-      },
-    });
-    this.dataTable.grantReadWriteData(deleteBatchFn);
-    this.dataBucket.grantReadWrite(deleteBatchFn);
-
-    // Lambda: Remove repo metadata (final step)
-    const removeMetadataFn = new nodejs.NodejsFunction(this, 'RemoveMetadataHandler', {
-      functionName: `${prefix}-remove-metadata`,
-      runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(apiPackagePath, 'src', 'repo-lifecycle', 'set-status.ts'),
-      handler: 'removeMetadataHandler',
-      bundling: {
-        minify: true,
-        sourceMap: true,
-        format: nodejs.OutputFormat.ESM,
-        banner: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
-      },
-      timeout: cdk.Duration.seconds(30),
-      memorySize: 256,
-      environment: {
-        TABLE_NAME: this.dataTable.tableName,
-      },
-    });
-    this.dataTable.grantReadWriteData(removeMetadataFn);
-
-    // Step Function: DeleteRepo
-    // Flow: SetDeleting -> DeleteBatch (loop) -> RemoveMetadata
-    const setDeletingState = new tasks.LambdaInvoke(this, 'SetDeletingState', {
-      lambdaFunction: setDeletingFn,
-      outputPath: '$.Payload',
-      retryOnServiceExceptions: true,
-    });
-
-    const deleteBatchState = new tasks.LambdaInvoke(this, 'DeleteBatchState', {
-      lambdaFunction: deleteBatchFn,
-      outputPath: '$.Payload',
-      retryOnServiceExceptions: true,
-    });
-
-    const removeMetadataState = new tasks.LambdaInvoke(this, 'RemoveMetadataState', {
-      lambdaFunction: removeMetadataFn,
-      outputPath: '$.Payload',
-      retryOnServiceExceptions: true,
-    });
-
-    const deletionComplete = new sfn.Succeed(this, 'DeletionComplete', {
-      comment: 'Repository deleted successfully',
-    });
-
-    const deletionFailed = new sfn.Fail(this, 'DeletionFailed', {
-      error: 'DeletionFailed',
-      cause: 'Failed to transition repo to deleting state',
-    });
-
-    // Check if SetDeleting succeeded
-    const checkSetDeletingResult = new sfn.Choice(this, 'CheckSetDeletingResult')
-      .when(sfn.Condition.booleanEquals('$.success', false), deletionFailed)
-      .otherwise(deleteBatchState);
-
-    // Check if we need to continue deleting
-    const checkDeleteBatchResult = new sfn.Choice(this, 'CheckDeleteBatchResult')
-      .when(sfn.Condition.stringEquals('$.status', 'continue'), deleteBatchState)
-      .otherwise(removeMetadataState);
-
-    // Wire up the state machine
-    const deleteRepoDefinition = setDeletingState
-      .next(checkSetDeletingResult);
-
-    deleteBatchState.next(checkDeleteBatchResult);
-    removeMetadataState.next(deletionComplete);
-
-    this.deleteRepoStateMachine = new sfn.StateMachine(this, 'DeleteRepoStateMachine', {
-      stateMachineName: `${prefix}-delete-repo`,
-      definitionBody: sfn.DefinitionBody.fromChainable(deleteRepoDefinition),
-      timeout: cdk.Duration.hours(24),
-    });
-
-    // Grant API handler permission to start delete state machine and read execution status
-    this.deleteRepoStateMachine.grantStartExecution(this.apiHandler);
-    this.deleteRepoStateMachine.grantRead(this.apiHandler); // For DescribeExecution
-
-    // Add state machine ARN to API handler environment
-    this.apiHandler.addEnvironment('DELETE_REPO_STATE_MACHINE_ARN', this.deleteRepoStateMachine.stateMachineArn);
-
-    // ============================================================
     // GC STATE MACHINE
     // ============================================================
 
@@ -1686,11 +1560,6 @@ export class E3PlatformStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'DataflowStateMachineArn', {
       value: this.dataflowStateMachine.stateMachineArn,
       description: 'Dataflow orchestration state machine ARN',
-    });
-
-    new cdk.CfnOutput(this, 'DeleteRepoStateMachineArn', {
-      value: this.deleteRepoStateMachine.stateMachineArn,
-      description: 'Delete repo state machine ARN',
     });
 
     new cdk.CfnOutput(this, 'GcStateMachineArn', {

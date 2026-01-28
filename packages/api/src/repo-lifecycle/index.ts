@@ -4,23 +4,14 @@
  *
  * Repository Lifecycle Handlers
  *
- * Lambda handlers for repository lifecycle operations (create, GC, delete).
+ * Lambda handlers for repository lifecycle operations (GC).
  * These are invoked by Step Functions state machines.
  */
 
-// Delete handlers
+// Status transition handlers (for GC state machine)
 export {
-  handler as deleteBatchHandler,
-  type DeleteBatchInput,
-  type DeleteBatchOutput,
-} from './delete-batch.js';
-
-// Status transition handlers
-export {
-  setDeletingHandler,
   setGCHandler,
   setActiveHandler,
-  removeMetadataHandler,
   type SetStatusInput,
   type SetStatusOutput,
 } from './set-status.js';

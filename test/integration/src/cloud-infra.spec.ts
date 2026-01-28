@@ -150,20 +150,6 @@ describe('AWS Services Integration Tests', { timeout: 60000 }, () => {
       );
     });
 
-    it('should have delete repo state machine', async () => {
-      const command = new DescribeStateMachineCommand({
-        stateMachineArn: outputs.deleteRepoStateMachineArn,
-      });
-
-      const response = await sfn.send(command);
-
-      assert.strictEqual(response.status, 'ACTIVE');
-      assert.ok(
-        response.name?.includes('delete-repo'),
-        `State machine name should contain 'delete-repo', got ${response.name}`
-      );
-    });
-
     it('should have GC state machine', async () => {
       const command = new DescribeStateMachineCommand({
         stateMachineArn: outputs.gcStateMachineArn,
@@ -197,10 +183,6 @@ describe('AWS Services Integration Tests', { timeout: 60000 }, () => {
       assert.ok(
         outputs.dataflowStateMachineArn.includes(deploymentId),
         `dataflowStateMachineArn should contain ${deploymentId}`
-      );
-      assert.ok(
-        outputs.deleteRepoStateMachineArn.includes(deploymentId),
-        `deleteRepoStateMachineArn should contain ${deploymentId}`
       );
       assert.ok(
         outputs.gcStateMachineArn.includes(deploymentId),
