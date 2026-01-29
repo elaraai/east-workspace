@@ -714,25 +714,8 @@ export class E3PlatformStack extends cdk.Stack {
     this.dataTable.grantReadWriteData(applyTreeUpdatesFn);
     this.dataBucket.grantReadWrite(applyTreeUpdatesFn);
 
-    // Lambda: Mark downstream tasks as skipped after failure
-    const markSkippedFn = new nodejs.NodejsFunction(this, 'MarkSkippedHandler', {
-      functionName: `${prefix}-mark-skipped`,
-      runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(runnerPackagePath, 'src', 'handlers', 'mark-skipped.ts'),
-      handler: 'handler',
-      bundling: {
-        minify: true,
-        sourceMap: true,
-        format: nodejs.OutputFormat.ESM,
-        banner: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
-      },
-      timeout: cdk.Duration.seconds(60),
-      memorySize: 512,
-      environment: {
-        TABLE_NAME: this.dataTable.tableName,
-      },
-    });
-    this.dataTable.grantReadWriteData(markSkippedFn);
+    // Note: Mark-skipped functionality is now handled inline by write-result.ts
+    // using stepTaskFailed + stepTasksSkipped from e3-core
 
     // Lambda: Finalize execution state (update status to completed/failed)
     const finalizeExecutionFn = new nodejs.NodejsFunction(this, 'FinalizeExecutionHandler', {
@@ -955,6 +938,8 @@ export class E3PlatformStack extends cdk.Stack {
         'outputPath.$': '$.outputPath',
         'status': 'failed',
         'error.$': '$.execution.Payload.error',
+        'exitCode.$': '$.execution.Payload.exitCode',
+        'duration.$': '$.execution.Payload.duration',
       },
     });
 
@@ -1012,6 +997,7 @@ export class E3PlatformStack extends cdk.Stack {
 
     // Map state for parallel task execution
     // Use high concurrency - each task runs in its own Lambda, limited only by Lambda service limits
+    // Note: Handlers now load execution state (including graph) from DynamoDB
     const dispatchTasksMap = new sfn.Map(this, 'DispatchTasksMap', {
       maxConcurrency: 100,
       itemsPath: '$.readyTasks',
@@ -1020,7 +1006,6 @@ export class E3PlatformStack extends cdk.Stack {
         'repo.$': '$.repo',
         'workspace.$': '$.workspace',
         'executionId.$': '$.executionId',
-        'graph.$': '$.graph',
         'force.$': '$.force',
       },
       resultPath: '$.taskResults',
@@ -1033,7 +1018,6 @@ export class E3PlatformStack extends cdk.Stack {
         'repo.$': '$.repo',
         'workspace.$': '$.workspace',
         'executionId.$': '$.executionId',
-        'graph.$': '$.graph',
         'force.$': '$.force',
         // Pass task results as tree updates to the apply step
         'treeUpdates.$': '$.taskResults',
@@ -1053,16 +1037,16 @@ export class E3PlatformStack extends cdk.Stack {
     applyTreeUpdatesState.next(getReadyState);
 
     // Pass state to flatten GetReady result and add readyCount
-    // Input has $.graph from GetGraph and $.readyResult.Payload from GetReady
+    // Note: graph is now stored in DynamoDB and loaded by handlers as needed
     const checkReadyTasks = new sfn.Pass(this, 'CheckReadyTasks', {
       parameters: {
         'repo.$': '$.repo',
         'workspace.$': '$.workspace',
         'executionId.$': '$.executionId',
-        'graph.$': '$.graph',
         'force.$': '$.force',
         'readyTasks.$': '$.readyResult.Payload.readyTasks',
         'allCompleted.$': '$.readyResult.Payload.allCompleted',
+        'cancelled.$': '$.readyResult.Payload.cancelled',
         'completedCount.$': '$.readyResult.Payload.completedCount',
         'failedCount.$': '$.readyResult.Payload.failedCount',
         'skippedCount.$': '$.readyResult.Payload.skippedCount',
@@ -1071,9 +1055,34 @@ export class E3PlatformStack extends cdk.Stack {
       },
     });
 
+    // Prepare state for cancelled execution finalization
+    const prepareFinalizeCancel = new sfn.Pass(this, 'PrepareFinalizeCancel', {
+      parameters: {
+        'repo.$': '$.repo',
+        'workspace.$': '$.workspace',
+        'executionId.$': '$.executionId',
+        'status': 'failed',
+      },
+    });
+
+    // Finalize for cancelled execution (reuse failure finalization)
+    const finalizeCancelState = new tasks.LambdaInvoke(this, 'FinalizeCancelState', {
+      lambdaFunction: finalizeExecutionFn,
+      outputPath: '$.Payload',
+      retryOnServiceExceptions: true,
+    });
+    prepareFinalizeCancel.next(finalizeCancelState);
+    finalizeCancelState.next(dataflowFailed);
+
     // Choice: All tasks complete?
     // Check completion status and handle success/failure appropriately
+    // Also checks for cancellation
     const isAllCompleteChoice = new sfn.Choice(this, 'IsAllComplete')
+      .when(
+        // Cancelled -> finalize as failed
+        sfn.Condition.booleanEquals('$.cancelled', true),
+        prepareFinalizeCancel
+      )
       .when(
         // All complete with failures -> finalize as failed
         sfn.Condition.and(

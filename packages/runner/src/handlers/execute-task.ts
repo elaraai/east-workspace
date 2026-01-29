@@ -163,16 +163,31 @@ export interface TaskExecutionResult {
  * Lambda handler: Execute a task using east-py CLI.
  *
  * This handler:
- * 1. Downloads task IR and inputs from S3
- * 2. Runs east-py CLI to execute the task
- * 3. Uploads output to S3
- * 4. Returns output hash for Step Functions
+ * 1. Checks for cancellation before starting
+ * 2. Downloads task IR and inputs from S3
+ * 3. Runs east-py CLI to execute the task
+ * 4. Uploads output to S3
+ * 5. Returns output hash for Step Functions
  */
 export async function handler(event: TaskExecutionEvent): Promise<TaskExecutionResult> {
   const { repo, workspace, executionId, taskName, taskHash, inputHashes } = event;
   const startTime = Date.now();
   const workDir = mkdtempSync(join(tmpdir(), 'task-'));
   const inputsHash = computeInputsHash(inputHashes);
+
+  // Check for cancellation before starting expensive work
+  // Note: We use a lightweight DynamoDB check here rather than loading full state
+  const execStatus = await checkExecutionStatus(repo, workspace, executionId);
+  if (execStatus === 'cancelled') {
+    console.log(`Execution ${executionId} was cancelled, skipping task ${taskName}`);
+    rmSync(workDir, { recursive: true, force: true });
+    return {
+      taskName,
+      status: 'failed',
+      error: 'Execution was cancelled',
+      duration: Date.now() - startTime,
+    };
+  }
 
   // Record 'start' event immediately when task begins execution
   try {
@@ -411,6 +426,42 @@ async function writeLog(
       }),
     })
   );
+}
+
+/**
+ * Check execution status from DynamoDB.
+ * Returns the current status or null if not found.
+ */
+async function checkExecutionStatus(
+  repo: string,
+  workspace: string,
+  executionId: number
+): Promise<string | null> {
+  const { GetItemCommand } = await import('@aws-sdk/client-dynamodb');
+
+  const pk = `STATE/${repo}/${workspace}`;
+  const sk = executionId.toString().padStart(10, '0');
+
+  try {
+    const response = await dynamo.send(
+      new GetItemCommand({
+        TableName: TABLE_NAME,
+        Key: marshall({ PK: pk, SK: sk }),
+        ProjectionExpression: '#status',
+        ExpressionAttributeNames: { '#status': 'status' },
+      })
+    );
+
+    if (!response.Item) {
+      return null;
+    }
+
+    const item = unmarshall(response.Item);
+    return item.status ?? null;
+  } catch (err) {
+    console.error('Error checking execution status:', err);
+    return null;
+  }
 }
 
 /**

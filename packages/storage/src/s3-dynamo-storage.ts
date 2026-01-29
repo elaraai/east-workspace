@@ -5,7 +5,7 @@
 
 import type { S3Client } from '@aws-sdk/client-s3';
 import type { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import type { StorageBackend, LockService, LogStore, RepoStore } from '@elaraai/e3-core';
+import type { StorageBackend, LogStore, RepoStore, ExecutionStateStore } from '@elaraai/e3-core';
 import { RepositoryNotFoundError } from '@elaraai/e3-core';
 
 import { S3ObjectStore } from './s3-object-store.js';
@@ -13,6 +13,7 @@ import { DynamoRefStore } from './dynamo-ref-store.js';
 import { DynamoLockService } from './dynamo-lock-service.js';
 import { DynamoLogStore } from './dynamo-log-store.js';
 import { DynamoS3RepoStore } from './dynamo-s3-repo-store.js';
+import { DynamoDBStateStore } from './dynamo-state-store.js';
 
 /**
  * S3 + DynamoDB backed StorageBackend implementation.
@@ -44,9 +45,10 @@ import { DynamoS3RepoStore } from './dynamo-s3-repo-store.js';
 export class S3DynamoStorage implements StorageBackend {
   public readonly objects: S3ObjectStore;
   public readonly refs: DynamoRefStore;
-  public readonly locks: LockService;
+  public readonly locks: DynamoLockService;
   public readonly logs: LogStore;
   public readonly repos: RepoStore;
+  public readonly executions: ExecutionStateStore;
 
   constructor(
     s3: S3Client,
@@ -59,6 +61,7 @@ export class S3DynamoStorage implements StorageBackend {
     this.locks = new DynamoLockService(dynamo, tableName);
     this.logs = new DynamoLogStore(dynamo, tableName);
     this.repos = new DynamoS3RepoStore(s3, dynamo, bucket, tableName, this.refs, this.objects);
+    this.executions = new DynamoDBStateStore(dynamo, s3, bucket, tableName);
   }
 
   /**

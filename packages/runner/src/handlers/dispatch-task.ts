@@ -7,11 +7,10 @@ import { S3Client } from '@aws-sdk/client-s3';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { S3DynamoStorage } from '@elaraai/e3-storage';
 import {
-  dataflowResolveInputHashes,
-  dataflowCheckCache,
-  type DataflowGraph,
+  stepPrepareTask,
+  stepTaskStarted,
+  stepTaskCompleted,
 } from '@elaraai/e3-core';
-import { getStoredGraph } from './shared/graph-utils.js';
 
 // Initialize clients once at Lambda cold start
 const s3 = new S3Client({});
@@ -29,13 +28,12 @@ export interface DispatchTaskEvent {
   /** Numeric execution ID */
   executionId: number;
   taskName: string;
-  graph?: DataflowGraph;
   force?: boolean; // Skip cache check if true
 }
 
 export interface DispatchTaskResult {
   taskName: string;
-  status: 'ready' | 'cached' | 'not_ready';
+  status: 'ready' | 'cached' | 'not_ready' | 'cancelled';
   outputHash?: string;
   // Task execution parameters (when status is 'ready')
   taskHash?: string;
@@ -47,89 +45,80 @@ export interface DispatchTaskResult {
  * Lambda handler: Dispatch a task for execution.
  *
  * This handler:
- * 1. Resolves input hashes from the workspace
- * 2. Checks if the task is cached
- * 3. If cached, marks as cached and returns the output hash
- * 4. If not cached, returns task execution parameters for Step Functions
- *    to invoke the execute-task Lambda directly
+ * 1. Checks for cancellation before doing expensive work
+ * 2. Uses stepPrepareTask to resolve inputs and check cache
+ * 3. If cached, uses stepTaskCompleted to update state and returns cached status
+ * 4. If not cached, uses stepTaskStarted to mark task as started
+ * 5. Returns task execution parameters for Step Functions to invoke execute-task
+ *
+ * Uses e3-core step functions to eliminate duplicated business logic.
  */
 export async function handler(event: DispatchTaskEvent): Promise<DispatchTaskResult> {
   const { repo, workspace, executionId, taskName, force } = event;
+  const execId = executionId.toString().padStart(10, '0');
 
   console.log(`Dispatching task ${taskName} for execution ${executionId} (force=${force ?? false})`);
 
-  // Get graph from event or execution record
-  let graph = event.graph;
-  if (!graph) {
-    graph = await getStoredGraph(storage, repo, workspace, executionId);
+  // Read execution state
+  const state = await storage.executions.read(repo, workspace, execId);
+
+  // Check for cancellation before doing expensive work
+  if (!state || state.status === 'cancelled') {
+    console.log(`Execution ${executionId} was cancelled, skipping task ${taskName}`);
+    return { taskName, status: 'cancelled' };
   }
 
-  // Find the task in the graph
-  const task = graph.tasks.find((t) => t.name === taskName);
-  if (!task) {
-    throw new Error(`Task ${taskName} not found in graph`);
-  }
+  // Use stepPrepareTask to resolve inputs and check cache
+  // Note: stepPrepareTask uses state.force, which was set during initialization
+  const prepare = await stepPrepareTask(storage, state, taskName);
 
-  // Resolve input hashes from workspace
-  const inputHashes = await dataflowResolveInputHashes(storage, repo, workspace, task);
+  console.log(`Task ${taskName} inputs: ${prepare.inputHashes.length} hashes`);
 
-  console.log(`Task ${taskName} inputs: ${JSON.stringify(task.inputs)}`);
-  console.log(`Task ${taskName} inputHashes: ${JSON.stringify(inputHashes)}`);
+  // Helper to check and preserve cancelled status before saving
+  // This handles race conditions where cancel was called during our operation
+  const preserveCancelledStatus = async () => {
+    const currentState = await storage.executions.read(repo, workspace, execId);
+    if (currentState?.status === 'cancelled') {
+      (state as { status: string }).status = 'cancelled';
+    }
+  };
 
-  // Check if any input is unassigned
-  if (inputHashes.includes(null)) {
-    console.log(`Task ${taskName} has unassigned inputs, not ready`);
-    return { taskName, status: 'not_ready' };
-  }
+  // If cached and not forcing, mark as completed from cache
+  if (prepare.cachedOutputHash && !force) {
+    console.log(`Task ${taskName} is cached with output ${prepare.cachedOutputHash}`);
 
-  // All inputs are assigned - cast to string[]
-  const resolvedInputHashes = inputHashes as string[];
+    // Use stepTaskCompleted to update state (cached=true, duration=0)
+    stepTaskCompleted(state, taskName, prepare.cachedOutputHash, true, 0);
 
-  // Check cache (skip if force=true)
-  const cachedOutput = force ? null : await dataflowCheckCache(storage, repo, task.hash, resolvedInputHashes);
-  if (cachedOutput) {
-    console.log(`Task ${taskName} is cached with output ${cachedOutput}`);
+    // Check for cancellation before saving
+    await preserveCancelledStatus();
+    await storage.executions.update(state);
 
-    // Mark as cached in DynamoDB (Phase 3 schema: TASK/{repo}/{executionId})
-    await storage.refs.setTaskStatus(repo, executionId, taskName, {
-      status: 'cached',
-      outputHash: cachedOutput,
-      taskHash: task.hash,
-      inputHashes: resolvedInputHashes,
-      outputPath: task.output,
-      completedAt: new Date().toISOString(),
-    });
-
-    // Return all fields needed by Step Functions state machine
     return {
       taskName,
       status: 'cached',
-      outputHash: cachedOutput,
-      taskHash: task.hash,
-      inputHashes: resolvedInputHashes,
-      outputPath: task.output,
+      outputHash: prepare.cachedOutputHash,
+      taskHash: prepare.taskHash,
+      inputHashes: prepare.inputHashes,
+      outputPath: prepare.outputPath,
     };
   }
 
-  // Not cached - return task execution parameters for Step Functions
-  // to invoke execute-task Lambda directly
+  // Not cached - mark as started and return execution parameters
   console.log(`Task ${taskName} ready for execution`);
 
-  // Write ready status to DynamoDB (Phase 3 schema: TASK/{repo}/{executionId})
-  await storage.refs.setTaskStatus(repo, executionId, taskName, {
-    status: 'ready',
-    taskHash: task.hash,
-    inputHashes: resolvedInputHashes,
-    outputPath: task.output,
-    readyAt: new Date().toISOString(),
-  });
+  // Use stepTaskStarted to mark the task as in-progress
+  stepTaskStarted(state, taskName);
 
-  // Return task execution parameters for Step Functions
+  // Check for cancellation before saving
+  await preserveCancelledStatus();
+  await storage.executions.update(state);
+
   return {
     taskName,
     status: 'ready',
-    taskHash: task.hash,
-    inputHashes: resolvedInputHashes,
-    outputPath: task.output,
+    taskHash: prepare.taskHash,
+    inputHashes: prepare.inputHashes,
+    outputPath: prepare.outputPath,
   };
 }

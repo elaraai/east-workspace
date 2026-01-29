@@ -6,7 +6,7 @@
 import { S3Client } from '@aws-sdk/client-s3';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { S3DynamoStorage } from '@elaraai/e3-storage';
-import { dataflowGetGraph, type DataflowGraph } from '@elaraai/e3-core';
+import { stepInitialize, type DataflowGraph } from '@elaraai/e3-core';
 
 // Initialize clients once at Lambda cold start
 const s3 = new S3Client({});
@@ -41,32 +41,38 @@ export interface GetGraphResult {
  * Called by Step Functions at the start of dataflow execution.
  *
  * This handler:
- * 1. Calls e3-core dataflowGetGraph to build the dependency graph
- * 2. Transitions the execution from 'starting' to 'running'
- * 3. Stores the graph as an attribute of the execution record
- * 4. Returns the execution ID and graph for the state machine
+ * 1. Calls e3-core stepInitialize to build the dependency graph and initial state
+ * 2. Stores the state in the executions store
+ * 3. Returns the execution ID and graph for the state machine
  *
- * The execution record is pre-created by the API handler with 'starting' status.
- * This ensures clients can poll for status immediately after the API call returns.
+ * Uses e3-core step functions to eliminate duplicated business logic.
  */
 export async function handler(event: GetGraphEvent): Promise<GetGraphResult> {
   const { repo, workspace, executionId, force } = event;
+  const execId = executionId.toString().padStart(10, '0');
 
   console.log(`Getting graph for workspace ${workspace} in repo ${repo} (execution ${executionId})`);
 
-  // Build the dependency graph
-  const graph = await dataflowGetGraph(storage, repo, workspace);
-
-  console.log(`Graph has ${graph.tasks.length} tasks`);
-
-  // Transition execution from 'starting' to 'running' and store the graph
-  await storage.refs.startExecution(
+  // Use stepInitialize to build the graph and create initial state
+  const { state, readyTasks } = await stepInitialize(
+    storage,
     repo,
     workspace,
-    executionId,
-    JSON.stringify(graph),
-    graph.tasks.length
+    execId,
+    { force: force ?? false, concurrency: 4 }
   );
+
+  // Extract graph (stepInitialize always sets it inline)
+  const graph = state.graph.type === 'some' ? state.graph.value : null;
+  if (!graph) {
+    throw new Error('stepInitialize did not return a graph');
+  }
+
+  console.log(`Graph has ${graph.tasks.length} tasks, ${readyTasks.length} ready`);
+
+  // Update the state in the executions store
+  // (initial state was created by API handler to avoid race with polling)
+  await storage.executions.update(state);
 
   console.log(`Started execution ${executionId} for workspace ${workspace}`);
 

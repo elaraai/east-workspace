@@ -6,7 +6,12 @@
 import { S3Client } from '@aws-sdk/client-s3';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { S3DynamoStorage } from '@elaraai/e3-storage';
-import { inputsHash } from '@elaraai/e3-core';
+import {
+  stepTaskCompleted,
+  stepTaskFailed,
+  stepTasksSkipped,
+  inputsHash,
+} from '@elaraai/e3-core';
 import { variant } from '@elaraai/east';
 import type { ExecutionStatus } from '@elaraai/e3-types';
 
@@ -33,6 +38,7 @@ export interface WriteResultEvent {
   status: 'completed' | 'cached' | 'failed'; // Task status from Step Functions
   duration?: number; // Task execution duration in ms (only for executed tasks)
   error?: string; // Error message for failed tasks
+  exitCode?: number; // Exit code for failed tasks
 }
 
 export interface WriteResultOutput {
@@ -47,41 +53,53 @@ export interface WriteResultOutput {
 /**
  * Lambda handler: Record task result and return tree update info.
  *
- * Called by Step Functions after task execution. Updates task status and counters,
- * but does NOT write to workspace tree directly. Tree updates are collected and
- * applied serially by the ApplyTreeUpdates step to avoid lost update race conditions.
+ * Called by Step Functions after task execution. Updates task status using
+ * e3-core step functions, but does NOT write to workspace tree directly.
+ * Tree updates are collected and applied serially by the ApplyTreeUpdates
+ * step to avoid lost update race conditions.
+ *
+ * Uses e3-core step functions to eliminate duplicated business logic.
  *
  * @returns Tree update info (outputPath, outputHash) for successful tasks
  */
 export async function handler(event: WriteResultEvent): Promise<WriteResultOutput> {
-  const { repo, workspace, executionId, taskName, outputPath, outputHash, taskHash, inputHashes, status, duration, error } = event;
-  const now = new Date().toISOString();
+  const { repo, workspace, executionId, taskName, outputPath, outputHash, taskHash, inputHashes, status, duration, error, exitCode } = event;
+  const execId = executionId.toString().padStart(10, '0');
 
-  // Handle failed tasks differently - no output to write
+  // Read execution state
+  const state = await storage.executions.read(repo, workspace, execId);
+  if (!state) {
+    throw new Error(`Execution ${executionId} not found`);
+  }
+
+  // Helper to check and preserve cancelled status before saving
+  // This handles race conditions where cancel was called during our operation
+  const preserveCancelledStatus = async () => {
+    const currentState = await storage.executions.read(repo, workspace, execId);
+    if (currentState?.status === 'cancelled') {
+      (state as { status: string }).status = 'cancelled';
+    }
+  };
+
+  // Handle failed tasks
   if (status === 'failed') {
     console.log(`Recording failure for task ${taskName} in workspace ${workspace}`);
     console.log(`Error: ${error ?? 'unknown'}`);
 
-    // Update task status to 'failed' (Phase 3 schema: TASK/{repo}/{executionId})
-    await storage.refs.updateTaskStatus(repo, executionId, taskName, {
-      status: 'failed',
-      error: error ?? 'Task execution failed',
-      completedAt: now,
-    });
+    // Use stepTaskFailed to update state and get tasks to skip
+    const { result } = stepTaskFailed(state, taskName, error, exitCode, duration ?? 0);
 
-    // Update execution counters (Phase 3 schema: EXEC/{repo}/{workspace})
-    await storage.refs.incrementExecutionCounters(repo, workspace, executionId, {
-      failedCount: 1,
-    });
+    // Skip dependent tasks
+    if (result.toSkip.length > 0) {
+      console.log(`Skipping ${result.toSkip.length} dependent tasks: ${result.toSkip.join(', ')}`);
+      stepTasksSkipped(state, result.toSkip, taskName);
+    }
 
-    // Record 'failed' event (start event already recorded by execute-task)
-    await storage.refs.addExecutionEvent(repo, workspace, executionId, {
-      type: 'failed',
-      task: taskName,
-      timestamp: now,
-      duration: duration ?? 0,
-      exitCode: -1,
-    });
+    // Check for cancellation before saving
+    await preserveCancelledStatus();
+
+    // Save updated state
+    await storage.executions.update(state);
 
     console.log(`Recorded failure for task ${taskName}`);
     return { needsTreeUpdate: false };
@@ -91,55 +109,31 @@ export async function handler(event: WriteResultEvent): Promise<WriteResultOutpu
   console.log(`Recording result for task ${taskName} in workspace ${workspace} (${isCached ? 'cached' : 'executed'})`);
   console.log(`Output path: ${outputPath}, hash: ${outputHash}${isCached ? '' : `, duration: ${duration ?? 0}ms`}`);
 
-  if (isCached) {
-    // Cached task: dispatch-task already set status to 'cached', just increment counter
-    // Phase 3 schema: EXEC/{repo}/{workspace}
-    await storage.refs.incrementExecutionCounters(repo, workspace, executionId, {
-      cachedCount: 1,
-      completedCount: 1,
-    });
-    // No need to write execution cache - already exists from previous run
+  // Use stepTaskCompleted to update state
+  // Note: For cached tasks, dispatch-task already called stepTaskCompleted,
+  // but we call it again here for consistency (it's idempotent for same task)
+  if (!isCached) {
+    stepTaskCompleted(state, taskName, outputHash!, false, duration ?? 0);
+  }
 
-    // Record cached event
-    await storage.refs.addExecutionEvent(repo, workspace, executionId, {
-      type: 'cached',
-      task: taskName,
-      timestamp: now,
-    });
-  } else {
-    // Executed task: update status to 'success' with duration
-    // Phase 3 schema: TASK/{repo}/{executionId}
-    await storage.refs.updateTaskStatus(repo, executionId, taskName, {
-      status: 'success',
-      outputHash: outputHash,
-      completedAt: new Date().toISOString(),
-      duration: duration ?? 0,
-    });
+  // Check for cancellation before saving
+  await preserveCancelledStatus();
 
-    // Update execution counters (Phase 3 schema: EXEC/{repo}/{workspace})
-    await storage.refs.incrementExecutionCounters(repo, workspace, executionId, {
-      completedCount: 1,
-    });
+  // Save updated state
+  await storage.executions.update(state);
 
-    // Write execution cache record for e3-core's workspaceStatus to detect 'up-to-date'
-    // This is the record that executionGet() looks for when computing task status
+  // Write execution cache record for e3-core's workspaceStatus to detect 'up-to-date'
+  // This is the record that executionGet() looks for when computing task status
+  if (!isCached && taskHash && inputHashes && outputHash) {
     const cacheTime = new Date();
-    const inHash = inputsHash(inputHashes!);
+    const inHash = inputsHash(inputHashes);
     const executionStatus: ExecutionStatus = variant('success', {
-      inputHashes: inputHashes!,
-      outputHash: outputHash!,
-      startedAt: cacheTime,  // We don't have the actual start time, use completion time
+      inputHashes: inputHashes,
+      outputHash: outputHash,
+      startedAt: cacheTime, // We don't have the actual start time, use completion time
       completedAt: cacheTime,
     });
-    await storage.refs.executionWrite(repo, taskHash!, inHash, executionStatus);
-
-    // Record 'complete' event (start event already recorded by execute-task)
-    await storage.refs.addExecutionEvent(repo, workspace, executionId, {
-      type: 'complete',
-      task: taskName,
-      timestamp: now,
-      duration: duration ?? 0,
-    });
+    await storage.refs.executionWrite(repo, taskHash, inHash, executionStatus);
   }
 
   console.log(`Recorded result for task ${taskName} (${isCached ? 'cached' : 'executed'})`);

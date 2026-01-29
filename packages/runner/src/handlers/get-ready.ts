@@ -6,7 +6,7 @@
 import { S3Client } from '@aws-sdk/client-s3';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { S3DynamoStorage } from '@elaraai/e3-storage';
-import { dataflowGetReadyTasks, type DataflowGraph } from '@elaraai/e3-core';
+import { stepGetReady, stepIsComplete } from '@elaraai/e3-core';
 
 // Initialize clients once at Lambda cold start
 const s3 = new S3Client({});
@@ -23,7 +23,6 @@ export interface GetReadyEvent {
   workspace: string;
   /** Numeric execution ID */
   executionId: number;
-  graph?: DataflowGraph;
 }
 
 export interface GetReadyResult {
@@ -32,6 +31,7 @@ export interface GetReadyResult {
   executionId: number;
   readyTasks: string[];
   allCompleted: boolean;
+  cancelled: boolean;
   completedCount: number;
   failedCount: number;
   skippedCount: number;
@@ -45,75 +45,63 @@ export interface GetReadyResult {
  * - All its dependencies have completed (success or cached)
  * - It is not already dispatched, running, completed, failed, or skipped
  *
- * Phase 3 schema:
- * - Task statuses at PK: TASK/{repo}/{executionId}
- * - Execution (with graph) at PK: EXEC/{repo}/{workspace}, SK: {executionId}
+ * Uses e3-core step functions (stepGetReady, stepIsComplete) to eliminate
+ * duplicated business logic.
  */
 export async function handler(event: GetReadyEvent): Promise<GetReadyResult> {
   const { repo, workspace, executionId } = event;
+  const execId = executionId.toString().padStart(10, '0');
 
   console.log(`Getting ready tasks for execution ${executionId} in repo ${repo}`);
 
-  // Get graph from event or execution record
-  let graph = event.graph;
-  if (!graph) {
-    const execution = await storage.refs.getExecution(repo, workspace, executionId);
-    if (!execution) {
-      throw new Error(`Execution ${executionId} not found for workspace ${workspace}`);
-    }
-    if (!execution.graph) {
-      throw new Error(`Execution ${executionId} has no graph (status: ${execution.status})`);
-    }
-    graph = JSON.parse(execution.graph) as DataflowGraph;
+  // Read execution state from the store
+  const state = await storage.executions.read(repo, workspace, execId);
+
+  // Check for cancellation
+  if (!state || state.status === 'cancelled') {
+    console.log(`Execution ${executionId} was cancelled or not found`);
+    return {
+      repo,
+      workspace,
+      executionId,
+      readyTasks: [],
+      allCompleted: true,
+      cancelled: true,
+      completedCount: 0,
+      failedCount: 0,
+      skippedCount: 0,
+      inProgressCount: 0,
+    };
   }
 
-  // Query all task statuses for this execution (Phase 3 schema)
-  const taskStatuses = await storage.refs.getExecutionTasks(repo, executionId);
+  // Use step functions to get ready tasks and completion status
+  const readyTasks = stepGetReady(state);
+  const allCompleted = stepIsComplete(state);
 
-  // Build sets of task states
-  const completed = new Set<string>();
-  const inProgress = new Set<string>();
-  const failed = new Set<string>();
-  const skipped = new Set<string>();
+  // Count tasks by status for reporting
+  let completedCount = 0;
+  let failedCount = 0;
+  let skippedCount = 0;
+  let inProgressCount = 0;
 
-  for (const task of taskStatuses) {
-    switch (task.status) {
-      case 'success':
-      case 'cached':
-        completed.add(task.taskName);
-        break;
-      case 'dispatched':
-      case 'running':
-        inProgress.add(task.taskName);
+  for (const [, taskState] of state.tasks) {
+    switch (taskState.status) {
+      case 'completed':
+        completedCount++;
         break;
       case 'failed':
-      case 'error':
-        failed.add(task.taskName);
+        failedCount++;
         break;
       case 'skipped':
-        skipped.add(task.taskName);
+        skippedCount++;
+        break;
+      case 'in_progress':
+        inProgressCount++;
         break;
     }
   }
 
-  // Record events for newly completed tasks
-  await recordEventsForCompletedTasks(repo, workspace, executionId, taskStatuses);
-
-  // Get tasks that have all dependencies satisfied
-  const readyCandidates = dataflowGetReadyTasks(graph, completed);
-
-  // Filter out tasks that are already in-progress, failed, or skipped
-  const readyTasks = readyCandidates.filter(
-    (task) => !inProgress.has(task) && !failed.has(task) && !skipped.has(task)
-  );
-
-  // All tasks are complete when there are no ready tasks and no in-progress tasks
-  // and all tasks are either completed, failed, or skipped
-  const totalTasks = graph.tasks.length;
-  const processedCount = completed.size + failed.size + skipped.size;
-  const allCompleted = readyTasks.length === 0 && inProgress.size === 0 && processedCount >= totalTasks;
-
-  console.log(`Ready: ${readyTasks.length}, In-progress: ${inProgress.size}, Completed: ${completed.size}, Failed: ${failed.size}, Skipped: ${skipped.size}`);
+  console.log(`Ready: ${readyTasks.length}, In-progress: ${inProgressCount}, Completed: ${completedCount}, Failed: ${failedCount}, Skipped: ${skippedCount}`);
 
   return {
     repo,
@@ -121,34 +109,10 @@ export async function handler(event: GetReadyEvent): Promise<GetReadyResult> {
     executionId,
     readyTasks,
     allCompleted,
-    completedCount: completed.size,
-    failedCount: failed.size,
-    skippedCount: skipped.size,
-    inProgressCount: inProgress.size,
+    cancelled: false,
+    completedCount,
+    failedCount,
+    skippedCount,
+    inProgressCount,
   };
-}
-
-/**
- * Record events for newly completed tasks.
- * Only records events for tasks that haven't had events recorded yet.
- *
- * Note: Currently a no-op - events are recorded in write-result handler.
- * This function exists for potential future use when we might want to
- * record events during get-ready polling.
- */
-function recordEventsForCompletedTasks(
-  _repo: string,
-  _workspace: string,
-  _executionId: number,
-  _taskStatuses: Array<{
-    taskName: string;
-    status: string;
-    duration?: number;
-    exitCode?: number;
-    error?: string;
-  }>
-): Promise<void> {
-  // Events are recorded in write-result handler to avoid duplicate events.
-  // This function is kept for potential future use.
-  return Promise.resolve();
 }

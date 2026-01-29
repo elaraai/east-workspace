@@ -7,10 +7,11 @@ S3 + DynamoDB StorageBackend implementation for e3 cloud deployments.
 This package provides the cloud storage backend for e3, implementing the `StorageBackend` interface from `@elaraai/e3-core`:
 
 - **Objects**: S3 (content-addressed blobs)
-- **Refs**: DynamoDB (packages, workspaces, executions)
+- **Refs**: DynamoDB (packages, workspaces, execution cache)
 - **Locks**: DynamoDB (with TTL for automatic cleanup)
 - **Logs**: DynamoDB (chunked for real-time streaming)
 - **Repos**: DynamoDB + S3 (repository lifecycle and GC)
+- **Executions**: DynamoDB + S3 (`ExecutionStateStore` with BEAST2-encoded state)
 
 ## DynamoDB Single-Table Schema
 
@@ -74,72 +75,40 @@ Attributes:
   - completedAt?: string   # ISO timestamp
 ```
 
-### Dataflow Executions (Phase 3)
+### Execution State (ExecutionStateStore interface)
 
-Execution records with auto-increment numeric IDs. Each workspace gets its own partition, with SK="0" as the counter. Execution records use zero-padded string SKs (e.g., "0000000001") for proper alphanumeric sorting.
+Full execution state using BEAST2 encoding. Stores the complete `DataflowExecutionState` from `@elaraai/e3-types`, implementing the `ExecutionStateStore` interface from `@elaraai/e3-core`.
+
+This is the primary schema for dataflow execution state. The state includes:
+- Execution identity (id, repo, workspace)
+- Configuration (concurrency, force, filter)
+- Task states (Map of task name to TaskState)
+- Counters (executed, cached, failed, skipped)
+- Events (inline array of ExecutionEvent variants)
+- Graph (inline or externalized via graphHash)
 
 ```
-PK: EXEC/{repo}/{workspace}
-SK: "0" (counter) | {zero-padded id} (execution record)
+PK: STATE/{repo}/{workspace}
+SK: {executionId} (zero-padded 10 digits) | "_counter" (for ID generation)
 
-Counter record (SK: "0"):
+Counter record (SK: "_counter"):
   - nextId: number         # Next execution ID to allocate
 
-Execution record (SK: "0000000001", "0000000002", ...):
-  - id: number             # Numeric execution ID
-  - repo: string           # Repository name
-  - workspace: string      # Workspace name
-  - status: string         # 'starting' | 'running' | 'completed' | 'failed'
-  - startedAt: string      # ISO timestamp
-  - completedAt?: string   # ISO timestamp
-  - taskCount?: number     # Total tasks in graph (set when execution starts)
-  - completedCount: number # Successfully completed tasks
-  - failedCount: number    # Failed tasks
-  - skippedCount: number   # Skipped tasks (due to upstream failure)
-  - cachedCount: number    # Tasks served from cache
-  - eventSeq: number       # Counter for event sequence numbers
-  - graph?: string         # JSON-serialized task graph (set when execution starts)
+State record:
+  - state: Binary          # BEAST2-encoded DataflowExecutionState
+  - version: number        # Optimistic concurrency version
+  - updatedAt: string      # ISO timestamp
 ```
 
-### Dataflow Tasks (Phase 3)
+**Graph Externalization:** For graphs exceeding 350KB, the graph is stored separately in S3 and referenced via the `graphHash` field within the BEAST2-encoded state. The graph is automatically loaded when reading state.
 
-Per-task status within a dataflow execution. Each execution gets its own partition.
+### Externalized Graphs (S3)
 
-```
-PK: TASK/{repo}/{executionId}
-SK: {taskName}
-Attributes:
-  - status: string         # 'dispatched' | 'running' | 'success' | 'cached' | 'failed' | 'error' | 'skipped' | 'ready'
-  - outputHash?: string    # SHA256 hash of output
-  - outputPath?: string    # Path where output is written
-  - taskHash?: string      # Hash of the task definition
-  - inputHashes?: string[] # Hashes of task inputs
-  - exitCode?: number      # Process exit code
-  - error?: string         # Error message
-  - reason?: string        # Reason for skipped tasks
-  - duration?: number      # Execution duration (ms)
-  - heartbeat?: number     # Unix timestamp of last heartbeat
-  - readyAt?: string       # ISO timestamp when task became ready
-  - completedAt?: string   # ISO timestamp when task completed
-  - failedAt?: string      # ISO timestamp when task failed
-  - skippedAt?: string     # ISO timestamp when task was skipped
-```
-
-### Dataflow Events (Phase 3)
-
-Event log for dataflow execution (for UI/monitoring). Each execution gets its own partition.
+Large graphs are stored separately in S3 to avoid DynamoDB's 400KB limit.
 
 ```
-PK: EVENT/{repo}/{executionId}
-SK: {seq} (zero-padded 6 digits)
-Attributes:
-  - eventType: string      # 'start' | 'complete' | 'cached' | 'failed' | 'error' | 'skipped'
-  - task: string           # Task name
-  - timestamp: string      # ISO timestamp
-  - duration?: number      # Task duration (ms)
-  - exitCode?: number      # Process exit code
-  - message?: string       # Additional message
-  - reason?: string        # Failure/skip reason
+Key: graphs/{repo}/{graphHash}.beast2
+Content: BEAST2-encoded DataflowGraph
 ```
 
 ### Object Catalogue
@@ -218,16 +187,14 @@ s3://{bucket}/
 | Get execution cache | PK = CACHE/{repo}/{taskHash}, SK = {inputsHash} | GetItem |
 | List cache entries (repo) | PK begins_with CACHE/{repo}/ | Scan (filter) |
 | List cache entries (task) | PK = CACHE/{repo}/{taskHash} | Query |
-| Create execution (Phase 3) | PK = EXEC/{repo}/{workspace}, SK = "0" | UpdateItem (atomic increment) |
-| Get execution (Phase 3) | PK = EXEC/{repo}/{workspace}, SK = {padded-id} | GetItem |
-| List executions (Phase 3) | PK = EXEC/{repo}/{workspace}, SK > "0" | Query (descending) |
-| Get task statuses (Phase 3) | PK = TASK/{repo}/{executionId} | Query |
-| Get events (Phase 3) | PK = EVENT/{repo}/{executionId} | Query |
+| Get execution state | PK = STATE/{repo}/{workspace}, SK = {execId} | GetItem |
+| Get latest execution state | PK = STATE/{repo}/{workspace} | Query (desc) |
+| Generate execution ID | PK = STATE/{repo}/{workspace}, SK = "_counter" | UpdateItem (atomic) |
 | Get lock | PK = LOCK/{repo}, SK = {resource} | GetItem |
 | Read logs | PK = LOG/{repo}/{taskHash}/{inputsHash}, SK begins_with {stream}/ | Query |
 | Get object catalogue entry | PK = OBJ/{repo}, SK = {hash} | GetItem |
 | List objects (catalogue) | PK = OBJ/{repo} | Query |
-| Delete repo | PKG/{repo}, WS/{repo}, LOCK/{repo}, REPO#{repo}, OBJ/{repo} (Query) + CACHE/{repo}/, LOG/{repo}/, EXEC/{repo}/, TASK/{repo}/, EVENT/{repo}/ (Scan) | Query + Scan + BatchDelete |
+| Delete repo | PKG/{repo}, WS/{repo}, LOCK/{repo}, REPO#{repo}, OBJ/{repo}, STATE/{repo}/ (Query) + CACHE/{repo}/, LOG/{repo}/ (Scan) | Query + Scan + BatchDelete |
 
 ## Files
 
@@ -239,6 +206,7 @@ packages/storage/src/
 ├── dynamo-s3-repo-store.ts   # DynamoDB + S3-backed RepoStore (lifecycle & GC)
 ├── dynamo-lock-service.ts    # DynamoDB-backed LockService
 ├── dynamo-log-store.ts       # DynamoDB-backed LogStore
+├── dynamo-state-store.ts     # DynamoDB + S3-backed ExecutionStateStore
 └── index.ts                  # Exports
 ```
 

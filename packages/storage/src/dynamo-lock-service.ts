@@ -194,6 +194,26 @@ export class DynamoLockService implements LockService {
   }
 
   /**
+   * Force release a lock by repo and resource (without holding the handle).
+   * Used when lock was acquired in a different Lambda invocation.
+   */
+  async forceRelease(repo: string, resource: string): Promise<void> {
+    try {
+      await this.dynamo.send(
+        new DeleteItemCommand({
+          TableName: this.tableName,
+          Key: marshall({
+            PK: `LOCK/${repo}`,
+            SK: resource,
+          }),
+        })
+      );
+    } catch (error) {
+      console.warn(`Failed to force release lock ${resource}:`, error);
+    }
+  }
+
+  /**
    * Attempt to acquire the lock once.
    */
   private async tryAcquire(

@@ -24,6 +24,7 @@ import {
   InvalidRepoStatusError,
 } from '@elaraai/e3-storage';
 import { StringType, NullType, ArrayType, variant, some, none } from '@elaraai/east';
+import { stepCancel, coreStateToApiState, type DataflowExecutionState } from '@elaraai/e3-core';
 
 // =============================================================================
 // Cloud Dataflow Notes
@@ -368,15 +369,56 @@ app.post('/api/repos/:repo/workspaces/:ws/dataflow', async (c) => {
     return sendError(NullType, internalError('Dataflow execution not available - state machine not configured'));
   }
 
+  // Acquire workspace lock to prevent concurrent executions
+  const lock = await storage.locks.acquire(
+    repo,
+    `workspace/${workspace}`,
+    variant('dataflow', null),
+    { wait: false }  // Don't wait, fail immediately if locked
+  );
+
+  if (!lock) {
+    // Return workspace_locked error - the error code contains "lock" which tests check for
+    return sendError(NullType, variant('workspace_locked', {
+      workspace,
+      holder: variant('unknown', null),
+    }));
+  }
+
   try {
     // Decode BEAST2-encoded body to get force flag
     const body = await decodeBody(c, ApiTypes.DataflowRequestType);
     const force = body.force;
 
-    // Create execution record in 'starting' status before starting Step Function
-    // This ensures polling can see the execution immediately
-    const execution = await refStore.createExecution(repo, workspace);
-    console.log(`Created execution ${execution.id} for ${repo}/${workspace} in 'starting' status`);
+    // Get next execution ID from NEW STATE/ schema
+    const execId = await storage.executions.nextExecutionId(repo, workspace);
+    console.log(`Generated execution ID ${execId} for ${repo}/${workspace}`);
+
+    // Create initial execution state in NEW STATE/ schema
+    // This ensures polling can see the execution immediately, before Step Functions runs
+    const initialState: DataflowExecutionState = {
+      id: execId,
+      repo,
+      workspace,
+      startedAt: new Date(),
+      concurrency: 4n,
+      force: force ?? false,
+      filter: none,
+      graph: none,
+      graphHash: none,
+      tasks: new Map(),
+      executed: 0n,
+      cached: 0n,
+      failed: 0n,
+      skipped: 0n,
+      status: 'running',
+      completedAt: none,
+      error: none,
+      events: [],
+      eventSeq: 0n,
+    };
+    await storage.executions.create(initialState);
+    console.log(`Created initial execution state for ${repo}/${workspace} in 'running' status`);
 
     // Generate unique Step Functions execution name
     const sfnExecutionId = randomUUID();
@@ -390,19 +432,56 @@ app.post('/api/repos/:repo/workspaces/:ws/dataflow', async (c) => {
         input: JSON.stringify({
           repo,
           workspace,
-          executionId: execution.id,
+          executionId: parseInt(execId, 10), // Convert to number for backward compatibility
           force, // Pass force flag to state machine
         }),
       })
     );
 
-    console.log(`Started dataflow state machine for ${repo}/${workspace} (force=${force}, executionId=${execution.id})`);
+    console.log(`Started dataflow state machine for ${repo}/${workspace} (force=${force}, executionId=${execId})`);
 
+    // DON'T release lock here - finalize-execution will release it
     // Return 202 Accepted with null body (matches e3-api-server)
     return sendSuccessWithStatus(NullType, null, 202);
   } catch (err) {
+    // Release lock on error
+    await lock.release();
     console.error('Failed to start dataflow:', err);
     return sendError(NullType, internalError('Failed to start dataflow execution'));
+  }
+});
+
+// POST /api/repos/:repo/workspaces/:ws/dataflow/cancel - Cancel running dataflow execution
+// Returns NullType
+app.post('/api/repos/:repo/workspaces/:ws/dataflow/cancel', async (c) => {
+  const repo = c.req.param('repo');
+  const workspace = c.req.param('ws');
+
+  try {
+    // Get latest execution state
+    const state = await storage.executions.readLatest(repo, workspace);
+
+    if (!state) {
+      return sendError(NullType, internalError('No execution found for this workspace'));
+    }
+
+    // Check if execution is still running
+    if (state.status !== 'running') {
+      return sendError(NullType, internalError(`Cannot cancel execution in '${state.status}' state`));
+    }
+
+    // Use stepCancel to update state
+    stepCancel(state, 'User requested cancellation');
+    await storage.executions.update(state);
+
+    // Release workspace lock since execution is being cancelled
+    await storage.locks.forceRelease(repo, `workspace/${workspace}`);
+
+    console.log(`Cancelled execution ${state.id} for ${repo}/${workspace}`);
+    return sendSuccess(NullType, null);
+  } catch (err) {
+    console.error('Failed to cancel dataflow:', err);
+    return sendError(NullType, internalError('Failed to cancel dataflow execution'));
   }
 });
 
@@ -417,24 +496,49 @@ app.get('/api/repos/:repo/workspaces/:ws/dataflow/execution', async (c) => {
   const limit = c.req.query('limit') ? parseInt(c.req.query('limit')!, 10) : undefined;
 
   try {
-    // Get latest execution state from DynamoDB (Phase 3 schema)
-    const execState = await refStore.getExecution(repo, workspace);
+    console.log(`Getting execution state for ${repo}/${workspace}`);
 
-    if (!execState) {
+    // Get latest execution state from ExecutionStateStore
+    const state = await storage.executions.readLatest(repo, workspace);
+
+    if (!state) {
+      console.log(`No execution found for ${repo}/${workspace}`);
       return sendError(ApiTypes.DataflowExecutionStateType, internalError('No execution found for this workspace'));
     }
 
-    // Get events from DynamoDB (Phase 3 schema: EVENT/{repo}/{executionId})
-    // Events are stored with sequence numbers for stable offset-based pagination
-    const { events: rawEvents, total: totalEvents } = await refStore.getExecutionEvents(
-      repo,
-      execState.id,
-      offset,
-      limit
-    );
+    console.log(`Found execution ${state.id} with status ${state.status}`);
 
-    // Convert DataflowEvent records to API variant format
-    const events = rawEvents.map(e => {
+    // Calculate duration from timestamps
+    const completedAt = state.completedAt.type === 'some' ? state.completedAt.value : null;
+    const durationMs = completedAt
+      ? completedAt.getTime() - state.startedAt.getTime()
+      : Date.now() - state.startedAt.getTime();
+
+    // Slice events for pagination (offset/limit)
+    const allEvents = state.events;
+    const totalEvents = allEvents.length;
+    const slicedEvents = limit !== undefined
+      ? allEvents.slice(offset, offset + limit)
+      : allEvents.slice(offset);
+
+    console.log(`Converting state to API format (${totalEvents} events)`);
+
+    // Use coreStateToApiState for conversion
+    const apiState = coreStateToApiState(state, slicedEvents, totalEvents, durationMs);
+
+    console.log(`Loaded ${slicedEvents.length} events (offset=${offset}, total=${totalEvents}) for execution ${state.id}`);
+
+    // Convert to the API response format with variant types
+    const statusVariant = apiState.status === 'running'
+      ? variant('running', null)
+      : apiState.status === 'completed'
+        ? variant('completed', null)
+        : apiState.status === 'aborted'
+          ? variant('aborted', null)
+          : variant('failed', null);
+
+    // Convert API events to variant format expected by sendSuccess
+    const events = apiState.events.map(e => {
       switch (e.type) {
         case 'start':
           return variant('start', {
@@ -457,7 +561,7 @@ app.get('/api/repos/:repo/workspaces/:ws/dataflow/execution', async (c) => {
             task: e.task,
             timestamp: e.timestamp,
             duration: e.duration ?? 0,
-            exitCode: BigInt(e.exitCode ?? -1),
+            exitCode: e.exitCode ?? 0n,
           });
         case 'error':
           return variant('error', {
@@ -465,53 +569,28 @@ app.get('/api/repos/:repo/workspaces/:ws/dataflow/execution', async (c) => {
             timestamp: e.timestamp,
             message: e.message ?? 'Unknown error',
           });
-        case 'skipped':
+        case 'input_unavailable':
           return variant('input_unavailable', {
             task: e.task,
             timestamp: e.timestamp,
             reason: e.reason ?? 'Upstream task failed',
           });
-        default:
-          return variant('error', {
-            task: e.task,
-            timestamp: e.timestamp,
-            message: `Unknown event type: ${e.type}`,
-          });
       }
     });
 
-    console.log(`Loaded ${events.length} events (offset=${offset}, total=${totalEvents}) for execution ${execState.id}`);
-
-    // Build summary if execution is complete
-    // Calculate duration from timestamps if available
-    const durationMs = execState.completedAt
-      ? new Date(execState.completedAt).getTime() - new Date(execState.startedAt).getTime()
-      : 0;
-    // No summary while starting or running
-    const isInProgress = execState.status === 'starting' || execState.status === 'running';
-    const summary = isInProgress ? none : some({
-      executed: BigInt(execState.completedCount - execState.cachedCount),
-      cached: BigInt(execState.cachedCount),
-      failed: BigInt(execState.failedCount),
-      skipped: BigInt(execState.skippedCount),
-      duration: durationMs / 1000, // Convert ms to seconds
-    });
-
-    // Build response matching DataflowExecutionStateType
-    // Map execution status to variant ('starting' maps to 'running' for API compatibility)
-    const statusVariant = execState.status === 'starting' || execState.status === 'running'
-      ? variant('running', null)
-      : execState.status === 'completed'
-        ? variant('completed', null)
-        : variant('failed', null);
-
     return sendSuccess(ApiTypes.DataflowExecutionStateType, {
       status: statusVariant,
-      startedAt: execState.startedAt,
-      completedAt: execState.completedAt ? some(execState.completedAt) : none,
-      summary,
-      events, // Already paginated by getExecutionEvents
-      totalEvents: BigInt(totalEvents),
+      startedAt: state.startedAt.toISOString(),
+      completedAt: apiState.completedAt ? some(apiState.completedAt) : none,
+      summary: apiState.summary ? some({
+        executed: apiState.summary.executed,
+        cached: apiState.summary.cached,
+        failed: apiState.summary.failed,
+        skipped: apiState.summary.skipped,
+        duration: apiState.summary.duration,
+      }) : none,
+      events,
+      totalEvents: apiState.totalEvents,
     });
   } catch (err) {
     console.error('Failed to get dataflow execution:', err);
