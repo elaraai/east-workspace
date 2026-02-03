@@ -1,0 +1,55 @@
+#!/usr/bin/env node
+
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Licensed under the Business Source License 1.1. See LICENSE.md for details.
+ */
+
+/**
+ * e3-admin CLI - repository access control management.
+ */
+
+import { Command } from 'commander';
+import { whoamiCommand } from './commands/whoami.js';
+import { userCommand } from './commands/user.js';
+
+const program = new Command();
+
+program
+  .name('e3-admin')
+  .description('e3 repository access control management')
+  .version('0.0.1-alpha.0');
+
+// e3-admin whoami [server]
+program
+  .command('whoami [server]')
+  .description('Show current user identity and admin status')
+  .action(whoamiCommand);
+
+// e3-admin user <subcommand>
+const user = program
+  .command('user')
+  .description('User management commands');
+
+user
+  .command('list')
+  .description('List users with access to a repository')
+  .argument('<url>', 'Repository URL (e.g., https://server/repos/my-repo)')
+  .action(userCommand.list);
+
+user
+  .command('add')
+  .description('Add a user to a repository')
+  .argument('<url>', 'Repository URL')
+  .argument('<email>', 'User email address')
+  .option('--role <role>', 'Role to assign (owner or member)', 'member')
+  .action(userCommand.add);
+
+user
+  .command('remove')
+  .description('Remove a user from a repository')
+  .argument('<url>', 'Repository URL')
+  .argument('<email>', 'User email address')
+  .action(userCommand.remove);
+
+program.parse();

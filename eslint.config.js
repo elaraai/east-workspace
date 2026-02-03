@@ -5,6 +5,9 @@ import headers from 'eslint-plugin-headers';
 // Proprietary license header
 const proprietaryHeader = 'Copyright (c) 2025 Elara AI Pty Ltd. All rights reserved.\nProprietary and confidential.';
 
+// BSL 1.1 license header (for e3-admin-* packages)
+const bslHeader = 'Copyright (c) 2025 Elara AI Pty Ltd\nLicensed under the Business Source License 1.1. See LICENSE.md for details.';
+
 const baseRules = {
   ...tseslint.configs.recommended.rules,
   '@typescript-eslint/no-explicit-any': 'off',
@@ -63,10 +66,32 @@ export default [
       }]
     }
   },
-  // Packages - source files
+  // BSL-licensed packages (e3-admin-*)
+  {
+    files: ['packages/e3-admin-*/src/**/*.ts'],
+    ignores: ['**/*.spec.ts', '**/*.test.ts'],
+    languageOptions: {
+      parser: tsparser,
+      parserOptions: {
+        project: true
+      }
+    },
+    plugins: {
+      '@typescript-eslint': tseslint,
+      'headers': headers
+    },
+    rules: {
+      ...baseRules,
+      'headers/header-format': ['error', {
+        source: 'string',
+        content: bslHeader
+      }]
+    }
+  },
+  // Packages - source files (proprietary, excludes e3-admin-*)
   {
     files: ['packages/*/src/**/*.ts'],
-    ignores: ['**/*.spec.ts', '**/*.test.ts'],
+    ignores: ['**/*.spec.ts', '**/*.test.ts', 'packages/e3-admin-*/src/**/*.ts'],
     languageOptions: {
       parser: tsparser,
       parserOptions: {

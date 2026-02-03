@@ -524,7 +524,7 @@ The codebase has **inconsistent adherence to the interface abstraction pattern**
 
 ### 1. RefStore Interface Violation (Critical)
 
-**Location:** `packages/storage/src/dynamo-ref-store.ts`
+**Location:** `packages/e3-aws-storage/src/dynamo-ref-store.ts`
 
 The `DynamoRefStore` class declares `implements RefStore` but adds ~25 methods that are **not part of the interface**:
 
@@ -548,7 +548,7 @@ LocalStorage types all properties as **interfaces**, not concrete classes. Local
 
 **What east-aws does instead:**
 ```typescript
-// packages/storage/src/s3-dynamo-storage.ts:45
+// packages/e3-aws-storage/src/s3-dynamo-storage.ts:45
 public readonly refs: DynamoRefStore;  // Concrete type exposes extra methods!
 ```
 
@@ -623,7 +623,7 @@ e3-api-server uses:
 
 **What east-aws does instead:**
 ```typescript
-// packages/api/src/index.ts:441-476
+// packages/e3-aws-api/src/index.ts:441-476
 // Directly calls DynamoRefStore methods, not through any interface
 const execution = await refStore.createExecution(repo, workspace);  // Not in RefStore!
 
@@ -689,7 +689,7 @@ All I/O goes through the storage abstraction (`storage.objects`, `storage.logs`,
 
 **What east-aws does instead:**
 ```typescript
-// packages/runner/src/handlers/execute-task.ts
+// packages/e3-aws-runner/src/handlers/execute-task.ts
 const s3 = new S3Client({});           // Direct AWS client
 const dynamo = new DynamoDBClient({}); // Direct AWS client
 
@@ -718,7 +718,7 @@ class LogBuffer {
 
 ### 4. execute-task.ts Bypasses Storage Abstraction (High)
 
-**Location:** `packages/runner/src/handlers/execute-task.ts`
+**Location:** `packages/e3-aws-runner/src/handlers/execute-task.ts`
 
 **What e3 does:**
 ```typescript
@@ -752,7 +752,7 @@ await storage.logs.append(repo, taskHash, inputsHash, 'stdout', data);
 
 ### 5. Stub Handlers Never Integrated (Medium)
 
-**Location:** `packages/runner/src/handlers/`
+**Location:** `packages/e3-aws-runner/src/handlers/`
 
 Two handlers are placeholder stubs with TODO comments:
 
@@ -783,7 +783,7 @@ These appear to be superseded by `dispatch-task.ts` and `execute-task.ts` but re
 
 ### 6. Legacy/V2 Method Duplication - Dead Code (Medium)
 
-**Location:** `packages/storage/src/dynamo-ref-store.ts`
+**Location:** `packages/e3-aws-storage/src/dynamo-ref-store.ts`
 
 There are two parallel schemas in the codebase from an incomplete migration:
 
@@ -829,7 +829,7 @@ No persistence needed - state is for current server session only. No migration c
 
 ### 1. `parsePathString` - Direct Copy from e3-core (High)
 
-**Location:** `packages/runner/src/handlers/apply-tree-updates.ts:75-113`
+**Location:** `packages/e3-aws-runner/src/handlers/apply-tree-updates.ts:75-113`
 
 Exact copy of the function in `e3/packages/e3-core/src/dataflow.ts:69-107`.
 
@@ -839,7 +839,7 @@ Exact copy of the function in `e3/packages/e3-core/src/dataflow.ts:69-107`.
 
 ### 2. `ObjectNotFoundError` - Duplicated Error Class (Medium)
 
-**Location:** `packages/storage/src/s3-object-store.ts:231-239`
+**Location:** `packages/e3-aws-storage/src/s3-object-store.ts:231-239`
 
 e3-core exports `ObjectNotFoundError` but east-aws defines its own version with a different signature:
 
@@ -855,8 +855,8 @@ e3-core exports `ObjectNotFoundError` but east-aws defines its own version with 
 ### 3. `computeInputsHash` - Duplicated (Medium)
 
 **Locations:**
-- `packages/runner/src/handlers/write-result.ts:159-162`
-- `packages/runner/src/handlers/execute-task.ts:392-395`
+- `packages/e3-aws-runner/src/handlers/write-result.ts:159-162`
+- `packages/e3-aws-runner/src/handlers/execute-task.ts:392-395`
 
 This function computes SHA256 of joined input hashes. e3-core exports the identical function as `inputsHash`.
 
@@ -874,15 +874,15 @@ const dynamo = new DynamoDBClient({});
 const storage = new S3DynamoStorage(s3, dynamo, process.env.BUCKET_NAME!, process.env.TABLE_NAME!);
 ```
 
-**Fix:** Create shared initialization in `@elaraai/e3-storage`.
+**Fix:** Create shared initialization in `@elaraai/e3-aws-storage`.
 
 ---
 
 ### 5. `getStoredGraph` Helper - Duplicated (Low)
 
 **Locations:**
-- `packages/runner/src/handlers/dispatch-task.ts:141`
-- `packages/runner/src/handlers/mark-skipped.ts:109`
+- `packages/e3-aws-runner/src/handlers/dispatch-task.ts:141`
+- `packages/e3-aws-runner/src/handlers/mark-skipped.ts:109`
 
 **Fix:** Extract to shared module.
 
@@ -891,8 +891,8 @@ const storage = new S3DynamoStorage(s3, dynamo, process.env.BUCKET_NAME!, proces
 ### 6. Execution ARN Construction - Duplicated (Low)
 
 **Locations:**
-- `packages/api/src/index.ts:218-222`
-- `packages/api/src/index.ts:336-340`
+- `packages/e3-aws-api/src/index.ts:218-222`
+- `packages/e3-aws-api/src/index.ts:336-340`
 
 **Fix:** Extract to utility function.
 
@@ -983,8 +983,8 @@ Also make it public in `dataflow.ts` (currently internal).
 #### 2.1 Extract `DynamoRepoManager` class
 
 **Files:**
-- **Create:** `packages/storage/src/dynamo-repo-manager.ts`
-- **Modify:** `packages/storage/src/dynamo-ref-store.ts` (remove repo methods)
+- **Create:** `packages/e3-aws-storage/src/dynamo-repo-manager.ts`
+- **Modify:** `packages/e3-aws-storage/src/dynamo-ref-store.ts` (remove repo methods)
 
 Move these methods from `DynamoRefStore` to new class:
 - `listRepos()` → `list()`
@@ -999,8 +999,8 @@ Move these methods from `DynamoRefStore` to new class:
 #### 2.2 Extract `DynamoOrchestrator` class
 
 **Files:**
-- **Create:** `packages/storage/src/dynamo-orchestrator.ts`
-- **Modify:** `packages/storage/src/dynamo-ref-store.ts` (remove orchestration methods)
+- **Create:** `packages/e3-aws-storage/src/dynamo-orchestrator.ts`
+- **Modify:** `packages/e3-aws-storage/src/dynamo-ref-store.ts` (remove orchestration methods)
 
 Move these methods from `DynamoRefStore` to new class:
 - `createExecution()`
@@ -1017,7 +1017,7 @@ Move these methods from `DynamoRefStore` to new class:
 
 #### 2.3 Remove legacy methods (dead code)
 
-**File:** `packages/storage/src/dynamo-ref-store.ts`
+**File:** `packages/e3-aws-storage/src/dynamo-ref-store.ts`
 
 Delete:
 - `getExecutionState()` (Phase 1)
@@ -1028,7 +1028,7 @@ Delete:
 
 #### 2.4 Fix `S3DynamoStorage` type
 
-**File:** `packages/storage/src/s3-dynamo-storage.ts`
+**File:** `packages/e3-aws-storage/src/s3-dynamo-storage.ts`
 
 ```typescript
 // Before:
@@ -1048,7 +1048,7 @@ public readonly orchestrator: DataflowOrchestrator;
 
 #### 3.1 Refactor `execute-task.ts`
 
-**File:** `packages/runner/src/handlers/execute-task.ts`
+**File:** `packages/e3-aws-runner/src/handlers/execute-task.ts`
 
 **Changes:**
 1. Use `storage.objects.read()` instead of direct S3 `downloadObject()`
@@ -1060,7 +1060,7 @@ public readonly orchestrator: DataflowOrchestrator;
 
 #### 3.2 Refactor `write-result.ts`
 
-**File:** `packages/runner/src/handlers/write-result.ts`
+**File:** `packages/e3-aws-runner/src/handlers/write-result.ts`
 
 **Changes:**
 1. Import `inputsHash` from `@elaraai/e3-core`
@@ -1077,8 +1077,8 @@ public readonly orchestrator: DataflowOrchestrator;
 #### 3.4 Remove stub handlers
 
 **Delete:**
-- `packages/runner/src/handlers/check-cache.ts`
-- `packages/runner/src/handlers/run-task.ts`
+- `packages/e3-aws-runner/src/handlers/check-cache.ts`
+- `packages/e3-aws-runner/src/handlers/run-task.ts`
 
 Update any Step Functions state machine definitions that reference them.
 
@@ -1088,7 +1088,7 @@ Update any Step Functions state machine definitions that reference them.
 
 #### 4.1 Import `parsePathString` from e3-core
 
-**File:** `packages/runner/src/handlers/apply-tree-updates.ts`
+**File:** `packages/e3-aws-runner/src/handlers/apply-tree-updates.ts`
 
 ```typescript
 // Before:
@@ -1101,12 +1101,12 @@ import { parsePathString } from '@elaraai/e3-core';
 #### 4.2 Create shared `getStoredGraph` helper
 
 **Files:**
-- **Create:** `packages/runner/src/handlers/shared/graph-utils.ts`
+- **Create:** `packages/e3-aws-runner/src/handlers/shared/graph-utils.ts`
 - **Modify:** `dispatch-task.ts`, `mark-skipped.ts` to import from shared
 
 #### 4.3 Create shared ARN construction utility
 
-**File:** `packages/api/src/utils/arn.ts`
+**File:** `packages/e3-aws-api/src/utils/arn.ts`
 
 ```typescript
 export function buildExecutionArn(stateMachineArn: string, executionId: string): string {
@@ -1120,7 +1120,7 @@ export function buildExecutionArn(stateMachineArn: string, executionId: string):
 
 #### 4.4 Create shared storage initialization
 
-**File:** `packages/storage/src/init.ts`
+**File:** `packages/e3-aws-storage/src/init.ts`
 
 ```typescript
 import { S3Client } from '@aws-sdk/client-s3';
@@ -1322,7 +1322,7 @@ async isHolderAlive(holderStr: string): Promise<boolean> {
 | File | Changes |
 |------|---------|
 | `cdk/platform/lib/e3-platform-stack.ts` | Add `sfnExecutionArn.$` to all Lambda task inputs |
-| `packages/storage/src/dynamo-lock-service.ts` | Add SFN client, implement `describeExecution` check |
+| `packages/e3-aws-storage/src/dynamo-lock-service.ts` | Add SFN client, implement `describeExecution` check |
 | Lambda handlers (`execute-task.ts`, etc.) | Accept `sfnExecutionArn` from event, pass to lock service |
 
 #### 5. IAM Permissions

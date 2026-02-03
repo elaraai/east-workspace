@@ -104,9 +104,13 @@ e3-aws/
 │       └── E3PlatformStack       # Complete platform stack
 │
 ├── packages/               # TypeScript packages
-│   ├── api/                # Lambda API handler (Hono)
-│   ├── storage/            # S3 + DynamoDB storage backend
-│   └── runner/             # Task execution Lambda
+│   ├── e3-aws-api/         # Lambda API handler (Hono)
+│   ├── e3-aws-storage/     # S3 + DynamoDB storage backend
+│   ├── e3-aws-runner/      # Task execution Lambda
+│   ├── e3-admin-types/     # Shared authorization types
+│   ├── e3-admin-core/      # Authorization logic
+│   ├── e3-admin-client/    # Admin API client
+│   └── e3-admin-cli/       # Access control CLI
 │
 ├── web/                    # React frontend (Vite)
 │
@@ -146,9 +150,13 @@ Elara AWS Organization
 
 | Package | Description |
 |---------|-------------|
-| `@elaraai/e3-api` | Lambda handler - routes, auth, OIDC discovery |
-| `@elaraai/e3-storage` | S3DynamoStorage backend implementation |
-| `@elaraai/e3-runner` | Task execution Lambda for Step Functions |
+| `@elaraai/e3-aws-api` | Lambda handler - routes, auth, OIDC discovery |
+| `@elaraai/e3-aws-storage` | S3DynamoStorage backend implementation |
+| `@elaraai/e3-aws-runner` | Task execution Lambda for Step Functions |
+| `@elaraai/e3-admin-types` | Shared East types for authorization |
+| `@elaraai/e3-admin-core` | Authorization logic and interfaces |
+| `@elaraai/e3-admin-client` | HTTP client for admin API |
+| `@elaraai/e3-admin-cli` | CLI for access control management |
 | `@elaraai/e3-web` | React frontend application |
 | `@elaraai/e3-accounts` | CDK for account provisioning |
 | `@elaraai/e3-platform` | CDK for platform deployment |

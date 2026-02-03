@@ -29,15 +29,23 @@ e3-aws/
 │           └── e3-aws.ts             # CDK app entry
 │
 ├── packages/
-│   ├── api/                  # Lambda handlers for API (@elaraai/e3-api)
+│   ├── e3-aws-api/           # Lambda handlers for API (@elaraai/e3-aws-api)
 │   │   └── src/handlers/     # Route handlers
 │   │
-│   ├── storage/              # EFS-backed StorageBackend (@elaraai/e3-storage)
+│   ├── e3-aws-storage/       # S3+DynamoDB StorageBackend (@elaraai/e3-aws-storage)
 │   │   └── src/
-│   │       └── efs-backend.ts
+│   │       └── s3-dynamo-storage.ts
 │   │
-│   └── runner/               # Task execution handlers (@elaraai/e3-runner)
-│       └── src/handlers/     # Step Functions Lambda handlers
+│   ├── e3-aws-runner/        # Task execution handlers (@elaraai/e3-aws-runner)
+│   │   └── src/handlers/     # Step Functions Lambda handlers
+│   │
+│   ├── e3-admin-types/       # Shared East types for authorization (@elaraai/e3-admin-types)
+│   │
+│   ├── e3-admin-core/        # Authorization logic and interfaces (@elaraai/e3-admin-core)
+│   │
+│   ├── e3-admin-client/      # HTTP client for admin API (@elaraai/e3-admin-client)
+│   │
+│   └── e3-admin-cli/         # CLI for access control management (@elaraai/e3-admin-cli)
 │
 ├── web/                      # Vite frontend app (@elaraai/e3-web)
 │   └── src/

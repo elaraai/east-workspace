@@ -15,6 +15,7 @@
 import * as cdk from 'aws-cdk-lib';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as path from 'node:path';
@@ -38,6 +39,7 @@ import * as ecr from 'aws-cdk-lib/aws-ecr';
 import { Construct } from 'constructs';
 import { CrossRegionCertificate } from './cross-region-certificate.js';
 import { CrossAccountRoute53Record } from './cross-account-route53-record.js';
+import { CognitoTestUsers } from './cognito-test-users.js';
 
 /**
  * SSM parameter paths for optional OIDC identity provider configuration.
@@ -103,6 +105,13 @@ export interface E3PlatformStackProps extends cdk.StackProps {
   deploymentId: string;
 
   /**
+   * Group name that grants admin access.
+   * Must match the IdP group name exactly (e.g., EntraID group).
+   * @default 'e3-admins'
+   */
+  adminGroup?: string;
+
+  /**
    * Custom domain configuration.
    * If not provided, reads from SSM parameters (/e3/domain/*).
    * If SSM parameters not found, uses CloudFront's default domain.
@@ -120,6 +129,24 @@ export interface E3PlatformStackProps extends cdk.StackProps {
    * @default []
    */
   allowedOrigins?: string[];
+
+  /**
+   * Test user configuration for integration testing.
+   * When enabled, creates test users in Cognito with passwords stored in Secrets Manager.
+   */
+  testUsers?: {
+    /**
+     * Enable test user creation.
+     * @default false
+     */
+    enabled: boolean;
+
+    /**
+     * Email domain for test user addresses.
+     * @default 'test.elaraai.com'
+     */
+    emailDomain?: string;
+  };
 }
 
 export class E3PlatformStack extends cdk.Stack {
@@ -154,6 +181,12 @@ export class E3PlatformStack extends cdk.Stack {
 
     const { deploymentId } = props;
     const prefix = `e3-${deploymentId}`;
+
+    // Compute repo root path (relative to compiled CDK code location)
+    // At runtime, __dirname is dist/lib/, so we go up 4 levels to reach repo root
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = path.dirname(__filename);
+    const repoRoot = path.join(__dirname, '..', '..', '..', '..');
 
     // ============================================================
     // DOMAIN CONFIGURATION
@@ -279,6 +312,10 @@ export class E3PlatformStack extends cdk.Stack {
         email: { required: true, mutable: true },
         fullname: { required: false, mutable: true },
       },
+      customAttributes: {
+        // Custom attribute for IdP groups (mapped from OIDC federation)
+        'groups': new cognito.StringAttribute({ mutable: true }),
+      },
       passwordPolicy: {
         minLength: 12,
         requireLowercase: true,
@@ -290,6 +327,65 @@ export class E3PlatformStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
     this.userPool = userPool;
+
+    // ============================================================
+    // ADMIN GROUP CONFIGURATION
+    // ============================================================
+    // Admin group name must match the IdP group name exactly.
+    // This is passed from the deployment config or CDK context.
+    const adminGroup = props.adminGroup ?? 'e3-admins';
+
+    // ============================================================
+    // ============================================================
+    // COGNITO ADMIN GROUP
+    // ============================================================
+    // Create the admin group that the Pre-Token Generation Lambda will
+    // assign users to based on their IdP group membership.
+    const cognitoAdminGroup = new cognito.CfnUserPoolGroup(this, 'CognitoAdminGroup', {
+      userPoolId: userPool.userPoolId,
+      groupName: 'e3-admins',
+      description: 'E3 platform administrators (assigned dynamically from IdP groups)',
+    });
+
+    // ============================================================
+    // PRE-TOKEN GENERATION LAMBDA
+    // ============================================================
+    // This Lambda is triggered before Cognito generates tokens. It reads
+    // IdP groups from user attributes (mapped during OIDC federation) and
+    // assigns users to Cognito groups for authorization.
+    const preTokenGenerationFn = new nodejs.NodejsFunction(this, 'PreTokenGenerationHandler', {
+      functionName: `${prefix}-pre-token-generation`,
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(repoRoot, 'packages', 'e3-aws-api', 'src', 'auth', 'pre-token-generation.ts'),
+      handler: 'handler',
+      bundling: {
+        minify: true,
+        sourceMap: true,
+        format: nodejs.OutputFormat.ESM,
+        banner: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
+      },
+      environment: {
+        // IdP admin group identifier (GUID or name) - used to check IdP group membership
+        ADMIN_GROUP: props.adminGroup ?? 'e3-admins',
+      },
+      timeout: cdk.Duration.seconds(5),
+      memorySize: 128,
+    });
+
+    // Add pre-token generation V2 trigger to user pool
+    // V2_0 is required for access token customization (V1_0 only supports ID token)
+    // CDK's addTrigger defaults to V1_0, so we use escape hatch to set V2_0
+    const cfnUserPool = userPool.node.defaultChild as cognito.CfnUserPool;
+    cfnUserPool.addPropertyOverride('LambdaConfig.PreTokenGenerationConfig', {
+      LambdaArn: preTokenGenerationFn.functionArn,
+      LambdaVersion: 'V2_0',
+    });
+
+    // Grant Cognito permission to invoke the Lambda
+    preTokenGenerationFn.addPermission('CognitoInvoke', {
+      principal: new iam.ServicePrincipal('cognito-idp.amazonaws.com'),
+      sourceArn: userPool.userPoolArn,
+    });
 
     // ============================================================
     // OPTIONAL: OIDC IDENTITY PROVIDER (from SSM parameters)
@@ -350,6 +446,11 @@ export class E3PlatformStack extends cdk.Stack {
           fullname: cognito.ProviderAttribute.other('name'),
           givenName: cognito.ProviderAttribute.other('given_name'),
           familyName: cognito.ProviderAttribute.other('family_name'),
+          // Map IdP groups claim to custom:groups attribute
+          // EntraID sends groups in the 'groups' claim (requires token config in Azure)
+          custom: {
+            'custom:groups': cognito.ProviderAttribute.other('groups'),
+          },
         },
       });
 
@@ -372,7 +473,11 @@ export class E3PlatformStack extends cdk.Stack {
     const userPoolClient = new cognito.UserPoolClient(this, 'UserPoolClient', {
       userPool,
       userPoolClientName: `${prefix}-web-client`,
-      authFlows: { userSrp: true },
+      // Enable USER_PASSWORD_AUTH only when test users are enabled (for programmatic login)
+      authFlows: {
+        userSrp: true,
+        userPassword: props.testUsers?.enabled ?? false,
+      },
       oAuth: {
         flows: { authorizationCodeGrant: true },
         scopes: [
@@ -386,6 +491,13 @@ export class E3PlatformStack extends cdk.Stack {
       supportedIdentityProviders,
       generateSecret: false,
       preventUserExistenceErrors: true,
+      // Token lifetime configuration
+      // Short refresh token forces daily re-login to sync IdP group changes.
+      // Group membership is cached in the refresh token; changes only take
+      // effect on full authentication (not token refresh).
+      accessTokenValidity: cdk.Duration.hours(1),
+      idTokenValidity: cdk.Duration.hours(1),
+      refreshTokenValidity: cdk.Duration.hours(8),  // Force daily re-login
     });
     this.userPoolClient = userPoolClient;
 
@@ -403,16 +515,31 @@ export class E3PlatformStack extends cdk.Stack {
     });
 
     // ============================================================
+    // TEST USERS (Optional - for integration testing)
+    // ============================================================
+    // Create test users in Cognito when testUsers.enabled is true.
+    // Passwords are stored in Secrets Manager for programmatic authentication.
+    let testUserSecretArn: string | undefined;
+    if (props.testUsers?.enabled) {
+      const testUsers = new CognitoTestUsers(this, 'TestUsers', {
+        userPool,
+        emailDomain: props.testUsers.emailDomain ?? 'test.elaraai.com',
+        prefix,
+        adminGroup: cognitoAdminGroup,
+      });
+      testUserSecretArn = testUsers.secretArn;
+
+      new cdk.CfnOutput(this, 'TestUserSecretArn', {
+        value: testUsers.secretArn,
+        description: 'Secrets Manager ARN containing test user passwords',
+      });
+    }
+
+    // ============================================================
     // API
     // ============================================================
 
-    // Path to API package source (relative to this CDK project)
-    // Use import.meta.url for ES module compatibility
-    // At runtime, __dirname is dist/lib/, so we go up 4 levels to reach repo root
-    const __filename = fileURLToPath(import.meta.url);
-    const __dirname = path.dirname(__filename);
-    const repoRoot = path.join(__dirname, '..', '..', '..', '..');
-    const apiPackagePath = path.join(repoRoot, 'packages', 'api');
+    const apiPackagePath = path.join(repoRoot, 'packages', 'e3-aws-api');
 
     // Cognito domain URL (e.g., e3-dev.auth.ap-southeast-2.amazoncognito.com)
     const cognitoDomainUrl = `${prefix}.auth.${this.region}.amazoncognito.com`;
@@ -437,6 +564,8 @@ export class E3PlatformStack extends cdk.Stack {
         TABLE_NAME: this.dataTable.tableName,
         BUCKET_NAME: this.dataBucket.bucketName,
         USER_POOL_ID: this.userPool.userPoolId,
+        // Admin group name for authorization (must match IdP group name)
+        ADMIN_GROUP: adminGroup,
         // Cognito configuration for device flow proxy
         COGNITO_DOMAIN: cognitoDomainUrl,
         COGNITO_ISSUER: cognitoIssuer,
@@ -452,6 +581,12 @@ export class E3PlatformStack extends cdk.Stack {
 
     this.dataTable.grantReadWriteData(this.apiHandler);
     this.dataBucket.grantReadWrite(this.apiHandler);
+
+    // Grant permission to list users in Cognito (for lookupUserByEmail)
+    this.apiHandler.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['cognito-idp:ListUsers'],
+      resources: [userPool.userPoolArn],
+    }));
 
     this.httpApi = new apigatewayv2.HttpApi(this, 'HttpApi', {
       apiName: `${prefix}-api`,
@@ -517,6 +652,14 @@ export class E3PlatformStack extends cdk.Stack {
       integration: apiIntegration,
     });
 
+    // Whoami endpoint (requires JWT auth)
+    this.httpApi.addRoutes({
+      path: '/api/whoami',
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: apiIntegration,
+      authorizer: jwtAuthorizer,
+    });
+
     // Repository list endpoint (public, returns empty if not authenticated)
     this.httpApi.addRoutes({
       path: '/api/repos',
@@ -535,6 +678,14 @@ export class E3PlatformStack extends cdk.Stack {
 
     this.httpApi.addRoutes({
       path: '/api/repos/{repo}/{proxy+}',
+      methods: [apigatewayv2.HttpMethod.ANY],
+      integration: apiIntegration,
+      authorizer: jwtAuthorizer,
+    });
+
+    // Admin API routes (requires JWT auth, additional admin group check in Lambda)
+    this.httpApi.addRoutes({
+      path: '/api/admin/{proxy+}',
       methods: [apigatewayv2.HttpMethod.ANY],
       integration: apiIntegration,
       authorizer: jwtAuthorizer,
@@ -602,7 +753,7 @@ export class E3PlatformStack extends cdk.Stack {
     //                                           ▼             ▼
     //                                      MarkSkipped    GetReady
 
-    const runnerPackagePath = path.join(repoRoot, 'packages', 'runner');
+    const runnerPackagePath = path.join(repoRoot, 'packages', 'e3-aws-runner');
 
     // Lambda: Get dependency graph from workspace
     const getGraphFn = new nodejs.NodejsFunction(this, 'GetGraphHandler', {
@@ -1386,6 +1537,35 @@ export class E3PlatformStack extends cdk.Stack {
       protocolPolicy: cloudfront.OriginProtocolPolicy.HTTPS_ONLY,
     });
 
+    // CloudFront Function for SPA routing
+    // Rewrites paths without file extensions to /index.html
+    // This handles client-side routing without using error responses
+    // (which would interfere with API 404 responses)
+    const spaRewriteFunction = new cloudfront.Function(this, 'SpaRewriteFunction', {
+      functionName: `${prefix}-spa-rewrite`,
+      code: cloudfront.FunctionCode.fromInline(`
+function handler(event) {
+  var request = event.request;
+  var uri = request.uri;
+
+  // If URI has a file extension, pass through
+  if (uri.includes('.')) {
+    return request;
+  }
+
+  // If URI is exactly '/', serve index.html
+  if (uri === '/') {
+    request.uri = '/index.html';
+    return request;
+  }
+
+  // For SPA routes (no extension), serve index.html
+  request.uri = '/index.html';
+  return request;
+}
+      `),
+    });
+
     this.distribution = new cloudfront.Distribution(this, 'Distribution', {
       comment: `e3 Platform - ${deploymentId}`,
 
@@ -1397,6 +1577,10 @@ export class E3PlatformStack extends cdk.Stack {
         origin: s3Origin,
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+        functionAssociations: [{
+          function: spaRewriteFunction,
+          eventType: cloudfront.FunctionEventType.VIEWER_REQUEST,
+        }],
       },
 
       additionalBehaviors: {
@@ -1450,23 +1634,14 @@ export class E3PlatformStack extends cdk.Stack {
           origin: s3Origin,
           viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
           cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+          functionAssociations: [{
+            function: spaRewriteFunction,
+            eventType: cloudfront.FunctionEventType.VIEWER_REQUEST,
+          }],
         },
       },
-
-      errorResponses: [
-        {
-          httpStatus: 404,
-          responseHttpStatus: 200,
-          responsePagePath: '/index.html',
-          ttl: cdk.Duration.minutes(5),
-        },
-        {
-          httpStatus: 403,
-          responseHttpStatus: 200,
-          responsePagePath: '/index.html',
-          ttl: cdk.Duration.minutes(5),
-        },
-      ],
+      // Note: No errorResponses - SPA routing is handled by the CloudFront Function
+      // to avoid interfering with API 404 responses (e.g., user_not_found)
     });
 
     // Create Route53 record if domain is configured
@@ -1552,6 +1727,11 @@ export class E3PlatformStack extends cdk.Stack {
         redirectUri: callbackUrls[0],
       }),
       description: 'Cognito hosted UI login URL',
+    });
+
+    new cdk.CfnOutput(this, 'AdminGroup', {
+      value: adminGroup,
+      description: 'Group name that grants admin access (must match IdP group)',
     });
 
     // API

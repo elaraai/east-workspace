@@ -1,0 +1,39 @@
+{
+  "name": "@elaraai/e3-aws-storage",
+  "version": "0.0.1-alpha.0",
+  "private": true,
+  "type": "module",
+  "description": "S3 + DynamoDB StorageBackend for e3 cloud",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./s3-object-store": {
+      "types": "./dist/src/s3-object-store.d.ts",
+      "default": "./dist/src/s3-object-store.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "test": "node --enable-source-maps --test 'dist/src/**/*.spec.js'"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.966.0",
+    "@aws-sdk/client-dynamodb": "^3.966.0",
+    "@aws-sdk/util-dynamodb": "^3.966.0"
+  },
+  "peerDependencies": {
+    "@elaraai/e3-admin-core": "^0.0.1-alpha.0",
+    "@elaraai/e3-admin-types": "^0.0.1-alpha.0",
+    "@elaraai/e3-core": "^0.0.2-beta.21",
+    "@elaraai/e3-types": "^0.0.2-beta.21",
+    "@elaraai/east": "^0.0.1-beta.31"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "~5.9.2"
+  }
+}

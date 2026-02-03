@@ -51,6 +51,9 @@ export interface StackOutputs {
   // Optional
   customDomainName?: string;
   oidcProviderName?: string;
+
+  // Test users (only present when testUsers.enabled is true)
+  testUserSecretArn?: string;
 }
 
 export async function getStackOutputs(deploymentId: string): Promise<StackOutputs> {
@@ -121,6 +124,9 @@ export async function getStackOutputs(deploymentId: string): Promise<StackOutput
     // Optional
     customDomainName: getOptionalOutput('CustomDomainName'),
     oidcProviderName: getOptionalOutput('OidcProviderName'),
+
+    // Test users
+    testUserSecretArn: getOptionalOutput('TestUserSecretArn'),
   };
 }
 

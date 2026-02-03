@@ -111,6 +111,27 @@
           "type": "string",
           "description": "ARN of Secrets Manager secret containing OIDC client secret",
           "pattern": "^arn:aws:secretsmanager:.+$"
+        },
+        "adminGroup": {
+          "type": "string",
+          "description": "IdP group name that grants admin access (must match exactly)",
+          "default": "e3-admins"
+        }
+      }
+    },
+    "testUsers": {
+      "type": "object",
+      "description": "Test user configuration for integration testing",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Create test users in Cognito for integration testing",
+          "default": false
+        },
+        "emailDomain": {
+          "type": "string",
+          "description": "Domain for test user email addresses",
+          "default": "test.elaraai.com"
         }
       }
     }

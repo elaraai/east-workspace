@@ -50,6 +50,7 @@ The `E3PlatformStack` deploys a complete e3 platform with:
 | S3 Bucket | `e3-{id}-apps-{account}` | Static web apps |
 | CloudFront | - | CDN, custom domain |
 | Route53 A Record | `{id}.{baseDomain}` | DNS (if domain configured) |
+| Secrets Manager | `e3-{id}-test-users` | Test user passwords (if enabled) |
 
 ## Deployment
 
@@ -58,7 +59,7 @@ The `E3PlatformStack` deploys a complete e3 platform with:
 1. **AWS Account** - Bootstrapped deployment account (via `cdk/accounts`)
 2. **Build dependencies**:
    ```bash
-   npm run build --workspace=@elaraai/e3-api
+   npm run build --workspace=@elaraai/e3-aws-api
    ```
 
 ### Deployment CLI
@@ -122,6 +123,63 @@ After deployment, note these outputs:
 | `CognitoIssuer` | JWT issuer for token validation |
 | `DataBucketName` | S3 bucket for data |
 | `DataTableName` | DynamoDB table name |
+| `TestUserSecretArn` | Secrets Manager ARN for test user passwords (if testUsers enabled) |
+
+## Test Users (for Integration Testing)
+
+Enable test users to automatically provision Cognito users for integration testing:
+
+### Configuration
+
+Add to your deployment config (`deployments/elara-dev.json`):
+
+```json
+{
+  "testUsers": {
+    "enabled": true,
+    "emailDomain": "test.elaraai.com"  // Optional, defaults to test.elaraai.com
+  }
+}
+```
+
+Or via CDK context:
+
+```bash
+npx cdk deploy --context config=elara-dev --context testUsersEnabled=true
+```
+
+### What Gets Created
+
+When `testUsers.enabled: true`:
+
+1. **4 Cognito users** are created:
+   - `owner@test.elaraai.com` - Regular user (repository owner)
+   - `member@test.elaraai.com` - Regular user (repository member)
+   - `outsider@test.elaraai.com` - Regular user (no repository access)
+   - `admin@test.elaraai.com` - Platform admin (in `e3-admins` group)
+
+2. **Passwords** are randomly generated (meeting Cognito policy) and stored in Secrets Manager
+
+3. **USER_PASSWORD_AUTH** flow is enabled on the Cognito User Pool Client
+
+### Integration Test Usage
+
+Integration tests automatically detect test users and authenticate:
+
+```bash
+cd test/integration
+AWS_PROFILE=elaraai-dev-elara-e3 npm test -- --test-name-pattern "Admin"
+```
+
+See [test/integration/README.md](../../test/integration/README.md) for details.
+
+### Security Notes
+
+- Test users are only created when explicitly enabled in config
+- USER_PASSWORD_AUTH is only enabled when test users are enabled
+- Passwords are stored in Secrets Manager (not in stack outputs)
+- Test users use a distinct email domain (`test.elaraai.com`)
+- Users are deleted when the stack is deleted
 
 ## SSM Parameters
 
@@ -414,6 +472,15 @@ curl https://{ApiEndpoint}/health
 # {"status":"ok"}
 ```
 
+### Whoami (Get Current User Identity)
+
+```bash
+# Get a token by signing in via hosted UI, then:
+curl -H "Authorization: Bearer {id_token}" \
+  https://{ApiEndpoint}/api/whoami
+# Returns: {"sub":"...", "email":"...", "name":"...", "isAdmin":false}
+```
+
 ### Authenticated Request
 
 ```bash
@@ -453,4 +520,4 @@ Ensure the identity provider is enabled on the App Client (Step 3 above).
 
 - [CDK Overview](../README.md) - High-level infrastructure architecture
 - [Accounts Setup](../accounts/README.md) - Account creation and domain configuration
-- [API Package](../../packages/api/) - Lambda handler source code
+- [API Package](../../packages/e3-aws-api/) - Lambda handler source code

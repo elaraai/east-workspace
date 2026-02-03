@@ -55,8 +55,8 @@ abstractions         refactoring          S3DynamoStorage      (frontend +      
 - [x] Cognito User Pool with hosted UI
 - [x] Optional OIDC provider via SSM parameters
 - [x] API Gateway HTTP API with JWT authorizer
-- [x] Lambda API handlers (`packages/api/`)
-- [x] S3DynamoStorage implementation (`packages/storage/`)
+- [x] Lambda API handlers (`packages/e3-aws-api/`)
+- [x] S3DynamoStorage implementation (`packages/e3-aws-storage/`)
 - [x] Device flow proxy (Cognito doesn't support native device flow)
 - [x] Repo management endpoints (list, create, delete, status)
 - [x] Repo lifecycle state machines (delete-repo, GC) with Step Functions
@@ -81,7 +81,7 @@ abstractions         refactoring          S3DynamoStorage      (frontend +      
 ### Remaining
 
 - [x] Step Functions dataflow state machine
-- [x] Lambda handlers for dataflow execution (`packages/runner/`)
+- [x] Lambda handlers for dataflow execution (`packages/e3-aws-runner/`)
 - [x] DynamoDB schema migration (Phase 3: EXEC, TASK, EVENT)
 - [ ] ECS Service warm pool for Fargate runners (Phase 5 - optional)
 - [ ] Frontend integration (east-ui rendering)
@@ -694,7 +694,7 @@ Response: { sub, email, name, givenName, familyName }
 
 **Goal:** Implement `StorageBackend` using S3 for objects, single DynamoDB table for refs.
 
-**Location:** `packages/storage/` (this repository)
+**Location:** `packages/e3-aws-storage/` (this repository)
 
 ### 3.1 Single-Table DynamoDB Design
 
@@ -1020,7 +1020,7 @@ s3://{bucket}/
 ### 3.3 Implementation
 
 ```
-packages/storage/src/
+packages/e3-aws-storage/src/
 ├── s3-dynamo-storage.ts      # S3DynamoStorage class
 ├── s3-object-store.ts        # S3-backed ObjectStore
 ├── dynamo-ref-store.ts       # DynamoDB-backed RefStore + repo management
@@ -1103,10 +1103,10 @@ class DynamoRefStore implements RefStore {
 
 ### 3.5 Lambda Integration
 
-**Update `packages/api/src/index.ts`:**
+**Update `packages/e3-aws-api/src/index.ts`:**
 
 ```typescript
-import { S3DynamoStorage } from '@elaraai/e3-storage';
+import { S3DynamoStorage } from '@elaraai/e3-aws-storage';
 import { createRoutes } from '@elaraai/e3-api-server/routes';
 
 // Initialize once at Lambda cold start
@@ -1256,7 +1256,7 @@ Attributes:
 - Stale claims (heartbeat > 5 min old) detected by Step Functions and marked failed
 - SQS DLQ handles persistent failures after 3 retries
 
-**Lambda handlers** (in `packages/runner/`):
+**Lambda handlers** (in `packages/e3-aws-runner/`):
 
 | Handler | e3-core Function | Purpose |
 |---------|------------------|---------|
@@ -1763,9 +1763,9 @@ interface LogStore {
 | `e3-core/src/storage/interfaces.ts` | Update LogStore interface |
 | `e3-core/src/storage/local/LocalLogStore.ts` | Update local implementation |
 | `e3-core/src/executions.ts` | Pass executionId/taskName to log writes |
-| `e3-aws/packages/storage/src/dynamo-log-store.ts` | New PK pattern, log index |
-| `e3-aws/packages/runner/src/handlers/execute-task.ts` | Pass execution context |
-| `e3-aws/packages/api/src/index.ts` | Update log read endpoints |
+| `e3-aws/packages/e3-aws-storage/src/dynamo-log-store.ts` | New PK pattern, log index |
+| `e3-aws/packages/e3-aws-runner/src/handlers/execute-task.ts` | Pass execution context |
+| `e3-aws/packages/e3-aws-api/src/index.ts` | Update log read endpoints |
 
 ### Deliverables
 

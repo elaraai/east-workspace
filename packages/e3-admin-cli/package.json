@@ -1,0 +1,28 @@
+{
+  "name": "@elaraai/e3-admin-cli",
+  "version": "0.0.1-alpha.0",
+  "private": true,
+  "type": "module",
+  "description": "CLI for e3 repository access control management",
+  "license": "BSL-1.1",
+  "bin": {
+    "e3-admin": "./dist/src/cli.js"
+  },
+  "main": "dist/src/cli.js",
+  "scripts": {
+    "build": "tsc --build",
+    "lint": "eslint src/**/*.ts"
+  },
+  "dependencies": {
+    "@elaraai/e3-admin-client": "^0.0.1-alpha.0",
+    "@elaraai/e3-admin-types": "^0.0.1-alpha.0",
+    "commander": "^12.0.0"
+  },
+  "peerDependencies": {
+    "@elaraai/east": "^0.0.1-beta.31"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "~5.9.2"
+  }
+}

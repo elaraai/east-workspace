@@ -198,3 +198,126 @@ e3 login https://dev.e3.elaraai.com
 e3 auth status
 e3 auth whoami https://dev.e3.elaraai.com
 ```
+
+## Admin API Compliance Tests
+
+The admin compliance tests verify the authorization system works correctly with multiple user roles. These tests require 4 test users with valid Cognito tokens.
+
+### Test Users
+
+| User ID | Email | Role | Description |
+|---------|-------|------|-------------|
+| owner | owner@test.elaraai.com | Regular user | Owns test repositories |
+| member | member@test.elaraai.com | Regular user | Added as member to repos |
+| outsider | outsider@test.elaraai.com | Regular user | No repository access |
+| admin | admin@test.elaraai.com | Server admin | In `e3-admins` Cognito group |
+
+### Authentication Methods
+
+Test users can be authenticated in two ways:
+
+#### Option 1: Automated Cognito Test Users (Recommended)
+
+When `testUsers.enabled: true` is set in the deployment config, the CDK deployment automatically:
+
+1. Creates the 4 test users in Cognito
+2. Sets random passwords meeting Cognito policy
+3. Stores passwords in Secrets Manager
+4. Outputs the secret ARN (`TestUserSecretArn`)
+
+Tests automatically authenticate using `USER_PASSWORD_AUTH` flow by:
+1. Fetching passwords from Secrets Manager
+2. Calling Cognito InitiateAuth
+3. Extracting tokens and user identity from the response
+
+**To enable automated test users:**
+
+1. Add to your deployment config (`cdk/platform/deployments/elara-dev.json`):
+   ```json
+   {
+     "testUsers": {
+       "enabled": true
+     }
+   }
+   ```
+
+2. Deploy the stack:
+   ```bash
+   cd cdk/platform
+   AWS_PROFILE=elaraai-dev-elara-e3 npx cdk deploy --context config=elara-dev
+   ```
+
+3. Verify the stack output includes `TestUserSecretArn`
+
+4. Run tests - authentication happens automatically:
+   ```bash
+   AWS_PROFILE=elaraai-dev-elara-e3 npm test -- --test-name-pattern "Admin"
+   ```
+
+#### Option 2: Manual Credentials
+
+If automated test users are not enabled, you can provide credentials manually.
+
+**Environment Variables:**
+
+```bash
+export E3_TEST_OWNER_TOKEN="..."
+export E3_TEST_OWNER_SUB="abc123-def456..."
+export E3_TEST_OWNER_EMAIL="owner@test.elaraai.com"
+
+export E3_TEST_MEMBER_TOKEN="..."
+export E3_TEST_MEMBER_SUB="..."
+export E3_TEST_MEMBER_EMAIL="member@test.elaraai.com"
+
+export E3_TEST_OUTSIDER_TOKEN="..."
+export E3_TEST_OUTSIDER_SUB="..."
+export E3_TEST_OUTSIDER_EMAIL="outsider@test.elaraai.com"
+
+export E3_TEST_ADMIN_TOKEN="..."
+export E3_TEST_ADMIN_SUB="..."
+export E3_TEST_ADMIN_EMAIL="admin@test.elaraai.com"
+```
+
+**Credential Files:**
+
+Create JSON files in `~/.e3/`:
+
+```json
+// ~/.e3/test-credentials-owner.json
+{
+  "token": "...",
+  "sub": "abc123-def456...",
+  "email": "owner@test.elaraai.com"
+}
+```
+
+Repeat for `test-credentials-member.json`, `test-credentials-outsider.json`, and `test-credentials-admin.json`.
+
+### Running Admin Tests
+
+```bash
+# Run admin compliance tests
+AWS_PROFILE=elaraai-dev-elara-e3 npm test -- --test-name-pattern "Admin"
+```
+
+### Manual User Provisioning (if not using automated test users)
+
+To create the test users manually:
+
+```bash
+# Create test users (replace with actual user pool ID)
+USER_POOL_ID=ap-southeast-2_xxxxx
+
+aws cognito-idp admin-create-user \
+  --user-pool-id $USER_POOL_ID \
+  --username owner@test.elaraai.com \
+  --user-attributes Name=email,Value=owner@test.elaraai.com Name=email_verified,Value=true
+
+# Repeat for other users...
+
+# Add admin user to e3-admins group
+aws cognito-idp admin-add-user-to-group \
+  --user-pool-id $USER_POOL_ID \
+  --username admin@test.elaraai.com \
+  --group-name e3-admins
+```
