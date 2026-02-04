@@ -107,11 +107,6 @@ export const handler = async (input: GcSweepInput): Promise<GcSweepOutput> => {
     skippedYoung: 0,
   };
 
-  console.log(`Starting GC sweep phase for repo: ${repo}, gcId: ${gcId}`, {
-    hasCursor: !!catalogueCursor,
-    currentStats: stats,
-  });
-
   // Use RepoStore.gcSweep() for the sweep operation
   const result = await repoStore.gcSweep(repo, reachableSetKey, {
     minAge,
@@ -124,10 +119,6 @@ export const handler = async (input: GcSweepInput): Promise<GcSweepOutput> => {
   // Note: retainedEntries is tracked in stats but not returned by RepoStore.gcSweep
 
   if (result.status === 'continue') {
-    console.log(`Sweep batch complete, continuing...`, {
-      deletedThisBatch: result.deleted,
-      skippedYoung: result.skippedYoung,
-    });
     return {
       repo,
       gcId,
@@ -140,8 +131,6 @@ export const handler = async (input: GcSweepInput): Promise<GcSweepOutput> => {
   }
 
   // Sweep complete
-  console.log(`GC sweep complete for repo: ${repo}`, stats);
-
   return {
     repo,
     gcId,

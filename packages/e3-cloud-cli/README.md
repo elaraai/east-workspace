@@ -1,12 +1,12 @@
-# @elaraai/e3-admin-cli
+# @elaraai/e3-cloud-cli
 
-CLI tool for e3 repository access control management.
+CLI tool for e3 cloud management.
 
 ## Installation
 
 ```bash
 npm install
-npm run build -w @elaraai/e3-admin-cli
+npm run build -w @elaraai/e3-cloud-cli
 ```
 
 ## Usage
@@ -25,10 +25,10 @@ e3 login https://dev.e3.elaraai.com
 
 ```bash
 # Use first stored credential
-e3-admin whoami
+e3-cloud whoami
 
 # Or specify server explicitly
-e3-admin whoami https://dev.e3.elaraai.com
+e3-cloud whoami https://dev.e3.elaraai.com
 ```
 
 Output:
@@ -42,7 +42,7 @@ admin: true
 #### List repository users
 
 ```bash
-e3-admin user list https://dev.e3.elaraai.com/repos/my-repo
+e3-cloud user list https://dev.e3.elaraai.com/repos/my-repo
 ```
 
 Output:
@@ -56,16 +56,16 @@ xyz789-uvw012       bob@example.com               member    2025-01-30T14:30:00
 
 ```bash
 # Add as member (default role)
-e3-admin user add https://dev.e3.elaraai.com/repos/my-repo charlie@example.com
+e3-cloud user add https://dev.e3.elaraai.com/repos/my-repo charlie@example.com
 
 # Add as owner
-e3-admin user add https://dev.e3.elaraai.com/repos/my-repo charlie@example.com --role owner
+e3-cloud user add https://dev.e3.elaraai.com/repos/my-repo charlie@example.com --role owner
 ```
 
 #### Remove a user from a repository
 
 ```bash
-e3-admin user remove https://dev.e3.elaraai.com/repos/my-repo charlie@example.com
+e3-cloud user remove https://dev.e3.elaraai.com/repos/my-repo charlie@example.com
 ```
 
 ## Structure
@@ -84,11 +84,11 @@ src/
 
 ```bash
 # Build
-npm run build -w @elaraai/e3-admin-cli
+npm run build -w @elaraai/e3-cloud-cli
 
 # Lint
-npm run lint -w @elaraai/e3-admin-cli
+npm run lint -w @elaraai/e3-cloud-cli
 
 # Run locally
-./packages/e3-admin-cli/dist/src/cli.js whoami
+./packages/e3-cloud-cli/dist/src/cli.js whoami
 ```

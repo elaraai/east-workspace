@@ -1,12 +1,12 @@
 {
-  "name": "@elaraai/e3-admin-cli",
+  "name": "@elaraai/e3-cloud-cli",
   "version": "0.0.1-alpha.0",
   "private": true,
   "type": "module",
-  "description": "CLI for e3 repository access control management",
+  "description": "CLI for e3 cloud management",
   "license": "BSL-1.1",
   "bin": {
-    "e3-admin": "./dist/src/cli.js"
+    "e3-cloud": "./dist/src/cli.js"
   },
   "main": "dist/src/cli.js",
   "scripts": {

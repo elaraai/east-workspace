@@ -2,7 +2,7 @@
 
 Licensor: Elara AI Pty Ltd
 
-Licensed Work: e3-admin-cli
+Licensed Work: e3-cloud-cli
 
 The Licensed Work is (c) 2025 Elara AI Pty Ltd.
 

@@ -488,7 +488,6 @@ app.post('/api/repos/:repo/workspaces/:ws/dataflow', async (c) => {
 
     // Get next execution ID from NEW STATE/ schema
     const execId = await storage.executions.nextExecutionId(repo, workspace);
-    console.log(`Generated execution ID ${execId} for ${repo}/${workspace}`);
 
     // Create initial execution state in NEW STATE/ schema
     // This ensures polling can see the execution immediately, before Step Functions runs
@@ -514,7 +513,6 @@ app.post('/api/repos/:repo/workspaces/:ws/dataflow', async (c) => {
       eventSeq: 0n,
     };
     await storage.executions.create(initialState);
-    console.log(`Created initial execution state for ${repo}/${workspace} in 'running' status`);
 
     // Generate unique Step Functions execution name
     const sfnExecutionId = randomUUID();
@@ -533,8 +531,6 @@ app.post('/api/repos/:repo/workspaces/:ws/dataflow', async (c) => {
         }),
       })
     );
-
-    console.log(`Started dataflow state machine for ${repo}/${workspace} (force=${force}, executionId=${execId})`);
 
     // DON'T release lock here - finalize-execution will release it
     // Return 202 Accepted with null body (matches e3-api-server)
@@ -592,17 +588,12 @@ app.get('/api/repos/:repo/workspaces/:ws/dataflow/execution', async (c) => {
   const limit = c.req.query('limit') ? parseInt(c.req.query('limit')!, 10) : undefined;
 
   try {
-    console.log(`Getting execution state for ${repo}/${workspace}`);
-
     // Get latest execution state from ExecutionStateStore
     const state = await storage.executions.readLatest(repo, workspace);
 
     if (!state) {
-      console.log(`No execution found for ${repo}/${workspace}`);
       return sendError(ApiTypes.DataflowExecutionStateType, internalError('No execution found for this workspace'));
     }
-
-    console.log(`Found execution ${state.id} with status ${state.status}`);
 
     // Calculate duration from timestamps
     const completedAt = state.completedAt.type === 'some' ? state.completedAt.value : null;
@@ -617,12 +608,8 @@ app.get('/api/repos/:repo/workspaces/:ws/dataflow/execution', async (c) => {
       ? allEvents.slice(offset, offset + limit)
       : allEvents.slice(offset);
 
-    console.log(`Converting state to API format (${totalEvents} events)`);
-
     // Use coreStateToApiState for conversion
     const apiState = coreStateToApiState(state, slicedEvents, totalEvents, durationMs);
-
-    console.log(`Loaded ${slicedEvents.length} events (offset=${offset}, total=${totalEvents}) for execution ${state.id}`);
 
     // Convert to the API response format with variant types
     const statusVariant = apiState.status === 'running'

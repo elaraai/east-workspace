@@ -6,7 +6,7 @@
  */
 
 /**
- * e3-admin CLI - repository access control management.
+ * e3-cloud CLI - cloud management for e3.
  */
 
 import { Command } from 'commander';
@@ -16,17 +16,17 @@ import { userCommand } from './commands/user.js';
 const program = new Command();
 
 program
-  .name('e3-admin')
-  .description('e3 repository access control management')
+  .name('e3-cloud')
+  .description('e3 cloud management CLI')
   .version('0.0.1-alpha.0');
 
-// e3-admin whoami [server]
+// e3-cloud whoami [server]
 program
   .command('whoami [server]')
   .description('Show current user identity and admin status')
   .action(whoamiCommand);
 
-// e3-admin user <subcommand>
+// e3-cloud user <subcommand>
 const user = program
   .command('user')
   .description('User management commands');

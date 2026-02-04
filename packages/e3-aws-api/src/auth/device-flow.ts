@@ -38,6 +38,7 @@ function generateDeviceCode(): string {
 
 /**
  * Generate a user-friendly user code (e.g., "ABCD-1234").
+ * Uses crypto.randomInt() for cryptographically secure randomness.
  */
 function generateUserCode(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -45,11 +46,11 @@ function generateUserCode(): string {
 
   let code = '';
   for (let i = 0; i < 4; i++) {
-    code += chars[Math.floor(Math.random() * chars.length)];
+    code += chars[crypto.randomInt(chars.length)];
   }
   code += '-';
   for (let i = 0; i < 4; i++) {
-    code += digits[Math.floor(Math.random() * digits.length)];
+    code += digits[crypto.randomInt(digits.length)];
   }
   return code;
 }
@@ -339,8 +340,7 @@ export function createDeviceFlowRoutes() {
       });
 
       if (!tokenResponse.ok) {
-        const errorBody = await tokenResponse.text();
-        console.error('Token exchange failed:', errorBody);
+        console.error('Token exchange failed:', tokenResponse.status);
         return c.redirect('/device?error=token_exchange_failed');
       }
 

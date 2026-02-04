@@ -116,16 +116,11 @@ export const handler = async (input: GcCleanupInput): Promise<GcCleanupOutput> =
     tempFilesDeleted: 0,
   };
 
-  console.log(`Starting GC cleanup for repo: ${repo}, gcId: ${gcId}`);
-
   // Build the reachable set key from gcId
   const reachableSetKey = `gc-temp/${gcId}/reachable.txt`;
 
   // Use RepoStore.gcCleanup() for the cleanup operation
   await repoStore.gcCleanup(repo, reachableSetKey);
-
-  // Cleanup complete
-  console.log(`GC cleanup complete for repo: ${repo}`);
 
   return {
     repo,

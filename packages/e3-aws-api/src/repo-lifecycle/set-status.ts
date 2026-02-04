@@ -74,8 +74,6 @@ export interface SetStatusOutput {
 export const setGCHandler = async (input: SetStatusInput): Promise<SetStatusOutput> => {
   const { repo, executionArn, gcId, startTime } = input;
 
-  console.log(`Setting repo ${repo} to 'gc'`);
-
   try {
     await refStore.setRepoStatus(repo, 'active', 'gc', executionArn);
     return { repo, status: 'gc', success: true, gcId, startTime };
@@ -103,8 +101,6 @@ export const setGCHandler = async (input: SetStatusInput): Promise<SetStatusOutp
  */
 export const setActiveHandler = async (input: SetStatusInput): Promise<SetStatusOutput> => {
   const { repo, stats } = input;
-
-  console.log(`Setting repo ${repo} to 'active'`);
 
   try {
     await refStore.setRepoStatus(repo, 'gc', 'active');

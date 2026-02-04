@@ -19,7 +19,7 @@
     "lint:fix": "eslint . --fix",
     "cdk": "npm run cdk --workspace=@elaraai/e3-platform",
     "dev": "npm run dev --workspace=@elaraai/e3-web",
-    "link": "npm run build --workspace=@elaraai/e3-admin-cli && npm link --workspace=@elaraai/e3-admin-cli"
+    "link": "npm run build --workspace=@elaraai/e3-cloud-cli && npm link --workspace=@elaraai/e3-cloud-cli"
   },
   "keywords": [
     "e3",

@@ -63,8 +63,6 @@ export interface GcSchedulerOutput {
  * Lists all active repos and starts GC state machine for each.
  */
 export const handler = async (input: GcSchedulerInput = {}): Promise<GcSchedulerOutput> => {
-  console.log('GC Scheduler triggered', input);
-
   // Get list of repos to GC
   let repos: string[];
   if (input.repos && input.repos.length > 0) {
@@ -75,8 +73,6 @@ export const handler = async (input: GcSchedulerInput = {}): Promise<GcScheduler
     repos = await listActiveRepos();
   }
 
-  console.log(`Found ${repos.length} repos to GC`);
-
   let started = 0;
   let skipped = 0;
   const scheduledRepos: string[] = [];
@@ -86,7 +82,6 @@ export const handler = async (input: GcSchedulerInput = {}): Promise<GcScheduler
       // Check if repo is active (can run GC)
       const canGc = await canRunGc(repo);
       if (!canGc && !input.force) {
-        console.log(`Skipping repo ${repo} - not in active state`);
         skipped++;
         continue;
       }
@@ -117,20 +112,12 @@ export const handler = async (input: GcSchedulerInput = {}): Promise<GcScheduler
         })
       );
 
-      console.log(`Started GC for repo ${repo}:`, {
-        executionName,
-        gcId,
-        jitterSeconds,
-      });
-
       started++;
       scheduledRepos.push(repo);
     } catch (err) {
       console.error(`Failed to start GC for repo ${repo}:`, err);
     }
   }
-
-  console.log(`GC Scheduler complete: ${started} started, ${skipped} skipped`);
 
   return {
     started,

@@ -81,14 +81,6 @@ export const handler: PreTokenGenerationV2TriggerHandler = async (
     ? allGroups.includes(adminGroup) || cognitoGroups.includes('e3-admins')
     : cognitoGroups.includes('e3-admins');
 
-  console.log('PreTokenGeneration:', {
-    user: event.request.userAttributes.email,
-    adminGroup,
-    idpGroups,
-    cognitoGroups,
-    isAdmin,
-  });
-
   // Get email from user attributes for access token (not included by default)
   const email = event.request.userAttributes.email;
 

@@ -45,7 +45,7 @@ e3-aws/
 │   │
 │   ├── e3-admin-client/      # HTTP client for admin API (@elaraai/e3-admin-client)
 │   │
-│   └── e3-admin-cli/         # CLI for access control management (@elaraai/e3-admin-cli)
+│   └── e3-cloud-cli/         # CLI for cloud management (@elaraai/e3-cloud-cli)
 │
 ├── web/                      # Vite frontend app (@elaraai/e3-web)
 │   └── src/

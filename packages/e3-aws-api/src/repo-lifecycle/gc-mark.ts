@@ -68,13 +68,8 @@ export interface GcMarkOutput {
 export const handler = async (input: GcMarkInput): Promise<GcMarkOutput> => {
   const { repo, gcId, startTime } = input;
 
-  console.log(`Starting GC mark phase for repo: ${repo}, gcId: ${gcId}`);
-
   // Use RepoStore.gcMark() for the mark operation
   const result = await repoStore.gcMark(repo);
-
-  console.log(`Found ${result.rootCount} roots, marked ${result.reachableCount} reachable objects`);
-  console.log(`Wrote reachable set to s3://${BUCKET_NAME}/${result.reachableSetRef}`);
 
   return {
     repo,

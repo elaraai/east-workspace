@@ -601,6 +601,21 @@ export class E3PlatformStack extends cdk.Stack {
       },
     });
 
+    // Configure stage-level throttling
+    // These are account-wide limits; individual users share this capacity
+    // Generous limits to accommodate dashboard batch loading (50+ datasets in parallel)
+    const defaultStage = this.httpApi.defaultStage?.node.defaultChild as apigatewayv2.CfnStage;
+    if (defaultStage) {
+      defaultStage.addPropertyOverride('DefaultRouteSettings', {
+        // Sustained request rate (requests/second)
+        ThrottlingRateLimit: 500,
+        // Burst capacity for sudden spikes (e.g., dashboard loading 50 datasets)
+        ThrottlingBurstLimit: 1000,
+        // Enable detailed CloudWatch metrics for monitoring
+        DetailedMetricsEnabled: true,
+      });
+    }
+
     // JWT authorizer using Cognito User Pool
     const jwtAuthorizer = new apigatewayv2Authorizers.HttpJwtAuthorizer(
       'CognitoAuthorizer',
@@ -1569,6 +1584,36 @@ function handler(event) {
       `),
     });
 
+    // Security headers policy for all CloudFront responses
+    const securityHeadersPolicy = new cloudfront.ResponseHeadersPolicy(this, 'SecurityHeadersPolicy', {
+      responseHeadersPolicyName: `${prefix}-security-headers`,
+      comment: 'Security headers for e3 platform',
+      securityHeadersBehavior: {
+        strictTransportSecurity: {
+          accessControlMaxAge: cdk.Duration.seconds(63072000), // 2 years
+          includeSubdomains: true,
+          override: true,
+          preload: true,
+        },
+        contentTypeOptions: {
+          override: true,
+        },
+        frameOptions: {
+          frameOption: cloudfront.HeadersFrameOption.DENY,
+          override: true,
+        },
+        xssProtection: {
+          protection: true,
+          modeBlock: true,
+          override: true,
+        },
+        referrerPolicy: {
+          referrerPolicy: cloudfront.HeadersReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN,
+          override: true,
+        },
+      },
+    });
+
     this.distribution = new cloudfront.Distribution(this, 'Distribution', {
       comment: `e3 Platform - ${deploymentId}`,
 
@@ -1580,6 +1625,7 @@ function handler(event) {
         origin: s3Origin,
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+        responseHeadersPolicy: securityHeadersPolicy,
         functionAssociations: [{
           function: spaRewriteFunction,
           eventType: cloudfront.FunctionEventType.VIEWER_REQUEST,
@@ -1593,6 +1639,7 @@ function handler(event) {
           viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
           cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
           originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+          responseHeadersPolicy: securityHeadersPolicy,
           allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD,
         },
 
@@ -1602,6 +1649,7 @@ function handler(event) {
           viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
           cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
           originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+          responseHeadersPolicy: securityHeadersPolicy,
           allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
         },
 
@@ -1611,6 +1659,7 @@ function handler(event) {
           viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
           cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
           originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+          responseHeadersPolicy: securityHeadersPolicy,
           allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD,
         },
 
@@ -1620,6 +1669,7 @@ function handler(event) {
           viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
           cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
           originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+          responseHeadersPolicy: securityHeadersPolicy,
           allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD,
         },
 
@@ -1629,6 +1679,7 @@ function handler(event) {
           viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
           cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
           originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+          responseHeadersPolicy: securityHeadersPolicy,
           allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
         },
 
@@ -1637,6 +1688,7 @@ function handler(event) {
           origin: s3Origin,
           viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
           cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+          responseHeadersPolicy: securityHeadersPolicy,
           functionAssociations: [{
             function: spaRewriteFunction,
             eventType: cloudfront.FunctionEventType.VIEWER_REQUEST,

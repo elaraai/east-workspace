@@ -110,7 +110,7 @@ e3-aws/
 │   ├── e3-admin-types/     # Shared authorization types
 │   ├── e3-admin-core/      # Authorization logic
 │   ├── e3-admin-client/    # Admin API client
-│   └── e3-admin-cli/       # Access control CLI
+│   └── e3-cloud-cli/       # Cloud management CLI
 │
 ├── web/                    # React frontend (Vite)
 │
@@ -156,7 +156,7 @@ Elara AWS Organization
 | `@elaraai/e3-admin-types` | Shared East types for authorization |
 | `@elaraai/e3-admin-core` | Authorization logic and interfaces |
 | `@elaraai/e3-admin-client` | HTTP client for admin API |
-| `@elaraai/e3-admin-cli` | CLI for access control management |
+| `@elaraai/e3-cloud-cli` | CLI for cloud management |
 | `@elaraai/e3-web` | React frontend application |
 | `@elaraai/e3-accounts` | CDK for account provisioning |
 | `@elaraai/e3-platform` | CDK for platform deployment |
