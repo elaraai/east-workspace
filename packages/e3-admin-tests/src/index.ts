@@ -45,6 +45,9 @@ export {
   type TestUser,
 } from './context.js';
 
+// Test helpers
+export { expectError } from './helpers.js';
+
 // Individual test suites
 export { whoamiTests } from './suites/whoami.js';
 export { repoUsersTests } from './suites/repo-users.js';

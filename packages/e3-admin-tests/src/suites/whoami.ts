@@ -9,9 +9,10 @@
 
 import { describe, it } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { whoami, unwrap, AdminError } from '@elaraai/e3-admin-client';
+import { whoami } from '@elaraai/e3-admin-client';
 import { variant, equalFor, OptionType, StringType } from '@elaraai/east';
 import type { AdminTestContext } from '../context.js';
+import { expectError } from '../helpers.js';
 
 /** Helper to create Option<string> values for comparison */
 const some = (value: string) => variant('some', value);
@@ -30,8 +31,7 @@ export function whoamiTests(getContext: () => AdminTestContext): void {
       const ctx = getContext();
       const ownerUser = await ctx.getTestUser('owner');
 
-      const response = await whoami(ctx.config.baseUrl, await ctx.opts('owner'));
-      const user = unwrap(response);
+      const user = await whoami(ctx.config.baseUrl, await ctx.opts('owner'));
 
       assert.strictEqual(user.sub, ownerUser.sub);
       // email is Option<string>, use structural comparison
@@ -44,8 +44,7 @@ export function whoamiTests(getContext: () => AdminTestContext): void {
       const ctx = getContext();
       const adminUser = await ctx.getTestUser('admin');
 
-      const response = await whoami(ctx.config.baseUrl, await ctx.opts('admin'));
-      const user = unwrap(response);
+      const user = await whoami(ctx.config.baseUrl, await ctx.opts('admin'));
 
       assert.strictEqual(user.sub, adminUser.sub);
       assert.strictEqual(user.isAdmin, true);
@@ -54,23 +53,19 @@ export function whoamiTests(getContext: () => AdminTestContext): void {
     it('returns unauthorized for unauthenticated request', async () => {
       const ctx = getContext();
 
-      const response = await whoami(ctx.config.baseUrl, { token: null });
-
-      assert.strictEqual(response.type, 'error');
-      if (response.type === 'error') {
-        assert.strictEqual(response.value.code, 'unauthorized');
-      }
+      await expectError(
+        whoami(ctx.config.baseUrl, { token: null }),
+        'unauthorized'
+      );
     });
 
     it('returns unauthorized for invalid token', async () => {
       const ctx = getContext();
 
-      const response = await whoami(ctx.config.baseUrl, { token: 'invalid-token' });
-
-      assert.strictEqual(response.type, 'error');
-      if (response.type === 'error') {
-        assert.strictEqual(response.value.code, 'unauthorized');
-      }
+      await expectError(
+        whoami(ctx.config.baseUrl, { token: 'invalid-token' }),
+        'unauthorized'
+      );
     });
 
     it('different users return different identities', async () => {
@@ -78,11 +73,8 @@ export function whoamiTests(getContext: () => AdminTestContext): void {
       const ownerUser = await ctx.getTestUser('owner');
       const memberUser = await ctx.getTestUser('member');
 
-      const ownerResponse = await whoami(ctx.config.baseUrl, await ctx.opts('owner'));
-      const memberResponse = await whoami(ctx.config.baseUrl, await ctx.opts('member'));
-
-      const owner = unwrap(ownerResponse);
-      const member = unwrap(memberResponse);
+      const owner = await whoami(ctx.config.baseUrl, await ctx.opts('owner'));
+      const member = await whoami(ctx.config.baseUrl, await ctx.opts('member'));
 
       assert.notStrictEqual(owner.sub, member.sub);
       assert.strictEqual(owner.sub, ownerUser.sub);

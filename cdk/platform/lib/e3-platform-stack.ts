@@ -492,12 +492,15 @@ export class E3PlatformStack extends cdk.Stack {
       generateSecret: false,
       preventUserExistenceErrors: true,
       // Token lifetime configuration
-      // Short refresh token forces daily re-login to sync IdP group changes.
-      // Group membership is cached in the refresh token; changes only take
-      // effect on full authentication (not token refresh).
-      accessTokenValidity: cdk.Duration.hours(1),
-      idTokenValidity: cdk.Duration.hours(1),
-      refreshTokenValidity: cdk.Duration.hours(8),  // Force daily re-login
+      // - Short access tokens limit exposure if compromised
+      // - Long refresh tokens for CLI convenience (industry standard: 90 days)
+      // - Token revocation enables rotation (old refresh tokens invalidated on use)
+      accessTokenValidity: cdk.Duration.minutes(15),
+      idTokenValidity: cdk.Duration.minutes(15),
+      refreshTokenValidity: cdk.Duration.days(90),
+      // Enable token revocation for refresh token rotation
+      // When a refresh token is used, a new one is issued and the old one is invalidated
+      enableTokenRevocation: true,
     });
     this.userPoolClient = userPoolClient;
 

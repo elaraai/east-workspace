@@ -7,41 +7,41 @@
  * e3-admin-client: HTTP client library for e3 admin API
  *
  * This package provides a typed HTTP client for interacting with the e3 admin API,
- * following patterns from e3-api-client for consistency.
+ * building on e3-api-client's HTTP utilities.
  *
  * Features:
  * - Type-safe request/response handling using East types
  * - BEAST2 binary serialization format
- * - Response<T> wrapper for explicit error handling
+ * - Exception-based error handling (throws ApiError on failures)
  *
  * @example
  * ```typescript
- * import { whoami, repoUsers, addUser, unwrap } from '@elaraai/e3-admin-client';
+ * import { whoami, repoUsers, addUser, ApiError } from '@elaraai/e3-admin-client';
  * import { variant } from '@elaraai/east';
  *
  * const options = { token: accessToken };
  *
  * // Get current user
- * const me = unwrap(await whoami('https://e3.example.com', options));
+ * const me = await whoami('https://e3.example.com', options);
  *
  * // Add a user with member role
- * const user = unwrap(await addUser(
- *   'https://e3.example.com',
- *   'my-repo',
- *   { email: 'bob@example.com', role: variant('member', null) },
- *   options
- * ));
+ * try {
+ *   const user = await addUser(
+ *     'https://e3.example.com',
+ *     'my-repo',
+ *     { email: 'bob@example.com', role: variant('member', null) },
+ *     options
+ *   );
+ * } catch (error) {
+ *   if (error instanceof ApiError) {
+ *     console.error(`Failed: ${error.code}`);
+ *   }
+ * }
  * ```
  */
 
-// Errors and utilities
-export {
-  AdminError,
-  AuthError,
-  unwrap,
-  type RequestOptions,
-  type Response,
-} from './http.js';
+// Re-export HTTP utilities from e3-api-client
+export { ApiError, AuthError, type RequestOptions } from '@elaraai/e3-api-client';
 
 // API functions
 export { whoami, repoUsers, addUser, removeUser } from './users.js';

@@ -7,7 +7,7 @@
  * whoami command - show current user identity and admin status.
  */
 
-import { whoami, unwrap } from '@elaraai/e3-admin-client';
+import { whoami } from '@elaraai/e3-admin-client';
 import { getValidToken, listCredentials, normalizeServerUrl } from '../credentials.js';
 import { formatError, exitError } from '../utils.js';
 
@@ -25,8 +25,7 @@ export async function whoamiCommand(server?: string): Promise<void> {
     serverUrl = normalizeServerUrl(serverUrl);
 
     const token = await getValidToken(serverUrl);
-    const response = await whoami(serverUrl, { token });
-    const me = unwrap(response);
+    const me = await whoami(serverUrl, { token });
 
     console.log(`sub: ${me.sub}`);
     if (me.email.value !== undefined) {

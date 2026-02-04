@@ -13,8 +13,9 @@
 import { describe, it, beforeEach } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { variant } from '@elaraai/east';
-import { repoUsers, addUser, removeUser, unwrap } from '@elaraai/e3-admin-client';
+import { repoUsers, addUser, removeUser, ApiError } from '@elaraai/e3-admin-client';
 import type { AdminTestContext } from '../context.js';
+import { expectError } from '../helpers.js';
 
 /**
  * Create a test repository with the owner as the initial user.
@@ -52,23 +53,26 @@ export function authorizationTests(getContext: () => AdminTestContext): void {
         const ctx = getContext();
 
         // Try to list users
-        const listResponse = await repoUsers(ctx.config.baseUrl, ctx.repoName, await ctx.opts('outsider'));
-        assert.strictEqual(listResponse.type, 'error');
-        if (listResponse.type === 'error') {
-          assert.strictEqual(listResponse.value.code, 'forbidden');
-        }
+        await expectError(
+          repoUsers(ctx.config.baseUrl, ctx.repoName, await ctx.opts('outsider')),
+          'forbidden'
+        );
       });
 
       it('outsider cannot access repo that does not exist', async () => {
         const ctx = getContext();
 
-        const response = await repoUsers(ctx.config.baseUrl, 'nonexistent-repo', await ctx.opts('outsider'));
-        assert.strictEqual(response.type, 'error');
-        // Could be forbidden (no access) or not_found depending on implementation
-        assert.ok(
-          response.type === 'error' &&
-          (response.value.code === 'forbidden' || response.value.code === 'user_not_found')
-        );
+        // Could be forbidden (no access) or user_not_found depending on implementation
+        try {
+          await repoUsers(ctx.config.baseUrl, 'nonexistent-repo', await ctx.opts('outsider'));
+          assert.fail('Expected error but operation succeeded');
+        } catch (error) {
+          assert.ok(error instanceof ApiError, `Expected ApiError, got ${error}`);
+          assert.ok(
+            error.code === 'forbidden' || error.code === 'user_not_found',
+            `Expected 'forbidden' or 'user_not_found', got '${error.code}'`
+          );
+        }
       });
     });
 
@@ -89,25 +93,24 @@ export function authorizationTests(getContext: () => AdminTestContext): void {
       it('member can read user list', async () => {
         const ctx = getContext();
 
-        const response = await repoUsers(ctx.config.baseUrl, ctx.repoName, await ctx.opts('member'));
-        assert.strictEqual(response.type, 'success');
+        // Should succeed (no error thrown)
+        const users = await repoUsers(ctx.config.baseUrl, ctx.repoName, await ctx.opts('member'));
+        assert.ok(Array.isArray(users));
       });
 
       it('member cannot add users', async () => {
         const ctx = getContext();
         const outsiderUser = await ctx.getTestUser('outsider');
 
-        const response = await addUser(
-          ctx.config.baseUrl,
-          ctx.repoName,
-          { email: outsiderUser.email, role: variant('member', null) },
-          await ctx.opts('member')
+        await expectError(
+          addUser(
+            ctx.config.baseUrl,
+            ctx.repoName,
+            { email: outsiderUser.email, role: variant('member', null) },
+            await ctx.opts('member')
+          ),
+          'forbidden'
         );
-
-        assert.strictEqual(response.type, 'error');
-        if (response.type === 'error') {
-          assert.strictEqual(response.value.code, 'forbidden');
-        }
       });
 
       it('member cannot remove users', async () => {
@@ -123,34 +126,30 @@ export function authorizationTests(getContext: () => AdminTestContext): void {
         );
 
         // Member tries to remove outsider
-        const response = await removeUser(
-          ctx.config.baseUrl,
-          ctx.repoName,
-          outsiderUser.sub,
-          await ctx.opts('member')
+        await expectError(
+          removeUser(
+            ctx.config.baseUrl,
+            ctx.repoName,
+            outsiderUser.sub,
+            await ctx.opts('member')
+          ),
+          'forbidden'
         );
-
-        assert.strictEqual(response.type, 'error');
-        if (response.type === 'error') {
-          assert.strictEqual(response.value.code, 'forbidden');
-        }
       });
 
       it('member cannot remove themselves', async () => {
         const ctx = getContext();
         const memberUser = await ctx.getTestUser('member');
 
-        const response = await removeUser(
-          ctx.config.baseUrl,
-          ctx.repoName,
-          memberUser.sub,
-          await ctx.opts('member')
+        await expectError(
+          removeUser(
+            ctx.config.baseUrl,
+            ctx.repoName,
+            memberUser.sub,
+            await ctx.opts('member')
+          ),
+          'forbidden'
         );
-
-        assert.strictEqual(response.type, 'error');
-        if (response.type === 'error') {
-          assert.strictEqual(response.value.code, 'forbidden');
-        }
       });
     });
 
@@ -159,44 +158,41 @@ export function authorizationTests(getContext: () => AdminTestContext): void {
         const ctx = getContext();
         const memberUser = await ctx.getTestUser('member');
 
-        // Can list users
-        const listResponse = await repoUsers(ctx.config.baseUrl, ctx.repoName, await ctx.opts('owner'));
-        assert.strictEqual(listResponse.type, 'success');
+        // Can list users (should not throw)
+        const users = await repoUsers(ctx.config.baseUrl, ctx.repoName, await ctx.opts('owner'));
+        assert.ok(Array.isArray(users));
 
-        // Can add users
-        const addResponse = await addUser(
+        // Can add users (should not throw)
+        const addedUser = await addUser(
           ctx.config.baseUrl,
           ctx.repoName,
           { email: memberUser.email, role: variant('member', null) },
           await ctx.opts('owner')
         );
-        assert.strictEqual(addResponse.type, 'success');
+        assert.strictEqual(addedUser.email, memberUser.email);
 
-        // Can remove users
-        const removeResponse = await removeUser(
+        // Can remove users (should not throw)
+        await removeUser(
           ctx.config.baseUrl,
           ctx.repoName,
           memberUser.sub,
           await ctx.opts('owner')
         );
-        assert.strictEqual(removeResponse.type, 'success');
       });
 
       it('owner cannot remove themselves if last owner', async () => {
         const ctx = getContext();
         const ownerUser = await ctx.getTestUser('owner');
 
-        const response = await removeUser(
-          ctx.config.baseUrl,
-          ctx.repoName,
-          ownerUser.sub,
-          await ctx.opts('owner')
+        await expectError(
+          removeUser(
+            ctx.config.baseUrl,
+            ctx.repoName,
+            ownerUser.sub,
+            await ctx.opts('owner')
+          ),
+          'last_owner'
         );
-
-        assert.strictEqual(response.type, 'error');
-        if (response.type === 'error') {
-          assert.strictEqual(response.value.code, 'last_owner');
-        }
       });
 
       it('owner can remove themselves if another owner exists', async () => {
@@ -212,15 +208,13 @@ export function authorizationTests(getContext: () => AdminTestContext): void {
           await ctx.opts('owner')
         );
 
-        // Original owner can now remove themselves
-        const response = await removeUser(
+        // Original owner can now remove themselves (should not throw)
+        await removeUser(
           ctx.config.baseUrl,
           ctx.repoName,
           ownerUser.sub,
           await ctx.opts('owner')
         );
-
-        assert.strictEqual(response.type, 'success');
       });
     });
 
@@ -229,22 +223,22 @@ export function authorizationTests(getContext: () => AdminTestContext): void {
         const ctx = getContext();
 
         // Admin can list users on any repo (even without ACL entry)
-        const response = await repoUsers(ctx.config.baseUrl, ctx.repoName, await ctx.opts('admin'));
-        assert.strictEqual(response.type, 'success');
+        const users = await repoUsers(ctx.config.baseUrl, ctx.repoName, await ctx.opts('admin'));
+        assert.ok(Array.isArray(users));
       });
 
       it('admin can add users to any repo', async () => {
         const ctx = getContext();
         const outsiderUser = await ctx.getTestUser('outsider');
 
-        const response = await addUser(
+        const user = await addUser(
           ctx.config.baseUrl,
           ctx.repoName,
           { email: outsiderUser.email, role: variant('member', null) },
           await ctx.opts('admin')
         );
 
-        assert.strictEqual(response.type, 'success');
+        assert.strictEqual(user.email, outsiderUser.email);
       });
 
       it('admin can remove users from any repo', async () => {
@@ -259,15 +253,13 @@ export function authorizationTests(getContext: () => AdminTestContext): void {
           await ctx.opts('owner')
         );
 
-        // Admin removes member
-        const response = await removeUser(
+        // Admin removes member (should not throw)
+        await removeUser(
           ctx.config.baseUrl,
           ctx.repoName,
           memberUser.sub,
           await ctx.opts('admin')
         );
-
-        assert.strictEqual(response.type, 'success');
       });
 
       it('admin still cannot remove last owner', async () => {
@@ -275,17 +267,15 @@ export function authorizationTests(getContext: () => AdminTestContext): void {
         const ownerUser = await ctx.getTestUser('owner');
 
         // Admin tries to remove last owner
-        const response = await removeUser(
-          ctx.config.baseUrl,
-          ctx.repoName,
-          ownerUser.sub,
-          await ctx.opts('admin')
+        await expectError(
+          removeUser(
+            ctx.config.baseUrl,
+            ctx.repoName,
+            ownerUser.sub,
+            await ctx.opts('admin')
+          ),
+          'last_owner'
         );
-
-        assert.strictEqual(response.type, 'error');
-        if (response.type === 'error') {
-          assert.strictEqual(response.value.code, 'last_owner');
-        }
       });
     });
 
@@ -304,13 +294,15 @@ export function authorizationTests(getContext: () => AdminTestContext): void {
         );
 
         // Verify member cannot add users
-        let response = await addUser(
-          ctx.config.baseUrl,
-          ctx.repoName,
-          { email: outsiderUser.email, role: variant('member', null) },
-          await ctx.opts('member')
+        await expectError(
+          addUser(
+            ctx.config.baseUrl,
+            ctx.repoName,
+            { email: outsiderUser.email, role: variant('member', null) },
+            await ctx.opts('member')
+          ),
+          'forbidden'
         );
-        assert.strictEqual(response.type, 'error');
 
         // Promote to owner
         await addUser(
@@ -320,14 +312,14 @@ export function authorizationTests(getContext: () => AdminTestContext): void {
           await ctx.opts('owner')
         );
 
-        // Now member (promoted to owner) can add users
-        response = await addUser(
+        // Now member (promoted to owner) can add users (should not throw)
+        const user = await addUser(
           ctx.config.baseUrl,
           ctx.repoName,
           { email: outsiderUser.email, role: variant('member', null) },
           await ctx.opts('member')
         );
-        assert.strictEqual(response.type, 'success');
+        assert.strictEqual(user.email, outsiderUser.email);
       });
 
       it('demoting owner to member removes owner permissions', async () => {
@@ -343,14 +335,13 @@ export function authorizationTests(getContext: () => AdminTestContext): void {
           await ctx.opts('owner')
         );
 
-        // Verify second owner can add users
-        let response = await addUser(
+        // Verify second owner can add users (should not throw)
+        await addUser(
           ctx.config.baseUrl,
           ctx.repoName,
           { email: outsiderUser.email, role: variant('member', null) },
           await ctx.opts('member')
         );
-        assert.strictEqual(response.type, 'success');
 
         // Remove outsider for next test
         await removeUser(ctx.config.baseUrl, ctx.repoName, outsiderUser.sub, await ctx.opts('owner'));
@@ -364,16 +355,15 @@ export function authorizationTests(getContext: () => AdminTestContext): void {
         );
 
         // Now demoted user cannot add users
-        response = await addUser(
-          ctx.config.baseUrl,
-          ctx.repoName,
-          { email: outsiderUser.email, role: variant('member', null) },
-          await ctx.opts('member')
+        await expectError(
+          addUser(
+            ctx.config.baseUrl,
+            ctx.repoName,
+            { email: outsiderUser.email, role: variant('member', null) },
+            await ctx.opts('member')
+          ),
+          'forbidden'
         );
-        assert.strictEqual(response.type, 'error');
-        if (response.type === 'error') {
-          assert.strictEqual(response.value.code, 'forbidden');
-        }
       });
     });
   });

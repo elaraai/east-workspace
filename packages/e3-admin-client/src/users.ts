@@ -16,20 +16,22 @@ import {
   type WhoamiResponse,
   type AddUserRequest,
 } from '@elaraai/e3-admin-types';
-import { get, post, del, type RequestOptions, type Response } from './http.js';
+import { get, post, del, type RequestOptions } from '@elaraai/e3-api-client';
 
 /**
  * Get current user info.
  *
  * @param url - The base URL of the e3 server (e.g., 'https://dev.e3.elaraai.com')
  * @param options - Request options including authentication token
- * @returns Response containing the current user's identity and admin status
+ * @returns The current user's identity and admin status
+ * @throws {ApiError} On application-level errors
+ * @throws {AuthError} On 401 Unauthorized
  */
 export async function whoami(
   url: string,
   options: RequestOptions
-): Promise<Response<WhoamiResponse>> {
-  return get(`${url}/api/whoami`, WhoamiResponseType, options);
+): Promise<WhoamiResponse> {
+  return get(url, `/whoami`, WhoamiResponseType, options);
 }
 
 /**
@@ -40,15 +42,18 @@ export async function whoami(
  * @param url - The base URL of the e3 server
  * @param repo - The repository name
  * @param options - Request options including authentication token
- * @returns Response containing list of users with access to the repository
+ * @returns List of users with access to the repository
+ * @throws {ApiError} On application-level errors
+ * @throws {AuthError} On 401 Unauthorized
  */
 export async function repoUsers(
   url: string,
   repo: string,
   options: RequestOptions
-): Promise<Response<RepoUser[]>> {
+): Promise<RepoUser[]> {
   return get(
-    `${url}/api/repos/${encodeURIComponent(repo)}/users`,
+    url,
+    `/repos/${encodeURIComponent(repo)}/users`,
     ArrayType(RepoUserType),
     options
   );
@@ -63,16 +68,19 @@ export async function repoUsers(
  * @param repo - The repository name
  * @param request - The add user request containing email and role
  * @param options - Request options including authentication token
- * @returns Response containing the newly added user
+ * @returns The newly added user
+ * @throws {ApiError} On application-level errors (e.g., user_not_found, forbidden)
+ * @throws {AuthError} On 401 Unauthorized
  */
 export async function addUser(
   url: string,
   repo: string,
   request: AddUserRequest,
   options: RequestOptions
-): Promise<Response<RepoUser>> {
+): Promise<RepoUser> {
   return post(
-    `${url}/api/repos/${encodeURIComponent(repo)}/users`,
+    url,
+    `/repos/${encodeURIComponent(repo)}/users`,
     request,
     AddUserRequestType,
     RepoUserType,
@@ -89,16 +97,18 @@ export async function addUser(
  * @param repo - The repository name
  * @param userId - The user ID to remove
  * @param options - Request options including authentication token
- * @returns Response indicating success or error
+ * @throws {ApiError} On application-level errors (e.g., forbidden, last_owner)
+ * @throws {AuthError} On 401 Unauthorized
  */
 export async function removeUser(
   url: string,
   repo: string,
   userId: string,
   options: RequestOptions
-): Promise<Response<null>> {
-  return del(
-    `${url}/api/repos/${encodeURIComponent(repo)}/users/${encodeURIComponent(userId)}`,
+): Promise<void> {
+  await del(
+    url,
+    `/repos/${encodeURIComponent(repo)}/users/${encodeURIComponent(userId)}`,
     NullType,
     options
   );

@@ -15,8 +15,9 @@
 import { describe, it, beforeEach } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { variant } from '@elaraai/east';
-import { repoUsers, addUser, removeUser, unwrap } from '@elaraai/e3-admin-client';
+import { repoUsers, addUser, removeUser } from '@elaraai/e3-admin-client';
 import type { AdminTestContext } from '../context.js';
+import { expectError } from '../helpers.js';
 
 /**
  * Create a test repository with the owner as the initial user.
@@ -54,8 +55,7 @@ export function repoUsersTests(getContext: () => AdminTestContext): void {
         const ctx = getContext();
         const ownerUser = await ctx.getTestUser('owner');
 
-        const response = await repoUsers(ctx.config.baseUrl, ctx.repoName, await ctx.opts('owner'));
-        const users = unwrap(response);
+        const users = await repoUsers(ctx.config.baseUrl, ctx.repoName, await ctx.opts('owner'));
 
         assert.ok(Array.isArray(users));
         assert.ok(users.length >= 1);
@@ -78,8 +78,7 @@ export function repoUsersTests(getContext: () => AdminTestContext): void {
         );
 
         // Member should be able to list
-        const response = await repoUsers(ctx.config.baseUrl, ctx.repoName, await ctx.opts('member'));
-        const users = unwrap(response);
+        const users = await repoUsers(ctx.config.baseUrl, ctx.repoName, await ctx.opts('member'));
 
         assert.ok(Array.isArray(users));
         assert.ok(users.length >= 2);
@@ -88,12 +87,10 @@ export function repoUsersTests(getContext: () => AdminTestContext): void {
       it('outsider cannot list users (403)', async () => {
         const ctx = getContext();
 
-        const response = await repoUsers(ctx.config.baseUrl, ctx.repoName, await ctx.opts('outsider'));
-
-        assert.strictEqual(response.type, 'error');
-        if (response.type === 'error') {
-          assert.strictEqual(response.value.code, 'forbidden');
-        }
+        await expectError(
+          repoUsers(ctx.config.baseUrl, ctx.repoName, await ctx.opts('outsider')),
+          'forbidden'
+        );
       });
     });
 
@@ -102,14 +99,13 @@ export function repoUsersTests(getContext: () => AdminTestContext): void {
         const ctx = getContext();
         const memberUser = await ctx.getTestUser('member');
 
-        const response = await addUser(
+        const user = await addUser(
           ctx.config.baseUrl,
           ctx.repoName,
           { email: memberUser.email, role: variant('member', null) },
           await ctx.opts('owner')
         );
 
-        const user = unwrap(response);
         assert.strictEqual(user.email, memberUser.email);
         assert.strictEqual(user.role.type, 'member');
       });
@@ -118,14 +114,13 @@ export function repoUsersTests(getContext: () => AdminTestContext): void {
         const ctx = getContext();
         const memberUser = await ctx.getTestUser('member');
 
-        const response = await addUser(
+        const user = await addUser(
           ctx.config.baseUrl,
           ctx.repoName,
           { email: memberUser.email, role: variant('owner', null) },
           await ctx.opts('owner')
         );
 
-        const user = unwrap(response);
         assert.strictEqual(user.role.type, 'owner');
       });
 
@@ -142,19 +137,17 @@ export function repoUsersTests(getContext: () => AdminTestContext): void {
         );
 
         // Promote to owner
-        const response = await addUser(
+        const user = await addUser(
           ctx.config.baseUrl,
           ctx.repoName,
           { email: memberUser.email, role: variant('owner', null) },
           await ctx.opts('owner')
         );
 
-        const user = unwrap(response);
         assert.strictEqual(user.role.type, 'owner');
 
         // Verify only one entry exists
-        const listResponse = await repoUsers(ctx.config.baseUrl, ctx.repoName, await ctx.opts('owner'));
-        const users = unwrap(listResponse);
+        const users = await repoUsers(ctx.config.baseUrl, ctx.repoName, await ctx.opts('owner'));
         const memberEntries = users.filter(u => u.userId === memberUser.sub);
         assert.strictEqual(memberEntries.length, 1, 'Should have exactly one entry for member');
       });
@@ -173,66 +166,47 @@ export function repoUsersTests(getContext: () => AdminTestContext): void {
         );
 
         // Member tries to add outsider
-        const response = await addUser(
-          ctx.config.baseUrl,
-          ctx.repoName,
-          { email: outsiderUser.email, role: variant('member', null) },
-          await ctx.opts('member')
+        await expectError(
+          addUser(
+            ctx.config.baseUrl,
+            ctx.repoName,
+            { email: outsiderUser.email, role: variant('member', null) },
+            await ctx.opts('member')
+          ),
+          'forbidden'
         );
-
-        assert.strictEqual(response.type, 'error');
-        if (response.type === 'error') {
-          assert.strictEqual(response.value.code, 'forbidden');
-        }
       });
 
       it('returns user_not_found for unknown email', async () => {
         const ctx = getContext();
-        console.log('[DEBUG] Test: returns user_not_found for unknown email');
-        console.log('[DEBUG] baseUrl:', ctx.config.baseUrl);
-        console.log('[DEBUG] repoName:', ctx.repoName);
 
         // First verify owner can list users (to confirm repo exists and owner has access)
-        const listResponse = await repoUsers(ctx.config.baseUrl, ctx.repoName, await ctx.opts('owner'));
-        console.log('[DEBUG] listUsers response.type:', listResponse.type);
-        if (listResponse.type === 'error') {
-          console.log('[DEBUG] listUsers error:', listResponse.value.code, listResponse.value.details);
-        }
+        await repoUsers(ctx.config.baseUrl, ctx.repoName, await ctx.opts('owner'));
 
-        const response = await addUser(
-          ctx.config.baseUrl,
-          ctx.repoName,
-          { email: 'nonexistent@example.com', role: variant('member', null) },
-          await ctx.opts('owner')
+        await expectError(
+          addUser(
+            ctx.config.baseUrl,
+            ctx.repoName,
+            { email: 'nonexistent@example.com', role: variant('member', null) },
+            await ctx.opts('owner')
+          ),
+          'user_not_found'
         );
-
-        console.log('[DEBUG] addUser response.type:', response.type);
-        if (response.type === 'error') {
-          console.log('[DEBUG] addUser error.code:', response.value.code);
-          console.log('[DEBUG] addUser error.details:', response.value.details);
-        }
-
-        assert.strictEqual(response.type, 'error');
-        if (response.type === 'error') {
-          assert.strictEqual(response.value.code, 'user_not_found');
-        }
       });
 
       it('outsider cannot add users (403)', async () => {
         const ctx = getContext();
         const memberUser = await ctx.getTestUser('member');
 
-        const response = await addUser(
-          ctx.config.baseUrl,
-          ctx.repoName,
-          { email: memberUser.email, role: variant('member', null) },
-          await ctx.opts('outsider')
+        await expectError(
+          addUser(
+            ctx.config.baseUrl,
+            ctx.repoName,
+            { email: memberUser.email, role: variant('member', null) },
+            await ctx.opts('outsider')
+          ),
+          'forbidden'
         );
-
-        assert.strictEqual(response.type, 'error');
-        if (response.type === 'error') {
-          assert.strictEqual(response.value.code, 'forbidden');
-        }
       });
     });
 
@@ -249,19 +223,16 @@ export function repoUsersTests(getContext: () => AdminTestContext): void {
           await ctx.opts('owner')
         );
 
-        // Remove member
-        const response = await removeUser(
+        // Remove member (no return value on success)
+        await removeUser(
           ctx.config.baseUrl,
           ctx.repoName,
           memberUser.sub,
           await ctx.opts('owner')
         );
 
-        assert.strictEqual(response.type, 'success');
-
         // Verify removed
-        const listResponse = await repoUsers(ctx.config.baseUrl, ctx.repoName, await ctx.opts('owner'));
-        const users = unwrap(listResponse);
+        const users = await repoUsers(ctx.config.baseUrl, ctx.repoName, await ctx.opts('owner'));
         const memberEntry = users.find(u => u.userId === memberUser.sub);
         assert.strictEqual(memberEntry, undefined, 'Member should be removed');
       });
@@ -278,15 +249,13 @@ export function repoUsersTests(getContext: () => AdminTestContext): void {
           await ctx.opts('owner')
         );
 
-        // Original owner removes new owner
-        const response = await removeUser(
+        // Original owner removes new owner (no return value on success)
+        await removeUser(
           ctx.config.baseUrl,
           ctx.repoName,
           memberUser.sub,
           await ctx.opts('owner')
         );
-
-        assert.strictEqual(response.type, 'success');
       });
 
       it('cannot remove last owner (400 last_owner)', async () => {
@@ -294,17 +263,15 @@ export function repoUsersTests(getContext: () => AdminTestContext): void {
         const ownerUser = await ctx.getTestUser('owner');
 
         // Try to remove self (only owner)
-        const response = await removeUser(
-          ctx.config.baseUrl,
-          ctx.repoName,
-          ownerUser.sub,
-          await ctx.opts('owner')
+        await expectError(
+          removeUser(
+            ctx.config.baseUrl,
+            ctx.repoName,
+            ownerUser.sub,
+            await ctx.opts('owner')
+          ),
+          'last_owner'
         );
-
-        assert.strictEqual(response.type, 'error');
-        if (response.type === 'error') {
-          assert.strictEqual(response.value.code, 'last_owner');
-        }
       });
 
       it('member cannot remove users (403)', async () => {
@@ -327,17 +294,15 @@ export function repoUsersTests(getContext: () => AdminTestContext): void {
         );
 
         // Member tries to remove outsider
-        const response = await removeUser(
-          ctx.config.baseUrl,
-          ctx.repoName,
-          outsiderUser.sub,
-          await ctx.opts('member')
+        await expectError(
+          removeUser(
+            ctx.config.baseUrl,
+            ctx.repoName,
+            outsiderUser.sub,
+            await ctx.opts('member')
+          ),
+          'forbidden'
         );
-
-        assert.strictEqual(response.type, 'error');
-        if (response.type === 'error') {
-          assert.strictEqual(response.value.code, 'forbidden');
-        }
       });
 
       it('outsider cannot remove users (403)', async () => {
@@ -353,17 +318,15 @@ export function repoUsersTests(getContext: () => AdminTestContext): void {
         );
 
         // Outsider tries to remove member
-        const response = await removeUser(
-          ctx.config.baseUrl,
-          ctx.repoName,
-          memberUser.sub,
-          await ctx.opts('outsider')
+        await expectError(
+          removeUser(
+            ctx.config.baseUrl,
+            ctx.repoName,
+            memberUser.sub,
+            await ctx.opts('outsider')
+          ),
+          'forbidden'
         );
-
-        assert.strictEqual(response.type, 'error');
-        if (response.type === 'error') {
-          assert.strictEqual(response.value.code, 'forbidden');
-        }
       });
     });
   });
