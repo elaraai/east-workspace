@@ -8,8 +8,6 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { S3DynamoStorage } from '@elaraai/e3-aws-storage';
 import {
   stepPrepareTask,
-  stepTaskStarted,
-  stepTaskCompleted,
   inputsHash,
   uuidv7,
 } from '@elaraai/e3-core';
@@ -55,11 +53,11 @@ export interface DispatchTaskResult {
  * This handler:
  * 1. Checks for cancellation before doing expensive work
  * 2. Uses stepPrepareTask to resolve inputs and check cache
- * 3. If cached, uses stepTaskCompleted to update state and returns cached status
- * 4. If not cached, generates a UUIDv7 taskExecutionId and marks task as started
- * 5. Returns task execution parameters for Step Functions to invoke execute-task
+ * 3. If cached, returns cached status with output hash
+ * 4. If not cached, generates a UUIDv7 taskExecutionId and returns ready status
  *
- * Uses e3-core step functions to eliminate duplicated business logic.
+ * Note: Execution state writes are deferred to apply-results (runs after the Map)
+ * to avoid lost update race conditions from concurrent Map iterations.
  */
 export async function handler(event: DispatchTaskEvent): Promise<DispatchTaskResult> {
   const { repo, workspace, executionId, taskName, force } = event;
@@ -82,25 +80,9 @@ export async function handler(event: DispatchTaskEvent): Promise<DispatchTaskRes
 
   console.log(`Task ${taskName} inputs: ${prepare.inputHashes.length} hashes`);
 
-  // Helper to check and preserve cancelled status before saving
-  // This handles race conditions where cancel was called during our operation
-  const preserveCancelledStatus = async () => {
-    const currentState = await storage.executions.read(repo, workspace, execId);
-    if (currentState?.status === 'cancelled') {
-      (state as { status: string }).status = 'cancelled';
-    }
-  };
-
-  // If cached and not forcing, mark as completed from cache
+  // If cached and not forcing, return cached status (state update deferred to apply-results)
   if (prepare.cachedOutputHash && !force) {
     console.log(`Task ${taskName} is cached with output ${prepare.cachedOutputHash}`);
-
-    // Use stepTaskCompleted to update state (cached=true, duration=0)
-    stepTaskCompleted(state, taskName, prepare.cachedOutputHash, true, 0);
-
-    // Check for cancellation before saving
-    await preserveCancelledStatus();
-    await storage.executions.update(state);
 
     // For cached tasks, get the executionId from the latest execution record
     const inHash = inputsHash(prepare.inputHashes);
@@ -119,16 +101,9 @@ export async function handler(event: DispatchTaskEvent): Promise<DispatchTaskRes
     };
   }
 
-  // Not cached - generate a UUIDv7 execution ID and mark as started
+  // Not cached - generate a UUIDv7 execution ID
   const taskExecutionId = uuidv7();
   console.log(`Task ${taskName} ready for execution (taskExecutionId=${taskExecutionId})`);
-
-  // Use stepTaskStarted to mark the task as in-progress
-  stepTaskStarted(state, taskName);
-
-  // Check for cancellation before saving
-  await preserveCancelledStatus();
-  await storage.executions.update(state);
 
   return {
     taskName,

@@ -836,11 +836,12 @@ export class E3PlatformStack extends cdk.Stack {
     this.dataTable.grantReadWriteData(dispatchTaskFn);
     this.dataBucket.grantRead(dispatchTaskFn);
 
-    // Lambda: Write task result to workspace
-    const writeResultFn = new nodejs.NodejsFunction(this, 'WriteResultHandler', {
-      functionName: `${prefix}-write-result`,
+    // Lambda: Apply task results serially after parallel Map execution
+    // This serializes execution state writes to avoid lost update race conditions
+    const applyResultsFn = new nodejs.NodejsFunction(this, 'ApplyResultsHandler', {
+      functionName: `${prefix}-apply-results`,
       runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(runnerPackagePath, 'src', 'handlers', 'write-result.ts'),
+      entry: path.join(runnerPackagePath, 'src', 'handlers', 'apply-results.ts'),
       handler: 'handler',
       bundling: {
         minify: true,
@@ -848,15 +849,15 @@ export class E3PlatformStack extends cdk.Stack {
         format: nodejs.OutputFormat.ESM,
         banner: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
       },
-      timeout: cdk.Duration.seconds(60),
+      timeout: cdk.Duration.seconds(120),
       memorySize: 1024,
       environment: {
         TABLE_NAME: this.dataTable.tableName,
         BUCKET_NAME: this.dataBucket.bucketName,
       },
     });
-    this.dataTable.grantReadWriteData(writeResultFn);
-    this.dataBucket.grantReadWrite(writeResultFn);
+    this.dataTable.grantReadWriteData(applyResultsFn);
+    this.dataBucket.grantReadWrite(applyResultsFn);
 
     // Lambda: Apply tree updates serially after parallel task execution
     // This avoids lost update race conditions when multiple tasks complete concurrently
@@ -881,7 +882,7 @@ export class E3PlatformStack extends cdk.Stack {
     this.dataTable.grantReadWriteData(applyTreeUpdatesFn);
     this.dataBucket.grantReadWrite(applyTreeUpdatesFn);
 
-    // Note: Mark-skipped functionality is now handled inline by write-result.ts
+    // Note: Mark-skipped functionality is handled by apply-results.ts
     // using stepTaskFailed + stepTasksSkipped from e3-core
 
     // Lambda: Finalize execution state (update status to completed/failed)
@@ -1078,6 +1079,8 @@ export class E3PlatformStack extends cdk.Stack {
       parameters: {
         'status': 'failed',
         'error': 'Task execution failed',
+        'exitCode': -1,
+        'duration': 0,
       },
       resultPath: '$.execution.Payload',
     }), {
@@ -1111,6 +1114,8 @@ export class E3PlatformStack extends cdk.Stack {
         'runId.$': '$.runId',
         'taskName.$': '$.taskName',
         'outputPath.$': '$.outputPath',
+        'taskHash.$': '$.taskHash',
+        'inputHashes.$': '$.inputHashes',
         'taskExecutionId.$': '$.taskExecutionId',
         'status': 'failed',
         'error.$': '$.execution.Payload.error',
@@ -1127,16 +1132,8 @@ export class E3PlatformStack extends cdk.Stack {
       )
       .otherwise(prepareFailureWriteState);
 
-    // WriteResult: writes task output to workspace
-    const writeResultState = new tasks.LambdaInvoke(this, 'WriteResultState', {
-      lambdaFunction: writeResultFn,
-      outputPath: '$.Payload',
-      retryOnServiceExceptions: true,
-    });
-
-    // Wire prepare states to writeResult (must be after writeResultState is defined)
-    prepareSuccessWriteState.next(writeResultState);
-    prepareFailureWriteState.next(writeResultState);
+    // PrepareSuccessWrite and PrepareFailureWrite are terminal states in the Map iterator.
+    // Their outputs are collected by the Map and processed by ApplyResults after the Map completes.
 
     // Prepare write for cached results (outputHash comes from dispatch)
     const prepareCachedWriteState = new sfn.Pass(this, 'PrepareCachedWrite', {
@@ -1154,7 +1151,7 @@ export class E3PlatformStack extends cdk.Stack {
         'outputHash.$': '$.dispatchResult.outputHash',
       },
     });
-    prepareCachedWriteState.next(writeResultState);
+    // PrepareCachedWrite is a terminal state in the Map iterator (collected by ApplyResults)
 
     // Choice: Is task result cached?
     const isCachedChoice = new sfn.Choice(this, 'IsCached')
@@ -1190,8 +1187,7 @@ export class E3PlatformStack extends cdk.Stack {
       resultPath: '$.taskResults',
     }).itemProcessor(taskIterator);
 
-    // After map completes, prepare tree updates for serial application
-    // taskResults contains {outputPath, outputHash, needsTreeUpdate} from each write-result call
+    // After map completes, pass collected task results to ApplyResults
     const afterMapLoop = new sfn.Pass(this, 'AfterMapLoop', {
       parameters: {
         'repo.$': '$.repo',
@@ -1199,13 +1195,19 @@ export class E3PlatformStack extends cdk.Stack {
         'executionId.$': '$.executionId',
         'runId.$': '$.runId',
         'force.$': '$.force',
-        // Pass task results as tree updates to the apply step
-        'treeUpdates.$': '$.taskResults',
+        'taskResults.$': '$.taskResults',
       },
     });
 
-    // Apply tree updates serially to avoid lost update race conditions
-    // This is called after each Map iteration to write outputs to workspace tree
+    // Apply task results serially to execution state (avoids race conditions)
+    // Returns { repo, workspace, executionId, runId, force, treeUpdates }
+    const applyResultsState = new tasks.LambdaInvoke(this, 'ApplyResultsState', {
+      lambdaFunction: applyResultsFn,
+      outputPath: '$.Payload',
+      retryOnServiceExceptions: true,
+    });
+
+    // Apply tree updates serially to workspace after execution state is updated
     const applyTreeUpdatesState = new tasks.LambdaInvoke(this, 'ApplyTreeUpdatesState', {
       lambdaFunction: applyTreeUpdatesFn,
       resultPath: '$.applyResult',
@@ -1213,7 +1215,8 @@ export class E3PlatformStack extends cdk.Stack {
     });
 
     dispatchTasksMap.next(afterMapLoop);
-    afterMapLoop.next(applyTreeUpdatesState);
+    afterMapLoop.next(applyResultsState);
+    applyResultsState.next(applyTreeUpdatesState);
     applyTreeUpdatesState.next(getReadyState);
 
     // Pass state to flatten GetReady result and add readyCount
