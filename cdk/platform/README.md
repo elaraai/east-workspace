@@ -266,7 +266,7 @@ aws ssm put-parameter \
 Now any `cdk deploy` in this account will automatically configure the OIDC provider:
 
 ```bash
-npx cdk deploy --context deploymentId=elara-dev-e3
+npx cdk deploy --context config=elara-dev
 ```
 
 The stack output `OidcProviderName` confirms the provider was configured.
@@ -276,7 +276,7 @@ The stack output `OidcProviderName` confirms the provider was configured.
 To deploy without the SSM-configured provider:
 
 ```bash
-npx cdk deploy --context deploymentId=test --context oidcEnabled=false
+npx cdk deploy --context config=elara-dev --context oidcEnabled=false
 ```
 
 Or remove/update the SSM parameter:

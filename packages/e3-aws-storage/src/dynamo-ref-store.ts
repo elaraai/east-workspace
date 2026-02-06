@@ -17,11 +17,15 @@ import {
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import { encodeBeast2For, decodeBeast2For } from '@elaraai/east';
 import type { RefStore } from '@elaraai/e3-core';
-import { ExecutionStatusType, type ExecutionStatus } from '@elaraai/e3-types';
+import { ExecutionStatusType, DataflowRunType, type ExecutionStatus, type DataflowRun } from '@elaraai/e3-types';
 
 // BEAST2 encoder/decoder for ExecutionStatus (includes Date fields)
 const encodeExecutionStatus = encodeBeast2For(ExecutionStatusType);
 const decodeExecutionStatus = decodeBeast2For(ExecutionStatusType);
+
+// BEAST2 encoder/decoder for DataflowRun
+const encodeDataflowRun = encodeBeast2For(DataflowRunType);
+const decodeDataflowRun = decodeBeast2For(DataflowRunType);
 
 /**
  * Repository lifecycle status.
@@ -173,7 +177,7 @@ export class DynamoRefStore implements RefStore {
 
   async packageResolve(repo: string, name: string, version: string): Promise<string | null> {
     const item = await this.getItemByKey(`PKG/${repo}`, `${name}/${version}`);
-    return item?.hash as string | null;
+    return (item?.hash as string) ?? null;
   }
 
   async packageWrite(repo: string, name: string, version: string, hash: string): Promise<void> {
@@ -221,54 +225,90 @@ export class DynamoRefStore implements RefStore {
 
   // ===========================================================================
   // Execution Cache
-  // New schema: PK: CACHE/{repo}/{taskHash}, SK: {inputsHash}
+  // Schema: PK: EXECUTION/{repo}/{taskHash}/{inputsHash}, SK: {executionId}
   // ===========================================================================
 
-  async executionGet(repo: string, taskHash: string, inputsHash: string): Promise<ExecutionStatus | null> {
-    const item = await this.getItemByKey(`CACHE/${repo}/${taskHash}`, inputsHash);
+  async executionGet(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<ExecutionStatus | null> {
+    const item = await this.getItemByKey(`EXECUTION/${repo}/${taskHash}/${inputsHash}`, executionId);
     if (!item?.status) {
       return null;
     }
-    // Status is stored as Binary (BEAST2-encoded ExecutionStatus)
     const statusBytes = item.status as Uint8Array;
     return decodeExecutionStatus(statusBytes) as unknown as ExecutionStatus;
   }
 
-  async executionWrite(repo: string, taskHash: string, inputsHash: string, status: ExecutionStatus): Promise<void> {
-    // Encode status as BEAST2 binary (ExecutionStatus contains Date fields)
+  async executionWrite(repo: string, taskHash: string, inputsHash: string, executionId: string, status: ExecutionStatus): Promise<void> {
     const statusBytes = encodeExecutionStatus(status as unknown as Parameters<typeof encodeExecutionStatus>[0]);
-    await this.putItemByKey(`CACHE/${repo}/${taskHash}`, inputsHash, {
+    await this.putItemByKey(`EXECUTION/${repo}/${taskHash}/${inputsHash}`, executionId, {
       status: statusBytes,
       updatedAt: new Date().toISOString(),
     });
   }
 
-  async executionGetOutput(repo: string, taskHash: string, inputsHash: string): Promise<string | null> {
-    const item = await this.getItemByKey(`CACHE/${repo}/${taskHash}`, inputsHash);
-    if (!item?.status) {
-      return null;
-    }
-    // Decode BEAST2-encoded status and extract outputHash from success variant
+  async executionListIds(repo: string, taskHash: string, inputsHash: string): Promise<string[]> {
+    const items = await this.queryByPkAndSkPrefix(`EXECUTION/${repo}/${taskHash}/${inputsHash}`);
+    return items.map((item) => item.SK as string);
+  }
+
+  async executionGetLatest(repo: string, taskHash: string, inputsHash: string): Promise<ExecutionStatus | null> {
+    const pk = `EXECUTION/${repo}/${taskHash}/${inputsHash}`;
+    const response = await this.dynamo.send(
+      new QueryCommand({
+        TableName: this.tableName,
+        KeyConditionExpression: 'PK = :pk',
+        ExpressionAttributeValues: marshall({ ':pk': pk }),
+        ScanIndexForward: false,
+        Limit: 1,
+        ConsistentRead: true,
+      })
+    );
+
+    if (!response.Items || response.Items.length === 0) return null;
+    const item = unmarshall(response.Items[0]);
+    if (!item.status) return null;
     const statusBytes = item.status as Uint8Array;
-    const status = decodeExecutionStatus(statusBytes) as unknown as ExecutionStatus;
-    if (status.type === 'success') {
-      return status.value.outputHash;
-    }
+    return decodeExecutionStatus(statusBytes) as unknown as ExecutionStatus;
+  }
+
+  async executionGetLatestOutput(repo: string, taskHash: string, inputsHash: string): Promise<string | null> {
+    const pk = `EXECUTION/${repo}/${taskHash}/${inputsHash}`;
+    // Query descending to find most recent success
+    let exclusiveStartKey: Record<string, any> | undefined;
+
+    do {
+      const response = await this.dynamo.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          KeyConditionExpression: 'PK = :pk',
+          ExpressionAttributeValues: marshall({ ':pk': pk }),
+          ScanIndexForward: false,
+          Limit: 10,
+          ConsistentRead: true,
+          ExclusiveStartKey: exclusiveStartKey,
+        })
+      );
+
+      if (response.Items) {
+        for (const rawItem of response.Items) {
+          const item = unmarshall(rawItem);
+          if (!item.status) continue;
+          const statusBytes = item.status as Uint8Array;
+          const status = decodeExecutionStatus(statusBytes) as unknown as ExecutionStatus;
+          if (status.type === 'success') {
+            return status.value.outputHash;
+          }
+        }
+      }
+
+      exclusiveStartKey = response.LastEvaluatedKey;
+    } while (exclusiveStartKey);
+
     return null;
   }
 
-  async executionWriteOutput(repo: string, taskHash: string, inputsHash: string, outputHash: string): Promise<void> {
-    // Update existing execution item with output hash
-    await this.putItemByKey(`CACHE/${repo}/${taskHash}`, inputsHash, {
-      outputHash,
-      completedAt: new Date().toISOString(),
-    });
-  }
-
   async executionList(repo: string): Promise<{ taskHash: string; inputsHash: string }[]> {
-    // Query all cache partitions for this repo
-    // Since cache items are spread across partitions by taskHash, we need to scan
-    // with a filter for PK beginning with CACHE/{repo}/
+    // Scan EXECUTION/{repo}/ prefix, deduplicate by taskHash/inputsHash
+    const seen = new Set<string>();
     const items: { taskHash: string; inputsHash: string }[] = [];
     let exclusiveStartKey: Record<string, any> | undefined;
 
@@ -277,8 +317,8 @@ export class DynamoRefStore implements RefStore {
         new ScanCommand({
           TableName: this.tableName,
           FilterExpression: 'begins_with(PK, :prefix)',
-          ExpressionAttributeValues: marshall({ ':prefix': `CACHE/${repo}/` }),
-          ProjectionExpression: 'PK, SK',
+          ExpressionAttributeValues: marshall({ ':prefix': `EXECUTION/${repo}/` }),
+          ProjectionExpression: 'PK',
           ExclusiveStartKey: exclusiveStartKey,
         })
       );
@@ -286,12 +326,16 @@ export class DynamoRefStore implements RefStore {
       if (response.Items) {
         for (const item of response.Items) {
           const unmarshalled = unmarshall(item);
-          // PK format: CACHE/{repo}/{taskHash}
+          // PK format: EXECUTION/{repo}/{taskHash}/{inputsHash}
           const pk = unmarshalled.PK as string;
           const pkParts = pk.split('/');
-          const taskHash = pkParts[2]; // After 'CACHE/{repo}/'
-          const inputsHash = unmarshalled.SK as string;
-          items.push({ taskHash, inputsHash });
+          const taskHash = pkParts[2];
+          const inputsHash = pkParts[3];
+          const key = `${taskHash}/${inputsHash}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            items.push({ taskHash, inputsHash });
+          }
         }
       }
 
@@ -302,9 +346,84 @@ export class DynamoRefStore implements RefStore {
   }
 
   async executionListForTask(repo: string, taskHash: string): Promise<string[]> {
-    // Query all cache entries for a specific task
-    const items = await this.queryByPkAndSkPrefix(`CACHE/${repo}/${taskHash}`);
+    // Scan EXECUTION/{repo}/{taskHash}/ prefix, deduplicate by inputsHash
+    const seen = new Set<string>();
+    let exclusiveStartKey: Record<string, any> | undefined;
+
+    do {
+      const response = await this.dynamo.send(
+        new ScanCommand({
+          TableName: this.tableName,
+          FilterExpression: 'begins_with(PK, :prefix)',
+          ExpressionAttributeValues: marshall({ ':prefix': `EXECUTION/${repo}/${taskHash}/` }),
+          ProjectionExpression: 'PK',
+          ExclusiveStartKey: exclusiveStartKey,
+        })
+      );
+
+      if (response.Items) {
+        for (const item of response.Items) {
+          const unmarshalled = unmarshall(item);
+          const pk = unmarshalled.PK as string;
+          const pkParts = pk.split('/');
+          const inputsHash = pkParts[3];
+          seen.add(inputsHash);
+        }
+      }
+
+      exclusiveStartKey = response.LastEvaluatedKey;
+    } while (exclusiveStartKey);
+
+    return [...seen];
+  }
+
+  // ===========================================================================
+  // Dataflow Run Tracking
+  // Schema: PK: DATAFLOW/{repo}/{workspace}, SK: {runId} (UUIDv7)
+  // ===========================================================================
+
+  async dataflowRunGet(repo: string, workspace: string, runId: string): Promise<DataflowRun | null> {
+    const item = await this.getItemByKey(`DATAFLOW/${repo}/${workspace}`, runId);
+    if (!item?.run) return null;
+    const runBytes = item.run as Uint8Array;
+    return decodeDataflowRun(runBytes) as unknown as DataflowRun;
+  }
+
+  async dataflowRunWrite(repo: string, workspace: string, run: DataflowRun): Promise<void> {
+    const runBytes = encodeDataflowRun(run as unknown as Parameters<typeof encodeDataflowRun>[0]);
+    await this.putItemByKey(`DATAFLOW/${repo}/${workspace}`, run.runId, {
+      run: runBytes,
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  async dataflowRunList(repo: string, workspace: string): Promise<string[]> {
+    const items = await this.queryByPkAndSkPrefix(`DATAFLOW/${repo}/${workspace}`);
     return items.map((item) => item.SK as string);
+  }
+
+  async dataflowRunGetLatest(repo: string, workspace: string): Promise<DataflowRun | null> {
+    const pk = `DATAFLOW/${repo}/${workspace}`;
+    const response = await this.dynamo.send(
+      new QueryCommand({
+        TableName: this.tableName,
+        KeyConditionExpression: 'PK = :pk',
+        ExpressionAttributeValues: marshall({ ':pk': pk }),
+        ScanIndexForward: false,
+        Limit: 1,
+        ConsistentRead: true,
+      })
+    );
+
+    if (!response.Items || response.Items.length === 0) return null;
+    const item = unmarshall(response.Items[0]);
+    if (!item.run) return null;
+    const runBytes = item.run as Uint8Array;
+    return decodeDataflowRun(runBytes) as unknown as DataflowRun;
+  }
+
+  async dataflowRunDelete(repo: string, workspace: string, runId: string): Promise<void> {
+    await this.deleteItemByKey(`DATAFLOW/${repo}/${workspace}`, runId);
   }
 
   // ===========================================================================
@@ -521,12 +640,15 @@ export class DynamoRefStore implements RefStore {
 
     // Phase 2: Scan-based multi-partition items (prefix patterns)
     const scanPrefixes = [
-      `CACHE/${repo}/`,
+      `CACHE/${repo}/`,  // Legacy execution cache
+      `EXECUTION/${repo}/`, // New execution cache (UUIDv7 keys)
+      `DATAFLOW/${repo}/`, // Dataflow run records
       `LOG/${repo}/`,
       // Phase 3 partitions
       `EXEC/${repo}/`,
       `TASK/${repo}/`,
       `EVENT/${repo}/`,
+      `STATE/${repo}/`, // Execution state store
     ];
 
     // Parse cursor

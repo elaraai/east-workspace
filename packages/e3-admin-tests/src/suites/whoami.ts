@@ -26,8 +26,8 @@ const optionStringEqual = equalFor(OptionType(StringType));
  * @param getContext - Function that returns the current test context
  */
 export function whoamiTests(getContext: () => AdminTestContext): void {
-  describe('GET /api/whoami', () => {
-    it('returns user info for authenticated request', async () => {
+  void describe('GET /api/whoami', () => {
+    void it('returns user info for authenticated request', async () => {
       const ctx = getContext();
       const ownerUser = await ctx.getTestUser('owner');
 
@@ -40,7 +40,7 @@ export function whoamiTests(getContext: () => AdminTestContext): void {
       assert.strictEqual(user.isAdmin, false);
     });
 
-    it('admin user has isAdmin=true', async () => {
+    void it('admin user has isAdmin=true', async () => {
       const ctx = getContext();
       const adminUser = await ctx.getTestUser('admin');
 
@@ -50,7 +50,7 @@ export function whoamiTests(getContext: () => AdminTestContext): void {
       assert.strictEqual(user.isAdmin, true);
     });
 
-    it('returns unauthorized for unauthenticated request', async () => {
+    void it('returns unauthorized for unauthenticated request', async () => {
       const ctx = getContext();
 
       await expectError(
@@ -59,7 +59,7 @@ export function whoamiTests(getContext: () => AdminTestContext): void {
       );
     });
 
-    it('returns unauthorized for invalid token', async () => {
+    void it('returns unauthorized for invalid token', async () => {
       const ctx = getContext();
 
       await expectError(
@@ -68,7 +68,7 @@ export function whoamiTests(getContext: () => AdminTestContext): void {
       );
     });
 
-    it('different users return different identities', async () => {
+    void it('different users return different identities', async () => {
       const ctx = getContext();
       const ownerUser = await ctx.getTestUser('owner');
       const memberUser = await ctx.getTestUser('member');

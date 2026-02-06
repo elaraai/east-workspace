@@ -123,9 +123,9 @@ function generateRepoName(): string {
  * const response = await whoami(ctx.config.baseUrl, await ctx.opts('owner'));
  * ```
  */
-export async function createAdminTestContext(
+export function createAdminTestContext(
   config: AdminTestConfig
-): Promise<AdminTestContext> {
+): AdminTestContext {
   const repoName = generateRepoName();
 
   const opts = async (userId: TestUserId = 'owner'): Promise<RequestOptions> => {

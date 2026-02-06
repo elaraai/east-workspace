@@ -7,7 +7,7 @@ S3 + DynamoDB StorageBackend implementation for e3 cloud deployments.
 This package provides the cloud storage backend for e3, implementing the `StorageBackend` interface from `@elaraai/e3-core`:
 
 - **Objects**: S3 (content-addressed blobs)
-- **Refs**: DynamoDB (packages, workspaces, execution cache)
+- **Refs**: DynamoDB (packages, workspaces, execution history, dataflow runs)
 - **Locks**: DynamoDB (with TTL for automatic cleanup)
 - **Logs**: DynamoDB (chunked for real-time streaming)
 - **Repos**: DynamoDB + S3 (repository lifecycle and GC)
@@ -61,18 +61,28 @@ Attributes:
   - updatedAt: string      # ISO timestamp
 ```
 
-### Execution Cache
+### Execution History
 
-Task execution results keyed by task hash + inputs hash. Each task hash gets its own partition for write distribution.
+Append-only execution records keyed by task hash + inputs hash + UUIDv7 execution ID. Each (taskHash, inputsHash) combination gets its own partition. UUIDv7 sort keys enable efficient latest-first queries.
 
 ```
-PK: CACHE/{repo}/{taskHash}
-SK: {inputsHash}
+PK: EXECUTION/{repo}/{taskHash}/{inputsHash}
+SK: {executionId}          # UUIDv7 (lexicographically sortable by timestamp)
 Attributes:
   - status: Binary         # BEAST2-encoded ExecutionStatus
-  - outputHash?: string    # SHA256 hash of output (if success)
   - updatedAt: string      # ISO timestamp
-  - completedAt?: string   # ISO timestamp
+```
+
+### Dataflow Runs
+
+Tracks dataflow execution runs per workspace. Each run captures task execution details, status, and summary. At most one run exists per workspace (old runs are cleaned up when a new run starts).
+
+```
+PK: DATAFLOW/{repo}/{workspace}
+SK: {runId}                # UUIDv7
+Attributes:
+  - run: Binary            # BEAST2-encoded DataflowRun
+  - updatedAt: string      # ISO timestamp
 ```
 
 ### Execution State (ExecutionStateStore interface)
@@ -165,17 +175,18 @@ Attributes:
 
 ### Log Chunks
 
-Streaming log chunks for near real-time access. Each task execution gets its own partition for write distribution.
+Streaming log chunks for near real-time access. Each task execution instance gets its own partition for write distribution.
 
 ```
-PK: LOG/{repo}/{taskHash}/{inputsHash}
+PK: LOG/{repo}/{taskHash}/{inputsHash}/{executionId}
 SK: {stream}/{chunk}
 Attributes:
   - data: string           # Log chunk content
   - timestamp: number      # Milliseconds since epoch
-  - ttl: number            # DynamoDB TTL (7 days)
+  - ttl: number            # DynamoDB TTL (30 days)
 
 Where:
+  - executionId: UUIDv7 execution instance ID
   - stream: 'stdout' | 'stderr'
   - chunk: 6-digit zero-padded contiguous index (000000, 000001, ...)
 ```
@@ -202,17 +213,23 @@ s3://{bucket}/
 | Get package | PK = PKG/{repo}, SK = {name}/{version} | GetItem |
 | List workspaces | PK = WS/{repo} | Query |
 | Get workspace | PK = WS/{repo}, SK = {name} | GetItem |
-| Get execution cache | PK = CACHE/{repo}/{taskHash}, SK = {inputsHash} | GetItem |
-| List cache entries (repo) | PK begins_with CACHE/{repo}/ | Scan (filter) |
-| List cache entries (task) | PK = CACHE/{repo}/{taskHash} | Query |
+| Get execution by ID | PK = EXECUTION/{repo}/{taskHash}/{inputsHash}, SK = {executionId} | GetItem |
+| Get latest execution | PK = EXECUTION/{repo}/{taskHash}/{inputsHash} | Query (desc, Limit 1) |
+| List execution IDs | PK = EXECUTION/{repo}/{taskHash}/{inputsHash} | Query |
+| List executions (repo) | PK begins_with EXECUTION/{repo}/ | Scan (filter) |
+| List executions (task) | PK begins_with EXECUTION/{repo}/{taskHash}/ | Scan (filter) |
+| Get dataflow run | PK = DATAFLOW/{repo}/{workspace}, SK = {runId} | GetItem |
+| Get latest dataflow run | PK = DATAFLOW/{repo}/{workspace} | Query (desc, Limit 1) |
+| List dataflow runs | PK = DATAFLOW/{repo}/{workspace} | Query |
+| Delete dataflow run | PK = DATAFLOW/{repo}/{workspace}, SK = {runId} | DeleteItem |
 | Get execution state | PK = STATE/{repo}/{workspace}, SK = {execId} | GetItem |
 | Get latest execution state | PK = STATE/{repo}/{workspace} | Query (desc) |
 | Generate execution ID | PK = STATE/{repo}/{workspace}, SK = "_counter" | UpdateItem (atomic) |
 | Get lock | PK = LOCK/{repo}, SK = {resource} | GetItem |
-| Read logs | PK = LOG/{repo}/{taskHash}/{inputsHash}, SK begins_with {stream}/ | Query |
+| Read logs | PK = LOG/{repo}/{taskHash}/{inputsHash}/{executionId}, SK begins_with {stream}/ | Query |
 | Get object catalogue entry | PK = OBJ/{repo}, SK = {hash} | GetItem |
 | List objects (catalogue) | PK = OBJ/{repo} | Query |
-| Delete repo | PKG/{repo}, WS/{repo}, LOCK/{repo}, REPO#{repo}, OBJ/{repo}, STATE/{repo}/ (Query) + CACHE/{repo}/, LOG/{repo}/ (Scan) | Query + Scan + BatchDelete |
+| Delete repo | PKG/{repo}, WS/{repo}, LOCK/{repo}, REPO#{repo}, OBJ/{repo}, STATE/{repo}/ (Query) + EXECUTION/{repo}/, DATAFLOW/{repo}/, LOG/{repo}/ (Scan) | Query + Scan + BatchDelete |
 | List repo ACL | PK = ACL#{repo} | Query |
 | Get user role | PK = ACL#{repo}, SK = USER#{userId} | GetItem |
 | Add/update ACL entry | PK = ACL#{repo}, SK = USER#{userId} | PutItem |

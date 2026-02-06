@@ -28,8 +28,8 @@
   "peerDependencies": {
     "@elaraai/e3-admin-core": "^0.0.1-alpha.0",
     "@elaraai/e3-admin-types": "^0.0.1-alpha.0",
-    "@elaraai/e3-core": "^0.0.2-beta.23",
-    "@elaraai/e3-types": "^0.0.2-beta.23",
+    "@elaraai/e3-core": "^0.0.2-beta.24",
+    "@elaraai/e3-types": "^0.0.2-beta.24",
     "@elaraai/east": "^0.0.1-beta.31"
   },
   "devDependencies": {

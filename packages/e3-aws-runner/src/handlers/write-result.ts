@@ -39,6 +39,10 @@ export interface WriteResultEvent {
   duration?: number; // Task execution duration in ms (only for executed tasks)
   error?: string; // Error message for failed tasks
   exitCode?: number; // Exit code for failed tasks
+  /** UUIDv7 execution ID for this task execution */
+  taskExecutionId?: string;
+  /** UUIDv7 run ID for DataflowRun tracking */
+  runId: string;
 }
 
 export interface WriteResultOutput {
@@ -63,7 +67,7 @@ export interface WriteResultOutput {
  * @returns Tree update info (outputPath, outputHash) for successful tasks
  */
 export async function handler(event: WriteResultEvent): Promise<WriteResultOutput> {
-  const { repo, workspace, executionId, taskName, outputPath, outputHash, taskHash, inputHashes, status, duration, error, exitCode } = event;
+  const { repo, workspace, executionId, taskName, outputPath, outputHash, taskHash, inputHashes, status, duration, error, exitCode, taskExecutionId } = event;
   const execId = executionId.toString().padStart(10, '0');
 
   // Read execution state
@@ -123,17 +127,18 @@ export async function handler(event: WriteResultEvent): Promise<WriteResultOutpu
   await storage.executions.update(state);
 
   // Write execution cache record for e3-core's workspaceStatus to detect 'up-to-date'
-  // This is the record that executionGet() looks for when computing task status
-  if (!isCached && taskHash && inputHashes && outputHash) {
+  // This is the record that executionGet/executionGetLatest looks for when computing task status
+  if (!isCached && taskHash && inputHashes && outputHash && taskExecutionId) {
     const cacheTime = new Date();
     const inHash = inputsHash(inputHashes);
     const executionStatus: ExecutionStatus = variant('success', {
+      executionId: taskExecutionId,
       inputHashes: inputHashes,
       outputHash: outputHash,
       startedAt: cacheTime, // We don't have the actual start time, use completion time
       completedAt: cacheTime,
     });
-    await storage.refs.executionWrite(repo, taskHash, inHash, executionStatus);
+    await storage.refs.executionWrite(repo, taskHash, inHash, taskExecutionId, executionStatus);
   }
 
   console.log(`Recorded result for task ${taskName} (${isCached ? 'cached' : 'executed'})`);

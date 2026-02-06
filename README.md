@@ -69,13 +69,10 @@ aws sso login --profile elaraai-dev-elara-e3
 
 # Deploy platform (from cdk/platform directory)
 cd cdk/platform
-AWS_PROFILE=elaraai-dev-elara-e3 npx cdk deploy --context deploymentId=dev --require-approval never
+AWS_PROFILE=elaraai-dev-elara-e3 npx cdk deploy --context config=elara-dev --require-approval never
 ```
 
-The `--context deploymentId=dev` specifies the target environment:
-- `dev` → `dev.e3.elaraai.com` (development)
-- `test` → `test.e3.elaraai.com` (staging)
-- `prod` → `e3.elaraai.com` (production)
+The `--context config=elara-dev` loads the full deployment configuration from `deployments/elara-dev.json`, including test users, OIDC, and domain settings.
 
 ### Use with CLI
 
@@ -182,23 +179,23 @@ npm run dev
 
 ### CDK Commands
 
-All CDK commands require `AWS_PROFILE` and `--context deploymentId`:
+All CDK commands require `AWS_PROFILE` and `--context config`:
 
 ```bash
 # Set profile for all commands
 export AWS_PROFILE=elaraai-dev-elara-e3
 
 # Synthesize CloudFormation (no deploy)
-npx cdk synth --context deploymentId=dev
+npx cdk synth --context config=elara-dev
 
 # Deploy platform
-npx cdk deploy --context deploymentId=dev --require-approval never
+npx cdk deploy --context config=elara-dev --require-approval never
 
 # Diff changes
-npx cdk diff --context deploymentId=dev
+npx cdk diff --context config=elara-dev
 
 # Destroy (careful!)
-npx cdk destroy --context deploymentId=dev
+npx cdk destroy --context config=elara-dev
 ```
 
 ### Integration Tests

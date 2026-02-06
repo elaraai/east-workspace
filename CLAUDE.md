@@ -103,13 +103,16 @@ npm run build
 
 # 3. Deploy platform (from cdk/platform directory)
 cd cdk/platform
-AWS_PROFILE=elaraai-dev-elara-e3 npx cdk deploy --context deploymentId=dev --require-approval never
+AWS_PROFILE=elaraai-dev-elara-e3 npx cdk deploy --context config=elara-dev --require-approval never
 ```
 
-The `--context deploymentId=dev` is required to specify the target environment. This controls:
+The `--context config=elara-dev` loads the deployment configuration from `deployments/elara-dev.json`. This controls:
 - Stack name: `E3Platform-dev`
 - Resource naming: `e3-dev-*`
 - Domain: `dev.e3.elaraai.com`
+- Test users, OIDC, and other environment-specific settings
+
+**Important:** Do not use `--context deploymentId=dev` alone — this skips the config file and will omit test users, OIDC, and domain configuration.
 
 ### Deploy Account Infrastructure (Management Account Only)
 

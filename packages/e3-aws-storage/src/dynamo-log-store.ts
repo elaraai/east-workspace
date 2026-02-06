@@ -12,20 +12,21 @@ import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import type { LogStore, LogChunk } from '@elaraai/e3-core';
 
 /**
- * Default TTL for log chunks in seconds (7 days).
+ * Default TTL for log chunks in seconds (30 days).
  * After this, DynamoDB will automatically delete the items.
+ * Stopgap until S3 log consolidation is implemented.
  */
-const DEFAULT_LOG_TTL_SECONDS = 7 * 24 * 60 * 60;
+const DEFAULT_LOG_TTL_SECONDS = 30 * 24 * 60 * 60;
 
 /**
  * DynamoDB-backed LogStore implementation.
  *
  * Logs are stored as chunks with the key pattern:
- *   PK: LOG/{repo}/{taskHash}/{inputsHash}
+ *   PK: LOG/{repo}/{taskHash}/{inputsHash}/{executionId}
  *   SK: {stream}/{chunk_index}  (chunk_index: 6-digit zero-padded)
  *
  * This enables:
- * - Per-task-execution partitions (isolates log writes from other repo operations)
+ * - Per-execution log partitions (isolates log writes)
  * - Near real-time log viewing (~100ms latency)
  * - Non-blocking writes from task runners
  * - Automatic cleanup via TTL
@@ -52,6 +53,7 @@ export class DynamoLogStore implements LogStore {
     repo: string,
     taskHash: string,
     inputsHash: string,
+    executionId: string,
     stream: 'stdout' | 'stderr',
     data: string
   ): Promise<void> {
@@ -60,7 +62,7 @@ export class DynamoLogStore implements LogStore {
     }
 
     const now = Date.now();
-    const chunkIndex = this.getNextChunkIndex(repo, taskHash, inputsHash, stream);
+    const chunkIndex = this.getNextChunkIndex(repo, taskHash, inputsHash, executionId, stream);
     const ttl = Math.floor(now / 1000) + DEFAULT_LOG_TTL_SECONDS;
 
     // Pad chunk index for correct lexicographic ordering
@@ -70,7 +72,7 @@ export class DynamoLogStore implements LogStore {
       new PutItemCommand({
         TableName: this.tableName,
         Item: marshall({
-          PK: `LOG/${repo}/${taskHash}/${inputsHash}`,
+          PK: `LOG/${repo}/${taskHash}/${inputsHash}/${executionId}`,
           SK: `${stream}/${paddedIndex}`,
           data,
           timestamp: now,
@@ -90,6 +92,7 @@ export class DynamoLogStore implements LogStore {
     repo: string,
     taskHash: string,
     inputsHash: string,
+    executionId: string,
     stream: 'stdout' | 'stderr',
     options?: { offset?: number; limit?: number }
   ): Promise<LogChunk> {
@@ -97,7 +100,7 @@ export class DynamoLogStore implements LogStore {
     const limit = options?.limit;
 
     // Query all chunks for this stream
-    const pk = `LOG/${repo}/${taskHash}/${inputsHash}`;
+    const pk = `LOG/${repo}/${taskHash}/${inputsHash}/${executionId}`;
     const skPrefix = `${stream}/`;
     const chunks = await this.queryChunks(pk, skPrefix);
 
@@ -175,8 +178,8 @@ export class DynamoLogStore implements LogStore {
    * Get the next chunk index for a log stream.
    * Contiguous index ensures correct ordering when reading.
    */
-  private getNextChunkIndex(repo: string, taskHash: string, inputsHash: string, stream: string): number {
-    const key = `${repo}#${taskHash}#${inputsHash}#${stream}`;
+  private getNextChunkIndex(repo: string, taskHash: string, inputsHash: string, executionId: string, stream: string): number {
+    const key = `${repo}#${taskHash}#${inputsHash}#${executionId}#${stream}`;
     const current = this.chunkCounters.get(key) ?? 0;
     this.chunkCounters.set(key, current + 1);
     return current;

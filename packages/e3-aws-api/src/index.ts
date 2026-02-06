@@ -25,7 +25,7 @@ import {
   InvalidRepoStatusError,
 } from '@elaraai/e3-aws-storage';
 import { StringType, NullType, ArrayType, variant, some, none } from '@elaraai/east';
-import { stepCancel, coreStateToApiState, type DataflowExecutionState } from '@elaraai/e3-core';
+import { stepCancel, coreStateToApiState, uuidv7, type DataflowExecutionState } from '@elaraai/e3-core';
 
 // =============================================================================
 // Cloud Dataflow Notes
@@ -514,11 +514,14 @@ app.post('/api/repos/:repo/workspaces/:ws/dataflow', async (c) => {
     };
     await storage.executions.create(initialState);
 
+    // Generate runId for DataflowRun tracking
+    const runId = uuidv7();
+
     // Generate unique Step Functions execution name
     const sfnExecutionId = randomUUID();
     const executionName = `dataflow-${repo}-${workspace}-${sfnExecutionId}`.slice(0, 80);
 
-    // Start the dataflow state machine with the execution ID
+    // Start the dataflow state machine with the execution ID and runId
     await sfn.send(
       new StartExecutionCommand({
         stateMachineArn: DATAFLOW_STATE_MACHINE_ARN,
@@ -528,6 +531,7 @@ app.post('/api/repos/:repo/workspaces/:ws/dataflow', async (c) => {
           workspace,
           executionId: parseInt(execId, 10), // Convert to number for backward compatibility
           force, // Pass force flag to state machine
+          runId, // UUIDv7 for DataflowRun tracking
         }),
       })
     );

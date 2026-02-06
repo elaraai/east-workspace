@@ -30,9 +30,9 @@
   ],
   "license": "SEE LICENSE IN LICENSE.md",
   "dependencies": {
-    "@elaraai/e3-api-client": "^0.0.2-beta.23",
-    "@elaraai/e3-api-server": "^0.0.2-beta.23",
-    "@elaraai/e3-api-tests": "^0.0.2-beta.23"
+    "@elaraai/e3-api-client": "^0.0.2-beta.24",
+    "@elaraai/e3-api-server": "^0.0.2-beta.24",
+    "@elaraai/e3-api-tests": "^0.0.2-beta.24"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

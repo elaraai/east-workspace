@@ -522,7 +522,6 @@ export class E3PlatformStack extends cdk.Stack {
     // ============================================================
     // Create test users in Cognito when testUsers.enabled is true.
     // Passwords are stored in Secrets Manager for programmatic authentication.
-    let testUserSecretArn: string | undefined;
     if (props.testUsers?.enabled) {
       const testUsers = new CognitoTestUsers(this, 'TestUsers', {
         userPool,
@@ -530,7 +529,6 @@ export class E3PlatformStack extends cdk.Stack {
         prefix,
         adminGroup: cognitoAdminGroup,
       });
-      testUserSecretArn = testUsers.secretArn;
 
       new cdk.CfnOutput(this, 'TestUserSecretArn', {
         value: testUsers.secretArn,
@@ -978,6 +976,7 @@ export class E3PlatformStack extends cdk.Stack {
         'repo.$': '$.repo',
         'workspace.$': '$.workspace',
         'executionId.$': '$.executionId',
+        'runId.$': '$.runId',
         'status': 'completed',
       },
     });
@@ -987,6 +986,7 @@ export class E3PlatformStack extends cdk.Stack {
         'repo.$': '$.repo',
         'workspace.$': '$.workspace',
         'executionId.$': '$.executionId',
+        'runId.$': '$.runId',
         'status': 'failed',
       },
     });
@@ -1043,11 +1043,14 @@ export class E3PlatformStack extends cdk.Stack {
         'repo.$': '$.repo',
         'workspace.$': '$.workspace',
         'executionId.$': '$.executionId',
+        'runId.$': '$.runId',
         'taskName.$': '$.dispatch.Payload.taskName',
         'status.$': '$.dispatch.Payload.status',
         'taskHash.$': '$.dispatch.Payload.taskHash',
         'inputHashes.$': '$.dispatch.Payload.inputHashes',
         'outputPath.$': '$.dispatch.Payload.outputPath',
+        'taskExecutionId.$': '$.dispatch.Payload.taskExecutionId',
+        'cached.$': '$.dispatch.Payload.cached',
         // Pass through the entire dispatch payload so we can access outputHash if it exists
         'dispatchResult.$': '$.dispatch.Payload',
       },
@@ -1087,10 +1090,12 @@ export class E3PlatformStack extends cdk.Stack {
         'repo.$': '$.repo',
         'workspace.$': '$.workspace',
         'executionId.$': '$.executionId',
+        'runId.$': '$.runId',
         'taskName.$': '$.taskName',
         'outputPath.$': '$.outputPath',
         'taskHash.$': '$.taskHash',
         'inputHashes.$': '$.inputHashes',
+        'taskExecutionId.$': '$.taskExecutionId',
         'status': 'completed',
         'outputHash.$': '$.execution.Payload.outputHash',
         'duration.$': '$.execution.Payload.duration',
@@ -1103,8 +1108,10 @@ export class E3PlatformStack extends cdk.Stack {
         'repo.$': '$.repo',
         'workspace.$': '$.workspace',
         'executionId.$': '$.executionId',
+        'runId.$': '$.runId',
         'taskName.$': '$.taskName',
         'outputPath.$': '$.outputPath',
+        'taskExecutionId.$': '$.taskExecutionId',
         'status': 'failed',
         'error.$': '$.execution.Payload.error',
         'exitCode.$': '$.execution.Payload.exitCode',
@@ -1137,10 +1144,12 @@ export class E3PlatformStack extends cdk.Stack {
         'repo.$': '$.repo',
         'workspace.$': '$.workspace',
         'executionId.$': '$.executionId',
+        'runId.$': '$.runId',
         'taskName.$': '$.taskName',
         'outputPath.$': '$.outputPath',
         'taskHash.$': '$.taskHash',
         'inputHashes.$': '$.inputHashes',
+        'taskExecutionId.$': '$.taskExecutionId',
         'status': 'cached',  // Preserve cached status for proper counting
         'outputHash.$': '$.dispatchResult.outputHash',
       },
@@ -1175,6 +1184,7 @@ export class E3PlatformStack extends cdk.Stack {
         'repo.$': '$.repo',
         'workspace.$': '$.workspace',
         'executionId.$': '$.executionId',
+        'runId.$': '$.runId',
         'force.$': '$.force',
       },
       resultPath: '$.taskResults',
@@ -1187,6 +1197,7 @@ export class E3PlatformStack extends cdk.Stack {
         'repo.$': '$.repo',
         'workspace.$': '$.workspace',
         'executionId.$': '$.executionId',
+        'runId.$': '$.runId',
         'force.$': '$.force',
         // Pass task results as tree updates to the apply step
         'treeUpdates.$': '$.taskResults',
@@ -1212,6 +1223,7 @@ export class E3PlatformStack extends cdk.Stack {
         'repo.$': '$.repo',
         'workspace.$': '$.workspace',
         'executionId.$': '$.executionId',
+        'runId.$': '$.runId',
         'force.$': '$.force',
         'readyTasks.$': '$.readyResult.Payload.readyTasks',
         'allCompleted.$': '$.readyResult.Payload.allCompleted',
@@ -1230,6 +1242,7 @@ export class E3PlatformStack extends cdk.Stack {
         'repo.$': '$.repo',
         'workspace.$': '$.workspace',
         'executionId.$': '$.executionId',
+        'runId.$': '$.runId',
         'status': 'failed',
       },
     });

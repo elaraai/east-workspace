@@ -58,9 +58,11 @@ function parseGroups(value: unknown): string[] {
  * - Federated users (OIDC): groups come from custom:groups attribute
  * - Native Cognito users: groups come from groupConfiguration.groupsToOverride
  */
+/* eslint-disable @typescript-eslint/require-await -- Cognito Lambda triggers require async handlers */
 export const handler: PreTokenGenerationV2TriggerHandler = async (
   event: PreTokenGenerationV2TriggerEvent
 ): Promise<PreTokenGenerationV2TriggerEvent> => {
+/* eslint-enable @typescript-eslint/require-await */
   const adminGroup = process.env.ADMIN_GROUP;
 
   // Read IdP groups from user attributes (mapped during OIDC federation)

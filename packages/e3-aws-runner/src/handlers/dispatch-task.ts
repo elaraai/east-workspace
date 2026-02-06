@@ -10,6 +10,8 @@ import {
   stepPrepareTask,
   stepTaskStarted,
   stepTaskCompleted,
+  inputsHash,
+  uuidv7,
 } from '@elaraai/e3-core';
 
 // Initialize clients once at Lambda cold start
@@ -29,6 +31,8 @@ export interface DispatchTaskEvent {
   executionId: number;
   taskName: string;
   force?: boolean; // Skip cache check if true
+  /** UUIDv7 run ID for DataflowRun tracking */
+  runId: string;
 }
 
 export interface DispatchTaskResult {
@@ -39,6 +43,10 @@ export interface DispatchTaskResult {
   taskHash?: string;
   inputHashes?: string[];
   outputPath?: string;
+  /** UUIDv7 execution ID for this task execution */
+  taskExecutionId?: string;
+  /** Whether this task was served from cache */
+  cached: boolean;
 }
 
 /**
@@ -48,7 +56,7 @@ export interface DispatchTaskResult {
  * 1. Checks for cancellation before doing expensive work
  * 2. Uses stepPrepareTask to resolve inputs and check cache
  * 3. If cached, uses stepTaskCompleted to update state and returns cached status
- * 4. If not cached, uses stepTaskStarted to mark task as started
+ * 4. If not cached, generates a UUIDv7 taskExecutionId and marks task as started
  * 5. Returns task execution parameters for Step Functions to invoke execute-task
  *
  * Uses e3-core step functions to eliminate duplicated business logic.
@@ -65,7 +73,7 @@ export async function handler(event: DispatchTaskEvent): Promise<DispatchTaskRes
   // Check for cancellation before doing expensive work
   if (!state || state.status === 'cancelled') {
     console.log(`Execution ${executionId} was cancelled, skipping task ${taskName}`);
-    return { taskName, status: 'cancelled' };
+    return { taskName, status: 'cancelled', cached: false };
   }
 
   // Use stepPrepareTask to resolve inputs and check cache
@@ -94,6 +102,11 @@ export async function handler(event: DispatchTaskEvent): Promise<DispatchTaskRes
     await preserveCancelledStatus();
     await storage.executions.update(state);
 
+    // For cached tasks, get the executionId from the latest execution record
+    const inHash = inputsHash(prepare.inputHashes);
+    const latestStatus = await storage.refs.executionGetLatest(repo, prepare.taskHash, inHash);
+    const cachedExecutionId = latestStatus?.type === 'success' ? latestStatus.value.executionId : uuidv7();
+
     return {
       taskName,
       status: 'cached',
@@ -101,11 +114,14 @@ export async function handler(event: DispatchTaskEvent): Promise<DispatchTaskRes
       taskHash: prepare.taskHash,
       inputHashes: prepare.inputHashes,
       outputPath: prepare.outputPath,
+      taskExecutionId: cachedExecutionId,
+      cached: true,
     };
   }
 
-  // Not cached - mark as started and return execution parameters
-  console.log(`Task ${taskName} ready for execution`);
+  // Not cached - generate a UUIDv7 execution ID and mark as started
+  const taskExecutionId = uuidv7();
+  console.log(`Task ${taskName} ready for execution (taskExecutionId=${taskExecutionId})`);
 
   // Use stepTaskStarted to mark the task as in-progress
   stepTaskStarted(state, taskName);
@@ -120,5 +136,7 @@ export async function handler(event: DispatchTaskEvent): Promise<DispatchTaskRes
     taskHash: prepare.taskHash,
     inputHashes: prepare.inputHashes,
     outputPath: prepare.outputPath,
+    taskExecutionId,
+    cached: false,
   };
 }

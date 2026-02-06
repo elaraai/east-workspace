@@ -100,7 +100,7 @@ aws sso login --profile elaraai-dev-elara-e3
 
 # Deploy e3 platform
 cd ../platform
-AWS_PROFILE=elaraai-dev-elara-e3 npm run deploy -- --context deploymentId=dev
+AWS_PROFILE=elaraai-dev-elara-e3 npm run deploy -- --context config=elara-dev
 ```
 
 ## Account Lifecycle
@@ -370,7 +370,7 @@ The platform stack automatically picks up domain config from SSM:
 
 ```bash
 cd ../platform
-npm run deploy -- --context deploymentId=dev
+npm run deploy -- --context config=elara-dev
 ```
 
 This creates:
