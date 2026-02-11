@@ -25,7 +25,12 @@ import {
   InvalidRepoStatusError,
 } from '@elaraai/e3-aws-storage';
 import { StringType, NullType, ArrayType, variant, some, none } from '@elaraai/east';
-import { stepCancel, coreStateToApiState, uuidv7, type DataflowExecutionState } from '@elaraai/e3-core';
+import {
+  stepCancel, coreStateToApiState, uuidv7,
+  dataflowGetGraph,
+  WorkspaceNotFoundError, WorkspaceNotDeployedError, TaskNotFoundError,
+  type DataflowExecutionState,
+} from '@elaraai/e3-core';
 
 // =============================================================================
 // Cloud Dataflow Notes
@@ -398,7 +403,7 @@ app.get('/api/repos/:repo/gc/:executionId', async (c) => {
             });
           }
 
-          // GC completed with stats
+          // GC completed with stats from sweep phase
           if (output.stats) {
             return sendSuccess(ApiTypes.GcStatusResultType, {
               status: variant('succeeded', null),
@@ -465,6 +470,34 @@ app.post('/api/repos/:repo/workspaces/:ws/dataflow', async (c) => {
     return sendError(NullType, internalError('Dataflow execution not available - state machine not configured'));
   }
 
+  // Decode BEAST2-encoded body to get force flag and filter
+  const body = await decodeBody(c, ApiTypes.DataflowRequestType);
+  const force = body.force;
+  const filter = body.filter.type === 'some' ? body.filter.value : undefined;
+
+  // Validate workspace exists and is deployed BEFORE acquiring lock
+  // This prevents lock leak if workspace is missing/undeployed
+  let graph: { tasks: Array<{ name: string; hash: string; inputs: string[]; output: string; dependsOn: string[] }> };
+  try {
+    graph = await dataflowGetGraph(storage, repo, workspace);
+  } catch (err) {
+    if (err instanceof WorkspaceNotFoundError) {
+      return sendError(NullType, variant('workspace_not_found', { workspace }));
+    }
+    if (err instanceof WorkspaceNotDeployedError) {
+      return sendError(NullType, variant('workspace_not_deployed', { workspace }));
+    }
+    throw err;
+  }
+
+  // Validate filter task exists in the graph
+  if (filter) {
+    const taskExists = graph.tasks.some(t => t.name === filter);
+    if (!taskExists) {
+      return sendError(NullType, variant('task_not_found', { task: filter }));
+    }
+  }
+
   // Acquire workspace lock to prevent concurrent executions
   const lock = await storage.locks.acquire(
     repo,
@@ -482,10 +515,6 @@ app.post('/api/repos/:repo/workspaces/:ws/dataflow', async (c) => {
   }
 
   try {
-    // Decode BEAST2-encoded body to get force flag
-    const body = await decodeBody(c, ApiTypes.DataflowRequestType);
-    const force = body.force;
-
     // Get next execution ID from NEW STATE/ schema
     const execId = await storage.executions.nextExecutionId(repo, workspace);
 
@@ -498,7 +527,7 @@ app.post('/api/repos/:repo/workspaces/:ws/dataflow', async (c) => {
       startedAt: new Date(),
       concurrency: 4n,
       force: force ?? false,
-      filter: none,
+      filter: filter ? some(filter) : none,
       graph: none,
       graphHash: none,
       tasks: new Map(),
@@ -531,6 +560,7 @@ app.post('/api/repos/:repo/workspaces/:ws/dataflow', async (c) => {
           workspace,
           executionId: parseInt(execId, 10), // Convert to number for backward compatibility
           force, // Pass force flag to state machine
+          filter, // Pass filter to state machine (undefined omitted by JSON.stringify)
           runId, // UUIDv7 for DataflowRun tracking
         }),
       })
@@ -689,8 +719,7 @@ app.get('/api/repos/:repo/workspaces/:ws/dataflow/execution', async (c) => {
 // e3-api-server Routes
 // ============================================================
 
-// Repository status: /api/repos/:repo/status
-// Note: GC endpoints are handled above with Step Functions, but other routes pass through
+// Note: GC endpoints are handled above; other repository routes (including status) pass through
 app.route('/api/repos/:repo', createRepositoryRoutes(storage, getRepoPath) as any);
 
 // Package routes: /api/repos/:repo/packages/*

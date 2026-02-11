@@ -9,7 +9,7 @@
  * - getReadyHandler: Find tasks ready to execute
  * - dispatchTaskHandler: Check cache and dispatch task to SQS
  * - checkCompletionHandler: Poll for task completion status
- * - writeResultHandler: Write task output to workspace
+ * - applyResultsHandler: Apply task results serially to execution state
  * - markSkippedHandler: Mark downstream tasks as skipped after failure
  */
 
@@ -18,7 +18,7 @@ export { handler as getGraphHandler } from './handlers/get-graph.js';
 export { handler as getReadyHandler } from './handlers/get-ready.js';
 export { handler as dispatchTaskHandler } from './handlers/dispatch-task.js';
 export { handler as checkCompletionHandler } from './handlers/check-completion.js';
-export { handler as writeResultHandler } from './handlers/write-result.js';
+export { handler as applyResultsHandler } from './handlers/apply-results.js';
 export { handler as markSkippedHandler } from './handlers/mark-skipped.js';
 
 // Type exports
@@ -26,5 +26,5 @@ export type { GetGraphEvent, GetGraphResult } from './handlers/get-graph.js';
 export type { GetReadyEvent, GetReadyResult } from './handlers/get-ready.js';
 export type { DispatchTaskEvent, DispatchTaskResult } from './handlers/dispatch-task.js';
 export type { CheckCompletionEvent, CheckCompletionResult, TaskCompletion } from './handlers/check-completion.js';
-export type { WriteResultEvent } from './handlers/write-result.js';
+export type { ApplyResultsEvent } from './handlers/apply-results.js';
 export type { MarkSkippedEvent, MarkSkippedResult } from './handlers/mark-skipped.js';

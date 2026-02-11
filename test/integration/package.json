@@ -12,8 +12,8 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@elaraai/e3-api-tests": "^0.0.2-beta.24",
-    "@elaraai/e3-api-client": "^0.0.2-beta.24",
+    "@elaraai/e3-api-tests": "^0.0.2-beta.27",
+    "@elaraai/e3-api-client": "^0.0.2-beta.27",
     "@elaraai/e3-admin-tests": "^0.0.1-alpha.0",
     "@aws-sdk/client-cloudformation": "^3.966.0",
     "@aws-sdk/client-cognito-identity-provider": "^3.966.0",

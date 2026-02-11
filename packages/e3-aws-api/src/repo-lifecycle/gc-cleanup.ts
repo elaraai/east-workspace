@@ -43,9 +43,10 @@ export interface GcCleanupInput {
   gcId: string;
   /** Final stats from sweep phase */
   stats: {
-    deletedEntries: number;
-    retainedEntries: number;
+    deletedObjects: number;
+    retainedObjects: number;
     skippedYoung: number;
+    bytesFreed: number;
   };
   /** S3 version pagination cursor for resuming */
   versionCursor?: string;
@@ -81,9 +82,10 @@ export interface GcCleanupOutput {
   gcId: string;
   /** Final stats from sweep phase */
   stats: {
-    deletedEntries: number;
-    retainedEntries: number;
+    deletedObjects: number;
+    retainedObjects: number;
     skippedYoung: number;
+    bytesFreed: number;
   };
   /** Whether to continue ('continue') or if cleanup is complete ('done') */
   status: 'continue' | 'done';
@@ -99,16 +101,12 @@ export interface GcCleanupOutput {
  * GC Cleanup handler.
  *
  * Deletes orphaned S3 versions and temporary GC files.
- * Uses the RepoStore interface for the cleanup operation.
+ * Calls cloud-specific methods on DynamoS3RepoStore directly.
  */
 export const handler = async (input: GcCleanupInput): Promise<GcCleanupOutput> => {
   const { repo, gcId, stats } = input;
 
-  // Note: The cleanup phase may be called with continuation support from Step Functions,
-  // but the current RepoStore.gcCleanup() runs to completion. For large repos this may
-  // need to be extended in the future.
-
-  // Initialize cleanup stats (continuation not currently supported)
+  // Initialize cleanup stats
   const cleanupStats: GcCleanupStats = input.cleanupStats ?? {
     deletedVersions: 0,
     retainedVersions: 0,
@@ -116,11 +114,9 @@ export const handler = async (input: GcCleanupInput): Promise<GcCleanupOutput> =
     tempFilesDeleted: 0,
   };
 
-  // Build the reachable set key from gcId
-  const reachableSetKey = `gc-temp/${gcId}/reachable.txt`;
-
-  // Use RepoStore.gcCleanup() for the cleanup operation
-  await repoStore.gcCleanup(repo, reachableSetKey);
+  // Call cloud-specific cleanup methods directly
+  await repoStore.cleanupOrphanedVersions(repo);
+  await repoStore.cleanupTempFiles(gcId);
 
   return {
     repo,

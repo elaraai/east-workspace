@@ -64,6 +64,8 @@ e3-aws/
 | **east-ui** | `../east-ui` | East UI component library (Chakra-based) |
 | **east-node** | `../east-node` | East runtime for Node.js |
 
+**Important:** Changes to related projects (`../e3`, `../east`, etc.) are consumed via npm packages. After editing a related project, you must publish the updated packages to npm before e3-aws will pick up the changes. A local build alone is not sufficient — `npm install` / `npm update` in e3-aws pulls from the registry.
+
 ## Key Concepts
 
 - **Tenant** - A hosted e3 repository with isolated storage (EFS directory)

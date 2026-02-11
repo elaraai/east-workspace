@@ -221,6 +221,32 @@ export class S3ObjectStore implements ObjectStore {
   }
 
   /**
+   * Count objects in the catalogue.
+   * Uses SELECT COUNT to avoid transferring item data.
+   */
+  async count(repo: string): Promise<number> {
+    let total = 0;
+    let exclusiveStartKey: Record<string, any> | undefined;
+
+    do {
+      const response = await this.dynamo.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          KeyConditionExpression: 'PK = :pk',
+          ExpressionAttributeValues: marshall({ ':pk': `OBJ/${repo}` }),
+          Select: 'COUNT',
+          ExclusiveStartKey: exclusiveStartKey,
+        })
+      );
+
+      total += response.Count ?? 0;
+      exclusiveStartKey = response.LastEvaluatedKey;
+    } while (exclusiveStartKey);
+
+    return total;
+  }
+
+  /**
    * List all object hashes in a repository by querying the catalogue.
    */
   async list(repo: string): Promise<string[]> {

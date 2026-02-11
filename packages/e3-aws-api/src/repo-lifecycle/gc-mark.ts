@@ -5,17 +5,18 @@
  * GC Mark Phase Lambda Handler
  *
  * Implements the mark phase of mark-and-sweep garbage collection:
- * 1. Query all refs from DynamoDB (packages, workspaces, executions)
- * 2. Trace object graph by reading S3 objects and extracting hash references
+ * 1. Collect all root hashes via RepoStore gcScan*Roots primitives
+ * 2. Trace object graph using BEAST2 schema-aware traversal (e3-core)
  * 3. Write reachable set to S3 temp file for sweep phase
  *
  * The reachable set is stored in S3 rather than passed in Step Function payload
  * to avoid the 256KB payload limit.
  */
 
-import { S3Client } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoS3RepoStore, DynamoRefStore, S3ObjectStore } from '@elaraai/e3-aws-storage';
+import { collectAllRoots, markReachable } from '@elaraai/e3-core';
 
 // Initialize AWS clients once at Lambda cold start
 const s3 = new S3Client({});
@@ -62,21 +63,44 @@ export interface GcMarkOutput {
 /**
  * GC Mark phase handler.
  *
- * Collects all root hashes and traces the object graph to build the reachable set.
- * Uses the RepoStore interface for the mark operation.
+ * Collects all root hashes via RepoStore gcScan*Roots primitives, then
+ * traces the object graph using e3-core's BEAST2-aware markReachable.
  */
 export const handler = async (input: GcMarkInput): Promise<GcMarkOutput> => {
   const { repo, gcId, startTime } = input;
 
-  // Use RepoStore.gcMark() for the mark operation
-  const result = await repoStore.gcMark(repo);
+  // Step 1: Collect all root hashes from DynamoDB via e3-core
+  const roots = await collectAllRoots(repoStore, repo);
+
+  // Step 2: Trace object graph using BEAST2 schema-aware traversal
+  const readObject = async (hash: string): Promise<Uint8Array | null> => {
+    try {
+      return await objectStore.read(repo, hash);
+    } catch {
+      return null;
+    }
+  };
+  const reachable = await markReachable(readObject, roots);
+
+  // Step 3: Write reachable set to S3 temp file
+  const reachableSetKey = `gc-temp/${gcId}/reachable.txt`;
+  const reachableData = Array.from(reachable).join('\n');
+
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: reachableSetKey,
+      Body: reachableData,
+      ContentType: 'text/plain',
+    })
+  );
 
   return {
     repo,
     gcId,
     startTime,
-    reachableCount: result.reachableCount,
-    rootCount: result.rootCount,
-    reachableSetKey: result.reachableSetRef,
+    reachableCount: reachable.size,
+    rootCount: roots.size,
+    reachableSetKey,
   };
 };

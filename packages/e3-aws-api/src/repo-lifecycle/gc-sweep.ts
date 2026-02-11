@@ -6,9 +6,9 @@
  *
  * Implements the sweep phase of mark-and-sweep garbage collection:
  * 1. Load reachable set from S3 temp file (created by mark phase)
- * 2. Query object catalogue entries with pagination
- * 3. Delete unreachable catalogue entries (respecting lastReferencedAt for race protection)
- * 4. Self-terminate before timeout and return cursor for continuation
+ * 2. Query object catalogue entries via RepoStore.gcScanObjects (paginated)
+ * 3. Use e3-core sweepBatch to decide which objects to delete
+ * 4. Delete unreachable catalogue entries via RepoStore.gcDeleteObjects
  *
  * This phase deletes catalogue entries only - orphaned S3 versions are cleaned up
  * by the cleanup phase.
@@ -16,9 +16,10 @@
  * Designed to be called repeatedly by Step Functions until complete.
  */
 
-import { S3Client } from '@aws-sdk/client-s3';
+import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoS3RepoStore, DynamoRefStore, S3ObjectStore } from '@elaraai/e3-aws-storage';
+import { sweepBatch } from '@elaraai/e3-core';
 
 // Initialize AWS clients once at Lambda cold start
 const s3 = new S3Client({});
@@ -48,8 +49,8 @@ export interface GcSweepInput {
   startTime: number;
   /** S3 key where reachable set is stored */
   reachableSetKey: string;
-  /** DynamoDB pagination cursor for resuming catalogue query */
-  catalogueCursor?: string;
+  /** Opaque DynamoDB pagination cursor for resuming catalogue query */
+  catalogueCursor?: unknown;
   /** Accumulated stats from previous iterations */
   stats?: GcSweepStats;
   /** Minimum age in ms for catalogue entries to be deleted (default: 60000) */
@@ -58,14 +59,18 @@ export interface GcSweepInput {
 
 /**
  * Stats tracked during sweep phase.
+ * Field names match the API contract (GcResult) since sweep catalogue entries
+ * are the user-visible objects.
  */
 export interface GcSweepStats {
-  /** Number of catalogue entries deleted */
-  deletedEntries: number;
-  /** Number of catalogue entries retained (reachable) */
-  retainedEntries: number;
-  /** Number of catalogue entries skipped due to being too young */
+  /** Number of objects deleted from catalogue */
+  deletedObjects: number;
+  /** Number of objects retained (reachable) */
+  retainedObjects: number;
+  /** Number of objects skipped due to being too young */
   skippedYoung: number;
+  /** Total bytes freed */
+  bytesFreed: number;
 }
 
 /**
@@ -82,18 +87,38 @@ export interface GcSweepOutput {
   reachableSetKey: string;
   /** Whether to continue ('continue') or if sweep is complete ('done') */
   status: 'continue' | 'done';
-  /** DynamoDB pagination cursor for next batch (if any) */
-  catalogueCursor?: string;
+  /** Opaque DynamoDB pagination cursor for next batch (if any) */
+  catalogueCursor?: unknown;
   /** Accumulated stats */
   stats: GcSweepStats;
 }
 
 /**
+ * Load the reachable set from S3.
+ */
+async function loadReachableSet(bucket: string, key: string): Promise<Set<string>> {
+  const response = await s3.send(
+    new GetObjectCommand({
+      Bucket: bucket,
+      Key: key,
+    })
+  );
+
+  if (!response.Body) {
+    return new Set();
+  }
+
+  const data = await response.Body.transformToString();
+  const hashes = data.split('\n').filter((h: string) => h.length === 64);
+
+  return new Set(hashes);
+}
+
+/**
  * GC Sweep phase handler.
  *
- * Deletes unreachable catalogue entries from DynamoDB, respecting lastReferencedAt
- * to avoid race conditions with concurrent writes.
- * Uses the RepoStore interface for the sweep operation.
+ * Scans object catalogue via RepoStore.gcScanObjects, uses e3-core sweepBatch
+ * to decide which objects to delete, then deletes via RepoStore.gcDeleteObjects.
  */
 export const handler = async (input: GcSweepInput): Promise<GcSweepOutput> => {
   const { repo, gcId, startTime, reachableSetKey } = input;
@@ -102,30 +127,40 @@ export const handler = async (input: GcSweepInput): Promise<GcSweepOutput> => {
 
   // Initialize or continue stats
   const stats: GcSweepStats = input.stats ?? {
-    deletedEntries: 0,
-    retainedEntries: 0,
+    deletedObjects: 0,
+    retainedObjects: 0,
     skippedYoung: 0,
+    bytesFreed: 0,
   };
 
-  // Use RepoStore.gcSweep() for the sweep operation
-  const result = await repoStore.gcSweep(repo, reachableSetKey, {
-    minAge,
-    cursor: catalogueCursor,
-  });
+  // Load reachable set from S3
+  const reachable = await loadReachableSet(BUCKET_NAME, reachableSetKey);
 
-  // Update stats with this batch's results
-  stats.deletedEntries += result.deleted;
+  // Scan one batch of objects from catalogue
+  const scanResult = await repoStore.gcScanObjects(repo, catalogueCursor);
+
+  // Use e3-core sweepBatch to decide what to delete
+  const result = sweepBatch(scanResult.objects, reachable, minAge);
+
+  // Delete unreachable objects
+  if (result.toDelete.length > 0) {
+    await repoStore.gcDeleteObjects(repo, result.toDelete);
+  }
+
+  // Update stats
+  stats.deletedObjects += result.toDelete.length;
+  stats.retainedObjects += result.retained;
   stats.skippedYoung += result.skippedYoung;
-  // Note: retainedEntries is tracked in stats but not returned by RepoStore.gcSweep
+  stats.bytesFreed += result.bytesFreed;
 
-  if (result.status === 'continue') {
+  if (scanResult.cursor !== undefined) {
     return {
       repo,
       gcId,
       startTime,
       reachableSetKey,
       status: 'continue',
-      catalogueCursor: result.cursor,
+      catalogueCursor: scanResult.cursor,
       stats,
     };
   }

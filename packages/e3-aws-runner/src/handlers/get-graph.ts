@@ -28,6 +28,8 @@ export interface GetGraphEvent {
   /** Execution ID created by API handler (passed from Step Function input) */
   executionId: number;
   force?: boolean; // Skip cache check if true
+  /** Filter to run only specific task(s) by exact name */
+  filter?: string;
   /** UUIDv7 run ID for DataflowRun tracking */
   runId: string;
 }
@@ -58,7 +60,7 @@ export interface GetGraphResult {
  * Uses e3-core step functions to eliminate duplicated business logic.
  */
 export async function handler(event: GetGraphEvent): Promise<GetGraphResult> {
-  const { repo, workspace, executionId, force, runId } = event;
+  const { repo, workspace, executionId, force, filter, runId } = event;
   const execId = executionId.toString().padStart(10, '0');
 
   console.log(`Getting graph for workspace ${workspace} in repo ${repo} (execution ${executionId}, run ${runId})`);
@@ -111,7 +113,7 @@ export async function handler(event: GetGraphEvent): Promise<GetGraphResult> {
     repo,
     workspace,
     execId,
-    { force: force ?? false, concurrency: 4 }
+    { force: force ?? false, concurrency: 4, filter }
   );
 
   // Extract graph (stepInitialize always sets it inline)

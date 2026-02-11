@@ -112,6 +112,86 @@ State record:
 
 **Graph Externalization:** For graphs exceeding 350KB, the graph is stored separately in S3 and referenced via the `graphHash` field within the BEAST2-encoded state. The graph is automatically loaded when reading state.
 
+### Dataflow Execution Records (Phase 3)
+
+Tracks dataflow execution lifecycle per workspace. Each workspace gets a counter at SK `0` and execution records keyed by zero-padded numeric IDs.
+
+```
+PK: EXEC/{repo}/{workspace}
+SK: "0" (counter) | {executionId} (zero-padded 10 digits)
+
+Counter record (SK: "0"):
+  - nextId: number               # Next execution ID to allocate
+
+Execution record:
+  - id: number                   # Numeric execution ID
+  - repo: string                 # Repository name
+  - workspace: string            # Workspace name
+  - status: string               # 'starting' | 'running' | 'completed' | 'failed'
+  - startedAt: string            # ISO timestamp
+  - completedAt?: string         # ISO timestamp when finished
+  - taskCount?: number           # Total tasks (set when running)
+  - completedCount: number       # Successfully completed tasks
+  - failedCount: number          # Failed tasks
+  - skippedCount: number         # Skipped tasks
+  - cachedCount: number          # Cached tasks
+  - eventSeq: number             # Counter for next event sequence number
+  - graph?: string               # JSON-serialized task dependency graph
+```
+
+### Task Status (Phase 3)
+
+Per-task execution status within a dataflow execution. Each task in an execution gets its own record.
+
+```
+PK: TASK/{repo}/{executionId}
+SK: {taskName}
+Attributes:
+  - status: string               # 'dispatched' | 'running' | 'success' | 'cached' | 'failed' | 'error' | 'skipped' | 'ready'
+  - outputHash?: string          # Hash of task output object
+  - outputPath?: string          # Path where output is written
+  - taskHash?: string            # Hash of task definition
+  - inputHashes?: string[]       # Array of input hashes
+  - exitCode?: number            # Exit code (for failures)
+  - error?: string               # Error message
+  - reason?: string              # Reason for skipped tasks
+  - duration?: number            # Execution duration in ms
+  - heartbeat?: number           # Unix timestamp of last heartbeat
+  - readyAt?: string             # ISO timestamp when task became ready
+  - completedAt?: string         # ISO timestamp when task completed
+  - failedAt?: string            # ISO timestamp when task failed
+  - skippedAt?: string           # ISO timestamp when task was skipped
+```
+
+### Execution Events (Phase 3)
+
+Append-only event log for dataflow executions. Sequence numbers are allocated atomically from the parent EXEC/ record's `eventSeq` counter.
+
+```
+PK: EVENT/{repo}/{executionId}
+SK: {seq}                        # 6-digit zero-padded sequence number
+Attributes:
+  - eventType: string            # 'start' | 'complete' | 'cached' | 'failed' | 'error' | 'skipped'
+  - task: string                 # Task name that triggered event
+  - timestamp: string            # ISO timestamp of event
+  - duration?: number            # Duration of task execution
+  - exitCode?: number            # Exit code (if applicable)
+  - message?: string             # Event message
+  - reason?: string              # Reason (e.g., for skipped events)
+```
+
+### Legacy Execution Cache
+
+Deprecated — replaced by the `EXECUTION/` prefix. Retained for backward compatibility and scanned during GC root collection.
+
+```
+PK: CACHE/{repo}/{taskHash}
+SK: {inputsHash}
+Attributes:
+  - outputHash: string           # Hash of task output object
+  - updatedAt: string            # ISO timestamp
+```
+
 ### Externalized Graphs (S3)
 
 Large graphs are stored separately in S3 to avoid DynamoDB's 400KB limit.
@@ -222,6 +302,14 @@ s3://{bucket}/
 | Get latest dataflow run | PK = DATAFLOW/{repo}/{workspace} | Query (desc, Limit 1) |
 | List dataflow runs | PK = DATAFLOW/{repo}/{workspace} | Query |
 | Delete dataflow run | PK = DATAFLOW/{repo}/{workspace}, SK = {runId} | DeleteItem |
+| Create execution (Phase 3) | PK = EXEC/{repo}/{workspace}, SK = "0" | UpdateItem (atomic counter) |
+| Get execution (Phase 3) | PK = EXEC/{repo}/{workspace}, SK = {execId} | GetItem |
+| Get latest execution (Phase 3) | PK = EXEC/{repo}/{workspace}, SK > "0" | Query (desc, Limit 1) |
+| List executions (Phase 3) | PK = EXEC/{repo}/{workspace} | Query |
+| Get task status | PK = TASK/{repo}/{executionId}, SK = {taskName} | GetItem |
+| List execution tasks | PK = TASK/{repo}/{executionId} | Query |
+| List execution events | PK = EVENT/{repo}/{executionId} | Query |
+| Add execution event | PK = EVENT/{repo}/{executionId}, SK = {seq} | PutItem |
 | Get execution state | PK = STATE/{repo}/{workspace}, SK = {execId} | GetItem |
 | Get latest execution state | PK = STATE/{repo}/{workspace} | Query (desc) |
 | Generate execution ID | PK = STATE/{repo}/{workspace}, SK = "_counter" | UpdateItem (atomic) |
@@ -229,7 +317,7 @@ s3://{bucket}/
 | Read logs | PK = LOG/{repo}/{taskHash}/{inputsHash}/{executionId}, SK begins_with {stream}/ | Query |
 | Get object catalogue entry | PK = OBJ/{repo}, SK = {hash} | GetItem |
 | List objects (catalogue) | PK = OBJ/{repo} | Query |
-| Delete repo | PKG/{repo}, WS/{repo}, LOCK/{repo}, REPO#{repo}, OBJ/{repo}, STATE/{repo}/ (Query) + EXECUTION/{repo}/, DATAFLOW/{repo}/, LOG/{repo}/ (Scan) | Query + Scan + BatchDelete |
+| Delete repo | PKG/{repo}, WS/{repo}, LOCK/{repo}, REPO#{repo}, OBJ/{repo}, STATE/{repo}/ (Query) + CACHE/{repo}/, EXECUTION/{repo}/, DATAFLOW/{repo}/, LOG/{repo}/, EXEC/{repo}/, TASK/{repo}/, EVENT/{repo}/ (Scan) | Query + Scan + BatchDelete |
 | List repo ACL | PK = ACL#{repo} | Query |
 | Get user role | PK = ACL#{repo}, SK = USER#{userId} | GetItem |
 | Add/update ACL entry | PK = ACL#{repo}, SK = USER#{userId} | PutItem |
@@ -268,9 +356,11 @@ The `DynamoS3RepoStore` class implements the `RepoStore` interface from `@elaraa
 | `remove(repo)` | Remove repository metadata (final cleanup step) |
 | `deleteRefsBatch(repo, cursor?)` | Delete DynamoDB refs in batches |
 | `deleteObjectsBatch(repo, cursor?)` | Delete S3 objects in batches |
-| `gcMark(repo)` | GC mark phase - collect roots and trace reachable objects |
-| `gcSweep(repo, ref, opts?)` | GC sweep phase - delete unreachable objects in batches |
-| `gcCleanup(repo, ref)` | GC cleanup - delete orphaned S3 versions and temp files |
+| `gcScanPackageRoots(repo, cursor?)` | Scan package refs for root hashes |
+| `gcScanWorkspaceRoots(repo, cursor?)` | Scan workspace state for root hashes |
+| `gcScanExecutionRoots(repo, cursor?)` | Scan execution history for root hashes |
+| `gcScanObjects(repo, cursor?)` | Scan object catalogue entries (paginated) |
+| `gcDeleteObjects(repo, hashes)` | Delete objects by hash (idempotent) |
 
 ### AWS-Specific Extensions
 
@@ -280,6 +370,8 @@ For Lambda handlers that need to track Step Functions executions:
 |--------|-------------|
 | `setStatusWithExecutionArn(repo, status, expected, arn?)` | Set status with execution ARN |
 | `getCloudMetadata(repo)` | Get metadata including execution ARN |
+| `cleanupOrphanedVersions(repo)` | Delete orphaned S3 object versions (>24h old) |
+| `cleanupTempFiles(gcId)` | Delete temporary GC files from S3 |
 
 ### Error Types
 

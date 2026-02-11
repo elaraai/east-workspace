@@ -971,7 +971,7 @@ export class E3PlatformStack extends cdk.Stack {
     });
 
     // Finalize states - update execution state in DynamoDB before terminal states
-    // Finalize only sets status and completedAt - counts are already set by write-result
+    // Finalize only sets status and completedAt - counts are already set by apply-results
     const prepareFinalizeSuccess = new sfn.Pass(this, 'PrepareFinalizeSuccess', {
       parameters: {
         'repo.$': '$.repo',
@@ -991,6 +991,10 @@ export class E3PlatformStack extends cdk.Stack {
         'status': 'failed',
       },
     });
+
+    // Safety net: if get-graph throws (e.g., workspace not found), ensure lock is released
+    // by routing to the failure finalization path
+    getGraphState.addCatch(prepareFinalizeFailure, { resultPath: '$.error' });
 
     const _finalizeExecutionState = new tasks.LambdaInvoke(this, 'FinalizeExecutionState', {
       lambdaFunction: finalizeExecutionFn,

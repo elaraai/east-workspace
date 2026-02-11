@@ -198,6 +198,16 @@ npx cdk diff --context config=elara-dev
 npx cdk destroy --context config=elara-dev
 ```
 
+### Wipe Dev Data
+
+Reset the dev environment to a clean state by deleting all S3 objects and DynamoDB rows (infrastructure is preserved):
+
+```bash
+AWS_PROFILE=elaraai-dev-elara-e3 npm run wipe:dev
+```
+
+This is hardcoded to only work on the dev account (925445553972).
+
 ### Integration Tests
 
 ```bash
