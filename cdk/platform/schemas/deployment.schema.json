@@ -119,6 +119,17 @@
         }
       }
     },
+    "github": {
+      "type": "object",
+      "description": "GitHub Actions deployment configuration",
+      "properties": {
+        "deployRoleArn": {
+          "type": "string",
+          "description": "IAM role ARN for GitHub Actions OIDC deployment",
+          "pattern": "^arn:aws:iam::[0-9]{12}:role/.+$"
+        }
+      }
+    },
     "testUsers": {
       "type": "object",
       "description": "Test user configuration for integration testing",

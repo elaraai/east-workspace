@@ -80,6 +80,7 @@ The bootstrap stack configures:
 - Account alias for easy identification
 - Alternate contacts (operations, billing, security)
 - InfraDeployRole for CDK deployments
+- GitHub Actions OIDC provider + deploy role (for CI/CD)
 - CloudTrail (audit logging)
 - GuardDuty (threat detection)
 - Security Hub (CIS + AWS Foundational Security standards)
@@ -135,6 +136,22 @@ This project integrates with the existing elara-infra SSO setup:
 
 Developers in the appropriate SSO group can assume the InfraDeployRole after the account is bootstrapped.
 
+## GitHub Actions OIDC
+
+Each bootstrapped account gets an IAM OIDC provider and deploy role for GitHub Actions CI/CD:
+
+| Environment | OIDC Role |
+|-------------|-----------|
+| dev | `E3-GitHubActions-Dev` |
+| test | `E3-GitHubActions-Test` |
+| prod | `E3-GitHubActions-Prod` |
+
+The OIDC trust policy is scoped to `repo:elaraai/e3-aws:*` (configured in `orgConfig.github`). GitHub Actions workflows assume this role using short-lived OIDC tokens — no long-lived AWS credentials are needed.
+
+The role is created automatically by `E3AccountBootstrapStack`. To use it:
+1. Add `github.deployRoleArn` to the deployment config (`cdk/platform/deployments/*.json`)
+2. Add the environment to the workflow options in `.github/workflows/deploy-platform.yml`
+
 ## AWS Profiles
 
 Your existing profile for management account: `elaraai-prod-management-root`
@@ -170,7 +187,7 @@ AWS_PROFILE=elaraai-dev-elara-e3 npm run deploy
 | Stack | Target Account | Context Flag | Purpose |
 |-------|----------------|--------------|---------|
 | `E3AccountsStack` | Management | (default) | Creates member accounts in AWS Organizations |
-| `E3AccountBootstrapStack` | Member account | `--context account=NAME` | Security baseline, InfraDeployRole, CloudTrail, etc. |
+| `E3AccountBootstrapStack` | Member account | `--context account=NAME` | Security baseline, InfraDeployRole, GitHub OIDC, CloudTrail, etc. |
 | `E3SharedInfraStack` | Shared services | `--context shared=true` | Route53 hosted zone, cross-account access |
 
 Note: The `--context account=NAME` deployment is idempotent - run it for initial setup or anytime you need to update account settings (domain config, security baseline, etc.).

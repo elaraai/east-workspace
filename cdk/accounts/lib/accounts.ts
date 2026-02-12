@@ -243,6 +243,15 @@ export const orgConfig = {
   sharedServicesAccountId: '064741130885',
 
   /**
+   * GitHub repository for CI/CD OIDC federation.
+   * Used by E3AccountBootstrapStack to scope the OIDC trust policy.
+   */
+  github: {
+    owner: 'elaraai',
+    repo: 'e3-aws',
+  },
+
+  /**
    * Organization root ID.
    * Find with: aws organizations list-roots --query 'Roots[0].Id'
    */

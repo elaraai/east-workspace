@@ -32,7 +32,7 @@ export function LoginPage() {
     <Box minH="100vh" display="flex" alignItems="center" justifyContent="center">
       <Container maxW="sm">
         <VStack gap={6}>
-          <Heading size="2xl">e3 Platform</Heading>
+          <Heading size="2xl">e3 Cloud</Heading>
           <Text color="gray.500">Sign in to manage your repositories and workspaces.</Text>
           {error ? (
             <Text color="red.500">Configuration error: {error}</Text>

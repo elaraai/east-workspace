@@ -14,6 +14,9 @@ See `design/cloud-options.md` for architecture decisions and `design/cloud-devpl
 
 ```
 e3-aws/
+├── .github/
+│   └── workflows/
+│       └── deploy-platform.yml  # GitHub Actions CI/CD (manual trigger, OIDC auth)
 ├── cdk/
 │   ├── accounts/             # AWS Organization & account provisioning
 │   │   ├── lib/
@@ -134,6 +137,22 @@ The `--context config=elara-dev` loads the deployment configuration from `deploy
 The deploy also uploads `web/dist/` to S3 and generates a deployment-specific `config.json` with Cognito settings (domain, client ID, redirect URI). The web app is deployment-agnostic — the same build works for any environment.
 
 **Important:** Do not use `--context deploymentId=dev` alone — this skips the config file and will omit test users, OIDC, and domain configuration.
+
+### Deploy via GitHub Actions (CI/CD)
+
+Platform deployments can be triggered from the GitHub Actions UI using the **Deploy Platform** workflow:
+
+1. Go to **Actions** > **Deploy Platform** > **Run workflow**
+2. Select the deployment config (e.g., `elara-dev`)
+3. Click **Run workflow**
+
+The workflow uses OIDC federation — no long-lived AWS credentials are stored in GitHub. The IAM OIDC provider and deploy role (`E3-GitHubActions-{Environment}`) are provisioned by the `E3AccountBootstrapStack` in each account.
+
+To add a new environment to CI/CD:
+1. Deploy the bootstrap stack to the target account (creates the OIDC provider + role)
+2. Add `github.deployRoleArn` to the deployment config in `cdk/platform/deployments/`
+3. Add the environment name to the `options` list in `.github/workflows/deploy-platform.yml`
+4. Optionally configure a GitHub Environment with protection rules for approval gates
 
 ### Deploy Account Infrastructure (Management Account Only)
 

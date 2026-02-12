@@ -27,6 +27,10 @@
     "adminGroup": "b1de3e14-4420-4920-a673-c9da23562da4"
   },
 
+  "github": {
+    "deployRoleArn": "arn:aws:iam::925445553972:role/E3-GitHubActions-Dev"
+  },
+
   "scheduling": {
     "defaultTimezone": "Australia/Sydney"
   },

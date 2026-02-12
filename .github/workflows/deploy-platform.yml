@@ -1,0 +1,50 @@
+name: Deploy Platform
+
+on:
+  workflow_dispatch:
+    inputs:
+      deployment:
+        description: 'Deployment config name (from cdk/platform/deployments/)'
+        required: true
+        type: choice
+        options:
+          - elara-dev
+          # Add future environments here:
+          # - elara-test
+          # - elara-prod
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy ${{ inputs.deployment }}
+    runs-on: ubuntu-latest
+    # Uncomment and configure GitHub Environments for approval gates:
+    # environment: ${{ inputs.deployment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Read deployment config
+        id: config
+        run: |
+          CONFIG_FILE="cdk/platform/deployments/${{ inputs.deployment }}.json"
+          echo "role_arn=$(jq -r '.github.deployRoleArn' "$CONFIG_FILE")" >> "$GITHUB_OUTPUT"
+          echo "region=$(jq -r '.aws.region' "$CONFIG_FILE")" >> "$GITHUB_OUTPUT"
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ steps.config.outputs.role_arn }}
+          aws-region: ${{ steps.config.outputs.region }}
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: CDK Deploy
+        working-directory: cdk/platform
+        run: npx cdk deploy --context config=${{ inputs.deployment }} --require-approval never

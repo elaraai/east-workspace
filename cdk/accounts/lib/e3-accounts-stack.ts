@@ -519,6 +519,47 @@ export class E3AccountBootstrapStack extends cdk.Stack {
     );
 
     // ========================================
+    // GitHub Actions OIDC (for CI/CD deployments)
+    // ========================================
+    // Creates an OIDC provider and IAM role that GitHub Actions can assume
+    // using short-lived tokens (no long-lived AWS credentials needed).
+    const envSuffix = config.environment.charAt(0).toUpperCase() + config.environment.slice(1);
+
+    const githubOidcProvider = new iam.OpenIdConnectProvider(this, 'GitHubOidcProvider', {
+      url: 'https://token.actions.githubusercontent.com',
+      clientIds: ['sts.amazonaws.com'],
+      // GitHub's OIDC thumbprint — required by IAM but not used for validation
+      // (AWS verifies via the TLS certificate chain instead).
+      thumbprints: ['6938fd4d98bab03faadb97b34396831e3780aea1'],
+    });
+
+    const githubActionsRole = new iam.Role(this, 'GitHubActionsRole', {
+      roleName: `E3-GitHubActions-${envSuffix}`,
+      description: 'IAM Role for GitHub Actions OIDC deployment',
+      assumedBy: new iam.FederatedPrincipal(
+        githubOidcProvider.openIdConnectProviderArn,
+        {
+          StringEquals: {
+            'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
+          },
+          StringLike: {
+            'token.actions.githubusercontent.com:sub': `repo:${orgConfig.github.owner}/${orgConfig.github.repo}:*`,
+          },
+        },
+        'sts:AssumeRoleWithWebIdentity'
+      ),
+    });
+
+    githubActionsRole.addManagedPolicy(
+      iam.ManagedPolicy.fromAwsManagedPolicyName('AdministratorAccess')
+    );
+
+    new cdk.CfnOutput(this, 'GitHubActionsRoleArn', {
+      value: githubActionsRole.roleArn,
+      description: 'Role ARN for GitHub Actions OIDC deployment',
+    });
+
+    // ========================================
     // CloudTrail (Audit Logging)
     // ========================================
     // S3 bucket for CloudTrail logs with security best practices
