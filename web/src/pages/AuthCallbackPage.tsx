@@ -6,6 +6,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Box, Container, Text, VStack } from '@chakra-ui/react';
+import { loadConfig } from '../config';
 
 export function AuthCallbackPage() {
   const [searchParams] = useSearchParams();
@@ -19,35 +20,27 @@ export function AuthCallbackPage() {
       return;
     }
 
-    const domain = import.meta.env.VITE_COGNITO_DOMAIN;
-    const clientId = import.meta.env.VITE_COGNITO_CLIENT_ID;
-    const redirectUri = import.meta.env.VITE_COGNITO_REDIRECT_URI;
+    loadConfig()
+      .then(async (config) => {
+        const body = new URLSearchParams({
+          grant_type: 'authorization_code',
+          client_id: config.cognitoClientId,
+          redirect_uri: config.redirectUri,
+          code,
+        });
 
-    if (!domain || !clientId || !redirectUri) {
-      setError('Cognito environment variables are not configured.');
-      return;
-    }
+        const res = await fetch(`https://${config.cognitoDomain}/oauth2/token`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body,
+        });
 
-    const body = new URLSearchParams({
-      grant_type: 'authorization_code',
-      client_id: clientId,
-      redirect_uri: redirectUri,
-      code,
-    });
-
-    fetch(`https://${domain}/oauth2/token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body,
-    })
-      .then(async (res) => {
         if (!res.ok) {
           const text = await res.text();
           throw new Error(`Token exchange failed: ${res.status} ${text}`);
         }
-        return res.json();
-      })
-      .then((data) => {
+
+        const data = await res.json();
         localStorage.setItem('e3_token', data.access_token);
         navigate('/repos', { replace: true });
       })

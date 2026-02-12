@@ -1915,8 +1915,16 @@ function handler(event) {
     }
 
     // Deploy web app to S3 + invalidate CloudFront
+    // config.json is generated from CDK outputs so the web app is deployment-agnostic
     new s3deploy.BucketDeployment(this, 'WebAppDeployment', {
-      sources: [s3deploy.Source.asset(path.join(repoRoot, 'web', 'dist'))],
+      sources: [
+        s3deploy.Source.asset(path.join(repoRoot, 'web', 'dist')),
+        s3deploy.Source.jsonData('config.json', {
+          cognitoDomain: cognitoDomainUrl,
+          cognitoClientId: userPoolClient.userPoolClientId,
+          redirectUri: `${this.platformUrl}/auth/callback`,
+        }),
+      ],
       destinationBucket: this.appsBucket,
       distribution: this.distribution,
       distributionPaths: ['/*'],

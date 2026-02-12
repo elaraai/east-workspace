@@ -3,27 +3,29 @@
  * Proprietary and confidential.
  */
 
+import { useEffect, useState } from 'react';
 import { Box, Button, Container, Heading, Text, VStack } from '@chakra-ui/react';
+import { loadConfig, type PlatformConfig } from '../config';
 
 export function LoginPage() {
-  const domain = import.meta.env.VITE_COGNITO_DOMAIN;
-  const clientId = import.meta.env.VITE_COGNITO_CLIENT_ID;
-  const redirectUri = import.meta.env.VITE_COGNITO_REDIRECT_URI;
+  const [config, setConfig] = useState<PlatformConfig | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadConfig().then(setConfig).catch((err: Error) => setError(err.message));
+  }, []);
 
   const handleLogin = () => {
-    if (!domain || !clientId || !redirectUri) {
-      alert('Cognito environment variables are not configured. Set VITE_COGNITO_DOMAIN, VITE_COGNITO_CLIENT_ID, and VITE_COGNITO_REDIRECT_URI.');
-      return;
-    }
+    if (!config) return;
 
     const params = new URLSearchParams({
       response_type: 'code',
-      client_id: clientId,
-      redirect_uri: redirectUri,
+      client_id: config.cognitoClientId,
+      redirect_uri: config.redirectUri,
       scope: 'openid',
     });
 
-    window.location.href = `https://${domain}/oauth2/authorize?${params}`;
+    window.location.href = `https://${config.cognitoDomain}/oauth2/authorize?${params}`;
   };
 
   return (
@@ -32,9 +34,13 @@ export function LoginPage() {
         <VStack gap={6}>
           <Heading size="2xl">e3 Platform</Heading>
           <Text color="gray.500">Sign in to manage your repositories and workspaces.</Text>
-          <Button colorPalette="blue" size="lg" width="full" onClick={handleLogin}>
-            Login with SSO
-          </Button>
+          {error ? (
+            <Text color="red.500">Configuration error: {error}</Text>
+          ) : (
+            <Button colorPalette="blue" size="lg" width="full" onClick={handleLogin} disabled={!config}>
+              Login with SSO
+            </Button>
+          )}
         </VStack>
       </Container>
     </Box>
