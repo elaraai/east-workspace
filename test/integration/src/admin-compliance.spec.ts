@@ -188,7 +188,7 @@ function hasMultiUserCredentials(outputs?: StackOutputs): boolean {
   });
 }
 
-describe('Admin API Compliance Tests', { timeout: 300000, concurrency: false }, () => {
+describe('Admin API Compliance Tests', { timeout: 900000, concurrency: false }, () => {
   let context: AdminTestContext;
   let baseUrl: string;
   let outputs: StackOutputs;

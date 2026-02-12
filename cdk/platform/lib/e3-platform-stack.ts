@@ -36,6 +36,10 @@ import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as events from 'aws-cdk-lib/aws-events';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
+import * as logs from 'aws-cdk-lib/aws-logs';
+import * as scheduler from 'aws-cdk-lib/aws-scheduler';
+import * as sqs from 'aws-cdk-lib/aws-sqs';
+import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import { Construct } from 'constructs';
 import { CrossRegionCertificate } from './cross-region-certificate.js';
 import { CrossAccountRoute53Record } from './cross-account-route53-record.js';
@@ -129,6 +133,13 @@ export interface E3PlatformStackProps extends cdk.StackProps {
    * @default []
    */
   allowedOrigins?: string[];
+
+  /**
+   * Default timezone for scheduled executions (IANA format).
+   * Used when a schedule doesn't specify an explicit timezone.
+   * @default 'UTC'
+   */
+  defaultTimezone?: string;
 
   /**
    * Test user configuration for integration testing.
@@ -992,9 +1003,10 @@ export class E3PlatformStack extends cdk.Stack {
       },
     });
 
-    // Safety net: if get-graph throws (e.g., workspace not found), ensure lock is released
+    // Safety net: if any handler throws after retries, ensure lock is released
     // by routing to the failure finalization path
     getGraphState.addCatch(prepareFinalizeFailure, { resultPath: '$.error' });
+    getReadyState.addCatch(prepareFinalizeFailure, { resultPath: '$.error' });
 
     const _finalizeExecutionState = new tasks.LambdaInvoke(this, 'FinalizeExecutionState', {
       lambdaFunction: finalizeExecutionFn,
@@ -1187,6 +1199,7 @@ export class E3PlatformStack extends cdk.Stack {
         'executionId.$': '$.executionId',
         'runId.$': '$.runId',
         'force.$': '$.force',
+        'forceTasks.$': '$.forceTasks',
       },
       resultPath: '$.taskResults',
     }).itemProcessor(taskIterator);
@@ -1199,6 +1212,7 @@ export class E3PlatformStack extends cdk.Stack {
         'executionId.$': '$.executionId',
         'runId.$': '$.runId',
         'force.$': '$.force',
+        'forceTasks.$': '$.forceTasks',
         'taskResults.$': '$.taskResults',
       },
     });
@@ -1223,6 +1237,11 @@ export class E3PlatformStack extends cdk.Stack {
     applyResultsState.next(applyTreeUpdatesState);
     applyTreeUpdatesState.next(getReadyState);
 
+    // Catch coverage for remaining dataflow states
+    applyResultsState.addCatch(prepareFinalizeFailure, { resultPath: '$.error' });
+    applyTreeUpdatesState.addCatch(prepareFinalizeFailure, { resultPath: '$.error' });
+    dispatchTasksMap.addCatch(prepareFinalizeFailure, { resultPath: '$.error' });
+
     // Pass state to flatten GetReady result and add readyCount
     // Note: graph is now stored in DynamoDB and loaded by handlers as needed
     const checkReadyTasks = new sfn.Pass(this, 'CheckReadyTasks', {
@@ -1232,6 +1251,7 @@ export class E3PlatformStack extends cdk.Stack {
         'executionId.$': '$.executionId',
         'runId.$': '$.runId',
         'force.$': '$.force',
+        'forceTasks.$': '$.forceTasks',
         'readyTasks.$': '$.readyResult.Payload.readyTasks',
         'allCompleted.$': '$.readyResult.Payload.allCompleted',
         'cancelled.$': '$.readyResult.Payload.cancelled',
@@ -1262,6 +1282,11 @@ export class E3PlatformStack extends cdk.Stack {
     });
     prepareFinalizeCancel.next(finalizeCancelState);
     finalizeCancelState.next(dataflowFailed);
+
+    // Last-resort catches on finalize states — lock release is guaranteed by try/finally in handler
+    finalizeSuccessState.addCatch(dataflowFailed, { resultPath: '$.error' });
+    finalizeFailureState.addCatch(dataflowFailed, { resultPath: '$.error' });
+    finalizeCancelState.addCatch(dataflowFailed, { resultPath: '$.error' });
 
     // Choice: All tasks complete?
     // Check completion status and handle success/failure appropriately
@@ -1483,6 +1508,32 @@ export class E3PlatformStack extends cdk.Stack {
       comment: 'GC skipped - repo not in valid state',
     });
 
+    // Error recovery: revert repo status from 'gc' back to 'active' on failure
+    const prepareGcRevert = new sfn.Pass(this, 'PrepareGcRevert', {
+      parameters: {
+        'repo.$': '$.repo',
+      },
+    });
+
+    const revertToActive = new tasks.LambdaInvoke(this, 'RevertToActive', {
+      lambdaFunction: setActiveFn,
+      outputPath: '$.Payload',
+      retryOnServiceExceptions: true,
+    });
+
+    const gcFailed = new sfn.Fail(this, 'GcFailed', {
+      error: 'GcFailed',
+      cause: 'GC phase failed after retries, repo reverted to active',
+    });
+
+    prepareGcRevert.next(revertToActive);
+    revertToActive.next(gcFailed);
+
+    // Catch failures in GC phases and revert repo to active status
+    gcMarkState.addCatch(prepareGcRevert, { resultPath: '$.error' });
+    gcSweepState.addCatch(prepareGcRevert, { resultPath: '$.error' });
+    gcCleanupState.addCatch(prepareGcRevert, { resultPath: '$.error' });
+
     // Check if SetGC succeeded
     const checkSetGcResult = new sfn.Choice(this, 'CheckSetGcResult')
       .when(sfn.Condition.booleanEquals('$.success', false), gcSkipped)
@@ -1553,6 +1604,108 @@ export class E3PlatformStack extends cdk.Stack {
       description: 'Triggers garbage collection for all repos daily',
       schedule: events.Schedule.cron({ hour: '2', minute: '0' }),
       targets: [new targets.LambdaFunction(gcSchedulerFn)],
+    });
+
+    // ============================================================
+    // SCHEDULED EXECUTION
+    // ============================================================
+    // EventBridge Scheduler for per-workspace recurring dataflow execution.
+    // Each schedule is an independent resource with its own cron expression,
+    // target, and retry policy.
+
+    // EventBridge Scheduler Group — organises all e3 schedules
+    const schedulerGroup = new scheduler.CfnScheduleGroup(this, 'ScheduleGroup', {
+      name: `${prefix}-schedules`,
+    });
+
+    // Dead-letter queue for failed schedule invocations
+    const scheduleDlq = new sqs.Queue(this, 'ScheduleDlq', {
+      queueName: `${prefix}-schedule-dlq`,
+      retentionPeriod: cdk.Duration.days(14),
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+    });
+
+    // Schedule Trigger Lambda — invoked by EventBridge Scheduler
+    const scheduleTriggerFn = new nodejs.NodejsFunction(this, 'ScheduleTriggerHandler', {
+      functionName: `${prefix}-schedule-trigger`,
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(runnerPackagePath, 'src', 'handlers', 'schedule-trigger.ts'),
+      handler: 'handler',
+      bundling: {
+        minify: true,
+        sourceMap: true,
+        format: nodejs.OutputFormat.ESM,
+        banner: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
+      },
+      timeout: cdk.Duration.minutes(2),
+      memorySize: 512,
+      environment: {
+        TABLE_NAME: this.dataTable.tableName,
+        BUCKET_NAME: this.dataBucket.bucketName,
+        DATAFLOW_STATE_MACHINE_ARN: this.dataflowStateMachine.stateMachineArn,
+      },
+    });
+    this.dataTable.grantReadWriteData(scheduleTriggerFn);
+    this.dataBucket.grantRead(scheduleTriggerFn);
+    this.dataflowStateMachine.grantStartExecution(scheduleTriggerFn);
+
+    // IAM Role for EventBridge Scheduler → Lambda invocation
+    const schedulerRole = new iam.Role(this, 'SchedulerExecutionRole', {
+      roleName: `${prefix}-scheduler-role`,
+      assumedBy: new iam.ServicePrincipal('scheduler.amazonaws.com'),
+    });
+    scheduleTriggerFn.grantInvoke(schedulerRole);
+    scheduleDlq.grantSendMessages(schedulerRole);
+
+    // CloudWatch log group for EventBridge Scheduler delivery logging
+    const schedulerLogGroup = new logs.LogGroup(this, 'SchedulerLogGroup', {
+      logGroupName: `/aws/scheduler/${prefix}-schedules`,
+      retention: logs.RetentionDays.ONE_MONTH,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+    schedulerLogGroup.grantWrite(schedulerRole);
+
+    // API handler permissions for Scheduler management
+    this.apiHandler.addToRolePolicy(new iam.PolicyStatement({
+      actions: [
+        'scheduler:CreateSchedule',
+        'scheduler:UpdateSchedule',
+        'scheduler:DeleteSchedule',
+        'scheduler:GetSchedule',
+      ],
+      resources: [
+        `arn:aws:scheduler:${this.region}:${this.account}:schedule/${prefix}-schedules/*`,
+      ],
+    }));
+    this.apiHandler.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['iam:PassRole'],
+      resources: [schedulerRole.roleArn],
+      conditions: {
+        StringEquals: {
+          'iam:PassedToService': 'scheduler.amazonaws.com',
+        },
+      },
+    }));
+
+    // Environment variables for API handler
+    this.apiHandler.addEnvironment('SCHEDULER_GROUP_NAME', `${prefix}-schedules`);
+    this.apiHandler.addEnvironment('SCHEDULER_ROLE_ARN', schedulerRole.roleArn);
+    this.apiHandler.addEnvironment('SCHEDULE_TRIGGER_FN_ARN', scheduleTriggerFn.functionArn);
+    this.apiHandler.addEnvironment('SCHEDULE_DLQ_ARN', scheduleDlq.queueArn);
+    this.apiHandler.addEnvironment('DEFAULT_TIMEZONE', props.defaultTimezone ?? 'UTC');
+
+    // Stack outputs
+    new cdk.CfnOutput(this, 'SchedulerGroupName', {
+      value: schedulerGroup.name!,
+      exportName: `${prefix}-scheduler-group-name`,
+    });
+    new cdk.CfnOutput(this, 'ScheduleTriggerFnArn', {
+      value: scheduleTriggerFn.functionArn,
+      exportName: `${prefix}-schedule-trigger-fn-arn`,
+    });
+    new cdk.CfnOutput(this, 'ScheduleDlqUrl', {
+      value: scheduleDlq.queueUrl,
+      description: 'Dead-letter queue URL for failed schedule invocations',
     });
 
     // ============================================================
@@ -1754,6 +1907,60 @@ function handler(event) {
     } else {
       this.platformUrl = `https://${this.distribution.distributionDomainName}`;
     }
+
+    // ============================================================
+    // CLOUDWATCH ALARMS
+    // ============================================================
+    // Basic operational alarms. No SNS topic — visible in CloudWatch console,
+    // can connect to SNS/PagerDuty later.
+
+    new cloudwatch.Alarm(this, 'DataflowFailuresAlarm', {
+      alarmName: `${prefix}-dataflow-failures`,
+      metric: this.dataflowStateMachine.metricFailed({
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription: 'Dataflow state machine execution failures',
+    });
+
+    new cloudwatch.Alarm(this, 'GcFailuresAlarm', {
+      alarmName: `${prefix}-gc-failures`,
+      metric: this.gcStateMachine.metricFailed({
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription: 'GC state machine execution failures',
+    });
+
+    new cloudwatch.Alarm(this, 'ScheduleDlqDepthAlarm', {
+      alarmName: `${prefix}-schedule-dlq-depth`,
+      metric: scheduleDlq.metricApproximateNumberOfMessagesVisible({
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription: 'Failed schedule invocations in dead-letter queue',
+    });
+
+    new cloudwatch.Alarm(this, 'ApiErrorsAlarm', {
+      alarmName: `${prefix}-api-errors`,
+      metric: this.apiHandler.metricErrors({
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 5,
+      evaluationPeriods: 2,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription: 'API Lambda function errors',
+    });
 
     // ============================================================
     // OUTPUTS

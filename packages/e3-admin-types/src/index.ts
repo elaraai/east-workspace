@@ -45,3 +45,13 @@ export {
   AuthzErrorType,
   type AuthzError,
 } from './error-types.js';
+
+// Schedule types
+export {
+  TriggeredByType,
+  type TriggeredBy,
+  ScheduleType,
+  type Schedule,
+  ScheduleRequestType,
+  type ScheduleRequest,
+} from './schedule-types.js';

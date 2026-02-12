@@ -27,6 +27,10 @@
     "adminGroup": "b1de3e14-4420-4920-a673-c9da23562da4"
   },
 
+  "scheduling": {
+    "defaultTimezone": "Australia/Sydney"
+  },
+
   "testUsers": {
     "enabled": true
   }

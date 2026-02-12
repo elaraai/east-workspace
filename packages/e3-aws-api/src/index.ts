@@ -22,11 +22,17 @@ import {
   setLambdaRequestId,
   DynamoRefStore,
   DynamoAclStore,
+  DynamoScheduleStore,
   InvalidRepoStatusError,
 } from '@elaraai/e3-aws-storage';
+import {
+  SchedulerClient,
+  DeleteScheduleCommand,
+  ResourceNotFoundException,
+} from '@aws-sdk/client-scheduler';
 import { StringType, NullType, ArrayType, variant, some, none } from '@elaraai/east';
 import {
-  stepCancel, coreStateToApiState, uuidv7,
+  stepCancel, coreStateToApiState, coreEventToApiEvent, uuidv7,
   dataflowGetGraph,
   WorkspaceNotFoundError, WorkspaceNotDeployedError, TaskNotFoundError,
   type DataflowExecutionState,
@@ -47,6 +53,9 @@ import { WhoamiResponseType } from '@elaraai/e3-admin-types';
 
 // Admin routes
 import { createAdminRoutes } from './admin-routes.js';
+
+// Schedule routes
+import { createScheduleRoutes, createScheduleListRoute } from './schedule-routes.js';
 
 // Authorization middleware
 import { createAuthzMiddleware } from './authz-middleware.js';
@@ -90,8 +99,61 @@ const refStore = storage.refs as DynamoRefStore;
 // Initialize ACL store for repository user management
 const aclStore = new DynamoAclStore(dynamo, process.env.TABLE_NAME!);
 
+// Initialize schedule store for workspace schedule management
+const scheduleStore = new DynamoScheduleStore(dynamo, process.env.TABLE_NAME!);
+
+// Initialize EventBridge Scheduler client
+const schedulerClient = new SchedulerClient({});
+
 // In cloud mode, repo name IS the path (used as S3 prefix and DynamoDB partition key)
 const getRepoPath = (repo: string) => repo;
+
+/**
+ * Delete all EventBridge Scheduler schedules for a repo.
+ * Reads schedule records from DynamoDB to get scheduler names, then deletes them.
+ */
+async function deleteSchedulesForRepo(repo: string): Promise<void> {
+  const schedulerGroupName = process.env.SCHEDULER_GROUP_NAME;
+  if (!schedulerGroupName) return;
+
+  const schedules = await scheduleStore.listForRepo(repo);
+  for (const schedule of schedules) {
+    try {
+      await schedulerClient.send(new DeleteScheduleCommand({
+        Name: schedule.schedulerName,
+        GroupName: schedulerGroupName,
+      }));
+    } catch (err) {
+      if (!(err instanceof ResourceNotFoundException)) {
+        console.error(`Failed to delete EventBridge schedule ${schedule.schedulerName}:`, err);
+      }
+    }
+  }
+  await scheduleStore.deleteAllForRepo(repo);
+}
+
+/**
+ * Delete a single workspace's EventBridge Scheduler schedule.
+ */
+async function deleteScheduleForWorkspace(repo: string, workspace: string): Promise<void> {
+  const schedulerGroupName = process.env.SCHEDULER_GROUP_NAME;
+  if (!schedulerGroupName) return;
+
+  const schedule = await scheduleStore.get(repo, workspace);
+  if (schedule) {
+    try {
+      await schedulerClient.send(new DeleteScheduleCommand({
+        Name: schedule.schedulerName,
+        GroupName: schedulerGroupName,
+      }));
+    } catch (err) {
+      if (!(err instanceof ResourceNotFoundException)) {
+        console.error(`Failed to delete EventBridge schedule ${schedule.schedulerName}:`, err);
+      }
+    }
+    await scheduleStore.delete(repo, workspace);
+  }
+}
 
 const app = new Hono();
 
@@ -139,6 +201,12 @@ app.get('/api/whoami', (c) => {
 // Admin Routes (repository user management)
 // ============================================================
 app.route('/', createAdminRoutes(aclStore, refStore));
+
+// ============================================================
+// Schedule Routes (workspace schedule management)
+// ============================================================
+app.route('/api/repos/:repo/workspaces/:ws/schedule', createScheduleRoutes(aclStore, scheduleStore, refStore, schedulerClient));
+app.route('/api/repos/:repo/schedules', createScheduleListRoute(aclStore, scheduleStore));
 
 // ============================================================
 // Authorization Middleware (for all repo routes)
@@ -272,6 +340,9 @@ app.delete('/api/repos/:repo', async (c) => {
 
     // 2. Delete ACL entries
     await aclStore.deleteAllForRepo(repo);
+
+    // 2b. Delete schedules (DynamoDB + EventBridge Scheduler)
+    await deleteSchedulesForRepo(repo);
 
     // 3. Delete refs synchronously
     let cursor: string | undefined;
@@ -560,6 +631,7 @@ app.post('/api/repos/:repo/workspaces/:ws/dataflow', async (c) => {
           workspace,
           executionId: parseInt(execId, 10), // Convert to number for backward compatibility
           force, // Pass force flag to state machine
+          forceTasks: [], // Empty for manual runs (scheduled runs populate this)
           filter, // Pass filter to state machine (undefined omitted by JSON.stringify)
           runId, // UUIDv7 for DataflowRun tracking
         }),
@@ -626,7 +698,7 @@ app.get('/api/repos/:repo/workspaces/:ws/dataflow/execution', async (c) => {
     const state = await storage.executions.readLatest(repo, workspace);
 
     if (!state) {
-      return sendError(ApiTypes.DataflowExecutionStateType, internalError('No execution found for this workspace'));
+      return sendError(ApiTypes.DataflowExecutionStateType, variant('execution_not_found', { task: workspace }));
     }
 
     // Calculate duration from timestamps
@@ -635,15 +707,20 @@ app.get('/api/repos/:repo/workspaces/:ws/dataflow/execution', async (c) => {
       ? completedAt.getTime() - state.startedAt.getTime()
       : Date.now() - state.startedAt.getTime();
 
-    // Slice events for pagination (offset/limit)
+    // Count only API-visible events for totalEvents (some core events have no API equivalent)
     const allEvents = state.events;
-    const totalEvents = allEvents.length;
+    let totalApiEvents = 0;
+    for (const event of allEvents) {
+      if (coreEventToApiEvent(event) !== null) {
+        totalApiEvents++;
+      }
+    }
     const slicedEvents = limit !== undefined
       ? allEvents.slice(offset, offset + limit)
       : allEvents.slice(offset);
 
     // Use coreStateToApiState for conversion
-    const apiState = coreStateToApiState(state, slicedEvents, totalEvents, durationMs);
+    const apiState = coreStateToApiState(state, slicedEvents, totalApiEvents, durationMs);
 
     // Convert to the API response format with variant types
     const statusVariant = apiState.status === 'running'
@@ -724,6 +801,14 @@ app.route('/api/repos/:repo', createRepositoryRoutes(storage, getRepoPath) as an
 
 // Package routes: /api/repos/:repo/packages/*
 app.route('/api/repos/:repo/packages', createPackageRoutes(storage, getRepoPath) as any);
+
+// Intercept workspace deletion to clean up schedules before e3-api-server handles it
+app.delete('/api/repos/:repo/workspaces/:ws', async (c, next) => {
+  const repo = c.req.param('repo');
+  const workspace = c.req.param('ws');
+  await deleteScheduleForWorkspace(repo, workspace);
+  return next();
+});
 
 // Workspace routes: /api/repos/:repo/workspaces/*
 app.route('/api/repos/:repo/workspaces', createWorkspaceRoutes(storage, getRepoPath) as any);

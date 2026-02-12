@@ -80,6 +80,30 @@ Response from `/api/whoami` endpoint.
 
 Error response for authorization failures.
 
+### ScheduleType / Schedule
+
+A workspace schedule for recurring dataflow execution:
+- `repo` - Repository name
+- `workspace` - Workspace name
+- `cronExpression` - Unix 5-field cron expression
+- `timezone` - IANA timezone string
+- `forceTaskPatterns` - Glob patterns for tasks to force (skip cache)
+- `enabled` - Whether schedule is active
+- `description` - Optional human-readable description (OptionType)
+- `createdBy` - userId who created the schedule
+- `createdAt` / `updatedAt` - ISO 8601 timestamps
+- `schedulerName` - EventBridge Scheduler name
+
+### ScheduleRequestType / ScheduleRequest
+
+Request body for creating or updating a schedule.
+
+### TriggeredByType / TriggeredBy
+
+How a dataflow run was initiated (variant type):
+- `.schedule` - `{ schedulerExecutionId, scheduledTime }`
+- `.user` - `{ userId, email }`
+
 ## Peer Dependencies
 
 - `@elaraai/east` - East type system

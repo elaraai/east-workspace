@@ -6,7 +6,7 @@
 import type { S3Client } from '@aws-sdk/client-s3';
 import type { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import type { StorageBackend, LogStore, RepoStore, ExecutionStateStore } from '@elaraai/e3-core';
-import { RepositoryNotFoundError } from '@elaraai/e3-core';
+import { RepoNotFoundError } from '@elaraai/e3-core';
 
 import { S3ObjectStore } from './s3-object-store.js';
 import { DynamoRefStore } from './dynamo-ref-store.js';
@@ -72,18 +72,18 @@ export class S3DynamoStorage implements StorageBackend {
    * - Its status is 'active' or 'gc' (not 'creating' or 'deleting')
    *
    * @param repo - Repository name
-   * @throws {RepositoryNotFoundError} If repository doesn't exist or is not accessible
+   * @throws {RepoNotFoundError} If repository doesn't exist or is not accessible
    */
   async validateRepository(repo: string): Promise<void> {
     const metadata = await this.refs.getRepoMetadata(repo);
 
     if (!metadata) {
-      throw new RepositoryNotFoundError(repo);
+      throw new RepoNotFoundError(repo);
     }
 
     // Repository exists but is being created or deleted - not accessible
     if (metadata.status === 'creating' || metadata.status === 'deleting') {
-      throw new RepositoryNotFoundError(repo);
+      throw new RepoNotFoundError(repo);
     }
   }
 }

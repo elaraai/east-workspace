@@ -16,27 +16,9 @@ import { describe, it, beforeEach } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { variant } from '@elaraai/east';
 import { repoUsers, addUser, removeUser } from '@elaraai/e3-admin-client';
+import { repoCreate } from '@elaraai/e3-api-client';
 import type { AdminTestContext } from '../context.js';
 import { expectError } from '../helpers.js';
-
-/**
- * Create a test repository with the owner as the initial user.
- */
-async function createTestRepo(ctx: AdminTestContext): Promise<void> {
-  const token = await ctx.config.getToken('owner');
-  const response = await fetch(`${ctx.config.baseUrl}/api/repos/${encodeURIComponent(ctx.repoName)}`, {
-    method: 'PUT',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({}),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to create test repo: ${response.status} ${await response.text()}`);
-  }
-}
 
 /**
  * Register repository user management tests.
@@ -47,7 +29,7 @@ export function repoUsersTests(getContext: () => AdminTestContext): void {
   void describe('Repository User Management', () => {
     void beforeEach(async () => {
       const ctx = getContext();
-      await createTestRepo(ctx);
+      await repoCreate(ctx.config.baseUrl, ctx.repoName, await ctx.opts('owner'));
     });
 
     void describe('GET /repos/{repo}/users', () => {

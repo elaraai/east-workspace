@@ -18,6 +18,7 @@
 
 // Interfaces
 export type { AclStore, Identity, WhoamiBackend } from './interfaces.js';
+export type { ScheduleStore } from './schedule-store.js';
 
 // Authorization functions
 export { hasAccess, isLastOwner, canRemoveUser, type AuthzResult } from './authz.js';
@@ -33,4 +34,7 @@ export type {
   WhoamiResponse,
   AuthzErrorCode,
   AuthzError,
+  Schedule,
+  ScheduleRequest,
+  TriggeredBy,
 } from '@elaraai/e3-admin-types';

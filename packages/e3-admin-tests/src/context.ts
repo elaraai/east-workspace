@@ -11,6 +11,7 @@
  */
 
 import type { RequestOptions } from '@elaraai/e3-admin-client';
+import { repoRemove } from '@elaraai/e3-api-client';
 
 /**
  * Test user identifiers for multi-user scenarios.
@@ -140,12 +141,7 @@ export function createAdminTestContext(
     // This is a best-effort cleanup - we don't fail if it doesn't work
     try {
       const token = await config.getToken('owner');
-      await fetch(`${config.baseUrl}/api/repos/${encodeURIComponent(repoName)}`, {
-        method: 'DELETE',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      await repoRemove(config.baseUrl, repoName, { token });
     } catch {
       // Ignore cleanup errors
     }

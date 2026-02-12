@@ -49,6 +49,8 @@ export interface ApplyResultsEvent {
   /** UUIDv7 run ID for DataflowRun tracking */
   runId: string;
   force: boolean;
+  /** Task name patterns to force-execute (empty = force all) */
+  forceTasks?: string[];
   taskResults: TaskResult[];
 }
 
@@ -65,6 +67,7 @@ export interface ApplyResultsOutput {
   executionId: number;
   runId: string;
   force: boolean;
+  forceTasks?: string[];
   treeUpdates: TreeUpdate[];
 }
 
@@ -78,7 +81,7 @@ export interface ApplyResultsOutput {
  * Also writes execution records for both successful and failed tasks.
  */
 export async function handler(event: ApplyResultsEvent): Promise<ApplyResultsOutput> {
-  const { repo, workspace, executionId, runId, force, taskResults } = event;
+  const { repo, workspace, executionId, runId, force, forceTasks = [], taskResults } = event;
   const execId = executionId.toString().padStart(10, '0');
 
   console.log(`Applying ${taskResults.length} task results for execution ${executionId}`);
@@ -175,5 +178,5 @@ export async function handler(event: ApplyResultsEvent): Promise<ApplyResultsOut
 
   console.log(`Applied ${taskResults.length} task results, ${treeUpdates.filter(u => u.needsTreeUpdate).length} tree updates needed`);
 
-  return { repo, workspace, executionId, runId, force, treeUpdates };
+  return { repo, workspace, executionId, runId, force, forceTasks, treeUpdates };
 }

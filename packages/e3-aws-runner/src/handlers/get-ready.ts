@@ -54,6 +54,9 @@ export async function handler(event: GetReadyEvent): Promise<GetReadyResult> {
 
   console.log(`Getting ready tasks for execution ${executionId} in repo ${repo}`);
 
+  // Renew workspace lock TTL on every iteration to prevent expiry during long-running dataflows
+  await storage.locks.renewLock(repo, `workspace/${workspace}`);
+
   // Read execution state from the store
   const state = await storage.executions.read(repo, workspace, execId);
 

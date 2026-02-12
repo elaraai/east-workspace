@@ -46,6 +46,12 @@ The `E3PlatformStack` deploys a complete e3 platform with:
 | API Gateway | `e3-{id}-api` | HTTP API with JWT auth |
 | Step Functions | `e3-{id}-dataflow` | Dataflow orchestration |
 | Step Functions | `e3-{id}-gc` | Garbage collection |
+| Lambda Function | `e3-{id}-schedule-trigger` | Scheduled execution trigger |
+| EventBridge Scheduler Group | `e3-{id}-schedules` | Per-workspace cron schedules |
+| SQS Queue | `e3-{id}-schedule-dlq` | Dead-letter queue for failed schedule invocations |
+| IAM Role | `e3-{id}-scheduler-role` | EventBridge Scheduler → Lambda invocation |
+| CloudWatch Log Group | `/aws/scheduler/e3-{id}-schedules` | Scheduler delivery logging |
+| CloudWatch Alarms | `e3-{id}-dataflow-failures`, `-gc-failures`, `-schedule-dlq-depth`, `-api-errors` | Operational alerting |
 | ECR Repository | `e3-{id}-runner` | Task execution container image |
 | S3 Bucket | `e3-{id}-apps-{account}` | Static web apps |
 | CloudFront | - | CDN, custom domain |
@@ -123,6 +129,9 @@ After deployment, note these outputs:
 | `CognitoIssuer` | JWT issuer for token validation |
 | `DataBucketName` | S3 bucket for data |
 | `DataTableName` | DynamoDB table name |
+| `SchedulerGroupName` | EventBridge Scheduler group name |
+| `ScheduleTriggerFnArn` | Schedule trigger Lambda ARN |
+| `ScheduleDlqUrl` | Dead-letter queue URL for failed schedule invocations |
 | `TestUserSecretArn` | Secrets Manager ARN for test user passwords (if testUsers enabled) |
 
 ## Test Users (for Integration Testing)

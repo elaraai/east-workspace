@@ -28,6 +28,8 @@ export interface GetGraphEvent {
   /** Execution ID created by API handler (passed from Step Function input) */
   executionId: number;
   force?: boolean; // Skip cache check if true
+  /** Task names to force (skip cache for), resolved from schedule patterns */
+  forceTasks?: string[];
   /** Filter to run only specific task(s) by exact name */
   filter?: string;
   /** UUIDv7 run ID for DataflowRun tracking */
@@ -42,6 +44,8 @@ export interface GetGraphResult {
   graph: DataflowGraph;
   taskCount: number;
   force: boolean; // Pass through force flag
+  /** Task names to force (skip cache for), resolved from schedule patterns */
+  forceTasks: string[];
   /** UUIDv7 run ID for DataflowRun tracking */
   runId: string;
 }
@@ -60,7 +64,7 @@ export interface GetGraphResult {
  * Uses e3-core step functions to eliminate duplicated business logic.
  */
 export async function handler(event: GetGraphEvent): Promise<GetGraphResult> {
-  const { repo, workspace, executionId, force, filter, runId } = event;
+  const { repo, workspace, executionId, force, forceTasks, filter, runId } = event;
   const execId = executionId.toString().padStart(10, '0');
 
   console.log(`Getting graph for workspace ${workspace} in repo ${repo} (execution ${executionId}, run ${runId})`);
@@ -137,6 +141,7 @@ export async function handler(event: GetGraphEvent): Promise<GetGraphResult> {
     graph,
     taskCount: graph.tasks.length,
     force: force ?? false,
+    forceTasks: forceTasks ?? [],
     runId,
   };
 }

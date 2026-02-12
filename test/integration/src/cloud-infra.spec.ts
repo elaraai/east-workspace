@@ -16,6 +16,8 @@ import {
   DescribeUserPoolCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
 import { SFNClient, DescribeStateMachineCommand } from '@aws-sdk/client-sfn';
+import { SchedulerClient, GetScheduleGroupCommand } from '@aws-sdk/client-scheduler';
+import { LambdaClient, GetFunctionCommand } from '@aws-sdk/client-lambda';
 import { getStackOutputs, getDeploymentId, type StackOutputs } from './helpers/stack-outputs.js';
 
 describe('AWS Services Integration Tests', { timeout: 60000 }, () => {
@@ -161,6 +163,43 @@ describe('AWS Services Integration Tests', { timeout: 60000 }, () => {
       assert.ok(
         response.name?.includes('gc'),
         `State machine name should contain 'gc', got ${response.name}`
+      );
+    });
+  });
+
+  describe('EventBridge Scheduler', () => {
+    const scheduler = new SchedulerClient({ region });
+    const lambda = new LambdaClient({ region });
+
+    it('should have scheduler group', async (t) => {
+      if (!outputs.schedulerGroupName) {
+        t.skip('Scheduler group output not present');
+        return;
+      }
+
+      const command = new GetScheduleGroupCommand({
+        Name: outputs.schedulerGroupName,
+      });
+
+      const response = await scheduler.send(command);
+      assert.ok(response.Name, 'Scheduler group should exist');
+    });
+
+    it('should have schedule-trigger Lambda', async (t) => {
+      if (!outputs.scheduleTriggerFnArn) {
+        t.skip('Schedule trigger output not present');
+        return;
+      }
+
+      const command = new GetFunctionCommand({
+        FunctionName: outputs.scheduleTriggerFnArn,
+      });
+
+      const response = await lambda.send(command);
+      assert.strictEqual(
+        response.Configuration?.State,
+        'Active',
+        `Lambda should be Active, got ${response.Configuration?.State}`
       );
     });
   });

@@ -24,6 +24,23 @@ export function parseRepoUrl(url: string): { baseUrl: string; repo: string } {
 }
 
 /**
+ * Parse a workspace URL into base URL, repo name, and workspace name.
+ * Format: https://server/repos/{repo}/workspaces/{workspace}
+ */
+export function parseWorkspaceUrl(url: string): { baseUrl: string; repo: string; workspace: string } {
+  const parsed = new URL(url);
+  const match = parsed.pathname.match(/^\/repos\/([^/]+)\/workspaces\/([^/]+)/);
+  if (!match) {
+    throw new Error(`Invalid URL: expected /repos/{repo}/workspaces/{workspace} in path`);
+  }
+  return {
+    baseUrl: parsed.origin,
+    repo: decodeURIComponent(match[1]),
+    workspace: decodeURIComponent(match[2]),
+  };
+}
+
+/**
  * Format error for CLI output.
  */
 export function formatError(err: unknown): string {

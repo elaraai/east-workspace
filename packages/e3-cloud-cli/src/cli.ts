@@ -12,6 +12,7 @@
 import { Command } from 'commander';
 import { whoamiCommand } from './commands/whoami.js';
 import { userCommand } from './commands/user.js';
+import { scheduleCommand } from './commands/schedule.js';
 
 const program = new Command();
 
@@ -51,5 +52,39 @@ user
   .argument('<url>', 'Repository URL')
   .argument('<email>', 'User email address')
   .action(userCommand.remove);
+
+// e3-cloud schedule <subcommand>
+const schedule = program
+  .command('schedule')
+  .description('Schedule management commands');
+
+schedule
+  .command('set')
+  .description('Create or update a workspace schedule')
+  .argument('<url>', 'Workspace URL (e.g., https://server/repos/my-repo/workspaces/main)')
+  .option('--cron <expression>', 'Cron expression (Unix 5-field, e.g., "0 2 * * *")')
+  .option('--force-tasks <patterns>', 'Comma-separated task patterns to force (e.g., "input*,load_*")')
+  .option('--timezone <tz>', 'IANA timezone (e.g., "Australia/Sydney")')
+  .option('--description <text>', 'Human-readable description')
+  .option('--enabled <bool>', 'Enable or disable the schedule (true/false)', 'true')
+  .action(scheduleCommand.set);
+
+schedule
+  .command('get')
+  .description('View the schedule for a workspace')
+  .argument('<url>', 'Workspace URL')
+  .action(scheduleCommand.get);
+
+schedule
+  .command('remove')
+  .description('Remove the schedule for a workspace')
+  .argument('<url>', 'Workspace URL')
+  .action(scheduleCommand.remove);
+
+schedule
+  .command('list')
+  .description('List all schedules for a repository')
+  .argument('<url>', 'Repository URL (e.g., https://server/repos/my-repo)')
+  .action(scheduleCommand.list);
 
 program.parse();

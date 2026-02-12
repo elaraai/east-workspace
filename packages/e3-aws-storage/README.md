@@ -220,6 +220,18 @@ Attributes:
 2. S3 version matches `currentVersion` → Never deleted by GC cleanup
 3. S3 version age < 24h → Never deleted by GC cleanup (MIN_AGE protection)
 
+### Workspace Schedules
+
+Per-workspace recurring execution schedules. One schedule per workspace.
+
+```
+PK: SCHEDULE/{repo}
+SK: {workspace}
+Attributes:
+  - schedule: Binary        # BEAST2-encoded Schedule struct
+  - updatedAt: string       # ISO timestamp
+```
+
 ### Access Control Lists (ACL)
 
 Repository-level access control. Uses GSI1 for efficient user-to-repos lookups.
@@ -240,7 +252,7 @@ Attributes:
 
 ### Locks
 
-Distributed locks with automatic expiry.
+Distributed locks with automatic expiry. Supports TTL renewal for long-running operations.
 
 ```
 PK: LOCK/{repo}
@@ -249,9 +261,11 @@ Attributes:
   - holder: string         # East-encoded holder info (.lambda (...))
   - operation: string      # Lock operation type
   - acquiredAt: string     # ISO timestamp
-  - expiresAt: string      # ISO timestamp
+  - expiresAt: string      # ISO timestamp (renewed by renewLock)
   - ttl: number            # DynamoDB TTL (seconds since epoch)
 ```
+
+**Lock Renewal:** The `renewLock(repo, resource)` method extends a lock's TTL without releasing and re-acquiring it. This is used by the dataflow state machine (via `get-ready` handler) to keep the workspace lock alive during long-running executions while preserving the 5-minute crash recovery window.
 
 ### Log Chunks
 
@@ -317,12 +331,16 @@ s3://{bucket}/
 | Read logs | PK = LOG/{repo}/{taskHash}/{inputsHash}/{executionId}, SK begins_with {stream}/ | Query |
 | Get object catalogue entry | PK = OBJ/{repo}, SK = {hash} | GetItem |
 | List objects (catalogue) | PK = OBJ/{repo} | Query |
-| Delete repo | PKG/{repo}, WS/{repo}, LOCK/{repo}, REPO#{repo}, OBJ/{repo}, STATE/{repo}/ (Query) + CACHE/{repo}/, EXECUTION/{repo}/, DATAFLOW/{repo}/, LOG/{repo}/, EXEC/{repo}/, TASK/{repo}/, EVENT/{repo}/ (Scan) | Query + Scan + BatchDelete |
+| Delete repo | PKG/{repo}, WS/{repo}, LOCK/{repo}, REPO#{repo}, OBJ/{repo}, SCHEDULE/{repo}, STATE/{repo}/ (Query) + CACHE/{repo}/, EXECUTION/{repo}/, DATAFLOW/{repo}/, LOG/{repo}/, EXEC/{repo}/, TASK/{repo}/, EVENT/{repo}/ (Scan) | Query + Scan + BatchDelete |
 | List repo ACL | PK = ACL#{repo} | Query |
 | Get user role | PK = ACL#{repo}, SK = USER#{userId} | GetItem |
 | Add/update ACL entry | PK = ACL#{repo}, SK = USER#{userId} | PutItem |
 | Remove ACL entry | PK = ACL#{repo}, SK = USER#{userId} | DeleteItem |
 | List repos for user | GSI1PK = USERACL#{userId} | Query (GSI1) |
+| Get schedule | PK = SCHEDULE/{repo}, SK = {workspace} | GetItem |
+| List schedules | PK = SCHEDULE/{repo} | Query |
+| Delete schedule | PK = SCHEDULE/{repo}, SK = {workspace} | DeleteItem |
+| Delete repo schedules | PK = SCHEDULE/{repo} | Query + BatchDelete |
 | Delete repo ACL | PK = ACL#{repo} | Query + BatchDelete |
 
 ## Files
@@ -337,6 +355,7 @@ packages/e3-aws-storage/src/
 ├── dynamo-log-store.ts       # DynamoDB-backed LogStore
 ├── dynamo-state-store.ts     # DynamoDB + S3-backed ExecutionStateStore
 ├── dynamo-acl-store.ts       # DynamoDB-backed AclStore (repository access control)
+├── dynamo-schedule-store.ts  # DynamoDB-backed ScheduleStore (workspace schedules)
 └── index.ts                  # Exports
 ```
 

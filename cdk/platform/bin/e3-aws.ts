@@ -64,6 +64,9 @@ interface DeploymentConfig {
     clientSecretArn: string;
     adminGroup?: string;
   };
+  scheduling?: {
+    defaultTimezone?: string;
+  };
   testUsers?: {
     enabled?: boolean;
     emailDomain?: string;
@@ -161,6 +164,7 @@ new E3PlatformStack(app, `E3Platform-${deploymentId}`, {
   domain, // If undefined, stack will try SSM, then fall back to CloudFront domain
   callbackUrls,
   allowedOrigins,
+  defaultTimezone: deploymentConfig?.scheduling?.defaultTimezone,
   testUsers,
 
   // Stack-level tags

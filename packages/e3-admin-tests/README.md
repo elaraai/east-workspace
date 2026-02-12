@@ -78,6 +78,14 @@ Cross-cutting permission tests:
 - Owner can perform all operations
 - Admin bypasses ACL checks (except last owner removal)
 
+### scheduleTests
+
+Tests for workspace schedule management:
+- `GET /repos/{repo}/workspaces/{ws}/schedule` - Get schedule
+- `PUT /repos/{repo}/workspaces/{ws}/schedule` - Create/update schedule
+- `DELETE /repos/{repo}/workspaces/{ws}/schedule` - Delete schedule
+- `GET /repos/{repo}/schedules` - List schedules
+
 ## API
 
 ### `createAdminTestContext(config: AdminTestConfig): Promise<AdminTestContext>`
@@ -93,6 +101,7 @@ Register all test suites with the Node.js test runner.
 - `whoamiTests(getContext)` - Whoami endpoint tests
 - `repoUsersTests(getContext)` - User management tests
 - `authorizationTests(getContext)` - Permission tests
+- `scheduleTests(getContext)` - Schedule management tests
 
 ## Types
 

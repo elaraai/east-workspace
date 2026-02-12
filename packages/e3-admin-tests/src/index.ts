@@ -52,11 +52,13 @@ export { expectError } from './helpers.js';
 export { whoamiTests } from './suites/whoami.js';
 export { repoUsersTests } from './suites/repo-users.js';
 export { authorizationTests } from './suites/authorization.js';
+export { scheduleTests } from './suites/schedules.js';
 
 // Import suites for allAdminTests
 import { whoamiTests } from './suites/whoami.js';
 import { repoUsersTests } from './suites/repo-users.js';
 import { authorizationTests } from './suites/authorization.js';
+import { scheduleTests } from './suites/schedules.js';
 import type { AdminTestContext } from './context.js';
 
 /**
@@ -71,4 +73,5 @@ export function allAdminTests(getContext: () => AdminTestContext): void {
   whoamiTests(getContext);
   repoUsersTests(getContext);
   authorizationTests(getContext);
+  scheduleTests(getContext);
 }

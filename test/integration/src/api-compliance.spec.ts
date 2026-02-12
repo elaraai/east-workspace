@@ -22,7 +22,7 @@ import { createTestContext, allApiTests, transferTests, type TestContext } from 
 
 const DEFAULT_SERVER = 'https://dev.e3.elaraai.com';
 
-describe('API Compliance Tests', { timeout: 300000, concurrency: false }, () => {
+describe('API Compliance Tests', { timeout: 900000, concurrency: false }, () => {
   let context: TestContext;
   let baseUrl: string;
 

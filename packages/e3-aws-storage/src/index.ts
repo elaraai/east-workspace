@@ -20,6 +20,7 @@ export { DynamoLogStore } from './dynamo-log-store.js';
 export { DynamoS3RepoStore } from './dynamo-s3-repo-store.js';
 export { DynamoDBStateStore } from './dynamo-state-store.js';
 export { DynamoAclStore } from './dynamo-acl-store.js';
+export { DynamoScheduleStore } from './dynamo-schedule-store.js';
 
 // Re-export types from e3-core for convenience
 export type { ExecutionStateStore } from '@elaraai/e3-core';

@@ -8,6 +8,7 @@ import {
   GetItemCommand,
   PutItemCommand,
   DeleteItemCommand,
+  UpdateItemCommand,
   ConditionalCheckFailedException,
 } from '@aws-sdk/client-dynamodb';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
@@ -210,6 +211,48 @@ export class DynamoLockService implements LockService {
       );
     } catch (error) {
       console.warn(`Failed to force release lock ${resource}:`, error);
+    }
+  }
+
+  /**
+   * Renew an existing lock's TTL.
+   *
+   * Extends the lock expiry by DEFAULT_LOCK_TTL_SECONDS from now.
+   * Returns true if the lock was renewed, false if the lock no longer exists.
+   * Non-fatal errors are logged and return false (TTL is the last resort).
+   */
+  async renewLock(repo: string, resource: string): Promise<boolean> {
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + DEFAULT_LOCK_TTL_SECONDS * 1000);
+    const ttl = Math.floor(expiresAt.getTime() / 1000);
+
+    try {
+      await this.dynamo.send(
+        new UpdateItemCommand({
+          TableName: this.tableName,
+          Key: marshall({
+            PK: `LOCK/${repo}`,
+            SK: resource,
+          }),
+          UpdateExpression: 'SET expiresAt = :expiresAt, #ttl = :ttl',
+          ConditionExpression: 'attribute_exists(PK)',
+          ExpressionAttributeNames: {
+            '#ttl': 'ttl',
+          },
+          ExpressionAttributeValues: marshall({
+            ':expiresAt': expiresAt.toISOString(),
+            ':ttl': ttl,
+          }),
+        })
+      );
+      return true;
+    } catch (error) {
+      if (error instanceof ConditionalCheckFailedException) {
+        // Lock no longer exists
+        return false;
+      }
+      console.warn(`Failed to renew lock ${resource}:`, error);
+      return false;
     }
   }
 

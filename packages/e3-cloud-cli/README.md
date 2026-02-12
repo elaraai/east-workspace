@@ -68,6 +68,45 @@ e3-cloud user add https://dev.e3.elaraai.com/repos/my-repo charlie@example.com -
 e3-cloud user remove https://dev.e3.elaraai.com/repos/my-repo charlie@example.com
 ```
 
+#### Set a workspace schedule
+
+```bash
+# Run daily at 2 AM, forcing datasource tasks
+e3-cloud schedule set https://dev.e3.elaraai.com/repos/acme/workspaces/main \
+  --cron "0 2 * * *" \
+  --force-tasks "input*,load_*" \
+  --description "Nightly data refresh"
+
+# Set with explicit timezone
+e3-cloud schedule set https://dev.e3.elaraai.com/repos/acme/workspaces/main \
+  --cron "0 14 * * 1-5" \
+  --force-tasks "load_orders" \
+  --timezone "America/New_York" \
+  --description "Weekday 2 PM ET refresh"
+
+# Disable without removing
+e3-cloud schedule set https://dev.e3.elaraai.com/repos/acme/workspaces/main \
+  --enabled false
+```
+
+#### View a workspace schedule
+
+```bash
+e3-cloud schedule get https://dev.e3.elaraai.com/repos/acme/workspaces/main
+```
+
+#### Remove a workspace schedule
+
+```bash
+e3-cloud schedule remove https://dev.e3.elaraai.com/repos/acme/workspaces/main
+```
+
+#### List all schedules for a repository
+
+```bash
+e3-cloud schedule list https://dev.e3.elaraai.com/repos/acme
+```
+
 ## Structure
 
 ```
@@ -77,7 +116,8 @@ src/
 ├── utils.ts            # URL parsing, error formatting
 └── commands/
     ├── whoami.ts       # whoami command
-    └── user.ts         # user list/add/remove commands
+    ├── user.ts         # user list/add/remove commands
+    └── schedule.ts     # schedule set/get/remove/list commands
 ```
 
 ## Development

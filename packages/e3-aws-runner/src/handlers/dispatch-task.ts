@@ -29,6 +29,8 @@ export interface DispatchTaskEvent {
   executionId: number;
   taskName: string;
   force?: boolean; // Skip cache check if true
+  /** Task names to force (skip cache for), resolved from schedule patterns */
+  forceTasks?: string[];
   /** UUIDv7 run ID for DataflowRun tracking */
   runId: string;
 }
@@ -60,7 +62,7 @@ export interface DispatchTaskResult {
  * to avoid lost update race conditions from concurrent Map iterations.
  */
 export async function handler(event: DispatchTaskEvent): Promise<DispatchTaskResult> {
-  const { repo, workspace, executionId, taskName, force } = event;
+  const { repo, workspace, executionId, taskName, force, forceTasks } = event;
   const execId = executionId.toString().padStart(10, '0');
 
   console.log(`Dispatching task ${taskName} for execution ${executionId} (force=${force ?? false})`);
@@ -81,7 +83,7 @@ export async function handler(event: DispatchTaskEvent): Promise<DispatchTaskRes
   console.log(`Task ${taskName} inputs: ${prepare.inputHashes.length} hashes`);
 
   // If cached and not forcing, return cached status (state update deferred to apply-results)
-  if (prepare.cachedOutputHash && !force) {
+  if (prepare.cachedOutputHash && !force && !forceTasks?.includes(taskName)) {
     console.log(`Task ${taskName} is cached with output ${prepare.cachedOutputHash}`);
 
     // For cached tasks, get the executionId from the latest execution record

@@ -45,6 +45,7 @@ export { ApiError, AuthError, type RequestOptions } from '@elaraai/e3-api-client
 
 // API functions
 export { whoami, repoUsers, addUser, removeUser } from './users.js';
+export { getSchedule, setSchedule, removeSchedule, listSchedules } from './schedules.js';
 
 // Re-export types from e3-admin-types for convenience
 export type {
@@ -53,4 +54,6 @@ export type {
   AddUserRequest,
   WhoamiResponse,
   AuthzErrorCode,
+  Schedule,
+  ScheduleRequest,
 } from '@elaraai/e3-admin-types';

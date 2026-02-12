@@ -158,4 +158,5 @@ AWS_PROFILE=elaraai-dev-elara-e3 npm test -- --test-name-pattern "diamond"
 ## Making changes
 
 Ensure all changes are reflected in the project REAMDE.md files.
-In particular deployment instructions and project structures must be kept up-to-date at all times.
+In particular deployment instructions, schemas and project structures must be kept up-to-date at all times.
+The integration tests must have a 100% pass rate - use the dev environment to test all changes.
