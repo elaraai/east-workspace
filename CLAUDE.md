@@ -6,7 +6,7 @@ AWS cloud infrastructure for hosting e3 solutions.
 
 This repository contains the AWS CDK infrastructure, Lambda handlers, and frontend application for deploying e3 as a multi-tenant cloud service.
 
-**Architecture:** CloudFront + API Gateway + Lambda + EFS + Step Functions
+**Architecture:** CloudFront + API Gateway + Lambda + S3 + DynamoDB + Step Functions
 
 See `design/cloud-options.md` for architecture decisions and `design/cloud-devplan.md` for the development roadmap.
 
@@ -48,11 +48,13 @@ e3-aws/
 │   └── e3-cloud-cli/         # CLI for cloud management (@elaraai/e3-cloud-cli)
 │
 ├── web/                      # Vite frontend app (@elaraai/e3-web)
-│   ├── .env.development      # Local dev Cognito env vars
+│   ├── public/
+│   │   └── config.json       # Local dev config (gitignored; CDK generates for deployments)
 │   └── src/
 │       ├── main.tsx           # React entry point
 │       ├── App.tsx            # Route tree
 │       ├── api.ts             # Auth helpers for e3-api-client
+│       ├── config.ts          # Runtime config loader (fetches /config.json)
 │       ├── components/
 │       │   └── AuthGuard.tsx  # Token-based auth layout route
 │       ├── layouts/
@@ -83,8 +85,8 @@ e3-aws/
 
 ## Key Concepts
 
-- **Tenant** - A hosted e3 repository with isolated storage (EFS directory)
-- **StorageBackend** - Interface from e3-core for storage operations (this repo provides `EfsBackend`)
+- **Tenant** - A hosted e3 repository with isolated storage (S3 prefix + DynamoDB partition)
+- **StorageBackend** - Interface from e3-core for storage operations (this repo provides `S3DynamoStorage`)
 - **DataflowExecutor** - Interface from e3-core for orchestration (this repo provides Step Functions implementation)
 - **UIComponentType** - East UI type that the frontend renders using `east-ui-components`
 
@@ -97,7 +99,7 @@ npm install
 # Build all packages
 npm run build
 
-# Run frontend locally
+# Run frontend locally (requires web/public/config.json — see web/README.md)
 npm run dev
 ```
 
@@ -128,6 +130,8 @@ The `--context config=elara-dev` loads the deployment configuration from `deploy
 - Resource naming: `e3-dev-*`
 - Domain: `dev.e3.elaraai.com`
 - Test users, OIDC, and other environment-specific settings
+
+The deploy also uploads `web/dist/` to S3 and generates a deployment-specific `config.json` with Cognito settings (domain, client ID, redirect URI). The web app is deployment-agnostic — the same build works for any environment.
 
 **Important:** Do not use `--context deploymentId=dev` alone — this skips the config file and will omit test users, OIDC, and domain configuration.
 

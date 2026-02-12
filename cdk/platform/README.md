@@ -53,8 +53,8 @@ The `E3PlatformStack` deploys a complete e3 platform with:
 | CloudWatch Log Group | `/aws/scheduler/e3-{id}-schedules` | Scheduler delivery logging |
 | CloudWatch Alarms | `e3-{id}-dataflow-failures`, `-gc-failures`, `-schedule-dlq-depth`, `-api-errors` | Operational alerting |
 | ECR Repository | `e3-{id}-runner` | Task execution container image |
-| S3 Bucket | `e3-{id}-apps-{account}` | Static web apps |
-| CloudFront | - | CDN, custom domain |
+| S3 Bucket | `e3-{id}-frontend-{account}` | Web app static assets + runtime config |
+| CloudFront | - | CDN, SPA routing, custom domain |
 | Route53 A Record | `{id}.{baseDomain}` | DNS (if domain configured) |
 | Secrets Manager | `e3-{id}-test-users` | Test user passwords (if enabled) |
 
@@ -189,6 +189,41 @@ See [test/integration/README.md](../../test/integration/README.md) for details.
 - Passwords are stored in Secrets Manager (not in stack outputs)
 - Test users use a distinct email domain (`test.elaraai.com`)
 - Users are deleted when the stack is deleted
+
+## Web App Deployment
+
+The CDK stack deploys the web frontend to S3 and injects runtime configuration, so the web build is deployment-agnostic.
+
+### How It Works
+
+Two separate `BucketDeployment` constructs handle the web assets and config:
+
+1. **`WebAppDeployment`** — Syncs `web/dist/` to the frontend S3 bucket with CloudFront invalidation (`/*`). Uses `prune: true` (default) to remove stale assets.
+
+2. **`WebAppConfig`** — Deploys a `config.json` via `Source.jsonData()` with Cognito settings resolved from the stack. Uses `prune: false` to avoid deleting the web assets.
+
+The generated `config.json` contains:
+```json
+{
+  "cognitoDomain": "e3-dev.auth.ap-southeast-2.amazoncognito.com",
+  "cognitoClientId": "<resolved from UserPoolClient>",
+  "redirectUri": "https://dev.e3.elaraai.com/auth/callback"
+}
+```
+
+These are separate deployments because CDK's `BucketDeployment` merges multiple sources into a single zip asset, and `Source.jsonData()` with CloudFormation token resolution requires its own deployment to properly inject resolved values.
+
+### Build Requirement
+
+The web app must be built before CDK deploy:
+
+```bash
+npm run build          # Builds all packages including web/dist/
+cd cdk/platform
+npx cdk deploy ...
+```
+
+The `web/dist/` directory is referenced as a CDK asset at synth time. If it doesn't exist or is stale, the deployed frontend will be outdated.
 
 ## SSM Parameters
 

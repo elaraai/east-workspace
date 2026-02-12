@@ -62,7 +62,8 @@ abstractions         refactoring          S3DynamoStorage      (frontend +      
 - [x] Repo lifecycle state machines (delete-repo, GC) with Step Functions
 - [x] GC API endpoints (`POST /api/repos/{repo}/gc`, `GET /api/repos/{repo}/gc/{id}`)
 - [x] Integration tests with node:test (`test/integration/`)
-- [x] Frontend app scaffolding (`web/`)
+- [x] Frontend app scaffolding (`web/`) with Cognito OAuth login
+- [x] Web app deployment via CDK BucketDeployment + runtime config.json
 
 **e3 repository:**
 - [x] e3-api-server with all endpoints implemented
@@ -84,7 +85,7 @@ abstractions         refactoring          S3DynamoStorage      (frontend +      
 - [x] Lambda handlers for dataflow execution (`packages/e3-aws-runner/`)
 - [x] DynamoDB schema migration (Phase 3: EXEC, TASK, EVENT)
 - [ ] ECS Service warm pool for Fargate runners (Phase 5 - optional)
-- [ ] Frontend integration (east-ui rendering)
+- [ ] Frontend east-ui rendering (UIComponentType datasets)
 - [ ] e3-api-tests consumption in integration tests
 
 ---
@@ -1314,19 +1315,53 @@ POST /api/repos/{repo}/execute
 **CloudFront + S3 architecture:**
 
 ```
-CloudFront (platform.elaraai.com)
+CloudFront (dev.e3.elaraai.com)
     │
-    ├── /repos/{repo}/           → S3 (Vite app, SPA routing)
-    ├── /repos/{repo}/api/*      → API Gateway (pass-through)
-    └── /login                   → S3 (global login page)
+    ├── /                        → S3 (Vite SPA, all routes)
+    ├── /api/*                   → API Gateway (pass-through)
+    ├── /.well-known/*           → API Gateway (OIDC discovery)
+    ├── /oauth2/*                → API Gateway (device flow)
+    └── /device                  → API Gateway (approval page)
 ```
 
-**Default app features (`web/`):**
+**Runtime configuration:** The web app is deployment-agnostic. CDK generates a `/config.json` in S3 via `Source.jsonData()` with Cognito domain, client ID, and redirect URI resolved from the stack. The app fetches this at startup — no build-time environment variables needed.
 
-- Cognito authentication (JWT in localStorage)
-- Repository selection
-- Workspace list and navigation
+**Two-step deployment:**
+1. `WebAppDeployment` — `BucketDeployment` syncs `web/dist/` to S3 with CloudFront invalidation
+2. `WebAppConfig` — Separate `BucketDeployment` with `Source.jsonData()` deploys `config.json` (uses `prune: false` to preserve web assets)
+
+**Auth flow:**
+1. `/login` → Click "Login with SSO" → Redirect to Cognito hosted UI
+2. Cognito authenticates (native or federated via Entra ID)
+3. Cognito redirects to `/auth/callback?code=...`
+4. `AuthCallbackPage` exchanges code for access token via `/oauth2/token`
+5. Token stored in `localStorage`, used for API calls
+
+**Route structure:**
+
+```
+/login                              → LoginPage (unauthenticated)
+/auth/callback                      → AuthCallbackPage (OAuth code exchange)
+/repos                              → RepoListPage (authenticated)
+/repos/:repo                        → RepoDashboardPage
+/repos/:repo/workspaces/:workspace  → WorkspaceViewPage
+/admin                              → AdminPage
+```
+
+**Implemented features (`web/`):**
+
+- Cognito OAuth login via runtime config (deployment-agnostic)
+- AuthGuard layout route (token check, redirect to /login)
+- PlatformLayout with nav header and logout
+- Repository listing, dashboard with workspaces + packages
+- Workspace detail with dataflow trigger
+- Admin stub page
+
+**Remaining:**
+
 - `UIComponentType` rendering via `east-ui-components`
+- Real-time dataflow status polling
+- Log viewing
 
 ### 4.3 API Endpoints
 
@@ -1376,8 +1411,9 @@ POST /api/repos/{repo}/execute                 # Execute task in ephemeral works
 - [x] Lambda handlers for dataflow execution (get-graph, get-ready, dispatch-task, execute-task, write-result, mark-skipped, finalize-execution)
 - [x] CloudFront distribution with S3 + API Gateway routing
 - [x] Integration tests (62 tests passing)
-- [ ] Frontend app with Cognito login
-- [ ] Workspace list and UI rendering
+- [x] Frontend app with Cognito OAuth login (runtime config, deployment-agnostic)
+- [x] Web app CDK deployment (BucketDeployment + Source.jsonData config)
+- [ ] UIComponentType rendering via east-ui-components
 - [ ] End-to-end test (create repo → deploy package → execute → view UI)
 
 ---
