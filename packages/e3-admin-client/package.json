@@ -1,0 +1,25 @@
+{
+  "name": "@elaraai/e3-admin-client",
+  "version": "0.0.1-alpha.0",
+  "private": true,
+  "type": "module",
+  "description": "HTTP client library for e3 admin API",
+  "license": "BSL-1.1",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "scripts": {
+    "build": "tsc --build",
+    "lint": "eslint src/**/*.ts"
+  },
+  "dependencies": {
+    "@elaraai/e3-admin-types": "^0.0.1-alpha.0",
+    "@elaraai/e3-api-client": "^0.0.2-beta.28"
+  },
+  "peerDependencies": {
+    "@elaraai/east": "^0.0.1-beta.31"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "~5.9.2"
+  }
+}

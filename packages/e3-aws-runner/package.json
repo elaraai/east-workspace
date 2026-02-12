@@ -1,0 +1,31 @@
+{
+  "name": "@elaraai/e3-aws-runner",
+  "version": "0.0.1-alpha.0",
+  "private": true,
+  "type": "module",
+  "description": "Lambda handlers for Step Functions task execution",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "scripts": {
+    "build": "tsc --build",
+    "test": "node --enable-source-maps --test 'dist/src/**/*.spec.js'"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.966.0",
+    "@aws-sdk/client-s3": "^3.966.0",
+    "@aws-sdk/client-sfn": "^3.966.0",
+    "@aws-sdk/util-dynamodb": "^3.966.0",
+    "@elaraai/e3-admin-types": "^0.0.1-alpha.0",
+    "@elaraai/e3-aws-storage": "^0.0.1-alpha.0"
+  },
+  "peerDependencies": {
+    "@elaraai/e3-core": "^0.0.2-beta.28",
+    "@elaraai/e3-types": "^0.0.2-beta.28",
+    "@elaraai/east": "^0.0.1-beta.31"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.145",
+    "@types/node": "^22.0.0",
+    "typescript": "~5.9.2"
+  }
+}

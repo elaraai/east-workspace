@@ -69,13 +69,10 @@ aws sso login --profile elaraai-dev-elara-e3
 
 # Deploy platform (from cdk/platform directory)
 cd cdk/platform
-AWS_PROFILE=elaraai-dev-elara-e3 npx cdk deploy --context deploymentId=dev --require-approval never
+AWS_PROFILE=elaraai-dev-elara-e3 npx cdk deploy --context config=elara-dev --require-approval never
 ```
 
-The `--context deploymentId=dev` specifies the target environment:
-- `dev` → `dev.e3.elaraai.com` (development)
-- `test` → `test.e3.elaraai.com` (staging)
-- `prod` → `e3.elaraai.com` (production)
+The `--context config=elara-dev` loads the full deployment configuration from `deployments/elara-dev.json`, including test users, OIDC, and domain settings.
 
 ### Use with CLI
 
@@ -104,9 +101,13 @@ e3-aws/
 │       └── E3PlatformStack       # Complete platform stack
 │
 ├── packages/               # TypeScript packages
-│   ├── api/                # Lambda API handler (Hono)
-│   ├── storage/            # S3 + DynamoDB storage backend
-│   └── runner/             # Task execution Lambda
+│   ├── e3-aws-api/         # Lambda API handler (Hono)
+│   ├── e3-aws-storage/     # S3 + DynamoDB storage backend
+│   ├── e3-aws-runner/      # Task execution Lambda
+│   ├── e3-admin-types/     # Shared authorization types
+│   ├── e3-admin-core/      # Authorization logic
+│   ├── e3-admin-client/    # Admin API client
+│   └── e3-cloud-cli/       # Cloud management CLI
 │
 ├── web/                    # React frontend (Vite)
 │
@@ -146,9 +147,13 @@ Elara AWS Organization
 
 | Package | Description |
 |---------|-------------|
-| `@elaraai/e3-api` | Lambda handler - routes, auth, OIDC discovery |
-| `@elaraai/e3-storage` | S3DynamoStorage backend implementation |
-| `@elaraai/e3-runner` | Task execution Lambda for Step Functions |
+| `@elaraai/e3-aws-api` | Lambda handler - routes, auth, OIDC discovery |
+| `@elaraai/e3-aws-storage` | S3DynamoStorage backend implementation |
+| `@elaraai/e3-aws-runner` | Task execution Lambda for Step Functions |
+| `@elaraai/e3-admin-types` | Shared East types for authorization |
+| `@elaraai/e3-admin-core` | Authorization logic and interfaces |
+| `@elaraai/e3-admin-client` | HTTP client for admin API |
+| `@elaraai/e3-cloud-cli` | CLI for cloud management |
 | `@elaraai/e3-web` | React frontend application |
 | `@elaraai/e3-accounts` | CDK for account provisioning |
 | `@elaraai/e3-platform` | CDK for platform deployment |
@@ -174,24 +179,34 @@ npm run dev
 
 ### CDK Commands
 
-All CDK commands require `AWS_PROFILE` and `--context deploymentId`:
+All CDK commands require `AWS_PROFILE` and `--context config`:
 
 ```bash
 # Set profile for all commands
 export AWS_PROFILE=elaraai-dev-elara-e3
 
 # Synthesize CloudFormation (no deploy)
-npx cdk synth --context deploymentId=dev
+npx cdk synth --context config=elara-dev
 
 # Deploy platform
-npx cdk deploy --context deploymentId=dev --require-approval never
+npx cdk deploy --context config=elara-dev --require-approval never
 
 # Diff changes
-npx cdk diff --context deploymentId=dev
+npx cdk diff --context config=elara-dev
 
 # Destroy (careful!)
-npx cdk destroy --context deploymentId=dev
+npx cdk destroy --context config=elara-dev
 ```
+
+### Wipe Dev Data
+
+Reset the dev environment to a clean state by deleting all S3 objects and DynamoDB rows (infrastructure is preserved):
+
+```bash
+AWS_PROFILE=elaraai-dev-elara-e3 npm run wipe:dev
+```
+
+This is hardcoded to only work on the dev account (925445553972).
 
 ### Integration Tests
 

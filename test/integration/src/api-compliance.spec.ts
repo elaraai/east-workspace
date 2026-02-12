@@ -16,11 +16,13 @@
 import { describe, beforeEach, afterEach } from 'node:test';
 import { getStackOutputs, getDeploymentId } from './helpers/stack-outputs.js';
 import { getToken, hasCredentials } from './helpers/credentials.js';
-import { createTestContext, allApiTests, type TestContext } from '@elaraai/e3-api-tests';
+import { join } from 'node:path';
+import { homedir } from 'node:os';
+import { createTestContext, allApiTests, transferTests, type TestContext } from '@elaraai/e3-api-tests';
 
 const DEFAULT_SERVER = 'https://dev.e3.elaraai.com';
 
-describe('API Compliance Tests', { timeout: 300000, concurrency: false }, () => {
+describe('API Compliance Tests', { timeout: 900000, concurrency: false }, () => {
   let context: TestContext;
   let baseUrl: string;
 
@@ -53,4 +55,10 @@ describe('API Compliance Tests', { timeout: 300000, concurrency: false }, () => 
 
   // Run all API compliance tests from e3-api-tests
   allApiTests(() => context);
+
+  // Run transfer tests (export/import roundtrip)
+  const getCredentialsEnv = () => ({
+    E3_CREDENTIALS_PATH: process.env.E3_CREDENTIALS_PATH ?? join(homedir(), '.e3', 'credentials.json'),
+  });
+  transferTests(() => context, getCredentialsEnv);
 });

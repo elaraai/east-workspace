@@ -46,10 +46,17 @@ The `E3PlatformStack` deploys a complete e3 platform with:
 | API Gateway | `e3-{id}-api` | HTTP API with JWT auth |
 | Step Functions | `e3-{id}-dataflow` | Dataflow orchestration |
 | Step Functions | `e3-{id}-gc` | Garbage collection |
+| Lambda Function | `e3-{id}-schedule-trigger` | Scheduled execution trigger |
+| EventBridge Scheduler Group | `e3-{id}-schedules` | Per-workspace cron schedules |
+| SQS Queue | `e3-{id}-schedule-dlq` | Dead-letter queue for failed schedule invocations |
+| IAM Role | `e3-{id}-scheduler-role` | EventBridge Scheduler → Lambda invocation |
+| CloudWatch Log Group | `/aws/scheduler/e3-{id}-schedules` | Scheduler delivery logging |
+| CloudWatch Alarms | `e3-{id}-dataflow-failures`, `-gc-failures`, `-schedule-dlq-depth`, `-api-errors` | Operational alerting |
 | ECR Repository | `e3-{id}-runner` | Task execution container image |
 | S3 Bucket | `e3-{id}-apps-{account}` | Static web apps |
 | CloudFront | - | CDN, custom domain |
 | Route53 A Record | `{id}.{baseDomain}` | DNS (if domain configured) |
+| Secrets Manager | `e3-{id}-test-users` | Test user passwords (if enabled) |
 
 ## Deployment
 
@@ -58,7 +65,7 @@ The `E3PlatformStack` deploys a complete e3 platform with:
 1. **AWS Account** - Bootstrapped deployment account (via `cdk/accounts`)
 2. **Build dependencies**:
    ```bash
-   npm run build --workspace=@elaraai/e3-api
+   npm run build --workspace=@elaraai/e3-aws-api
    ```
 
 ### Deployment CLI
@@ -122,6 +129,66 @@ After deployment, note these outputs:
 | `CognitoIssuer` | JWT issuer for token validation |
 | `DataBucketName` | S3 bucket for data |
 | `DataTableName` | DynamoDB table name |
+| `SchedulerGroupName` | EventBridge Scheduler group name |
+| `ScheduleTriggerFnArn` | Schedule trigger Lambda ARN |
+| `ScheduleDlqUrl` | Dead-letter queue URL for failed schedule invocations |
+| `TestUserSecretArn` | Secrets Manager ARN for test user passwords (if testUsers enabled) |
+
+## Test Users (for Integration Testing)
+
+Enable test users to automatically provision Cognito users for integration testing:
+
+### Configuration
+
+Add to your deployment config (`deployments/elara-dev.json`):
+
+```json
+{
+  "testUsers": {
+    "enabled": true,
+    "emailDomain": "test.elaraai.com"  // Optional, defaults to test.elaraai.com
+  }
+}
+```
+
+Or via CDK context:
+
+```bash
+npx cdk deploy --context config=elara-dev --context testUsersEnabled=true
+```
+
+### What Gets Created
+
+When `testUsers.enabled: true`:
+
+1. **4 Cognito users** are created:
+   - `owner@test.elaraai.com` - Regular user (repository owner)
+   - `member@test.elaraai.com` - Regular user (repository member)
+   - `outsider@test.elaraai.com` - Regular user (no repository access)
+   - `admin@test.elaraai.com` - Platform admin (in `e3-admins` group)
+
+2. **Passwords** are randomly generated (meeting Cognito policy) and stored in Secrets Manager
+
+3. **USER_PASSWORD_AUTH** flow is enabled on the Cognito User Pool Client
+
+### Integration Test Usage
+
+Integration tests automatically detect test users and authenticate:
+
+```bash
+cd test/integration
+AWS_PROFILE=elaraai-dev-elara-e3 npm test -- --test-name-pattern "Admin"
+```
+
+See [test/integration/README.md](../../test/integration/README.md) for details.
+
+### Security Notes
+
+- Test users are only created when explicitly enabled in config
+- USER_PASSWORD_AUTH is only enabled when test users are enabled
+- Passwords are stored in Secrets Manager (not in stack outputs)
+- Test users use a distinct email domain (`test.elaraai.com`)
+- Users are deleted when the stack is deleted
 
 ## SSM Parameters
 
@@ -208,7 +275,7 @@ aws ssm put-parameter \
 Now any `cdk deploy` in this account will automatically configure the OIDC provider:
 
 ```bash
-npx cdk deploy --context deploymentId=elara-dev-e3
+npx cdk deploy --context config=elara-dev
 ```
 
 The stack output `OidcProviderName` confirms the provider was configured.
@@ -218,7 +285,7 @@ The stack output `OidcProviderName` confirms the provider was configured.
 To deploy without the SSM-configured provider:
 
 ```bash
-npx cdk deploy --context deploymentId=test --context oidcEnabled=false
+npx cdk deploy --context config=elara-dev --context oidcEnabled=false
 ```
 
 Or remove/update the SSM parameter:
@@ -414,6 +481,15 @@ curl https://{ApiEndpoint}/health
 # {"status":"ok"}
 ```
 
+### Whoami (Get Current User Identity)
+
+```bash
+# Get a token by signing in via hosted UI, then:
+curl -H "Authorization: Bearer {id_token}" \
+  https://{ApiEndpoint}/api/whoami
+# Returns: {"sub":"...", "email":"...", "name":"...", "isAdmin":false}
+```
+
 ### Authenticated Request
 
 ```bash
@@ -453,4 +529,4 @@ Ensure the identity provider is enabled on the App Client (Step 3 above).
 
 - [CDK Overview](../README.md) - High-level infrastructure architecture
 - [Accounts Setup](../accounts/README.md) - Account creation and domain configuration
-- [API Package](../../packages/api/) - Lambda handler source code
+- [API Package](../../packages/e3-aws-api/) - Lambda handler source code

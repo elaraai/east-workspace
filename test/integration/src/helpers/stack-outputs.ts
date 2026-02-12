@@ -51,6 +51,13 @@ export interface StackOutputs {
   // Optional
   customDomainName?: string;
   oidcProviderName?: string;
+
+  // Scheduler (only present when schedule feature is deployed)
+  schedulerGroupName?: string;
+  scheduleTriggerFnArn?: string;
+
+  // Test users (only present when testUsers.enabled is true)
+  testUserSecretArn?: string;
 }
 
 export async function getStackOutputs(deploymentId: string): Promise<StackOutputs> {
@@ -121,6 +128,13 @@ export async function getStackOutputs(deploymentId: string): Promise<StackOutput
     // Optional
     customDomainName: getOptionalOutput('CustomDomainName'),
     oidcProviderName: getOptionalOutput('OidcProviderName'),
+
+    // Scheduler
+    schedulerGroupName: getOptionalOutput('SchedulerGroupName'),
+    scheduleTriggerFnArn: getOptionalOutput('ScheduleTriggerFnArn'),
+
+    // Test users
+    testUserSecretArn: getOptionalOutput('TestUserSecretArn'),
   };
 }
 

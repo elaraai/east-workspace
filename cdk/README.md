@@ -73,7 +73,7 @@ See [accounts/README.md](accounts/README.md) for detailed step-by-step instructi
 ```bash
 cd cdk/platform
 aws sso login --profile elaraai-dev-elara-e3
-AWS_PROFILE=elaraai-dev-elara-e3 npm run deploy -- --context deploymentId=dev
+AWS_PROFILE=elaraai-dev-elara-e3 npm run deploy -- --context config=elara-dev
 ```
 
 See [platform/README.md](platform/README.md) for detailed instructions.
@@ -145,7 +145,7 @@ E3SharedInfraStack                    (subdomain in shared zone)
 
 | Context | Purpose |
 |---------|---------|
-| `--context deploymentId=ID` | Deployment identifier (e.g., `dev`, `prod`) |
+| `--context config=NAME` | Deployment config file name (e.g., `elara-dev`) — loads `deployments/{NAME}.json` |
 
 ## Related Documentation
 

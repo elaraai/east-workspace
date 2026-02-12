@@ -29,15 +29,23 @@ e3-aws/
 │           └── e3-aws.ts             # CDK app entry
 │
 ├── packages/
-│   ├── api/                  # Lambda handlers for API (@elaraai/e3-api)
+│   ├── e3-aws-api/           # Lambda handlers for API (@elaraai/e3-aws-api)
 │   │   └── src/handlers/     # Route handlers
 │   │
-│   ├── storage/              # EFS-backed StorageBackend (@elaraai/e3-storage)
+│   ├── e3-aws-storage/       # S3+DynamoDB StorageBackend (@elaraai/e3-aws-storage)
 │   │   └── src/
-│   │       └── efs-backend.ts
+│   │       └── s3-dynamo-storage.ts
 │   │
-│   └── runner/               # Task execution handlers (@elaraai/e3-runner)
-│       └── src/handlers/     # Step Functions Lambda handlers
+│   ├── e3-aws-runner/        # Task execution handlers (@elaraai/e3-aws-runner)
+│   │   └── src/handlers/     # Step Functions Lambda handlers
+│   │
+│   ├── e3-admin-types/       # Shared East types for authorization (@elaraai/e3-admin-types)
+│   │
+│   ├── e3-admin-core/        # Authorization logic and interfaces (@elaraai/e3-admin-core)
+│   │
+│   ├── e3-admin-client/      # HTTP client for admin API (@elaraai/e3-admin-client)
+│   │
+│   └── e3-cloud-cli/         # CLI for cloud management (@elaraai/e3-cloud-cli)
 │
 ├── web/                      # Vite frontend app (@elaraai/e3-web)
 │   └── src/
@@ -55,6 +63,8 @@ e3-aws/
 | **east** | `../east` | East language compiler and type system |
 | **east-ui** | `../east-ui` | East UI component library (Chakra-based) |
 | **east-node** | `../east-node` | East runtime for Node.js |
+
+**Important:** Changes to related projects (`../e3`, `../east`, etc.) are consumed via npm packages. After editing a related project, you must publish the updated packages to npm before e3-aws will pick up the changes. A local build alone is not sufficient — `npm install` / `npm update` in e3-aws pulls from the registry.
 
 ## Key Concepts
 
@@ -95,13 +105,16 @@ npm run build
 
 # 3. Deploy platform (from cdk/platform directory)
 cd cdk/platform
-AWS_PROFILE=elaraai-dev-elara-e3 npx cdk deploy --context deploymentId=dev --require-approval never
+AWS_PROFILE=elaraai-dev-elara-e3 npx cdk deploy --context config=elara-dev --require-approval never
 ```
 
-The `--context deploymentId=dev` is required to specify the target environment. This controls:
+The `--context config=elara-dev` loads the deployment configuration from `deployments/elara-dev.json`. This controls:
 - Stack name: `E3Platform-dev`
 - Resource naming: `e3-dev-*`
 - Domain: `dev.e3.elaraai.com`
+- Test users, OIDC, and other environment-specific settings
+
+**Important:** Do not use `--context deploymentId=dev` alone — this skips the config file and will omit test users, OIDC, and domain configuration.
 
 ### Deploy Account Infrastructure (Management Account Only)
 
@@ -145,4 +158,5 @@ AWS_PROFILE=elaraai-dev-elara-e3 npm test -- --test-name-pattern "diamond"
 ## Making changes
 
 Ensure all changes are reflected in the project REAMDE.md files.
-In particular deployment instructions and project structures must be kept up-to-date at all times.
+In particular deployment instructions, schemas and project structures must be kept up-to-date at all times.
+The integration tests must have a 100% pass rate - use the dev environment to test all changes.

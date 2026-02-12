@@ -9,7 +9,8 @@
     "cdk/platform",
     "packages/*",
     "web",
-    "test/integration"
+    "test/integration",
+    "test/manual/schedule"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
@@ -18,7 +19,9 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "cdk": "npm run cdk --workspace=@elaraai/e3-platform",
-    "dev": "npm run dev --workspace=@elaraai/e3-web"
+    "dev": "npm run dev --workspace=@elaraai/e3-web",
+    "link": "npm run build --workspace=@elaraai/e3-cloud-cli && npm link --workspace=@elaraai/e3-cloud-cli",
+    "wipe:dev": "./scripts/wipe-dev-data.sh"
   },
   "keywords": [
     "e3",
@@ -29,9 +32,9 @@
   ],
   "license": "SEE LICENSE IN LICENSE.md",
   "dependencies": {
-    "@elaraai/e3-api-client": "^0.0.2-beta.21",
-    "@elaraai/e3-api-server": "^0.0.2-beta.21",
-    "@elaraai/e3-api-tests": "^0.0.2-beta.21"
+    "@elaraai/e3-api-client": "^0.0.2-beta.28",
+    "@elaraai/e3-api-server": "^0.0.2-beta.28",
+    "@elaraai/e3-api-tests": "^0.0.2-beta.28"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

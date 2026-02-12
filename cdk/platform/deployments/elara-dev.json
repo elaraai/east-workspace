@@ -23,6 +23,15 @@
     "providerName": "EntraID",
     "clientId": "ecd3a920-ef9a-495c-b1ef-f5c8ce71304a",
     "issuerUrl": "https://login.microsoftonline.com/f6e3d4a6-dd46-4950-ba59-d96255494980/v2.0",
-    "clientSecretArn": "arn:aws:secretsmanager:ap-southeast-2:925445553972:secret:/e3/auth/oidc/client-secret-b82R5B"
+    "clientSecretArn": "arn:aws:secretsmanager:ap-southeast-2:925445553972:secret:/e3/auth/oidc/client-secret-b82R5B",
+    "adminGroup": "b1de3e14-4420-4920-a673-c9da23562da4"
+  },
+
+  "scheduling": {
+    "defaultTimezone": "Australia/Sydney"
+  },
+
+  "testUsers": {
+    "enabled": true
   }
 }

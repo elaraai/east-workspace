@@ -15,6 +15,7 @@
 import * as cdk from 'aws-cdk-lib';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as path from 'node:path';
@@ -35,9 +36,14 @@ import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as events from 'aws-cdk-lib/aws-events';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
+import * as logs from 'aws-cdk-lib/aws-logs';
+import * as scheduler from 'aws-cdk-lib/aws-scheduler';
+import * as sqs from 'aws-cdk-lib/aws-sqs';
+import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import { Construct } from 'constructs';
 import { CrossRegionCertificate } from './cross-region-certificate.js';
 import { CrossAccountRoute53Record } from './cross-account-route53-record.js';
+import { CognitoTestUsers } from './cognito-test-users.js';
 
 /**
  * SSM parameter paths for optional OIDC identity provider configuration.
@@ -103,6 +109,13 @@ export interface E3PlatformStackProps extends cdk.StackProps {
   deploymentId: string;
 
   /**
+   * Group name that grants admin access.
+   * Must match the IdP group name exactly (e.g., EntraID group).
+   * @default 'e3-admins'
+   */
+  adminGroup?: string;
+
+  /**
    * Custom domain configuration.
    * If not provided, reads from SSM parameters (/e3/domain/*).
    * If SSM parameters not found, uses CloudFront's default domain.
@@ -120,6 +133,31 @@ export interface E3PlatformStackProps extends cdk.StackProps {
    * @default []
    */
   allowedOrigins?: string[];
+
+  /**
+   * Default timezone for scheduled executions (IANA format).
+   * Used when a schedule doesn't specify an explicit timezone.
+   * @default 'UTC'
+   */
+  defaultTimezone?: string;
+
+  /**
+   * Test user configuration for integration testing.
+   * When enabled, creates test users in Cognito with passwords stored in Secrets Manager.
+   */
+  testUsers?: {
+    /**
+     * Enable test user creation.
+     * @default false
+     */
+    enabled: boolean;
+
+    /**
+     * Email domain for test user addresses.
+     * @default 'test.elaraai.com'
+     */
+    emailDomain?: string;
+  };
 }
 
 export class E3PlatformStack extends cdk.Stack {
@@ -154,6 +192,12 @@ export class E3PlatformStack extends cdk.Stack {
 
     const { deploymentId } = props;
     const prefix = `e3-${deploymentId}`;
+
+    // Compute repo root path (relative to compiled CDK code location)
+    // At runtime, __dirname is dist/lib/, so we go up 4 levels to reach repo root
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = path.dirname(__filename);
+    const repoRoot = path.join(__dirname, '..', '..', '..', '..');
 
     // ============================================================
     // DOMAIN CONFIGURATION
@@ -279,6 +323,10 @@ export class E3PlatformStack extends cdk.Stack {
         email: { required: true, mutable: true },
         fullname: { required: false, mutable: true },
       },
+      customAttributes: {
+        // Custom attribute for IdP groups (mapped from OIDC federation)
+        'groups': new cognito.StringAttribute({ mutable: true }),
+      },
       passwordPolicy: {
         minLength: 12,
         requireLowercase: true,
@@ -290,6 +338,65 @@ export class E3PlatformStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
     this.userPool = userPool;
+
+    // ============================================================
+    // ADMIN GROUP CONFIGURATION
+    // ============================================================
+    // Admin group name must match the IdP group name exactly.
+    // This is passed from the deployment config or CDK context.
+    const adminGroup = props.adminGroup ?? 'e3-admins';
+
+    // ============================================================
+    // ============================================================
+    // COGNITO ADMIN GROUP
+    // ============================================================
+    // Create the admin group that the Pre-Token Generation Lambda will
+    // assign users to based on their IdP group membership.
+    const cognitoAdminGroup = new cognito.CfnUserPoolGroup(this, 'CognitoAdminGroup', {
+      userPoolId: userPool.userPoolId,
+      groupName: 'e3-admins',
+      description: 'E3 platform administrators (assigned dynamically from IdP groups)',
+    });
+
+    // ============================================================
+    // PRE-TOKEN GENERATION LAMBDA
+    // ============================================================
+    // This Lambda is triggered before Cognito generates tokens. It reads
+    // IdP groups from user attributes (mapped during OIDC federation) and
+    // assigns users to Cognito groups for authorization.
+    const preTokenGenerationFn = new nodejs.NodejsFunction(this, 'PreTokenGenerationHandler', {
+      functionName: `${prefix}-pre-token-generation`,
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(repoRoot, 'packages', 'e3-aws-api', 'src', 'auth', 'pre-token-generation.ts'),
+      handler: 'handler',
+      bundling: {
+        minify: true,
+        sourceMap: true,
+        format: nodejs.OutputFormat.ESM,
+        banner: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
+      },
+      environment: {
+        // IdP admin group identifier (GUID or name) - used to check IdP group membership
+        ADMIN_GROUP: props.adminGroup ?? 'e3-admins',
+      },
+      timeout: cdk.Duration.seconds(5),
+      memorySize: 128,
+    });
+
+    // Add pre-token generation V2 trigger to user pool
+    // V2_0 is required for access token customization (V1_0 only supports ID token)
+    // CDK's addTrigger defaults to V1_0, so we use escape hatch to set V2_0
+    const cfnUserPool = userPool.node.defaultChild as cognito.CfnUserPool;
+    cfnUserPool.addPropertyOverride('LambdaConfig.PreTokenGenerationConfig', {
+      LambdaArn: preTokenGenerationFn.functionArn,
+      LambdaVersion: 'V2_0',
+    });
+
+    // Grant Cognito permission to invoke the Lambda
+    preTokenGenerationFn.addPermission('CognitoInvoke', {
+      principal: new iam.ServicePrincipal('cognito-idp.amazonaws.com'),
+      sourceArn: userPool.userPoolArn,
+    });
 
     // ============================================================
     // OPTIONAL: OIDC IDENTITY PROVIDER (from SSM parameters)
@@ -350,6 +457,11 @@ export class E3PlatformStack extends cdk.Stack {
           fullname: cognito.ProviderAttribute.other('name'),
           givenName: cognito.ProviderAttribute.other('given_name'),
           familyName: cognito.ProviderAttribute.other('family_name'),
+          // Map IdP groups claim to custom:groups attribute
+          // EntraID sends groups in the 'groups' claim (requires token config in Azure)
+          custom: {
+            'custom:groups': cognito.ProviderAttribute.other('groups'),
+          },
         },
       });
 
@@ -372,7 +484,11 @@ export class E3PlatformStack extends cdk.Stack {
     const userPoolClient = new cognito.UserPoolClient(this, 'UserPoolClient', {
       userPool,
       userPoolClientName: `${prefix}-web-client`,
-      authFlows: { userSrp: true },
+      // Enable USER_PASSWORD_AUTH only when test users are enabled (for programmatic login)
+      authFlows: {
+        userSrp: true,
+        userPassword: props.testUsers?.enabled ?? false,
+      },
       oAuth: {
         flows: { authorizationCodeGrant: true },
         scopes: [
@@ -386,6 +502,16 @@ export class E3PlatformStack extends cdk.Stack {
       supportedIdentityProviders,
       generateSecret: false,
       preventUserExistenceErrors: true,
+      // Token lifetime configuration
+      // - Short access tokens limit exposure if compromised
+      // - Long refresh tokens for CLI convenience (industry standard: 90 days)
+      // - Token revocation enables rotation (old refresh tokens invalidated on use)
+      accessTokenValidity: cdk.Duration.minutes(15),
+      idTokenValidity: cdk.Duration.minutes(15),
+      refreshTokenValidity: cdk.Duration.days(90),
+      // Enable token revocation for refresh token rotation
+      // When a refresh token is used, a new one is issued and the old one is invalidated
+      enableTokenRevocation: true,
     });
     this.userPoolClient = userPoolClient;
 
@@ -403,16 +529,29 @@ export class E3PlatformStack extends cdk.Stack {
     });
 
     // ============================================================
+    // TEST USERS (Optional - for integration testing)
+    // ============================================================
+    // Create test users in Cognito when testUsers.enabled is true.
+    // Passwords are stored in Secrets Manager for programmatic authentication.
+    if (props.testUsers?.enabled) {
+      const testUsers = new CognitoTestUsers(this, 'TestUsers', {
+        userPool,
+        emailDomain: props.testUsers.emailDomain ?? 'test.elaraai.com',
+        prefix,
+        adminGroup: cognitoAdminGroup,
+      });
+
+      new cdk.CfnOutput(this, 'TestUserSecretArn', {
+        value: testUsers.secretArn,
+        description: 'Secrets Manager ARN containing test user passwords',
+      });
+    }
+
+    // ============================================================
     // API
     // ============================================================
 
-    // Path to API package source (relative to this CDK project)
-    // Use import.meta.url for ES module compatibility
-    // At runtime, __dirname is dist/lib/, so we go up 4 levels to reach repo root
-    const __filename = fileURLToPath(import.meta.url);
-    const __dirname = path.dirname(__filename);
-    const repoRoot = path.join(__dirname, '..', '..', '..', '..');
-    const apiPackagePath = path.join(repoRoot, 'packages', 'api');
+    const apiPackagePath = path.join(repoRoot, 'packages', 'e3-aws-api');
 
     // Cognito domain URL (e.g., e3-dev.auth.ap-southeast-2.amazoncognito.com)
     const cognitoDomainUrl = `${prefix}.auth.${this.region}.amazoncognito.com`;
@@ -437,6 +576,8 @@ export class E3PlatformStack extends cdk.Stack {
         TABLE_NAME: this.dataTable.tableName,
         BUCKET_NAME: this.dataBucket.bucketName,
         USER_POOL_ID: this.userPool.userPoolId,
+        // Admin group name for authorization (must match IdP group name)
+        ADMIN_GROUP: adminGroup,
         // Cognito configuration for device flow proxy
         COGNITO_DOMAIN: cognitoDomainUrl,
         COGNITO_ISSUER: cognitoIssuer,
@@ -453,6 +594,12 @@ export class E3PlatformStack extends cdk.Stack {
     this.dataTable.grantReadWriteData(this.apiHandler);
     this.dataBucket.grantReadWrite(this.apiHandler);
 
+    // Grant permission to list users in Cognito (for lookupUserByEmail)
+    this.apiHandler.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['cognito-idp:ListUsers'],
+      resources: [userPool.userPoolArn],
+    }));
+
     this.httpApi = new apigatewayv2.HttpApi(this, 'HttpApi', {
       apiName: `${prefix}-api`,
       corsPreflight: {
@@ -462,6 +609,21 @@ export class E3PlatformStack extends cdk.Stack {
         allowCredentials: true,
       },
     });
+
+    // Configure stage-level throttling
+    // These are account-wide limits; individual users share this capacity
+    // Generous limits to accommodate dashboard batch loading (50+ datasets in parallel)
+    const defaultStage = this.httpApi.defaultStage?.node.defaultChild as apigatewayv2.CfnStage;
+    if (defaultStage) {
+      defaultStage.addPropertyOverride('DefaultRouteSettings', {
+        // Sustained request rate (requests/second)
+        ThrottlingRateLimit: 500,
+        // Burst capacity for sudden spikes (e.g., dashboard loading 50 datasets)
+        ThrottlingBurstLimit: 1000,
+        // Enable detailed CloudWatch metrics for monitoring
+        DetailedMetricsEnabled: true,
+      });
+    }
 
     // JWT authorizer using Cognito User Pool
     const jwtAuthorizer = new apigatewayv2Authorizers.HttpJwtAuthorizer(
@@ -517,6 +679,14 @@ export class E3PlatformStack extends cdk.Stack {
       integration: apiIntegration,
     });
 
+    // Whoami endpoint (requires JWT auth)
+    this.httpApi.addRoutes({
+      path: '/api/whoami',
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: apiIntegration,
+      authorizer: jwtAuthorizer,
+    });
+
     // Repository list endpoint (public, returns empty if not authenticated)
     this.httpApi.addRoutes({
       path: '/api/repos',
@@ -535,6 +705,14 @@ export class E3PlatformStack extends cdk.Stack {
 
     this.httpApi.addRoutes({
       path: '/api/repos/{repo}/{proxy+}',
+      methods: [apigatewayv2.HttpMethod.ANY],
+      integration: apiIntegration,
+      authorizer: jwtAuthorizer,
+    });
+
+    // Admin API routes (requires JWT auth, additional admin group check in Lambda)
+    this.httpApi.addRoutes({
+      path: '/api/admin/{proxy+}',
       methods: [apigatewayv2.HttpMethod.ANY],
       integration: apiIntegration,
       authorizer: jwtAuthorizer,
@@ -602,7 +780,7 @@ export class E3PlatformStack extends cdk.Stack {
     //                                           ▼             ▼
     //                                      MarkSkipped    GetReady
 
-    const runnerPackagePath = path.join(repoRoot, 'packages', 'runner');
+    const runnerPackagePath = path.join(repoRoot, 'packages', 'e3-aws-runner');
 
     // Lambda: Get dependency graph from workspace
     const getGraphFn = new nodejs.NodejsFunction(this, 'GetGraphHandler', {
@@ -669,11 +847,12 @@ export class E3PlatformStack extends cdk.Stack {
     this.dataTable.grantReadWriteData(dispatchTaskFn);
     this.dataBucket.grantRead(dispatchTaskFn);
 
-    // Lambda: Write task result to workspace
-    const writeResultFn = new nodejs.NodejsFunction(this, 'WriteResultHandler', {
-      functionName: `${prefix}-write-result`,
+    // Lambda: Apply task results serially after parallel Map execution
+    // This serializes execution state writes to avoid lost update race conditions
+    const applyResultsFn = new nodejs.NodejsFunction(this, 'ApplyResultsHandler', {
+      functionName: `${prefix}-apply-results`,
       runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(runnerPackagePath, 'src', 'handlers', 'write-result.ts'),
+      entry: path.join(runnerPackagePath, 'src', 'handlers', 'apply-results.ts'),
       handler: 'handler',
       bundling: {
         minify: true,
@@ -681,15 +860,15 @@ export class E3PlatformStack extends cdk.Stack {
         format: nodejs.OutputFormat.ESM,
         banner: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
       },
-      timeout: cdk.Duration.seconds(60),
+      timeout: cdk.Duration.seconds(120),
       memorySize: 1024,
       environment: {
         TABLE_NAME: this.dataTable.tableName,
         BUCKET_NAME: this.dataBucket.bucketName,
       },
     });
-    this.dataTable.grantReadWriteData(writeResultFn);
-    this.dataBucket.grantReadWrite(writeResultFn);
+    this.dataTable.grantReadWriteData(applyResultsFn);
+    this.dataBucket.grantReadWrite(applyResultsFn);
 
     // Lambda: Apply tree updates serially after parallel task execution
     // This avoids lost update race conditions when multiple tasks complete concurrently
@@ -714,7 +893,7 @@ export class E3PlatformStack extends cdk.Stack {
     this.dataTable.grantReadWriteData(applyTreeUpdatesFn);
     this.dataBucket.grantReadWrite(applyTreeUpdatesFn);
 
-    // Note: Mark-skipped functionality is now handled inline by write-result.ts
+    // Note: Mark-skipped functionality is handled by apply-results.ts
     // using stepTaskFailed + stepTasksSkipped from e3-core
 
     // Lambda: Finalize execution state (update status to completed/failed)
@@ -803,12 +982,13 @@ export class E3PlatformStack extends cdk.Stack {
     });
 
     // Finalize states - update execution state in DynamoDB before terminal states
-    // Finalize only sets status and completedAt - counts are already set by write-result
+    // Finalize only sets status and completedAt - counts are already set by apply-results
     const prepareFinalizeSuccess = new sfn.Pass(this, 'PrepareFinalizeSuccess', {
       parameters: {
         'repo.$': '$.repo',
         'workspace.$': '$.workspace',
         'executionId.$': '$.executionId',
+        'runId.$': '$.runId',
         'status': 'completed',
       },
     });
@@ -818,9 +998,15 @@ export class E3PlatformStack extends cdk.Stack {
         'repo.$': '$.repo',
         'workspace.$': '$.workspace',
         'executionId.$': '$.executionId',
+        'runId.$': '$.runId',
         'status': 'failed',
       },
     });
+
+    // Safety net: if any handler throws after retries, ensure lock is released
+    // by routing to the failure finalization path
+    getGraphState.addCatch(prepareFinalizeFailure, { resultPath: '$.error' });
+    getReadyState.addCatch(prepareFinalizeFailure, { resultPath: '$.error' });
 
     const _finalizeExecutionState = new tasks.LambdaInvoke(this, 'FinalizeExecutionState', {
       lambdaFunction: finalizeExecutionFn,
@@ -874,11 +1060,14 @@ export class E3PlatformStack extends cdk.Stack {
         'repo.$': '$.repo',
         'workspace.$': '$.workspace',
         'executionId.$': '$.executionId',
+        'runId.$': '$.runId',
         'taskName.$': '$.dispatch.Payload.taskName',
         'status.$': '$.dispatch.Payload.status',
         'taskHash.$': '$.dispatch.Payload.taskHash',
         'inputHashes.$': '$.dispatch.Payload.inputHashes',
         'outputPath.$': '$.dispatch.Payload.outputPath',
+        'taskExecutionId.$': '$.dispatch.Payload.taskExecutionId',
+        'cached.$': '$.dispatch.Payload.cached',
         // Pass through the entire dispatch payload so we can access outputHash if it exists
         'dispatchResult.$': '$.dispatch.Payload',
       },
@@ -906,6 +1095,8 @@ export class E3PlatformStack extends cdk.Stack {
       parameters: {
         'status': 'failed',
         'error': 'Task execution failed',
+        'exitCode': -1,
+        'duration': 0,
       },
       resultPath: '$.execution.Payload',
     }), {
@@ -918,10 +1109,12 @@ export class E3PlatformStack extends cdk.Stack {
         'repo.$': '$.repo',
         'workspace.$': '$.workspace',
         'executionId.$': '$.executionId',
+        'runId.$': '$.runId',
         'taskName.$': '$.taskName',
         'outputPath.$': '$.outputPath',
         'taskHash.$': '$.taskHash',
         'inputHashes.$': '$.inputHashes',
+        'taskExecutionId.$': '$.taskExecutionId',
         'status': 'completed',
         'outputHash.$': '$.execution.Payload.outputHash',
         'duration.$': '$.execution.Payload.duration',
@@ -934,8 +1127,12 @@ export class E3PlatformStack extends cdk.Stack {
         'repo.$': '$.repo',
         'workspace.$': '$.workspace',
         'executionId.$': '$.executionId',
+        'runId.$': '$.runId',
         'taskName.$': '$.taskName',
         'outputPath.$': '$.outputPath',
+        'taskHash.$': '$.taskHash',
+        'inputHashes.$': '$.inputHashes',
+        'taskExecutionId.$': '$.taskExecutionId',
         'status': 'failed',
         'error.$': '$.execution.Payload.error',
         'exitCode.$': '$.execution.Payload.exitCode',
@@ -951,16 +1148,8 @@ export class E3PlatformStack extends cdk.Stack {
       )
       .otherwise(prepareFailureWriteState);
 
-    // WriteResult: writes task output to workspace
-    const writeResultState = new tasks.LambdaInvoke(this, 'WriteResultState', {
-      lambdaFunction: writeResultFn,
-      outputPath: '$.Payload',
-      retryOnServiceExceptions: true,
-    });
-
-    // Wire prepare states to writeResult (must be after writeResultState is defined)
-    prepareSuccessWriteState.next(writeResultState);
-    prepareFailureWriteState.next(writeResultState);
+    // PrepareSuccessWrite and PrepareFailureWrite are terminal states in the Map iterator.
+    // Their outputs are collected by the Map and processed by ApplyResults after the Map completes.
 
     // Prepare write for cached results (outputHash comes from dispatch)
     const prepareCachedWriteState = new sfn.Pass(this, 'PrepareCachedWrite', {
@@ -968,15 +1157,17 @@ export class E3PlatformStack extends cdk.Stack {
         'repo.$': '$.repo',
         'workspace.$': '$.workspace',
         'executionId.$': '$.executionId',
+        'runId.$': '$.runId',
         'taskName.$': '$.taskName',
         'outputPath.$': '$.outputPath',
         'taskHash.$': '$.taskHash',
         'inputHashes.$': '$.inputHashes',
+        'taskExecutionId.$': '$.taskExecutionId',
         'status': 'cached',  // Preserve cached status for proper counting
         'outputHash.$': '$.dispatchResult.outputHash',
       },
     });
-    prepareCachedWriteState.next(writeResultState);
+    // PrepareCachedWrite is a terminal state in the Map iterator (collected by ApplyResults)
 
     // Choice: Is task result cached?
     const isCachedChoice = new sfn.Choice(this, 'IsCached')
@@ -1006,26 +1197,35 @@ export class E3PlatformStack extends cdk.Stack {
         'repo.$': '$.repo',
         'workspace.$': '$.workspace',
         'executionId.$': '$.executionId',
+        'runId.$': '$.runId',
         'force.$': '$.force',
+        'forceTasks.$': '$.forceTasks',
       },
       resultPath: '$.taskResults',
     }).itemProcessor(taskIterator);
 
-    // After map completes, prepare tree updates for serial application
-    // taskResults contains {outputPath, outputHash, needsTreeUpdate} from each write-result call
+    // After map completes, pass collected task results to ApplyResults
     const afterMapLoop = new sfn.Pass(this, 'AfterMapLoop', {
       parameters: {
         'repo.$': '$.repo',
         'workspace.$': '$.workspace',
         'executionId.$': '$.executionId',
+        'runId.$': '$.runId',
         'force.$': '$.force',
-        // Pass task results as tree updates to the apply step
-        'treeUpdates.$': '$.taskResults',
+        'forceTasks.$': '$.forceTasks',
+        'taskResults.$': '$.taskResults',
       },
     });
 
-    // Apply tree updates serially to avoid lost update race conditions
-    // This is called after each Map iteration to write outputs to workspace tree
+    // Apply task results serially to execution state (avoids race conditions)
+    // Returns { repo, workspace, executionId, runId, force, treeUpdates }
+    const applyResultsState = new tasks.LambdaInvoke(this, 'ApplyResultsState', {
+      lambdaFunction: applyResultsFn,
+      outputPath: '$.Payload',
+      retryOnServiceExceptions: true,
+    });
+
+    // Apply tree updates serially to workspace after execution state is updated
     const applyTreeUpdatesState = new tasks.LambdaInvoke(this, 'ApplyTreeUpdatesState', {
       lambdaFunction: applyTreeUpdatesFn,
       resultPath: '$.applyResult',
@@ -1033,8 +1233,14 @@ export class E3PlatformStack extends cdk.Stack {
     });
 
     dispatchTasksMap.next(afterMapLoop);
-    afterMapLoop.next(applyTreeUpdatesState);
+    afterMapLoop.next(applyResultsState);
+    applyResultsState.next(applyTreeUpdatesState);
     applyTreeUpdatesState.next(getReadyState);
+
+    // Catch coverage for remaining dataflow states
+    applyResultsState.addCatch(prepareFinalizeFailure, { resultPath: '$.error' });
+    applyTreeUpdatesState.addCatch(prepareFinalizeFailure, { resultPath: '$.error' });
+    dispatchTasksMap.addCatch(prepareFinalizeFailure, { resultPath: '$.error' });
 
     // Pass state to flatten GetReady result and add readyCount
     // Note: graph is now stored in DynamoDB and loaded by handlers as needed
@@ -1043,7 +1249,9 @@ export class E3PlatformStack extends cdk.Stack {
         'repo.$': '$.repo',
         'workspace.$': '$.workspace',
         'executionId.$': '$.executionId',
+        'runId.$': '$.runId',
         'force.$': '$.force',
+        'forceTasks.$': '$.forceTasks',
         'readyTasks.$': '$.readyResult.Payload.readyTasks',
         'allCompleted.$': '$.readyResult.Payload.allCompleted',
         'cancelled.$': '$.readyResult.Payload.cancelled',
@@ -1061,6 +1269,7 @@ export class E3PlatformStack extends cdk.Stack {
         'repo.$': '$.repo',
         'workspace.$': '$.workspace',
         'executionId.$': '$.executionId',
+        'runId.$': '$.runId',
         'status': 'failed',
       },
     });
@@ -1073,6 +1282,11 @@ export class E3PlatformStack extends cdk.Stack {
     });
     prepareFinalizeCancel.next(finalizeCancelState);
     finalizeCancelState.next(dataflowFailed);
+
+    // Last-resort catches on finalize states — lock release is guaranteed by try/finally in handler
+    finalizeSuccessState.addCatch(dataflowFailed, { resultPath: '$.error' });
+    finalizeFailureState.addCatch(dataflowFailed, { resultPath: '$.error' });
+    finalizeCancelState.addCatch(dataflowFailed, { resultPath: '$.error' });
 
     // Choice: All tasks complete?
     // Check completion status and handle success/failure appropriately
@@ -1294,6 +1508,32 @@ export class E3PlatformStack extends cdk.Stack {
       comment: 'GC skipped - repo not in valid state',
     });
 
+    // Error recovery: revert repo status from 'gc' back to 'active' on failure
+    const prepareGcRevert = new sfn.Pass(this, 'PrepareGcRevert', {
+      parameters: {
+        'repo.$': '$.repo',
+      },
+    });
+
+    const revertToActive = new tasks.LambdaInvoke(this, 'RevertToActive', {
+      lambdaFunction: setActiveFn,
+      outputPath: '$.Payload',
+      retryOnServiceExceptions: true,
+    });
+
+    const gcFailed = new sfn.Fail(this, 'GcFailed', {
+      error: 'GcFailed',
+      cause: 'GC phase failed after retries, repo reverted to active',
+    });
+
+    prepareGcRevert.next(revertToActive);
+    revertToActive.next(gcFailed);
+
+    // Catch failures in GC phases and revert repo to active status
+    gcMarkState.addCatch(prepareGcRevert, { resultPath: '$.error' });
+    gcSweepState.addCatch(prepareGcRevert, { resultPath: '$.error' });
+    gcCleanupState.addCatch(prepareGcRevert, { resultPath: '$.error' });
+
     // Check if SetGC succeeded
     const checkSetGcResult = new sfn.Choice(this, 'CheckSetGcResult')
       .when(sfn.Condition.booleanEquals('$.success', false), gcSkipped)
@@ -1367,6 +1607,108 @@ export class E3PlatformStack extends cdk.Stack {
     });
 
     // ============================================================
+    // SCHEDULED EXECUTION
+    // ============================================================
+    // EventBridge Scheduler for per-workspace recurring dataflow execution.
+    // Each schedule is an independent resource with its own cron expression,
+    // target, and retry policy.
+
+    // EventBridge Scheduler Group — organises all e3 schedules
+    const schedulerGroup = new scheduler.CfnScheduleGroup(this, 'ScheduleGroup', {
+      name: `${prefix}-schedules`,
+    });
+
+    // Dead-letter queue for failed schedule invocations
+    const scheduleDlq = new sqs.Queue(this, 'ScheduleDlq', {
+      queueName: `${prefix}-schedule-dlq`,
+      retentionPeriod: cdk.Duration.days(14),
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+    });
+
+    // Schedule Trigger Lambda — invoked by EventBridge Scheduler
+    const scheduleTriggerFn = new nodejs.NodejsFunction(this, 'ScheduleTriggerHandler', {
+      functionName: `${prefix}-schedule-trigger`,
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(runnerPackagePath, 'src', 'handlers', 'schedule-trigger.ts'),
+      handler: 'handler',
+      bundling: {
+        minify: true,
+        sourceMap: true,
+        format: nodejs.OutputFormat.ESM,
+        banner: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
+      },
+      timeout: cdk.Duration.minutes(2),
+      memorySize: 512,
+      environment: {
+        TABLE_NAME: this.dataTable.tableName,
+        BUCKET_NAME: this.dataBucket.bucketName,
+        DATAFLOW_STATE_MACHINE_ARN: this.dataflowStateMachine.stateMachineArn,
+      },
+    });
+    this.dataTable.grantReadWriteData(scheduleTriggerFn);
+    this.dataBucket.grantRead(scheduleTriggerFn);
+    this.dataflowStateMachine.grantStartExecution(scheduleTriggerFn);
+
+    // IAM Role for EventBridge Scheduler → Lambda invocation
+    const schedulerRole = new iam.Role(this, 'SchedulerExecutionRole', {
+      roleName: `${prefix}-scheduler-role`,
+      assumedBy: new iam.ServicePrincipal('scheduler.amazonaws.com'),
+    });
+    scheduleTriggerFn.grantInvoke(schedulerRole);
+    scheduleDlq.grantSendMessages(schedulerRole);
+
+    // CloudWatch log group for EventBridge Scheduler delivery logging
+    const schedulerLogGroup = new logs.LogGroup(this, 'SchedulerLogGroup', {
+      logGroupName: `/aws/scheduler/${prefix}-schedules`,
+      retention: logs.RetentionDays.ONE_MONTH,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+    schedulerLogGroup.grantWrite(schedulerRole);
+
+    // API handler permissions for Scheduler management
+    this.apiHandler.addToRolePolicy(new iam.PolicyStatement({
+      actions: [
+        'scheduler:CreateSchedule',
+        'scheduler:UpdateSchedule',
+        'scheduler:DeleteSchedule',
+        'scheduler:GetSchedule',
+      ],
+      resources: [
+        `arn:aws:scheduler:${this.region}:${this.account}:schedule/${prefix}-schedules/*`,
+      ],
+    }));
+    this.apiHandler.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['iam:PassRole'],
+      resources: [schedulerRole.roleArn],
+      conditions: {
+        StringEquals: {
+          'iam:PassedToService': 'scheduler.amazonaws.com',
+        },
+      },
+    }));
+
+    // Environment variables for API handler
+    this.apiHandler.addEnvironment('SCHEDULER_GROUP_NAME', `${prefix}-schedules`);
+    this.apiHandler.addEnvironment('SCHEDULER_ROLE_ARN', schedulerRole.roleArn);
+    this.apiHandler.addEnvironment('SCHEDULE_TRIGGER_FN_ARN', scheduleTriggerFn.functionArn);
+    this.apiHandler.addEnvironment('SCHEDULE_DLQ_ARN', scheduleDlq.queueArn);
+    this.apiHandler.addEnvironment('DEFAULT_TIMEZONE', props.defaultTimezone ?? 'UTC');
+
+    // Stack outputs
+    new cdk.CfnOutput(this, 'SchedulerGroupName', {
+      value: schedulerGroup.name!,
+      exportName: `${prefix}-scheduler-group-name`,
+    });
+    new cdk.CfnOutput(this, 'ScheduleTriggerFnArn', {
+      value: scheduleTriggerFn.functionArn,
+      exportName: `${prefix}-schedule-trigger-fn-arn`,
+    });
+    new cdk.CfnOutput(this, 'ScheduleDlqUrl', {
+      value: scheduleDlq.queueUrl,
+      description: 'Dead-letter queue URL for failed schedule invocations',
+    });
+
+    // ============================================================
     // FRONTEND
     // ============================================================
 
@@ -1386,6 +1728,65 @@ export class E3PlatformStack extends cdk.Stack {
       protocolPolicy: cloudfront.OriginProtocolPolicy.HTTPS_ONLY,
     });
 
+    // CloudFront Function for SPA routing
+    // Rewrites paths without file extensions to /index.html
+    // This handles client-side routing without using error responses
+    // (which would interfere with API 404 responses)
+    const spaRewriteFunction = new cloudfront.Function(this, 'SpaRewriteFunction', {
+      functionName: `${prefix}-spa-rewrite`,
+      code: cloudfront.FunctionCode.fromInline(`
+function handler(event) {
+  var request = event.request;
+  var uri = request.uri;
+
+  // If URI has a file extension, pass through
+  if (uri.includes('.')) {
+    return request;
+  }
+
+  // If URI is exactly '/', serve index.html
+  if (uri === '/') {
+    request.uri = '/index.html';
+    return request;
+  }
+
+  // For SPA routes (no extension), serve index.html
+  request.uri = '/index.html';
+  return request;
+}
+      `),
+    });
+
+    // Security headers policy for all CloudFront responses
+    const securityHeadersPolicy = new cloudfront.ResponseHeadersPolicy(this, 'SecurityHeadersPolicy', {
+      responseHeadersPolicyName: `${prefix}-security-headers`,
+      comment: 'Security headers for e3 platform',
+      securityHeadersBehavior: {
+        strictTransportSecurity: {
+          accessControlMaxAge: cdk.Duration.seconds(63072000), // 2 years
+          includeSubdomains: true,
+          override: true,
+          preload: true,
+        },
+        contentTypeOptions: {
+          override: true,
+        },
+        frameOptions: {
+          frameOption: cloudfront.HeadersFrameOption.DENY,
+          override: true,
+        },
+        xssProtection: {
+          protection: true,
+          modeBlock: true,
+          override: true,
+        },
+        referrerPolicy: {
+          referrerPolicy: cloudfront.HeadersReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN,
+          override: true,
+        },
+      },
+    });
+
     this.distribution = new cloudfront.Distribution(this, 'Distribution', {
       comment: `e3 Platform - ${deploymentId}`,
 
@@ -1397,6 +1798,11 @@ export class E3PlatformStack extends cdk.Stack {
         origin: s3Origin,
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+        responseHeadersPolicy: securityHeadersPolicy,
+        functionAssociations: [{
+          function: spaRewriteFunction,
+          eventType: cloudfront.FunctionEventType.VIEWER_REQUEST,
+        }],
       },
 
       additionalBehaviors: {
@@ -1406,6 +1812,7 @@ export class E3PlatformStack extends cdk.Stack {
           viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
           cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
           originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+          responseHeadersPolicy: securityHeadersPolicy,
           allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD,
         },
 
@@ -1415,6 +1822,7 @@ export class E3PlatformStack extends cdk.Stack {
           viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
           cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
           originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+          responseHeadersPolicy: securityHeadersPolicy,
           allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
         },
 
@@ -1424,6 +1832,7 @@ export class E3PlatformStack extends cdk.Stack {
           viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
           cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
           originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+          responseHeadersPolicy: securityHeadersPolicy,
           allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD,
         },
 
@@ -1433,6 +1842,7 @@ export class E3PlatformStack extends cdk.Stack {
           viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
           cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
           originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+          responseHeadersPolicy: securityHeadersPolicy,
           allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD,
         },
 
@@ -1442,6 +1852,7 @@ export class E3PlatformStack extends cdk.Stack {
           viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
           cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
           originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+          responseHeadersPolicy: securityHeadersPolicy,
           allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
         },
 
@@ -1450,23 +1861,15 @@ export class E3PlatformStack extends cdk.Stack {
           origin: s3Origin,
           viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
           cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+          responseHeadersPolicy: securityHeadersPolicy,
+          functionAssociations: [{
+            function: spaRewriteFunction,
+            eventType: cloudfront.FunctionEventType.VIEWER_REQUEST,
+          }],
         },
       },
-
-      errorResponses: [
-        {
-          httpStatus: 404,
-          responseHttpStatus: 200,
-          responsePagePath: '/index.html',
-          ttl: cdk.Duration.minutes(5),
-        },
-        {
-          httpStatus: 403,
-          responseHttpStatus: 200,
-          responsePagePath: '/index.html',
-          ttl: cdk.Duration.minutes(5),
-        },
-      ],
+      // Note: No errorResponses - SPA routing is handled by the CloudFront Function
+      // to avoid interfering with API 404 responses (e.g., user_not_found)
     });
 
     // Create Route53 record if domain is configured
@@ -1504,6 +1907,60 @@ export class E3PlatformStack extends cdk.Stack {
     } else {
       this.platformUrl = `https://${this.distribution.distributionDomainName}`;
     }
+
+    // ============================================================
+    // CLOUDWATCH ALARMS
+    // ============================================================
+    // Basic operational alarms. No SNS topic — visible in CloudWatch console,
+    // can connect to SNS/PagerDuty later.
+
+    new cloudwatch.Alarm(this, 'DataflowFailuresAlarm', {
+      alarmName: `${prefix}-dataflow-failures`,
+      metric: this.dataflowStateMachine.metricFailed({
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription: 'Dataflow state machine execution failures',
+    });
+
+    new cloudwatch.Alarm(this, 'GcFailuresAlarm', {
+      alarmName: `${prefix}-gc-failures`,
+      metric: this.gcStateMachine.metricFailed({
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription: 'GC state machine execution failures',
+    });
+
+    new cloudwatch.Alarm(this, 'ScheduleDlqDepthAlarm', {
+      alarmName: `${prefix}-schedule-dlq-depth`,
+      metric: scheduleDlq.metricApproximateNumberOfMessagesVisible({
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription: 'Failed schedule invocations in dead-letter queue',
+    });
+
+    new cloudwatch.Alarm(this, 'ApiErrorsAlarm', {
+      alarmName: `${prefix}-api-errors`,
+      metric: this.apiHandler.metricErrors({
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 5,
+      evaluationPeriods: 2,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription: 'API Lambda function errors',
+    });
 
     // ============================================================
     // OUTPUTS
@@ -1552,6 +2009,11 @@ export class E3PlatformStack extends cdk.Stack {
         redirectUri: callbackUrls[0],
       }),
       description: 'Cognito hosted UI login URL',
+    });
+
+    new cdk.CfnOutput(this, 'AdminGroup', {
+      value: adminGroup,
+      description: 'Group name that grants admin access (must match IdP group)',
     });
 
     // API

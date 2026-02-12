@@ -1,0 +1,32 @@
+{
+  "name": "@elaraai/e3-aws-api",
+  "version": "0.0.1-alpha.0",
+  "private": true,
+  "type": "module",
+  "description": "Lambda handlers for e3 cloud API",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "scripts": {
+    "build": "tsc --build",
+    "test": "node --enable-source-maps --test 'dist/src/**/*.spec.js'"
+  },
+  "dependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "^3.966.0",
+    "@aws-sdk/client-dynamodb": "^3.966.0",
+    "@aws-sdk/client-s3": "^3.966.0",
+    "@aws-sdk/client-scheduler": "^3.966.0",
+    "@aws-sdk/client-sfn": "^3.966.0",
+    "@aws-sdk/util-dynamodb": "^3.966.0",
+    "@elaraai/e3-admin-core": "^0.0.1-alpha.0",
+    "@elaraai/e3-admin-types": "^0.0.1-alpha.0",
+    "@elaraai/e3-api-server": "^0.0.2-beta.28",
+    "@elaraai/e3-aws-storage": "^0.0.1-alpha.0",
+    "@elaraai/east": "^0.0.1-beta.31",
+    "hono": "^4.11.7"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.145",
+    "@types/node": "^22.0.0",
+    "typescript": "~5.9.2"
+  }
+}

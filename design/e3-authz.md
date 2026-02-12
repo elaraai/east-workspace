@@ -69,11 +69,11 @@ e3-aws/packages/
 │       ├── index.ts
 │       └── users.ts      # repoUsers(), addUser(), removeUser(), whoami()
 │
-└── e3-admin-cli/         # @elaraai/e3-admin-cli
+└── e3-cloud-cli/         # @elaraai/e3-cloud-cli
     ├── package.json      # BSL 1.1 license
     └── src/
         ├── index.ts
-        └── cli.ts        # e3-admin commands (whoami, user list/add/remove)
+        └── cli.ts        # e3-cloud commands (whoami, user list/add/remove)
 ```
 
 ### Package Dependencies
@@ -85,7 +85,7 @@ e3-admin-core (types)
        ↑
 e3-admin-client (core, types)
        ↑
-e3-admin-cli (client, core, types)
+e3-cloud-cli (client, core, types)
 ```
 
 ---
@@ -184,11 +184,11 @@ export interface AuthzError {
  */
 export interface AuthzConfig {
   /** Cognito group name for server admins */
-  adminGroup: string;  // default: 'e3-admins'
+  adminGroup: string;  // default: 'e3-clouds'
 }
 
 export const DefaultAuthzConfig: AuthzConfig = {
-  adminGroup: 'e3-admins',
+  adminGroup: 'e3-clouds',
 };
 ```
 
@@ -196,52 +196,111 @@ export const DefaultAuthzConfig: AuthzConfig = {
 
 ## Interfaces (e3-admin-core)
 
+The `@elaraai/e3-admin-core` package provides cloud-agnostic interfaces and authorization logic. It depends on `@elaraai/e3-admin-types` for East type definitions.
+
+### Package Structure
+
+```
+packages/e3-admin-core/
+├── package.json
+├── tsconfig.json
+├── LICENSE.md
+├── README.md
+└── src/
+    ├── index.ts           # Public exports
+    ├── interfaces.ts      # AclStore, WhoamiBackend, Identity interfaces
+    ├── authz.ts           # hasAccess, canRemoveUser, isLastOwner
+    ├── errors.ts          # AdminCoreError hierarchy, errorCodeToStatus
+    └── testing/
+        └── in-memory.ts   # InMemoryAclStore, MockWhoamiBackend for tests
+```
+
+### Exports
+
+Main entry point (`@elaraai/e3-admin-core`):
+- Interfaces: `AclStore`, `Identity`, `WhoamiBackend`
+- Authorization: `hasAccess`, `isLastOwner`, `canRemoveUser`, `AuthzResult`
+- Errors: `AdminCoreError`, `UserNotFoundError`, `RepoNotFoundError`, `errorCodeToStatus`
+- Re-exports from types: `RepoRole`, `RepoUser`, `AddUserRequest`, `WhoamiResponse`, `AuthzErrorCode`, `AuthzError`
+
+Testing entry point (`@elaraai/e3-admin-core/testing`):
+- `InMemoryAclStore` - In-memory implementation for unit tests
+- `MockWhoamiBackend` - Configurable identity backend for tests
+
 ### AclStore Interface
 
 ```typescript
+import type { RepoUser, RepoRole } from '@elaraai/e3-admin-types';
+
 /**
- * Storage interface for repository ACLs.
+ * Storage interface for repository access control lists.
+ *
+ * Implementations:
+ * - DynamoDbAclStore (e3-aws) - DynamoDB with GSI for user lookups
+ * - InMemoryAclStore (testing) - In-memory Map for unit tests
  */
 export interface AclStore {
-  /**
-   * List all users with access to a repository.
-   */
+  /** List all users with access to a repository */
   listUsers(repo: string): Promise<RepoUser[]>;
 
-  /**
-   * Add a user to a repository's ACL.
-   * @returns The created user entry
-   */
+  /** Add a user to a repository's ACL */
   addUser(repo: string, user: RepoUser): Promise<RepoUser>;
 
-  /**
-   * Remove a user from a repository's ACL.
-   */
+  /** Remove a user from a repository's ACL */
   removeUser(repo: string, userId: string): Promise<void>;
 
-  /**
-   * Get a user's role on a repository.
-   * @returns The role, or null if user has no access
-   */
+  /** Get a user's role on a repository (null if no access) */
   getRole(repo: string, userId: string): Promise<RepoRole | null>;
 
-  /**
-   * List all repositories a user has access to.
-   * Used for filtering GET /repos response.
-   */
+  /** List all repositories a user has access to */
   listReposForUser(userId: string): Promise<string[]>;
 
-  /**
-   * Delete all ACL entries for a repository.
-   * Called during repo deletion.
-   */
+  /** Delete all ACL entries for a repository (used during repo deletion) */
   deleteAllForRepo(repo: string): Promise<void>;
+}
+```
+
+### Identity and WhoamiBackend Interfaces
+
+```typescript
+/**
+ * Identity information extracted from authentication.
+ */
+export interface Identity {
+  /** User's unique identifier (Cognito sub, etc.) */
+  sub: string;
+  /** User's email address (optional) */
+  email?: string;
+  /** User's display name (optional) */
+  name?: string;
+  /** Whether user is a server admin */
+  isAdmin: boolean;
+}
+
+/**
+ * Backend for retrieving identity information.
+ *
+ * Implementations:
+ * - CognitoWhoamiBackend (e3-aws) - Extracts from API Gateway authorizer
+ * - MockWhoamiBackend (testing) - Returns configured identity
+ */
+export interface WhoamiBackend {
+  /** Get identity from request context */
+  getIdentity(requestContext: unknown): Identity | null;
 }
 ```
 
 ### Authorization Functions
 
 ```typescript
+import type { AuthzErrorCode } from '@elaraai/e3-admin-types';
+import { variant } from '@elaraai/east';
+
+/** Result of an authorization check */
+export type AuthzResult =
+  | { ok: true }
+  | { ok: false; code: AuthzErrorCode; message: string };
+
 /**
  * Check if a user has the required access level to a repository.
  * Admins always have access. Owners have access to everything.
@@ -251,7 +310,7 @@ export async function hasAccess(
   store: AclStore,
   repo: string,
   userId: string,
-  requiredRole: RepoRole,
+  requiredRole: 'owner' | 'member',
   isAdmin: boolean
 ): Promise<boolean> {
   // Admins bypass ACL checks
@@ -261,43 +320,10 @@ export async function hasAccess(
   if (role === null) return false;
 
   // Owners have full access
-  if (role === 'owner') return true;
+  if (role.type === 'owner') return true;
 
   // Members only have access if member-level is sufficient
   return requiredRole === 'member';
-}
-
-/**
- * Check if a user can remove another user from a repository.
- * Returns an error if:
- * - Actor is not an owner (or admin)
- * - Target is the last owner
- */
-export async function canRemoveUser(
-  store: AclStore,
-  repo: string,
-  actorId: string,
-  targetId: string,
-  isAdmin: boolean
-): Promise<{ ok: true } | { ok: false; error: AuthzError }> {
-  // Check actor has permission
-  const hasPermission = await hasAccess(store, repo, actorId, 'owner', isAdmin);
-  if (!hasPermission) {
-    return {
-      ok: false,
-      error: { error: 'forbidden', message: 'Only owners can remove users' }
-    };
-  }
-
-  // Check if target is last owner
-  if (await isLastOwner(store, repo, targetId)) {
-    return {
-      ok: false,
-      error: { error: 'last_owner', message: 'Cannot remove the last owner' }
-    };
-  }
-
-  return { ok: true };
 }
 
 /**
@@ -309,9 +335,100 @@ export async function isLastOwner(
   userId: string
 ): Promise<boolean> {
   const users = await store.listUsers(repo);
-  const owners = users.filter(u => u.role === 'owner');
+  const owners = users.filter(u => u.role.type === 'owner');
   return owners.length === 1 && owners[0].userId === userId;
 }
+
+/**
+ * Check if an actor can remove a user from a repository.
+ * Returns AuthzResult with ok:true or specific error code.
+ */
+export async function canRemoveUser(
+  store: AclStore,
+  repo: string,
+  actorId: string,
+  targetId: string,
+  isAdmin: boolean
+): Promise<AuthzResult> {
+  // Check actor has owner permission
+  if (!await hasAccess(store, repo, actorId, 'owner', isAdmin)) {
+    return {
+      ok: false,
+      code: variant('forbidden', null),
+      message: 'Only repository owners can remove users',
+    };
+  }
+
+  // Prevent removing the last owner
+  if (await isLastOwner(store, repo, targetId)) {
+    return {
+      ok: false,
+      code: variant('last_owner', null),
+      message: 'Cannot remove the last owner of a repository',
+    };
+  }
+
+  return { ok: true };
+}
+```
+
+### Error Classes
+
+```typescript
+import type { AuthzErrorCode } from '@elaraai/e3-admin-types';
+
+export class AdminCoreError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = this.constructor.name;
+  }
+}
+
+export class UserNotFoundError extends AdminCoreError {
+  constructor(public readonly email: string) {
+    super(`User not found: ${email}`);
+  }
+}
+
+export class RepoNotFoundError extends AdminCoreError {
+  constructor(public readonly repo: string) {
+    super(`Repository not found: ${repo}`);
+  }
+}
+
+/** Map AuthzErrorCode to HTTP status code */
+export function errorCodeToStatus(code: AuthzErrorCode): number {
+  switch (code.type) {
+    case 'unauthorized': return 401;
+    case 'forbidden': return 403;
+    case 'last_owner': return 400;
+    case 'user_not_found': return 404;
+  }
+}
+```
+
+### Testing Utilities
+
+```typescript
+// Import from '@elaraai/e3-admin-core/testing'
+import { InMemoryAclStore, MockWhoamiBackend } from '@elaraai/e3-admin-core/testing';
+import { variant } from '@elaraai/east';
+
+// In-memory store for unit tests
+const store = new InMemoryAclStore();
+
+await store.addUser('repo', {
+  userId: 'user-1',
+  email: 'alice@example.com',
+  name: { value: 'Alice' },
+  role: variant('owner', null),
+  addedBy: 'system',
+  addedAt: new Date().toISOString(),
+});
+
+// Mock identity backend
+const whoami = new MockWhoamiBackend();
+whoami.setIdentity({ sub: 'user-1', email: 'alice@example.com', isAdmin: false });
 ```
 
 ---
@@ -386,7 +503,7 @@ interface AclItem {
 
 ## DynamoAclStore Implementation
 
-Located in `packages/storage/src/acl-store.ts`:
+Located in `packages/e3-aws-storage/src/acl-store.ts`:
 
 ```typescript
 import { DynamoDBDocumentClient, QueryCommand, PutCommand, DeleteCommand, BatchWriteCommand } from '@aws-sdk/lib-dynamodb';
@@ -524,7 +641,7 @@ export class DynamoAclStore implements AclStore {
 
 ### Admin Endpoints
 
-Server admins (Cognito `e3-admins` group) have additional capabilities:
+Server admins (Cognito `e3-clouds` group) have additional capabilities:
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -680,14 +797,14 @@ export function withRepoAuth(
 Admins are detected by Cognito group membership:
 
 ```typescript
-function isAdmin(event: APIGatewayProxyEvent, adminGroup: string = 'e3-admins'): boolean {
+function isAdmin(event: APIGatewayProxyEvent, adminGroup: string = 'e3-clouds'): boolean {
   const groups = event.requestContext.authorizer?.jwt?.claims?.['cognito:groups'] ?? [];
   return Array.isArray(groups) ? groups.includes(adminGroup) : groups === adminGroup;
 }
 ```
 
 **Setup in Cognito:**
-1. Create group `e3-admins` in Cognito User Pool
+1. Create group `e3-clouds` in Cognito User Pool
 2. Add admin users to this group
 3. Access tokens automatically include `cognito:groups` claim
 
@@ -810,122 +927,153 @@ START → CleanupACL → DeleteObjects → DeleteRefs → DeleteRepoItem → END
 
 ## Client Library (e3-admin-client)
 
-HTTP client for ACL operations, to be used by e3-admin-cli:
+HTTP client for ACL operations, following e3-api-client patterns:
 
 ```typescript
 import type { RepoUser, AddUserRequest, WhoamiResponse } from '@elaraai/e3-admin-types';
+import { variant } from '@elaraai/east';
 
-interface ClientOptions {
-  baseUrl: string;
-  accessToken: string;
+/**
+ * Request options for API calls.
+ */
+export interface RequestOptions {
+  /** Bearer token for authentication */
+  token: string | null;
+}
+
+/**
+ * API response wrapper - success or typed error.
+ */
+export type Response<T> =
+  | { type: 'success'; value: T }
+  | { type: 'error'; value: AdminError };
+
+/**
+ * Typed admin API error.
+ */
+export class AdminError extends Error {
+  constructor(
+    public readonly code: AuthzErrorCode,
+    public readonly details: string
+  ) {
+    super(`Admin error: ${code.type} - ${details}`);
+  }
+}
+
+/**
+ * Unwrap a response, throwing on error.
+ */
+export function unwrap<T>(response: Response<T>): T {
+  if (response.type === 'error') throw response.value;
+  return response.value;
 }
 
 /**
  * Get current user info.
  */
-export async function whoami(options: ClientOptions): Promise<WhoamiResponse> {
-  const response = await fetch(`${options.baseUrl}/api/whoami`, {
-    headers: { Authorization: `Bearer ${options.accessToken}` },
-  });
-  if (!response.ok) throw new Error(`whoami failed: ${response.status}`);
-  return response.json();
-}
+export async function whoami(
+  url: string,
+  options: RequestOptions
+): Promise<Response<WhoamiResponse>>;
 
 /**
  * List users with access to a repository.
  */
-export async function repoUsers(repo: string, options: ClientOptions): Promise<RepoUser[]> {
-  const response = await fetch(`${options.baseUrl}/repos/${repo}/users`, {
-    headers: { Authorization: `Bearer ${options.accessToken}` },
-  });
-  if (!response.ok) throw new Error(`repoUsers failed: ${response.status}`);
-  return response.json();
-}
+export async function repoUsers(
+  url: string,
+  repo: string,
+  options: RequestOptions
+): Promise<Response<RepoUser[]>>;
 
 /**
  * Add a user to a repository.
  */
 export async function addUser(
+  url: string,
   repo: string,
   request: AddUserRequest,
-  options: ClientOptions
-): Promise<RepoUser> {
-  const response = await fetch(`${options.baseUrl}/repos/${repo}/users`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${options.accessToken}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(request),
-  });
-  if (!response.ok) throw new Error(`addUser failed: ${response.status}`);
-  return response.json();
-}
+  options: RequestOptions
+): Promise<Response<RepoUser>>;
 
 /**
  * Remove a user from a repository.
  */
 export async function removeUser(
+  url: string,
   repo: string,
   userId: string,
-  options: ClientOptions
-): Promise<void> {
-  const response = await fetch(`${options.baseUrl}/repos/${repo}/users/${userId}`, {
-    method: 'DELETE',
-    headers: { Authorization: `Bearer ${options.accessToken}` },
-  });
-  if (!response.ok) throw new Error(`removeUser failed: ${response.status}`);
-}
+  options: RequestOptions
+): Promise<Response<null>>;
+```
+
+**Usage:**
+
+```typescript
+import { whoami, repoUsers, addUser, unwrap } from '@elaraai/e3-admin-client';
+import { variant } from '@elaraai/east';
+
+const options = { token: accessToken };
+
+// Get current user
+const me = unwrap(await whoami('https://e3.example.com', options));
+
+// Add a user with member role
+const user = unwrap(await addUser(
+  'https://e3.example.com',
+  'my-repo',
+  { email: 'bob@example.com', role: variant('member', null) },
+  options
+));
 ```
 
 ---
 
-## CLI Commands (e3-admin-cli)
+## CLI Commands (e3-cloud-cli)
 
 The commands follow the structure of the `e3` CLI using noun-verb patterns and the same repo location format.
 
 ```
-e3-admin whoami [server]
+e3-cloud whoami [server]
   Show current user identity and admin status.
   Uses stored credentials if server omitted.
 
-e3-admin user list <server>/repos/<repo>
+e3-cloud user list <server>/repos/<repo>
   List users with access to a repository.
 
-e3-admin user add <server>/repos/<repo> <email> [--role owner|member]
+e3-cloud user add <server>/repos/<repo> <email> [--role owner|member]
   Add a user to a repository. Default role is 'member'.
 
-e3-admin user remove <server>/repos/<repo> <email>
+e3-cloud user remove <server>/repos/<repo> <email>
   Remove a user from a repository.
 ```
 
-Note that the `e3-admin` CLI will consume tokens generated by the `e3` CLI when logging in, stored at `~/.e3/credentials.json` (and refresh the access token as necessary).
+Note that the `e3-cloud` CLI will consume tokens generated by the `e3` CLI when logging in, stored at `~/.e3/credentials.json` (and refresh the access token as necessary).
 
 **Example Usage:**
 
 ```bash
 # Check current identity (uses stored credentials)
-$ e3-admin whoami
+$ e3-cloud whoami
 sub: abc123-def456
 email: alice@example.com
 name: Alice Smith
 admin: true
 
 # Or specify server explicitly
-$ e3-admin whoami https://e3.example.com
+$ e3-cloud whoami https://e3.example.com
 
 # List users on a repo
-$ e3-admin user list https://e3.example.com/repos/my-repo
+$ e3-cloud user list https://e3.example.com/repos/my-repo
 USER ID          EMAIL                  ROLE    ADDED
 abc123-def456    alice@example.com      owner   2025-01-29T10:00:00Z
 xyz789-uvw012    bob@example.com        member  2025-01-30T14:30:00Z
 
 # Add a user
-$ e3-admin user add https://e3.example.com/repos/my-repo charlie@example.com --role member
+$ e3-cloud user add https://e3.example.com/repos/my-repo charlie@example.com --role member
 Added charlie@example.com as member
 
 # Remove a user
-$ e3-admin user remove https://e3.example.com/repos/my-repo charlie@example.com
+$ e3-cloud user remove https://e3.example.com/repos/my-repo charlie@example.com
 Removed charlie@example.com
 ```
 
@@ -951,7 +1099,7 @@ Removed charlie@example.com
 ### Phase 2: DynamoDB and API (Week 2)
 
 **Tasks:**
-- [ ] Implement `DynamoAclStore` in `packages/storage/src/acl-store.ts`
+- [ ] Implement `DynamoAclStore` in `packages/e3-aws-storage/src/acl-store.ts`
 - [ ] Add ACL key patterns to DynamoDB table (no migration needed, new patterns)
 - [ ] Implement `extractIdentity()` middleware
 - [ ] Add `GET /repos/:repo/users` endpoint
@@ -971,14 +1119,14 @@ Removed charlie@example.com
 **Tasks:**
 - [ ] Create `packages/e3-admin-client/` package structure
 - [ ] Implement `whoami()`, `repoUsers()`, `addUser()`, `removeUser()` functions
-- [ ] Create `packages/e3-admin-cli/` package structure
+- [ ] Create `packages/e3-cloud-cli/` package structure
 - [ ] Implement CLI commands (`whoami`, `user list`, `user add`, `user remove`)
 - [ ] Integration tests for client library
 - [ ] E2E tests for CLI commands
 
 **Deliverables:**
 - `@elaraai/e3-admin-client` package
-- `@elaraai/e3-admin-cli` package
+- `@elaraai/e3-cloud-cli` package
 - Integration test coverage
 
 ### Phase 4: Integration (Week 4)
@@ -1126,7 +1274,7 @@ describe('Authorization API', () => {
 });
 ```
 
-### E2E Tests (e3-admin-cli)
+### E2E Tests (e3-cloud-cli)
 
 ```bash
 #!/bin/bash
@@ -1138,25 +1286,25 @@ SERVER="https://e3-test.example.com"
 REPO="e2e-test-repo-$(date +%s)"
 
 # Test whoami
-e3-admin whoami "$SERVER"
+e3-cloud whoami "$SERVER"
 
 # Create repo (should auto-add as owner)
 e3 repo create "$SERVER/repos/$REPO"
 
 # List users (should see self as owner)
-e3-admin user list "$SERVER/repos/$REPO" | grep -q "owner"
+e3-cloud user list "$SERVER/repos/$REPO" | grep -q "owner"
 
 # Add a member
-e3-admin user add "$SERVER/repos/$REPO" "testuser@example.com" --role member
+e3-cloud user add "$SERVER/repos/$REPO" "testuser@example.com" --role member
 
 # Verify member added
-e3-admin user list "$SERVER/repos/$REPO" | grep -q "testuser@example.com"
+e3-cloud user list "$SERVER/repos/$REPO" | grep -q "testuser@example.com"
 
 # Remove member
-e3-admin user remove "$SERVER/repos/$REPO" "testuser@example.com"
+e3-cloud user remove "$SERVER/repos/$REPO" "testuser@example.com"
 
 # Verify member removed
-! e3-admin user list "$SERVER/repos/$REPO" | grep -q "testuser@example.com"
+! e3-cloud user list "$SERVER/repos/$REPO" | grep -q "testuser@example.com"
 
 # Cleanup
 e3 repo remove "$SERVER/repos/$REPO"
