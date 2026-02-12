@@ -1,11 +1,11 @@
-.PHONY: install build test test-integration lint lint-fix dev clean deploy link help
+.PHONY: install build test test-integration lint lint-fix dev clean deploy deploy-web link help
 
 # Install dependencies
 install:
 	npm install
 
-# Build all packages
-build:
+# Build all packages (lint first)
+build: lint
 	npm run build
 
 # Run all tests
@@ -49,6 +49,25 @@ ifndef PROFILE
 endif
 	cd cdk/platform && AWS_PROFILE=$(PROFILE) npx cdk deploy --context config=$(CONFIG) --require-approval never
 
+# Fast UI-only deploy: sync web/dist to S3 + invalidate CloudFront (skips full CDK)
+# Usage: make deploy-web CONFIG=elara-dev PROFILE=elaraai-dev-elara-e3
+deploy-web:
+ifndef CONFIG
+	$(error CONFIG is required. Usage: make deploy-web CONFIG=elara-dev PROFILE=elaraai-dev-elara-e3)
+endif
+ifndef PROFILE
+	$(error PROFILE is required. Usage: make deploy-web CONFIG=elara-dev PROFILE=elaraai-dev-elara-e3)
+endif
+	$(eval DEPLOY_ID := $(shell jq -r '.deployment.id' cdk/platform/deployments/$(CONFIG).json))
+	$(eval STACK_NAME := E3Platform-$(DEPLOY_ID))
+	$(eval BUCKET := $(shell AWS_PROFILE=$(PROFILE) aws cloudformation describe-stacks --stack-name $(STACK_NAME) --query "Stacks[0].Outputs[?OutputKey=='AppsBucketName'].OutputValue" --output text))
+	$(eval DIST_ID := $(shell AWS_PROFILE=$(PROFILE) aws cloudformation describe-stacks --stack-name $(STACK_NAME) --query "Stacks[0].Outputs[?OutputKey=='DistributionId'].OutputValue" --output text))
+	@echo "Syncing web/dist -> s3://$(BUCKET)"
+	AWS_PROFILE=$(PROFILE) aws s3 sync web/dist "s3://$(BUCKET)" --delete --exclude "config.json"
+	@echo "Invalidating CloudFront distribution $(DIST_ID)"
+	AWS_PROFILE=$(PROFILE) aws cloudfront create-invalidation --distribution-id $(DIST_ID) --paths "/*" --output text
+	@echo "UI deploy complete."
+
 # Help
 help:
 	@echo "install          - Install dependencies (npm install)"
@@ -61,3 +80,4 @@ help:
 	@echo "clean            - Clean build artifacts and node_modules"
 	@echo "link             - Link CLI globally"
 	@echo "deploy           - Deploy platform (CONFIG=elara-dev PROFILE=elaraai-dev-elara-e3)"
+	@echo "deploy-web       - Fast UI-only deploy to S3 + CloudFront invalidation"

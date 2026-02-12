@@ -22,7 +22,6 @@ import {
   WorkspaceNotDeployedError,
   type DataflowExecutionState,
 } from '@elaraai/e3-core';
-import { some } from '@elaraai/east';
 
 // Initialize clients once at Lambda cold start
 const s3 = new S3Client({});

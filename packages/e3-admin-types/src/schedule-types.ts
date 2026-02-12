@@ -19,7 +19,6 @@ import {
   BooleanType,
   ArrayType,
   OptionType,
-  NullType,
   type ValueTypeOf,
 } from '@elaraai/east';
 

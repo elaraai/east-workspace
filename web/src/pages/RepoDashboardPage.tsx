@@ -3,83 +3,95 @@
  * Proprietary and confidential.
  */
 
-import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Box, Heading, Text, VStack, HStack, Card, Badge } from '@chakra-ui/react';
-import { workspaceList, packageList } from '@elaraai/e3-api-client';
-import type { WorkspaceInfo, PackageListItem } from '@elaraai/e3-api-client';
-import { API_URL, getRequestOptions } from '../api';
+import { Box, Text, SimpleGrid, Card, Badge, VStack, HStack } from '@chakra-ui/react';
+import { FiBox, FiPackage } from 'react-icons/fi';
+import { useWorkspaceList, usePackageList } from '../hooks/useApi';
+import { useCardStyles } from '../hooks/useCardStyles';
+import { LoadingState, EmptyState } from '../components/DisplayStates';
 
 export function RepoDashboardPage() {
   const { repo } = useParams<{ repo: string }>();
-  const [workspaces, setWorkspaces] = useState<WorkspaceInfo[]>([]);
-  const [packages, setPackages] = useState<PackageListItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!repo) return;
-    const opts = getRequestOptions();
-
-    Promise.all([
-      workspaceList(API_URL, repo, opts),
-      packageList(API_URL, repo, opts),
-    ])
-      .then(([ws, pkgs]) => {
-        setWorkspaces(ws);
-        setPackages(pkgs);
-      })
-      .catch((err: Error) => setError(err.message))
-      .finally(() => setLoading(false));
-  }, [repo]);
-
-  if (loading) {
-    return <Text>Loading repository...</Text>;
-  }
-
-  if (error) {
-    return <Text color="red.500">Error: {error}</Text>;
-  }
+  const { data: workspaces, isLoading: wsLoading } = useWorkspaceList(repo!);
+  const { data: packages, isLoading: pkgLoading } = usePackageList(repo!);
+  const cardStyles = useCardStyles();
 
   return (
     <Box>
-      <HStack mb={6} gap={3}>
-        <Heading size="lg">{repo}</Heading>
-        <Badge colorPalette="green">Active</Badge>
-      </HStack>
+      {/* Workspaces */}
+      <Text fontSize="lg" fontWeight={600} color="text.primary" mb={4}>
+        Workspaces
+      </Text>
 
-      <Heading size="md" mb={3}>Workspaces</Heading>
-      {workspaces.length === 0 ? (
-        <Text color="gray.500" mb={6}>No workspaces found.</Text>
+      {wsLoading ? (
+        <LoadingState message="Loading workspaces..." />
+      ) : !workspaces || workspaces.length === 0 ? (
+        <EmptyState
+          icon={<FiBox size={24} />}
+          heading="No workspaces"
+          description="Create a workspace to get started."
+        />
       ) : (
-        <VStack gap={3} align="stretch" mb={6}>
+        <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} gap={4} mb={8}>
           {workspaces.map((ws) => (
-            <Card.Root key={ws.name} asChild>
+            <Card.Root key={ws.name} {...cardStyles} asChild>
               <Link to={`/repos/${repo}/workspaces/${ws.name}`}>
-                <Card.Body>
-                  <HStack justify="space-between">
-                    <Heading size="sm">{ws.name}</Heading>
-                    {ws.deployed && <Badge colorPalette="blue">Deployed</Badge>}
+                <Card.Body p={5}>
+                  <HStack justify="space-between" mb={2}>
+                    <Text fontSize="sm" fontWeight={600} color="text.primary">
+                      {ws.name}
+                    </Text>
+                    {ws.deployed && (
+                      <Badge colorPalette="blue" variant="subtle" size="sm">
+                        Deployed
+                      </Badge>
+                    )}
                   </HStack>
                   {ws.packageName.type === 'some' && (
-                    <Text fontSize="sm" color="gray.500">
-                      {ws.packageName.value}@{ws.packageVersion.type === 'some' ? ws.packageVersion.value : '?'}
+                    <Text fontSize="sm" color="text.secondary">
+                      {ws.packageName.value}
+                      {ws.packageVersion.type === 'some' ? `@${ws.packageVersion.value}` : ''}
                     </Text>
                   )}
                 </Card.Body>
               </Link>
             </Card.Root>
           ))}
-        </VStack>
+        </SimpleGrid>
       )}
 
-      <Heading size="md" mb={3}>Packages</Heading>
-      {packages.length === 0 ? (
-        <Text color="gray.500">No packages found.</Text>
+      {/* Packages */}
+      <Text fontSize="lg" fontWeight={600} color="text.primary" mb={4}>
+        Packages
+      </Text>
+
+      {pkgLoading ? (
+        <LoadingState message="Loading packages..." />
+      ) : !packages || packages.length === 0 ? (
+        <EmptyState
+          icon={<FiPackage size={24} />}
+          heading="No packages"
+          description="Import a package to deploy it to a workspace."
+        />
       ) : (
         <VStack gap={2} align="stretch">
           {packages.map((pkg) => (
-            <Text key={`${pkg.name}@${pkg.version}`}>{pkg.name}@{pkg.version}</Text>
+            <HStack
+              key={`${pkg.name}@${pkg.version}`}
+              p={3}
+              border="1px solid"
+              borderColor="border.primary"
+              borderRadius="md"
+              bg="card.bg"
+              gap={3}
+            >
+              <Text fontWeight={600} color="text.primary" fontSize="sm">
+                {pkg.name}
+              </Text>
+              <Badge variant="outline" size="sm" colorPalette="gray">
+                {pkg.version}
+              </Badge>
+            </HStack>
           ))}
         </VStack>
       )}

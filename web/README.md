@@ -48,6 +48,16 @@ The app loads Cognito settings from `/config.json` at runtime, **not** at build 
 - CDK separately deploys a `config.json` via `Source.jsonData()` with values from the stack (Cognito domain, client ID, platform URL)
 - The config deployment uses `prune: false` so it doesn't delete the web assets
 
+### Design System
+
+The UI follows the ELARA design system (Mixpanel-aesthetic):
+
+- **Color scale**: `brand` (teal: brand.500 = `#488e97`), cyan-tinted `gray` scale
+- **Font**: Sailec with system font fallback
+- **Semantic tokens**: ~50 light/dark tokens for backgrounds, text, borders, cards, inputs, nav, status
+- **Dark mode**: Toggle via ThemeProvider, persisted in localStorage
+- **Layout**: Absolute-positioned sidebar (72/20px collapsed), 72px NavHeader, `bg.secondary` content area
+
 ## Local Development
 
 ### Setup
@@ -85,25 +95,46 @@ Output goes to `web/dist/`. The build is deployment-agnostic since config is loa
 ```
 web/
 ├── public/
-│   └── config.json          # Local dev config (gitignored)
+│   └── config.json              # Local dev config (gitignored)
 ├── src/
-│   ├── main.tsx             # React entry + providers (Chakra, BrowserRouter)
-│   ├── App.tsx              # Route tree
-│   ├── api.ts               # Token helpers for e3-api-client
-│   ├── config.ts            # Runtime config loader (fetches /config.json)
+│   ├── main.tsx                 # React entry + providers (Chakra, ThemeProvider, BrowserRouter)
+│   ├── App.tsx                  # Route tree
+│   ├── api.ts                   # Token helpers for e3-api-client
+│   ├── config.ts                # Runtime config loader (fetches /config.json)
+│   ├── theme.ts                 # Chakra UI theme (brand colors, semantic tokens, dark mode)
+│   ├── contexts/
+│   │   ├── ThemeContext.ts      # Theme mode context + useTheme hook
+│   │   └── ThemeProvider.tsx    # Dark/light mode with localStorage persistence
+│   ├── hooks/
+│   │   ├── useApi.ts            # TanStack Query hooks for e3-api-client
+│   │   ├── useAuth.ts           # Auth helper (token, logout)
+│   │   ├── useCardStyles.ts     # Shared card style object with semantic tokens
+│   │   └── useScrollbarStyles.ts # Custom scrollbar styles
 │   ├── components/
-│   │   └── AuthGuard.tsx    # Auth layout route (checks localStorage token)
+│   │   ├── AuthGuard.tsx        # Auth layout route (checks localStorage token)
+│   │   ├── Sidebar.tsx          # Collapsible sidebar navigation (absolute positioned)
+│   │   ├── NavHeader.tsx        # Page header with title, theme toggle, user menu
+│   │   ├── Breadcrumbs.tsx      # Route-aware breadcrumb trail
+│   │   ├── DisplayStates.tsx    # LoadingState, EmptyState, ErrorState components
+│   │   ├── StatusBadge.tsx      # Color-coded status badges
+│   │   ├── LoadingIcon.tsx      # Animated Elara logo spinner
+│   │   ├── Logo.tsx             # Logo variants (full, collapsed, mark)
+│   │   └── Toaster.tsx          # Chakra toast provider
 │   ├── layouts/
-│   │   └── PlatformLayout.tsx  # Nav header + Outlet
-│   └── pages/
-│       ├── LoginPage.tsx           # SSO login button
-│       ├── AuthCallbackPage.tsx    # OAuth code → token exchange
-│       ├── RepoListPage.tsx        # List repositories
-│       ├── RepoDashboardPage.tsx   # Repo detail (workspaces + packages)
-│       ├── WorkspaceViewPage.tsx   # Workspace detail + dataflow trigger
-│       └── AdminPage.tsx           # Admin stub
-├── index.html               # SPA entry point
-├── vite.config.ts           # Vite config (proxy, process.argv shim)
+│   │   └── PlatformLayout.tsx   # Sidebar + NavHeader + content Outlet
+│   ├── pages/
+│   │   ├── LoginPage.tsx        # Centered card with SSO login button
+│   │   ├── AuthCallbackPage.tsx # OAuth code → token exchange
+│   │   ├── RepoListPage.tsx     # Repository grid with search
+│   │   ├── RepoDashboardPage.tsx # Workspaces + packages dashboard
+│   │   ├── WorkspaceViewPage.tsx # Workspace status + dataflow controls
+│   │   └── AdminPage.tsx        # Admin stub cards
+│   └── assets/
+│       ├── Elara_AI_Lockup.svg
+│       ├── Elara_AI_Lockup_Collapsed.svg
+│       └── Elara_AI_Mark.svg
+├── index.html                   # SPA entry point
+├── vite.config.ts               # Vite config (proxy, process.argv shim)
 ├── tsconfig.json
 └── package.json
 ```
@@ -112,12 +143,16 @@ web/
 
 | Package | Purpose |
 |---------|---------|
-| `@chakra-ui/react` | UI component library |
+| `@chakra-ui/react` | UI component library (v3) |
 | `@elaraai/e3-api-client` | Typed HTTP client for e3 API |
 | `@elaraai/east` | East type system (for BEAST2 decode) |
+| `@tanstack/react-query` | Data fetching and caching |
 | `react-router-dom` | Client-side routing |
+| `react-icons` | Icon library (Feather Icons) |
+| `framer-motion` | Animation (LoadingIcon) |
 
 ## Notes
 
 - `vite.config.ts` defines `process.argv` as `[]` to work around a CLI entry point check in `@elaraai/east` that would otherwise throw `ReferenceError: process is not defined` in the browser
 - CloudFront is configured with a custom error response to return `/index.html` for 403/404 on S3, enabling SPA client-side routing
+- All colors use semantic tokens for dark mode compatibility — never use hardcoded hex or `elara.*`/`blueGray.*` color references

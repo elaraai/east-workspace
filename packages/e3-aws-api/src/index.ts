@@ -34,7 +34,7 @@ import { StringType, NullType, ArrayType, variant, some, none } from '@elaraai/e
 import {
   stepCancel, coreStateToApiState, coreEventToApiEvent, uuidv7,
   dataflowGetGraph,
-  WorkspaceNotFoundError, WorkspaceNotDeployedError, TaskNotFoundError,
+  WorkspaceNotFoundError, WorkspaceNotDeployedError,
   type DataflowExecutionState,
 } from '@elaraai/e3-core';
 

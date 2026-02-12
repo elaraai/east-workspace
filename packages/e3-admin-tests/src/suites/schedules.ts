@@ -18,7 +18,7 @@
 
 import { describe, it, beforeEach } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { none, some, variant } from '@elaraai/east';
+import { none, variant } from '@elaraai/east';
 import {
   getSchedule,
   setSchedule,

@@ -5,8 +5,9 @@
 
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Box, Container, Text, VStack } from '@chakra-ui/react';
+import { Box, Text, VStack } from '@chakra-ui/react';
 import { loadConfig } from '../config';
+import { LoadingIcon } from '../components/LoadingIcon';
 
 export function AuthCallbackPage() {
   const [searchParams] = useSearchParams();
@@ -48,16 +49,21 @@ export function AuthCallbackPage() {
   }, [searchParams, navigate]);
 
   return (
-    <Box minH="100vh" display="flex" alignItems="center" justifyContent="center">
-      <Container maxW="sm">
-        <VStack gap={4}>
-          {error ? (
-            <Text color="red.500">Error: {error}</Text>
-          ) : (
-            <Text color="gray.500">Signing in...</Text>
-          )}
-        </VStack>
-      </Container>
+    <Box minH="100vh" display="flex" alignItems="center" justifyContent="center" bg="bg.primary">
+      <VStack gap={4}>
+        {error ? (
+          <Text color="red.500" fontSize="sm">
+            Error: {error}
+          </Text>
+        ) : (
+          <>
+            <LoadingIcon animate />
+            <Text color="text.secondary" fontSize="sm">
+              Signing in...
+            </Text>
+          </>
+        )}
+      </VStack>
     </Box>
   );
 }

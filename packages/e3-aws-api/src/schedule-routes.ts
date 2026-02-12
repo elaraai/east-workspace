@@ -12,7 +12,7 @@
  */
 
 import { Hono } from 'hono';
-import { NullType, ArrayType, variant, some, none } from '@elaraai/east';
+import { NullType, ArrayType, variant } from '@elaraai/east';
 import type { AclStore, Identity } from '@elaraai/e3-admin-core';
 import { hasAccess, errorCodeToStatus } from '@elaraai/e3-admin-core';
 import {

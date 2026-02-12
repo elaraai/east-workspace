@@ -1,6 +1,8 @@
 import tseslint from '@typescript-eslint/eslint-plugin';
 import tsparser from '@typescript-eslint/parser';
 import headers from 'eslint-plugin-headers';
+import reactHooks from 'eslint-plugin-react-hooks';
+import reactRefresh from 'eslint-plugin-react-refresh';
 
 // Proprietary license header
 const proprietaryHeader = 'Copyright (c) 2025 Elara AI Pty Ltd. All rights reserved.\nProprietary and confidential.';
@@ -152,7 +154,7 @@ export default [
       }]
     }
   },
-  // Web (frontend) - different config for React/Vite
+  // Web (frontend) - React/Vite with hooks and refresh plugins
   {
     files: ['web/src/**/*.ts', 'web/src/**/*.tsx'],
     languageOptions: {
@@ -163,13 +165,19 @@ export default [
     },
     plugins: {
       '@typescript-eslint': tseslint,
-      'headers': headers
+      'headers': headers,
+      'react-hooks': reactHooks,
+      'react-refresh': reactRefresh,
     },
     rules: {
       ...baseRules,
       // Relax some rules for React apps
       '@typescript-eslint/no-floating-promises': 'off',
       '@typescript-eslint/no-misused-promises': 'off',
+      // React hooks
+      ...reactHooks.configs.recommended.rules,
+      // React refresh — warn on non-component exports
+      'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
       'headers/header-format': ['error', {
         source: 'string',
         content: proprietaryHeader

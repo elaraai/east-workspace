@@ -3,9 +3,11 @@
  * Proprietary and confidential.
  */
 
-import { useEffect, useState } from 'react';
-import { Box, Button, Container, Heading, Text, VStack } from '@chakra-ui/react';
+import { useCallback, useEffect, useState } from 'react';
+import { Box, Button, Text, VStack, Alert } from '@chakra-ui/react';
 import { loadConfig, type PlatformConfig } from '../config';
+import { LogoFull } from '../components/Logo';
+import { LoadingIcon } from '../components/LoadingIcon';
 
 export function LoginPage() {
   const [config, setConfig] = useState<PlatformConfig | null>(null);
@@ -15,7 +17,7 @@ export function LoginPage() {
     loadConfig().then(setConfig).catch((err: Error) => setError(err.message));
   }, []);
 
-  const handleLogin = () => {
+  const handleLogin = useCallback(() => {
     if (!config) return;
 
     const params = new URLSearchParams({
@@ -26,23 +28,74 @@ export function LoginPage() {
     });
 
     window.location.href = `https://${config.cognitoDomain}/oauth2/authorize?${params}`;
-  };
+  }, [config]);
+
+  if (!config && !error) {
+    return (
+      <Box height="100vh" width="100vw" display="flex" alignItems="center" justifyContent="center" bg="bg.primary">
+        <VStack gap={4}>
+          <LoadingIcon animate />
+          <Text color="text.secondary" fontSize="sm">Loading...</Text>
+        </VStack>
+      </Box>
+    );
+  }
 
   return (
-    <Box minH="100vh" display="flex" alignItems="center" justifyContent="center">
-      <Container maxW="sm">
-        <VStack gap={6}>
-          <Heading size="2xl">e3 Cloud</Heading>
-          <Text color="gray.500">Sign in to manage your repositories and workspaces.</Text>
-          {error ? (
-            <Text color="red.500">Configuration error: {error}</Text>
-          ) : (
-            <Button colorPalette="blue" size="lg" width="full" onClick={handleLogin} disabled={!config}>
+    <Box
+      height="100vh"
+      width="100vw"
+      bg="bg.primary"
+      display="flex"
+      alignItems="center"
+      justifyContent="center"
+      p={6}
+    >
+      <Box
+        width="100%"
+        maxWidth="420px"
+        bg="card.bg"
+        borderRadius="lg"
+        border="1px solid"
+        borderColor="border.primary"
+        p={8}
+        boxShadow="lg"
+      >
+        <VStack gap={8} align="stretch">
+          {/* Logo */}
+          <Box display="flex" justifyContent="center" alignItems="center" width="100%">
+            <LogoFull height="64px" />
+          </Box>
+
+          {/* Error */}
+          {error && (
+            <Alert.Root status="error" borderRadius="md">
+              <Alert.Indicator />
+              <Alert.Description fontSize="sm">Configuration error: {error}</Alert.Description>
+            </Alert.Root>
+          )}
+
+          {/* SSO button */}
+          {!error && (
+            <Button
+              size="lg"
+              width="100%"
+              variant="outline"
+              borderColor="border.primary"
+              color="text.primary"
+              fontWeight={600}
+              _hover={{
+                borderColor: 'brand.500',
+                bg: 'bg.hover',
+              }}
+              onClick={handleLogin}
+              disabled={!config}
+            >
               Login with SSO
             </Button>
           )}
         </VStack>
-      </Container>
+      </Box>
     </Box>
   );
 }
