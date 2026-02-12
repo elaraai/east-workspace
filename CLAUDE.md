@@ -48,7 +48,22 @@ e3-aws/
 │   └── e3-cloud-cli/         # CLI for cloud management (@elaraai/e3-cloud-cli)
 │
 ├── web/                      # Vite frontend app (@elaraai/e3-web)
+│   ├── .env.development      # Local dev Cognito env vars
 │   └── src/
+│       ├── main.tsx           # React entry point
+│       ├── App.tsx            # Route tree
+│       ├── api.ts             # Auth helpers for e3-api-client
+│       ├── components/
+│       │   └── AuthGuard.tsx  # Token-based auth layout route
+│       ├── layouts/
+│       │   └── PlatformLayout.tsx  # Nav header + content outlet
+│       └── pages/
+│           ├── LoginPage.tsx          # Cognito SSO login
+│           ├── AuthCallbackPage.tsx   # OAuth callback handler
+│           ├── RepoListPage.tsx       # Repository listing
+│           ├── RepoDashboardPage.tsx  # Repo workspaces + packages
+│           ├── WorkspaceViewPage.tsx  # Workspace detail + dataflow
+│           └── AdminPage.tsx          # Admin stub
 │
 └── design/                   # Architecture documentation
     ├── cloud-options.md      # Architecture decisions

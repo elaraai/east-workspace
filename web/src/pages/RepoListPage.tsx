@@ -6,51 +6,47 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Box, Heading, Text, VStack, Card } from '@chakra-ui/react';
-import { getApiClient } from '../api';
+import { repoList } from '@elaraai/e3-api-client';
+import { API_URL, getRequestOptions } from '../api';
 
-interface WorkspaceListProps {
-  tenant: string;
-}
-
-export function WorkspaceList({ tenant }: WorkspaceListProps) {
-  const [workspaces, setWorkspaces] = useState<string[]>([]);
+export function RepoListPage() {
+  const [repos, setRepos] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const client = getApiClient(tenant);
-    client.listWorkspaces()
-      .then(setWorkspaces)
+    repoList(API_URL, getRequestOptions())
+      .then(setRepos)
       .catch((err: Error) => setError(err.message))
       .finally(() => setLoading(false));
-  }, [tenant]);
+  }, []);
 
   if (loading) {
-    return <Text>Loading workspaces...</Text>;
+    return <Text>Loading repositories...</Text>;
   }
 
   if (error) {
     return <Text color="red.500">Error: {error}</Text>;
   }
 
-  if (workspaces.length === 0) {
+  if (repos.length === 0) {
     return (
       <Box>
-        <Heading size="lg" mb={4}>Workspaces</Heading>
-        <Text color="gray.500">No workspaces found.</Text>
+        <Heading size="lg" mb={4}>Repositories</Heading>
+        <Text color="gray.500">No repositories found.</Text>
       </Box>
     );
   }
 
   return (
     <Box>
-      <Heading size="lg" mb={4}>Workspaces</Heading>
+      <Heading size="lg" mb={4}>Repositories</Heading>
       <VStack gap={3} align="stretch">
-        {workspaces.map((ws) => (
-          <Card.Root key={ws} asChild>
-            <Link to={`/workspaces/${ws}`}>
+        {repos.map((name) => (
+          <Card.Root key={name} asChild>
+            <Link to={`/repos/${name}`}>
               <Card.Body>
-                <Heading size="sm">{ws}</Heading>
+                <Heading size="sm">{name}</Heading>
               </Card.Body>
             </Link>
           </Card.Root>

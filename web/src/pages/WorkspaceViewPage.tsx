@@ -3,21 +3,17 @@
  * Proprietary and confidential.
  */
 
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { Box, Heading, Text, Button, HStack } from '@chakra-ui/react';
-import { getApiClient } from '../api';
+import { dataflowStart } from '@elaraai/e3-api-client';
+import { API_URL, getRequestOptions } from '../api';
 
-interface WorkspaceViewProps {
-  tenant: string;
-}
-
-export function WorkspaceView({ tenant }: WorkspaceViewProps) {
-  const { name } = useParams<{ name: string }>();
+export function WorkspaceViewPage() {
+  const { repo, workspace } = useParams<{ repo: string; workspace: string }>();
 
   const handleStart = async () => {
-    const client = getApiClient(tenant);
     try {
-      await client.startDataflow(name!);
+      await dataflowStart(API_URL, repo!, workspace!, undefined, getRequestOptions());
       alert('Dataflow started');
     } catch (err) {
       alert(`Error: ${(err as Error).message}`);
@@ -26,9 +22,13 @@ export function WorkspaceView({ tenant }: WorkspaceViewProps) {
 
   return (
     <Box>
+      <Text fontSize="sm" color="gray.500" mb={2}>
+        <Link to={`/repos/${repo}`}>{repo}</Link> / {workspace}
+      </Text>
+
       <HStack justify="space-between" mb={6}>
-        <Heading size="lg">Workspace: {name}</Heading>
-        <Button colorScheme="blue" onClick={handleStart}>
+        <Heading size="lg">{workspace}</Heading>
+        <Button colorPalette="blue" onClick={handleStart}>
           Start Dataflow
         </Button>
       </HStack>

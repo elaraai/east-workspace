@@ -3,37 +3,31 @@
  * Proprietary and confidential.
  */
 
-import { Routes, Route } from 'react-router-dom';
-import { Box, Container, Heading, Text } from '@chakra-ui/react';
-import { WorkspaceList } from './pages/WorkspaceList';
-import { WorkspaceView } from './pages/WorkspaceView';
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { AuthGuard } from './components/AuthGuard';
+import { PlatformLayout } from './layouts/PlatformLayout';
+import { LoginPage } from './pages/LoginPage';
+import { AuthCallbackPage } from './pages/AuthCallbackPage';
+import { RepoListPage } from './pages/RepoListPage';
+import { RepoDashboardPage } from './pages/RepoDashboardPage';
+import { WorkspaceViewPage } from './pages/WorkspaceViewPage';
+import { AdminPage } from './pages/AdminPage';
 
 export function App() {
-  const tenant = window.__E3_TENANT__;
-
-  if (!tenant) {
-    return (
-      <Container maxW="container.md" py={10}>
-        <Heading mb={4}>e3 Platform</Heading>
-        <Text>Please navigate to /repos/{'<tenant>'} to view a tenant.</Text>
-      </Container>
-    );
-  }
-
   return (
-    <Box minH="100vh">
-      <Box as="header" bg="gray.800" color="white" py={4}>
-        <Container maxW="container.xl">
-          <Heading size="md">e3 / {tenant}</Heading>
-        </Container>
-      </Box>
-
-      <Container maxW="container.xl" py={6}>
-        <Routes>
-          <Route path="/" element={<WorkspaceList tenant={tenant} />} />
-          <Route path="/workspaces/:name/*" element={<WorkspaceView tenant={tenant} />} />
-        </Routes>
-      </Container>
-    </Box>
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/auth/callback" element={<AuthCallbackPage />} />
+      <Route element={<AuthGuard />}>
+        <Route element={<PlatformLayout />}>
+          <Route path="/" element={<Navigate to="/repos" replace />} />
+          <Route path="/repos" element={<RepoListPage />} />
+          <Route path="/repos/:repo" element={<RepoDashboardPage />} />
+          <Route path="/repos/:repo/workspaces/:workspace" element={<WorkspaceViewPage />} />
+          <Route path="/admin" element={<AdminPage />} />
+        </Route>
+      </Route>
+      <Route path="*" element={<Navigate to="/repos" replace />} />
+    </Routes>
   );
 }

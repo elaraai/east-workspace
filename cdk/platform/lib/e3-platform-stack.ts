@@ -40,6 +40,7 @@ import * as logs from 'aws-cdk-lib/aws-logs';
 import * as scheduler from 'aws-cdk-lib/aws-scheduler';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
 import { Construct } from 'constructs';
 import { CrossRegionCertificate } from './cross-region-certificate.js';
 import { CrossAccountRoute53Record } from './cross-account-route53-record.js';
@@ -261,12 +262,17 @@ export class E3PlatformStack extends cdk.Stack {
       allowedOrigins.push(`https://${customDomainName}`);
     }
 
-    const defaultCallbacks = ['http://localhost:5173/callback', 'http://localhost:3000/oauth2/callback'];
+    const defaultCallbacks = [
+      'http://localhost:5173/callback',
+      'http://localhost:5173/auth/callback',
+      'http://localhost:3000/oauth2/callback',
+    ];
     const callbackUrls = [...defaultCallbacks, ...(props.callbackUrls ?? [])];
 
     // Add custom domain callback URL if configured
     if (customDomainName) {
       callbackUrls.push(`https://${customDomainName}/oauth2/callback`);
+      callbackUrls.push(`https://${customDomainName}/auth/callback`);
     }
 
     const defaultLogouts = ['http://localhost:5173/', 'http://localhost:3000/'];
@@ -1907,6 +1913,14 @@ function handler(event) {
     } else {
       this.platformUrl = `https://${this.distribution.distributionDomainName}`;
     }
+
+    // Deploy web app to S3 + invalidate CloudFront
+    new s3deploy.BucketDeployment(this, 'WebAppDeployment', {
+      sources: [s3deploy.Source.asset(path.join(repoRoot, 'web', 'dist'))],
+      destinationBucket: this.appsBucket,
+      distribution: this.distribution,
+      distributionPaths: ['/*'],
+    });
 
     // ============================================================
     // CLOUDWATCH ALARMS
