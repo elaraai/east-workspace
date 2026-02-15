@@ -10,13 +10,13 @@
     "status": "npm run build && node dist/src/status.js"
   },
   "dependencies": {
-    "@elaraai/e3": "^0.0.2-beta.28",
-    "@elaraai/e3-api-client": "^0.0.2-beta.28",
-    "@elaraai/e3-admin-client": "^0.0.1-alpha.0",
-    "@elaraai/east-node-std": "^0.0.1-beta.23"
+    "@elaraai/e3": "beta",
+    "@elaraai/e3-api-client": "beta",
+    "@elaraai/e3-admin-client": "*",
+    "@elaraai/east-node-std": "beta"
   },
   "peerDependencies": {
-    "@elaraai/east": "^0.0.1-beta.31"
+    "@elaraai/east": "beta"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -215,6 +215,12 @@ export const system = createSystem(defaultConfig, {
         'scrollbar.thumb.hover': {
           value: { base: '{colors.gray.400}', _dark: '{colors.gray.500}' },
         },
+        'link.color': {
+          value: { base: '{colors.brand.700}', _dark: '{colors.brand.500}' },
+        },
+        'link.hover': {
+          value: { base: '{colors.brand.800}', _dark: '{colors.brand.400}' },
+        },
         'nav.active.bg': {
           value: { base: '{colors.gray.100}', _dark: '{colors.gray.800}' },
         },

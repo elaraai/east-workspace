@@ -21,6 +21,7 @@
 import { mkdirSync } from 'node:fs';
 import { East, IntegerType, StringType } from '@elaraai/east';
 import e3 from '@elaraai/e3';
+import { Stat, UIComponentType } from '@elaraai/east-ui';
 
 // Inputs
 const x = e3.input('x', IntegerType, 10n);
@@ -58,8 +59,22 @@ const format = e3.task(
   )
 );
 
+const stat = e3.task(
+  'stat',
+  [combine.output],
+  East.function([IntegerType], UIComponentType, ($, value) =>
+    Stat.Root(
+      'Total', 
+      East.str`${value}`, {
+        helpText: "Combined value of add and mul",
+        indicator: "up",
+      }
+    )
+  )
+);
+
 // Create package
-const pkg = e3.package('demo', '1.0.0', format);
+const pkg = e3.package('demo', '1.0.0', format, stat);
 
 // Export to dist/
 mkdirSync('dist', { recursive: true });

@@ -11,14 +11,20 @@
   },
   "dependencies": {
     "@chakra-ui/react": "^3.33.0",
-    "@elaraai/e3-api-client": "^0.0.2-beta.28",
-    "@elaraai/east": "^0.0.1-beta.31",
+    "@elaraai/e3-admin-client": "*",
+    "@elaraai/e3-admin-types": "*",
+    "@elaraai/e3-api-client": "beta",
+    "@elaraai/e3-ui-components": "beta",
+    "@elaraai/east": "beta",
+    "@elaraai/east-ui": "beta",
+    "@elaraai/east-ui-components": "beta",
     "@emotion/react": "^11.14.0",
     "@tanstack/react-query": "^5.62.0",
+    "cronstrue": "^3.12.0",
     "framer-motion": "^11.18.0",
     "react": "^19.2.0",
-    "react-icons": "^5.4.0",
     "react-dom": "^19.2.0",
+    "react-icons": "^5.4.0",
     "react-router-dom": "^7.13.0"
   },
   "devDependencies": {

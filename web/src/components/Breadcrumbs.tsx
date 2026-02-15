@@ -14,7 +14,7 @@ interface Crumb {
 
 export function Breadcrumbs() {
   const location = useLocation();
-  const params = useParams<{ repo?: string; workspace?: string }>();
+  const params = useParams<{ repo?: string; workspace?: string; task?: string; '*'?: string }>();
 
   const crumbs: Crumb[] = [];
 
@@ -24,9 +24,12 @@ export function Breadcrumbs() {
 
   if (location.pathname.startsWith('/admin')) {
     crumbs.push({ label: 'Admin', to: '/admin' });
+    if (location.pathname.startsWith('/admin/repos/') && params.repo) {
+      crumbs.push({ label: params.repo, to: `/admin/repos/${params.repo}` });
+    }
   }
 
-  if (params.repo) {
+  if (location.pathname.startsWith('/repos') && params.repo) {
     crumbs.push({ label: params.repo, to: `/repos/${params.repo}` });
   }
 
@@ -34,6 +37,21 @@ export function Breadcrumbs() {
     crumbs.push({
       label: params.workspace,
       to: `/repos/${params.repo}/workspaces/${params.workspace}`,
+    });
+  }
+
+  if (params.task) {
+    crumbs.push({
+      label: params.task,
+      to: `/repos/${params.repo}/workspaces/${params.workspace}/tasks/${params.task}`,
+    });
+  }
+
+  if (location.pathname.includes('/data/') && params['*']) {
+    const displayName = params['*'].split('/').pop() ?? params['*'];
+    crumbs.push({
+      label: displayName,
+      to: location.pathname,
     });
   }
 
@@ -52,7 +70,7 @@ export function Breadcrumbs() {
                   {crumb.label}
                 </Text>
               ) : (
-                <Text asChild color="text.secondary" _hover={{ color: 'brand.500' }}>
+                <Text asChild color="text.secondary" _hover={{ color: 'link.color' }}>
                   <Link to={crumb.to}>{crumb.label}</Link>
                 </Text>
               )}

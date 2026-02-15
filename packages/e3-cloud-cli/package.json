@@ -14,12 +14,12 @@
     "lint": "eslint src/**/*.ts"
   },
   "dependencies": {
-    "@elaraai/e3-admin-client": "^0.0.1-alpha.0",
-    "@elaraai/e3-admin-types": "^0.0.1-alpha.0",
+    "@elaraai/e3-admin-client": "*",
+    "@elaraai/e3-admin-types": "*",
     "commander": "^12.0.0"
   },
   "peerDependencies": {
-    "@elaraai/east": "^0.0.1-beta.31"
+    "@elaraai/east": "beta"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

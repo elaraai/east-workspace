@@ -10,12 +10,15 @@ import { NavHeader } from '../components/NavHeader';
 
 const pageTitles: Record<string, string> = {
   '/repos': 'Repositories',
-  '/admin': 'Administration',
+  '/admin': 'Admin',
 };
 
 function getPageTitle(pathname: string): string {
   for (const [prefix, title] of Object.entries(pageTitles)) {
     if (pathname === prefix) return title;
+  }
+  if (pathname.startsWith('/admin/repos/')) {
+    return 'Admin';
   }
   if (pathname.startsWith('/repos/') && pathname.includes('/workspaces/')) {
     return 'Workspace';
@@ -31,11 +34,11 @@ export function PlatformLayout() {
   const title = getPageTitle(location.pathname);
 
   return (
-    <Box position="relative" minH="100vh">
+    <Box h="100vh" overflow="hidden">
       <Sidebar />
-      <Box ml={SIDEBAR_WIDTH_COLLAPSED} display="flex" flexDirection="column" minH="100vh">
+      <Box ml={SIDEBAR_WIDTH_COLLAPSED} display="flex" flexDirection="column" h="100vh">
         <NavHeader title={title} />
-        <Box flex={1} overflow="auto" bg="bg.secondary" p={6}>
+        <Box flex={1} overflow="auto" bg="bg.secondary" px={6} pt={3} pb={6}>
           <Outlet />
         </Box>
       </Box>

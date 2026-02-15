@@ -16,7 +16,10 @@ Browser
       ├── /repos                          → RepoListPage
       ├── /repos/:repo                    → RepoDashboardPage
       ├── /repos/:repo/workspaces/:ws     → WorkspaceViewPage
-      └── /admin                          → AdminPage
+      ├── /admin                          → AdminPage (overview dashboard)
+      ├── /admin/repos                    → AdminReposPage (repository management)
+      ├── /admin/repos/:repo              → AdminRepoDetailPage (users + infrastructure)
+      └── /admin/schedules                → AdminSchedulesPage (cross-repo schedules)
 ```
 
 ### Auth Flow
@@ -25,9 +28,10 @@ Browser
 2. Browser redirects to Cognito hosted UI (`/oauth2/authorize`)
 3. User authenticates (Cognito native or federated via Entra ID/SAML)
 4. Cognito redirects to `/auth/callback?code=...`
-5. `AuthCallbackPage` exchanges the authorization code for an access token via Cognito's `/oauth2/token` endpoint
-6. Token stored in `localStorage` as `e3_token`
+5. `AuthCallbackPage` exchanges the authorization code for tokens via Cognito's `/oauth2/token` endpoint
+6. Access token stored in `localStorage` as `e3_token`, refresh token as `e3_refresh_token`
 7. `AuthGuard` layout route checks for token; redirects to `/login` if missing
+8. On 401 (`AuthError`), the global query cache error handler attempts a silent token refresh using the stored refresh token. If refresh succeeds, all failed queries are refetched. If refresh fails, the user is redirected to `/login`.
 
 ### Runtime Configuration
 
@@ -99,7 +103,7 @@ web/
 ├── src/
 │   ├── main.tsx                 # React entry + providers (Chakra, ThemeProvider, BrowserRouter)
 │   ├── App.tsx                  # Route tree
-│   ├── api.ts                   # Token helpers for e3-api-client
+│   ├── api.ts                   # Token helpers, refresh logic for e3-api-client
 │   ├── config.ts                # Runtime config loader (fetches /config.json)
 │   ├── theme.ts                 # Chakra UI theme (brand colors, semantic tokens, dark mode)
 │   ├── contexts/
@@ -107,18 +111,20 @@ web/
 │   │   └── ThemeProvider.tsx    # Dark/light mode with localStorage persistence
 │   ├── hooks/
 │   │   ├── useApi.ts            # TanStack Query hooks for e3-api-client
+│   │   ├── useAdminApi.ts       # TanStack Query hooks for admin endpoints
 │   │   ├── useAuth.ts           # Auth helper (token, logout)
 │   │   ├── useCardStyles.ts     # Shared card style object with semantic tokens
 │   │   └── useScrollbarStyles.ts # Custom scrollbar styles
 │   ├── components/
 │   │   ├── AuthGuard.tsx        # Auth layout route (checks localStorage token)
-│   │   ├── Sidebar.tsx          # Collapsible sidebar navigation (absolute positioned)
+│   │   ├── Sidebar.tsx          # Collapsible sidebar with expandable admin sub-menu
 │   │   ├── NavHeader.tsx        # Page header with title, theme toggle, user menu
 │   │   ├── Breadcrumbs.tsx      # Route-aware breadcrumb trail
 │   │   ├── DisplayStates.tsx    # LoadingState, EmptyState, ErrorState components
 │   │   ├── StatusBadge.tsx      # Color-coded status badges
 │   │   ├── LoadingIcon.tsx      # Animated Elara logo spinner
 │   │   ├── Logo.tsx             # Logo variants (full, collapsed, mark)
+│   │   ├── StatCard.tsx         # Reusable stat card (big number + label + icon)
 │   │   └── Toaster.tsx          # Chakra toast provider
 │   ├── layouts/
 │   │   └── PlatformLayout.tsx   # Sidebar + NavHeader + content Outlet
@@ -127,8 +133,11 @@ web/
 │   │   ├── AuthCallbackPage.tsx # OAuth code → token exchange
 │   │   ├── RepoListPage.tsx     # Repository grid with search
 │   │   ├── RepoDashboardPage.tsx # Workspaces + packages dashboard
-│   │   ├── WorkspaceViewPage.tsx # Workspace status + dataflow controls
-│   │   └── AdminPage.tsx        # Admin stub cards
+│   │   ├── WorkspaceViewPage.tsx     # Workspace status + dataflow controls
+│   │   ├── AdminPage.tsx            # Admin overview dashboard (stats + repo grid)
+│   │   ├── AdminReposPage.tsx       # Admin repository management table
+│   │   ├── AdminRepoDetailPage.tsx  # Admin per-repo detail (users + infrastructure tabs)
+│   │   └── AdminSchedulesPage.tsx   # Admin cross-repo schedule listing
 │   └── assets/
 │       ├── Elara_AI_Lockup.svg
 │       ├── Elara_AI_Lockup_Collapsed.svg
@@ -144,6 +153,8 @@ web/
 | Package | Purpose |
 |---------|---------|
 | `@chakra-ui/react` | UI component library (v3) |
+| `@elaraai/e3-admin-client` | Typed HTTP client for admin API (users, schedules) |
+| `@elaraai/e3-admin-types` | East type definitions for admin entities |
 | `@elaraai/e3-api-client` | Typed HTTP client for e3 API |
 | `@elaraai/east` | East type system (for BEAST2 decode) |
 | `@tanstack/react-query` | Data fetching and caching |

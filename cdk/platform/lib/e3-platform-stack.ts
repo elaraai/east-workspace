@@ -1924,6 +1924,7 @@ function handler(event) {
           cognitoDomain: cognitoDomainUrl,
           cognitoClientId: userPoolClient.userPoolClientId,
           redirectUri: `${this.platformUrl}/auth/callback`,
+          oidcProviderName: oidcProviderName ?? '',
         }),
       ],
       destinationBucket: this.appsBucket,

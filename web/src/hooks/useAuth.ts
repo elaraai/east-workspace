@@ -5,7 +5,7 @@
 
 import { useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getToken } from '../api';
+import { getToken, clearTokens } from '../api';
 
 export function useAuth() {
   const navigate = useNavigate();
@@ -14,7 +14,7 @@ export function useAuth() {
   const isAuthenticated = token !== null;
 
   const logout = useCallback(() => {
-    localStorage.removeItem('e3_token');
+    clearTokens();
     navigate('/login');
   }, [navigate]);
 

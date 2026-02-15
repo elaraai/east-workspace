@@ -43,6 +43,9 @@ export function AuthCallbackPage() {
 
         const data = await res.json();
         localStorage.setItem('e3_token', data.access_token);
+        if (data.refresh_token) {
+          localStorage.setItem('e3_refresh_token', data.refresh_token);
+        }
         navigate('/repos', { replace: true });
       })
       .catch((err: Error) => setError(err.message));

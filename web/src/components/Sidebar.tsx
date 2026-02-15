@@ -3,11 +3,12 @@
  * Proprietary and confidential.
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useContext, useMemo, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Box, VStack, Text, IconButton } from '@chakra-ui/react';
 import { FiDatabase, FiSettings, FiMenu, FiChevronRight } from 'react-icons/fi';
 import { LogoFull, LogoCollapsed } from './Logo';
+import { UserContext } from '../contexts/UserContext';
 
 export const SIDEBAR_WIDTH = 72;
 export const SIDEBAR_WIDTH_COLLAPSED = 20;
@@ -16,17 +17,24 @@ interface NavItemConfig {
   icon: React.ElementType;
   label: string;
   to: string;
+  adminOnly?: boolean;
 }
 
 const navItems: NavItemConfig[] = [
   { icon: FiDatabase, label: 'Repositories', to: '/repos' },
-  { icon: FiSettings, label: 'Admin', to: '/admin' },
+  { icon: FiSettings, label: 'Admin', to: '/admin', adminOnly: true },
 ];
 
 export function Sidebar() {
   const [isCollapsed, setIsCollapsed] = useState(true);
   const navigate = useNavigate();
   const location = useLocation();
+  const user = useContext(UserContext);
+
+  const visibleItems = useMemo(
+    () => navItems.filter((item) => !item.adminOnly || user?.isAdmin),
+    [user?.isAdmin]
+  );
 
   const toggleCollapse = useCallback(() => {
     setIsCollapsed((prev) => !prev);
@@ -43,7 +51,7 @@ export function Sidebar() {
   return (
     <Box
       as="nav"
-      position="absolute"
+      position="fixed"
       left={0}
       top={0}
       h="100vh"
@@ -104,7 +112,7 @@ export function Sidebar() {
 
         {/* Nav items */}
         <VStack gap={2} align="stretch" flex={1} py={2} px={4}>
-          {navItems.map((item) => {
+          {visibleItems.map((item) => {
             const isActive = location.pathname.startsWith(item.to);
             const Icon = item.icon;
 

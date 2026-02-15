@@ -17,11 +17,15 @@ REPO_URL := $(PLATFORM)/repos/$(REPO)
 WORKSPACE := dev
 PACKAGE := demo@1.0.0
 
-.PHONY: deploy clean status results build
+.PHONY: deploy clean status results build update
 
 # Build the package zip
 build:
 	npm run build
+
+# Update @elaraai dependencies
+update:
+	npm update $$(grep -roh '"@elaraai/[^"]*"' --include='package.json' . | tr -d '"' | sort -u | tr '\n' ' ')
 
 # Deploy everything (idempotent - safe to run multiple times)
 deploy: build

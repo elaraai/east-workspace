@@ -7,6 +7,7 @@ export interface PlatformConfig {
   cognitoDomain: string;
   cognitoClientId: string;
   redirectUri: string;
+  oidcProviderName: string;
 }
 
 let configPromise: Promise<PlatformConfig> | null = null;

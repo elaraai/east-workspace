@@ -23,10 +23,10 @@
     "test": "npm run build && node --enable-source-maps --test 'dist/src/**/*.test.js'"
   },
   "dependencies": {
-    "@elaraai/e3-admin-types": "^0.0.1-alpha.0"
+    "@elaraai/e3-admin-types": "*"
   },
   "peerDependencies": {
-    "@elaraai/east": "^0.0.1-beta.31"
+    "@elaraai/east": "beta"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

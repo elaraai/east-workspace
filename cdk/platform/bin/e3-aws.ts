@@ -156,6 +156,17 @@ const testUsers = testUsersEnabled
     }
   : undefined;
 
+// Forward OIDC config as context (so the stack doesn't fall back to SSM tokens)
+if (deploymentConfig?.oidc && deploymentConfig.oidc.enabled !== false) {
+  if (!app.node.tryGetContext('oidcEnabled')) {
+    app.node.setContext('oidcEnabled', 'true');
+    app.node.setContext('oidcProviderName', deploymentConfig.oidc.providerName);
+    app.node.setContext('oidcClientId', deploymentConfig.oidc.clientId);
+    app.node.setContext('oidcIssuerUrl', deploymentConfig.oidc.issuerUrl);
+    app.node.setContext('oidcSecretArn', deploymentConfig.oidc.clientSecretArn);
+  }
+}
+
 // Create the platform stack
 new E3PlatformStack(app, `E3Platform-${deploymentId}`, {
   env,

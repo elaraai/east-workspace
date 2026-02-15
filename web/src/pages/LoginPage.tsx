@@ -25,6 +25,7 @@ export function LoginPage() {
       client_id: config.cognitoClientId,
       redirect_uri: config.redirectUri,
       scope: 'openid',
+      identity_provider: config.oidcProviderName,
     });
 
     window.location.href = `https://${config.cognitoDomain}/oauth2/authorize?${params}`;
@@ -91,7 +92,7 @@ export function LoginPage() {
               onClick={handleLogin}
               disabled={!config}
             >
-              Login with SSO
+              Login
             </Button>
           )}
         </VStack>
