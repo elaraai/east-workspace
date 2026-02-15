@@ -65,6 +65,9 @@ jobs:
           aws ecr get-login-password --region ${{ steps.config.outputs.region }} | \
             docker login --username AWS --password-stdin ${{ steps.config.outputs.account_id }}.dkr.ecr.${{ steps.config.outputs.region }}.amazonaws.com
 
+      - name: Pull base image
+        run: docker pull ghcr.io/elaraai/e3:beta
+
       - name: Build runner image
         run: |
           ECR_URI="${{ steps.config.outputs.account_id }}.dkr.ecr.${{ steps.config.outputs.region }}.amazonaws.com/e3-${{ steps.config.outputs.deployment_id }}-runner"
