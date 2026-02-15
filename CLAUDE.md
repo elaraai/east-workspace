@@ -16,7 +16,8 @@ See `design/cloud-options.md` for architecture decisions and `design/cloud-devpl
 e3-aws/
 ├── .github/
 │   └── workflows/
-│       └── deploy-platform.yml  # GitHub Actions CI/CD (manual trigger, OIDC auth)
+│       ├── deploy-platform.yml  # GitHub Actions CI/CD (manual trigger, OIDC auth)
+│       └── build-runner.yml     # Runner image build+push to ECR (manual trigger, OIDC auth)
 ├── cdk/
 │   ├── accounts/             # AWS Organization & account provisioning
 │   │   ├── lib/
@@ -59,16 +60,27 @@ e3-aws/
 │       ├── api.ts             # Auth helpers for e3-api-client
 │       ├── config.ts          # Runtime config loader (fetches /config.json)
 │       ├── components/
-│       │   └── AuthGuard.tsx  # Token-based auth layout route
+│       │   ├── AuthGuard.tsx  # Token-based auth layout route
+│       │   ├── Sidebar.tsx    # Nav sidebar with expandable admin sub-menu
+│       │   ├── Breadcrumbs.tsx # Route-aware breadcrumb trail
+│       │   ├── StatCard.tsx   # Reusable stat card (big number + label + icon)
+│       │   └── ...
+│       ├── hooks/
+│       │   ├── useApi.ts      # TanStack Query hooks for e3-api-client
+│       │   ├── useAdminApi.ts # TanStack Query hooks for admin endpoints
+│       │   └── ...
 │       ├── layouts/
 │       │   └── PlatformLayout.tsx  # Nav header + content outlet
 │       └── pages/
-│           ├── LoginPage.tsx          # Cognito SSO login
-│           ├── AuthCallbackPage.tsx   # OAuth callback handler
-│           ├── RepoListPage.tsx       # Repository listing
-│           ├── RepoDashboardPage.tsx  # Repo workspaces + packages
-│           ├── WorkspaceViewPage.tsx  # Workspace detail + dataflow
-│           └── AdminPage.tsx          # Admin stub
+│           ├── LoginPage.tsx              # Cognito SSO login
+│           ├── AuthCallbackPage.tsx       # OAuth callback handler
+│           ├── RepoListPage.tsx           # Repository listing
+│           ├── RepoDashboardPage.tsx      # Repo workspaces + packages
+│           ├── WorkspaceViewPage.tsx      # Workspace detail + dataflow
+│           ├── AdminPage.tsx              # Admin overview dashboard
+│           ├── AdminReposPage.tsx         # Admin repository management table
+│           ├── AdminRepoDetailPage.tsx    # Admin per-repo detail (users + infrastructure)
+│           └── AdminSchedulesPage.tsx     # Admin cross-repo schedule listing
 │
 └── design/                   # Architecture documentation
     ├── cloud-options.md      # Architecture decisions
@@ -153,6 +165,31 @@ To add a new environment to CI/CD:
 2. Add `github.deployRoleArn` to the deployment config in `cdk/platform/deployments/`
 3. Add the environment name to the `options` list in `.github/workflows/deploy-platform.yml`
 4. Optionally configure a GitHub Environment with protection rules for approval gates
+
+### Deploy Runner (Lambda Container Image)
+
+The task runner Lambda (`e3-{id}-execute-task`) uses a Docker image based on `ghcr.io/elaraai/e3:beta`. When east/e3 packages are updated and the base image is rebuilt, the runner container must be rebuilt and pushed to ECR, then the Lambda function must be updated to pull the new image.
+
+**Via GitHub Actions:**
+
+1. Go to **Actions** > **Deploy Runner** > **Run workflow**
+2. Select the deployment config (e.g., `elara-dev`)
+3. Click **Run workflow**
+
+**Locally via Makefile:**
+
+```bash
+# 1. Login to AWS SSO
+aws sso login --profile elaraai-dev-elara-e3
+
+# 2. Build all packages
+npm run build
+
+# 3. Build+push runner image and update Lambda
+make deploy-runner CONFIG=elara-dev PROFILE=elaraai-dev-elara-e3
+```
+
+This builds the Docker image from `docker/Dockerfile.runner`, pushes it to ECR, and calls `aws lambda update-function-code` to point the Lambda at the new image. The Lambda update is required because CDK references the `:latest` tag — pushing a new `:latest` to ECR does not automatically update the Lambda function.
 
 ### Deploy Account Infrastructure (Management Account Only)
 

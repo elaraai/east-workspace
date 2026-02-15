@@ -1,8 +1,12 @@
-.PHONY: install build test test-integration lint lint-fix dev clean deploy deploy-web link help
+.PHONY: install update build test test-integration lint lint-fix dev clean deploy deploy-web deploy-runner link help
 
 # Install dependencies
 install:
 	npm install
+
+# Update @elaraai dependencies
+update:
+	npm update $$(grep -roh '"@elaraai/[^"]*"' --include='package.json' . | tr -d '"' | sort -u | tr '\n' ' ')
 
 # Build all packages (lint first)
 build: lint
@@ -68,9 +72,31 @@ endif
 	AWS_PROFILE=$(PROFILE) aws cloudfront create-invalidation --distribution-id $(DIST_ID) --paths "/*" --output text
 	@echo "UI deploy complete."
 
+# Deploy runner: build+push Docker image to ECR and update Lambda
+# Usage: make deploy-runner CONFIG=elara-dev PROFILE=elaraai-dev-elara-e3
+deploy-runner:
+ifndef CONFIG
+	$(error CONFIG is required. Usage: make deploy-runner CONFIG=elara-dev PROFILE=elaraai-dev-elara-e3)
+endif
+ifndef PROFILE
+	$(error PROFILE is required. Usage: make deploy-runner CONFIG=elara-dev PROFILE=elaraai-dev-elara-e3)
+endif
+	$(eval DEPLOY_ID := $(shell jq -r '.deployment.id' cdk/platform/deployments/$(CONFIG).json))
+	$(eval REGION := $(shell jq -r '.aws.region' cdk/platform/deployments/$(CONFIG).json))
+	$(eval ACCOUNT_ID := $(shell jq -r '.aws.accountId' cdk/platform/deployments/$(CONFIG).json))
+	$(eval ECR_URI := $(ACCOUNT_ID).dkr.ecr.$(REGION).amazonaws.com/e3-$(DEPLOY_ID)-runner)
+	AWS_PROFILE=$(PROFILE) E3_DEPLOYMENT_ID=$(DEPLOY_ID) ./scripts/build-runner.sh --push
+	@echo "Updating Lambda function e3-$(DEPLOY_ID)-execute-task..."
+	AWS_PROFILE=$(PROFILE) aws lambda update-function-code \
+		--function-name "e3-$(DEPLOY_ID)-execute-task" \
+		--image-uri "$(ECR_URI):latest" \
+		--region $(REGION)
+	@echo "Runner deploy complete."
+
 # Help
 help:
 	@echo "install          - Install dependencies (npm install)"
+	@echo "update           - Update all dependencies (npm update)"
 	@echo "build            - Build all packages"
 	@echo "test             - Run all tests"
 	@echo "test-integration - Run integration tests"
@@ -81,3 +107,4 @@ help:
 	@echo "link             - Link CLI globally"
 	@echo "deploy           - Deploy platform (CONFIG=elara-dev PROFILE=elaraai-dev-elara-e3)"
 	@echo "deploy-web       - Fast UI-only deploy to S3 + CloudFront invalidation"
+	@echo "deploy-runner    - Build+push runner image to ECR and update Lambda"

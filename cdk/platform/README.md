@@ -134,6 +134,19 @@ After deployment, note these outputs:
 | `ScheduleDlqUrl` | Dead-letter queue URL for failed schedule invocations |
 | `TestUserSecretArn` | Secrets Manager ARN for test user passwords (if testUsers enabled) |
 
+## Runner Image Deployment
+
+The `e3-{id}-execute-task` Lambda uses a Docker image from ECR (`e3-{id}-runner`). When the base image (`ghcr.io/elaraai/e3:beta`) is updated, the runner must be rebuilt:
+
+```bash
+# From repo root — build+push image and update Lambda
+make deploy-runner CONFIG=elara-dev PROFILE=elaraai-dev-elara-e3
+```
+
+Or trigger the **Deploy Runner** workflow from GitHub Actions.
+
+Pushing a new `:latest` tag to ECR does **not** automatically update the Lambda — the `update-function-code` call (included in both methods) is required.
+
 ## Test Users (for Integration Testing)
 
 Enable test users to automatically provision Cognito users for integration testing:

@@ -74,6 +74,17 @@ AWS_PROFILE=elaraai-dev-elara-e3 npx cdk deploy --context config=elara-dev --req
 
 The `--context config=elara-dev` loads the full deployment configuration from `deployments/elara-dev.json`, including test users, OIDC, and domain settings.
 
+### Deploy Runner
+
+The task runner Lambda uses a Docker image. When the base image (`ghcr.io/elaraai/e3:beta`) is updated, rebuild and deploy the runner:
+
+```bash
+# Build+push runner image to ECR and update Lambda
+make deploy-runner CONFIG=elara-dev PROFILE=elaraai-dev-elara-e3
+```
+
+Or trigger the **Deploy Runner** workflow from GitHub Actions.
+
 ### Use with CLI
 
 ```bash
