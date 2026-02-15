@@ -53,7 +53,7 @@ jobs:
       - name: Build runner image
         run: |
           ECR_URI="${{ steps.config.outputs.account_id }}.dkr.ecr.${{ steps.config.outputs.region }}.amazonaws.com/e3-${{ steps.config.outputs.deployment_id }}-runner"
-          docker build -f docker/Dockerfile.runner -t "$ECR_URI:latest" .
+          docker build -f docker/Dockerfile.runner -t "$ECR_URI:latest" --provenance=false .
 
       - name: Push runner image to ECR
         run: |
