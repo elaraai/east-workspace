@@ -18,6 +18,10 @@ e3-aws/
 │   └── workflows/
 │       ├── deploy-platform.yml  # GitHub Actions CI/CD (manual trigger, OIDC auth)
 │       └── build-runner.yml     # Runner image build+push to ECR (manual trigger, OIDC auth)
+├── scripts/
+│   ├── deploy-web.sh            # Fast UI-only deploy (S3 sync + CloudFront invalidation)
+│   ├── deploy-runner.sh         # Build+push runner image to ECR + update Lambda
+│   └── build-runner.sh          # Build runner Docker image (used by deploy-runner.sh)
 ├── cdk/
 │   ├── accounts/             # AWS Organization & account provisioning
 │   │   ├── lib/
@@ -176,7 +180,7 @@ The task runner Lambda (`e3-{id}-execute-task`) uses a Docker image based on `gh
 2. Select the deployment config (e.g., `elara-dev`)
 3. Click **Run workflow**
 
-**Locally via Makefile:**
+**Locally:**
 
 ```bash
 # 1. Login to AWS SSO
@@ -187,9 +191,25 @@ npm run build
 
 # 3. Build+push runner image and update Lambda
 make deploy-runner CONFIG=elara-dev PROFILE=elaraai-dev-elara-e3
+# or directly: ./scripts/deploy-runner.sh elara-dev elaraai-dev-elara-e3
 ```
 
 This builds the Docker image from `docker/Dockerfile.runner`, pushes it to ECR, and calls `aws lambda update-function-code` to point the Lambda at the new image. The Lambda update is required because CDK references the `:latest` tag — pushing a new `:latest` to ECR does not automatically update the Lambda function.
+
+### Deploy Web Only (Fast)
+
+For UI-only changes when infrastructure and config haven't changed:
+
+```bash
+# 1. Build the web app
+npm run build
+
+# 2. Sync assets to S3 + invalidate CloudFront
+make deploy-web CONFIG=elara-dev PROFILE=elaraai-dev-elara-e3
+# or directly: ./scripts/deploy-web.sh elara-dev elaraai-dev-elara-e3
+```
+
+**Note:** This preserves the existing `config.json` in S3. If OIDC, Cognito, or domain settings have changed, use a full `make deploy` instead.
 
 ### Deploy Account Infrastructure (Management Account Only)
 

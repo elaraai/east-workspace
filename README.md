@@ -81,9 +81,23 @@ The task runner Lambda uses a Docker image. When the base image (`ghcr.io/elaraa
 ```bash
 # Build+push runner image to ECR and update Lambda
 make deploy-runner CONFIG=elara-dev PROFILE=elaraai-dev-elara-e3
+# or directly: ./scripts/deploy-runner.sh elara-dev elaraai-dev-elara-e3
 ```
 
 Or trigger the **Deploy Runner** workflow from GitHub Actions.
+
+### Deploy Web Only (Fast)
+
+For UI-only changes when infrastructure and config haven't changed:
+
+```bash
+# Build the web app then sync to S3
+npm run build
+make deploy-web CONFIG=elara-dev PROFILE=elaraai-dev-elara-e3
+# or directly: ./scripts/deploy-web.sh elara-dev elaraai-dev-elara-e3
+```
+
+This preserves the existing `config.json` in S3. If OIDC, Cognito, or domain settings have changed, use a full deploy instead.
 
 ### Use with CLI
 
