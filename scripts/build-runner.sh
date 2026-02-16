@@ -60,6 +60,7 @@ docker build \
   -f docker/Dockerfile.runner \
   -t "$ECR_REPO_NAME:latest" \
   -t "$ECR_REPO_URI:latest" \
+  --provenance=false \
   .
 
 echo "Image built successfully: $ECR_REPO_NAME:latest"

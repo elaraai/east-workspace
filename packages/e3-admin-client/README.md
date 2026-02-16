@@ -53,6 +53,50 @@ Add a user to a repository.
 
 Remove a user from a repository.
 
+### `listCompute(url, repo, workspace, options): Promise<ComputeConfigMap>`
+
+List all compute configs for a workspace.
+
+### `getCompute(url, repo, workspace, taskName, options): Promise<ComputeSize>`
+
+Get the compute size for a task.
+
+### `setCompute(url, repo, workspace, taskName, size, options): Promise<ComputeSize>`
+
+Set the compute size for a task.
+
+### `setComputeBatch(url, repo, workspace, configs, options): Promise<ComputeConfigMap>`
+
+Batch set compute configs for a workspace.
+
+### `removeCompute(url, repo, workspace, taskName, options): Promise<void>`
+
+Remove the compute config for a task.
+
+### `listTimeout(url, repo, workspace, options): Promise<TimeoutConfigMap>`
+
+List all timeout configs for a workspace.
+
+### `getTimeout(url, repo, workspace, taskName, options): Promise<TaskTimeout>`
+
+Get the timeout for a task. Returns the effective default (15m for serverless, 1440m for sized) if not explicitly set.
+
+### `setTimeout(url, repo, workspace, taskName, timeout, options): Promise<TaskTimeout>`
+
+Set the timeout for a task.
+
+### `setTimeoutBatch(url, repo, workspace, configs, options): Promise<TimeoutConfigMap>`
+
+Batch set timeout configs for a workspace.
+
+### `removeTimeout(url, repo, workspace, taskName, options): Promise<void>`
+
+Remove the timeout config for a task.
+
+### `listTaskConfigs(url, repo, workspace, options): Promise<TaskConfigs>`
+
+List all task configs (compute + timeout) for a workspace.
+
 ### `unwrap<T>(response: Response<T>): T`
 
 Unwrap a response, throwing on error.

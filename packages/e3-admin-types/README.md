@@ -21,6 +21,11 @@ import {
   WhoamiResponseType,
   AuthzErrorType,
   AuthzErrorCodeType,
+  ComputeSizeType,
+  TaskTimeoutType,
+  ComputeConfigMapType,
+  TimeoutConfigMapType,
+  TaskConfigsType,
 
   // TypeScript types (derived via ValueTypeOf)
   type RepoRole,
@@ -29,6 +34,11 @@ import {
   type WhoamiResponse,
   type AuthzError,
   type AuthzErrorCode,
+  type ComputeSize,
+  type TaskTimeout,
+  type ComputeConfigMap,
+  type TimeoutConfigMap,
+  type TaskConfigs,
 
   // Runtime utilities
   parseRepoRole,
@@ -87,7 +97,7 @@ A workspace schedule for recurring dataflow execution:
 - `workspace` - Workspace name
 - `cronExpression` - Unix 5-field cron expression
 - `timezone` - IANA timezone string
-- `forceTaskPatterns` - Glob patterns for tasks to force (skip cache)
+- `forceTasks` - Task names to force (skip cache)
 - `enabled` - Whether schedule is active
 - `description` - Optional human-readable description (OptionType)
 - `createdBy` - userId who created the schedule
@@ -103,6 +113,34 @@ Request body for creating or updating a schedule.
 How a dataflow run was initiated (variant type):
 - `.schedule` - `{ schedulerExecutionId, scheduledTime }`
 - `.user` - `{ userId, email }`
+
+### ComputeSizeType / ComputeSize
+
+Compute tier for task execution (variant type):
+- `.serverless` - Lambda (~1.8 GB RAM, default)
+- `.small` - Fargate 1 vCPU / 2 GB
+- `.medium` - Fargate 2 vCPU / 8 GB
+- `.large` - Fargate 4 vCPU / 16 GB
+- `.xlarge` - Fargate 8 vCPU / 32 GB
+
+### TaskTimeoutType / TaskTimeout
+
+Custom timeout configuration for a task:
+- `minutes` - Timeout in minutes (5–43200)
+
+### ComputeConfigMapType / ComputeConfigMap
+
+Dictionary of task name → ComputeSize.
+
+### TimeoutConfigMapType / TimeoutConfigMap
+
+Dictionary of task name → TaskTimeout.
+
+### TaskConfigsType / TaskConfigs
+
+Combined task configuration struct:
+- `compute` - ComputeConfigMap
+- `timeout` - TimeoutConfigMap
 
 ## Peer Dependencies
 

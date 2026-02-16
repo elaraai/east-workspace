@@ -23,6 +23,7 @@ import {
   DynamoRefStore,
   DynamoAclStore,
   DynamoScheduleStore,
+  DynamoTaskConfigStore,
   InvalidRepoStatusError,
 } from '@elaraai/e3-aws-storage';
 import {
@@ -56,6 +57,9 @@ import { createAdminRoutes } from './admin-routes.js';
 
 // Schedule routes
 import { createScheduleRoutes, createScheduleListRoute } from './schedule-routes.js';
+
+// Task config routes
+import { createTaskConfigRoutes } from './task-config-routes.js';
 
 // Authorization middleware
 import { createAuthzMiddleware } from './authz-middleware.js';
@@ -101,6 +105,9 @@ const aclStore = new DynamoAclStore(dynamo, process.env.TABLE_NAME!);
 
 // Initialize schedule store for workspace schedule management
 const scheduleStore = new DynamoScheduleStore(dynamo, process.env.TABLE_NAME!);
+
+// Initialize task config store for per-task compute/timeout configuration
+const taskConfigStore = new DynamoTaskConfigStore(dynamo, process.env.TABLE_NAME!);
 
 // Initialize EventBridge Scheduler client
 const schedulerClient = new SchedulerClient({});
@@ -207,6 +214,11 @@ app.route('/', createAdminRoutes(aclStore, refStore));
 // ============================================================
 app.route('/api/repos/:repo/workspaces/:ws/schedule', createScheduleRoutes(aclStore, scheduleStore, refStore, schedulerClient));
 app.route('/api/repos/:repo/schedules', createScheduleListRoute(aclStore, scheduleStore));
+
+// ============================================================
+// Task Config Routes (per-task compute size configuration)
+// ============================================================
+app.route('/api/repos/:repo/workspaces/:ws/task-configs', createTaskConfigRoutes(taskConfigStore, storage));
 
 // ============================================================
 // Authorization Middleware (for all repo routes)
@@ -343,6 +355,9 @@ app.delete('/api/repos/:repo', async (c) => {
 
     // 2b. Delete schedules (DynamoDB + EventBridge Scheduler)
     await deleteSchedulesForRepo(repo);
+
+    // 2c. Delete task configs
+    await taskConfigStore.deleteAllForRepo(repo);
 
     // 3. Delete refs synchronously
     let cursor: string | undefined;
@@ -802,11 +817,37 @@ app.route('/api/repos/:repo', createRepositoryRoutes(storage, getRepoPath) as an
 // Package routes: /api/repos/:repo/packages/*
 app.route('/api/repos/:repo/packages', createPackageRoutes(storage, getRepoPath) as any);
 
-// Intercept workspace deletion to clean up schedules before e3-api-server handles it
+// Intercept workspace deploy to clean up orphaned task configs after e3-api-server handles it
+app.post('/api/repos/:repo/workspaces/:ws/deploy', async (c, next) => {
+  await next();  // Let e3-api-server handle deploy first
+
+  if (c.res.status >= 200 && c.res.status < 300) {
+    const repo = c.req.param('repo')!;
+    const ws = c.req.param('ws')!;
+    try {
+      const graph = await dataflowGetGraph(storage, repo, ws);
+      const deployedTaskNames = new Set(graph.tasks.map(t => t.name));
+      const computeConfigs = await taskConfigStore.listCompute(repo, ws);
+      const timeoutConfigs = await taskConfigStore.listTimeout(repo, ws);
+      const orphanedCompute = Object.keys(computeConfigs).filter(t => !deployedTaskNames.has(t));
+      const orphanedTimeout = Object.keys(timeoutConfigs).filter(t => !deployedTaskNames.has(t));
+      if (orphanedCompute.length > 0) await taskConfigStore.deleteComputeBatch(repo, ws, orphanedCompute);
+      if (orphanedTimeout.length > 0) await taskConfigStore.deleteTimeoutBatch(repo, ws, orphanedTimeout);
+      if (orphanedCompute.length > 0 || orphanedTimeout.length > 0) {
+        console.log('Orphan cleanup', { repo, workspace: ws, orphanedCompute, orphanedTimeout });
+      }
+    } catch (err) {
+      console.error('Orphan cleanup failed:', err);  // Don't fail the deploy
+    }
+  }
+});
+
+// Intercept workspace deletion to clean up schedules and task configs before e3-api-server handles it
 app.delete('/api/repos/:repo/workspaces/:ws', async (c, next) => {
   const repo = c.req.param('repo');
   const workspace = c.req.param('ws');
   await deleteScheduleForWorkspace(repo, workspace);
+  await taskConfigStore.deleteAllForWorkspace(repo, workspace);
   return next();
 });
 

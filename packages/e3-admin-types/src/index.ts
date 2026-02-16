@@ -55,3 +55,17 @@ export {
   ScheduleRequestType,
   type ScheduleRequest,
 } from './schedule-types.js';
+
+// Task config types
+export {
+  ComputeSizeType,
+  type ComputeSize,
+  TaskTimeoutType,
+  type TaskTimeout,
+  ComputeConfigMapType,
+  type ComputeConfigMap,
+  TimeoutConfigMapType,
+  type TimeoutConfigMap,
+  TaskConfigsType,
+  type TaskConfigs,
+} from './task-config-types.js';

@@ -70,7 +70,7 @@ async function main() {
   const schedule = await setSchedule(SERVER, REPO_NAME, WORKSPACE, {
     cronExpression: '* * * * *',
     timezone: none,
-    forceTaskPatterns: ['*'],
+    forceTasks: ['timestamp'],
     enabled: true,
     description: some('Manual schedule test — runs every minute'),
   }, opts);

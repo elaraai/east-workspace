@@ -1,5 +1,8 @@
 # Lambda Runner Container Image
 #
+# Built with: docker buildx build --output compression=zstd,oci-mediatypes=true
+# zstd compression + SOCI lazy loading reduces Fargate cold starts significantly.
+#
 # Based on ghcr.io/elaraai/e3 which includes:
 # - Node.js 22
 # - Python 3.11 + east-py + east-py-std + east-py-io + east-py-datascience
@@ -26,9 +29,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Create app directory
 WORKDIR /app
 
-# Copy the execute-task handler
+# Copy runner handler files (Lambda + Fargate entrypoints + shared core)
 COPY packages/e3-aws-runner/dist/src/handlers/execute-task.js ./dist/handlers/
 COPY packages/e3-aws-runner/dist/src/handlers/execute-task.js.map ./dist/handlers/
+COPY packages/e3-aws-runner/dist/src/handlers/execute-task-core.js ./dist/handlers/
+COPY packages/e3-aws-runner/dist/src/handlers/execute-task-core.js.map ./dist/handlers/
+COPY packages/e3-aws-runner/dist/src/handlers/execute-task-compute-entry.js ./dist/handlers/
+COPY packages/e3-aws-runner/dist/src/handlers/execute-task-compute-entry.js.map ./dist/handlers/
 
 # Create minimal package.json with only needed dependencies and install
 RUN echo '{"type":"module","dependencies":{"@aws-sdk/client-s3":"^3.966.0","@aws-sdk/client-dynamodb":"^3.966.0","@aws-sdk/util-dynamodb":"^3.966.0"}}' > package.json \

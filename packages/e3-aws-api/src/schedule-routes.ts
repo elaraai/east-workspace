@@ -185,7 +185,7 @@ export function createScheduleRoutes(
         workspace,
         cronExpression: body.cronExpression,
         timezone,
-        forceTaskPatterns: body.forceTaskPatterns,
+        forceTasks: body.forceTasks,
         enabled: body.enabled,
         description: body.description,
         createdBy: existing?.createdBy ?? identity.sub,

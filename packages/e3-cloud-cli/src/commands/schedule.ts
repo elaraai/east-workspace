@@ -14,8 +14,9 @@ import {
   removeSchedule,
   listSchedules,
 } from '@elaraai/e3-admin-client';
+import { taskList } from '@elaraai/e3-api-client';
 import { getValidToken } from '../credentials.js';
-import { parseWorkspaceUrl, parseRepoUrl, formatError, exitError } from '../utils.js';
+import { parseWorkspaceUrl, parseRepoUrl, formatError, exitError, confirm } from '../utils.js';
 
 export const scheduleCommand = {
   async set(
@@ -23,6 +24,7 @@ export const scheduleCommand = {
     options: {
       cron?: string;
       forceTasks?: string;
+      forceRegex?: string;
       timezone?: string;
       description?: string;
       enabled?: string;
@@ -40,9 +42,23 @@ export const scheduleCommand = {
         exitError('--cron is required when creating a new schedule');
       }
 
-      const forceTaskPatterns = options.forceTasks
-        ? options.forceTasks.split(',').map(s => s.trim())
-        : (existing?.forceTaskPatterns ?? []);
+      let forceTasks: string[];
+      if (options.forceRegex) {
+        // Resolve regex against deployed task list
+        const tasks = await taskList(baseUrl, repo, workspace, { token });
+        const regex = new RegExp(options.forceRegex);
+        const matched = tasks.filter(t => regex.test(t.name)).map(t => t.name);
+        if (matched.length === 0) {
+          exitError(`No tasks matched pattern: ${options.forceRegex}`);
+        }
+        console.log(`Matched ${matched.length} tasks: ${matched.join(', ')}`);
+        if (!await confirm('Use these as force-tasks?')) return;
+        forceTasks = matched;
+      } else if (options.forceTasks) {
+        forceTasks = options.forceTasks.split(',').map(s => s.trim());
+      } else {
+        forceTasks = existing?.forceTasks ?? [];
+      }
 
       const enabled = options.enabled !== undefined
         ? options.enabled !== 'false'
@@ -55,7 +71,7 @@ export const scheduleCommand = {
         {
           cronExpression,
           timezone: options.timezone ? some(options.timezone) : none,
-          forceTaskPatterns,
+          forceTasks,
           enabled,
           description: options.description ? some(options.description) : (existing?.description ?? none),
         },
@@ -65,7 +81,7 @@ export const scheduleCommand = {
       console.log(`Schedule ${existing ? 'updated' : 'created'} for ${repo}/${workspace}:`);
       console.log(`  Cron:            ${schedule.cronExpression}`);
       console.log(`  Timezone:        ${schedule.timezone}`);
-      console.log(`  Force tasks:     ${schedule.forceTaskPatterns.join(', ') || '(none)'}`);
+      console.log(`  Force tasks:     ${schedule.forceTasks.join(', ') || '(none)'}`);
       console.log(`  Status:          ${schedule.enabled ? 'enabled' : 'disabled'}`);
       if (schedule.description.type === 'some') {
         console.log(`  Description:     ${schedule.description.value}`);
@@ -90,7 +106,7 @@ export const scheduleCommand = {
       console.log(`Schedule for ${repo}/${workspace}:`);
       console.log(`  Cron:            ${schedule.cronExpression}`);
       console.log(`  Timezone:        ${schedule.timezone}`);
-      console.log(`  Force tasks:     ${schedule.forceTaskPatterns.join(', ') || '(none)'}`);
+      console.log(`  Force tasks:     ${schedule.forceTasks.join(', ') || '(none)'}`);
       console.log(`  Status:          ${schedule.enabled ? 'enabled' : 'disabled'}`);
       if (schedule.description.type === 'some') {
         console.log(`  Description:     ${schedule.description.value}`);

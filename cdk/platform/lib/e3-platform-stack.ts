@@ -35,7 +35,9 @@ import * as ssm from 'aws-cdk-lib/aws-ssm';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as events from 'aws-cdk-lib/aws-events';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
+import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
+import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as scheduler from 'aws-cdk-lib/aws-scheduler';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
@@ -963,6 +965,101 @@ export class E3PlatformStack extends cdk.Stack {
       description: 'Execute task Lambda function ARN',
     });
 
+    // SOCI Index Builder — auto-generates Seekable OCI indexes on ECR push
+    // for lazy container loading, reducing Fargate cold starts by ~50-60%
+    new cdk.CfnStack(this, 'SociIndexBuilder', {
+      templateUrl: `https://aws-ia-${this.region}.s3.${this.region}.amazonaws.com/cfn-ecr-aws-soci-index-builder/templates/SociIndexBuilder.yml`,
+      parameters: {
+        SociRepositoryImageTagFilters: `${prefix}-runner:*`,
+      },
+    });
+
+    // ============================================================
+    // FARGATE COMPUTE INFRASTRUCTURE
+    // ============================================================
+    // Sized compute execution for tasks configured as small/medium/large/xlarge.
+    // Uses ECS Fargate with per-size task definitions.
+
+    // VPC — public subnets only, no NAT (tasks pull from ECR/S3 via internet)
+    const computeVpc = new ec2.Vpc(this, 'ComputeVpc', {
+      vpcName: `${prefix}-compute`,
+      maxAzs: 2,
+      natGateways: 0,
+      subnetConfiguration: [{
+        name: 'Public',
+        subnetType: ec2.SubnetType.PUBLIC,
+        cidrMask: 24,
+      }],
+    });
+
+    // Security group — no inbound, all outbound
+    const computeTaskSg = new ec2.SecurityGroup(this, 'ComputeTaskSg', {
+      vpc: computeVpc,
+      description: 'e3 compute tasks - no inbound, all outbound',
+      allowAllOutbound: true,
+    });
+
+    // ECS Cluster
+    const computeCluster = new ecs.Cluster(this, 'ComputeCluster', {
+      clusterName: `${prefix}-compute`,
+      vpc: computeVpc,
+    });
+
+    // Shared log group for all compute task sizes
+    const computeLogGroup = new logs.LogGroup(this, 'ComputeTaskLogs', {
+      logGroupName: `/e3/${prefix}/compute-tasks`,
+      retention: logs.RetentionDays.TWO_WEEKS,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    // Helper to create a Fargate task definition for a given size
+    const createComputeTaskDef = (id: string, cpu: number, memoryMiB: number, storageGiB: number) => {
+      const taskDef = new ecs.FargateTaskDefinition(this, `ComputeTaskDef${id}`, {
+        family: `${prefix}-compute-${id.toLowerCase()}`,
+        cpu,
+        memoryLimitMiB: memoryMiB,
+        ephemeralStorageGiB: storageGiB,
+        runtimePlatform: {
+          cpuArchitecture: ecs.CpuArchitecture.X86_64,
+          operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
+        },
+      });
+      this.dataBucket.grantReadWrite(taskDef.taskRole);
+      this.dataTable.grantReadWriteData(taskDef.taskRole);
+      const container = taskDef.addContainer('runner', {
+        image: ecs.ContainerImage.fromEcrRepository(runnerRepo, 'latest'),
+        logging: ecs.LogDrivers.awsLogs({ logGroup: computeLogGroup, streamPrefix: `task-${id.toLowerCase()}` }),
+        environment: { BUCKET_NAME: this.dataBucket.bucketName, TABLE_NAME: this.dataTable.tableName },
+        command: ['node', 'dist/handlers/execute-task-compute-entry.js'],
+      });
+      return { taskDef, container };
+    };
+
+    const computeSmall = createComputeTaskDef('Small', 2048, 8192, 30);
+    const computeMedium = createComputeTaskDef('Medium', 4096, 16384, 30);
+    const computeLarge = createComputeTaskDef('Large', 8192, 32768, 50);
+    const computeXLarge = createComputeTaskDef('XLarge', 16384, 65536, 100);
+
+    // Collect-compute-result Lambda — reads result from DynamoDB after Fargate completes
+    const collectComputeResultFn = new nodejs.NodejsFunction(this, 'CollectComputeResultHandler', {
+      functionName: `${prefix}-collect-compute-result`,
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(runnerPackagePath, 'src', 'handlers', 'collect-compute-result.ts'),
+      handler: 'handler',
+      bundling: {
+        minify: true,
+        sourceMap: true,
+        format: nodejs.OutputFormat.ESM,
+        banner: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
+      },
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 256,
+      environment: {
+        TABLE_NAME: this.dataTable.tableName,
+      },
+    });
+    this.dataTable.grantReadWriteData(collectComputeResultFn);
+
     // Now define the dataflow state machine states
     const getGraphState = new tasks.LambdaInvoke(this, 'GetGraphState', {
       lambdaFunction: getGraphFn,
@@ -1074,6 +1171,9 @@ export class E3PlatformStack extends cdk.Stack {
         'outputPath.$': '$.dispatch.Payload.outputPath',
         'taskExecutionId.$': '$.dispatch.Payload.taskExecutionId',
         'cached.$': '$.dispatch.Payload.cached',
+        'computeSize.$': '$.dispatch.Payload.computeSize',
+        'timeoutMinutes.$': '$.dispatch.Payload.timeoutMinutes',
+        'timeoutSeconds.$': '$.dispatch.Payload.timeoutSeconds',
         // Pass through the entire dispatch payload so we can access outputHash if it exists
         'dispatchResult.$': '$.dispatch.Payload',
       },
@@ -1175,13 +1275,99 @@ export class E3PlatformStack extends cdk.Stack {
     });
     // PrepareCachedWrite is a terminal state in the Map iterator (collected by ApplyResults)
 
+    // ============================================================
+    // FARGATE COMPUTE STATES
+    // ============================================================
+    // EcsRunTask states for each Fargate size + routing Choice
+
+    // Helper to create an EcsRunTask state for a given size
+    const createComputeExecuteState = (
+      id: string,
+      taskDef: ecs.FargateTaskDefinition,
+      container: ecs.ContainerDefinition,
+    ) => {
+      return new tasks.EcsRunTask(this, `ExecuteTask${id}`, {
+        integrationPattern: sfn.IntegrationPattern.RUN_JOB,
+        cluster: computeCluster,
+        taskDefinition: taskDef,
+        launchTarget: new tasks.EcsFargateLaunchTarget({
+          platformVersion: ecs.FargatePlatformVersion.LATEST,
+        }),
+        assignPublicIp: true,
+        subnets: { subnetType: ec2.SubnetType.PUBLIC },
+        securityGroups: [computeTaskSg],
+        containerOverrides: [{
+          containerDefinition: container,
+          environment: [
+            { name: 'TASK_EVENT', value: sfn.JsonPath.jsonToString(sfn.JsonPath.objectAt('$')) },
+          ],
+        }],
+        taskTimeout: sfn.Timeout.at('$.timeoutSeconds'),
+        resultPath: sfn.JsonPath.DISCARD,
+      });
+    }
+
+    const executeTaskSmallState = createComputeExecuteState('Small', computeSmall.taskDef, computeSmall.container);
+    const executeTaskMediumState = createComputeExecuteState('Medium', computeMedium.taskDef, computeMedium.container);
+    const executeTaskLargeState = createComputeExecuteState('Large', computeLarge.taskDef, computeLarge.container);
+    const executeTaskXLargeState = createComputeExecuteState('XLarge', computeXLarge.taskDef, computeXLarge.container);
+
+    // CollectComputeResult: reads result from DynamoDB after Fargate completes
+    const collectComputeResultState = new tasks.LambdaInvoke(this, 'CollectComputeResult', {
+      lambdaFunction: collectComputeResultFn,
+      resultPath: '$.execution',
+      retryOnServiceExceptions: true,
+    });
+
+    // DidComputeSucceed: routes to success or failure write states
+    const didComputeSucceedChoice = new sfn.Choice(this, 'DidComputeSucceed')
+      .when(
+        sfn.Condition.stringEquals('$.execution.Payload.status', 'success'),
+        prepareSuccessWriteState
+      )
+      .otherwise(prepareFailureWriteState);
+
+    // Wire Fargate states: EcsRunTask -> CollectComputeResult -> DidComputeSucceed
+    collectComputeResultState.next(didComputeSucceedChoice);
+    executeTaskSmallState.next(collectComputeResultState);
+    executeTaskMediumState.next(collectComputeResultState);
+    executeTaskLargeState.next(collectComputeResultState);
+    executeTaskXLargeState.next(collectComputeResultState);
+
+    // Error handling for Fargate states
+    const computeTaskFailed = new sfn.Pass(this, 'ComputeTaskFailed', {
+      parameters: {
+        'status': 'failed',
+        'error': 'Compute task execution failed',
+        'exitCode': -1,
+        'duration': 0,
+      },
+      resultPath: '$.execution.Payload',
+    });
+    computeTaskFailed.next(prepareFailureWriteState);
+
+    executeTaskSmallState.addCatch(computeTaskFailed, { resultPath: '$.execution.error' });
+    executeTaskMediumState.addCatch(computeTaskFailed, { resultPath: '$.execution.error' });
+    executeTaskLargeState.addCatch(computeTaskFailed, { resultPath: '$.execution.error' });
+    executeTaskXLargeState.addCatch(computeTaskFailed, { resultPath: '$.execution.error' });
+    collectComputeResultState.addCatch(computeTaskFailed, { resultPath: '$.execution.error' });
+
+    // ChooseExecutor: routes to Lambda or appropriate Fargate size
+    const chooseExecutorChoice = new sfn.Choice(this, 'ChooseExecutor')
+      .when(sfn.Condition.stringEquals('$.computeSize.type', 'serverless'), executeTaskState)
+      .when(sfn.Condition.stringEquals('$.computeSize.type', 'small'), executeTaskSmallState)
+      .when(sfn.Condition.stringEquals('$.computeSize.type', 'medium'), executeTaskMediumState)
+      .when(sfn.Condition.stringEquals('$.computeSize.type', 'large'), executeTaskLargeState)
+      .when(sfn.Condition.stringEquals('$.computeSize.type', 'xlarge'), executeTaskXLargeState)
+      .otherwise(executeTaskState); // Fallback to serverless
+
     // Choice: Is task result cached?
     const isCachedChoice = new sfn.Choice(this, 'IsCached')
       .when(
         sfn.Condition.stringEquals('$.status', 'cached'),
         prepareCachedWriteState  // Cached results - prepare and write
       )
-      .otherwise(executeTaskState);
+      .otherwise(chooseExecutorChoice);  // Route to appropriate executor
 
     // Wire up the task execution chain
     dispatchTaskState.next(isNotReadyChoice);

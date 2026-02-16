@@ -51,60 +51,6 @@ export interface ScheduleTriggerResult {
   schedulerExecutionId?: string;
 }
 
-/**
- * Convert a glob pattern to a RegExp for matching task names.
- *
- * Syntax:
- * - `*` matches zero or more characters
- * - `\*` matches a literal asterisk
- * - `\\` matches a literal backslash
- */
-export function globToRegex(pattern: string): RegExp {
-  let regex = '';
-  let i = 0;
-  while (i < pattern.length) {
-    const ch = pattern[i];
-    if (ch === '\\' && i + 1 < pattern.length) {
-      const next = pattern[i + 1];
-      if (next === '*') {
-        regex += '\\*';
-        i += 2;
-        continue;
-      }
-      if (next === '\\') {
-        regex += '\\\\';
-        i += 2;
-        continue;
-      }
-    }
-    if (ch === '*') {
-      regex += '.*';
-      i++;
-      continue;
-    }
-    // Escape regex metacharacters
-    regex += ch.replace(/[.+?^${}()|[\]]/g, '\\$&');
-    i++;
-  }
-  return new RegExp(`^${regex}$`);
-}
-
-/**
- * Resolve force task patterns against the task graph.
- */
-export function resolveForceTaskPatterns(patterns: string[], taskNames: string[]): string[] {
-  const forced = new Set<string>();
-  for (const pattern of patterns) {
-    const re = globToRegex(pattern);
-    for (const name of taskNames) {
-      if (re.test(name)) {
-        forced.add(name);
-      }
-    }
-  }
-  return [...forced];
-}
-
 export async function handler(event: ScheduleTriggerEvent): Promise<ScheduleTriggerResult> {
   const { repo, workspace, schedulerExecutionId, scheduledTime } = event;
 
@@ -123,9 +69,8 @@ export async function handler(event: ScheduleTriggerEvent): Promise<ScheduleTrig
   }
 
   // 2. Validate workspace exists and is deployed
-  let graph: { tasks: Array<{ name: string; hash: string; inputs: string[]; output: string; dependsOn: string[] }> };
   try {
-    graph = await dataflowGetGraph(storage, repo, workspace);
+    await dataflowGetGraph(storage, repo, workspace);
   } catch (err) {
     if (err instanceof WorkspaceNotFoundError) {
       console.log(`Workspace ${workspace} not found in repo ${repo}, skipping`);
@@ -138,10 +83,9 @@ export async function handler(event: ScheduleTriggerEvent): Promise<ScheduleTrig
     throw err;
   }
 
-  // 3. Resolve forceTaskPatterns against task graph
-  const taskNames = graph.tasks.map(t => t.name);
-  const forceTasks = resolveForceTaskPatterns(schedule.forceTaskPatterns, taskNames);
-  console.log(`Resolved ${schedule.forceTaskPatterns.length} patterns to ${forceTasks.length} forced tasks: ${forceTasks.join(', ')}`);
+  // 3. Use forceTasks directly (concrete task names, resolved at CLI time)
+  const forceTasks = schedule.forceTasks;
+  console.log(`Force tasks: ${forceTasks.length > 0 ? forceTasks.join(', ') : '(none)'}`);
 
   // 4. Acquire workspace lock
   const lock = await storage.locks.acquire(

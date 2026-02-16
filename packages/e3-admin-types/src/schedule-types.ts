@@ -51,7 +51,7 @@ export const ScheduleType = StructType({
   workspace: StringType,
   cronExpression: StringType,
   timezone: StringType,
-  forceTaskPatterns: ArrayType(StringType),
+  forceTasks: ArrayType(StringType),
   enabled: BooleanType,
   description: OptionType(StringType),
   createdBy: StringType,
@@ -68,7 +68,7 @@ export type Schedule = ValueTypeOf<typeof ScheduleType>;
 export const ScheduleRequestType = StructType({
   cronExpression: StringType,
   timezone: OptionType(StringType),
-  forceTaskPatterns: ArrayType(StringType),
+  forceTasks: ArrayType(StringType),
   enabled: BooleanType,
   description: OptionType(StringType),
 });

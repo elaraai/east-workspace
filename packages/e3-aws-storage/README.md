@@ -232,6 +232,30 @@ Attributes:
   - updatedAt: string       # ISO timestamp
 ```
 
+### Task Configs
+
+Per-task compute sizing and timeout configuration. Grouped by workspace.
+
+```
+PK: TASKCONFIG/{repo}/{workspace}
+SK: compute#{taskName} | timeout#{taskName}
+Attributes:
+  - value: Binary           # BEAST2-encoded ComputeSize or TaskTimeout
+  - updatedAt: string       # ISO timestamp
+```
+
+### Compute Results (Fargate)
+
+Temporary storage for task execution results from Fargate containers. Written by the compute entrypoint, read and deleted by the collect-compute-result Lambda.
+
+```
+PK: COMPUTE_RESULT/{repo}/{workspace}
+SK: {taskExecutionId}       # UUIDv7
+Attributes:
+  - result: string           # JSON-serialized TaskExecutionResult
+  - ttl: number              # DynamoDB TTL (1 hour)
+```
+
 ### Access Control Lists (ACL)
 
 Repository-level access control. Uses GSI1 for efficient user-to-repos lookups.
@@ -331,12 +355,20 @@ s3://{bucket}/
 | Read logs | PK = LOG/{repo}/{taskHash}/{inputsHash}/{executionId}, SK begins_with {stream}/ | Query |
 | Get object catalogue entry | PK = OBJ/{repo}, SK = {hash} | GetItem |
 | List objects (catalogue) | PK = OBJ/{repo} | Query |
-| Delete repo | PKG/{repo}, WS/{repo}, LOCK/{repo}, REPO#{repo}, OBJ/{repo}, SCHEDULE/{repo}, STATE/{repo}/ (Query) + CACHE/{repo}/, EXECUTION/{repo}/, DATAFLOW/{repo}/, LOG/{repo}/, EXEC/{repo}/, TASK/{repo}/, EVENT/{repo}/ (Scan) | Query + Scan + BatchDelete |
+| Get compute result | PK = COMPUTE_RESULT/{repo}/{workspace}, SK = {taskExecutionId} | GetItem |
+| Delete compute result | PK = COMPUTE_RESULT/{repo}/{workspace}, SK = {taskExecutionId} | DeleteItem |
+| Delete repo | PKG/{repo}, WS/{repo}, LOCK/{repo}, REPO#{repo}, OBJ/{repo}, SCHEDULE/{repo}, STATE/{repo}/ (Query) + CACHE/{repo}/, EXECUTION/{repo}/, DATAFLOW/{repo}/, LOG/{repo}/, EXEC/{repo}/, TASK/{repo}/, EVENT/{repo}/, TASKCONFIG/{repo}/ (Scan) | Query + Scan + BatchDelete |
 | List repo ACL | PK = ACL#{repo} | Query |
 | Get user role | PK = ACL#{repo}, SK = USER#{userId} | GetItem |
 | Add/update ACL entry | PK = ACL#{repo}, SK = USER#{userId} | PutItem |
 | Remove ACL entry | PK = ACL#{repo}, SK = USER#{userId} | DeleteItem |
 | List repos for user | GSI1PK = USERACL#{userId} | Query (GSI1) |
+| Get task compute config | PK = TASKCONFIG/{repo}/{workspace}, SK = compute#{taskName} | GetItem |
+| List task compute configs | PK = TASKCONFIG/{repo}/{workspace}, SK begins_with compute# | Query |
+| Get task timeout config | PK = TASKCONFIG/{repo}/{workspace}, SK = timeout#{taskName} | GetItem |
+| List task timeout configs | PK = TASKCONFIG/{repo}/{workspace}, SK begins_with timeout# | Query |
+| Delete workspace task configs | PK = TASKCONFIG/{repo}/{workspace} | Query + BatchDelete |
+| Delete repo task configs | PK begins_with TASKCONFIG/{repo}/ | Scan + BatchDelete |
 | Get schedule | PK = SCHEDULE/{repo}, SK = {workspace} | GetItem |
 | List schedules | PK = SCHEDULE/{repo} | Query |
 | Delete schedule | PK = SCHEDULE/{repo}, SK = {workspace} | DeleteItem |
@@ -355,8 +387,9 @@ packages/e3-aws-storage/src/
 ├── dynamo-log-store.ts       # DynamoDB-backed LogStore
 ├── dynamo-state-store.ts     # DynamoDB + S3-backed ExecutionStateStore
 ├── dynamo-acl-store.ts       # DynamoDB-backed AclStore (repository access control)
-├── dynamo-schedule-store.ts  # DynamoDB-backed ScheduleStore (workspace schedules)
-└── index.ts                  # Exports
+├── dynamo-schedule-store.ts      # DynamoDB-backed ScheduleStore (workspace schedules)
+├── dynamo-task-config-store.ts  # DynamoDB-backed TaskConfigStore (per-task compute & timeout)
+└── index.ts                      # Exports
 ```
 
 ## RepoStore Interface

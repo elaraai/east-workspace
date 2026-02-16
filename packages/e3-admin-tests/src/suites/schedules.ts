@@ -81,7 +81,7 @@ export function scheduleTests(getContext: () => AdminTestContext): void {
             {
               cronExpression: '0 2 * * *',
               timezone: none,
-              forceTaskPatterns: [],
+              forceTasks: [],
               enabled: true,
               description: none,
             },
@@ -111,7 +111,7 @@ export function scheduleTests(getContext: () => AdminTestContext): void {
             {
               cronExpression: '0 2 * * *',
               timezone: none,
-              forceTaskPatterns: [],
+              forceTasks: [],
               enabled: true,
               description: none,
             },

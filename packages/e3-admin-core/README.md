@@ -89,6 +89,32 @@ interface WhoamiBackend {
 }
 ```
 
+### TaskConfigStore
+
+Storage interface for per-task compute and timeout configuration.
+
+```typescript
+interface TaskConfigStore {
+  getCompute(repo: string, workspace: string, taskName: string): Promise<ComputeSize | null>;
+  putCompute(repo: string, workspace: string, taskName: string, size: ComputeSize): Promise<void>;
+  putComputeBatch(repo: string, workspace: string, configs: Record<string, ComputeSize>): Promise<void>;
+  deleteCompute(repo: string, workspace: string, taskName: string): Promise<void>;
+  deleteComputeBatch(repo: string, workspace: string, taskNames: string[]): Promise<void>;
+  listCompute(repo: string, workspace: string): Promise<Record<string, ComputeSize>>;
+  getTimeout(repo: string, workspace: string, taskName: string): Promise<TaskTimeout | null>;
+  putTimeout(repo: string, workspace: string, taskName: string, timeout: TaskTimeout): Promise<void>;
+  putTimeoutBatch(repo: string, workspace: string, configs: Record<string, TaskTimeout>): Promise<void>;
+  deleteTimeout(repo: string, workspace: string, taskName: string): Promise<void>;
+  deleteTimeoutBatch(repo: string, workspace: string, taskNames: string[]): Promise<void>;
+  listTimeout(repo: string, workspace: string): Promise<Record<string, TaskTimeout>>;
+  deleteAllForWorkspace(repo: string, workspace: string): Promise<void>;
+  deleteAllForRepo(repo: string): Promise<void>;
+}
+```
+
+Implementations:
+- `DynamoTaskConfigStore` (e3-aws-storage) - DynamoDB-backed
+
 ## License
 
 BSL-1.1 - See LICENSE.md for details.

@@ -86,6 +86,16 @@ Tests for workspace schedule management:
 - `DELETE /repos/{repo}/workspaces/{ws}/schedule` - Delete schedule
 - `GET /repos/{repo}/schedules` - List schedules
 
+### taskConfigTests
+
+Tests for per-task compute and timeout configuration:
+- `GET /repos/{repo}/workspaces/{ws}/task-configs` - Unified config view
+- `GET/PUT/POST/DELETE .../task-configs/compute` - Compute size CRUD + batch
+- `GET/PUT/POST/DELETE .../task-configs/timeout` - Timeout CRUD + batch
+- Default values (serverless→15min, sized→1440min)
+- Timeout validation (5–43200 minutes)
+- Authorization (outsider forbidden, member allowed)
+
 ## API
 
 ### `createAdminTestContext(config: AdminTestConfig): Promise<AdminTestContext>`
@@ -102,6 +112,7 @@ Register all test suites with the Node.js test runner.
 - `repoUsersTests(getContext)` - User management tests
 - `authorizationTests(getContext)` - Permission tests
 - `scheduleTests(getContext)` - Schedule management tests
+- `taskConfigTests(getContext)` - Task config tests
 
 ## Types
 

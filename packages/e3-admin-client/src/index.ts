@@ -46,6 +46,11 @@ export { ApiError, AuthError, type RequestOptions } from '@elaraai/e3-api-client
 // API functions
 export { whoami, repoUsers, addUser, removeUser } from './users.js';
 export { getSchedule, setSchedule, removeSchedule, listSchedules } from './schedules.js';
+export {
+  listCompute, getCompute, setCompute, setComputeBatch, removeCompute,
+  listTimeout, getTimeout, setTimeout, setTimeoutBatch, removeTimeout,
+  listTaskConfigs,
+} from './task-configs.js';
 
 // Re-export types from e3-admin-types for convenience
 export type {
@@ -56,4 +61,9 @@ export type {
   AuthzErrorCode,
   Schedule,
   ScheduleRequest,
+  ComputeSize,
+  ComputeConfigMap,
+  TaskTimeout,
+  TimeoutConfigMap,
+  TaskConfigs,
 } from '@elaraai/e3-admin-types';

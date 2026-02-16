@@ -6,7 +6,7 @@ AWS cloud infrastructure for hosting e3 solutions.
 
 This repository contains the AWS CDK infrastructure, Lambda handlers, and frontend application for deploying e3 as a multi-tenant cloud service.
 
-**Architecture:** CloudFront + API Gateway + Lambda + S3 + DynamoDB + Step Functions
+**Architecture:** CloudFront + API Gateway + Lambda + ECS Fargate + S3 + DynamoDB + Step Functions
 
 See `design/cloud-options.md` for architecture decisions and `design/cloud-devplan.md` for the development roadmap.
 
@@ -45,7 +45,11 @@ e3-aws/
 │   │       └── s3-dynamo-storage.ts
 │   │
 │   ├── e3-aws-runner/        # Task execution handlers (@elaraai/e3-aws-runner)
-│   │   └── src/handlers/     # Step Functions Lambda handlers
+│   │   └── src/handlers/     # Step Functions Lambda + Fargate handlers
+│   │       ├── execute-task.ts                  # Lambda entry point for task execution
+│   │       ├── execute-task-core.ts             # Shared task execution logic
+│   │       ├── execute-task-compute-entry.ts    # Fargate entry point for task execution
+│   │       └── collect-compute-result.ts        # Lambda to collect Fargate task results
 │   │
 │   ├── e3-admin-types/       # Shared East types for authorization (@elaraai/e3-admin-types)
 │   │
@@ -108,6 +112,8 @@ e3-aws/
 - **StorageBackend** - Interface from e3-core for storage operations (this repo provides `S3DynamoStorage`)
 - **DataflowExecutor** - Interface from e3-core for orchestration (this repo provides Step Functions implementation)
 - **UIComponentType** - East UI type that the frontend renders using `east-ui-components`
+- **ComputeSize** - Per-task compute tier (serverless/small/medium/large/xlarge). Serverless = Lambda, others = Fargate
+- **TaskConfig** - Per-task configuration for compute size and timeout, stored in DynamoDB
 
 ## Development
 
@@ -245,7 +251,7 @@ AWS_PROFILE=elaraai-dev-elara-e3 npm test -- --test-name-pattern "diamond"
 
 ## References
 
-- Design docs: `./design/cloud-options.md`, `./design/cloud-devplan.md`
+- Design docs: `./design/cloud-options.md`, `./design/cloud-devplan.md`, `./design/fargate-compute.md`
 - e3 design: `../e3/design/e3-mvp.md`
 - e3-core interfaces: `../e3/packages/e3-core/src/` (StorageBackend, DataflowExecutor)
 - east-ui components: `../east-ui/packages/east-ui-components/src/`
