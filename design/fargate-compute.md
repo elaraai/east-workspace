@@ -1,269 +1,286 @@
-# Sized Compute Tasks
+# Task Configs & Sized Compute
 
 ## Summary
 
-Add the ability for users to configure per-task settings for compute, timeout, and schedule-force. Tasks with a compute config run in a **sized compute** tier (`small`, `medium`, `large`, `xlarge`) instead of the default **serverless** mode, lifting the 15-minute timeout and 10 GB memory limits. Tasks without any config continue to run in serverless mode with default settings (unchanged).
+Three features:
 
-Per-task configs are stored against **concrete task names** (no server-side globs or patterns). The CLI provides client-side regex matching against deployed tasks for bulk configuration. The API is structured as three independent dimensions — compute, timeout, and schedule — with separate routes for each.
+1. **Per-task compute config** — users assign a compute size (`serverless`, `small`, `medium`, `large`, `xlarge`) to tasks. Separate API routes and CLI command.
+2. **Per-task timeout config** — users set a timeout override per task. Separate API routes and CLI command.
+3. **Schedule improvements** — the schedule's `forceTaskPatterns` field is replaced with a concrete `forceTasks` list. CLI/web provides regex matching against deployed tasks to build the list.
+
+Tasks with a non-serverless compute size run on provisioned infrastructure, lifting the 15-minute timeout and 10 GB memory limits. Tasks default to `serverless` with no config.
 
 ## Motivation
 
 The default serverless execution mode imposes hard limits:
 - **15-minute maximum timeout** — tasks that run longer simply fail
 - **10 GB maximum memory** — insufficient for large dataset processing
-- **No GPU support** — blocks ML/AI workloads entirely
 
 Sized compute tiers remove these constraints:
-- Tasks can run for **hours** (up to 24 hours per state machine execution)
+- Tasks can run for **hours** (up to 1 year per state machine execution is the AWS limit)
 - Up to **16 vCPU / 64 GB memory** per task (xlarge tier)
 - Per-second billing with no idle costs when no tasks are running
-- Same container image is shared between all execution modes
+- Same container image shared between all execution modes
 
-## User Experience
+## East Types
 
-### CLI Commands
+All new types in one place. These are the public-facing data model.
 
-Three separate command groups, one per config dimension:
+```typescript
+// packages/e3-admin-types/src/task-config-types.ts
 
-```bash
-# --- Compute configs ---
+import {
+  StructType, VariantType, NullType, StringType, IntegerType,
+  DictionaryType, type ValueTypeOf,
+} from '@elaraai/east';
 
-# Set compute size for a single task
-e3-cloud compute set https://dev.e3.elaraai.com/repos/my-repo/workspaces/main \
-  --task "train-orders" \
-  --size medium
+/** Compute size — variant with no associated data per case */
+export const ComputeSizeType = VariantType({
+  serverless: NullType,
+  small: NullType,
+  medium: NullType,
+  large: NullType,
+  xlarge: NullType,
+});
+export type ComputeSize = ValueTypeOf<typeof ComputeSizeType>;
 
-# Set compute size for tasks matching a regex (resolved client-side against deployed tasks)
-e3-cloud compute set https://dev.e3.elaraai.com/repos/my-repo/workspaces/main \
-  --regex "train.*" \
-  --size large
-# CLI output:
-#   Matched 3 tasks: train-orders, train-products, train-customers
-#   Apply compute size 'large' to 3 tasks? [y/N]
+/** Timeout config */
+export const TaskTimeoutType = StructType({
+  minutes: IntegerType,          // 5–43200
+});
+export type TaskTimeout = ValueTypeOf<typeof TaskTimeoutType>;
 
-# List compute configs for a workspace
-e3-cloud compute list https://dev.e3.elaraai.com/repos/my-repo/workspaces/main
+/** Workspace compute configs — returned by GET /task-configs/compute */
+export const ComputeConfigMapType = DictionaryType(StringType, ComputeSizeType);
+export type ComputeConfigMap = ValueTypeOf<typeof ComputeConfigMapType>;
 
-# Get compute config for a single task
-e3-cloud compute get https://dev.e3.elaraai.com/repos/my-repo/workspaces/main \
-  --task "train-orders"
-
-# Remove compute config for a task (reverts to serverless)
-e3-cloud compute remove https://dev.e3.elaraai.com/repos/my-repo/workspaces/main \
-  --task "train-orders"
-
-# Remove compute config for tasks matching a regex
-e3-cloud compute remove https://dev.e3.elaraai.com/repos/my-repo/workspaces/main \
-  --regex "train.*"
-
-# --- Timeout configs ---
-
-# Set timeout for tasks matching a regex
-e3-cloud timeout set https://dev.e3.elaraai.com/repos/my-repo/workspaces/main \
-  --regex "etl.*" \
-  --timeout 4h
-
-# List timeout configs
-e3-cloud timeout list https://dev.e3.elaraai.com/repos/my-repo/workspaces/main
-
-# --- Schedule-force configs ---
-
-# Mark tasks to be force-run by schedule (skips cache)
-e3-cloud schedule-force set https://dev.e3.elaraai.com/repos/my-repo/workspaces/main \
-  --regex "input.*"
-
-# List schedule-force configs
-e3-cloud schedule-force list https://dev.e3.elaraai.com/repos/my-repo/workspaces/main
+/** Workspace timeout configs — returned by GET /task-configs/timeout */
+export const TimeoutConfigMapType = DictionaryType(StringType, TaskTimeoutType);
+export type TimeoutConfigMap = ValueTypeOf<typeof TimeoutConfigMapType>;
 ```
 
-The `--task` flag sets a single task. The `--regex` flag fetches the deployed task list from the API, matches against it, confirms with the user, and POSTs a batch. The two flags are mutually exclusive.
+Changes to the existing schedule type:
 
-### Client-Side Regex Flow
+```typescript
+// packages/e3-admin-types/src/schedule-types.ts — changes only
 
+export const ScheduleRequestType = StructType({
+  cronExpression: StringType,
+  timezone: OptionType(StringType),
+  forceTasks: ArrayType(StringType),    // was: forceTaskPatterns
+  enabled: BooleanType,
+  description: OptionType(StringType),
+});
+
+export const ScheduleType = StructType({
+  // ... existing fields ...
+  forceTasks: ArrayType(StringType),    // was: forceTaskPatterns
+});
 ```
-1. CLI fetches task list:  GET /api/repos/:repo/workspaces/:ws/tasks
-2. CLI filters by regex:   taskNames.filter(name => regex.test(name))
-3. CLI shows matches:      "Matched 3 tasks: train-orders, train-products, train-customers"
-4. CLI confirms:           "Apply compute size 'large' to 3 tasks? [y/N]"
-5. CLI POSTs batch:        POST /api/repos/:repo/workspaces/:ws/task-configs/compute
-                           Body: { "train-orders": { "size": "large" }, ... }
-```
 
-A future web UI can present the same flow with a filter box / checkbox system.
+## Compute Size Tiers
 
-### Compute Size Tiers
-
-Users select a named size. The platform maps sizes to infrastructure resources — this mapping is an implementation detail that can change without breaking the API.
+Users select a named size. The platform maps sizes to infrastructure resources — this mapping is a server-side implementation detail that can change without breaking the API.
 
 | Size | vCPU | Memory | Storage | Typical Use |
 |------|------|--------|---------|-------------|
+| `serverless` | — | up to 10 GB | — | Default. Quick tasks under 15 min |
 | `small` | 2 | 8 GB | 30 GB | Light compute, longer-running tasks |
 | `medium` | 4 | 16 GB | 30 GB | Standard compute workloads |
 | `large` | 8 | 32 GB | 50 GB | Memory-heavy processing |
 | `xlarge` | 16 | 64 GB | 100 GB | Large dataset processing |
 
-All sizes use the same container image. The only user-facing parameter is the size name.
+### Timeout Defaults
 
-### Timeout Config Options
+| Compute Size | Default Timeout |
+|-------------|----------------|
+| `serverless` | 15 minutes |
+| `small` / `medium` / `large` / `xlarge` | 1440 minutes (1 day) |
 
-| Option | Flag | Required | Default | Range |
-|--------|------|----------|---------|-------|
-| Timeout | `--timeout` | Yes | — | 5m–24h (e.g. "30m", "2h", "1h30m") |
+A task's timeout config overrides the default. Range: 5 minutes – 43200 minutes (30 days).
 
-Tasks with no timeout config use the platform default: 15 minutes for serverless tasks, 1 hour for sized compute tasks (those with a compute config).
+## User Experience
 
-### Schedule-Force Config
+### CLI: Compute
 
-No options beyond the task selection. A task either has schedule-force enabled or it doesn't. This replaces the `forceTaskPatterns` field on the schedule object.
+The task name/pattern is a positional argument. `--regex` is a flag that changes interpretation.
+
+```bash
+# Set compute size for a single task
+e3-cloud compute set <workspace-url> "train-orders" --size medium
+
+# Regex mode — matches against deployed tasks, confirms, then batch writes
+e3-cloud compute set <workspace-url> "train.*" --regex --size large
+#   Matched 3 tasks: train-orders, train-products, train-customers
+#   Set compute size 'large' for 3 tasks? [y/N]
+
+# List compute configs for a workspace
+e3-cloud compute list <workspace-url>
+
+# Get compute config for a single task
+e3-cloud compute get <workspace-url> "train-orders"
+
+# Remove compute config (reverts to serverless)
+e3-cloud compute remove <workspace-url> "train-orders"
+
+# Bulk remove via regex
+e3-cloud compute remove <workspace-url> "train.*" --regex
+```
+
+### CLI: Timeout
+
+```bash
+# Set timeout for a single task
+e3-cloud timeout set <workspace-url> "heavy-etl" --timeout 4h
+
+# Bulk set via regex
+e3-cloud timeout set <workspace-url> "etl.*" --regex --timeout 2h
+
+# List timeout configs
+e3-cloud timeout list <workspace-url>
+
+# Get timeout for a single task (returns effective timeout including default)
+e3-cloud timeout get <workspace-url> "train-orders"
+
+# Remove timeout override (reverts to default for compute size)
+e3-cloud timeout remove <workspace-url> "heavy-etl"
+```
+
+### CLI: Schedule Force-Tasks
+
+The schedule command gains `--force-tasks` and `--force-regex`:
+
+```bash
+# Set schedule with explicit force-tasks list
+e3-cloud schedule set <workspace-url> \
+  --cron "0 2 * * *" \
+  --force-tasks "input-orders,input-products"
+
+# Or use regex to build the list from deployed tasks
+e3-cloud schedule set <workspace-url> \
+  --cron "0 2 * * *" \
+  --force-regex "input.*"
+#   Matched 2 tasks: input-orders, input-products
+#   Set as force-tasks? [y/N]
+```
+
+The `--force-regex` flag is resolved client-side — the API only stores concrete task names.
+
+### Client-Side Regex Flow
+
+When `--regex` is set (or `--force-regex` for schedules):
+
+```
+1. CLI fetches task list:  GET /api/repos/:repo/workspaces/:ws/tasks
+2. CLI filters by regex:   taskNames.filter(name => regex.test(name))
+3. CLI shows matches and confirms
+4. CLI POSTs batch
+```
 
 ### Default Behaviour
 
-Tasks with **no config** use platform defaults — no config means no config, not an empty config object. Specifically:
-- **No compute config** → runs in serverless mode (10 GB memory, 15-minute timeout)
-- **No timeout config** → serverless default (15 min) or sized compute default (1 hour) depending on execution target
-- **No schedule-force** → task uses cache normally during scheduled runs
+- **No compute config** → `serverless` (returned by GET)
+- **No timeout config** → default for compute size (15 min serverless, 1 day sized; returned by GET)
 
-## Architecture
+The server always returns the effective value on GET, even for tasks with no explicit config.
 
-### API Routes
+## API Routes
 
-Three separate route groups, one per dimension. Each has an individual task resource and a collection with batch POST.
+All request and response bodies are **BEAST2-encoded** East values, consistent with the existing e3 API. The East type objects (`ComputeSizeType`, `TaskTimeoutType`, etc.) are used for both encoding/decoding on the server and for client-side type safety.
 
-#### Compute
+### Compute
 
 ```
-GET    /api/repos/:repo/workspaces/:ws/task-configs/compute            → { [taskName]: ComputeConfig }
-POST   /api/repos/:repo/workspaces/:ws/task-configs/compute            → { [taskName]: ComputeConfig }
-         Body: { [taskName]: { size } }
-GET    /api/repos/:repo/workspaces/:ws/task-configs/compute/:task      → ComputeConfig
-PUT    /api/repos/:repo/workspaces/:ws/task-configs/compute/:task      → ComputeConfig
-         Body: { size }
+GET    /api/repos/:repo/workspaces/:ws/task-configs/compute            → { [taskName]: ComputeSize }
+POST   /api/repos/:repo/workspaces/:ws/task-configs/compute            → { [taskName]: ComputeSize }
+         Body: { [taskName]: ComputeSize }
+GET    /api/repos/:repo/workspaces/:ws/task-configs/compute/:task      → ComputeSize
+PUT    /api/repos/:repo/workspaces/:ws/task-configs/compute/:task      → ComputeSize
+         Body: ComputeSize
 DELETE /api/repos/:repo/workspaces/:ws/task-configs/compute/:task      → 204
 ```
 
-#### Timeout
+- GET collection returns only tasks with **explicit** configs (not every task as `serverless`)
+- GET individual returns the explicit config, or `variant('serverless')` if none exists
+- PUT `variant('serverless')` is equivalent to DELETE (removes the config entry)
+
+### Timeout
 
 ```
-GET    /api/repos/:repo/workspaces/:ws/task-configs/timeout            → { [taskName]: TimeoutConfig }
-POST   /api/repos/:repo/workspaces/:ws/task-configs/timeout            → { [taskName]: TimeoutConfig }
-         Body: { [taskName]: { minutes } }
-GET    /api/repos/:repo/workspaces/:ws/task-configs/timeout/:task      → TimeoutConfig
-PUT    /api/repos/:repo/workspaces/:ws/task-configs/timeout/:task      → TimeoutConfig
-         Body: { minutes }
+GET    /api/repos/:repo/workspaces/:ws/task-configs/timeout            → { [taskName]: TaskTimeout }
+POST   /api/repos/:repo/workspaces/:ws/task-configs/timeout            → { [taskName]: TaskTimeout }
+         Body: { [taskName]: TaskTimeout }
+GET    /api/repos/:repo/workspaces/:ws/task-configs/timeout/:task      → TaskTimeout
+PUT    /api/repos/:repo/workspaces/:ws/task-configs/timeout/:task      → TaskTimeout
+         Body: TaskTimeout
 DELETE /api/repos/:repo/workspaces/:ws/task-configs/timeout/:task      → 204
 ```
 
-#### Schedule-Force
+- GET collection returns only tasks with **explicit** timeout overrides
+- GET individual returns the explicit config, or `{ minutes: 15 }` (serverless default) / `{ minutes: 1440 }` (sized default) based on the task's compute config
+
+### Unified View
 
 ```
-GET    /api/repos/:repo/workspaces/:ws/task-configs/schedule           → { [taskName]: ScheduleForceConfig }
-POST   /api/repos/:repo/workspaces/:ws/task-configs/schedule           → { [taskName]: ScheduleForceConfig }
-         Body: { [taskName]: { force: true } }
-GET    /api/repos/:repo/workspaces/:ws/task-configs/schedule/:task     → ScheduleForceConfig
-PUT    /api/repos/:repo/workspaces/:ws/task-configs/schedule/:task     → ScheduleForceConfig
-         Body: { force: true }
-DELETE /api/repos/:repo/workspaces/:ws/task-configs/schedule/:task     → 204
+GET    /api/repos/:repo/workspaces/:ws/task-configs                    → { compute: ComputeConfigMap, timeout: TimeoutConfigMap }
 ```
 
-#### Unified View
+Returns both dimensions. Only tasks with explicit configs appear in each map.
 
-```
-GET    /api/repos/:repo/workspaces/:ws/task-configs                    → AllTaskConfigs
-```
+### Schedules (changes only)
 
-Returns:
-```json
-{
-  "compute":  { "train-orders": { "size": "medium" }, "train-products": { "size": "large" }, ... },
-  "timeout":  { "heavy-etl": { "minutes": 240 }, ... },
-  "schedule": { "input-orders": { "force": true }, ... }
-}
-```
+The existing schedule routes are unchanged. The `ScheduleRequestType` body changes:
+- `forceTaskPatterns: string[]` → `forceTasks: string[]`
 
-The structure mirrors the route hierarchy. A task only appears in a dictionary if it has an explicit config for that dimension.
+This is a **breaking change** to the schedule API.
 
-#### Validation
+### Validation
 
-All validation happens server-side on the POST/PUT handlers:
+All validation is server-side:
+- **compute:** must be a valid `ComputeSize` variant
+- **timeout:** minutes must be 5–43200
+- **Task existence:** task names validated against deployed workspace — unknown tasks rejected with a clear error
 
-- **Compute:** size must be one of `small`, `medium`, `large`, `xlarge`
-- **Timeout:** minutes must be 5–1440
-- **Schedule-force:** `force` must be `true` (DELETE to remove, don't set `false`)
-- **Task existence:** All task names validated against the deployed workspace — reject unknown tasks with a clear error listing which names were invalid
+## Data Model
 
-### Data Model
+### DynamoDB Schema
 
-#### DynamoDB Schema
-
-All three dimensions stored in the shared single-table. One item per task per dimension:
+Two items per configured task, stored in the shared single-table:
 
 ```
 PK: TASKCONFIG/{repo}/{workspace}
-SK: compute#{taskName}       → BEAST2-encoded ComputeConfig
-SK: timeout#{taskName}       → BEAST2-encoded TimeoutConfig
-SK: schedule#{taskName}      → BEAST2-encoded ScheduleForceConfig
+SK: compute#{taskName}       → BEAST2-encoded ComputeSize
+SK: timeout#{taskName}       → BEAST2-encoded TaskTimeout
 ```
 
-This allows:
-- **List all configs for a workspace:** Query `PK = TASKCONFIG/{repo}/{workspace}` (returns all three dimensions)
-- **List one dimension:** Query with `SK begins_with compute#` (or `timeout#` or `schedule#`)
-- **Get one task's config:** GetItem with exact PK/SK
+- **List one dimension:** Query with `SK begins_with compute#` or `SK begins_with timeout#`
+- **List all:** Query `PK = TASKCONFIG/{repo}/{workspace}`
+- **Get one:** GetItem with exact PK/SK
 - **Batch write:** BatchWriteItem for the POST dictionary
-- **Cleanup:** Query by PK prefix, then batch delete
+- **Cleanup:** Query by PK, then batch delete
 
-#### East Types (`e3-admin-types`)
+Schedule `forceTasks` is stored as part of the existing schedule item (replaces `forceTaskPatterns`).
 
-```typescript
-// packages/e3-admin-types/src/task-config-types.ts
-
-export const ComputeSizeType = StringEnumType(['small', 'medium', 'large', 'xlarge']);
-
-export const ComputeConfigType = StructType({
-  size: ComputeSizeType,         // Named size tier
-});
-
-export const TimeoutConfigType = StructType({
-  minutes: IntegerType,          // 5–1440
-});
-
-export const ScheduleForceConfigType = StructType({
-  force: BooleanType,            // always true (delete to remove)
-});
-
-// Unified view returned by GET /task-configs
-export const AllTaskConfigsType = StructType({
-  compute: DictionaryType(StringType, ComputeConfigType),
-  timeout: DictionaryType(StringType, TimeoutConfigType),
-  schedule: DictionaryType(StringType, ScheduleForceConfigType),
-});
-```
-
-#### Store Interface (`e3-admin-core`)
+### Store Interface (`e3-admin-core`)
 
 ```typescript
 // packages/e3-admin-core/src/task-config-store.ts
-
 interface TaskConfigStore {
   // Compute
-  getCompute(repo: string, workspace: string, taskName: string): Promise<ComputeConfig | null>;
-  putCompute(repo: string, workspace: string, taskName: string, config: ComputeConfig): Promise<void>;
+  getCompute(repo: string, workspace: string, taskName: string): Promise<ComputeSize | null>;
+  putCompute(repo: string, workspace: string, taskName: string, size: ComputeSize): Promise<void>;
+  putComputeBatch(repo: string, workspace: string, configs: Record<string, ComputeSize>): Promise<void>;
   deleteCompute(repo: string, workspace: string, taskName: string): Promise<void>;
-  listCompute(repo: string, workspace: string): Promise<Record<string, ComputeConfig>>;
+  deleteComputeBatch(repo: string, workspace: string, taskNames: string[]): Promise<void>;
+  listCompute(repo: string, workspace: string): Promise<Record<string, ComputeSize>>;
 
   // Timeout
-  getTimeout(repo: string, workspace: string, taskName: string): Promise<TimeoutConfig | null>;
-  putTimeout(repo: string, workspace: string, taskName: string, config: TimeoutConfig): Promise<void>;
+  getTimeout(repo: string, workspace: string, taskName: string): Promise<TaskTimeout | null>;
+  putTimeout(repo: string, workspace: string, taskName: string, timeout: TaskTimeout): Promise<void>;
+  putTimeoutBatch(repo: string, workspace: string, configs: Record<string, TaskTimeout>): Promise<void>;
   deleteTimeout(repo: string, workspace: string, taskName: string): Promise<void>;
-  listTimeout(repo: string, workspace: string): Promise<Record<string, TimeoutConfig>>;
-
-  // Schedule-force
-  getScheduleForce(repo: string, workspace: string, taskName: string): Promise<ScheduleForceConfig | null>;
-  putScheduleForce(repo: string, workspace: string, taskName: string, config: ScheduleForceConfig): Promise<void>;
-  deleteScheduleForce(repo: string, workspace: string, taskName: string): Promise<void>;
-  listScheduleForce(repo: string, workspace: string): Promise<Record<string, ScheduleForceConfig>>;
-
-  // Unified
-  listAll(repo: string, workspace: string): Promise<AllTaskConfigs>;
+  deleteTimeoutBatch(repo: string, workspace: string, taskNames: string[]): Promise<void>;
+  listTimeout(repo: string, workspace: string): Promise<Record<string, TaskTimeout>>;
 
   // Cleanup
   deleteAllForWorkspace(repo: string, workspace: string): Promise<void>;
@@ -271,107 +288,25 @@ interface TaskConfigStore {
 }
 ```
 
-### API Client (`e3-admin-client`)
+## Execution Flow
+
+### dispatch-task Changes
+
+The dispatch-task handler reads both configs and adds routing information:
 
 ```typescript
-// packages/e3-admin-client/src/task-configs.ts
-
-// Compute
-export async function getComputeConfig(url, repo, workspace, taskName, options);
-export async function setComputeConfig(url, repo, workspace, taskName, config, options);
-export async function setComputeConfigs(url, repo, workspace, configs: Record<string, ComputeConfig>, options);
-export async function removeComputeConfig(url, repo, workspace, taskName, options);
-export async function listComputeConfigs(url, repo, workspace, options);
-
-// Timeout
-export async function getTimeoutConfig(url, repo, workspace, taskName, options);
-export async function setTimeoutConfig(url, repo, workspace, taskName, config, options);
-export async function setTimeoutConfigs(url, repo, workspace, configs: Record<string, TimeoutConfig>, options);
-export async function removeTimeoutConfig(url, repo, workspace, taskName, options);
-export async function listTimeoutConfigs(url, repo, workspace, options);
-
-// Schedule-force
-export async function getScheduleForceConfig(url, repo, workspace, taskName, options);
-export async function setScheduleForceConfig(url, repo, workspace, taskName, config, options);
-export async function setScheduleForceConfigs(url, repo, workspace, configs: Record<string, ScheduleForceConfig>, options);
-export async function removeScheduleForceConfig(url, repo, workspace, taskName, options);
-export async function listScheduleForceConfigs(url, repo, workspace, options);
-
-// Unified
-export async function listAllTaskConfigs(url, repo, workspace, options);
-```
-
-### Orphaned Config Cleanup
-
-When a workspace is deployed and the task set changes, configs may reference tasks that no longer exist. The deploy step handles this with **warn + auto-delete**:
-
-1. After a successful workspace deploy, the API compares existing task config names against the new task set
-2. Configs referencing removed tasks are deleted
-3. The deploy response includes the list of removed configs
-
-```
-Deployed workspace 'main' (12 tasks)
-Removed 2 orphaned task configs:
-  compute: heavy-etl
-  schedule: old-transform
-```
-
-This keeps the config clean without requiring manual maintenance. If a task is re-added later, it gets reconfigured — simpler than managing orphaned state.
-
-### Impact on Schedules
-
-The schedule object's `forceTaskPatterns` field is **replaced** by the schedule-force task configs. The schedule trigger handler changes:
-
-```typescript
-// schedule-trigger.ts — before:
-const forceTasks = resolveForceTaskPatterns(schedule.forceTaskPatterns, taskGraph);
-
-// schedule-trigger.ts — after:
-const scheduleConfigs = await storage.taskConfigs.listScheduleForce(repo, workspace);
-const forceTasks = Object.keys(scheduleConfigs);
-```
-
-This is a **breaking change** to the schedule API — `forceTaskPatterns` is removed from `ScheduleRequestType`. Existing schedules need migration (move patterns → resolve to concrete tasks → write as schedule-force configs).
-
-## Execution Flow Changes
-
-### dispatch-task Modifications
-
-The dispatch-task handler reads task configs, resolves the size to infrastructure parameters, and passes routing information downstream:
-
-```typescript
-// Size → infrastructure mapping (server-side implementation detail)
-const COMPUTE_SIZES = {
-  small:  { cpu: 2,  memoryGb: 8,  storageGb: 30  },
-  medium: { cpu: 4,  memoryGb: 16, storageGb: 30  },
-  large:  { cpu: 8,  memoryGb: 32, storageGb: 50  },
-  xlarge: { cpu: 16, memoryGb: 64, storageGb: 100 },
-} as const;
-
-// In dispatch-task.ts handler, after determining task is 'ready':
-
-const computeConfig = await storage.taskConfigs.getCompute(repo, workspace, taskName);
+const computeSize = await storage.taskConfigs.getCompute(repo, workspace, taskName);
 const timeoutConfig = await storage.taskConfigs.getTimeout(repo, workspace, taskName);
 
-const computeSize = computeConfig?.size;
-const sizeSpec = computeSize ? COMPUTE_SIZES[computeSize] : undefined;
+const effectiveCompute = computeSize ?? variant('serverless');
+const isServerless = effectiveCompute.type === 'serverless';
 const timeoutMinutes = timeoutConfig?.minutes
-  ?? (computeSize ? 60 : 15);  // Sized compute default 60 min, serverless default 15 min
+  ?? (isServerless ? 15 : 1440);
 
 return {
-  taskName,
-  status: 'ready',
-  taskHash: prepare.taskHash,
-  inputHashes: prepare.inputHashes,
-  outputPath: prepare.outputPath,
-  taskExecutionId,
-  cached: false,
-  // Routing information (resolved from size)
-  computeSize,
-  computeCpu: sizeSpec?.cpu,
-  computeMemoryGb: sizeSpec?.memoryGb,
-  computeStorageGb: sizeSpec?.storageGb,
-  computeTimeoutMinutes: computeSize ? timeoutMinutes : undefined,
+  // ... existing fields (taskName, status, taskHash, inputHashes, etc.) ...
+  computeSize: effectiveCompute,
+  timeoutMinutes,
 };
 ```
 
@@ -379,385 +314,238 @@ return {
 
 ```typescript
 export interface DispatchTaskResult {
-  // ... existing fields ...
-  /** Compute size: undefined = serverless, named size = sized compute */
-  computeSize?: 'small' | 'medium' | 'large' | 'xlarge';
-  /** Resolved vCPU count (from size, when computeSize is set) */
-  computeCpu?: number;
-  /** Resolved memory in GB (from size, when computeSize is set) */
-  computeMemoryGb?: number;
-  /** Timeout in minutes (when computeSize is set) */
-  computeTimeoutMinutes?: number;
-  /** Resolved ephemeral storage in GB (from size, when computeSize is set) */
-  computeStorageGb?: number;
+  taskName: string;
+  status: 'ready' | 'cached' | 'not_ready' | 'cancelled';
+  outputHash?: string;
+  taskHash?: string;
+  inputHashes?: string[];
+  outputPath?: string;
+  taskExecutionId?: string;
+  cached: boolean;
+  /** Compute size — variant('serverless') for default execution */
+  computeSize: ComputeSize;
+  /** Resolved timeout in minutes */
+  timeoutMinutes: number;
 }
 ```
 
-### Step Functions State Machine Changes
+The size → infrastructure mapping (CPU units, memory MiB, storage GiB) is resolved in a **Pass state** in the state machine, not in dispatch-task. This keeps the dispatch result clean and the mapping in one place.
 
-A new Choice state is inserted between `IsCached` and `ExecuteTaskState` to route based on whether a compute size is set:
+### State Machine Changes
 
 ```
 DispatchTaskState
-  → IsNotReady?
-    → yes: SkipNotReady
-    → no: PrepareExecution
-      → IsCached?
-        → yes: PrepareCachedWrite (terminal)
-        → no: ChooseExecutor          ← NEW
-          → computeSize present: ExecuteTaskComputeState  ← NEW
-            → DidComputeSucceed?       ← NEW
-              → PrepareSuccessWrite / PrepareFailureWrite
-          → default (serverless): ExecuteTaskState (existing)
-            → DidExecutionSucceed?
-              → PrepareSuccessWrite / PrepareFailureWrite
+  → IsNotReady? → SkipNotReady
+  → IsCached? → PrepareCachedWrite
+  → ChooseExecutor (NEW, checks computeSize.type)
+    → not 'serverless' → ResolveComputeParams (Pass, maps size → cpu/memory/storage)
+      → ExecuteTaskComputeState (EcsRunTask)
+        → CollectComputeResult → DidComputeSucceed? → ...
+    → 'serverless' → ExecuteTaskState (existing)
+      → DidExecutionSucceed? → ...
 ```
 
-The key insight is that **cached tasks skip execution entirely** regardless of target, so the Choice goes after the cache check.
+The `ResolveComputeParams` Pass state maps `computeSize` to the actual CPU units, memory MiB, storage GiB, and timeout ISO duration needed by EcsRunTask. This keeps the mapping defined once in CDK rather than duplicated in Lambda code.
 
-#### CDK Changes
+### Timeout Enforcement
 
-```typescript
-// New: ECS Cluster for sized compute
-const cluster = new ecs.Cluster(this, 'ComputeCluster', {
-  clusterName: `${prefix}-compute`,
-  vpc: computeVpc,
-});
-
-// New: Task definition (base definition, overridden at runtime via container overrides)
-const computeTaskDef = new ecs.FargateTaskDefinition(this, 'ComputeTaskDef', {
-  family: `${prefix}-execute-task`,
-  cpu: 256,     // Minimum — overridden per-task at runtime
-  memoryLimitMiB: 512,
-  runtimePlatform: {
-    cpuArchitecture: ecs.CpuArchitecture.X86_64,
-    operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
-  },
-});
-
-// Container uses the SAME ECR image as the serverless runner
-const computeContainer = computeTaskDef.addContainer('TaskRunner', {
-  containerName: 'task-runner',
-  image: ecs.ContainerImage.fromEcrRepository(runnerRepo, 'latest'),
-  logging: new ecs.AwsLogDriver({
-    logGroup: new logs.LogGroup(this, 'ComputeTaskLogs', {
-      logGroupName: `/ecs/${prefix}-execute-task`,
-      retention: logs.RetentionDays.ONE_MONTH,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-    }),
-    streamPrefix: 'task',
-  }),
-});
-
-// New: EcsRunTask state for sized compute execution
-const executeTaskComputeState = new tasks.EcsRunTask(this, 'ExecuteTaskComputeState', {
-  integrationPattern: sfn.IntegrationPattern.RUN_JOB,  // Wait for completion
-  cluster,
-  taskDefinition: computeTaskDef,
-  launchTarget: new tasks.EcsFargateLaunchTarget({
-    platformVersion: ecs.FargatePlatformVersion.LATEST,
-  }),
-  assignPublicIp: true,  // Public subnet — matches current serverless security posture
-  securityGroups: [taskSecurityGroup],
-  subnets: { subnetType: ec2.SubnetType.PUBLIC },
-  taskTimeout: sfn.Timeout.at('$.computeTimeoutIso'),  // Enforced by Step Functions
-  containerOverrides: [{
-    containerDefinition: computeContainer,
-    environment: [
-      { name: 'TASK_EVENT', value: sfn.JsonPath.jsonToString(sfn.JsonPath.objectAt('$')) },
-    ],
-    cpu: sfn.JsonPath.numberAt('$.computeCpuUnits'),     // 256, 512, 1024, etc.
-    memoryMiB: sfn.JsonPath.numberAt('$.computeMemoryMiB'),  // In MiB
-  }],
-  resultPath: '$.execution',
-}).addRetry({
-  errors: ['States.TaskFailed', 'States.Timeout'],
-  maxAttempts: 2,
-  backoffRate: 2,
-}).addCatch(/* same catch as serverless path */);
-```
-
-### Compute Container Entrypoint
-
-The compute container uses the **same Docker image** as the serverless runner but needs a different entrypoint. Instead of the serverless runtime interface, the compute task reads its event from the `TASK_EVENT` environment variable (passed by Step Functions container overrides).
-
-A new entrypoint script is added to the Docker image:
-
-```typescript
-// packages/e3-aws-runner/src/handlers/execute-task-compute-entry.ts
-
-// Parse the task event from environment variable (passed by Step Functions)
-const event = JSON.parse(process.env.TASK_EVENT!);
-
-// Reuse the same execution logic as the serverless handler
-import { executeTask } from './execute-task-core.js';
-const result = await executeTask(event);
-
-// Write result to stdout for Step Functions to capture
-// (EcsRunTask captures container exit code; result is written to DynamoDB)
-console.log(JSON.stringify(result));
-process.exit(result.status === 'success' ? 0 : 1);
-```
-
-This requires a minor refactor: extract the core execution logic from `execute-task.ts` into a shared `execute-task-core.ts` module that both the serverless handler and the compute entrypoint can import.
-
-### Dockerfile Changes
-
-```dockerfile
-# Add compute entrypoint alongside serverless entrypoint
-COPY packages/e3-aws-runner/dist/src/handlers/execute-task-compute-entry.js ./dist/handlers/
-COPY packages/e3-aws-runner/dist/src/handlers/execute-task-core.js ./dist/handlers/
-```
-
-The serverless entrypoint remains the default `CMD`. The compute task overrides the command via Step Functions container overrides to run the compute entry script instead.
+Step Functions owns the timeout via `taskTimeout` on both paths. The container is not trusted to self-enforce. If the timeout fires, Step Functions stops the task and the error propagates through `apply-results`.
 
 ### Result Handling
 
-Compute tasks communicate results back through the **same DynamoDB execution state** as serverless tasks. The `apply-results` handler doesn't need to change — it already processes results by task name and status, regardless of where they executed.
-
-However, the Step Functions `EcsRunTask` state returns ECS task metadata (not a direct response payload). We need a small handler after the compute execution to read the result from DynamoDB:
-
-**Approach:** The compute container writes its result to a well-known DynamoDB key, and a thin "collect-result" handler reads it and returns the same `TaskExecutionResult` shape. This keeps `apply-results` completely unchanged.
-
-```
-ExecuteTaskComputeState (EcsRunTask, waits for completion)
-  → CollectComputeResult (reads result from DynamoDB)
-    → DidComputeSucceed? (same Choice pattern as serverless path)
-```
-
-#### Compute Result Storage
+The compute container writes its `TaskExecutionResult` to a well-known DynamoDB key before exiting. A thin `collect-compute-result` handler reads and deletes it:
 
 ```
 PK: COMPUTE_RESULT/{repo}/{workspace}
 SK: {taskExecutionId}
-Attributes: result (JSON), ttl (1 hour)
+Attributes: result (BEAST2-encoded), ttl (1 hour)
 ```
 
-The compute container writes its `TaskExecutionResult` here before exiting. The `collect-result` handler reads and deletes it. Short TTL ensures cleanup of any orphaned results.
+Short TTL handles orphaned results. This keeps `apply-results` completely unchanged.
 
-### Timeout Enforcement
+### Compute Container Entrypoint
 
-The timeout is enforced by **Step Functions, not the container**. The `EcsRunTask` state sets a `taskTimeout` based on the task's timeout config (or the sized compute default of 60 minutes). If the container exceeds the timeout, Step Functions stops the task immediately and the state transitions to the failure path — the error propagates through `apply-results` which marks dependent tasks as skipped, and the dataflow proceeds to finalization.
-
-This is critical: if the container hangs or ignores an internal timeout, the state machine must be able to kill it and continue. The container should not be trusted to enforce its own timeout.
-
-The `dispatch-task` handler converts `timeoutMinutes` to an ISO 8601 duration string (e.g. `PT60M`) and passes it through the state as `computeTimeoutIso`. Step Functions natively supports dynamic timeouts via JSONPath references.
-
-The serverless execute-task path continues to use its built-in 15-minute timeout, which is also enforced externally (by the serverless runtime, not the container).
-
-### Compute Concurrency
-
-The underlying infrastructure has **vCPU-based quotas** (default 4,000 vCPU soft limit per account, auto-increases with usage, can be raised via support ticket). There is no per-task count limit — a 4 vCPU task consumes 4 vCPU of quota.
-
-No artificial concurrency limit is needed. Natural constraints handle throttling:
-- The **dependency graph** limits how many tasks are ready at any time
-- The **Map state's existing retry policy** (2 retries, exponential backoff) handles transient launch failures from capacity limits
-- The **cyclic dispatch loop** only dispatches ready tasks per iteration, not the entire graph at once
-- The **launch rate** (100 burst, 20/second sustained) is well above typical dataflow parallelism
-
-## Container Image Optimization
-
-### zstd Compression
-
-Update the Docker build to use zstd compression for faster sized compute cold starts:
-
-```bash
-# scripts/build-runner.sh changes:
-docker buildx build \
-  -f docker/Dockerfile.runner \
-  --output type=image,name="$ECR_REPO_URI:latest",push=true,compression=zstd,oci-mediatypes=true \
-  .
-```
-
-This requires `docker buildx` (available in Docker 19.03+) and produces OCI-format images with zstd-compressed layers. ECR supports OCI images natively.
-
-**Expected improvement:** Up to 27% reduction in image pull time, with larger images seeing the greatest benefit. Our runner image (~3-4 GB uncompressed) should benefit significantly.
-
-### SOCI Index Manifest v2 (Lazy Loading)
-
-SOCI v2 enables lazy loading of container image layers — the container can start before the full image is pulled, loading layers on demand as the application accesses them.
-
-**SOCI v2 is enabled by default** in all AWS accounts (as of mid-2025). We just need to generate and push the SOCI index alongside the image.
-
-#### Automated Approach: CloudFormation SOCI Index Builder
-
-Deploy the [AWS SOCI Index Builder](https://github.com/awslabs/cfn-ecr-aws-soci-index-builder) CloudFormation stack. This creates an EventBridge rule that automatically generates SOCI v2 indexes whenever an image is pushed to ECR.
-
-Add to the CDK stack:
+Same Docker image, different entrypoint:
 
 ```typescript
-// Deploy the SOCI index builder CloudFormation stack
-// Automatically generates SOCI indexes on every ECR push
-new cfn.CfnStack(this, 'SociIndexBuilder', {
-  templateUrl: 'https://aws-soci-index-builder.s3.amazonaws.com/latest/template.yaml',
-  parameters: {
-    SociRepositoryImageTagFilters: `${prefix}-runner:*`,
-  },
-});
+// packages/e3-aws-runner/src/handlers/execute-task-compute-entry.ts
+const event = JSON.parse(process.env.TASK_EVENT!);
+const { executeTask } = await import('./execute-task-core.js');
+const result = await executeTask(event);
+// Write result to DynamoDB, then exit
+process.exit(result.status === 'success' ? 0 : 1);
 ```
 
-#### Manual Approach: Build Script
+Requires refactoring `execute-task.ts` into `execute-task-core.ts` (shared logic) + serverless entry + compute entry.
 
-Alternatively, generate SOCI indexes in the build script after pushing the image:
-
-```bash
-# After docker push, generate SOCI v2 index
-soci create "$ECR_REPO_URI:latest"
-soci push "$ECR_REPO_URI:latest"
-```
-
-**Recommendation:** Use the automated CloudFormation approach. It's zero-maintenance and handles all future pushes automatically.
-
-### GitHub Actions Changes
-
-```yaml
-# .github/workflows/build-runner.yml additions:
-
-- name: Set up Docker Buildx
-  uses: docker/setup-buildx-action@v3
-
-- name: Build and push runner image (zstd + OCI)
-  run: |
-    docker buildx build \
-      -f docker/Dockerfile.runner \
-      --output type=image,name=$ECR_URI:latest,push=true,compression=zstd,oci-mediatypes=true \
-      .
-
-# SOCI index is generated automatically by the SOCI Index Builder stack
-```
-
-### Expected Startup Improvement
-
-| Optimization | Estimated Improvement |
-|-------------|----------------------|
-| zstd compression | ~27% faster image pull |
-| SOCI v2 lazy loading | ~50-60% faster startup |
-| **Combined** | **~65-70% faster startup** |
-
-For a ~3-4 GB image, this could reduce sized compute cold start from ~45-60s to ~15-20s.
-
-## CDK Infrastructure Summary
+## CDK Infrastructure
 
 ### New Resources
 
 | Resource | Type | Cost | Purpose |
 |----------|------|------|---------|
-| `ComputeVpc` | `ec2.Vpc` | Free | VPC with public subnets for compute tasks |
+| `ComputeVpc` | `ec2.Vpc` | Free | VPC with public subnets |
 | `ComputeTaskSg` | `ec2.SecurityGroup` | Free | Deny inbound, allow outbound |
-| `ComputeCluster` | `ecs.Cluster` | Free | ECS cluster for compute tasks |
-| `ComputeTaskDef` | `ecs.FargateTaskDefinition` | Free | Task definition (overridden per size) |
-| `ComputeTaskLogs` | `logs.LogGroup` | Pay per use | CloudWatch logs for compute tasks |
-| `ExecuteTaskComputeState` | `tasks.EcsRunTask` | Pay per use | Step Functions state for compute execution |
-| `CollectComputeResultFn` | `NodejsFunction` | Pay per use | Collects results from compute tasks |
+| `ComputeCluster` | `ecs.Cluster` | Free | ECS cluster |
+| `ComputeTaskDef` | `ecs.FargateTaskDefinition` | Free | Base task definition (overridden per size) |
+| `ComputeTaskLogs` | `logs.LogGroup` | Pay per use | CloudWatch logs |
+| `ExecuteTaskComputeState` | `tasks.EcsRunTask` | Pay per use | Step Functions compute execution |
+| `CollectComputeResultFn` | `NodejsFunction` | Pay per use | Reads compute task results |
 | `SociIndexBuilder` | `cfn.CfnStack` | Free | Auto-generates SOCI indexes on ECR push |
 
-### VPC and Networking
-
-Sized compute tasks must run inside a VPC. The current platform stack has no VPC — all serverless functions run outside a VPC and reach AWS services (S3, DynamoDB, ECR) over the public internet using IAM credentials. This is standard for serverless architectures.
+### VPC
 
 **Decision: Public subnets with assigned public IPs (scale-to-zero cost).**
 
-This matches the security posture of the existing serverless execution:
-- Tasks get a public IP and reach AWS services over the internet (same as serverless today)
-- Security groups deny all inbound traffic — tasks don't listen on any ports
-- IAM roles control access to S3, DynamoDB, ECR
-- All traffic is TLS encrypted
-- No idle infrastructure costs — the VPC, subnets, and security groups are free; public IPs are only billed while a task is running ($0.005/hour, i.e. ~$0.0008 per 10-minute task)
+Matches the security posture of existing serverless execution:
+- Security groups deny all inbound traffic
+- IAM roles control access to AWS services
+- All traffic TLS encrypted
+- Public IPs billed only while a task runs (~$0.0008 per 10-minute task)
 
-**Alternative for enterprise clients:** Private subnets + NAT Gateway (~$38/AZ/month, ~$76/month for 2 AZs) can be offered as a deployment option if a client's security policy requires no public IPs on compute resources. This is a CDK configuration change (subnet type + NAT Gateway) with no code changes needed.
+**Enterprise alternative:** Private subnets + NAT Gateway (~$76/month for 2 AZs). CDK config change only.
 
-#### CDK VPC Resources
+## Container Image Optimization
+
+### zstd Compression
+
+Switch `docker build` to `docker buildx build` with `compression=zstd,oci-mediatypes=true`. Up to 27% faster image pulls.
+
+### SOCI v2 Lazy Loading
+
+Deploy the [SOCI Index Builder](https://github.com/awslabs/cfn-ecr-aws-soci-index-builder) CloudFormation stack. Auto-generates SOCI indexes on ECR push. Enables lazy container loading — ~50-60% faster startup.
+
+**Combined:** ~65-70% faster cold start. For our ~3-4 GB image, estimated ~15-20s vs ~45-60s.
+
+## Orphaned Config Cleanup
+
+On workspace deploy, the deploy handler (in `e3-aws-api`) automatically cleans up configs referencing tasks no longer in the deployed package. This runs after e3-core's deploy completes and releases its lock:
 
 ```typescript
-// New VPC for sized compute (no NAT Gateway — scale-to-zero cost)
-const computeVpc = new ec2.Vpc(this, 'ComputeVpc', {
-  vpcName: `${prefix}-compute`,
-  maxAzs: 2,
-  natGateways: 0,  // No NAT — tasks use public IPs
-  subnetConfiguration: [
-    {
-      name: 'public',
-      subnetType: ec2.SubnetType.PUBLIC,
-      cidrMask: 24,
-    },
-  ],
-});
-
-// Security group: deny all inbound, allow all outbound (tasks need internet access)
-const taskSecurityGroup = new ec2.SecurityGroup(this, 'ComputeTaskSg', {
-  vpc: computeVpc,
-  description: 'Security group for sized compute tasks',
-  allowAllOutbound: true,  // Tasks need to reach S3, DynamoDB, ECR, and external APIs
-});
-// No ingress rules — all inbound traffic is denied by default
+// In e3-aws middleware wrapping the workspace deploy route, after e3-core returns:
+const deployedTasks = getDeployedTaskNames(workspace);
+const computeConfigs = await storage.taskConfigs.listCompute(repo, workspace);
+const timeoutConfigs = await storage.taskConfigs.listTimeout(repo, workspace);
+const orphanedCompute = Object.keys(computeConfigs).filter(t => !deployedTasks.includes(t));
+const orphanedTimeout = Object.keys(timeoutConfigs).filter(t => !deployedTasks.includes(t));
+if (orphanedCompute.length > 0) {
+  await storage.taskConfigs.deleteComputeBatch(repo, workspace, orphanedCompute);
+}
+if (orphanedTimeout.length > 0) {
+  await storage.taskConfigs.deleteTimeoutBatch(repo, workspace, orphanedTimeout);
+}
+console.log('Orphan cleanup', { orphanedCompute, orphanedTimeout });
 ```
 
-Tasks need outbound internet access for:
-- AWS service APIs (S3, DynamoDB, ECR, CloudWatch Logs)
-- External APIs that tasks may call during execution
+- Silent to the user — logged to CloudWatch for operational visibility
+- No changes to e3-core or the deploy response type (East structs are not extensible)
+- Runs **after** e3-core releases the deployment lock — safe because orphan deletion is idempotent and only removes configs for tasks that no longer exist in the deployed workspace
+- Note: deployment itself runs in a **single Lambda invocation** (not Step Functions). e3-core acquires/releases the `variant('deployment', null)` lock internally with try/finally. If the Lambda crashes mid-deploy, the lock is held until TTL (5 minutes).
 
-### IAM Permissions
+Configs also cascade-delete on workspace deletion and repository deletion.
 
-The compute task execution role needs:
-- S3 read/write (data bucket)
-- DynamoDB read/write (data table)
-- ECR pull (runner repository)
-- CloudWatch Logs write
+## Locking
 
-The Step Functions role needs:
-- `ecs:RunTask` on the task definition
-- `iam:PassRole` for the task execution role and task role
-- `ecs:StopTask`, `ecs:DescribeTasks` (for `.sync` integration)
-- EventBridge permissions (for `.sync` callback)
+Config mutation endpoints acquire the workspace lock in-process, same pattern as deployment/removal/dataset_write in e3-core:
 
-## Cleanup
+```typescript
+// In each config PUT/POST/DELETE handler:
+const lock = await storage.locks.acquire(repo, `workspace/${workspace}`, variant('dataset_write', null), { wait: false });
+if (!lock) {
+  return { statusCode: 409, body: 'Workspace is locked' };
+}
+try {
+  // batch writes, deletes, etc.
+  console.log(`Task config updated`, { repo, workspace, action, identity: identity?.sub, email: identity?.email });
+} finally {
+  await lock.release();
+}
+```
 
-Task configs are cleaned up on:
-- **Workspace deploy** — orphaned configs (referencing removed tasks) are auto-deleted with a warning
-- **Workspace deletion** — delete all configs for that workspace
-- **Repository deletion** — delete all configs for all workspaces
+All config mutations are audit-logged to CloudWatch with the requestor's `sub` and `email` from the JWT identity, following the existing pattern used by repo deletion and GC.
 
-This follows the same cascading delete pattern as schedules.
+This prevents concurrent config edits and avoids races with deployment (which cleans up orphaned configs). Uses the existing `dataset_write` lock operation (may be renamed to `write` in future).
+
+The new sized compute states added to the dataflow state machine (Phase 5) must follow the existing catch pattern: `addCatch(prepareFinalizeFailure)` on `ChooseExecutor`, `ResolveComputeParams`, `ExecuteTaskComputeState`, and `CollectComputeResult` to ensure lock release on failure.
+
+## Package Map
+
+| Package | What it gets |
+|---------|-------------|
+| `e3-admin-types` | `ComputeSizeType`, `TaskTimeoutType`, `ComputeConfigMapType`, `TimeoutConfigMapType` — East type objects + TS types |
+| `e3-admin-core` | `TaskConfigStore` interface |
+| `e3-aws-storage` | `DynamoTaskConfigStore` — implements `TaskConfigStore` using DynamoDB + BEAST2 encode/decode |
+| `e3-aws-api` | Route handlers for `/task-configs/compute`, `/task-configs/timeout`, `/task-configs`. BEAST2 decode request bodies, encode responses. |
+| `e3-admin-client` | `getCompute`, `setCompute`, `setComputeBatch`, `removeCompute`, `listCompute` + same for timeout + `listTaskConfigs`. BEAST2 encode requests, decode responses. |
+| `e3-cloud-cli` | `compute` and `timeout` commands. Uses `e3-admin-client`. Client-side regex resolution. |
+| `e3-aws-runner` | `dispatch-task.ts` reads configs via `TaskConfigStore`. `execute-task-core.ts` + `execute-task-compute-entry.ts` new files. |
+| `cdk/platform` | ECS Cluster, VPC, Task Definition, state machine changes, `collect-compute-result` Lambda, SOCI Index Builder |
 
 ## Implementation Plan
 
-### Phase 1: Task Configs (Storage + API + CLI)
-1. Add `ComputeConfigType`, `TimeoutConfigType`, `ScheduleForceConfigType`, `AllTaskConfigsType` to `e3-admin-types`
-2. Add `TaskConfigStore` interface to `e3-admin-core`
-3. Implement `DynamoTaskConfigStore` in `e3-aws-storage`
-4. Add task config API routes to `e3-aws-api` (compute, timeout, schedule-force, unified)
-5. Add task config client functions to `e3-admin-client`
-6. Add `compute`, `timeout`, `schedule-force` CLI commands to `e3-cloud-cli`
-7. Migrate `forceTaskPatterns` from schedule to schedule-force task configs
+### Phase 1: Types + Store (foundation)
+1. **`e3-admin-types`**: Add `task-config-types.ts` with `ComputeSizeType`, `TaskTimeoutType`, `ComputeConfigMapType`, `TimeoutConfigMapType`
+2. **`e3-admin-core`**: Add `task-config-store.ts` with `TaskConfigStore` interface
+3. **`e3-aws-storage`**: Implement `DynamoTaskConfigStore`
+   - BEAST2 encode/decode using `ComputeSizeType` and `TaskTimeoutType`
+   - DynamoDB PK: `TASKCONFIG/{repo}/{workspace}`, SK: `compute#{taskName}` / `timeout#{taskName}`
+   - `putBatch` / `deleteBatch` use `BatchWriteItem` (25-item DynamoDB limit per batch, chunk if needed)
+   - `deleteAllForWorkspace` / `deleteAllForRepo` query + batch delete
 
-### Phase 2: Sized Compute Execution
-8. Add ECS Cluster + Task Definition + VPC to CDK stack
-9. Refactor `execute-task.ts` into `execute-task-core.ts` + serverless entry + compute entry
-10. Add `collect-compute-result` handler
-11. Add `ExecuteTaskComputeState` and `ChooseExecutor` Choice to state machine
-12. Modify `dispatch-task.ts` to read compute configs, resolve size → resources, and route
-13. Update Dockerfile with compute entrypoint
+### Phase 2: Compute API + CLI
+4. **`e3-aws-api`**: Add compute route handlers in `task-config-routes.ts`
+   - All mutation handlers (`PUT`, `POST`, `DELETE`) acquire workspace lock with `variant('dataset_write', null)`, try/finally release
+   - `GET /task-configs/compute` → query `SK begins_with compute#`, BEAST2 decode, return as `ComputeConfigMapType`
+   - `POST /task-configs/compute` → BEAST2 decode body as `ComputeConfigMapType`, validate task names against workspace, `putComputeBatch`
+   - `GET /task-configs/compute/:task` → `getCompute`, return explicit or `variant('serverless')` default
+   - `PUT /task-configs/compute/:task` → validate, `putCompute` (or `deleteCompute` if `variant('serverless')`)
+   - `DELETE /task-configs/compute/:task` → `deleteCompute`
+5. **`e3-admin-client`**: Add compute client functions — BEAST2 encode requests, decode responses
+6. **`e3-cloud-cli`**: Add `compute` command with `set`, `list`, `get`, `remove` subcommands. `--regex` flag does client-side resolution via task list API.
 
-### Phase 3: Image Optimization
-14. Switch Docker build to `buildx` with zstd compression
-15. Deploy SOCI Index Builder CloudFormation stack via CDK
-16. Update `build-runner.sh` and GitHub Actions workflow
-17. Verify SOCI indexes are generated and used
+### Phase 3: Timeout API + CLI
+7. **`e3-aws-api`**: Add timeout route handlers (same pattern as compute, same locking)
+   - `GET /task-configs/timeout/:task` returns effective default based on task's compute config when no explicit override
+8. **`e3-aws-api`**: Add unified `GET /task-configs` route — queries all `TASKCONFIG/` items, splits by SK prefix, returns `{ compute: ..., timeout: ... }`
+9. **`e3-admin-client`**: Add timeout client functions
+10. **`e3-cloud-cli`**: Add `timeout` command
 
-### Phase 4: Testing + Documentation
-18. Integration tests for task config CRUD (all three dimensions)
-19. Integration test for sized compute execution (create compute config, run dataflow, verify task ran in compute mode)
-20. Integration test for orphaned config cleanup on workspace deploy
-21. Update CLAUDE.md, README files, and deployment docs
+### Phase 4: Schedule Force-Tasks Migration
+11. **`e3-admin-types`**: Change `forceTaskPatterns` → `forceTasks` in `ScheduleType` and `ScheduleRequestType`
+12. **`e3-aws-api`** / **`e3-aws-storage`**: Update schedule routes and DynamoDB store for renamed field
+13. **`e3-aws-runner`**: Update `schedule-trigger.ts` to use `forceTasks` directly (no pattern resolution)
+14. **`e3-cloud-cli`**: Update schedule command with `--force-tasks` and `--force-regex` flags
+15. **Migration**: One-time script to resolve existing `forceTaskPatterns` → concrete task names for deployed schedules
+
+### Phase 5: Sized Compute Execution + Deploy Cleanup
+16. **`e3-aws-api`**: Add orphan cleanup to deploy handler — after e3-core deploy returns, compare deployed task names against stored configs, delete orphans, log to CloudWatch
+17. **`cdk/platform`**: Add VPC (public subnets, no NAT), security group, ECS Cluster, task definition, CloudWatch log group
+18. **`e3-aws-runner`**: Refactor `execute-task.ts` → `execute-task-core.ts` (shared logic) + serverless entry + `execute-task-compute-entry.ts`
+19. **`e3-aws-runner`**: Add `collect-compute-result.ts` handler — reads `COMPUTE_RESULT/` from DynamoDB, returns `TaskExecutionResult`
+20. **`cdk/platform`**: Add state machine changes — `ChooseExecutor` Choice, `ResolveComputeParams` Pass, `ExecuteTaskComputeState` EcsRunTask, `CollectComputeResult` Lambda. All new states must `addCatch(prepareFinalizeFailure)`.
+21. **`e3-aws-runner`**: Modify `dispatch-task.ts` to read task configs via `TaskConfigStore`, populate `computeSize` and `timeoutMinutes` on result
+22. **`docker/Dockerfile.runner`**: Add compute entrypoint file to image
+
+### Phase 6: Image Optimization
+23. **`scripts/build-runner.sh`**: Switch to `docker buildx build` with `compression=zstd,oci-mediatypes=true`
+24. **`cdk/platform`**: Deploy SOCI Index Builder CloudFormation stack
+25. **`.github/workflows/build-runner.yml`**: Add `docker/setup-buildx-action`, update build command
+
+### Phase 7: Testing + Documentation
+26. Integration tests: compute config CRUD, timeout config CRUD, unified view, sized compute execution end-to-end, orphan cleanup on workspace deploy, schedule force-tasks
+27. Update CLAUDE.md, package README files, deployment docs
 
 ## Resolved Decisions
 
-1. **Config granularity** — Per concrete task name. No server-side globs or patterns. Client-side regex for bulk operations.
-2. **API structure** — Separate routes per dimension (compute, timeout, schedule), unified view at parent route. POST accepts dictionary for batch operations.
-3. **Timeout per task** — Yes, separate config dimension. Sized compute default 1 hour, serverless default 15 min.
-4. **Compute sizes** — Predefined tiers (small/medium/large/xlarge) instead of custom CPU/memory. Size-to-resource mapping is a server-side implementation detail.
-5. **Cost visibility** — No. We may charge a different rate to what AWS charges us.
-7. **VPC** — Public subnets with assigned public IPs. Scale-to-zero cost, same security posture as current serverless execution. Private subnet + NAT Gateway available as a deployment option for enterprise clients.
-8. **Timeout enforcement** — Step Functions owns the timeout via `taskTimeout`. Container is not trusted to self-enforce.
-9. **Orphaned configs** — Auto-deleted on workspace deploy with warning output.
-10. **Schedule force-tasks** — Migrated from `forceTaskPatterns` on schedule to per-task schedule-force configs. Breaking change to schedule API.
+1. **Config structure** — Compute and timeout are separate features with separate routes, DynamoDB entries, and CLI commands.
+2. **Compute type** — `VariantType` with `serverless | small | medium | large | xlarge`. Server returns `serverless` default on GET for unconfigured tasks.
+3. **Timeout defaults** — Server returns effective timeout on GET: 15 min (serverless) or 1440 min (sized). Explicit overrides stored separately.
+4. **Config granularity** — Per concrete task name. No server-side globs. Client-side regex for bulk CLI operations.
+5. **Compute sizes** — Predefined tiers. Size → resource mapping is server-side only.
+6. **Schedule force-tasks** — `forceTaskPatterns` → `forceTasks` (concrete names). Breaking change. CLI/web handles regex client-side.
+7. **VPC** — Public subnets, no NAT Gateway. Scale-to-zero cost. Private subnet option for enterprise.
+8. **Timeout enforcement** — Step Functions owns timeout. Container not trusted to self-enforce.
+9. **Orphaned configs** — Auto-deleted on workspace deploy, after e3-core returns. Logged to CloudWatch. No e3-core changes needed.
+10. **Locking** — Config mutations acquire the workspace lock in-process (try/finally) using existing `dataset_write` operation. No e3-types changes needed. New compute states in the state machine must `addCatch(prepareFinalizeFailure)`.
+11. **Cost visibility** — No. We may charge differently from infrastructure cost.
+12. **Concurrency** — No artificial limit. vCPU-based quotas (4,000 default), dependency graph, and retry policies handle natural throttling.
