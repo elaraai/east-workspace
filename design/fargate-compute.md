@@ -29,13 +29,13 @@ The feature is called **"compute profiles"**. A compute profile assigns a CPU/me
 
 ```bash
 # Set a compute profile for tasks matching a pattern
-e3 compute set https://dev.e3.elaraai.com/repos/my-repo/workspaces/main \
+e3-cloud compute set https://dev.e3.elaraai.com/repos/my-repo/workspaces/main \
   --tasks "train*" \
   --cpu 4 \
   --memory 16
 
 # Set for a single named task with custom timeout and storage
-e3 compute set https://dev.e3.elaraai.com/repos/my-repo/workspaces/main \
+e3-cloud compute set https://dev.e3.elaraai.com/repos/my-repo/workspaces/main \
   --tasks "heavy-etl" \
   --cpu 8 \
   --memory 32 \
@@ -43,18 +43,18 @@ e3 compute set https://dev.e3.elaraai.com/repos/my-repo/workspaces/main \
   --storage 100
 
 # List compute profiles for a workspace
-e3 compute list https://dev.e3.elaraai.com/repos/my-repo/workspaces/main
+e3-cloud compute list https://dev.e3.elaraai.com/repos/my-repo/workspaces/main
 
 # Get a specific profile
-e3 compute get https://dev.e3.elaraai.com/repos/my-repo/workspaces/main \
+e3-cloud compute get https://dev.e3.elaraai.com/repos/my-repo/workspaces/main \
   --tasks "train*"
 
 # Remove a compute profile
-e3 compute remove https://dev.e3.elaraai.com/repos/my-repo/workspaces/main \
+e3-cloud compute remove https://dev.e3.elaraai.com/repos/my-repo/workspaces/main \
   --tasks "train*"
 
 # List all compute profiles across workspaces in a repo
-e3 compute list https://dev.e3.elaraai.com/repos/my-repo
+e3-cloud compute list https://dev.e3.elaraai.com/repos/my-repo
 ```
 
 ### Configuration Options
