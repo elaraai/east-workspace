@@ -216,17 +216,17 @@ app.route('/api/repos/:repo/workspaces/:ws/schedule', createScheduleRoutes(aclSt
 app.route('/api/repos/:repo/schedules', createScheduleListRoute(aclStore, scheduleStore));
 
 // ============================================================
-// Task Config Routes (per-task compute size configuration)
-// ============================================================
-app.route('/api/repos/:repo/workspaces/:ws/task-configs', createTaskConfigRoutes(taskConfigStore, storage));
-
-// ============================================================
 // Authorization Middleware (for all repo routes)
 // ============================================================
 // Mount authz middleware for all /api/repos/* routes
 // This checks user has member/owner access before handlers execute
 // Note: PUT /api/repos/:repo (create) and /api/repos/:repo/users/* are excluded
 app.use('/api/repos/*', createAuthzMiddleware(aclStore));
+
+// ============================================================
+// Task Config Routes (per-task compute size configuration)
+// ============================================================
+app.route('/api/repos/:repo/workspaces/:ws/task-configs', createTaskConfigRoutes(taskConfigStore, storage));
 
 // ============================================================
 // Repository Management (BEAST2 format for e3-cli compatibility)

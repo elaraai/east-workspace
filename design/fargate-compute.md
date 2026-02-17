@@ -407,15 +407,19 @@ Matches the security posture of existing serverless execution:
 
 ## Container Image Optimization
 
-### zstd Compression
+### SOCI v2 Lazy Loading (deployed)
 
-Switch `docker build` to `docker buildx build` with `compression=zstd,oci-mediatypes=true`. Up to 27% faster image pulls.
+The [SOCI Index Builder](https://github.com/awslabs/cfn-ecr-aws-soci-index-builder) CloudFormation stack is deployed in CDK. It auto-generates Seekable OCI indexes on ECR push via EventBridge. Fargate automatically detects and uses SOCI indexes for lazy container loading — containers start without waiting for the full image pull.
 
-### SOCI v2 Lazy Loading
+This is particularly effective for our image because `east-py-datascience` (numpy, pandas, etc.) comprises the bulk of the image size but is rarely used at runtime. SOCI lazy-loads these layers on demand rather than pulling them upfront.
 
-Deploy the [SOCI Index Builder](https://github.com/awslabs/cfn-ecr-aws-soci-index-builder) CloudFormation stack. Auto-generates SOCI indexes on ECR push. Enables lazy container loading — ~50-60% faster startup.
+**Performance:** ~40-50% faster cold starts for images >250 MB. SOCI v2 is the default on Fargate as of 2025 and provides improved deployment consistency via cryptographic verification.
 
-**Combined:** ~65-70% faster cold start. For our ~3-4 GB image, estimated ~15-20s vs ~45-60s.
+### zstd Compression (rejected)
+
+~~Switch `docker build` to `docker buildx build` with `compression=zstd,oci-mediatypes=true`.~~
+
+**Decision: Do not use zstd.** SOCI lazy loading is incompatible with zstd-compressed layers ([soci-snapshotter#519](https://github.com/awslabs/soci-snapshotter/issues/519)). The fundamental blocker is that zstd uses variable compression windows up to 2 GB (vs gzip's 32 KB), making post-hoc indexing impractical. SOCI provides a larger benefit (~40-50%) than zstd (~27%), and our image benefits significantly from lazy loading due to the large rarely-used datascience layers. Additionally, zstd support on Lambda is undocumented and we share one image for both Lambda and Fargate execution.
 
 ## Orphaned Config Cleanup
 
@@ -483,7 +487,7 @@ The new sized compute states added to the dataflow state machine (Phase 5) must 
 
 ## Implementation Plan
 
-### Phase 1: Types + Store (foundation)
+### Phase 1: Types + Store (foundation) — Done
 1. **`e3-admin-types`**: Add `task-config-types.ts` with `ComputeSizeType`, `TaskTimeoutType`, `ComputeConfigMapType`, `TimeoutConfigMapType`
 2. **`e3-admin-core`**: Add `task-config-store.ts` with `TaskConfigStore` interface
 3. **`e3-aws-storage`**: Implement `DynamoTaskConfigStore`
@@ -492,7 +496,7 @@ The new sized compute states added to the dataflow state machine (Phase 5) must 
    - `putBatch` / `deleteBatch` use `BatchWriteItem` (25-item DynamoDB limit per batch, chunk if needed)
    - `deleteAllForWorkspace` / `deleteAllForRepo` query + batch delete
 
-### Phase 2: Compute API + CLI
+### Phase 2: Compute API + CLI — Done
 4. **`e3-aws-api`**: Add compute route handlers in `task-config-routes.ts`
    - All mutation handlers (`PUT`, `POST`, `DELETE`) acquire workspace lock with `variant('dataset_write', null)`, try/finally release
    - `GET /task-configs/compute` → query `SK begins_with compute#`, BEAST2 decode, return as `ComputeConfigMapType`
@@ -503,21 +507,21 @@ The new sized compute states added to the dataflow state machine (Phase 5) must 
 5. **`e3-admin-client`**: Add compute client functions — BEAST2 encode requests, decode responses
 6. **`e3-cloud-cli`**: Add `compute` command with `set`, `list`, `get`, `remove` subcommands. `--regex` flag does client-side resolution via task list API.
 
-### Phase 3: Timeout API + CLI
+### Phase 3: Timeout API + CLI — Done
 7. **`e3-aws-api`**: Add timeout route handlers (same pattern as compute, same locking)
    - `GET /task-configs/timeout/:task` returns effective default based on task's compute config when no explicit override
 8. **`e3-aws-api`**: Add unified `GET /task-configs` route — queries all `TASKCONFIG/` items, splits by SK prefix, returns `{ compute: ..., timeout: ... }`
 9. **`e3-admin-client`**: Add timeout client functions
 10. **`e3-cloud-cli`**: Add `timeout` command
 
-### Phase 4: Schedule Force-Tasks Migration
+### Phase 4: Schedule Force-Tasks Migration — Done
 11. **`e3-admin-types`**: Change `forceTaskPatterns` → `forceTasks` in `ScheduleType` and `ScheduleRequestType`
 12. **`e3-aws-api`** / **`e3-aws-storage`**: Update schedule routes and DynamoDB store for renamed field
 13. **`e3-aws-runner`**: Update `schedule-trigger.ts` to use `forceTasks` directly (no pattern resolution)
 14. **`e3-cloud-cli`**: Update schedule command with `--force-tasks` and `--force-regex` flags
 15. **Migration**: One-time script to resolve existing `forceTaskPatterns` → concrete task names for deployed schedules
 
-### Phase 5: Sized Compute Execution + Deploy Cleanup
+### Phase 5: Sized Compute Execution + Deploy Cleanup — Done
 16. **`e3-aws-api`**: Add orphan cleanup to deploy handler — after e3-core deploy returns, compare deployed task names against stored configs, delete orphans, log to CloudWatch
 17. **`cdk/platform`**: Add VPC (public subnets, no NAT), security group, ECS Cluster, task definition, CloudWatch log group
 18. **`e3-aws-runner`**: Refactor `execute-task.ts` → `execute-task-core.ts` (shared logic) + serverless entry + `execute-task-compute-entry.ts`
@@ -526,12 +530,12 @@ The new sized compute states added to the dataflow state machine (Phase 5) must 
 21. **`e3-aws-runner`**: Modify `dispatch-task.ts` to read task configs via `TaskConfigStore`, populate `computeSize` and `timeoutMinutes` on result
 22. **`docker/Dockerfile.runner`**: Add compute entrypoint file to image
 
-### Phase 6: Image Optimization
-23. **`scripts/build-runner.sh`**: Switch to `docker buildx build` with `compression=zstd,oci-mediatypes=true`
-24. **`cdk/platform`**: Deploy SOCI Index Builder CloudFormation stack
-25. **`.github/workflows/build-runner.yml`**: Add `docker/setup-buildx-action`, update build command
+### Phase 6: Image Optimization — Done
+23. ~~**`scripts/build-runner.sh`**: Switch to `docker buildx build` with `compression=zstd,oci-mediatypes=true`~~ — **Rejected:** zstd is incompatible with SOCI lazy loading
+24. **`cdk/platform`**: Deploy SOCI Index Builder CloudFormation stack — **Done**
+25. **`scripts/build-runner.sh`**: Add `--pull` flag to ensure fresh base image on rebuild — **Done**
 
-### Phase 7: Testing + Documentation
+### Phase 7: Testing + Documentation — Done
 26. Integration tests: compute config CRUD, timeout config CRUD, unified view, sized compute execution end-to-end, orphan cleanup on workspace deploy, schedule force-tasks
 27. Update CLAUDE.md, package README files, deployment docs
 

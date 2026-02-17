@@ -1030,7 +1030,8 @@ export class E3PlatformStack extends cdk.Stack {
         image: ecs.ContainerImage.fromEcrRepository(runnerRepo, 'latest'),
         logging: ecs.LogDrivers.awsLogs({ logGroup: computeLogGroup, streamPrefix: `task-${id.toLowerCase()}` }),
         environment: { BUCKET_NAME: this.dataBucket.bucketName, TABLE_NAME: this.dataTable.tableName },
-        command: ['node', 'dist/handlers/execute-task-compute-entry.js'],
+        entryPoint: ['node'],
+        command: ['dist/handlers/execute-task-compute-entry.js'],
       });
       return { taskDef, container };
     };

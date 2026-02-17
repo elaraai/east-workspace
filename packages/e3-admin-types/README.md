@@ -117,11 +117,10 @@ How a dataflow run was initiated (variant type):
 ### ComputeSizeType / ComputeSize
 
 Compute tier for task execution (variant type):
-- `.serverless` - Lambda (~1.8 GB RAM, default)
-- `.small` - Fargate 1 vCPU / 2 GB
-- `.medium` - Fargate 2 vCPU / 8 GB
-- `.large` - Fargate 4 vCPU / 16 GB
-- `.xlarge` - Fargate 8 vCPU / 32 GB
+- `.small` - Fargate 2 vCPU / 8 GB
+- `.medium` - Fargate 4 vCPU / 16 GB
+- `.large` - Fargate 8 vCPU / 32 GB
+- `.xlarge` - Fargate 16 vCPU / 64 GB
 
 ### TaskTimeoutType / TaskTimeout
 

@@ -4,16 +4,17 @@
  */
 
 /**
- * e3-admin-tests: Portable integration tests for e3 admin authorization API
+ * e3-cloud-tests: Portable integration tests for e3 cloud deployments
  *
  * This package provides test suites that can be run against any cloud deployment
- * of e3. Tests are parameterized via `AdminTestConfig`, allowing the same tests
- * to work with AWS (Cognito), Azure (Entra ID), GCP (Identity Platform), etc.
+ * of e3. Admin tests are parameterized via `AdminTestConfig`, allowing the same
+ * tests to work with AWS (Cognito), Azure (Entra ID), GCP (Identity Platform),
+ * etc. Compute tests use `TestContext` from e3-api-tests for package deployment.
  *
  * @example
  * ```typescript
  * import { describe, beforeEach, afterEach } from 'node:test';
- * import { createAdminTestContext, allAdminTests, type AdminTestContext } from '@elaraai/e3-admin-tests';
+ * import { createAdminTestContext, allAdminTests, type AdminTestContext } from '@elaraai/e3-cloud-tests';
  *
  * describe('Admin API Compliance', () => {
  *   let context: AdminTestContext;
@@ -54,6 +55,11 @@ export { repoUsersTests } from './suites/repo-users.js';
 export { authorizationTests } from './suites/authorization.js';
 export { scheduleTests } from './suites/schedules.js';
 export { taskConfigTests } from './suites/task-configs.js';
+export { computeTests } from './suites/compute.js';
+export { cleanupTests } from './suites/cleanup.js';
+
+// Re-export TestContext type for convenience
+export type { TestContext } from '@elaraai/e3-api-tests';
 
 // Import suites for allAdminTests
 import { whoamiTests } from './suites/whoami.js';

@@ -98,7 +98,7 @@ export function useToggleSchedule(repo: string) {
       const request: ScheduleRequest = {
         cronExpression: schedule.cronExpression,
         timezone: variant('some', schedule.timezone) as ScheduleRequest['timezone'],
-        forceTaskPatterns: schedule.forceTaskPatterns,
+        forceTasks: schedule.forceTasks,
         enabled: !schedule.enabled,
         description: schedule.description,
       };

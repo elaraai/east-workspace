@@ -126,7 +126,7 @@ e3-cloud compute set https://dev.e3.elaraai.com/repos/acme/workspaces/main "load
 e3-cloud compute set https://dev.e3.elaraai.com/repos/acme/workspaces/main "my-task" --size serverless
 ```
 
-Valid sizes: `serverless` (default, Lambda), `small` (1 vCPU / 2 GB), `medium` (2 vCPU / 8 GB), `large` (4 vCPU / 16 GB), `xlarge` (8 vCPU / 32 GB).
+Valid sizes: `serverless` (default, Lambda), `small` (2 vCPU / 8 GB), `medium` (4 vCPU / 16 GB), `large` (8 vCPU / 32 GB), `xlarge` (16 vCPU / 64 GB).
 
 #### View compute size for a task
 

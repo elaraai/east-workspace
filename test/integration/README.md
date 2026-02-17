@@ -199,6 +199,17 @@ e3 auth status
 e3 auth whoami https://dev.e3.elaraai.com
 ```
 
+## Cloud Compute Tests
+
+The compute tests verify that Fargate task execution works for all compute sizes (small, medium, large, xlarge). Each test deploys a package, configures a Fargate compute tier, runs the dataflow, and verifies success.
+
+```bash
+# Run compute tests only (~15-20 min for all 4 Fargate sizes)
+AWS_PROFILE=elaraai-dev-elara-e3 npm run test:compute
+```
+
+**Note:** Fargate cold starts can take 1-3 minutes per test. The overall suite timeout is 30 minutes.
+
 ## Admin API Compliance Tests
 
 The admin compliance tests verify the authorization system works correctly with multiple user roles. These tests require 4 test users with valid Cognito tokens.

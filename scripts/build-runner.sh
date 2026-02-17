@@ -57,6 +57,7 @@ fi
 # Build the image
 cd "$PROJECT_ROOT"
 docker build \
+  --pull \
   -f docker/Dockerfile.runner \
   -t "$ECR_REPO_NAME:latest" \
   -t "$ECR_REPO_URI:latest" \

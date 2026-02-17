@@ -49,13 +49,25 @@ e3-aws/
 │   │       ├── execute-task.ts                  # Lambda entry point for task execution
 │   │       ├── execute-task-core.ts             # Shared task execution logic
 │   │       ├── execute-task-compute-entry.ts    # Fargate entry point for task execution
-│   │       └── collect-compute-result.ts        # Lambda to collect Fargate task results
+│   │       ├── collect-compute-result.ts        # Lambda to collect Fargate task results
+│   │       ├── dispatch-task.ts                 # Dispatches tasks with compute/timeout config
+│   │       ├── get-graph.ts                     # Resolves dataflow dependency graph
+│   │       ├── get-ready.ts                     # Finds tasks ready to execute
+│   │       ├── apply-results.ts                 # Applies task execution results
+│   │       ├── apply-tree-updates.ts            # Propagates tree state changes
+│   │       ├── check-completion.ts              # Checks if dataflow is complete
+│   │       ├── mark-skipped.ts                  # Marks tasks with unavailable inputs
+│   │       ├── finalize-execution.ts            # Finalizes dataflow run
+│   │       └── schedule-trigger.ts              # Handles scheduled execution triggers
 │   │
 │   ├── e3-admin-types/       # Shared East types for authorization (@elaraai/e3-admin-types)
 │   │
 │   ├── e3-admin-core/        # Authorization logic and interfaces (@elaraai/e3-admin-core)
 │   │
 │   ├── e3-admin-client/      # HTTP client for admin API (@elaraai/e3-admin-client)
+│   │
+│   ├── e3-cloud-tests/       # Portable integration tests for cloud deployments (@elaraai/e3-cloud-tests)
+│   │   └── src/suites/       # Test suites (admin auth, compute execution)
 │   │
 │   └── e3-cloud-cli/         # CLI for cloud management (@elaraai/e3-cloud-cli)
 │
@@ -86,9 +98,9 @@ e3-aws/
 │           ├── RepoDashboardPage.tsx      # Repo workspaces + packages
 │           ├── WorkspaceViewPage.tsx      # Workspace detail + dataflow
 │           ├── AdminPage.tsx              # Admin overview dashboard
-│           ├── AdminReposPage.tsx         # Admin repository management table
-│           ├── AdminRepoDetailPage.tsx    # Admin per-repo detail (users + infrastructure)
-│           └── AdminSchedulesPage.tsx     # Admin cross-repo schedule listing
+│           ├── AdminRepoDetailPage.tsx    # Admin per-repo detail (users + task configs)
+│           ├── InputViewPage.tsx          # Dataset input detail view
+│           └── TaskViewPage.tsx           # Task detail view
 │
 └── design/                   # Architecture documentation
     ├── cloud-options.md      # Architecture decisions
@@ -258,6 +270,6 @@ AWS_PROFILE=elaraai-dev-elara-e3 npm test -- --test-name-pattern "diamond"
 
 ## Making changes
 
-Ensure all changes are reflected in the project REAMDE.md files.
+Ensure all changes are reflected in the project README.md files.
 In particular deployment instructions, schemas and project structures must be kept up-to-date at all times.
 The integration tests must have a 100% pass rate - use the dev environment to test all changes.

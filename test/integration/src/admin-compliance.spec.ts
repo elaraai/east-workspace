@@ -45,7 +45,7 @@ import {
   type AdminTestConfig,
   type TestUserId,
   type TestUser,
-} from '@elaraai/e3-admin-tests';
+} from '@elaraai/e3-cloud-tests';
 
 const DEFAULT_SERVER = 'https://dev.e3.elaraai.com';
 

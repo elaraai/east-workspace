@@ -1,12 +1,17 @@
-# @elaraai/e3-admin-tests
+# @elaraai/e3-cloud-tests
 
-Portable integration tests for the e3 admin authorization API.
+Portable integration tests for e3 cloud deployments.
 
 ## Overview
 
-This package provides test suites that verify the e3 authorization API contract. The tests are designed to be portable across different cloud providers (AWS, Azure, GCP) by parameterizing identity provider details.
+This package provides test suites that verify e3 cloud functionality. The tests are designed to be portable across different cloud providers (AWS, Azure, GCP) by parameterizing identity provider and infrastructure details.
+
+**Admin suites** test authorization, user management, schedules, and task configuration.
+**Compute suites** test Fargate execution across different compute sizes.
 
 ## Usage
+
+### Admin Tests
 
 ```typescript
 import { describe, beforeEach, afterEach } from 'node:test';
@@ -15,7 +20,7 @@ import {
   allAdminTests,
   type AdminTestContext,
   type AdminTestConfig,
-} from '@elaraai/e3-admin-tests';
+} from '@elaraai/e3-cloud-tests';
 
 describe('Admin API Compliance', () => {
   let context: AdminTestContext;
@@ -43,9 +48,35 @@ describe('Admin API Compliance', () => {
 });
 ```
 
+### Compute Tests
+
+```typescript
+import { describe, beforeEach, afterEach } from 'node:test';
+import { createTestContext, type TestContext } from '@elaraai/e3-api-tests';
+import { computeTests } from '@elaraai/e3-cloud-tests';
+
+describe('Compute Tests', { timeout: 1_800_000 }, () => {
+  let context: TestContext;
+
+  beforeEach(async () => {
+    context = await createTestContext({
+      baseUrl: 'https://dev.e3.elaraai.com',
+      getToken: async () => getToken(),
+      cleanup: true,
+    });
+  });
+
+  afterEach(async () => {
+    await context?.cleanup();
+  });
+
+  computeTests(() => context);
+});
+```
+
 ## Test Users
 
-The tests require 4 test users to be configured:
+The admin tests require 4 test users to be configured:
 
 | User ID | Description |
 |---------|-------------|
@@ -56,21 +87,23 @@ The tests require 4 test users to be configured:
 
 ## Test Suites
 
-### whoamiTests
+### Admin Suites
+
+#### whoamiTests
 
 Tests for `GET /api/whoami`:
 - Returns user info for authenticated request
 - Admin user has isAdmin=true
 - Returns 401 for unauthenticated request
 
-### repoUsersTests
+#### repoUsersTests
 
 Tests for repository user management:
 - `GET /repos/{repo}/users` - List users
 - `POST /repos/{repo}/users` - Add user
 - `DELETE /repos/{repo}/users/{userId}` - Remove user
 
-### authorizationTests
+#### authorizationTests
 
 Cross-cutting permission tests:
 - Outsider cannot access repo endpoints
@@ -78,7 +111,7 @@ Cross-cutting permission tests:
 - Owner can perform all operations
 - Admin bypasses ACL checks (except last owner removal)
 
-### scheduleTests
+#### scheduleTests
 
 Tests for workspace schedule management:
 - `GET /repos/{repo}/workspaces/{ws}/schedule` - Get schedule
@@ -86,27 +119,40 @@ Tests for workspace schedule management:
 - `DELETE /repos/{repo}/workspaces/{ws}/schedule` - Delete schedule
 - `GET /repos/{repo}/schedules` - List schedules
 
-### taskConfigTests
+#### taskConfigTests
 
 Tests for per-task compute and timeout configuration:
 - `GET /repos/{repo}/workspaces/{ws}/task-configs` - Unified config view
 - `GET/PUT/POST/DELETE .../task-configs/compute` - Compute size CRUD + batch
 - `GET/PUT/POST/DELETE .../task-configs/timeout` - Timeout CRUD + batch
-- Default values (serverless→15min, sized→1440min)
-- Timeout validation (5–43200 minutes)
+- Default values (serverless->15min, sized->1440min)
+- Timeout validation (5-43200 minutes)
 - Authorization (outsider forbidden, member allowed)
+
+### Compute Suites
+
+#### computeTests
+
+Tests for Fargate compute execution (small, medium, large, xlarge):
+- Sets compute size on a task via admin API
+- Executes dataflow and verifies task runs on Fargate
+- Each size gets a 5-minute timeout for Fargate cold start
 
 ## API
 
-### `createAdminTestContext(config: AdminTestConfig): Promise<AdminTestContext>`
+### `createAdminTestContext(config: AdminTestConfig): AdminTestContext`
 
-Create a test context for running tests.
+Create a test context for running admin tests.
 
 ### `allAdminTests(getContext: () => AdminTestContext): void`
 
-Register all test suites with the Node.js test runner.
+Register all admin test suites with the Node.js test runner.
 
-### Individual Suites
+### `computeTests(getContext: () => TestContext): void`
+
+Register Fargate compute execution tests. Uses `TestContext` from `@elaraai/e3-api-tests`.
+
+### Individual Admin Suites
 
 - `whoamiTests(getContext)` - Whoami endpoint tests
 - `repoUsersTests(getContext)` - User management tests

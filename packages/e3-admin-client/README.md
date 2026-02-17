@@ -11,45 +11,45 @@ npm install @elaraai/e3-admin-client
 ## Usage
 
 ```typescript
-import { whoami, repoUsers, addUser, removeUser, unwrap } from '@elaraai/e3-admin-client';
+import { whoami, repoUsers, addUser, removeUser, ApiError } from '@elaraai/e3-admin-client';
 import { variant } from '@elaraai/east';
 
 const options = { token: 'my-access-token' };
 
 // Get current user
-const me = unwrap(await whoami('https://dev.e3.elaraai.com', options));
+const me = await whoami('https://dev.e3.elaraai.com', options);
 console.log(`Logged in as ${me.sub}, admin: ${me.isAdmin}`);
 
 // List users on a repo
-const users = unwrap(await repoUsers('https://dev.e3.elaraai.com', 'my-repo', options));
+const users = await repoUsers('https://dev.e3.elaraai.com', 'my-repo', options);
 
 // Add a user with member role
-const newUser = unwrap(await addUser(
+const newUser = await addUser(
   'https://dev.e3.elaraai.com',
   'my-repo',
   { email: 'bob@example.com', role: variant('member', null) },
   options
-));
+);
 
 // Remove a user
-unwrap(await removeUser('https://dev.e3.elaraai.com', 'my-repo', 'user-id', options));
+await removeUser('https://dev.e3.elaraai.com', 'my-repo', 'user-id', options);
 ```
 
 ## API
 
-### `whoami(url, options): Promise<Response<WhoamiResponse>>`
+### `whoami(url, options): Promise<WhoamiResponse>`
 
 Get current user info.
 
-### `repoUsers(url, repo, options): Promise<Response<RepoUser[]>>`
+### `repoUsers(url, repo, options): Promise<RepoUser[]>`
 
 List users with access to a repository.
 
-### `addUser(url, repo, request, options): Promise<Response<RepoUser>>`
+### `addUser(url, repo, request, options): Promise<RepoUser>`
 
 Add a user to a repository.
 
-### `removeUser(url, repo, userId, options): Promise<Response<null>>`
+### `removeUser(url, repo, userId, options): Promise<void>`
 
 Remove a user from a repository.
 
@@ -97,28 +97,25 @@ Remove the timeout config for a task.
 
 List all task configs (compute + timeout) for a workspace.
 
-### `unwrap<T>(response: Response<T>): T`
-
-Unwrap a response, throwing on error.
-
 ## Error Handling
 
-All API functions return a `Response<T>` type that is either a success or an error:
+All API functions throw on failure. Two error types are re-exported from `@elaraai/e3-api-client`:
+
+- **`ApiError`** — Application-level errors (e.g., `forbidden`, `not_found`, `user_not_found`)
+- **`AuthError`** — 401 Unauthorized (token expired or invalid)
 
 ```typescript
-type Response<T> =
-  | { type: 'success'; value: T }
-  | { type: 'error'; value: AdminError };
-```
+import { whoami, ApiError, AuthError } from '@elaraai/e3-admin-client';
 
-Use `unwrap()` to extract the value, or handle errors explicitly:
-
-```typescript
-const response = await whoami(url, options);
-if (response.type === 'error') {
-  console.error('Error:', response.value.code, response.value.message);
-} else {
-  console.log('User:', response.value.sub);
+try {
+  const me = await whoami(url, options);
+  console.log('User:', me.sub);
+} catch (error) {
+  if (error instanceof AuthError) {
+    console.error('Not authenticated');
+  } else if (error instanceof ApiError) {
+    console.error('Error:', error.code, error.message);
+  }
 }
 ```
 

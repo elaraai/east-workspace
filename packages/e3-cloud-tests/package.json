@@ -1,9 +1,9 @@
 {
-  "name": "@elaraai/e3-admin-tests",
+  "name": "@elaraai/e3-cloud-tests",
   "version": "0.0.1-alpha.0",
   "private": true,
   "type": "module",
-  "description": "Portable integration tests for e3 admin authorization API",
+  "description": "Portable integration tests for e3 cloud deployments",
   "license": "BSL-1.1",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
@@ -20,7 +20,8 @@
   "dependencies": {
     "@elaraai/e3-admin-client": "*",
     "@elaraai/e3-admin-types": "*",
-    "@elaraai/e3-api-client": "beta"
+    "@elaraai/e3-api-client": "beta",
+    "@elaraai/e3-api-tests": "beta"
   },
   "peerDependencies": {
     "@elaraai/east": "beta"

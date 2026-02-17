@@ -25,6 +25,7 @@ import {
   addUser,
 } from '@elaraai/e3-admin-client';
 import { repoCreate } from '@elaraai/e3-api-client';
+import type { ComputeSize } from '@elaraai/e3-admin-types';
 import type { AdminTestContext } from '../context.js';
 import { expectError } from '../helpers.js';
 
@@ -194,7 +195,7 @@ export function taskConfigTests(getContext: () => AdminTestContext): void {
     void describe('POST /task-configs/compute (batch)', () => {
       void it('owner batch-sets multiple tasks', async () => {
         const ctx = getContext();
-        const configs = new Map([
+        const configs = new Map<string, ComputeSize>([
           ['task-a', variant('small', null)],
           ['task-b', variant('large', null)],
         ]);
