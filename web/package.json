@@ -11,8 +11,8 @@
   },
   "dependencies": {
     "@chakra-ui/react": "^3.33.0",
-    "@elaraai/e3-admin-client": "*",
-    "@elaraai/e3-admin-types": "*",
+    "@elaraai/e3-cloud-client": "*",
+    "@elaraai/e3-cloud-types": "*",
     "@elaraai/e3-api-client": "beta",
     "@elaraai/e3-ui-components": "beta",
     "@elaraai/east": "beta",

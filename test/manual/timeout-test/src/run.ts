@@ -33,7 +33,7 @@ import {
 import {
   setCompute,
   setTimeout as setTaskTimeout,
-} from '@elaraai/e3-admin-client';
+} from '@elaraai/e3-cloud-client';
 import { getToken } from './credentials.js';
 
 const SERVER = 'https://dev.e3.elaraai.com';

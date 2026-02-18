@@ -153,8 +153,8 @@ web/
 | Package | Purpose |
 |---------|---------|
 | `@chakra-ui/react` | UI component library (v3) |
-| `@elaraai/e3-admin-client` | Typed HTTP client for admin API (users, schedules) |
-| `@elaraai/e3-admin-types` | East type definitions for admin entities |
+| `@elaraai/e3-cloud-client` | Typed HTTP client for admin API (users, schedules) |
+| `@elaraai/e3-cloud-types` | East type definitions for admin entities |
 | `@elaraai/e3-api-client` | Typed HTTP client for e3 API |
 | `@elaraai/east` | East type system (for BEAST2 decode) |
 | `@tanstack/react-query` | Data fetching and caching |

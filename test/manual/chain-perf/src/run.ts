@@ -23,7 +23,7 @@ import {
   removeCompute,
   listCompute,
   type ComputeSize,
-} from '@elaraai/e3-admin-client';
+} from '@elaraai/e3-cloud-client';
 import { SFNClient, ListExecutionsCommand } from '@aws-sdk/client-sfn';
 import { getToken } from './credentials.js';
 import { getExecutionTiming, formatTimingTable, type ExecutionTiming } from './sfn-timing.js';

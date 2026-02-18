@@ -129,9 +129,9 @@ e3-aws/
 │   ├── e3-aws-api/         # Lambda API handler (Hono)
 │   ├── e3-aws-storage/     # S3 + DynamoDB storage backend
 │   ├── e3-aws-runner/      # Task execution (Lambda + Fargate)
-│   ├── e3-admin-types/     # Shared authorization types
-│   ├── e3-admin-core/      # Authorization logic
-│   ├── e3-admin-client/    # Admin API client
+│   ├── e3-cloud-types/     # Shared authorization types
+│   ├── e3-cloud-core/      # Authorization logic
+│   ├── e3-cloud-client/    # Admin API client
 │   ├── e3-cloud-tests/     # Portable integration tests
 │   └── e3-cloud-cli/       # Cloud management CLI
 │
@@ -176,9 +176,9 @@ Elara AWS Organization
 | `@elaraai/e3-aws-api` | Lambda handler - routes, auth, OIDC discovery |
 | `@elaraai/e3-aws-storage` | S3DynamoStorage backend implementation |
 | `@elaraai/e3-aws-runner` | Task execution for Step Functions (Lambda + Fargate) |
-| `@elaraai/e3-admin-types` | Shared East types for authorization |
-| `@elaraai/e3-admin-core` | Authorization logic and interfaces |
-| `@elaraai/e3-admin-client` | HTTP client for admin API |
+| `@elaraai/e3-cloud-types` | Shared East types for authorization |
+| `@elaraai/e3-cloud-core` | Authorization logic and interfaces |
+| `@elaraai/e3-cloud-client` | HTTP client for admin API |
 | `@elaraai/e3-cloud-tests` | Portable integration tests for cloud deployments |
 | `@elaraai/e3-cloud-cli` | CLI for cloud management |
 | `@elaraai/e3-web` | React frontend application |

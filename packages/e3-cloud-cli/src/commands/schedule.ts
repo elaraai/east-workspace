@@ -13,7 +13,7 @@ import {
   setSchedule,
   removeSchedule,
   listSchedules,
-} from '@elaraai/e3-admin-client';
+} from '@elaraai/e3-cloud-client';
 import { taskList } from '@elaraai/e3-api-client';
 import { getValidToken } from '../credentials.js';
 import { parseWorkspaceUrl, parseRepoUrl, formatError, exitError, confirm } from '../utils.js';

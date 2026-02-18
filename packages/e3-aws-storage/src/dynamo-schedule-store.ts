@@ -13,8 +13,8 @@ import {
 } from '@aws-sdk/client-dynamodb';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import { encodeBeast2For, decodeBeast2For } from '@elaraai/east';
-import type { ScheduleStore } from '@elaraai/e3-admin-core';
-import { ScheduleType, type Schedule } from '@elaraai/e3-admin-types';
+import type { ScheduleStore } from '@elaraai/e3-cloud-core';
+import { ScheduleType, type Schedule } from '@elaraai/e3-cloud-types';
 
 const encodeSchedule = encodeBeast2For(ScheduleType);
 const decodeSchedule = decodeBeast2For(ScheduleType);

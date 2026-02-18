@@ -60,11 +60,11 @@ e3-aws/
 │   │       ├── finalize-execution.ts            # Finalizes dataflow run
 │   │       └── schedule-trigger.ts              # Handles scheduled execution triggers
 │   │
-│   ├── e3-admin-types/       # Shared East types for authorization (@elaraai/e3-admin-types)
+│   ├── e3-cloud-types/       # Shared East types for authorization (@elaraai/e3-cloud-types)
 │   │
-│   ├── e3-admin-core/        # Authorization logic and interfaces (@elaraai/e3-admin-core)
+│   ├── e3-cloud-core/        # Authorization logic and interfaces (@elaraai/e3-cloud-core)
 │   │
-│   ├── e3-admin-client/      # HTTP client for admin API (@elaraai/e3-admin-client)
+│   ├── e3-cloud-client/      # HTTP client for admin API (@elaraai/e3-cloud-client)
 │   │
 │   ├── e3-cloud-tests/       # Portable integration tests for cloud deployments (@elaraai/e3-cloud-tests)
 │   │   └── src/suites/       # Test suites (admin auth, compute execution)

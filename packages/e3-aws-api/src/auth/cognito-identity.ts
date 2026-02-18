@@ -10,7 +10,7 @@
  */
 
 import { CognitoIdentityProviderClient, ListUsersCommand } from '@aws-sdk/client-cognito-identity-provider';
-import type { Identity, WhoamiBackend } from '@elaraai/e3-admin-core';
+import type { Identity, WhoamiBackend } from '@elaraai/e3-cloud-core';
 
 /** Cognito group name for native (non-federated) admin users */
 const COGNITO_ADMIN_GROUP = 'e3-admins';

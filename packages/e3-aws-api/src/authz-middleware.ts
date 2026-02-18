@@ -10,10 +10,10 @@
  */
 
 import { createMiddleware } from 'hono/factory';
-import type { AclStore, Identity } from '@elaraai/e3-admin-core';
-import { hasAccess, errorCodeToStatus } from '@elaraai/e3-admin-core';
+import type { AclStore, Identity } from '@elaraai/e3-cloud-core';
+import { hasAccess, errorCodeToStatus } from '@elaraai/e3-cloud-core';
 import { variant } from '@elaraai/east';
-import type { AuthzError } from '@elaraai/e3-admin-types';
+import type { AuthzError } from '@elaraai/e3-cloud-types';
 import { extractIdentity } from './auth/index.js';
 
 /**

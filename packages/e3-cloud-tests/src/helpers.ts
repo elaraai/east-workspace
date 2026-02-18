@@ -8,7 +8,7 @@
  */
 
 import { strict as assert } from 'node:assert';
-import { ApiError, AuthError } from '@elaraai/e3-admin-client';
+import { ApiError, AuthError } from '@elaraai/e3-cloud-client';
 
 /**
  * Assert that a promise rejects with an ApiError having the specified code.

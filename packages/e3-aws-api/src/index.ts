@@ -50,7 +50,7 @@ import {
 
 // Auth routes
 import { createDiscoveryRoutes, createDeviceFlowRoutes, extractIdentity } from './auth/index.js';
-import { WhoamiResponseType } from '@elaraai/e3-admin-types';
+import { WhoamiResponseType } from '@elaraai/e3-cloud-types';
 
 // Admin routes
 import { createAdminRoutes } from './admin-routes.js';

@@ -13,9 +13,9 @@ import {
 } from '@aws-sdk/client-dynamodb';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import { some, none } from '@elaraai/east';
-import type { AclStore } from '@elaraai/e3-admin-core';
-import type { RepoUser, RepoRole } from '@elaraai/e3-admin-types';
-import { parseRepoRole, serializeRepoRole } from '@elaraai/e3-admin-types';
+import type { AclStore } from '@elaraai/e3-cloud-core';
+import type { RepoUser, RepoRole } from '@elaraai/e3-cloud-types';
+import { parseRepoRole, serializeRepoRole } from '@elaraai/e3-cloud-types';
 
 /**
  * DynamoDB-backed AclStore implementation.

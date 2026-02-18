@@ -13,14 +13,14 @@
 
 import { Hono } from 'hono';
 import { NullType, ArrayType, variant } from '@elaraai/east';
-import type { AclStore, Identity } from '@elaraai/e3-admin-core';
-import { hasAccess, errorCodeToStatus } from '@elaraai/e3-admin-core';
+import type { AclStore, Identity } from '@elaraai/e3-cloud-core';
+import { hasAccess, errorCodeToStatus } from '@elaraai/e3-cloud-core';
 import {
   ScheduleType,
   ScheduleRequestType,
   type Schedule,
   type AuthzError,
-} from '@elaraai/e3-admin-types';
+} from '@elaraai/e3-cloud-types';
 import { sendSuccess, sendError, decodeBody } from '@elaraai/e3-api-server/beast2';
 import { extractIdentity } from './auth/index.js';
 import type { DynamoScheduleStore } from '@elaraai/e3-aws-storage';

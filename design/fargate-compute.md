@@ -27,7 +27,7 @@ Sized compute tiers remove these constraints:
 All new types in one place. These are the public-facing data model.
 
 ```typescript
-// packages/e3-admin-types/src/task-config-types.ts
+// packages/e3-cloud-types/src/task-config-types.ts
 
 import {
   StructType, VariantType, NullType, StringType, IntegerType,
@@ -62,7 +62,7 @@ export type TimeoutConfigMap = ValueTypeOf<typeof TimeoutConfigMapType>;
 Changes to the existing schedule type:
 
 ```typescript
-// packages/e3-admin-types/src/schedule-types.ts — changes only
+// packages/e3-cloud-types/src/schedule-types.ts — changes only
 
 export const ScheduleRequestType = StructType({
   cronExpression: StringType,
@@ -261,10 +261,10 @@ SK: timeout#{taskName}       → BEAST2-encoded TaskTimeout
 
 Schedule `forceTasks` is stored as part of the existing schedule item (replaces `forceTaskPatterns`).
 
-### Store Interface (`e3-admin-core`)
+### Store Interface (`e3-cloud-core`)
 
 ```typescript
-// packages/e3-admin-core/src/task-config-store.ts
+// packages/e3-cloud-core/src/task-config-store.ts
 interface TaskConfigStore {
   // Compute
   getCompute(repo: string, workspace: string, taskName: string): Promise<ComputeSize | null>;
@@ -476,20 +476,20 @@ The new sized compute states added to the dataflow state machine (Phase 5) must 
 
 | Package | What it gets |
 |---------|-------------|
-| `e3-admin-types` | `ComputeSizeType`, `TaskTimeoutType`, `ComputeConfigMapType`, `TimeoutConfigMapType` — East type objects + TS types |
-| `e3-admin-core` | `TaskConfigStore` interface |
+| `e3-cloud-types` | `ComputeSizeType`, `TaskTimeoutType`, `ComputeConfigMapType`, `TimeoutConfigMapType` — East type objects + TS types |
+| `e3-cloud-core` | `TaskConfigStore` interface |
 | `e3-aws-storage` | `DynamoTaskConfigStore` — implements `TaskConfigStore` using DynamoDB + BEAST2 encode/decode |
 | `e3-aws-api` | Route handlers for `/task-configs/compute`, `/task-configs/timeout`, `/task-configs`. BEAST2 decode request bodies, encode responses. |
-| `e3-admin-client` | `getCompute`, `setCompute`, `setComputeBatch`, `removeCompute`, `listCompute` + same for timeout + `listTaskConfigs`. BEAST2 encode requests, decode responses. |
-| `e3-cloud-cli` | `compute` and `timeout` commands. Uses `e3-admin-client`. Client-side regex resolution. |
+| `e3-cloud-client` | `getCompute`, `setCompute`, `setComputeBatch`, `removeCompute`, `listCompute` + same for timeout + `listTaskConfigs`. BEAST2 encode requests, decode responses. |
+| `e3-cloud-cli` | `compute` and `timeout` commands. Uses `e3-cloud-client`. Client-side regex resolution. |
 | `e3-aws-runner` | `dispatch-task.ts` reads configs via `TaskConfigStore`. `execute-task-core.ts` + `execute-task-compute-entry.ts` new files. |
 | `cdk/platform` | ECS Cluster, VPC, Task Definition, state machine changes, `collect-compute-result` Lambda, SOCI Index Builder |
 
 ## Implementation Plan
 
 ### Phase 1: Types + Store (foundation) — Done
-1. **`e3-admin-types`**: Add `task-config-types.ts` with `ComputeSizeType`, `TaskTimeoutType`, `ComputeConfigMapType`, `TimeoutConfigMapType`
-2. **`e3-admin-core`**: Add `task-config-store.ts` with `TaskConfigStore` interface
+1. **`e3-cloud-types`**: Add `task-config-types.ts` with `ComputeSizeType`, `TaskTimeoutType`, `ComputeConfigMapType`, `TimeoutConfigMapType`
+2. **`e3-cloud-core`**: Add `task-config-store.ts` with `TaskConfigStore` interface
 3. **`e3-aws-storage`**: Implement `DynamoTaskConfigStore`
    - BEAST2 encode/decode using `ComputeSizeType` and `TaskTimeoutType`
    - DynamoDB PK: `TASKCONFIG/{repo}/{workspace}`, SK: `compute#{taskName}` / `timeout#{taskName}`
@@ -504,18 +504,18 @@ The new sized compute states added to the dataflow state machine (Phase 5) must 
    - `GET /task-configs/compute/:task` → `getCompute`, return explicit or `variant('serverless')` default
    - `PUT /task-configs/compute/:task` → validate, `putCompute` (or `deleteCompute` if `variant('serverless')`)
    - `DELETE /task-configs/compute/:task` → `deleteCompute`
-5. **`e3-admin-client`**: Add compute client functions — BEAST2 encode requests, decode responses
+5. **`e3-cloud-client`**: Add compute client functions — BEAST2 encode requests, decode responses
 6. **`e3-cloud-cli`**: Add `compute` command with `set`, `list`, `get`, `remove` subcommands. `--regex` flag does client-side resolution via task list API.
 
 ### Phase 3: Timeout API + CLI — Done
 7. **`e3-aws-api`**: Add timeout route handlers (same pattern as compute, same locking)
    - `GET /task-configs/timeout/:task` returns effective default based on task's compute config when no explicit override
 8. **`e3-aws-api`**: Add unified `GET /task-configs` route — queries all `TASKCONFIG/` items, splits by SK prefix, returns `{ compute: ..., timeout: ... }`
-9. **`e3-admin-client`**: Add timeout client functions
+9. **`e3-cloud-client`**: Add timeout client functions
 10. **`e3-cloud-cli`**: Add `timeout` command
 
 ### Phase 4: Schedule Force-Tasks Migration — Done
-11. **`e3-admin-types`**: Change `forceTaskPatterns` → `forceTasks` in `ScheduleType` and `ScheduleRequestType`
+11. **`e3-cloud-types`**: Change `forceTaskPatterns` → `forceTasks` in `ScheduleType` and `ScheduleRequestType`
 12. **`e3-aws-api`** / **`e3-aws-storage`**: Update schedule routes and DynamoDB store for renamed field
 13. **`e3-aws-runner`**: Update `schedule-trigger.ts` to use `forceTasks` directly (no pattern resolution)
 14. **`e3-cloud-cli`**: Update schedule command with `--force-tasks` and `--force-regex` flags

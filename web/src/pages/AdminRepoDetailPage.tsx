@@ -27,7 +27,7 @@ import {
   useWorkspaceExecution,
 } from '../hooks/useAdminApi';
 import type { WorkspaceInfo } from '@elaraai/e3-api-client';
-import type { Schedule, ScheduleRequest, RepoRole } from '@elaraai/e3-admin-client';
+import type { Schedule, ScheduleRequest, RepoRole } from '@elaraai/e3-cloud-client';
 import { useWorkspaceList, usePackageList, useDataflowStart } from '@elaraai/e3-ui-components';
 import { API_URL, getRequestOptions } from '../api';
 import { useQueryClient } from '@tanstack/react-query';

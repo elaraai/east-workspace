@@ -13,7 +13,7 @@
 import { describe, it, beforeEach } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { variant } from '@elaraai/east';
-import { repoUsers, addUser, removeUser, ApiError } from '@elaraai/e3-admin-client';
+import { repoUsers, addUser, removeUser, ApiError } from '@elaraai/e3-cloud-client';
 import { repoCreate } from '@elaraai/e3-api-client';
 import type { AdminTestContext } from '../context.js';
 import { expectError } from '../helpers.js';

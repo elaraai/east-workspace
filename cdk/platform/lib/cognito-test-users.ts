@@ -23,7 +23,7 @@ import * as cr from 'aws-cdk-lib/custom-resources';
 import { Construct } from 'constructs';
 
 /**
- * Test user identifiers (must match e3-admin-tests TestUserId type).
+ * Test user identifiers (must match e3-cloud-tests TestUserId type).
  */
 export const TEST_USER_IDS = ['owner', 'member', 'outsider', 'admin'] as const;
 export type TestUserId = typeof TEST_USER_IDS[number];

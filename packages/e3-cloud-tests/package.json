@@ -18,8 +18,8 @@
     "lint": "eslint src/**/*.ts"
   },
   "dependencies": {
-    "@elaraai/e3-admin-client": "*",
-    "@elaraai/e3-admin-types": "*",
+    "@elaraai/e3-cloud-client": "*",
+    "@elaraai/e3-cloud-types": "*",
     "@elaraai/e3-api-client": "beta",
     "@elaraai/e3-api-tests": "beta"
   },

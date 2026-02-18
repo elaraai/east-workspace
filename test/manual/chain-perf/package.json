@@ -12,7 +12,7 @@
   "dependencies": {
     "@elaraai/e3": "beta",
     "@elaraai/e3-api-client": "beta",
-    "@elaraai/e3-admin-client": "*",
+    "@elaraai/e3-cloud-client": "*",
     "@aws-sdk/client-sfn": "^3.0.0"
   },
   "peerDependencies": {

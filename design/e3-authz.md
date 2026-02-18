@@ -12,8 +12,8 @@ This document specifies repository-level authorization for e3-aws. The core e3 r
 
 | Aspect | Location |
 |--------|----------|
-| Types | `e3-admin-types` package |
-| Interfaces | `e3-admin-core` package |
+| Types | `e3-cloud-types` package |
+| Interfaces | `e3-cloud-core` package |
 | Storage | DynamoDB |
 | Admin detection | Cognito groups |
 | User lookup | Cognito ListUsers |
@@ -51,19 +51,19 @@ The authorization admin tooling is organized into four packages, mirroring the e
 
 ```
 e3-aws/packages/
-├── e3-admin-types/       # @elaraai/e3-admin-types
+├── e3-cloud-types/       # @elaraai/e3-cloud-types
 │   ├── package.json      # BSL 1.1 license
 │   └── src/
 │       └── types.ts      # RepoRole, RepoUser, AuthzConfig, etc.
 │
-├── e3-admin-core/        # @elaraai/e3-admin-core
+├── e3-cloud-core/        # @elaraai/e3-cloud-core
 │   ├── package.json      # BSL 1.1 license
 │   └── src/
 │       ├── index.ts
 │       ├── acl-store.ts  # AclStore interface
 │       └── authz.ts      # hasAccess(), canRemoveUser(), isLastOwner()
 │
-├── e3-admin-client/      # @elaraai/e3-admin-client
+├── e3-cloud-client/      # @elaraai/e3-cloud-client
 │   ├── package.json      # BSL 1.1 license
 │   └── src/
 │       ├── index.ts
@@ -79,18 +79,18 @@ e3-aws/packages/
 ### Package Dependencies
 
 ```
-e3-admin-types (no deps)
+e3-cloud-types (no deps)
        ↑
-e3-admin-core (types)
+e3-cloud-core (types)
        ↑
-e3-admin-client (core, types)
+e3-cloud-client (core, types)
        ↑
 e3-cloud-cli (client, core, types)
 ```
 
 ---
 
-## Types (e3-admin-types)
+## Types (e3-cloud-types)
 
 ### RepoRole
 
@@ -194,14 +194,14 @@ export const DefaultAuthzConfig: AuthzConfig = {
 
 ---
 
-## Interfaces (e3-admin-core)
+## Interfaces (e3-cloud-core)
 
-The `@elaraai/e3-admin-core` package provides cloud-agnostic interfaces and authorization logic. It depends on `@elaraai/e3-admin-types` for East type definitions.
+The `@elaraai/e3-cloud-core` package provides cloud-agnostic interfaces and authorization logic. It depends on `@elaraai/e3-cloud-types` for East type definitions.
 
 ### Package Structure
 
 ```
-packages/e3-admin-core/
+packages/e3-cloud-core/
 ├── package.json
 ├── tsconfig.json
 ├── LICENSE.md
@@ -217,20 +217,20 @@ packages/e3-admin-core/
 
 ### Exports
 
-Main entry point (`@elaraai/e3-admin-core`):
+Main entry point (`@elaraai/e3-cloud-core`):
 - Interfaces: `AclStore`, `Identity`, `WhoamiBackend`
 - Authorization: `hasAccess`, `isLastOwner`, `canRemoveUser`, `AuthzResult`
 - Errors: `AdminCoreError`, `UserNotFoundError`, `RepoNotFoundError`, `errorCodeToStatus`
 - Re-exports from types: `RepoRole`, `RepoUser`, `AddUserRequest`, `WhoamiResponse`, `AuthzErrorCode`, `AuthzError`
 
-Testing entry point (`@elaraai/e3-admin-core/testing`):
+Testing entry point (`@elaraai/e3-cloud-core/testing`):
 - `InMemoryAclStore` - In-memory implementation for unit tests
 - `MockWhoamiBackend` - Configurable identity backend for tests
 
 ### AclStore Interface
 
 ```typescript
-import type { RepoUser, RepoRole } from '@elaraai/e3-admin-types';
+import type { RepoUser, RepoRole } from '@elaraai/e3-cloud-types';
 
 /**
  * Storage interface for repository access control lists.
@@ -293,7 +293,7 @@ export interface WhoamiBackend {
 ### Authorization Functions
 
 ```typescript
-import type { AuthzErrorCode } from '@elaraai/e3-admin-types';
+import type { AuthzErrorCode } from '@elaraai/e3-cloud-types';
 import { variant } from '@elaraai/east';
 
 /** Result of an authorization check */
@@ -375,7 +375,7 @@ export async function canRemoveUser(
 ### Error Classes
 
 ```typescript
-import type { AuthzErrorCode } from '@elaraai/e3-admin-types';
+import type { AuthzErrorCode } from '@elaraai/e3-cloud-types';
 
 export class AdminCoreError extends Error {
   constructor(message: string) {
@@ -410,8 +410,8 @@ export function errorCodeToStatus(code: AuthzErrorCode): number {
 ### Testing Utilities
 
 ```typescript
-// Import from '@elaraai/e3-admin-core/testing'
-import { InMemoryAclStore, MockWhoamiBackend } from '@elaraai/e3-admin-core/testing';
+// Import from '@elaraai/e3-cloud-core/testing'
+import { InMemoryAclStore, MockWhoamiBackend } from '@elaraai/e3-cloud-core/testing';
 import { variant } from '@elaraai/east';
 
 // In-memory store for unit tests
@@ -507,7 +507,7 @@ Located in `packages/e3-aws-storage/src/acl-store.ts`:
 
 ```typescript
 import { DynamoDBDocumentClient, QueryCommand, PutCommand, DeleteCommand, BatchWriteCommand } from '@aws-sdk/lib-dynamodb';
-import type { AclStore, RepoUser, RepoRole } from '@elaraai/e3-admin-core';
+import type { AclStore, RepoUser, RepoRole } from '@elaraai/e3-cloud-core';
 
 export class DynamoAclStore implements AclStore {
   constructor(
@@ -925,12 +925,12 @@ START → CleanupACL → DeleteObjects → DeleteRefs → DeleteRepoItem → END
 
 ---
 
-## Client Library (e3-admin-client)
+## Client Library (e3-cloud-client)
 
 HTTP client for ACL operations, following e3-api-client patterns:
 
 ```typescript
-import type { RepoUser, AddUserRequest, WhoamiResponse } from '@elaraai/e3-admin-types';
+import type { RepoUser, AddUserRequest, WhoamiResponse } from '@elaraai/e3-cloud-types';
 import { variant } from '@elaraai/east';
 
 /**
@@ -1009,7 +1009,7 @@ export async function removeUser(
 **Usage:**
 
 ```typescript
-import { whoami, repoUsers, addUser, unwrap } from '@elaraai/e3-admin-client';
+import { whoami, repoUsers, addUser, unwrap } from '@elaraai/e3-cloud-client';
 import { variant } from '@elaraai/east';
 
 const options = { token: accessToken };
@@ -1084,16 +1084,16 @@ Removed charlie@example.com
 ### Phase 1: Types and Core (Week 1)
 
 **Tasks:**
-- [ ] Create `packages/e3-admin-types/` package structure
+- [ ] Create `packages/e3-cloud-types/` package structure
 - [ ] Implement `RepoRole`, `RepoUser`, `AddUserRequest`, `WhoamiResponse` types
-- [ ] Create `packages/e3-admin-core/` package structure
+- [ ] Create `packages/e3-cloud-core/` package structure
 - [ ] Implement `AclStore` interface
 - [ ] Implement `hasAccess()`, `canRemoveUser()`, `isLastOwner()` functions
 - [ ] Unit tests for authorization logic
 
 **Deliverables:**
-- `@elaraai/e3-admin-types` package
-- `@elaraai/e3-admin-core` package
+- `@elaraai/e3-cloud-types` package
+- `@elaraai/e3-cloud-core` package
 - Unit test coverage for authz functions
 
 ### Phase 2: DynamoDB and API (Week 2)
@@ -1117,7 +1117,7 @@ Removed charlie@example.com
 ### Phase 3: Client and CLI (Week 3)
 
 **Tasks:**
-- [ ] Create `packages/e3-admin-client/` package structure
+- [ ] Create `packages/e3-cloud-client/` package structure
 - [ ] Implement `whoami()`, `repoUsers()`, `addUser()`, `removeUser()` functions
 - [ ] Create `packages/e3-cloud-cli/` package structure
 - [ ] Implement CLI commands (`whoami`, `user list`, `user add`, `user remove`)
@@ -1125,7 +1125,7 @@ Removed charlie@example.com
 - [ ] E2E tests for CLI commands
 
 **Deliverables:**
-- `@elaraai/e3-admin-client` package
+- `@elaraai/e3-cloud-client` package
 - `@elaraai/e3-cloud-cli` package
 - Integration test coverage
 
@@ -1147,7 +1147,7 @@ Removed charlie@example.com
 
 ## Testing
 
-### Unit Tests (e3-admin-core)
+### Unit Tests (e3-cloud-core)
 
 ```typescript
 describe('hasAccess', () => {

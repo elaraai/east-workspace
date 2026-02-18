@@ -10,7 +10,7 @@
  * across different cloud providers (AWS, Azure, GCP).
  */
 
-import type { RequestOptions } from '@elaraai/e3-admin-client';
+import type { RequestOptions } from '@elaraai/e3-cloud-client';
 import { repoRemove } from '@elaraai/e3-api-client';
 
 /**

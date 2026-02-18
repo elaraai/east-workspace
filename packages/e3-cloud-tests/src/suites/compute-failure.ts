@@ -19,7 +19,7 @@
 import { describe, it, beforeEach } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { variant } from '@elaraai/east';
-import { setCompute } from '@elaraai/e3-admin-client';
+import { setCompute } from '@elaraai/e3-cloud-client';
 import {
   createFailingDiamondPackageZip,
   createParallelMixedPackageZip,

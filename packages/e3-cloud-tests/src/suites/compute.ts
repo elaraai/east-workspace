@@ -19,9 +19,9 @@
 import { describe, it, beforeEach } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { variant } from '@elaraai/east';
-import { setCompute, getCompute } from '@elaraai/e3-admin-client';
+import { setCompute, getCompute } from '@elaraai/e3-cloud-client';
 import type { TestContext } from '@elaraai/e3-api-tests';
-import type { ComputeSize } from '@elaraai/e3-admin-types';
+import type { ComputeSize } from '@elaraai/e3-cloud-types';
 
 import { executeAndLog } from './compute-helpers.js';
 

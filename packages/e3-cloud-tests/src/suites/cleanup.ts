@@ -23,7 +23,7 @@ import {
   listCompute, setCompute,
   listTimeout, setTimeout,
   getSchedule, setSchedule,
-} from '@elaraai/e3-admin-client';
+} from '@elaraai/e3-cloud-client';
 import type { TestContext } from '@elaraai/e3-api-tests';
 
 /**

@@ -25,7 +25,7 @@ import {
   removeSchedule,
   listSchedules,
   addUser,
-} from '@elaraai/e3-admin-client';
+} from '@elaraai/e3-cloud-client';
 import { repoCreate } from '@elaraai/e3-api-client';
 import type { AdminTestContext } from '../context.js';
 import { expectError } from '../helpers.js';

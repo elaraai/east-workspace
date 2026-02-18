@@ -14,13 +14,13 @@ import {
 } from '@aws-sdk/client-dynamodb';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import { encodeBeast2For, decodeBeast2For } from '@elaraai/east';
-import type { TaskConfigStore } from '@elaraai/e3-admin-core';
+import type { TaskConfigStore } from '@elaraai/e3-cloud-core';
 import {
   ComputeSizeType,
   type ComputeSize,
   TaskTimeoutType,
   type TaskTimeout,
-} from '@elaraai/e3-admin-types';
+} from '@elaraai/e3-cloud-types';
 
 const encodeComputeSize = encodeBeast2For(ComputeSizeType);
 const decodeComputeSize = decodeBeast2For(ComputeSizeType);

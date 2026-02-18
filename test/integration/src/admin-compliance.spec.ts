@@ -4,7 +4,7 @@
  *
  * Admin API Compliance Tests
  *
- * Runs the shared e3-admin-tests suites against the deployed cloud server.
+ * Runs the shared e3-cloud-tests suites against the deployed cloud server.
  * These tests verify that the cloud implementation conforms to the admin
  * authorization API contract.
  *

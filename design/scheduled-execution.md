@@ -180,7 +180,7 @@ SK: {workspace}
 
 Following the established pattern of types → core → client packages:
 
-#### e3-admin-types (new types)
+#### e3-cloud-types (new types)
 
 ```typescript
 // Schedule data model
@@ -207,7 +207,7 @@ export const ScheduleRequestType = StructType({
 });
 ```
 
-#### e3-admin-core (new interface)
+#### e3-cloud-core (new interface)
 
 ```typescript
 export interface ScheduleStore {
@@ -219,7 +219,7 @@ export interface ScheduleStore {
 }
 ```
 
-#### e3-admin-client (new functions)
+#### e3-cloud-client (new functions)
 
 ```typescript
 export async function getSchedule(url: string, repo: string, workspace: string, options: RequestOptions): Promise<Schedule | null>;
@@ -580,8 +580,8 @@ const { repo, workspace, executionId, taskName, force, forceTasks } = event;
 
 ### Phase 1: Infrastructure & Data Model
 1. Add `scheduling.defaultTimezone` to DeploymentConfig and elara-dev.json
-2. Add East types to e3-admin-types (ScheduleType, ScheduleRequestType)
-3. Add ScheduleStore interface to e3-admin-core
+2. Add East types to e3-cloud-types (ScheduleType, ScheduleRequestType)
+3. Add ScheduleStore interface to e3-cloud-core
 4. Implement DynamoScheduleStore in e3-aws-storage
 5. Add CDK resources (Scheduler group, trigger Lambda, IAM role, API permissions)
 
@@ -595,7 +595,7 @@ const { repo, workspace, executionId, taskName, force, forceTasks } = event;
 
 ### Phase 3: CLI & Cleanup
 1. Add schedule commands to e3-cloud-cli (set, get, remove, list)
-2. Add client functions to e3-admin-client
+2. Add client functions to e3-cloud-client
 3. Add schedule cleanup to repo delete flow
 4. Add schedule cleanup to workspace delete flow
 5. Update README.md files with schedule documentation

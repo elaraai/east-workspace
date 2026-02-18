@@ -11,14 +11,14 @@
 
 import { Hono } from 'hono';
 import { ArrayType, NullType, variant, some, none } from '@elaraai/east';
-import type { AclStore, Identity } from '@elaraai/e3-admin-core';
-import { hasAccess, canRemoveUser, errorCodeToStatus } from '@elaraai/e3-admin-core';
+import type { AclStore, Identity } from '@elaraai/e3-cloud-core';
+import { hasAccess, canRemoveUser, errorCodeToStatus } from '@elaraai/e3-cloud-core';
 import {
   RepoUserType,
   AddUserRequestType,
   type RepoUser,
   type AuthzError,
-} from '@elaraai/e3-admin-types';
+} from '@elaraai/e3-cloud-types';
 import { sendSuccess, sendError, decodeBody } from '@elaraai/e3-api-server/beast2';
 import { extractIdentity, lookupUserByEmail } from './auth/index.js';
 import type { DynamoRefStore } from '@elaraai/e3-aws-storage';

@@ -9,7 +9,7 @@
 
 import { describe, it } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { whoami } from '@elaraai/e3-admin-client';
+import { whoami } from '@elaraai/e3-cloud-client';
 import { variant, equalFor, OptionType, StringType } from '@elaraai/east';
 import type { AdminTestContext } from '../context.js';
 import { expectError } from '../helpers.js';

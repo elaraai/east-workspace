@@ -8,14 +8,14 @@
  */
 
 import { variant } from '@elaraai/east';
-import type { ComputeSize } from '@elaraai/e3-admin-types';
+import type { ComputeSize } from '@elaraai/e3-cloud-types';
 import {
   listCompute,
   getCompute,
   setCompute,
   setComputeBatch,
   removeCompute,
-} from '@elaraai/e3-admin-client';
+} from '@elaraai/e3-cloud-client';
 import { taskList } from '@elaraai/e3-api-client';
 import { getValidToken } from '../credentials.js';
 import { parseWorkspaceUrl, formatError, exitError, confirm } from '../utils.js';

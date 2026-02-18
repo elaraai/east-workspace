@@ -6,7 +6,7 @@
   },
   "include": ["src/**/*.ts"],
   "references": [
-    { "path": "../e3-admin-types" },
-    { "path": "../e3-admin-client" }
+    { "path": "../e3-cloud-types" },
+    { "path": "../e3-cloud-client" }
   ]
 }

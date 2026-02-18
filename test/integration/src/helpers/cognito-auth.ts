@@ -18,7 +18,7 @@ import {
 } from '@aws-sdk/client-secrets-manager';
 
 /**
- * Test user identifiers (matches e3-admin-tests TestUserId type).
+ * Test user identifiers (matches e3-cloud-tests TestUserId type).
  */
 export type TestUserId = 'owner' | 'member' | 'outsider' | 'admin';
 

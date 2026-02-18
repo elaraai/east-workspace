@@ -7,14 +7,14 @@
  * Task timeout management commands — set, get, list, remove.
  */
 
-import type { TaskTimeout } from '@elaraai/e3-admin-types';
+import type { TaskTimeout } from '@elaraai/e3-cloud-types';
 import {
   listTimeout,
   getTimeout,
   setTimeout,
   setTimeoutBatch,
   removeTimeout,
-} from '@elaraai/e3-admin-client';
+} from '@elaraai/e3-cloud-client';
 import { taskList } from '@elaraai/e3-api-client';
 import { getValidToken } from '../credentials.js';
 import { parseWorkspaceUrl, formatError, exitError, confirm } from '../utils.js';

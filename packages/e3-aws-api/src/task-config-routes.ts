@@ -28,7 +28,7 @@ import {
   TaskConfigsType,
   type ComputeSize,
   type TaskTimeout,
-} from '@elaraai/e3-admin-types';
+} from '@elaraai/e3-cloud-types';
 import { sendSuccess, sendError, decodeBody } from '@elaraai/e3-api-server/beast2';
 import type { DynamoTaskConfigStore } from '@elaraai/e3-aws-storage';
 import type { S3DynamoStorage } from '@elaraai/e3-aws-storage';

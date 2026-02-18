@@ -23,9 +23,9 @@ import {
   listTimeout, getTimeout, setTimeout, setTimeoutBatch, removeTimeout,
   listTaskConfigs,
   addUser,
-} from '@elaraai/e3-admin-client';
+} from '@elaraai/e3-cloud-client';
 import { repoCreate } from '@elaraai/e3-api-client';
-import type { ComputeSize } from '@elaraai/e3-admin-types';
+import type { ComputeSize } from '@elaraai/e3-cloud-types';
 import type { AdminTestContext } from '../context.js';
 import { expectError } from '../helpers.js';
 
