@@ -23,7 +23,7 @@ import { describe, beforeEach, afterEach } from 'node:test';
 import { getStackOutputs, getDeploymentId } from './helpers/stack-outputs.js';
 import { getToken, hasCredentials } from './helpers/credentials.js';
 import { createTestContext, type TestContext } from '@elaraai/e3-api-tests';
-import { computeTests } from '@elaraai/e3-cloud-tests';
+import { computeTests, computeFailureTests } from '@elaraai/e3-cloud-tests';
 
 const DEFAULT_SERVER = 'https://dev.e3.elaraai.com';
 
@@ -59,4 +59,7 @@ describe('Cloud Compute Tests', { timeout: 1_800_000, concurrency: false }, () =
 
   // Run Fargate compute execution tests
   computeTests(() => context);
+
+  // Run failure propagation tests
+  computeFailureTests(() => context);
 });

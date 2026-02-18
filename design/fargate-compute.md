@@ -553,3 +553,45 @@ The new sized compute states added to the dataflow state machine (Phase 5) must 
 10. **Locking** — Config mutations acquire the workspace lock in-process (try/finally) using existing `dataset_write` operation. No e3-types changes needed. New compute states in the state machine must `addCatch(prepareFinalizeFailure)`.
 11. **Cost visibility** — No. We may charge differently from infrastructure cost.
 12. **Concurrency** — No artificial limit. vCPU-based quotas (4,000 default), dependency graph, and retry policies handle natural throttling.
+
+## Future Work: ECS Workers
+
+The current Fargate task model launches a fresh container per task (~150s cold start). An ECS worker model would keep containers warm between tasks for sub-second execution after the first cold start.
+
+### Architecture
+
+- One SQS queue + one ECS Service (desiredCount: 0) per compute size (small/medium/large/xlarge)
+- Lambda-driven scale-up: Step Functions sends `{event, taskToken}` to SQS; a Lambda ensures the ECS service is running
+- Worker self-shutdown: after idle timeout (e.g. 5 min with no messages), worker sets own service desiredCount to 0 and exits
+- Same WAIT_FOR_TASK_TOKEN integration — worker calls SendTaskSuccess/SendTaskFailure after execution
+
+### Performance
+
+Warm worker experiment (2026-02-18):
+- Cold start (job 1): 203.9s total (container boot dominates)
+- Warm start (job 2): 892ms total (228x speedup)
+- Chain-5 dataflow: ~17 min (Fargate tasks) → estimated ~30s (warm workers)
+
+### Cost
+
+- Fixed: ~$0.40/month (CloudWatch alarms for queue depth monitoring)
+- Compute: identical $/vCPU-second and $/GB-second rates as Fargate tasks
+- Idle drain: worker runs ~5 min after last job before scaling to zero
+- Scale-to-zero: $0 when no jobs are running
+
+### Scaling
+
+For heavy workloads (multiple parallel tasks of the same compute size):
+- Lambda sets desiredCount to match queue depth (capped at MAX_WORKERS)
+- Each worker self-terminates when idle, decrementing desiredCount
+- No CloudWatch autoscaling policies — scaling is deterministic and Lambda-driven
+
+### Tradeoffs vs Fargate Tasks
+
+| | Fargate Tasks (current) | ECS Workers |
+|---|---|---|
+| Scaling | AWS handles it | We build and maintain it |
+| Parallelism | Unlimited, automatic | Managed worker count |
+| Cold start | Every task (~150s) | First task only, then <1s |
+| Failure isolation | Built-in, per-task | We handle retries/failures |
+| Complexity | ~0 operational | Medium, ongoing |

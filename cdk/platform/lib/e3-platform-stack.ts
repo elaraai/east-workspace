@@ -1026,6 +1026,10 @@ export class E3PlatformStack extends cdk.Stack {
       });
       this.dataBucket.grantReadWrite(taskDef.taskRole);
       this.dataTable.grantReadWriteData(taskDef.taskRole);
+      taskDef.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
+        actions: ['states:SendTaskSuccess', 'states:SendTaskFailure'],
+        resources: ['*'],  // Task tokens are self-scoping
+      }));
       const container = taskDef.addContainer('runner', {
         image: ecs.ContainerImage.fromEcrRepository(runnerRepo, 'latest'),
         logging: ecs.LogDrivers.awsLogs({ logGroup: computeLogGroup, streamPrefix: `task-${id.toLowerCase()}` }),
@@ -1288,7 +1292,7 @@ export class E3PlatformStack extends cdk.Stack {
       container: ecs.ContainerDefinition,
     ) => {
       return new tasks.EcsRunTask(this, `ExecuteTask${id}`, {
-        integrationPattern: sfn.IntegrationPattern.RUN_JOB,
+        integrationPattern: sfn.IntegrationPattern.WAIT_FOR_TASK_TOKEN,
         cluster: computeCluster,
         taskDefinition: taskDef,
         launchTarget: new tasks.EcsFargateLaunchTarget({
@@ -1301,10 +1305,11 @@ export class E3PlatformStack extends cdk.Stack {
           containerDefinition: container,
           environment: [
             { name: 'TASK_EVENT', value: sfn.JsonPath.jsonToString(sfn.JsonPath.objectAt('$')) },
+            { name: 'TASK_TOKEN', value: sfn.JsonPath.taskToken },
           ],
         }],
-        taskTimeout: sfn.Timeout.at('$.timeoutSeconds'),
-        resultPath: sfn.JsonPath.DISCARD,
+        heartbeatTimeout: sfn.Timeout.at('$.timeoutSeconds'),
+        resultPath: '$.computeCallback',
       });
     }
 

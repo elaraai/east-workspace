@@ -10,7 +10,9 @@
     "packages/*",
     "web",
     "test/integration",
-    "test/manual/schedule"
+    "test/manual/schedule",
+    "test/manual/chain-perf",
+    "test/manual/timeout-test"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",

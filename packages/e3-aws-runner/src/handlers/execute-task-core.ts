@@ -313,6 +313,7 @@ export async function executeTaskCore(
       return {
         taskName,
         status: 'failed',
+        exitCode: exitCode ?? -1,
         error: errorMsg,
         duration,
         stdout: lastStdout.slice(0, 10000),

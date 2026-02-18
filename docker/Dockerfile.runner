@@ -38,7 +38,7 @@ COPY packages/e3-aws-runner/dist/src/handlers/execute-task-compute-entry.js ./di
 COPY packages/e3-aws-runner/dist/src/handlers/execute-task-compute-entry.js.map ./dist/handlers/
 
 # Create minimal package.json with only needed dependencies and install
-RUN echo '{"type":"module","dependencies":{"@aws-sdk/client-s3":"^3.966.0","@aws-sdk/client-dynamodb":"^3.966.0","@aws-sdk/util-dynamodb":"^3.966.0"}}' > package.json \
+RUN echo '{"type":"module","dependencies":{"@aws-sdk/client-s3":"^3.966.0","@aws-sdk/client-dynamodb":"^3.966.0","@aws-sdk/util-dynamodb":"^3.966.0","@aws-sdk/client-sfn":"^3.966.0"}}' > package.json \
     && npm install --omit=dev
 
 # Copy storage package AFTER npm install (to avoid being cleaned up)

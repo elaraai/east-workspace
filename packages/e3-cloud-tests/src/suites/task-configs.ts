@@ -11,7 +11,7 @@
  * - GET/PUT/POST/DELETE .../task-configs/compute - Compute size CRUD + batch
  * - GET/PUT/POST/DELETE .../task-configs/timeout - Timeout CRUD + batch
  * - Default values (serverless→15min, sized→1440min)
- * - Timeout validation (5–43200 minutes)
+ * - Timeout validation (1–43200 minutes)
  * - Authorization (outsider forbidden, member allowed)
  */
 
@@ -368,7 +368,7 @@ export function taskConfigTests(getContext: () => AdminTestContext): void {
         await expectError(
           setTimeout(
             ctx.config.baseUrl, ctx.repoName, TEST_WORKSPACE, TEST_TASK,
-            { minutes: 4n }, await ctx.opts('owner')
+            { minutes: 0n }, await ctx.opts('owner')
           ),
           'internal'
         );
@@ -418,7 +418,7 @@ export function taskConfigTests(getContext: () => AdminTestContext): void {
         const opts = await ctx.opts('owner');
         const configs = new Map([
           ['task-a', { minutes: 30n }],
-          ['task-b', { minutes: 2n }],
+          ['task-b', { minutes: 0n }],
         ]);
         await expectError(
           setTimeoutBatch(

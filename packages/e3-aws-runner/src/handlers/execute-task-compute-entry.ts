@@ -18,9 +18,11 @@ import { executeTaskCore } from './execute-task-core.js';
 import type { TaskExecutionResult } from './execute-task-core.js';
 import { DynamoDBClient, PutItemCommand } from '@aws-sdk/client-dynamodb';
 import { marshall } from '@aws-sdk/util-dynamodb';
+import { SFNClient, SendTaskSuccessCommand, SendTaskFailureCommand } from '@aws-sdk/client-sfn';
 
 const TABLE_NAME = process.env.TABLE_NAME!;
 const dynamo = new DynamoDBClient({});
+const sfnClient = new SFNClient({});
 
 async function main(): Promise<void> {
   const eventJson = process.env.TASK_EVENT;
@@ -79,6 +81,29 @@ async function main(): Promise<void> {
     console.error('Failed to write compute result to DynamoDB:', err);
     // Exit with error — collect-compute-result will handle as crashed container
     process.exit(1);
+  }
+
+  // Signal Step Functions via task token callback (unblocks before container deprovisioning)
+  const taskToken = process.env.TASK_TOKEN;
+  if (taskToken) {
+    try {
+      if (result.status === 'success') {
+        await sfnClient.send(new SendTaskSuccessCommand({
+          taskToken,
+          output: JSON.stringify(result),
+        }));
+      } else {
+        await sfnClient.send(new SendTaskFailureCommand({
+          taskToken,
+          error: 'TaskFailed',
+          cause: result.error ?? 'Task execution failed',
+        }));
+      }
+      console.log(`Fargate compute: task token callback sent (${result.status})`);
+    } catch (err) {
+      // If callback fails, heartbeat timeout will eventually fire — log and continue
+      console.error('Failed to send task token callback:', err);
+    }
   }
 
   process.exit(result.status === 'success' ? 0 : 1);

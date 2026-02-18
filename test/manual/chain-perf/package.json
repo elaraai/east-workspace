@@ -1,0 +1,25 @@
+{
+  "name": "e3-manual-chain-perf",
+  "version": "0.0.1-alpha.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --build",
+    "setup": "npm run build && node dist/src/setup.js",
+    "perf": "npm run build && node dist/src/run.js",
+    "teardown": "npm run build && node dist/src/teardown.js"
+  },
+  "dependencies": {
+    "@elaraai/e3": "beta",
+    "@elaraai/e3-api-client": "beta",
+    "@elaraai/e3-admin-client": "*",
+    "@aws-sdk/client-sfn": "^3.0.0"
+  },
+  "peerDependencies": {
+    "@elaraai/east": "beta"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "~5.9.2"
+  }
+}

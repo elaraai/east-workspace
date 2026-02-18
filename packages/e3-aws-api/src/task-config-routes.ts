@@ -40,10 +40,10 @@ function recordToMap<T>(record: Record<string, T>): Map<string, T> {
   return new Map(Object.entries(record));
 }
 
-/** Validate timeout minutes is within allowed range (5–43200). */
+/** Validate timeout minutes is within allowed range (1–43200). */
 function validateTimeout(minutes: bigint): string | null {
-  if (minutes < 5n || minutes > 43200n) {
-    return `Timeout must be between 5 and 43200 minutes, got ${minutes}`;
+  if (minutes < 1n || minutes > 43200n) {
+    return `Timeout must be between 1 and 43200 minutes, got ${minutes}`;
   }
   return null;
 }

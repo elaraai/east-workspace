@@ -7,7 +7,8 @@
  * Lambda Task Executor
  *
  * Thin wrapper around executeTaskCore for Lambda execution.
- * Uses the default 14-minute timeout (Lambda max is 15 min).
+ * Uses the task's configured timeout (from dispatch-task), capped at 14 minutes
+ * to stay within Lambda's 15-minute maximum.
  *
  * Invoked directly by Step Functions for synchronous task execution.
  */
@@ -17,6 +18,12 @@ import { executeTaskCore } from './execute-task-core.js';
 export type { TaskExecutionEvent, TaskExecutionResult } from './execute-task-core.js';
 import type { TaskExecutionEvent, TaskExecutionResult } from './execute-task-core.js';
 
+// Lambda max is 15 min; leave 1 minute buffer for overhead
+const MAX_LAMBDA_TIMEOUT_MS = 14 * 60 * 1000;
+
 export async function handler(event: TaskExecutionEvent): Promise<TaskExecutionResult> {
-  return executeTaskCore(event);
+  const timeoutMs = event.timeoutMinutes != null
+    ? Math.min(event.timeoutMinutes * 60 * 1000, MAX_LAMBDA_TIMEOUT_MS)
+    : MAX_LAMBDA_TIMEOUT_MS;
+  return executeTaskCore(event, { timeoutMs });
 }

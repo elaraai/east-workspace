@@ -27,8 +27,8 @@ function parseTimeout(s: string): bigint {
   const value = parseInt(match![1], 10);
   const unit = match![2] ?? 'm';
   const minutes = unit === 'h' ? value * 60 : unit === 'd' ? value * 1440 : value;
-  if (minutes < 5 || minutes > 43200) {
-    exitError(`Timeout must be between 5 minutes and 30 days (43200 minutes), got ${minutes} minutes`);
+  if (minutes < 1 || minutes > 43200) {
+    exitError(`Timeout must be between 1 minute and 30 days (43200 minutes), got ${minutes} minutes`);
   }
   return BigInt(minutes);
 }

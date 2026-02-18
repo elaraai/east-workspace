@@ -56,6 +56,7 @@ export { authorizationTests } from './suites/authorization.js';
 export { scheduleTests } from './suites/schedules.js';
 export { taskConfigTests } from './suites/task-configs.js';
 export { computeTests } from './suites/compute.js';
+export { computeFailureTests } from './suites/compute-failure.js';
 export { cleanupTests } from './suites/cleanup.js';
 
 // Re-export TestContext type for convenience
