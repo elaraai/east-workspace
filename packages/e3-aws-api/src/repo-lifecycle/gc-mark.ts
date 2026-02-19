@@ -14,21 +14,15 @@
  */
 
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoS3RepoStore, DynamoRefStore, S3ObjectStore } from '@elaraai/e3-aws-storage';
+import { getStorage } from '@elaraai/e3-aws-storage/init';
 import { collectAllRoots, markReachable } from '@elaraai/e3-core';
 
-// Initialize AWS clients once at Lambda cold start
 const s3 = new S3Client({});
-const dynamo = new DynamoDBClient({});
-
 const BUCKET_NAME = process.env.BUCKET_NAME!;
-const TABLE_NAME = process.env.TABLE_NAME!;
 
-// Create stores for RepoStore
-const refStore = new DynamoRefStore(dynamo, TABLE_NAME);
-const objectStore = new S3ObjectStore(s3, dynamo, BUCKET_NAME, TABLE_NAME);
-const repoStore = new DynamoS3RepoStore(s3, dynamo, BUCKET_NAME, TABLE_NAME, refStore, objectStore);
+const storage = getStorage();
+const repoStore = storage.repos;
+const objectStore = storage.objects;
 
 /**
  * Input for the GC mark phase handler.

@@ -8,12 +8,10 @@
  * Each handler is a separate export for use in different Step Function states.
  */
 
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoRefStore, InvalidRepoStatusError, type RepoStatus } from '@elaraai/e3-aws-storage';
+import { getStorage } from '@elaraai/e3-aws-storage/init';
+import { InvalidRepoStatusError, type RepoStatus } from '@elaraai/e3-aws-storage';
 
-// Initialize AWS clients once at Lambda cold start
-const dynamo = new DynamoDBClient({});
-const refStore = new DynamoRefStore(dynamo, process.env.TABLE_NAME!);
+const repoManager = getStorage().repoManager;
 
 /**
  * Input for status transition handlers.
@@ -75,7 +73,7 @@ export const setGCHandler = async (input: SetStatusInput): Promise<SetStatusOutp
   const { repo, executionArn, gcId, startTime } = input;
 
   try {
-    await refStore.setRepoStatus(repo, 'active', 'gc', executionArn);
+    await repoManager.setRepoStatus(repo, 'active', 'gc', executionArn);
     return { repo, status: 'gc', success: true, gcId, startTime };
   } catch (error) {
     if (error instanceof InvalidRepoStatusError) {
@@ -103,7 +101,7 @@ export const setActiveHandler = async (input: SetStatusInput): Promise<SetStatus
   const { repo, stats } = input;
 
   try {
-    await refStore.setRepoStatus(repo, 'gc', 'active');
+    await repoManager.setRepoStatus(repo, 'gc', 'active');
     // Pass through stats from cleanup phase for final output
     return { repo, status: 'active', success: true, stats };
   } catch (error) {

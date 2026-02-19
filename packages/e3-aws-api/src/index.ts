@@ -20,7 +20,6 @@ import { randomUUID } from 'node:crypto';
 import {
   S3DynamoStorage,
   setLambdaRequestId,
-  DynamoRefStore,
   DynamoAclStore,
   DynamoScheduleStore,
   DynamoTaskConfigStore,
@@ -97,8 +96,8 @@ const storage = new S3DynamoStorage(
   process.env.TABLE_NAME!
 );
 
-// Get DynamoRefStore for repo management (cloud-specific methods)
-const refStore = storage.refs as DynamoRefStore;
+// Get cloud-agnostic repo manager
+const repoManager = storage.repoManager;
 
 // Initialize ACL store for repository user management
 const aclStore = new DynamoAclStore(dynamo, process.env.TABLE_NAME!);
@@ -207,12 +206,12 @@ app.get('/api/whoami', (c) => {
 // ============================================================
 // Admin Routes (repository user management)
 // ============================================================
-app.route('/', createAdminRoutes(aclStore, refStore));
+app.route('/', createAdminRoutes(aclStore, repoManager));
 
 // ============================================================
 // Schedule Routes (workspace schedule management)
 // ============================================================
-app.route('/api/repos/:repo/workspaces/:ws/schedule', createScheduleRoutes(aclStore, scheduleStore, refStore, schedulerClient));
+app.route('/api/repos/:repo/workspaces/:ws/schedule', createScheduleRoutes(aclStore, scheduleStore, storage.refs, schedulerClient));
 app.route('/api/repos/:repo/schedules', createScheduleListRoute(aclStore, scheduleStore));
 
 // ============================================================
@@ -226,7 +225,7 @@ app.use('/api/repos/*', createAuthzMiddleware(aclStore));
 // ============================================================
 // Task Config Routes (per-task compute size configuration)
 // ============================================================
-app.route('/api/repos/:repo/workspaces/:ws/task-configs', createTaskConfigRoutes(taskConfigStore, storage));
+app.route('/api/repos/:repo/workspaces/:ws/task-configs', createTaskConfigRoutes(taskConfigStore, storage.locks));
 
 // ============================================================
 // Repository Management (BEAST2 format for e3-cli compatibility)
@@ -249,7 +248,7 @@ app.get('/api/repos', async (c) => {
 
     // Admins see all repos
     if (identity.isAdmin) {
-      const repos = await refStore.listRepos();
+      const repos = await repoManager.listRepos();
       return sendSuccess(ArrayType(StringType), repos);
     }
 
@@ -278,7 +277,7 @@ app.put('/api/repos/:repo', async (c) => {
 
   try {
     // Check if repo already exists with a non-active status
-    const existing = await refStore.getRepoMetadata(repo);
+    const existing = await repoManager.getRepoMetadata(repo);
     if (existing) {
       switch (existing.status) {
         case 'active':
@@ -292,7 +291,7 @@ app.put('/api/repos/:repo', async (c) => {
       }
     }
 
-    await refStore.createRepo(repo);
+    await repoManager.createRepo(repo);
 
     // Auto-add creator as owner
     if (identity) {
@@ -329,7 +328,7 @@ app.delete('/api/repos/:repo', async (c) => {
 
   try {
     // Check if repo exists and get its status
-    const metadata = await refStore.getRepoMetadata(repo);
+    const metadata = await repoManager.getRepoMetadata(repo);
     if (!metadata) {
       return sendError(NullType, variant('repository_not_found', { repo }));
     }
@@ -348,7 +347,7 @@ app.delete('/api/repos/:repo', async (c) => {
     }
 
     // 1. Mark as 'deleting'
-    await refStore.setRepoStatus(repo, 'active', 'deleting');
+    await repoManager.setRepoStatus(repo, 'active', 'deleting');
 
     // 2. Delete ACL entries
     await aclStore.deleteAllForRepo(repo);
@@ -402,7 +401,7 @@ app.post('/api/repos/:repo/gc', async (c) => {
 
   try {
     // Check repo exists and is in valid state for GC
-    const metadata = await refStore.getRepoMetadata(repo);
+    const metadata = await repoManager.getRepoMetadata(repo);
     if (!metadata) {
       return sendError(ApiTypes.GcStartResultType, internalError(`Repository '${repo}' not found`));
     }

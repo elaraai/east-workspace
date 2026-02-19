@@ -13,6 +13,14 @@ This package provides the cloud storage backend for e3, implementing the `Storag
 - **Repos**: DynamoDB + S3 (repository lifecycle and GC)
 - **Executions**: DynamoDB + S3 (`ExecutionStateStore` with BEAST2-encoded state)
 
+### Cloud-Agnostic Interfaces
+
+`S3DynamoStorage` also exposes cloud-agnostic interfaces defined in `@elaraai/e3-cloud-core`:
+
+- **`repoManager: RepoManager`** — Repository lifecycle (create, delete, status transitions)
+- **`dataflowRuns: DataflowRunStore`** — Dataflow run history per workspace
+- **`executionTracker: ExecutionTracker`** — Execution state, task statuses, events
+
 ## DynamoDB Single-Table Schema
 
 All data is stored in a single DynamoDB table using composite keys (`PK`, `SK`).

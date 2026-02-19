@@ -13,7 +13,8 @@
     "@elaraai/e3": "beta",
     "@elaraai/e3-api-client": "beta",
     "@elaraai/e3-cloud-client": "*",
-    "@aws-sdk/client-sfn": "^3.0.0"
+    "@aws-sdk/client-sfn": "^3.0.0",
+    "e3-manual-shared": "*"
   },
   "peerDependencies": {
     "@elaraai/east": "beta"

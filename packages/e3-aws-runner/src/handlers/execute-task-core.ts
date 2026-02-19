@@ -15,7 +15,6 @@
  */
 
 import { spawn } from 'child_process';
-import { createHash } from 'crypto';
 import { writeFileSync, readFileSync, mkdtempSync, rmSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -24,6 +23,7 @@ import { DynamoDBClient, UpdateItemCommand, PutItemCommand } from '@aws-sdk/clie
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 // Import directly from s3-object-store to avoid loading s3-dynamo-storage which has e3-core dependencies
 import { S3ObjectStore } from '@elaraai/e3-aws-storage/s3-object-store';
+import { inputsHash } from '@elaraai/e3-core';
 
 const s3 = new S3Client({});
 const dynamo = new DynamoDBClient({});
@@ -183,7 +183,7 @@ export async function executeTaskCore(
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const startTime = Date.now();
   const workDir = mkdtempSync(join(tmpdir(), 'task-'));
-  const inputsHash = computeInputsHash(inputHashes);
+  const inHash = inputsHash(inputHashes);
 
   // Check for cancellation before starting expensive work
   // Note: We use a lightweight DynamoDB check here rather than loading full state
@@ -209,7 +209,7 @@ export async function executeTaskCore(
 
   // Helper to write progress logs
   const log = async (message: string) => {
-    await writeLog(repo, taskHash, inputsHash, 'stdout', message);
+    await writeLog(repo, taskHash, inHash, 'stdout', message);
   };
 
   console.log(`Executing task ${taskName} (hash: ${taskHash.slice(0, 12)}...)`);
@@ -253,8 +253,8 @@ export async function executeTaskCore(
     await log(`Task starting...\n`);
 
     // Create streaming log buffers for stdout/stderr
-    const stdoutBuffer = new LogBuffer(repo, taskHash, inputsHash, 'stdout');
-    const stderrBuffer = new LogBuffer(repo, taskHash, inputsHash, 'stderr');
+    const stdoutBuffer = new LogBuffer(repo, taskHash, inHash, 'stdout');
+    const stderrBuffer = new LogBuffer(repo, taskHash, inHash, 'stderr');
 
     // Track last chunks for error reporting
     let lastStdout = '';
@@ -398,15 +398,6 @@ async function downloadObject(repo: string, hash: string, localPath: string): Pr
  */
 async function uploadObject(repo: string, content: Buffer): Promise<string> {
   return objectStore.write(repo, content);
-}
-
-/**
- * Compute the combined hash of input hashes.
- * This matches e3-core's inputsHash function.
- */
-export function computeInputsHash(inputHashes: string[]): string {
-  const data = inputHashes.join('\0');
-  return createHash('sha256').update(data).digest('hex');
 }
 
 /**

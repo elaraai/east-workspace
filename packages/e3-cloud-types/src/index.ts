@@ -68,4 +68,8 @@ export {
   type TimeoutConfigMap,
   TaskConfigsType,
   type TaskConfigs,
+  TIMEOUT_MIN_MINUTES,
+  TIMEOUT_MAX_MINUTES,
+  DEFAULT_TIMEOUT_SERVERLESS,
+  DEFAULT_TIMEOUT_FARGATE,
 } from './task-config-types.js';

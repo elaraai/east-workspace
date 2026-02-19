@@ -24,6 +24,10 @@
     "@elaraai/east": "beta",
     "hono": "^4.11.7"
   },
+  "peerDependencies": {
+    "@elaraai/e3-core": "beta",
+    "@elaraai/e3-types": "beta"
+  },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.145",
     "@types/node": "^22.0.0",

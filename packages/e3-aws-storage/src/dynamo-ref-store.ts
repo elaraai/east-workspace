@@ -17,7 +17,20 @@ import {
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import { encodeBeast2For, decodeBeast2For } from '@elaraai/east';
 import type { RefStore } from '@elaraai/e3-core';
+import type {
+  RepoManager,
+  ExecutionTracker,
+  DataflowRunStore,
+  RepoStatus,
+  RepoMetadata,
+  DataflowExecution,
+  TaskExecutionStatus,
+  DataflowEvent,
+} from '@elaraai/e3-cloud-core';
 import { ExecutionStatusType, DataflowRunType, type ExecutionStatus, type DataflowRun } from '@elaraai/e3-types';
+
+// Re-export types that were previously defined here for backwards compatibility
+export type { RepoStatus, RepoMetadata, DataflowExecution, TaskExecutionStatus, DataflowEvent } from '@elaraai/e3-cloud-core';
 
 // BEAST2 encoder/decoder for ExecutionStatus (includes Date fields)
 const encodeExecutionStatus = encodeBeast2For(ExecutionStatusType);
@@ -26,36 +39,6 @@ const decodeExecutionStatus = decodeBeast2For(ExecutionStatusType);
 // BEAST2 encoder/decoder for DataflowRun
 const encodeDataflowRun = encodeBeast2For(DataflowRunType);
 const decodeDataflowRun = decodeBeast2For(DataflowRunType);
-
-/**
- * Repository lifecycle status.
- *
- * State transitions:
- *   CREATING → ACTIVE (on successful creation)
- *   ACTIVE → GC (on GC start)
- *   ACTIVE → DELETING (on delete start)
- *   GC → ACTIVE (on GC complete)
- *   DELETING → (repo removed)
- *
- * Note: GC → DELETING is blocked (must wait for GC to complete)
- */
-export type RepoStatus = 'creating' | 'active' | 'gc' | 'deleting';
-
-/**
- * Repository metadata stored in DynamoDB.
- */
-export interface RepoMetadata {
-  /** Repository name */
-  name: string;
-  /** Current lifecycle status */
-  status: RepoStatus;
-  /** When the repo was created */
-  createdAt: string;
-  /** When the repo entered its current status */
-  statusChangedAt: string;
-  /** Step Function execution ARN for current operation (if any) */
-  executionArn?: string;
-}
 
 /**
  * Error thrown when a repo status transition is invalid.
@@ -73,76 +56,6 @@ export class InvalidRepoStatusError extends Error {
 }
 
 /**
- * Dataflow execution record (Phase 3 schema).
- *
- * Stored at PK: EXEC/{repo}/{workspace}, SK: {id} (Number)
- * Counter stored at SK: 0
- */
-export interface DataflowExecution {
-  /** Numeric execution ID (same as SK) */
-  id: number;
-  /** Repository name */
-  repo: string;
-  /** Workspace name */
-  workspace: string;
-  /** Execution status */
-  status: 'starting' | 'running' | 'completed' | 'failed';
-  /** When execution started */
-  startedAt: string;
-  /** When execution completed (if finished) */
-  completedAt?: string;
-  /** Total number of tasks (set when execution starts running) */
-  taskCount?: number;
-  /** Number of successfully completed tasks */
-  completedCount: number;
-  /** Number of failed tasks */
-  failedCount: number;
-  /** Number of skipped tasks */
-  skippedCount: number;
-  /** Number of cached tasks */
-  cachedCount: number;
-  /** Counter for next event sequence number */
-  eventSeq: number;
-  /** JSON-serialized task graph (set when execution starts running) */
-  graph?: string;
-}
-
-/**
- * Task status within a dataflow execution.
- */
-export interface TaskExecutionStatus {
-  taskName: string;
-  status: 'dispatched' | 'running' | 'success' | 'cached' | 'failed' | 'error' | 'skipped' | 'ready';
-  outputHash?: string;
-  outputPath?: string;   // Path where output is written
-  taskHash?: string;     // Hash of the task definition
-  inputHashes?: string[];// Hashes of task inputs
-  exitCode?: number;
-  error?: string;
-  reason?: string;       // Reason for skipped tasks
-  duration?: number;
-  heartbeat?: number;    // Unix timestamp of last heartbeat
-  readyAt?: string;      // ISO timestamp when task became ready
-  completedAt?: string;  // ISO timestamp when task completed
-  failedAt?: string;     // ISO timestamp when task failed
-  skippedAt?: string;    // ISO timestamp when task was skipped
-}
-
-/**
- * Dataflow event types recorded by the orchestrator.
- */
-export interface DataflowEvent {
-  seq: number;
-  type: 'start' | 'complete' | 'cached' | 'failed' | 'error' | 'skipped';
-  task: string;
-  timestamp: string;
-  duration?: number;
-  exitCode?: number;
-  message?: string;
-  reason?: string;
-}
-
-/**
  * DynamoDB-backed RefStore implementation.
  *
  * Uses a single-table design with composite keys:
@@ -152,7 +65,7 @@ export interface DataflowEvent {
  * The `repo` parameter is used to construct the partition key, enabling
  * multiple repositories to share a single DynamoDB table.
  */
-export class DynamoRefStore implements RefStore {
+export class DynamoRefStore implements RefStore, RepoManager, ExecutionTracker {
   constructor(
     private readonly dynamo: DynamoDBClient,
     private readonly tableName: string
@@ -1445,5 +1358,33 @@ export class DynamoRefStore implements RefStore {
         Key: marshall({ PK: pk, SK: sk }, { removeUndefinedValues: true }),
       })
     );
+  }
+}
+
+/**
+ * Adapter that exposes DynamoRefStore's dataflowRun* methods
+ * through the cloud-agnostic DataflowRunStore interface.
+ */
+export class DynamoDataflowRunStore implements DataflowRunStore {
+  constructor(private readonly refs: DynamoRefStore) {}
+
+  get(repo: string, workspace: string, runId: string): Promise<DataflowRun | null> {
+    return this.refs.dataflowRunGet(repo, workspace, runId);
+  }
+
+  write(repo: string, workspace: string, run: DataflowRun): Promise<void> {
+    return this.refs.dataflowRunWrite(repo, workspace, run);
+  }
+
+  list(repo: string, workspace: string): Promise<string[]> {
+    return this.refs.dataflowRunList(repo, workspace);
+  }
+
+  getLatest(repo: string, workspace: string): Promise<DataflowRun | null> {
+    return this.refs.dataflowRunGetLatest(repo, workspace);
+  }
+
+  delete(repo: string, workspace: string, runId: string): Promise<void> {
+    return this.refs.dataflowRunDelete(repo, workspace, runId);
   }
 }

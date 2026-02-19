@@ -7,7 +7,7 @@
  * Task timeout management commands — set, get, list, remove.
  */
 
-import type { TaskTimeout } from '@elaraai/e3-cloud-types';
+import { TIMEOUT_MIN_MINUTES, TIMEOUT_MAX_MINUTES, type TaskTimeout } from '@elaraai/e3-cloud-types';
 import {
   listTimeout,
   getTimeout,
@@ -27,8 +27,8 @@ function parseTimeout(s: string): bigint {
   const value = parseInt(match![1], 10);
   const unit = match![2] ?? 'm';
   const minutes = unit === 'h' ? value * 60 : unit === 'd' ? value * 1440 : value;
-  if (minutes < 1 || minutes > 43200) {
-    exitError(`Timeout must be between 1 minute and 30 days (43200 minutes), got ${minutes} minutes`);
+  if (minutes < TIMEOUT_MIN_MINUTES || minutes > TIMEOUT_MAX_MINUTES) {
+    exitError(`Timeout must be between ${TIMEOUT_MIN_MINUTES} minute and ${TIMEOUT_MAX_MINUTES} minutes, got ${minutes} minutes`);
   }
   return BigInt(minutes);
 }

@@ -8,20 +8,23 @@
  *
  * Top-level script (not a Lambda handler) that runs inside a Fargate container.
  * Reads the task event from the TASK_EVENT environment variable, executes the task
- * using shared core logic, writes the result to a COMPUTE_RESULT/ DynamoDB key,
+ * using shared core logic, writes the result to the ComputeResultStore,
  * then exits with appropriate exit code.
  *
  * The result is later read by the collect-compute-result Lambda handler.
+ *
+ * Note: This entry point deliberately avoids importing S3DynamoStorage/getStorage()
+ * to minimize the dependency tree loaded in the Fargate container.
  */
 
 import { executeTaskCore } from './execute-task-core.js';
 import type { TaskExecutionResult } from './execute-task-core.js';
-import { DynamoDBClient, PutItemCommand } from '@aws-sdk/client-dynamodb';
-import { marshall } from '@aws-sdk/util-dynamodb';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoComputeResultStore } from '@elaraai/e3-aws-storage';
 import { SFNClient, SendTaskSuccessCommand, SendTaskFailureCommand } from '@aws-sdk/client-sfn';
 
-const TABLE_NAME = process.env.TABLE_NAME!;
 const dynamo = new DynamoDBClient({});
+const computeResultStore = new DynamoComputeResultStore(dynamo, process.env.TABLE_NAME!);
 const sfnClient = new SFNClient({});
 
 async function main(): Promise<void> {
@@ -59,26 +62,12 @@ async function main(): Promise<void> {
     };
   }
 
-  // Write result to COMPUTE_RESULT/ key for collect-compute-result to read
-  const ttl = Math.floor(Date.now() / 1000) + 3600; // 1 hour TTL
+  // Write result to ComputeResultStore for collect-compute-result to read
   try {
-    await dynamo.send(
-      new PutItemCommand({
-        TableName: TABLE_NAME,
-        Item: marshall(
-          {
-            PK: `COMPUTE_RESULT/${repo}/${workspace}`,
-            SK: taskExecutionId,
-            result: JSON.stringify(result),
-            ttl,
-          },
-          { removeUndefinedValues: true }
-        ),
-      })
-    );
+    await computeResultStore.write(repo, workspace, taskExecutionId, JSON.stringify(result));
     console.log(`Fargate compute: result written for ${taskName} (status: ${result.status})`);
   } catch (err) {
-    console.error('Failed to write compute result to DynamoDB:', err);
+    console.error('Failed to write compute result:', err);
     // Exit with error — collect-compute-result will handle as crashed container
     process.exit(1);
   }

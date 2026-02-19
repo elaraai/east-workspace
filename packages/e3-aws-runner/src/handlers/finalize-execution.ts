@@ -9,22 +9,13 @@
  * Also finalizes the DataflowRun record with task execution details.
  */
 
-import { S3Client } from '@aws-sdk/client-s3';
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { S3DynamoStorage, DynamoRefStore } from '@elaraai/e3-aws-storage';
+import { getStorage } from '@elaraai/e3-aws-storage/init';
 import { stepFinalize } from '@elaraai/e3-core';
 import { variant, some, none } from '@elaraai/east';
 import type { DataflowRun } from '@elaraai/e3-types';
 
-// Initialize clients once at Lambda cold start
-const s3 = new S3Client({});
-const dynamo = new DynamoDBClient({});
-const storage = new S3DynamoStorage(
-  s3,
-  dynamo,
-  process.env.BUCKET_NAME!,
-  process.env.TABLE_NAME!
-);
+const storage = getStorage();
+const dataflowRuns = storage.dataflowRuns;
 
 export interface FinalizeExecutionEvent {
   repo: string;
@@ -87,9 +78,8 @@ export async function handler(event: FinalizeExecutionEvent): Promise<FinalizeEx
     await storage.executions.update(state);
 
     // Finalize the DataflowRun record
-    const refs = storage.refs as DynamoRefStore;
     try {
-      const existingRun = await refs.dataflowRunGet(repo, workspace, runId);
+      const existingRun = await dataflowRuns.get(repo, workspace, runId);
       if (existingRun) {
         // Build taskExecutions map from the task results
         const taskExecutions = new Map<string, { executionId: string; cached: boolean }>();
@@ -163,7 +153,7 @@ export async function handler(event: FinalizeExecutionEvent): Promise<FinalizeEx
             skipped: BigInt(result.skipped),
           },
         };
-        await refs.dataflowRunWrite(repo, workspace, finalRun);
+        await dataflowRuns.write(repo, workspace, finalRun);
         console.log(`Updated DataflowRun ${runId} with final status`);
       }
     } catch (err) {

@@ -26,12 +26,16 @@ import {
   TaskTimeoutType,
   TimeoutConfigMapType,
   TaskConfigsType,
+  TIMEOUT_MIN_MINUTES,
+  TIMEOUT_MAX_MINUTES,
+  DEFAULT_TIMEOUT_SERVERLESS,
+  DEFAULT_TIMEOUT_FARGATE,
   type ComputeSize,
   type TaskTimeout,
 } from '@elaraai/e3-cloud-types';
 import { sendSuccess, sendError, decodeBody } from '@elaraai/e3-api-server/beast2';
-import type { DynamoTaskConfigStore } from '@elaraai/e3-aws-storage';
-import type { S3DynamoStorage } from '@elaraai/e3-aws-storage';
+import type { TaskConfigStore } from '@elaraai/e3-cloud-core';
+import type { LockService } from '@elaraai/e3-core';
 
 const internalError = (message: string) => variant('internal', { message });
 
@@ -40,10 +44,10 @@ function recordToMap<T>(record: Record<string, T>): Map<string, T> {
   return new Map(Object.entries(record));
 }
 
-/** Validate timeout minutes is within allowed range (1–43200). */
+/** Validate timeout minutes is within allowed range. */
 function validateTimeout(minutes: bigint): string | null {
-  if (minutes < 1n || minutes > 43200n) {
-    return `Timeout must be between 1 and 43200 minutes, got ${minutes}`;
+  if (minutes < BigInt(TIMEOUT_MIN_MINUTES) || minutes > BigInt(TIMEOUT_MAX_MINUTES)) {
+    return `Timeout must be between ${TIMEOUT_MIN_MINUTES} and ${TIMEOUT_MAX_MINUTES} minutes, got ${minutes}`;
   }
   return null;
 }
@@ -55,8 +59,8 @@ function validateTimeout(minutes: bigint): string | null {
  * Auth is handled by the authz middleware on /api/repos/*.
  */
 export function createTaskConfigRoutes(
-  taskConfigStore: DynamoTaskConfigStore,
-  storage: S3DynamoStorage,
+  taskConfigStore: TaskConfigStore,
+  locks: LockService,
 ) {
   const app = new Hono();
 
@@ -114,7 +118,7 @@ export function createTaskConfigRoutes(
     const repo = c.req.param('repo')!;
     const workspace = c.req.param('ws')!;
 
-    const lock = await storage.locks.acquire(repo, `workspace/${workspace}`, variant('dataset_write', null), { wait: false });
+    const lock = await locks.acquire(repo, `workspace/${workspace}`, variant('dataset_write', null), { wait: false });
     if (!lock) {
       return sendError(ComputeConfigMapType, internalError('Workspace is locked by another operation'));
     }
@@ -156,7 +160,7 @@ export function createTaskConfigRoutes(
     const workspace = c.req.param('ws')!;
     const taskName = c.req.param('task')!;
 
-    const lock = await storage.locks.acquire(repo, `workspace/${workspace}`, variant('dataset_write', null), { wait: false });
+    const lock = await locks.acquire(repo, `workspace/${workspace}`, variant('dataset_write', null), { wait: false });
     if (!lock) {
       return sendError(ComputeSizeType, internalError('Workspace is locked by another operation'));
     }
@@ -185,7 +189,7 @@ export function createTaskConfigRoutes(
     const workspace = c.req.param('ws')!;
     const taskName = c.req.param('task')!;
 
-    const lock = await storage.locks.acquire(repo, `workspace/${workspace}`, variant('dataset_write', null), { wait: false });
+    const lock = await locks.acquire(repo, `workspace/${workspace}`, variant('dataset_write', null), { wait: false });
     if (!lock) {
       return sendError(NullType, internalError('Workspace is locked by another operation'));
     }
@@ -227,7 +231,7 @@ export function createTaskConfigRoutes(
 
       // Return default based on compute size
       const computeSize = await taskConfigStore.getCompute(repo, workspace, taskName);
-      const defaultMinutes = (!computeSize || computeSize.type === 'serverless') ? 15n : 1440n;
+      const defaultMinutes = (!computeSize || computeSize.type === 'serverless') ? BigInt(DEFAULT_TIMEOUT_SERVERLESS) : BigInt(DEFAULT_TIMEOUT_FARGATE);
       return sendSuccess(TaskTimeoutType, { minutes: defaultMinutes });
     } catch (err) {
       console.error('Failed to get timeout config:', err);
@@ -240,7 +244,7 @@ export function createTaskConfigRoutes(
     const repo = c.req.param('repo')!;
     const workspace = c.req.param('ws')!;
 
-    const lock = await storage.locks.acquire(repo, `workspace/${workspace}`, variant('dataset_write', null), { wait: false });
+    const lock = await locks.acquire(repo, `workspace/${workspace}`, variant('dataset_write', null), { wait: false });
     if (!lock) {
       return sendError(TimeoutConfigMapType, internalError('Workspace is locked by another operation'));
     }
@@ -281,7 +285,7 @@ export function createTaskConfigRoutes(
     const workspace = c.req.param('ws')!;
     const taskName = c.req.param('task')!;
 
-    const lock = await storage.locks.acquire(repo, `workspace/${workspace}`, variant('dataset_write', null), { wait: false });
+    const lock = await locks.acquire(repo, `workspace/${workspace}`, variant('dataset_write', null), { wait: false });
     if (!lock) {
       return sendError(TaskTimeoutType, internalError('Workspace is locked by another operation'));
     }
@@ -310,7 +314,7 @@ export function createTaskConfigRoutes(
     const workspace = c.req.param('ws')!;
     const taskName = c.req.param('task')!;
 
-    const lock = await storage.locks.acquire(repo, `workspace/${workspace}`, variant('dataset_write', null), { wait: false });
+    const lock = await locks.acquire(repo, `workspace/${workspace}`, variant('dataset_write', null), { wait: false });
     if (!lock) {
       return sendError(NullType, internalError('Workspace is locked by another operation'));
     }

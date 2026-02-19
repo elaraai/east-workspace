@@ -6,7 +6,7 @@
 /**
  * Collect Compute Result Lambda Handler
  *
- * Reads the TaskExecutionResult from the COMPUTE_RESULT/ DynamoDB key
+ * Reads the TaskExecutionResult from the ComputeResultStore
  * written by the Fargate container, deletes the item, and returns the result.
  * If the item is not found (container crashed before writing), returns
  * a failure result.
@@ -14,11 +14,10 @@
  * Invoked by Step Functions after EcsRunTask completes.
  */
 
-import { DynamoDBClient, GetItemCommand, DeleteItemCommand } from '@aws-sdk/client-dynamodb';
-import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
+import { getComputeResultStore } from '@elaraai/e3-aws-storage/init';
+import type { TaskExecutionResult } from './execute-task-core.js';
 
-const TABLE_NAME = process.env.TABLE_NAME!;
-const dynamo = new DynamoDBClient({});
+const computeResultStore = getComputeResultStore();
 
 export interface CollectComputeResultEvent {
   repo: string;
@@ -27,36 +26,15 @@ export interface CollectComputeResultEvent {
   taskName: string;
 }
 
-export interface TaskExecutionResult {
-  taskName: string;
-  status: 'success' | 'failed';
-  outputHash?: string;
-  exitCode?: number;
-  error?: string;
-  duration?: number;
-  stdout?: string;
-  stderr?: string;
-}
-
 export async function handler(event: CollectComputeResultEvent): Promise<TaskExecutionResult> {
   const { repo, workspace, taskExecutionId, taskName } = event;
 
   console.log(`Collecting compute result for task ${taskName} (executionId: ${taskExecutionId})`);
 
-  const pk = `COMPUTE_RESULT/${repo}/${workspace}`;
-  const sk = taskExecutionId;
-
   try {
-    // Read result from DynamoDB
-    const response = await dynamo.send(
-      new GetItemCommand({
-        TableName: TABLE_NAME,
-        Key: marshall({ PK: pk, SK: sk }),
-        ConsistentRead: true,
-      })
-    );
+    const resultJson = await computeResultStore.read(repo, workspace, taskExecutionId);
 
-    if (!response.Item) {
+    if (!resultJson) {
       // Container crashed or failed before writing result
       console.error(`No compute result found for task ${taskName} — container may have crashed`);
       return {
@@ -67,16 +45,10 @@ export async function handler(event: CollectComputeResultEvent): Promise<TaskExe
       };
     }
 
-    const item = unmarshall(response.Item);
-    const result: TaskExecutionResult = JSON.parse(item.result as string);
+    const result: TaskExecutionResult = JSON.parse(resultJson);
 
     // Delete the result item (one-time read)
-    await dynamo.send(
-      new DeleteItemCommand({
-        TableName: TABLE_NAME,
-        Key: marshall({ PK: pk, SK: sk }),
-      })
-    );
+    await computeResultStore.delete(repo, workspace, taskExecutionId);
 
     console.log(`Collected result for task ${taskName}: status=${result.status}`);
     return result;

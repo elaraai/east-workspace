@@ -62,6 +62,18 @@ export const TimeoutConfigMapType = DictType(StringType, TaskTimeoutType);
 export type TimeoutConfigMap = ValueTypeOf<typeof TimeoutConfigMapType>;
 
 /**
+ * Timeout validation constants.
+ */
+export const TIMEOUT_MIN_MINUTES = 1;
+export const TIMEOUT_MAX_MINUTES = 43200; // 30 days
+
+/**
+ * Default timeout per compute tier (in minutes).
+ */
+export const DEFAULT_TIMEOUT_SERVERLESS = 15;
+export const DEFAULT_TIMEOUT_FARGATE = 1440; // 24 hours
+
+/**
  * Combined task configs (compute + timeout) for unified endpoint.
  */
 export const TaskConfigsType = StructType({

@@ -10,6 +10,7 @@
     "packages/*",
     "web",
     "test/integration",
+    "test/manual/shared",
     "test/manual/schedule",
     "test/manual/chain-perf",
     "test/manual/timeout-test"

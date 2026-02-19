@@ -3,19 +3,10 @@
  * Proprietary and confidential.
  */
 
-import { S3Client } from '@aws-sdk/client-s3';
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { S3DynamoStorage } from '@elaraai/e3-aws-storage';
+import { getStorage } from '@elaraai/e3-aws-storage/init';
 
-// Initialize clients once at Lambda cold start
-const s3 = new S3Client({});
-const dynamo = new DynamoDBClient({});
-const storage = new S3DynamoStorage(
-  s3,
-  dynamo,
-  process.env.BUCKET_NAME!,
-  process.env.TABLE_NAME!
-);
+const storage = getStorage();
+const executionTracker = storage.executionTracker;
 
 // Stale claim threshold: 5 minutes
 const STALE_CLAIM_THRESHOLD_MS = 5 * 60 * 1000;
@@ -183,7 +174,7 @@ async function getTaskStatuses(
   const statuses = new Map<string, TaskStatusItem>();
 
   // Use the storage helper for Phase 3 schema
-  const tasks = await storage.refs.getExecutionTasks(repo, executionId);
+  const tasks = await executionTracker.getExecutionTasks(repo, executionId);
 
   for (const task of tasks) {
     statuses.set(task.taskName, {
@@ -209,7 +200,7 @@ async function markTaskFailed(
   taskName: string,
   error: string
 ): Promise<void> {
-  await storage.refs.updateTaskStatus(repo, executionId, taskName, {
+  await executionTracker.updateTaskStatus(repo, executionId, taskName, {
     status: 'error',
     error,
     failedAt: new Date().toISOString(),
@@ -238,7 +229,7 @@ async function writeEvent(
   event: DataflowEventType
 ): Promise<number> {
   // Use the storage helper for Phase 3 schema
-  return storage.refs.addExecutionEvent(repo, workspace, executionId, event);
+  return executionTracker.addExecutionEvent(repo, workspace, executionId, event);
 }
 
 /**

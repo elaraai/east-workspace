@@ -21,7 +21,7 @@ import {
 } from '@elaraai/e3-cloud-types';
 import { sendSuccess, sendError, decodeBody } from '@elaraai/e3-api-server/beast2';
 import { extractIdentity, lookupUserByEmail } from './auth/index.js';
-import type { DynamoRefStore } from '@elaraai/e3-aws-storage';
+import type { RepoManager } from '@elaraai/e3-cloud-core';
 
 /**
  * Helper to extract identity from Hono context (API Gateway event).
@@ -57,7 +57,7 @@ function authzError(error: AuthzError) {
  * @param aclStore - ACL storage backend
  * @param refStore - Repository reference store (for repo existence checks)
  */
-export function createAdminRoutes(aclStore: AclStore, refStore: DynamoRefStore) {
+export function createAdminRoutes(aclStore: AclStore, refStore: RepoManager) {
   const app = new Hono();
 
   // ============================================================

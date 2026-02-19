@@ -9,11 +9,9 @@
  * logic in the API handler but runs without user authentication.
  */
 
-import { S3Client } from '@aws-sdk/client-s3';
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { SFNClient, StartExecutionCommand } from '@aws-sdk/client-sfn';
 import { randomUUID } from 'node:crypto';
-import { S3DynamoStorage, DynamoScheduleStore } from '@elaraai/e3-aws-storage';
+import { getStorage, getScheduleStore } from '@elaraai/e3-aws-storage/init';
 import { variant, none } from '@elaraai/east';
 import {
   dataflowGetGraph,
@@ -23,17 +21,9 @@ import {
   type DataflowExecutionState,
 } from '@elaraai/e3-core';
 
-// Initialize clients once at Lambda cold start
-const s3 = new S3Client({});
-const dynamo = new DynamoDBClient({});
 const sfn = new SFNClient({});
-const storage = new S3DynamoStorage(
-  s3,
-  dynamo,
-  process.env.BUCKET_NAME!,
-  process.env.TABLE_NAME!
-);
-const scheduleStore = new DynamoScheduleStore(dynamo, process.env.TABLE_NAME!);
+const storage = getStorage();
+const scheduleStore = getScheduleStore();
 const DATAFLOW_STATE_MACHINE_ARN = process.env.DATAFLOW_STATE_MACHINE_ARN!;
 
 export interface ScheduleTriggerEvent {

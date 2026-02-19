@@ -3,9 +3,7 @@
  * Proprietary and confidential.
  */
 
-import { S3Client } from '@aws-sdk/client-s3';
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { S3DynamoStorage } from '@elaraai/e3-aws-storage';
+import { getStorage } from '@elaraai/e3-aws-storage/init';
 import {
   stepTaskStarted,
   stepTaskCompleted,
@@ -16,15 +14,7 @@ import {
 import { variant } from '@elaraai/east';
 import type { ExecutionStatus } from '@elaraai/e3-types';
 
-// Initialize clients once at Lambda cold start
-const s3 = new S3Client({});
-const dynamo = new DynamoDBClient({});
-const storage = new S3DynamoStorage(
-  s3,
-  dynamo,
-  process.env.BUCKET_NAME!,
-  process.env.TABLE_NAME!
-);
+const storage = getStorage();
 
 /** Result from a single task in the Map iteration */
 export interface TaskResult {

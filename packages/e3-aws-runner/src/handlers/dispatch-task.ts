@@ -3,25 +3,16 @@
  * Proprietary and confidential.
  */
 
-import { S3Client } from '@aws-sdk/client-s3';
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { S3DynamoStorage, DynamoTaskConfigStore } from '@elaraai/e3-aws-storage';
+import { getStorage, getTaskConfigStore } from '@elaraai/e3-aws-storage/init';
+import { DEFAULT_TIMEOUT_SERVERLESS, DEFAULT_TIMEOUT_FARGATE } from '@elaraai/e3-cloud-types';
 import {
   stepPrepareTask,
   inputsHash,
   uuidv7,
 } from '@elaraai/e3-core';
 
-// Initialize clients once at Lambda cold start
-const s3 = new S3Client({});
-const dynamo = new DynamoDBClient({});
-const storage = new S3DynamoStorage(
-  s3,
-  dynamo,
-  process.env.BUCKET_NAME!,
-  process.env.TABLE_NAME!
-);
-const taskConfigStore = new DynamoTaskConfigStore(dynamo, process.env.TABLE_NAME!);
+const storage = getStorage();
+const taskConfigStore = getTaskConfigStore();
 
 export interface DispatchTaskEvent {
   repo: string;
@@ -97,7 +88,7 @@ export async function handler(event: DispatchTaskEvent): Promise<DispatchTaskRes
   const computeSize = computeSizeConfig ? { type: computeSizeConfig.type } : { type: 'serverless' };
   const isServerless = computeSize.type === 'serverless';
   const timeoutConfig = await taskConfigStore.getTimeout(repo, workspace, taskName);
-  const timeoutMinutes = timeoutConfig ? Number(timeoutConfig.minutes) : (isServerless ? 15 : 1440);
+  const timeoutMinutes = timeoutConfig ? Number(timeoutConfig.minutes) : (isServerless ? DEFAULT_TIMEOUT_SERVERLESS : DEFAULT_TIMEOUT_FARGATE);
   const timeoutSeconds = timeoutMinutes * 60;
 
   console.log(`Task ${taskName} compute: ${computeSize.type}, timeout: ${timeoutMinutes}min`);

@@ -3,24 +3,15 @@
  * Proprietary and confidential.
  */
 
-import { S3Client } from '@aws-sdk/client-s3';
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { S3DynamoStorage, DynamoRefStore } from '@elaraai/e3-aws-storage';
+import { getStorage } from '@elaraai/e3-aws-storage/init';
 import { stepInitialize, type DataflowGraph } from '@elaraai/e3-core';
 import { variant, none, decodeBeast2For } from '@elaraai/east';
 import { WorkspaceStateType, type DataflowRun } from '@elaraai/e3-types';
 
 const decodeWorkspaceState = decodeBeast2For(WorkspaceStateType);
 
-// Initialize clients once at Lambda cold start
-const s3 = new S3Client({});
-const dynamo = new DynamoDBClient({});
-const storage = new S3DynamoStorage(
-  s3,
-  dynamo,
-  process.env.BUCKET_NAME!,
-  process.env.TABLE_NAME!
-);
+const storage = getStorage();
+const dataflowRuns = storage.dataflowRuns;
 
 export interface GetGraphEvent {
   repo: string;
@@ -70,10 +61,9 @@ export async function handler(event: GetGraphEvent): Promise<GetGraphResult> {
   console.log(`Getting graph for workspace ${workspace} in repo ${repo} (execution ${executionId}, run ${runId})`);
 
   // Clean up old dataflow runs for this workspace
-  const refs = storage.refs as DynamoRefStore;
-  const oldRunIds = await refs.dataflowRunList(repo, workspace);
+  const oldRunIds = await dataflowRuns.list(repo, workspace);
   for (const oldRunId of oldRunIds) {
-    await refs.dataflowRunDelete(repo, workspace, oldRunId);
+    await dataflowRuns.delete(repo, workspace, oldRunId);
   }
 
   // Get workspace state to capture input snapshot and package reference
@@ -109,7 +99,7 @@ export async function handler(event: GetGraphEvent): Promise<GetGraphResult> {
       skipped: 0n,
     },
   };
-  await refs.dataflowRunWrite(repo, workspace, initialRun);
+  await dataflowRuns.write(repo, workspace, initialRun);
 
   // Use stepInitialize to build the graph and create initial state
   const { state, readyTasks } = await stepInitialize(

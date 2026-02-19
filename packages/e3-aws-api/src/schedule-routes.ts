@@ -23,8 +23,8 @@ import {
 } from '@elaraai/e3-cloud-types';
 import { sendSuccess, sendError, decodeBody } from '@elaraai/e3-api-server/beast2';
 import { extractIdentity } from './auth/index.js';
-import type { DynamoScheduleStore } from '@elaraai/e3-aws-storage';
-import type { DynamoRefStore } from '@elaraai/e3-aws-storage';
+import type { ScheduleStore } from '@elaraai/e3-cloud-core';
+import type { RefStore } from '@elaraai/e3-core';
 import {
   SchedulerClient,
   CreateScheduleCommand,
@@ -128,8 +128,8 @@ export function validateCron(expr: string): string | null {
  */
 export function createScheduleRoutes(
   aclStore: AclStore,
-  scheduleStore: DynamoScheduleStore,
-  refStore: DynamoRefStore,
+  scheduleStore: ScheduleStore,
+  refStore: RefStore,
   schedulerClient: SchedulerClient,
 ) {
   const schedulerGroupName = process.env.SCHEDULER_GROUP_NAME!;
@@ -334,7 +334,7 @@ export function createScheduleRoutes(
  */
 export function createScheduleListRoute(
   aclStore: AclStore,
-  scheduleStore: DynamoScheduleStore,
+  scheduleStore: ScheduleStore,
 ) {
   const app = new Hono();
 

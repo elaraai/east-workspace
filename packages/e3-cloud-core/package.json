@@ -26,7 +26,8 @@
     "@elaraai/e3-cloud-types": "*"
   },
   "peerDependencies": {
-    "@elaraai/east": "beta"
+    "@elaraai/east": "beta",
+    "@elaraai/e3-types": "beta"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -20,6 +20,15 @@
 export type { AclStore, Identity, WhoamiBackend } from './interfaces.js';
 export type { ScheduleStore } from './schedule-store.js';
 export type { TaskConfigStore } from './task-config-store.js';
+export type { ComputeResultStore } from './compute-result-store.js';
+export type { RepoManager, RepoStatus, RepoMetadata } from './repo-manager.js';
+export type { DataflowRunStore } from './dataflow-run-store.js';
+export type {
+  ExecutionTracker,
+  DataflowExecution,
+  TaskExecutionStatus,
+  DataflowEvent,
+} from './execution-tracker.js';
 
 // Authorization functions
 export { hasAccess, isLastOwner, canRemoveUser, type AuthzResult } from './authz.js';
