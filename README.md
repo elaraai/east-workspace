@@ -1,6 +1,8 @@
-# e3-aws
+# e3-cloud
 
-AWS cloud infrastructure for hosting [e3](../e3) (East Execution Engine) as a multi-tenant platform.
+Multi-cloud implementation of [e3](../e3) (East Execution Engine) as a multi-tenant platform.
+Currently we use AWS cloud infrastructure for hosting.
+Relative to e3, e3-cloud provides enterprise-only features including authorization, task scheduling, scalable serverless compute/storage and access to high-capacity on-demand compute runners.
 
 ## What is e3?
 
@@ -9,7 +11,7 @@ e3 is a dataflow execution engine for the [East](../east) language. It provides:
 - **Workspaces** - Isolated execution environments with datasets and tasks
 - **Dataflows** - Declarative data pipelines that execute incrementally
 
-This repository (`e3-aws`) deploys e3 as a cloud service on AWS.
+This project (`e3-cloud`) deploys e3 as a cloud service on AWS, with abstractions in place to make it easy to extend to Azure or GCP.
 
 ## Architecture
 
