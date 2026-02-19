@@ -6,7 +6,7 @@
   "description": "Integration tests for e3-aws cloud deployment",
   "scripts": {
     "build": "tsc --build",
-    "test": "npm run build && node --enable-source-maps --test 'dist/**/*.spec.js'",
+    "test:integration": "npm run build && node --enable-source-maps --test 'dist/**/*.spec.js'",
     "test:infra": "npm run build && node --enable-source-maps --test 'dist/cloud-infra.spec.js'",
     "test:api": "npm run build && node --enable-source-maps --test 'dist/api-compliance.spec.js'",
     "test:compute": "npm run build && node --enable-source-maps --test 'dist/cloud-compute.spec.js'",

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc --build",
-    "test": "npm run build && node --enable-source-maps dist/src/run.js"
+    "test:manual": "npm run build && node --enable-source-maps dist/src/run.js"
   },
   "dependencies": {
     "@elaraai/e3": "beta",

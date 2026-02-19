@@ -1,6 +1,6 @@
 /**
- * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under the Business Source License 1.1. See LICENSE.md for details.
+ * Copyright (c) 2025 Elara AI Pty Ltd. All rights reserved.
+ * Proprietary and confidential.
  */
 
 /**
@@ -23,6 +23,8 @@ export type { TaskConfigStore } from './task-config-store.js';
 export type { ComputeResultStore } from './compute-result-store.js';
 export type { RepoManager, RepoStatus, RepoMetadata } from './repo-manager.js';
 export type { DataflowRunStore } from './dataflow-run-store.js';
+export type { DataflowOrchestrator } from './dataflow-orchestrator.js';
+export type { SchedulerService } from './scheduler-service.js';
 export type {
   ExecutionTracker,
   DataflowExecution,

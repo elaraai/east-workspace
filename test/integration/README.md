@@ -24,13 +24,13 @@ Integration tests and demos for the e3 cloud platform.
 
 ```bash
 # Run all integration tests
-AWS_PROFILE=elaraai-dev-elara-e3 npm test
+AWS_PROFILE=elaraai-dev-elara-e3 npm run test:integration
 
 # Run specific test suite
-AWS_PROFILE=elaraai-dev-elara-e3 npm test -- --test-name-pattern "dataflow"
+AWS_PROFILE=elaraai-dev-elara-e3 npm run test:integration -- --test-name-pattern "dataflow"
 
 # Run API compliance tests only
-AWS_PROFILE=elaraai-dev-elara-e3 npm test -- --test-name-pattern "API Compliance"
+AWS_PROFILE=elaraai-dev-elara-e3 npm run test:integration -- --test-name-pattern "API Compliance"
 ```
 
 ## Demo: Interacting with a Workspace
@@ -262,7 +262,7 @@ Tests automatically authenticate using `USER_PASSWORD_AUTH` flow by:
 
 4. Run tests - authentication happens automatically:
    ```bash
-   AWS_PROFILE=elaraai-dev-elara-e3 npm test -- --test-name-pattern "Admin"
+   AWS_PROFILE=elaraai-dev-elara-e3 npm run test:integration -- --test-name-pattern "Admin"
    ```
 
 #### Option 2: Manual Credentials
@@ -308,7 +308,7 @@ Repeat for `test-credentials-member.json`, `test-credentials-outsider.json`, and
 
 ```bash
 # Run admin compliance tests
-AWS_PROFILE=elaraai-dev-elara-e3 npm test -- --test-name-pattern "Admin"
+AWS_PROFILE=elaraai-dev-elara-e3 npm run test:integration -- --test-name-pattern "Admin"
 ```
 
 ### Manual User Provisioning (if not using automated test users)

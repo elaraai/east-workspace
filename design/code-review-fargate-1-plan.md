@@ -130,11 +130,23 @@ Two code reviews (design/code-review.md and design/code-review-fargate-1.md) ide
 
 **Objective:** Comprehensive unit tests for all handlers using in-memory implementations. CI runs without AWS credentials.
 
+### Phase 6a: API Route Unit Tests ✅ DONE
+
+Added in-memory mocks (`InMemoryDataflowOrchestrator`, `InMemorySchedulerService`) to `e3-cloud-core/testing`. Created shared test helpers (`test-helpers.ts`) with BEAST2 encode/decode, mock identity, and Hono fetch utilities. Fixed `dataflow-routes.ts` to use a structural `DataflowStorage` interface instead of concrete `S3DynamoStorage`.
+
+**Test files** (46 new tests, all passing without AWS credentials):
+- `e3-aws-api/src/task-config-routes.spec.ts` — 20 tests (GET/PUT/POST/DELETE for compute and timeout configs)
+- `e3-aws-api/src/repo-routes.spec.ts` — 10 tests (list, create, delete repos with ACL/schedule cleanup)
+- `e3-aws-api/src/dataflow-routes.spec.ts` — 7 tests (cancel, execution status, start validation)
+- `e3-aws-api/src/gc-routes.spec.ts` — 9 tests (start GC, status polling, error handling)
+
+### Phase 6b: Runner Handler DI + Tests (PENDING)
+
 **Runner handler tests** (`e3-aws-runner/test/`):
 - `dispatch-task.test.ts`, `collect-compute-result.test.ts`, `apply-results.test.ts`, `apply-tree-updates.test.ts`, `get-ready.test.ts`, `mark-skipped.test.ts`, `check-completion.test.ts`, `finalize-execution.test.ts`
+- Requires DI refactor of runner handlers before tests can be written.
 
-**API route tests** (`e3-aws-api/test/`):
-- `task-config-routes.test.ts`, `dataflow-routes.test.ts`, `repo-routes.test.ts`, `schedule-routes.test.ts`
+### Phase 6c: Interface Contract Tests (PENDING)
 
 **Interface contract tests** (`e3-cloud-core/test/`):
 - Parameterized suites for `TaskConfigStore`, `ComputeResultStore`, `RepoManager`, `ExecutionTracker` — run against in-memory first, reusable against DynamoDB in integration tests.
@@ -174,5 +186,5 @@ When adding Azure/GCP, you implement the interfaces (StorageBackend, RepoManager
 After each phase:
 1. `npm run build` — all packages compile
 2. `npm test` — unit tests pass (Phases 1-5: existing tests; Phase 6: new unit tests)
-3. Deploy to dev and run integration tests: `cd test/integration && AWS_PROFILE=elaraai-dev-elara-e3 npm test`
+3. Deploy to dev and run integration tests: `cd test/integration && AWS_PROFILE=elaraai-dev-elara-e3 npm run test:integration`
 4. After Phase 6: `npm test` runs without any AWS credentials or environment variables

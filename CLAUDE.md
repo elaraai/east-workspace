@@ -259,10 +259,10 @@ e3 login https://dev.e3.elaraai.com
 
 # 2. Run integration tests
 cd test/integration
-AWS_PROFILE=elaraai-dev-elara-e3 npm test
+AWS_PROFILE=elaraai-dev-elara-e3 npm run test:integration
 
 # Or run specific test file:
-AWS_PROFILE=elaraai-dev-elara-e3 npm test -- --test-name-pattern "diamond"
+AWS_PROFILE=elaraai-dev-elara-e3 npm run test:integration -- --test-name-pattern "diamond"
 ```
 
 ## CDK Deployments

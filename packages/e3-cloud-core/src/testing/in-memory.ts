@@ -1,7 +1,9 @@
 /**
- * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under the Business Source License 1.1. See LICENSE.md for details.
+ * Copyright (c) 2025 Elara AI Pty Ltd. All rights reserved.
+ * Proprietary and confidential.
  */
+
+/* eslint-disable @typescript-eslint/require-await */
 
 /**
  * In-memory implementations for testing.
@@ -24,6 +26,8 @@ import type {
   TaskExecutionStatus,
   DataflowEvent,
 } from '../execution-tracker.js';
+import type { DataflowOrchestrator } from '../dataflow-orchestrator.js';
+import type { SchedulerService } from '../scheduler-service.js';
 
 /**
  * In-memory ACL store for testing.
@@ -560,5 +564,40 @@ export class InMemoryExecutionTracker implements ExecutionTracker {
     this.tasks.clear();
     this.events.clear();
     this.nextIds.clear();
+  }
+}
+
+/**
+ * In-memory dataflow orchestrator for testing.
+ *
+ * Records startExecution() calls for assertion, returns synthetic execution names.
+ */
+export class InMemoryDataflowOrchestrator implements DataflowOrchestrator {
+  calls: Array<Parameters<DataflowOrchestrator['startExecution']>[0]> = [];
+
+  async startExecution(params: Parameters<DataflowOrchestrator['startExecution']>[0]): Promise<string> {
+    this.calls.push(params);
+    return `test-execution-${params.repo}-${params.workspace}-${params.executionId}`;
+  }
+
+  clear(): void {
+    this.calls = [];
+  }
+}
+
+/**
+ * In-memory scheduler service for testing.
+ *
+ * Records deleteSchedule() calls for assertion.
+ */
+export class InMemorySchedulerService implements SchedulerService {
+  deletedSchedules: string[] = [];
+
+  async deleteSchedule(schedulerName: string): Promise<void> {
+    this.deletedSchedules.push(schedulerName);
+  }
+
+  clear(): void {
+    this.deletedSchedules = [];
   }
 }
