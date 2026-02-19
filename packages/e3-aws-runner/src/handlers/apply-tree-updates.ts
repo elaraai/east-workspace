@@ -5,8 +5,7 @@
 
 import { getStorage } from '@elaraai/e3-aws-storage/init';
 import { workspaceSetDatasetByHash, parsePathString } from '@elaraai/e3-core';
-
-const storage = getStorage();
+import type { StorageBackend } from '@elaraai/e3-core';
 
 /** Single tree update from a completed task */
 export interface TreeUpdate {
@@ -28,13 +27,13 @@ export interface ApplyTreeUpdatesOutput {
 }
 
 /**
- * Lambda handler: Apply tree updates serially to workspace.
+ * Pure function: Apply tree updates serially to workspace.
  *
  * Called by Step Functions after the parallel DispatchTasksMap completes.
  * Receives all tree updates collected from write-result and applies them
  * one by one to avoid lost update race conditions.
  */
-export async function handler(event: ApplyTreeUpdatesEvent): Promise<ApplyTreeUpdatesOutput> {
+export async function handleApplyTreeUpdates(storage: StorageBackend, event: ApplyTreeUpdatesEvent): Promise<ApplyTreeUpdatesOutput> {
   const { repo, workspace, treeUpdates } = event;
 
   // Filter to only updates that need tree writes (skip failed tasks)
@@ -52,4 +51,9 @@ export async function handler(event: ApplyTreeUpdatesEvent): Promise<ApplyTreeUp
   console.log(`Applied ${pendingUpdates.length} tree updates`);
 
   return { updatesApplied: pendingUpdates.length };
+}
+
+/** Lambda handler: thin wrapper that injects dependencies. */
+export async function handler(event: ApplyTreeUpdatesEvent): Promise<ApplyTreeUpdatesOutput> {
+  return handleApplyTreeUpdates(getStorage(), event);
 }

@@ -13,9 +13,7 @@ import { getStorage } from '@elaraai/e3-aws-storage/init';
 import { stepFinalize } from '@elaraai/e3-core';
 import { variant, some, none } from '@elaraai/east';
 import type { DataflowRun } from '@elaraai/e3-types';
-
-const storage = getStorage();
-const dataflowRuns = storage.dataflowRuns;
+import type { DataflowStorage, DataflowRunStore } from '@elaraai/e3-cloud-core';
 
 export interface FinalizeExecutionEvent {
   repo: string;
@@ -49,7 +47,13 @@ export interface FinalizeExecutionResult {
  * Uses e3-core stepFinalize to update the execution state with final
  * status, completedAt timestamp, and summary counts.
  */
-export async function handler(event: FinalizeExecutionEvent): Promise<FinalizeExecutionResult> {
+export interface FinalizeExecutionDeps {
+  storage: DataflowStorage;
+  dataflowRuns: DataflowRunStore;
+}
+
+export async function handleFinalizeExecution(deps: FinalizeExecutionDeps, event: FinalizeExecutionEvent): Promise<FinalizeExecutionResult> {
+  const { storage, dataflowRuns } = deps;
   const { repo, workspace, executionId, runId, taskResults } = event;
   const execId = executionId.toString().padStart(10, '0');
 
@@ -179,4 +183,10 @@ export async function handler(event: FinalizeExecutionEvent): Promise<FinalizeEx
       console.error(`Failed to release lock for ${repo}/workspace/${workspace}:`, err);
     }
   }
+}
+
+/** Lambda handler: thin wrapper that injects dependencies. */
+export async function handler(event: FinalizeExecutionEvent): Promise<FinalizeExecutionResult> {
+  const storage = getStorage();
+  return handleFinalizeExecution({ storage, dataflowRuns: storage.dataflowRuns }, event);
 }

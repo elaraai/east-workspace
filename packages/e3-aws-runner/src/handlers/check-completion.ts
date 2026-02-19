@@ -4,9 +4,7 @@
  */
 
 import { getStorage } from '@elaraai/e3-aws-storage/init';
-
-const storage = getStorage();
-const executionTracker = storage.executionTracker;
+import type { ExecutionTracker } from '@elaraai/e3-cloud-core';
 
 // Stale claim threshold: 5 minutes
 const STALE_CLAIM_THRESHOLD_MS = 5 * 60 * 1000;
@@ -54,11 +52,11 @@ export interface CheckCompletionResult {
  * 2. Detects stale claims (heartbeat > 5 min old) and marks them as failed
  * 3. Returns completed tasks and those still running
  */
-export async function handler(event: CheckCompletionEvent): Promise<CheckCompletionResult> {
+export async function handleCheckCompletion(executionTracker: ExecutionTracker, event: CheckCompletionEvent): Promise<CheckCompletionResult> {
   const { repo, executionId, dispatchResults } = event;
 
   // Query all task statuses for this execution
-  const taskStatuses = await getTaskStatuses(repo, executionId);
+  const taskStatuses = await getTaskStatuses(executionTracker, repo, executionId);
 
   // Get tasks to check: either from dispatchResults or from DynamoDB (all in-progress tasks)
   let tasksToCheck: string[];
@@ -111,7 +109,7 @@ export async function handler(event: CheckCompletionEvent): Promise<CheckComplet
         // Check for stale claim
         if (taskStatus.heartbeat && now - taskStatus.heartbeat > STALE_CLAIM_THRESHOLD_MS) {
           console.log(`Task ${taskName} has stale heartbeat, marking as failed`);
-          await markTaskFailed(repo, executionId, taskName, 'Container heartbeat timeout');
+          await markTaskFailed(executionTracker, repo, executionId, taskName, 'Container heartbeat timeout');
           failedTasks.push(taskName);
         } else {
           stillRunning.push(taskName);
@@ -133,6 +131,7 @@ export async function handler(event: CheckCompletionEvent): Promise<CheckComplet
   // Record events for completed and failed tasks (orchestrator observes state changes)
   if (completed.length > 0 || failedTasks.length > 0) {
     await recordTaskEvents(
+      executionTracker,
       repo,
       event.workspace,
       executionId,
@@ -154,6 +153,11 @@ export async function handler(event: CheckCompletionEvent): Promise<CheckComplet
   };
 }
 
+/** Lambda handler: thin wrapper that injects dependencies. */
+export async function handler(event: CheckCompletionEvent): Promise<CheckCompletionResult> {
+  return handleCheckCompletion(getStorage().executionTracker, event);
+}
+
 interface TaskStatusItem {
   status: string;
   outputPath?: string;
@@ -168,6 +172,7 @@ interface TaskStatusItem {
  * Phase 3 schema: TASK/{repo}/{executionId}
  */
 async function getTaskStatuses(
+  executionTracker: ExecutionTracker,
   repo: string,
   executionId: number
 ): Promise<Map<string, TaskStatusItem>> {
@@ -195,6 +200,7 @@ async function getTaskStatuses(
  * Phase 3 schema: TASK/{repo}/{executionId}
  */
 async function markTaskFailed(
+  executionTracker: ExecutionTracker,
   repo: string,
   executionId: number,
   taskName: string,
@@ -223,12 +229,12 @@ export type DataflowEventType =
  * Phase 3 schema: EVENT/{repo}/{executionId}
  */
 async function writeEvent(
+  executionTracker: ExecutionTracker,
   repo: string,
   workspace: string,
   executionId: number,
   event: DataflowEventType
 ): Promise<number> {
-  // Use the storage helper for Phase 3 schema
   return executionTracker.addExecutionEvent(repo, workspace, executionId, event);
 }
 
@@ -236,6 +242,7 @@ async function writeEvent(
  * Record events for completed/failed tasks observed by the orchestrator.
  */
 async function recordTaskEvents(
+  executionTracker: ExecutionTracker,
   repo: string,
   workspace: string,
   executionId: number,
@@ -248,19 +255,19 @@ async function recordTaskEvents(
   // Record events for successfully completed tasks
   for (const task of completed) {
     if (task.status === 'cached') {
-      await writeEvent(repo, workspace, executionId, {
+      await writeEvent(executionTracker, repo, workspace, executionId, {
         type: 'cached',
         task: task.taskName,
         timestamp: now,
       });
     } else {
       // For executed tasks, we write both start and complete events
-      await writeEvent(repo, workspace, executionId, {
+      await writeEvent(executionTracker, repo, workspace, executionId, {
         type: 'start',
         task: task.taskName,
         timestamp: now,
       });
-      await writeEvent(repo, workspace, executionId, {
+      await writeEvent(executionTracker, repo, workspace, executionId, {
         type: 'complete',
         task: task.taskName,
         timestamp: now,
@@ -272,21 +279,21 @@ async function recordTaskEvents(
   // Record events for failed tasks
   for (const taskName of failedTasks) {
     const status = taskStatuses.get(taskName);
-    await writeEvent(repo, workspace, executionId, {
+    await writeEvent(executionTracker, repo, workspace, executionId, {
       type: 'start',
       task: taskName,
       timestamp: now,
     });
 
     if (status?.status === 'error') {
-      await writeEvent(repo, workspace, executionId, {
+      await writeEvent(executionTracker, repo, workspace, executionId, {
         type: 'error',
         task: taskName,
         timestamp: now,
         message: status.error ?? 'Unknown error',
       });
     } else {
-      await writeEvent(repo, workspace, executionId, {
+      await writeEvent(executionTracker, repo, workspace, executionId, {
         type: 'failed',
         task: taskName,
         timestamp: now,

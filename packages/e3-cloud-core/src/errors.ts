@@ -38,6 +38,32 @@ export class RepoNotFoundError extends AdminCoreError {
 }
 
 /**
+ * Repository already exists (thrown on create when repo name is taken).
+ */
+export class RepoAlreadyExistsError extends AdminCoreError {
+  constructor(public readonly repo: string) {
+    super(`Repository '${repo}' already exists`);
+  }
+}
+
+/**
+ * Invalid repository status transition.
+ *
+ * Thrown when a repo status change is attempted but the current status
+ * doesn't match the expected status.
+ */
+export class InvalidRepoStatusError extends AdminCoreError {
+  constructor(
+    public readonly repo: string,
+    public readonly expectedStatus: string | string[],
+    public readonly actualStatus: string
+  ) {
+    const expected = Array.isArray(expectedStatus) ? expectedStatus.join(' or ') : expectedStatus;
+    super(`Repository '${repo}' status is '${actualStatus}', expected '${expected}'`);
+  }
+}
+
+/**
  * Map AuthzErrorCode to HTTP status code.
  */
 export function errorCodeToStatus(code: AuthzErrorCode): number {

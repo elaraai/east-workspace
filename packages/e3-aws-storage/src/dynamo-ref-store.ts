@@ -17,20 +17,24 @@ import {
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import { encodeBeast2For, decodeBeast2For } from '@elaraai/east';
 import type { RefStore } from '@elaraai/e3-core';
-import type {
-  RepoManager,
-  ExecutionTracker,
-  DataflowRunStore,
-  RepoStatus,
-  RepoMetadata,
-  DataflowExecution,
-  TaskExecutionStatus,
-  DataflowEvent,
+import {
+  RepoAlreadyExistsError,
+  InvalidRepoStatusError,
+  type RepoManager,
+  type ExecutionTracker,
+  type DataflowRunStore,
+  type RepoStatus,
+  type RepoMetadata,
+  type DataflowExecution,
+  type TaskExecutionStatus,
+  type DataflowEvent,
 } from '@elaraai/e3-cloud-core';
 import { ExecutionStatusType, DataflowRunType, type ExecutionStatus, type DataflowRun } from '@elaraai/e3-types';
 
 // Re-export types that were previously defined here for backwards compatibility
 export type { RepoStatus, RepoMetadata, DataflowExecution, TaskExecutionStatus, DataflowEvent } from '@elaraai/e3-cloud-core';
+// Re-export error classes for backwards compatibility
+export { InvalidRepoStatusError } from '@elaraai/e3-cloud-core';
 
 // BEAST2 encoder/decoder for ExecutionStatus (includes Date fields)
 const encodeExecutionStatus = encodeBeast2For(ExecutionStatusType);
@@ -39,21 +43,6 @@ const decodeExecutionStatus = decodeBeast2For(ExecutionStatusType);
 // BEAST2 encoder/decoder for DataflowRun
 const encodeDataflowRun = encodeBeast2For(DataflowRunType);
 const decodeDataflowRun = decodeBeast2For(DataflowRunType);
-
-/**
- * Error thrown when a repo status transition is invalid.
- */
-export class InvalidRepoStatusError extends Error {
-  constructor(
-    public readonly repo: string,
-    public readonly expectedStatus: RepoStatus | RepoStatus[],
-    public readonly actualStatus: RepoStatus | 'not_found'
-  ) {
-    const expected = Array.isArray(expectedStatus) ? expectedStatus.join(' or ') : expectedStatus;
-    super(`Repository '${repo}' status is '${actualStatus}', expected '${expected}'`);
-    this.name = 'InvalidRepoStatusError';
-  }
-}
 
 /**
  * DynamoDB-backed RefStore implementation.
@@ -416,25 +405,32 @@ export class DynamoRefStore implements RefStore, RepoManager, ExecutionTracker {
    * or it fails (e.g., if repo already exists).
    *
    * @param repo - Repository name
-   * @throws ConditionalCheckFailedException if repo already exists
+   * @throws RepoAlreadyExistsError if repo already exists
    */
   async createRepo(repo: string): Promise<void> {
     const now = new Date().toISOString();
-    await this.dynamo.send(
-      new PutItemCommand({
-        TableName: this.tableName,
-        Item: marshall({
-          PK: 'REPO',
-          SK: repo,
-          name: repo,
-          status: 'active',
-          createdAt: now,
-          statusChangedAt: now,
-        }),
-        // Only succeed if repo doesn't already exist
-        ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
-      })
-    );
+    try {
+      await this.dynamo.send(
+        new PutItemCommand({
+          TableName: this.tableName,
+          Item: marshall({
+            PK: 'REPO',
+            SK: repo,
+            name: repo,
+            status: 'active',
+            createdAt: now,
+            statusChangedAt: now,
+          }),
+          // Only succeed if repo doesn't already exist
+          ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
+        })
+      );
+    } catch (error) {
+      if (error instanceof ConditionalCheckFailedException) {
+        throw new RepoAlreadyExistsError(repo);
+      }
+      throw error;
+    }
   }
 
   /**

@@ -17,24 +17,10 @@ import {
   dataflowGetGraph,
   WorkspaceNotFoundError, WorkspaceNotDeployedError,
   type DataflowExecutionState,
-  type StorageBackend,
-  type ExecutionStateStore,
-  type LockService,
 } from '@elaraai/e3-core';
 import { sendSuccess, sendError, sendSuccessWithStatus, decodeBody } from '@elaraai/e3-api-server/beast2';
 import { ApiTypes } from '@elaraai/e3-api-server';
-import type { DataflowOrchestrator } from '@elaraai/e3-cloud-core';
-
-/**
- * Storage interface for dataflow routes.
- *
- * Extends StorageBackend with execution state store and lock force-release
- * (needed for cancel). S3DynamoStorage satisfies this structurally.
- */
-export interface DataflowStorage extends StorageBackend {
-  executions: ExecutionStateStore;
-  locks: LockService & { forceRelease(repo: string, resource: string): Promise<void> };
-}
+import type { DataflowStorage, DataflowOrchestrator } from '@elaraai/e3-cloud-core';
 
 /** Helper to create internal API errors */
 const internalError = (message: string) => variant('internal', { message });

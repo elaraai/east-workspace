@@ -5,8 +5,7 @@
 
 import { getStorage } from '@elaraai/e3-aws-storage/init';
 import { stepGetReady, stepIsComplete } from '@elaraai/e3-core';
-
-const storage = getStorage();
+import type { DataflowStorage } from '@elaraai/e3-cloud-core';
 
 export interface GetReadyEvent {
   repo: string;
@@ -29,7 +28,7 @@ export interface GetReadyResult {
 }
 
 /**
- * Lambda handler: Find tasks that are ready to execute.
+ * Pure function: Find tasks that are ready to execute.
  *
  * A task is ready when:
  * - All its dependencies have completed (success or cached)
@@ -38,7 +37,7 @@ export interface GetReadyResult {
  * Uses e3-core step functions (stepGetReady, stepIsComplete) to eliminate
  * duplicated business logic.
  */
-export async function handler(event: GetReadyEvent): Promise<GetReadyResult> {
+export async function handleGetReady(storage: DataflowStorage, event: GetReadyEvent): Promise<GetReadyResult> {
   const { repo, workspace, executionId } = event;
   const execId = executionId.toString().padStart(10, '0');
 
@@ -108,4 +107,9 @@ export async function handler(event: GetReadyEvent): Promise<GetReadyResult> {
     skippedCount,
     inProgressCount,
   };
+}
+
+/** Lambda handler: thin wrapper that injects dependencies. */
+export async function handler(event: GetReadyEvent): Promise<GetReadyResult> {
+  return handleGetReady(getStorage(), event);
 }

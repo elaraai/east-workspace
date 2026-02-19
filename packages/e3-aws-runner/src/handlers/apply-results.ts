@@ -11,10 +11,9 @@ import {
   stepTasksSkipped,
   inputsHash,
 } from '@elaraai/e3-core';
+import type { DataflowStorage } from '@elaraai/e3-cloud-core';
 import { variant } from '@elaraai/east';
 import type { ExecutionStatus } from '@elaraai/e3-types';
-
-const storage = getStorage();
 
 /** Result from a single task in the Map iteration */
 export interface TaskResult {
@@ -62,7 +61,7 @@ export interface ApplyResultsOutput {
 }
 
 /**
- * Lambda handler: Apply all task results to execution state serially.
+ * Pure function: Apply all task results to execution state serially.
  *
  * Called after the parallel DispatchTasksMap completes. Processes all execution
  * state mutations in a single read-modify-write cycle to avoid lost update
@@ -70,7 +69,7 @@ export interface ApplyResultsOutput {
  *
  * Also writes execution records for both successful and failed tasks.
  */
-export async function handler(event: ApplyResultsEvent): Promise<ApplyResultsOutput> {
+export async function handleApplyResults(storage: DataflowStorage, event: ApplyResultsEvent): Promise<ApplyResultsOutput> {
   const { repo, workspace, executionId, runId, force, forceTasks = [], taskResults } = event;
   const execId = executionId.toString().padStart(10, '0');
 
@@ -169,4 +168,9 @@ export async function handler(event: ApplyResultsEvent): Promise<ApplyResultsOut
   console.log(`Applied ${taskResults.length} task results, ${treeUpdates.filter(u => u.needsTreeUpdate).length} tree updates needed`);
 
   return { repo, workspace, executionId, runId, force, forceTasks, treeUpdates };
+}
+
+/** Lambda handler: thin wrapper that injects dependencies. */
+export async function handler(event: ApplyResultsEvent): Promise<ApplyResultsOutput> {
+  return handleApplyResults(getStorage(), event);
 }

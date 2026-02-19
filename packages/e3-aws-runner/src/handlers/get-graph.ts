@@ -7,11 +7,9 @@ import { getStorage } from '@elaraai/e3-aws-storage/init';
 import { stepInitialize, type DataflowGraph } from '@elaraai/e3-core';
 import { variant, none, decodeBeast2For } from '@elaraai/east';
 import { WorkspaceStateType, type DataflowRun } from '@elaraai/e3-types';
+import type { DataflowStorage, DataflowRunStore } from '@elaraai/e3-cloud-core';
 
 const decodeWorkspaceState = decodeBeast2For(WorkspaceStateType);
-
-const storage = getStorage();
-const dataflowRuns = storage.dataflowRuns;
 
 export interface GetGraphEvent {
   repo: string;
@@ -54,7 +52,13 @@ export interface GetGraphResult {
  *
  * Uses e3-core step functions to eliminate duplicated business logic.
  */
-export async function handler(event: GetGraphEvent): Promise<GetGraphResult> {
+export interface GetGraphDeps {
+  storage: DataflowStorage;
+  dataflowRuns: DataflowRunStore;
+}
+
+export async function handleGetGraph(deps: GetGraphDeps, event: GetGraphEvent): Promise<GetGraphResult> {
+  const { storage, dataflowRuns } = deps;
   const { repo, workspace, executionId, force, forceTasks, filter, runId } = event;
   const execId = executionId.toString().padStart(10, '0');
 
@@ -134,6 +138,12 @@ export async function handler(event: GetGraphEvent): Promise<GetGraphResult> {
     forceTasks: forceTasks ?? [],
     runId,
   };
+}
+
+/** Lambda handler: thin wrapper that injects dependencies. */
+export async function handler(event: GetGraphEvent): Promise<GetGraphResult> {
+  const storage = getStorage();
+  return handleGetGraph({ storage, dataflowRuns: storage.dataflowRuns }, event);
 }
 
 /**

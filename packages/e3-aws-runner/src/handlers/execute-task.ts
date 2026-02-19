@@ -14,6 +14,7 @@
  */
 
 import { executeTaskCore } from './execute-task-core.js';
+import { getStorage } from '@elaraai/e3-aws-storage/init';
 
 export type { TaskExecutionEvent, TaskExecutionResult } from './execute-task-core.js';
 import type { TaskExecutionEvent, TaskExecutionResult } from './execute-task-core.js';
@@ -22,8 +23,15 @@ import type { TaskExecutionEvent, TaskExecutionResult } from './execute-task-cor
 const MAX_LAMBDA_TIMEOUT_MS = 14 * 60 * 1000;
 
 export async function handler(event: TaskExecutionEvent): Promise<TaskExecutionResult> {
+  const storage = getStorage();
+  const deps = {
+    objects: storage.objects,
+    logs: storage.logs,
+    executions: storage.executions,
+    executionTracker: storage.executionTracker,
+  };
   const timeoutMs = event.timeoutMinutes != null
     ? Math.min(event.timeoutMinutes * 60 * 1000, MAX_LAMBDA_TIMEOUT_MS)
     : MAX_LAMBDA_TIMEOUT_MS;
-  return executeTaskCore(event, { timeoutMs });
+  return executeTaskCore(event, deps, { timeoutMs });
 }

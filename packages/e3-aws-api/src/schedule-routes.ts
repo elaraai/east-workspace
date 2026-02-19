@@ -13,7 +13,7 @@
 
 import { Hono } from 'hono';
 import { NullType, ArrayType, variant } from '@elaraai/east';
-import type { AclStore, Identity } from '@elaraai/e3-cloud-core';
+import type { AclStore, Identity, SchedulerService } from '@elaraai/e3-cloud-core';
 import { hasAccess, errorCodeToStatus } from '@elaraai/e3-cloud-core';
 import {
   ScheduleType,
@@ -25,14 +25,6 @@ import { sendSuccess, sendError, decodeBody } from '@elaraai/e3-api-server/beast
 import { extractIdentity } from './auth/index.js';
 import type { ScheduleStore } from '@elaraai/e3-cloud-core';
 import type { RefStore } from '@elaraai/e3-core';
-import {
-  SchedulerClient,
-  CreateScheduleCommand,
-  UpdateScheduleCommand,
-  DeleteScheduleCommand,
-  ConflictException,
-  ResourceNotFoundException,
-} from '@aws-sdk/client-scheduler';
 
 const internalError = (message: string) => variant('internal', { message });
 
@@ -130,12 +122,8 @@ export function createScheduleRoutes(
   aclStore: AclStore,
   scheduleStore: ScheduleStore,
   refStore: RefStore,
-  schedulerClient: SchedulerClient,
+  schedulerService: SchedulerService,
 ) {
-  const schedulerGroupName = process.env.SCHEDULER_GROUP_NAME!;
-  const schedulerRoleArn = process.env.SCHEDULER_ROLE_ARN!;
-  const scheduleTriggerFnArn = process.env.SCHEDULE_TRIGGER_FN_ARN!;
-  const scheduleDlqArn = process.env.SCHEDULE_DLQ_ARN;
   const defaultTimezone = process.env.DEFAULT_TIMEZONE ?? 'UTC';
 
   const app = new Hono();
@@ -208,40 +196,19 @@ export function createScheduleRoutes(
         scheduledTime: '<aws.scheduler.scheduled-time>',
       });
 
-      const scheduleParams = {
-        Name: schedulerName,
-        GroupName: schedulerGroupName,
-        ScheduleExpression: awsCron,
-        ScheduleExpressionTimezone: timezone,
-        State: body.enabled ? 'ENABLED' as const : 'DISABLED' as const,
-        Target: {
-          Arn: scheduleTriggerFnArn,
-          RoleArn: schedulerRoleArn,
-          Input: targetInput,
-          RetryPolicy: {
-            MaximumRetryAttempts: 2,
-            MaximumEventAgeInSeconds: 3600,
-          },
-          ...(scheduleDlqArn ? { DeadLetterConfig: { Arn: scheduleDlqArn } } : {}),
-        },
-        FlexibleTimeWindow: {
-          Mode: 'OFF' as const,
-        },
-        Description: body.description.type === 'some'
-          ? body.description.value
-          : `Schedule for ${repo}/${workspace}`,
-      };
+      const description = body.description.type === 'some'
+        ? body.description.value
+        : `Schedule for ${repo}/${workspace}`;
 
-      // Create or update EventBridge schedule
-      try {
-        await schedulerClient.send(new CreateScheduleCommand(scheduleParams));
-      } catch (err) {
-        if (err instanceof ConflictException) {
-          await schedulerClient.send(new UpdateScheduleCommand(scheduleParams));
-        } else {
-          throw err;
-        }
-      }
+      // Create or update cloud schedule via SchedulerService
+      await schedulerService.upsertSchedule({
+        name: schedulerName,
+        cronExpression: awsCron,
+        timezone,
+        enabled: body.enabled,
+        description,
+        targetInput,
+      });
 
       console.log(`Schedule ${existing ? 'updated' : 'created'} for ${repo}/${workspace}: cron=${body.cronExpression}, timezone=${timezone}, enabled=${body.enabled}, by=${identity.email ?? identity.sub}`);
 
@@ -300,18 +267,8 @@ export function createScheduleRoutes(
       const schedule = await scheduleStore.get(repo, workspace);
 
       if (schedule) {
-        // Delete EventBridge schedule
-        try {
-          await schedulerClient.send(new DeleteScheduleCommand({
-            Name: schedule.schedulerName,
-            GroupName: schedulerGroupName,
-          }));
-        } catch (err) {
-          if (!(err instanceof ResourceNotFoundException)) {
-            throw err;
-          }
-          // Already deleted, continue
-        }
+        // Delete cloud schedule
+        await schedulerService.deleteSchedule(schedule.schedulerName);
 
         // Delete DynamoDB record
         await scheduleStore.delete(repo, workspace);

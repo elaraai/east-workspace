@@ -10,9 +10,8 @@ import {
   inputsHash,
   uuidv7,
 } from '@elaraai/e3-core';
-
-const storage = getStorage();
-const taskConfigStore = getTaskConfigStore();
+import type { DataflowStorage } from '@elaraai/e3-cloud-core';
+import type { TaskConfigStore } from '@elaraai/e3-cloud-core';
 
 export interface DispatchTaskEvent {
   repo: string;
@@ -59,7 +58,13 @@ export interface DispatchTaskResult {
  * Note: Execution state writes are deferred to apply-results (runs after the Map)
  * to avoid lost update race conditions from concurrent Map iterations.
  */
-export async function handler(event: DispatchTaskEvent): Promise<DispatchTaskResult> {
+export interface DispatchTaskDeps {
+  storage: DataflowStorage;
+  taskConfigStore: TaskConfigStore;
+}
+
+export async function handleDispatchTask(deps: DispatchTaskDeps, event: DispatchTaskEvent): Promise<DispatchTaskResult> {
+  const { storage, taskConfigStore } = deps;
   const { repo, workspace, executionId, taskName, force, forceTasks } = event;
   const execId = executionId.toString().padStart(10, '0');
 
@@ -133,4 +138,9 @@ export async function handler(event: DispatchTaskEvent): Promise<DispatchTaskRes
     timeoutMinutes,
     timeoutSeconds,
   };
+}
+
+/** Lambda handler: thin wrapper that injects dependencies. */
+export async function handler(event: DispatchTaskEvent): Promise<DispatchTaskResult> {
+  return handleDispatchTask({ storage: getStorage(), taskConfigStore: getTaskConfigStore() }, event);
 }

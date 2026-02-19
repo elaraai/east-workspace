@@ -85,7 +85,13 @@ const getRepoPath = (repo: string) => repo;
 // ============================================================
 
 const schedulerService = SCHEDULER_GROUP_NAME
-  ? new EventBridgeSchedulerService(schedulerClient, SCHEDULER_GROUP_NAME)
+  ? new EventBridgeSchedulerService(
+      schedulerClient,
+      SCHEDULER_GROUP_NAME,
+      process.env.SCHEDULER_ROLE_ARN!,
+      process.env.SCHEDULE_TRIGGER_FN_ARN!,
+      process.env.SCHEDULE_DLQ_ARN,
+    )
   : null;
 
 const orchestrator = DATAFLOW_STATE_MACHINE_ARN
@@ -126,7 +132,9 @@ app.get('/api/whoami', (c) => {
 app.route('/', createAdminRoutes(aclStore, repoManager));
 
 // Schedule Routes
-app.route('/api/repos/:repo/workspaces/:ws/schedule', createScheduleRoutes(aclStore, scheduleStore, storage.refs, schedulerClient));
+if (schedulerService) {
+  app.route('/api/repos/:repo/workspaces/:ws/schedule', createScheduleRoutes(aclStore, scheduleStore, storage.refs, schedulerService));
+}
 app.route('/api/repos/:repo/schedules', createScheduleListRoute(aclStore, scheduleStore));
 
 // Authorization Middleware (for all repo routes)

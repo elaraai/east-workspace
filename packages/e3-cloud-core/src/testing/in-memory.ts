@@ -28,6 +28,7 @@ import type {
 } from '../execution-tracker.js';
 import type { DataflowOrchestrator } from '../dataflow-orchestrator.js';
 import type { SchedulerService } from '../scheduler-service.js';
+import { RepoAlreadyExistsError, InvalidRepoStatusError } from '../errors.js';
 
 /**
  * In-memory ACL store for testing.
@@ -299,7 +300,7 @@ export class InMemoryRepoManager implements RepoManager {
 
   async createRepo(repo: string): Promise<void> {
     if (this.repos.has(repo)) {
-      throw new Error(`Repository '${repo}' already exists`);
+      throw new RepoAlreadyExistsError(repo);
     }
     const now = new Date().toISOString();
     this.repos.set(repo, {
@@ -319,9 +320,7 @@ export class InMemoryRepoManager implements RepoManager {
     const meta = this.repos.get(repo);
     const expected = Array.isArray(expectedStatus) ? expectedStatus : [expectedStatus];
     if (!meta || !expected.includes(meta.status)) {
-      throw new Error(
-        `Repository '${repo}' status is '${meta?.status ?? 'not_found'}', expected '${expected.join(' or ')}'`
-      );
+      throw new InvalidRepoStatusError(repo, expected, meta?.status ?? 'not_found');
     }
     meta.status = newStatus;
     meta.statusChangedAt = new Date().toISOString();
@@ -592,6 +591,11 @@ export class InMemoryDataflowOrchestrator implements DataflowOrchestrator {
  */
 export class InMemorySchedulerService implements SchedulerService {
   deletedSchedules: string[] = [];
+  upsertedSchedules: Array<Parameters<SchedulerService['upsertSchedule']>[0]> = [];
+
+  async upsertSchedule(params: Parameters<SchedulerService['upsertSchedule']>[0]): Promise<void> {
+    this.upsertedSchedules.push(params);
+  }
 
   async deleteSchedule(schedulerName: string): Promise<void> {
     this.deletedSchedules.push(schedulerName);
@@ -599,5 +603,6 @@ export class InMemorySchedulerService implements SchedulerService {
 
   clear(): void {
     this.deletedSchedules = [];
+    this.upsertedSchedules = [];
   }
 }

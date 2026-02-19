@@ -15,9 +15,8 @@
  */
 
 import { getComputeResultStore } from '@elaraai/e3-aws-storage/init';
+import type { ComputeResultStore } from '@elaraai/e3-cloud-core';
 import type { TaskExecutionResult } from './execute-task-core.js';
-
-const computeResultStore = getComputeResultStore();
 
 export interface CollectComputeResultEvent {
   repo: string;
@@ -26,7 +25,7 @@ export interface CollectComputeResultEvent {
   taskName: string;
 }
 
-export async function handler(event: CollectComputeResultEvent): Promise<TaskExecutionResult> {
+export async function handleCollectComputeResult(computeResultStore: ComputeResultStore, event: CollectComputeResultEvent): Promise<TaskExecutionResult> {
   const { repo, workspace, taskExecutionId, taskName } = event;
 
   console.log(`Collecting compute result for task ${taskName} (executionId: ${taskExecutionId})`);
@@ -62,4 +61,9 @@ export async function handler(event: CollectComputeResultEvent): Promise<TaskExe
       duration: 0,
     };
   }
+}
+
+/** Lambda handler: thin wrapper that injects dependencies. */
+export async function handler(event: CollectComputeResultEvent): Promise<TaskExecutionResult> {
+  return handleCollectComputeResult(getComputeResultStore(), event);
 }

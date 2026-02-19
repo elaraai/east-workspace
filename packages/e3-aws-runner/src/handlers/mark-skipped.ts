@@ -9,8 +9,7 @@
 
 import { getStorage } from '@elaraai/e3-aws-storage/init';
 import { stepTasksSkipped, dataflowGetDependentsToSkip } from '@elaraai/e3-core';
-
-const storage = getStorage();
+import type { DataflowStorage } from '@elaraai/e3-cloud-core';
 
 export interface MarkSkippedEvent {
   repo: string;
@@ -35,7 +34,7 @@ export interface MarkSkippedResult {
  * This handler is kept for backward compatibility but may be a no-op if tasks
  * are already skipped by write-result.
  */
-export async function handler(event: MarkSkippedEvent): Promise<MarkSkippedResult> {
+export async function handleMarkSkipped(storage: DataflowStorage, event: MarkSkippedEvent): Promise<MarkSkippedResult> {
   const { repo, workspace, executionId, failedTask } = event;
   const execId = executionId.toString().padStart(10, '0');
 
@@ -87,4 +86,9 @@ export async function handler(event: MarkSkippedEvent): Promise<MarkSkippedResul
     skippedTasks: toSkip,
     skippedCount: toSkip.length,
   };
+}
+
+/** Lambda handler: thin wrapper that injects dependencies. */
+export async function handler(event: MarkSkippedEvent): Promise<MarkSkippedResult> {
+  return handleMarkSkipped(getStorage(), event);
 }

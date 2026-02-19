@@ -14,8 +14,14 @@ import {
   type DataflowExecutionState,
 } from '@elaraai/e3-core';
 import { ApiTypes } from '@elaraai/e3-api-server';
-import { InMemoryDataflowOrchestrator } from '@elaraai/e3-cloud-core/testing';
-import { createDataflowRoutes, type DataflowStorage } from './dataflow-routes.js';
+import {
+  InMemoryDataflowOrchestrator,
+  InMemoryRepoManager,
+  InMemoryDataflowRunStore,
+  InMemoryExecutionTracker,
+} from '@elaraai/e3-cloud-core/testing';
+import { createDataflowRoutes } from './dataflow-routes.js';
+import type { DataflowStorage } from '@elaraai/e3-cloud-core';
 import { mountApp, fetchRoute, decodeResponse, encodeRequestBody } from './test-helpers.js';
 
 const REPO = 'test-repo';
@@ -36,9 +42,8 @@ function createMockStorage() {
     acquire: originalLocks.acquire.bind(originalLocks),
     getState: originalLocks.getState.bind(originalLocks),
     isHolderAlive: originalLocks.isHolderAlive.bind(originalLocks),
-    async forceRelease(_repo: string, _resource: string) {
-      // no-op for tests — just pretend to release
-    },
+    async renewLock(_repo: string, _resource: string) { return true; },
+    async forceRelease(_repo: string, _resource: string) {},
   };
 
   return {
@@ -49,6 +54,9 @@ function createMockStorage() {
       logs: base.logs,
       repos: base.repos,
       executions: stateStore,
+      repoManager: new InMemoryRepoManager(),
+      dataflowRuns: new InMemoryDataflowRunStore(),
+      executionTracker: new InMemoryExecutionTracker(),
       validateRepository: base.validateRepository.bind(base),
     } as DataflowStorage,
     base,

@@ -12,6 +12,7 @@
     "dist"
   ],
   "references": [
-    { "path": "../e3-aws-storage" }
+    { "path": "../e3-aws-storage" },
+    { "path": "../e3-cloud-core" }
   ]
 }

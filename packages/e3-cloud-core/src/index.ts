@@ -18,6 +18,7 @@
 
 // Interfaces
 export type { AclStore, Identity, WhoamiBackend } from './interfaces.js';
+export type { DataflowStorage, CloudLockService } from './dataflow-storage.js';
 export type { ScheduleStore } from './schedule-store.js';
 export type { TaskConfigStore } from './task-config-store.js';
 export type { ComputeResultStore } from './compute-result-store.js';
@@ -36,7 +37,7 @@ export type {
 export { hasAccess, isLastOwner, canRemoveUser, type AuthzResult } from './authz.js';
 
 // Errors
-export { AdminCoreError, UserNotFoundError, RepoNotFoundError, errorCodeToStatus } from './errors.js';
+export { AdminCoreError, UserNotFoundError, RepoNotFoundError, RepoAlreadyExistsError, InvalidRepoStatusError, errorCodeToStatus } from './errors.js';
 
 // Re-export types from e3-cloud-types for convenience
 export type {

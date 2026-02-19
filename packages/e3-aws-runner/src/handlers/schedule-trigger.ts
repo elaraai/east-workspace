@@ -10,7 +10,6 @@
  */
 
 import { SFNClient, StartExecutionCommand } from '@aws-sdk/client-sfn';
-import { randomUUID } from 'node:crypto';
 import { getStorage, getScheduleStore } from '@elaraai/e3-aws-storage/init';
 import { variant, none } from '@elaraai/east';
 import {
@@ -20,11 +19,7 @@ import {
   WorkspaceNotDeployedError,
   type DataflowExecutionState,
 } from '@elaraai/e3-core';
-
-const sfn = new SFNClient({});
-const storage = getStorage();
-const scheduleStore = getScheduleStore();
-const DATAFLOW_STATE_MACHINE_ARN = process.env.DATAFLOW_STATE_MACHINE_ARN!;
+import type { DataflowStorage, ScheduleStore, DataflowOrchestrator } from '@elaraai/e3-cloud-core';
 
 export interface ScheduleTriggerEvent {
   repo: string;
@@ -41,7 +36,14 @@ export interface ScheduleTriggerResult {
   schedulerExecutionId?: string;
 }
 
-export async function handler(event: ScheduleTriggerEvent): Promise<ScheduleTriggerResult> {
+export interface ScheduleTriggerDeps {
+  storage: DataflowStorage;
+  scheduleStore: ScheduleStore;
+  orchestrator: DataflowOrchestrator;
+}
+
+export async function handleScheduleTrigger(deps: ScheduleTriggerDeps, event: ScheduleTriggerEvent): Promise<ScheduleTriggerResult> {
+  const { storage, scheduleStore, orchestrator } = deps;
   const { repo, workspace, schedulerExecutionId, scheduledTime } = event;
 
   console.log(`Schedule trigger: repo=${repo}, workspace=${workspace}, schedulerExecutionId=${schedulerExecutionId}, scheduledTime=${scheduledTime}`);
@@ -116,31 +118,18 @@ export async function handler(event: ScheduleTriggerEvent): Promise<ScheduleTrig
     };
     await storage.executions.create(initialState);
 
-    // 6. Generate runId and start Step Functions
+    // 6. Generate runId and start execution via orchestrator
     const runId = uuidv7();
-    const sfnExecutionId = randomUUID();
-    const executionName = `dataflow-${repo}-${workspace}-${sfnExecutionId}`.slice(0, 80);
+    const executionName = await orchestrator.startExecution({
+      repo,
+      workspace,
+      executionId: parseInt(execId, 10),
+      force: false,
+      forceTasks,
+      runId,
+    });
 
-    await sfn.send(
-      new StartExecutionCommand({
-        stateMachineArn: DATAFLOW_STATE_MACHINE_ARN,
-        name: executionName,
-        input: JSON.stringify({
-          repo,
-          workspace,
-          executionId: parseInt(execId, 10),
-          force: false,
-          forceTasks,
-          runId,
-          triggeredBy: {
-            type: 'schedule',
-            value: { schedulerExecutionId, scheduledTime },
-          },
-        }),
-      })
-    );
-
-    console.log(`Started dataflow: execution=${execId}, runId=${runId}, sfn=${executionName}, schedulerExecutionId=${schedulerExecutionId}`);
+    console.log(`Started dataflow: execution=${execId}, runId=${runId}, name=${executionName}, schedulerExecutionId=${schedulerExecutionId}`);
 
     return {
       status: 'started',
@@ -153,4 +142,41 @@ export async function handler(event: ScheduleTriggerEvent): Promise<ScheduleTrig
     await lock.release();
     throw err;
   }
+}
+
+/** Lambda handler: thin wrapper that injects dependencies. */
+export async function handler(event: ScheduleTriggerEvent): Promise<ScheduleTriggerResult> {
+  const sfn = new SFNClient({});
+  const storage = getStorage();
+  const scheduleStore = getScheduleStore();
+  const stateMachineArn = process.env.DATAFLOW_STATE_MACHINE_ARN!;
+
+  // Create a DataflowOrchestrator that wraps the SFN client
+  const orchestrator: DataflowOrchestrator = {
+    async startExecution(params) {
+      const { randomUUID } = await import('node:crypto');
+      const executionName = `dataflow-${params.repo}-${params.workspace}-${randomUUID()}`.slice(0, 80);
+      await sfn.send(
+        new StartExecutionCommand({
+          stateMachineArn,
+          name: executionName,
+          input: JSON.stringify({
+            repo: params.repo,
+            workspace: params.workspace,
+            executionId: params.executionId,
+            force: params.force,
+            forceTasks: params.forceTasks,
+            runId: params.runId,
+            triggeredBy: {
+              type: 'schedule',
+              value: { schedulerExecutionId: event.schedulerExecutionId, scheduledTime: event.scheduledTime },
+            },
+          }),
+        })
+      );
+      return executionName;
+    },
+  };
+
+  return handleScheduleTrigger({ storage, scheduleStore, orchestrator }, event);
 }

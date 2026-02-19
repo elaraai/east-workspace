@@ -18,26 +18,9 @@ import { spawn } from 'child_process';
 import { writeFileSync, readFileSync, mkdtempSync, rmSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { S3Client } from '@aws-sdk/client-s3';
-import { DynamoDBClient, UpdateItemCommand, PutItemCommand } from '@aws-sdk/client-dynamodb';
-import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
-// Import directly from s3-object-store to avoid loading s3-dynamo-storage which has e3-core dependencies
-import { S3ObjectStore } from '@elaraai/e3-aws-storage/s3-object-store';
 import { inputsHash } from '@elaraai/e3-core';
-
-const s3 = new S3Client({});
-const dynamo = new DynamoDBClient({});
-const BUCKET_NAME = process.env.BUCKET_NAME!;
-const TABLE_NAME = process.env.TABLE_NAME!;
-
-// Object store handles catalogue-aware reads/writes
-const objectStore = new S3ObjectStore(s3, dynamo, BUCKET_NAME, TABLE_NAME);
-
-// Default TTL for log chunks in seconds (7 days)
-const LOG_TTL_SECONDS = 7 * 24 * 60 * 60;
-
-// Sequence counter for log ordering within same millisecond
-let logSequence = 0;
+import type { ObjectStore, LogStore, ExecutionStateStore } from '@elaraai/e3-core';
+import type { ExecutionTracker } from '@elaraai/e3-cloud-core';
 
 // Default timeout: leave 1 minute buffer for Lambda overhead
 const DEFAULT_TIMEOUT_MS = 14 * 60 * 1000;
@@ -47,7 +30,21 @@ const LOG_CHUNK_SIZE = 64 * 1024; // 64KB - flush when buffer reaches this size
 const LOG_FLUSH_INTERVAL_MS = 2000; // 2 seconds - flush at least this often
 
 /**
- * Buffered log writer that chunks and streams logs to DynamoDB.
+ * Dependencies for task execution, injected by the caller.
+ */
+export interface TaskExecutionDeps {
+  /** Content-addressed object store for task IR and outputs */
+  objects: ObjectStore;
+  /** Log store for streaming task stdout/stderr */
+  logs: LogStore;
+  /** Execution state store for status checks */
+  executions: ExecutionStateStore;
+  /** Execution tracker for recording task events */
+  executionTracker: ExecutionTracker;
+}
+
+/**
+ * Buffered log writer that chunks and streams logs to LogStore.
  *
  * Flushes when:
  * - Buffer exceeds LOG_CHUNK_SIZE (64KB)
@@ -61,9 +58,11 @@ class LogBuffer {
   private flushPromise: Promise<void> = Promise.resolve();
 
   constructor(
+    private readonly logStore: LogStore,
     private readonly repo: string,
     private readonly taskHash: string,
     private readonly inputsHash: string,
+    private readonly executionId: string,
     private readonly stream: 'stdout' | 'stderr'
   ) {}
 
@@ -101,7 +100,7 @@ class LogBuffer {
   }
 
   /**
-   * Flush the buffer to DynamoDB.
+   * Flush the buffer to LogStore.
    */
   async flush(): Promise<void> {
     if (this.buffer.length === 0) return;
@@ -118,7 +117,7 @@ class LogBuffer {
 
     // Chain flush operations to ensure ordering
     this.flushPromise = this.flushPromise.then(async () => {
-      await writeLog(this.repo, this.taskHash, this.inputsHash, this.stream, data);
+      await this.logStore.append(this.repo, this.taskHash, this.inputsHash, this.executionId, this.stream, data);
     });
 
     await this.flushPromise;
@@ -145,6 +144,8 @@ export interface TaskExecutionEvent {
   taskHash: string;
   inputHashes: string[];
   outputPath: string;
+  /** UUIDv7 execution ID for this specific task execution */
+  taskExecutionId?: string;
   /** Timeout in minutes (used by Fargate compute) */
   timeoutMinutes?: number;
 }
@@ -177,18 +178,23 @@ export interface ExecuteTaskCoreOptions {
  */
 export async function executeTaskCore(
   event: TaskExecutionEvent,
+  deps: TaskExecutionDeps,
   options?: ExecuteTaskCoreOptions
 ): Promise<TaskExecutionResult> {
-  const { repo, workspace, executionId, taskName, taskHash, inputHashes } = event;
+  const { repo, workspace, executionId, taskName, taskHash, inputHashes, taskExecutionId } = event;
+  const { objects, logs, executions, executionTracker } = deps;
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const startTime = Date.now();
   const workDir = mkdtempSync(join(tmpdir(), 'task-'));
   const inHash = inputsHash(inputHashes);
+  const execIdStr = executionId.toString().padStart(10, '0');
+
+  // The taskExecutionId is the UUIDv7 for this specific task execution (used as log partition key)
+  const logExecutionId = taskExecutionId ?? '';
 
   // Check for cancellation before starting expensive work
-  // Note: We use a lightweight DynamoDB check here rather than loading full state
-  const execStatus = await checkExecutionStatus(repo, workspace, executionId);
-  if (execStatus === 'cancelled') {
+  const currentState = await executions.read(repo, workspace, execIdStr);
+  if (currentState?.status === 'cancelled') {
     console.log(`Execution ${executionId} was cancelled, skipping task ${taskName}`);
     rmSync(workDir, { recursive: true, force: true });
     return {
@@ -201,15 +207,19 @@ export async function executeTaskCore(
 
   // Record 'start' event immediately when task begins execution
   try {
-    await recordStartEvent(repo, workspace, executionId, taskName);
+    await executionTracker.addExecutionEvent(repo, workspace, executionId, {
+      type: 'start',
+      task: taskName,
+      timestamp: new Date().toISOString(),
+    });
   } catch (err) {
     console.error(`Failed to record start event: ${err}`);
     // Continue execution even if event recording fails
   }
 
-  // Helper to write progress logs
+  // Helper to write progress logs via LogStore
   const log = async (message: string) => {
-    await writeLog(repo, taskHash, inHash, 'stdout', message);
+    await logs.append(repo, taskHash, inHash, logExecutionId, 'stdout', message);
   };
 
   console.log(`Executing task ${taskName} (hash: ${taskHash.slice(0, 12)}...)`);
@@ -222,14 +232,16 @@ export async function executeTaskCore(
 
     // Download task IR (first input hash is the function IR, stored as BEAST2 encoded data)
     const taskIrPath = join(workDir, 'task.beast2');
-    await downloadObject(repo, inputHashes[0], taskIrPath);
+    const taskIrData = await objects.read(repo, inputHashes[0]);
+    writeFileSync(taskIrPath, taskIrData);
     console.log(`Downloaded task IR: ${inputHashes[0].slice(0, 12)}...`);
 
     // Download remaining inputs (skip first which is the function IR)
     const inputPaths: string[] = [];
     for (let i = 1; i < inputHashes.length; i++) {
       const inputPath = join(workDir, `input-${i - 1}.beast2`);
-      await downloadObject(repo, inputHashes[i], inputPath);
+      const inputData = await objects.read(repo, inputHashes[i]);
+      writeFileSync(inputPath, inputData);
       inputPaths.push(inputPath);
     }
     console.log(`Downloaded ${inputPaths.length} input(s)`);
@@ -253,8 +265,8 @@ export async function executeTaskCore(
     await log(`Task starting...\n`);
 
     // Create streaming log buffers for stdout/stderr
-    const stdoutBuffer = new LogBuffer(repo, taskHash, inHash, 'stdout');
-    const stderrBuffer = new LogBuffer(repo, taskHash, inHash, 'stderr');
+    const stdoutBuffer = new LogBuffer(logs, repo, taskHash, inHash, logExecutionId, 'stdout');
+    const stderrBuffer = new LogBuffer(logs, repo, taskHash, inHash, logExecutionId, 'stderr');
 
     // Track last chunks for error reporting
     let lastStdout = '';
@@ -350,10 +362,10 @@ export async function executeTaskCore(
       };
     }
 
-    // Upload output (objectStore.write computes hash)
+    // Upload output (objects.write computes hash)
     await log(`Uploading output...\n`);
     const outputContent = readFileSync(outputFilePath);
-    const outputHash = await uploadObject(repo, outputContent);
+    const outputHash = await objects.write(repo, outputContent);
 
     const durationSecs = (duration / 1000).toFixed(2);
     await log(`Task complete (${durationSecs}s)\n`);
@@ -383,133 +395,4 @@ export async function executeTaskCore(
       // Ignore cleanup errors
     }
   }
-}
-
-/**
- * Download an object to a local file using the object store.
- */
-async function downloadObject(repo: string, hash: string, localPath: string): Promise<void> {
-  const data = await objectStore.read(repo, hash);
-  writeFileSync(localPath, data);
-}
-
-/**
- * Upload an object using the object store and return its hash.
- */
-async function uploadObject(repo: string, content: Buffer): Promise<string> {
-  return objectStore.write(repo, content);
-}
-
-/**
- * Write a log message to DynamoDB.
- * Uses the same schema as DynamoLogStore for consistency.
- */
-async function writeLog(
-  repo: string,
-  taskHash: string,
-  inputsHash: string,
-  stream: 'stdout' | 'stderr',
-  message: string
-): Promise<void> {
-  const now = Date.now();
-  const timestamp = now.toString().padStart(15, '0');
-  const seq = (logSequence++).toString().padStart(6, '0');
-  const ttl = Math.floor(now / 1000) + LOG_TTL_SECONDS;
-
-  await dynamo.send(
-    new PutItemCommand({
-      TableName: TABLE_NAME,
-      Item: marshall({
-        PK: `REPO#${repo}`,
-        SK: `LOG#${taskHash}#${inputsHash}#${stream}#${timestamp}#${seq}`,
-        data: message,
-        timestamp: now,
-        ttl,
-      }),
-    })
-  );
-}
-
-/**
- * Check execution status from DynamoDB.
- * Returns the current status or null if not found.
- */
-async function checkExecutionStatus(
-  repo: string,
-  workspace: string,
-  executionId: number
-): Promise<string | null> {
-  const { GetItemCommand } = await import('@aws-sdk/client-dynamodb');
-
-  const pk = `STATE/${repo}/${workspace}`;
-  const sk = executionId.toString().padStart(10, '0');
-
-  try {
-    const response = await dynamo.send(
-      new GetItemCommand({
-        TableName: TABLE_NAME,
-        Key: marshall({ PK: pk, SK: sk }),
-        ProjectionExpression: '#status',
-        ExpressionAttributeNames: { '#status': 'status' },
-      })
-    );
-
-    if (!response.Item) {
-      return null;
-    }
-
-    const item = unmarshall(response.Item);
-    return item.status ?? null;
-  } catch (err) {
-    console.error('Error checking execution status:', err);
-    return null;
-  }
-}
-
-/**
- * Record a 'start' event for a task execution.
- * Phase 3 schema: EVENT/{repo}/{executionId}
- */
-async function recordStartEvent(
-  repo: string,
-  workspace: string,
-  executionId: number,
-  taskName: string
-): Promise<void> {
-  const now = new Date().toISOString();
-
-  // Step 1: Atomically increment eventSeq on the execution record
-  const execPk = `EXEC/${repo}/${workspace}`;
-  const execSk = executionId.toString().padStart(10, '0');
-
-  const seqResponse = await dynamo.send(
-    new UpdateItemCommand({
-      TableName: TABLE_NAME,
-      Key: marshall({ PK: execPk, SK: execSk }),
-      UpdateExpression: 'SET eventSeq = if_not_exists(eventSeq, :zero) + :one',
-      ExpressionAttributeValues: marshall({ ':zero': 0, ':one': 1 }),
-      ReturnValues: 'UPDATED_NEW',
-    })
-  );
-
-  const seq = seqResponse.Attributes
-    ? (unmarshall(seqResponse.Attributes).eventSeq as number)
-    : 1;
-
-  // Step 2: Write the start event
-  const eventPk = `EVENT/${repo}/${executionId}`;
-  const paddedSeq = seq.toString().padStart(6, '0');
-
-  await dynamo.send(
-    new PutItemCommand({
-      TableName: TABLE_NAME,
-      Item: marshall({
-        PK: eventPk,
-        SK: paddedSeq,
-        eventType: 'start',
-        task: taskName,
-        timestamp: now,
-      }),
-    })
-  );
 }

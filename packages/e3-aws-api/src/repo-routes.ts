@@ -12,10 +12,9 @@
 
 import { Hono } from 'hono';
 import { StringType, NullType, ArrayType, variant, some, none } from '@elaraai/east';
-import { ConditionalCheckFailedException } from '@aws-sdk/client-dynamodb';
-import { InvalidRepoStatusError } from '@elaraai/e3-aws-storage';
 import { sendSuccess, sendError, sendSuccessWithStatus } from '@elaraai/e3-api-server/beast2';
 import { extractIdentity } from './auth/index.js';
+import { RepoAlreadyExistsError, InvalidRepoStatusError } from '@elaraai/e3-cloud-core';
 import type { AclStore, RepoManager, ScheduleStore, TaskConfigStore, SchedulerService } from '@elaraai/e3-cloud-core';
 import type { RepoStore } from '@elaraai/e3-core';
 
@@ -148,7 +147,7 @@ export function createRepoRoutes(deps: {
 
       return sendSuccessWithStatus(StringType, repo, 201);
     } catch (err) {
-      if (err instanceof ConditionalCheckFailedException) {
+      if (err instanceof RepoAlreadyExistsError) {
         return sendError(StringType, internalError(`Repository '${repo}' already exists`));
       }
       console.error('Failed to create repo:', err);
