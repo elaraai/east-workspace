@@ -29,6 +29,7 @@ import type {
 import type { DataflowOrchestrator } from '../dataflow-orchestrator.js';
 import type { GcOrchestrator, GcStatus } from '../gc-orchestrator.js';
 import type { SchedulerService } from '../scheduler-service.js';
+import type { ComputeDispatcher } from '../compute-dispatcher.js';
 import { RepoAlreadyExistsError, InvalidRepoStatusError } from '../errors.js';
 
 /**
@@ -666,3 +667,24 @@ export class InMemorySchedulerService implements SchedulerService {
     this.upsertedSchedules = [];
   }
 }
+
+/**
+ * In-memory compute dispatcher for testing.
+ *
+ * Records dispatch() calls for assertion, returns synthetic refs.
+ */
+export class InMemoryComputeDispatcher implements ComputeDispatcher {
+  calls: Array<Parameters<ComputeDispatcher['dispatch']>[0]> = [];
+
+  async dispatch(params: Parameters<ComputeDispatcher['dispatch']>[0]): Promise<{ ref: string }> {
+    this.calls.push(params);
+    return { ref: `compute-${params.repo}-${params.taskName}` };
+  }
+
+  clear(): void {
+    this.calls = [];
+  }
+}
+
+// Re-export step test helpers for convenience
+export { createMockStorage, taskState, graphTask, InMemoryStateStore } from './step-helpers.js';

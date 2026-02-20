@@ -33,6 +33,7 @@ export type {
   TaskExecutionStatus,
   DataflowEvent,
 } from './execution-tracker.js';
+export type { ComputeDispatcher } from './compute-dispatcher.js';
 
 // Authorization functions
 export { hasAccess, isLastOwner, canRemoveUser, type AuthzResult } from './authz.js';
