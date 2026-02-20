@@ -13,8 +13,10 @@
 
 import { Hono } from 'hono';
 import { NullType, ArrayType, variant } from '@elaraai/east';
-import type { AclStore, Identity, SchedulerService } from '@elaraai/e3-cloud-core';
-import { hasAccess, errorCodeToStatus } from '@elaraai/e3-cloud-core';
+import type { AclStore, Identity, IdentityBackend } from '../interfaces.js';
+import { hasAccess } from '../authz.js';
+import { errorCodeToStatus } from '../errors.js';
+import type { SchedulerService } from '../scheduler-service.js';
 import {
   ScheduleType,
   ScheduleRequestType,
@@ -22,15 +24,14 @@ import {
   type AuthzError,
 } from '@elaraai/e3-cloud-types';
 import { sendSuccess, sendError, decodeBody } from '@elaraai/e3-api-server/beast2';
-import { extractIdentity } from './auth/index.js';
-import type { ScheduleStore } from '@elaraai/e3-cloud-core';
+import type { ScheduleStore } from '../schedule-store.js';
 import type { RefStore } from '@elaraai/e3-core';
 
 const internalError = (message: string) => variant('internal', { message });
 
-function getIdentity(c: any): Identity | null {
+function getIdentity(c: any, identityBackend: IdentityBackend): Identity | null {
   const env = c.env as { event: unknown };
-  return extractIdentity(env.event as Parameters<typeof extractIdentity>[0]);
+  return identityBackend.getIdentity(env.event);
 }
 
 function authzError(error: AuthzError) {
@@ -123,6 +124,7 @@ export function createScheduleRoutes(
   scheduleStore: ScheduleStore,
   refStore: RefStore,
   schedulerService: SchedulerService,
+  identityBackend: IdentityBackend,
 ) {
   const defaultTimezone = process.env.DEFAULT_TIMEZONE ?? 'UTC';
 
@@ -132,7 +134,7 @@ export function createScheduleRoutes(
   app.put('/', async (c) => {
     const repo = c.req.param('repo')!;
     const workspace = c.req.param('ws')!;
-    const identity = getIdentity(c);
+    const identity = getIdentity(c, identityBackend);
 
     if (!identity) {
       return authzError({ error: variant('unauthorized', null), message: 'Authentication required' });
@@ -223,7 +225,7 @@ export function createScheduleRoutes(
   app.get('/', async (c) => {
     const repo = c.req.param('repo')!;
     const workspace = c.req.param('ws')!;
-    const identity = getIdentity(c);
+    const identity = getIdentity(c, identityBackend);
 
     if (!identity) {
       return authzError({ error: variant('unauthorized', null), message: 'Authentication required' });
@@ -253,7 +255,7 @@ export function createScheduleRoutes(
   app.delete('/', async (c) => {
     const repo = c.req.param('repo')!;
     const workspace = c.req.param('ws')!;
-    const identity = getIdentity(c);
+    const identity = getIdentity(c, identityBackend);
 
     if (!identity) {
       return authzError({ error: variant('unauthorized', null), message: 'Authentication required' });
@@ -292,13 +294,14 @@ export function createScheduleRoutes(
 export function createScheduleListRoute(
   aclStore: AclStore,
   scheduleStore: ScheduleStore,
+  identityBackend: IdentityBackend,
 ) {
   const app = new Hono();
 
   // GET /api/repos/:repo/schedules — List schedules for repo
   app.get('/', async (c) => {
     const repo = c.req.param('repo')!;
-    const identity = getIdentity(c);
+    const identity = getIdentity(c, identityBackend);
 
     if (!identity) {
       return authzError({ error: variant('unauthorized', null), message: 'Authentication required' });

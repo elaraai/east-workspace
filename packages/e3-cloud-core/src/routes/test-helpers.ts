@@ -18,7 +18,7 @@ import { ApiTypes } from '@elaraai/e3-api-server';
 /**
  * Build a mock API Gateway event with JWT authorizer claims.
  *
- * Routes extract identity via extractIdentity(event) which reads
+ * Routes extract identity via identityBackend.getIdentity(event) which reads
  * event.requestContext.authorizer.jwt.claims.
  */
 export function mockLambdaEvent(identity: { sub: string; email?: string; name?: string; isAdmin?: boolean } | null) {

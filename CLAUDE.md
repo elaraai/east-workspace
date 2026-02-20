@@ -48,7 +48,7 @@ e3-cloud/
 │
 ├── packages/
 │   ├── e3-aws-api/           # Lambda handlers for API (@elaraai/e3-aws-api)
-│   │   └── src/handlers/     # Route handlers
+│   │   └── src/              # Composition root + AWS-specific auth
 │   │
 │   ├── e3-aws-storage/       # S3+DynamoDB StorageBackend (@elaraai/e3-aws-storage)
 │   │   └── src/
@@ -72,7 +72,10 @@ e3-cloud/
 │   │
 │   ├── e3-cloud-types/       # Shared East types for authorization (@elaraai/e3-cloud-types)
 │   │
-│   ├── e3-cloud-core/        # Cloud-agnostic interfaces and authorization (@elaraai/e3-cloud-core)
+│   ├── e3-cloud-core/        # Cloud-agnostic interfaces, routes and authorization (@elaraai/e3-cloud-core)
+│   │   └── src/
+│   │       ├── routes/       # Cloud-agnostic Hono route handlers (admin, repo, dataflow, schedule, etc.)
+│   │       └── testing/      # In-memory implementations for unit tests
 │   │
 │   ├── e3-cloud-client/      # HTTP client for admin API (@elaraai/e3-cloud-client)
 │   │

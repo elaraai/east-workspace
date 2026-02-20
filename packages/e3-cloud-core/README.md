@@ -6,8 +6,9 @@ Core authorization logic and interfaces for e3 admin.
 
 This package provides:
 
-- **Interfaces** - Cloud-agnostic storage interfaces (`AclStore`, `WhoamiBackend`)
+- **Interfaces** - Cloud-agnostic storage interfaces (`AclStore`, `IdentityBackend`, `DataflowOrchestrator`, etc.)
 - **Authorization logic** - Functions for access control (`hasAccess`, `canRemoveUser`, `isLastOwner`)
+- **Route factories** - Cloud-agnostic Hono route handlers for admin, repo, dataflow, schedule, task-config, and GC endpoints
 - **Error classes** - Typed error hierarchy for admin operations
 - **Testing utilities** - In-memory implementations for unit tests
 
@@ -79,15 +80,20 @@ Implementations:
 - `InMemoryAclStore` (testing) - In this package
 - `DynamoDbAclStore` (e3-aws) - DynamoDB with GSI for user lookups
 
-### WhoamiBackend
+### IdentityBackend
 
-Backend for retrieving identity information from requests.
+Backend for identity extraction and user lookup.
 
 ```typescript
-interface WhoamiBackend {
+interface IdentityBackend {
   getIdentity(requestContext: unknown): Identity | null;
+  lookupUserByEmail(email: string): Promise<{ sub: string; email: string; name?: string } | null>;
 }
 ```
+
+Implementations:
+- `MockIdentityBackend` (testing) - In this package
+- `CognitoIdentityBackend` (e3-aws-api) - Extracts from API Gateway authorizer, looks up users in Cognito
 
 ### TaskConfigStore
 
@@ -137,6 +143,34 @@ interface DataflowOrchestrator {
 Implementations:
 - `InMemoryDataflowOrchestrator` (testing) - In this package
 - `SfnDataflowOrchestrator` (e3-aws-storage) - AWS Step Functions
+
+## Route Factories
+
+Cloud-agnostic Hono route factories are available from the `@elaraai/e3-cloud-core/routes` export path. Each factory accepts abstract interfaces (e.g., `IdentityBackend`, `AclStore`) via dependency injection.
+
+```typescript
+import {
+  createAuthzMiddleware,
+  createAdminRoutes,
+  createRepoRoutes,
+  createDataflowRoutes,
+  createScheduleRoutes,
+  createScheduleListRoute,
+  createTaskConfigRoutes,
+  createGcRoutes,
+} from '@elaraai/e3-cloud-core/routes';
+```
+
+| Factory | Description |
+|---------|-------------|
+| `createAuthzMiddleware` | Authorization middleware for `/api/repos/*` routes |
+| `createAdminRoutes` | User management and admin endpoints |
+| `createRepoRoutes` | Repository lifecycle (create, delete, list) |
+| `createDataflowRoutes` | Dataflow execution (start, cancel, status) |
+| `createScheduleRoutes` | Workspace schedule CRUD |
+| `createScheduleListRoute` | List schedules for a repo |
+| `createTaskConfigRoutes` | Per-task compute and timeout configuration |
+| `createGcRoutes` | Garbage collection (start, status) |
 
 ### GcOrchestrator
 

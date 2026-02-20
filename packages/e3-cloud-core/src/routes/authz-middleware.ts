@@ -10,11 +10,11 @@
  */
 
 import { createMiddleware } from 'hono/factory';
-import type { AclStore, Identity } from '@elaraai/e3-cloud-core';
-import { hasAccess, errorCodeToStatus } from '@elaraai/e3-cloud-core';
+import type { AclStore, Identity, IdentityBackend } from '../interfaces.js';
+import { hasAccess } from '../authz.js';
+import { errorCodeToStatus } from '../errors.js';
 import { variant } from '@elaraai/east';
 import type { AuthzError } from '@elaraai/e3-cloud-types';
-import { extractIdentity } from './auth/index.js';
 
 /**
  * Routes that require owner permission (destructive operations).
@@ -39,11 +39,11 @@ function requiresOwner(method: string, path: string): boolean {
 }
 
 /**
- * Helper to extract identity from Hono context (API Gateway event).
+ * Helper to extract identity from Hono context via IdentityBackend.
  */
-function getIdentity(c: any): Identity | null {
+function getIdentity(c: any, identityBackend: IdentityBackend): Identity | null {
   const env = c.env as { event: unknown };
-  return extractIdentity(env.event as Parameters<typeof extractIdentity>[0]);
+  return identityBackend.getIdentity(env.event);
 }
 
 /**
@@ -71,13 +71,14 @@ function authzErrorResponse(error: AuthzError) {
  *
  * This middleware:
  * 1. Extracts the repo name from the URL path
- * 2. Extracts user identity from JWT claims
+ * 2. Extracts user identity via the IdentityBackend
  * 3. Checks if user has required access (owner or member)
  * 4. Returns 401/403 if access denied, otherwise continues
  *
  * @param aclStore - ACL storage backend for access checks
+ * @param identityBackend - Identity backend for extracting user identity
  */
-export function createAuthzMiddleware(aclStore: AclStore) {
+export function createAuthzMiddleware(aclStore: AclStore, identityBackend: IdentityBackend) {
   return createMiddleware(async (c, next) => {
     const path = c.req.path;
     const method = c.req.method;
@@ -106,7 +107,7 @@ export function createAuthzMiddleware(aclStore: AclStore) {
     }
 
     const repo = match[1];
-    const identity = getIdentity(c);
+    const identity = getIdentity(c, identityBackend);
 
     if (!identity) {
       return authzErrorResponse({

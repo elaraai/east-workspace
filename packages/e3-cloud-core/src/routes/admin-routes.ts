@@ -11,8 +11,9 @@
 
 import { Hono } from 'hono';
 import { ArrayType, NullType, variant, some, none } from '@elaraai/east';
-import type { AclStore, Identity } from '@elaraai/e3-cloud-core';
-import { hasAccess, canRemoveUser, errorCodeToStatus } from '@elaraai/e3-cloud-core';
+import type { AclStore, Identity, IdentityBackend } from '../interfaces.js';
+import { hasAccess, canRemoveUser } from '../authz.js';
+import { errorCodeToStatus } from '../errors.js';
 import {
   RepoUserType,
   AddUserRequestType,
@@ -20,15 +21,14 @@ import {
   type AuthzError,
 } from '@elaraai/e3-cloud-types';
 import { sendSuccess, sendError, decodeBody } from '@elaraai/e3-api-server/beast2';
-import { extractIdentity, lookupUserByEmail } from './auth/index.js';
-import type { RepoManager } from '@elaraai/e3-cloud-core';
+import type { RepoManager } from '../repo-manager.js';
 
 /**
- * Helper to extract identity from Hono context (API Gateway event).
+ * Helper to extract identity from Hono context via IdentityBackend.
  */
-function getIdentity(c: any): Identity | null {
+function getIdentity(c: any, identityBackend: IdentityBackend): Identity | null {
   const env = c.env as { event: unknown };
-  return extractIdentity(env.event as Parameters<typeof extractIdentity>[0]);
+  return identityBackend.getIdentity(env.event);
 }
 
 /**
@@ -56,8 +56,9 @@ function authzError(error: AuthzError) {
  *
  * @param aclStore - ACL storage backend
  * @param refStore - Repository reference store (for repo existence checks)
+ * @param identityBackend - Identity backend for extracting user identity and looking up users
  */
-export function createAdminRoutes(aclStore: AclStore, refStore: RepoManager) {
+export function createAdminRoutes(aclStore: AclStore, refStore: RepoManager, identityBackend: IdentityBackend) {
   const app = new Hono();
 
   // ============================================================
@@ -68,7 +69,7 @@ export function createAdminRoutes(aclStore: AclStore, refStore: RepoManager) {
   // Requires: member role
   app.get('/api/repos/:repo/users', async (c) => {
     const repo = c.req.param('repo');
-    const identity = getIdentity(c);
+    const identity = getIdentity(c, identityBackend);
 
     if (!identity) {
       return authzError({
@@ -98,7 +99,7 @@ export function createAdminRoutes(aclStore: AclStore, refStore: RepoManager) {
   // Requires: owner role
   app.post('/api/repos/:repo/users', async (c) => {
     const repo = c.req.param('repo');
-    const identity = getIdentity(c);
+    const identity = getIdentity(c, identityBackend);
 
     if (!identity) {
       return authzError({
@@ -120,9 +121,9 @@ export function createAdminRoutes(aclStore: AclStore, refStore: RepoManager) {
       const body = await decodeBody(c, AddUserRequestType);
       const { email, role } = body;
 
-      // Look up user in Cognito by email
-      const cognitoUser = await lookupUserByEmail(email);
-      if (!cognitoUser) {
+      // Look up user by email
+      const lookedUpUser = await identityBackend.lookupUserByEmail(email);
+      if (!lookedUpUser) {
         return authzError({
           error: variant('user_not_found', null),
           message: `User with email '${email}' not found. They must log in at least once.`,
@@ -131,16 +132,16 @@ export function createAdminRoutes(aclStore: AclStore, refStore: RepoManager) {
 
       // Create the user entry
       const user: RepoUser = {
-        userId: cognitoUser.sub,
-        email: cognitoUser.email,
-        name: cognitoUser.name ? some(cognitoUser.name) : none,
+        userId: lookedUpUser.sub,
+        email: lookedUpUser.email,
+        name: lookedUpUser.name ? some(lookedUpUser.name) : none,
         role,
         addedBy: identity.sub,
         addedAt: new Date().toISOString(),
       };
 
       await aclStore.addUser(repo, user);
-      console.log(`User added to repo: repo=${repo}, userId=${cognitoUser.sub}, email=${email}, role=${role.type}, addedBy=${identity.sub}, addedByEmail=${identity.email ?? 'unknown'}`);
+      console.log(`User added to repo: repo=${repo}, userId=${lookedUpUser.sub}, email=${email}, role=${role.type}, addedBy=${identity.sub}, addedByEmail=${identity.email ?? 'unknown'}`);
       return sendSuccess(RepoUserType, user);
     } catch (err) {
       console.error('Failed to add user to repo:', err);
@@ -153,7 +154,7 @@ export function createAdminRoutes(aclStore: AclStore, refStore: RepoManager) {
   app.delete('/api/repos/:repo/users/:userId', async (c) => {
     const repo = c.req.param('repo');
     const userId = c.req.param('userId');
-    const identity = getIdentity(c);
+    const identity = getIdentity(c, identityBackend);
 
     if (!identity) {
       return authzError({
@@ -188,7 +189,7 @@ export function createAdminRoutes(aclStore: AclStore, refStore: RepoManager) {
   // GET /api/admin/repos - List all repos (bypasses ACL)
   // Requires: admin group
   app.get('/api/admin/repos', async (c) => {
-    const identity = getIdentity(c);
+    const identity = getIdentity(c, identityBackend);
 
     if (!identity) {
       return authzError({
@@ -217,7 +218,7 @@ export function createAdminRoutes(aclStore: AclStore, refStore: RepoManager) {
   // Requires: admin group
   app.get('/api/admin/repos/:repo/users', async (c) => {
     const repo = c.req.param('repo');
-    const identity = getIdentity(c);
+    const identity = getIdentity(c, identityBackend);
 
     if (!identity) {
       return authzError({
@@ -252,7 +253,7 @@ export function createAdminRoutes(aclStore: AclStore, refStore: RepoManager) {
   // Requires: admin group
   app.post('/api/admin/repos/:repo/users', async (c) => {
     const repo = c.req.param('repo');
-    const identity = getIdentity(c);
+    const identity = getIdentity(c, identityBackend);
 
     if (!identity) {
       return authzError({
@@ -279,9 +280,9 @@ export function createAdminRoutes(aclStore: AclStore, refStore: RepoManager) {
       const body = await decodeBody(c, AddUserRequestType);
       const { email, role } = body;
 
-      // Look up user in Cognito by email
-      const cognitoUser = await lookupUserByEmail(email);
-      if (!cognitoUser) {
+      // Look up user by email
+      const lookedUpUser = await identityBackend.lookupUserByEmail(email);
+      if (!lookedUpUser) {
         return authzError({
           error: variant('user_not_found', null),
           message: `User with email '${email}' not found. They must log in at least once.`,
@@ -290,16 +291,16 @@ export function createAdminRoutes(aclStore: AclStore, refStore: RepoManager) {
 
       // Create the user entry
       const user: RepoUser = {
-        userId: cognitoUser.sub,
-        email: cognitoUser.email,
-        name: cognitoUser.name ? some(cognitoUser.name) : none,
+        userId: lookedUpUser.sub,
+        email: lookedUpUser.email,
+        name: lookedUpUser.name ? some(lookedUpUser.name) : none,
         role,
         addedBy: identity.sub,
         addedAt: new Date().toISOString(),
       };
 
       await aclStore.addUser(repo, user);
-      console.log(`Admin: User added to repo: repo=${repo}, userId=${cognitoUser.sub}, email=${email}, role=${role.type}, addedBy=${identity.sub}, addedByEmail=${identity.email ?? 'unknown'}`);
+      console.log(`Admin: User added to repo: repo=${repo}, userId=${lookedUpUser.sub}, email=${email}, role=${role.type}, addedBy=${identity.sub}, addedByEmail=${identity.email ?? 'unknown'}`);
       return sendSuccess(RepoUserType, user);
     } catch (err) {
       console.error('Failed to add user to repo (admin):', err);
@@ -312,7 +313,7 @@ export function createAdminRoutes(aclStore: AclStore, refStore: RepoManager) {
   // Note: This deletes both ACL entries and the repo itself
   app.delete('/api/admin/repos/:repo', async (c) => {
     const repo = c.req.param('repo');
-    const identity = getIdentity(c);
+    const identity = getIdentity(c, identityBackend);
 
     if (!identity) {
       return authzError({

@@ -21,6 +21,7 @@
 import { describe } from 'node:test';
 import { getStackOutputs, getDeploymentId } from './helpers/stack-outputs.js';
 import { getToken, hasCredentials } from './helpers/credentials.js';
+import { getTestConcurrency } from './helpers/concurrency.js';
 import { createTestContext, type TestContext } from '@elaraai/e3-api-tests';
 import { cleanupTests, type TestSetup } from '@elaraai/e3-cloud-tests';
 
@@ -48,7 +49,7 @@ const setup: TestSetup<TestContext> = async (t) => {
   return ctx;
 };
 
-describe('Cloud Cleanup Tests', { timeout: 120_000, concurrency: true }, () => {
+describe('Cloud Cleanup Tests', { timeout: 120_000, concurrency: getTestConcurrency(1) }, () => {
   // Run cleanup tests
   cleanupTests(setup);
 });

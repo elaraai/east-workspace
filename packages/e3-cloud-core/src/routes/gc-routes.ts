@@ -14,13 +14,14 @@ import { variant, some, none } from '@elaraai/east';
 import { randomUUID } from 'node:crypto';
 import { sendSuccess, sendError, sendSuccessWithStatus } from '@elaraai/e3-api-server/beast2';
 import { ApiTypes } from '@elaraai/e3-api-server';
-import { extractIdentity } from './auth/index.js';
-import type { RepoManager, GcOrchestrator } from '@elaraai/e3-cloud-core';
+import type { IdentityBackend } from '../interfaces.js';
+import type { RepoManager } from '../repo-manager.js';
+import type { GcOrchestrator } from '../gc-orchestrator.js';
 
-/** Helper to extract identity from Hono context (API Gateway event). */
-function getIdentity(c: any) {
+/** Helper to extract identity from Hono context via IdentityBackend. */
+function getIdentity(c: any, identityBackend: IdentityBackend) {
   const env = c.env as { event: unknown };
-  return extractIdentity(env.event as Parameters<typeof extractIdentity>[0]);
+  return identityBackend.getIdentity(env.event);
 }
 
 /** Helper to create internal API errors */
@@ -32,14 +33,15 @@ const internalError = (message: string) => variant('internal', { message });
 export function createGcRoutes(deps: {
   repoManager: RepoManager;
   gc?: GcOrchestrator;
+  identityBackend: IdentityBackend;
 }): Hono {
-  const { repoManager, gc } = deps;
+  const { repoManager, gc, identityBackend } = deps;
   const app = new Hono();
 
   // POST /api/repos/:repo/gc - Start garbage collection
   app.post('/api/repos/:repo/gc', async (c) => {
     const repo = c.req.param('repo');
-    const identity = getIdentity(c);
+    const identity = getIdentity(c, identityBackend);
 
     if (!gc) {
       return sendError(ApiTypes.GcStartResultType, internalError('GC not available - state machine not configured'));

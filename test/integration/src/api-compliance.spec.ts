@@ -16,6 +16,7 @@
 import { describe } from 'node:test';
 import { getStackOutputs, getDeploymentId } from './helpers/stack-outputs.js';
 import { getToken, hasCredentials } from './helpers/credentials.js';
+import { getTestConcurrency } from './helpers/concurrency.js';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { createTestContext, allApiTests, transferTests, type TestContext, type TestSetup } from '@elaraai/e3-api-tests';
@@ -47,7 +48,7 @@ const getCredentialsEnv = () => ({
   E3_CREDENTIALS_PATH: process.env.E3_CREDENTIALS_PATH ?? join(homedir(), '.e3', 'credentials.json'),
 });
 
-describe('API Compliance Tests', { timeout: 900_000, concurrency: true }, () => {
+describe('API Compliance Tests', { timeout: 900_000, concurrency: getTestConcurrency(1) }, () => {
   allApiTests(setup);
   transferTests(setup, getCredentialsEnv);
 });

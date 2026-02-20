@@ -15,7 +15,8 @@ import {
   InMemoryScheduleStore,
   InMemoryTaskConfigStore,
   InMemorySchedulerService,
-} from '@elaraai/e3-cloud-core/testing';
+  MockIdentityBackend,
+} from '../testing/in-memory.js';
 import { createRepoRoutes } from './repo-routes.js';
 import { fetchRoute, decodeResponse } from './test-helpers.js';
 import { Hono } from 'hono';
@@ -29,6 +30,7 @@ describe('repo-routes', () => {
   let scheduleStore: InMemoryScheduleStore;
   let taskConfigStore: InMemoryTaskConfigStore;
   let schedulerService: InMemorySchedulerService;
+  let identityBackend: MockIdentityBackend;
   let storage: InMemoryStorage;
   let app: Hono;
 
@@ -38,6 +40,7 @@ describe('repo-routes', () => {
     scheduleStore = new InMemoryScheduleStore();
     taskConfigStore = new InMemoryTaskConfigStore();
     schedulerService = new InMemorySchedulerService();
+    identityBackend = new MockIdentityBackend();
     storage = new InMemoryStorage();
 
     const routeApp = createRepoRoutes({
@@ -47,6 +50,7 @@ describe('repo-routes', () => {
       taskConfigStore,
       schedulerService,
       repoStore: storage.repos,
+      identityBackend,
     });
     // repo-routes registers at /api/repos internally
     app = new Hono();

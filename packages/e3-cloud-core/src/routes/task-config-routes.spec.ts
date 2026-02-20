@@ -20,7 +20,7 @@ import {
   type TaskTimeout,
 } from '@elaraai/e3-cloud-types';
 import { InMemoryStorage } from '@elaraai/e3-core';
-import { InMemoryTaskConfigStore } from '@elaraai/e3-cloud-core/testing';
+import { InMemoryTaskConfigStore } from '../testing/in-memory.js';
 import { createTaskConfigRoutes } from './task-config-routes.js';
 import { mountApp, fetchRoute, decodeResponse, encodeRequestBody } from './test-helpers.js';
 

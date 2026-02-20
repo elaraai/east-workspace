@@ -7,7 +7,7 @@ export { createDiscoveryRoutes } from './discovery.js';
 export { createDeviceFlowRoutes } from './device-flow.js';
 export {
   extractIdentity,
-  CognitoWhoamiBackend,
+  CognitoIdentityBackend,
   lookupUserByEmail,
   type CognitoUser,
 } from './cognito-identity.js';

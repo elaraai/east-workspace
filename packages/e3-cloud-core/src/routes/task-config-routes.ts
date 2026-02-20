@@ -34,7 +34,7 @@ import {
   type TaskTimeout,
 } from '@elaraai/e3-cloud-types';
 import { sendSuccess, sendError, decodeBody } from '@elaraai/e3-api-server/beast2';
-import type { TaskConfigStore } from '@elaraai/e3-cloud-core';
+import type { TaskConfigStore } from '../task-config-store.js';
 import type { LockService } from '@elaraai/e3-core';
 
 const internalError = (message: string) => variant('internal', { message });

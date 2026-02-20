@@ -14,7 +14,7 @@
 
 import type { RepoUser, RepoRole, ComputeSize, TaskTimeout, Schedule } from '@elaraai/e3-cloud-types';
 import type { DataflowRun } from '@elaraai/e3-types';
-import type { AclStore, Identity, WhoamiBackend } from '../interfaces.js';
+import type { AclStore, Identity, IdentityBackend } from '../interfaces.js';
 import type { ComputeResultStore } from '../compute-result-store.js';
 import type { TaskConfigStore } from '../task-config-store.js';
 import type { ScheduleStore } from '../schedule-store.js';
@@ -82,17 +82,50 @@ export class InMemoryAclStore implements AclStore {
 }
 
 /**
- * Mock whoami backend for testing.
+ * Mock identity backend for testing.
+ *
+ * Supports two modes:
+ * 1. Per-request identity extraction from mock API Gateway events (used by test-helpers)
+ * 2. Default identity fallback (set via constructor or setIdentity)
  */
-export class MockWhoamiBackend implements WhoamiBackend {
-  constructor(private identity: Identity | null = null) {}
+export class MockIdentityBackend implements IdentityBackend {
+  private users = new Map<string, { sub: string; email: string; name?: string }>();
+  private defaultIdentity: Identity | null = null;
 
-  setIdentity(identity: Identity | null): void {
-    this.identity = identity;
+  constructor(identity: Identity | null = null) {
+    this.defaultIdentity = identity;
   }
 
-  getIdentity(): Identity | null {
-    return this.identity;
+  setIdentity(identity: Identity | null): void {
+    this.defaultIdentity = identity;
+  }
+
+  getIdentity(requestContext: unknown): Identity | null {
+    // Try to extract from mock API Gateway event structure (used by test-helpers)
+    const event = requestContext as any;
+    const claims = event?.requestContext?.authorizer?.jwt?.claims;
+    if (claims?.sub) {
+      return {
+        sub: claims.sub as string,
+        email: claims.email as string | undefined,
+        name: claims.name as string | undefined,
+        isAdmin: claims['e3:is_admin'] === 'true',
+      };
+    }
+    return this.defaultIdentity;
+  }
+
+  addUser(user: { sub: string; email: string; name?: string }): void {
+    this.users.set(user.email, user);
+  }
+
+  async lookupUserByEmail(email: string): Promise<{ sub: string; email: string; name?: string } | null> {
+    return this.users.get(email) ?? null;
+  }
+
+  clear(): void {
+    this.defaultIdentity = null;
+    this.users.clear();
   }
 }
 

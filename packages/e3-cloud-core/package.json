@@ -15,19 +15,26 @@
     "./testing": {
       "types": "./dist/src/testing/in-memory.d.ts",
       "default": "./dist/src/testing/in-memory.js"
+    },
+    "./routes": {
+      "types": "./dist/src/routes/index.d.ts",
+      "default": "./dist/src/routes/index.js"
     }
   },
   "scripts": {
     "build": "tsc --build",
     "lint": "eslint src/**/*.ts",
-    "test": "npm run build && node --enable-source-maps --test 'dist/src/**/*.test.js'"
+    "test": "npm run build && node --enable-source-maps --test 'dist/src/**/*.spec.js'"
   },
   "dependencies": {
-    "@elaraai/e3-cloud-types": "*"
+    "@elaraai/e3-cloud-types": "*",
+    "@elaraai/e3-api-server": "beta",
+    "hono": "^4.11.7"
   },
   "peerDependencies": {
     "@elaraai/east": "beta",
-    "@elaraai/e3-types": "beta"
+    "@elaraai/e3-types": "beta",
+    "@elaraai/e3-core": "beta"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -27,17 +27,21 @@ import { dataflowGetGraph } from '@elaraai/e3-core';
 import { WhoamiResponseType } from '@elaraai/e3-cloud-types';
 import { sendSuccess } from '@elaraai/e3-api-server/beast2';
 
-// Auth routes
-import { createDiscoveryRoutes, createDeviceFlowRoutes, extractIdentity } from './auth/index.js';
+// Auth routes (AWS-specific)
+import { createDiscoveryRoutes, createDeviceFlowRoutes, CognitoIdentityBackend } from './auth/index.js';
 
-// Route modules
-import { createAdminRoutes } from './admin-routes.js';
-import { createScheduleRoutes, createScheduleListRoute } from './schedule-routes.js';
-import { createTaskConfigRoutes } from './task-config-routes.js';
-import { createAuthzMiddleware } from './authz-middleware.js';
-import { createRepoRoutes, deleteScheduleForWorkspace } from './repo-routes.js';
-import { createGcRoutes } from './gc-routes.js';
-import { createDataflowRoutes } from './dataflow-routes.js';
+// Cloud-agnostic route modules
+import {
+  createAdminRoutes,
+  createScheduleRoutes,
+  createScheduleListRoute,
+  createTaskConfigRoutes,
+  createAuthzMiddleware,
+  createRepoRoutes,
+  deleteScheduleForWorkspace,
+  createGcRoutes,
+  createDataflowRoutes,
+} from '@elaraai/e3-cloud-core/routes';
 
 // AWS implementations
 import { SfnDataflowOrchestrator } from './sfn-dataflow-orchestrator.js';
@@ -85,6 +89,8 @@ const getRepoPath = (repo: string) => repo;
 // Concrete Implementations
 // ============================================================
 
+const identityBackend = new CognitoIdentityBackend();
+
 const schedulerService = SCHEDULER_GROUP_NAME
   ? new EventBridgeSchedulerService(
       schedulerClient,
@@ -119,7 +125,7 @@ app.route('/', createDeviceFlowRoutes());
 // GET /api/whoami - Get current user identity
 app.get('/api/whoami', (c) => {
   const env = c.env as { event: unknown };
-  const identity = extractIdentity(env.event as Parameters<typeof extractIdentity>[0]);
+  const identity = identityBackend.getIdentity(env.event);
 
   if (!identity) {
     return c.json({ error: 'unauthorized', message: 'Unable to extract identity from token' }, 401);
@@ -134,16 +140,16 @@ app.get('/api/whoami', (c) => {
 });
 
 // Admin Routes
-app.route('/', createAdminRoutes(aclStore, repoManager));
+app.route('/', createAdminRoutes(aclStore, repoManager, identityBackend));
 
 // Schedule Routes
 if (schedulerService) {
-  app.route('/api/repos/:repo/workspaces/:ws/schedule', createScheduleRoutes(aclStore, scheduleStore, storage.refs, schedulerService));
+  app.route('/api/repos/:repo/workspaces/:ws/schedule', createScheduleRoutes(aclStore, scheduleStore, storage.refs, schedulerService, identityBackend));
 }
-app.route('/api/repos/:repo/schedules', createScheduleListRoute(aclStore, scheduleStore));
+app.route('/api/repos/:repo/schedules', createScheduleListRoute(aclStore, scheduleStore, identityBackend));
 
 // Authorization Middleware (for all repo routes)
-app.use('/api/repos/*', createAuthzMiddleware(aclStore));
+app.use('/api/repos/*', createAuthzMiddleware(aclStore, identityBackend));
 
 // Task Config Routes
 app.route('/api/repos/:repo/workspaces/:ws/task-configs', createTaskConfigRoutes(taskConfigStore, storage.locks));
@@ -156,12 +162,14 @@ app.route('/', createRepoRoutes({
   taskConfigStore,
   schedulerService,
   repoStore: storage.repos,
+  identityBackend,
 }));
 
 // GC Routes
 app.route('/', createGcRoutes({
   repoManager,
   gc: gcOrchestrator ?? undefined,
+  identityBackend,
 }));
 
 // Dataflow Routes (only if orchestrator is configured)

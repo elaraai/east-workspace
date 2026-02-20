@@ -55,13 +55,16 @@ export interface Identity {
 }
 
 /**
- * Backend for retrieving identity information.
+ * Backend for identity extraction and user lookup.
  *
  * Implementations:
- * - CognitoWhoamiBackend (e3-aws) - Extracts from API Gateway authorizer
- * - MockWhoamiBackend (testing) - Returns configured identity
+ * - CognitoIdentityBackend (e3-aws) - Extracts from API Gateway authorizer, looks up users in Cognito
+ * - MockIdentityBackend (testing) - Returns configured identity and users
  */
-export interface WhoamiBackend {
+export interface IdentityBackend {
   /** Get identity from request context */
   getIdentity(requestContext: unknown): Identity | null;
+
+  /** Look up a user by email address (for resolving email to user ID in ACLs) */
+  lookupUserByEmail(email: string): Promise<{ sub: string; email: string; name?: string } | null>;
 }

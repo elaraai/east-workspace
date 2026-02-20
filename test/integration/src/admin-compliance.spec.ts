@@ -37,6 +37,7 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { getStackOutputs, getDeploymentId, type StackOutputs } from './helpers/stack-outputs.js';
 import { CognitoTestAuth } from './helpers/cognito-auth.js';
+import { getTestConcurrency } from './helpers/concurrency.js';
 import {
   createAdminTestContext,
   allAdminTests,
@@ -212,7 +213,7 @@ const adminSetup: TestSetup<AdminTestContext> = async (t) => {
   return ctx;
 };
 
-describe('Admin API Compliance Tests', { timeout: 900000, concurrency: 2 }, () => {
+describe('Admin API Compliance Tests', { timeout: 900000, concurrency: getTestConcurrency(1) }, () => {
   // Skip tests if credentials not configured
   it('should have multi-user credentials configured', async () => {
     // This test verifies credentials are available

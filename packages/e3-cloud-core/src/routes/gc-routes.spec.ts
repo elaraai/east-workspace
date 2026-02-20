@@ -7,7 +7,7 @@
 
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { InMemoryRepoManager, InMemoryGcOrchestrator } from '@elaraai/e3-cloud-core/testing';
+import { InMemoryRepoManager, InMemoryGcOrchestrator, MockIdentityBackend } from '../testing/in-memory.js';
 import { ApiTypes } from '@elaraai/e3-api-server';
 import { createGcRoutes } from './gc-routes.js';
 import { fetchRoute, decodeResponse } from './test-helpers.js';
@@ -18,13 +18,15 @@ const identity = { sub: 'admin-1', email: 'admin@test.com', isAdmin: true };
 describe('gc-routes', () => {
   let repoManager: InMemoryRepoManager;
   let gc: InMemoryGcOrchestrator;
+  let identityBackend: MockIdentityBackend;
   let app: Hono;
 
   beforeEach(() => {
     repoManager = new InMemoryRepoManager();
     gc = new InMemoryGcOrchestrator();
+    identityBackend = new MockIdentityBackend();
 
-    const routeApp = createGcRoutes({ repoManager, gc });
+    const routeApp = createGcRoutes({ repoManager, gc, identityBackend });
     app = new Hono();
     app.route('/', routeApp);
   });
@@ -63,7 +65,7 @@ describe('gc-routes', () => {
   });
 
   it('POST /gc — returns error when gc orchestrator not configured', async () => {
-    const routeApp = createGcRoutes({ repoManager, gc: undefined });
+    const routeApp = createGcRoutes({ repoManager, gc: undefined, identityBackend });
     const noGcApp = new Hono();
     noGcApp.route('/', routeApp);
 

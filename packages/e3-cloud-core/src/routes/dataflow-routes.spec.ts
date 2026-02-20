@@ -19,9 +19,9 @@ import {
   InMemoryRepoManager,
   InMemoryDataflowRunStore,
   InMemoryExecutionTracker,
-} from '@elaraai/e3-cloud-core/testing';
+} from '../testing/in-memory.js';
 import { createDataflowRoutes } from './dataflow-routes.js';
-import type { DataflowStorage } from '@elaraai/e3-cloud-core';
+import type { DataflowStorage } from '../dataflow-storage.js';
 import { mountApp, fetchRoute, decodeResponse, encodeRequestBody } from './test-helpers.js';
 
 const REPO = 'test-repo';

@@ -9,7 +9,7 @@
  * Core authorization logic and interfaces for e3 admin.
  *
  * This package provides:
- * - Cloud-agnostic storage interfaces (AclStore, WhoamiBackend)
+ * - Cloud-agnostic storage interfaces (AclStore, IdentityBackend)
  * - Authorization business logic (hasAccess, canRemoveUser, isLastOwner)
  * - Error classes for admin operations
  *
@@ -17,7 +17,7 @@
  */
 
 // Interfaces
-export type { AclStore, Identity, WhoamiBackend } from './interfaces.js';
+export type { AclStore, Identity, IdentityBackend } from './interfaces.js';
 export type { DataflowStorage, CloudLockService } from './dataflow-storage.js';
 export type { ScheduleStore } from './schedule-store.js';
 export type { TaskConfigStore } from './task-config-store.js';

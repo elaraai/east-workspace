@@ -13,15 +13,18 @@
 import { Hono } from 'hono';
 import { StringType, NullType, ArrayType, variant, some, none } from '@elaraai/east';
 import { sendSuccess, sendError, sendSuccessWithStatus } from '@elaraai/e3-api-server/beast2';
-import { extractIdentity } from './auth/index.js';
-import { RepoAlreadyExistsError, InvalidRepoStatusError } from '@elaraai/e3-cloud-core';
-import type { AclStore, RepoManager, ScheduleStore, TaskConfigStore, SchedulerService } from '@elaraai/e3-cloud-core';
+import { RepoAlreadyExistsError, InvalidRepoStatusError } from '../errors.js';
+import type { AclStore, IdentityBackend } from '../interfaces.js';
+import type { RepoManager } from '../repo-manager.js';
+import type { ScheduleStore } from '../schedule-store.js';
+import type { TaskConfigStore } from '../task-config-store.js';
+import type { SchedulerService } from '../scheduler-service.js';
 import type { RepoStore } from '@elaraai/e3-core';
 
-/** Helper to extract identity from Hono context (API Gateway event). */
-function getIdentity(c: any) {
+/** Helper to extract identity from Hono context via IdentityBackend. */
+function getIdentity(c: any, identityBackend: IdentityBackend) {
   const env = c.env as { event: unknown };
-  return extractIdentity(env.event as Parameters<typeof extractIdentity>[0]);
+  return identityBackend.getIdentity(env.event);
 }
 
 /** Helper to create internal API errors */
@@ -81,13 +84,14 @@ export function createRepoRoutes(deps: {
   taskConfigStore: TaskConfigStore;
   schedulerService: SchedulerService | null;
   repoStore: RepoStore;
+  identityBackend: IdentityBackend;
 }): Hono {
-  const { repoManager, aclStore, scheduleStore, taskConfigStore, schedulerService, repoStore } = deps;
+  const { repoManager, aclStore, scheduleStore, taskConfigStore, schedulerService, repoStore, identityBackend } = deps;
   const app = new Hono();
 
   // GET /api/repos - List repositories accessible to the user
   app.get('/api/repos', async (c) => {
-    const identity = getIdentity(c);
+    const identity = getIdentity(c, identityBackend);
 
     try {
       if (!identity) {
@@ -110,7 +114,7 @@ export function createRepoRoutes(deps: {
   // PUT /api/repos/:repo - Create a repository
   app.put('/api/repos/:repo', async (c) => {
     const repo = c.req.param('repo');
-    const identity = getIdentity(c);
+    const identity = getIdentity(c, identityBackend);
 
     if (!/^[a-zA-Z0-9_-]+$/.test(repo)) {
       return sendError(StringType, internalError('Invalid repository name. Use only letters, numbers, hyphens, and underscores.'));
@@ -158,7 +162,7 @@ export function createRepoRoutes(deps: {
   // DELETE /api/repos/:repo - Delete a repository (synchronous)
   app.delete('/api/repos/:repo', async (c) => {
     const repo = c.req.param('repo');
-    const identity = getIdentity(c);
+    const identity = getIdentity(c, identityBackend);
 
     try {
       const metadata = await repoManager.getRepoMetadata(repo);

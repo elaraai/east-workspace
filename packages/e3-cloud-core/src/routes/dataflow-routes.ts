@@ -20,7 +20,8 @@ import {
 } from '@elaraai/e3-core';
 import { sendSuccess, sendError, sendSuccessWithStatus, decodeBody } from '@elaraai/e3-api-server/beast2';
 import { ApiTypes } from '@elaraai/e3-api-server';
-import type { DataflowStorage, DataflowOrchestrator } from '@elaraai/e3-cloud-core';
+import type { DataflowStorage } from '../dataflow-storage.js';
+import type { DataflowOrchestrator } from '../dataflow-orchestrator.js';
 
 /** Helper to create internal API errors */
 const internalError = (message: string) => variant('internal', { message });

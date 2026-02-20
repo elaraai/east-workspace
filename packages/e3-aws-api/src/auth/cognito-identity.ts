@@ -10,7 +10,7 @@
  */
 
 import { CognitoIdentityProviderClient, ListUsersCommand } from '@aws-sdk/client-cognito-identity-provider';
-import type { Identity, WhoamiBackend } from '@elaraai/e3-cloud-core';
+import type { Identity, IdentityBackend } from '@elaraai/e3-cloud-core';
 
 /** Cognito group name for native (non-federated) admin users */
 const COGNITO_ADMIN_GROUP = 'e3-admins';
@@ -65,11 +65,15 @@ export function extractIdentity(event: APIGatewayEventWithJWT): Identity | null 
 }
 
 /**
- * WhoamiBackend implementation for Cognito.
+ * IdentityBackend implementation for Cognito.
  */
-export class CognitoWhoamiBackend implements WhoamiBackend {
+export class CognitoIdentityBackend implements IdentityBackend {
   getIdentity(requestContext: unknown): Identity | null {
     return extractIdentity(requestContext as APIGatewayEventWithJWT);
+  }
+
+  lookupUserByEmail(email: string): Promise<CognitoUser | null> {
+    return lookupUserByEmail(email);
   }
 }
 
