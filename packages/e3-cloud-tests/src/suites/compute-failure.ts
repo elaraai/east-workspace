@@ -14,9 +14,12 @@
  * Serverless smoke test (~15s): quick sanity check that failure handling works.
  * Fargate tests (~4 min): thorough failure testing on `small` compute, run
  * concurrently across separate workspaces so cold starts (~150s) overlap.
+ *
+ * Each test creates its own TestContext (and thus its own repository) via
+ * the setup factory, so cleanup races cannot occur.
  */
 
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { variant } from '@elaraai/east';
 import { setCompute } from '@elaraai/e3-cloud-client';
@@ -25,6 +28,7 @@ import {
   createParallelMixedPackageZip,
   type TestContext,
 } from '@elaraai/e3-api-tests';
+import type { TestSetup } from '../setup.js';
 
 import { executeAndLog } from './compute-helpers.js';
 
@@ -62,23 +66,20 @@ async function setTaskCompute(
 /**
  * Register compute failure tests.
  *
- * @param getContext - Function that returns the current test context
+ * @param setup - Factory that creates a fresh test context per test
  */
-export function computeFailureTests(getContext: () => TestContext): void {
+export function computeFailureTests(setup: TestSetup<TestContext>): void {
   void describe('Compute Failure Handling', () => {
 
     // --- Serverless smoke test ---
     void describe('serverless failure (smoke)', { timeout: 60_000 }, () => {
-      const WORKSPACE = 'fail-smoke-serverless';
+      void it('diamond with upstream failure completes correctly', { timeout: 60_000 }, async (t) => {
+        const ctx = await setup(t);
+        const WORKSPACE = 'fail-smoke-serverless';
 
-      void beforeEach(async () => {
-        const ctx = getContext();
         console.log('[smoke-serverless] Deploying failing diamond package...');
         await deployFixture(ctx, WORKSPACE, createFailingDiamondPackageZip, 'fail-diamond-smoke');
-      });
 
-      void it('diamond with upstream failure completes correctly', async () => {
-        const ctx = getContext();
         const { result } = await executeAndLog('smoke-serverless', ctx, WORKSPACE, 60_000);
 
         assert.strictEqual(result.success, false, 'Dataflow should not succeed');
@@ -95,14 +96,14 @@ export function computeFailureTests(getContext: () => TestContext): void {
     });
 
     // --- Fargate failure tests (small) — run concurrently ---
-    // Each test uses a separate workspace, so cold starts (~150s) overlap.
+    // Each test uses its own repository so cleanup races cannot occur.
     // Total wall time ~4 min instead of ~12 min sequential.
     void describe('fargate failure (small)', { timeout: 600_000, concurrency: 3 }, () => {
 
       // Test A: Diamond with upstream failure on Fargate
-      void it('diamond: right fails on Fargate, merge is skipped', { timeout: 600_000 }, async () => {
+      void it('diamond: right fails on Fargate, merge is skipped', { timeout: 600_000 }, async (t) => {
+        const ctx = await setup(t);
         const WORKSPACE = 'fail-diamond-small';
-        const ctx = getContext();
 
         console.log('[diamond-small] Deploying failing diamond package...');
         await deployFixture(ctx, WORKSPACE, createFailingDiamondPackageZip, 'fail-diamond-small');
@@ -129,9 +130,9 @@ export function computeFailureTests(getContext: () => TestContext): void {
       });
 
       // Test B: Mixed parallel success/failure
-      void it('mixed: fail_c fails on Fargate while other tasks succeed', { timeout: 600_000 }, async () => {
+      void it('mixed: fail_c fails on Fargate while other tasks succeed', { timeout: 600_000 }, async (t) => {
+        const ctx = await setup(t);
         const WORKSPACE = 'fail-mixed-small';
-        const ctx = getContext();
 
         console.log('[mixed-small] Deploying parallel mixed package...');
         await deployFixture(ctx, WORKSPACE, createParallelMixedPackageZip, 'fail-mixed-small');
@@ -151,9 +152,9 @@ export function computeFailureTests(getContext: () => TestContext): void {
       });
 
       // Test C: All-Fargate diamond with failure
-      void it('all-fargate: right fails, merge skipped, left succeeds', { timeout: 600_000 }, async () => {
+      void it('all-fargate: right fails, merge skipped, left succeeds', { timeout: 600_000 }, async (t) => {
+        const ctx = await setup(t);
         const WORKSPACE = 'fail-allfg-small';
-        const ctx = getContext();
 
         console.log('[allfg-small] Deploying failing diamond package...');
         await deployFixture(ctx, WORKSPACE, createFailingDiamondPackageZip, 'fail-allfg-small');

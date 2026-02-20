@@ -25,6 +25,7 @@ import {
   getSchedule, setSchedule,
 } from '@elaraai/e3-cloud-client';
 import type { TestContext } from '@elaraai/e3-api-tests';
+import type { TestSetup } from '../setup.js';
 
 /**
  * Register config cleanup tests.
@@ -32,13 +33,13 @@ import type { TestContext } from '@elaraai/e3-api-tests';
  * Uses `TestContext` from e3-api-tests which provides package deployment
  * helpers. Each test manages its own workspace lifecycle.
  *
- * @param getContext - Function that returns the current test context
+ * @param setup - Factory that creates a fresh test context per test
  */
-export function cleanupTests(getContext: () => TestContext): void {
-  void describe('Config Cleanup', { timeout: 60_000 }, () => {
+export function cleanupTests(setup: TestSetup<TestContext>): void {
+  void describe('Config Cleanup', { timeout: 60_000, concurrency: true }, () => {
 
-    void it('removes orphaned configs on redeploy', async () => {
-      const ctx = getContext();
+    void it('removes orphaned configs on redeploy', async (t) => {
+      const ctx = await setup(t);
       const opts = await ctx.opts();
 
       // Import pkg-a (task: "compute") and pkg-b (task: "add")
@@ -80,8 +81,8 @@ export function cleanupTests(getContext: () => TestContext): void {
       assert.strictEqual(timeoutRedeploy.size, 0, 'timeout config should not be resurrected');
     });
 
-    void it('removes all configs on workspace delete and recreate', async () => {
-      const ctx = getContext();
+    void it('removes all configs on workspace delete and recreate', async (t) => {
+      const ctx = await setup(t);
       const opts = await ctx.opts();
 
       // Import pkg-a and set up workspace
@@ -127,8 +128,8 @@ export function cleanupTests(getContext: () => TestContext): void {
       assert.strictEqual(scheduleAfter, null, 'schedule should be removed after ws delete');
     });
 
-    void it('preserves configs when redeploying same package', async () => {
-      const ctx = getContext();
+    void it('preserves configs when redeploying same package', async (t) => {
+      const ctx = await setup(t);
       const opts = await ctx.opts();
 
       // Import pkg-a and set up workspace

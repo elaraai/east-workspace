@@ -72,7 +72,7 @@ e3-cloud/
 │   │
 │   ├── e3-cloud-types/       # Shared East types for authorization (@elaraai/e3-cloud-types)
 │   │
-│   ├── e3-cloud-core/        # Authorization logic and interfaces (@elaraai/e3-cloud-core)
+│   ├── e3-cloud-core/        # Cloud-agnostic interfaces and authorization (@elaraai/e3-cloud-core)
 │   │
 │   ├── e3-cloud-client/      # HTTP client for admin API (@elaraai/e3-cloud-client)
 │   │
@@ -264,6 +264,8 @@ AWS_PROFILE=elaraai-dev-elara-e3 npm run test:integration
 # Or run specific test file:
 AWS_PROFILE=elaraai-dev-elara-e3 npm run test:integration -- --test-name-pattern "diamond"
 ```
+
+**Known issue — DynamoDB throttling on first run:** Integration tests run concurrently and can trigger `ThrottlingException` (`TableReadKeyRangeThroughputExceeded`) on the `e3-dev-data` DynamoDB table when the table has been idle. DynamoDB auto-scales partitions after the burst, so a second run typically passes. Check CloudWatch logs (`/aws/lambda/e3-dev-api`) to confirm throttling vs a real bug. If this starts happening persistently (not just the first cold run), we need a permanent fix — either increase base capacity, add retry/backoff in the storage layer, or cap test concurrency.
 
 ## CDK Deployments
 

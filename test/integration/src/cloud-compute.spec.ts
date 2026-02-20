@@ -19,47 +19,40 @@
  *     node --enable-source-maps --test 'dist/cloud-compute.spec.js'
  */
 
-import { describe, beforeEach, afterEach } from 'node:test';
+import { describe } from 'node:test';
 import { getStackOutputs, getDeploymentId } from './helpers/stack-outputs.js';
 import { getToken, hasCredentials } from './helpers/credentials.js';
 import { createTestContext, type TestContext } from '@elaraai/e3-api-tests';
-import { computeTests, computeFailureTests } from '@elaraai/e3-cloud-tests';
+import { computeTests, computeFailureTests, type TestSetup } from '@elaraai/e3-cloud-tests';
 
 const DEFAULT_SERVER = 'https://dev.e3.elaraai.com';
 
-describe('Cloud Compute Tests', { timeout: 1_800_000, concurrency: false }, () => {
-  let context: TestContext;
-
-  beforeEach(async () => {
-    // Get deployment info
-    const deploymentId = getDeploymentId();
-    const outputs = await getStackOutputs(deploymentId);
+// Lazy config resolution (called once, cached)
+const getConfig = (() => {
+  let cached: Promise<{ baseUrl: string }> | null = null;
+  return () => (cached ??= (async () => {
+    const outputs = await getStackOutputs(getDeploymentId());
     const baseUrl = outputs.platformUrl ?? DEFAULT_SERVER;
+    if (!hasCredentials(baseUrl)) throw new Error(`Not logged in. Run: e3 login ${baseUrl}`);
+    return { baseUrl };
+  })());
+})();
 
-    // Check credentials before running tests
-    if (!hasCredentials(baseUrl)) {
-      console.error(`\nError: Not logged in to ${baseUrl}`);
-      console.error(`Run: e3 login ${baseUrl}\n`);
-      throw new Error(`Not logged in. Run: e3 login ${baseUrl}`);
-    }
-
-    // Create fresh test context for each test
-    context = await createTestContext({
-      baseUrl,
-      getToken: async () => getToken(baseUrl),
-      cleanup: true,
-    });
+const setup: TestSetup<TestContext> = async (t) => {
+  const { baseUrl } = await getConfig();
+  const ctx = await createTestContext({
+    baseUrl,
+    getToken: async () => getToken(baseUrl),
+    cleanup: true,
   });
+  t.after(() => ctx.cleanup());
+  return ctx;
+};
 
-  afterEach(async () => {
-    if (context) {
-      await context.cleanup();
-    }
-  });
-
+describe('Cloud Compute Tests', { timeout: 600_000, concurrency: true }, () => {
   // Run Fargate compute execution tests
-  computeTests(() => context);
+  computeTests(setup);
 
-  // Run failure propagation tests
-  computeFailureTests(() => context);
+  // Run failure propagation tests — each test gets its own isolated context
+  computeFailureTests(setup);
 });

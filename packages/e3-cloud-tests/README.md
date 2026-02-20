@@ -9,68 +9,56 @@ This package provides test suites that verify e3 cloud functionality. The tests 
 **Admin suites** test authorization, user management, schedules, and task configuration.
 **Compute suites** test Fargate execution across different compute sizes.
 
+All suites use the `TestSetup<T>` pattern: each test receives a factory function that creates a fresh, isolated context and registers cleanup via `t.after()`. This enables concurrent test execution with no shared mutable state.
+
 ## Usage
 
 ### Admin Tests
 
 ```typescript
-import { describe, beforeEach, afterEach } from 'node:test';
+import { describe } from 'node:test';
 import {
   createAdminTestContext,
   allAdminTests,
   type AdminTestContext,
   type AdminTestConfig,
+  type TestSetup,
 } from '@elaraai/e3-cloud-tests';
 
-describe('Admin API Compliance', () => {
-  let context: AdminTestContext;
-
-  beforeEach(async () => {
-    context = await createAdminTestContext({
-      baseUrl: 'https://dev.e3.elaraai.com',
-      getToken: async (userId) => {
-        // Return access token for the test user
-        return getTokenFromYourIdentityProvider(userId);
-      },
-      getTestUser: async (userId) => {
-        // Return user identity info
-        return { sub: '...', email: '...' };
-      },
-    });
+const setup: TestSetup<AdminTestContext> = async (t) => {
+  const ctx = createAdminTestContext({
+    baseUrl: 'https://dev.e3.elaraai.com',
+    getToken: async (userId) => getTokenFromYourIdentityProvider(userId),
+    getTestUser: async (userId) => ({ sub: '...', email: '...' }),
   });
+  t.after(() => ctx.cleanup());
+  return ctx;
+};
 
-  afterEach(async () => {
-    await context?.cleanup();
-  });
-
-  // Register all test suites
-  allAdminTests(() => context);
+describe('Admin API Compliance', { concurrency: true }, () => {
+  allAdminTests(setup);
 });
 ```
 
 ### Compute Tests
 
 ```typescript
-import { describe, beforeEach, afterEach } from 'node:test';
+import { describe } from 'node:test';
 import { createTestContext, type TestContext } from '@elaraai/e3-api-tests';
-import { computeTests } from '@elaraai/e3-cloud-tests';
+import { computeTests, type TestSetup } from '@elaraai/e3-cloud-tests';
 
-describe('Compute Tests', { timeout: 1_800_000 }, () => {
-  let context: TestContext;
-
-  beforeEach(async () => {
-    context = await createTestContext({
-      baseUrl: 'https://dev.e3.elaraai.com',
-      getToken: async () => getToken(),
-      cleanup: true,
-    });
+const setup: TestSetup<TestContext> = async (t) => {
+  const ctx = await createTestContext({
+    baseUrl: 'https://dev.e3.elaraai.com',
+    getToken: async () => getToken(),
+    cleanup: true,
   });
+  t.after(() => ctx.cleanup());
+  return ctx;
+};
 
-  afterEach(async () => {
-    await context?.cleanup();
-  });
-
-  computeTests(() => context);
+describe('Compute Tests', { timeout: 600_000, concurrency: true }, () => {
+  computeTests(setup);
 });
 ```
 
@@ -138,31 +126,63 @@ Tests for Fargate compute execution (small, medium, large, xlarge):
 - Executes dataflow and verifies task runs on Fargate
 - Each size gets a 5-minute timeout for Fargate cold start
 
+#### computeFailureTests
+
+Tests for task failure propagation across compute tiers:
+- Diamond with upstream failure on Fargate
+- Mixed parallel success/failure
+- All-Fargate diamond with failure
+
+#### cleanupTests
+
+Tests for cascade deletion and orphan cleanup:
+- Orphan cleanup on redeploy
+- Workspace delete cascade
+- Configs survive same-package redeploy
+
 ## API
+
+### `TestSetup<T>`
+
+```typescript
+type TestSetup<T> = (t: NodeTestContext) => Promise<T>;
+```
+
+Factory that creates a fresh test context and registers cleanup via `t.after()`. Each test calls `const ctx = await setup(t)` — fully self-contained, no shared state.
 
 ### `createAdminTestContext(config: AdminTestConfig): AdminTestContext`
 
 Create a test context for running admin tests.
 
-### `allAdminTests(getContext: () => AdminTestContext): void`
+### `allAdminTests(setup: TestSetup<AdminTestContext>): void`
 
 Register all admin test suites with the Node.js test runner.
 
-### `computeTests(getContext: () => TestContext): void`
+### `computeTests(setup: TestSetup<TestContext>): void`
 
 Register Fargate compute execution tests. Uses `TestContext` from `@elaraai/e3-api-tests`.
 
+### `computeFailureTests(setup: TestSetup<TestContext>): void`
+
+Register compute failure propagation tests.
+
+### `cleanupTests(setup: TestSetup<TestContext>): void`
+
+Register config cleanup tests.
+
 ### Individual Admin Suites
 
-- `whoamiTests(getContext)` - Whoami endpoint tests
-- `repoUsersTests(getContext)` - User management tests
-- `authorizationTests(getContext)` - Permission tests
-- `scheduleTests(getContext)` - Schedule management tests
-- `taskConfigTests(getContext)` - Task config tests
+- `whoamiTests(setup)` - Whoami endpoint tests
+- `repoUsersTests(setup)` - User management tests
+- `authorizationTests(setup)` - Permission tests
+- `scheduleTests(setup)` - Schedule management tests
+- `taskConfigTests(setup)` - Task config tests
 
 ## Types
 
 ```typescript
+type TestSetup<T> = (t: NodeTestContext) => Promise<T>;
+
 type TestUserId = 'owner' | 'member' | 'outsider' | 'admin';
 
 interface TestUser {

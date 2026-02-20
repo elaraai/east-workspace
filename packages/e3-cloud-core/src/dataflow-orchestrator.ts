@@ -19,5 +19,6 @@ export interface DataflowOrchestrator {
     forceTasks: string[];
     filter?: string;
     runId: string;
+    triggeredBy?: { type: string; value: unknown };
   }): Promise<string>;
 }

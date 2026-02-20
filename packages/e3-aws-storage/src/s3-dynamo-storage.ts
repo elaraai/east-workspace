@@ -5,7 +5,7 @@
 
 import type { S3Client } from '@aws-sdk/client-s3';
 import type { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import type { StorageBackend, LogStore, RepoStore, ExecutionStateStore } from '@elaraai/e3-core';
+import type { StorageBackend, LogStore, RepoStore, ExecutionStateStore, RefStore } from '@elaraai/e3-core';
 import { RepoNotFoundError } from '@elaraai/e3-core';
 
 import type { RepoManager, DataflowRunStore, ExecutionTracker } from '@elaraai/e3-cloud-core';
@@ -46,7 +46,7 @@ import { DynamoDBStateStore } from './dynamo-state-store.js';
  */
 export class S3DynamoStorage implements StorageBackend {
   public readonly objects: S3ObjectStore;
-  public readonly refs: DynamoRefStore;
+  public readonly refs: RefStore;
   public readonly locks: DynamoLockService;
   public readonly logs: LogStore;
   public readonly repos: RepoStore;
@@ -66,16 +66,17 @@ export class S3DynamoStorage implements StorageBackend {
     tableName: string
   ) {
     this.objects = new S3ObjectStore(s3, dynamo, bucket, tableName);
-    this.refs = new DynamoRefStore(dynamo, tableName);
+    const dynamoRefs = new DynamoRefStore(dynamo, tableName);
+    this.refs = dynamoRefs;
     this.locks = new DynamoLockService(dynamo, tableName);
     this.logs = new DynamoLogStore(dynamo, tableName);
-    this.repos = new DynamoS3RepoStore(s3, dynamo, bucket, tableName, this.refs, this.objects);
+    this.repos = new DynamoS3RepoStore(s3, dynamo, bucket, tableName, dynamoRefs, this.objects);
     this.executions = new DynamoDBStateStore(dynamo, s3, bucket, tableName);
 
     // Cloud-agnostic interface accessors (backed by DynamoRefStore)
-    this.repoManager = this.refs;
-    this.dataflowRuns = new DynamoDataflowRunStore(this.refs);
-    this.executionTracker = this.refs;
+    this.repoManager = dynamoRefs;
+    this.dataflowRuns = new DynamoDataflowRunStore(dynamoRefs);
+    this.executionTracker = dynamoRefs;
   }
 
   /**
@@ -89,7 +90,7 @@ export class S3DynamoStorage implements StorageBackend {
    * @throws {RepoNotFoundError} If repository doesn't exist or is not accessible
    */
   async validateRepository(repo: string): Promise<void> {
-    const metadata = await this.refs.getRepoMetadata(repo);
+    const metadata = await this.repoManager.getRepoMetadata(repo);
 
     if (!metadata) {
       throw new RepoNotFoundError(repo);

@@ -41,6 +41,7 @@ import { createDataflowRoutes } from './dataflow-routes.js';
 
 // AWS implementations
 import { SfnDataflowOrchestrator } from './sfn-dataflow-orchestrator.js';
+import { SfnGcOrchestrator } from './sfn-gc-orchestrator.js';
 import { EventBridgeSchedulerService } from './eventbridge-scheduler-service.js';
 
 // e3-api-server routes
@@ -96,6 +97,10 @@ const schedulerService = SCHEDULER_GROUP_NAME
 
 const orchestrator = DATAFLOW_STATE_MACHINE_ARN
   ? new SfnDataflowOrchestrator(sfn, DATAFLOW_STATE_MACHINE_ARN)
+  : null;
+
+const gcOrchestrator = GC_STATE_MACHINE_ARN
+  ? new SfnGcOrchestrator(sfn, GC_STATE_MACHINE_ARN)
   : null;
 
 // ============================================================
@@ -156,8 +161,7 @@ app.route('/', createRepoRoutes({
 // GC Routes
 app.route('/', createGcRoutes({
   repoManager,
-  sfn,
-  gcStateMachineArn: GC_STATE_MACHINE_ARN,
+  gc: gcOrchestrator ?? undefined,
 }));
 
 // Dataflow Routes (only if orchestrator is configured)

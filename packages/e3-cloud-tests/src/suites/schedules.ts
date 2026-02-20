@@ -16,7 +16,7 @@
  * These tests cover auth enforcement and error paths which work without one.
  */
 
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { none, variant } from '@elaraai/east';
 import {
@@ -28,6 +28,7 @@ import {
 } from '@elaraai/e3-cloud-client';
 import { repoCreate } from '@elaraai/e3-api-client';
 import type { AdminTestContext } from '../context.js';
+import type { TestSetup } from '../setup.js';
 import { expectError } from '../helpers.js';
 
 const TEST_WORKSPACE = 'test-ws';
@@ -35,18 +36,19 @@ const TEST_WORKSPACE = 'test-ws';
 /**
  * Register schedule management tests.
  *
- * @param getContext - Function that returns the current test context
+ * @param setup - Factory that creates a fresh test context per test
  */
-export function scheduleTests(getContext: () => AdminTestContext): void {
-  void describe('Schedule Management', () => {
-    void beforeEach(async () => {
-      const ctx = getContext();
-      await repoCreate(ctx.config.baseUrl, ctx.repoName, await ctx.opts('owner'));
-    });
+export function scheduleTests(setup: TestSetup<AdminTestContext>): void {
+  const withRepo: TestSetup<AdminTestContext> = async (t) => {
+    const ctx = await setup(t);
+    await repoCreate(ctx.config.baseUrl, ctx.repoName, await ctx.opts('owner'));
+    return ctx;
+  };
 
-    void describe('GET /repos/{repo}/workspaces/{ws}/schedule', () => {
-      void it('owner gets null for non-existent schedule', async () => {
-        const ctx = getContext();
+  void describe('Schedule Management', { concurrency: true }, () => {
+    void describe('GET /repos/{repo}/workspaces/{ws}/schedule', { concurrency: true }, () => {
+      void it('owner gets null for non-existent schedule', async (t) => {
+        const ctx = await withRepo(t);
         const result = await getSchedule(
           ctx.config.baseUrl,
           ctx.repoName,
@@ -56,8 +58,8 @@ export function scheduleTests(getContext: () => AdminTestContext): void {
         assert.strictEqual(result, null);
       });
 
-      void it('outsider gets forbidden', async () => {
-        const ctx = getContext();
+      void it('outsider gets forbidden', async (t) => {
+        const ctx = await withRepo(t);
         await expectError(
           getSchedule(
             ctx.config.baseUrl,
@@ -70,9 +72,9 @@ export function scheduleTests(getContext: () => AdminTestContext): void {
       });
     });
 
-    void describe('PUT /repos/{repo}/workspaces/{ws}/schedule', () => {
-      void it('outsider gets forbidden', async () => {
-        const ctx = getContext();
+    void describe('PUT /repos/{repo}/workspaces/{ws}/schedule', { concurrency: true }, () => {
+      void it('outsider gets forbidden', async (t) => {
+        const ctx = await withRepo(t);
         await expectError(
           setSchedule(
             ctx.config.baseUrl,
@@ -91,8 +93,8 @@ export function scheduleTests(getContext: () => AdminTestContext): void {
         );
       });
 
-      void it('member gets internal error for non-existent workspace', async () => {
-        const ctx = getContext();
+      void it('member gets internal error for non-existent workspace', async (t) => {
+        const ctx = await withRepo(t);
         const memberUser = await ctx.getTestUser('member');
 
         // Add member to repo first
@@ -122,9 +124,9 @@ export function scheduleTests(getContext: () => AdminTestContext): void {
       });
     });
 
-    void describe('DELETE /repos/{repo}/workspaces/{ws}/schedule', () => {
-      void it('idempotent delete succeeds on non-existent schedule', async () => {
-        const ctx = getContext();
+    void describe('DELETE /repos/{repo}/workspaces/{ws}/schedule', { concurrency: true }, () => {
+      void it('idempotent delete succeeds on non-existent schedule', async (t) => {
+        const ctx = await withRepo(t);
         // Should not throw — deleting a non-existent schedule is a no-op
         await removeSchedule(
           ctx.config.baseUrl,
@@ -134,8 +136,8 @@ export function scheduleTests(getContext: () => AdminTestContext): void {
         );
       });
 
-      void it('outsider gets forbidden', async () => {
-        const ctx = getContext();
+      void it('outsider gets forbidden', async (t) => {
+        const ctx = await withRepo(t);
         await expectError(
           removeSchedule(
             ctx.config.baseUrl,
@@ -148,9 +150,9 @@ export function scheduleTests(getContext: () => AdminTestContext): void {
       });
     });
 
-    void describe('GET /repos/{repo}/schedules', () => {
-      void it('owner gets empty list', async () => {
-        const ctx = getContext();
+    void describe('GET /repos/{repo}/schedules', { concurrency: true }, () => {
+      void it('owner gets empty list', async (t) => {
+        const ctx = await withRepo(t);
         const schedules = await listSchedules(
           ctx.config.baseUrl,
           ctx.repoName,
@@ -160,8 +162,8 @@ export function scheduleTests(getContext: () => AdminTestContext): void {
         assert.strictEqual(schedules.length, 0);
       });
 
-      void it('outsider gets forbidden', async () => {
-        const ctx = getContext();
+      void it('outsider gets forbidden', async (t) => {
+        const ctx = await withRepo(t);
         await expectError(
           listSchedules(
             ctx.config.baseUrl,

@@ -30,22 +30,22 @@ Task execution handlers for the e3 dataflow state machine (Step Functions). Supp
 
 ```
 src/
-├── index.ts                         # Handler exports
+├── index.ts                          # Handler exports
 └── handlers/
-    ├── get-graph.ts
-    ├── get-ready.ts
-    ├── dispatch-task.ts
-    ├── execute-task.ts              # Lambda entry point
-    ├── execute-task-core.ts         # Shared execution logic
+    ├── get-graph.ts                  # Resolve task dependency graph
+    ├── get-ready.ts                  # Find tasks ready to execute
+    ├── dispatch-task.ts              # Check cache, dispatch task
+    ├── execute-task.ts               # Lambda entry point
+    ├── execute-task-core.ts          # Shared execution logic
     ├── execute-task-compute-entry.ts # Fargate entry point
-    ├── collect-compute-result.ts
-    ├── apply-results.ts
-    ├── apply-tree-updates.ts
-    ├── check-completion.ts
-    ├── mark-skipped.ts
-    ├── finalize-execution.ts
-    ├── schedule-trigger.ts
-    └── shared/                      # Shared utilities
+    ├── collect-compute-result.ts     # Read Fargate results from DynamoDB
+    ├── apply-results.ts              # Apply task results to workspace
+    ├── apply-tree-updates.ts         # Propagate tree state changes
+    ├── check-completion.ts           # Check if dataflow is complete
+    ├── mark-skipped.ts               # Mark tasks with unavailable inputs
+    ├── finalize-execution.ts         # Finalize dataflow run
+    ├── schedule-trigger.ts           # EventBridge scheduled trigger
+    └── test-helpers.ts               # Shared test utilities
 ```
 
 ## License

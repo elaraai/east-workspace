@@ -395,9 +395,10 @@ packages/e3-aws-storage/src/
 ├── dynamo-log-store.ts       # DynamoDB-backed LogStore
 ├── dynamo-state-store.ts     # DynamoDB + S3-backed ExecutionStateStore
 ├── dynamo-acl-store.ts       # DynamoDB-backed AclStore (repository access control)
-├── dynamo-schedule-store.ts      # DynamoDB-backed ScheduleStore (workspace schedules)
-├── dynamo-task-config-store.ts  # DynamoDB-backed TaskConfigStore (per-task compute & timeout)
-└── index.ts                      # Exports
+├── dynamo-schedule-store.ts          # DynamoDB-backed ScheduleStore (workspace schedules)
+├── dynamo-task-config-store.ts      # DynamoDB-backed TaskConfigStore (per-task compute & timeout)
+├── sfn-dataflow-orchestrator.ts     # SfnDataflowOrchestrator (SFN → DataflowOrchestrator)
+└── index.ts                          # Exports
 ```
 
 ## RepoStore Interface

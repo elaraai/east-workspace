@@ -9,8 +9,9 @@
  * logic in the API handler but runs without user authentication.
  */
 
-import { SFNClient, StartExecutionCommand } from '@aws-sdk/client-sfn';
+import { SFNClient } from '@aws-sdk/client-sfn';
 import { getStorage, getScheduleStore } from '@elaraai/e3-aws-storage/init';
+import { SfnDataflowOrchestrator } from '@elaraai/e3-aws-storage';
 import { variant, none } from '@elaraai/east';
 import {
   dataflowGetGraph,
@@ -127,6 +128,10 @@ export async function handleScheduleTrigger(deps: ScheduleTriggerDeps, event: Sc
       force: false,
       forceTasks,
       runId,
+      triggeredBy: {
+        type: 'schedule',
+        value: { schedulerExecutionId, scheduledTime },
+      },
     });
 
     console.log(`Started dataflow: execution=${execId}, runId=${runId}, name=${executionName}, schedulerExecutionId=${schedulerExecutionId}`);
@@ -146,37 +151,11 @@ export async function handleScheduleTrigger(deps: ScheduleTriggerDeps, event: Sc
 
 /** Lambda handler: thin wrapper that injects dependencies. */
 export async function handler(event: ScheduleTriggerEvent): Promise<ScheduleTriggerResult> {
-  const sfn = new SFNClient({});
   const storage = getStorage();
   const scheduleStore = getScheduleStore();
+  const sfn = new SFNClient({});
   const stateMachineArn = process.env.DATAFLOW_STATE_MACHINE_ARN!;
-
-  // Create a DataflowOrchestrator that wraps the SFN client
-  const orchestrator: DataflowOrchestrator = {
-    async startExecution(params) {
-      const { randomUUID } = await import('node:crypto');
-      const executionName = `dataflow-${params.repo}-${params.workspace}-${randomUUID()}`.slice(0, 80);
-      await sfn.send(
-        new StartExecutionCommand({
-          stateMachineArn,
-          name: executionName,
-          input: JSON.stringify({
-            repo: params.repo,
-            workspace: params.workspace,
-            executionId: params.executionId,
-            force: params.force,
-            forceTasks: params.forceTasks,
-            runId: params.runId,
-            triggeredBy: {
-              type: 'schedule',
-              value: { schedulerExecutionId: event.schedulerExecutionId, scheduledTime: event.scheduledTime },
-            },
-          }),
-        })
-      );
-      return executionName;
-    },
-  };
+  const orchestrator = new SfnDataflowOrchestrator(sfn, stateMachineArn);
 
   return handleScheduleTrigger({ storage, scheduleStore, orchestrator }, event);
 }

@@ -10,29 +10,45 @@
  * different user roles and repository operations.
  */
 
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { variant } from '@elaraai/east';
 import { repoUsers, addUser, removeUser, ApiError } from '@elaraai/e3-cloud-client';
 import { repoCreate } from '@elaraai/e3-api-client';
 import type { AdminTestContext } from '../context.js';
+import type { TestSetup } from '../setup.js';
 import { expectError } from '../helpers.js';
 
 /**
  * Register authorization tests.
  *
- * @param getContext - Function that returns the current test context
+ * @param setup - Factory that creates a fresh test context per test
  */
-export function authorizationTests(getContext: () => AdminTestContext): void {
-  void describe('Authorization', () => {
-    void beforeEach(async () => {
-      const ctx = getContext();
-      await repoCreate(ctx.config.baseUrl, ctx.repoName, await ctx.opts('owner'));
-    });
+export function authorizationTests(setup: TestSetup<AdminTestContext>): void {
+  const withRepo: TestSetup<AdminTestContext> = async (t) => {
+    const ctx = await setup(t);
+    await repoCreate(ctx.config.baseUrl, ctx.repoName, await ctx.opts('owner'));
+    return ctx;
+  };
 
-    void describe('Outsider permissions', () => {
-      void it('outsider cannot access any repo endpoint', async () => {
-        const ctx = getContext();
+  const withMember: TestSetup<AdminTestContext> = async (t) => {
+    const ctx = await withRepo(t);
+    const memberUser = await ctx.getTestUser('member');
+
+    // Add member to repo
+    await addUser(
+      ctx.config.baseUrl,
+      ctx.repoName,
+      { email: memberUser.email, role: variant('member', null) },
+      await ctx.opts('owner')
+    );
+    return ctx;
+  };
+
+  void describe('Authorization', { concurrency: true }, () => {
+    void describe('Outsider permissions', { concurrency: true }, () => {
+      void it('outsider cannot access any repo endpoint', async (t) => {
+        const ctx = await withRepo(t);
 
         // Try to list users
         await expectError(
@@ -41,8 +57,8 @@ export function authorizationTests(getContext: () => AdminTestContext): void {
         );
       });
 
-      void it('outsider cannot access repo that does not exist', async () => {
-        const ctx = getContext();
+      void it('outsider cannot access repo that does not exist', async (t) => {
+        const ctx = await withRepo(t);
 
         // Could be forbidden (no access) or user_not_found depending on implementation
         try {
@@ -58,30 +74,17 @@ export function authorizationTests(getContext: () => AdminTestContext): void {
       });
     });
 
-    void describe('Member permissions', () => {
-      void beforeEach(async () => {
-        const ctx = getContext();
-        const memberUser = await ctx.getTestUser('member');
-
-        // Add member to repo
-        await addUser(
-          ctx.config.baseUrl,
-          ctx.repoName,
-          { email: memberUser.email, role: variant('member', null) },
-          await ctx.opts('owner')
-        );
-      });
-
-      void it('member can read user list', async () => {
-        const ctx = getContext();
+    void describe('Member permissions', { concurrency: true }, () => {
+      void it('member can read user list', async (t) => {
+        const ctx = await withMember(t);
 
         // Should succeed (no error thrown)
         const users = await repoUsers(ctx.config.baseUrl, ctx.repoName, await ctx.opts('member'));
         assert.ok(Array.isArray(users));
       });
 
-      void it('member cannot add users', async () => {
-        const ctx = getContext();
+      void it('member cannot add users', async (t) => {
+        const ctx = await withMember(t);
         const outsiderUser = await ctx.getTestUser('outsider');
 
         await expectError(
@@ -95,8 +98,8 @@ export function authorizationTests(getContext: () => AdminTestContext): void {
         );
       });
 
-      void it('member cannot remove users', async () => {
-        const ctx = getContext();
+      void it('member cannot remove users', async (t) => {
+        const ctx = await withMember(t);
         const outsiderUser = await ctx.getTestUser('outsider');
 
         // Owner adds outsider
@@ -119,8 +122,8 @@ export function authorizationTests(getContext: () => AdminTestContext): void {
         );
       });
 
-      void it('member cannot remove themselves', async () => {
-        const ctx = getContext();
+      void it('member cannot remove themselves', async (t) => {
+        const ctx = await withMember(t);
         const memberUser = await ctx.getTestUser('member');
 
         await expectError(
@@ -135,9 +138,9 @@ export function authorizationTests(getContext: () => AdminTestContext): void {
       });
     });
 
-    void describe('Owner permissions', () => {
-      void it('owner can perform all operations', async () => {
-        const ctx = getContext();
+    void describe('Owner permissions', { concurrency: true }, () => {
+      void it('owner can perform all operations', async (t) => {
+        const ctx = await withRepo(t);
         const memberUser = await ctx.getTestUser('member');
 
         // Can list users (should not throw)
@@ -162,8 +165,8 @@ export function authorizationTests(getContext: () => AdminTestContext): void {
         );
       });
 
-      void it('owner cannot remove themselves if last owner', async () => {
-        const ctx = getContext();
+      void it('owner cannot remove themselves if last owner', async (t) => {
+        const ctx = await withRepo(t);
         const ownerUser = await ctx.getTestUser('owner');
 
         await expectError(
@@ -177,8 +180,8 @@ export function authorizationTests(getContext: () => AdminTestContext): void {
         );
       });
 
-      void it('owner can remove themselves if another owner exists', async () => {
-        const ctx = getContext();
+      void it('owner can remove themselves if another owner exists', async (t) => {
+        const ctx = await withRepo(t);
         const ownerUser = await ctx.getTestUser('owner');
         const memberUser = await ctx.getTestUser('member');
 
@@ -200,17 +203,17 @@ export function authorizationTests(getContext: () => AdminTestContext): void {
       });
     });
 
-    void describe('Admin permissions', () => {
-      void it('admin bypasses all ACL checks', async () => {
-        const ctx = getContext();
+    void describe('Admin permissions', { concurrency: true }, () => {
+      void it('admin bypasses all ACL checks', async (t) => {
+        const ctx = await withRepo(t);
 
         // Admin can list users on any repo (even without ACL entry)
         const users = await repoUsers(ctx.config.baseUrl, ctx.repoName, await ctx.opts('admin'));
         assert.ok(Array.isArray(users));
       });
 
-      void it('admin can add users to any repo', async () => {
-        const ctx = getContext();
+      void it('admin can add users to any repo', async (t) => {
+        const ctx = await withRepo(t);
         const outsiderUser = await ctx.getTestUser('outsider');
 
         const user = await addUser(
@@ -223,8 +226,8 @@ export function authorizationTests(getContext: () => AdminTestContext): void {
         assert.strictEqual(user.email, outsiderUser.email);
       });
 
-      void it('admin can remove users from any repo', async () => {
-        const ctx = getContext();
+      void it('admin can remove users from any repo', async (t) => {
+        const ctx = await withRepo(t);
         const memberUser = await ctx.getTestUser('member');
 
         // Add member
@@ -244,8 +247,8 @@ export function authorizationTests(getContext: () => AdminTestContext): void {
         );
       });
 
-      void it('admin still cannot remove last owner', async () => {
-        const ctx = getContext();
+      void it('admin still cannot remove last owner', async (t) => {
+        const ctx = await withRepo(t);
         const ownerUser = await ctx.getTestUser('owner');
 
         // Admin tries to remove last owner
@@ -261,9 +264,9 @@ export function authorizationTests(getContext: () => AdminTestContext): void {
       });
     });
 
-    void describe('Role transitions', () => {
-      void it('promoting member to owner grants owner permissions', async () => {
-        const ctx = getContext();
+    void describe('Role transitions', { concurrency: true }, () => {
+      void it('promoting member to owner grants owner permissions', async (t) => {
+        const ctx = await withRepo(t);
         const memberUser = await ctx.getTestUser('member');
         const outsiderUser = await ctx.getTestUser('outsider');
 
@@ -304,8 +307,8 @@ export function authorizationTests(getContext: () => AdminTestContext): void {
         assert.strictEqual(user.email, outsiderUser.email);
       });
 
-      void it('demoting owner to member removes owner permissions', async () => {
-        const ctx = getContext();
+      void it('demoting owner to member removes owner permissions', async (t) => {
+        const ctx = await withRepo(t);
         const memberUser = await ctx.getTestUser('member');
         const outsiderUser = await ctx.getTestUser('outsider');
 

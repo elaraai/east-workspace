@@ -18,44 +18,37 @@
  *     node --enable-source-maps --test 'dist/cloud-cleanup.spec.js'
  */
 
-import { describe, beforeEach, afterEach } from 'node:test';
+import { describe } from 'node:test';
 import { getStackOutputs, getDeploymentId } from './helpers/stack-outputs.js';
 import { getToken, hasCredentials } from './helpers/credentials.js';
 import { createTestContext, type TestContext } from '@elaraai/e3-api-tests';
-import { cleanupTests } from '@elaraai/e3-cloud-tests';
+import { cleanupTests, type TestSetup } from '@elaraai/e3-cloud-tests';
 
 const DEFAULT_SERVER = 'https://dev.e3.elaraai.com';
 
-describe('Cloud Cleanup Tests', { timeout: 120_000, concurrency: false }, () => {
-  let context: TestContext;
-
-  beforeEach(async () => {
-    // Get deployment info
-    const deploymentId = getDeploymentId();
-    const outputs = await getStackOutputs(deploymentId);
+// Lazy config resolution (called once, cached)
+const getConfig = (() => {
+  let cached: Promise<{ baseUrl: string }> | null = null;
+  return () => (cached ??= (async () => {
+    const outputs = await getStackOutputs(getDeploymentId());
     const baseUrl = outputs.platformUrl ?? DEFAULT_SERVER;
+    if (!hasCredentials(baseUrl)) throw new Error(`Not logged in. Run: e3 login ${baseUrl}`);
+    return { baseUrl };
+  })());
+})();
 
-    // Check credentials before running tests
-    if (!hasCredentials(baseUrl)) {
-      console.error(`\nError: Not logged in to ${baseUrl}`);
-      console.error(`Run: e3 login ${baseUrl}\n`);
-      throw new Error(`Not logged in. Run: e3 login ${baseUrl}`);
-    }
-
-    // Create fresh test context for each test
-    context = await createTestContext({
-      baseUrl,
-      getToken: async () => getToken(baseUrl),
-      cleanup: true,
-    });
+const setup: TestSetup<TestContext> = async (t) => {
+  const { baseUrl } = await getConfig();
+  const ctx = await createTestContext({
+    baseUrl,
+    getToken: async () => getToken(baseUrl),
+    cleanup: true,
   });
+  t.after(() => ctx.cleanup());
+  return ctx;
+};
 
-  afterEach(async () => {
-    if (context) {
-      await context.cleanup();
-    }
-  });
-
+describe('Cloud Cleanup Tests', { timeout: 120_000, concurrency: true }, () => {
   // Run cleanup tests
-  cleanupTests(() => context);
+  cleanupTests(setup);
 });

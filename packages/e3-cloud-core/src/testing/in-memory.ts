@@ -27,6 +27,7 @@ import type {
   DataflowEvent,
 } from '../execution-tracker.js';
 import type { DataflowOrchestrator } from '../dataflow-orchestrator.js';
+import type { GcOrchestrator, GcStatus } from '../gc-orchestrator.js';
 import type { SchedulerService } from '../scheduler-service.js';
 import { RepoAlreadyExistsError, InvalidRepoStatusError } from '../errors.js';
 
@@ -581,6 +582,32 @@ export class InMemoryDataflowOrchestrator implements DataflowOrchestrator {
 
   clear(): void {
     this.calls = [];
+  }
+}
+
+/**
+ * In-memory GC orchestrator for testing.
+ *
+ * Records startGc() calls for assertion, returns configurable status.
+ */
+export class InMemoryGcOrchestrator implements GcOrchestrator {
+  calls: Array<Parameters<GcOrchestrator['startGc']>[0]> = [];
+  statusMap = new Map<string, GcStatus>();
+
+  async startGc(params: Parameters<GcOrchestrator['startGc']>[0]): Promise<string> {
+    this.calls.push(params);
+    const executionId = `gc-${params.repo}-${params.gcId}`;
+    this.statusMap.set(executionId, { status: 'running' });
+    return executionId;
+  }
+
+  async getGcStatus(executionId: string): Promise<GcStatus> {
+    return this.statusMap.get(executionId) ?? { status: 'not_found' };
+  }
+
+  clear(): void {
+    this.calls = [];
+    this.statusMap.clear();
   }
 }
 

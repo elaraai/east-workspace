@@ -12,29 +12,31 @@
  * - DELETE /repos/{repo}/users/{userId} - Remove user
  */
 
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { variant } from '@elaraai/east';
 import { repoUsers, addUser, removeUser } from '@elaraai/e3-cloud-client';
 import { repoCreate } from '@elaraai/e3-api-client';
 import type { AdminTestContext } from '../context.js';
+import type { TestSetup } from '../setup.js';
 import { expectError } from '../helpers.js';
 
 /**
  * Register repository user management tests.
  *
- * @param getContext - Function that returns the current test context
+ * @param setup - Factory that creates a fresh test context per test
  */
-export function repoUsersTests(getContext: () => AdminTestContext): void {
-  void describe('Repository User Management', () => {
-    void beforeEach(async () => {
-      const ctx = getContext();
-      await repoCreate(ctx.config.baseUrl, ctx.repoName, await ctx.opts('owner'));
-    });
+export function repoUsersTests(setup: TestSetup<AdminTestContext>): void {
+  const withRepo: TestSetup<AdminTestContext> = async (t) => {
+    const ctx = await setup(t);
+    await repoCreate(ctx.config.baseUrl, ctx.repoName, await ctx.opts('owner'));
+    return ctx;
+  };
 
-    void describe('GET /repos/{repo}/users', () => {
-      void it('owner can list users', async () => {
-        const ctx = getContext();
+  void describe('Repository User Management', { concurrency: true }, () => {
+    void describe('GET /repos/{repo}/users', { concurrency: true }, () => {
+      void it('owner can list users', async (t) => {
+        const ctx = await withRepo(t);
         const ownerUser = await ctx.getTestUser('owner');
 
         const users = await repoUsers(ctx.config.baseUrl, ctx.repoName, await ctx.opts('owner'));
@@ -47,8 +49,8 @@ export function repoUsersTests(getContext: () => AdminTestContext): void {
         assert.strictEqual(owner.role.type, 'owner');
       });
 
-      void it('member can list users', async () => {
-        const ctx = getContext();
+      void it('member can list users', async (t) => {
+        const ctx = await withRepo(t);
         const memberUser = await ctx.getTestUser('member');
 
         // Add member first
@@ -66,8 +68,8 @@ export function repoUsersTests(getContext: () => AdminTestContext): void {
         assert.ok(users.length >= 2);
       });
 
-      void it('outsider cannot list users (403)', async () => {
-        const ctx = getContext();
+      void it('outsider cannot list users (403)', async (t) => {
+        const ctx = await withRepo(t);
 
         await expectError(
           repoUsers(ctx.config.baseUrl, ctx.repoName, await ctx.opts('outsider')),
@@ -76,9 +78,9 @@ export function repoUsersTests(getContext: () => AdminTestContext): void {
       });
     });
 
-    void describe('POST /repos/{repo}/users', () => {
-      void it('owner can add new member', async () => {
-        const ctx = getContext();
+    void describe('POST /repos/{repo}/users', { concurrency: true }, () => {
+      void it('owner can add new member', async (t) => {
+        const ctx = await withRepo(t);
         const memberUser = await ctx.getTestUser('member');
 
         const user = await addUser(
@@ -92,8 +94,8 @@ export function repoUsersTests(getContext: () => AdminTestContext): void {
         assert.strictEqual(user.role.type, 'member');
       });
 
-      void it('owner can add new owner', async () => {
-        const ctx = getContext();
+      void it('owner can add new owner', async (t) => {
+        const ctx = await withRepo(t);
         const memberUser = await ctx.getTestUser('member');
 
         const user = await addUser(
@@ -106,8 +108,8 @@ export function repoUsersTests(getContext: () => AdminTestContext): void {
         assert.strictEqual(user.role.type, 'owner');
       });
 
-      void it('owner can promote member to owner', async () => {
-        const ctx = getContext();
+      void it('owner can promote member to owner', async (t) => {
+        const ctx = await withRepo(t);
         const memberUser = await ctx.getTestUser('member');
 
         // Add as member first
@@ -134,8 +136,8 @@ export function repoUsersTests(getContext: () => AdminTestContext): void {
         assert.strictEqual(memberEntries.length, 1, 'Should have exactly one entry for member');
       });
 
-      void it('member cannot add users (403)', async () => {
-        const ctx = getContext();
+      void it('member cannot add users (403)', async (t) => {
+        const ctx = await withRepo(t);
         const memberUser = await ctx.getTestUser('member');
         const outsiderUser = await ctx.getTestUser('outsider');
 
@@ -159,8 +161,8 @@ export function repoUsersTests(getContext: () => AdminTestContext): void {
         );
       });
 
-      void it('returns user_not_found for unknown email', async () => {
-        const ctx = getContext();
+      void it('returns user_not_found for unknown email', async (t) => {
+        const ctx = await withRepo(t);
 
         // First verify owner can list users (to confirm repo exists and owner has access)
         await repoUsers(ctx.config.baseUrl, ctx.repoName, await ctx.opts('owner'));
@@ -176,8 +178,8 @@ export function repoUsersTests(getContext: () => AdminTestContext): void {
         );
       });
 
-      void it('outsider cannot add users (403)', async () => {
-        const ctx = getContext();
+      void it('outsider cannot add users (403)', async (t) => {
+        const ctx = await withRepo(t);
         const memberUser = await ctx.getTestUser('member');
 
         await expectError(
@@ -192,9 +194,9 @@ export function repoUsersTests(getContext: () => AdminTestContext): void {
       });
     });
 
-    void describe('DELETE /repos/{repo}/users/{userId}', () => {
-      void it('owner can remove member', async () => {
-        const ctx = getContext();
+    void describe('DELETE /repos/{repo}/users/{userId}', { concurrency: true }, () => {
+      void it('owner can remove member', async (t) => {
+        const ctx = await withRepo(t);
         const memberUser = await ctx.getTestUser('member');
 
         // Add member
@@ -219,8 +221,8 @@ export function repoUsersTests(getContext: () => AdminTestContext): void {
         assert.strictEqual(memberEntry, undefined, 'Member should be removed');
       });
 
-      void it('owner can remove other owner (if not last)', async () => {
-        const ctx = getContext();
+      void it('owner can remove other owner (if not last)', async (t) => {
+        const ctx = await withRepo(t);
         const memberUser = await ctx.getTestUser('member');
 
         // Add second owner
@@ -240,8 +242,8 @@ export function repoUsersTests(getContext: () => AdminTestContext): void {
         );
       });
 
-      void it('cannot remove last owner (400 last_owner)', async () => {
-        const ctx = getContext();
+      void it('cannot remove last owner (400 last_owner)', async (t) => {
+        const ctx = await withRepo(t);
         const ownerUser = await ctx.getTestUser('owner');
 
         // Try to remove self (only owner)
@@ -256,8 +258,8 @@ export function repoUsersTests(getContext: () => AdminTestContext): void {
         );
       });
 
-      void it('member cannot remove users (403)', async () => {
-        const ctx = getContext();
+      void it('member cannot remove users (403)', async (t) => {
+        const ctx = await withRepo(t);
         const memberUser = await ctx.getTestUser('member');
         const outsiderUser = await ctx.getTestUser('outsider');
 
@@ -287,8 +289,8 @@ export function repoUsersTests(getContext: () => AdminTestContext): void {
         );
       });
 
-      void it('outsider cannot remove users (403)', async () => {
-        const ctx = getContext();
+      void it('outsider cannot remove users (403)', async (t) => {
+        const ctx = await withRepo(t);
         const memberUser = await ctx.getTestUser('member');
 
         // Add member

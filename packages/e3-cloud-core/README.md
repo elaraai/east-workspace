@@ -115,6 +115,44 @@ interface TaskConfigStore {
 Implementations:
 - `DynamoTaskConfigStore` (e3-aws-storage) - DynamoDB-backed
 
+### DataflowOrchestrator
+
+Cloud-agnostic interface for starting dataflow executions.
+
+```typescript
+interface DataflowOrchestrator {
+  startExecution(params: {
+    repo: string;
+    workspace: string;
+    executionId: number;
+    force: boolean;
+    forceTasks: string[];
+    filter?: string;
+    runId: string;
+    triggeredBy?: { type: string; value: unknown };
+  }): Promise<string>;
+}
+```
+
+Implementations:
+- `InMemoryDataflowOrchestrator` (testing) - In this package
+- `SfnDataflowOrchestrator` (e3-aws-storage) - AWS Step Functions
+
+### GcOrchestrator
+
+Cloud-agnostic interface for orchestrating garbage collection executions.
+
+```typescript
+interface GcOrchestrator {
+  startGc(params: { repo: string; gcId: string; startTime: number }): Promise<string>;
+  getGcStatus(executionId: string): Promise<GcStatus>;
+}
+```
+
+Implementations:
+- `InMemoryGcOrchestrator` (testing) - In this package
+- `SfnGcOrchestrator` (e3-aws-api) - AWS Step Functions
+
 ## License
 
 BSL-1.1 - See LICENSE.md for details.

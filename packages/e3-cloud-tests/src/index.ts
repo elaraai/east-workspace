@@ -13,29 +13,27 @@
  *
  * @example
  * ```typescript
- * import { describe, beforeEach, afterEach } from 'node:test';
- * import { createAdminTestContext, allAdminTests, type AdminTestContext } from '@elaraai/e3-cloud-tests';
+ * import { describe } from 'node:test';
+ * import { createAdminTestContext, allAdminTests, type AdminTestContext, type TestSetup } from '@elaraai/e3-cloud-tests';
  *
- * describe('Admin API Compliance', () => {
- *   let context: AdminTestContext;
- *
- *   beforeEach(async () => {
- *     context = await createAdminTestContext({
- *       baseUrl: 'https://dev.e3.elaraai.com',
- *       getToken: (userId) => getTokenFromCognito(userId),
- *       getTestUser: (userId) => getTestUserFromEnv(userId),
- *     });
+ * const setup: TestSetup<AdminTestContext> = async (t) => {
+ *   const ctx = createAdminTestContext({
+ *     baseUrl: 'https://dev.e3.elaraai.com',
+ *     getToken: (userId) => getTokenFromCognito(userId),
+ *     getTestUser: (userId) => getTestUserFromEnv(userId),
  *   });
+ *   t.after(() => ctx.cleanup());
+ *   return ctx;
+ * };
  *
- *   afterEach(async () => {
- *     await context?.cleanup();
- *   });
- *
- *   // Register all test suites
- *   allAdminTests(() => context);
+ * describe('Admin API Compliance', { concurrency: true }, () => {
+ *   allAdminTests(setup);
  * });
  * ```
  */
+
+// TestSetup type
+export { type TestSetup } from './setup.js';
 
 // Context and configuration
 export {
@@ -69,19 +67,20 @@ import { authorizationTests } from './suites/authorization.js';
 import { scheduleTests } from './suites/schedules.js';
 import { taskConfigTests } from './suites/task-configs.js';
 import type { AdminTestContext } from './context.js';
+import type { TestSetup } from './setup.js';
 
 /**
  * Register all admin API test suites.
  *
  * This is a convenience function that registers all available test suites.
- * Call this in your test file after setting up beforeEach/afterEach hooks.
+ * Call this in your test file after creating a TestSetup factory.
  *
- * @param getContext - Function that returns the current test context
+ * @param setup - Factory that creates a fresh test context per test
  */
-export function allAdminTests(getContext: () => AdminTestContext): void {
-  whoamiTests(getContext);
-  repoUsersTests(getContext);
-  authorizationTests(getContext);
-  scheduleTests(getContext);
-  taskConfigTests(getContext);
+export function allAdminTests(setup: TestSetup<AdminTestContext>): void {
+  whoamiTests(setup);
+  repoUsersTests(setup);
+  authorizationTests(setup);
+  scheduleTests(setup);
+  taskConfigTests(setup);
 }

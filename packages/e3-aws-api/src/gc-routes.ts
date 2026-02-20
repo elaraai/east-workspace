@@ -5,18 +5,17 @@
  * GC Routes for e3 Cloud Platform
  *
  * Provides garbage collection endpoints:
- * - POST /api/repos/:repo/gc — Start GC via Step Functions
+ * - POST /api/repos/:repo/gc — Start GC via orchestrator
  * - GET /api/repos/:repo/gc/:executionId — Get GC status
  */
 
 import { Hono } from 'hono';
 import { variant, some, none } from '@elaraai/east';
-import { SFNClient, StartExecutionCommand, DescribeExecutionCommand } from '@aws-sdk/client-sfn';
 import { randomUUID } from 'node:crypto';
 import { sendSuccess, sendError, sendSuccessWithStatus } from '@elaraai/e3-api-server/beast2';
 import { ApiTypes } from '@elaraai/e3-api-server';
 import { extractIdentity } from './auth/index.js';
-import type { RepoManager } from '@elaraai/e3-cloud-core';
+import type { RepoManager, GcOrchestrator } from '@elaraai/e3-cloud-core';
 
 /** Helper to extract identity from Hono context (API Gateway event). */
 function getIdentity(c: any) {
@@ -29,24 +28,20 @@ const internalError = (message: string) => variant('internal', { message });
 
 /**
  * Create GC routes.
- *
- * GC uses SFNClient directly (not abstracted) since GC orchestration
- * abstraction is deferred to Phase 7.
  */
 export function createGcRoutes(deps: {
   repoManager: RepoManager;
-  sfn: SFNClient;
-  gcStateMachineArn: string | undefined;
+  gc?: GcOrchestrator;
 }): Hono {
-  const { repoManager, sfn, gcStateMachineArn } = deps;
+  const { repoManager, gc } = deps;
   const app = new Hono();
 
-  // POST /api/repos/:repo/gc - Start garbage collection via Step Functions
+  // POST /api/repos/:repo/gc - Start garbage collection
   app.post('/api/repos/:repo/gc', async (c) => {
     const repo = c.req.param('repo');
     const identity = getIdentity(c);
 
-    if (!gcStateMachineArn) {
+    if (!gc) {
       return sendError(ApiTypes.GcStartResultType, internalError('GC not available - state machine not configured'));
     }
 
@@ -67,19 +62,11 @@ export function createGcRoutes(deps: {
 
       const gcId = randomUUID();
       const startTime = Date.now();
-      const executionName = `gc-${repo}-${gcId}`;
+      const executionId = await gc.startGc({ repo, gcId, startTime });
 
-      await sfn.send(
-        new StartExecutionCommand({
-          stateMachineArn: gcStateMachineArn,
-          name: executionName,
-          input: JSON.stringify({ repo, gcId, startTime, jitterSeconds: 0 }),
-        })
-      );
+      console.log(`Started GC for repo ${repo}: ${executionId}, startedBy=${identity?.sub ?? 'unknown'}, startedByEmail=${identity?.email ?? 'unknown'}`);
 
-      console.log(`Started GC state machine for repo ${repo}: ${executionName}, startedBy=${identity?.sub ?? 'unknown'}, startedByEmail=${identity?.email ?? 'unknown'}`);
-
-      return sendSuccessWithStatus(ApiTypes.GcStartResultType, { executionId: executionName }, 202);
+      return sendSuccessWithStatus(ApiTypes.GcStartResultType, { executionId }, 202);
     } catch (err) {
       console.error('Failed to start GC:', err);
       return sendError(ApiTypes.GcStartResultType, internalError('Failed to start garbage collection'));
@@ -90,90 +77,47 @@ export function createGcRoutes(deps: {
   app.get('/api/repos/:repo/gc/:executionId', async (c) => {
     const executionId = c.req.param('executionId');
 
-    if (!gcStateMachineArn) {
+    if (!gc) {
       return sendError(ApiTypes.GcStatusResultType, internalError('GC not available'));
     }
 
-    // Construct execution ARN from state machine ARN and execution name
-    const arnParts = gcStateMachineArn.split(':');
-    const region = arnParts[3];
-    const account = arnParts[4];
-    const stateMachineName = arnParts[6];
-    const executionArn = `arn:aws:states:${region}:${account}:execution:${stateMachineName}:${executionId}`;
-
     try {
-      const execution = await sfn.send(
-        new DescribeExecutionCommand({ executionArn })
-      );
+      const gcStatus = await gc.getGcStatus(executionId);
 
-      switch (execution.status) {
-        case 'RUNNING':
+      switch (gcStatus.status) {
+        case 'running':
           return sendSuccess(ApiTypes.GcStatusResultType, {
             status: variant('running', null),
             stats: none,
             error: none,
           });
 
-        case 'SUCCEEDED': {
-          if (execution.output) {
-            const output = JSON.parse(execution.output);
-
-            if (output.success === false) {
-              const errorMsg = output.error ?? (output.status
-                ? `GC skipped - repo is in '${output.status}' state`
-                : 'GC skipped - repo not in valid state');
-              return sendSuccess(ApiTypes.GcStatusResultType, {
-                status: variant('failed', null),
-                stats: none,
-                error: some(errorMsg),
-              });
-            }
-
-            if (output.stats) {
-              return sendSuccess(ApiTypes.GcStatusResultType, {
-                status: variant('succeeded', null),
-                stats: some({
-                  deletedObjects: BigInt(output.stats.deletedObjects ?? 0),
-                  deletedPartials: BigInt(0),
-                  retainedObjects: BigInt(output.stats.retainedObjects ?? 0),
-                  skippedYoung: BigInt(output.stats.skippedYoung ?? 0),
-                  bytesFreed: BigInt(output.stats.bytesFreed ?? 0),
-                }),
-                error: none,
-              });
-            }
-          }
+        case 'succeeded':
           return sendSuccess(ApiTypes.GcStatusResultType, {
             status: variant('succeeded', null),
-            stats: none,
+            stats: gcStatus.stats
+              ? some({
+                  deletedObjects: BigInt(gcStatus.stats.deletedObjects),
+                  deletedPartials: BigInt(0),
+                  retainedObjects: BigInt(gcStatus.stats.retainedObjects),
+                  skippedYoung: BigInt(gcStatus.stats.skippedYoung),
+                  bytesFreed: BigInt(gcStatus.stats.bytesFreed),
+                })
+              : none,
             error: none,
           });
-        }
 
-        case 'FAILED':
-        case 'TIMED_OUT':
-        case 'ABORTED': {
-          const errorMessage = execution.error
-            ? `${execution.error}: ${execution.cause ?? ''}`
-            : `GC ${execution.status.toLowerCase()}`;
+        case 'failed':
           return sendSuccess(ApiTypes.GcStatusResultType, {
             status: variant('failed', null),
             stats: none,
-            error: some(errorMessage),
+            error: some(gcStatus.error),
           });
-        }
 
-        default:
-          return sendSuccess(ApiTypes.GcStatusResultType, {
-            status: variant('running', null),
-            stats: none,
-            error: none,
-          });
+        case 'not_found':
+          return sendError(ApiTypes.GcStatusResultType, internalError(`GC execution not found: ${executionId}`));
       }
-    } catch (err: any) {
-      if (err.name === 'ExecutionDoesNotExist') {
-        return sendError(ApiTypes.GcStatusResultType, internalError(`GC execution not found: ${executionId}`));
-      }
+    } catch (err) {
       console.error('Failed to get GC status:', err);
       return sendError(ApiTypes.GcStatusResultType, internalError('Failed to get GC status'));
     }

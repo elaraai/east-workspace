@@ -16,12 +16,13 @@
  * 4. Runs the dataflow and verifies successful execution
  */
 
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { variant } from '@elaraai/east';
 import { setCompute, getCompute } from '@elaraai/e3-cloud-client';
 import type { TestContext } from '@elaraai/e3-api-tests';
 import type { ComputeSize } from '@elaraai/e3-cloud-types';
+import type { TestSetup } from '../setup.js';
 
 import { executeAndLog } from './compute-helpers.js';
 
@@ -42,10 +43,10 @@ const COMPUTE_SIZES: Array<{ name: string; size: ComputeSize | null }> = [
  * The serverless test runs first as a baseline — if it fails, the issue is
  * with the test package, not Fargate infrastructure.
  *
- * @param getContext - Function that returns the current test context
+ * @param setup - Factory that creates a fresh test context per test
  */
-export function computeTests(getContext: () => TestContext): void {
-  void describe('Compute Execution', () => {
+export function computeTests(setup: TestSetup<TestContext>): void {
+  void describe('Compute Execution', { concurrency: true }, () => {
     for (const { name, size } of COMPUTE_SIZES) {
       const isFargate = size !== null;
       const timeout = isFargate ? 300_000 : 60_000;
@@ -54,8 +55,8 @@ export function computeTests(getContext: () => TestContext): void {
         const WORKSPACE = `compute-${name}`;
         const TASK_NAME = 'compute';
 
-        void beforeEach(async () => {
-          const ctx = getContext();
+        void it(`executes task on ${name}`, { timeout }, async (t) => {
+          const ctx = await setup(t);
 
           // Deploy a simple package with a compute task
           console.log(`[${name}] Creating and importing package...`);
@@ -78,10 +79,6 @@ export function computeTests(getContext: () => TestContext): void {
             );
           }
           console.log(`[${name}] Setup complete.`);
-        });
-
-        void it(`executes task on ${name}`, async () => {
-          const ctx = getContext();
 
           // Verify compute size
           if (size !== null) {

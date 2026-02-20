@@ -31,13 +31,12 @@
  *   AWS_PROFILE=elaraai-dev-elara-e3 npm test -- --test-name-pattern "Admin"
  */
 
-import { describe, beforeEach, afterEach, it } from 'node:test';
+import { describe, it } from 'node:test';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { getStackOutputs, getDeploymentId, type StackOutputs } from './helpers/stack-outputs.js';
-import { getToken as getDefaultToken, hasCredentials } from './helpers/credentials.js';
-import { CognitoTestAuth, type AuthResult } from './helpers/cognito-auth.js';
+import { CognitoTestAuth } from './helpers/cognito-auth.js';
 import {
   createAdminTestContext,
   allAdminTests,
@@ -45,6 +44,7 @@ import {
   type AdminTestConfig,
   type TestUserId,
   type TestUser,
+  type TestSetup,
 } from '@elaraai/e3-cloud-tests';
 
 const DEFAULT_SERVER = 'https://dev.e3.elaraai.com';
@@ -60,9 +60,6 @@ interface TestUserCredentials {
 
 /** Cached Cognito auth instance */
 let cognitoAuth: CognitoTestAuth | null = null;
-
-/** Cached stack outputs for credential checks */
-let cachedOutputs: StackOutputs | null = null;
 
 /**
  * Initialize Cognito auth if test users are configured in the stack.
@@ -137,38 +134,6 @@ async function getTestUserCredentialsAsync(
 }
 
 /**
- * Synchronous check for credentials (used during test setup).
- * Returns true if Cognito test users are available or manual credentials exist.
- */
-function getTestUserCredentials(userId: TestUserId, baseUrl: string): TestUserCredentials | null {
-  const envPrefix = `E3_TEST_${userId.toUpperCase()}`;
-
-  // Try environment variables first
-  const envToken = process.env[`${envPrefix}_TOKEN`];
-  const envSub = process.env[`${envPrefix}_SUB`];
-  const envEmail = process.env[`${envPrefix}_EMAIL`];
-
-  if (envToken && envSub && envEmail) {
-    return { token: envToken, sub: envSub, email: envEmail };
-  }
-
-  // Try credential file
-  const credPath = join(homedir(), '.e3', `test-credentials-${userId}.json`);
-  if (existsSync(credPath)) {
-    try {
-      const creds = JSON.parse(readFileSync(credPath, 'utf-8')) as TestUserCredentials;
-      if (creds.token && creds.sub && creds.email) {
-        return creds;
-      }
-    } catch {
-      // Fall through
-    }
-  }
-
-  return null;
-}
-
-/**
  * Check if multi-user test credentials are available.
  * Returns true if Cognito test users are enabled OR manual credentials exist.
  */
@@ -188,82 +153,77 @@ function hasMultiUserCredentials(outputs?: StackOutputs): boolean {
   });
 }
 
-describe('Admin API Compliance Tests', { timeout: 900000, concurrency: false }, () => {
-  let context: AdminTestContext;
-  let baseUrl: string;
-  let outputs: StackOutputs;
-
-  beforeEach(async () => {
-    // Get deployment info
+// Lazy admin config resolution (called once, cached)
+const getAdminConfig = (() => {
+  let cached: Promise<{ baseUrl: string; outputs: StackOutputs }> | null = null;
+  return () => (cached ??= (async () => {
     const deploymentId = getDeploymentId();
-    outputs = await getStackOutputs(deploymentId);
-    cachedOutputs = outputs;
-    baseUrl = outputs.platformUrl ?? DEFAULT_SERVER;
+    const outputs = await getStackOutputs(deploymentId);
+    const baseUrl = outputs.platformUrl ?? DEFAULT_SERVER;
 
-    // Check if multi-user credentials are available
     if (!hasMultiUserCredentials(outputs)) {
-      console.warn('\nWarning: Multi-user test credentials not configured.');
-      console.warn('Admin compliance tests require 4 test users to be configured.');
-      console.warn('See test/integration/README.md for setup instructions.\n');
-      console.warn('Skipping admin tests...\n');
-      return;
+      throw new Error(
+        'Multi-user test credentials not configured. ' +
+        'Admin compliance tests require 4 test users. ' +
+        'See test/integration/README.md for setup instructions.'
+      );
     }
 
-    // Log authentication method
     if (outputs.testUserSecretArn) {
       console.log('Using Cognito test users for authentication');
     } else {
       console.log('Using manual credentials for authentication');
     }
 
-    // Create test config with multi-user support
-    const config: AdminTestConfig = {
-      baseUrl,
-      getToken: async (userId: TestUserId): Promise<string> => {
-        const creds = await getTestUserCredentialsAsync(userId, outputs);
-        if (!creds) {
-          throw new Error(
-            `No credentials for test user '${userId}'. ` +
-            `Set E3_TEST_${userId.toUpperCase()}_TOKEN or create ~/.e3/test-credentials-${userId}.json`
-          );
-        }
-        return creds.token;
-      },
-      getTestUser: async (userId: TestUserId): Promise<TestUser> => {
-        const creds = await getTestUserCredentialsAsync(userId, outputs);
-        if (!creds) {
-          throw new Error(
-            `No credentials for test user '${userId}'. ` +
-            `Set E3_TEST_${userId.toUpperCase()}_SUB and E3_TEST_${userId.toUpperCase()}_EMAIL`
-          );
-        }
-        return { sub: creds.sub, email: creds.email };
-      },
-      cleanup: true,
-    };
+    return { baseUrl, outputs };
+  })());
+})();
 
-    // Create fresh test context for each test
-    context = await createAdminTestContext(config);
-  });
+const adminSetup: TestSetup<AdminTestContext> = async (t) => {
+  const { baseUrl, outputs } = await getAdminConfig();
 
-  afterEach(async () => {
-    if (context) {
-      await context.cleanup();
-    }
-  });
+  const config: AdminTestConfig = {
+    baseUrl,
+    getToken: async (userId: TestUserId): Promise<string> => {
+      const creds = await getTestUserCredentialsAsync(userId, outputs);
+      if (!creds) {
+        throw new Error(
+          `No credentials for test user '${userId}'. ` +
+          `Set E3_TEST_${userId.toUpperCase()}_TOKEN or create ~/.e3/test-credentials-${userId}.json`
+        );
+      }
+      return creds.token;
+    },
+    getTestUser: async (userId: TestUserId): Promise<TestUser> => {
+      const creds = await getTestUserCredentialsAsync(userId, outputs);
+      if (!creds) {
+        throw new Error(
+          `No credentials for test user '${userId}'. ` +
+          `Set E3_TEST_${userId.toUpperCase()}_SUB and E3_TEST_${userId.toUpperCase()}_EMAIL`
+        );
+      }
+      return { sub: creds.sub, email: creds.email };
+    },
+    cleanup: true,
+  };
 
+  const ctx = createAdminTestContext(config);
+  t.after(() => ctx.cleanup());
+  return ctx;
+};
+
+describe('Admin API Compliance Tests', { timeout: 900000, concurrency: 2 }, () => {
   // Skip tests if credentials not configured
   it('should have multi-user credentials configured', async () => {
     // This test verifies credentials are available
-    // Other tests will skip if context is not initialized
-    if (!hasMultiUserCredentials(cachedOutputs ?? undefined)) {
+    try {
+      await getAdminConfig();
+    } catch {
       console.log('Skipping: Multi-user credentials not configured');
       console.log('Either enable testUsers in deployment config or set manual credentials.');
-      return;
     }
   });
 
-  // Always register the admin compliance tests
-  // They will check for context in their setup and skip if not available
-  allAdminTests(() => context);
+  // Register all admin compliance tests
+  allAdminTests(adminSetup);
 });

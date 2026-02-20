@@ -29,6 +29,7 @@ export { DynamoAclStore } from './dynamo-acl-store.js';
 export { DynamoScheduleStore } from './dynamo-schedule-store.js';
 export { DynamoTaskConfigStore } from './dynamo-task-config-store.js';
 export { DynamoComputeResultStore } from './dynamo-compute-result-store.js';
+export { SfnDataflowOrchestrator } from './sfn-dataflow-orchestrator.js';
 
 // Re-export types from e3-core for convenience
 export type { ExecutionStateStore } from '@elaraai/e3-core';

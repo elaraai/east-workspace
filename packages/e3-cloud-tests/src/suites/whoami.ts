@@ -12,6 +12,7 @@ import { strict as assert } from 'node:assert';
 import { whoami } from '@elaraai/e3-cloud-client';
 import { variant, equalFor, OptionType, StringType } from '@elaraai/east';
 import type { AdminTestContext } from '../context.js';
+import type { TestSetup } from '../setup.js';
 import { expectError } from '../helpers.js';
 
 /** Helper to create Option<string> values for comparison */
@@ -23,12 +24,12 @@ const optionStringEqual = equalFor(OptionType(StringType));
 /**
  * Register whoami tests.
  *
- * @param getContext - Function that returns the current test context
+ * @param setup - Factory that creates a fresh test context per test
  */
-export function whoamiTests(getContext: () => AdminTestContext): void {
-  void describe('GET /api/whoami', () => {
-    void it('returns user info for authenticated request', async () => {
-      const ctx = getContext();
+export function whoamiTests(setup: TestSetup<AdminTestContext>): void {
+  void describe('GET /api/whoami', { concurrency: true }, () => {
+    void it('returns user info for authenticated request', async (t) => {
+      const ctx = await setup(t);
       const ownerUser = await ctx.getTestUser('owner');
 
       const user = await whoami(ctx.config.baseUrl, await ctx.opts('owner'));
@@ -40,8 +41,8 @@ export function whoamiTests(getContext: () => AdminTestContext): void {
       assert.strictEqual(user.isAdmin, false);
     });
 
-    void it('admin user has isAdmin=true', async () => {
-      const ctx = getContext();
+    void it('admin user has isAdmin=true', async (t) => {
+      const ctx = await setup(t);
       const adminUser = await ctx.getTestUser('admin');
 
       const user = await whoami(ctx.config.baseUrl, await ctx.opts('admin'));
@@ -50,8 +51,8 @@ export function whoamiTests(getContext: () => AdminTestContext): void {
       assert.strictEqual(user.isAdmin, true);
     });
 
-    void it('returns unauthorized for unauthenticated request', async () => {
-      const ctx = getContext();
+    void it('returns unauthorized for unauthenticated request', async (t) => {
+      const ctx = await setup(t);
 
       await expectError(
         whoami(ctx.config.baseUrl, { token: null }),
@@ -59,8 +60,8 @@ export function whoamiTests(getContext: () => AdminTestContext): void {
       );
     });
 
-    void it('returns unauthorized for invalid token', async () => {
-      const ctx = getContext();
+    void it('returns unauthorized for invalid token', async (t) => {
+      const ctx = await setup(t);
 
       await expectError(
         whoami(ctx.config.baseUrl, { token: 'invalid-token' }),
@@ -68,8 +69,8 @@ export function whoamiTests(getContext: () => AdminTestContext): void {
       );
     });
 
-    void it('different users return different identities', async () => {
-      const ctx = getContext();
+    void it('different users return different identities', async (t) => {
+      const ctx = await setup(t);
       const ownerUser = await ctx.getTestUser('owner');
       const memberUser = await ctx.getTestUser('member');
 
