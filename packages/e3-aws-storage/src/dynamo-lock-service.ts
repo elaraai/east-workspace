@@ -79,8 +79,8 @@ function parseHolder(holderStr: string): { type: string; value: any } | null {
  * DynamoDB-backed LockService implementation.
  *
  * Uses conditional writes for atomic lock acquisition:
- *   PK: REPO#{repo}
- *   SK: LOCK#{resource}
+ *   PK: LOCK/{repo}
+ *   SK: {resource}
  *
  * Locks have a TTL for automatic cleanup by DynamoDB.
  * Holder info is stored as an East text string (e.g., `.lambda (requestId="...", functionName="...")`).

@@ -48,8 +48,17 @@ const decodeDataflowRun = decodeBeast2For(DataflowRunType);
  * DynamoDB-backed RefStore implementation.
  *
  * Uses a single-table design with composite keys:
- *   PK: REPO#{repo}
- *   SK: PKG#{name}#{version} | WS#{name} | EXEC#{taskHash}#{inputsHash}
+ *   PK: PKG/{repo}              SK: {name}/{version}          — package refs
+ *   PK: WS/{repo}               SK: {name}                    — workspace state
+ *   PK: EXECUTION/{repo}/{taskHash}/{inputsHash}  SK: {id}    — execution cache
+ *   PK: DATAFLOW/{repo}/{workspace}  SK: {runId}              — dataflow runs
+ *   PK: REPO                    SK: {repo}                    — repo metadata
+ *   PK: EXEC/{repo}/{workspace} SK: {paddedId}                — execution tracking
+ *   PK: TASK/{repo}/{executionId}  SK: {taskName}             — task status
+ *   PK: EVENT/{repo}/{executionId} SK: {paddedSeq}            — execution events
+ *   PK: OBJ/{repo}              SK: {hash}                    — object catalogue
+ *   PK: LOCK/{repo}             SK: {resource}                — locks
+ *   PK: SCHEDULE/{repo}         SK: {workspace}               — schedules
  *
  * The `repo` parameter is used to construct the partition key, enabling
  * multiple repositories to share a single DynamoDB table.

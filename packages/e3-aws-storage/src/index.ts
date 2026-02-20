@@ -7,7 +7,7 @@
 export { S3DynamoStorage } from './s3-dynamo-storage.js';
 
 // Individual stores (for advanced usage)
-export { S3ObjectStore, ObjectNotFoundError } from './s3-object-store.js';
+export { S3ObjectStore } from './s3-object-store.js';
 export {
   DynamoRefStore,
   DynamoDataflowRunStore,

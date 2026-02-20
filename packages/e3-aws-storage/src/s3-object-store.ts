@@ -478,7 +478,7 @@ export class S3ObjectStore implements ObjectStore {
 /**
  * Error thrown when an object is not found.
  */
-export class ObjectNotFoundError extends Error {
+class ObjectNotFoundError extends Error {
   constructor(
     public readonly repo: string,
     public readonly hash: string
