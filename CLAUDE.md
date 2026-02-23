@@ -47,34 +47,49 @@ e3-cloud/
 │           └── e3-aws.ts             # CDK app entry
 │
 ├── packages/
-│   ├── e3-aws-api/           # Lambda handlers for API (@elaraai/e3-aws-api)
-│   │   └── src/              # Composition root + AWS-specific auth
-│   │
-│   ├── e3-aws-storage/       # S3+DynamoDB StorageBackend (@elaraai/e3-aws-storage)
+│   ├── e3-aws/              # Unified AWS implementation (@elaraai/e3-aws)
 │   │   └── src/
-│   │       └── s3-dynamo-storage.ts
-│   │
-│   ├── e3-aws-runner/        # Task execution handlers (@elaraai/e3-aws-runner)
-│   │   └── src/handlers/     # Step Functions Lambda + Fargate handlers
-│   │       ├── execute-task.ts                  # Lambda entry point for task execution
-│   │       ├── execute-task-core.ts             # Shared task execution logic
-│   │       ├── execute-task-compute-entry.ts    # Fargate entry point for task execution
-│   │       ├── collect-compute-result.ts        # Lambda to collect Fargate task results
-│   │       ├── dispatch-task.ts                 # Dispatches tasks with compute/timeout config
-│   │       ├── get-graph.ts                     # Resolves dataflow dependency graph
-│   │       ├── get-ready.ts                     # Finds tasks ready to execute
-│   │       ├── apply-results.ts                 # Applies task execution results
-│   │       ├── apply-tree-updates.ts            # Propagates tree state changes
-│   │       ├── check-completion.ts              # Checks if dataflow is complete
-│   │       ├── mark-skipped.ts                  # Marks tasks with unavailable inputs
-│   │       ├── finalize-execution.ts            # Finalizes dataflow run
-│   │       └── schedule-trigger.ts              # Handles scheduled execution triggers
+│   │       ├── storage/      # S3+DynamoDB StorageBackend
+│   │       │   ├── s3-dynamo-storage.ts         # Main storage backend
+│   │       │   ├── s3-object-store.ts           # S3 object storage
+│   │       │   ├── dynamo-ref-store.ts          # DynamoDB ref store
+│   │       │   ├── dynamo-lock-service.ts       # DynamoDB distributed locks
+│   │       │   ├── s3-gc-temp-store.ts          # S3 GcTempStore implementation
+│   │       │   ├── init.ts                      # Singleton initialization
+│   │       │   └── ...                          # Other DynamoDB stores
+│   │       ├── services/     # AWS service implementations
+│   │       │   ├── sfn-dataflow-orchestrator.ts # Step Functions dataflow orchestrator
+│   │       │   ├── sfn-gc-orchestrator.ts       # Step Functions GC orchestrator
+│   │       │   ├── eventbridge-scheduler.ts     # EventBridge scheduler service
+│   │       │   ├── cognito-identity.ts          # Cognito identity backend
+│   │       │   ├── cognito-device-flow.ts       # OAuth device flow proxy
+│   │       │   └── cognito-discovery.ts         # OIDC discovery endpoint
+│   │       └── handlers/     # Lambda + Fargate entry points
+│   │           ├── api.ts                       # API Lambda composition root
+│   │           ├── pre-token-generation.ts      # Cognito pre-token Lambda
+│   │           ├── sfn/                         # Step Functions Lambda handlers (thin wrappers)
+│   │           │   ├── execute-task.ts           # Lambda task execution wrapper
+│   │           │   ├── dispatch-task.ts          # Task dispatch wrapper
+│   │           │   ├── get-graph.ts              # Dependency graph wrapper
+│   │           │   ├── get-ready.ts              # Ready task discovery wrapper
+│   │           │   ├── apply-results.ts          # Result application wrapper
+│   │           │   ├── check-completion.ts       # Completion polling wrapper
+│   │           │   └── ...                       # Other SFN handler wrappers
+│   │           ├── gc/                          # GC state machine handlers
+│   │           │   ├── gc-mark.ts               # Mark phase
+│   │           │   ├── gc-sweep.ts              # Sweep phase
+│   │           │   ├── gc-cleanup.ts            # Cleanup phase
+│   │           │   └── ...                      # Other GC handlers
+│   │           └── fargate/                     # Fargate entry points
+│   │               └── main.ts                  # Fargate task execution
 │   │
 │   ├── e3-cloud-types/       # Shared East types for authorization (@elaraai/e3-cloud-types)
 │   │
 │   ├── e3-cloud-core/        # Cloud-agnostic interfaces, routes and authorization (@elaraai/e3-cloud-core)
 │   │   └── src/
 │   │       ├── routes/       # Cloud-agnostic Hono route handlers (admin, repo, dataflow, schedule, etc.)
+│   │       ├── steps/        # Cloud-agnostic dataflow step logic (get-graph, dispatch-task, execute-task, etc.)
+│   │       ├── gc/           # Cloud-agnostic GC step logic (gc-mark, gc-sweep, gc-cleanup, gc-scheduler, set-status)
 │   │       └── testing/      # In-memory implementations for unit tests
 │   │
 │   ├── e3-cloud-client/      # HTTP client for admin API (@elaraai/e3-cloud-client)

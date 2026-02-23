@@ -9,7 +9,7 @@ import type { ComputeSize, TaskTimeout } from '@elaraai/e3-cloud-types';
  * Storage interface for per-task compute and timeout configuration.
  *
  * Implementations:
- * - DynamoTaskConfigStore (e3-aws-storage) - DynamoDB-backed
+ * - DynamoTaskConfigStore (e3-aws) - DynamoDB-backed
  */
 export interface TaskConfigStore {
   /** Get the compute size for a task (null if none) */

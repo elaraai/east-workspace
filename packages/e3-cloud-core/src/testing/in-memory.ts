@@ -29,6 +29,9 @@ import type {
 import type { DataflowOrchestrator } from '../dataflow-orchestrator.js';
 import type { GcOrchestrator, GcStatus } from '../gc-orchestrator.js';
 import type { SchedulerService } from '../scheduler-service.js';
+import type { ComputeDispatcher } from '../compute-dispatcher.js';
+import type { GcTempStore } from '../gc-temp-store.js';
+import type { GcCleanupStore } from '../gc-cleanup-store.js';
 import { RepoAlreadyExistsError, InvalidRepoStatusError } from '../errors.js';
 
 /**
@@ -349,7 +352,7 @@ export class InMemoryRepoManager implements RepoManager {
     repo: string,
     expectedStatus: RepoStatus | RepoStatus[],
     newStatus: RepoStatus,
-    executionArn?: string,
+    executionRef?: string,
   ): Promise<void> {
     const meta = this.repos.get(repo);
     const expected = Array.isArray(expectedStatus) ? expectedStatus : [expectedStatus];
@@ -358,7 +361,7 @@ export class InMemoryRepoManager implements RepoManager {
     }
     meta.status = newStatus;
     meta.statusChangedAt = new Date().toISOString();
-    meta.executionArn = executionArn;
+    meta.executionRef = executionRef;
   }
 
   async repoExists(repo: string): Promise<boolean> {
@@ -666,3 +669,76 @@ export class InMemorySchedulerService implements SchedulerService {
     this.upsertedSchedules = [];
   }
 }
+
+/**
+ * In-memory compute dispatcher for testing.
+ *
+ * Records dispatch() calls for assertion, returns synthetic refs.
+ */
+export class InMemoryComputeDispatcher implements ComputeDispatcher {
+  calls: Array<Parameters<ComputeDispatcher['dispatch']>[0]> = [];
+
+  async dispatch(params: Parameters<ComputeDispatcher['dispatch']>[0]): Promise<{ ref: string }> {
+    this.calls.push(params);
+    return { ref: `compute-${params.repo}-${params.taskName}` };
+  }
+
+  clear(): void {
+    this.calls = [];
+  }
+}
+
+/**
+ * In-memory GC temp store for testing.
+ *
+ * Stores reachable sets in memory. Keys are of the form `gc-temp/{gcId}/reachable.txt`.
+ */
+export class InMemoryGcTempStore implements GcTempStore {
+  private store = new Map<string, Set<string>>();
+
+  async writeReachableSet(gcId: string, hashes: Set<string>): Promise<string> {
+    const key = `gc-temp/${gcId}/reachable.txt`;
+    this.store.set(key, new Set(hashes));
+    return key;
+  }
+
+  async readReachableSet(key: string): Promise<Set<string>> {
+    return this.store.get(key) ?? new Set();
+  }
+
+  async cleanupTempFiles(gcId: string): Promise<number> {
+    const prefix = `gc-temp/${gcId}/`;
+    let deleted = 0;
+    for (const key of this.store.keys()) {
+      if (key.startsWith(prefix)) {
+        this.store.delete(key);
+        deleted++;
+      }
+    }
+    return deleted;
+  }
+
+  clear(): void {
+    this.store.clear();
+  }
+}
+
+/**
+ * In-memory GC cleanup store for testing.
+ *
+ * Records cleanup calls for assertion.
+ */
+export class InMemoryGcCleanupStore implements GcCleanupStore {
+  calls: string[] = [];
+
+  async cleanupOrphanedVersions(repo: string): Promise<void> {
+    this.calls.push(repo);
+  }
+
+  clear(): void {
+    this.calls = [];
+  }
+}
+
+// Re-export step test helpers for convenience
+export { createMockStorage, taskState, graphTask, InMemoryStateStore } from './step-helpers.js';

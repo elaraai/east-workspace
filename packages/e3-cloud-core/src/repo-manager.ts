@@ -29,8 +29,8 @@ export interface RepoMetadata {
   createdAt: string;
   /** When the repo entered its current status */
   statusChangedAt: string;
-  /** Step Function execution ARN for current operation (if any) */
-  executionArn?: string;
+  /** Opaque execution reference for current operation (if any) */
+  executionRef?: string;
 }
 
 /**
@@ -55,14 +55,14 @@ export interface RepoManager {
    * @param repo - Repository name
    * @param expectedStatus - Current status(es) required for transition
    * @param newStatus - Target status
-   * @param executionArn - Optional execution ARN for tracking
+   * @param executionRef - Optional execution reference for tracking
    * @throws Error if current status doesn't match expected
    */
   setRepoStatus(
     repo: string,
     expectedStatus: RepoStatus | RepoStatus[],
     newStatus: RepoStatus,
-    executionArn?: string,
+    executionRef?: string,
   ): Promise<void>;
 
   /** Check if a repository exists. */

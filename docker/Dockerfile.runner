@@ -29,13 +29,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Create app directory
 WORKDIR /app
 
-# Copy runner handler files (Lambda + Fargate entrypoints + shared core)
-COPY packages/e3-aws-runner/dist/src/handlers/execute-task.js ./dist/handlers/
-COPY packages/e3-aws-runner/dist/src/handlers/execute-task.js.map ./dist/handlers/
-COPY packages/e3-aws-runner/dist/src/handlers/execute-task-core.js ./dist/handlers/
-COPY packages/e3-aws-runner/dist/src/handlers/execute-task-core.js.map ./dist/handlers/
-COPY packages/e3-aws-runner/dist/src/handlers/execute-task-compute-entry.js ./dist/handlers/
-COPY packages/e3-aws-runner/dist/src/handlers/execute-task-compute-entry.js.map ./dist/handlers/
+# Copy compiled e3-aws package (handlers use relative imports to storage/)
+COPY packages/e3-aws/dist/src ./dist/src
 
 # Create minimal package.json with only needed dependencies and install
 RUN echo '{"type":"module","dependencies":{"@aws-sdk/client-s3":"^3.966.0","@aws-sdk/client-dynamodb":"^3.966.0","@aws-sdk/util-dynamodb":"^3.966.0","@aws-sdk/client-sfn":"^3.966.0"}}' > package.json \
@@ -43,8 +38,6 @@ RUN echo '{"type":"module","dependencies":{"@aws-sdk/client-s3":"^3.966.0","@aws
 
 # Copy local @elaraai packages AFTER npm install (to avoid being cleaned up)
 # Must preserve the dist/src structure to match package.json "main": "dist/src/index.js"
-COPY packages/e3-aws-storage/dist/src ./node_modules/@elaraai/e3-aws-storage/dist/src
-COPY packages/e3-aws-storage/package.json ./node_modules/@elaraai/e3-aws-storage/
 COPY packages/e3-cloud-core/dist/src ./node_modules/@elaraai/e3-cloud-core/dist/src
 COPY packages/e3-cloud-core/package.json ./node_modules/@elaraai/e3-cloud-core/
 COPY packages/e3-cloud-types/dist/src ./node_modules/@elaraai/e3-cloud-types/dist/src
@@ -61,4 +54,4 @@ RUN mkdir -p node_modules/@elaraai \
 ENTRYPOINT ["/usr/local/bin/npx", "aws-lambda-ric"]
 
 # Default handler - execute-task
-CMD ["dist/handlers/execute-task.handler"]
+CMD ["dist/src/handlers/sfn/execute-task.handler"]

@@ -375,7 +375,7 @@ export class E3PlatformStack extends cdk.Stack {
     const preTokenGenerationFn = new nodejs.NodejsFunction(this, 'PreTokenGenerationHandler', {
       functionName: `${prefix}-pre-token-generation`,
       runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(repoRoot, 'packages', 'e3-aws-api', 'src', 'auth', 'pre-token-generation.ts'),
+      entry: path.join(repoRoot, 'packages', 'e3-aws', 'src', 'handlers', 'pre-token-generation.ts'),
       handler: 'handler',
       bundling: {
         minify: true,
@@ -559,7 +559,7 @@ export class E3PlatformStack extends cdk.Stack {
     // API
     // ============================================================
 
-    const apiPackagePath = path.join(repoRoot, 'packages', 'e3-aws-api');
+    const awsPackagePath = path.join(repoRoot, 'packages', 'e3-aws');
 
     // Cognito domain URL (e.g., e3-dev.auth.ap-southeast-2.amazoncognito.com)
     const cognitoDomainUrl = `${prefix}.auth.${this.region}.amazoncognito.com`;
@@ -568,7 +568,7 @@ export class E3PlatformStack extends cdk.Stack {
     this.apiHandler = new nodejs.NodejsFunction(this, 'ApiHandler', {
       functionName: `${prefix}-api`,
       runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(apiPackagePath, 'src', 'index.ts'),
+      entry: path.join(awsPackagePath, 'src', 'handlers', 'api.ts'),
       handler: 'handler',
       bundling: {
         minify: true,
@@ -788,13 +788,13 @@ export class E3PlatformStack extends cdk.Stack {
     //                                           ▼             ▼
     //                                      MarkSkipped    GetReady
 
-    const runnerPackagePath = path.join(repoRoot, 'packages', 'e3-aws-runner');
+    // All handler paths now come from the unified e3-aws package
 
     // Lambda: Get dependency graph from workspace
     const getGraphFn = new nodejs.NodejsFunction(this, 'GetGraphHandler', {
       functionName: `${prefix}-get-graph`,
       runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(runnerPackagePath, 'src', 'handlers', 'get-graph.ts'),
+      entry: path.join(awsPackagePath, 'src', 'handlers', 'sfn', 'get-graph.ts'),
       handler: 'handler',
       bundling: {
         minify: true,
@@ -816,7 +816,7 @@ export class E3PlatformStack extends cdk.Stack {
     const getReadyFn = new nodejs.NodejsFunction(this, 'GetReadyHandler', {
       functionName: `${prefix}-get-ready`,
       runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(runnerPackagePath, 'src', 'handlers', 'get-ready.ts'),
+      entry: path.join(awsPackagePath, 'src', 'handlers', 'sfn', 'get-ready.ts'),
       handler: 'handler',
       bundling: {
         minify: true,
@@ -837,7 +837,7 @@ export class E3PlatformStack extends cdk.Stack {
     const dispatchTaskFn = new nodejs.NodejsFunction(this, 'DispatchTaskHandler', {
       functionName: `${prefix}-dispatch-task`,
       runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(runnerPackagePath, 'src', 'handlers', 'dispatch-task.ts'),
+      entry: path.join(awsPackagePath, 'src', 'handlers', 'sfn', 'dispatch-task.ts'),
       handler: 'handler',
       bundling: {
         minify: true,
@@ -860,7 +860,7 @@ export class E3PlatformStack extends cdk.Stack {
     const applyResultsFn = new nodejs.NodejsFunction(this, 'ApplyResultsHandler', {
       functionName: `${prefix}-apply-results`,
       runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(runnerPackagePath, 'src', 'handlers', 'apply-results.ts'),
+      entry: path.join(awsPackagePath, 'src', 'handlers', 'sfn', 'apply-results.ts'),
       handler: 'handler',
       bundling: {
         minify: true,
@@ -883,7 +883,7 @@ export class E3PlatformStack extends cdk.Stack {
     const applyTreeUpdatesFn = new nodejs.NodejsFunction(this, 'ApplyTreeUpdatesHandler', {
       functionName: `${prefix}-apply-tree-updates`,
       runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(runnerPackagePath, 'src', 'handlers', 'apply-tree-updates.ts'),
+      entry: path.join(awsPackagePath, 'src', 'handlers', 'sfn', 'apply-tree-updates.ts'),
       handler: 'handler',
       bundling: {
         minify: true,
@@ -908,7 +908,7 @@ export class E3PlatformStack extends cdk.Stack {
     const finalizeExecutionFn = new nodejs.NodejsFunction(this, 'FinalizeExecutionHandler', {
       functionName: `${prefix}-finalize-execution`,
       runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(runnerPackagePath, 'src', 'handlers', 'finalize-execution.ts'),
+      entry: path.join(awsPackagePath, 'src', 'handlers', 'sfn', 'finalize-execution.ts'),
       handler: 'handler',
       bundling: {
         minify: true,
@@ -1035,7 +1035,7 @@ export class E3PlatformStack extends cdk.Stack {
         logging: ecs.LogDrivers.awsLogs({ logGroup: computeLogGroup, streamPrefix: `task-${id.toLowerCase()}` }),
         environment: { BUCKET_NAME: this.dataBucket.bucketName, TABLE_NAME: this.dataTable.tableName },
         entryPoint: ['node'],
-        command: ['dist/handlers/execute-task-compute-entry.js'],
+        command: ['dist/src/handlers/fargate/main.js'],
       });
       return { taskDef, container };
     };
@@ -1045,11 +1045,46 @@ export class E3PlatformStack extends cdk.Stack {
     const computeLarge = createComputeTaskDef('Large', 8192, 32768, 50);
     const computeXLarge = createComputeTaskDef('XLarge', 16384, 65536, 100);
 
+    // EventBridge rule: detect Fargate container crashes and notify Step Functions
+    const onTaskStoppedFn = new nodejs.NodejsFunction(this, 'OnTaskStoppedHandler', {
+      functionName: `${prefix}-on-task-stopped`,
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(awsPackagePath, 'src', 'handlers', 'fargate', 'on-task-stopped.ts'),
+      handler: 'handler',
+      bundling: {
+        minify: true,
+        sourceMap: true,
+        format: nodejs.OutputFormat.ESM,
+        banner: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
+      },
+      timeout: cdk.Duration.seconds(10),
+      memorySize: 128,
+      environment: {},
+    });
+
+    onTaskStoppedFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['states:SendTaskSuccess', 'states:SendTaskFailure'],
+      resources: ['*'],
+    }));
+
+    new events.Rule(this, 'ComputeTaskStoppedRule', {
+      ruleName: `${prefix}-compute-task-stopped`,
+      eventPattern: {
+        source: ['aws.ecs'],
+        detailType: ['ECS Task State Change'],
+        detail: {
+          clusterArn: [computeCluster.clusterArn],
+          lastStatus: ['STOPPED'],
+        },
+      },
+      targets: [new targets.LambdaFunction(onTaskStoppedFn)],
+    });
+
     // Collect-compute-result Lambda — reads result from DynamoDB after Fargate completes
     const collectComputeResultFn = new nodejs.NodejsFunction(this, 'CollectComputeResultHandler', {
       functionName: `${prefix}-collect-compute-result`,
       runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(runnerPackagePath, 'src', 'handlers', 'collect-compute-result.ts'),
+      entry: path.join(awsPackagePath, 'src', 'handlers', 'sfn', 'collect-compute-result.ts'),
       handler: 'handler',
       bundling: {
         minify: true,
@@ -1308,7 +1343,7 @@ export class E3PlatformStack extends cdk.Stack {
             { name: 'TASK_TOKEN', value: sfn.JsonPath.taskToken },
           ],
         }],
-        heartbeatTimeout: sfn.Timeout.at('$.timeoutSeconds'),
+        heartbeatTimeout: sfn.Timeout.duration(cdk.Duration.minutes(30)),
         resultPath: '$.computeCallback',
       });
     }
@@ -1541,7 +1576,7 @@ export class E3PlatformStack extends cdk.Stack {
     const setGcFn = new nodejs.NodejsFunction(this, 'SetGcHandler', {
       functionName: `${prefix}-set-gc`,
       runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(apiPackagePath, 'src', 'repo-lifecycle', 'set-status.ts'),
+      entry: path.join(awsPackagePath, 'src', 'handlers', 'gc', 'set-status.ts'),
       handler: 'setGCHandler',
       bundling: {
         minify: true,
@@ -1561,7 +1596,7 @@ export class E3PlatformStack extends cdk.Stack {
     const gcMarkFn = new nodejs.NodejsFunction(this, 'GcMarkHandler', {
       functionName: `${prefix}-gc-mark`,
       runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(apiPackagePath, 'src', 'repo-lifecycle', 'gc-mark.ts'),
+      entry: path.join(awsPackagePath, 'src', 'handlers', 'gc', 'gc-mark.ts'),
       handler: 'handler',
       bundling: {
         minify: true,
@@ -1583,7 +1618,7 @@ export class E3PlatformStack extends cdk.Stack {
     const gcSweepFn = new nodejs.NodejsFunction(this, 'GcSweepHandler', {
       functionName: `${prefix}-gc-sweep`,
       runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(apiPackagePath, 'src', 'repo-lifecycle', 'gc-sweep.ts'),
+      entry: path.join(awsPackagePath, 'src', 'handlers', 'gc', 'gc-sweep.ts'),
       handler: 'handler',
       bundling: {
         minify: true,
@@ -1605,7 +1640,7 @@ export class E3PlatformStack extends cdk.Stack {
     const gcCleanupFn = new nodejs.NodejsFunction(this, 'GcCleanupHandler', {
       functionName: `${prefix}-gc-cleanup`,
       runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(apiPackagePath, 'src', 'repo-lifecycle', 'gc-cleanup.ts'),
+      entry: path.join(awsPackagePath, 'src', 'handlers', 'gc', 'gc-cleanup.ts'),
       handler: 'handler',
       bundling: {
         minify: true,
@@ -1627,7 +1662,7 @@ export class E3PlatformStack extends cdk.Stack {
     const setActiveFn = new nodejs.NodejsFunction(this, 'SetActiveHandler', {
       functionName: `${prefix}-set-active`,
       runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(apiPackagePath, 'src', 'repo-lifecycle', 'set-status.ts'),
+      entry: path.join(awsPackagePath, 'src', 'handlers', 'gc', 'set-status.ts'),
       handler: 'setActiveHandler',
       bundling: {
         minify: true,
@@ -1777,7 +1812,7 @@ export class E3PlatformStack extends cdk.Stack {
     const gcSchedulerFn = new nodejs.NodejsFunction(this, 'GcSchedulerHandler', {
       functionName: `${prefix}-gc-scheduler`,
       runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(apiPackagePath, 'src', 'repo-lifecycle', 'gc-scheduler.ts'),
+      entry: path.join(awsPackagePath, 'src', 'handlers', 'gc', 'gc-scheduler.ts'),
       handler: 'handler',
       bundling: {
         minify: true,
@@ -1827,7 +1862,7 @@ export class E3PlatformStack extends cdk.Stack {
     const scheduleTriggerFn = new nodejs.NodejsFunction(this, 'ScheduleTriggerHandler', {
       functionName: `${prefix}-schedule-trigger`,
       runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(runnerPackagePath, 'src', 'handlers', 'schedule-trigger.ts'),
+      entry: path.join(awsPackagePath, 'src', 'handlers', 'sfn', 'schedule-trigger.ts'),
       handler: 'handler',
       bundling: {
         minify: true,

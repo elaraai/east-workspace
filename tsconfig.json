@@ -16,9 +16,7 @@
   },
   "files": [],
   "references": [
-{ "path": "./packages/e3-aws-api" },
-    { "path": "./packages/e3-aws-storage" },
-    { "path": "./packages/e3-aws-runner" },
+{ "path": "./packages/e3-aws" },
     { "path": "./packages/e3-cloud-types" },
     { "path": "./packages/e3-cloud-core" },
     { "path": "./packages/e3-cloud-client" },

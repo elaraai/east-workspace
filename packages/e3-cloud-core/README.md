@@ -6,9 +6,10 @@ Core authorization logic and interfaces for e3 admin.
 
 This package provides:
 
-- **Interfaces** - Cloud-agnostic storage interfaces (`AclStore`, `IdentityBackend`, `DataflowOrchestrator`, etc.)
+- **Interfaces** - Cloud-agnostic storage interfaces (`AclStore`, `IdentityBackend`, `DataflowOrchestrator`, `ComputeDispatcher`, etc.)
 - **Authorization logic** - Functions for access control (`hasAccess`, `canRemoveUser`, `isLastOwner`)
 - **Route factories** - Cloud-agnostic Hono route handlers for admin, repo, dataflow, schedule, task-config, and GC endpoints
+- **Step logic** - Cloud-agnostic dataflow step functions (get-graph, dispatch-task, execute-task, etc.)
 - **Error classes** - Typed error hierarchy for admin operations
 - **Testing utilities** - In-memory implementations for unit tests
 
@@ -59,6 +60,66 @@ await store.addUser('repo', {
 const hasOwnerAccess = await hasAccess(store, 'repo', 'user-1', 'owner', false);
 ```
 
+## Dataflow Steps
+
+Cloud-agnostic step logic is available from the `@elaraai/e3-cloud-core/steps` export path. Each step function takes abstract interfaces via dependency injection.
+
+```typescript
+import {
+  handleGetGraph,
+  handleGetReady,
+  handleDispatchTask,
+  executeTaskCore,
+  handleCollectComputeResult,
+  handleApplyResults,
+  handleApplyTreeUpdates,
+  handleCheckCompletion,
+  handleMarkSkipped,
+  handleFinalizeExecution,
+  handleScheduleTrigger,
+} from '@elaraai/e3-cloud-core/steps';
+```
+
+| Step | Description |
+|------|-------------|
+| `handleGetGraph` | Build task dependency graph for a workspace |
+| `handleGetReady` | Find tasks ready to execute |
+| `handleDispatchTask` | Prepare a task for execution (cache check, config lookup) |
+| `executeTaskCore` | Execute a task via east-py CLI |
+| `handleCollectComputeResult` | Read compute result from store after Fargate execution |
+| `handleApplyResults` | Apply task results to execution state |
+| `handleApplyTreeUpdates` | Write task outputs to workspace tree |
+| `handleCheckCompletion` | Poll task completion status |
+| `handleMarkSkipped` | Skip downstream tasks after failure |
+| `handleFinalizeExecution` | Finalize execution with summary and DataflowRun record |
+| `handleScheduleTrigger` | Handle scheduled dataflow trigger |
+
+## GC Steps
+
+Cloud-agnostic GC step logic is available from the `@elaraai/e3-cloud-core/gc` export path. Each step function takes abstract interfaces via dependency injection.
+
+```typescript
+import {
+  handleGcMark,
+  handleGcSweep,
+  handleGcCleanup,
+  handleGcScheduler,
+  handleSetGC,
+  handleSetActive,
+  calculateJitter,
+} from '@elaraai/e3-cloud-core/gc';
+```
+
+| Step | Description |
+|------|-------------|
+| `handleGcMark` | Mark reachable objects starting from active refs |
+| `handleGcSweep` | Sweep unreachable catalogue entries in batches |
+| `handleGcCleanup` | Cleanup orphaned S3 object versions in batches |
+| `handleGcScheduler` | Schedule GC for all repos with jitter |
+| `handleSetGC` | Transition repo status to GC mode |
+| `handleSetActive` | Transition repo status back to active |
+| `calculateJitter` | Calculate jitter delay for staggered GC scheduling |
+
 ## Interfaces
 
 ### AclStore
@@ -93,7 +154,7 @@ interface IdentityBackend {
 
 Implementations:
 - `MockIdentityBackend` (testing) - In this package
-- `CognitoIdentityBackend` (e3-aws-api) - Extracts from API Gateway authorizer, looks up users in Cognito
+- `CognitoIdentityBackend` (e3-aws) - Extracts from API Gateway authorizer, looks up users in Cognito
 
 ### TaskConfigStore
 
@@ -119,7 +180,7 @@ interface TaskConfigStore {
 ```
 
 Implementations:
-- `DynamoTaskConfigStore` (e3-aws-storage) - DynamoDB-backed
+- `DynamoTaskConfigStore` (e3-aws) - DynamoDB-backed
 
 ### DataflowOrchestrator
 
@@ -142,7 +203,7 @@ interface DataflowOrchestrator {
 
 Implementations:
 - `InMemoryDataflowOrchestrator` (testing) - In this package
-- `SfnDataflowOrchestrator` (e3-aws-storage) - AWS Step Functions
+- `SfnDataflowOrchestrator` (e3-aws) - AWS Step Functions
 
 ## Route Factories
 
@@ -172,6 +233,37 @@ import {
 | `createTaskConfigRoutes` | Per-task compute and timeout configuration |
 | `createGcRoutes` | Garbage collection (start, status) |
 
+### GcTempStore
+
+Temporary storage for GC mark phase results.
+
+```typescript
+interface GcTempStore {
+  putMarkedHashes(repo: string, gcId: string, hashes: string[]): Promise<void>;
+  getMarkedHashes(repo: string, gcId: string): Promise<Set<string>>;
+  deleteMarkedHashes(repo: string, gcId: string): Promise<void>;
+}
+```
+
+Implementations:
+- `InMemoryGcTempStore` (testing) - In this package
+- `S3GcTempStore` (e3-aws) - S3-backed
+
+### GcCleanupStore
+
+Storage interface for GC cleanup phase (orphaned object version deletion).
+
+```typescript
+interface GcCleanupStore {
+  deleteOrphanedVersions(repo: string, cursor?: string, batchSize?: number):
+    Promise<{ deleted: number; cursor?: string }>;
+}
+```
+
+Implementations:
+- `InMemoryGcCleanupStore` (testing) - In this package
+- S3-based implementation (e3-aws) - via S3DynamoStorage
+
 ### GcOrchestrator
 
 Cloud-agnostic interface for orchestrating garbage collection executions.
@@ -185,7 +277,7 @@ interface GcOrchestrator {
 
 Implementations:
 - `InMemoryGcOrchestrator` (testing) - In this package
-- `SfnGcOrchestrator` (e3-aws-api) - AWS Step Functions
+- `SfnGcOrchestrator` (e3-aws) - AWS Step Functions
 
 ## License
 

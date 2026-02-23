@@ -11,7 +11,7 @@
  * and deletes the result to pass it back through the Step Functions state machine.
  *
  * Implementations:
- * - DynamoComputeResultStore (e3-aws-storage) - DynamoDB-backed
+ * - DynamoComputeResultStore (e3-aws) - DynamoDB-backed
  * - InMemoryComputeResultStore (e3-cloud-core/testing) - In-memory for testing
  */
 export interface ComputeResultStore {

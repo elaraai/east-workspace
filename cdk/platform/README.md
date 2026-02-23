@@ -71,7 +71,7 @@ The `E3PlatformStack` deploys a complete e3 platform with:
 1. **AWS Account** - Bootstrapped deployment account (via `cdk/accounts`)
 2. **Build dependencies**:
    ```bash
-   npm run build --workspace=@elaraai/e3-aws-api
+   npm run build --workspace=@elaraai/e3-aws
    ```
 
 ### Deployment CLI
@@ -583,4 +583,4 @@ Ensure the identity provider is enabled on the App Client (Step 3 above).
 
 - [CDK Overview](../README.md) - High-level infrastructure architecture
 - [Accounts Setup](../accounts/README.md) - Account creation and domain configuration
-- [API Package](../../packages/e3-aws-api/) - Lambda handler source code
+- [AWS Package](../../packages/e3-aws/) - AWS implementation (storage, services, handlers)
