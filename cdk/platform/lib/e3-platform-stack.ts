@@ -1045,6 +1045,41 @@ export class E3PlatformStack extends cdk.Stack {
     const computeLarge = createComputeTaskDef('Large', 8192, 32768, 50);
     const computeXLarge = createComputeTaskDef('XLarge', 16384, 65536, 100);
 
+    // EventBridge rule: detect Fargate container crashes and notify Step Functions
+    const onTaskStoppedFn = new nodejs.NodejsFunction(this, 'OnTaskStoppedHandler', {
+      functionName: `${prefix}-on-task-stopped`,
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(awsPackagePath, 'src', 'handlers', 'fargate', 'on-task-stopped.ts'),
+      handler: 'handler',
+      bundling: {
+        minify: true,
+        sourceMap: true,
+        format: nodejs.OutputFormat.ESM,
+        banner: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
+      },
+      timeout: cdk.Duration.seconds(10),
+      memorySize: 128,
+      environment: {},
+    });
+
+    onTaskStoppedFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['states:SendTaskSuccess', 'states:SendTaskFailure'],
+      resources: ['*'],
+    }));
+
+    new events.Rule(this, 'ComputeTaskStoppedRule', {
+      ruleName: `${prefix}-compute-task-stopped`,
+      eventPattern: {
+        source: ['aws.ecs'],
+        detailType: ['ECS Task State Change'],
+        detail: {
+          clusterArn: [computeCluster.clusterArn],
+          lastStatus: ['STOPPED'],
+        },
+      },
+      targets: [new targets.LambdaFunction(onTaskStoppedFn)],
+    });
+
     // Collect-compute-result Lambda — reads result from DynamoDB after Fargate completes
     const collectComputeResultFn = new nodejs.NodejsFunction(this, 'CollectComputeResultHandler', {
       functionName: `${prefix}-collect-compute-result`,
@@ -1308,7 +1343,7 @@ export class E3PlatformStack extends cdk.Stack {
             { name: 'TASK_TOKEN', value: sfn.JsonPath.taskToken },
           ],
         }],
-        heartbeatTimeout: sfn.Timeout.at('$.timeoutSeconds'),
+        heartbeatTimeout: sfn.Timeout.duration(cdk.Duration.minutes(30)),
         resultPath: '$.computeCallback',
       });
     }
