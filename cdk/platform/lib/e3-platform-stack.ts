@@ -35,7 +35,9 @@ import * as ssm from 'aws-cdk-lib/aws-ssm';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as events from 'aws-cdk-lib/aws-events';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
+import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
+import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as scheduler from 'aws-cdk-lib/aws-scheduler';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
@@ -373,7 +375,7 @@ export class E3PlatformStack extends cdk.Stack {
     const preTokenGenerationFn = new nodejs.NodejsFunction(this, 'PreTokenGenerationHandler', {
       functionName: `${prefix}-pre-token-generation`,
       runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(repoRoot, 'packages', 'e3-aws-api', 'src', 'auth', 'pre-token-generation.ts'),
+      entry: path.join(repoRoot, 'packages', 'e3-aws', 'src', 'handlers', 'pre-token-generation.ts'),
       handler: 'handler',
       bundling: {
         minify: true,
@@ -557,7 +559,7 @@ export class E3PlatformStack extends cdk.Stack {
     // API
     // ============================================================
 
-    const apiPackagePath = path.join(repoRoot, 'packages', 'e3-aws-api');
+    const awsPackagePath = path.join(repoRoot, 'packages', 'e3-aws');
 
     // Cognito domain URL (e.g., e3-dev.auth.ap-southeast-2.amazoncognito.com)
     const cognitoDomainUrl = `${prefix}.auth.${this.region}.amazoncognito.com`;
@@ -566,7 +568,7 @@ export class E3PlatformStack extends cdk.Stack {
     this.apiHandler = new nodejs.NodejsFunction(this, 'ApiHandler', {
       functionName: `${prefix}-api`,
       runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(apiPackagePath, 'src', 'index.ts'),
+      entry: path.join(awsPackagePath, 'src', 'handlers', 'api.ts'),
       handler: 'handler',
       bundling: {
         minify: true,
@@ -786,13 +788,13 @@ export class E3PlatformStack extends cdk.Stack {
     //                                           ▼             ▼
     //                                      MarkSkipped    GetReady
 
-    const runnerPackagePath = path.join(repoRoot, 'packages', 'e3-aws-runner');
+    // All handler paths now come from the unified e3-aws package
 
     // Lambda: Get dependency graph from workspace
     const getGraphFn = new nodejs.NodejsFunction(this, 'GetGraphHandler', {
       functionName: `${prefix}-get-graph`,
       runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(runnerPackagePath, 'src', 'handlers', 'get-graph.ts'),
+      entry: path.join(awsPackagePath, 'src', 'handlers', 'sfn', 'get-graph.ts'),
       handler: 'handler',
       bundling: {
         minify: true,
@@ -814,7 +816,7 @@ export class E3PlatformStack extends cdk.Stack {
     const getReadyFn = new nodejs.NodejsFunction(this, 'GetReadyHandler', {
       functionName: `${prefix}-get-ready`,
       runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(runnerPackagePath, 'src', 'handlers', 'get-ready.ts'),
+      entry: path.join(awsPackagePath, 'src', 'handlers', 'sfn', 'get-ready.ts'),
       handler: 'handler',
       bundling: {
         minify: true,
@@ -835,7 +837,7 @@ export class E3PlatformStack extends cdk.Stack {
     const dispatchTaskFn = new nodejs.NodejsFunction(this, 'DispatchTaskHandler', {
       functionName: `${prefix}-dispatch-task`,
       runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(runnerPackagePath, 'src', 'handlers', 'dispatch-task.ts'),
+      entry: path.join(awsPackagePath, 'src', 'handlers', 'sfn', 'dispatch-task.ts'),
       handler: 'handler',
       bundling: {
         minify: true,
@@ -858,7 +860,7 @@ export class E3PlatformStack extends cdk.Stack {
     const applyResultsFn = new nodejs.NodejsFunction(this, 'ApplyResultsHandler', {
       functionName: `${prefix}-apply-results`,
       runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(runnerPackagePath, 'src', 'handlers', 'apply-results.ts'),
+      entry: path.join(awsPackagePath, 'src', 'handlers', 'sfn', 'apply-results.ts'),
       handler: 'handler',
       bundling: {
         minify: true,
@@ -881,7 +883,7 @@ export class E3PlatformStack extends cdk.Stack {
     const applyTreeUpdatesFn = new nodejs.NodejsFunction(this, 'ApplyTreeUpdatesHandler', {
       functionName: `${prefix}-apply-tree-updates`,
       runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(runnerPackagePath, 'src', 'handlers', 'apply-tree-updates.ts'),
+      entry: path.join(awsPackagePath, 'src', 'handlers', 'sfn', 'apply-tree-updates.ts'),
       handler: 'handler',
       bundling: {
         minify: true,
@@ -906,7 +908,7 @@ export class E3PlatformStack extends cdk.Stack {
     const finalizeExecutionFn = new nodejs.NodejsFunction(this, 'FinalizeExecutionHandler', {
       functionName: `${prefix}-finalize-execution`,
       runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(runnerPackagePath, 'src', 'handlers', 'finalize-execution.ts'),
+      entry: path.join(awsPackagePath, 'src', 'handlers', 'sfn', 'finalize-execution.ts'),
       handler: 'handler',
       bundling: {
         minify: true,
@@ -962,6 +964,141 @@ export class E3PlatformStack extends cdk.Stack {
       value: executeTaskFn.functionArn,
       description: 'Execute task Lambda function ARN',
     });
+
+    // SOCI Index Builder — auto-generates Seekable OCI indexes on ECR push
+    // for lazy container loading, reducing Fargate cold starts by ~50-60%
+    new cdk.CfnStack(this, 'SociIndexBuilder', {
+      templateUrl: `https://aws-ia-${this.region}.s3.${this.region}.amazonaws.com/cfn-ecr-aws-soci-index-builder/templates/SociIndexBuilder.yml`,
+      parameters: {
+        SociRepositoryImageTagFilters: `${prefix}-runner:*`,
+      },
+    });
+
+    // ============================================================
+    // FARGATE COMPUTE INFRASTRUCTURE
+    // ============================================================
+    // Sized compute execution for tasks configured as small/medium/large/xlarge.
+    // Uses ECS Fargate with per-size task definitions.
+
+    // VPC — public subnets only, no NAT (tasks pull from ECR/S3 via internet)
+    const computeVpc = new ec2.Vpc(this, 'ComputeVpc', {
+      vpcName: `${prefix}-compute`,
+      maxAzs: 2,
+      natGateways: 0,
+      subnetConfiguration: [{
+        name: 'Public',
+        subnetType: ec2.SubnetType.PUBLIC,
+        cidrMask: 24,
+      }],
+    });
+
+    // Security group — no inbound, all outbound
+    const computeTaskSg = new ec2.SecurityGroup(this, 'ComputeTaskSg', {
+      vpc: computeVpc,
+      description: 'e3 compute tasks - no inbound, all outbound',
+      allowAllOutbound: true,
+    });
+
+    // ECS Cluster
+    const computeCluster = new ecs.Cluster(this, 'ComputeCluster', {
+      clusterName: `${prefix}-compute`,
+      vpc: computeVpc,
+    });
+
+    // Shared log group for all compute task sizes
+    const computeLogGroup = new logs.LogGroup(this, 'ComputeTaskLogs', {
+      logGroupName: `/e3/${prefix}/compute-tasks`,
+      retention: logs.RetentionDays.TWO_WEEKS,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    // Helper to create a Fargate task definition for a given size
+    const createComputeTaskDef = (id: string, cpu: number, memoryMiB: number, storageGiB: number) => {
+      const taskDef = new ecs.FargateTaskDefinition(this, `ComputeTaskDef${id}`, {
+        family: `${prefix}-compute-${id.toLowerCase()}`,
+        cpu,
+        memoryLimitMiB: memoryMiB,
+        ephemeralStorageGiB: storageGiB,
+        runtimePlatform: {
+          cpuArchitecture: ecs.CpuArchitecture.X86_64,
+          operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
+        },
+      });
+      this.dataBucket.grantReadWrite(taskDef.taskRole);
+      this.dataTable.grantReadWriteData(taskDef.taskRole);
+      taskDef.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
+        actions: ['states:SendTaskSuccess', 'states:SendTaskFailure'],
+        resources: ['*'],  // Task tokens are self-scoping
+      }));
+      const container = taskDef.addContainer('runner', {
+        image: ecs.ContainerImage.fromEcrRepository(runnerRepo, 'latest'),
+        logging: ecs.LogDrivers.awsLogs({ logGroup: computeLogGroup, streamPrefix: `task-${id.toLowerCase()}` }),
+        environment: { BUCKET_NAME: this.dataBucket.bucketName, TABLE_NAME: this.dataTable.tableName },
+        entryPoint: ['node'],
+        command: ['dist/src/handlers/fargate/main.js'],
+      });
+      return { taskDef, container };
+    };
+
+    const computeSmall = createComputeTaskDef('Small', 2048, 8192, 30);
+    const computeMedium = createComputeTaskDef('Medium', 4096, 16384, 30);
+    const computeLarge = createComputeTaskDef('Large', 8192, 32768, 50);
+    const computeXLarge = createComputeTaskDef('XLarge', 16384, 65536, 100);
+
+    // EventBridge rule: detect Fargate container crashes and notify Step Functions
+    const onTaskStoppedFn = new nodejs.NodejsFunction(this, 'OnTaskStoppedHandler', {
+      functionName: `${prefix}-on-task-stopped`,
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(awsPackagePath, 'src', 'handlers', 'fargate', 'on-task-stopped.ts'),
+      handler: 'handler',
+      bundling: {
+        minify: true,
+        sourceMap: true,
+        format: nodejs.OutputFormat.ESM,
+        banner: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
+      },
+      timeout: cdk.Duration.seconds(10),
+      memorySize: 128,
+      environment: {},
+    });
+
+    onTaskStoppedFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['states:SendTaskSuccess', 'states:SendTaskFailure'],
+      resources: ['*'],
+    }));
+
+    new events.Rule(this, 'ComputeTaskStoppedRule', {
+      ruleName: `${prefix}-compute-task-stopped`,
+      eventPattern: {
+        source: ['aws.ecs'],
+        detailType: ['ECS Task State Change'],
+        detail: {
+          clusterArn: [computeCluster.clusterArn],
+          lastStatus: ['STOPPED'],
+        },
+      },
+      targets: [new targets.LambdaFunction(onTaskStoppedFn)],
+    });
+
+    // Collect-compute-result Lambda — reads result from DynamoDB after Fargate completes
+    const collectComputeResultFn = new nodejs.NodejsFunction(this, 'CollectComputeResultHandler', {
+      functionName: `${prefix}-collect-compute-result`,
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(awsPackagePath, 'src', 'handlers', 'sfn', 'collect-compute-result.ts'),
+      handler: 'handler',
+      bundling: {
+        minify: true,
+        sourceMap: true,
+        format: nodejs.OutputFormat.ESM,
+        banner: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
+      },
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 256,
+      environment: {
+        TABLE_NAME: this.dataTable.tableName,
+      },
+    });
+    this.dataTable.grantReadWriteData(collectComputeResultFn);
 
     // Now define the dataflow state machine states
     const getGraphState = new tasks.LambdaInvoke(this, 'GetGraphState', {
@@ -1074,6 +1211,9 @@ export class E3PlatformStack extends cdk.Stack {
         'outputPath.$': '$.dispatch.Payload.outputPath',
         'taskExecutionId.$': '$.dispatch.Payload.taskExecutionId',
         'cached.$': '$.dispatch.Payload.cached',
+        'computeSize.$': '$.dispatch.Payload.computeSize',
+        'timeoutMinutes.$': '$.dispatch.Payload.timeoutMinutes',
+        'timeoutSeconds.$': '$.dispatch.Payload.timeoutSeconds',
         // Pass through the entire dispatch payload so we can access outputHash if it exists
         'dispatchResult.$': '$.dispatch.Payload',
       },
@@ -1175,13 +1315,100 @@ export class E3PlatformStack extends cdk.Stack {
     });
     // PrepareCachedWrite is a terminal state in the Map iterator (collected by ApplyResults)
 
+    // ============================================================
+    // FARGATE COMPUTE STATES
+    // ============================================================
+    // EcsRunTask states for each Fargate size + routing Choice
+
+    // Helper to create an EcsRunTask state for a given size
+    const createComputeExecuteState = (
+      id: string,
+      taskDef: ecs.FargateTaskDefinition,
+      container: ecs.ContainerDefinition,
+    ) => {
+      return new tasks.EcsRunTask(this, `ExecuteTask${id}`, {
+        integrationPattern: sfn.IntegrationPattern.WAIT_FOR_TASK_TOKEN,
+        cluster: computeCluster,
+        taskDefinition: taskDef,
+        launchTarget: new tasks.EcsFargateLaunchTarget({
+          platformVersion: ecs.FargatePlatformVersion.LATEST,
+        }),
+        assignPublicIp: true,
+        subnets: { subnetType: ec2.SubnetType.PUBLIC },
+        securityGroups: [computeTaskSg],
+        containerOverrides: [{
+          containerDefinition: container,
+          environment: [
+            { name: 'TASK_EVENT', value: sfn.JsonPath.jsonToString(sfn.JsonPath.objectAt('$')) },
+            { name: 'TASK_TOKEN', value: sfn.JsonPath.taskToken },
+          ],
+        }],
+        heartbeatTimeout: sfn.Timeout.duration(cdk.Duration.minutes(30)),
+        resultPath: '$.computeCallback',
+      });
+    }
+
+    const executeTaskSmallState = createComputeExecuteState('Small', computeSmall.taskDef, computeSmall.container);
+    const executeTaskMediumState = createComputeExecuteState('Medium', computeMedium.taskDef, computeMedium.container);
+    const executeTaskLargeState = createComputeExecuteState('Large', computeLarge.taskDef, computeLarge.container);
+    const executeTaskXLargeState = createComputeExecuteState('XLarge', computeXLarge.taskDef, computeXLarge.container);
+
+    // CollectComputeResult: reads result from DynamoDB after Fargate completes
+    const collectComputeResultState = new tasks.LambdaInvoke(this, 'CollectComputeResult', {
+      lambdaFunction: collectComputeResultFn,
+      resultPath: '$.execution',
+      retryOnServiceExceptions: true,
+    });
+
+    // DidComputeSucceed: routes to success or failure write states
+    const didComputeSucceedChoice = new sfn.Choice(this, 'DidComputeSucceed')
+      .when(
+        sfn.Condition.stringEquals('$.execution.Payload.status', 'success'),
+        prepareSuccessWriteState
+      )
+      .otherwise(prepareFailureWriteState);
+
+    // Wire Fargate states: EcsRunTask -> CollectComputeResult -> DidComputeSucceed
+    collectComputeResultState.next(didComputeSucceedChoice);
+    executeTaskSmallState.next(collectComputeResultState);
+    executeTaskMediumState.next(collectComputeResultState);
+    executeTaskLargeState.next(collectComputeResultState);
+    executeTaskXLargeState.next(collectComputeResultState);
+
+    // Error handling for Fargate states
+    const computeTaskFailed = new sfn.Pass(this, 'ComputeTaskFailed', {
+      parameters: {
+        'status': 'failed',
+        'error': 'Compute task execution failed',
+        'exitCode': -1,
+        'duration': 0,
+      },
+      resultPath: '$.execution.Payload',
+    });
+    computeTaskFailed.next(prepareFailureWriteState);
+
+    executeTaskSmallState.addCatch(computeTaskFailed, { resultPath: '$.execution.error' });
+    executeTaskMediumState.addCatch(computeTaskFailed, { resultPath: '$.execution.error' });
+    executeTaskLargeState.addCatch(computeTaskFailed, { resultPath: '$.execution.error' });
+    executeTaskXLargeState.addCatch(computeTaskFailed, { resultPath: '$.execution.error' });
+    collectComputeResultState.addCatch(computeTaskFailed, { resultPath: '$.execution.error' });
+
+    // ChooseExecutor: routes to Lambda or appropriate Fargate size
+    const chooseExecutorChoice = new sfn.Choice(this, 'ChooseExecutor')
+      .when(sfn.Condition.stringEquals('$.computeSize.type', 'serverless'), executeTaskState)
+      .when(sfn.Condition.stringEquals('$.computeSize.type', 'small'), executeTaskSmallState)
+      .when(sfn.Condition.stringEquals('$.computeSize.type', 'medium'), executeTaskMediumState)
+      .when(sfn.Condition.stringEquals('$.computeSize.type', 'large'), executeTaskLargeState)
+      .when(sfn.Condition.stringEquals('$.computeSize.type', 'xlarge'), executeTaskXLargeState)
+      .otherwise(executeTaskState); // Fallback to serverless
+
     // Choice: Is task result cached?
     const isCachedChoice = new sfn.Choice(this, 'IsCached')
       .when(
         sfn.Condition.stringEquals('$.status', 'cached'),
         prepareCachedWriteState  // Cached results - prepare and write
       )
-      .otherwise(executeTaskState);
+      .otherwise(chooseExecutorChoice);  // Route to appropriate executor
 
     // Wire up the task execution chain
     dispatchTaskState.next(isNotReadyChoice);
@@ -1349,7 +1576,7 @@ export class E3PlatformStack extends cdk.Stack {
     const setGcFn = new nodejs.NodejsFunction(this, 'SetGcHandler', {
       functionName: `${prefix}-set-gc`,
       runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(apiPackagePath, 'src', 'repo-lifecycle', 'set-status.ts'),
+      entry: path.join(awsPackagePath, 'src', 'handlers', 'gc', 'set-status.ts'),
       handler: 'setGCHandler',
       bundling: {
         minify: true,
@@ -1369,7 +1596,7 @@ export class E3PlatformStack extends cdk.Stack {
     const gcMarkFn = new nodejs.NodejsFunction(this, 'GcMarkHandler', {
       functionName: `${prefix}-gc-mark`,
       runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(apiPackagePath, 'src', 'repo-lifecycle', 'gc-mark.ts'),
+      entry: path.join(awsPackagePath, 'src', 'handlers', 'gc', 'gc-mark.ts'),
       handler: 'handler',
       bundling: {
         minify: true,
@@ -1391,7 +1618,7 @@ export class E3PlatformStack extends cdk.Stack {
     const gcSweepFn = new nodejs.NodejsFunction(this, 'GcSweepHandler', {
       functionName: `${prefix}-gc-sweep`,
       runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(apiPackagePath, 'src', 'repo-lifecycle', 'gc-sweep.ts'),
+      entry: path.join(awsPackagePath, 'src', 'handlers', 'gc', 'gc-sweep.ts'),
       handler: 'handler',
       bundling: {
         minify: true,
@@ -1413,7 +1640,7 @@ export class E3PlatformStack extends cdk.Stack {
     const gcCleanupFn = new nodejs.NodejsFunction(this, 'GcCleanupHandler', {
       functionName: `${prefix}-gc-cleanup`,
       runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(apiPackagePath, 'src', 'repo-lifecycle', 'gc-cleanup.ts'),
+      entry: path.join(awsPackagePath, 'src', 'handlers', 'gc', 'gc-cleanup.ts'),
       handler: 'handler',
       bundling: {
         minify: true,
@@ -1435,7 +1662,7 @@ export class E3PlatformStack extends cdk.Stack {
     const setActiveFn = new nodejs.NodejsFunction(this, 'SetActiveHandler', {
       functionName: `${prefix}-set-active`,
       runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(apiPackagePath, 'src', 'repo-lifecycle', 'set-status.ts'),
+      entry: path.join(awsPackagePath, 'src', 'handlers', 'gc', 'set-status.ts'),
       handler: 'setActiveHandler',
       bundling: {
         minify: true,
@@ -1585,7 +1812,7 @@ export class E3PlatformStack extends cdk.Stack {
     const gcSchedulerFn = new nodejs.NodejsFunction(this, 'GcSchedulerHandler', {
       functionName: `${prefix}-gc-scheduler`,
       runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(apiPackagePath, 'src', 'repo-lifecycle', 'gc-scheduler.ts'),
+      entry: path.join(awsPackagePath, 'src', 'handlers', 'gc', 'gc-scheduler.ts'),
       handler: 'handler',
       bundling: {
         minify: true,
@@ -1635,7 +1862,7 @@ export class E3PlatformStack extends cdk.Stack {
     const scheduleTriggerFn = new nodejs.NodejsFunction(this, 'ScheduleTriggerHandler', {
       functionName: `${prefix}-schedule-trigger`,
       runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(runnerPackagePath, 'src', 'handlers', 'schedule-trigger.ts'),
+      entry: path.join(awsPackagePath, 'src', 'handlers', 'sfn', 'schedule-trigger.ts'),
       handler: 'handler',
       bundling: {
         minify: true,

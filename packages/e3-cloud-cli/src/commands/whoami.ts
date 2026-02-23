@@ -7,7 +7,7 @@
  * whoami command - show current user identity and admin status.
  */
 
-import { whoami } from '@elaraai/e3-admin-client';
+import { whoami } from '@elaraai/e3-cloud-client';
 import { getValidToken, listCredentials, normalizeServerUrl } from '../credentials.js';
 import { formatError, exitError } from '../utils.js';
 

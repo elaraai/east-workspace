@@ -18,7 +18,7 @@ import {
 } from '@aws-sdk/client-secrets-manager';
 
 /**
- * Test user identifiers (matches e3-admin-tests TestUserId type).
+ * Test user identifiers (matches e3-cloud-tests TestUserId type).
  */
 export type TestUserId = 'owner' | 'member' | 'outsider' | 'admin';
 
@@ -107,6 +107,9 @@ export class CognitoTestAuth {
   /** Cached authentication results (tokens) */
   private authCache: Map<TestUserId, AuthResult> = new Map();
 
+  /** In-flight authentication promises (deduplicates concurrent calls) */
+  private authPending: Map<TestUserId, Promise<AuthResult>> = new Map();
+
   constructor(config: CognitoTestAuthConfig) {
     const region = config.region ?? process.env.AWS_REGION ?? 'ap-southeast-2';
 
@@ -143,6 +146,20 @@ export class CognitoTestAuth {
       this.authCache.delete(userId);
     }
 
+    // Deduplicate concurrent requests for the same user
+    const pending = this.authPending.get(userId);
+    if (pending) return pending;
+
+    const promise = this.authenticateImpl(userId);
+    this.authPending.set(userId, promise);
+    try {
+      return await promise;
+    } finally {
+      this.authPending.delete(userId);
+    }
+  }
+
+  private async authenticateImpl(userId: TestUserId): Promise<AuthResult> {
     // Get password from Secrets Manager
     const password = await this.getPassword(userId);
     const email = `${userId}@${this.config.emailDomain}`;

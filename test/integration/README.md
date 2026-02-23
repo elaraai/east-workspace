@@ -24,13 +24,13 @@ Integration tests and demos for the e3 cloud platform.
 
 ```bash
 # Run all integration tests
-AWS_PROFILE=elaraai-dev-elara-e3 npm test
+AWS_PROFILE=elaraai-dev-elara-e3 npm run test:integration
 
 # Run specific test suite
-AWS_PROFILE=elaraai-dev-elara-e3 npm test -- --test-name-pattern "dataflow"
+AWS_PROFILE=elaraai-dev-elara-e3 npm run test:integration -- --test-name-pattern "dataflow"
 
 # Run API compliance tests only
-AWS_PROFILE=elaraai-dev-elara-e3 npm test -- --test-name-pattern "API Compliance"
+AWS_PROFILE=elaraai-dev-elara-e3 npm run test:integration -- --test-name-pattern "API Compliance"
 ```
 
 ## Demo: Interacting with a Workspace
@@ -199,6 +199,17 @@ e3 auth status
 e3 auth whoami https://dev.e3.elaraai.com
 ```
 
+## Cloud Compute Tests
+
+The compute tests verify that Fargate task execution works for all compute sizes (small, medium, large, xlarge). Each test deploys a package, configures a Fargate compute tier, runs the dataflow, and verifies success.
+
+```bash
+# Run compute tests only (~15-20 min for all 4 Fargate sizes)
+AWS_PROFILE=elaraai-dev-elara-e3 npm run test:compute
+```
+
+**Note:** Fargate cold starts can take 1-3 minutes per test. The overall suite timeout is 30 minutes.
+
 ## Admin API Compliance Tests
 
 The admin compliance tests verify the authorization system works correctly with multiple user roles. These tests require 4 test users with valid Cognito tokens.
@@ -251,7 +262,7 @@ Tests automatically authenticate using `USER_PASSWORD_AUTH` flow by:
 
 4. Run tests - authentication happens automatically:
    ```bash
-   AWS_PROFILE=elaraai-dev-elara-e3 npm test -- --test-name-pattern "Admin"
+   AWS_PROFILE=elaraai-dev-elara-e3 npm run test:integration -- --test-name-pattern "Admin"
    ```
 
 #### Option 2: Manual Credentials
@@ -297,7 +308,7 @@ Repeat for `test-credentials-member.json`, `test-credentials-outsider.json`, and
 
 ```bash
 # Run admin compliance tests
-AWS_PROFILE=elaraai-dev-elara-e3 npm test -- --test-name-pattern "Admin"
+AWS_PROFILE=elaraai-dev-elara-e3 npm run test:integration -- --test-name-pattern "Admin"
 ```
 
 ### Manual User Provisioning (if not using automated test users)

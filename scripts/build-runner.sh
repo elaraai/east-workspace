@@ -5,7 +5,7 @@
 # Prerequisites:
 # - AWS CLI configured with appropriate credentials
 # - Docker installed and running
-# - packages/e3-aws-runner must be built (npm run build)
+# - packages/e3-aws must be built (npm run build)
 #
 # Usage:
 #   ./scripts/build-runner.sh [--push]
@@ -49,17 +49,19 @@ echo "  ECR repo: $ECR_REPO_URI"
 echo "  Push: $PUSH_IMAGE"
 
 # Ensure runner package is built
-if [ ! -d "$PROJECT_ROOT/packages/e3-aws-runner/dist" ]; then
-  echo "Error: packages/e3-aws-runner/dist not found. Run 'npm run build' first."
+if [ ! -d "$PROJECT_ROOT/packages/e3-aws/dist" ]; then
+  echo "Error: packages/e3-aws/dist not found. Run 'npm run build' first."
   exit 1
 fi
 
 # Build the image
 cd "$PROJECT_ROOT"
 docker build \
+  --pull \
   -f docker/Dockerfile.runner \
   -t "$ECR_REPO_NAME:latest" \
   -t "$ECR_REPO_URI:latest" \
+  --provenance=false \
   .
 
 echo "Image built successfully: $ECR_REPO_NAME:latest"

@@ -14,9 +14,9 @@ import {
   listSchedules,
   setSchedule,
   removeSchedule,
-} from '@elaraai/e3-admin-client';
-import { RepoUserType } from '@elaraai/e3-admin-types';
-import type { RepoUser, WhoamiResponse, Schedule, ScheduleRequest, AddUserRequest } from '@elaraai/e3-admin-client';
+} from '@elaraai/e3-cloud-client';
+import { RepoUserType } from '@elaraai/e3-cloud-types';
+import type { RepoUser, WhoamiResponse, Schedule, ScheduleRequest, AddUserRequest } from '@elaraai/e3-cloud-client';
 import type { WorkspaceInfo, DataflowExecutionState } from '@elaraai/e3-api-client';
 import { workspaceList, dataflowExecutePoll } from '@elaraai/e3-api-client';
 import { API_URL, getRequestOptions } from '../api';
@@ -98,7 +98,7 @@ export function useToggleSchedule(repo: string) {
       const request: ScheduleRequest = {
         cronExpression: schedule.cronExpression,
         timezone: variant('some', schedule.timezone) as ScheduleRequest['timezone'],
-        forceTaskPatterns: schedule.forceTaskPatterns,
+        forceTasks: schedule.forceTasks,
         enabled: !schedule.enabled,
         description: schedule.description,
       };

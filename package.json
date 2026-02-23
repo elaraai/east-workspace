@@ -1,5 +1,5 @@
 {
-  "name": "@elaraai/e3-aws",
+  "name": "@elaraai/e3-cloud",
   "version": "0.0.1-alpha.0",
   "private": true,
   "description": "AWS cloud infrastructure for e3",
@@ -10,7 +10,10 @@
     "packages/*",
     "web",
     "test/integration",
-    "test/manual/schedule"
+    "test/manual/shared",
+    "test/manual/schedule",
+    "test/manual/chain-perf",
+    "test/manual/timeout-test"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",

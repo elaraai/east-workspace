@@ -23,6 +23,6 @@ npm run teardown -w e3-manual-schedule-test
 
 ## What It Does
 
-1. **Setup**: Creates a `schedule-test` repo, imports a package with a `timestamp` task (returns `Time.now()` — milliseconds since epoch), deploys to workspace `test-schedule`, and sets a cron schedule to run every minute with `forceTaskPatterns: ['*']`.
+1. **Setup**: Creates a `schedule-test` repo, imports a package with a `timestamp` task (returns `Time.now()` — milliseconds since epoch), deploys to workspace `test-schedule`, and sets a cron schedule to run every minute with `forceTasks: ['timestamp']`.
 2. **Status**: Prints the current schedule configuration and latest dataflow execution state.
 3. **Teardown**: Removes the schedule, workspace, and repo.

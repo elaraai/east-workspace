@@ -1,19 +1,29 @@
-# e3-aws
+# e3-cloud
 
-AWS cloud infrastructure for hosting e3 solutions.
+Multi-cloud implementation for SaaS hosting of e3 business optimization and analytics solutions.
+
+## e3
+
+The "East Execution Engine" or e3 is Elara's solution to hosting and executing business solutions.
+Typically, consultants will set up solutions using East programming language and ecosystem, and e3 will host the datasets, dataflow-based compute and UI, organized into persistent workspaces.
+In short, e3 is a complete platform for near-real-time advanced anlytics.
 
 ## Overview
 
-This repository contains the AWS CDK infrastructure, Lambda handlers, and frontend application for deploying e3 as a multi-tenant cloud service.
+Our local-first implementation of e3 can be found at ../e3, and this package builds directly on that to provide enterprise cloud-only features, multi-cloud abstractions and a concrete AWS cloud implementation.
 
-**Architecture:** CloudFront + API Gateway + Lambda + S3 + DynamoDB + Step Functions
+The base e3 packages provide abstract interfaces for storage, compute and so-on and is designed to be extended into different concrete implementations.
+Generic algorithms are provided using a dependency injection approach.
 
-See `design/cloud-options.md` for architecture decisions and `design/cloud-devplan.md` for the development roadmap.
+This repository contains the abstractions and generic algorithms for enterprise cloud features, concrete AWS implementations (e.g. S3 and DynamaDB for the storage backend), AWS CDK infrastructure, Lambda handlers, and frontend application for deploying e3 as a multi-tenant cloud service.
+Elara services various industries including banking, governemnt, health and defence, and in future we will create Azure and/or GCP implementations to serve our clients' infrastructure requirements.
+
+**AWS Architecture:** CloudFront + API Gateway + Lambda + ECS Fargate + S3 + DynamoDB + Step Functions
 
 ## Structure
 
 ```
-e3-aws/
+e3-cloud/
 ├── .github/
 │   └── workflows/
 │       ├── deploy-platform.yml  # GitHub Actions CI/CD (manual trigger, OIDC auth)
@@ -37,21 +47,55 @@ e3-aws/
 │           └── e3-aws.ts             # CDK app entry
 │
 ├── packages/
-│   ├── e3-aws-api/           # Lambda handlers for API (@elaraai/e3-aws-api)
-│   │   └── src/handlers/     # Route handlers
-│   │
-│   ├── e3-aws-storage/       # S3+DynamoDB StorageBackend (@elaraai/e3-aws-storage)
+│   ├── e3-aws/              # Unified AWS implementation (@elaraai/e3-aws)
 │   │   └── src/
-│   │       └── s3-dynamo-storage.ts
+│   │       ├── storage/      # S3+DynamoDB StorageBackend
+│   │       │   ├── s3-dynamo-storage.ts         # Main storage backend
+│   │       │   ├── s3-object-store.ts           # S3 object storage
+│   │       │   ├── dynamo-ref-store.ts          # DynamoDB ref store
+│   │       │   ├── dynamo-lock-service.ts       # DynamoDB distributed locks
+│   │       │   ├── s3-gc-temp-store.ts          # S3 GcTempStore implementation
+│   │       │   ├── init.ts                      # Singleton initialization
+│   │       │   └── ...                          # Other DynamoDB stores
+│   │       ├── services/     # AWS service implementations
+│   │       │   ├── sfn-dataflow-orchestrator.ts # Step Functions dataflow orchestrator
+│   │       │   ├── sfn-gc-orchestrator.ts       # Step Functions GC orchestrator
+│   │       │   ├── eventbridge-scheduler.ts     # EventBridge scheduler service
+│   │       │   ├── cognito-identity.ts          # Cognito identity backend
+│   │       │   ├── cognito-device-flow.ts       # OAuth device flow proxy
+│   │       │   └── cognito-discovery.ts         # OIDC discovery endpoint
+│   │       └── handlers/     # Lambda + Fargate entry points
+│   │           ├── api.ts                       # API Lambda composition root
+│   │           ├── pre-token-generation.ts      # Cognito pre-token Lambda
+│   │           ├── sfn/                         # Step Functions Lambda handlers (thin wrappers)
+│   │           │   ├── execute-task.ts           # Lambda task execution wrapper
+│   │           │   ├── dispatch-task.ts          # Task dispatch wrapper
+│   │           │   ├── get-graph.ts              # Dependency graph wrapper
+│   │           │   ├── get-ready.ts              # Ready task discovery wrapper
+│   │           │   ├── apply-results.ts          # Result application wrapper
+│   │           │   ├── check-completion.ts       # Completion polling wrapper
+│   │           │   └── ...                       # Other SFN handler wrappers
+│   │           ├── gc/                          # GC state machine handlers
+│   │           │   ├── gc-mark.ts               # Mark phase
+│   │           │   ├── gc-sweep.ts              # Sweep phase
+│   │           │   ├── gc-cleanup.ts            # Cleanup phase
+│   │           │   └── ...                      # Other GC handlers
+│   │           └── fargate/                     # Fargate entry points
+│   │               └── main.ts                  # Fargate task execution
 │   │
-│   ├── e3-aws-runner/        # Task execution handlers (@elaraai/e3-aws-runner)
-│   │   └── src/handlers/     # Step Functions Lambda handlers
+│   ├── e3-cloud-types/       # Shared East types for authorization (@elaraai/e3-cloud-types)
 │   │
-│   ├── e3-admin-types/       # Shared East types for authorization (@elaraai/e3-admin-types)
+│   ├── e3-cloud-core/        # Cloud-agnostic interfaces, routes and authorization (@elaraai/e3-cloud-core)
+│   │   └── src/
+│   │       ├── routes/       # Cloud-agnostic Hono route handlers (admin, repo, dataflow, schedule, etc.)
+│   │       ├── steps/        # Cloud-agnostic dataflow step logic (get-graph, dispatch-task, execute-task, etc.)
+│   │       ├── gc/           # Cloud-agnostic GC step logic (gc-mark, gc-sweep, gc-cleanup, gc-scheduler, set-status)
+│   │       └── testing/      # In-memory implementations for unit tests
 │   │
-│   ├── e3-admin-core/        # Authorization logic and interfaces (@elaraai/e3-admin-core)
+│   ├── e3-cloud-client/      # HTTP client for admin API (@elaraai/e3-cloud-client)
 │   │
-│   ├── e3-admin-client/      # HTTP client for admin API (@elaraai/e3-admin-client)
+│   ├── e3-cloud-tests/       # Portable integration tests for cloud deployments (@elaraai/e3-cloud-tests)
+│   │   └── src/suites/       # Test suites (admin auth, compute execution)
 │   │
 │   └── e3-cloud-cli/         # CLI for cloud management (@elaraai/e3-cloud-cli)
 │
@@ -82,13 +126,11 @@ e3-aws/
 │           ├── RepoDashboardPage.tsx      # Repo workspaces + packages
 │           ├── WorkspaceViewPage.tsx      # Workspace detail + dataflow
 │           ├── AdminPage.tsx              # Admin overview dashboard
-│           ├── AdminReposPage.tsx         # Admin repository management table
-│           ├── AdminRepoDetailPage.tsx    # Admin per-repo detail (users + infrastructure)
-│           └── AdminSchedulesPage.tsx     # Admin cross-repo schedule listing
+│           ├── AdminRepoDetailPage.tsx    # Admin per-repo detail (users + task configs)
+│           ├── InputViewPage.tsx          # Dataset input detail view
+│           └── TaskViewPage.tsx           # Task detail view
 │
 └── design/                   # Architecture documentation
-    ├── cloud-options.md      # Architecture decisions
-    └── cloud-devplan.md      # Development roadmap
 ```
 
 ## Related Projects
@@ -99,8 +141,12 @@ e3-aws/
 | **east** | `../east` | East language compiler and type system |
 | **east-ui** | `../east-ui` | East UI component library (Chakra-based) |
 | **east-node** | `../east-node` | East runtime for Node.js |
+| **east-python** | `../east-python` | Python-based East runtime (with datascience integrations) |
+| **east-plugin** | `../east-plugin` | e3 ecosystem-wide artifacts |
 
-**Important:** Changes to related projects (`../e3`, `../east`, etc.) are consumed via npm packages. After editing a related project, you must publish the updated packages to npm before e3-aws will pick up the changes. A local build alone is not sufficient — `npm install` / `npm update` in e3-aws pulls from the registry.
+**Important:** Changes to related projects (`../e3`, `../east`, etc.) are consumed via npm packages. After editing a related project, you must publish the updated packages to npm before e3-aws will pick up the changes. A local build alone is not sufficient — `npm install` / `npm update` in e3-cloud pulls from the registry.
+
+**GitHub**: For historical reasons, the git repository for e3-cloud is hosted as e3-aws at `github.com/elaraai/e3-aws`.
 
 ## Key Concepts
 
@@ -108,6 +154,8 @@ e3-aws/
 - **StorageBackend** - Interface from e3-core for storage operations (this repo provides `S3DynamoStorage`)
 - **DataflowExecutor** - Interface from e3-core for orchestration (this repo provides Step Functions implementation)
 - **UIComponentType** - East UI type that the frontend renders using `east-ui-components`
+- **ComputeSize** - Per-task compute tier (serverless/small/medium/large/xlarge). Serverless = Lambda, others = Fargate
+- **TaskConfig** - Per-task configuration for compute size and timeout, stored in DynamoDB
 
 ## Development
 
@@ -229,11 +277,13 @@ e3 login https://dev.e3.elaraai.com
 
 # 2. Run integration tests
 cd test/integration
-AWS_PROFILE=elaraai-dev-elara-e3 npm test
+AWS_PROFILE=elaraai-dev-elara-e3 npm run test:integration
 
 # Or run specific test file:
-AWS_PROFILE=elaraai-dev-elara-e3 npm test -- --test-name-pattern "diamond"
+AWS_PROFILE=elaraai-dev-elara-e3 npm run test:integration -- --test-name-pattern "diamond"
 ```
+
+**Known issue — DynamoDB throttling on first run:** Integration tests run concurrently and can trigger `ThrottlingException` (`TableReadKeyRangeThroughputExceeded`) on the `e3-dev-data` DynamoDB table when the table has been idle. DynamoDB auto-scales partitions after the burst, so a second run typically passes. Check CloudWatch logs (`/aws/lambda/e3-dev-api`) to confirm throttling vs a real bug. If this starts happening persistently (not just the first cold run), we need a permanent fix — either increase base capacity, add retry/backoff in the storage layer, or cap test concurrency.
 
 ## CDK Deployments
 
@@ -245,13 +295,20 @@ AWS_PROFILE=elaraai-dev-elara-e3 npm test -- --test-name-pattern "diamond"
 
 ## References
 
-- Design docs: `./design/cloud-options.md`, `./design/cloud-devplan.md`
+- Design docs: `./design/cloud-options.md`, `./design/cloud-devplan.md`, `./design/fargate-compute.md`, etc
 - e3 design: `../e3/design/e3-mvp.md`
 - e3-core interfaces: `../e3/packages/e3-core/src/` (StorageBackend, DataflowExecutor)
 - east-ui components: `../east-ui/packages/east-ui-components/src/`
 
 ## Making changes
 
-Ensure all changes are reflected in the project REAMDE.md files.
+Ensure all changes are reflected in the project README.md files.
 In particular deployment instructions, schemas and project structures must be kept up-to-date at all times.
 The integration tests must have a 100% pass rate - use the dev environment to test all changes.
+
+All features are to be designed as cloud-agnostic abstractions and generic algorithms, using dependency injection for AWS functionality.
+Generally, logic that could live in ../e3 should be added there.
+Logic that could be shared across different cloud implementations should be made generic using dependency injection.
+We should minimize the amount of concrete code throughout (e.g. AWS lambda definitions should be short stubs).
+Abstract interfaces should have in-memory implementations (functioning mocks) for rapid unit and integration testing, while the tests themselves should be abstracted over implementations so they can be shared and reused.
+This ensures our different implementations (local, AWS, Azure, GCP) behave identically and robustly.

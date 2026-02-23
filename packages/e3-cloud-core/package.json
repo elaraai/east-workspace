@@ -1,0 +1,51 @@
+{
+  "name": "@elaraai/e3-cloud-core",
+  "version": "0.0.1-alpha.0",
+  "private": true,
+  "type": "module",
+  "description": "Core authorization logic and interfaces for e3 admin",
+  "license": "BSL-1.1",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./testing": {
+      "types": "./dist/src/testing/in-memory.d.ts",
+      "default": "./dist/src/testing/in-memory.js"
+    },
+    "./routes": {
+      "types": "./dist/src/routes/index.d.ts",
+      "default": "./dist/src/routes/index.js"
+    },
+    "./steps": {
+      "types": "./dist/src/steps/index.d.ts",
+      "default": "./dist/src/steps/index.js"
+    },
+    "./gc": {
+      "types": "./dist/src/gc/index.d.ts",
+      "default": "./dist/src/gc/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "lint": "eslint src/**/*.ts",
+    "test": "npm run build && node --enable-source-maps --test 'dist/src/**/*.spec.js'"
+  },
+  "dependencies": {
+    "@elaraai/e3-cloud-types": "*",
+    "@elaraai/e3-api-server": "beta",
+    "hono": "^4.11.7"
+  },
+  "peerDependencies": {
+    "@elaraai/east": "beta",
+    "@elaraai/e3-types": "beta",
+    "@elaraai/e3-core": "beta"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "~5.9.2"
+  }
+}

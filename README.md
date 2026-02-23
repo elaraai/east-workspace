@@ -1,6 +1,8 @@
-# e3-aws
+# e3-cloud
 
-AWS cloud infrastructure for hosting [e3](../e3) (East Execution Engine) as a multi-tenant platform.
+Multi-cloud implementation of [e3](../e3) (East Execution Engine) as a multi-tenant platform.
+Currently we use AWS cloud infrastructure for hosting.
+Relative to e3, e3-cloud provides enterprise-only features including authorization, task scheduling, scalable serverless compute/storage and access to high-capacity on-demand compute runners.
 
 ## What is e3?
 
@@ -9,7 +11,7 @@ e3 is a dataflow execution engine for the [East](../east) language. It provides:
 - **Workspaces** - Isolated execution environments with datasets and tasks
 - **Dataflows** - Declarative data pipelines that execute incrementally
 
-This repository (`e3-aws`) deploys e3 as a cloud service on AWS.
+This project (`e3-cloud`) deploys e3 as a cloud service on AWS, with abstractions in place to make it easy to extend to Azure or GCP.
 
 ## Architecture
 
@@ -126,12 +128,11 @@ e3-aws/
 │       └── E3PlatformStack       # Complete platform stack
 │
 ├── packages/               # TypeScript packages
-│   ├── e3-aws-api/         # Lambda API handler (Hono)
-│   ├── e3-aws-storage/     # S3 + DynamoDB storage backend
-│   ├── e3-aws-runner/      # Task execution Lambda
-│   ├── e3-admin-types/     # Shared authorization types
-│   ├── e3-admin-core/      # Authorization logic
-│   ├── e3-admin-client/    # Admin API client
+│   ├── e3-aws/             # AWS implementation (storage, services, handlers)
+│   ├── e3-cloud-types/     # Shared authorization types
+│   ├── e3-cloud-core/      # Cloud-agnostic interfaces and routes
+│   ├── e3-cloud-client/    # Admin API client
+│   ├── e3-cloud-tests/     # Portable integration tests
 │   └── e3-cloud-cli/       # Cloud management CLI
 │
 ├── web/                    # React frontend (Vite)
@@ -172,12 +173,11 @@ Elara AWS Organization
 
 | Package | Description |
 |---------|-------------|
-| `@elaraai/e3-aws-api` | Lambda handler - routes, auth, OIDC discovery |
-| `@elaraai/e3-aws-storage` | S3DynamoStorage backend implementation |
-| `@elaraai/e3-aws-runner` | Task execution Lambda for Step Functions |
-| `@elaraai/e3-admin-types` | Shared East types for authorization |
-| `@elaraai/e3-admin-core` | Authorization logic and interfaces |
-| `@elaraai/e3-admin-client` | HTTP client for admin API |
+| `@elaraai/e3-aws` | AWS implementation — storage (S3+DynamoDB), services (Cognito, SFN, EventBridge), Lambda/Fargate handlers |
+| `@elaraai/e3-cloud-types` | Shared East types for authorization |
+| `@elaraai/e3-cloud-core` | Cloud-agnostic interfaces, routes and authorization |
+| `@elaraai/e3-cloud-client` | HTTP client for admin API |
+| `@elaraai/e3-cloud-tests` | Portable integration tests for cloud deployments |
 | `@elaraai/e3-cloud-cli` | CLI for cloud management |
 | `@elaraai/e3-web` | React frontend application |
 | `@elaraai/e3-accounts` | CDK for account provisioning |

@@ -52,7 +52,13 @@ The `E3PlatformStack` deploys a complete e3 platform with:
 | IAM Role | `e3-{id}-scheduler-role` | EventBridge Scheduler → Lambda invocation |
 | CloudWatch Log Group | `/aws/scheduler/e3-{id}-schedules` | Scheduler delivery logging |
 | CloudWatch Alarms | `e3-{id}-dataflow-failures`, `-gc-failures`, `-schedule-dlq-depth`, `-api-errors` | Operational alerting |
-| ECR Repository | `e3-{id}-runner` | Task execution container image |
+| VPC | `e3-{id}-compute-vpc` | Public subnets (2 AZ) for Fargate tasks |
+| ECS Cluster | `e3-{id}-compute` | Fargate cluster for sized compute |
+| Fargate Task Defs | `e3-{id}-compute-{size}` | Per-size task definitions (small/medium/large/xlarge) |
+| Security Group | `e3-{id}-compute-task-sg` | Deny inbound, allow outbound for Fargate tasks |
+| Lambda Function | `e3-{id}-collect-compute-result` | Reads Fargate task results from DynamoDB |
+| CloudFormation Stack | `soci-index-builder-{id}` | Auto-generates SOCI indexes on ECR push |
+| ECR Repository | `e3-{id}-runner` | Task execution container image (Lambda + Fargate) |
 | S3 Bucket | `e3-{id}-frontend-{account}` | Web app static assets + runtime config |
 | CloudFront | - | CDN, SPA routing, custom domain |
 | Route53 A Record | `{id}.{baseDomain}` | DNS (if domain configured) |
@@ -65,7 +71,7 @@ The `E3PlatformStack` deploys a complete e3 platform with:
 1. **AWS Account** - Bootstrapped deployment account (via `cdk/accounts`)
 2. **Build dependencies**:
    ```bash
-   npm run build --workspace=@elaraai/e3-aws-api
+   npm run build --workspace=@elaraai/e3-aws
    ```
 
 ### Deployment CLI
@@ -577,4 +583,4 @@ Ensure the identity provider is enabled on the App Client (Step 3 above).
 
 - [CDK Overview](../README.md) - High-level infrastructure architecture
 - [Accounts Setup](../accounts/README.md) - Account creation and domain configuration
-- [API Package](../../packages/e3-aws-api/) - Lambda handler source code
+- [AWS Package](../../packages/e3-aws/) - AWS implementation (storage, services, handlers)

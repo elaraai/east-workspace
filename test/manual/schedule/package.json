@@ -12,8 +12,9 @@
   "dependencies": {
     "@elaraai/e3": "beta",
     "@elaraai/e3-api-client": "beta",
-    "@elaraai/e3-admin-client": "*",
-    "@elaraai/east-node-std": "beta"
+    "@elaraai/e3-cloud-client": "*",
+    "@elaraai/east-node-std": "beta",
+    "e3-manual-shared": "*"
   },
   "peerDependencies": {
     "@elaraai/east": "beta"

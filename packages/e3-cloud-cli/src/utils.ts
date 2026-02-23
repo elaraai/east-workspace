@@ -55,3 +55,18 @@ export function exitError(message: string): never {
   console.error(`Error: ${message}`);
   process.exit(1);
 }
+
+/**
+ * Interactive yes/no confirmation prompt.
+ * Returns true if user answers 'y' or 'yes', false otherwise.
+ */
+export async function confirm(message: string): Promise<boolean> {
+  const { createInterface } = await import('node:readline/promises');
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = await rl.question(`${message} [y/N] `);
+    return answer.trim().toLowerCase() === 'y' || answer.trim().toLowerCase() === 'yes';
+  } finally {
+    rl.close();
+  }
+}

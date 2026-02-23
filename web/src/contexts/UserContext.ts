@@ -4,7 +4,7 @@
  */
 
 import { createContext, useContext } from 'react';
-import type { WhoamiResponse } from '@elaraai/e3-admin-client';
+import type { WhoamiResponse } from '@elaraai/e3-cloud-client';
 
 export const UserContext = createContext<WhoamiResponse | undefined>(undefined);
 

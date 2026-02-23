@@ -27,7 +27,7 @@ import {
   useWorkspaceExecution,
 } from '../hooks/useAdminApi';
 import type { WorkspaceInfo } from '@elaraai/e3-api-client';
-import type { Schedule, ScheduleRequest, RepoRole } from '@elaraai/e3-admin-client';
+import type { Schedule, ScheduleRequest, RepoRole } from '@elaraai/e3-cloud-client';
 import { useWorkspaceList, usePackageList, useDataflowStart } from '@elaraai/e3-ui-components';
 import { API_URL, getRequestOptions } from '../api';
 import { useQueryClient } from '@tanstack/react-query';
@@ -156,7 +156,7 @@ function ScheduleFormPopover({
   const [workspace, setWorkspace] = useState(schedule?.workspace ?? '');
   const [cron, setCron] = useState(schedule?.cronExpression ?? '0 0 * * *');
   const [timezone, setTimezone] = useState(schedule?.timezone ?? 'UTC');
-  const [forcePatterns, setForcePatterns] = useState(schedule?.forceTaskPatterns.join(', ') ?? '');
+  const [forcePatterns, setForcePatterns] = useState(schedule?.forceTasks.join(', ') ?? '');
   const [enabled, setEnabled] = useState(schedule?.enabled ?? true);
   const [description, setDescription] = useState(
     schedule?.description.type === 'some' ? schedule.description.value : ''
@@ -169,7 +169,7 @@ function ScheduleFormPopover({
     setWorkspace(schedule?.workspace ?? '');
     setCron(schedule?.cronExpression ?? '0 0 * * *');
     setTimezone(schedule?.timezone ?? 'UTC');
-    setForcePatterns(schedule?.forceTaskPatterns.join(', ') ?? '');
+    setForcePatterns(schedule?.forceTasks.join(', ') ?? '');
     setEnabled(schedule?.enabled ?? true);
     setDescription(schedule?.description.type === 'some' ? schedule.description.value : '');
   };
@@ -186,7 +186,7 @@ function ScheduleFormPopover({
     const request: ScheduleRequest = {
       cronExpression: cron,
       timezone: variant('some', timezone) as ScheduleRequest['timezone'],
-      forceTaskPatterns: patterns,
+      forceTasks: patterns,
       enabled,
       description: description.trim()
         ? (variant('some', description.trim()) as ScheduleRequest['description'])
@@ -567,7 +567,7 @@ function InfrastructureTab({ repo }: { repo: string }) {
                     </Table.Cell>
                     <Table.Cell>
                       <Text fontSize="sm" color="text.secondary">
-                        {sched.forceTaskPatterns.length > 0 ? sched.forceTaskPatterns.join(', ') : '—'}
+                        {sched.forceTasks.length > 0 ? sched.forceTasks.join(', ') : '—'}
                       </Text>
                     </Table.Cell>
                     <Table.Cell>

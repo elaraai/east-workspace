@@ -13,7 +13,7 @@ import {
   workspaceDeploy,
   ApiError,
 } from '@elaraai/e3-api-client';
-import { setSchedule } from '@elaraai/e3-admin-client';
+import { setSchedule } from '@elaraai/e3-cloud-client';
 import { getToken } from './credentials.js';
 import { createPackage, PACKAGE_NAME, PACKAGE_VERSION } from './package-def.js';
 
@@ -70,7 +70,7 @@ async function main() {
   const schedule = await setSchedule(SERVER, REPO_NAME, WORKSPACE, {
     cronExpression: '* * * * *',
     timezone: none,
-    forceTaskPatterns: ['*'],
+    forceTasks: ['timestamp'],
     enabled: true,
     description: some('Manual schedule test — runs every minute'),
   }, opts);

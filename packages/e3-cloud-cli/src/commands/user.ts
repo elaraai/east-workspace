@@ -7,8 +7,8 @@
  * User management commands - list, add, remove users from repositories.
  */
 
-import { repoUsers, addUser, removeUser, type RepoUser } from '@elaraai/e3-admin-client';
-import { parseRepoRole } from '@elaraai/e3-admin-types';
+import { repoUsers, addUser, removeUser, type RepoUser } from '@elaraai/e3-cloud-client';
+import { parseRepoRole } from '@elaraai/e3-cloud-types';
 import { getValidToken } from '../credentials.js';
 import { parseRepoUrl, formatError, exitError } from '../utils.js';
 
