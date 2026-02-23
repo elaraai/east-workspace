@@ -14,6 +14,7 @@ import {
   InMemoryAclStore,
   InMemoryScheduleStore,
   InMemoryTaskConfigStore,
+  InMemoryUserSettingsStore,
   InMemorySchedulerService,
   MockIdentityBackend,
 } from '../testing/in-memory.js';
@@ -29,6 +30,7 @@ describe('repo-routes', () => {
   let aclStore: InMemoryAclStore;
   let scheduleStore: InMemoryScheduleStore;
   let taskConfigStore: InMemoryTaskConfigStore;
+  let userSettingsStore: InMemoryUserSettingsStore;
   let schedulerService: InMemorySchedulerService;
   let identityBackend: MockIdentityBackend;
   let storage: InMemoryStorage;
@@ -39,6 +41,7 @@ describe('repo-routes', () => {
     aclStore = new InMemoryAclStore();
     scheduleStore = new InMemoryScheduleStore();
     taskConfigStore = new InMemoryTaskConfigStore();
+    userSettingsStore = new InMemoryUserSettingsStore(() => true, () => false);
     schedulerService = new InMemorySchedulerService();
     identityBackend = new MockIdentityBackend();
     storage = new InMemoryStorage();
@@ -48,6 +51,7 @@ describe('repo-routes', () => {
       aclStore,
       scheduleStore,
       taskConfigStore,
+      userSettingsStore,
       schedulerService,
       repoStore: storage.repos,
       identityBackend,

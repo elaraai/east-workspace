@@ -29,6 +29,7 @@ export { DynamoAclStore } from './dynamo-acl-store.js';
 export { DynamoScheduleStore } from './dynamo-schedule-store.js';
 export { DynamoTaskConfigStore } from './dynamo-task-config-store.js';
 export { DynamoComputeResultStore } from './dynamo-compute-result-store.js';
+export { DynamoUserSettingsStore } from './dynamo-user-settings-store.js';
 export { S3GcTempStore } from './s3-gc-temp-store.js';
 export { SfnDataflowOrchestrator } from '../services/sfn-dataflow-orchestrator.js';
 

@@ -55,6 +55,7 @@ export { scheduleTests } from './suites/schedules.js';
 export { taskConfigTests } from './suites/task-configs.js';
 export { computeTests } from './suites/compute.js';
 export { computeFailureTests } from './suites/compute-failure.js';
+export { userSettingsTests } from './suites/user-settings.js';
 export { cleanupTests } from './suites/cleanup.js';
 
 // Re-export TestContext type for convenience
@@ -66,6 +67,7 @@ import { repoUsersTests } from './suites/repo-users.js';
 import { authorizationTests } from './suites/authorization.js';
 import { scheduleTests } from './suites/schedules.js';
 import { taskConfigTests } from './suites/task-configs.js';
+import { userSettingsTests } from './suites/user-settings.js';
 import type { AdminTestContext } from './context.js';
 import type { TestSetup } from './setup.js';
 
@@ -83,4 +85,5 @@ export function allAdminTests(setup: TestSetup<AdminTestContext>): void {
   authorizationTests(setup);
   scheduleTests(setup);
   taskConfigTests(setup);
+  userSettingsTests(setup);
 }

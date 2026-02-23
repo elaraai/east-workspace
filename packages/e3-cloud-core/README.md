@@ -6,7 +6,7 @@ Core authorization logic and interfaces for e3 admin.
 
 This package provides:
 
-- **Interfaces** - Cloud-agnostic storage interfaces (`AclStore`, `IdentityBackend`, `DataflowOrchestrator`, `ComputeDispatcher`, etc.)
+- **Interfaces** - Cloud-agnostic storage interfaces (`AclStore`, `IdentityBackend`, `DataflowOrchestrator`, `ComputeDispatcher`, `UserSettingsStore`, etc.)
 - **Authorization logic** - Functions for access control (`hasAccess`, `canRemoveUser`, `isLastOwner`)
 - **Route factories** - Cloud-agnostic Hono route handlers for admin, repo, dataflow, schedule, task-config, and GC endpoints
 - **Step logic** - Cloud-agnostic dataflow step functions (get-graph, dispatch-task, execute-task, etc.)
@@ -219,6 +219,7 @@ import {
   createScheduleListRoute,
   createTaskConfigRoutes,
   createGcRoutes,
+  createUserSettingsRoutes,
 } from '@elaraai/e3-cloud-core/routes';
 ```
 
@@ -232,6 +233,25 @@ import {
 | `createScheduleListRoute` | List schedules for a repo |
 | `createTaskConfigRoutes` | Per-task compute and timeout configuration |
 | `createGcRoutes` | Garbage collection (start, status) |
+| `createUserSettingsRoutes` | Per-user per-workspace settings (binary blob CRUD) |
+
+### UserSettingsStore
+
+Storage interface for per-user per-workspace settings (opaque binary blobs).
+
+```typescript
+interface UserSettingsStore {
+  get(repo: string, workspace: string, userId: string): Promise<Uint8Array | null>;
+  put(repo: string, workspace: string, userId: string, data: Uint8Array): Promise<void>;
+  delete(repo: string, workspace: string, userId: string): Promise<void>;
+  deleteAllForWorkspace(repo: string, workspace: string): Promise<void>;
+  deleteAllForRepo(repo: string): Promise<void>;
+}
+```
+
+Implementations:
+- `InMemoryUserSettingsStore` (testing) - In this package
+- `DynamoUserSettingsStore` (e3-aws) - DynamoDB-backed with transactional workspace/lock validation
 
 ### GcTempStore
 

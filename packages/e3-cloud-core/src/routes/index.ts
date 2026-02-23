@@ -15,3 +15,4 @@ export { createDataflowRoutes } from './dataflow-routes.js';
 export { createScheduleRoutes, createScheduleListRoute, unixCronToAws, validateCron } from './schedule-routes.js';
 export { createTaskConfigRoutes } from './task-config-routes.js';
 export { createGcRoutes } from './gc-routes.js';
+export { createUserSettingsRoutes } from './user-settings-routes.js';

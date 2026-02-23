@@ -22,6 +22,7 @@ import {
   DynamoAclStore,
   DynamoScheduleStore,
   DynamoTaskConfigStore,
+  DynamoUserSettingsStore,
 } from '../storage/index.js';
 import { dataflowGetGraph } from '@elaraai/e3-core';
 import { WhoamiResponseType } from '@elaraai/e3-cloud-types';
@@ -43,6 +44,7 @@ import {
   deleteScheduleForWorkspace,
   createGcRoutes,
   createDataflowRoutes,
+  createUserSettingsRoutes,
 } from '@elaraai/e3-cloud-core/routes';
 
 // AWS implementations
@@ -83,6 +85,7 @@ const repoManager = storage.repoManager;
 const aclStore = new DynamoAclStore(dynamo, process.env.TABLE_NAME!);
 const scheduleStore = new DynamoScheduleStore(dynamo, process.env.TABLE_NAME!);
 const taskConfigStore = new DynamoTaskConfigStore(dynamo, process.env.TABLE_NAME!);
+const userSettingsStore = new DynamoUserSettingsStore(dynamo, process.env.TABLE_NAME!);
 
 // In cloud mode, repo name IS the path (used as S3 prefix and DynamoDB partition key)
 const getRepoPath = (repo: string) => repo;
@@ -156,12 +159,16 @@ app.use('/api/repos/*', createAuthzMiddleware(aclStore, identityBackend));
 // Task Config Routes
 app.route('/api/repos/:repo/workspaces/:ws/task-configs', createTaskConfigRoutes(taskConfigStore, storage.locks));
 
+// User Settings Routes
+app.route('/api/repos/:repo/workspaces/:ws/user-settings', createUserSettingsRoutes(userSettingsStore, identityBackend));
+
 // Repository Lifecycle Routes
 app.route('/', createRepoRoutes({
   repoManager,
   aclStore,
   scheduleStore,
   taskConfigStore,
+  userSettingsStore,
   schedulerService,
   repoStore: storage.repos,
   identityBackend,
@@ -220,6 +227,7 @@ app.delete('/api/repos/:repo/workspaces/:ws', async (c, next) => {
   const workspace = c.req.param('ws');
   await deleteScheduleForWorkspace(repo, workspace, scheduleStore, schedulerService);
   await taskConfigStore.deleteAllForWorkspace(repo, workspace);
+  await userSettingsStore.deleteAllForWorkspace(repo, workspace);
   return next();
 });
 
