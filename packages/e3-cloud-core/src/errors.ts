@@ -64,6 +64,24 @@ export class InvalidRepoStatusError extends AdminCoreError {
 }
 
 /**
+ * Workspace not found.
+ */
+export class WorkspaceNotFoundError extends AdminCoreError {
+  constructor(public readonly repo: string, public readonly workspace: string) {
+    super(`Workspace not found: ${repo}/${workspace}`);
+  }
+}
+
+/**
+ * Workspace is locked by another operation.
+ */
+export class WorkspaceLockedError extends AdminCoreError {
+  constructor(public readonly repo: string, public readonly workspace: string) {
+    super(`Workspace is locked: ${repo}/${workspace}`);
+  }
+}
+
+/**
  * Map AuthzErrorCode to HTTP status code.
  */
 export function errorCodeToStatus(code: AuthzErrorCode): number {

@@ -15,6 +15,7 @@ import { userCommand } from './commands/user.js';
 import { scheduleCommand } from './commands/schedule.js';
 import { computeCommand } from './commands/compute.js';
 import { timeoutCommand } from './commands/timeout.js';
+import { settingsCommand } from './commands/user-settings.js';
 
 const program = new Command();
 
@@ -159,5 +160,31 @@ timeout
   .argument('<task>', 'Task name (or regex pattern with --regex)')
   .option('--regex', 'Treat task argument as a regex pattern')
   .action(timeoutCommand.remove);
+
+// e3-cloud settings <subcommand>
+const settings = program
+  .command('settings')
+  .description('Per-user workspace settings');
+
+settings
+  .command('get')
+  .description('Get user settings for a workspace')
+  .argument('<url>', 'Workspace URL (e.g., https://server/repos/my-repo/workspaces/main)')
+  .option('--output <file>', 'Write settings to a file instead of stdout')
+  .action(settingsCommand.get);
+
+settings
+  .command('set')
+  .description('Set user settings for a workspace')
+  .argument('<url>', 'Workspace URL')
+  .option('--input <file>', 'Read settings from a file')
+  .option('--data <text>', 'Use text as settings data')
+  .action(settingsCommand.set);
+
+settings
+  .command('remove')
+  .description('Remove user settings for a workspace')
+  .argument('<url>', 'Workspace URL')
+  .action(settingsCommand.remove);
 
 program.parse();

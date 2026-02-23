@@ -54,6 +54,7 @@ e3-cloud/
 │   │       │   ├── s3-object-store.ts           # S3 object storage
 │   │       │   ├── dynamo-ref-store.ts          # DynamoDB ref store
 │   │       │   ├── dynamo-lock-service.ts       # DynamoDB distributed locks
+│   │       │   ├── dynamo-user-settings-store.ts # DynamoDB per-user workspace settings
 │   │       │   ├── s3-gc-temp-store.ts          # S3 GcTempStore implementation
 │   │       │   ├── init.ts                      # Singleton initialization
 │   │       │   └── ...                          # Other DynamoDB stores
@@ -87,7 +88,8 @@ e3-cloud/
 │   │
 │   ├── e3-cloud-core/        # Cloud-agnostic interfaces, routes and authorization (@elaraai/e3-cloud-core)
 │   │   └── src/
-│   │       ├── routes/       # Cloud-agnostic Hono route handlers (admin, repo, dataflow, schedule, etc.)
+│   │       ├── user-settings-store.ts  # UserSettingsStore interface (per-user workspace settings)
+│   │       ├── routes/       # Cloud-agnostic Hono route handlers (admin, repo, dataflow, schedule, user-settings, etc.)
 │   │       ├── steps/        # Cloud-agnostic dataflow step logic (get-graph, dispatch-task, execute-task, etc.)
 │   │       ├── gc/           # Cloud-agnostic GC step logic (gc-mark, gc-sweep, gc-cleanup, gc-scheduler, set-status)
 │   │       └── testing/      # In-memory implementations for unit tests

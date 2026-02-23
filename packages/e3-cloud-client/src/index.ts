@@ -51,6 +51,7 @@ export {
   listTimeout, getTimeout, setTimeout, setTimeoutBatch, removeTimeout,
   listTaskConfigs,
 } from './task-configs.js';
+export { getUserSettings, putUserSettings, deleteUserSettings } from './user-settings.js';
 
 // Re-export types from e3-cloud-types for convenience
 export type {

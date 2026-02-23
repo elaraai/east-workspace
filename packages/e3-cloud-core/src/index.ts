@@ -36,12 +36,13 @@ export type {
 export type { ComputeDispatcher } from './compute-dispatcher.js';
 export type { GcTempStore } from './gc-temp-store.js';
 export type { GcCleanupStore } from './gc-cleanup-store.js';
+export type { UserSettingsStore } from './user-settings-store.js';
 
 // Authorization functions
 export { hasAccess, isLastOwner, canRemoveUser, type AuthzResult } from './authz.js';
 
 // Errors
-export { AdminCoreError, UserNotFoundError, RepoNotFoundError, RepoAlreadyExistsError, InvalidRepoStatusError, errorCodeToStatus } from './errors.js';
+export { AdminCoreError, UserNotFoundError, RepoNotFoundError, RepoAlreadyExistsError, InvalidRepoStatusError, WorkspaceNotFoundError, WorkspaceLockedError, errorCodeToStatus } from './errors.js';
 
 // Re-export types from e3-cloud-types for convenience
 export type {

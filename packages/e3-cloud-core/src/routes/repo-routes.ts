@@ -18,6 +18,7 @@ import type { AclStore, IdentityBackend } from '../interfaces.js';
 import type { RepoManager } from '../repo-manager.js';
 import type { ScheduleStore } from '../schedule-store.js';
 import type { TaskConfigStore } from '../task-config-store.js';
+import type { UserSettingsStore } from '../user-settings-store.js';
 import type { SchedulerService } from '../scheduler-service.js';
 import type { RepoStore } from '@elaraai/e3-core';
 
@@ -82,11 +83,12 @@ export function createRepoRoutes(deps: {
   aclStore: AclStore;
   scheduleStore: ScheduleStore;
   taskConfigStore: TaskConfigStore;
+  userSettingsStore: UserSettingsStore;
   schedulerService: SchedulerService | null;
   repoStore: RepoStore;
   identityBackend: IdentityBackend;
 }): Hono {
-  const { repoManager, aclStore, scheduleStore, taskConfigStore, schedulerService, repoStore, identityBackend } = deps;
+  const { repoManager, aclStore, scheduleStore, taskConfigStore, userSettingsStore, schedulerService, repoStore, identityBackend } = deps;
   const app = new Hono();
 
   // GET /api/repos - List repositories accessible to the user
@@ -192,6 +194,9 @@ export function createRepoRoutes(deps: {
 
       // 2c. Delete task configs
       await taskConfigStore.deleteAllForRepo(repo);
+
+      // 2d. Delete user settings
+      await userSettingsStore.deleteAllForRepo(repo);
 
       // 3. Delete refs synchronously
       let cursor: string | undefined;

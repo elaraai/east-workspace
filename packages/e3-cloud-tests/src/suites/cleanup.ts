@@ -4,14 +4,15 @@
  */
 
 /**
- * Test suite for cascade deletion and orphan cleanup of task configs.
+ * Test suite for cascade deletion and orphan cleanup of task configs and user settings.
  *
  * Tests three cleanup paths:
  * 1. Orphan cleanup on redeploy — deploying a different package removes configs
  *    for tasks no longer in the graph
  * 2. Workspace delete cascade — deleting a workspace removes all configs
- *    (compute, timeout, schedule)
- * 3. Configs survive same-package redeploy — non-orphaned configs are preserved
+ *    (compute, timeout, schedule, user settings)
+ * 3. Configs survive same-package redeploy — non-orphaned configs and user settings
+ *    are preserved
  */
 
 import { describe, it } from 'node:test';
@@ -23,6 +24,7 @@ import {
   listCompute, setCompute,
   listTimeout, setTimeout,
   getSchedule, setSchedule,
+  getUserSettings, putUserSettings,
 } from '@elaraai/e3-cloud-client';
 import type { TestContext } from '@elaraai/e3-api-tests';
 import type { TestSetup } from '../setup.js';
@@ -93,7 +95,7 @@ export function cleanupTests(setup: TestSetup<TestContext>): void {
       await ctx.createWorkspace(ws);
       await ctx.deployPackage(ws, 'pkg-a@1.0.0');
 
-      // Set compute, timeout, and schedule configs
+      // Set compute, timeout, schedule, and user settings
       await setCompute(ctx.config.baseUrl, ctx.repoName, ws, 'compute', variant('large', null), opts);
       await setTimeout(ctx.config.baseUrl, ctx.repoName, ws, 'compute', { minutes: 60n }, opts);
       await setSchedule(ctx.config.baseUrl, ctx.repoName, ws, {
@@ -103,6 +105,8 @@ export function cleanupTests(setup: TestSetup<TestContext>): void {
         enabled: true,
         description: none,
       }, opts);
+      await putUserSettings(ctx.config.baseUrl, ctx.repoName, ws,
+        new TextEncoder().encode('my-prefs'), opts);
 
       // Verify all configs exist
       const computeBefore = await listCompute(ctx.config.baseUrl, ctx.repoName, ws, opts);
@@ -111,6 +115,8 @@ export function cleanupTests(setup: TestSetup<TestContext>): void {
       assert.strictEqual(timeoutBefore.size, 1, 'timeout config should exist');
       const scheduleBefore = await getSchedule(ctx.config.baseUrl, ctx.repoName, ws, opts);
       assert.notStrictEqual(scheduleBefore, null, 'schedule should exist');
+      const settingsBefore = await getUserSettings(ctx.config.baseUrl, ctx.repoName, ws, opts);
+      assert.ok(settingsBefore !== null, 'user settings should exist');
 
       // Delete workspace
       await workspaceRemove(ctx.config.baseUrl, ctx.repoName, ws, opts);
@@ -126,6 +132,8 @@ export function cleanupTests(setup: TestSetup<TestContext>): void {
       assert.strictEqual(timeoutAfter.size, 0, 'timeout config should be removed after ws delete');
       const scheduleAfter = await getSchedule(ctx.config.baseUrl, ctx.repoName, ws, opts);
       assert.strictEqual(scheduleAfter, null, 'schedule should be removed after ws delete');
+      const settingsAfter = await getUserSettings(ctx.config.baseUrl, ctx.repoName, ws, opts);
+      assert.strictEqual(settingsAfter, null, 'user settings should be removed after ws delete');
     });
 
     void it('preserves configs when redeploying same package', async (t) => {
@@ -140,9 +148,11 @@ export function cleanupTests(setup: TestSetup<TestContext>): void {
       await ctx.createWorkspace(ws);
       await ctx.deployPackage(ws, 'pkg-a@1.0.0');
 
-      // Set configs on the "compute" task
+      // Set configs on the "compute" task and user settings
       await setCompute(ctx.config.baseUrl, ctx.repoName, ws, 'compute', variant('small', null), opts);
       await setTimeout(ctx.config.baseUrl, ctx.repoName, ws, 'compute', { minutes: 30n }, opts);
+      const settingsPayload = new TextEncoder().encode('my-view-state');
+      await putUserSettings(ctx.config.baseUrl, ctx.repoName, ws, settingsPayload, opts);
 
       // Redeploy same package
       await ctx.deployPackage(ws, 'pkg-a@1.0.0');
@@ -154,6 +164,8 @@ export function cleanupTests(setup: TestSetup<TestContext>): void {
       const timeoutAfter = await listTimeout(ctx.config.baseUrl, ctx.repoName, ws, opts);
       assert.strictEqual(timeoutAfter.size, 1, 'timeout config should survive redeploy');
       assert.strictEqual(timeoutAfter.get('compute')?.minutes, 30n);
+      const settingsAfter = await getUserSettings(ctx.config.baseUrl, ctx.repoName, ws, opts);
+      assert.deepStrictEqual(settingsAfter, settingsPayload, 'user settings should survive redeploy');
     });
   });
 }

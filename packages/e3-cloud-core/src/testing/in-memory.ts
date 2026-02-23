@@ -32,7 +32,8 @@ import type { SchedulerService } from '../scheduler-service.js';
 import type { ComputeDispatcher } from '../compute-dispatcher.js';
 import type { GcTempStore } from '../gc-temp-store.js';
 import type { GcCleanupStore } from '../gc-cleanup-store.js';
-import { RepoAlreadyExistsError, InvalidRepoStatusError } from '../errors.js';
+import type { UserSettingsStore } from '../user-settings-store.js';
+import { RepoAlreadyExistsError, InvalidRepoStatusError, WorkspaceNotFoundError, WorkspaceLockedError } from '../errors.js';
 
 /**
  * In-memory ACL store for testing.
@@ -737,6 +738,67 @@ export class InMemoryGcCleanupStore implements GcCleanupStore {
 
   clear(): void {
     this.calls = [];
+  }
+}
+
+/**
+ * In-memory user settings store for testing.
+ *
+ * Uses constructor callbacks to simulate transactional workspace validation
+ * (workspace exists, not locked) that the DynamoDB implementation performs
+ * via TransactWriteItems.
+ */
+export class InMemoryUserSettingsStore implements UserSettingsStore {
+  // Map<"repo/workspace/userId", Uint8Array>
+  private settings = new Map<string, Uint8Array>();
+
+  constructor(
+    private readonly workspaceExists: (repo: string, workspace: string) => boolean,
+    private readonly isLocked: (repo: string, workspace: string) => boolean,
+  ) {}
+
+  private key(repo: string, workspace: string, userId: string): string {
+    return `${repo}/${workspace}/${userId}`;
+  }
+
+  private wsPrefix(repo: string, workspace: string): string {
+    return `${repo}/${workspace}/`;
+  }
+
+  async get(_repo: string, _workspace: string, userId: string): Promise<Uint8Array | null> {
+    return this.settings.get(this.key(_repo, _workspace, userId)) ?? null;
+  }
+
+  async put(repo: string, workspace: string, userId: string, data: Uint8Array): Promise<void> {
+    if (!this.workspaceExists(repo, workspace)) {
+      throw new WorkspaceNotFoundError(repo, workspace);
+    }
+    if (this.isLocked(repo, workspace)) {
+      throw new WorkspaceLockedError(repo, workspace);
+    }
+    this.settings.set(this.key(repo, workspace, userId), data);
+  }
+
+  async delete(repo: string, workspace: string, userId: string): Promise<void> {
+    this.settings.delete(this.key(repo, workspace, userId));
+  }
+
+  async deleteAllForWorkspace(repo: string, workspace: string): Promise<void> {
+    const prefix = this.wsPrefix(repo, workspace);
+    for (const k of this.settings.keys()) {
+      if (k.startsWith(prefix)) this.settings.delete(k);
+    }
+  }
+
+  async deleteAllForRepo(repo: string): Promise<void> {
+    const prefix = `${repo}/`;
+    for (const k of this.settings.keys()) {
+      if (k.startsWith(prefix)) this.settings.delete(k);
+    }
+  }
+
+  clear(): void {
+    this.settings.clear();
   }
 }
 

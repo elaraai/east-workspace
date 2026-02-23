@@ -76,11 +76,12 @@ export function mountApp(routeApp: Hono, basePath: string): Hono {
  */
 export async function fetchRoute(
   app: Hono, method: string, path: string,
-  options?: { identity?: { sub: string; email?: string; name?: string; isAdmin?: boolean }; body?: Uint8Array }
+  options?: { identity?: { sub: string; email?: string; name?: string; isAdmin?: boolean }; body?: Uint8Array; contentType?: string }
 ): Promise<Response> {
+  const contentType = options?.contentType ?? 'application/beast2';
   const req = new Request(`http://localhost${path}`, {
     method,
-    headers: options?.body ? { 'content-type': 'application/beast2' } : {},
+    headers: options?.body ? { 'content-type': contentType } : {},
     body: options?.body ?? null,
   });
   return app.fetch(req, { event: mockLambdaEvent(options?.identity ?? null) });
