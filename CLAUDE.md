@@ -144,9 +144,7 @@ e3-cloud/
 | **east-python** | `../east-python` | Python-based East runtime (with datascience integrations) |
 | **east-plugin** | `../east-plugin` | e3 ecosystem-wide artifacts |
 
-**Important:** Changes to related projects (`../e3`, `../east`, etc.) are consumed via npm packages. After editing a related project, you must publish the updated packages to npm before e3-aws will pick up the changes. A local build alone is not sufficient — `npm install` / `npm update` in e3-cloud pulls from the registry.
-
-**GitHub**: For historical reasons, the git repository for e3-cloud is hosted as e3-aws at `github.com/elaraai/e3-aws`.
+**Important:** Changes to related projects (`../e3`, `../east`, etc.) are consumed via npm packages. After editing a related project, you must publish the updated packages to npm before e3-cloud will pick up the changes. A local build alone is not sufficient — `npm install` / `npm update` in e3-cloud pulls from the registry.
 
 ## Key Concepts
 

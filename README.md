@@ -117,7 +117,7 @@ e3 package import ./my-package.tar.gz https://dev.e3.elaraai.com/api/repos/my-re
 ## Project Structure
 
 ```
-e3-aws/
+e3-cloud/
 ├── cdk/                    # AWS CDK Infrastructure
 │   ├── accounts/           # AWS account provisioning & shared infra
 │   │   ├── E3AccountsStack       # Creates member accounts

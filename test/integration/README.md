@@ -1,4 +1,4 @@
-# e3-aws Integration Tests
+# e3-cloud Integration Tests
 
 Integration tests and demos for the e3 cloud platform.
 
