@@ -403,7 +403,8 @@ export class DynamoRefStore implements RefStore, RepoManager, ExecutionTracker {
       status: (item.status as RepoStatus) ?? 'active', // Default for legacy repos
       createdAt: item.createdAt as string,
       statusChangedAt: (item.statusChangedAt as string) ?? item.createdAt,
-      executionArn: item.executionArn as string | undefined,
+      // DynamoDB attribute is 'executionArn' for backwards compatibility
+      executionRef: item.executionArn as string | undefined,
     };
   }
 
@@ -446,19 +447,19 @@ export class DynamoRefStore implements RefStore, RepoManager, ExecutionTracker {
    * Transition repository to a new status.
    *
    * Uses conditional write to ensure atomic state transition.
-   * Optionally stores the Step Function execution ARN for tracking.
+   * Optionally stores an execution reference for tracking.
    *
    * @param repo - Repository name
    * @param expectedStatus - Current status(es) required for transition
    * @param newStatus - Target status
-   * @param executionArn - Optional Step Function execution ARN
+   * @param executionRef - Optional execution reference for tracking
    * @throws InvalidRepoStatusError if current status doesn't match expected
    */
   async setRepoStatus(
     repo: string,
     expectedStatus: RepoStatus | RepoStatus[],
     newStatus: RepoStatus,
-    executionArn?: string
+    executionRef?: string
   ): Promise<void> {
     const expected = Array.isArray(expectedStatus) ? expectedStatus : [expectedStatus];
     const now = new Date().toISOString();
@@ -474,11 +475,11 @@ export class DynamoRefStore implements RefStore, RepoManager, ExecutionTracker {
       expressionAttributeValues[`:expected${i}`] = status;
     });
 
-    // Build update expression
+    // Build update expression — DynamoDB attribute is 'executionArn' for backwards compatibility
     let updateExpression = 'SET #status = :newStatus, statusChangedAt = :now';
-    if (executionArn !== undefined) {
+    if (executionRef !== undefined) {
       updateExpression += ', executionArn = :executionArn';
-      expressionAttributeValues[':executionArn'] = executionArn;
+      expressionAttributeValues[':executionArn'] = executionRef;
     } else {
       updateExpression += ' REMOVE executionArn';
     }

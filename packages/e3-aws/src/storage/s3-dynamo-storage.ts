@@ -8,7 +8,7 @@ import type { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import type { StorageBackend, LogStore, RepoStore, ExecutionStateStore, RefStore } from '@elaraai/e3-core';
 import { RepoNotFoundError } from '@elaraai/e3-core';
 
-import type { RepoManager, DataflowRunStore, ExecutionTracker } from '@elaraai/e3-cloud-core';
+import type { RepoManager, DataflowRunStore, ExecutionTracker, DataflowStorage, CloudLockService } from '@elaraai/e3-cloud-core';
 
 import { S3ObjectStore } from './s3-object-store.js';
 import { DynamoRefStore, DynamoDataflowRunStore } from './dynamo-ref-store.js';
@@ -44,10 +44,10 @@ import { DynamoDBStateStore } from './dynamo-state-store.js';
  * const workspaces = await storage.refs.workspaceList(repo);
  * ```
  */
-export class S3DynamoStorage implements StorageBackend {
+export class S3DynamoStorage implements StorageBackend, DataflowStorage {
   public readonly objects: S3ObjectStore;
   public readonly refs: RefStore;
-  public readonly locks: DynamoLockService;
+  public readonly locks: CloudLockService;
   public readonly logs: LogStore;
   public readonly repos: RepoStore;
   public readonly executions: ExecutionStateStore;

@@ -215,18 +215,21 @@ Same pattern as Phase 2 but for garbage collection.
 
 **Risk:** Medium — GC is more tightly coupled to S3 versioning semantics. May need to iterate on the `GcObjectStore` interface.
 
-### Phase 4: Shared backend factory + cleanup
+### Phase 4: Cleanup & documentation (DONE)
 
-Polish pass. Create `backends.ts`, deduplicate init code, update all documentation.
+Cleanup pass. The original plan called for a `backends.ts` shared factory, but after review the current `init.ts` singleton pattern is cleaner for Lambda handlers — each handler only needs 1-2 getters, and a factory would add complexity without benefit.
 
-**Work:**
-- Create `e3-aws/src/backends.ts` — single factory for all AWS backends
-- Simplify every handler to use the shared factory
-- Remove `e3-aws-storage/src/init.ts` singleton pattern (replaced by factory)
-- Resolve remaining code review items (DynamoRefStore typing, duplicate SFN orchestrator)
-- Update all README.md files, CLAUDE.md structure section
-- Build + all tests pass
-- Deploy to dev + integration tests pass
+**What was done:**
+- Deleted abandoned package directories (`e3-aws-api/`, `e3-aws-runner/`, `e3-aws-storage/`) — empty stale dirs from Phase 1
+- Deleted unused backward-compat re-export (`sfn/test-helpers.ts`)
+- Fixed e3-aws README (removed non-existent `execute-task-core.ts`, added `s3-gc-temp-store.ts`, noted thin wrapper pattern)
+- Updated e3-cloud-core README (added GC Steps section, `GcTempStore`/`GcCleanupStore` interfaces)
+- Updated CLAUDE.md structure (added `gc/` module, `s3-gc-temp-store.ts`)
+- Marked all phases complete in this design doc
+
+**What was NOT done (by design):**
+- No `backends.ts` factory — `init.ts` singleton pattern is sufficient
+- No pre-existing code review items (DynamoRefStore typing, etc.) — tracked separately for future cleanup
 
 **Risk:** Low — cleanup only.
 
@@ -237,3 +240,12 @@ Polish pass. Create `backends.ts`, deduplicate init code, update all documentati
 - CDK references Lambda handler paths, so Phase 1 must update CDK handler entry points.
 - The Docker image for Fargate references an entry point path, so Phase 1 must update the Dockerfile.
 - External packages (e3-cloud-client, e3-cloud-cli, e3-cloud-tests) import from `@elaraai/e3-aws-storage` and `@elaraai/e3-aws-api` — these imports must be updated in Phase 1.
+
+## Completion
+
+All four phases are complete as of 2026-02-23:
+
+1. **Phase 1** — Merged 3 AWS packages (`e3-aws-api`, `e3-aws-runner`, `e3-aws-storage`) into a single `e3-aws` package with `storage/`, `services/`, and `handlers/` subdirectories.
+2. **Phase 2** — Extracted dataflow step logic to `e3-cloud-core/src/steps/`. Added `ComputeDispatcher` interface. All SFN handlers are now thin wrappers.
+3. **Phase 3** — Extracted GC logic to `e3-cloud-core/src/gc/`. Added `GcTempStore` and `GcCleanupStore` interfaces. All GC handlers are now thin wrappers.
+4. **Phase 4** — Cleanup: deleted abandoned directories and unused re-exports, updated all documentation. Skipped `backends.ts` factory (current `init.ts` pattern is cleaner).

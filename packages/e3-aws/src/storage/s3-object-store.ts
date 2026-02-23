@@ -168,7 +168,7 @@ export class S3ObjectStore implements ObjectStore {
     );
 
     if (!response.Item) {
-      throw new ObjectNotFoundError(repo, hash);
+      throw new S3ObjectNotFoundError(repo, hash);
     }
 
     const item = unmarshall(response.Item);
@@ -198,7 +198,7 @@ export class S3ObjectStore implements ObjectStore {
       // If version doesn't exist (shouldn't happen), throw not found
       if (error.name === 'NoSuchKey' || error.Code === 'NoSuchKey' ||
           error.name === 'NoSuchVersion' || error.Code === 'NoSuchVersion') {
-        throw new ObjectNotFoundError(repo, hash);
+        throw new S3ObjectNotFoundError(repo, hash);
       }
       throw error;
     }
@@ -476,14 +476,15 @@ export class S3ObjectStore implements ObjectStore {
 }
 
 /**
- * Error thrown when an object is not found.
+ * AWS-specific error for missing objects. Deliberately local since e3-core
+ * doesn't export an equivalent, and this version includes the repo context.
  */
-class ObjectNotFoundError extends Error {
+class S3ObjectNotFoundError extends Error {
   constructor(
     public readonly repo: string,
     public readonly hash: string
   ) {
     super(`Object not found: ${hash} in repo ${repo}`);
-    this.name = 'ObjectNotFoundError';
+    this.name = 'S3ObjectNotFoundError';
   }
 }

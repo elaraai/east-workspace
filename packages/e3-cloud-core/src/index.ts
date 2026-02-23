@@ -34,6 +34,8 @@ export type {
   DataflowEvent,
 } from './execution-tracker.js';
 export type { ComputeDispatcher } from './compute-dispatcher.js';
+export type { GcTempStore } from './gc-temp-store.js';
+export type { GcCleanupStore } from './gc-cleanup-store.js';
 
 // Authorization functions
 export { hasAccess, isLastOwner, canRemoveUser, type AuthzResult } from './authz.js';

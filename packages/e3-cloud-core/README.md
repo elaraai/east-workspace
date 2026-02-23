@@ -94,6 +94,32 @@ import {
 | `handleFinalizeExecution` | Finalize execution with summary and DataflowRun record |
 | `handleScheduleTrigger` | Handle scheduled dataflow trigger |
 
+## GC Steps
+
+Cloud-agnostic GC step logic is available from the `@elaraai/e3-cloud-core/gc` export path. Each step function takes abstract interfaces via dependency injection.
+
+```typescript
+import {
+  handleGcMark,
+  handleGcSweep,
+  handleGcCleanup,
+  handleGcScheduler,
+  handleSetGC,
+  handleSetActive,
+  calculateJitter,
+} from '@elaraai/e3-cloud-core/gc';
+```
+
+| Step | Description |
+|------|-------------|
+| `handleGcMark` | Mark reachable objects starting from active refs |
+| `handleGcSweep` | Sweep unreachable catalogue entries in batches |
+| `handleGcCleanup` | Cleanup orphaned S3 object versions in batches |
+| `handleGcScheduler` | Schedule GC for all repos with jitter |
+| `handleSetGC` | Transition repo status to GC mode |
+| `handleSetActive` | Transition repo status back to active |
+| `calculateJitter` | Calculate jitter delay for staggered GC scheduling |
+
 ## Interfaces
 
 ### AclStore
@@ -206,6 +232,37 @@ import {
 | `createScheduleListRoute` | List schedules for a repo |
 | `createTaskConfigRoutes` | Per-task compute and timeout configuration |
 | `createGcRoutes` | Garbage collection (start, status) |
+
+### GcTempStore
+
+Temporary storage for GC mark phase results.
+
+```typescript
+interface GcTempStore {
+  putMarkedHashes(repo: string, gcId: string, hashes: string[]): Promise<void>;
+  getMarkedHashes(repo: string, gcId: string): Promise<Set<string>>;
+  deleteMarkedHashes(repo: string, gcId: string): Promise<void>;
+}
+```
+
+Implementations:
+- `InMemoryGcTempStore` (testing) - In this package
+- `S3GcTempStore` (e3-aws) - S3-backed
+
+### GcCleanupStore
+
+Storage interface for GC cleanup phase (orphaned object version deletion).
+
+```typescript
+interface GcCleanupStore {
+  deleteOrphanedVersions(repo: string, cursor?: string, batchSize?: number):
+    Promise<{ deleted: number; cursor?: string }>;
+}
+```
+
+Implementations:
+- `InMemoryGcCleanupStore` (testing) - In this package
+- S3-based implementation (e3-aws) - via S3DynamoStorage
 
 ### GcOrchestrator
 

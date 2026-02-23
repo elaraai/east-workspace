@@ -12,7 +12,8 @@ import {
   ConditionalCheckFailedException,
 } from '@aws-sdk/client-dynamodb';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
-import type { LockService, LockHandle, LockState, LockOperation } from '@elaraai/e3-core';
+import type { LockHandle, LockState, LockOperation } from '@elaraai/e3-core';
+import type { CloudLockService } from '@elaraai/e3-cloud-core';
 import {
   variant,
   none,
@@ -85,7 +86,7 @@ function parseHolder(holderStr: string): { type: string; value: any } | null {
  * Locks have a TTL for automatic cleanup by DynamoDB.
  * Holder info is stored as an East text string (e.g., `.lambda (requestId="...", functionName="...")`).
  */
-export class DynamoLockService implements LockService {
+export class DynamoLockService implements CloudLockService {
   constructor(
     private readonly dynamo: DynamoDBClient,
     private readonly tableName: string

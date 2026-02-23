@@ -67,7 +67,7 @@ interface CloudRepoMetadata {
   status: RepoStatus;
   createdAt: string;
   statusChangedAt: string;
-  executionArn?: string;
+  executionRef?: string;
 }
 
 /**
@@ -103,7 +103,7 @@ export class DynamoS3RepoStore implements RepoStore {
     if (!metadata) {
       return null;
     }
-    // Return standard RepoMetadata (exclude executionArn)
+    // Return standard RepoMetadata (exclude executionRef)
     return {
       name: metadata.name,
       status: metadata.status,
@@ -164,22 +164,22 @@ export class DynamoS3RepoStore implements RepoStore {
   // ===========================================================================
 
   /**
-   * Set repository status with Step Functions execution ARN tracking.
+   * Set repository status with execution reference tracking.
    * This is an AWS-specific extension for Lambda handlers.
    *
    * @param repo - Repository name
    * @param status - New status
    * @param expected - Expected current status for CAS
-   * @param executionArn - Step Functions execution ARN to track
+   * @param executionRef - Execution reference to track
    */
-  async setStatusWithExecutionArn(
+  async setStatusWithExecutionRef(
     repo: string,
     status: RepoStatus,
     expected: RepoStatus | RepoStatus[],
-    executionArn?: string
+    executionRef?: string
   ): Promise<void> {
     try {
-      await this.refs.setRepoStatus(repo, expected, status, executionArn);
+      await this.refs.setRepoStatus(repo, expected, status, executionRef);
     } catch (error) {
       if (error instanceof InvalidRepoStatusError) {
         throw new RepoStatusConflictError(
@@ -193,7 +193,7 @@ export class DynamoS3RepoStore implements RepoStore {
   }
 
   /**
-   * Get full cloud metadata including execution ARN.
+   * Get full cloud metadata including execution reference.
    * This is an AWS-specific extension for Lambda handlers.
    */
   async getCloudMetadata(repo: string): Promise<CloudRepoMetadata | null> {

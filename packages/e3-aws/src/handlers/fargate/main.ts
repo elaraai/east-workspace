@@ -19,7 +19,7 @@
  */
 
 import { executeTaskCore } from '@elaraai/e3-cloud-core/steps';
-import type { TaskExecutionResult, TaskExecutionDeps } from '@elaraai/e3-cloud-core/steps';
+import type { TaskExecutionEvent, TaskExecutionResult, TaskExecutionDeps } from '@elaraai/e3-cloud-core/steps';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { S3Client } from '@aws-sdk/client-s3';
 import { S3ObjectStore } from '../../storage/s3-object-store.js';
@@ -37,7 +37,7 @@ export interface ComputeEntryDeps {
  */
 export async function handleComputeEntry(
   deps: ComputeEntryDeps,
-  event: { repo: string; workspace: string; taskExecutionId: string; taskName: string; timeoutMinutes?: number },
+  event: TaskExecutionEvent,
 ): Promise<TaskExecutionResult> {
   const { taskExecutionDeps, computeResultStore } = deps;
   const { repo, workspace, taskExecutionId, taskName, timeoutMinutes } = event;
@@ -48,7 +48,7 @@ export async function handleComputeEntry(
   const timeoutMs = (timeoutMinutes ?? 1440) * 60 * 1000;
   let result: TaskExecutionResult;
   try {
-    result = await executeTaskCore(event as any, taskExecutionDeps, { timeoutMs });
+    result = await executeTaskCore(event, taskExecutionDeps, { timeoutMs });
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     console.error(`Fargate compute: unhandled error: ${errorMsg}`);
@@ -62,7 +62,7 @@ export async function handleComputeEntry(
 
   // Write result to ComputeResultStore for collect-compute-result to read
   try {
-    await computeResultStore.write(repo, workspace, taskExecutionId, JSON.stringify(result));
+    await computeResultStore.write(repo, workspace, taskExecutionId!, JSON.stringify(result));
     console.log(`Fargate compute: result written for ${taskName} (status: ${result.status})`);
   } catch (err) {
     console.error('Failed to write compute result:', err);

@@ -18,6 +18,7 @@ src/
 │   ├── dynamo-compute-result-store.ts # DynamoDB compute result store
 │   ├── dynamo-state-store.ts         # DynamoDB execution state store
 │   ├── dynamo-s3-repo-store.ts       # DynamoDB + S3 repo store
+│   ├── s3-gc-temp-store.ts            # S3 GcTempStore implementation
 │   ├── init.ts                       # Singleton initialization helpers
 │   └── index.ts                      # Storage exports
 │
@@ -36,9 +37,8 @@ src/
 │   │   ├── get-graph.ts              # Build dependency graph
 │   │   ├── get-ready.ts              # Find ready tasks
 │   │   ├── dispatch-task.ts          # Dispatch with compute/timeout config
-│   │   ├── execute-task.ts           # Lambda task execution
-│   │   ├── execute-task-core.ts      # Shared execution logic
-│   │   ├── collect-compute-result.ts # Collect Fargate results
+│   │   ├── execute-task.ts           # Lambda task execution (thin wrapper)
+│   │   ├── collect-compute-result.ts # Collect Fargate results (thin wrapper)
 │   │   ├── apply-results.ts          # Apply task results
 │   │   ├── apply-tree-updates.ts     # Propagate tree changes
 │   │   ├── check-completion.ts       # Poll completion status
@@ -56,6 +56,8 @@ src/
 │
 └── index.ts          # Package exports
 ```
+
+All SFN and GC handlers are thin wrappers that delegate to `@elaraai/e3-cloud-core/steps` and `@elaraai/e3-cloud-core/gc` respectively. Business logic lives in e3-cloud-core; these handlers only wire up AWS backends and call the cloud-agnostic step functions.
 
 ## DynamoDB Schema
 

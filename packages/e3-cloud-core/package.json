@@ -23,6 +23,10 @@
     "./steps": {
       "types": "./dist/src/steps/index.d.ts",
       "default": "./dist/src/steps/index.js"
+    },
+    "./gc": {
+      "types": "./dist/src/gc/index.d.ts",
+      "default": "./dist/src/gc/index.js"
     }
   },
   "scripts": {

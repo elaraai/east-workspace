@@ -19,6 +19,7 @@ import { S3DynamoStorage } from './s3-dynamo-storage.js';
 import { DynamoTaskConfigStore } from './dynamo-task-config-store.js';
 import { DynamoScheduleStore } from './dynamo-schedule-store.js';
 import { DynamoComputeResultStore } from './dynamo-compute-result-store.js';
+import { S3GcTempStore } from './s3-gc-temp-store.js';
 
 let _s3: S3Client | undefined;
 let _dynamo: DynamoDBClient | undefined;
@@ -26,6 +27,7 @@ let _storage: S3DynamoStorage | undefined;
 let _taskConfigStore: DynamoTaskConfigStore | undefined;
 let _scheduleStore: DynamoScheduleStore | undefined;
 let _computeResultStore: DynamoComputeResultStore | undefined;
+let _gcTempStore: S3GcTempStore | undefined;
 
 function ensureClients(): { s3: S3Client; dynamo: DynamoDBClient } {
   if (!_s3) _s3 = new S3Client({});
@@ -67,4 +69,13 @@ export function getComputeResultStore(): DynamoComputeResultStore {
     _computeResultStore = new DynamoComputeResultStore(dynamo, process.env.TABLE_NAME!);
   }
   return _computeResultStore;
+}
+
+/** Get the shared S3GcTempStore instance. */
+export function getGcTempStore(): S3GcTempStore {
+  if (!_gcTempStore) {
+    const { s3 } = ensureClients();
+    _gcTempStore = new S3GcTempStore(s3, process.env.BUCKET_NAME!);
+  }
+  return _gcTempStore;
 }
