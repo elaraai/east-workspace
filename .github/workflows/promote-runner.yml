@@ -10,12 +10,14 @@ on:
         options:
           - elara-dev
           - kpmg
+          - twe
       to:
         description: 'Target environment to copy runner image to'
         required: true
         type: choice
         options:
           - kpmg
+          - twe
           - elara-dev
 
 permissions:
