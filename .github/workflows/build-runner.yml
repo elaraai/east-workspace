@@ -10,6 +10,7 @@ on:
         options:
           - elara-dev
           - kpmg
+          - twe
 
 permissions:
   id-token: write

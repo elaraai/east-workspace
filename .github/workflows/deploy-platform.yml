@@ -10,6 +10,7 @@ on:
         options:
           - elara-dev
           - kpmg
+          - twe
       runner:
         description: 'Runner image action (before CDK deploy)'
         required: true
@@ -20,6 +21,7 @@ on:
           - build
           - transfer from elara-dev
           - transfer from kpmg
+          - transfer from twe
 
 permissions:
   id-token: write
