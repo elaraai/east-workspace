@@ -9,9 +9,7 @@ on:
         type: choice
         options:
           - elara-dev
-          # Add future environments here:
-          # - elara-test
-          # - elara-prod
+          - kpmg
 
 permissions:
   id-token: write

@@ -8,10 +8,17 @@ This project creates member accounts under the Elara AWS Organization (root acco
 
 ## Prerequisites
 
-1. **AWS SSO configured** - You need access to the management account via SSO
-2. **Existing SSO groups** - The `Elara-AWSAdministrators-*` groups must exist
-3. **Existing permission sets** - The `InfraDeployInternal*` permission sets must exist
-4. **M365 plus addressing** - Enable in Exchange Online for email aliases (see below)
+1. **AWS CLI** - Install from https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html
+2. **Azure CLI** - Required for Entra ID enterprise app setup (OIDC SSO):
+   ```bash
+   curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+   az login --tenant f6e3d4a6-dd46-4950-ba59-d96255494980 --allow-no-subscriptions
+   ```
+   The `--allow-no-subscriptions` flag is required because Elara's Entra ID tenant has no Azure subscriptions.
+3. **AWS SSO configured** - You need access to the management account via SSO
+4. **Existing SSO groups** - The `Elara-AWSAdministrators-*` groups must exist
+5. **Existing permission sets** - The `InfraDeployInternal*` permission sets must exist
+6. **M365 plus addressing** - Enable in Exchange Online for email aliases (see below)
 
 ## Quick Start
 
@@ -146,7 +153,7 @@ Each bootstrapped account gets an IAM OIDC provider and deploy role for GitHub A
 | test | `E3-GitHubActions-Test` |
 | prod | `E3-GitHubActions-Prod` |
 
-The OIDC trust policy is scoped to `repo:elaraai/e3-aws:*` (configured in `orgConfig.github`). GitHub Actions workflows assume this role using short-lived OIDC tokens — no long-lived AWS credentials are needed.
+The OIDC trust policy is scoped to `repo:elaraai/e3-cloud:*` (configured in `orgConfig.github`). GitHub Actions workflows assume this role using short-lived OIDC tokens — no long-lived AWS credentials are needed.
 
 The role is created automatically by `E3AccountBootstrapStack`. To use it:
 1. Add `github.deployRoleArn` to the deployment config (`cdk/platform/deployments/*.json`)
