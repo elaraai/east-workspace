@@ -25,13 +25,14 @@ Read these before starting a new environment setup:
 - **`cdk/platform/schemas/deployment.schema.json`** — JSON schema for deployment configs.
 
 ### Deployment Scripts
-- **`scripts/deploy-runner.sh`** — Build and push runner Docker image to ECR + update Lambda.
+- **`scripts/deploy-runner.sh`** — Build or transfer runner Docker image to ECR + update Lambda. Supports `--from <config>` for cross-account transfer.
 - **`scripts/deploy-web.sh`** — Fast UI-only deploy (S3 sync + CloudFront invalidation).
 - **`scripts/build-runner.sh`** — Build runner Docker image locally or push to ECR.
 
 ### GitHub Actions
-- **`.github/workflows/deploy-platform.yml`** — Full CDK platform deploy (manual trigger).
+- **`.github/workflows/deploy-platform.yml`** — Full CDK platform deploy with optional runner step (manual trigger).
 - **`.github/workflows/build-runner.yml`** — Runner image build + push + Lambda update (manual trigger).
+- **`.github/workflows/promote-runner.yml`** — Cross-account runner image transfer (manual trigger).
 
 ## Azure CLI Setup
 
@@ -396,11 +397,21 @@ The platform stack references an ECR repository that must exist with a `:latest`
 # Create the ECR repository
 AWS_PROFILE={profile} aws ecr create-repository \
   --repository-name e3-{deploymentId}-runner --region ap-southeast-2
+```
 
-# Build and push the runner image (from repo root, requires Docker)
+**Option A: Transfer from an existing environment (preferred)** — copies the runner image without rebuilding:
+
+```bash
+./scripts/deploy-runner.sh {deploymentId} {profile} --from elara-dev
+# or: make deploy-runner CONFIG={deploymentId} PROFILE={profile} FROM=elara-dev
+```
+
+**Option B: Build from source** — builds the Docker image locally and pushes:
+
+```bash
 npm install && npm run build
-AWS_PROFILE={profile} AWS_REGION=ap-southeast-2 E3_DEPLOYMENT_ID={deploymentId} \
-  ./scripts/build-runner.sh --push
+./scripts/deploy-runner.sh {deploymentId} {profile}
+# or: make deploy-runner CONFIG={deploymentId} PROFILE={profile}
 ```
 
 ### Step 9: Deploy e3 platform
@@ -427,18 +438,30 @@ The deploy takes ~15 minutes on first run (ACM certificate validation is the bot
 
 ### Step 10: Update runner Lambda (after future image rebuilds)
 
+**Option A: Transfer from dev (preferred for client environments):**
+
 ```bash
-# From repo root
+make deploy-runner CONFIG={deploymentId} PROFILE={profile} FROM=elara-dev
+```
+
+This copies the runner image from the dev environment's ECR without rebuilding. Use this after the dev runner has been updated and verified.
+
+**Option B: Build from source:**
+
+```bash
 make deploy-runner CONFIG={deploymentId} PROFILE={profile}
 ```
 
-This rebuilds the Docker image, pushes to ECR, and calls `update-function-code` on the Lambda. Required after east/e3 package updates.
+This rebuilds the Docker image, pushes to ECR, and calls `update-function-code` on the Lambda.
+
+**Via GitHub Actions:** Use the **Promote Runner** workflow to transfer between environments, or the **Deploy Runner** workflow to build from source. The **Deploy Platform** workflow also supports a `runner` input to build or transfer as part of a platform deploy.
 
 ### Step 11: Add to GitHub Actions
 
 Add the new deployment config name to the `options` list in:
-- `.github/workflows/deploy-platform.yml` — under `inputs.deployment.options`
+- `.github/workflows/deploy-platform.yml` — under `inputs.deployment.options` (and `inputs.runner.options` for transfer choices)
 - `.github/workflows/build-runner.yml` — under `inputs.deployment.options`
+- `.github/workflows/promote-runner.yml` — under `inputs.from.options` and `inputs.to.options`
 
 ### Step 12: Add users to Entra ID groups
 

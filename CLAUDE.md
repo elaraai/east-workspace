@@ -26,11 +26,12 @@ Elara services various industries including banking, governemnt, health and defe
 e3-cloud/
 ├── .github/
 │   └── workflows/
-│       ├── deploy-platform.yml  # GitHub Actions CI/CD (manual trigger, OIDC auth)
-│       └── build-runner.yml     # Runner image build+push to ECR (manual trigger, OIDC auth)
+│       ├── deploy-platform.yml  # GitHub Actions CI/CD with optional runner step (manual trigger, OIDC auth)
+│       ├── build-runner.yml     # Runner image build+push to ECR (manual trigger, OIDC auth)
+│       └── promote-runner.yml   # Cross-account runner image transfer (manual trigger, OIDC auth)
 ├── scripts/
 │   ├── deploy-web.sh            # Fast UI-only deploy (S3 sync + CloudFront invalidation)
-│   ├── deploy-runner.sh         # Build+push runner image to ECR + update Lambda
+│   ├── deploy-runner.sh         # Build or transfer runner image to ECR + update Lambda
 │   └── build-runner.sh          # Build runner Docker image (used by deploy-runner.sh)
 ├── cdk/
 │   ├── accounts/             # AWS Organization & account provisioning
@@ -215,34 +216,42 @@ The workflow uses OIDC federation — no long-lived AWS credentials are stored i
 To add a new environment to CI/CD:
 1. Deploy the bootstrap stack to the target account (creates the OIDC provider + role)
 2. Add `github.deployRoleArn` to the deployment config in `cdk/platform/deployments/`
-3. Add the environment name to the `options` list in `.github/workflows/deploy-platform.yml`
+3. Add the environment name to the `options` list in `.github/workflows/deploy-platform.yml`, `.github/workflows/build-runner.yml`, and `.github/workflows/promote-runner.yml`
 4. Optionally configure a GitHub Environment with protection rules for approval gates
 
 ### Deploy Runner (Lambda Container Image)
 
 The task runner Lambda (`e3-{id}-execute-task`) uses a Docker image based on `ghcr.io/elaraai/e3:beta`. When east/e3 packages are updated and the base image is rebuilt, the runner container must be rebuilt and pushed to ECR, then the Lambda function must be updated to pull the new image.
 
-**Via GitHub Actions:**
+**Build from source** (via GitHub Actions):
 
 1. Go to **Actions** > **Deploy Runner** > **Run workflow**
 2. Select the deployment config (e.g., `elara-dev`)
 3. Click **Run workflow**
 
+**Transfer between environments** (via GitHub Actions):
+
+1. Go to **Actions** > **Promote Runner** > **Run workflow**
+2. Select source and target environments
+3. Click **Run workflow**
+
+This copies the runner image from one account's ECR to another without rebuilding.
+
+**As part of a platform deploy** (via GitHub Actions):
+
+The **Deploy Platform** workflow has a `runner` input with options: `none` (default), `build`, `transfer from elara-dev`, `transfer from kpmg`. When set, the runner job runs before CDK deploy.
+
 **Locally:**
 
 ```bash
-# 1. Login to AWS SSO
-aws sso login --profile elaraai-dev-elara-e3
-
-# 2. Build all packages
-npm run build
-
-# 3. Build+push runner image and update Lambda
+# Build from source
 make deploy-runner CONFIG=elara-dev PROFILE=elaraai-dev-elara-e3
-# or directly: ./scripts/deploy-runner.sh elara-dev elaraai-dev-elara-e3
+
+# Transfer from another environment (no rebuild)
+make deploy-runner CONFIG=kpmg PROFILE=elaraai-prod-kpmg-e3 FROM=elara-dev
 ```
 
-This builds the Docker image from `docker/Dockerfile.runner`, pushes it to ECR, and calls `aws lambda update-function-code` to point the Lambda at the new image. The Lambda update is required because CDK references the `:latest` tag — pushing a new `:latest` to ECR does not automatically update the Lambda function.
+Building from source creates the Docker image from `docker/Dockerfile.runner`, pushes it to ECR, and calls `aws lambda update-function-code`. Transferring pulls the image from the source account's ECR and pushes to the target. The Lambda update is required because CDK references the `:latest` tag — pushing a new `:latest` to ECR does not automatically update the Lambda function.
 
 ### Deploy Web Only (Fast)
 

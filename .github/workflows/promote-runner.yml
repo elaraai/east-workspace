@@ -1,0 +1,90 @@
+name: Promote Runner
+
+on:
+  workflow_dispatch:
+    inputs:
+      from:
+        description: 'Source environment to copy runner image from'
+        required: true
+        type: choice
+        options:
+          - elara-dev
+          - kpmg
+      to:
+        description: 'Target environment to copy runner image to'
+        required: true
+        type: choice
+        options:
+          - kpmg
+          - elara-dev
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  promote:
+    name: Promote Runner ${{ inputs.from }} → ${{ inputs.to }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate inputs
+        run: |
+          if [ "${{ inputs.from }}" = "${{ inputs.to }}" ]; then
+            echo "Error: source and target environments must be different"
+            exit 1
+          fi
+
+      - name: Read source config
+        id: source
+        run: |
+          CONFIG_FILE="cdk/platform/deployments/${{ inputs.from }}.json"
+          echo "role_arn=$(jq -r '.github.deployRoleArn' "$CONFIG_FILE")" >> "$GITHUB_OUTPUT"
+          echo "region=$(jq -r '.aws.region' "$CONFIG_FILE")" >> "$GITHUB_OUTPUT"
+          echo "account_id=$(jq -r '.aws.accountId' "$CONFIG_FILE")" >> "$GITHUB_OUTPUT"
+          echo "deployment_id=$(jq -r '.deployment.id' "$CONFIG_FILE")" >> "$GITHUB_OUTPUT"
+
+      - name: Read target config
+        id: target
+        run: |
+          CONFIG_FILE="cdk/platform/deployments/${{ inputs.to }}.json"
+          echo "role_arn=$(jq -r '.github.deployRoleArn' "$CONFIG_FILE")" >> "$GITHUB_OUTPUT"
+          echo "region=$(jq -r '.aws.region' "$CONFIG_FILE")" >> "$GITHUB_OUTPUT"
+          echo "account_id=$(jq -r '.aws.accountId' "$CONFIG_FILE")" >> "$GITHUB_OUTPUT"
+          echo "deployment_id=$(jq -r '.deployment.id' "$CONFIG_FILE")" >> "$GITHUB_OUTPUT"
+
+      - name: Authenticate to source account
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ steps.source.outputs.role_arn }}
+          aws-region: ${{ steps.source.outputs.region }}
+
+      - name: Login to source ECR and pull image
+        run: |
+          SOURCE_ECR_URI="${{ steps.source.outputs.account_id }}.dkr.ecr.${{ steps.source.outputs.region }}.amazonaws.com/e3-${{ steps.source.outputs.deployment_id }}-runner"
+          aws ecr get-login-password --region ${{ steps.source.outputs.region }} | \
+            docker login --username AWS --password-stdin ${{ steps.source.outputs.account_id }}.dkr.ecr.${{ steps.source.outputs.region }}.amazonaws.com
+          docker pull "$SOURCE_ECR_URI:latest"
+
+      - name: Authenticate to target account
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ steps.target.outputs.role_arn }}
+          aws-region: ${{ steps.target.outputs.region }}
+
+      - name: Push image to target ECR and update Lambda
+        run: |
+          SOURCE_ECR_URI="${{ steps.source.outputs.account_id }}.dkr.ecr.${{ steps.source.outputs.region }}.amazonaws.com/e3-${{ steps.source.outputs.deployment_id }}-runner"
+          TARGET_ECR_URI="${{ steps.target.outputs.account_id }}.dkr.ecr.${{ steps.target.outputs.region }}.amazonaws.com/e3-${{ steps.target.outputs.deployment_id }}-runner"
+
+          aws ecr get-login-password --region ${{ steps.target.outputs.region }} | \
+            docker login --username AWS --password-stdin ${{ steps.target.outputs.account_id }}.dkr.ecr.${{ steps.target.outputs.region }}.amazonaws.com
+
+          docker tag "$SOURCE_ECR_URI:latest" "$TARGET_ECR_URI:latest"
+          docker push "$TARGET_ECR_URI:latest"
+
+          aws lambda update-function-code \
+            --function-name "e3-${{ steps.target.outputs.deployment_id }}-execute-task" \
+            --image-uri "$TARGET_ECR_URI:latest" \
+            --region ${{ steps.target.outputs.region }}
