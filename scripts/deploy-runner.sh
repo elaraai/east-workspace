@@ -13,18 +13,16 @@
 #
 #   # Transfer from another environment (no rebuild)
 #   ./scripts/deploy-runner.sh kpmg elaraai-prod-kpmg-e3 --from elara-dev
+#   ./scripts/deploy-runner.sh kpmg --from elara-dev
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-CONFIG_NAME="${1:?Usage: $0 <config-name> [aws-profile] [--from <source-config>]}"
-PROFILE="${2:-${AWS_PROFILE:-}}"
-
-# Parse --from flag
+# Parse all arguments: extract --from first, then assign positionals
 SOURCE_CONFIG=""
-shift 2 2>/dev/null || shift $# 2>/dev/null
+POSITIONAL_ARGS=()
 while [[ $# -gt 0 ]]; do
   case $1 in
     --from)
@@ -32,11 +30,14 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     *)
-      echo "Unknown argument: $1"
-      exit 1
+      POSITIONAL_ARGS+=("$1")
+      shift
       ;;
   esac
 done
+
+CONFIG_NAME="${POSITIONAL_ARGS[0]:?Usage: $0 <config-name> [aws-profile] [--from <source-config>]}"
+PROFILE="${POSITIONAL_ARGS[1]:-${AWS_PROFILE:-}}"
 
 # Read target config
 CONFIG_FILE="$PROJECT_ROOT/cdk/platform/deployments/${CONFIG_NAME}.json"
@@ -58,9 +59,17 @@ if [ -n "$SOURCE_CONFIG" ]; then
     exit 1
   fi
 
+  if [ "$SOURCE_CONFIG" = "$CONFIG_NAME" ]; then
+    echo "Error: source and target environments must be different"
+    exit 1
+  fi
+
   SOURCE_DEPLOY_ID=$(jq -r '.deployment.id' "$SOURCE_FILE")
   SOURCE_REGION=$(jq -r '.aws.region' "$SOURCE_FILE")
   SOURCE_ACCOUNT_ID=$(jq -r '.aws.accountId' "$SOURCE_FILE")
+  # Profile name comes from the source deployment config JSON (aws.profile).
+  # Your local ~/.aws/config must have a profile with this exact name.
+  # If auth fails here, run: aws sso login --profile <name-below>
   SOURCE_PROFILE=$(jq -r '.aws.profile' "$SOURCE_FILE")
   SOURCE_ECR_URI="${SOURCE_ACCOUNT_ID}.dkr.ecr.${SOURCE_REGION}.amazonaws.com/e3-${SOURCE_DEPLOY_ID}-runner"
 

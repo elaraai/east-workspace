@@ -177,7 +177,7 @@ npm run dev
 
 Available AWS SSO profiles for e3 deployments:
 - `elaraai-dev-elara-e3` - Development environment (dev.e3.elaraai.com)
-- Future: `elaraai-test-elara-e3`, `elaraai-prod-elara-e3`
+- `elaraai-prod-kpmg-e3` - KPMG production environment (kpmg.e3.elaraai.com)
 
 ### Deploy to Dev
 

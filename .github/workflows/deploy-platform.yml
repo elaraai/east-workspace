@@ -68,6 +68,7 @@ jobs:
             docker login --username AWS --password-stdin ${{ steps.config.outputs.account_id }}.dkr.ecr.${{ steps.config.outputs.region }}.amazonaws.com
           docker build --pull -f docker/Dockerfile.runner -t "$ECR_URI:latest" --provenance=false .
           docker push "$ECR_URI:latest"
+          # Update Lambda explicitly — CDK won't detect the new digest behind :latest
           aws lambda update-function-code \
             --function-name "e3-${{ steps.config.outputs.deployment_id }}-execute-task" \
             --image-uri "$ECR_URI:latest" \
@@ -81,6 +82,10 @@ jobs:
         run: |
           SOURCE_ENV="${{ inputs.runner }}"
           SOURCE_ENV="${SOURCE_ENV#transfer from }"
+          if [ "$SOURCE_ENV" = "${{ inputs.deployment }}" ]; then
+            echo "Error: cannot transfer from the same environment being deployed"
+            exit 1
+          fi
           echo "source_env=$SOURCE_ENV" >> "$GITHUB_OUTPUT"
           CONFIG_FILE="cdk/platform/deployments/${SOURCE_ENV}.json"
           echo "source_role_arn=$(jq -r '.github.deployRoleArn' "$CONFIG_FILE")" >> "$GITHUB_OUTPUT"
