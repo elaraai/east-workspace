@@ -43,6 +43,7 @@ import * as scheduler from 'aws-cdk-lib/aws-scheduler';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
+import * as cr from 'aws-cdk-lib/custom-resources';
 import { Construct } from 'constructs';
 import { CrossRegionCertificate } from './cross-region-certificate.js';
 import { CrossAccountRoute53Record } from './cross-account-route53-record.js';
@@ -937,6 +938,58 @@ export class E3PlatformStack extends cdk.Stack {
       'RunnerRepo',
       `${prefix}-runner`
     );
+
+    // ECR lifecycle policy — expire untagged images after 1 day to prevent storage bloat.
+    // Applied via AwsCustomResource because the repo is created manually (chicken-and-egg:
+    // image must exist before Lambda, so repo is created during bootstrap before first CDK deploy).
+    new cr.AwsCustomResource(this, 'RunnerRepoLifecyclePolicy', {
+      onCreate: {
+        service: 'ECR',
+        action: 'putLifecyclePolicy',
+        parameters: {
+          repositoryName: `${prefix}-runner`,
+          lifecyclePolicyText: JSON.stringify({
+            rules: [{
+              rulePriority: 1,
+              description: 'Expire untagged images after 1 day',
+              selection: {
+                tagStatus: 'untagged',
+                countType: 'sinceImagePushed',
+                countUnit: 'days',
+                countNumber: 1,
+              },
+              action: { type: 'expire' },
+            }],
+          }),
+        },
+        physicalResourceId: cr.PhysicalResourceId.of(`${prefix}-runner-lifecycle-policy`),
+      },
+      onUpdate: {
+        service: 'ECR',
+        action: 'putLifecyclePolicy',
+        parameters: {
+          repositoryName: `${prefix}-runner`,
+          lifecyclePolicyText: JSON.stringify({
+            rules: [{
+              rulePriority: 1,
+              description: 'Expire untagged images after 1 day',
+              selection: {
+                tagStatus: 'untagged',
+                countType: 'sinceImagePushed',
+                countUnit: 'days',
+                countNumber: 1,
+              },
+              action: { type: 'expire' },
+            }],
+          }),
+        },
+        physicalResourceId: cr.PhysicalResourceId.of(`${prefix}-runner-lifecycle-policy`),
+      },
+      installLatestAwsSdk: false,
+      policy: cr.AwsCustomResourcePolicy.fromSdkCalls({
+        resources: cr.AwsCustomResourcePolicy.ANY_RESOURCE,
+      }),
+    });
 
     // Lambda function with container image for task execution
     // Note: Image must be pushed to ECR before deployment

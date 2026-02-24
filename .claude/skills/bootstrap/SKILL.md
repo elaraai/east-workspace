@@ -402,6 +402,8 @@ AWS_PROFILE={profile} aws ecr create-repository \
   --repository-name e3-{deploymentId}-runner --region ap-southeast-2
 ```
 
+> **Note:** The ECR lifecycle policy (expire untagged images after 1 day) is managed by CDK and applied automatically on platform deploy.
+
 **Option A: Transfer from an existing environment (preferred)** — copies the runner image without rebuilding:
 
 ```bash
