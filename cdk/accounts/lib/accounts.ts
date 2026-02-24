@@ -248,7 +248,7 @@ export const orgConfig = {
    */
   github: {
     owner: 'elaraai',
-    repo: 'e3-aws',
+    repo: 'e3-cloud',
   },
 
   /**
