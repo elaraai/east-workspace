@@ -31,7 +31,7 @@
  *   AWS_PROFILE=elaraai-dev-elara-e3 npm test -- --test-name-pattern "Admin"
  */
 
-import { describe, it } from 'node:test';
+import { describe } from 'node:test';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
@@ -181,7 +181,14 @@ const getAdminConfig = (() => {
 })();
 
 const adminSetup: TestSetup<AdminTestContext> = async (t) => {
-  const { baseUrl, outputs } = await getAdminConfig();
+  let resolved: { baseUrl: string; outputs: StackOutputs };
+  try {
+    resolved = await getAdminConfig();
+  } catch {
+    t.skip('Multi-user credentials not configured');
+    return undefined as unknown as AdminTestContext;
+  }
+  const { baseUrl, outputs } = resolved;
 
   const config: AdminTestConfig = {
     baseUrl,
@@ -214,17 +221,6 @@ const adminSetup: TestSetup<AdminTestContext> = async (t) => {
 };
 
 describe('Admin API Compliance Tests', { timeout: 900000, concurrency: getTestConcurrency(1) }, () => {
-  // Skip tests if credentials not configured
-  it('should have multi-user credentials configured', async () => {
-    // This test verifies credentials are available
-    try {
-      await getAdminConfig();
-    } catch {
-      console.log('Skipping: Multi-user credentials not configured');
-      console.log('Either enable testUsers in deployment config or set manual credentials.');
-    }
-  });
-
-  // Register all admin compliance tests
+  // Each test calls adminSetup which skips via t.skip() if credentials are unavailable
   allAdminTests(adminSetup);
 });
