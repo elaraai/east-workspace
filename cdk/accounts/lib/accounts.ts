@@ -108,34 +108,23 @@ export const accounts: AccountConfig[] = [
     environment: 'dev',
     budgetLimitUsd: 200,
     description: 'e3 cloud development and testing',
-    // Domain configuration for e3 platform.
-    // See README.md "Domain Configuration" section for setup instructions.
-    // After central hosted zone is created and ACM cert is validated, fill in:
-    // domain: {
-    //   baseDomain: 'e3.elaraai.com',
-    //   hostedZoneId: 'Z0XXXXXXXXXXXXXXXX',  // Central hosted zone ID (shared services account)
-    //   certificateArn: 'arn:aws:acm:us-east-1:ACCOUNT:certificate/CERT-ID',  // This account's cert
-    // },
+    domain: {
+      baseDomain: 'e3.elaraai.com',
+      hostedZoneId: 'Z10452251PCGZVRQ2N81E',
+      route53RoleArn: 'arn:aws:iam::064741130885:role/E3-Route53-CrossAccount',
+    },
   },
-  // Uncomment to add more accounts:
-  // {
-  //   organization: 'elara',
-  //   environment: 'test',
-  //   budgetLimitUsd: 300,
-  //   description: 'e3 cloud staging environment',
-  // },
-  // {
-  //   organization: 'elara',
-  //   environment: 'prod',
-  //   budgetLimitUsd: 1000,
-  //   description: 'e3 cloud production environment',
-  // },
-  // {
-  //   organization: 'acme',  // Client account example
-  //   environment: 'prod',   // Note: only 'prod' is supported for clients (no ClientTest/ClientDev in SSO)
-  //   budgetLimitUsd: 500,
-  //   description: 'ACME Corp e3 production',
-  // },
+  {
+    organization: 'kpmg',
+    environment: 'prod',
+    budgetLimitUsd: 200,
+    description: 'KPMG e3 production',
+    domain: {
+      baseDomain: 'e3.elaraai.com',
+      hostedZoneId: 'Z10452251PCGZVRQ2N81E',
+      route53RoleArn: 'arn:aws:iam::064741130885:role/E3-Route53-CrossAccount',
+    },
+  },
 ];
 
 /** Derived configs with computed name, email, isClient */
@@ -306,9 +295,7 @@ export const sharedInfraConfig = {
    *     --output text
    */
   deploymentAccountIds: [
-    // Add account IDs here after they are created:
     '925445553972',  // elara-dev-e3
-    // 'xxxxxxxxxxxx',  // elara-test-e3
-    // 'xxxxxxxxxxxx',  // elara-prod-e3
+    '759210286954',  // kpmg-prod-e3
   ] as string[],
 };

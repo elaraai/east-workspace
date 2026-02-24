@@ -56,8 +56,9 @@ deploy-web:
 
 # Deploy runner: build+push Docker image to ECR and update Lambda
 # Usage: make deploy-runner CONFIG=elara-dev PROFILE=elaraai-dev-elara-e3
+# Transfer: make deploy-runner CONFIG=kpmg PROFILE=elaraai-prod-kpmg-e3 FROM=elara-dev
 deploy-runner:
-	./scripts/deploy-runner.sh $(CONFIG) $(PROFILE)
+	./scripts/deploy-runner.sh $(CONFIG) $(PROFILE) $(if $(FROM),--from $(FROM))
 
 # Help
 help:
@@ -73,4 +74,4 @@ help:
 	@echo "link             - Link CLI globally"
 	@echo "deploy           - Full platform deploy via CDK (CONFIG=... PROFILE=...)"
 	@echo "deploy-web       - Fast UI-only deploy to S3 + CloudFront (CONFIG=... PROFILE=...)"
-	@echo "deploy-runner    - Build+push runner image to ECR + update Lambda (CONFIG=... PROFILE=...)"
+	@echo "deploy-runner    - Build+push runner image to ECR + update Lambda (CONFIG=... PROFILE=... [FROM=...])"
