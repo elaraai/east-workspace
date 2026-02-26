@@ -205,6 +205,28 @@ export class S3ObjectStore implements ObjectStore {
   }
 
   /**
+   * Get the size of an object from the catalogue without reading its data.
+   */
+  async stat(repo: string, hash: string): Promise<{ size: number }> {
+    const response = await this.dynamo.send(
+      new GetItemCommand({
+        TableName: this.tableName,
+        Key: marshall({ PK: `OBJ/${repo}`, SK: hash }),
+        ProjectionExpression: '#size',
+        ExpressionAttributeNames: { '#size': 'size' },
+        ConsistentRead: true,
+      })
+    );
+
+    if (!response.Item) {
+      throw new S3ObjectNotFoundError(repo, hash);
+    }
+
+    const item = unmarshall(response.Item);
+    return { size: item.size as number };
+  }
+
+  /**
    * Check if an object exists in the catalogue.
    */
   async exists(repo: string, hash: string): Promise<boolean> {
