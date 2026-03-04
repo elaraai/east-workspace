@@ -40,6 +40,10 @@ function makeState(overrides: Partial<DataflowExecutionState> = {}): DataflowExe
     status: 'running',
     completedAt: none,
     error: none,
+    versionVectors: new Map(),
+    inputSnapshot: new Map(),
+    taskOutputPaths: [],
+    reexecuted: 0n,
     events: [],
     eventSeq: 0n,
     ...overrides,
@@ -54,10 +58,10 @@ function makeRun(): DataflowRun {
     startedAt: new Date(),
     completedAt: none,
     status: variant('running', {}),
-    inputSnapshot: '',
-    outputSnapshot: none,
+    inputVersions: new Map(),
+    outputVersions: none,
     taskExecutions: new Map(),
-    summary: { total: 0n, completed: 0n, cached: 0n, failed: 0n, skipped: 0n },
+    summary: { total: 0n, completed: 0n, cached: 0n, failed: 0n, skipped: 0n, reexecuted: 0n },
   };
 }
 
@@ -107,6 +111,33 @@ describe('finalize-execution', () => {
 
     const savedState = await mock.stateStore.read(REPO, WS, EXEC_ID_STR);
     assert.equal(savedState?.status, 'cancelled');
+  });
+
+  it('resolves version vectors by task output path, not task name', async () => {
+    const versionVectors = new Map<string, Map<string, string>>();
+    versionVectors.set('/out/task-a', new Map([['ds1', 'v1']]));
+
+    const state = makeState({ versionVectors });
+    await mock.stateStore.create(state);
+    await dataflowRuns.write(REPO, WS, makeRun());
+
+    const result = await handleFinalizeExecution(
+      { storage: mock.storage, dataflowRuns },
+      {
+        repo: REPO, workspace: WS, executionId: EXEC_ID, status: 'completed', runId: RUN_ID,
+        taskResults: [{ taskName: 'task-a', taskExecutionId: 'exec-1', cached: false }],
+      },
+    );
+
+    assert.equal(result.success, true);
+
+    // Verify the run was written with correct outputVersions from version vectors
+    const finalRun = await dataflowRuns.get(REPO, WS, RUN_ID);
+    assert.ok(finalRun);
+    const taskExec = finalRun.taskExecutions.get('task-a');
+    assert.ok(taskExec);
+    // Version vectors are keyed by output path (/out/task-a), not task name (task-a)
+    assert.deepEqual(taskExec.outputVersions, new Map([['ds1', 'v1']]));
   });
 
   it('releases workspace lock on finalize', async () => {

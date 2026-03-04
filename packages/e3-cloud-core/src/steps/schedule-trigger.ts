@@ -113,6 +113,10 @@ export async function handleScheduleTrigger(deps: ScheduleTriggerDeps, event: Sc
       status: 'running',
       completedAt: none,
       error: none,
+      versionVectors: new Map(),
+      inputSnapshot: new Map(),
+      taskOutputPaths: [],
+      reexecuted: 0n,
       events: [],
       eventSeq: 0n,
     };

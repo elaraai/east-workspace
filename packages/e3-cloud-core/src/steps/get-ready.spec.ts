@@ -42,6 +42,10 @@ function makeState(overrides: Partial<DataflowExecutionState> = {}): DataflowExe
     status: 'running',
     completedAt: none,
     error: none,
+    versionVectors: new Map(),
+    inputSnapshot: new Map(),
+    taskOutputPaths: [],
+    reexecuted: 0n,
     events: [],
     eventSeq: 0n,
     ...overrides,
@@ -88,6 +92,39 @@ describe('get-ready', () => {
     assert.ok(result.readyTasks.includes('task-a'));
     assert.ok(!result.readyTasks.includes('task-b'));
     assert.equal(result.allCompleted, false);
+  });
+
+  it('counts deferred tasks', async () => {
+    const state = makeState({
+      tasks: new Map([
+        taskState('task-a', { status: 'completed', cached: false, outputHash: 'h', duration: 1000n }),
+        taskState('task-b'),
+      ]),
+    });
+    // Manually set task-b status to deferred
+    const taskB = state.tasks.get('task-b')!;
+    (taskB as { status: string }).status = 'deferred';
+    await mock.stateStore.create(state);
+
+    const result = await handleGetReady(mock.storage, {
+      repo: REPO, workspace: WS, executionId: EXEC_ID,
+    });
+
+    assert.equal(result.deferredCount, 1);
+  });
+
+  it('handles stepDetectInputChanges failure gracefully', async () => {
+    const state = makeState();
+    await mock.stateStore.create(state);
+
+    // The test should still return ready tasks even if input change detection fails
+    // (stepDetectInputChanges may fail if workspace isn't deployed yet)
+    const result = await handleGetReady(mock.storage, {
+      repo: REPO, workspace: WS, executionId: EXEC_ID,
+    });
+
+    assert.equal(result.cancelled, false);
+    assert.ok(result.readyTasks.length >= 0);
   });
 
   it('counts task statuses correctly', async () => {

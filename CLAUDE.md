@@ -54,7 +54,8 @@ e3-cloud/
 │   │       │   ├── s3-dynamo-storage.ts         # Main storage backend
 │   │       │   ├── s3-object-store.ts           # S3 object storage
 │   │       │   ├── dynamo-ref-store.ts          # DynamoDB ref store
-│   │       │   ├── dynamo-lock-service.ts       # DynamoDB distributed locks
+│   │       │   ├── dynamo-dataset-ref-store.ts   # DynamoDB per-dataset refs (reactive dataflow)
+│   │       │   ├── dynamo-lock-service.ts       # DynamoDB distributed locks (shared + exclusive)
 │   │       │   ├── dynamo-user-settings-store.ts # DynamoDB per-user workspace settings
 │   │       │   ├── s3-gc-temp-store.ts          # S3 GcTempStore implementation
 │   │       │   ├── init.ts                      # Singleton initialization
@@ -154,6 +155,8 @@ e3-cloud/
 - **Tenant** - A hosted e3 repository with isolated storage (S3 prefix + DynamoDB partition)
 - **StorageBackend** - Interface from e3-core for storage operations (this repo provides `S3DynamoStorage`)
 - **DataflowExecutor** - Interface from e3-core for orchestration (this repo provides Step Functions implementation)
+- **DatasetRefStore** - Per-dataset ref storage for reactive dataflow (this repo provides `DynamoDatasetRefStore`)
+- **Reactive Dataflow** - Concurrent input writes during execution with automatic re-execution of affected tasks via version vectors
 - **UIComponentType** - East UI type that the frontend renders using `east-ui-components`
 - **ComputeSize** - Per-task compute tier (serverless/small/medium/large/xlarge). Serverless = Lambda, others = Fargate
 - **TaskConfig** - Per-task configuration for compute size and timeout, stored in DynamoDB

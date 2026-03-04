@@ -29,9 +29,6 @@ export type { CollectComputeResultEvent } from './collect-compute-result.js';
 export { handleApplyResults } from './apply-results.js';
 export type { ApplyResultsEvent, ApplyResultsOutput, TaskResult } from './apply-results.js';
 
-export { handleApplyTreeUpdates } from './apply-tree-updates.js';
-export type { ApplyTreeUpdatesEvent, ApplyTreeUpdatesOutput, TreeUpdate } from './apply-tree-updates.js';
-
 export { handleCheckCompletion } from './check-completion.js';
 export type { CheckCompletionEvent, CheckCompletionResult, TaskCompletion, DispatchResult, DataflowEventType } from './check-completion.js';
 

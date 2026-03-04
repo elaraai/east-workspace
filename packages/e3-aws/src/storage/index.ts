@@ -25,6 +25,7 @@ export { DynamoLockService, setLambdaRequestId } from './dynamo-lock-service.js'
 export { DynamoLogStore } from './dynamo-log-store.js';
 export { DynamoS3RepoStore } from './dynamo-s3-repo-store.js';
 export { DynamoDBStateStore } from './dynamo-state-store.js';
+export { DynamoDatasetRefStore } from './dynamo-dataset-ref-store.js';
 export { DynamoAclStore } from './dynamo-acl-store.js';
 export { DynamoScheduleStore } from './dynamo-schedule-store.js';
 export { DynamoTaskConfigStore } from './dynamo-task-config-store.js';
