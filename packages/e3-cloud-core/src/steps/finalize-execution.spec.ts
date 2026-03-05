@@ -40,6 +40,10 @@ function makeState(overrides: Partial<DataflowExecutionState> = {}): DataflowExe
     status: 'running',
     completedAt: none,
     error: none,
+    versionVectors: new Map(),
+    inputSnapshot: new Map(),
+    taskOutputPaths: [],
+    reexecuted: 0n,
     events: [],
     eventSeq: 0n,
     ...overrides,
@@ -54,10 +58,10 @@ function makeRun(): DataflowRun {
     startedAt: new Date(),
     completedAt: none,
     status: variant('running', {}),
-    inputSnapshot: '',
-    outputSnapshot: none,
+    inputVersions: new Map(),
+    outputVersions: none,
     taskExecutions: new Map(),
-    summary: { total: 0n, completed: 0n, cached: 0n, failed: 0n, skipped: 0n },
+    summary: { total: 0n, completed: 0n, cached: 0n, failed: 0n, skipped: 0n, reexecuted: 0n },
   };
 }
 
@@ -109,6 +113,54 @@ describe('finalize-execution', () => {
     assert.equal(savedState?.status, 'cancelled');
   });
 
+  it('resolves version vectors by task output path, not task name', async () => {
+    const versionVectors = new Map<string, Map<string, string>>();
+    versionVectors.set('/out/task-a', new Map([['ds1', 'v1']]));
+
+    const state = makeState({ versionVectors });
+    await mock.stateStore.create(state);
+    await dataflowRuns.write(REPO, WS, makeRun());
+
+    const result = await handleFinalizeExecution(
+      { storage: mock.storage, dataflowRuns },
+      {
+        repo: REPO, workspace: WS, executionId: EXEC_ID, status: 'completed', runId: RUN_ID,
+        taskResults: [{ taskName: 'task-a', taskExecutionId: 'exec-1', cached: false }],
+      },
+    );
+
+    assert.equal(result.success, true);
+
+    // Verify the run was written with correct outputVersions from version vectors
+    const finalRun = await dataflowRuns.get(REPO, WS, RUN_ID);
+    assert.ok(finalRun);
+    const taskExec = finalRun.taskExecutions.get('task-a');
+    assert.ok(taskExec);
+    // Version vectors are keyed by output path (/out/task-a), not task name (task-a)
+    assert.deepEqual(taskExec.outputVersions, new Map([['ds1', 'v1']]));
+  });
+
+  it('propagates DataflowRun write errors', async () => {
+    const state = makeState();
+    await mock.stateStore.create(state);
+    await dataflowRuns.write(REPO, WS, makeRun());
+
+    // Stub write to throw
+    const originalWrite = dataflowRuns.write.bind(dataflowRuns);
+    dataflowRuns.write = async () => { throw new Error('DynamoDB throttled'); };
+
+    await assert.rejects(
+      () => handleFinalizeExecution(
+        { storage: mock.storage, dataflowRuns },
+        { repo: REPO, workspace: WS, executionId: EXEC_ID, status: 'completed', runId: RUN_ID },
+      ),
+      { message: 'DynamoDB throttled' },
+    );
+
+    // Restore for cleanup
+    dataflowRuns.write = originalWrite;
+  });
+
   it('releases workspace lock on finalize', async () => {
     const state = makeState();
     await mock.stateStore.create(state);
@@ -119,5 +171,60 @@ describe('finalize-execution', () => {
     );
 
     assert.equal(result.success, true);
+  });
+
+  it('is idempotent on retry — second call does not duplicate events', async () => {
+    const state = makeState();
+    await mock.stateStore.create(state);
+    await dataflowRuns.write(REPO, WS, makeRun());
+
+    const event = { repo: REPO, workspace: WS, executionId: EXEC_ID, status: 'completed' as const, runId: RUN_ID };
+
+    // First call — normal finalize
+    const result1 = await handleFinalizeExecution({ storage: mock.storage, dataflowRuns }, event);
+    assert.equal(result1.success, true);
+    assert.equal(result1.executed, 1);
+    assert.equal(result1.cached, 0);
+
+    // Read state after first finalize to capture event count
+    const stateAfterFirst = await mock.stateStore.read(REPO, WS, EXEC_ID_STR);
+    assert.ok(stateAfterFirst);
+    const eventsAfterFirst = stateAfterFirst.events.length;
+
+    // Second call — retry, should be idempotent
+    const result2 = await handleFinalizeExecution({ storage: mock.storage, dataflowRuns }, event);
+    assert.equal(result2.success, true);
+    assert.equal(result2.executed, 1);
+    assert.equal(result2.cached, 0);
+
+    // Events list should not grow on retry
+    const stateAfterSecond = await mock.stateStore.read(REPO, WS, EXEC_ID_STR);
+    assert.ok(stateAfterSecond);
+    assert.equal(stateAfterSecond.events.length, eventsAfterFirst);
+  });
+
+  it('is idempotent on retry for cancelled executions', async () => {
+    const state = makeState({ status: 'cancelled' });
+    await mock.stateStore.create(state);
+    await dataflowRuns.write(REPO, WS, makeRun());
+
+    const event = { repo: REPO, workspace: WS, executionId: EXEC_ID, status: 'failed' as const, runId: RUN_ID };
+
+    // First call
+    const result1 = await handleFinalizeExecution({ storage: mock.storage, dataflowRuns }, event);
+    assert.equal(result1.success, false);
+
+    const stateAfterFirst = await mock.stateStore.read(REPO, WS, EXEC_ID_STR);
+    assert.ok(stateAfterFirst);
+    const eventsAfterFirst = stateAfterFirst.events.length;
+
+    // Second call — retry
+    const result2 = await handleFinalizeExecution({ storage: mock.storage, dataflowRuns }, event);
+    assert.equal(result2.success, false);
+
+    // Events list should not grow on retry
+    const stateAfterSecond = await mock.stateStore.read(REPO, WS, EXEC_ID_STR);
+    assert.ok(stateAfterSecond);
+    assert.equal(stateAfterSecond.events.length, eventsAfterFirst);
   });
 });

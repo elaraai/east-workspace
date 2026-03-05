@@ -879,28 +879,8 @@ export class E3PlatformStack extends cdk.Stack {
     this.dataTable.grantReadWriteData(applyResultsFn);
     this.dataBucket.grantReadWrite(applyResultsFn);
 
-    // Lambda: Apply tree updates serially after parallel task execution
-    // This avoids lost update race conditions when multiple tasks complete concurrently
-    const applyTreeUpdatesFn = new nodejs.NodejsFunction(this, 'ApplyTreeUpdatesHandler', {
-      functionName: `${prefix}-apply-tree-updates`,
-      runtime: lambda.Runtime.NODEJS_22_X,
-      entry: path.join(awsPackagePath, 'src', 'handlers', 'sfn', 'apply-tree-updates.ts'),
-      handler: 'handler',
-      bundling: {
-        minify: true,
-        sourceMap: true,
-        format: nodejs.OutputFormat.ESM,
-        banner: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
-      },
-      timeout: cdk.Duration.seconds(120), // May need to apply many updates
-      memorySize: 1024,
-      environment: {
-        TABLE_NAME: this.dataTable.tableName,
-        BUCKET_NAME: this.dataBucket.bucketName,
-      },
-    });
-    this.dataTable.grantReadWriteData(applyTreeUpdatesFn);
-    this.dataBucket.grantReadWrite(applyTreeUpdatesFn);
+    // Note: Tree updates are now applied inline by apply-results.ts using
+    // stepApplyTreeUpdate with per-dataset refs (reactive dataflow).
 
     // Note: Mark-skipped functionality is handled by apply-results.ts
     // using stepTaskFailed + stepTasksSkipped from e3-core
@@ -1272,11 +1252,25 @@ export class E3PlatformStack extends cdk.Stack {
       },
     });
 
-    // Choice: Is task not ready yet? (inputs not available due to race condition)
+    // Skip state for tasks that were cancelled mid-dispatch
+    const skipCancelledState = new sfn.Pass(this, 'SkipCancelled', {
+      parameters: {
+        'skipped': true,
+        'taskName.$': '$.dispatch.Payload.taskName',
+        'status': 'cancelled',
+      },
+    });
+
+    // Choice: Is task not ready or cancelled? Route away from PrepareExecution
+    // which requires fields (taskHash, inputHashes, etc.) that only exist for ready/cached tasks.
     const isNotReadyChoice = new sfn.Choice(this, 'IsNotReady')
       .when(
         sfn.Condition.stringEquals('$.dispatch.Payload.status', 'not_ready'),
         skipNotReadyState  // Skip - will be retried in next get-ready iteration
+      )
+      .when(
+        sfn.Condition.stringEquals('$.dispatch.Payload.status', 'cancelled'),
+        skipCancelledState  // Skip - execution was cancelled
       )
       .otherwise(prepareExecutionState);
 
@@ -1504,28 +1498,19 @@ export class E3PlatformStack extends cdk.Stack {
     });
 
     // Apply task results serially to execution state (avoids race conditions)
-    // Returns { repo, workspace, executionId, runId, force, treeUpdates }
+    // Returns { repo, workspace, executionId, runId, force }
     const applyResultsState = new tasks.LambdaInvoke(this, 'ApplyResultsState', {
       lambdaFunction: applyResultsFn,
       outputPath: '$.Payload',
       retryOnServiceExceptions: true,
     });
 
-    // Apply tree updates serially to workspace after execution state is updated
-    const applyTreeUpdatesState = new tasks.LambdaInvoke(this, 'ApplyTreeUpdatesState', {
-      lambdaFunction: applyTreeUpdatesFn,
-      resultPath: '$.applyResult',
-      retryOnServiceExceptions: true,
-    });
-
     dispatchTasksMap.next(afterMapLoop);
     afterMapLoop.next(applyResultsState);
-    applyResultsState.next(applyTreeUpdatesState);
-    applyTreeUpdatesState.next(getReadyState);
+    applyResultsState.next(getReadyState);
 
     // Catch coverage for remaining dataflow states
     applyResultsState.addCatch(prepareFinalizeFailure, { resultPath: '$.error' });
-    applyTreeUpdatesState.addCatch(prepareFinalizeFailure, { resultPath: '$.error' });
     dispatchTasksMap.addCatch(prepareFinalizeFailure, { resultPath: '$.error' });
 
     // Pass state to flatten GetReady result and add readyCount
@@ -1545,6 +1530,7 @@ export class E3PlatformStack extends cdk.Stack {
         'failedCount.$': '$.readyResult.Payload.failedCount',
         'skippedCount.$': '$.readyResult.Payload.skippedCount',
         'inProgressCount.$': '$.readyResult.Payload.inProgressCount',
+        'deferredCount.$': '$.readyResult.Payload.deferredCount',
         'readyCount.$': 'States.ArrayLength($.readyResult.Payload.readyTasks)',
       },
     });

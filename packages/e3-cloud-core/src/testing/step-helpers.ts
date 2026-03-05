@@ -93,6 +93,7 @@ export function createMockStorage() {
     locks,
     logs: base.logs,
     repos: base.repos,
+    datasets: base.datasets,
     executions: stateStore,
     repoManager,
     dataflowRuns,

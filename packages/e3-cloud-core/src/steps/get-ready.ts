@@ -3,7 +3,7 @@
  * Proprietary and confidential.
  */
 
-import { stepGetReady, stepIsComplete } from '@elaraai/e3-core';
+import { stepGetReady, stepIsComplete, stepDetectInputChanges, stepInvalidateTasks } from '@elaraai/e3-core';
 import type { DataflowStorage } from '../dataflow-storage.js';
 
 export interface GetReadyEvent {
@@ -24,6 +24,7 @@ export interface GetReadyResult {
   failedCount: number;
   skippedCount: number;
   inProgressCount: number;
+  deferredCount: number;
 }
 
 /**
@@ -62,7 +63,24 @@ export async function handleGetReady(storage: DataflowStorage, event: GetReadyEv
       failedCount: 0,
       skippedCount: 0,
       inProgressCount: 0,
+      deferredCount: 0,
     };
+  }
+
+  // Detect input changes and invalidate affected tasks (reactive dataflow)
+  try {
+    const { changes } = await stepDetectInputChanges(storage, state);
+    if (changes.length > 0) {
+      const { invalidated } = stepInvalidateTasks(state, changes);
+      if (invalidated.length > 0) {
+        console.log(`Invalidated ${invalidated.length} tasks due to input changes: ${invalidated.join(', ')}`);
+      }
+      await storage.executions.update(state);
+    }
+  } catch (err) {
+    // stepDetectInputChanges may fail if workspace structure is unavailable
+    // (e.g. workspace not yet deployed). This is non-fatal — skip detection.
+    console.log(`Skipping input change detection: ${err instanceof Error ? err.message : err}`);
   }
 
   // Use step functions to get ready tasks and completion status
@@ -74,6 +92,7 @@ export async function handleGetReady(storage: DataflowStorage, event: GetReadyEv
   let failedCount = 0;
   let skippedCount = 0;
   let inProgressCount = 0;
+  let deferredCount = 0;
 
   for (const [, taskState] of state.tasks) {
     switch (taskState.status) {
@@ -89,10 +108,13 @@ export async function handleGetReady(storage: DataflowStorage, event: GetReadyEv
       case 'in_progress':
         inProgressCount++;
         break;
+      case 'deferred':
+        deferredCount++;
+        break;
     }
   }
 
-  console.log(`Ready: ${readyTasks.length}, In-progress: ${inProgressCount}, Completed: ${completedCount}, Failed: ${failedCount}, Skipped: ${skippedCount}`);
+  console.log(`Ready: ${readyTasks.length}, In-progress: ${inProgressCount}, Completed: ${completedCount}, Failed: ${failedCount}, Skipped: ${skippedCount}, Deferred: ${deferredCount}`);
 
   return {
     repo,
@@ -105,5 +127,6 @@ export async function handleGetReady(storage: DataflowStorage, event: GetReadyEv
     failedCount,
     skippedCount,
     inProgressCount,
+    deferredCount,
   };
 }

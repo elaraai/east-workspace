@@ -93,25 +93,27 @@ export class DynamoLockService implements CloudLockService {
   ) {}
 
   /**
-   * Acquire an exclusive lock on a resource.
+   * Acquire a lock on a resource.
    *
-   * Uses conditional write to ensure atomicity:
-   * - If no lock exists, create one
-   * - If lock exists but is expired, overwrite it
-   * - If lock exists and is active, fail (or wait and retry)
+   * Supports two modes:
+   * - exclusive (default): Only one holder at a time. Uses conditional write.
+   * - shared: Multiple concurrent holders. Uses atomic counter.
    */
   async acquire(
     repo: string,
     resource: string,
     operation: LockOperation,
-    options?: { wait?: boolean; timeout?: number }
+    options?: { wait?: boolean; timeout?: number; mode?: 'shared' | 'exclusive' }
   ): Promise<LockHandle | null> {
     const wait = options?.wait ?? false;
     const timeout = options?.timeout ?? 30000;
+    const mode = options?.mode ?? 'exclusive';
     const startTime = Date.now();
 
     while (true) {
-      const acquired = await this.tryAcquire(repo, resource, operation);
+      const acquired = mode === 'shared'
+        ? await this.tryAcquireShared(repo, resource, operation)
+        : await this.tryAcquire(repo, resource, operation);
       if (acquired) {
         return acquired;
       }
@@ -197,19 +199,87 @@ export class DynamoLockService implements CloudLockService {
 
   /**
    * Force release a lock by repo and resource (without holding the handle).
-   * Used when lock was acquired in a different Lambda invocation.
+   * Used for error cleanup only (e.g. finalize-execution finally block).
+   *
+   * Mode-aware: for exclusive or single-holder shared locks, deletes the item.
+   * For multi-holder shared locks, decrements sharedCount and conditionally
+   * deletes when count reaches zero — avoiding wiping other holders' locks.
    */
   async forceRelease(repo: string, resource: string): Promise<void> {
     try {
-      await this.dynamo.send(
-        new DeleteItemCommand({
+      // Read the lock item to determine mode and holder count
+      const response = await this.dynamo.send(
+        new GetItemCommand({
           TableName: this.tableName,
           Key: marshall({
             PK: `LOCK/${repo}`,
             SK: resource,
           }),
+          ConsistentRead: true,
         })
       );
+
+      if (!response.Item) {
+        return; // Lock already gone
+      }
+
+      const item = unmarshall(response.Item);
+      const isMultiHolderShared = item.mode === 'shared' && (item.sharedCount as number) > 1;
+
+      if (isMultiHolderShared) {
+        // Decrement shared count, conditionally delete at zero
+        const result = await this.dynamo.send(
+          new UpdateItemCommand({
+            TableName: this.tableName,
+            Key: marshall({
+              PK: `LOCK/${repo}`,
+              SK: resource,
+            }),
+            UpdateExpression: 'ADD sharedCount :minusOne',
+            ExpressionAttributeValues: marshall({
+              ':minusOne': -1,
+            }),
+            ReturnValues: 'ALL_NEW',
+          })
+        );
+
+        if (result.Attributes) {
+          const updated = unmarshall(result.Attributes);
+          if ((updated.sharedCount as number) <= 0) {
+            try {
+              await this.dynamo.send(
+                new DeleteItemCommand({
+                  TableName: this.tableName,
+                  Key: marshall({
+                    PK: `LOCK/${repo}`,
+                    SK: resource,
+                  }),
+                  ConditionExpression: 'sharedCount <= :zero',
+                  ExpressionAttributeValues: marshall({
+                    ':zero': 0,
+                  }),
+                })
+              );
+            } catch (error) {
+              if (!(error instanceof ConditionalCheckFailedException)) {
+                throw error;
+              }
+              // Another holder acquired between decrement and delete — correct to keep
+            }
+          }
+        }
+      } else {
+        // Exclusive lock or single-holder shared lock — safe to delete outright
+        await this.dynamo.send(
+          new DeleteItemCommand({
+            TableName: this.tableName,
+            Key: marshall({
+              PK: `LOCK/${repo}`,
+              SK: resource,
+            }),
+          })
+        );
+      }
     } catch (error) {
       console.warn(`Failed to force release lock ${resource}:`, error);
     }
@@ -219,6 +289,8 @@ export class DynamoLockService implements CloudLockService {
    * Renew an existing lock's TTL.
    *
    * Extends the lock expiry by DEFAULT_LOCK_TTL_SECONDS from now.
+   * Works for both shared and exclusive locks — the TTL/expiresAt fields
+   * apply uniformly regardless of lock mode.
    * Returns true if the lock was renewed, false if the lock no longer exists.
    * Non-fatal errors are logged and return false (TTL is the last resort).
    */
@@ -285,14 +357,21 @@ export class DynamoLockService implements CloudLockService {
             SK: resource,
             holder, // Stored as plain string, reconstructed as opaque variant on read
             operation,
+            mode: 'exclusive',
+            sharedCount: 0,
             acquiredAt: now.toISOString(),
             expiresAt: expiresAt.toISOString(),
             ttl, // DynamoDB TTL for automatic cleanup
           }),
-          // Condition: either no lock exists, or existing lock is expired
-          ConditionExpression: 'attribute_not_exists(PK) OR expiresAt < :now',
+          // Condition: no lock exists, existing lock is expired, or stale shared lock (count <= 0)
+          ConditionExpression: 'attribute_not_exists(PK) OR expiresAt < :now OR (#mode = :shared AND sharedCount <= :zero)',
+          ExpressionAttributeNames: {
+            '#mode': 'mode',
+          },
           ExpressionAttributeValues: marshall({
             ':now': now.toISOString(),
+            ':shared': 'shared',
+            ':zero': 0,
           }),
         })
       );
@@ -302,6 +381,100 @@ export class DynamoLockService implements CloudLockService {
     } catch (error) {
       if (error instanceof ConditionalCheckFailedException) {
         // Lock is held by someone else
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Attempt to acquire a shared lock once.
+   *
+   * Uses a two-path approach to avoid metadata overwrite and stale count issues:
+   * - Path 1: Create new lock (or overwrite expired) with sharedCount=1
+   * - Path 2: Join existing shared lock by incrementing sharedCount
+   */
+  private async tryAcquireShared(
+    repo: string,
+    resource: string,
+    operation: LockOperation
+  ): Promise<LockHandle | null> {
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + DEFAULT_LOCK_TTL_SECONDS * 1000);
+    const ttl = Math.floor(expiresAt.getTime() / 1000);
+
+    const holderInfo: LambdaHolderInfo = {
+      requestId: getRequestId(),
+      functionName: process.env.AWS_LAMBDA_FUNCTION_NAME ?? 'unknown',
+    };
+    const holder = printLambdaHolder(variant('lambda', holderInfo));
+
+    // Path 1: Try to create a new shared lock (or overwrite expired lock).
+    // Sets acquiredAt as a generation marker — stale holders from a previous
+    // generation will fail the conditioned decrement on release (see createSharedHandle).
+    const nowIso = now.toISOString();
+    try {
+      await this.dynamo.send(
+        new PutItemCommand({
+          TableName: this.tableName,
+          Item: marshall({
+            PK: `LOCK/${repo}`,
+            SK: resource,
+            holder,
+            operation,
+            mode: 'shared',
+            sharedCount: 1, // Reset count (not ADD) to avoid stale increment
+            acquiredAt: nowIso,
+            expiresAt: expiresAt.toISOString(),
+            ttl,
+          }),
+          // Succeed only if: no lock exists, or existing lock is expired
+          ConditionExpression: 'attribute_not_exists(PK) OR expiresAt < :now',
+          ExpressionAttributeValues: marshall({
+            ':now': nowIso,
+          }),
+        })
+      );
+
+      return this.createSharedHandle(repo, resource, nowIso);
+    } catch (error) {
+      if (!(error instanceof ConditionalCheckFailedException)) {
+        throw error;
+      }
+      // Lock exists and is not expired — try to join it as shared
+    }
+
+    // Path 2: Join existing shared lock (only update expiresAt/ttl, preserve original holder/acquiredAt).
+    // Read back acquiredAt to pass to createSharedHandle so release is generation-scoped.
+    try {
+      const joinResult = await this.dynamo.send(
+        new UpdateItemCommand({
+          TableName: this.tableName,
+          Key: marshall({
+            PK: `LOCK/${repo}`,
+            SK: resource,
+          }),
+          UpdateExpression: 'SET expiresAt = :expiresAt, #ttl = :ttl ADD sharedCount :one',
+          ConditionExpression: '#mode = :shared',
+          ExpressionAttributeNames: {
+            '#mode': 'mode',
+            '#ttl': 'ttl',
+          },
+          ExpressionAttributeValues: marshall({
+            ':shared': 'shared',
+            ':expiresAt': expiresAt.toISOString(),
+            ':ttl': ttl,
+            ':one': 1,
+          }),
+          ReturnValues: 'ALL_NEW',
+        })
+      );
+
+      const joinedItem = unmarshall(joinResult.Attributes!);
+      return this.createSharedHandle(repo, resource, joinedItem.acquiredAt as string);
+    } catch (error) {
+      if (error instanceof ConditionalCheckFailedException) {
+        // Exclusive lock exists — cannot acquire shared
         return null;
       }
       throw error;
@@ -335,6 +508,85 @@ export class DynamoLockService implements CloudLockService {
         } catch (error) {
           // Log but don't throw - lock will expire anyway
           console.warn(`Failed to release lock ${resource}:`, error);
+        }
+      },
+    };
+  }
+
+  /**
+   * Create a lock handle for releasing a shared lock.
+   * Decrements sharedCount and deletes the item when count reaches 0.
+   *
+   * Uses `acquiredAt` as a generation marker: the decrement is conditioned on
+   * matching the generation. If the lock was recreated (Path 1 overwrote an
+   * expired lock), stale holders from the previous generation will fail the
+   * condition check — their release becomes a safe no-op instead of
+   * decrementing the new lock's count.
+   */
+  private createSharedHandle(repo: string, resource: string, acquiredAt: string): LockHandle {
+    let released = false;
+
+    return {
+      resource,
+      release: async () => {
+        if (released) {
+          return; // Idempotent
+        }
+        released = true;
+
+        try {
+          // Decrement sharedCount, conditioned on matching generation (acquiredAt)
+          const result = await this.dynamo.send(
+            new UpdateItemCommand({
+              TableName: this.tableName,
+              Key: marshall({
+                PK: `LOCK/${repo}`,
+                SK: resource,
+              }),
+              UpdateExpression: 'ADD sharedCount :minusOne',
+              ConditionExpression: 'acquiredAt = :acq',
+              ExpressionAttributeValues: marshall({
+                ':minusOne': -1,
+                ':acq': acquiredAt,
+              }),
+              ReturnValues: 'ALL_NEW',
+            })
+          );
+
+          // If sharedCount reached 0 or below, conditionally delete the lock item.
+          // The condition prevents deleting if another Lambda acquired between decrement and delete.
+          if (result.Attributes) {
+            const updated = unmarshall(result.Attributes);
+            if ((updated.sharedCount as number) <= 0) {
+              try {
+                await this.dynamo.send(
+                  new DeleteItemCommand({
+                    TableName: this.tableName,
+                    Key: marshall({
+                      PK: `LOCK/${repo}`,
+                      SK: resource,
+                    }),
+                    ConditionExpression: 'sharedCount <= :zero',
+                    ExpressionAttributeValues: marshall({
+                      ':zero': 0,
+                    }),
+                  })
+                );
+              } catch (error) {
+                if (!(error instanceof ConditionalCheckFailedException)) {
+                  throw error;
+                }
+                // Another Lambda acquired between decrement and delete — correct to keep the lock
+              }
+            }
+          }
+        } catch (error) {
+          if (error instanceof ConditionalCheckFailedException) {
+            // Stale release: lock was recreated with a different generation — safe no-op
+            return;
+          }
+          // Log but don't throw - lock will expire anyway via TTL
+          console.warn(`Failed to release shared lock ${resource}:`, error);
         }
       },
     };

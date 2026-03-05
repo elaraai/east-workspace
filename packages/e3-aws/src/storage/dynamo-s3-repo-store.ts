@@ -51,6 +51,7 @@ import {
 import type { DynamoRefStore } from './dynamo-ref-store.js';
 import { InvalidRepoStatusError } from './dynamo-ref-store.js';
 import type { S3ObjectStore } from './s3-object-store.js';
+import type { DynamoDatasetRefStore } from './dynamo-dataset-ref-store.js';
 
 // Default minimum age for GC cleanup S3 versions (24 hours)
 const DEFAULT_CLEANUP_MIN_AGE_MS = 24 * 60 * 60 * 1000;
@@ -83,7 +84,8 @@ export class DynamoS3RepoStore implements RepoStore {
     private readonly bucket: string,
     private readonly tableName: string,
     private readonly refs: DynamoRefStore,
-    private readonly objects: S3ObjectStore
+    private readonly objects: S3ObjectStore,
+    private readonly datasets: DynamoDatasetRefStore
   ) {}
 
   // ===========================================================================
@@ -250,12 +252,24 @@ export class DynamoS3RepoStore implements RepoStore {
             if (this.isValidHash(state.packageHash)) {
               roots.push(state.packageHash);
             }
-            if (this.isValidHash(state.rootHash)) {
-              roots.push(state.rootHash);
-            }
           }
         } catch {
           // Failed to decode workspace state - skip
+        }
+      }
+
+      // Scan per-dataset refs for this workspace (single query via listWithRefs)
+      const wsName = item.SK as string;
+      if (wsName) {
+        try {
+          const entries = await this.datasets.listWithRefs(repo, wsName);
+          for (const entry of entries) {
+            if (entry.ref.type === 'value' && this.isValidHash(entry.ref.value.hash)) {
+              roots.push(entry.ref.value.hash);
+            }
+          }
+        } catch {
+          // Failed to read dataset refs - skip
         }
       }
     }

@@ -72,7 +72,6 @@ import {
   executeTaskCore,
   handleCollectComputeResult,
   handleApplyResults,
-  handleApplyTreeUpdates,
   handleCheckCompletion,
   handleMarkSkipped,
   handleFinalizeExecution,
@@ -87,8 +86,7 @@ import {
 | `handleDispatchTask` | Prepare a task for execution (cache check, config lookup) |
 | `executeTaskCore` | Execute a task via east-py CLI |
 | `handleCollectComputeResult` | Read compute result from store after Fargate execution |
-| `handleApplyResults` | Apply task results to execution state |
-| `handleApplyTreeUpdates` | Write task outputs to workspace tree |
+| `handleApplyResults` | Apply task results to execution state (includes inline tree updates) |
 | `handleCheckCompletion` | Poll task completion status |
 | `handleMarkSkipped` | Skip downstream tasks after failure |
 | `handleFinalizeExecution` | Finalize execution with summary and DataflowRun record |
@@ -119,6 +117,15 @@ import {
 | `handleSetGC` | Transition repo status to GC mode |
 | `handleSetActive` | Transition repo status back to active |
 | `calculateJitter` | Calculate jitter delay for staggered GC scheduling |
+
+### Reactive Dataflow
+
+The step logic supports reactive dataflow with concurrent input writes during execution:
+- **Per-dataset refs** via `DatasetRefStore` — atomic per-path writes instead of a single workspace root hash
+- **Version vectors** track provenance for consistency detection across tasks
+- **Input change detection** in `handleGetReady` via `stepDetectInputChanges` and `stepInvalidateTasks`
+- **Version consistency checks** in `handleDispatchTask` via `stepCheckVersionConsistency`
+- Tree updates are applied inline in `handleApplyResults` via `stepApplyTreeUpdate`
 
 ## Interfaces
 

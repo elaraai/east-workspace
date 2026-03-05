@@ -90,7 +90,7 @@ async function main(): Promise<void> {
 
   // Construct deps from raw AWS clients (deliberately avoids getStorage() / S3DynamoStorage)
   const s3 = new S3Client({});
-  const dynamo = new DynamoDBClient({});
+  const dynamo = new DynamoDBClient({ maxAttempts: 10 });
   const bucketName = process.env.BUCKET_NAME!;
   const tableName = process.env.TABLE_NAME!;
 

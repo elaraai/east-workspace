@@ -5,7 +5,7 @@
 
 import type { S3Client } from '@aws-sdk/client-s3';
 import type { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import type { StorageBackend, LogStore, RepoStore, ExecutionStateStore, RefStore } from '@elaraai/e3-core';
+import type { StorageBackend, LogStore, RepoStore, ExecutionStateStore, RefStore, DatasetRefStore } from '@elaraai/e3-core';
 import { RepoNotFoundError } from '@elaraai/e3-core';
 
 import type { RepoManager, DataflowRunStore, ExecutionTracker, DataflowStorage, CloudLockService } from '@elaraai/e3-cloud-core';
@@ -16,6 +16,7 @@ import { DynamoLockService } from './dynamo-lock-service.js';
 import { DynamoLogStore } from './dynamo-log-store.js';
 import { DynamoS3RepoStore } from './dynamo-s3-repo-store.js';
 import { DynamoDBStateStore } from './dynamo-state-store.js';
+import { DynamoDatasetRefStore } from './dynamo-dataset-ref-store.js';
 
 /**
  * S3 + DynamoDB backed StorageBackend implementation.
@@ -50,6 +51,7 @@ export class S3DynamoStorage implements StorageBackend, DataflowStorage {
   public readonly locks: CloudLockService;
   public readonly logs: LogStore;
   public readonly repos: RepoStore;
+  public readonly datasets: DatasetRefStore;
   public readonly executions: ExecutionStateStore;
 
   /** Cloud-agnostic repo lifecycle management */
@@ -70,7 +72,9 @@ export class S3DynamoStorage implements StorageBackend, DataflowStorage {
     this.refs = dynamoRefs;
     this.locks = new DynamoLockService(dynamo, tableName);
     this.logs = new DynamoLogStore(dynamo, tableName);
-    this.repos = new DynamoS3RepoStore(s3, dynamo, bucket, tableName, dynamoRefs, this.objects);
+    const dynamoDatasets = new DynamoDatasetRefStore(dynamo, tableName);
+    this.datasets = dynamoDatasets;
+    this.repos = new DynamoS3RepoStore(s3, dynamo, bucket, tableName, dynamoRefs, this.objects, dynamoDatasets);
     this.executions = new DynamoDBStateStore(dynamo, s3, bucket, tableName);
 
     // Cloud-agnostic interface accessors (backed by DynamoRefStore)

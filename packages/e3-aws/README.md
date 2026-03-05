@@ -40,7 +40,6 @@ src/
 │   │   ├── execute-task.ts           # Lambda task execution (thin wrapper)
 │   │   ├── collect-compute-result.ts # Collect Fargate results (thin wrapper)
 │   │   ├── apply-results.ts          # Apply task results
-│   │   ├── apply-tree-updates.ts     # Propagate tree changes
 │   │   ├── check-completion.ts       # Poll completion status
 │   │   ├── mark-skipped.ts           # Mark skipped dependents
 │   │   ├── finalize-execution.ts     # Finalize dataflow run
@@ -68,6 +67,7 @@ The DynamoDB table uses a single-table design with PK/SK composite keys. Key pat
 - `ACL#{repo} / {sub}` — Access control entries
 - `SCHEDULE#{repo}#{ws} / #META` — Schedule configuration
 - `TASKCONFIG#{repo}#{ws} / {type}#{task}` — Task compute/timeout config
+- `DREF/{repo} / {ws}#{path}` — Per-dataset refs for reactive dataflow
 - `DEVICE#{code} / #META` — Device flow codes
 
 ## Testing

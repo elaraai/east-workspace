@@ -6,6 +6,7 @@
 import { DEFAULT_TIMEOUT_SERVERLESS, DEFAULT_TIMEOUT_FARGATE } from '@elaraai/e3-cloud-types';
 import {
   stepPrepareTask,
+  stepCheckVersionConsistency,
   inputsHash,
   uuidv7,
 } from '@elaraai/e3-core';
@@ -77,6 +78,16 @@ export async function handleDispatchTask(deps: DispatchTaskDeps, event: Dispatch
     console.log(`Execution ${executionId} was cancelled, skipping task ${taskName}`);
     return {
       taskName, status: 'cancelled', cached: false,
+      computeSize: { type: 'serverless' }, timeoutMinutes: 15, timeoutSeconds: 900,
+    };
+  }
+
+  // Check version consistency before preparing task
+  const consistency = stepCheckVersionConsistency(state, taskName);
+  if (!consistency.consistent) {
+    console.log(`Task ${taskName} deferred: inconsistent at ${consistency.conflictPath}`);
+    return {
+      taskName, status: 'not_ready', cached: false,
       computeSize: { type: 'serverless' }, timeoutMinutes: 15, timeoutSeconds: 900,
     };
   }

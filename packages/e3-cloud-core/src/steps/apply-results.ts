@@ -8,6 +8,7 @@ import {
   stepTaskCompleted,
   stepTaskFailed,
   stepTasksSkipped,
+  stepApplyTreeUpdate,
   inputsHash,
 } from '@elaraai/e3-core';
 import type { DataflowStorage } from '../dataflow-storage.js';
@@ -42,13 +43,6 @@ export interface ApplyResultsEvent {
   taskResults: TaskResult[];
 }
 
-/** Tree update info for ApplyTreeUpdates */
-interface TreeUpdate {
-  outputPath: string;
-  outputHash: string;
-  needsTreeUpdate: boolean;
-}
-
 export interface ApplyResultsOutput {
   repo: string;
   workspace: string;
@@ -56,7 +50,6 @@ export interface ApplyResultsOutput {
   runId: string;
   force: boolean;
   forceTasks?: string[];
-  treeUpdates: TreeUpdate[];
 }
 
 /**
@@ -80,8 +73,12 @@ export async function handleApplyResults(storage: DataflowStorage, event: ApplyR
     throw new Error(`Execution ${executionId} not found`);
   }
 
-  const treeUpdates: TreeUpdate[] = [];
   const now = new Date();
+  let treeUpdateCount = 0;
+
+  // Build task lookup map for O(1) version vector resolution
+  const graph = state.graph.type === 'some' ? state.graph.value : null;
+  const tasksByName = new Map(graph?.tasks.map(t => [t.name, t]) ?? []);
 
   for (const result of taskResults) {
     // Skip not_ready and cancelled tasks - nothing to record
@@ -102,7 +99,7 @@ export async function handleApplyResults(storage: DataflowStorage, event: ApplyR
         stepTasksSkipped(state, failResult.toSkip, result.taskName);
       }
 
-      // Write failed execution record (Fix 2)
+      // Write failed execution record
       if (result.taskHash && result.inputHashes && result.taskExecutionId) {
         const inHash = inputsHash(result.inputHashes);
         const executionStatus: ExecutionStatus = variant('failed', {
@@ -114,19 +111,19 @@ export async function handleApplyResults(storage: DataflowStorage, event: ApplyR
         });
         await storage.refs.executionWrite(repo, result.taskHash, inHash, result.taskExecutionId, executionStatus);
       }
-
-      treeUpdates.push({ outputPath: '', outputHash: '', needsTreeUpdate: false });
     } else if (result.status === 'cached') {
       console.log(`Recording cached result for task ${result.taskName}`);
 
       // Cached tasks: dispatch-task already verified cache, just update state
       stepTaskCompleted(state, result.taskName, result.outputHash!, true, 0);
 
-      treeUpdates.push({
-        outputPath: result.outputPath!,
-        outputHash: result.outputHash!,
-        needsTreeUpdate: true,
-      });
+      // Apply tree update inline using per-dataset refs
+      if (result.outputPath && result.outputHash) {
+        const task = tasksByName.get(result.taskName);
+        const versions = task ? (state.versionVectors.get(task.output) ?? new Map()) : new Map();
+        await stepApplyTreeUpdate(storage, repo, workspace, result.outputPath, result.outputHash, versions);
+        treeUpdateCount++;
+      }
     } else if (result.status === 'completed') {
       console.log(`Recording result for task ${result.taskName} (duration: ${result.duration ?? 0}ms)`);
 
@@ -147,24 +144,20 @@ export async function handleApplyResults(storage: DataflowStorage, event: ApplyR
         await storage.refs.executionWrite(repo, result.taskHash, inHash, result.taskExecutionId, executionStatus);
       }
 
-      treeUpdates.push({
-        outputPath: result.outputPath!,
-        outputHash: result.outputHash!,
-        needsTreeUpdate: true,
-      });
+      // Apply tree update inline using per-dataset refs
+      if (result.outputPath && result.outputHash) {
+        const task = tasksByName.get(result.taskName);
+        const versions = task ? (state.versionVectors.get(task.output) ?? new Map()) : new Map();
+        await stepApplyTreeUpdate(storage, repo, workspace, result.outputPath, result.outputHash, versions);
+        treeUpdateCount++;
+      }
     }
-  }
-
-  // Check for cancellation before saving (preserve cancelled status)
-  const currentState = await storage.executions.read(repo, workspace, execId);
-  if (currentState?.status === 'cancelled') {
-    (state as { status: string }).status = 'cancelled';
   }
 
   // Write execution state once
   await storage.executions.update(state);
 
-  console.log(`Applied ${taskResults.length} task results, ${treeUpdates.filter(u => u.needsTreeUpdate).length} tree updates needed`);
+  console.log(`Applied ${taskResults.length} task results, ${treeUpdateCount} tree updates applied`);
 
-  return { repo, workspace, executionId, runId, force, forceTasks, treeUpdates };
+  return { repo, workspace, executionId, runId, force, forceTasks };
 }
