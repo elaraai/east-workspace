@@ -20,7 +20,7 @@ import { DynamoDBClient, GetItemCommand, PutItemCommand, UpdateItemCommand } fro
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import * as crypto from 'node:crypto';
 
-const dynamo = new DynamoDBClient({});
+const dynamo = new DynamoDBClient({ maxAttempts: 10 });
 const tableName = process.env.TABLE_NAME!;
 
 // Device code expiry in seconds (5 minutes)

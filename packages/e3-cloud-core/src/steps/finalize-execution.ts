@@ -142,10 +142,19 @@ export async function handleFinalizeExecution(deps: FinalizeExecutionDeps, event
               return variant('failed', { failedTask, error: failedError });
             })();
 
-      // Capture input dataset state at termination (inputSnapshot is kept up-to-date
-      // by stepDetectInputChanges on each get-ready cycle, so it reflects the actual
-      // input state when the dataflow finished, regardless of what individual tasks saw)
-      const outputVersions: DataflowRun['outputVersions'] = some(new Map(state.inputSnapshot));
+      // Build output versions: map each task's output path to its produced hash.
+      // Matches LocalOrchestrator.buildOutputVersions() — tracks what was produced,
+      // not what was consumed (inputVersions already captures the input side).
+      const outputMap = new Map<string, string>();
+      if (graph) {
+        for (const task of graph.tasks) {
+          const ts = state.tasks.get(task.name);
+          if (ts && ts.outputHash.type === 'some') {
+            outputMap.set(task.output, ts.outputHash.value);
+          }
+        }
+      }
+      const outputVersions: DataflowRun['outputVersions'] = some(outputMap);
 
       // Count tasks from execution state
       const totalTasks = graph ? BigInt(graph.tasks.length) : 0n;

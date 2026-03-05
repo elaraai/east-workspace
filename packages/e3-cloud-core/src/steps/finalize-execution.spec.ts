@@ -140,6 +140,27 @@ describe('finalize-execution', () => {
     assert.deepEqual(taskExec.outputVersions, new Map([['ds1', 'v1']]));
   });
 
+  it('propagates DataflowRun write errors', async () => {
+    const state = makeState();
+    await mock.stateStore.create(state);
+    await dataflowRuns.write(REPO, WS, makeRun());
+
+    // Stub write to throw
+    const originalWrite = dataflowRuns.write.bind(dataflowRuns);
+    dataflowRuns.write = async () => { throw new Error('DynamoDB throttled'); };
+
+    await assert.rejects(
+      () => handleFinalizeExecution(
+        { storage: mock.storage, dataflowRuns },
+        { repo: REPO, workspace: WS, executionId: EXEC_ID, status: 'completed', runId: RUN_ID },
+      ),
+      { message: 'DynamoDB throttled' },
+    );
+
+    // Restore for cleanup
+    dataflowRuns.write = originalWrite;
+  });
+
   it('releases workspace lock on finalize', async () => {
     const state = makeState();
     await mock.stateStore.create(state);

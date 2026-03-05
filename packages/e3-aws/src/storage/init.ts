@@ -31,7 +31,7 @@ let _gcTempStore: S3GcTempStore | undefined;
 
 function ensureClients(): { s3: S3Client; dynamo: DynamoDBClient } {
   if (!_s3) _s3 = new S3Client({});
-  if (!_dynamo) _dynamo = new DynamoDBClient({});
+  if (!_dynamo) _dynamo = new DynamoDBClient({ maxAttempts: 10 });
   return { s3: _s3, dynamo: _dynamo };
 }
 

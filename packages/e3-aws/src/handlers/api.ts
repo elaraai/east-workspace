@@ -67,7 +67,7 @@ import {
 // ============================================================
 
 const s3 = new S3Client({});
-const dynamo = new DynamoDBClient({});
+const dynamo = new DynamoDBClient({ maxAttempts: 10 });
 const sfn = new SFNClient({});
 const schedulerClient = new SchedulerClient({});
 

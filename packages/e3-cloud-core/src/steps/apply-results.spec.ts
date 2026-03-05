@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import { none, some } from '@elaraai/east';
 import { type DataflowExecutionState } from '@elaraai/e3-core';
 import { handleApplyResults, type TaskResult } from './apply-results.js';
+import { inputsHash } from '@elaraai/e3-core';
 import { createMockStorage, taskState, graphTask } from '../testing/step-helpers.js';
 
 const REPO = 'test-repo';
@@ -137,6 +138,12 @@ describe('apply-results', () => {
     if (saved?.tasks.get('task-a')?.cached?.type === 'some') {
       assert.equal(saved.tasks.get('task-a')!.cached.value, true);
     }
+
+    // Verify tree update wrote dataset ref
+    const ref = await mock.storage.datasets.read(REPO, WS, 'out/task-a');
+    assert.ok(ref);
+    assert.equal(ref.type, 'value');
+    if (ref.type === 'value') assert.equal(ref.value.hash, 'hash-abc');
   });
 
   it('records completed task with execution record', async () => {
@@ -166,18 +173,24 @@ describe('apply-results', () => {
     const saved = await mock.stateStore.read(REPO, WS, EXEC_ID_STR);
     assert.equal(saved?.tasks.get('task-a')?.status, 'completed');
     assert.equal(saved?.executed, 1n);
+
+    // Verify execution record was written
+    const execStatus = await mock.storage.refs.executionGet(REPO, 'th-1', inputsHash(['ih-1']), 'te-1');
+    assert.ok(execStatus);
+    assert.equal(execStatus.type, 'success');
   });
 
   it('applies tree update with correct version vectors', async () => {
+    // Set VV on the task's input — stepTaskCompleted merges input VVs into the output VV
     const versionVectors = new Map<string, Map<string, string>>();
-    versionVectors.set('.out/task-a', new Map([['ds1', 'v1']]));
+    versionVectors.set('.input-a', new Map([['ds1', 'v1']]));
 
     const state = makeState({
       tasks: new Map([
         taskState('task-a'),
       ]),
       graph: some({
-        tasks: [graphTask('task-a', { output: '.out/task-a' })],
+        tasks: [graphTask('task-a', { inputs: ['.input-a'], output: '.out/task-a' })],
       }),
       versionVectors,
     });
@@ -195,6 +208,13 @@ describe('apply-results', () => {
 
     const saved = await mock.stateStore.read(REPO, WS, EXEC_ID_STR);
     assert.equal(saved?.tasks.get('task-a')?.status, 'completed');
+
+    // Verify dataset ref was written with correct version vectors
+    const ref = await mock.storage.datasets.read(REPO, WS, 'out/task-a');
+    assert.ok(ref);
+    if (ref.type === 'value') {
+      assert.deepEqual(ref.value.versions, new Map([['ds1', 'v1']]));
+    }
   });
 
   it('handles empty graph gracefully', async () => {
