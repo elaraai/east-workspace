@@ -236,8 +236,7 @@ export class DynamoDatasetRefStore implements DatasetRefStore {
       if (remaining && remaining.length > 0) {
         retries++;
         if (retries >= MAX_RETRIES) {
-          console.error(`BatchWriteItem failed after ${MAX_RETRIES} retries, ${remaining.length} items remaining`);
-          break;
+          throw new Error(`BatchWriteItem failed after ${MAX_RETRIES} retries, ${remaining.length} items remaining`);
         }
         unprocessed = remaining as typeof requests;
         await new Promise(resolve => setTimeout(resolve, delay));

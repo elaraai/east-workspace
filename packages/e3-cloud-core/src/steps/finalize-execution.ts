@@ -72,19 +72,45 @@ export async function handleFinalizeExecution(deps: FinalizeExecutionDeps, event
     const graph = state.graph.type === 'some' ? state.graph.value : null;
     const tasksByName = new Map(graph?.tasks.map(t => [t.name, t]) ?? []);
 
-    // Check if execution was cancelled - preserve that status
-    const wasCancelled = state.status === 'cancelled';
+    // Idempotency guard: if the execution is already in a terminal state
+    // (completed/failed/cancelled), skip stepFinalize to avoid duplicate events
+    // on Step Functions retry. The DataflowRun write below is naturally idempotent.
+    const isAlreadyFinalized = state.status === 'completed' || state.status === 'failed' || state.status === 'cancelled';
 
-    // Use stepFinalize to update state with completion status
-    const { result } = stepFinalize(state, runId);
+    let result: { success: boolean; executed: number; cached: number; failed: number; skipped: number; reexecuted: number; duration: number };
+    let wasCancelled: boolean;
 
-    // Restore cancelled status if it was cancelled (stepFinalize overwrites with completed/failed)
-    if (wasCancelled) {
-      (state as { status: string }).status = 'cancelled';
+    if (isAlreadyFinalized) {
+      console.log(`Execution ${executionId} already finalized (status=${state.status}), skipping stepFinalize`);
+      wasCancelled = state.status === 'cancelled';
+      const startTime = state.startedAt.getTime();
+      const completedTime = state.completedAt.type === 'some' ? state.completedAt.value.getTime() : Date.now();
+      result = {
+        success: state.failed === 0n && !wasCancelled,
+        executed: Number(state.executed),
+        cached: Number(state.cached),
+        failed: Number(state.failed),
+        skipped: Number(state.skipped),
+        reexecuted: Number(state.reexecuted),
+        duration: completedTime - startTime,
+      };
+    } else {
+      // Check if execution was cancelled - preserve that status
+      wasCancelled = state.status === 'cancelled';
+
+      // Use stepFinalize to update state with completion status
+      const finalized = stepFinalize(state, runId);
+
+      // Restore cancelled status if it was cancelled (stepFinalize overwrites with completed/failed)
+      if (wasCancelled) {
+        (state as { status: string }).status = 'cancelled';
+      }
+
+      // Save updated state
+      await storage.executions.update(state);
+
+      result = finalized.result;
     }
-
-    // Save updated state
-    await storage.executions.update(state);
 
     // Finalize the DataflowRun record
     const existingRun = await dataflowRuns.get(repo, workspace, runId);

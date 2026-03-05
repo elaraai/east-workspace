@@ -172,4 +172,59 @@ describe('finalize-execution', () => {
 
     assert.equal(result.success, true);
   });
+
+  it('is idempotent on retry — second call does not duplicate events', async () => {
+    const state = makeState();
+    await mock.stateStore.create(state);
+    await dataflowRuns.write(REPO, WS, makeRun());
+
+    const event = { repo: REPO, workspace: WS, executionId: EXEC_ID, status: 'completed' as const, runId: RUN_ID };
+
+    // First call — normal finalize
+    const result1 = await handleFinalizeExecution({ storage: mock.storage, dataflowRuns }, event);
+    assert.equal(result1.success, true);
+    assert.equal(result1.executed, 1);
+    assert.equal(result1.cached, 0);
+
+    // Read state after first finalize to capture event count
+    const stateAfterFirst = await mock.stateStore.read(REPO, WS, EXEC_ID_STR);
+    assert.ok(stateAfterFirst);
+    const eventsAfterFirst = stateAfterFirst.events.length;
+
+    // Second call — retry, should be idempotent
+    const result2 = await handleFinalizeExecution({ storage: mock.storage, dataflowRuns }, event);
+    assert.equal(result2.success, true);
+    assert.equal(result2.executed, 1);
+    assert.equal(result2.cached, 0);
+
+    // Events list should not grow on retry
+    const stateAfterSecond = await mock.stateStore.read(REPO, WS, EXEC_ID_STR);
+    assert.ok(stateAfterSecond);
+    assert.equal(stateAfterSecond.events.length, eventsAfterFirst);
+  });
+
+  it('is idempotent on retry for cancelled executions', async () => {
+    const state = makeState({ status: 'cancelled' });
+    await mock.stateStore.create(state);
+    await dataflowRuns.write(REPO, WS, makeRun());
+
+    const event = { repo: REPO, workspace: WS, executionId: EXEC_ID, status: 'failed' as const, runId: RUN_ID };
+
+    // First call
+    const result1 = await handleFinalizeExecution({ storage: mock.storage, dataflowRuns }, event);
+    assert.equal(result1.success, false);
+
+    const stateAfterFirst = await mock.stateStore.read(REPO, WS, EXEC_ID_STR);
+    assert.ok(stateAfterFirst);
+    const eventsAfterFirst = stateAfterFirst.events.length;
+
+    // Second call — retry
+    const result2 = await handleFinalizeExecution({ storage: mock.storage, dataflowRuns }, event);
+    assert.equal(result2.success, false);
+
+    // Events list should not grow on retry
+    const stateAfterSecond = await mock.stateStore.read(REPO, WS, EXEC_ID_STR);
+    assert.ok(stateAfterSecond);
+    assert.equal(stateAfterSecond.events.length, eventsAfterFirst);
+  });
 });
