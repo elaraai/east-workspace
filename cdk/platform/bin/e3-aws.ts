@@ -71,6 +71,7 @@ interface DeploymentConfig {
     enabled?: boolean;
     emailDomain?: string;
   };
+  externalBuckets?: string[];
 }
 
 /**
@@ -177,6 +178,7 @@ new E3PlatformStack(app, `E3Platform-${deploymentId}`, {
   allowedOrigins,
   defaultTimezone: deploymentConfig?.scheduling?.defaultTimezone,
   testUsers,
+  externalBuckets: deploymentConfig?.externalBuckets,
 
   // Stack-level tags
   tags: {

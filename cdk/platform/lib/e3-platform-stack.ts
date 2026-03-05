@@ -162,6 +162,14 @@ export interface E3PlatformStackProps extends cdk.StackProps {
      */
     emailDomain?: string;
   };
+
+  /**
+   * External S3 bucket ARNs that Lambda functions need access to.
+   * Grants read/write access to the API handler and task execution roles.
+   * Used for cross-account S3 access (e.g., upload buckets in workload accounts).
+   * @default []
+   */
+  externalBuckets?: string[];
 }
 
 export class E3PlatformStack extends cdk.Stack {
@@ -987,6 +995,15 @@ export class E3PlatformStack extends cdk.Stack {
     this.dataBucket.grantReadWrite(executeTaskFn);
     this.dataTable.grantReadWriteData(executeTaskFn);
 
+    // Grant task execution access to external S3 buckets (cross-account)
+    if (props.externalBuckets && props.externalBuckets.length > 0) {
+      const externalS3Policy = new iam.PolicyStatement({
+        actions: ['s3:GetObject', 's3:PutObject', 's3:ListBucket', 's3:DeleteObject'],
+        resources: props.externalBuckets.flatMap(arn => [arn, `${arn}/*`]),
+      });
+      executeTaskFn.addToRolePolicy(externalS3Policy);
+    }
+
     // Outputs for execute-task Lambda
     new cdk.CfnOutput(this, 'RunnerRepoUri', {
       value: runnerRepo.repositoryUri,
@@ -1059,6 +1076,13 @@ export class E3PlatformStack extends cdk.Stack {
       });
       this.dataBucket.grantReadWrite(taskDef.taskRole);
       this.dataTable.grantReadWriteData(taskDef.taskRole);
+      // Grant Fargate tasks access to external S3 buckets (cross-account)
+      if (props.externalBuckets && props.externalBuckets.length > 0) {
+        taskDef.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
+          actions: ['s3:GetObject', 's3:PutObject', 's3:ListBucket', 's3:DeleteObject'],
+          resources: props.externalBuckets.flatMap(arn => [arn, `${arn}/*`]),
+        }));
+      }
       taskDef.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
         actions: ['states:SendTaskSuccess', 'states:SendTaskFailure'],
         resources: ['*'],  // Task tokens are self-scoping

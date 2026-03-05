@@ -33,5 +33,9 @@
 
   "scheduling": {
     "defaultTimezone": "Australia/Sydney"
-  }
+  },
+
+  "externalBuckets": [
+    "arn:aws:s3:::elara-prod-twe-upload"
+  ]
 }
