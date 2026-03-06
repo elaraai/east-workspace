@@ -85,3 +85,33 @@ export function redirectToLogin(): void {
   clearTokens();
   window.location.href = '/login';
 }
+
+/**
+ * Install a fetch interceptor that transparently handles 401 token refresh.
+ * On 401 from an API request: refresh the Cognito token and retry once.
+ * Retries go through the original fetch (not the interceptor), so loops are impossible.
+ */
+export function installAuthInterceptor(): void {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const response = await originalFetch(input, init);
+
+    // Only intercept our API requests, not external calls (e.g. Cognito token endpoint)
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    if (response.status !== 401 || !url.includes('/api/')) {
+      return response;
+    }
+
+    const token = await refreshAccessToken();
+    if (!token) {
+      redirectToLogin();
+      return response;
+    }
+
+    // Retry with the new token — goes through originalFetch, not this interceptor
+    const headers = new Headers(init?.headers);
+    headers.set('Authorization', `Bearer ${token}`);
+    return originalFetch(input, { ...init, headers });
+  };
+}

@@ -6,7 +6,7 @@ install:
 
 # Update @elaraai dependencies
 update:
-	npm update $$(grep -roh '"@elaraai/[^"]*"' --include='package.json' . | tr -d '"' | sort -u | tr '\n' ' ')
+	$(NVM) npm update @elaraai/east @elaraai/east-node-std @elaraai/east-ui @elaraai/east-ui-components @elaraai/e3 @elaraai/e3-api-client @elaraai/e3-api-server @elaraai/e3-api-tests @elaraai/e3-core @elaraai/e3-types @elaraai/e3-ui-components
 
 # Build all packages (lint first)
 build: lint

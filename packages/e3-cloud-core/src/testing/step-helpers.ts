@@ -79,7 +79,7 @@ export function createMockStorage() {
     acquire: originalLocks.acquire.bind(originalLocks),
     getState: originalLocks.getState.bind(originalLocks),
     isHolderAlive: originalLocks.isHolderAlive.bind(originalLocks),
-    async renewLock(_repo: string, _resource: string) { return true; },
+    renewLock(_repo: string, _resource: string) { return Promise.resolve(true); },
     async forceRelease(_repo: string, _resource: string) {},
   };
 
