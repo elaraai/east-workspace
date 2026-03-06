@@ -29,7 +29,7 @@ import {
   BatchWriteItemCommand,
 } from '@aws-sdk/client-dynamodb';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
-import type { ObjectStore } from '@elaraai/e3-core';
+import { ObjectNotFoundError, type ObjectStore } from '@elaraai/e3-core';
 
 /**
  * Inline threshold: objects ≤ this size are stored directly in DynamoDB.
@@ -168,7 +168,7 @@ export class S3ObjectStore implements ObjectStore {
     );
 
     if (!response.Item) {
-      throw new S3ObjectNotFoundError(repo, hash);
+      throw new ObjectNotFoundError(hash);
     }
 
     const item = unmarshall(response.Item);
@@ -198,7 +198,7 @@ export class S3ObjectStore implements ObjectStore {
       // If version doesn't exist (shouldn't happen), throw not found
       if (error.name === 'NoSuchKey' || error.Code === 'NoSuchKey' ||
           error.name === 'NoSuchVersion' || error.Code === 'NoSuchVersion') {
-        throw new S3ObjectNotFoundError(repo, hash);
+        throw new ObjectNotFoundError(hash);
       }
       throw error;
     }
@@ -219,7 +219,7 @@ export class S3ObjectStore implements ObjectStore {
     );
 
     if (!response.Item) {
-      throw new S3ObjectNotFoundError(repo, hash);
+      throw new ObjectNotFoundError(hash);
     }
 
     const item = unmarshall(response.Item);
@@ -497,16 +497,3 @@ export class S3ObjectStore implements ObjectStore {
   }
 }
 
-/**
- * AWS-specific error for missing objects. Deliberately local since e3-core
- * doesn't export an equivalent, and this version includes the repo context.
- */
-class S3ObjectNotFoundError extends Error {
-  constructor(
-    public readonly repo: string,
-    public readonly hash: string
-  ) {
-    super(`Object not found: ${hash} in repo ${repo}`);
-    this.name = 'S3ObjectNotFoundError';
-  }
-}

@@ -32,6 +32,7 @@ export { DynamoTaskConfigStore } from './dynamo-task-config-store.js';
 export { DynamoComputeResultStore } from './dynamo-compute-result-store.js';
 export { DynamoUserSettingsStore } from './dynamo-user-settings-store.js';
 export { S3GcTempStore } from './s3-gc-temp-store.js';
+export { S3DynamoTransferBackend } from './s3-dynamo-transfer.js';
 export { SfnDataflowOrchestrator } from '../services/sfn-dataflow-orchestrator.js';
 
 // Re-export types from e3-core for convenience

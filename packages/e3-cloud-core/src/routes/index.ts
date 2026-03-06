@@ -16,3 +16,4 @@ export { createScheduleRoutes, createScheduleListRoute, unixCronToAws, validateC
 export { createTaskConfigRoutes } from './task-config-routes.js';
 export { createGcRoutes } from './gc-routes.js';
 export { createUserSettingsRoutes } from './user-settings-routes.js';
+export { createCloudTransferRoutes, createCloudPackageTransferRoutes } from './transfer.js';

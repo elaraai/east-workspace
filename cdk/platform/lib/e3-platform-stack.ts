@@ -307,6 +307,12 @@ export class E3PlatformStack extends cdk.Stack {
       encryption: s3.BucketEncryption.S3_MANAGED,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       versioned: true,
+      cors: [{
+        allowedOrigins: customDomainName ? [`https://${customDomainName}`] : ['*'],
+        allowedMethods: [s3.HttpMethods.GET, s3.HttpMethods.PUT],
+        allowedHeaders: ['Content-Type', 'Content-Length', 'x-amz-checksum-sha256'],
+        maxAge: 3600,
+      }],
     });
 
     // Single DynamoDB table for all data (packages, workspaces, executions, locks, logs)

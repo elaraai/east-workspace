@@ -2,26 +2,26 @@
 
 ## Summary
 
-Replace inline HTTP body transfer for large payloads with a presigned URL protocol. The client uploads/downloads directly to/from object storage (S3, GCS, Azure Blob) using time-limited URLs provided by the API server. Package operations become asynchronous with job polling. The protocol is cloud-agnostic — the local `e3-api-server` implements the same endpoints, returning URLs pointing back to itself.
+Replace inline HTTP body transfer for large payloads with a presigned URL protocol. The client uploads/downloads directly to/from object storage (S3, GCS, Azure Blob) using time-limited URLs provided by the API server. Package operations become asynchronous with polling. The protocol is cloud-agnostic — the local `e3-api-server` implements the same endpoints, returning URLs pointing back to itself.
 
 ## Problem
 
 AWS API Gateway enforces a **10 MB payload limit** (non-negotiable) and a **29-second response timeout**. Four operations exceed these limits:
 
-| Operation | Current flow | Direction | Potential size |
-|-----------|-------------|-----------|----------------|
-| `e3 package import` | `POST /packages` (zip body) | Upload | 100s MB – GBs |
-| `e3 package export` | `GET /packages/:name/:version/export` (zip response) | Download | 100s MB – GBs |
-| `e3 get` (dataset) | `GET /datasets/*` (raw BEAST2 response) | Download | GBs |
-| `e3 set` (dataset) | `PUT /datasets/*` (raw BEAST2 body) | Upload | GBs |
+| Operation | Direction | Potential size |
+|-----------|-----------|----------------|
+| `e3 set` (dataset) | Upload | GBs |
+| `e3 get` (dataset) | Download | GBs |
+| `e3 package import` | Upload | 100s MB – GBs |
+| `e3 package export` | Download | 100s MB – GBs |
 
-All other API operations (repo CRUD, admin, dataflow, schedules, task configs, GC, user settings) fit within the 10 MB limit and are unchanged.
+All other API operations fit within the 10 MB limit and are unchanged.
 
 ## Goals
 
 1. Support objects up to **5 GB** (single-part presigned PUT/GET across all clouds)
-2. **One protocol** — the `e3-api-client` uses the same code for local, AWS, GCP, and Azure servers
-3. **Cloud-agnostic interfaces** in `e3-core` / `e3-cloud-core` with concrete implementations per cloud
+2. **One client** — `e3-api-client` uses the same code for local, AWS, GCP, and Azure servers
+3. **Cloud-agnostic interfaces** in `e3-core` with concrete implementations per cloud
 4. **Cleanup** — abandoned uploads are garbage-collected automatically
 
 ## Non-goals
@@ -39,506 +39,461 @@ All other API operations (repo CRUD, admin, dataflow, schedules, task configs, G
 | Single upload limit | 5 GB | ~4.88 GB (5000 MiB) | 5 TB |
 | URL expiry | Configurable | Configurable | Configurable |
 
-## Completed Phases
+---
 
-### Phase 0: BEAST2 Headers (completed)
+## The Four Transfer Types
 
-- Added `Content-Type: application/vnd.elara.beast2` MIME type to dataset GET responses
-- Added `Content-Length` and `X-Content-SHA256` headers to dataset GET responses
-- `datasetGet` client returns `{ data, hash, size }` instead of raw bytes
-- All datasets are BEAST2-encoded regardless of East type (including BlobType)
+| # | Name | Direction | Payload | Async? |
+|---|------|-----------|---------|--------|
+| 1 | **DatasetUpload** | client → server | Single BEAST2 object | No — completes in commit step |
+| 2 | **DatasetDownload** | server → client | Single BEAST2 object | No — 307 redirect |
+| 3 | **PackageImport** | client → server | Zip archive → many objects | Yes — poll for completion |
+| 4 | **PackageExport** | server → client | Many objects → zip archive | Yes — poll then download |
 
-### Phase 0.5: Local Dataset Transfer (completed)
+---
 
-Implemented the dataset transfer protocol for the local `e3-api-server`:
+## Object Storage Model
 
-**GET redirect for large objects:**
-- `getDataset()` checks object size via `stat()`; returns 307 redirect for objects > 1MB
-- Redirect `Location` points to `GET /api/repos/:repo/objects/:hash` (same origin)
-- Response includes `X-Content-Length` and `X-Content-SHA256` headers
-- Clients follow the redirect automatically via `fetch`
+Objects are stored at `{repo}/objects/{hash}/{uploadId}`, where `uploadId` is a server-assigned UUID. This ensures concurrent uploads of the same hash are unambiguously addressable — no reliance on cloud-specific versioning or "most recent" semantics.
 
-**New endpoints on `e3-api-server`:**
-- `GET /api/repos/:repo/objects/:hash` — Serves raw BEAST2 bytes by content hash
-- `POST /api/repos/:repo/transfer/upload` — Init upload (dedup check or staging slot)
-- `PUT /api/repos/:repo/transfer/:id/data` — Upload bytes to staging area
-- `POST /api/repos/:repo/transfer/:id/done` — Verify hash, atomic move, update dataset ref
+A catalogue entry in the metadata store (`OBJ/{repo}#{hash}`) records which `uploadId` is the committed version. An object doesn't "exist" until the catalogue says it does. Reads look up the catalogue entry and fetch by the exact key.
 
-**Upload flow:**
-- Client computes SHA-256 locally before initiating transfer
-- **Dedup path (1 round-trip):** If object hash already exists in store, server updates dataset ref immediately and returns `{ status: "completed" }`
-- **Upload path (3 round-trips):** Init → upload to staging → complete (verify hash + atomic rename + ref update)
-- **Staging area:** `objects/_staging/{transferId}.beast2.partial` — same filesystem as content-addressed store for atomic `rename()`
-- **Hash verification:** Server reads staging file, computes SHA-256, rejects on mismatch (400)
+**The server never trusts the client's SHA-256.** Each implementation verifies integrity in whatever way its cloud supports:
+- **Local:** Server reads back the uploaded bytes, computes SHA-256, rejects mismatches.
+- **Cloud:** May use cloud-native checksums (e.g. S3's `x-amz-checksum-sha256`), or fall back to server-side read-back.
 
-**Client changes (`e3-api-client`):**
-- `datasetSet()` checks payload size; uses inline PUT for ≤ 1MB, transfer flow for > 1MB
-- Transfer flow: compute hash → POST init → PUT upload → POST done
+The interface is cloud-agnostic — `commitObject(repo, hash, uploadId)` handles verification internally.
 
-**Threshold:** 1MB (down from originally planned 6MB). This is conservative but safe for all backends.
+**Commit is a metadata-only operation.** After successful upload and verification, the server writes the catalogue entry. Until committed, the uploaded object is invisible to the system and will be cleaned up.
 
-**Note:** `stat()` is efficient on all backends — `fs.stat` locally, DynamoDB catalogue for S3.
+**Dedup check:** The init step looks up `storage.objects.exists(hash)` in the catalogue. If true, the object was previously verified and committed — safe to skip the upload entirely.
 
-### Phase 1: Local Package Transfer (in progress)
+## Concurrency Model
 
-Implement the package transfer protocol for the local `e3-api-server`:
+**Object writes are safe.** Two concurrent uploads of the same hash write to separate keys (`{hash}/{uploadId1}` vs `{hash}/{uploadId2}`). Both contain identical bytes (integrity-verified by the backend). The catalogue commit is idempotent — both writers set `OBJ/{repo}#{hash}` to point to a valid copy of the same data. Whichever upload ID isn't committed is cleaned up by GC.
 
-**New endpoints on `e3-api-server`:**
-- `POST /api/repos/:repo/packages/transfer/upload` — Init upload, returns `{ transferId, uploadUrl }`
-- `PUT /api/repos/:repo/packages/transfer/:id/data` — Upload zip bytes to staging
-- `POST /api/repos/:repo/packages/transfer/:id/import` — Trigger import processing (sync on local server)
-- `POST /api/repos/:repo/packages/transfer/export` — Trigger export processing (sync on local server)
-- `GET /api/repos/:repo/packages/transfer/jobs/:jobId` — Poll job status
-- `GET /api/repos/:repo/packages/transfer/download/:jobId` — Download export zip (local server only; cloud uses presigned S3 URL)
+**Dataset ref updates are atomic, last-writer-wins.** The commit step writes a single metadata entry (`DREF/{repo}#{ws}#{path}`). If two clients race to set the same dataset, the last commit wins. Both objects are safely stored (content-addressed), and GC cleans up unreferenced ones.
 
-**Import flow:**
-1. Client calls init with `{ size }` — server creates staging slot in `os.tmpdir()/e3-transfers/`, returns `{ transferId, uploadUrl }`
-2. Client PUTs raw zip bytes to uploadUrl (staging endpoint)
-3. Client calls import trigger — server validates size, reads zip from staging, calls `packageImport()`, returns `{ jobId }` with completed result
-4. Client polls job status — on local server, first poll returns completed with `PackageImportResult`
+**The transfer flow widens the race window** compared to inline PUT (minutes vs milliseconds), but the *outcome* is the same — one writer wins, no corruption.
 
-**Export flow:**
-1. Client calls export with `{ name, version }` — server runs `packageExport()` synchronously, writes zip to tmpdir, returns `{ jobId }`
-2. Client polls job status — returns completed with `{ downloadUrl, size }`
-3. Client GETs downloadUrl — serves zip bytes from staging, cleans up after
+**Future: optimistic concurrency.** When collaborative editing demands conflict detection, the commit step can use a conditional write. The init step snapshots the current ref; commit rejects if it changed. The client retries from scratch. This is cheap (no locks, no deadlocks) and can be added without protocol changes — just an optional `expectedHash` field on the commit request.
 
-**No dedup at the zip level** — packages are non-deterministic zips. Object-level dedup is handled by `storage.objects.write()` being content-addressed (writing an existing hash is idempotent).
-
-**Staging cleanup:** GC cleans orphaned transfer staging files from temp directory (already implemented for dataset transfers).
-
-**Old inline endpoints (`POST /packages`, `GET /packages/:name/:version/export`) are removed** — all package I/O goes through the transfer flow. This is pre-MVP, no backward compatibility needed.
+---
 
 ## Protocol Design
 
-### Dataset GET (307 redirect)
+### 1. DatasetUpload
 
-The existing `GET /datasets/*` endpoint is modified to return a **307 redirect** instead of inline bytes. Lambda resolves the dataset path to an object hash, looks up the object size, and returns a redirect to a presigned GET URL. The client's `fetch` follows the redirect automatically.
+**Client flow:** `POST init` → `PUT data` (no auth) → `POST commit`
+
+Auth endpoints are scoped to the dataset path (future per-dataset ACLs work naturally). Data endpoints use capability-URL auth (UUID) under `/transfer/`.
+
+**URLs:**
+```
+POST /api/repos/:repo/workspaces/:ws/datasets/*/upload       — init (auth)
+PUT  /api/repos/:repo/transfer/dataset-upload/:id/data       — upload bytes (no auth)
+POST /api/repos/:repo/workspaces/:ws/datasets/*/upload/:id   — verify + commit (auth)
+```
+
+**Inline shortcut:** Datasets ≤ 1 MB use the existing inline `PUT /datasets/*` endpoint — one round-trip, no transfer protocol. The client decides based on payload size.
+
+**Dedup shortcut:** If `storage.objects.exists(hash)` → skip upload, update ref immediately, return `completed`.
 
 ```
-Client                         API Server (Lambda)           Object Storage
+Client                         API Server                    Object Storage
+  │                               │                               │
+  │─ POST /.../datasets/*/upload >│                               │
+  │  { hash, size }               │── check object exists? ──────>│
+  │                               │<── yes/no ───────────────────│
+  │                               │                               │
+  │<─ { id, uploadUrl }  ────────│   (or { completed })          │
+  │   (or { completed })          │                               │
+  │                               │                               │
+  │─ PUT uploadUrl ──────────────────────────────────────────────>│
+  │  (raw BEAST2 bytes, no auth)  │   {repo}/objects/{hash}/{id}  │
+  │<─ 200 ───────────────────────────────────────────────────────│
+  │                               │                               │
+  │─ POST /.../datasets/*/       ─>│                               │
+  │      upload/:id                │── verify + commit object ───>│
+  │                               │── update dataset ref ────────>│
+  │<─ { completed } ─────────────│                               │
+```
+
+**Stored state:**
+```typescript
+const DatasetUploadType = StructType({
+  repo:        StringType,
+  workspace:   StringType,
+  path:        StringType,      // dataset path e.g. "inputs.sales"
+  hash:        StringType,      // expected SHA-256, computed by client
+  size:        IntegerType,     // expected byte count
+});
+```
+
+**Storage interface:**
+```typescript
+interface DatasetUploadStore {
+  create(id: string, record: DatasetUpload): Promise<void>;
+  get(id: string): Promise<DatasetUpload | null>;
+  delete(id: string): Promise<void>;
+
+  /**
+   * URL the client PUTs bytes to. The upload ID is embedded in the URL
+   * so concurrent uploads to the same hash are unambiguous.
+   */
+  getUploadUrl(id: string, repo: string, hash: string): Promise<string>;
+
+  /**
+   * Verify the upload and make the object visible in the catalogue.
+   * On success, the object is queryable via storage.objects.read(repo, hash).
+   * On failure, throws — caller should clean up the transfer record.
+   */
+  commitObject(repo: string, hash: string, uploadId: string): Promise<void>;
+}
+```
+
+### 2. DatasetDownload
+
+**Client flow:** `GET /datasets/*` → follow 307 redirect → `GET data` (no auth)
+
+**URLs:**
+```
+GET /api/repos/:repo/workspaces/:ws/datasets/*               — resolve hash, return 307 (auth)
+GET /api/repos/:repo/transfer/dataset-download/:hash          — serve bytes (no auth)
+```
+
+**Inline shortcut:** Objects ≤ 1 MB are returned inline (no redirect).
+
+**No stored state** — stateless redirect. The hash in the URL is the capability token.
+
+```
+Client                         API Server                    Object Storage
   │                               │                               │
   │─ GET /datasets/* ────────────>│                               │
   │                               │── resolve path → hash ───────>│
   │                               │── lookup object size ────────>│
-  │                               │── generate presigned GET ────>│
-  │<─ 307 Location: <presigned> ─│                               │
+  │                               │── generate download URL ─────>│
+  │<─ 307 Location: <url> ───────│                               │
   │   X-Content-Length: <size>     │                               │
   │                               │                               │
-  │─ GET <presigned URL> ────────────────────────────────────────>│
+  │─ GET <url> (no auth) ─────────────────────────────────────── >│
   │<─ raw BEAST2 bytes ──────────────────────────────────────────│
 ```
 
-**Size hint:** The 307 response includes an `X-Content-Length` header with the object size in bytes. This lets the client display progress bars, pre-allocate buffers, or decide whether to stream to disk vs. hold in memory — before the actual download begins.
+**Storage interface:**
+```typescript
+interface DatasetDownloadStore {
+  /** URL the client GETs bytes from. */
+  getDownloadUrl(repo: string, hash: string): Promise<string>;
+}
+```
 
-The redirect itself is tiny (just headers), so no payload limits apply. The large payload flows directly from object storage to the client.
+### 3. PackageImport
 
-**Local server:** The local `e3-api-server` can either return the bytes inline (no size limits locally) or use the same 307 pattern pointing to a local blob endpoint. For consistency and to exercise the same client code path, we use 307 for all servers.
+**Client flow:** `POST init` → `PUT data` (no auth) → `POST trigger` → poll `GET` until complete
 
-### Dataset SET (size-based routing)
+One resource, one ID. The `id` returned by init is used for upload, trigger, and polling.
 
-Small datasets (≤ 1 MB) continue to use the existing inline `PUT /datasets/*` endpoint — one round-trip, no protocol change. Large datasets use the transfer flow.
-
-The client decides the path based on the payload size — no server round-trip needed for the size check.
-
-**Inline path (≤ 1 MB):**
+**URLs:**
+```
+POST /api/repos/:repo/packages/import                        — init (auth), returns { id, uploadUrl }
+PUT  /api/repos/:repo/transfer/package-import/:id/data       — upload zip (no auth)
+POST /api/repos/:repo/packages/import/:id                    — trigger processing (auth)
+GET  /api/repos/:repo/packages/import/:id                    — poll status (auth)
+```
 
 ```
 Client                         API Server                    Object Storage
   │                               │                               │
-  │─ PUT /datasets/* ────────────>│                               │
-  │  X-Content-Length: 4096       │── compute hash, store ───────>│
-  │  (raw BEAST2 bytes)           │── update dataset ref ────────>│
-  │<─ 200 OK ────────────────────│                               │
-```
-
-**Transfer path (> 1 MB):**
-
-```
-Client                         API Server                    Object Storage
-  │                               │                               │
-  │─ POST /transfer/upload ──────>│                               │
-  │  { purpose: "dataset",        │                               │
-  │    workspace, path,           │── check object exists? ──────>│
-  │    hash, size }               │<── yes/no ───────────────────│
-  │                               │                               │
-  │<─ { transferId, uploadUrl }──│   (or { exists: true })       │
-  │   (or { exists: true })       │                               │
+  │─ POST /.../packages/import ──>│                               │
+  │  { size }                     │── create record (created) ───>│
+  │<─ { id, uploadUrl }  ────────│                               │
   │                               │                               │
   │─ PUT uploadUrl ──────────────────────────────────────────────>│
-  │  (raw BEAST2 bytes)           │                               │
+  │  (zip bytes, no auth)         │   {repo}/_transfer/{id}/zip   │
   │<─ 200 ───────────────────────────────────────────────────────│
   │                               │                               │
-  │─ POST /transfer/:id/complete─>│                               │
-  │                               │── update dataset ref ────────>│
-  │<─ { status: "completed" } ───│                               │
-```
-
-**Client-side hashing:** The client computes the SHA-256 hash of the BEAST2 bytes before initiating the upload. This enables:
-
-1. **Deduplication** — if the object already exists in the store, the server returns `{ status: "completed" }` and the client skips the upload entirely. The server updates the dataset ref immediately. Done in one round-trip.
-2. **Staging + verification** — uploads go to a staging area (`objects/_staging/{transferId}.beast2.partial`), NOT directly to the content-addressed store. The server verifies the hash after upload, then performs an atomic rename to the final location. This prevents corrupted data from being stored at the wrong hash path.
-3. **Integrity** — the server computes SHA-256 on the uploaded bytes and rejects on mismatch (400 error). For cloud, the upload goes directly to S3 via presigned URL, so verification happens at the completion step.
-
-The `e3-api-client` already has the BEAST2 bytes in hand before calling `datasetSet()`, and `computeHash` (SHA-256) is already exported from `e3-core/src/objects.ts`.
-
-**Completion step:** Updates the dataset ref to point to the new hash. This is a metadata-only operation (DynamoDB write) and completes in milliseconds, well within the 29-second API Gateway timeout.
-
-### Transfer Endpoints
-
-New endpoints for upload and async package operations. All scoped per-repo with the same authorization as existing operations.
-
-```
-POST /api/repos/:repo/transfer/upload              — init a large upload
-POST /api/repos/:repo/transfer/:transferId/complete — complete an upload
-POST /api/repos/:repo/transfer/export               — start async package export
-GET  /api/repos/:repo/transfer/jobs/:jobId          — poll async job status
-```
-
-Request/response bodies use BEAST2 encoding, consistent with the rest of the API.
-
-### Package Import (asynchronous)
-
-```
-Client                         API Server                    Object Storage
-  │                               │                               │
-  │─ POST /transfer/upload ──────>│                               │
-  │  { purpose: "package-import", │── generate presigned PUT ───>│
-  │    size }                     │   (_transfer/{id}/pkg.zip)    │
-  │<─ { transferId, uploadUrl } ─│                               │
-  │                               │                               │
-  │─ PUT uploadUrl ──────────────────────────────────────────────>│
-  │  (zip bytes)                  │                               │
-  │<─ 200 ───────────────────────────────────────────────────────│
-  │                               │                               │
-  │─ POST /transfer/:id/complete─>│                               │
-  │                               │── trigger async processing ──│
-  │<─ { status: "processing",  ──│                               │
-  │     jobId }                   │         ┌──────────────────┐  │
-  │                               │         │ Async processor  │  │
-  │─ GET /transfer/jobs/:jobId ──>│         │ reads zip from   │  │
-  │<─ { status: "processing" } ──│         │ temp location,   │  │
-  │                               │         │ extracts objects, │  │
-  │─ GET /transfer/jobs/:jobId ──>│         │ registers pkg    │  │
-  │<─ { status: "completed",  ───│         └──────────────────┘  │
-  │     result: { name,           │                               │
-  │       version, hash } }       │                               │
-```
-
-**Why async:** Processing a large zip (extract objects, write each to storage, register package metadata) can take minutes. The 29-second API Gateway timeout makes synchronous processing impossible. The client polls for completion.
-
-**Temp storage:** The zip is uploaded to a temporary location (`_transfer/{transferId}/pkg.zip`) in the object store. After processing, the temp object is deleted. Abandoned uploads are cleaned up by lifecycle rules (see [Cleanup](#cleanup)).
-
-**Async processor:** On AWS, the completion endpoint invokes a Lambda function asynchronously (`InvocationType: 'Event'`). The Lambda reads the zip from S3, calls the existing `packageImport()` logic from `e3-core`, and updates the job status in the job store. On the local server, processing is synchronous — the completion endpoint processes inline and returns `{ status: "completed" }` directly.
-
-### Package Export (asynchronous)
-
-```
-Client                         API Server                    Object Storage
-  │                               │                               │
-  │─ POST /transfer/export ──────>│                               │
-  │  { name, version }           │── trigger async export ──────│
-  │<─ { jobId } ─────────────────│                               │
+  │─ POST /.../packages/import/:id>│                               │
+  │                               │── update (processing) ───────│
+  │<─ { status: processing }  ────│── dispatch async ────────────│
   │                               │         ┌──────────────────┐  │
-  │─ GET /transfer/jobs/:jobId ──>│         │ Async processor  │  │
-  │<─ { status: "processing" } ──│         │ reads objects,    │  │
-  │                               │         │ creates zip,     │  │
-  │─ GET /transfer/jobs/:jobId ──>│         │ writes to temp   │  │
-  │<─ { status: "completed",  ───│         └──────────────────┘  │
-  │     downloadUrl, size }       │                               │
+  │─ GET /.../packages/import/:id >│         │ Async processor  │  │
+  │<─ { status: processing }  ────│         │ reads zip,       │  │
+  │                               │         │ extracts objects, │  │
+  │─ GET /.../packages/import/:id >│         │ registers pkg    │  │
+  │<─ { status: completed,  ──────│         └──────────────────┘  │
+  │     name, version, ... }       │                               │
+```
+
+**Why async:** Processing a large zip (extract objects, write each to storage, register package metadata) can take minutes. The local server processes inline (trigger returns completed immediately). Cloud dispatches to a background processor.
+
+**Stored state (single record per import):**
+```typescript
+const PackageImportType = StructType({
+  repo:        StringType,
+  size:        IntegerType,
+  status:      VariantType({
+    created:    NullType,       // waiting for upload
+    uploaded:   NullType,       // waiting for trigger
+    processing: NullType,       // async work in progress
+    completed:  StructType({
+      name:         StringType,
+      version:      StringType,
+      packageHash:  StringType,
+      objectCount:  IntegerType,
+    }),
+    failed: StructType({ message: StringType }),
+  }),
+  createdAt:   DateTimeType,
+});
+```
+
+**Storage interface:**
+```typescript
+interface PackageImportStore {
+  create(id: string, record: PackageImport): Promise<void>;
+  get(id: string): Promise<PackageImport | null>;
+  updateStatus(id: string, status: PackageImport['status']): Promise<void>;
+  delete(id: string): Promise<void>;
+
+  /** URL the client PUTs zip bytes to. */
+  getUploadUrl(id: string, repo: string): Promise<string>;
+
+  /**
+   * Dispatch processing.
+   * Local: calls packageImport() inline, updates status to completed/failed.
+   * Cloud: invokes background processor asynchronously.
+   */
+  execute(id: string, repo: string): Promise<void>;
+}
+```
+
+**Note:** Package zips aren't content-addressed (the same package can produce different zips). They go to a temporary location (`_transfer/{id}/pkg.zip`), not the `objects/` prefix.
+
+### 4. PackageExport
+
+**Client flow:** `POST trigger` → poll `GET` until complete → `GET data` (no auth)
+
+Same single-resource pattern as import.
+
+**URLs:**
+```
+POST /api/repos/:repo/packages/:name/:version/export         — start export (auth), returns { id }
+GET  /api/repos/:repo/packages/export/:id                    — poll status (auth)
+GET  /api/repos/:repo/transfer/package-export/:id/data       — download zip (no auth)
+```
+
+```
+Client                         API Server                    Object Storage
   │                               │                               │
-  │─ GET downloadUrl ────────────────────────────────────────────>│
+  │─ POST /.../packages/         ─>│                               │
+  │    :name/:version/export       │── create record (processing) │
+  │<─ { id }  ────────────────────│── dispatch async ────────────│
+  │                               │         ┌──────────────────┐  │
+  │─ GET /.../packages/export/:id >│         │ Async processor  │  │
+  │<─ { status: processing }  ────│         │ reads objects,    │  │
+  │                               │         │ creates zip,     │  │
+  │─ GET /.../packages/export/:id >│         │ writes to temp   │  │
+  │<─ { status: completed,  ──────│         └──────────────────┘  │
+  │     downloadUrl, size }        │                               │
+  │                               │                               │
+  │─ GET downloadUrl (no auth)───────────────────────────────────>│
   │<─ zip bytes ─────────────────────────────────────────────────│
 ```
 
-**Size hint:** The completed job status includes a `size` field so the client can display download progress.
+**Stored state (single record per export):**
+```typescript
+const PackageExportType = StructType({
+  repo:         StringType,
+  name:         StringType,
+  version:      StringType,
+  status:       VariantType({
+    processing: NullType,
+    completed:  StructType({
+      size:        IntegerType,
+    }),
+    failed: StructType({ message: StringType }),
+  }),
+  createdAt:    DateTimeType,
+});
+```
 
-**Async processor:** Generates the zip using existing `packageExport()` from `e3-core`, writes to temp location, records size, generates presigned GET URL, updates job status. On the local server, the export is processed synchronously.
+**Storage interface:**
+```typescript
+interface PackageExportStore {
+  create(id: string, record: PackageExport): Promise<void>;
+  get(id: string): Promise<PackageExport | null>;
+  updateStatus(id: string, status: PackageExport['status']): Promise<void>;
+  delete(id: string): Promise<void>;
 
-### Job Status
+  /** URL the client GETs zip bytes from. */
+  getDownloadUrl(id: string, repo: string): Promise<string>;
 
-Job status is a simple state machine:
+  /**
+   * Dispatch processing.
+   * Local: calls packageExport() inline, updates status to completed/failed.
+   * Cloud: invokes background processor asynchronously.
+   */
+  execute(id: string, repo: string): Promise<void>;
+}
+```
 
+### Status Lifecycle
+
+**Package import:**
+```
+created → uploaded → processing → completed
+                                → failed
+```
+
+**Package export:**
 ```
 processing → completed
-processing → failed
+           → failed
 ```
 
-```typescript
-interface TransferJob {
-  jobId: string;
-  repo: string;
-  type: 'package-import' | 'package-export';
-  status: 'processing' | 'completed' | 'failed';
-  createdAt: Date;
-  completedAt?: Date;
-  result?: {
-    // package-import: { name, version, packageHash, objectCount }
-    // package-export: { downloadUrl, size }
-  };
-  error?: string;
-}
+**Timeout:** If a record remains in `processing` for longer than 15 minutes, the polling endpoint returns `failed` with a timeout error.
+
+---
+
+## TransferBackend Interface
+
+```
+StorageBackend (existing, e3-core)
+├── objects        — content-addressed blob store
+├── refs           — metadata refs (packages, workspaces, datasets, executions)
+├── repos          — repo lifecycle
+├── locks          — distributed locking
+└── logs           — execution logs
+
+TransferBackend (new, e3-core)
+├── datasetUpload    : DatasetUploadStore
+├── datasetDownload  : DatasetDownloadStore
+├── packageImport    : PackageImportStore
+└── packageExport    : PackageExportStore
 ```
 
-Jobs have a **timeout** — if a job remains in `processing` state for longer than 15 minutes, the polling endpoint returns `failed` with a timeout error. This handles the case where the async processor crashes.
+`TransferBackend` is a separate top-level interface — not bolted onto `StorageBackend`. It depends on `StorageBackend` for actual object/ref operations but has its own lifecycle (staging, jobs, URLs).
 
-## Types
+### Implementations
 
-### Dataset Transfer Types (implemented)
+| Interface | Local (`InMemoryTransferBackend`) | AWS (`S3DynamoTransferBackend`) |
+|-----------|----------------------------------|--------------------------------|
+| `DatasetUploadStore` | In-memory map + tmpdir + server-side SHA256 verify | DynamoDB + presigned PUT to `{repo}/objects/{hash}/{uploadId}` + catalogue commit |
+| `DatasetDownloadStore` | Self-referencing URL to local endpoint | Presigned GET for object key from catalogue |
+| `PackageImportStore` | In-memory map + tmpdir + inline `packageImport()` | DynamoDB + presigned PUT to `_transfer/{id}/pkg.zip` + async Lambda/SFN |
+| `PackageExportStore` | In-memory map + tmpdir + inline `packageExport()` | DynamoDB + export in Lambda + presigned GET for download |
 
-Defined in `e3-api-server/src/types.ts` and mirrored in `e3-api-client/src/types.ts`:
+---
 
-```typescript
-// Dataset upload init request
-export const TransferUploadRequestType = StructType({
-  workspace: StringType,
-  path: StringType,
-  hash: StringType,       // SHA-256 hex, computed by client
-  size: IntegerType,      // bytes
-});
+## Data Endpoints and Auth Split
 
-// Dataset upload init response
-export const TransferUploadResponseType = VariantType({
-  completed: NullType,    // Object already in store (dedup), ref updated
-  upload: StructType({
-    transferId: StringType,
-    uploadUrl: StringType,
-  }),
-});
-
-// Dataset upload done response
-export const TransferDoneResponseType = VariantType({
-  completed: NullType,    // Hash verified, object stored, ref updated
-  error: StructType({ message: StringType }),
-});
-```
-
-### Package Transfer Types (new)
-
-```typescript
-// Package upload init request — just size (no hash, can't dedup zips)
-export const PackageTransferInitRequestType = StructType({
-  size: IntegerType,
-});
-
-// Package upload init response
-export const PackageTransferInitResponseType = StructType({
-  transferId: StringType,
-  uploadUrl: StringType,
-});
-
-// Package export request
-export const PackageExportRequestType = StructType({
-  name: StringType,
-  version: StringType,
-});
-
-// Job response (returned by import trigger and export trigger)
-export const PackageJobResponseType = StructType({
-  jobId: StringType,
-});
-
-// Job status (shared for import and export, poll endpoint)
-export const PackageJobStatusType = VariantType({
-  processing: NullType,
-  completed: VariantType({
-    import: PackageImportResultType,   // { name, version, packageHash, objectCount }
-    export: StructType({
-      downloadUrl: StringType,
-      size: IntegerType,
-    }),
-  }),
-  failed: StructType({
-    message: StringType,
-  }),
-});
-```
-
-## Interfaces
-
-### TransferService (e3-core)
-
-Abstracts presigned URL generation. Implemented by each backend.
-
-```typescript
-/** Generates presigned URLs for direct object storage access. */
-interface TransferService {
-  /** Generate a presigned PUT URL for uploading an object. */
-  createUploadUrl(
-    bucket: string,
-    key: string,
-    options: { expiresInSeconds: number; contentType?: string }
-  ): Promise<{ url: string }>;
-
-  /** Generate a presigned GET URL for downloading an object. */
-  createDownloadUrl(
-    bucket: string,
-    key: string,
-    options: { expiresInSeconds: number }
-  ): Promise<{ url: string }>;
-
-  /** Get the size of an object in bytes. Returns null if not found. */
-  getObjectSize(bucket: string, key: string): Promise<number | null>;
-}
-```
-
-### TransferJobStore (e3-cloud-core)
-
-Tracks async job state. Implemented per cloud backend.
-
-```typescript
-interface TransferJobStore {
-  create(job: TransferJob): Promise<void>;
-  get(repo: string, jobId: string): Promise<TransferJob | null>;
-  update(jobId: string, updates: Partial<TransferJob>): Promise<void>;
-}
-```
-
-### TransferJobExecutor (e3-cloud-core)
-
-Triggers async processing. Implemented per cloud backend.
-
-```typescript
-interface TransferJobExecutor {
-  /** Trigger async package import processing. */
-  startPackageImport(repo: string, jobId: string, tempKey: string): Promise<void>;
-
-  /** Trigger async package export processing. */
-  startPackageExport(repo: string, jobId: string, name: string, version: string): Promise<void>;
-}
-```
+Data endpoints (upload/download of raw bytes) use **capability-URL auth** — the unguessable UUID in the URL path is the credential. These endpoints:
+- Live under `/api/repos/:repo/transfer/` (separate from resource-scoped auth endpoints)
+- Are mounted before auth middleware so they bypass JWT/ACL validation
+- **Reject** `Authorization` headers (enforces the same contract as cloud presigned URLs)
+- Route factories return `{ api, data }` — `api` routes mount behind auth, `data` routes mount before
 
 ## Cleanup
 
-### Temp objects (`_transfer/` prefix)
+**Uncommitted dataset uploads** (`{repo}/objects/{hash}/{uploadId}`): GC scans for objects without a catalogue reference.
 
-Uploads and exports write temp objects under `_transfer/{transferId}/` in the data bucket.
+**Package zips** (`{repo}/_transfer/{id}/...`): Ephemeral — deleted after processing. Abandoned uploads cleaned up by implementation-specific means (lifecycle rules, GC, TTL).
 
-**AWS:** S3 lifecycle rule on the `_transfer/` prefix — auto-delete objects after 1 day. This handles:
-- Abandoned uploads (client started but never completed)
-- Processed imports (zip no longer needed)
-- Export zips after download
-- No custom GC code required
+**Transfer/job records**: Implementation-specific TTL or in-memory expiry.
 
-**Local:** Temp directory, cleaned up on server start or after configurable TTL.
-
-**GCP/Azure:** Equivalent lifecycle/management policies on the temp prefix.
-
-### Job records
-
-**AWS:** DynamoDB TTL on job records — auto-delete after 7 days.
-
-**Local:** In-memory map, entries expire naturally.
-
-### Orphaned objects
-
-Failed package imports may leave orphaned objects in permanent storage. These are handled by the existing repo GC (`e3 repo gc`), which already scans for unreferenced objects.
-
-## Changes by Layer
-
-### `../e3` (upstream)
-
-| Package | Change |
-|---------|--------|
-| **e3-api-server** (types.ts) | Add `PackageTransferInitRequestType`, `PackageTransferInitResponseType`, `PackageExportRequestType`, `PackageJobResponseType`, `PackageJobStatusType` |
-| **e3-api-server** (routes/) | New `createPackageTransferRoutes()` — upload init, data staging, import trigger, export trigger, job poll, download. Remove inline import/export from `createPackageRoutes()` |
-| **e3-api-client** (types.ts) | Mirror package transfer types |
-| **e3-api-client** (packages.ts) | Rewrite `packageImport` to use transfer flow (init → upload → import → poll). Rewrite `packageExport` to use transfer flow (export → poll → download) |
-| **e3-api-tests** | New `package-transfer.ts` test suite |
-
-### `e3-cloud-core` (cloud-agnostic)
-
-| File | Change |
-|------|--------|
-| `transfer-service.ts` | Re-export `TransferService` interface from e3-core |
-| `transfer-job-store.ts` | `TransferJobStore` interface |
-| `transfer-job-executor.ts` | `TransferJobExecutor` interface |
-| `routes/dataset-routes.ts` | Modify `GET /datasets/*` handler to return 307 with presigned URL + `X-Content-Length` header |
-| `routes/transfer-routes.ts` | Route handlers for upload init, complete, export, and job polling. Inject `TransferService`, `TransferJobStore`, `TransferJobExecutor`, and `DataflowStorage`. |
-| `testing/in-memory.ts` | `InMemoryTransferJobStore`, `InMemoryTransferJobExecutor`, `InMemoryTransferService` |
-| `routes/transfer-routes.spec.ts` | Unit tests using in-memory implementations |
-
-### `e3-aws` (AWS-specific)
-
-| File | Change |
-|------|--------|
-| `services/s3-transfer-service.ts` | `S3TransferService` — `@aws-sdk/s3-request-presigner` for presigned URL generation, `HeadObject` for size lookup |
-| `storage/dynamo-transfer-job-store.ts` | `DynamoTransferJobStore` — DynamoDB with TTL. PK: `TJOB/{repo}`, SK: `{jobId}` |
-| `services/lambda-transfer-executor.ts` | `LambdaTransferJobExecutor` — invokes processing Lambda with `InvocationType: 'Event'` |
-| `handlers/transfer/process-import.ts` | Lambda: read zip from S3 temp key, call `packageImportFromStorage()`, update job status |
-| `handlers/transfer/process-export.ts` | Lambda: call `packageExport()` to temp key, record size, generate presigned GET URL, update job status |
-| `handlers/api.ts` | Wire transfer routes into API Lambda composition root |
-
-### CDK (`cdk/platform`)
-
-| Change |
-|--------|
-| S3 lifecycle rule: delete `_transfer/*` objects after 1 day |
-| DynamoDB TTL attribute on job records |
-| New Lambda functions: `e3-{id}-process-import`, `e3-{id}-process-export` |
-| IAM: Lambda invoke permission from API Lambda to processing Lambdas |
-| IAM: S3 presigned URL generation permissions for API Lambda |
+**Orphaned content-addressed objects**: Failed package imports may leave partial objects. Handled by existing repo GC.
 
 ## Client Behavior
 
-### Size Threshold
+**Size threshold:** Dataset SET uses inline PUT for ≤ 1 MB, transfer flow for > 1 MB.
 
-The client uses a **1 MB threshold** for dataset SET:
-- **≤ 1 MB:** Inline PUT to existing endpoint (1 round-trip)
-- **> 1 MB:** Transfer flow (init → upload → complete, 3 round-trips, or 1 round-trip if dedup)
+**Polling:** Package import/export poll with exponential backoff (1s initial, 5s max, 15 min timeout).
 
-This threshold is well below both the Lambda synchronous payload limit (6 MB) and API Gateway limit (10 MB). A lower threshold means more operations use the transfer flow, which is safer and enables dedup.
-
-### Polling
-
-For async jobs, the client polls with exponential backoff:
-- Initial interval: 1 second
-- Max interval: 5 seconds
-- Timeout: 15 minutes (matches Lambda max execution time)
-
-### Error Handling
+**Error handling:**
 
 | Scenario | Client behavior |
 |----------|----------------|
-| Upload init fails | Return error (auth, not found, etc.) |
-| Presigned PUT fails | Retry once, then return error |
-| Completion fails | Return error (server will GC temp object) |
-| Job polling returns `failed` | Return error with server message |
-| Job polling times out | Return timeout error |
-| Presigned GET fails (download) | Retry once, then return error |
+| Init fails | Return error (auth, not found, etc.) |
+| Upload fails | Retry once, then return error |
+| Commit/trigger fails | Return error (server will GC) |
+| Polling returns `failed` | Return error with server message |
+| Polling times out | Return timeout error |
+| Download fails | Retry once, then return error |
+
+---
 
 ## Implementation Phases
 
-### Phase 0.5: Local Dataset Transfer (completed)
+### Completed
 
-See "Completed Phases" section above.
+- **Phase 0: BEAST2 Headers** — `Content-Type`, `Content-Length`, `X-Content-SHA256` on dataset GET responses
+- **Phase 0.5: Local Dataset Transfer** — 307 redirect for large GET, staged upload flow for large SET, objects endpoint
+- **Phase 1: Local Package Transfer** — Transfer flow for package import/export with staging, polling, `{ api, data }` auth split
+- **Phase 1.5: Auth Split** — Route factories return `{ api, data }`, data endpoints reject `Authorization` header, client uses plain `fetch` for data URLs
+- **Phase 2: TransferBackend Interfaces** — `e3-core/src/transfer/`: `TransferBackend` interface with 4 sub-store interfaces (`DatasetUploadStore`, `DatasetDownloadStore`, `PackageImportStore`, `PackageExportStore`), East types for stored state, `InMemoryTransferBackend` implementation. Exported from `@elaraai/e3-core`.
+- **Phase 3: Clean Up Interfaces + Refactor Routes** — Two parts:
+  - **Part A: Interface cleanup + InMemory fix.** Removed filesystem-specific methods (`getZipPath`, `deleteZip`) from `PackageImportStore` and `PackageExportStore` interfaces. Rewrote `InMemoryTransferBackend` as pure in-memory (no `fs` imports, no `tmpdir`, no `StorageBackend` dependency). Constructor simplified to `{ baseUrl?: string }`. `commitObject` and `execute` are simplified mocks — real transfer flows tested via integration tests.
+  - **Part B: Route refactoring.** `createTransferRoutes` and `createPackageTransferRoutes` now accept `TransferBackend` as 3rd parameter. Routes delegate metadata tracking (create/get/delete/updateStatus) to the backend while handling filesystem staging and inline execution directly (local server concern). Staging paths derived by convention from transfer ID: `join(tmpdir(), 'e3-transfers', '${id}.<ext>')`. Job ID simplified to reuse transfer/export ID (external behavior unchanged). `server.ts` creates `InMemoryTransferBackend({ baseUrl: '' })` and passes it to both route factories.
+  - **Learnings:** East variant types use `.type`/`.value` properties (not tuple `[0]`/`[1]`). The jobs polling endpoint now looks up both `packageImport.get` and `packageExport.get` and maps status variants to the response type.
 
-### Phase 1: Local Package Transfer (in progress)
+### Phase 4: URL restructuring (e3-api-server + e3-api-client) — DONE
 
-Local server implementation for package import/export via transfer protocol.
+Resource-scoped URLs for auth routes, `/transfer/` prefix for data routes.
+
+**Changes:**
+- **Types:** `TransferUploadRequestType` simplified to `{ hash, size }` (workspace/path now in URL). `transferId`→`id`, `jobId`→`id`. `PackageExportRequestType` removed. `PackageJobStatusType` split into `PackageImportStatusType` + `PackageExportStatusType`.
+- **Dataset routes:** Init at `POST .../datasets/*/upload`, commit at `POST .../datasets/*/upload/:id`. Data upload at `PUT /transfer/dataset-upload/:id/data`. New no-auth download endpoint at `GET /transfer/dataset-download/:hash`.
+- **Package routes:** Init at `POST /packages/import`, trigger at `POST /packages/import/:id`, poll at `GET /packages/import/:id`. Export trigger at `POST /packages/:name/:version/export`, poll at `GET /packages/export/:id`. Data upload at `PUT /transfer/package-import/:id/data`, download at `GET /transfer/package-export/:id/data`.
+- **Client:** `datasetGet` uses `redirect: 'manual'` and follows 307 without auth. `datasetSetTransfer` uses resource-scoped URLs. `packageImport`/`packageExport` use separate poll functions with typed status types.
+- **Server mounting:** Dataset transfer api routes at datasets scope, package transfer api routes before general package routes.
+
+**Deliverable:** All 170 e3 tests pass, e3-cloud builds clean.
+
+### Phase 5: Wire into e3-cloud (e3-aws api.ts)
+
+Minimal bridge — correct mounting with InMemory (temporary).
 
 **Scope:**
-- `e3-api-server` (types.ts): Package transfer types (`PackageTransferInit*`, `PackageExport*`, `PackageJob*`)
-- `e3-api-server` (routes/package-transfer.ts): New `createPackageTransferRoutes()` — upload init, data staging, import trigger, export trigger, job poll, download
-- `e3-api-server` (routes/packages.ts): Remove inline `POST /` (import) and `GET /:name/:version/export` endpoints
-- `e3-api-client` (types.ts): Mirror package transfer types
-- `e3-api-client` (packages.ts): Rewrite `packageImport`/`packageExport` to use transfer flow + polling
-- `e3-api-tests`: New `package-transfer.ts` test suite
+- `npm update` e3 packages
+- Import route factories + `InMemoryTransferBackend` in `api.ts`
+- Mount `.data` routes before authz middleware, `.api` routes after
+- Mount dataset transfer routes (currently missing)
 
-### Phase 2: Cloud Dataset + Package Transfer
+**Deliverable:** `npm run build` passes. Cloud deployment works for non-transfer endpoints; transfers use InMemory (state lost on cold start — acceptable for dev).
 
-Unblocks dataset and package operations in AWS cloud deployment.
+### Phase 6: AWS TransferBackend (e3-aws)
+
+The real cloud implementation.
 
 **Scope:**
-- `e3-cloud-core`: 307 redirect in dataset GET handler, dataset transfer routes, `PackageJobStore`/`PackageJobExecutor` interfaces, package transfer routes, in-memory impls
-- `e3-aws`: `S3TransferService` (presigned URLs), `DynamoPackageJobStore`, `LambdaPackageJobExecutor`, processing Lambdas
-- CDK: S3 presigned URL IAM permissions, new Lambdas, DynamoDB TTL, S3 lifecycle rule
+- `S3DynamoTransferBackend` (all 4 stores):
+  - DynamoDB for transfer/job metadata
+  - Presigned PUT/GET URLs for data
+  - SHA256 enforcement via cloud-native checksums
+  - Async Lambda dispatch for package import/export
+- Processing Lambda handlers for package import/export
+- Wire `S3DynamoTransferBackend` in `api.ts` replacing InMemory
 
-### Phase 3 (future): Multipart Upload
+### Phase 7: CDK + Deploy + Test
+
+Infrastructure and end-to-end validation.
+
+**Scope:**
+- S3 lifecycle rule on `_transfer/` prefix (1 day expiry)
+- DynamoDB TTL on transfer/job records
+- New Lambda functions for package processing
+- IAM permissions (presigned URLs, Lambda invoke)
+- Deploy to dev, run cloud integration tests
+
+### Phase 8 (future): Multipart Upload
 
 For objects > 5 GB. Same protocol shape — init returns multiple URLs instead of one.
 
 ## Open Questions
 
 1. **Presigned URL expiry duration** — 1 hour should be sufficient for upload + processing. Too short risks timeout on slow connections; too long is a security concern.
-2. **Lambda vs Fargate for package processing** — Lambda has a 15-minute timeout and 10 GB memory. For extreme packages this may not be enough. Fargate is an option but adds complexity. Start with Lambda, add Fargate fallback if needed.
-3. **Export zip streaming** — For very large exports, the Lambda needs to stream objects from S3 → zip → S3 multipart upload. This requires streaming zip creation, not buffering the entire zip in memory.
+2. **Lambda vs Fargate for package processing** — Lambda has a 15-minute timeout and 10 GB ephemeral storage. For extreme packages this may not be enough. Start with Lambda, add Fargate fallback if needed.
+3. **Export zip streaming** — For very large exports, the processor needs to stream objects → zip → cloud storage. This requires streaming zip creation, not buffering in memory.
+4. **`packageImport` file path vs stream** — Currently takes a filesystem path. Cloud processor downloads zip to `/tmp` first. Starting with download-to-tmp is simplest (Lambda has up to 10 GB ephemeral storage).
+5. **Object key migration** — Existing objects use flat keys (`{repo}/objects/{hash}`). New uploads use `{repo}/objects/{hash}/{uploadId}`. The catalogue stores the full key, so reads work for both. GC needs to handle both structures. Since we're pre-GA, a migration script is acceptable.

@@ -281,22 +281,36 @@ AWS_PROFILE=elaraai-prod-management-root npm run deploy
 
 ## Integration Tests
 
-Integration tests run against the deployed cloud environment.
+Integration tests run against the deployed cloud environment. **These tests take ~10-20 minutes.** Capturing the full output is critical — a rerun with no code changes wastes the entire cycle time.
+
+### Running tests
 
 ```bash
 # 1. Ensure you're logged in to both AWS and e3
 aws sso login --profile elaraai-dev-elara-e3
 e3 login https://dev.e3.elaraai.com
 
-# 2. Run integration tests
+# 2. Run integration tests — ALWAYS capture full output
 cd test/integration
-AWS_PROFILE=elaraai-dev-elara-e3 npm run test:integration
+AWS_PROFILE=elaraai-dev-elara-e3 npm run test:integration 2>&1 | tee /tmp/integration-test-output.log
 
 # Or run specific test file:
-AWS_PROFILE=elaraai-dev-elara-e3 npm run test:integration -- --test-name-pattern "diamond"
+AWS_PROFILE=elaraai-dev-elara-e3 npm run test:integration -- --test-name-pattern "diamond" 2>&1 | tee /tmp/integration-test-output.log
 ```
 
-**Known issue — DynamoDB throttling on first run:** Integration tests run concurrently and can trigger `ThrottlingException` (`TableReadKeyRangeThroughputExceeded`) on the `e3-dev-data` DynamoDB table when the table has been idle. DynamoDB auto-scales partitions after the burst, so a second run typically passes. Check CloudWatch logs (`/aws/lambda/e3-dev-api`) to confirm throttling vs a real bug. If this starts happening persistently (not just the first cold run), we need a permanent fix — either increase base capacity, add retry/backoff in the storage layer, or cap test concurrency.
+### IMPORTANT: Never discard test output
+
+**NEVER pipe test or build output through `| tail`, `| head`, or `| grep`** on the first run. This discards failure details (stack traces, error messages, assertion diffs) that are essential for debugging. Integration tests are slow and expensive — losing output means waiting another 10-20 minutes for the same information.
+
+Instead:
+- **Use `| tee /tmp/<name>.log`** to save full output to a file while still displaying it
+- **Read the log file** (`/tmp/integration-test-output.log`) to inspect failures after the run
+- The Claude harness automatically saves large outputs — rely on that plus the filesystem for durable records
+- Only use `grep` on the **saved log file** after the run completes, never on the live output stream
+
+### Known issue — DynamoDB throttling on first run
+
+Integration tests run concurrently and can trigger `ThrottlingException` (`TableReadKeyRangeThroughputExceeded`) on the `e3-dev-data` DynamoDB table when the table has been idle. DynamoDB auto-scales partitions after the burst, so a second run typically passes. Check CloudWatch logs (`/aws/lambda/e3-dev-api`) to confirm throttling vs a real bug. If this starts happening persistently (not just the first cold run), we need a permanent fix — either increase base capacity, add retry/backoff in the storage layer, or cap test concurrency.
 
 ## CDK Deployments
 
