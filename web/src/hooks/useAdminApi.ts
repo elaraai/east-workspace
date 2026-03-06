@@ -14,9 +14,14 @@ import {
   listSchedules,
   setSchedule,
   removeSchedule,
+  listTaskConfigs,
+  setCompute,
+  removeCompute,
+  setTimeout as setTaskTimeout,
+  removeTimeout,
 } from '@elaraai/e3-cloud-client';
 import { RepoUserType } from '@elaraai/e3-cloud-types';
-import type { RepoUser, WhoamiResponse, Schedule, ScheduleRequest, AddUserRequest } from '@elaraai/e3-cloud-client';
+import type { RepoUser, WhoamiResponse, Schedule, ScheduleRequest, AddUserRequest, TaskConfigs, ComputeSize, TaskTimeout } from '@elaraai/e3-cloud-client';
 import type { WorkspaceInfo, DataflowExecutionState } from '@elaraai/e3-api-client';
 import { workspaceList, dataflowExecutePoll } from '@elaraai/e3-api-client';
 import { API_URL, getRequestOptions } from '../api';
@@ -143,6 +148,73 @@ export function useWorkspaceExecution(repo: string, workspace: string) {
     },
     enabled: !!repo && !!workspace,
     refetchInterval: 1_000,
+  });
+}
+
+// --- Task Configs ---
+
+
+export function useRepoTaskConfigs(repo: string, workspaces: string[]) {
+  const queries = useQueries({
+    queries: workspaces.map((ws) => ({
+      queryKey: ['taskConfigs', repo, ws],
+      queryFn: () => listTaskConfigs(API_URL, repo, ws, getRequestOptions()),
+      enabled: !!repo && !!ws,
+    })),
+  });
+
+  const isLoading = queries.some((q) => q.isLoading);
+
+  const data = new Map<string, TaskConfigs>();
+  for (let i = 0; i < workspaces.length; i++) {
+    const d = queries[i]?.data;
+    if (d) data.set(workspaces[i], d);
+  }
+
+  return { data, isLoading };
+}
+
+export function useSetCompute(repo: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ workspace, task, size }: { workspace: string; task: string; size: ComputeSize }) =>
+      setCompute(API_URL, repo, workspace, task, size, getRequestOptions()),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['taskConfigs', repo, vars.workspace] });
+    },
+  });
+}
+
+export function useRemoveCompute(repo: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ workspace, task }: { workspace: string; task: string }) =>
+      removeCompute(API_URL, repo, workspace, task, getRequestOptions()),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['taskConfigs', repo, vars.workspace] });
+    },
+  });
+}
+
+export function useSetTaskTimeout(repo: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ workspace, task, timeout }: { workspace: string; task: string; timeout: TaskTimeout }) =>
+      setTaskTimeout(API_URL, repo, workspace, task, timeout, getRequestOptions()),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['taskConfigs', repo, vars.workspace] });
+    },
+  });
+}
+
+export function useRemoveTimeout(repo: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ workspace, task }: { workspace: string; task: string }) =>
+      removeTimeout(API_URL, repo, workspace, task, getRequestOptions()),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['taskConfigs', repo, vars.workspace] });
+    },
   });
 }
 

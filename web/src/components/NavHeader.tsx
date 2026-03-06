@@ -20,6 +20,7 @@ import {
 import { FiLogOut, FiMoon, FiSun } from 'react-icons/fi';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../hooks/useAuth';
+import { useUser } from '../contexts/UserContext';
 import { Breadcrumbs } from './Breadcrumbs';
 
 interface NavHeaderProps {
@@ -30,6 +31,7 @@ export function NavHeader({ title }: NavHeaderProps) {
   const { mode, toggleTheme } = useTheme();
   const { logout } = useAuth();
   const navigate = useNavigate();
+  const user = useUser();
 
   const avatarBgColor = useMemo(
     () => (mode === 'light' ? 'gray.300' : 'gray.600'),
@@ -83,7 +85,7 @@ export function NavHeader({ title }: NavHeaderProps) {
               _active={{ bg: 'bg.tertiary' }}
             >
               <Avatar.Root size="sm" bg={avatarBgColor} border="2px solid" borderColor="border.primary">
-                <Avatar.Fallback name="User" />
+                <Avatar.Fallback name={user.name.type === 'some' ? user.name.value : user.email.type === 'some' ? user.email.value : 'User'} />
                 <Badge
                   position="absolute"
                   bottom="-2px"

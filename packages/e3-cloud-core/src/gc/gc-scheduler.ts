@@ -71,7 +71,7 @@ export function calculateJitter(repo: string, maxJitterMs: number = DEFAULT_MAX_
  * Lists all active repos and starts GC state machine for each.
  */
 export async function handleGcScheduler(deps: GcSchedulerDeps, input: GcSchedulerInput = {}): Promise<GcSchedulerOutput> {
-  const maxJitterMs = input.maxJitterMs ?? DEFAULT_MAX_JITTER_MS;
+  const _maxJitterMs = input.maxJitterMs ?? DEFAULT_MAX_JITTER_MS;
 
   // Get list of repos to GC
   let repos: string[];

@@ -12,33 +12,19 @@ import { AuthError } from '@elaraai/e3-api-client';
 import { system } from './theme';
 import { ThemeProvider } from './contexts/ThemeProvider';
 import { App } from './App';
-import { refreshAccessToken, redirectToLogin } from './api';
+import { installAuthInterceptor, redirectToLogin } from './api';
 import { toaster } from './components/Toaster';
+
+// Intercept 401s at the fetch layer — refresh token and retry before React Query sees the error
+installAuthInterceptor();
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 30_000,
       retry: (failureCount, error) => {
-        if (error instanceof AuthError) {
-          if (failureCount === 0) {
-            // Trigger token refresh before retry — the refreshed token will be
-            // in localStorage when getRequestOptions() is called on the next attempt.
-            refreshAccessToken().then((token) => {
-              if (!token) redirectToLogin();
-            });
-            return true;
-          }
-          // Refresh already attempted and failed, or second failure — give up
-          redirectToLogin();
-          return false;
-        }
+        if (error instanceof AuthError) return false;
         return failureCount < 1;
-      },
-      retryDelay: (_attemptIndex, error) => {
-        // Give the async token refresh time to complete before retrying
-        if (error instanceof AuthError) return 2000;
-        return 1000;
       },
     },
     mutations: {
@@ -47,19 +33,20 @@ const queryClient = new QueryClient({
   },
 });
 
-// Global error handler for non-auth query errors
-queryClient.getQueryCache().config.onError = (_error, query) => {
-  if (_error instanceof AuthError) return;
+// Global error handlers — AuthError here means the fetch interceptor already tried refreshing and failed
+queryClient.getQueryCache().config.onError = (error, query) => {
+  if (error instanceof AuthError) return redirectToLogin();
   const queryKey = query.queryKey[0] ?? 'query';
   toaster.create({
     title: `${queryKey} failed`,
-    description: _error instanceof Error ? _error.message : String(_error),
+    description: error instanceof Error ? error.message : String(error),
     type: 'error',
     duration: 8000,
   });
 };
 
 queryClient.getMutationCache().config.onError = (error, _variables, _context, mutation) => {
+  if (error instanceof AuthError) return redirectToLogin();
   const key = mutation.options.mutationKey?.[0] ?? 'mutation';
   toaster.create({
     title: `${key} failed`,

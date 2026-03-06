@@ -3,13 +3,13 @@
  * Proprietary and confidential.
  */
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
   Box, SimpleGrid, Text, Table, Tabs, HStack, Badge, Button, Checkbox,
-  Input, VStack, Popover, Portal, Combobox, createListCollection, Field,
+  Input, VStack, Popover, Portal, Combobox, createListCollection, Field, Wrap,
 } from '@chakra-ui/react';
-import { FiBox, FiUsers, FiPlus, FiTrash2, FiPlay, FiExternalLink, FiEdit2 } from 'react-icons/fi';
+import { FiBox, FiUsers, FiPlus, FiTrash2, FiPlay, FiExternalLink, FiEdit2, FiX } from 'react-icons/fi';
 import { ConfirmPopover } from '../components/ConfirmPopover';
 import cronstrue from 'cronstrue';
 import { variant } from '@elaraai/east';
@@ -25,10 +25,16 @@ import {
   useRemoveSchedule,
   useSetSchedule,
   useWorkspaceExecution,
+  useRepoTaskConfigs,
+  useSetCompute,
+  useRemoveCompute,
+  useSetTaskTimeout,
+  useRemoveTimeout,
 } from '../hooks/useAdminApi';
 import type { WorkspaceInfo } from '@elaraai/e3-api-client';
-import type { Schedule, ScheduleRequest, RepoRole } from '@elaraai/e3-cloud-client';
-import { useWorkspaceList, usePackageList, useDataflowStart } from '@elaraai/e3-ui-components';
+import type { Schedule, ScheduleRequest, RepoRole, ComputeSize, TaskTimeout } from '@elaraai/e3-cloud-client';
+import { DEFAULT_TIMEOUT_SERVERLESS, DEFAULT_TIMEOUT_FARGATE } from '@elaraai/e3-cloud-types';
+import { useWorkspaceList, usePackageList, useDataflowStart, useWorkspaceRemove, useTaskList } from '@elaraai/e3-ui-components';
 import { API_URL, getRequestOptions } from '../api';
 import { useQueryClient } from '@tanstack/react-query';
 import { useUser } from '../contexts/UserContext';
@@ -244,9 +250,15 @@ function ScheduleFormPopover({
                 <Field.Root disabled={formDisabled}>
                   <Field.Label fontSize="xs" fontWeight={600}>
                     Force Task Patterns
-                    <InfoTip content={"Glob patterns to force cache bypass. Uses * as wildcard.\n\nExamples:\n*  = all tasks\ninput*  = tasks starting with \"input\"\n*_load  = tasks ending with \"_load\"\n\nComma-separated for multiple patterns."} />
+                    <InfoTip content={"Glob patterns to force cache bypass. Uses * as wildcard.\n\nExamples:\n*  = all tasks\ninput*  = tasks starting with \"input\"\n*_load  = tasks ending with \"_load\"\n\nSelect tasks or type custom patterns."} />
                   </Field.Label>
-                  <Input size="sm" placeholder="pattern1, pattern2" value={forcePatterns} onChange={(e) => setForcePatterns(e.target.value)} />
+                  <TaskPatternInput
+                    repo={repo}
+                    workspace={isEdit ? schedule.workspace : workspace}
+                    value={forcePatterns}
+                    onChange={setForcePatterns}
+                    disabled={formDisabled}
+                  />
                   <GlobHint patterns={forcePatterns} />
                 </Field.Root>
                 <Field.Root disabled={formDisabled}>
@@ -419,11 +431,22 @@ function InfrastructureTab({ repo }: { repo: string }) {
     [wsLoading, wsFetching, workspaces, pkgLoading, pkgFetching, packages, schedLoading, schedFetching, schedules]
   );
 
+  const workspaceNames = useMemo(() => (workspaces ?? []).map((ws) => ws.name), [workspaces]);
+  const { data: taskConfigData } = useRepoTaskConfigs(repo, workspaceNames);
+  const taskConfigCount = useMemo(() => {
+    let count = 0;
+    for (const configs of taskConfigData.values()) {
+      const tasks = new Set([...configs.compute.keys(), ...configs.timeout.keys()]);
+      count += tasks.size;
+    }
+    return count;
+  }, [taskConfigData]);
+
   const activeSchedules = useMemo(() => (schedules ?? []).filter((s) => s.enabled).length, [schedules]);
   const scheduledWorkspaces = useMemo(() => new Set((schedules ?? []).map((s) => s.workspace)), [schedules]);
   const unscheduledWorkspaces = useMemo(
-    () => (workspaces ?? []).map((ws) => ws.name).filter((name) => !scheduledWorkspaces.has(name)),
-    [workspaces, scheduledWorkspaces]
+    () => workspaceNames.filter((name) => !scheduledWorkspaces.has(name)),
+    [workspaceNames, scheduledWorkspaces]
   );
 
   const firstError = useMemo(() => wsError || pkgError || schedError, [wsError, pkgError, schedError]);
@@ -435,10 +458,11 @@ function InfrastructureTab({ repo }: { repo: string }) {
   return (
     <Box display="flex" flexDirection="column" flex={1} minH={0}>
       {/* Stats */}
-      <SimpleGrid columns={{ base: 1, sm: 3 }} gap={4} mb={4} flexShrink={0}>
+      <SimpleGrid columns={{ base: 1, sm: 2, md: 4 }} gap={4} mb={4} flexShrink={0}>
         <StatCard label="Workspaces" value={workspaces?.length ?? 0} helpText="Deployed environments" />
         <StatCard label="Packages" value={packages?.length ?? 0} helpText="Imported packages" />
         <StatCard label="Active Schedules" value={`${activeSchedules} / ${schedules?.length ?? 0}`} helpText="Enabled / total" />
+        <StatCard label="Task Configs" value={taskConfigCount} helpText="Custom compute/timeout" />
       </SimpleGrid>
 
       {/* Workspaces */}
@@ -606,6 +630,11 @@ function InfrastructureTab({ repo }: { repo: string }) {
           <Text fontSize="sm" color="text.tertiary">No schedules configured.</Text>
         )}
       </Box>
+
+      {/* Task Configs */}
+      <Box mt={4}>
+        <TaskConfigsSection repo={repo} workspaces={workspaceNames} />
+      </Box>
     </Box>
   );
 }
@@ -616,6 +645,7 @@ function WorkspaceRow({ repo, workspace: ws }: { repo: string; workspace: Worksp
   const qc = useQueryClient();
   const { data: execution } = useWorkspaceExecution(repo, ws.name);
   const startMutation = useDataflowStart(API_URL, repo, ws.name, getRequestOptions());
+  const removeMutation = useWorkspaceRemove(API_URL, repo, getRequestOptions());
   const now = useNow();
 
   const handleStart = () => {
@@ -624,6 +654,17 @@ function WorkspaceRow({ repo, workspace: ws }: { repo: string; workspace: Worksp
         qc.invalidateQueries({ queryKey: ['workspaceStatus', API_URL, repo, ws.name] });
         qc.invalidateQueries({ queryKey: ['dataflowExecution', API_URL, repo, ws.name] });
         toaster.create({ title: `Dataflow started on ${ws.name}`, type: 'success' });
+      },
+      onError: (err) => toaster.create({ title: `Error: ${err.message}`, type: 'error' }),
+    });
+  };
+
+  const handleRemove = () => {
+    removeMutation.mutate(ws.name, {
+      onSuccess: () => {
+        qc.invalidateQueries({ queryKey: ['workspaceList', API_URL, repo] });
+        qc.invalidateQueries({ queryKey: ['workspaces', repo] });
+        toaster.create({ title: `Workspace "${ws.name}" deleted`, type: 'success' });
       },
       onError: (err) => toaster.create({ title: `Error: ${err.message}`, type: 'error' }),
     });
@@ -695,9 +736,529 @@ function WorkspaceRow({ repo, workspace: ws }: { repo: string; workspace: Worksp
               <FiExternalLink size={12} />
             </Link>
           </Button>
+          <ConfirmPopover
+            message={`Delete workspace "${ws.name}"? This cannot be undone.`}
+            confirmLabel="Delete"
+            loading={removeMutation.isPending}
+            onConfirm={handleRemove}
+            trigger={
+              <Button size="xs" variant="ghost" color="text.tertiary" _hover={{ color: 'red.500' }}>
+                <FiTrash2 size={12} />
+              </Button>
+            }
+          />
         </HStack>
       </Table.Cell>
     </Table.Row>
+  );
+}
+
+// --- Task Pattern Input ---
+
+function TaskPatternInput({
+  repo,
+  workspace,
+  value,
+  onChange,
+  disabled,
+}: {
+  repo: string;
+  workspace: string;
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+}) {
+  const { data: tasks } = useTaskList(API_URL, repo, workspace || null, getRequestOptions());
+  const [inputValue, setInputValue] = useState('');
+
+  const patterns = useMemo(
+    () => value.split(',').map((s) => s.trim()).filter(Boolean),
+    [value]
+  );
+
+  const taskNames = useMemo(() => (tasks ?? []).map((t) => t.name), [tasks]);
+
+  const suggestions = useMemo(() => {
+    if (!inputValue) return taskNames;
+    const lower = inputValue.toLowerCase();
+    return taskNames.filter((n) => n.toLowerCase().includes(lower));
+  }, [inputValue, taskNames]);
+
+  const collection = useMemo(
+    () => createListCollection({ items: suggestions.map((s) => ({ label: s, value: s })) }),
+    [suggestions]
+  );
+
+  const updatePatterns = useCallback(
+    (newPatterns: string[]) => onChange(newPatterns.join(', ')),
+    [onChange]
+  );
+
+  const addPattern = useCallback(
+    (pattern: string) => {
+      const trimmed = pattern.trim();
+      if (!trimmed || patterns.includes(trimmed)) return;
+      updatePatterns([...patterns, trimmed]);
+      setInputValue('');
+    },
+    [patterns, updatePatterns]
+  );
+
+  const removePattern = useCallback(
+    (pattern: string) => updatePatterns(patterns.filter((p) => p !== pattern)),
+    [patterns, updatePatterns]
+  );
+
+  return (
+    <VStack gap={1} align="stretch">
+      {patterns.length > 0 && (
+        <Wrap gap={1}>
+          {patterns.map((p) => (
+            <Badge key={p} variant="subtle" colorPalette="teal" size="sm">
+              <HStack gap={1}>
+                <Text>{p}</Text>
+                <Button
+                  size="2xs"
+                  variant="ghost"
+                  onClick={() => removePattern(p)}
+                  minW="auto"
+                  h="auto"
+                  p={0}
+                  disabled={disabled}
+                >
+                  <FiX size={10} />
+                </Button>
+              </HStack>
+            </Badge>
+          ))}
+        </Wrap>
+      )}
+      <Combobox.Root
+        size="sm"
+        collection={collection}
+        inputValue={inputValue}
+        onInputValueChange={(e) => setInputValue(e.inputValue)}
+        value={[]}
+        onValueChange={(e) => {
+          if (e.value[0]) addPattern(e.value[0]);
+        }}
+        openOnClick
+        disabled={disabled}
+      >
+        <Combobox.Control>
+          <Combobox.Input
+            placeholder="Type pattern or select task..."
+            borderColor="border.primary"
+            bg="input.bg"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && inputValue.trim()) {
+                e.preventDefault();
+                addPattern(inputValue);
+              }
+            }}
+          />
+          <Combobox.Trigger />
+        </Combobox.Control>
+        <Combobox.Positioner>
+          <Combobox.Content bg="modal.bg" border="1px solid" borderColor="border.primary" borderRadius="md" maxH="200px" overflowY="auto" zIndex="popover">
+            {suggestions.length > 0 ? suggestions.map((name) => (
+              <Combobox.Item key={name} item={{ label: name, value: name }} fontSize="sm">
+                <Combobox.ItemText>{name}</Combobox.ItemText>
+              </Combobox.Item>
+            )) : (
+              <Text fontSize="sm" color="text.tertiary" p={2}>
+                {inputValue ? 'Press Enter to add as pattern' : 'No tasks found'}
+              </Text>
+            )}
+          </Combobox.Content>
+        </Combobox.Positioner>
+      </Combobox.Root>
+    </VStack>
+  );
+}
+
+// --- Compute Size Helpers ---
+
+const COMPUTE_TIERS = ['serverless', 'small', 'medium', 'large', 'xlarge'] as const;
+type ComputeTier = typeof COMPUTE_TIERS[number];
+
+const COMPUTE_COLORS: Record<ComputeTier, string> = {
+  serverless: 'blue',
+  small: 'green',
+  medium: 'yellow',
+  large: 'orange',
+  xlarge: 'red',
+};
+
+function computeSizeTier(size: ComputeSize): ComputeTier {
+  return Object.keys(size)[0] as ComputeTier;
+}
+
+function tierToComputeSize(tier: ComputeTier): ComputeSize {
+  return variant(tier, null) as ComputeSize;
+}
+
+// --- Task Combobox ---
+
+function TaskCombobox({ tasks, value, onChange }: { tasks: string[]; value: string; onChange: (v: string) => void }) {
+  const [inputValue, setInputValue] = useState(value);
+
+  const items = useMemo(() => tasks.map((t) => ({ label: t, value: t })), [tasks]);
+
+  const filteredItems = useMemo(() => {
+    if (!inputValue) return items;
+    const lower = inputValue.toLowerCase();
+    return items.filter((item) => item.label.toLowerCase().includes(lower));
+  }, [inputValue, items]);
+
+  const collection = useMemo(
+    () => createListCollection({ items: filteredItems }),
+    [filteredItems]
+  );
+
+  return (
+    <Combobox.Root
+      size="sm"
+      collection={collection}
+      inputValue={inputValue}
+      onInputValueChange={(e) => setInputValue(e.inputValue)}
+      value={value ? [value] : []}
+      onValueChange={(e) => {
+        onChange(e.value[0] ?? '');
+        setInputValue(e.value[0] ?? '');
+      }}
+      openOnClick
+    >
+      <Combobox.Control>
+        <Combobox.Input placeholder="Search task..." borderColor="border.primary" bg="input.bg" />
+        <Combobox.Trigger />
+      </Combobox.Control>
+      <Combobox.Positioner>
+        <Combobox.Content bg="modal.bg" border="1px solid" borderColor="border.primary" borderRadius="md" maxH="200px" overflowY="auto" zIndex="popover">
+          {filteredItems.length > 0 ? filteredItems.map((item) => (
+            <Combobox.Item key={item.value} item={item} fontSize="sm">
+              <Combobox.ItemText>{item.label}</Combobox.ItemText>
+            </Combobox.Item>
+          )) : (
+            <Text fontSize="sm" color="text.tertiary" p={2}>No tasks found</Text>
+          )}
+        </Combobox.Content>
+      </Combobox.Positioner>
+    </Combobox.Root>
+  );
+}
+
+// --- Task Config Form Popover ---
+
+function TaskConfigFormPopover({
+  repo,
+  trigger,
+  workspaces,
+  existing,
+}: {
+  repo: string;
+  trigger: React.ReactNode;
+  workspaces: string[];
+  existing?: { workspace: string; task: string; compute?: ComputeSize; timeout?: TaskTimeout };
+}) {
+  const setComputeMutation = useSetCompute(repo);
+  const setTimeoutMutation = useSetTaskTimeout(repo);
+  const [open, setOpen] = useState(false);
+  const [workspace, setWorkspace] = useState(existing?.workspace ?? '');
+  const [task, setTask] = useState(existing?.task ?? '');
+  const [tier, setTier] = useState<ComputeTier>(existing?.compute ? computeSizeTier(existing.compute) : 'serverless');
+  const [timeoutMinutes, setTimeoutMinutes] = useState(
+    existing?.timeout ? Number(existing.timeout.minutes).toString() : ''
+  );
+
+  const { data: tasks } = useTaskList(API_URL, repo, workspace || null, getRequestOptions());
+  const taskNames = useMemo(() => (tasks ?? []).map((t) => t.name), [tasks]);
+
+  const isEdit = !!existing;
+  const formDisabled = !isEdit && (!workspace.trim() || !task.trim());
+  const isPending = setComputeMutation.isPending || setTimeoutMutation.isPending;
+
+  const defaultTimeout = tier === 'serverless' ? DEFAULT_TIMEOUT_SERVERLESS : DEFAULT_TIMEOUT_FARGATE;
+
+  const resetForm = () => {
+    setWorkspace(existing?.workspace ?? '');
+    setTask(existing?.task ?? '');
+    setTier(existing?.compute ? computeSizeTier(existing.compute) : 'serverless');
+    setTimeoutMinutes(existing?.timeout ? Number(existing.timeout.minutes).toString() : '');
+  };
+
+  const handleSubmit = async () => {
+    const ws = isEdit ? existing.workspace : workspace.trim();
+    const taskName = isEdit ? existing.task : task.trim();
+    if (!ws || !taskName) return;
+
+    try {
+      await setComputeMutation.mutateAsync({ workspace: ws, task: taskName, size: tierToComputeSize(tier) });
+      if (timeoutMinutes.trim()) {
+        const mins = parseInt(timeoutMinutes, 10);
+        if (!isNaN(mins) && mins > 0) {
+          await setTimeoutMutation.mutateAsync({ workspace: ws, task: taskName, timeout: { minutes: BigInt(mins) } });
+        }
+      }
+      setOpen(false);
+      if (!isEdit) resetForm();
+      toaster.create({ title: `Task config ${isEdit ? 'updated' : 'created'} for ${taskName}`, type: 'success' });
+    } catch (err) {
+      toaster.create({ title: `Error: ${err instanceof Error ? err.message : 'Failed'}`, type: 'error' });
+    }
+  };
+
+  return (
+    <Popover.Root
+      open={open}
+      onOpenChange={(e) => {
+        setOpen(e.open);
+        if (e.open) resetForm();
+      }}
+    >
+      <Popover.Trigger asChild>
+        {trigger}
+      </Popover.Trigger>
+      <Portal>
+        <Popover.Positioner>
+          <Popover.Content>
+            <Popover.Arrow />
+            <Popover.Body display="flex" flexDirection="column" gap={2} overflow="auto">
+                {!isEdit && (
+                  <>
+                    <Field.Root>
+                      <Field.Label fontSize="xs" fontWeight={600}>Workspace</Field.Label>
+                      <WorkspaceCombobox workspaces={workspaces} value={workspace} onChange={setWorkspace} />
+                    </Field.Root>
+                    <Field.Root disabled={!workspace.trim()}>
+                      <Field.Label fontSize="xs" fontWeight={600}>Task</Field.Label>
+                      <TaskCombobox tasks={taskNames} value={task} onChange={setTask} />
+                    </Field.Root>
+                  </>
+                )}
+                <Field.Root disabled={formDisabled}>
+                  <Field.Label fontSize="xs" fontWeight={600}>
+                    Compute Size
+                    <InfoTip content={"serverless: Lambda (~1.8 GB RAM, 15 min max)\nsmall: Fargate 1 vCPU / 2 GB\nmedium: Fargate 2 vCPU / 8 GB\nlarge: Fargate 4 vCPU / 16 GB\nxlarge: Fargate 8 vCPU / 32 GB"} />
+                  </Field.Label>
+                  <HStack gap={1} flexWrap="wrap">
+                    {COMPUTE_TIERS.map((t) => (
+                      <Button
+                        key={t}
+                        size="xs"
+                        variant={tier === t ? 'solid' : 'outline'}
+                        colorPalette={tier === t ? COMPUTE_COLORS[t] : 'gray'}
+                        onClick={() => setTier(t)}
+                        disabled={formDisabled}
+                      >
+                        {t}
+                      </Button>
+                    ))}
+                  </HStack>
+                </Field.Root>
+                <Field.Root disabled={formDisabled}>
+                  <Field.Label fontSize="xs" fontWeight={600}>
+                    Timeout (minutes)
+                    <InfoTip content={`Leave empty for default (${defaultTimeout} min)`} />
+                  </Field.Label>
+                  <Input
+                    size="sm"
+                    type="number"
+                    placeholder={`Default: ${defaultTimeout}`}
+                    value={timeoutMinutes}
+                    onChange={(e) => setTimeoutMinutes(e.target.value)}
+                  />
+                </Field.Root>
+                <HStack gap={2} justify="flex-end">
+                  <Button size="xs" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+                  <Button size="xs" colorPalette="teal" onClick={handleSubmit} disabled={formDisabled || isPending}>
+                    {isPending ? 'Saving...' : isEdit ? 'Update' : 'Create'}
+                  </Button>
+                </HStack>
+            </Popover.Body>
+          </Popover.Content>
+        </Popover.Positioner>
+      </Portal>
+    </Popover.Root>
+  );
+}
+
+// --- Task Configs Section ---
+
+interface TaskConfigRow {
+  workspace: string;
+  task: string;
+  compute?: ComputeSize;
+  timeout?: TaskTimeout;
+}
+
+function TaskConfigsSection({ repo, workspaces }: { repo: string; workspaces: string[] }) {
+  const { data: taskConfigData, isLoading } = useRepoTaskConfigs(repo, workspaces);
+  const removeComputeMutation = useRemoveCompute(repo);
+  const removeTimeoutMutation = useRemoveTimeout(repo);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  const configs = useMemo(() => {
+    const result: TaskConfigRow[] = [];
+    for (const [ws, data] of taskConfigData) {
+      const tasks = new Set([...data.compute.keys(), ...data.timeout.keys()]);
+      for (const task of tasks) {
+        result.push({ workspace: ws, task, compute: data.compute.get(task), timeout: data.timeout.get(task) });
+      }
+    }
+    return result;
+  }, [taskConfigData]);
+
+  const configKey = (c: TaskConfigRow) => `${c.workspace}:${c.task}`;
+
+  const toggleSelect = (key: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    setSelected((prev) => {
+      if (prev.size === configs.length) return new Set();
+      return new Set(configs.map(configKey));
+    });
+  };
+
+  const handleDeleteSelected = async () => {
+    const toDelete = configs.filter((c) => selected.has(configKey(c)));
+    try {
+      await Promise.all(
+        toDelete.flatMap((c) => {
+          const ops: Promise<void>[] = [];
+          if (c.compute) ops.push(removeComputeMutation.mutateAsync({ workspace: c.workspace, task: c.task }));
+          if (c.timeout) ops.push(removeTimeoutMutation.mutateAsync({ workspace: c.workspace, task: c.task }));
+          return ops;
+        })
+      );
+      setSelected(new Set());
+      toaster.create({ title: `Deleted ${toDelete.length} task config(s)`, type: 'success' });
+    } catch (err) {
+      toaster.create({ title: `Error: ${err instanceof Error ? err.message : 'Failed'}`, type: 'error' });
+    }
+  };
+
+  const isDeleting = removeComputeMutation.isPending || removeTimeoutMutation.isPending;
+
+  return (
+    <Box flexShrink={0}>
+      <HStack justify="space-between" mb={2}>
+        <Text fontSize="sm" fontWeight={600} color="text.primary">Task Configs</Text>
+        <HStack gap={2}>
+          <ConfirmPopover
+            message={`Delete ${selected.size} task config(s)?`}
+            confirmLabel="Delete"
+            loading={isDeleting}
+            onConfirm={handleDeleteSelected}
+            trigger={
+              <Button
+                size="xs"
+                variant="outline"
+                borderColor="border.primary"
+                color="text.tertiary"
+                _hover={{ color: 'red.500', borderColor: 'red.500' }}
+                disabled={selected.size === 0}
+              >
+                <FiTrash2 size={12} />
+                <Text ml={1}>Delete</Text>
+              </Button>
+            }
+          />
+          <TaskConfigFormPopover
+            repo={repo}
+            workspaces={workspaces}
+            trigger={
+              <Button size="xs" variant="outline" borderColor="border.primary" color="text.primary" _hover={{ bg: 'bg.hover' }}>
+                <FiPlus size={12} />
+                <Text ml={1}>Add Config</Text>
+              </Button>
+            }
+          />
+        </HStack>
+      </HStack>
+      {isLoading ? (
+        <Text fontSize="sm" color="text.tertiary">Loading task configs...</Text>
+      ) : configs.length > 0 ? (
+        <Box border="1px solid" borderColor="border.primary" borderRadius="md" overflow="hidden">
+          <Table.Root size="sm">
+            <Table.Header>
+              <Table.Row bg="bg.tertiary">
+                <Table.ColumnHeader w="40px" position="sticky" top={0} bg="bg.tertiary" zIndex={1}>
+                  <Checkbox.Root
+                    size="sm"
+                    checked={configs.length > 0 && selected.size === configs.length}
+                    onCheckedChange={toggleAll}
+                  >
+                    <Checkbox.HiddenInput />
+                    <Checkbox.Control />
+                  </Checkbox.Root>
+                </Table.ColumnHeader>
+                <Table.ColumnHeader color="text.secondary" fontSize="xs" fontWeight={600}>Workspace</Table.ColumnHeader>
+                <Table.ColumnHeader color="text.secondary" fontSize="xs" fontWeight={600}>Task</Table.ColumnHeader>
+                <Table.ColumnHeader color="text.secondary" fontSize="xs" fontWeight={600}>Compute</Table.ColumnHeader>
+                <Table.ColumnHeader color="text.secondary" fontSize="xs" fontWeight={600}>Timeout</Table.ColumnHeader>
+                <Table.ColumnHeader color="text.secondary" fontSize="xs" fontWeight={600} w="80px">Actions</Table.ColumnHeader>
+              </Table.Row>
+            </Table.Header>
+            <Table.Body>
+              {configs.map((cfg) => {
+                const key = configKey(cfg);
+                const tier = cfg.compute ? computeSizeTier(cfg.compute) : undefined;
+                return (
+                  <Table.Row key={key} _hover={{ bg: 'bg.hover' }}>
+                    <Table.Cell>
+                      <Checkbox.Root
+                        size="sm"
+                        checked={selected.has(key)}
+                        onCheckedChange={() => toggleSelect(key)}
+                      >
+                        <Checkbox.HiddenInput />
+                        <Checkbox.Control />
+                      </Checkbox.Root>
+                    </Table.Cell>
+                    <Table.Cell><Text fontSize="sm" color="text.primary">{cfg.workspace}</Text></Table.Cell>
+                    <Table.Cell><Text fontSize="sm" color="text.primary" fontFamily="mono">{cfg.task}</Text></Table.Cell>
+                    <Table.Cell>
+                      {tier ? (
+                        <Badge variant="subtle" colorPalette={COMPUTE_COLORS[tier]} size="sm">{tier}</Badge>
+                      ) : (
+                        <Text fontSize="sm" color="text.tertiary">—</Text>
+                      )}
+                    </Table.Cell>
+                    <Table.Cell>
+                      <Text fontSize="sm" color="text.secondary">
+                        {cfg.timeout ? `${Number(cfg.timeout.minutes)} min` : '—'}
+                      </Text>
+                    </Table.Cell>
+                    <Table.Cell>
+                      <TaskConfigFormPopover
+                        repo={repo}
+                        workspaces={workspaces}
+                        existing={cfg}
+                        trigger={
+                          <Button size="xs" variant="ghost" color="text.tertiary" _hover={{ color: 'link.color' }}>
+                            <FiEdit2 size={12} />
+                          </Button>
+                        }
+                      />
+                    </Table.Cell>
+                  </Table.Row>
+                );
+              })}
+            </Table.Body>
+          </Table.Root>
+        </Box>
+      ) : (
+        <Text fontSize="sm" color="text.tertiary">No task configs configured.</Text>
+      )}
+    </Box>
   );
 }
 

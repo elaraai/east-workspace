@@ -120,7 +120,7 @@ export function RepoListPage() {
         ))}
       </SimpleGrid>
     );
-  }, [error, showLoading, repos, filtered, selected, toggleSelect, cardStyles]);
+  }, [error, showLoading, repos, filtered, selected, toggleSelect, cardStyles, navigate]);
 
   return (
     <Box>

@@ -10,7 +10,7 @@
  */
 
 import { stepFinalize } from '@elaraai/e3-core';
-import { variant, some, none } from '@elaraai/east';
+import { variant, some } from '@elaraai/east';
 import type { DataflowRun } from '@elaraai/e3-types';
 import type { DataflowStorage } from '../dataflow-storage.js';
 import type { DataflowRunStore } from '../dataflow-run-store.js';

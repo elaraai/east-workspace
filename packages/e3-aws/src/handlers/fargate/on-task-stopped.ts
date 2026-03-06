@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd. All rights reserved.
+ * Proprietary and confidential.
+ */
+
 import { SFNClient, SendTaskFailureCommand } from '@aws-sdk/client-sfn';
 
 const sfn = new SFNClient({});
