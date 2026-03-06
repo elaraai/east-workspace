@@ -56,6 +56,7 @@ import { EventBridgeSchedulerService } from '../services/eventbridge-scheduler.j
 import {
   createRepositoryRoutes,
   createPackageRoutes,
+  createPackageTransferRoutes,
   createWorkspaceRoutes,
   createDatasetRoutes,
   createTaskRoutes,
@@ -194,6 +195,7 @@ if (orchestrator) {
 // ============================================================
 
 app.route('/api/repos/:repo', createRepositoryRoutes(storage, getRepoPath) as any);
+app.route('/api/repos/:repo/packages/transfer', createPackageTransferRoutes(storage, getRepoPath) as any);
 app.route('/api/repos/:repo/packages', createPackageRoutes(storage, getRepoPath) as any);
 
 // Intercept workspace deploy to clean up orphaned task configs after e3-api-server handles it

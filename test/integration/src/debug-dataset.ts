@@ -83,7 +83,7 @@ async function main() {
 
     console.log('\n=== Getting dataset at .inputs.config');
     try {
-      const retrieved = await datasetGet(API_URL, repoName, 'debug-ws', path, opts);
+      const { data: retrieved } = await datasetGet(API_URL, repoName, 'debug-ws', path, opts);
       console.log('Retrieved bytes length:', retrieved.length);
       console.log('First 100 bytes hex:', Buffer.from(retrieved).toString('hex').slice(0, 200));
 
