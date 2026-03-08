@@ -40,3 +40,9 @@ export type { FinalizeExecutionDeps, FinalizeExecutionEvent, FinalizeExecutionRe
 
 export { handleScheduleTrigger } from './schedule-trigger.js';
 export type { ScheduleTriggerDeps, ScheduleTriggerEvent, ScheduleTriggerResult } from './schedule-trigger.js';
+
+export { handleProcessImport } from './process-import.js';
+export type { ProcessImportDeps, ProcessImportInput, ProcessImportOutput } from './process-import.js';
+
+export { handleMarkImportFailed } from './mark-import-failed.js';
+export type { MarkImportFailedDeps, MarkImportFailedInput } from './mark-import-failed.js';

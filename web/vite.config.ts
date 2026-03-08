@@ -13,6 +13,13 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
+    rollupOptions: {
+      external: [
+        'stream', 'stream/promises', 'fs', 'fs/promises', 'path', 'os',
+        'crypto', 'child_process', 'util', 'events', 'zlib', 'buffer',
+        'node:crypto', 'node:fs', 'node:path',
+      ],
+    },
   },
   server: {
     port: 5173,

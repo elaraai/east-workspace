@@ -18,6 +18,7 @@ import { SchedulerClient } from '@aws-sdk/client-scheduler';
 import { some, none } from '@elaraai/east';
 import {
   S3DynamoStorage,
+  S3DynamoTransferBackend,
   setLambdaRequestId,
   DynamoAclStore,
   DynamoScheduleStore,
@@ -45,6 +46,8 @@ import {
   createGcRoutes,
   createDataflowRoutes,
   createUserSettingsRoutes,
+  createCloudTransferRoutes,
+  createCloudPackageTransferRoutes,
 } from '@elaraai/e3-cloud-core/routes';
 
 // AWS implementations
@@ -60,6 +63,7 @@ import {
   createDatasetRoutes,
   createTaskRoutes,
   createExecutionRoutes,
+  createObjectRoutes,
 } from '@elaraai/e3-api-server/routes';
 
 // ============================================================
@@ -74,6 +78,7 @@ const schedulerClient = new SchedulerClient({});
 const GC_STATE_MACHINE_ARN = process.env.GC_STATE_MACHINE_ARN;
 const DATAFLOW_STATE_MACHINE_ARN = process.env.DATAFLOW_STATE_MACHINE_ARN;
 const SCHEDULER_GROUP_NAME = process.env.SCHEDULER_GROUP_NAME;
+const IMPORT_STATE_MACHINE_ARN = process.env.IMPORT_STATE_MACHINE_ARN!;
 
 const storage = new S3DynamoStorage(
   s3, dynamo,
@@ -89,6 +94,15 @@ const userSettingsStore = new DynamoUserSettingsStore(dynamo, process.env.TABLE_
 
 // In cloud mode, repo name IS the path (used as S3 prefix and DynamoDB partition key)
 const getRepoPath = (repo: string) => repo;
+
+const transferBackend = new S3DynamoTransferBackend(
+  s3, dynamo, sfn,
+  process.env.BUCKET_NAME!,
+  process.env.TABLE_NAME!,
+  storage,
+  getRepoPath,
+  IMPORT_STATE_MACHINE_ARN,
+);
 
 // ============================================================
 // Concrete Implementations
@@ -194,6 +208,16 @@ if (orchestrator) {
 // ============================================================
 
 app.route('/api/repos/:repo', createRepositoryRoutes(storage, getRepoPath) as any);
+app.route('/api/repos/:repo/objects', createObjectRoutes(storage, getRepoPath) as any);
+
+// Cloud transfer routes (presigned S3 URLs)
+const dsTransfer = createCloudTransferRoutes(storage, getRepoPath, transferBackend);
+app.route('/api/repos/:repo/workspaces/:ws/datasets', dsTransfer.api as any);
+
+const pkgTransfer = createCloudPackageTransferRoutes(storage, getRepoPath, transferBackend);
+app.route('/api/repos/:repo', pkgTransfer.repoApi as any);
+app.route('/api/repos/:repo/packages', pkgTransfer.pkgApi as any);
+
 app.route('/api/repos/:repo/packages', createPackageRoutes(storage, getRepoPath) as any);
 
 // Intercept workspace deploy to clean up orphaned task configs after e3-api-server handles it
@@ -232,7 +256,7 @@ app.delete('/api/repos/:repo/workspaces/:ws', async (c, next) => {
 });
 
 app.route('/api/repos/:repo/workspaces', createWorkspaceRoutes(storage, getRepoPath) as any);
-app.route('/api/repos/:repo/workspaces/:ws/datasets', createDatasetRoutes(storage, getRepoPath) as any);
+app.route('/api/repos/:repo/workspaces/:ws/datasets', createDatasetRoutes(storage, getRepoPath, transferBackend) as any);
 app.route('/api/repos/:repo/workspaces/:ws/tasks', createTaskRoutes(storage, getRepoPath) as any);
 app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(storage, getRepoPath) as any);
 

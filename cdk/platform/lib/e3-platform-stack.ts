@@ -307,6 +307,12 @@ export class E3PlatformStack extends cdk.Stack {
       encryption: s3.BucketEncryption.S3_MANAGED,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       versioned: true,
+      cors: [{
+        allowedOrigins: customDomainName ? [`https://${customDomainName}`] : ['*'],
+        allowedMethods: [s3.HttpMethods.GET, s3.HttpMethods.PUT],
+        allowedHeaders: ['Content-Type', 'Content-Length', 'x-amz-checksum-sha256'],
+        maxAge: 3600,
+      }],
     });
 
     // Single DynamoDB table for all data (packages, workspaces, executions, locks, logs)
@@ -574,6 +580,80 @@ export class E3PlatformStack extends cdk.Stack {
     const cognitoDomainUrl = `${prefix}.auth.${this.region}.amazoncognito.com`;
     const cognitoIssuer = `https://cognito-idp.${this.region}.amazonaws.com/${userPool.userPoolId}`;
 
+    // Package import processing Lambda (invoked async by API Lambda)
+    const processImportFn = new nodejs.NodejsFunction(this, 'ProcessImportFn', {
+      functionName: `${prefix}-process-import`,
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(awsPackagePath, 'src', 'handlers', 'transfer', 'process-import.ts'),
+      handler: 'handler',
+      bundling: {
+        minify: true,
+        sourceMap: true,
+        format: nodejs.OutputFormat.ESM,
+        banner: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
+      },
+      timeout: cdk.Duration.minutes(15),
+      memorySize: 8192,
+      ephemeralStorageSize: cdk.Size.gibibytes(10),
+      environment: {
+        TABLE_NAME: this.dataTable.tableName,
+        BUCKET_NAME: this.dataBucket.bucketName,
+      },
+    });
+    this.dataTable.grantReadWriteData(processImportFn);
+    this.dataBucket.grantReadWrite(processImportFn);
+
+    // Mark-import-failed Lambda (Step Function error path)
+    const markImportFailedFn = new nodejs.NodejsFunction(this, 'MarkImportFailedFn', {
+      functionName: `${prefix}-mark-import-failed`,
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(awsPackagePath, 'src', 'handlers', 'transfer', 'mark-import-failed.ts'),
+      handler: 'handler',
+      bundling: {
+        minify: true,
+        sourceMap: true,
+        format: nodejs.OutputFormat.ESM,
+        banner: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
+      },
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 256,
+      environment: {
+        TABLE_NAME: this.dataTable.tableName,
+        BUCKET_NAME: this.dataBucket.bucketName,
+      },
+    });
+    this.dataTable.grantReadWriteData(markImportFailedFn);
+    this.dataBucket.grantDelete(markImportFailedFn);
+
+    // Import State Machine
+    const processImportTask = new tasks.LambdaInvoke(this, 'ProcessImportTask', {
+      lambdaFunction: processImportFn,
+      outputPath: '$.Payload',
+    });
+
+    const markFailedTask = new tasks.LambdaInvoke(this, 'MarkImportFailedTask', {
+      lambdaFunction: markImportFailedFn,
+      outputPath: '$.Payload',
+    });
+
+    processImportTask.addCatch(
+      new sfn.Pass(this, 'PrepareImportError', {
+        parameters: {
+          'id.$': '$$.Execution.Input.id',
+          'repo.$': '$$.Execution.Input.repo',
+          'error.$': '$.error',
+        },
+      }).next(markFailedTask).next(new sfn.Fail(this, 'ImportFailed')),
+      { resultPath: '$.error' },
+    );
+    processImportTask.next(new sfn.Succeed(this, 'ImportComplete'));
+
+    const importStateMachine = new sfn.StateMachine(this, 'ImportStateMachine', {
+      stateMachineName: `${prefix}-import`,
+      definitionBody: sfn.DefinitionBody.fromChainable(processImportTask),
+      timeout: cdk.Duration.minutes(20),
+    });
+
     this.apiHandler = new nodejs.NodejsFunction(this, 'ApiHandler', {
       functionName: `${prefix}-api`,
       runtime: lambda.Runtime.NODEJS_22_X,
@@ -599,6 +679,7 @@ export class E3PlatformStack extends cdk.Stack {
         COGNITO_DOMAIN: cognitoDomainUrl,
         COGNITO_ISSUER: cognitoIssuer,
         COGNITO_CLIENT_ID: userPoolClient.userPoolClientId,
+        IMPORT_STATE_MACHINE_ARN: importStateMachine.stateMachineArn,
         // OIDC provider name (if configured) - used to skip Cognito login page
         ...(isOidcEnabled && oidcProviderName ? { OIDC_PROVIDER_NAME: oidcProviderName } : {}),
         // Base URL for the platform (used for device flow callbacks)
@@ -607,6 +688,9 @@ export class E3PlatformStack extends cdk.Stack {
         // Note: DELETE_REPO_STATE_MACHINE_ARN is added after state machine creation
       },
     });
+
+    // Grant API Lambda permission to start the import state machine
+    importStateMachine.grantStartExecution(this.apiHandler);
 
     this.dataTable.grantReadWriteData(this.apiHandler);
     this.dataBucket.grantReadWrite(this.apiHandler);
