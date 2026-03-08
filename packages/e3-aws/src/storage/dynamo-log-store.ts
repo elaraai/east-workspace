@@ -19,6 +19,13 @@ import type { LogStore, LogChunk } from '@elaraai/e3-core';
 const DEFAULT_LOG_TTL_SECONDS = 30 * 24 * 60 * 60;
 
 /**
+ * Max chunk size in bytes for a single DynamoDB item.
+ * DynamoDB has a 400KB item limit; we use 256KB to leave room for
+ * key attributes, metadata, and UTF-8 multi-byte expansion.
+ */
+const MAX_CHUNK_BYTES = 256 * 1024;
+
+/**
  * DynamoDB-backed LogStore implementation.
  *
  * Logs are stored as chunks with the key pattern:
@@ -62,24 +69,47 @@ export class DynamoLogStore implements LogStore {
     }
 
     const now = Date.now();
-    const chunkIndex = this.getNextChunkIndex(repo, taskHash, inputsHash, executionId, stream);
     const ttl = Math.floor(now / 1000) + DEFAULT_LOG_TTL_SECONDS;
+    const pk = `LOG/${repo}/${taskHash}/${inputsHash}/${executionId}`;
 
-    // Pad chunk index for correct lexicographic ordering
-    const paddedIndex = chunkIndex.toString().padStart(6, '0');
-
-    await this.dynamo.send(
-      new PutItemCommand({
-        TableName: this.tableName,
-        Item: marshall({
-          PK: `LOG/${repo}/${taskHash}/${inputsHash}/${executionId}`,
-          SK: `${stream}/${paddedIndex}`,
-          data,
-          timestamp: now,
-          ttl,
-        }),
-      })
-    );
+    // Split large data into chunks that fit within DynamoDB's 400KB item limit
+    const dataBytes = Buffer.byteLength(data, 'utf-8');
+    if (dataBytes <= MAX_CHUNK_BYTES) {
+      const chunkIndex = this.getNextChunkIndex(repo, taskHash, inputsHash, executionId, stream);
+      const paddedIndex = chunkIndex.toString().padStart(6, '0');
+      await this.dynamo.send(
+        new PutItemCommand({
+          TableName: this.tableName,
+          Item: marshall({ PK: pk, SK: `${stream}/${paddedIndex}`, data, timestamp: now, ttl }),
+        })
+      );
+    } else {
+      // Chunk by byte size, splitting on line boundaries where possible
+      let offset = 0;
+      while (offset < data.length) {
+        let end = data.length;
+        while (Buffer.byteLength(data.slice(offset, end), 'utf-8') > MAX_CHUNK_BYTES) {
+          // Try to split at a newline
+          const newline = data.lastIndexOf('\n', end - 1);
+          if (newline > offset) {
+            end = newline + 1;
+          } else {
+            // No newline found, hard split at byte boundary
+            end = offset + Math.floor((end - offset) / 2);
+          }
+        }
+        const chunk = data.slice(offset, end);
+        const chunkIndex = this.getNextChunkIndex(repo, taskHash, inputsHash, executionId, stream);
+        const paddedIndex = chunkIndex.toString().padStart(6, '0');
+        await this.dynamo.send(
+          new PutItemCommand({
+            TableName: this.tableName,
+            Item: marshall({ PK: pk, SK: `${stream}/${paddedIndex}`, data: chunk, timestamp: now, ttl }),
+          })
+        );
+        offset = end;
+      }
+    }
   }
 
   /**

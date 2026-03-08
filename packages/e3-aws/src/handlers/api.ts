@@ -78,6 +78,7 @@ const schedulerClient = new SchedulerClient({});
 const GC_STATE_MACHINE_ARN = process.env.GC_STATE_MACHINE_ARN;
 const DATAFLOW_STATE_MACHINE_ARN = process.env.DATAFLOW_STATE_MACHINE_ARN;
 const SCHEDULER_GROUP_NAME = process.env.SCHEDULER_GROUP_NAME;
+const IMPORT_STATE_MACHINE_ARN = process.env.IMPORT_STATE_MACHINE_ARN!;
 
 const storage = new S3DynamoStorage(
   s3, dynamo,
@@ -95,11 +96,12 @@ const userSettingsStore = new DynamoUserSettingsStore(dynamo, process.env.TABLE_
 const getRepoPath = (repo: string) => repo;
 
 const transferBackend = new S3DynamoTransferBackend(
-  s3, dynamo,
+  s3, dynamo, sfn,
   process.env.BUCKET_NAME!,
   process.env.TABLE_NAME!,
   storage,
   getRepoPath,
+  IMPORT_STATE_MACHINE_ARN,
 );
 
 // ============================================================

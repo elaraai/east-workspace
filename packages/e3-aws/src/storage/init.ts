@@ -14,7 +14,11 @@
  */
 
 import { S3Client } from '@aws-sdk/client-s3';
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBClient, GetItemCommand, PutItemCommand } from '@aws-sdk/client-dynamodb';
+import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
+import { encodeBeast2For, decodeBeast2For } from '@elaraai/east';
+import { PackageImportType } from '@elaraai/e3-core';
+import type { PackageImport, PackageImportStore } from '@elaraai/e3-core';
 import { S3DynamoStorage } from './s3-dynamo-storage.js';
 import { DynamoTaskConfigStore } from './dynamo-task-config-store.js';
 import { DynamoScheduleStore } from './dynamo-schedule-store.js';
@@ -28,6 +32,7 @@ let _taskConfigStore: DynamoTaskConfigStore | undefined;
 let _scheduleStore: DynamoScheduleStore | undefined;
 let _computeResultStore: DynamoComputeResultStore | undefined;
 let _gcTempStore: S3GcTempStore | undefined;
+let _importStore: Pick<PackageImportStore, 'get' | 'updateStatus'> | undefined;
 
 function ensureClients(): { s3: S3Client; dynamo: DynamoDBClient } {
   if (!_s3) _s3 = new S3Client({});
@@ -78,4 +83,40 @@ export function getGcTempStore(): S3GcTempStore {
     _gcTempStore = new S3GcTempStore(s3, process.env.BUCKET_NAME!);
   }
   return _gcTempStore;
+}
+
+const encodePackageImport = encodeBeast2For(PackageImportType);
+const decodePackageImport = decodeBeast2For(PackageImportType);
+const TRANSFER_TTL_SECONDS = 24 * 60 * 60;
+
+/** Get a minimal PackageImportStore for Lambda handlers (get + updateStatus only). */
+export function getImportStore(): Pick<PackageImportStore, 'get' | 'updateStatus'> {
+  if (!_importStore) {
+    const { dynamo } = ensureClients();
+    const tableName = process.env.TABLE_NAME!;
+
+    _importStore = {
+      async get(id: string): Promise<PackageImport | null> {
+        const result = await dynamo.send(new GetItemCommand({
+          TableName: tableName,
+          Key: marshall({ PK: 'TRANSFER', SK: `package-import#${id}` }),
+        }));
+        if (!result.Item) return null;
+        const item = unmarshall(result.Item);
+        return decodePackageImport(item.data as Uint8Array) as PackageImport;
+      },
+
+      async updateStatus(id: string, status: PackageImport['status']): Promise<void> {
+        const record = await this.get(id);
+        if (!record) throw new Error(`Package import ${id} not found`);
+        const data = encodePackageImport({ ...record, status });
+        const ttl = Math.floor(Date.now() / 1000) + TRANSFER_TTL_SECONDS;
+        await dynamo.send(new PutItemCommand({
+          TableName: tableName,
+          Item: marshall({ PK: 'TRANSFER', SK: `package-import#${id}`, data, ttl }),
+        }));
+      },
+    };
+  }
+  return _importStore;
 }

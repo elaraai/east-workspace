@@ -15,7 +15,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { writeFile, unlink, stat } from 'node:fs/promises';
+import { unlink, stat } from 'node:fs/promises';
 import {
   S3Client,
   GetObjectCommand,
@@ -23,6 +23,10 @@ import {
   HeadObjectCommand,
   DeleteObjectCommand,
 } from '@aws-sdk/client-s3';
+import {
+  SFNClient,
+  StartExecutionCommand,
+} from '@aws-sdk/client-sfn';
 import {
   DynamoDBClient,
   GetItemCommand,
@@ -219,10 +223,10 @@ class S3DynamoPackageImportStore implements PackageImportStore {
   constructor(
     private readonly s3: S3Client,
     private readonly dynamo: DynamoDBClient,
+    private readonly sfnClient: SFNClient,
     private readonly bucket: string,
     private readonly tableName: string,
-    private readonly storage: StorageBackend,
-    private readonly getRepoPath: (repo: string) => string,
+    private readonly importStateMachineArn: string,
   ) {}
 
   async create(id: string, record: PackageImport): Promise<void> {
@@ -271,49 +275,16 @@ class S3DynamoPackageImportStore implements PackageImportStore {
   }
 
   async execute(id: string, repo: string): Promise<void> {
-    const record = await this.get(id);
-    if (!record) throw new Error(`Package import ${id} not found`);
+    await this.updateStatus(id, variant('processing',
+      variant('pending', null),
+    ));
 
-    await this.updateStatus(id, variant('processing', null));
-
-    const repoPath = this.getRepoPath(repo);
-    const tmpPath = `/tmp/${id}.zip`;
-    const s3Key = `${repo}/_transfer/${id}.zip`;
-
-    try {
-      // Download zip from S3 to /tmp
-      const obj = await this.s3.send(new GetObjectCommand({
-        Bucket: this.bucket,
-        Key: s3Key,
-      }));
-      const body = await obj.Body!.transformToByteArray();
-      await writeFile(tmpPath, body);
-
-      // Verify uploaded size matches declared size
-      if (BigInt(body.length) !== record.size) {
-        throw new Error(`Size mismatch: expected ${record.size}, got ${body.length}`);
-      }
-
-      // Run package import
-      const result = await packageImport(this.storage, repoPath, tmpPath);
-
-      await this.updateStatus(id, variant('completed', {
-        name: result.name,
-        version: result.version,
-        packageHash: result.packageHash,
-        objectCount: BigInt(result.objectCount),
-      }));
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      await this.updateStatus(id, variant('failed', { message }));
-    } finally {
-      // Cleanup
-      await unlink(tmpPath).catch(() => {});
-      await this.s3.send(new DeleteObjectCommand({
-        Bucket: this.bucket,
-        Key: s3Key,
-      })).catch(() => {});
-    }
+    // Start Step Function execution
+    await this.sfnClient.send(new StartExecutionCommand({
+      stateMachineArn: this.importStateMachineArn,
+      name: `import-${id}`,
+      input: JSON.stringify({ id, repo }),
+    }));
   }
 }
 
@@ -433,14 +404,16 @@ export class S3DynamoTransferBackend implements TransferBackend {
   constructor(
     s3: S3Client,
     dynamo: DynamoDBClient,
+    sfnClient: SFNClient,
     bucket: string,
     tableName: string,
     storage: StorageBackend,
     getRepoPath: (repo: string) => string,
+    importStateMachineArn: string,
   ) {
     this.datasetUpload = new S3DynamoDatasetUploadStore(s3, dynamo, bucket, tableName);
     this.datasetDownload = new S3DynamoDatasetDownloadStore(s3, bucket);
-    this.packageImport = new S3DynamoPackageImportStore(s3, dynamo, bucket, tableName, storage, getRepoPath);
+    this.packageImport = new S3DynamoPackageImportStore(s3, dynamo, sfnClient, bucket, tableName, importStateMachineArn);
     this.packageExport = new S3DynamoPackageExportStore(s3, dynamo, bucket, tableName, storage, getRepoPath);
   }
 }
