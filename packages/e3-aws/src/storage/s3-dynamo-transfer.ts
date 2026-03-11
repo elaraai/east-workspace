@@ -38,7 +38,6 @@ import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { encodeBeast2For, decodeBeast2For, variant } from '@elaraai/east';
 import {
-  packageImport,
   packageExport,
   PackageNotFoundError,
   BEAST2_CONTENT_TYPE,
