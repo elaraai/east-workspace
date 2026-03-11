@@ -19,6 +19,9 @@ import { writeFileSync, readFileSync, mkdtempSync, rmSync, existsSync } from 'fs
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { inputsHash } from '@elaraai/e3-core';
+import { decodeBeast2For, EastIR, IRType } from '@elaraai/east';
+import { TaskObjectType } from '@elaraai/e3-types';
+import type { FunctionIR } from '@elaraai/east';
 import type { ObjectStore, LogStore, ExecutionStateStore } from '@elaraai/e3-core';
 import type { ExecutionTracker } from '../execution-tracker.js';
 
@@ -227,19 +230,12 @@ export async function executeTaskCore(
 
   try {
     // Log download phase
-    const inputCount = inputHashes.length - 1; // First is task IR
-    await log(`Downloading task IR and ${inputCount} input${inputCount !== 1 ? 's' : ''}...\n`);
+    await log(`Downloading ${inputHashes.length} input${inputHashes.length !== 1 ? 's' : ''}...\n`);
 
-    // Download task IR (first input hash is the function IR, stored as BEAST2 encoded data)
-    const taskIrPath = join(workDir, 'task.beast2');
-    const taskIrData = await objects.read(repo, inputHashes[0]);
-    writeFileSync(taskIrPath, taskIrData);
-    console.log(`Downloaded task IR: ${inputHashes[0].slice(0, 12)}...`);
-
-    // Download remaining inputs (skip first which is the function IR)
+    // Download inputs to scratch directory
     const inputPaths: string[] = [];
-    for (let i = 1; i < inputHashes.length; i++) {
-      const inputPath = join(workDir, `input-${i - 1}.beast2`);
+    for (let i = 0; i < inputHashes.length; i++) {
+      const inputPath = join(workDir, `input-${i}.beast2`);
       const inputData = await objects.read(repo, inputHashes[i]);
       writeFileSync(inputPath, inputData);
       inputPaths.push(inputPath);
@@ -249,17 +245,41 @@ export async function executeTaskCore(
     // Prepare output path (needs .beast2 extension for east-py)
     const outputFilePath = join(workDir, 'output.beast2');
 
-    // Build command
-    const args = [
-      'run',
-      taskIrPath,
-      '-p', 'east_py_std',
-      '-p', 'east_py_io',
-      ...inputPaths.flatMap((p) => ['-i', p]),
-      '-o', outputFilePath,
-    ];
+    // Read TaskObject to get the commandIr hash, then evaluate it to get exec args.
+    // This respects the task's configured runner (e.g. east-py with datascience plugins).
+    let execArgs: string[];
+    try {
+      const taskData = await objects.read(repo, taskHash);
+      const task = decodeBeast2For(TaskObjectType)(Buffer.from(taskData));
+      const irData = await objects.read(repo, task.commandIr);
+      const ir = decodeBeast2For(IRType)(Buffer.from(irData)) as FunctionIR;
+      const compiledFn = new EastIR<[string[], string], string[]>(ir).compile([]);
+      execArgs = compiledFn(inputPaths, outputFilePath);
+    } catch (err) {
+      const errorMsg = `Failed to evaluate command IR: ${err instanceof Error ? err.message : String(err)}`;
+      console.error(`Task ${taskName}: ${errorMsg}`);
+      await log(`Task failed: ${errorMsg}\n`);
+      return {
+        taskName,
+        status: 'failed',
+        error: errorMsg,
+        duration: Date.now() - startTime,
+      };
+    }
 
-    console.log(`Running: east-py ${args.join(' ')}`);
+    if (execArgs.length === 0) {
+      console.error(`Task ${taskName}: command IR produced empty command`);
+      await log(`Task failed: command IR produced empty command\n`);
+      return {
+        taskName,
+        status: 'failed',
+        error: 'Command IR produced empty command',
+        duration: Date.now() - startTime,
+      };
+    }
+
+    const [cmd, ...cmdArgs] = execArgs;
+    console.log(`Running: ${execArgs.join(' ')}`);
 
     // Log task starting
     await log(`Task starting...\n`);
@@ -272,9 +292,9 @@ export async function executeTaskCore(
     let lastStdout = '';
     let lastStderr = '';
 
-    // Execute task via east-py CLI with streaming
+    // Execute task via runner CLI with streaming
     const { exitCode, error } = await new Promise<{ exitCode: number | null; error?: Error }>((resolve) => {
-      const child = spawn('east-py', args, {
+      const child = spawn(cmd, cmdArgs, {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
 
