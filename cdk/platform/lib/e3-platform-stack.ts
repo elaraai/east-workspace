@@ -654,6 +654,80 @@ export class E3PlatformStack extends cdk.Stack {
       timeout: cdk.Duration.minutes(20),
     });
 
+    // Package/workspace export processing Lambda (invoked async by API Lambda)
+    const processExportFn = new nodejs.NodejsFunction(this, 'ProcessExportFn', {
+      functionName: `${prefix}-process-export`,
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(awsPackagePath, 'src', 'handlers', 'transfer', 'process-export.ts'),
+      handler: 'handler',
+      bundling: {
+        minify: true,
+        sourceMap: true,
+        format: nodejs.OutputFormat.ESM,
+        banner: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
+      },
+      timeout: cdk.Duration.minutes(15),
+      memorySize: 8192,
+      ephemeralStorageSize: cdk.Size.gibibytes(10),
+      environment: {
+        TABLE_NAME: this.dataTable.tableName,
+        BUCKET_NAME: this.dataBucket.bucketName,
+      },
+    });
+    this.dataTable.grantReadWriteData(processExportFn);
+    this.dataBucket.grantReadWrite(processExportFn);
+
+    // Mark-export-failed Lambda (Step Function error path)
+    const markExportFailedFn = new nodejs.NodejsFunction(this, 'MarkExportFailedFn', {
+      functionName: `${prefix}-mark-export-failed`,
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(awsPackagePath, 'src', 'handlers', 'transfer', 'mark-export-failed.ts'),
+      handler: 'handler',
+      bundling: {
+        minify: true,
+        sourceMap: true,
+        format: nodejs.OutputFormat.ESM,
+        banner: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
+      },
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 256,
+      environment: {
+        TABLE_NAME: this.dataTable.tableName,
+        BUCKET_NAME: this.dataBucket.bucketName,
+      },
+    });
+    this.dataTable.grantReadWriteData(markExportFailedFn);
+    this.dataBucket.grantDelete(markExportFailedFn);
+
+    // Export State Machine
+    const processExportTask = new tasks.LambdaInvoke(this, 'ProcessExportTask', {
+      lambdaFunction: processExportFn,
+      outputPath: '$.Payload',
+    });
+
+    const markExportFailedTask = new tasks.LambdaInvoke(this, 'MarkExportFailedTask', {
+      lambdaFunction: markExportFailedFn,
+      outputPath: '$.Payload',
+    });
+
+    processExportTask.addCatch(
+      new sfn.Pass(this, 'PrepareExportError', {
+        parameters: {
+          'id.$': '$$.Execution.Input.id',
+          'repo.$': '$$.Execution.Input.repo',
+          'error.$': '$.error',
+        },
+      }).next(markExportFailedTask).next(new sfn.Fail(this, 'ExportFailed')),
+      { resultPath: '$.error' },
+    );
+    processExportTask.next(new sfn.Succeed(this, 'ExportComplete'));
+
+    const exportStateMachine = new sfn.StateMachine(this, 'ExportStateMachine', {
+      stateMachineName: `${prefix}-export`,
+      definitionBody: sfn.DefinitionBody.fromChainable(processExportTask),
+      timeout: cdk.Duration.minutes(20),
+    });
+
     this.apiHandler = new nodejs.NodejsFunction(this, 'ApiHandler', {
       functionName: `${prefix}-api`,
       runtime: lambda.Runtime.NODEJS_22_X,
@@ -680,6 +754,7 @@ export class E3PlatformStack extends cdk.Stack {
         COGNITO_ISSUER: cognitoIssuer,
         COGNITO_CLIENT_ID: userPoolClient.userPoolClientId,
         IMPORT_STATE_MACHINE_ARN: importStateMachine.stateMachineArn,
+        EXPORT_STATE_MACHINE_ARN: exportStateMachine.stateMachineArn,
         // OIDC provider name (if configured) - used to skip Cognito login page
         ...(isOidcEnabled && oidcProviderName ? { OIDC_PROVIDER_NAME: oidcProviderName } : {}),
         // Base URL for the platform (used for device flow callbacks)
@@ -689,8 +764,9 @@ export class E3PlatformStack extends cdk.Stack {
       },
     });
 
-    // Grant API Lambda permission to start the import state machine
+    // Grant API Lambda permission to start the import and export state machines
     importStateMachine.grantStartExecution(this.apiHandler);
+    exportStateMachine.grantStartExecution(this.apiHandler);
 
     this.dataTable.grantReadWriteData(this.apiHandler);
     this.dataBucket.grantReadWrite(this.apiHandler);

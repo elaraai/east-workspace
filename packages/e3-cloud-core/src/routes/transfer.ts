@@ -242,7 +242,7 @@ export function createCloudPackageTransferRoutes(
 
     const status = record.status;
     if (status.type === 'processing') {
-      return sendSuccess(PackageExportStatusType, variant('processing', null));
+      return sendSuccess(PackageExportStatusType, variant('processing', status.value));
     }
     if (status.type === 'failed') {
       return sendSuccess(PackageExportStatusType, variant('failed', { message: status.value.message }));
@@ -269,7 +269,8 @@ export function createCloudPackageTransferRoutes(
       repo,
       name,
       version,
-      status: variant('processing', null),
+      workspace: none,
+      status: variant('processing', variant('pending', null)),
       createdAt: new Date(),
     });
 

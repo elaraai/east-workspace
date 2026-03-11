@@ -17,8 +17,8 @@ import { S3Client } from '@aws-sdk/client-s3';
 import { DynamoDBClient, GetItemCommand, PutItemCommand } from '@aws-sdk/client-dynamodb';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import { encodeBeast2For, decodeBeast2For } from '@elaraai/east';
-import { PackageImportType } from '@elaraai/e3-core';
-import type { PackageImport, PackageImportStore } from '@elaraai/e3-core';
+import { PackageImportType, PackageExportType } from '@elaraai/e3-core';
+import type { PackageImport, PackageImportStore, PackageExport, PackageExportStore } from '@elaraai/e3-core';
 import { S3DynamoStorage } from './s3-dynamo-storage.js';
 import { DynamoTaskConfigStore } from './dynamo-task-config-store.js';
 import { DynamoScheduleStore } from './dynamo-schedule-store.js';
@@ -33,6 +33,7 @@ let _scheduleStore: DynamoScheduleStore | undefined;
 let _computeResultStore: DynamoComputeResultStore | undefined;
 let _gcTempStore: S3GcTempStore | undefined;
 let _importStore: Pick<PackageImportStore, 'get' | 'updateStatus'> | undefined;
+let _exportStore: Pick<PackageExportStore, 'get' | 'updateStatus'> | undefined;
 
 function ensureClients(): { s3: S3Client; dynamo: DynamoDBClient } {
   if (!_s3) _s3 = new S3Client({});
@@ -87,6 +88,8 @@ export function getGcTempStore(): S3GcTempStore {
 
 const encodePackageImport = encodeBeast2For(PackageImportType);
 const decodePackageImport = decodeBeast2For(PackageImportType);
+const encodePackageExport = encodeBeast2For(PackageExportType);
+const decodePackageExport = decodeBeast2For(PackageExportType);
 const TRANSFER_TTL_SECONDS = 24 * 60 * 60;
 
 /** Get a minimal PackageImportStore for Lambda handlers (get + updateStatus only). */
@@ -119,4 +122,36 @@ export function getImportStore(): Pick<PackageImportStore, 'get' | 'updateStatus
     };
   }
   return _importStore;
+}
+
+/** Get a minimal PackageExportStore for Lambda handlers (get + updateStatus only). */
+export function getExportStore(): Pick<PackageExportStore, 'get' | 'updateStatus'> {
+  if (!_exportStore) {
+    const { dynamo } = ensureClients();
+    const tableName = process.env.TABLE_NAME!;
+
+    _exportStore = {
+      async get(id: string): Promise<PackageExport | null> {
+        const result = await dynamo.send(new GetItemCommand({
+          TableName: tableName,
+          Key: marshall({ PK: 'TRANSFER', SK: `package-export#${id}` }),
+        }));
+        if (!result.Item) return null;
+        const item = unmarshall(result.Item);
+        return decodePackageExport(item.data as Uint8Array) as PackageExport;
+      },
+
+      async updateStatus(id: string, status: PackageExport['status']): Promise<void> {
+        const record = await this.get(id);
+        if (!record) throw new Error(`Package export ${id} not found`);
+        const data = encodePackageExport({ ...record, status });
+        const ttl = Math.floor(Date.now() / 1000) + TRANSFER_TTL_SECONDS;
+        await dynamo.send(new PutItemCommand({
+          TableName: tableName,
+          Item: marshall({ PK: 'TRANSFER', SK: `package-export#${id}`, data, ttl }),
+        }));
+      },
+    };
+  }
+  return _exportStore;
 }

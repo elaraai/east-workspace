@@ -46,3 +46,6 @@ export type { ProcessImportDeps, ProcessImportInput, ProcessImportOutput } from 
 
 export { handleMarkImportFailed } from './mark-import-failed.js';
 export type { MarkImportFailedDeps, MarkImportFailedInput } from './mark-import-failed.js';
+
+export { handleMarkExportFailed } from './mark-export-failed.js';
+export type { MarkExportFailedDeps, MarkExportFailedInput } from './mark-export-failed.js';
