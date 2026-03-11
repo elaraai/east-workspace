@@ -14,7 +14,7 @@
  */
 
 import { S3Client } from '@aws-sdk/client-s3';
-import { DynamoDBClient, GetItemCommand, PutItemCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
+import { DynamoDBClient, GetItemCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import { encodeBeast2For, decodeBeast2For } from '@elaraai/east';
 import { PackageImportType, PackageExportType } from '@elaraai/e3-core';

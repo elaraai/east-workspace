@@ -25,10 +25,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libcurl4-openssl-dev \
     xz-utils \
     && rm -rf /var/lib/apt/lists/* \
-    && npm install -g aws-lambda-ric@3
+    && npm install -g aws-lambda-ric
 
 # Create app directory
-WORKDIR /app
+WORKDIR /var/task
 
 # Copy compiled e3-aws package (handlers use relative imports to storage/)
 COPY packages/e3-aws/dist/src ./dist/src

@@ -204,7 +204,6 @@ class S3DynamoDatasetDownloadStore implements DatasetDownloadStore {
     return null;
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
   async delete(_id: string): Promise<void> {
     // No-op for S3 presigned URLs
   }
