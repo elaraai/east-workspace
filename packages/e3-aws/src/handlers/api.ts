@@ -79,6 +79,7 @@ const GC_STATE_MACHINE_ARN = process.env.GC_STATE_MACHINE_ARN;
 const DATAFLOW_STATE_MACHINE_ARN = process.env.DATAFLOW_STATE_MACHINE_ARN;
 const SCHEDULER_GROUP_NAME = process.env.SCHEDULER_GROUP_NAME;
 const IMPORT_STATE_MACHINE_ARN = process.env.IMPORT_STATE_MACHINE_ARN!;
+const EXPORT_STATE_MACHINE_ARN = process.env.EXPORT_STATE_MACHINE_ARN!;
 
 const storage = new S3DynamoStorage(
   s3, dynamo,
@@ -99,9 +100,8 @@ const transferBackend = new S3DynamoTransferBackend(
   s3, dynamo, sfn,
   process.env.BUCKET_NAME!,
   process.env.TABLE_NAME!,
-  storage,
-  getRepoPath,
   IMPORT_STATE_MACHINE_ARN,
+  EXPORT_STATE_MACHINE_ARN,
 );
 
 // ============================================================
@@ -255,7 +255,7 @@ app.delete('/api/repos/:repo/workspaces/:ws', async (c, next) => {
   return next();
 });
 
-app.route('/api/repos/:repo/workspaces', createWorkspaceRoutes(storage, getRepoPath) as any);
+app.route('/api/repos/:repo/workspaces', createWorkspaceRoutes(storage, getRepoPath, transferBackend) as any);
 app.route('/api/repos/:repo/workspaces/:ws/datasets', createDatasetRoutes(storage, getRepoPath, transferBackend) as any);
 app.route('/api/repos/:repo/workspaces/:ws/tasks', createTaskRoutes(storage, getRepoPath) as any);
 app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(storage, getRepoPath) as any);

@@ -24,6 +24,7 @@ import {
 } from '@elaraai/e3-types';
 import {
   workspaceSetDatasetByHash,
+  packageResolve,
   PackageNotFoundError,
   type StorageBackend,
   type TransferBackend,
@@ -153,8 +154,8 @@ const MAX_PACKAGE_SIZE = 5n * 1024n * 1024n * 1024n; // 5 GB
  * execution to `transferBackend.packageImport.execute()` / `packageExport.execute()`.
  */
 export function createCloudPackageTransferRoutes(
-  _storage: StorageBackend,
-  _getRepoPath: (repo: string) => string,
+  storage: StorageBackend,
+  getRepoPath: (repo: string) => string,
   transferBackend: TransferBackend,
 ) {
   const repoApi = new Hono();
@@ -242,7 +243,7 @@ export function createCloudPackageTransferRoutes(
 
     const status = record.status;
     if (status.type === 'processing') {
-      return sendSuccess(PackageExportStatusType, variant('processing', null));
+      return sendSuccess(PackageExportStatusType, variant('processing', status.value));
     }
     if (status.type === 'failed') {
       return sendSuccess(PackageExportStatusType, variant('failed', { message: status.value.message }));
@@ -264,17 +265,9 @@ export function createCloudPackageTransferRoutes(
     const name = c.req.param('name')!;
     const version = c.req.param('version')!;
 
-    const id = randomUUID();
-    await transferBackend.packageExport.create(id, {
-      repo,
-      name,
-      version,
-      status: variant('processing', null),
-      createdAt: new Date(),
-    });
-
+    // Pre-flight: verify package exists before creating async job
     try {
-      await transferBackend.packageExport.execute(id, repo);
+      await packageResolve(storage, getRepoPath(repo), name, version);
     } catch (err) {
       if (err instanceof PackageNotFoundError) {
         return sendError(PackageJobResponseType, variant('package_not_found', {
@@ -282,6 +275,22 @@ export function createCloudPackageTransferRoutes(
           version: none,
         }));
       }
+      throw err;
+    }
+
+    const id = randomUUID();
+    await transferBackend.packageExport.create(id, {
+      repo,
+      name,
+      version,
+      workspace: none,
+      status: variant('processing', variant('pending', null)),
+      createdAt: new Date(),
+    });
+
+    try {
+      await transferBackend.packageExport.execute(id, repo);
+    } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       await transferBackend.packageExport.updateStatus(id, variant('failed', { message }));
     }

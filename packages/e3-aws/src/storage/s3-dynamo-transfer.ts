@@ -15,7 +15,6 @@
  */
 
 import { createHash } from 'node:crypto';
-import { unlink, stat } from 'node:fs/promises';
 import {
   S3Client,
   GetObjectCommand,
@@ -38,8 +37,6 @@ import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { encodeBeast2For, decodeBeast2For, variant } from '@elaraai/east';
 import {
-  packageExport,
-  PackageNotFoundError,
   BEAST2_CONTENT_TYPE,
 } from '@elaraai/e3-core';
 import type {
@@ -48,7 +45,6 @@ import type {
   DatasetDownloadStore,
   PackageImportStore,
   PackageExportStore,
-  StorageBackend,
 } from '@elaraai/e3-core';
 import type { DatasetUpload, PackageImport, PackageExport } from '@elaraai/e3-core';
 import {
@@ -252,9 +248,27 @@ class S3DynamoPackageImportStore implements PackageImportStore {
   }
 
   async updateStatus(id: string, status: PackageImport['status']): Promise<void> {
-    const record = await this.get(id);
-    if (!record) throw new Error(`Package import ${id} not found`);
-    await this.create(id, { ...record, status });
+    const result = await this.dynamo.send(new GetItemCommand({
+      TableName: this.tableName,
+      Key: marshall({ PK: 'TRANSFER', SK: `package-import#${id}` }),
+    }));
+    if (!result.Item) throw new Error(`Package import ${id} not found`);
+    const item = unmarshall(result.Item);
+    const oldData = item.data as Uint8Array;
+    const record = decodePackageImport(oldData) as PackageImport;
+    const newData = encodePackageImport({ ...record, status });
+    await this.dynamo.send(new UpdateItemCommand({
+      TableName: this.tableName,
+      Key: marshall({ PK: 'TRANSFER', SK: `package-import#${id}` }),
+      UpdateExpression: 'SET #data = :newData, #ttl = :ttl',
+      ConditionExpression: '#data = :oldData',
+      ExpressionAttributeNames: { '#data': 'data', '#ttl': 'ttl' },
+      ExpressionAttributeValues: marshall({
+        ':newData': newData,
+        ':oldData': oldData,
+        ':ttl': ttl(TRANSFER_TTL_SECONDS),
+      }),
+    }));
   }
 
   async delete(id: string): Promise<void> {
@@ -295,10 +309,10 @@ class S3DynamoPackageExportStore implements PackageExportStore {
   constructor(
     private readonly s3: S3Client,
     private readonly dynamo: DynamoDBClient,
+    private readonly sfnClient: SFNClient,
     private readonly bucket: string,
     private readonly tableName: string,
-    private readonly storage: StorageBackend,
-    private readonly getRepoPath: (repo: string) => string,
+    private readonly exportStateMachineArn: string,
   ) {}
 
   async create(id: string, record: PackageExport): Promise<void> {
@@ -325,19 +339,36 @@ class S3DynamoPackageExportStore implements PackageExportStore {
   }
 
   async updateStatus(id: string, status: PackageExport['status']): Promise<void> {
-    const record = await this.get(id);
-    if (!record) throw new Error(`Package export ${id} not found`);
-    await this.create(id, { ...record, status });
+    const result = await this.dynamo.send(new GetItemCommand({
+      TableName: this.tableName,
+      Key: marshall({ PK: 'TRANSFER', SK: `package-export#${id}` }),
+    }));
+    if (!result.Item) throw new Error(`Package export ${id} not found`);
+    const item = unmarshall(result.Item);
+    const oldData = item.data as Uint8Array;
+    const record = decodePackageExport(oldData) as PackageExport;
+    const newData = encodePackageExport({ ...record, status });
+    await this.dynamo.send(new UpdateItemCommand({
+      TableName: this.tableName,
+      Key: marshall({ PK: 'TRANSFER', SK: `package-export#${id}` }),
+      UpdateExpression: 'SET #data = :newData, #ttl = :ttl',
+      ConditionExpression: '#data = :oldData',
+      ExpressionAttributeNames: { '#data': 'data', '#ttl': 'ttl' },
+      ExpressionAttributeValues: marshall({
+        ':newData': newData,
+        ':oldData': oldData,
+        ':ttl': ttl(TRANSFER_TTL_SECONDS),
+      }),
+    }));
   }
 
   async delete(id: string): Promise<void> {
-    // Delete DynamoDB record
+    // Read record before deleting from DynamoDB so we can clean up S3
+    const record = await this.get(id);
     await this.dynamo.send(new DeleteItemCommand({
       TableName: this.tableName,
       Key: marshall({ PK: 'TRANSFER', SK: `package-export#${id}` }),
     }));
-    // Also try to clean up the S3 temp object
-    const record = await this.get(id);
     if (record) {
       await this.s3.send(new DeleteObjectCommand({
         Bucket: this.bucket,
@@ -355,38 +386,12 @@ class S3DynamoPackageExportStore implements PackageExportStore {
   }
 
   async execute(id: string, repo: string): Promise<void> {
-    const record = await this.get(id);
-    if (!record) throw new Error(`Package export ${id} not found`);
-
-    const repoPath = this.getRepoPath(repo);
-    const tmpPath = `/tmp/${id}.zip`;
-    const s3Key = `${repo}/_transfer/${id}.zip`;
-
-    try {
-      // Export package to /tmp
-      await packageExport(this.storage, repoPath, record.name, record.version, tmpPath);
-
-      // Upload zip to S3
-      const fileStat = await stat(tmpPath);
-      const { readFile } = await import('node:fs/promises');
-      const fileData = await readFile(tmpPath);
-      await this.s3.send(new PutObjectCommand({
-        Bucket: this.bucket,
-        Key: s3Key,
-        Body: fileData,
-        ContentType: 'application/zip',
-      }));
-
-      await this.updateStatus(id, variant('completed', {
-        size: BigInt(fileStat.size),
-      }));
-    } catch (err) {
-      if (err instanceof PackageNotFoundError) throw err;
-      const message = err instanceof Error ? err.message : String(err);
-      await this.updateStatus(id, variant('failed', { message }));
-    } finally {
-      await unlink(tmpPath).catch(() => {});
-    }
+    // Start Step Function execution for async processing
+    await this.sfnClient.send(new StartExecutionCommand({
+      stateMachineArn: this.exportStateMachineArn,
+      name: `export-${id}`,
+      input: JSON.stringify({ id, repo }),
+    }));
   }
 }
 
@@ -406,13 +411,12 @@ export class S3DynamoTransferBackend implements TransferBackend {
     sfnClient: SFNClient,
     bucket: string,
     tableName: string,
-    storage: StorageBackend,
-    getRepoPath: (repo: string) => string,
     importStateMachineArn: string,
+    exportStateMachineArn: string,
   ) {
     this.datasetUpload = new S3DynamoDatasetUploadStore(s3, dynamo, bucket, tableName);
     this.datasetDownload = new S3DynamoDatasetDownloadStore(s3, bucket);
     this.packageImport = new S3DynamoPackageImportStore(s3, dynamo, sfnClient, bucket, tableName, importStateMachineArn);
-    this.packageExport = new S3DynamoPackageExportStore(s3, dynamo, bucket, tableName, storage, getRepoPath);
+    this.packageExport = new S3DynamoPackageExportStore(s3, dynamo, sfnClient, bucket, tableName, exportStateMachineArn);
   }
 }
