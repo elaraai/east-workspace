@@ -1039,7 +1039,7 @@ function TaskConfigFormPopover({
                 <Field.Root disabled={formDisabled}>
                   <Field.Label fontSize="xs" fontWeight={600}>
                     Compute Size
-                    <InfoTip content={"serverless: Lambda (~1.8 GB RAM, 15 min max)\nsmall: Fargate 1 vCPU / 2 GB\nmedium: Fargate 2 vCPU / 8 GB\nlarge: Fargate 4 vCPU / 16 GB\nxlarge: Fargate 8 vCPU / 32 GB"} />
+                    {!formDisabled && <InfoTip portalled={false} content={"serverless: Lambda (~1.8 GB RAM, 15 min max)\nsmall: Fargate 1 vCPU / 2 GB\nmedium: Fargate 2 vCPU / 8 GB\nlarge: Fargate 4 vCPU / 16 GB\nxlarge: Fargate 8 vCPU / 32 GB"} />}
                   </Field.Label>
                   <HStack gap={1} flexWrap="wrap">
                     {COMPUTE_TIERS.map((t) => (
@@ -1059,7 +1059,7 @@ function TaskConfigFormPopover({
                 <Field.Root disabled={formDisabled}>
                   <Field.Label fontSize="xs" fontWeight={600}>
                     Timeout (minutes)
-                    <InfoTip content={`Leave empty for default (${defaultTimeout} min)`} />
+                    {!formDisabled && <InfoTip portalled={false} content={`Leave empty for default (${defaultTimeout} min)`} />}
                   </Field.Label>
                   <Input
                     size="sm"

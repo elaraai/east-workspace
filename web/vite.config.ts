@@ -13,6 +13,10 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
+    commonjsOptions: {
+      defaultIsModuleExports: true,
+      include: [/sorted-btree/, /node_modules/],
+    },
     rollupOptions: {
       external: [
         'stream', 'stream/promises', 'fs', 'fs/promises', 'path', 'os',
@@ -20,6 +24,9 @@ export default defineConfig({
         'node:crypto', 'node:fs', 'node:path',
       ],
     },
+  },
+  optimizeDeps: {
+    include: ['sorted-btree', '@elaraai/east'],
   },
   server: {
     port: 5173,

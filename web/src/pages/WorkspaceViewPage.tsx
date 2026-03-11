@@ -5,9 +5,9 @@
 
 import { useCallback, useMemo } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Box, Text, Button, HStack, VStack, SimpleGrid, Badge, Table } from '@chakra-ui/react';
+import { Box, Text, Button, HStack, VStack, SimpleGrid, Badge, Table, HoverCard, Portal } from '@chakra-ui/react';
 import { FiPlay, FiSquare } from 'react-icons/fi';
-import type { DataflowEvent, DataflowExecutionState } from '@elaraai/e3-api-client';
+import type { DataflowEvent, DataflowExecutionState, TaskStatusInfo } from '@elaraai/e3-api-client';
 import {
   useWorkspaceStatus,
   useDataflowExecution,
@@ -107,21 +107,13 @@ export function WorkspaceViewPage() {
                         </Text>
                       </Table.Cell>
                       <Table.Cell>
-                        <StatusBadge status={task.status.type} />
+                        <TaskStatusCell status={task.status} />
                       </Table.Cell>
                       <Table.Cell>
-                        <Text fontSize="sm" color="text.secondary">{task.dependsOn.length > 0 ? task.dependsOn.join(', ') : '—'}</Text>
+                        <ItemListCell items={task.dependsOn} />
                       </Table.Cell>
                       <Table.Cell>
-                        {task.inputs.length > 0 ? (
-                          <VStack gap={0} align="start">
-                            {task.inputs.map((input) => (
-                              <CopyablePath key={input} path={input} copyValue={`${workspace}${input}`} />
-                            ))}
-                          </VStack>
-                        ) : (
-                          <Text fontSize="sm" color="text.secondary">—</Text>
-                        )}
+                        <ItemListCell items={task.inputs} />
                       </Table.Cell>
                       <Table.Cell>
                         <CopyablePath path={task.output} copyValue={`${workspace}${task.output}`} />
@@ -221,6 +213,101 @@ export function WorkspaceViewPage() {
 
       {statusContent}
     </Box>
+  );
+}
+
+// --- Task Status Cell (badge with hover card for details) ---
+
+function formatStatusDetail(status: TaskStatusInfo['status']): string | null {
+  switch (status.type) {
+    case 'failed':
+      return `Exit code: ${Number(status.value.exitCode)}`;
+    case 'error':
+      return status.value.message;
+    case 'waiting':
+      return status.value.reason;
+    case 'in-progress': {
+      const parts: string[] = [];
+      if (status.value.pid.type === 'some') parts.push(`PID: ${Number(status.value.pid.value)}`);
+      if (status.value.startedAt.type === 'some') parts.push(`Started: ${status.value.startedAt.value}`);
+      return parts.length > 0 ? parts.join('\n') : null;
+    }
+    case 'up-to-date':
+      return status.value.cached ? 'Cached (inputs unchanged)' : null;
+    default:
+      return null;
+  }
+}
+
+function TaskStatusCell({ status }: { status: TaskStatusInfo['status'] }) {
+  const detail = formatStatusDetail(status);
+  const hasDetail = detail != null;
+
+  if (!hasDetail) {
+    return <StatusBadge status={status.type} />;
+  }
+
+  return (
+    <HoverCard.Root>
+      <HoverCard.Trigger asChild>
+        <Box display="inline-block" cursor="pointer">
+          <StatusBadge status={status.type} />
+        </Box>
+      </HoverCard.Trigger>
+      <Portal>
+        <HoverCard.Positioner>
+          <HoverCard.Content maxW="350px" p={3}>
+            <HoverCard.Arrow />
+            <VStack gap={1} align="start">
+              <StatusBadge status={status.type} />
+              <Text fontSize="xs" color="text.primary" whiteSpace="pre-wrap" wordBreak="break-word">
+                {detail}
+              </Text>
+            </VStack>
+          </HoverCard.Content>
+        </HoverCard.Positioner>
+      </Portal>
+    </HoverCard.Root>
+  );
+}
+
+// --- Item List Cell (compact display with hover card for long lists) ---
+
+const ITEM_LIST_THRESHOLD = 3;
+
+function ItemListCell({ items }: { items: string[] }) {
+  if (items.length === 0) {
+    return <Text fontSize="sm" color="text.secondary">—</Text>;
+  }
+
+  if (items.length <= ITEM_LIST_THRESHOLD) {
+    return (
+      <Text fontSize="sm" color="text.secondary">{items.join(', ')}</Text>
+    );
+  }
+
+  return (
+    <HoverCard.Root>
+      <HoverCard.Trigger asChild>
+        <Text as="span" fontSize="sm" color="link.color" cursor="pointer" _hover={{ textDecoration: 'underline' }}>
+          {items.length} items
+        </Text>
+      </HoverCard.Trigger>
+      <Portal>
+        <HoverCard.Positioner>
+          <HoverCard.Content maxW="300px" p={3}>
+            <HoverCard.Arrow />
+            <Box maxH="200px" overflowY="auto">
+              <VStack gap={1} align="start">
+                {items.map((item) => (
+                  <Text key={item} fontSize="xs" color="text.primary" fontFamily="mono">{item}</Text>
+                ))}
+              </VStack>
+            </Box>
+          </HoverCard.Content>
+        </HoverCard.Positioner>
+      </Portal>
+    </HoverCard.Root>
   );
 }
 
