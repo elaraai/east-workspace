@@ -335,8 +335,11 @@ export async function executeTaskCore(
 
     if (exitCode !== 0) {
       const errorMsg = lastStderr.slice(0, 1000) || lastStdout.slice(0, 1000) || 'Unknown error';
-      console.error(`Task ${taskName} failed with exit code ${exitCode}: ${errorMsg}`);
-      await log(`Task failed with exit code ${exitCode}\n`);
+      const exitInfo = exitCode === null
+        ? 'Process was killed (out of memory or terminated by runtime — consider a larger compute size)'
+        : `Exit code: ${exitCode}`;
+      console.error(`Task ${taskName} failed — ${exitInfo}: ${errorMsg}`);
+      await log(`Task failed: ${exitInfo}\n`);
       return {
         taskName,
         status: 'failed',
