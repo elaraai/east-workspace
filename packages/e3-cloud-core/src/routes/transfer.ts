@@ -24,6 +24,7 @@ import {
 } from '@elaraai/e3-types';
 import {
   workspaceSetDatasetByHash,
+  packageResolve,
   PackageNotFoundError,
   type StorageBackend,
   type TransferBackend,
@@ -153,8 +154,8 @@ const MAX_PACKAGE_SIZE = 5n * 1024n * 1024n * 1024n; // 5 GB
  * execution to `transferBackend.packageImport.execute()` / `packageExport.execute()`.
  */
 export function createCloudPackageTransferRoutes(
-  _storage: StorageBackend,
-  _getRepoPath: (repo: string) => string,
+  storage: StorageBackend,
+  getRepoPath: (repo: string) => string,
   transferBackend: TransferBackend,
 ) {
   const repoApi = new Hono();
@@ -264,6 +265,19 @@ export function createCloudPackageTransferRoutes(
     const name = c.req.param('name')!;
     const version = c.req.param('version')!;
 
+    // Pre-flight: verify package exists before creating async job
+    try {
+      await packageResolve(storage, getRepoPath(repo), name, version);
+    } catch (err) {
+      if (err instanceof PackageNotFoundError) {
+        return sendError(PackageJobResponseType, variant('package_not_found', {
+          packageName: name,
+          version: none,
+        }));
+      }
+      throw err;
+    }
+
     const id = randomUUID();
     await transferBackend.packageExport.create(id, {
       repo,
@@ -277,12 +291,6 @@ export function createCloudPackageTransferRoutes(
     try {
       await transferBackend.packageExport.execute(id, repo);
     } catch (err) {
-      if (err instanceof PackageNotFoundError) {
-        return sendError(PackageJobResponseType, variant('package_not_found', {
-          packageName: name,
-          version: none,
-        }));
-      }
       const message = err instanceof Error ? err.message : String(err);
       await transferBackend.packageExport.updateStatus(id, variant('failed', { message }));
     }

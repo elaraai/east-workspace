@@ -46,6 +46,7 @@ export async function handler(event: { id: string; repo: string }): Promise<{ id
     return { id: result.id };
   } finally {
     await unlink(tmpPath).catch(() => {});
+    await unlink(`${tmpPath}.partial`).catch(() => {});
     await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: s3Key })).catch(() => {});
   }
 }

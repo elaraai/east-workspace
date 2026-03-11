@@ -5,7 +5,7 @@
  * Lambda handler for package/workspace export processing (Step Function task).
  *
  * AWS-specific: uploads zip to S3 from /tmp.
- * Cloud-agnostic: delegates export to packageExport/workspaceExport from e3-core.
+ * Cloud-agnostic: delegates export to handleProcessExport from e3-cloud-core.
  *
  * Errors propagate to the Step Function catch handler (MarkExportFailed).
  */
@@ -14,13 +14,11 @@ import { createReadStream } from 'node:fs';
 import { stat, unlink } from 'node:fs/promises';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { variant } from '@elaraai/east';
-import { packageExport, workspaceExport } from '@elaraai/e3-core';
+import { handleProcessExport } from '@elaraai/e3-cloud-core/steps';
 import { getStorage, getExportStore } from '../../storage/init.js';
 
 const s3 = new S3Client({});
 const bucket = process.env.BUCKET_NAME!;
-
-const PROGRESS_INTERVAL_MS = 1000;
 
 export async function handler(event: { id: string; repo: string }): Promise<{ id: string }> {
   const { id, repo } = event;
@@ -30,33 +28,13 @@ export async function handler(event: { id: string; repo: string }): Promise<{ id
   const s3Key = `${repo}/_transfer/${id}.zip`;
 
   try {
-    const record = await exportStore.get(id);
-    if (!record) throw new Error(`Export record ${id} not found`);
+    // Phase 1: Export to /tmp (cloud-agnostic)
+    await handleProcessExport(
+      { storage, exportStore },
+      { id, repo, zipPath: tmpPath },
+    );
 
-    // Throttled progress reporting
-    let lastProgressUpdate = Date.now();
-    const onProgress = async (progress: { objectsProcessed: number }) => {
-      const now = Date.now();
-      if (now - lastProgressUpdate >= PROGRESS_INTERVAL_MS) {
-        await exportStore.updateStatus(id, variant('processing',
-          variant('exporting', { objectsProcessed: BigInt(progress.objectsProcessed) }),
-        ));
-        lastProgressUpdate = now;
-      }
-    };
-
-    // Export to /tmp — workspaceExport acquires its own lock internally
-    if (record.workspace.type === 'some') {
-      await workspaceExport(storage, repo, record.workspace.value, tmpPath, record.name, record.version, {
-        onProgress,
-      });
-    } else {
-      await packageExport(storage, repo, record.name, record.version, tmpPath, {
-        onProgress,
-      });
-    }
-
-    // Upload zip to S3
+    // Phase 2: Upload zip to S3 (AWS-specific)
     await exportStore.updateStatus(id, variant('processing',
       variant('uploading', null),
     ));
@@ -77,5 +55,6 @@ export async function handler(event: { id: string; repo: string }): Promise<{ id
     return { id };
   } finally {
     await unlink(tmpPath).catch(() => {});
+    await unlink(`${tmpPath}.partial`).catch(() => {});
   }
 }

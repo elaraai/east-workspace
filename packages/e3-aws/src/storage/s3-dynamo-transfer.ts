@@ -248,9 +248,27 @@ class S3DynamoPackageImportStore implements PackageImportStore {
   }
 
   async updateStatus(id: string, status: PackageImport['status']): Promise<void> {
-    const record = await this.get(id);
-    if (!record) throw new Error(`Package import ${id} not found`);
-    await this.create(id, { ...record, status });
+    const result = await this.dynamo.send(new GetItemCommand({
+      TableName: this.tableName,
+      Key: marshall({ PK: 'TRANSFER', SK: `package-import#${id}` }),
+    }));
+    if (!result.Item) throw new Error(`Package import ${id} not found`);
+    const item = unmarshall(result.Item);
+    const oldData = item.data as Uint8Array;
+    const record = decodePackageImport(oldData) as PackageImport;
+    const newData = encodePackageImport({ ...record, status });
+    await this.dynamo.send(new UpdateItemCommand({
+      TableName: this.tableName,
+      Key: marshall({ PK: 'TRANSFER', SK: `package-import#${id}` }),
+      UpdateExpression: 'SET #data = :newData, #ttl = :ttl',
+      ConditionExpression: '#data = :oldData',
+      ExpressionAttributeNames: { '#data': 'data', '#ttl': 'ttl' },
+      ExpressionAttributeValues: marshall({
+        ':newData': newData,
+        ':oldData': oldData,
+        ':ttl': ttl(TRANSFER_TTL_SECONDS),
+      }),
+    }));
   }
 
   async delete(id: string): Promise<void> {
@@ -321,19 +339,36 @@ class S3DynamoPackageExportStore implements PackageExportStore {
   }
 
   async updateStatus(id: string, status: PackageExport['status']): Promise<void> {
-    const record = await this.get(id);
-    if (!record) throw new Error(`Package export ${id} not found`);
-    await this.create(id, { ...record, status });
+    const result = await this.dynamo.send(new GetItemCommand({
+      TableName: this.tableName,
+      Key: marshall({ PK: 'TRANSFER', SK: `package-export#${id}` }),
+    }));
+    if (!result.Item) throw new Error(`Package export ${id} not found`);
+    const item = unmarshall(result.Item);
+    const oldData = item.data as Uint8Array;
+    const record = decodePackageExport(oldData) as PackageExport;
+    const newData = encodePackageExport({ ...record, status });
+    await this.dynamo.send(new UpdateItemCommand({
+      TableName: this.tableName,
+      Key: marshall({ PK: 'TRANSFER', SK: `package-export#${id}` }),
+      UpdateExpression: 'SET #data = :newData, #ttl = :ttl',
+      ConditionExpression: '#data = :oldData',
+      ExpressionAttributeNames: { '#data': 'data', '#ttl': 'ttl' },
+      ExpressionAttributeValues: marshall({
+        ':newData': newData,
+        ':oldData': oldData,
+        ':ttl': ttl(TRANSFER_TTL_SECONDS),
+      }),
+    }));
   }
 
   async delete(id: string): Promise<void> {
-    // Delete DynamoDB record
+    // Read record before deleting from DynamoDB so we can clean up S3
+    const record = await this.get(id);
     await this.dynamo.send(new DeleteItemCommand({
       TableName: this.tableName,
       Key: marshall({ PK: 'TRANSFER', SK: `package-export#${id}` }),
     }));
-    // Also try to clean up the S3 temp object
-    const record = await this.get(id);
     if (record) {
       await this.s3.send(new DeleteObjectCommand({
         Bucket: this.bucket,
