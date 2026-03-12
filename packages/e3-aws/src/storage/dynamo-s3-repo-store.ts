@@ -303,19 +303,21 @@ export class DynamoS3RepoStore implements RepoStore {
       }
     }
 
-    // 4. Execution history (PK: EXECUTION/{repo}/* -> BEAST2-encoded status)
+    // 4. Execution records — scan TASK_EXEC and TASK_LOG for BEAST2-encoded status
     const decodeStatus = decodeBeast2For(ExecutionStatusType);
-    const executionItems = await this.scanByPkPrefix(`EXECUTION/${repo}/`);
-    for (const item of executionItems) {
-      if (item.status) {
-        try {
-          const statusBytes = item.status as Uint8Array;
-          const status = decodeStatus(statusBytes) as unknown as { type: string; value: { outputHash?: string } };
-          if (status.type === 'success' && this.isValidHash(status.value.outputHash)) {
-            roots.push(status.value.outputHash as string);
+    for (const prefix of [`TASK_EXEC/${repo}/`, `TASK_LOG/${repo}/`]) {
+      const executionItems = await this.scanByPkPrefix(prefix);
+      for (const item of executionItems) {
+        if (item.status) {
+          try {
+            const statusBytes = item.status as Uint8Array;
+            const status = decodeStatus(statusBytes) as unknown as { type: string; value: { outputHash?: string } };
+            if (status.type === 'success' && this.isValidHash(status.value.outputHash)) {
+              roots.push(status.value.outputHash as string);
+            }
+          } catch {
+            // Failed to decode execution status - skip corrupted record
           }
-        } catch {
-          // Failed to decode execution status - skip corrupted record
         }
       }
     }
