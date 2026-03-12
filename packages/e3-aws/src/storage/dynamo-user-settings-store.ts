@@ -8,7 +8,6 @@ import {
   GetItemCommand,
   DeleteItemCommand,
   QueryCommand,
-  ScanCommand,
   BatchWriteItemCommand,
   TransactWriteItemsCommand,
   TransactionCanceledException,
@@ -140,26 +139,34 @@ export class DynamoUserSettingsStore implements UserSettingsStore {
   }
 
   async deleteAllForRepo(repo: string): Promise<void> {
-    const prefix = `USERSETTINGS/${repo}/`;
+    // Query WS/{repo} to discover workspace names, then delete per-workspace
     let exclusiveStartKey: Record<string, any> | undefined;
+    const workspaces: string[] = [];
 
     do {
       const response = await this.dynamo.send(
-        new ScanCommand({
+        new QueryCommand({
           TableName: this.tableName,
-          FilterExpression: 'begins_with(PK, :prefix)',
-          ExpressionAttributeValues: marshall({ ':prefix': prefix }),
-          ProjectionExpression: 'PK, SK',
+          KeyConditionExpression: 'PK = :pk',
+          ExpressionAttributeValues: marshall({ ':pk': `WS/${repo}` }),
+          ProjectionExpression: 'SK',
           ExclusiveStartKey: exclusiveStartKey,
         })
       );
 
-      if (response.Items && response.Items.length > 0) {
-        await this.batchDeleteItems(response.Items);
+      if (response.Items) {
+        for (const item of response.Items) {
+          const unmarshalled = unmarshall(item);
+          workspaces.push(unmarshalled.SK as string);
+        }
       }
 
       exclusiveStartKey = response.LastEvaluatedKey;
     } while (exclusiveStartKey);
+
+    for (const ws of workspaces) {
+      await this.deleteAllForWorkspace(repo, ws);
+    }
   }
 
   private async batchDeleteItems(items: Record<string, any>[]): Promise<void> {

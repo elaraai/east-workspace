@@ -209,18 +209,83 @@ Full GC scan elimination requires Phase 2 (`REPO_INDEX` for partition discovery)
 
 ## Implementation Steps
 
-1. Add `TASK_EXEC/{repo}/{taskHash}` partition — update `executionWrite()` to write the live record
-2. Update `executionWrite()` to archive to `TASK_LOG` via TransactWriteItems at terminal state
-3. Rewrite `executionListForTask()` as `QueryCommand` on `TASK_EXEC`
-4. Rewrite `executionGetLatest()` as `GetItem` on `TASK_EXEC`
-5. Optimise `checkInProgress()` in e3-core to fetch all statuses in single query (eliminate N+1)
-6. Remove dead `executionList()` scan or stub it
-7. Update `gcScanExecutionRoots()` to scan `TASK_LOG/` instead of `EXECUTION/` (still a scan until Phase 2, but renamed)
-8. Deploy to dev, verify with integration tests
-9. Remove old `EXECUTION/` data in dev/twe/kpmg
+1. ~~Add `TASK_EXEC/{repo}/{taskHash}` partition — update `executionWrite()` to write the live record~~ ✓
+2. ~~Update `executionWrite()` to archive to `TASK_LOG` via TransactWriteItems at terminal state~~ ✓
+3. ~~Rewrite `executionListForTask()` as `QueryCommand` on `TASK_EXEC`~~ ✓
+4. ~~Rewrite `executionGetLatest()` as `GetItem` on `TASK_EXEC`~~ ✓
+5. Optimise `checkInProgress()` in e3-core to fetch all statuses in single query (eliminate N+1) — deferred
+6. `executionList()` left as scan — required by `RefStore` interface in e3-core, only used by CLI/local
+7. ~~Update `gcScanExecutionRoots()` to scan `TASK_EXEC/` + `TASK_LOG/` (still a scan until Phase 2)~~ ✓
+8. ~~Deploy to dev, verify with integration tests~~ ✓ (231/231 pass, 2026-03-12)
+9. ~~Remove old `EXECUTION/` data in dev~~ ✓ (full wipe of dev DynamoDB + S3, 2026-03-12)
+
+### Implementation Notes
+
+- **Clean cutover**: Dev data was fully wiped (43,567 DynamoDB items + all S3 versions). No legacy `EXECUTION/` rows remain, so no fallback reads were needed.
+- **Terminal-only writes**: `executionWrite()` is only called from `apply-results.ts` at task success/failure. The design doc's lifecycle step 1 (write running status to TASK_EXEC) was not implemented — TASK_EXEC only holds terminal states. This simplifies concurrent write handling (last-write-wins is safe).
+- **`executionList()` kept**: Required by `RefStore` interface in `../e3/packages/e3-core`. Still uses `ScanCommand` on `TASK_EXEC/{repo}/` prefix, but has no callers in cloud Lambda code (only e3-cli `logs` command).
+- **Prod rollout**: KPMG and TWE will need either data wipe or fallback reads before deploying.
 
 ---
 
-## Future Work (Phase 2)
+## Phase 2: Scan-Free Repo Deletion & GC via Root Tracing (Complete)
 
-The remaining 4 cold-path scans (repo deletion, GC, task config cleanup, user settings cleanup) will be addressed by introducing a `REPO_INDEX/{repo}` partition that tracks every multi-segment PK created for a repo. This enables partition discovery via Query instead of Scan. Design doc to follow after Phase 1 lands.
+Phase 2 eliminates all remaining cold-path scans by **tracing repo data from known roots** using only Query/GetItem operations.
+
+### Derivation Chain
+
+All repo data is reachable from two queryable roots: `WS/{repo}` and `PKG/{repo}`.
+
+```
+WS/{repo} → workspace names
+├── DATAFLOW/{repo}/{ws}
+├── EXEC/{repo}/{ws} → executionIds
+│   ├── TASK/{repo}/{execId} → taskHash (stored on row)
+│   │   ├── TASK_EXEC/{repo}/{taskHash} → inputsHashes
+│   │   │   └── TASK_LOG/{repo}/{taskHash}/{inputsHash} → execIds
+│   │   │       └── LOG/{repo}/{taskHash}/{inputsHash}/{execId}
+│   │   └── CACHE/{repo}/{taskHash}
+│   └── EVENT/{repo}/{execId}
+├── STATE/{repo}/{ws}
+├── USERSETTINGS/{repo}/{ws}
+├── TASKCONFIG/{repo}/{ws}
+└── COMPUTE_RESULT/{repo}/{ws}
+
+Root partitions (direct query): PKG/, WS/, OBJ/, LOCK/, SCHEDULE/, DREF/, REPO#
+```
+
+### Changes Made
+
+1. **`deleteRepoBatch()`** — Rewritten from 2-phase (query + scan) to 3-phase trace:
+   - **Collect**: Trace from `WS/{repo}` → workspaces → executions → tasks → taskHashes → TASK_EXEC → TASK_LOG. Builds flat list of all derived partition PKs.
+   - **Delete derived**: Query+BatchDelete each discovered partition (including USERSETTINGS and TASKCONFIG).
+   - **Delete roots**: Delete root partitions last (PKG, WS, LOCK, OBJ, SCHEDULE, DREF, REPO#).
+
+2. **`gcScanExecutionRoots()`** — Replaced `scanByPkPrefix()` calls with same trace approach. Queries WS → EXEC → TASK (collecting taskHashes), then queries CACHE, TASK_EXEC, and TASK_LOG per taskHash.
+
+3. **`DynamoUserSettingsStore.deleteAllForRepo()`** — Replaced scan with `WS/{repo}` query → iterate `deleteAllForWorkspace()`.
+
+4. **`DynamoTaskConfigStore.deleteAllForRepo()`** — Same pattern as user settings.
+
+5. **Removed** `scanByPkPrefix()` from `DynamoS3RepoStore` (no longer used).
+
+### Remaining Scan
+
+`executionList()` in `DynamoRefStore` still uses `ScanCommand` — required by `RefStore` interface in e3-core, only used by CLI `logs` command (never called in Lambda).
+
+### Known Issue: Repo Deletion / Execution Race Condition
+
+Repo deletion and dataflow execution have no mutual exclusion:
+
+- **Repo deletion** sets status to `deleting` but does NOT check for running executions or acquire workspace locks.
+- **Dataflow start** acquires a workspace lock but does NOT check repo status.
+
+This means an in-flight execution could write new TASK_EXEC/TASK_LOG items after the collect phase completes, leaving orphaned items. This is a **pre-existing issue** (the old scan-based approach had the same race — a scan could miss concurrently-written items).
+
+**Proposed fix:** Require zero workspaces before repo deletion.
+
+1. CAS repo status `active` → `deleting` (atomic)
+2. Check `WS/{repo}` — if any workspaces exist, CAS `deleting` → `active` and reject with error
+3. Make `workspaceWrite` check repo status is `active` via `TransactWriteItems` + ConditionCheck on `REPO SK={repo}` (DynamoDB-specific, no e3-core interface change)
+
+This eliminates the race: once status is `deleting`, no new workspaces can be created. And since deletion requires zero workspaces, there are no in-flight executions to race with. Users must explicitly delete all workspaces before deleting a repo.

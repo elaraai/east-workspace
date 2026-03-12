@@ -51,7 +51,8 @@ const decodeDataflowRun = decodeBeast2For(DataflowRunType);
  * Uses a single-table design with composite keys:
  *   PK: PKG/{repo}              SK: {name}/{version}          — package refs
  *   PK: WS/{repo}               SK: {name}                    — workspace state
- *   PK: EXECUTION/{repo}/{taskHash}/{inputsHash}  SK: {id}    — execution cache
+ *   PK: TASK_EXEC/{repo}/{taskHash}  SK: {inputsHash}          — live execution (mutable)
+ *   PK: TASK_LOG/{repo}/{taskHash}/{inputsHash}  SK: {execId} — execution history (immutable)
  *   PK: DATAFLOW/{repo}/{workspace}  SK: {runId}              — dataflow runs
  *   PK: REPO                    SK: {repo}                    — repo metadata
  *   PK: EXEC/{repo}/{workspace} SK: {paddedId}                — execution tracking
@@ -137,7 +138,8 @@ export class DynamoRefStore implements RefStore, RepoManager, ExecutionTracker {
 
   // ===========================================================================
   // Execution Cache
-  // Schema: PK: EXECUTION/{repo}/{taskHash}/{inputsHash}, SK: {executionId}
+  // Live:    PK: TASK_EXEC/{repo}/{taskHash}, SK: {inputsHash} (mutable, latest terminal status)
+  // History: PK: TASK_LOG/{repo}/{taskHash}/{inputsHash}, SK: {executionId} (immutable)
   // ===========================================================================
 
   async executionGet(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<ExecutionStatus | null> {
@@ -505,47 +507,98 @@ export class DynamoRefStore implements RefStore, RepoManager, ExecutionTracker {
     cursor?: string,
     batchSize = 100
   ): Promise<{ deleted: number; cursor?: string }> {
-    // Phase 1: Query-able single-partition items
-    const queryPartitions = [
+    // Root partitions deleted last (read during collect phase)
+    const rootPartitions = [
       `PKG/${repo}`,
       `WS/${repo}`,
       `LOCK/${repo}`,
-      `REPO#${repo}`, // Legacy execution state
-      `OBJ/${repo}`, // Object catalogue
-      `SCHEDULE/${repo}`, // Workspace schedules
-    ];
-
-    // Phase 2: Scan-based multi-partition items (prefix patterns)
-    const scanPrefixes = [
-      `CACHE/${repo}/`,  // Legacy execution cache
-      `TASK_EXEC/${repo}/`, // Live execution records (mutable)
-      `TASK_LOG/${repo}/`, // Execution history log (immutable)
-      `DATAFLOW/${repo}/`, // Dataflow run records
-      `LOG/${repo}/`,
-      // Phase 3 partitions
-      `EXEC/${repo}/`,
-      `TASK/${repo}/`,
-      `EVENT/${repo}/`,
-      `STATE/${repo}/`, // Execution state store
+      `OBJ/${repo}`,
+      `SCHEDULE/${repo}`,
+      `DREF/${repo}`,
+      `REPO#${repo}`,
     ];
 
     // Parse cursor
-    let phase: 'query' | 'scan' = 'query';
+    let phase: 'collect' | 'delete-derived' | 'delete-roots' = 'collect';
+    let partitions: string[] = [];
     let partitionIndex = 0;
     let exclusiveStartKey: Record<string, any> | undefined;
     if (cursor) {
       const parsed = JSON.parse(cursor);
-      phase = parsed.phase ?? 'query';
+      phase = parsed.phase;
+      partitions = parsed.partitions ?? [];
       partitionIndex = parsed.partitionIndex ?? 0;
       exclusiveStartKey = parsed.lastKey;
     }
 
     let totalDeleted = 0;
 
-    // Phase 1: Delete from query-able partitions
-    if (phase === 'query') {
-      while (partitionIndex < queryPartitions.length && totalDeleted < batchSize) {
-        const pk = queryPartitions[partitionIndex];
+    // Phase 1: Collect all partition PKs by tracing from known roots
+    if (phase === 'collect') {
+      const derived: string[] = [];
+      const taskHashes = new Set<string>();
+
+      // Trace: WS/{repo} → workspace names
+      const wsItems = await this.queryByPkAndSkPrefix(`WS/${repo}`);
+      const wsNames = wsItems.map(item => item.SK as string);
+
+      for (const ws of wsNames) {
+        // Workspace-derived partitions
+        derived.push(`DATAFLOW/${repo}/${ws}`);
+        derived.push(`EXEC/${repo}/${ws}`);
+        derived.push(`STATE/${repo}/${ws}`);
+        derived.push(`COMPUTE_RESULT/${repo}/${ws}`);
+        derived.push(`USERSETTINGS/${repo}/${ws}`);
+        derived.push(`TASKCONFIG/${repo}/${ws}`);
+
+        // Trace: EXEC/{repo}/{ws} → executionIds
+        const execItems = await this.queryByPkAndSkPrefix(`EXEC/${repo}/${ws}`);
+        for (const item of execItems) {
+          const id = item.id as number | undefined;
+          if (id === undefined) continue; // skip counter record
+          derived.push(`TASK/${repo}/${id}`);
+          derived.push(`EVENT/${repo}/${id}`);
+
+          // Trace: TASK/{repo}/{id} → taskHash values
+          const taskItems = await this.queryByPkAndSkPrefix(`TASK/${repo}/${id}`);
+          for (const taskItem of taskItems) {
+            if (taskItem.taskHash) {
+              taskHashes.add(taskItem.taskHash as string);
+            }
+          }
+        }
+      }
+
+      // Trace: taskHashes → TASK_EXEC → TASK_LOG → LOG
+      for (const taskHash of taskHashes) {
+        derived.push(`TASK_EXEC/${repo}/${taskHash}`);
+        derived.push(`CACHE/${repo}/${taskHash}`);
+
+        // Trace: TASK_EXEC/{repo}/{taskHash} → inputsHash values
+        const taskExecItems = await this.queryByPkAndSkPrefix(`TASK_EXEC/${repo}/${taskHash}`);
+        for (const item of taskExecItems) {
+          const inputsHash = item.SK as string;
+          derived.push(`TASK_LOG/${repo}/${taskHash}/${inputsHash}`);
+
+          // Trace: TASK_LOG → executionIds for LOG partitions
+          const logItems = await this.queryByPkAndSkPrefix(`TASK_LOG/${repo}/${taskHash}/${inputsHash}`);
+          for (const logItem of logItems) {
+            const execId = logItem.SK as string;
+            derived.push(`LOG/${repo}/${taskHash}/${inputsHash}/${execId}`);
+          }
+        }
+      }
+
+      partitions = derived;
+      phase = 'delete-derived';
+      partitionIndex = 0;
+      exclusiveStartKey = undefined;
+    }
+
+    // Phase 2: Delete derived partitions
+    if (phase === 'delete-derived') {
+      while (partitionIndex < partitions.length && totalDeleted < batchSize) {
+        const pk = partitions[partitionIndex];
         const remainingBatchSize = batchSize - totalDeleted;
 
         const response = await this.dynamo.send(
@@ -566,7 +619,7 @@ export class DynamoRefStore implements RefStore, RepoManager, ExecutionTracker {
           if (response.LastEvaluatedKey) {
             return {
               deleted: totalDeleted,
-              cursor: JSON.stringify({ phase: 'query', partitionIndex, lastKey: response.LastEvaluatedKey }),
+              cursor: JSON.stringify({ phase: 'delete-derived', partitions, partitionIndex, lastKey: response.LastEvaluatedKey }),
             };
           }
         }
@@ -575,25 +628,25 @@ export class DynamoRefStore implements RefStore, RepoManager, ExecutionTracker {
         exclusiveStartKey = undefined;
       }
 
-      // Move to scan phase
+      // Move to delete roots
       if (totalDeleted < batchSize) {
-        phase = 'scan';
+        phase = 'delete-roots';
         partitionIndex = 0;
         exclusiveStartKey = undefined;
       }
     }
 
-    // Phase 2: Delete from scan-based partitions (CACHE/*, LOG/*)
-    if (phase === 'scan') {
-      while (partitionIndex < scanPrefixes.length && totalDeleted < batchSize) {
-        const prefix = scanPrefixes[partitionIndex];
+    // Phase 3: Delete root partitions (read during collect, deleted last)
+    if (phase === 'delete-roots') {
+      while (partitionIndex < rootPartitions.length && totalDeleted < batchSize) {
+        const pk = rootPartitions[partitionIndex];
         const remainingBatchSize = batchSize - totalDeleted;
 
         const response = await this.dynamo.send(
-          new ScanCommand({
+          new QueryCommand({
             TableName: this.tableName,
-            FilterExpression: 'begins_with(PK, :prefix)',
-            ExpressionAttributeValues: marshall({ ':prefix': prefix }),
+            KeyConditionExpression: 'PK = :pk',
+            ExpressionAttributeValues: marshall({ ':pk': pk }),
             ProjectionExpression: 'PK, SK',
             Limit: remainingBatchSize,
             ExclusiveStartKey: exclusiveStartKey,
@@ -607,7 +660,7 @@ export class DynamoRefStore implements RefStore, RepoManager, ExecutionTracker {
           if (response.LastEvaluatedKey) {
             return {
               deleted: totalDeleted,
-              cursor: JSON.stringify({ phase: 'scan', partitionIndex, lastKey: response.LastEvaluatedKey }),
+              cursor: JSON.stringify({ phase: 'delete-roots', partitions: [], partitionIndex, lastKey: response.LastEvaluatedKey }),
             };
           }
         }
@@ -618,10 +671,15 @@ export class DynamoRefStore implements RefStore, RepoManager, ExecutionTracker {
     }
 
     // All partitions processed
-    const allDone = phase === 'scan' && partitionIndex >= scanPrefixes.length;
+    const allDone = phase === 'delete-roots' && partitionIndex >= rootPartitions.length;
     return {
       deleted: totalDeleted,
-      cursor: allDone ? undefined : JSON.stringify({ phase, partitionIndex, lastKey: undefined }),
+      cursor: allDone ? undefined : JSON.stringify({
+        phase,
+        partitions: phase === 'delete-derived' ? partitions : [],
+        partitionIndex,
+        lastKey: undefined,
+      }),
     };
   }
 
