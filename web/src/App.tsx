@@ -6,6 +6,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { OverlayManagerProvider } from '@elaraai/east-ui-components';
 import { AuthGuard } from './components/AuthGuard';
+import { RepoGuard } from './components/RepoGuard';
 import { PlatformLayout } from './layouts/PlatformLayout';
 import { LoginPage } from './pages/LoginPage';
 import { AuthCallbackPage } from './pages/AuthCallbackPage';
@@ -27,10 +28,12 @@ export function App() {
           <Route element={<PlatformLayout />}>
             <Route path="/" element={<Navigate to="/repos" replace />} />
             <Route path="/repos" element={<RepoListPage />} />
-            <Route path="/repos/:repo" element={<RepoDashboardPage />} />
-            <Route path="/repos/:repo/workspaces/:workspace" element={<WorkspaceViewPage />} />
-            <Route path="/repos/:repo/workspaces/:workspace/tasks/:task" element={<TaskViewPage />} />
-            <Route path="/repos/:repo/workspaces/:workspace/data/*" element={<InputViewPage />} />
+            <Route path="/repos/:repo" element={<RepoGuard />}>
+              <Route index element={<RepoDashboardPage />} />
+              <Route path="workspaces/:workspace" element={<WorkspaceViewPage />} />
+              <Route path="workspaces/:workspace/tasks/:task" element={<TaskViewPage />} />
+              <Route path="workspaces/:workspace/data/*" element={<InputViewPage />} />
+            </Route>
             <Route path="/admin" element={<AdminPage />} />
             <Route path="/admin/repos/:repo" element={<AdminRepoDetailPage />} />
           </Route>
