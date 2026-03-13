@@ -34,7 +34,7 @@ WORKDIR /var/task
 COPY packages/e3-aws/dist/src ./dist/src
 
 # Create minimal package.json with only needed dependencies and install
-RUN echo '{"type":"module","dependencies":{"@aws-sdk/client-s3":"^3.966.0","@aws-sdk/client-dynamodb":"^3.966.0","@aws-sdk/util-dynamodb":"^3.966.0","@aws-sdk/client-sfn":"^3.966.0"}}' > package.json \
+RUN echo '{"type":"module","dependencies":{"@aws-sdk/client-s3":"^3.966.0","@aws-sdk/client-dynamodb":"^3.966.0","@aws-sdk/util-dynamodb":"^3.966.0","@aws-sdk/client-sfn":"^3.966.0","@aws-sdk/s3-request-presigner":"^3.966.0"}}' > package.json \
     && npm install --omit=dev
 
 # Copy local @elaraai packages AFTER npm install (to avoid being cleaned up)

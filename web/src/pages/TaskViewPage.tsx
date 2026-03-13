@@ -6,28 +6,29 @@
 import { useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { Box } from '@chakra-ui/react';
-import { useWorkspaceStatus, TaskPreview } from '@elaraai/e3-ui-components';
+import { useTaskGet, TaskPreview, StatusDisplay } from '@elaraai/e3-ui-components';
 import { API_URL, getRequestOptions } from '../api';
 
 export function TaskViewPage() {
   const { repo, workspace, task } = useParams<{ repo: string; workspace: string; task: string }>();
 
-  const { data: status } = useWorkspaceStatus(API_URL, repo!, workspace!, getRequestOptions(), {
-    refetchInterval: 1000,
+  const { data: taskDetails } = useTaskGet(API_URL, repo!, workspace!, task!, getRequestOptions(), {
     staleTime: 0,
-    structuralSharing: false,
   });
 
-  const taskInfo = useMemo(() => {
-    if (!status || !task) return null;
-    return status.tasks.find((t) => t.name === task) ?? null;
-  }, [status, task]);
+  // Convert TreePath to dot-path string (e.g. ".tasks.render_ui")
+  const outputPath = useMemo(() => {
+    if (!taskDetails) return null;
+    return taskDetails.output.map(s => '.' + s.value).join('');
+  }, [taskDetails]);
 
-  const outputHash = useMemo(() => {
-    if (!status || !taskInfo?.output) return null;
-    const outputDataset = status.datasets.find((d) => d.path === taskInfo.output);
-    return outputDataset?.hash?.type === 'some' ? outputDataset.hash.value : null;
-  }, [status, taskInfo?.output]);
+  if (!outputPath) {
+    return (
+      <Box h="calc(100vh - 120px)" mx={-6} mt={-3} mb={-6}>
+        <StatusDisplay variant="loading" title="Loading task..." />
+      </Box>
+    );
+  }
 
   return (
     <Box h="calc(100vh - 120px)" mx={-6} mt={-3} mb={-6}>
@@ -37,8 +38,7 @@ export function TaskViewPage() {
         repo={repo!}
         workspace={workspace!}
         task={task!}
-        taskInfo={taskInfo}
-        outputHash={outputHash}
+        output={outputPath}
         requestOptions={getRequestOptions()}
       />
     </Box>

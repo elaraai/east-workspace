@@ -26,7 +26,6 @@ import {
 import {
   DynamoDBClient,
   QueryCommand,
-  ScanCommand,
   ConditionalCheckFailedException,
   type AttributeValue,
 } from '@aws-sdk/client-dynamodb';
@@ -279,23 +278,7 @@ export class DynamoS3RepoStore implements RepoStore {
   async gcScanExecutionRoots(repo: string, _cursor?: unknown): Promise<GcRootScanResult> {
     const roots: string[] = [];
 
-    // 1. Legacy execution cache (PK: CACHE/{repo}/* -> outputHash)
-    const cacheItems = await this.scanByPkPrefix(`CACHE/${repo}/`);
-    for (const item of cacheItems) {
-      if (item.outputHash && this.isValidHash(item.outputHash)) {
-        roots.push(item.outputHash as string);
-      }
-    }
-
-    // 2. Legacy task partitions (PK: TASK/{repo}/* -> outputHash)
-    const taskItems = await this.scanByPkPrefix(`TASK/${repo}/`);
-    for (const item of taskItems) {
-      if (item.outputHash && this.isValidHash(item.outputHash)) {
-        roots.push(item.outputHash as string);
-      }
-    }
-
-    // 3. Legacy execution state (PK: REPO#{repo}, SK: EXEC#...)
+    // 1. Legacy execution state (PK: REPO#{repo}, SK: EXEC#...)
     const executions = await this.queryPartition(`REPO#${repo}`, 'EXEC#');
     for (const item of executions) {
       if (item.outputHash && this.isValidHash(item.outputHash)) {
@@ -303,19 +286,76 @@ export class DynamoS3RepoStore implements RepoStore {
       }
     }
 
-    // 4. Execution history (PK: EXECUTION/{repo}/* -> BEAST2-encoded status)
-    const decodeStatus = decodeBeast2For(ExecutionStatusType);
-    const executionItems = await this.scanByPkPrefix(`EXECUTION/${repo}/`);
-    for (const item of executionItems) {
-      if (item.status) {
-        try {
-          const statusBytes = item.status as Uint8Array;
-          const status = decodeStatus(statusBytes) as unknown as { type: string; value: { outputHash?: string } };
-          if (status.type === 'success' && this.isValidHash(status.value.outputHash)) {
-            roots.push(status.value.outputHash as string);
+    // 2. Trace: WS → EXEC → TASK → taskHashes, collecting outputHash from TASK items
+    const workspaces = await this.queryPartition(`WS/${repo}`);
+    const taskHashes = new Set<string>();
+
+    for (const ws of workspaces) {
+      const wsName = ws.SK as string;
+      if (!wsName) continue;
+
+      const execItems = await this.queryPartition(`EXEC/${repo}/${wsName}`);
+      for (const execItem of execItems) {
+        const id = execItem.id as number | undefined;
+        if (id === undefined) continue; // skip counter record
+
+        const taskItems = await this.queryPartition(`TASK/${repo}/${id}`);
+        for (const taskItem of taskItems) {
+          // Collect outputHash from TASK items
+          if (taskItem.outputHash && this.isValidHash(taskItem.outputHash)) {
+            roots.push(taskItem.outputHash as string);
           }
-        } catch {
-          // Failed to decode execution status - skip corrupted record
+          if (taskItem.taskHash) {
+            taskHashes.add(taskItem.taskHash as string);
+          }
+        }
+      }
+    }
+
+    // 3. Trace taskHashes → CACHE (outputHash) and TASK_EXEC/TASK_LOG (BEAST2-encoded status)
+    const decodeStatus = decodeBeast2For(ExecutionStatusType);
+
+    for (const taskHash of taskHashes) {
+      // CACHE/{repo}/{taskHash} → outputHash
+      const cacheItems = await this.queryPartition(`CACHE/${repo}/${taskHash}`);
+      for (const item of cacheItems) {
+        if (item.outputHash && this.isValidHash(item.outputHash)) {
+          roots.push(item.outputHash as string);
+        }
+      }
+
+      // TASK_EXEC/{repo}/{taskHash} → BEAST2-encoded status with outputHash
+      const taskExecItems = await this.queryPartition(`TASK_EXEC/${repo}/${taskHash}`);
+      for (const item of taskExecItems) {
+        if (item.status) {
+          try {
+            const statusBytes = item.status as Uint8Array;
+            const status = decodeStatus(statusBytes) as unknown as { type: string; value: { outputHash?: string } };
+            if (status.type === 'success' && this.isValidHash(status.value.outputHash)) {
+              roots.push(status.value.outputHash as string);
+            }
+          } catch {
+            // Failed to decode execution status - skip corrupted record
+          }
+        }
+      }
+
+      // TASK_LOG/{repo}/{taskHash}/{inputsHash} → BEAST2-encoded status
+      for (const taskExecItem of taskExecItems) {
+        const inputsHash = taskExecItem.SK as string;
+        const logItems = await this.queryPartition(`TASK_LOG/${repo}/${taskHash}/${inputsHash}`);
+        for (const logItem of logItems) {
+          if (logItem.status) {
+            try {
+              const statusBytes = logItem.status as Uint8Array;
+              const status = decodeStatus(statusBytes) as unknown as { type: string; value: { outputHash?: string } };
+              if (status.type === 'success' && this.isValidHash(status.value.outputHash)) {
+                roots.push(status.value.outputHash as string);
+              }
+            } catch {
+              // Failed to decode execution status - skip corrupted record
+            }
+          }
         }
       }
     }
@@ -499,35 +539,6 @@ export class DynamoS3RepoStore implements RepoStore {
           ExpressionAttributeValues: marshall(expressionValues),
           ExclusiveStartKey: exclusiveStartKey,
           ConsistentRead: true,
-        })
-      );
-
-      if (response.Items) {
-        for (const item of response.Items) {
-          items.push(unmarshall(item));
-        }
-      }
-
-      exclusiveStartKey = response.LastEvaluatedKey;
-    } while (exclusiveStartKey);
-
-    return items;
-  }
-
-  /**
-   * Scan for items with PK matching a prefix.
-   */
-  private async scanByPkPrefix(prefix: string): Promise<Record<string, unknown>[]> {
-    const items: Record<string, unknown>[] = [];
-    let exclusiveStartKey: Record<string, AttributeValue> | undefined;
-
-    do {
-      const response = await this.dynamo.send(
-        new ScanCommand({
-          TableName: this.tableName,
-          FilterExpression: 'begins_with(PK, :prefix)',
-          ExpressionAttributeValues: marshall({ ':prefix': prefix }),
-          ExclusiveStartKey: exclusiveStartKey,
         })
       );
 

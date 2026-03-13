@@ -997,10 +997,13 @@ export class E3PlatformStack extends cdk.Stack {
       memorySize: 512,
       environment: {
         TABLE_NAME: this.dataTable.tableName,
+        BUCKET_NAME: this.dataBucket.bucketName,
       },
     });
     // GetReady needs write access to record events and mark tasks as event-recorded
     this.dataTable.grantReadWriteData(getReadyFn);
+    // GetReady needs S3 read access for stepDetectInputChanges (reads package objects for workspace structure)
+    this.dataBucket.grantRead(getReadyFn);
 
     // Lambda: Dispatch task (checks cache, returns task execution params if not cached)
     const dispatchTaskFn = new nodejs.NodejsFunction(this, 'DispatchTaskHandler', {
