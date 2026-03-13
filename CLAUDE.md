@@ -167,12 +167,17 @@ e3-cloud/
 # Install dependencies
 npm install
 
+# Update @elaraai dependencies to latest
+make update
+
 # Build all packages
 npm run build
 
 # Run frontend locally (requires web/public/config.json — see web/README.md)
 npm run dev
 ```
+
+**Important:** The runner container image (`ghcr.io/elaraai/e3:beta`) bundles specific versions of `@elaraai/east` and other packages. After updating dependencies with `make update`, you must also rebuild and deploy the runner (`make deploy-runner`) so that the task IR compiled by the updated packages is compatible with the runner's East runtime. Version mismatches between the compiler (e3-cloud) and the evaluator (runner) can cause silent failures (e.g., commandIr producing truncated commands).
 
 ## Deployment
 
