@@ -127,6 +127,7 @@ export class DynamoDBStateStore implements ExecutionStateStore {
       new GetItemCommand({
         TableName: this.tableName,
         Key: marshall({ PK: pk, SK: sk }),
+        ConsistentRead: true,
       })
     );
 
@@ -169,6 +170,7 @@ export class DynamoDBStateStore implements ExecutionStateStore {
         }),
         ScanIndexForward: false, // Descending order to get latest first
         Limit: 1,
+        ConsistentRead: true,
       })
     );
 
