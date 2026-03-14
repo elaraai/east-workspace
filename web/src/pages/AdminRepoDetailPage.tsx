@@ -3,19 +3,20 @@
  * Proprietary and confidential.
  */
 
-import { useMemo, useState, useCallback } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
   Box, SimpleGrid, Text, Table, Tabs, HStack, Badge, Button, Checkbox,
-  Input, VStack, Popover, Portal, Combobox, createListCollection, Field, Wrap,
+  Input, VStack, Popover, Portal, Combobox, Listbox, createListCollection, Field,
 } from '@chakra-ui/react';
-import { FiBox, FiUsers, FiPlus, FiTrash2, FiPlay, FiExternalLink, FiEdit2, FiX } from 'react-icons/fi';
+import { FiBox, FiUsers, FiPlus, FiTrash2, FiPlay, FiExternalLink, FiEdit2 } from 'react-icons/fi';
 import { ConfirmPopover } from '../components/ConfirmPopover';
 import cronstrue from 'cronstrue';
 import { variant } from '@elaraai/east';
 import { StatCard } from '../components/StatCard';
 import { LoadingState, ErrorState } from '../components/DisplayStates';
 import { StatusBadge } from '../components/StatusBadge';
+import { ItemListCell } from '../components/ItemListCell';
 import {
   useAdminRepoUsers,
   useRepoSchedules,
@@ -162,7 +163,7 @@ function ScheduleFormPopover({
   const [workspace, setWorkspace] = useState(schedule?.workspace ?? '');
   const [cron, setCron] = useState(schedule?.cronExpression ?? '0 0 * * *');
   const [timezone, setTimezone] = useState(schedule?.timezone ?? 'UTC');
-  const [forcePatterns, setForcePatterns] = useState(schedule?.forceTasks.join(', ') ?? '');
+  const [forceTasks, setForceTasks] = useState<string[]>(schedule?.forceTasks ?? []);
   const [enabled, setEnabled] = useState(schedule?.enabled ?? true);
   const [description, setDescription] = useState(
     schedule?.description.type === 'some' ? schedule.description.value : ''
@@ -175,7 +176,7 @@ function ScheduleFormPopover({
     setWorkspace(schedule?.workspace ?? '');
     setCron(schedule?.cronExpression ?? '0 0 * * *');
     setTimezone(schedule?.timezone ?? 'UTC');
-    setForcePatterns(schedule?.forceTasks.join(', ') ?? '');
+    setForceTasks(schedule?.forceTasks ?? []);
     setEnabled(schedule?.enabled ?? true);
     setDescription(schedule?.description.type === 'some' ? schedule.description.value : '');
   };
@@ -184,15 +185,10 @@ function ScheduleFormPopover({
     const ws = isEdit ? schedule.workspace : workspace.trim();
     if (!ws) return;
 
-    const patterns = forcePatterns
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
-
     const request: ScheduleRequest = {
       cronExpression: cron,
       timezone: variant('some', timezone) as ScheduleRequest['timezone'],
-      forceTasks: patterns,
+      forceTasks,
       enabled,
       description: description.trim()
         ? (variant('some', description.trim()) as ScheduleRequest['description'])
@@ -249,17 +245,16 @@ function ScheduleFormPopover({
                 </Field.Root>
                 <Field.Root disabled={formDisabled}>
                   <Field.Label fontSize="xs" fontWeight={600}>
-                    Force Task Patterns
-                    <InfoTip content={"Glob patterns to force cache bypass. Uses * as wildcard.\n\nExamples:\n*  = all tasks\ninput*  = tasks starting with \"input\"\n*_load  = tasks ending with \"_load\"\n\nSelect tasks or type custom patterns."} />
+                    Force Tasks
+                    <InfoTip content={"Select tasks to force cache bypass on each scheduled run.\n\nSelected tasks will always re-execute even if their inputs haven't changed."} />
                   </Field.Label>
-                  <TaskPatternInput
+                  <TaskListSelect
                     repo={repo}
                     workspace={isEdit ? schedule.workspace : workspace}
-                    value={forcePatterns}
-                    onChange={setForcePatterns}
+                    value={forceTasks}
+                    onChange={setForceTasks}
                     disabled={formDisabled}
                   />
-                  <GlobHint patterns={forcePatterns} />
                 </Field.Root>
                 <Field.Root disabled={formDisabled}>
                   <Field.Label fontSize="xs" fontWeight={600}>Description</Field.Label>
@@ -590,9 +585,7 @@ function InfrastructureTab({ repo }: { repo: string }) {
                       </Badge>
                     </Table.Cell>
                     <Table.Cell>
-                      <Text fontSize="sm" color="text.secondary">
-                        {sched.forceTasks.length > 0 ? sched.forceTasks.join(', ') : '—'}
-                      </Text>
+                      <ItemListCell items={sched.forceTasks} />
                     </Table.Cell>
                     <Table.Cell>
                       <Text fontSize="sm" color="text.secondary">
@@ -755,7 +748,7 @@ function WorkspaceRow({ repo, workspace: ws }: { repo: string; workspace: Worksp
 
 // --- Task Pattern Input ---
 
-function TaskPatternInput({
+function TaskListSelect({
   repo,
   workspace,
   value,
@@ -764,115 +757,58 @@ function TaskPatternInput({
 }: {
   repo: string;
   workspace: string;
-  value: string;
-  onChange: (v: string) => void;
+  value: string[];
+  onChange: (v: string[]) => void;
   disabled?: boolean;
 }) {
   const { data: tasks } = useTaskList(API_URL, repo, workspace || null, getRequestOptions());
-  const [inputValue, setInputValue] = useState('');
+  const [search, setSearch] = useState('');
 
-  const patterns = useMemo(
-    () => value.split(',').map((s) => s.trim()).filter(Boolean),
-    [value]
-  );
+  const taskNames = useMemo(() => (tasks ?? []).map((t) => t.name).sort(), [tasks]);
 
-  const taskNames = useMemo(() => (tasks ?? []).map((t) => t.name), [tasks]);
-
-  const suggestions = useMemo(() => {
-    if (!inputValue) return taskNames;
-    const lower = inputValue.toLowerCase();
+  const filtered = useMemo(() => {
+    if (!search) return taskNames;
+    const lower = search.toLowerCase();
     return taskNames.filter((n) => n.toLowerCase().includes(lower));
-  }, [inputValue, taskNames]);
+  }, [search, taskNames]);
 
   const collection = useMemo(
-    () => createListCollection({ items: suggestions.map((s) => ({ label: s, value: s })) }),
-    [suggestions]
-  );
-
-  const updatePatterns = useCallback(
-    (newPatterns: string[]) => onChange(newPatterns.join(', ')),
-    [onChange]
-  );
-
-  const addPattern = useCallback(
-    (pattern: string) => {
-      const trimmed = pattern.trim();
-      if (!trimmed || patterns.includes(trimmed)) return;
-      updatePatterns([...patterns, trimmed]);
-      setInputValue('');
-    },
-    [patterns, updatePatterns]
-  );
-
-  const removePattern = useCallback(
-    (pattern: string) => updatePatterns(patterns.filter((p) => p !== pattern)),
-    [patterns, updatePatterns]
+    () => createListCollection({ items: filtered.map((s) => ({ label: s, value: s })) }),
+    [filtered]
   );
 
   return (
     <VStack gap={1} align="stretch">
-      {patterns.length > 0 && (
-        <Wrap gap={1}>
-          {patterns.map((p) => (
-            <Badge key={p} variant="subtle" colorPalette="teal" size="sm">
-              <HStack gap={1}>
-                <Text>{p}</Text>
-                <Button
-                  size="2xs"
-                  variant="ghost"
-                  onClick={() => removePattern(p)}
-                  minW="auto"
-                  h="auto"
-                  p={0}
-                  disabled={disabled}
-                >
-                  <FiX size={10} />
-                </Button>
-              </HStack>
-            </Badge>
-          ))}
-        </Wrap>
-      )}
-      <Combobox.Root
+      <Input
         size="sm"
+        placeholder="Search tasks..."
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        disabled={disabled}
+      />
+      <Text fontSize="xs" color="text.tertiary">
+        {value.length} of {taskNames.length} selected
+      </Text>
+      <Listbox.Root
         collection={collection}
-        inputValue={inputValue}
-        onInputValueChange={(e) => setInputValue(e.inputValue)}
-        value={[]}
-        onValueChange={(e) => {
-          if (e.value[0]) addPattern(e.value[0]);
-        }}
-        openOnClick
+        selectionMode="multiple"
+        value={value}
+        onValueChange={(e) => onChange(e.value)}
         disabled={disabled}
       >
-        <Combobox.Control>
-          <Combobox.Input
-            placeholder="Type pattern or select task..."
-            borderColor="border.primary"
-            bg="input.bg"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && inputValue.trim()) {
-                e.preventDefault();
-                addPattern(inputValue);
-              }
-            }}
-          />
-          <Combobox.Trigger />
-        </Combobox.Control>
-        <Combobox.Positioner>
-          <Combobox.Content bg="modal.bg" border="1px solid" borderColor="border.primary" borderRadius="md" maxH="200px" overflowY="auto" zIndex="popover">
-            {suggestions.length > 0 ? suggestions.map((name) => (
-              <Combobox.Item key={name} item={{ label: name, value: name }} fontSize="sm">
-                <Combobox.ItemText>{name}</Combobox.ItemText>
-              </Combobox.Item>
-            )) : (
-              <Text fontSize="sm" color="text.tertiary" p={2}>
-                {inputValue ? 'Press Enter to add as pattern' : 'No tasks found'}
-              </Text>
-            )}
-          </Combobox.Content>
-        </Combobox.Positioner>
-      </Combobox.Root>
+        <Listbox.Content maxH="200px" overflowY="auto" borderWidth="1px" borderColor="border.primary" borderRadius="md">
+          {filtered.length > 0 ? filtered.map((name) => (
+            <Listbox.Item key={name} item={{ label: name, value: name }} fontSize="sm" px={2} py={1} cursor="pointer">
+              <Listbox.ItemIndicator />
+              <Listbox.ItemText>{name}</Listbox.ItemText>
+            </Listbox.Item>
+          )) : (
+            <Text fontSize="sm" color="text.tertiary" p={2}>
+              {search ? 'No matching tasks' : 'No tasks found'}
+            </Text>
+          )}
+        </Listbox.Content>
+      </Listbox.Root>
     </VStack>
   );
 }
@@ -1272,25 +1208,6 @@ function CronHint({ expression }: { expression: string }) {
   } catch {
     return <Text fontSize="xs" color="red.400" mt={1}>Invalid cron expression</Text>;
   }
-}
-
-// --- Glob Hint ---
-// Matches backend globToRegex in e3-aws-runner/src/handlers/schedule-trigger.ts
-// Only `*` wildcard is supported (matches zero or more characters)
-
-function describeGlob(pattern: string): string {
-  if (pattern === '*') return 'all tasks';
-  if (!pattern.includes('*')) return `task "${pattern}" (exact)`;
-  if (pattern.endsWith('*') && !pattern.slice(0, -1).includes('*')) return `tasks starting with "${pattern.slice(0, -1)}"`;
-  if (pattern.startsWith('*') && !pattern.slice(1).includes('*')) return `tasks ending with "${pattern.slice(1)}"`;
-  return `tasks matching "${pattern}"`;
-}
-
-function GlobHint({ patterns }: { patterns: string }) {
-  if (!patterns.trim()) return null;
-  const parts = patterns.split(',').map((s) => s.trim()).filter(Boolean);
-  const desc = parts.map(describeGlob).join('; ');
-  return <Text fontSize="xs" color="text.tertiary" mt={1}>Force cache bypass for {desc}</Text>;
 }
 
 // --- Timezone validation ---
