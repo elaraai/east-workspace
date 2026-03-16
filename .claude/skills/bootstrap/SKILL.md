@@ -251,6 +251,7 @@ az ad group member add --group "{account}-users" --member-id <user-object-id>
 | `dev` | `elara-dev-e3` | `ecd3a920-ef9a-495c-b1ef-f5c8ce71304a` | `elara-dev-e3-admins` (`b1de3e14-4420-4920-a673-c9da23562da4`) | `elara-dev-e3-users` (`679ca78f-2ed5-4ee6-a9e6-d69f115b9c51`) |
 | `kpmg` | `e3-kpmg` | `7356c61e-9d9e-4af8-b9e3-eea677f9491d` | `kpmg-prod-e3-admins` (`8fa20a64-8126-48c5-aefb-eaee8374228a`) | `kpmg-prod-e3-users` (`3fd33d89-a5ab-41b6-b5b5-e9e281ff6bd4`) |
 | `twe` | `e3-twe` | `598f3635-6ca2-46fa-ad5f-3cc4f8347084` | `twe-prod-e3-admins` (`35e1be0b-790e-4e7d-a281-97d115268a02`) | `twe-prod-e3-users` (`f1b05d52-2b0f-4e72-b4b0-5acf77b277b3`) |
+| `aurecon` | `e3-aurecon` | `04bc5cb1-4eb7-47d8-b564-5996dd1b4804` | `aurecon-prod-e3-admins` (`385c1c88-3d6c-4975-a18d-1a8dddfa379f`) | `aurecon-prod-e3-users` (`f812cf98-75af-4585-986f-7a03d5c14b2e`) |
 
 ## Create AWS Account
 
@@ -496,3 +497,4 @@ Verify login at `https://{deploymentId}.e3.elaraai.com`.
 | `elara-dev-e3` | `925445553972` | `elaraai-dev-elara-e3` | `dev` |
 | `kpmg-prod-e3` | `759210286954` | `elaraai-prod-kpmg-e3` | `kpmg` |
 | `twe-prod-e3` | `973168821520` | `elaraai-prod-twe-e3` | `twe` |
+| `aurecon-prod-e3` | `794661976699` | `elaraai-prod-aurecon-e3` | `aurecon` |

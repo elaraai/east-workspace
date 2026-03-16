@@ -136,6 +136,17 @@ export const accounts: AccountConfig[] = [
       route53RoleArn: 'arn:aws:iam::064741130885:role/E3-Route53-CrossAccount',
     },
   },
+  {
+    organization: 'aurecon',
+    environment: 'prod',
+    budgetLimitUsd: 200,
+    description: 'Aurecon e3 production',
+    domain: {
+      baseDomain: 'e3.elaraai.com',
+      hostedZoneId: 'Z10452251PCGZVRQ2N81E',
+      route53RoleArn: 'arn:aws:iam::064741130885:role/E3-Route53-CrossAccount',
+    },
+  },
 ];
 
 /** Derived configs with computed name, email, isClient */
@@ -309,5 +320,6 @@ export const sharedInfraConfig = {
     '925445553972',  // elara-dev-e3
     '759210286954',  // kpmg-prod-e3
     '973168821520',  // twe-prod-e3
+    '794661976699',  // aurecon-prod-e3
   ] as string[],
 };

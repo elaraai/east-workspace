@@ -11,6 +11,7 @@ on:
           - elara-dev
           - kpmg
           - twe
+          - aurecon
       to:
         description: 'Target environment to copy runner image to'
         required: true
@@ -19,6 +20,7 @@ on:
           - kpmg
           - twe
           - elara-dev
+          - aurecon
 
 permissions:
   id-token: write

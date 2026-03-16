@@ -11,6 +11,7 @@ on:
           - elara-dev
           - kpmg
           - twe
+          - aurecon
       runner:
         description: 'Runner image action (before CDK deploy)'
         required: true
@@ -22,6 +23,7 @@ on:
           - transfer from elara-dev
           - transfer from kpmg
           - transfer from twe
+          - transfer from aurecon
 
 permissions:
   id-token: write
