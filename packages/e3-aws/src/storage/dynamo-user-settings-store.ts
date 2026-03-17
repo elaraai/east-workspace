@@ -25,7 +25,7 @@ import { WorkspaceNotFoundError, WorkspaceLockedError } from '@elaraai/e3-cloud-
  *
  * PUT uses TransactWriteItems with:
  *   1. ConditionCheck on WS/{repo} SK={workspace} — workspace must exist
- *   2. ConditionCheck on LOCK/{repo} SK=workspace/{workspace} — no active lock
+ *   2. ConditionCheck on LOCK/{repo} SK={workspace} — no active exclusive lock
  *   3. Put on USERSETTINGS/{repo}/{workspace} SK={userId} — write the blob
  */
 export class DynamoUserSettingsStore implements UserSettingsStore {
@@ -66,13 +66,14 @@ export class DynamoUserSettingsStore implements UserSettingsStore {
                 ConditionExpression: 'attribute_exists(PK)',
               },
             },
-            // 2. Workspace must not be locked
+            // 2. Workspace must not be exclusively locked (blocks during deploy/remove/export)
             {
               ConditionCheck: {
                 TableName: this.tableName,
-                Key: marshall({ PK: `LOCK/${repo}`, SK: `workspace/${workspace}` }),
-                ConditionExpression: 'attribute_not_exists(PK) OR expiresAt < :now',
-                ExpressionAttributeValues: marshall({ ':now': new Date().toISOString() }),
+                Key: marshall({ PK: `LOCK/${repo}`, SK: workspace }),
+                ConditionExpression: 'attribute_not_exists(PK) OR expiresAt < :now OR #mode = :shared',
+                ExpressionAttributeNames: { '#mode': 'mode' },
+                ExpressionAttributeValues: marshall({ ':now': new Date().toISOString(), ':shared': 'shared' }),
               },
             },
             // 3. Write the settings blob

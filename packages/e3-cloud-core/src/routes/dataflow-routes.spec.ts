@@ -240,8 +240,7 @@ describe('dataflow-routes', () => {
     // Lock the workspace with an exclusive lock (simulating deploy) to block shared dataflow lock
     await storage.locks.acquire(REPO, WS, variant('deployment', null));
 
-    // Even though the workspace doesn't exist, the lock check happens after graph validation,
-    // so this will fail with workspace_not_found first. That's fine.
+    // The workspace doesn't exist, so this will fail with workspace_not_found or workspace_locked.
     const bodyBytes = encodeRequestBody(ApiTypes.DataflowRequestType, {
       concurrency: none,
       force: false,

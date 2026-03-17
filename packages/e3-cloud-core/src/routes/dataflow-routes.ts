@@ -178,8 +178,11 @@ export function createDataflowRoutes(deps: {
       stepCancel(state, 'User requested cancellation');
       await storage.executions.update(state);
 
-      await storage.locks.forceRelease(repo, `${workspace}#dataflow`);
-      await storage.locks.forceRelease(repo, workspace);
+      // Release both locks (exclusive first, then shared)
+      try { await storage.locks.forceRelease(repo, `${workspace}#dataflow`); }
+      catch (err) { console.error(`Failed to release dataflow lock for ${repo}/${workspace}#dataflow:`, err); }
+      try { await storage.locks.forceRelease(repo, workspace); }
+      catch (err) { console.error(`Failed to release workspace lock for ${repo}/${workspace}:`, err); }
 
       console.log(`Cancelled execution ${state.id} for ${repo}/${workspace}`);
       return sendSuccess(NullType, null);
