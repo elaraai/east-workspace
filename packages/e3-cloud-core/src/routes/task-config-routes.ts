@@ -118,7 +118,7 @@ export function createTaskConfigRoutes(
     const repo = c.req.param('repo')!;
     const workspace = c.req.param('ws')!;
 
-    const lock = await locks.acquire(repo, `workspace/${workspace}`, variant('dataset_write', null), { wait: false });
+    const lock = await locks.acquire(repo, workspace, variant('dataset_write', null), { wait: false, mode: 'shared' });
     if (!lock) {
       return sendError(ComputeConfigMapType, internalError('Workspace is locked by another operation'));
     }
@@ -160,7 +160,7 @@ export function createTaskConfigRoutes(
     const workspace = c.req.param('ws')!;
     const taskName = c.req.param('task')!;
 
-    const lock = await locks.acquire(repo, `workspace/${workspace}`, variant('dataset_write', null), { wait: false });
+    const lock = await locks.acquire(repo, workspace, variant('dataset_write', null), { wait: false, mode: 'shared' });
     if (!lock) {
       return sendError(ComputeSizeType, internalError('Workspace is locked by another operation'));
     }
@@ -189,7 +189,7 @@ export function createTaskConfigRoutes(
     const workspace = c.req.param('ws')!;
     const taskName = c.req.param('task')!;
 
-    const lock = await locks.acquire(repo, `workspace/${workspace}`, variant('dataset_write', null), { wait: false });
+    const lock = await locks.acquire(repo, workspace, variant('dataset_write', null), { wait: false, mode: 'shared' });
     if (!lock) {
       return sendError(NullType, internalError('Workspace is locked by another operation'));
     }
@@ -244,7 +244,7 @@ export function createTaskConfigRoutes(
     const repo = c.req.param('repo')!;
     const workspace = c.req.param('ws')!;
 
-    const lock = await locks.acquire(repo, `workspace/${workspace}`, variant('dataset_write', null), { wait: false });
+    const lock = await locks.acquire(repo, workspace, variant('dataset_write', null), { wait: false, mode: 'shared' });
     if (!lock) {
       return sendError(TimeoutConfigMapType, internalError('Workspace is locked by another operation'));
     }
@@ -285,7 +285,7 @@ export function createTaskConfigRoutes(
     const workspace = c.req.param('ws')!;
     const taskName = c.req.param('task')!;
 
-    const lock = await locks.acquire(repo, `workspace/${workspace}`, variant('dataset_write', null), { wait: false });
+    const lock = await locks.acquire(repo, workspace, variant('dataset_write', null), { wait: false, mode: 'shared' });
     if (!lock) {
       return sendError(TaskTimeoutType, internalError('Workspace is locked by another operation'));
     }
@@ -314,7 +314,7 @@ export function createTaskConfigRoutes(
     const workspace = c.req.param('ws')!;
     const taskName = c.req.param('task')!;
 
-    const lock = await locks.acquire(repo, `workspace/${workspace}`, variant('dataset_write', null), { wait: false });
+    const lock = await locks.acquire(repo, workspace, variant('dataset_write', null), { wait: false, mode: 'shared' });
     if (!lock) {
       return sendError(NullType, internalError('Workspace is locked by another operation'));
     }

@@ -38,12 +38,30 @@ function createMockStorage() {
   const stateStore = new InMemoryStateStore();
   const originalLocks = base.locks;
 
+  // Track lock handles so forceRelease can actually release them
+  const lockHandles = new Map<string, import('@elaraai/e3-core').LockHandle>();
+  const lockKey = (repo: string, resource: string) => `${repo}:${resource}`;
+
   const locks = {
-    acquire: originalLocks.acquire.bind(originalLocks),
+    async acquire(
+      repo: string, resource: string, operation: import('@elaraai/e3-core').LockOperation,
+      options?: { wait?: boolean; timeout?: number; mode?: 'shared' | 'exclusive' },
+    ) {
+      const handle = await originalLocks.acquire(repo, resource, operation, options);
+      if (handle) lockHandles.set(lockKey(repo, resource), handle);
+      return handle;
+    },
     getState: originalLocks.getState.bind(originalLocks),
     isHolderAlive: originalLocks.isHolderAlive.bind(originalLocks),
     async renewLock(_repo: string, _resource: string) { return true; },
-    async forceRelease(_repo: string, _resource: string) {},
+    async forceRelease(repo: string, resource: string) {
+      const key = lockKey(repo, resource);
+      const handle = lockHandles.get(key);
+      if (handle) {
+        await handle.release();
+        lockHandles.delete(key);
+      }
+    },
   };
 
   return {
@@ -219,9 +237,8 @@ describe('dataflow-routes', () => {
   });
 
   it('POST /dataflow — returns error for locked workspace', async () => {
-    // Write a minimal workspace so dataflowGetGraph can find it
-    // But lock the workspace first
-    await storage.locks.acquire(REPO, `workspace/${WS}`, variant('dataflow', null));
+    // Lock the workspace with an exclusive lock (simulating deploy) to block shared dataflow lock
+    await storage.locks.acquire(REPO, WS, variant('deployment', null));
 
     // Even though the workspace doesn't exist, the lock check happens after graph validation,
     // so this will fail with workspace_not_found first. That's fine.
@@ -234,5 +251,58 @@ describe('dataflow-routes', () => {
     const body = await decodeResponse(res, NullType);
     // Should be an error (either workspace_not_found or workspace_locked)
     assert.equal(body.type, 'error');
+  });
+
+  // ── Lock contention regression tests ────────────────
+
+  it('shared workspace lock blocks exclusive deploy lock during dataflow', async () => {
+    // Acquire shared lock on workspace (simulating what dataflow start does)
+    const sharedLock = await storage.locks.acquire(REPO, WS, variant('dataflow', null), { wait: false, mode: 'shared' });
+    assert.ok(sharedLock, 'shared lock should be acquired');
+
+    // Attempt exclusive lock (simulating deploy) — should be blocked
+    const deployLock = await storage.locks.acquire(REPO, WS, variant('deployment', null), { wait: false });
+    assert.equal(deployLock, null, 'deploy should be blocked by dataflow shared lock');
+
+    await sharedLock!.release();
+  });
+
+  it('shared workspace lock allows concurrent shared lock (e3 set)', async () => {
+    // Acquire shared lock on workspace (simulating dataflow)
+    const sharedLock = await storage.locks.acquire(REPO, WS, variant('dataflow', null), { wait: false, mode: 'shared' });
+    assert.ok(sharedLock, 'shared lock should be acquired');
+
+    // Another shared lock (simulating e3 set / dataset_write) — should succeed
+    const setLock = await storage.locks.acquire(REPO, WS, variant('dataset_write', null), { wait: false, mode: 'shared' });
+    assert.ok(setLock, 'e3 set should be allowed during dataflow');
+
+    await setLock!.release();
+    await sharedLock!.release();
+  });
+
+  it('cancel releases both shared and exclusive locks', async () => {
+    // Simulate locks held during a running execution
+    await storage.locks.acquire(REPO, WS, variant('dataflow', null), { mode: 'shared' });
+    await storage.locks.acquire(REPO, `${WS}#dataflow`, variant('dataflow', null));
+
+    // Create a running execution for cancel to find
+    const state: DataflowExecutionState = {
+      id: '1', repo: REPO, workspace: WS, startedAt: new Date(), concurrency: 4n,
+      force: false, filter: none, graph: none, graphHash: none, tasks: new Map(),
+      executed: 0n, cached: 0n, failed: 0n, skipped: 0n, status: 'running',
+      completedAt: none, error: none, versionVectors: new Map(),
+      inputSnapshot: new Map(), taskOutputPaths: [], reexecuted: 0n, events: [], eventSeq: 0n,
+    };
+    await stateStore.create(state);
+
+    // Cancel the execution
+    const res = await fetchRoute(app, 'POST', `${BASE}/cancel`, { identity });
+    const body = await decodeResponse(res, NullType);
+    assert.equal(body.type, 'success');
+
+    // Both locks should now be released — deploy should succeed
+    const deployLock = await storage.locks.acquire(REPO, WS, variant('deployment', null), { wait: false });
+    assert.ok(deployLock, 'deploy should be acquirable after cancel releases both locks');
+    await deployLock!.release();
   });
 });

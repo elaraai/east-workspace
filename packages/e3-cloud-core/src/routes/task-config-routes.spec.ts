@@ -220,9 +220,9 @@ describe('task-config-routes', () => {
     assert.equal(body.type, 'success');
   });
 
-  it('DELETE /compute/:task — returns error when workspace is locked', async () => {
-    // Acquire lock to simulate contention
-    await storage.locks.acquire(REPO, `workspace/${WS}`, variant('dataflow', null));
+  it('DELETE /compute/:task — returns error when workspace is locked by deploy', async () => {
+    // Acquire exclusive lock to simulate deploy holding workspace lock
+    await storage.locks.acquire(REPO, WS, variant('deployment', null));
 
     const res = await fetchRoute(app, 'DELETE', `${BASE}/compute/my-task`, { identity });
     const body = await decodeResponse(res, NullType);
@@ -270,5 +270,35 @@ describe('task-config-routes', () => {
     if (body.type === 'success') {
       assert.equal(body.value.size, 2);
     }
+  });
+
+  // ── Lock contention regression tests ────────────────
+
+  it('task config write coexists with dataflow shared lock', async () => {
+    // Acquire shared lock on workspace (simulating running dataflow)
+    const dfLock = await storage.locks.acquire(REPO, WS, variant('dataflow', null), { mode: 'shared' });
+    assert.ok(dfLock, 'dataflow shared lock should be acquired');
+
+    // Task config PUT should succeed (also shared on workspace)
+    const bodyBytes = encodeRequestBody(ComputeSizeType, variant('small', null));
+    const res = await fetchRoute(app, 'PUT', `${BASE}/compute/my-task`, { identity, body: bodyBytes });
+    const body = await decodeResponse(res, ComputeSizeType);
+    assert.equal(body.type, 'success');
+
+    await dfLock!.release();
+  });
+
+  it('task config write blocked by exclusive deploy lock', async () => {
+    // Acquire exclusive lock on workspace (simulating deploy)
+    const deployLock = await storage.locks.acquire(REPO, WS, variant('deployment', null));
+    assert.ok(deployLock, 'deploy exclusive lock should be acquired');
+
+    // Task config PUT should fail (shared lock blocked by exclusive)
+    const bodyBytes = encodeRequestBody(ComputeSizeType, variant('small', null));
+    const res = await fetchRoute(app, 'PUT', `${BASE}/compute/my-task`, { identity, body: bodyBytes });
+    const body = await decodeResponse(res, ComputeSizeType);
+    assert.equal(body.type, 'error');
+
+    await deployLock!.release();
   });
 });

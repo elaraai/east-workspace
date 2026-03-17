@@ -43,8 +43,9 @@ export async function handleGetReady(storage: DataflowStorage, event: GetReadyEv
 
   console.log(`Getting ready tasks for execution ${executionId} in repo ${repo}`);
 
-  // Renew workspace lock TTL on every iteration to prevent expiry during long-running dataflows
-  await storage.locks.renewLock(repo, `workspace/${workspace}`);
+  // Renew both lock TTLs on every iteration to prevent expiry during long-running dataflows
+  await storage.locks.renewLock(repo, workspace);                 // shared workspace lock
+  await storage.locks.renewLock(repo, `${workspace}#dataflow`);   // exclusive dataflow lock
 
   // Read execution state from the store
   const state = await storage.executions.read(repo, workspace, execId);

@@ -227,4 +227,27 @@ describe('finalize-execution', () => {
     assert.ok(stateAfterSecond);
     assert.equal(stateAfterSecond.events.length, eventsAfterFirst);
   });
+
+  it('releases both shared workspace lock and exclusive dataflow lock', async () => {
+    const state = makeState();
+    await mock.stateStore.create(state);
+
+    // Simulate the two locks held during execution
+    await mock.storage.locks.acquire(REPO, WS, variant('dataflow', null), { mode: 'shared' });
+    await mock.storage.locks.acquire(REPO, `${WS}#dataflow`, variant('dataflow', null));
+
+    // Verify deploy is blocked before finalize
+    const blockedLock = await mock.storage.locks.acquire(REPO, WS, variant('deployment', null), { wait: false });
+    assert.equal(blockedLock, null, 'deploy should be blocked before finalize');
+
+    await handleFinalizeExecution(
+      { storage: mock.storage, dataflowRuns },
+      { repo: REPO, workspace: WS, executionId: EXEC_ID, status: 'completed', runId: RUN_ID },
+    );
+
+    // After finalize, deploy should succeed (both locks released)
+    const deployLock = await mock.storage.locks.acquire(REPO, WS, variant('deployment', null), { wait: false });
+    assert.ok(deployLock, 'deploy should be acquirable after finalize releases both locks');
+    await deployLock!.release();
+  });
 });

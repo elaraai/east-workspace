@@ -71,15 +71,31 @@ export function createDataflowRoutes(deps: {
       }
     }
 
-    // Acquire workspace lock to prevent concurrent executions
-    const lock = await storage.locks.acquire(
+    // Acquire shared workspace lock (blocks deploy/remove/export, coexists with e3 set)
+    const sharedLock = await storage.locks.acquire(
       repo,
-      `workspace/${workspace}`,
+      workspace,
+      variant('dataflow', null),
+      { wait: false, mode: 'shared' }
+    );
+
+    if (!sharedLock) {
+      return sendError(NullType, variant('workspace_locked', {
+        workspace,
+        holder: variant('unknown', null),
+      }));
+    }
+
+    // Acquire exclusive dataflow lock (prevents concurrent dataflow starts)
+    const dataflowLock = await storage.locks.acquire(
+      repo,
+      `${workspace}#dataflow`,
       variant('dataflow', null),
       { wait: false }
     );
 
-    if (!lock) {
+    if (!dataflowLock) {
+      await sharedLock.release();
       return sendError(NullType, variant('workspace_locked', {
         workspace,
         holder: variant('unknown', null),
@@ -132,11 +148,12 @@ export function createDataflowRoutes(deps: {
         runId,
       });
 
-      // DON'T release lock here - finalize-execution will release it
+      // DON'T release locks here - finalize-execution will release them
       return sendSuccessWithStatus(NullType, null, 202);
     } catch (err) {
-      // Release lock on error
-      await lock.release();
+      // Release both locks on error
+      await dataflowLock.release();
+      await sharedLock.release();
       console.error('Failed to start dataflow:', err);
       return sendError(NullType, internalError('Failed to start dataflow execution'));
     }
@@ -161,7 +178,8 @@ export function createDataflowRoutes(deps: {
       stepCancel(state, 'User requested cancellation');
       await storage.executions.update(state);
 
-      await storage.locks.forceRelease(repo, `workspace/${workspace}`);
+      await storage.locks.forceRelease(repo, `${workspace}#dataflow`);
+      await storage.locks.forceRelease(repo, workspace);
 
       console.log(`Cancelled execution ${state.id} for ${repo}/${workspace}`);
       return sendSuccess(NullType, null);

@@ -75,12 +75,30 @@ export function createMockStorage() {
   const stateStore = new InMemoryStateStore();
   const originalLocks = base.locks;
 
+  // Track lock handles so forceRelease can actually release them
+  const lockHandles = new Map<string, import('@elaraai/e3-core').LockHandle>();
+  const lockKey = (repo: string, resource: string) => `${repo}:${resource}`;
+
   const locks = {
-    acquire: originalLocks.acquire.bind(originalLocks),
+    async acquire(
+      repo: string, resource: string, operation: import('@elaraai/e3-core').LockOperation,
+      options?: { wait?: boolean; timeout?: number; mode?: 'shared' | 'exclusive' },
+    ) {
+      const handle = await originalLocks.acquire(repo, resource, operation, options);
+      if (handle) lockHandles.set(lockKey(repo, resource), handle);
+      return handle;
+    },
     getState: originalLocks.getState.bind(originalLocks),
     isHolderAlive: originalLocks.isHolderAlive.bind(originalLocks),
     renewLock(_repo: string, _resource: string) { return Promise.resolve(true); },
-    async forceRelease(_repo: string, _resource: string) {},
+    async forceRelease(repo: string, resource: string) {
+      const key = lockKey(repo, resource);
+      const handle = lockHandles.get(key);
+      if (handle) {
+        await handle.release();
+        lockHandles.delete(key);
+      }
+    },
   };
 
   const repoManager = new InMemoryRepoManager();
