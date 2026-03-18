@@ -137,7 +137,8 @@ export function createAdminTestContext(
   const cleanup = async (): Promise<void> => {
     if (config.cleanup === false) return;
 
-    const token = await config.getToken('owner');
+    // Use admin token for cleanup — owner may have lost ACL access during tests
+    const token = await config.getToken('admin');
     const opts = { token };
 
     // Delete all workspaces first (required before repo deletion)
