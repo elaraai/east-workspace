@@ -54,6 +54,8 @@ describe('repo-routes', () => {
       userSettingsStore,
       schedulerService,
       repoStore: storage.repos,
+      listWorkspaces: (repo) => storage.refs.workspaceList(repo),
+      deleteOrchestrator: null,
       identityBackend,
     });
     // repo-routes registers at /api/repos internally
@@ -183,13 +185,14 @@ describe('repo-routes', () => {
     assert.equal(body.type, 'error');
   });
 
-  it('DELETE /api/repos/:repo — idempotent for already-deleting repo', async () => {
+  it('DELETE /api/repos/:repo — re-entry for already to_delete repo', async () => {
     await repoManager.createRepo('doomed');
-    await repoManager.setRepoStatus('doomed', 'active', 'deleting');
+    await repoManager.setRepoStatus('doomed', 'active', 'to_delete');
 
     const res = await fetchRoute(app, 'DELETE', '/api/repos/doomed', { identity: admin });
     const body = await decodeResponse(res, NullType);
-    assert.equal(body.type, 'success');
+    // Should return 202 (starts SFN again) or success
+    assert.ok(body.type === 'success' || res.status === 202);
   });
 
   it('DELETE /api/repos/:repo — rejects repo in creating state', async () => {

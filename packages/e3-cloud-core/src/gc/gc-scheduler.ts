@@ -8,7 +8,7 @@
  * Triggered by a scheduled event (e.g., EventBridge on AWS).
  */
 
-import { randomUUID } from 'node:crypto';
+import { uuidv7 } from '@elaraai/e3-core';
 import type { RepoManager } from '../repo-manager.js';
 import type { GcOrchestrator } from '../gc-orchestrator.js';
 
@@ -98,7 +98,7 @@ export async function handleGcScheduler(deps: GcSchedulerDeps, input: GcSchedule
       }
 
       // Generate unique GC ID
-      const gcId = randomUUID();
+      const gcId = uuidv7();
       const startTime = Date.now();
 
       // Start GC via orchestrator

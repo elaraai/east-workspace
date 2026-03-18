@@ -11,7 +11,7 @@
 
 import { Hono } from 'hono';
 import { variant, some, none } from '@elaraai/east';
-import { randomUUID } from 'node:crypto';
+import { uuidv7 } from '@elaraai/e3-core';
 import { sendSuccess, sendError, sendSuccessWithStatus } from '@elaraai/e3-api-server/beast2';
 import { ApiTypes } from '@elaraai/e3-api-server';
 import type { IdentityBackend } from '../interfaces.js';
@@ -55,14 +55,14 @@ export function createGcRoutes(deps: {
       if (metadata.status === 'gc') {
         return sendError(ApiTypes.GcStartResultType, internalError(`Repository '${repo}' is already running GC`));
       }
-      if (metadata.status === 'deleting') {
+      if (metadata.status === 'to_delete') {
         return sendError(ApiTypes.GcStartResultType, internalError(`Repository '${repo}' is being deleted`));
       }
       if (metadata.status !== 'active') {
         return sendError(ApiTypes.GcStartResultType, internalError(`Repository '${repo}' is not in active state`));
       }
 
-      const gcId = randomUUID();
+      const gcId = uuidv7();
       const startTime = Date.now();
       const executionId = await gc.startGc({ repo, gcId, startTime });
 

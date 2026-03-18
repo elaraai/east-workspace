@@ -9,13 +9,16 @@
  * State transitions:
  *   CREATING → ACTIVE (on successful creation)
  *   ACTIVE → GC (on GC start)
- *   ACTIVE → DELETING (on delete start)
+ *   ACTIVE → TO_DELETE (on delete request, blocks workspace ops)
  *   GC → ACTIVE (on GC complete)
- *   DELETING → (repo removed)
+ *   TO_DELETE → ACTIVE (rollback if workspaces exist or precondition fails)
+ *   TO_DELETE → DELETING (SFN confirmed empty, cleanup starting — point of no return)
+ *   DELETING → (repo removed on successful SFN completion)
+ *   DELETING stays DELETING on failure (requires admin investigation)
  *
- * Note: GC → DELETING is blocked (must wait for GC to complete)
+ * Note: GC → TO_DELETE is blocked (must wait for GC to complete)
  */
-export type RepoStatus = 'creating' | 'active' | 'gc' | 'deleting';
+export type RepoStatus = 'creating' | 'active' | 'gc' | 'to_delete' | 'deleting';
 
 /**
  * Repository metadata.
@@ -37,7 +40,7 @@ export interface RepoMetadata {
  * Cloud-agnostic interface for repository lifecycle management.
  *
  * Handles creating, listing, deleting repos and transitioning
- * their lifecycle status (active, gc, deleting).
+ * their lifecycle status (active, gc, to_delete, deleting).
  */
 export interface RepoManager {
   /** List repositories. If includeAll is true, include non-active repos. */

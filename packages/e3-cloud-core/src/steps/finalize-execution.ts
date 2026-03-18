@@ -217,10 +217,16 @@ export async function handleFinalizeExecution(deps: FinalizeExecutionDeps, event
     };
   } finally {
     // Guaranteed lock release — TTL is the last resort if this also fails
+    // Release exclusive dataflow lock first, then shared workspace lock (reverse of acquisition order)
     try {
-      await storage.locks.forceRelease(repo, `workspace/${workspace}`);
+      await storage.locks.forceRelease(repo, `${workspace}#dataflow`);
     } catch (err) {
-      console.error(`Failed to release lock for ${repo}/workspace/${workspace}:`, err);
+      console.error(`Failed to release dataflow lock for ${repo}/${workspace}#dataflow:`, err);
+    }
+    try {
+      await storage.locks.forceRelease(repo, workspace);
+    } catch (err) {
+      console.error(`Failed to release workspace lock for ${repo}/${workspace}:`, err);
     }
   }
 }

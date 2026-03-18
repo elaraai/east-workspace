@@ -12,7 +12,7 @@
 
 import { Hono } from 'hono';
 import type { Context } from 'hono';
-import { randomUUID } from 'node:crypto';
+import { uuidv7 } from '@elaraai/e3-core';
 import { variant, none, NullType } from '@elaraai/east';
 import { urlPathToTreePath } from '@elaraai/e3-types';
 import {
@@ -103,7 +103,7 @@ export function createCloudTransferRoutes(
     }
 
     // Create transfer record
-    const transferId = randomUUID();
+    const transferId = uuidv7();
     await transferBackend.datasetUpload.create(transferId, { repo, workspace: ws, path: pathStr, hash, size });
 
     // Get presigned upload URL from backend
@@ -172,7 +172,7 @@ export function createCloudPackageTransferRoutes(
       }));
     }
 
-    const transferId = randomUUID();
+    const transferId = uuidv7();
     await transferBackend.packageImport.create(transferId, {
       repo,
       size,
@@ -278,7 +278,7 @@ export function createCloudPackageTransferRoutes(
       throw err;
     }
 
-    const id = randomUUID();
+    const id = uuidv7();
     await transferBackend.packageExport.create(id, {
       repo,
       name,

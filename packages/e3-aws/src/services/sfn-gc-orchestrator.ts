@@ -15,7 +15,7 @@ export class SfnGcOrchestrator implements GcOrchestrator {
   ) {}
 
   async startGc(params: { repo: string; gcId: string; startTime: number }): Promise<string> {
-    const executionName = `gc-${params.repo}-${params.gcId}`;
+    const executionName = `gc-${params.gcId}-${params.repo}`.slice(0, 80);
     await this.sfn.send(
       new StartExecutionCommand({
         stateMachineArn: this.gcStateMachineArn,

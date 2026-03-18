@@ -116,7 +116,7 @@ describe('gc-routes', () => {
   it('GET /gc/:executionId — returns failed status', async () => {
     gc.statusMap.set('gc-my-repo-123', {
       status: 'failed',
-      error: "GC skipped - repo is in 'deleting' state",
+      error: "GC skipped - repo is in 'to_delete' state",
     });
 
     const res = await fetchRoute(app, 'GET', '/api/repos/my-repo/gc/gc-my-repo-123', { identity });

@@ -58,13 +58,18 @@ const DEFAULT_CLEANUP_MIN_AGE_MS = 24 * 60 * 60 * 1000;
 // Batch sizes for operations
 const QUERY_BATCH_SIZE = 1000;
 
+/** Map e3-core RepoStatus to cloud-internal RepoStatus (superset with 'to_delete'). */
+type CloudRepoStatus = import('@elaraai/e3-cloud-core').RepoStatus;
+const toCloudStatus = (s: RepoStatus): CloudRepoStatus =>
+  s === 'deleting' ? 'to_delete' : s as CloudRepoStatus;
+
 /**
  * Extended repository metadata including AWS-specific fields.
  * This is returned by the internal getRepoMetadata method.
  */
 interface CloudRepoMetadata {
   name: string;
-  status: RepoStatus;
+  status: CloudRepoStatus;
   createdAt: string;
   statusChangedAt: string;
   executionRef?: string;
@@ -104,10 +109,12 @@ export class DynamoS3RepoStore implements RepoStore {
     if (!metadata) {
       return null;
     }
-    // Return standard RepoMetadata (exclude executionRef)
+    // Map cloud-internal statuses to e3-core client-facing status
+    const status: RepoStatus = (metadata.status === 'to_delete' || metadata.status === 'deleting')
+      ? 'deleting' : metadata.status;
     return {
       name: metadata.name,
-      status: metadata.status,
+      status,
       createdAt: metadata.createdAt,
       statusChangedAt: metadata.statusChangedAt,
     };
@@ -133,16 +140,19 @@ export class DynamoS3RepoStore implements RepoStore {
     status: RepoStatus,
     expected?: RepoStatus | RepoStatus[]
   ): Promise<void> {
+    const cloudStatus = toCloudStatus(status);
+    const cloudExpected = expected !== undefined
+      ? (Array.isArray(expected) ? expected.map(toCloudStatus) : toCloudStatus(expected))
+      : undefined;
     try {
-      if (expected !== undefined) {
-        await this.refs.setRepoStatus(repo, expected, status);
+      if (cloudExpected !== undefined) {
+        await this.refs.setRepoStatus(repo, cloudExpected, cloudStatus);
       } else {
-        // No expected status - get current status first to use as expected
         const metadata = await this.refs.getRepoMetadata(repo);
         if (!metadata) {
           throw new RepoNotFoundError(repo);
         }
-        await this.refs.setRepoStatus(repo, metadata.status, status);
+        await this.refs.setRepoStatus(repo, metadata.status, cloudStatus);
       }
     } catch (error) {
       if (error instanceof InvalidRepoStatusError) {
@@ -179,8 +189,10 @@ export class DynamoS3RepoStore implements RepoStore {
     expected: RepoStatus | RepoStatus[],
     executionRef?: string
   ): Promise<void> {
+    const cloudStatus = toCloudStatus(status);
+    const cloudExpected = Array.isArray(expected) ? expected.map(toCloudStatus) : toCloudStatus(expected);
     try {
-      await this.refs.setRepoStatus(repo, expected, status, executionRef);
+      await this.refs.setRepoStatus(repo, cloudExpected, cloudStatus, executionRef);
     } catch (error) {
       if (error instanceof InvalidRepoStatusError) {
         throw new RepoStatusConflictError(

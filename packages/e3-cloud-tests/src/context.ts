@@ -11,7 +11,7 @@
  */
 
 import type { RequestOptions } from '@elaraai/e3-cloud-client';
-import { repoRemove } from '@elaraai/e3-api-client';
+import { repoRemove, workspaceList, workspaceRemove } from '@elaraai/e3-api-client';
 
 /**
  * Test user identifiers for multi-user scenarios.
@@ -137,13 +137,29 @@ export function createAdminTestContext(
   const cleanup = async (): Promise<void> => {
     if (config.cleanup === false) return;
 
-    // Try to delete the test repository if it was created
-    // This is a best-effort cleanup - we don't fail if it doesn't work
+    // Use admin token for cleanup — owner may have lost ACL access during tests
+    const token = await config.getToken('admin');
+    const opts = { token };
+
+    // Delete all workspaces first (required before repo deletion)
     try {
-      const token = await config.getToken('owner');
-      await repoRemove(config.baseUrl, repoName, { token });
+      const workspaces = await workspaceList(config.baseUrl, repoName, opts);
+      for (const ws of workspaces) {
+        try {
+          await workspaceRemove(config.baseUrl, repoName, ws.name, opts);
+        } catch (err) {
+          console.error(`Failed to delete workspace '${ws.name}' during cleanup of repo '${repoName}':`, err);
+        }
+      }
     } catch {
-      // Ignore cleanup errors
+      // Repo may not exist yet — ignore list errors
+    }
+
+    // Delete the repository
+    try {
+      await repoRemove(config.baseUrl, repoName, opts);
+    } catch (err) {
+      console.error(`Failed to delete test repo '${repoName}':`, err);
     }
   };
 

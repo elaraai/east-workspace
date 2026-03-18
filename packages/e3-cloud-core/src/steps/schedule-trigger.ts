@@ -79,15 +79,29 @@ export async function handleScheduleTrigger(deps: ScheduleTriggerDeps, event: Sc
   const forceTasks = schedule.forceTasks;
   console.log(`Force tasks: ${forceTasks.length > 0 ? forceTasks.join(', ') : '(none)'}`);
 
-  // 4. Acquire workspace lock
-  const lock = await storage.locks.acquire(
+  // 4. Acquire shared workspace lock (blocks deploy/remove/export, coexists with e3 set)
+  const sharedLock = await storage.locks.acquire(
     repo,
-    `workspace/${workspace}`,
+    workspace,
+    variant('dataflow', null),
+    { wait: false, mode: 'shared' }
+  );
+
+  if (!sharedLock) {
+    console.log(`Workspace ${repo}/${workspace} is locked, skipping`);
+    return { status: 'skipped', reason: 'locked' };
+  }
+
+  // 4b. Acquire exclusive dataflow lock (prevents concurrent dataflow starts)
+  const dataflowLock = await storage.locks.acquire(
+    repo,
+    `${workspace}#dataflow`,
     variant('dataflow', null),
     { wait: false }
   );
 
-  if (!lock) {
+  if (!dataflowLock) {
+    await sharedLock.release();
     console.log(`Workspace ${repo}/${workspace} is locked, skipping`);
     return { status: 'skipped', reason: 'locked' };
   }
@@ -146,8 +160,9 @@ export async function handleScheduleTrigger(deps: ScheduleTriggerDeps, event: Sc
       schedulerExecutionId,
     };
   } catch (err) {
-    // Release lock on error
-    await lock.release();
+    // Release both locks on error
+    await dataflowLock.release();
+    await sharedLock.release();
     throw err;
   }
 }
