@@ -26,6 +26,7 @@ export type { RepoManager, RepoStatus, RepoMetadata } from './repo-manager.js';
 export type { DataflowRunStore } from './dataflow-run-store.js';
 export type { DataflowOrchestrator } from './dataflow-orchestrator.js';
 export type { GcOrchestrator, GcStatus, GcStats } from './gc-orchestrator.js';
+export type { DeleteOrchestrator, DeletionStatus } from './delete-orchestrator.js';
 export type { SchedulerService } from './scheduler-service.js';
 export type {
   ExecutionTracker,

@@ -15,7 +15,7 @@ import { S3Client } from '@aws-sdk/client-s3';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { SFNClient } from '@aws-sdk/client-sfn';
 import { SchedulerClient } from '@aws-sdk/client-scheduler';
-import { some, none } from '@elaraai/east';
+import { some, none, NullType, variant } from '@elaraai/east';
 import {
   S3DynamoStorage,
   S3DynamoTransferBackend,
@@ -27,7 +27,7 @@ import {
 } from '../storage/index.js';
 import { dataflowGetGraph } from '@elaraai/e3-core';
 import { WhoamiResponseType } from '@elaraai/e3-cloud-types';
-import { sendSuccess } from '@elaraai/e3-api-server/beast2';
+import { sendSuccess, sendError } from '@elaraai/e3-api-server/beast2';
 
 // Auth routes (AWS-specific)
 import { CognitoIdentityBackend } from '../services/cognito-identity.js';
@@ -53,6 +53,7 @@ import {
 // AWS implementations
 import { SfnDataflowOrchestrator } from '../services/sfn-dataflow-orchestrator.js';
 import { SfnGcOrchestrator } from '../services/sfn-gc-orchestrator.js';
+import { SfnDeleteOrchestrator } from '../services/sfn-delete-orchestrator.js';
 import { EventBridgeSchedulerService } from '../services/eventbridge-scheduler.js';
 
 // e3-api-server routes
@@ -161,14 +162,28 @@ app.get('/api/whoami', (c) => {
 // Admin Routes
 app.route('/', createAdminRoutes(aclStore, repoManager, identityBackend));
 
+// Authorization Middleware (for all repo routes)
+app.use('/api/repos/*', createAuthzMiddleware(aclStore, identityBackend));
+
+// Repo status guard: reject workspace operations if repo is not active or gc.
+// Placed after authz to avoid leaking repo existence to unauthenticated users,
+// and before all workspace routes (including schedules) to ensure full coverage.
+app.use('/api/repos/:repo/workspaces/*', async (c, next) => {
+  const repo = c.req.param('repo');
+  const metadata = await repoManager.getRepoMetadata(repo);
+  if (!metadata || (metadata.status !== 'active' && metadata.status !== 'gc')) {
+    return sendError(NullType, variant('internal', {
+      message: `Repository '${repo}' is not available (status: ${metadata?.status ?? 'not found'})`,
+    }));
+  }
+  return next();
+});
+
 // Schedule Routes
 if (schedulerService) {
   app.route('/api/repos/:repo/workspaces/:ws/schedule', createScheduleRoutes(aclStore, scheduleStore, storage.refs, schedulerService, identityBackend));
 }
 app.route('/api/repos/:repo/schedules', createScheduleListRoute(aclStore, scheduleStore, identityBackend));
-
-// Authorization Middleware (for all repo routes)
-app.use('/api/repos/*', createAuthzMiddleware(aclStore, identityBackend));
 
 // Task Config Routes
 app.route('/api/repos/:repo/workspaces/:ws/task-configs', createTaskConfigRoutes(taskConfigStore, storage.locks));
@@ -177,6 +192,12 @@ app.route('/api/repos/:repo/workspaces/:ws/task-configs', createTaskConfigRoutes
 app.route('/api/repos/:repo/workspaces/:ws/user-settings', createUserSettingsRoutes(userSettingsStore, identityBackend));
 
 // Repository Lifecycle Routes
+// Delete Orchestrator (Step Functions for async repo deletion)
+const DELETE_REPO_STATE_MACHINE_ARN = process.env.DELETE_REPO_STATE_MACHINE_ARN;
+const deleteOrchestrator = DELETE_REPO_STATE_MACHINE_ARN
+  ? new SfnDeleteOrchestrator(sfn, DELETE_REPO_STATE_MACHINE_ARN)
+  : null;
+
 app.route('/', createRepoRoutes({
   repoManager,
   aclStore,
@@ -185,6 +206,8 @@ app.route('/', createRepoRoutes({
   userSettingsStore,
   schedulerService,
   repoStore: storage.repos,
+  listWorkspaces: (repo) => storage.refs.workspaceList(repo),
+  deleteOrchestrator,
   identityBackend,
 }));
 

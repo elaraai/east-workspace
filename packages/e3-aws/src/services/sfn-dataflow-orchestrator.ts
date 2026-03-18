@@ -6,7 +6,7 @@
  */
 
 import { SFNClient, StartExecutionCommand } from '@aws-sdk/client-sfn';
-import { randomUUID } from 'node:crypto';
+import { uuidv7 } from '@elaraai/e3-core';
 import type { DataflowOrchestrator } from '@elaraai/e3-cloud-core';
 
 export class SfnDataflowOrchestrator implements DataflowOrchestrator {
@@ -25,8 +25,7 @@ export class SfnDataflowOrchestrator implements DataflowOrchestrator {
     runId: string;
     triggeredBy?: { type: string; value: unknown };
   }): Promise<string> {
-    const sfnExecutionId = randomUUID();
-    const executionName = `dataflow-${params.repo}-${params.workspace}-${sfnExecutionId}`.slice(0, 80);
+    const executionName = `dataflow-${uuidv7()}-${params.repo}-${params.workspace}`.slice(0, 80);
 
     const input: Record<string, unknown> = {
       repo: params.repo,

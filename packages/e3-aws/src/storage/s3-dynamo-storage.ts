@@ -88,7 +88,7 @@ export class S3DynamoStorage implements StorageBackend, DataflowStorage {
    *
    * For cloud storage, a repository is valid if:
    * - It has metadata in DynamoDB
-   * - Its status is 'active' or 'gc' (not 'creating' or 'deleting')
+   * - Its status is 'active' or 'gc' (not 'creating' or 'to_delete')
    *
    * @param repo - Repository name
    * @throws {RepoNotFoundError} If repository doesn't exist or is not accessible
@@ -101,7 +101,7 @@ export class S3DynamoStorage implements StorageBackend, DataflowStorage {
     }
 
     // Repository exists but is being created or deleted - not accessible
-    if (metadata.status === 'creating' || metadata.status === 'deleting') {
+    if (metadata.status === 'creating' || metadata.status === 'to_delete' || metadata.status === 'deleting') {
       throw new RepoNotFoundError(repo);
     }
   }
