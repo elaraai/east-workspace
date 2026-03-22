@@ -364,6 +364,17 @@ IRNode *ir_new_vector(EastType *type, IRNode **items, size_t num_items) {
     return n;
 }
 
+IRNode *ir_new_matrix(EastType *type, IRNode **items, size_t num_items,
+                      size_t rows, size_t cols) {
+    IRNode *n = ir_alloc(IR_NEW_MATRIX, type);
+    if (!n) return NULL;
+    n->data.new_matrix.items = ir_nodes_dup(items, num_items);
+    n->data.new_matrix.num_items = num_items;
+    n->data.new_matrix.rows = rows;
+    n->data.new_matrix.cols = cols;
+    return n;
+}
+
 IRNode *ir_struct(EastType *type, char **field_names, IRNode **field_values,
                   size_t num_fields) {
     IRNode *n = ir_alloc(IR_STRUCT, type);
@@ -634,6 +645,13 @@ void ir_node_release(IRNode *node) {
             ir_node_release(node->data.new_vector.items[i]);
         }
         free(node->data.new_vector.items);
+        break;
+
+    case IR_NEW_MATRIX:
+        for (size_t i = 0; i < node->data.new_matrix.num_items; i++) {
+            ir_node_release(node->data.new_matrix.items[i]);
+        }
+        free(node->data.new_matrix.items);
         break;
 
     case IR_STRUCT:

@@ -42,6 +42,7 @@ typedef enum {
     IR_NEW_DICT,
     IR_NEW_REF,
     IR_NEW_VECTOR,
+    IR_NEW_MATRIX,
     IR_STRUCT,
     IR_GET_FIELD,
     IR_VARIANT,
@@ -201,6 +202,14 @@ struct IRNode {
             size_t num_items;
         } new_vector;
 
+        // IR_NEW_MATRIX
+        struct {
+            IRNode **items;
+            size_t num_items;
+            size_t rows;
+            size_t cols;
+        } new_matrix;
+
         // IR_STRUCT
         struct {
             char **field_names;
@@ -253,6 +262,7 @@ IRNode *ir_new_set(EastType *type, IRNode **items, size_t num_items);
 IRNode *ir_new_dict(EastType *type, IRNode **keys, IRNode **values, size_t num_pairs);
 IRNode *ir_new_ref(EastType *type, IRNode *value);
 IRNode *ir_new_vector(EastType *type, IRNode **items, size_t num_items);
+IRNode *ir_new_matrix(EastType *type, IRNode **items, size_t num_items, size_t rows, size_t cols);
 IRNode *ir_struct(EastType *type, char **field_names, IRNode **field_values, size_t num_fields);
 IRNode *ir_get_field(EastType *type, IRNode *expr, const char *field_name);
 IRNode *ir_variant(EastType *type, const char *case_name, IRNode *value);

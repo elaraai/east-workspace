@@ -977,6 +977,50 @@ EvalResult eval_ir(IRNode *node, Environment *env,
         return eval_ok(vec);
     }
 
+    /* ----- IR_NEW_MATRIX ------------------------------------------- */
+    case IR_NEW_MATRIX: {
+        size_t n = node->data.new_matrix.num_items;
+        size_t rows = node->data.new_matrix.rows;
+        size_t cols = node->data.new_matrix.cols;
+
+        EastType *elem_type = NULL;
+        if (node->type && node->type->kind == EAST_TYPE_MATRIX) {
+            elem_type = node->type->data.element;
+        }
+
+        EastValue *mat = east_matrix_new(elem_type, rows, cols);
+
+        for (size_t i = 0; i < n; i++) {
+            EvalResult item_res = eval_ir(
+                node->data.new_matrix.items[i], env,
+                platform, builtins);
+            if (item_res.status != EVAL_OK) {
+                east_value_release(mat);
+                return item_res;
+            }
+
+            EastValue *item = item_res.value;
+            if (elem_type) {
+                if (elem_type->kind == EAST_TYPE_FLOAT &&
+                    item->kind == EAST_VAL_FLOAT) {
+                    ((double *)mat->data.matrix.data)[i] =
+                        item->data.float64;
+                } else if (elem_type->kind == EAST_TYPE_INTEGER &&
+                           item->kind == EAST_VAL_INTEGER) {
+                    ((int64_t *)mat->data.matrix.data)[i] =
+                        item->data.integer;
+                } else if (elem_type->kind == EAST_TYPE_BOOLEAN &&
+                           item->kind == EAST_VAL_BOOLEAN) {
+                    ((bool *)mat->data.matrix.data)[i] =
+                        item->data.boolean;
+                }
+            }
+            east_value_release(item);
+        }
+
+        return eval_ok(mat);
+    }
+
     /* ----- IR_STRUCT ----------------------------------------------- */
     case IR_STRUCT: {
         size_t n = node->data.struct_.num_fields;

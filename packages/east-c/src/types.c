@@ -123,6 +123,11 @@ EastType *east_variant_type(const char **names, EastType **types, size_t count)
             east_type_retain(types[i]);
             cases[i].type = types[i];
         }
+        /* Sort cases alphabetically by name — matches TypeScript's
+         * VariantType() which sorts Object.entries() alphabetically.
+         * This ensures beast2 variant case indices are consistent
+         * across all implementations. */
+        qsort(cases, count, sizeof(EastTypeField), field_cmp);
     }
 
     t->data.variant.cases = cases;
