@@ -21,6 +21,7 @@ import { StatusBadge } from '../components/StatusBadge';
 import { LoadingState, ErrorState } from '../components/DisplayStates';
 import { toaster } from '../components/Toaster';
 import { CopyablePath } from '../components/CopyablePath';
+import { ItemListCell } from '../components/ItemListCell';
 import { useNow, formatTimeAgo, formatDurationMs } from '../utils/time';
 
 export function WorkspaceViewPage() {
@@ -271,45 +272,6 @@ function TaskStatusCell({ status }: { status: TaskStatusInfo['status'] }) {
   );
 }
 
-// --- Item List Cell (compact display with hover card for long lists) ---
-
-const ITEM_LIST_THRESHOLD = 3;
-
-function ItemListCell({ items }: { items: string[] }) {
-  if (items.length === 0) {
-    return <Text fontSize="sm" color="text.secondary">—</Text>;
-  }
-
-  if (items.length <= ITEM_LIST_THRESHOLD) {
-    return (
-      <Text fontSize="sm" color="text.secondary">{items.join(', ')}</Text>
-    );
-  }
-
-  return (
-    <HoverCard.Root>
-      <HoverCard.Trigger asChild>
-        <Text as="span" fontSize="sm" color="link.color" cursor="pointer" _hover={{ textDecoration: 'underline' }}>
-          {items.length} items
-        </Text>
-      </HoverCard.Trigger>
-      <Portal>
-        <HoverCard.Positioner>
-          <HoverCard.Content maxW="300px" p={3}>
-            <HoverCard.Arrow />
-            <Box maxH="200px" overflowY="auto">
-              <VStack gap={1} align="start">
-                {items.map((item) => (
-                  <Text key={item} fontSize="xs" color="text.primary" fontFamily="mono">{item}</Text>
-                ))}
-              </VStack>
-            </Box>
-          </HoverCard.Content>
-        </HoverCard.Positioner>
-      </Portal>
-    </HoverCard.Root>
-  );
-}
 
 // --- Execution Panel ---
 
