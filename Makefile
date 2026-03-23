@@ -1,4 +1,4 @@
-.PHONY: update build rebuild test clean install install-cli services-up services-down compliance compliance-std compliance-wasm compliance-all leak-check leak-check-std leak-check-all setup-wasm wasm wasm-clean
+.PHONY: update build rebuild test clean install install-cli services-up services-down compliance compliance-std compliance-wasm compliance-all leak-check leak-check-std leak-check-all setup-wasm wasm wasm-clean link unlink
 
 build:
 	@mkdir -p build && cd build && cmake .. && cmake --build . -j$$(nproc)
@@ -96,3 +96,11 @@ wasm:
 wasm-clean:
 	@rm -rf build-wasm
 	@rm -rf packages/east-c-wasm/dist/wasm
+
+# Register @elaraai/east-c-wasm globally so sibling repos can npm link it
+link:
+	cd packages/east-c-wasm && npm link
+
+# Unregister
+unlink:
+	cd packages/east-c-wasm && npm unlink
