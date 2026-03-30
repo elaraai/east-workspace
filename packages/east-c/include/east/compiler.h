@@ -17,6 +17,7 @@ struct EastCompiledFn {
     PlatformRegistry *platform;
     BuiltinRegistry *builtins;
     EastValue *source_ir;  // original IR variant value for serialization
+    EastType *fn_type;     // Function/AsyncFunction type (inputs + output), not owned
 };
 
 // Top-level API

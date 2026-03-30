@@ -364,7 +364,7 @@ void east_type_retain(EastType *t)
 {
     if (!t) return;
     if (t->ref_count < 0) return;   /* singleton -- never freed */
-    t->ref_count++;
+    __atomic_add_fetch(&t->ref_count, 1, __ATOMIC_RELAXED);
 }
 
 void east_type_release(EastType *t)
@@ -380,8 +380,7 @@ void east_type_release(EastType *t)
         return;
     }
 
-    t->ref_count--;
-    if (t->ref_count > 0) return;
+    if (__atomic_sub_fetch(&t->ref_count, 1, __ATOMIC_ACQ_REL) > 0) return;
 
     /* ref_count reached 0 -- free children then the node itself */
     switch (t->kind) {

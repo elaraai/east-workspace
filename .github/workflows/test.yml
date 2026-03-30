@@ -40,11 +40,8 @@ jobs:
       - name: Build east-c
         run: make build
 
-      - name: Run unit tests
-        run: make test
-
       - name: Run compliance tests
-        run: make compliance
+        run: make test-east-c
 
   test-east-c-std:
     name: Test east-c-std
@@ -77,20 +74,17 @@ jobs:
           EXPORT_TEST_IR: /tmp/east-node-std
 
       - name: Start test services
-        run: docker compose up -d --wait
+        run: make services-up
 
       - name: Build east-c
         run: make build
 
-      - name: Run unit tests
-        run: make test
-
       - name: Run std compliance tests
-        run: make compliance-std
+        run: make test-east-c-std
 
       - name: Stop test services
         if: always()
-        run: docker compose down -v
+        run: make services-down
 
   test-east-c-wasm:
     name: Test east-c-wasm
@@ -108,24 +102,10 @@ jobs:
         uses: mymindstorm/setup-emsdk@v14
 
       - name: Build WASM
-        run: |
-          mkdir -p build-wasm && cd build-wasm
-          emcmake cmake .. -DCMAKE_BUILD_TYPE=Release
-          cmake --build . -j$(nproc)
-          cd ..
-          mkdir -p packages/east-c-wasm/dist/wasm
-          cp build-wasm/packages/east-c-wasm/east-c.js packages/east-c-wasm/dist/wasm/
-          cp build-wasm/packages/east-c-wasm/east-c.wasm packages/east-c-wasm/dist/wasm/
-          echo '{ "type": "module" }' > packages/east-c-wasm/dist/wasm/package.json
+        run: make wasm
 
       - name: Install npm dependencies
-        working-directory: packages/east-c-wasm
-        run: npm install
+        run: make wasm-install
 
-      - name: Build TypeScript
-        working-directory: packages/east-c-wasm
-        run: npm run build
-
-      - name: Run tests
-        working-directory: packages/east-c-wasm
-        run: node --enable-source-maps --test 'dist/test/**/*.spec.js'
+      - name: Build TypeScript and run tests
+        run: make test-east-c-wasm

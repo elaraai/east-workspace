@@ -6,10 +6,8 @@
 /**
  * @elaraai/east-c-wasm
  *
- * Generic WASM backend for executing East IR. No UI concepts —
- * just compile(irBytes) → handle, call(handle) → resultBytes, free(handle).
- *
- * Platform functions are registered from JS and called back via imports.
+ * WASM backend for executing East IR. Compile IR to callable functions
+ * with native JS values in and out.
  *
  * This is the Node.js entry point. For browser usage, import from
  * `@elaraai/east-c-wasm/browser`.
@@ -22,38 +20,32 @@ import {
     type EastWasmModule,
     type EastWasm,
     type EastWasmOptions,
-    type PlatformFn,
-    type PlatformRegistration,
     createEastWasmFromModule,
     createPlatformBridge,
     setHandleResolver,
 } from './common.js';
 
-// Re-export all types from common
-export type { PlatformFn, GenericPlatformFactory, PlatformRegistration, CompiledHandle, CompiledValue, EastWasm, EastWasmOptions, EastWasmModule } from './common.js';
-export { createEastWasmFromModule, registerPlatformFunctions } from './common.js';
+export type { CompiledFunction, EastWasm, EastWasmOptions, EastWasmModule } from './common.js';
+export { createEastWasmFromModule } from './common.js';
 
 /**
  * Load and initialize the WASM module (Node.js).
  */
 export async function createEastWasm(options?: EastWasmOptions): Promise<EastWasm> {
-    // Resolve paths to WASM artifacts
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = dirname(__filename);
     const wasmDir = join(__dirname, '..', 'wasm');
 
-    // Load the Emscripten glue file (ESM with EXPORT_ES6=1)
     const gluePath = options?.glueUrl ?? join(wasmDir, 'east-c.js');
     const glueModule = await import(gluePath);
     const createModule = glueModule.default as (opts?: Record<string, unknown>) => Promise<EastWasmModule>;
 
     const wasmPath = options?.wasmUrl ?? join(wasmDir, 'east-c.wasm');
 
-    // Platform function registry (JS side)
-    const platformFns = new Map<string, PlatformRegistration>();
-    const genericCache = new Map<string, PlatformFn>();
+    // Internal platform registry — shared between bridge and API
+    const platformFns = new Map();
+    const genericCache = new Map();
 
-    // Declare mod here so the bridge closure can reference it
     let mod: EastWasmModule;
 
     const bridge = createPlatformBridge(platformFns, genericCache, () => mod);
@@ -68,10 +60,8 @@ export async function createEastWasm(options?: EastWasmOptions): Promise<EastWas
 
     mod = await createModule(moduleOpts);
 
-    // Enable function handle resolution for the bridge
     setHandleResolver(mod);
 
-    // Pass shared platform maps so bridge and API use the same registry
     return createEastWasmFromModule(mod, { platformFns, genericCache });
 }
 

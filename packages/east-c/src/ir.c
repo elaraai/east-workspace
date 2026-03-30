@@ -464,12 +464,12 @@ void ir_node_set_location(IRNode *node, const EastLocation *locs, size_t num_loc
 /* ------------------------------------------------------------------ */
 
 void ir_node_retain(IRNode *node) {
-    if (node) node->ref_count++;
+    if (node) __atomic_add_fetch(&node->ref_count, 1, __ATOMIC_RELAXED);
 }
 
 void ir_node_release(IRNode *node) {
     if (!node) return;
-    if (--node->ref_count > 0) return;
+    if (__atomic_sub_fetch(&node->ref_count, 1, __ATOMIC_ACQ_REL) > 0) return;
 
     /* Release the node type. */
     if (node->type) {

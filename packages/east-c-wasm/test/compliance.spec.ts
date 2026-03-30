@@ -1,39 +1,30 @@
 /**
  * WASM compliance test runner.
  *
- * Loads the same IR JSON files as east-c's test_compliance.c and executes
- * them via east-c-wasm. Each IR file runs in its own WASM instance so
- * files can execute concurrently.
- *
- * Test platform functions (testPass, testFail, test, describe) call the body
- * inline rather than delegating to node:test.
+ * Loads IR JSON files and executes them via east-c-wasm using compileFromJson.
+ * Each IR file runs in its own WASM instance.
  *
  * Usage:
  *   npm run test:compliance
  *   IR_DIR=/path/to/ir npm run test:compliance
- *   FILTER=Integer npm run test:compliance   # run a single suite
+ *   FILTER=Integer npm run test:compliance
  */
 
-import { describe, test } from 'node:test';
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { East, decodeJSONFor, NullType, StringType, AsyncFunctionType } from '@elaraai/east';
-import { IRType, encodeBeast2For } from '@elaraai/east/internal';
+import { East, NullType, StringType, AsyncFunctionType } from '@elaraai/east';
 import type { PlatformFunction } from '@elaraai/east/internal';
 
 import { createEastWasm } from '../src/index.js';
-import { registerPlatformFunctions } from '../src/common.js';
 
 const IR_DIR = process.env['IR_DIR'] ?? '/tmp/east-test-ir';
 const FILTER = process.env['FILTER'] ?? '';
-const encodeIR = encodeBeast2For(IRType);
-const decodeIRJSON = decodeJSONFor(IRType);
 
 /**
  * Build inline test platform functions.
- * Each WASM instance gets its own counters and indent state.
  */
 function buildTestPlatform() {
     const testPassDef = East.platform("testPass", [], NullType);
@@ -97,7 +88,6 @@ try {
     files = [];
 }
 
-// Each file gets its own WASM instance and runs independently
 for (const file of files) {
     const suiteName = file.replace(/\.json$/, '');
 
@@ -105,18 +95,14 @@ for (const file of files) {
         const { impl, stats } = buildTestPlatform();
 
         const wasm = await createEastWasm();
-        registerPlatformFunctions(wasm, impl);
-
         const jsonBytes = readFileSync(join(IR_DIR, file));
-        const ir = decodeIRJSON(jsonBytes);
-        const irBytes = encodeIR(ir);
 
-        const handle = wasm.compile(irBytes);
+        const compiled = wasm.compileFromJson(new Uint8Array(jsonBytes), impl);
         const t0 = performance.now();
         try {
-            wasm.call(handle);
+            compiled();
         } finally {
-            wasm.free(handle);
+            compiled.free();
         }
         const elapsed = performance.now() - t0;
 

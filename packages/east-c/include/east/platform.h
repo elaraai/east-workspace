@@ -6,7 +6,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-typedef EvalResult (*PlatformFn)(EastValue **args, size_t num_args);
+typedef EvalResult (*PlatformFn)(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type);
 typedef PlatformFn (*GenericPlatformFactory)(EastType **type_params, size_t num_type_params);
 
 typedef struct {

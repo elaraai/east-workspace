@@ -1,11 +1,9 @@
 /*
  * WASM API for east-c.
  *
- * Provides a minimal, generic API for compiling and executing East IR
- * from JavaScript via WebAssembly. Platform functions are implemented
- * as JS callbacks that the WASM module calls via imports.
- *
- * The API is deliberately UI-agnostic — it's just "execute East IR fast".
+ * Provides a minimal API for compiling and executing East IR from JavaScript
+ * via WebAssembly. Platform functions are implemented as JS callbacks that
+ * the WASM module calls via imports.
  */
 
 #include <east/east.h>
@@ -13,6 +11,7 @@
 #include <east/type_of_type.h>
 #include <east/compiler.h>
 #include <east/gc.h>
+#include <east/serialization.h>
 
 #include <emscripten.h>
 #include <stdlib.h>
@@ -27,74 +26,9 @@ static BuiltinRegistry *g_builtins = NULL;
 static int g_initialized = 0;
 
 /* ------------------------------------------------------------------ */
-/*  Per-platform-function input type registry                          */
-/*                                                                     */
-/*  When JS registers a platform function, it can also provide the     */
-/*  declared input types. The bridge uses these for proper Beast2       */
-/*  encoding (critical for function values, which can't be inferred).  */
+/*  JS platform bridge                                                 */
 /* ------------------------------------------------------------------ */
 
-typedef struct PlatformInputTypes {
-    char *name;
-    EastType **input_types;
-    size_t num_inputs;
-    struct PlatformInputTypes *next;
-} PlatformInputTypes;
-
-#define INPUT_TYPE_BUCKETS 64
-static PlatformInputTypes *g_input_types[INPUT_TYPE_BUCKETS];
-
-static uint32_t input_types_hash(const char *name) {
-    uint32_t h = 5381;
-    for (const char *c = name; *c; c++) h = h * 33 + (uint32_t)*c;
-    return h % INPUT_TYPE_BUCKETS;
-}
-
-static PlatformInputTypes *get_input_types(const char *name) {
-    uint32_t h = input_types_hash(name);
-    for (PlatformInputTypes *e = g_input_types[h]; e; e = e->next) {
-        if (strcmp(e->name, name) == 0) return e;
-    }
-    return NULL;
-}
-
-static void store_input_types(const char *name, EastType **types, size_t count) {
-    uint32_t h = input_types_hash(name);
-    PlatformInputTypes *e = calloc(1, sizeof(PlatformInputTypes));
-    e->name = strdup(name);
-    e->input_types = types;
-    e->num_inputs = count;
-    e->next = g_input_types[h];
-    g_input_types[h] = e;
-}
-
-/* ------------------------------------------------------------------ */
-/*  JS-imported platform function bridge                               */
-/* ------------------------------------------------------------------ */
-
-/*
- * JS provides platform function implementations via these imports.
- *
- * Protocol for generic platform functions:
- *   1. JS calls east_wasm_compile() with Beast2-full IR bytes
- *   2. When execution hits an IR_PLATFORM node, C calls js_platform_call()
- *   3. JS receives: platform function name, type params as Beast2 type values,
- *      and args as Beast2-encoded values
- *   4. JS executes the platform function and writes the Beast2-encoded result
- *      back into WASM memory
- *   5. C decodes the result and continues execution
- *
- * This avoids needing to register each platform function individually in C.
- * All platform dispatch happens through a single bridge function.
- */
-
-/*
- * JS platform call bridge.
- *
- * All platform functions execute synchronously. The actual implementation
- * is overridden at module instantiation time via moduleOpts.js_platform_call
- * from the TypeScript wrapper.
- */
 EM_JS(int, js_platform_call, (
     const char *name,
     const uint8_t *type_params_buf, size_t type_params_len,
@@ -103,43 +37,30 @@ EM_JS(int, js_platform_call, (
 ), {
     if (Module.js_platform_call) {
         return Module.js_platform_call(name, type_params_buf, type_params_len,
-                                        args_buf, args_len, out_buf, out_len);
+                                        args_buf, args_len,
+                                        out_buf, out_len);
     }
-    /* No handler registered — write error */
     return 1;
 });
 
-/* Max result buffer size for platform calls (1MB - should be plenty) */
 #define PLATFORM_RESULT_BUF_SIZE (1024 * 1024)
 
-/* Shared result buffer to avoid repeated malloc/free */
 static uint8_t *g_platform_result_buf = NULL;
-
-/* Heap-allocated result length for platform calls.
- * MUST be on the heap (not a local variable) because the bridge writes to it
- * AFTER ASYNCIFY unwinds the C stack. A local (on the shadow stack) would be
- * clobbered by intervening WASM calls (e.g. invoke_fn) before the rewind. */
+/* Heap-allocated so it survives ASYNCIFY stack unwind/rewind. */
 static size_t *g_platform_result_len = NULL;
 
 /* ------------------------------------------------------------------ */
-/*  Generic platform function factory                                  */
+/*  Trampoline system for platform function dispatch                   */
+/*                                                                     */
+/*  C function pointers can't capture state, so we use a global        */
+/*  trampoline set by the pre_call hook before each platform call.     */
+/*  WASM is single-threaded so this is safe.                           */
 /* ------------------------------------------------------------------ */
 
-/*
- * We use a single GenericPlatformFactory that handles ALL platform functions.
- * The factory creates a closure that captures the function name and type params,
- * then delegates to JS via js_platform_call().
- *
- * Since C function pointers can't capture state, we use a small registry
- * of trampolines keyed by (name, type_params) hash.
- */
-
-/* Trampoline entry: captures name + type params for a specific instantiation */
 typedef struct PlatformTrampoline {
     char *name;
     EastType **type_params;
     size_t num_type_params;
-    /* Beast2-encoded type params (cached for fast JS calls) */
     uint8_t *type_params_encoded;
     size_t type_params_encoded_len;
     struct PlatformTrampoline *next;
@@ -147,34 +68,28 @@ typedef struct PlatformTrampoline {
 
 #define TRAMPOLINE_BUCKETS 256
 static PlatformTrampoline *g_trampolines[TRAMPOLINE_BUCKETS];
-/* Currently executing trampoline (set before call, used by the PlatformFn) */
-static __thread PlatformTrampoline *g_current_trampoline = NULL;
+static PlatformTrampoline *g_current_trampoline = NULL;
 
 static uint32_t trampoline_hash(const char *name, EastType **tp, size_t ntp) {
     uint32_t h = 5381;
     for (const char *c = name; *c; c++) h = h * 33 + (uint32_t)*c;
     h ^= (uint32_t)ntp;
-    /* Mix in type pointers for uniqueness */
     for (size_t i = 0; i < ntp; i++) h = h * 33 + (uint32_t)(uintptr_t)tp[i];
     return h;
 }
 
-/* Encode type params as Beast2-full array of type values */
 static void encode_type_params(PlatformTrampoline *t) {
     if (t->num_type_params == 0) {
         t->type_params_encoded = NULL;
         t->type_params_encoded_len = 0;
         return;
     }
-
-    /* Build an array of type values */
     EastValue *arr = east_array_new(east_type_type);
     for (size_t i = 0; i < t->num_type_params; i++) {
         EastValue *tv = east_type_to_value(t->type_params[i]);
         east_array_push(arr, tv);
         east_value_release(tv);
     }
-
     EastType *arr_type = east_array_type(east_type_type);
     ByteBuffer *buf = east_beast2_encode_full(arr, arr_type);
     east_type_release(arr_type);
@@ -186,8 +101,39 @@ static void encode_type_params(PlatformTrampoline *t) {
     byte_buffer_free(buf);
 }
 
+static PlatformTrampoline *get_or_create_trampoline(
+    const char *name, EastType **type_params, size_t num_type_params
+) {
+    uint32_t h = trampoline_hash(name, type_params, num_type_params) % TRAMPOLINE_BUCKETS;
+
+    for (PlatformTrampoline *t = g_trampolines[h]; t; t = t->next) {
+        if (strcmp(t->name, name) == 0 && t->num_type_params == num_type_params) {
+            bool match = true;
+            for (size_t i = 0; i < num_type_params && match; i++) {
+                if (!east_type_equal(t->type_params[i], type_params[i])) match = false;
+            }
+            if (match) return t;
+        }
+    }
+
+    PlatformTrampoline *t = calloc(1, sizeof(PlatformTrampoline));
+    t->name = strdup(name);
+    t->num_type_params = num_type_params;
+    if (num_type_params > 0) {
+        t->type_params = malloc(sizeof(EastType *) * num_type_params);
+        for (size_t i = 0; i < num_type_params; i++) {
+            t->type_params[i] = type_params[i];
+            east_type_retain(type_params[i]);
+        }
+    }
+    encode_type_params(t);
+    t->next = g_trampolines[h];
+    g_trampolines[h] = t;
+    return t;
+}
+
 /* ------------------------------------------------------------------ */
-/*  Temporary handle table for function value args (bridge callbacks)  */
+/*  Temporary handle table for function args passed to platform fns    */
 /* ------------------------------------------------------------------ */
 
 #define MAX_TEMP_HANDLES 256
@@ -198,8 +144,6 @@ static struct {
 
 #define MAX_BRIDGE_DEPTH 32
 static int g_bridge_depth = 0;
-/* Stack of handle counts — saves count at each bridge entry so we can
- * free only the handles allocated at this level when we return. */
 static size_t g_handle_stack[MAX_BRIDGE_DEPTH];
 
 static uint32_t alloc_temp_handle(EastValue *fn_val) {
@@ -210,7 +154,6 @@ static uint32_t alloc_temp_handle(EastValue *fn_val) {
     return id;
 }
 
-/* Free temp handles back to a saved count */
 static void free_temp_handles_to(size_t target) {
     while (g_temp_handles.count > target) {
         g_temp_handles.count--;
@@ -219,114 +162,72 @@ static void free_temp_handles_to(size_t target) {
     }
 }
 
-/* The actual PlatformFn that all trampolines share */
-static EvalResult platform_bridge_fn(EastValue **args, size_t num_args) {
+/* ------------------------------------------------------------------ */
+/*  Platform bridge function                                           */
+/*                                                                     */
+/*  Called by the compiler when IR hits an IR_PLATFORM node.            */
+/*  input_types and output_type are provided by the compiler.          */
+/* ------------------------------------------------------------------ */
+
+static EvalResult platform_bridge_fn(EastValue **args, size_t num_args,
+                                      EastType **input_types, size_t num_input_types,
+                                      EastType *output_type) {
     PlatformTrampoline *t = g_current_trampoline;
     if (!t) return eval_error("platform bridge: no active trampoline");
 
-    /* Save current handle count so we can free handles from this level on return */
-    if (g_bridge_depth < MAX_BRIDGE_DEPTH) {
-        g_handle_stack[g_bridge_depth] = g_temp_handles.count;
+    if (g_bridge_depth >= MAX_BRIDGE_DEPTH) {
+        return eval_error("platform bridge: maximum nesting depth exceeded");
     }
+    g_handle_stack[g_bridge_depth] = g_temp_handles.count;
     g_bridge_depth++;
 
-    /* Encode args as Beast2-full array */
-    /* Format: [count][len1][beast2_full_1][len2][beast2_full_2]...
-     * For function-typed args: [0xFFFFFFFF][handle_id][input_count][type_len][type_bytes]
-     */
+    /* Encode args: [count:u32le][len:u32le][beast2]... */
+    /* Function args use sentinel: [0xFFFFFFFF][handle_id][input_count][type_len][type_bytes] */
     ByteBuffer *args_buf = byte_buffer_new(1024);
-
-    /* Write arg count as 4-byte LE */
     uint32_t count = (uint32_t)num_args;
     byte_buffer_write_bytes(args_buf, (uint8_t *)&count, 4);
 
-    /* Look up declared input types (set at registration time by JS) */
-    PlatformInputTypes *declared = get_input_types(t->name);
-
     for (size_t i = 0; i < num_args; i++) {
-        EastType *arg_type = NULL;
         EastValue *v = args[i];
-        bool type_owned = false;  /* true if we constructed a type that needs release */
+        EastType *arg_type = (i < num_input_types) ? input_types[i] : NULL;
 
-        /* Check if this is a function arg — pass as opaque handle instead of encoding */
-        if (declared && i < declared->num_inputs &&
-            (declared->input_types[i]->kind == EAST_TYPE_FUNCTION ||
-             declared->input_types[i]->kind == EAST_TYPE_ASYNC_FUNCTION) &&
+        /* Function args → opaque handle */
+        if (arg_type &&
+            (arg_type->kind == EAST_TYPE_FUNCTION || arg_type->kind == EAST_TYPE_ASYNC_FUNCTION) &&
             v->kind == EAST_VAL_FUNCTION) {
 
-            /* Write sentinel length */
             uint32_t sentinel = 0xFFFFFFFF;
             byte_buffer_write_bytes(args_buf, (uint8_t *)&sentinel, 4);
 
-            /* Write handle ID */
             uint32_t handle_id = alloc_temp_handle(v);
+            if (handle_id == 0) {
+                byte_buffer_free(args_buf);
+                g_bridge_depth--;
+                return eval_error("platform bridge: too many function handles");
+            }
             byte_buffer_write_bytes(args_buf, (uint8_t *)&handle_id, 4);
 
-            /* Write input count from declared type */
-            uint32_t input_count = (uint32_t)declared->input_types[i]->data.function.num_inputs;
+            uint32_t input_count = (uint32_t)arg_type->data.function.num_inputs;
             byte_buffer_write_bytes(args_buf, (uint8_t *)&input_count, 4);
 
-            /* Write function type as Beast2-full encoded type value */
-            EastValue *type_val = east_type_to_value(declared->input_types[i]);
+            EastValue *type_val = east_type_to_value(arg_type);
             ByteBuffer *tbuf = east_beast2_encode_full(type_val, east_type_type);
             uint32_t tlen = (uint32_t)tbuf->len;
             byte_buffer_write_bytes(args_buf, (uint8_t *)&tlen, 4);
             byte_buffer_write_bytes(args_buf, tbuf->data, tbuf->len);
             byte_buffer_free(tbuf);
             east_value_release(type_val);
-
-            continue;  /* skip normal Beast2 encoding */
+            continue;
         }
 
-        /* Use declared type if available, otherwise infer from value */
-        if (declared && i < declared->num_inputs) {
-            arg_type = declared->input_types[i];
-        } else {
-            switch (v->kind) {
-                case EAST_VAL_NULL:     arg_type = &east_null_type; break;
-                case EAST_VAL_BOOLEAN:  arg_type = &east_boolean_type; break;
-                case EAST_VAL_INTEGER:  arg_type = &east_integer_type; break;
-                case EAST_VAL_FLOAT:    arg_type = &east_float_type; break;
-                case EAST_VAL_STRING:   arg_type = &east_string_type; break;
-                case EAST_VAL_DATETIME: arg_type = &east_datetime_type; break;
-                case EAST_VAL_BLOB:     arg_type = &east_blob_type; break;
-                case EAST_VAL_ARRAY:    { east_type_retain(v->data.array.elem_type);
-                                          arg_type = east_array_type(v->data.array.elem_type); type_owned = true; break; }
-                case EAST_VAL_SET:      { east_type_retain(v->data.set.elem_type);
-                                          arg_type = east_set_type(v->data.set.elem_type); type_owned = true; break; }
-                case EAST_VAL_DICT:     { east_type_retain(v->data.dict.key_type);
-                                          east_type_retain(v->data.dict.val_type);
-                                          arg_type = east_dict_type(v->data.dict.key_type, v->data.dict.val_type); type_owned = true; break; }
-                case EAST_VAL_STRUCT:   { east_type_retain(v->data.struct_.type);
-                                          arg_type = v->data.struct_.type; break; }
-                case EAST_VAL_VARIANT:  { east_type_retain(v->data.variant.type);
-                                          arg_type = v->data.variant.type; break; }
-                case EAST_VAL_REF:      arg_type = &east_blob_type; break; /* fallback */
-                case EAST_VAL_VECTOR:   { east_type_retain(v->data.vector.elem_type);
-                                          arg_type = east_vector_type(v->data.vector.elem_type); type_owned = true; break; }
-                case EAST_VAL_MATRIX:   { east_type_retain(v->data.matrix.elem_type);
-                                          arg_type = east_matrix_type(v->data.matrix.elem_type); type_owned = true; break; }
-                case EAST_VAL_FUNCTION: arg_type = &east_blob_type; break; /* unreachable if declared types provided */
-            }
-        }
-
+        /* Beast2-encode the value using the compiler-provided type */
         ByteBuffer *vbuf = east_beast2_encode_full(v, arg_type);
-
-        /* Write length + data */
         uint32_t vlen = (uint32_t)vbuf->len;
         byte_buffer_write_bytes(args_buf, (uint8_t *)&vlen, 4);
         byte_buffer_write_bytes(args_buf, vbuf->data, vbuf->len);
-
         byte_buffer_free(vbuf);
-
-        if (type_owned) {
-            east_type_release(arg_type);
-        }
     }
 
-    /* Call JS — use heap-allocated g_platform_result_len (not a stack local)
-     * because async bridge writes happen after ASYNCIFY unwind, and
-     * a stack local would be clobbered by intervening WASM calls. */
     *g_platform_result_len = PLATFORM_RESULT_BUF_SIZE;
     int rc = js_platform_call(
         t->name,
@@ -340,13 +241,11 @@ static EvalResult platform_bridge_fn(EastValue **args, size_t num_args) {
     size_t out_len = *g_platform_result_len;
 
     g_bridge_depth--;
-    /* Free handles allocated at this bridge level */
     if (g_bridge_depth < MAX_BRIDGE_DEPTH) {
         free_temp_handles_to(g_handle_stack[g_bridge_depth]);
     }
 
     if (rc != 0) {
-        /* Error: out_buf contains error message as UTF-8 */
         char *msg = malloc(out_len + 1);
         memcpy(msg, g_platform_result_buf, out_len);
         msg[out_len] = '\0';
@@ -356,77 +255,49 @@ static EvalResult platform_bridge_fn(EastValue **args, size_t num_args) {
     }
 
     if (out_len == 0) {
-        /* No return value (null) */
         return eval_ok(east_null());
     }
 
-    /* Decode result from Beast2-full (self-describing — type is embedded) */
     EastValue *result = east_beast2_decode_auto(g_platform_result_buf, out_len);
     if (!result) {
         return eval_error("platform bridge: failed to decode result from JS");
     }
-
     return eval_ok(result);
 }
 
-/* Factory function: creates a PlatformFn for a specific (name, type_params) */
 static PlatformFn platform_bridge_factory(EastType **type_params, size_t num_type_params) {
-    /* This is called by the compiler when it encounters a generic platform node.
-     * We need to return a PlatformFn, but we also need to stash the type_params.
-     * We use the g_current_trampoline thread-local to pass context. */
-
-    /* Note: The factory approach doesn't let us capture state in the returned
-     * PlatformFn. Instead, we'll set up the trampoline at call time.
-     * For now, just return the bridge function — the trampoline is set up
-     * by our custom platform_registry_get wrapper. */
     (void)type_params;
     (void)num_type_params;
     return platform_bridge_fn;
 }
 
-/* register_js_platform is handled by east_wasm_register_platform export */
-
 /* ------------------------------------------------------------------ */
 /*  Handle table for compiled functions                                */
-/*                                                                     */
-/*  Stores EastValue* (EAST_VAL_FUNCTION) instead of raw              */
-/*  EastCompiledFn*, so that compile_value can store function values   */
-/*  with their captures intact via refcounting.                        */
 /* ------------------------------------------------------------------ */
 
 #define MAX_HANDLES 4096
 static EastValue *g_handles[MAX_HANDLES];
 static uint32_t g_next_handle = 1;
 
-static uint32_t alloc_handle_value(EastValue *fn_value) {
-    if (!fn_value || fn_value->kind != EAST_VAL_FUNCTION) return 0;
-    for (uint32_t i = g_next_handle; i < MAX_HANDLES; i++) {
-        if (g_handles[i] == NULL) {
-            east_value_retain(fn_value);
-            g_handles[i] = fn_value;
-            g_next_handle = i + 1;
-            return i;
-        }
-    }
-    /* Wrap around */
-    for (uint32_t i = 1; i < g_next_handle; i++) {
-        if (g_handles[i] == NULL) {
-            east_value_retain(fn_value);
-            g_handles[i] = fn_value;
-            g_next_handle = i + 1;
-            return i;
-        }
-    }
-    return 0; /* out of handles */
-}
-
 static uint32_t alloc_handle(EastCompiledFn *fn) {
     EastValue *fn_value = east_function_value(fn);
-    uint32_t h = alloc_handle_value(fn_value);
-    /* east_function_value creates a value with refcount 1,
-     * alloc_handle_value retains it, so release our ref */
+    /* east_function_value creates with refcount 1, find a slot and store */
+    for (uint32_t i = g_next_handle; i < MAX_HANDLES; i++) {
+        if (g_handles[i] == NULL) {
+            g_handles[i] = fn_value;  /* takes ownership of the refcount */
+            g_next_handle = i + 1;
+            return i;
+        }
+    }
+    for (uint32_t i = 1; i < g_next_handle; i++) {
+        if (g_handles[i] == NULL) {
+            g_handles[i] = fn_value;
+            g_next_handle = i + 1;
+            return i;
+        }
+    }
     east_value_release(fn_value);
-    return h;
+    return 0;
 }
 
 static EastCompiledFn *get_handle(uint32_t h) {
@@ -442,74 +313,6 @@ static void free_handle(uint32_t h) {
         g_handles[h] = NULL;
     }
 }
-
-/* ------------------------------------------------------------------ */
-/*  Trampoline management for platform calls                           */
-/* ------------------------------------------------------------------ */
-
-/* Find or create a trampoline for a (name, type_params) pair */
-static PlatformTrampoline *get_or_create_trampoline(
-    const char *name, EastType **type_params, size_t num_type_params
-) {
-    uint32_t h = trampoline_hash(name, type_params, num_type_params) % TRAMPOLINE_BUCKETS;
-
-    /* Search existing */
-    for (PlatformTrampoline *t = g_trampolines[h]; t; t = t->next) {
-        if (strcmp(t->name, name) == 0 && t->num_type_params == num_type_params) {
-            bool match = true;
-            for (size_t i = 0; i < num_type_params && match; i++) {
-                if (!east_type_equal(t->type_params[i], type_params[i])) match = false;
-            }
-            if (match) return t;
-        }
-    }
-
-    /* Create new */
-    PlatformTrampoline *t = calloc(1, sizeof(PlatformTrampoline));
-    t->name = strdup(name);
-    t->num_type_params = num_type_params;
-    if (num_type_params > 0) {
-        t->type_params = malloc(sizeof(EastType *) * num_type_params);
-        for (size_t i = 0; i < num_type_params; i++) {
-            t->type_params[i] = type_params[i];
-            east_type_retain(type_params[i]);
-        }
-    }
-    encode_type_params(t);
-    t->next = g_trampolines[h];
-    g_trampolines[h] = t;
-
-    return t;
-}
-
-/* ------------------------------------------------------------------ */
-/*  Custom eval wrapper to set up trampolines                          */
-/* ------------------------------------------------------------------ */
-
-/*
- * We hook into the platform call mechanism by wrapping the platform
- * registry's get function. When the compiler resolves a platform function,
- * we create a trampoline and store it. Then when the PlatformFn is called,
- * we set g_current_trampoline before calling platform_bridge_fn.
- *
- * Actually, since the PlatformFn returned by the factory is always
- * platform_bridge_fn, and we can't pass context through PlatformFn's
- * signature, we need a different approach.
- *
- * Solution: We'll override the compiler's IR_PLATFORM handling.
- * But that requires modifying east-c internals.
- *
- * Simpler solution: Use a pre-call hook. Since WASM is single-threaded,
- * we can safely use a global to set the current trampoline context
- * right before the PlatformFn is invoked.
- *
- * We'll register a non-generic platform function for each name that
- * sets up the trampoline. But we don't know the names in advance...
- *
- * Simplest solution: Register all platform functions as non-generic
- * with a naming convention. The JS side tells us which functions to
- * register during init.
- */
 
 /* ------------------------------------------------------------------ */
 /*  Last error tracking                                                */
@@ -528,21 +331,68 @@ static void clear_last_error(void) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Shared compilation helper                                          */
+/* ------------------------------------------------------------------ */
+
+/* Compile an IR value (already decoded) to a handle. */
+static uint32_t compile_ir_value(EastValue *ir_val) {
+    IRNode *ir = east_ir_from_value(ir_val);
+    east_value_release(ir_val);
+    if (!ir) {
+        set_last_error("failed to convert IR value to IR node tree");
+        return 0;
+    }
+
+    IRNode *body = ir;
+    size_t num_params = 0;
+    IRVariable *params = NULL;
+    if (ir->kind == IR_ASYNC_FUNCTION || ir->kind == IR_FUNCTION) {
+        num_params = ir->data.function.num_params;
+        params = ir->data.function.params;
+        body = ir->data.function.body;
+    }
+
+    EastCompiledFn *fn = east_compile(body, g_platform, g_builtins);
+    if (!fn) {
+        set_last_error("failed to compile IR");
+        ir_node_release(ir);
+        return 0;
+    }
+
+    if (num_params > 0 && params) {
+        fn->num_params = num_params;
+        fn->param_names = calloc(num_params, sizeof(char *));
+        if (fn->param_names) {
+            for (size_t i = 0; i < num_params; i++)
+                fn->param_names[i] = strdup(params[i].name);
+        }
+    }
+
+    uint32_t handle = alloc_handle(fn);
+    if (handle == 0) {
+        set_last_error("out of compiled function handles");
+        east_compiled_fn_free(fn);
+    }
+
+    ir_node_release(ir);
+    return handle;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Pre-call hook                                                      */
+/* ------------------------------------------------------------------ */
+
+static void wasm_platform_pre_call(const char *name, EastType **type_params, size_t num_type_params) {
+    g_current_trampoline = get_or_create_trampoline(name, type_params, num_type_params);
+}
+
+/* ------------------------------------------------------------------ */
 /*  Public WASM API                                                    */
 /* ------------------------------------------------------------------ */
 
-/*
- * Get the last error message. Returns pointer to null-terminated string
- * in WASM memory, or NULL if no error. Valid until next API call.
- */
 EMSCRIPTEN_KEEPALIVE
 const char *east_wasm_last_error(void) {
     return g_last_error;
-}
-
-/* Pre-call hook: set up trampoline context before platform function dispatch */
-static void wasm_platform_pre_call(const char *name, EastType **type_params, size_t num_type_params) {
-    g_current_trampoline = get_or_create_trampoline(name, type_params, num_type_params);
 }
 
 EMSCRIPTEN_KEEPALIVE
@@ -567,38 +417,8 @@ void east_wasm_init(void) {
     g_initialized = 1;
 }
 
-/*
- * Register a platform function name that will be delegated to JS.
- * Must be called after east_wasm_init() and before compiling IR that uses it.
- *
- * name: null-terminated function name (e.g. "state_read")
- * is_generic: true if the function takes type parameters
- * is_async: true if the function is async
- * input_types_buf: Beast2-full encoded array of input types (or NULL)
- * input_types_len: length of input_types_buf
- */
 EMSCRIPTEN_KEEPALIVE
-void east_wasm_register_platform(const char *name, int is_generic, int is_async,
-                                  const uint8_t *input_types_buf, size_t input_types_len) {
-    /* Decode and store input types if provided */
-    if (input_types_buf && input_types_len > 0) {
-        if (!east_type_type) east_type_of_type_init();
-
-        EastType *arr_type = east_array_type(east_type_type);
-        EastValue *types_arr = east_beast2_decode_full(input_types_buf, input_types_len, arr_type);
-        east_type_release(arr_type);
-
-        if (types_arr && types_arr->kind == EAST_VAL_ARRAY) {
-            size_t n = types_arr->data.array.len;
-            EastType **types = calloc(n, sizeof(EastType *));
-            for (size_t i = 0; i < n; i++) {
-                types[i] = east_type_from_value(types_arr->data.array.items[i]);
-            }
-            store_input_types(name, types, n);
-        }
-        if (types_arr) east_value_release(types_arr);
-    }
-
+void east_wasm_register_platform(const char *name, int is_generic, int is_async) {
     if (is_generic) {
         platform_registry_add_generic(g_platform, name, platform_bridge_factory, is_async != 0);
     } else {
@@ -606,87 +426,143 @@ void east_wasm_register_platform(const char *name, int is_generic, int is_async,
     }
 }
 
-/*
- * Compile East IR from Beast2-full encoded bytes.
- * Returns a handle (>0) on success, 0 on failure.
- *
- * The IR should be Beast2-full encoded (type header + value).
- * The type is expected to be east_ir_type.
- */
 EMSCRIPTEN_KEEPALIVE
 uint32_t east_wasm_compile(const uint8_t *ir_bytes, size_t ir_len) {
     clear_last_error();
-    if (!g_initialized) {
-        set_last_error("east_wasm_init() not called");
-        return 0;
-    }
+    if (!g_initialized) { set_last_error("east_wasm_init() not called"); return 0; }
 
-    /* Decode Beast2-full as IR type */
     EastValue *ir_val = east_beast2_decode_full(ir_bytes, ir_len, east_ir_type);
-    if (!ir_val) {
-        set_last_error("failed to decode Beast2-full IR bytes");
-        return 0;
-    }
+    if (!ir_val) { set_last_error("failed to decode Beast2-full IR bytes"); return 0; }
 
-    /* Convert to IR node tree */
-    IRNode *ir = east_ir_from_value(ir_val);
-    east_value_release(ir_val);
-    if (!ir) {
-        set_last_error("failed to convert IR value to IR node tree");
-        return 0;
-    }
-
-    /* Extract body if top-level is a function, preserving param names
-     * so that callWithArgs can bind arguments properly. */
-    IRNode *body = ir;
-    size_t num_params = 0;
-    IRVariable *params = NULL;
-    if (ir->kind == IR_ASYNC_FUNCTION || ir->kind == IR_FUNCTION) {
-        num_params = ir->data.function.num_params;
-        params = ir->data.function.params;
-        body = ir->data.function.body;
-    }
-
-    /* Compile */
-    EastCompiledFn *fn = east_compile(body, g_platform, g_builtins);
-    if (!fn) {
-        set_last_error("failed to compile IR");
-        ir_node_release(ir);
-        return 0;
-    }
-
-    /* Set parameter names from the function IR so east_call can bind args */
-    if (num_params > 0 && params) {
-        fn->num_params = num_params;
-        fn->param_names = calloc(num_params, sizeof(char *));
-        if (fn->param_names) {
-            for (size_t i = 0; i < num_params; i++) {
-                fn->param_names[i] = strdup(params[i].name);
-            }
-        }
-    }
-
-    uint32_t handle = alloc_handle(fn);
-    if (handle == 0) {
-        set_last_error("out of compiled function handles");
-        east_compiled_fn_free(fn);
-    }
-
-    ir_node_release(ir);
-    return handle;
+    return compile_ir_value(ir_val);
 }
 
-/*
- * Execute a compiled function with no arguments.
- * Returns Beast2-full encoded result.
- *
- * result_buf: caller-allocated buffer for the result
- * result_len: [in] capacity, [out] actual length
- * error_buf: caller-allocated buffer for error message (if any)
- * error_len: [in] capacity, [out] actual length
- *
- * Returns: 0 = success, 1 = error
- */
+EMSCRIPTEN_KEEPALIVE
+uint32_t east_wasm_compile_json(const uint8_t *json, size_t json_len) {
+    clear_last_error();
+    if (!g_initialized) { set_last_error("east_wasm_init() not called"); return 0; }
+
+    char *json_str = malloc(json_len + 1);
+    if (!json_str) { set_last_error("out of memory"); return 0; }
+    memcpy(json_str, json, json_len);
+    json_str[json_len] = '\0';
+
+    char *decode_error = NULL;
+    EastValue *ir_val = east_json_decode_with_error(json_str, east_ir_type, &decode_error);
+    free(json_str);
+    if (!ir_val) {
+        if (decode_error) { set_last_error(decode_error); free(decode_error); }
+        else { set_last_error("failed to decode JSON IR"); }
+        return 0;
+    }
+
+    return compile_ir_value(ir_val);
+}
+
+EMSCRIPTEN_KEEPALIVE
+uint32_t east_wasm_compile_east(const uint8_t *text, size_t text_len) {
+    clear_last_error();
+    if (!g_initialized) { set_last_error("east_wasm_init() not called"); return 0; }
+
+    char *text_str = malloc(text_len + 1);
+    if (!text_str) { set_last_error("out of memory"); return 0; }
+    memcpy(text_str, text, text_len);
+    text_str[text_len] = '\0';
+
+    char *parse_error = NULL;
+    EastValue *ir_val = east_parse_value_with_error(text_str, east_ir_type, &parse_error);
+    free(text_str);
+    if (!ir_val) {
+        if (parse_error) { set_last_error(parse_error); free(parse_error); }
+        else { set_last_error("failed to parse East text IR"); }
+        return 0;
+    }
+
+    return compile_ir_value(ir_val);
+}
+
+/* Shared call result encoding — returns 0 on success, 1 on error */
+static int encode_call_result(EvalResult result, EastType *result_type,
+                               uint8_t *result_buf, size_t *result_len,
+                               char *error_buf, size_t *error_len) {
+    if (result.status == EVAL_ERROR) {
+        const char *msg = result.error_message ? result.error_message : "unknown error";
+        size_t mlen = strlen(msg);
+        if (mlen > *error_len) mlen = *error_len;
+        memcpy(error_buf, msg, mlen);
+        *error_len = mlen;
+        *result_len = 0;
+        eval_result_free(&result);
+        return 1;
+    }
+
+    if (!result.value || result.value->kind == EAST_VAL_NULL) {
+        *result_len = 0;
+        if (result.value) east_value_release(result.value);
+        eval_result_free(&result);
+        return 0;
+    }
+
+    if (!result_type) {
+        *result_len = 0;
+        east_value_release(result.value);
+        eval_result_free(&result);
+        return 0;
+    }
+
+    ByteBuffer *buf = east_beast2_encode_full(result.value, result_type);
+    if (buf->len > *result_len) {
+        const char *msg = "result buffer too small";
+        size_t mlen = strlen(msg);
+        if (mlen > *error_len) mlen = *error_len;
+        memcpy(error_buf, msg, mlen);
+        *error_len = mlen;
+        *result_len = 0;
+        byte_buffer_free(buf);
+        east_value_release(result.value);
+        eval_result_free(&result);
+        return 1;
+    }
+
+    memcpy(result_buf, buf->data, buf->len);
+    *result_len = buf->len;
+    byte_buffer_free(buf);
+    east_value_release(result.value);
+    eval_result_free(&result);
+    return 0;
+}
+
+/* Decode packed args: [count:u32le][len:u32le][beast2]... */
+static EastValue **decode_packed_args(const uint8_t *args_buf, size_t args_len, uint32_t *out_num_args) {
+    *out_num_args = 0;
+    if (args_len < 4) return NULL;
+
+    uint32_t num_args;
+    memcpy(&num_args, args_buf, 4);
+    size_t offset = 4;
+
+    EastValue **args = calloc(num_args, sizeof(EastValue *));
+    for (uint32_t i = 0; i < num_args; i++) {
+        if (offset + 4 > args_len) break;
+        uint32_t vlen;
+        memcpy(&vlen, args_buf + offset, 4);
+        offset += 4;
+        if (offset + vlen > args_len) break;
+        args[i] = east_beast2_decode_auto(args_buf + offset, vlen);
+        offset += vlen;
+    }
+
+    *out_num_args = num_args;
+    return args;
+}
+
+static void free_args(EastValue **args, uint32_t num_args) {
+    for (uint32_t i = 0; i < num_args; i++) {
+        if (args[i]) east_value_release(args[i]);
+    }
+    free(args);
+}
+
 EMSCRIPTEN_KEEPALIVE
 int east_wasm_call(uint32_t handle,
                     uint8_t *result_buf, size_t *result_len,
@@ -703,65 +579,9 @@ int east_wasm_call(uint32_t handle,
     }
 
     EvalResult result = east_call(fn, NULL, 0);
-
-    if (result.status == EVAL_ERROR) {
-        const char *msg = result.error_message ? result.error_message : "unknown error";
-        size_t mlen = strlen(msg);
-        if (mlen > *error_len) mlen = *error_len;
-        memcpy(error_buf, msg, mlen);
-        *error_len = mlen;
-        *result_len = 0;
-        eval_result_free(&result);
-        return 1;
-    }
-
-    if (!result.value || result.value->kind == EAST_VAL_NULL) {
-        *result_len = 0;
-        if (result.value) east_value_release(result.value);
-        eval_result_free(&result);
-        return 0;
-    }
-
-    /* We need a type to encode. Use the compiled function's IR type. */
-    EastType *result_type = fn->ir->type;
-    if (!result_type) {
-        /* Fallback: can't encode without type */
-        *result_len = 0;
-        east_value_release(result.value);
-        eval_result_free(&result);
-        return 0;
-    }
-
-    ByteBuffer *buf = east_beast2_encode_full(result.value, result_type);
-    if (buf->len > *result_len) {
-        /* Buffer too small */
-        const char *msg = "result buffer too small";
-        size_t mlen = strlen(msg);
-        if (mlen > *error_len) mlen = *error_len;
-        memcpy(error_buf, msg, mlen);
-        *error_len = mlen;
-        *result_len = 0;
-        byte_buffer_free(buf);
-        east_value_release(result.value);
-        eval_result_free(&result);
-        return 1;
-    }
-
-    memcpy(result_buf, buf->data, buf->len);
-    *result_len = buf->len;
-
-    byte_buffer_free(buf);
-    east_value_release(result.value);
-    eval_result_free(&result);
-    return 0;
+    return encode_call_result(result, fn->ir->type, result_buf, result_len, error_buf, error_len);
 }
 
-/*
- * Execute a compiled function with Beast2-full encoded arguments.
- * Same format as platform bridge: [count:u32][len1:u32][beast2_full_1]...
- *
- * Returns: 0 = success, 1 = error
- */
 EMSCRIPTEN_KEEPALIVE
 int east_wasm_call_with_args(uint32_t handle,
                               const uint8_t *args_buf, size_t args_len,
@@ -778,285 +598,74 @@ int east_wasm_call_with_args(uint32_t handle,
         return 1;
     }
 
-    /* Decode args */
-    size_t offset = 0;
-    uint32_t num_args = 0;
-    if (args_len >= 4) {
-        memcpy(&num_args, args_buf, 4);
-        offset = 4;
-    }
-
-    EastValue **args = NULL;
-    if (num_args > 0) {
-        args = calloc(num_args, sizeof(EastValue *));
-        for (uint32_t i = 0; i < num_args; i++) {
-            if (offset + 4 > args_len) break;
-            uint32_t vlen;
-            memcpy(&vlen, args_buf + offset, 4);
-            offset += 4;
-            if (offset + vlen > args_len) break;
-            args[i] = east_beast2_decode_auto(args_buf + offset, vlen);
-            offset += vlen;
-        }
-    }
+    uint32_t num_args;
+    EastValue **args = decode_packed_args(args_buf, args_len, &num_args);
 
     EvalResult result = east_call(fn, args, num_args);
+    free_args(args, num_args);
 
-    /* Release args */
-    for (uint32_t i = 0; i < num_args; i++) {
-        if (args[i]) east_value_release(args[i]);
-    }
-    free(args);
+    return encode_call_result(result, fn->ir->type, result_buf, result_len, error_buf, error_len);
+}
 
-    if (result.status == EVAL_ERROR) {
-        const char *msg = result.error_message ? result.error_message : "unknown error";
-        size_t mlen = strlen(msg);
-        if (mlen > *error_len) mlen = *error_len;
-        memcpy(error_buf, msg, mlen);
-        *error_len = mlen;
-        *result_len = 0;
-        eval_result_free(&result);
+EMSCRIPTEN_KEEPALIVE
+int east_wasm_get_fn_type(uint32_t handle, uint8_t *out_buf, size_t *out_len) {
+    EastCompiledFn *fn = get_handle(handle);
+    if (!fn) {
+        *out_len = 0;
         return 1;
     }
 
-    if (!result.value || result.value->kind == EAST_VAL_NULL) {
-        *result_len = 0;
-        if (result.value) east_value_release(result.value);
-        eval_result_free(&result);
-        return 0;
+    EastType *ft = fn->fn_type;
+    if (!ft) {
+        *out_len = 0;
+        return 1;
     }
 
-    EastType *result_type = fn->ir->type;
-    if (!result_type) {
-        *result_len = 0;
-        east_value_release(result.value);
-        eval_result_free(&result);
-        return 0;
-    }
+    EastValue *type_val = east_type_to_value(ft);
+    ByteBuffer *buf = east_beast2_encode_full(type_val, east_type_type);
+    east_value_release(type_val);
 
-    ByteBuffer *buf = east_beast2_encode_full(result.value, result_type);
-    if (buf->len > *result_len) {
-        const char *msg = "result buffer too small";
-        size_t mlen = strlen(msg);
-        if (mlen > *error_len) mlen = *error_len;
-        memcpy(error_buf, msg, mlen);
-        *error_len = mlen;
-        *result_len = 0;
+    if (buf->len > *out_len) {
         byte_buffer_free(buf);
-        east_value_release(result.value);
-        eval_result_free(&result);
+        *out_len = 0;
         return 1;
     }
 
-    memcpy(result_buf, buf->data, buf->len);
-    *result_len = buf->len;
-
+    memcpy(out_buf, buf->data, buf->len);
+    *out_len = buf->len;
     byte_buffer_free(buf);
-    east_value_release(result.value);
-    eval_result_free(&result);
     return 0;
 }
 
-/*
- * Free a compiled function handle.
- */
 EMSCRIPTEN_KEEPALIVE
 void east_wasm_free(uint32_t handle) {
-    if (handle > 0 && handle < MAX_HANDLES && g_handles[handle]) {
-        free_handle(handle);
-    }
+    free_handle(handle);
 }
 
-/* ------------------------------------------------------------------ */
-/*  compile_value: decode beast2-full, compile functions, re-encode    */
-/*  with handle IDs at function positions                              */
-/* ------------------------------------------------------------------ */
-
-/* Callback for beast2_encode_full_with_handles */
-static int compile_value_alloc_handle(EastValue *fn_value, void *user_data) {
-    (void)user_data;
-    return (int)alloc_handle_value(fn_value);
-}
-
-/*
- * Decode a beast2-full value, compiling embedded functions to WASM.
- * Re-encodes the value with handle IDs at function positions.
- *
- * bytes/len: beast2-full encoded input
- * result_buf/result_len: [out] re-encoded beast2-full with handle IDs
- * error_buf/error_len: [out] error message on failure
- *
- * Returns: 0 = success, 1 = error
- */
-EMSCRIPTEN_KEEPALIVE
-int east_wasm_compile_value(
-    const uint8_t *bytes, uint32_t len,
-    uint8_t *result_buf, uint32_t *result_len,
-    uint8_t *error_buf, uint32_t *error_len)
-{
-    clear_last_error();
-    if (!g_initialized) {
-        const char *msg = "east_wasm_init() not called";
-        uint32_t mlen = (uint32_t)strlen(msg);
-        if (mlen > *error_len) mlen = *error_len;
-        memcpy(error_buf, msg, mlen);
-        *error_len = mlen;
-        *result_len = 0;
-        return 1;
-    }
-
-    /* Set thread context so beast2 decoder can compile functions */
-    east_set_thread_context(g_platform, g_builtins);
-
-    double t0 = emscripten_get_now();
-
-    /* 1. Decode beast2-full with auto type detection */
-    EastValue *value = east_beast2_decode_auto(bytes, len);
-    if (!value) {
-        const char *msg = "failed to decode beast2-full value";
-        uint32_t mlen = (uint32_t)strlen(msg);
-        if (mlen > *error_len) mlen = *error_len;
-        memcpy(error_buf, msg, mlen);
-        *error_len = mlen;
-        *result_len = 0;
-        return 1;
-    }
-
-    double t1 = emscripten_get_now();
-
-    /* 2. Extract type from beast2 header */
-    EastType *type = east_beast2_extract_type(bytes, len);
-
-    if (!type) {
-        east_value_release(value);
-        const char *msg = "failed to decode type from beast2 header";
-        uint32_t mlen = (uint32_t)strlen(msg);
-        if (mlen > *error_len) mlen = *error_len;
-        memcpy(error_buf, msg, mlen);
-        *error_len = mlen;
-        *result_len = 0;
-        return 1;
-    }
-
-    double t2 = emscripten_get_now();
-
-    /* 3. Re-encode with handle IDs at function positions */
-    ByteBuffer *buf = east_beast2_encode_full_with_handles(
-        value, type, compile_value_alloc_handle, NULL);
-
-    double t3 = emscripten_get_now();
-
-    east_value_release(value);
-    east_type_release(type);
-
-    double t4 = emscripten_get_now();
-    emscripten_log(EM_LOG_CONSOLE, "compile_value: decode=%.1fms type=%.1fms encode=%.1fms release=%.1fms total=%.1fms",
-        t1-t0, t2-t1, t3-t2, t4-t3, t4-t0);
-
-    if (!buf) {
-        const char *msg = "failed to re-encode value with handles";
-        uint32_t mlen = (uint32_t)strlen(msg);
-        if (mlen > *error_len) mlen = *error_len;
-        memcpy(error_buf, msg, mlen);
-        *error_len = mlen;
-        *result_len = 0;
-        return 1;
-    }
-
-    /* 4. Copy result to output buffer */
-    if (buf->len > *result_len) {
-        const char *msg = "result buffer too small";
-        uint32_t mlen = (uint32_t)strlen(msg);
-        if (mlen > *error_len) mlen = *error_len;
-        memcpy(error_buf, msg, mlen);
-        *error_len = mlen;
-        *result_len = 0;
-        byte_buffer_free(buf);
-        return 1;
-    }
-
-    memcpy(result_buf, buf->data, buf->len);
-    *result_len = (uint32_t)buf->len;
-    byte_buffer_free(buf);
-    return 0;
-}
-
-/*
- * Run garbage collection cycle.
- */
 EMSCRIPTEN_KEEPALIVE
 void east_wasm_gc(void) {
     east_gc_collect();
 }
 
-/*
- * Allocate memory in WASM heap (for JS to write data into).
- */
 EMSCRIPTEN_KEEPALIVE
 void *east_wasm_malloc(size_t size) {
     return malloc(size);
 }
 
-/*
- * Free memory in WASM heap.
- */
 EMSCRIPTEN_KEEPALIVE
 void east_wasm_free_buf(void *ptr) {
     free(ptr);
 }
 
 /*
- * Set the current trampoline for the next platform call.
- * Called by the custom eval loop before invoking a platform function.
- *
- * This is needed because PlatformFn doesn't carry context.
- * Since WASM is single-threaded, a global is safe.
- */
-EMSCRIPTEN_KEEPALIVE
-void east_wasm_set_platform_context(const char *name,
-                                     const uint8_t *type_params_buf,
-                                     size_t type_params_len) {
-    /* Decode type params if provided */
-    EastType **type_params = NULL;
-    size_t num_type_params = 0;
-
-    if (type_params_buf && type_params_len > 0) {
-        EastType *arr_type = east_array_type(east_type_type);
-        EastValue *arr = east_beast2_decode_full(type_params_buf, type_params_len, arr_type);
-        east_type_release(arr_type);
-
-        if (arr && arr->kind == EAST_VAL_ARRAY) {
-            num_type_params = east_array_len(arr);
-            type_params = malloc(sizeof(EastType *) * num_type_params);
-            for (size_t i = 0; i < num_type_params; i++) {
-                EastValue *tv = east_array_get(arr, i);
-                type_params[i] = east_type_from_value(tv);
-            }
-        }
-        if (arr) east_value_release(arr);
-    }
-
-    g_current_trampoline = get_or_create_trampoline(name, type_params, num_type_params);
-
-    /* Clean up temporary type_params array (trampoline retains its own copies) */
-    for (size_t i = 0; i < num_type_params; i++) {
-        east_type_release(type_params[i]);
-    }
-    free(type_params);
-}
-
-/*
  * Invoke a function via its temp handle (callback from JS into WASM).
- * Args are Beast2-full packed: [count:u32][len1:u32][data1]...
- * Result is Beast2-full encoded into result_buf.
- * Returns: 0 = success, 1 = error
+ * Args are Beast2-full packed. Result is Beast2-full encoded.
  */
 EMSCRIPTEN_KEEPALIVE
 int east_wasm_invoke_fn(uint32_t handle_id,
                          const uint8_t *args_buf, size_t args_len,
                          uint8_t *result_buf, size_t *result_len,
                          char *error_buf, size_t *error_len) {
-    /* Resolve temp handle */
     EastValue *fn_val = NULL;
     if (handle_id & 0x80000000) {
         uint32_t idx = handle_id & 0x7FFFFFFF;
@@ -1084,82 +693,11 @@ int east_wasm_invoke_fn(uint32_t handle_id,
         return 1;
     }
 
-    /* Decode args from Beast2-full packed format */
-    size_t offset = 0;
-    uint32_t num_args = 0;
-    if (args_len >= 4) {
-        memcpy(&num_args, args_buf, 4);
-        offset = 4;
-    }
-
-    EastValue **args = NULL;
-    if (num_args > 0) {
-        args = calloc(num_args, sizeof(EastValue *));
-        for (uint32_t i = 0; i < num_args; i++) {
-            if (offset + 4 > args_len) break;
-            uint32_t vlen;
-            memcpy(&vlen, args_buf + offset, 4);
-            offset += 4;
-            if (offset + vlen > args_len) break;
-            args[i] = east_beast2_decode_auto(args_buf + offset, vlen);
-            offset += vlen;
-        }
-    }
+    uint32_t num_args;
+    EastValue **args = decode_packed_args(args_buf, args_len, &num_args);
 
     EvalResult result = east_call(fn, args, num_args);
+    free_args(args, num_args);
 
-    /* Release args */
-    for (uint32_t i = 0; i < num_args; i++) {
-        if (args[i]) east_value_release(args[i]);
-    }
-    free(args);
-
-    if (result.status == EVAL_ERROR) {
-        const char *msg = result.error_message ? result.error_message : "unknown error";
-        size_t mlen = strlen(msg);
-        if (mlen > *error_len) mlen = *error_len;
-        memcpy(error_buf, msg, mlen);
-        *error_len = mlen;
-        *result_len = 0;
-        eval_result_free(&result);
-        return 1;
-    }
-
-    if (!result.value || result.value->kind == EAST_VAL_NULL) {
-        *result_len = 0;
-        if (result.value) east_value_release(result.value);
-        eval_result_free(&result);
-        return 0;
-    }
-
-    /* Use the function's IR return type for encoding */
-    EastType *result_type = fn->ir->type;
-    if (!result_type) {
-        *result_len = 0;
-        east_value_release(result.value);
-        eval_result_free(&result);
-        return 0;
-    }
-
-    ByteBuffer *buf = east_beast2_encode_full(result.value, result_type);
-    if (buf->len > *result_len) {
-        const char *msg = "result buffer too small";
-        size_t mlen = strlen(msg);
-        if (mlen > *error_len) mlen = *error_len;
-        memcpy(error_buf, msg, mlen);
-        *error_len = mlen;
-        *result_len = 0;
-        byte_buffer_free(buf);
-        east_value_release(result.value);
-        eval_result_free(&result);
-        return 1;
-    }
-
-    memcpy(result_buf, buf->data, buf->len);
-    *result_len = buf->len;
-
-    byte_buffer_free(buf);
-    east_value_release(result.value);
-    eval_result_free(&result);
-    return 0;
+    return encode_call_result(result, fn->ir->type, result_buf, result_len, error_buf, error_len);
 }

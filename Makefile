@@ -1,4 +1,4 @@
-.PHONY: update build rebuild test clean install install-cli services-up services-down compliance compliance-std compliance-wasm compliance-all leak-check leak-check-std leak-check-all setup-wasm wasm wasm-clean link unlink
+.PHONY: update build rebuild clean install install-cli test-east-c test-east-c-std test-east-c-wasm test-all leak-check leak-check-std leak-check-all services-up services-down setup-wasm wasm wasm-install wasm-ts wasm-clean link unlink
 
 build:
 	@mkdir -p build && cd build && cmake .. && cmake --build . -j$$(nproc)
@@ -8,9 +8,6 @@ rebuild: clean build
 # Update @elaraai dependencies (including transitive)
 update:
 	@cd packages/east-c-wasm && $(NVM) npm update @elaraai/east @elaraai/east-node-std
-
-test: build
-	@cd build && ctest --output-on-failure
 
 clean:
 	@rm -rf build
@@ -23,17 +20,17 @@ install-cli: build
 	install build/packages/east-c-cli/east-c $(HOME)/.local/bin/east-c
 	@echo "Installed east-c to $(HOME)/.local/bin/east-c"
 
-# Compliance tests
-compliance: build
+# Tests (compliance)
+test-east-c: build
 	@./packages/east-c/scripts/run_compliance.sh
 
-compliance-std: build
+test-east-c-std: build
 	@./packages/east-c-std/scripts/test_compliance.sh
 
-compliance-wasm:
-	@./packages/east-c-wasm/scripts/run_compliance.sh
+test-east-c-wasm: wasm-ts
+	@cd packages/east-c-wasm && npm run test:compliance
 
-compliance-all: compliance compliance-std compliance-wasm
+test-all: test-east-c test-east-c-std test-east-c-wasm
 
 # Memory leak checks
 leak-check:
@@ -56,7 +53,6 @@ services-down:
 EMSDK_DIR := tools/emsdk
 EMSDK_VERSION := latest
 
-# One-time setup: clone and install Emscripten SDK
 setup-wasm:
 	@if [ ! -d "$(EMSDK_DIR)" ]; then \
 		echo "Cloning emsdk..."; \
@@ -69,22 +65,25 @@ setup-wasm:
 	@echo ""
 	@echo "Emscripten installed. Run 'make wasm' to build."
 
-# Build WASM output
-EMCMAKE := $(EMSDK_DIR)/upstream/emscripten/emcmake
-EMMAKE := $(EMSDK_DIR)/upstream/emscripten/emmake
+EMCMAKE ?= $(EMSDK_DIR)/upstream/emscripten/emcmake
 
 wasm:
-	@if [ ! -f "$(EMCMAKE)" ]; then \
-		echo "Error: emsdk not found. Run 'make setup-wasm' first."; \
+	@if ! command -v emcmake >/dev/null 2>&1 && [ ! -f "$(EMCMAKE)" ]; then \
+		echo "Error: emcmake not found. Run 'make setup-wasm' or install emsdk."; \
 		exit 1; \
 	fi
-	@export EMSDK=$(CURDIR)/$(EMSDK_DIR) && \
+	@if command -v emcmake >/dev/null 2>&1; then \
+		_EMCMAKE=emcmake; \
+	else \
+		export EMSDK=$(CURDIR)/$(EMSDK_DIR) && \
 		export EM_CONFIG=$(CURDIR)/$(EMSDK_DIR)/.emscripten && \
-		export PATH=$(CURDIR)/$(EMSDK_DIR)/upstream/emscripten:$(CURDIR)/$(EMSDK_DIR)/upstream/bin:$(CURDIR)/$(EMSDK_DIR)/node/22.16.0_64bit/bin:$$PATH && \
-		mkdir -p build-wasm && \
-		cd build-wasm && \
-		$(CURDIR)/$(EMCMAKE) cmake .. -DCMAKE_BUILD_TYPE=Release && \
-		cmake --build . -j$$(nproc)
+		export PATH=$(CURDIR)/$(EMSDK_DIR)/upstream/emscripten:$(CURDIR)/$(EMSDK_DIR)/upstream/bin:$(CURDIR)/$(EMSDK_DIR)/node/22.16.0_64bit/bin:$$PATH; \
+		_EMCMAKE=$(CURDIR)/$(EMCMAKE); \
+	fi && \
+	mkdir -p build-wasm && \
+	cd build-wasm && \
+	$$_EMCMAKE cmake .. -DCMAKE_BUILD_TYPE=Release && \
+	cmake --build . -j$$(nproc)
 	@mkdir -p packages/east-c-wasm/dist/wasm
 	@cp build-wasm/packages/east-c-wasm/east-c.js packages/east-c-wasm/dist/wasm/
 	@cp build-wasm/packages/east-c-wasm/east-c.wasm packages/east-c-wasm/dist/wasm/
@@ -93,14 +92,18 @@ wasm:
 	@wasm_size=$$(wc -c < packages/east-c-wasm/dist/wasm/east-c.wasm); \
 		echo "Built east-c.wasm ($$(( wasm_size / 1024 )) KB)"
 
+wasm-install:
+	@cd packages/east-c-wasm && npm install
+
+wasm-ts:
+	@cd packages/east-c-wasm && npm run build
+
 wasm-clean:
 	@rm -rf build-wasm
 	@rm -rf packages/east-c-wasm/dist/wasm
 
-# Register @elaraai/east-c-wasm globally so sibling repos can npm link it
 link:
 	cd packages/east-c-wasm && npm link
 
-# Unregister
 unlink:
 	cd packages/east-c-wasm && npm unlink

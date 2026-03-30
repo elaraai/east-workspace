@@ -504,6 +504,9 @@ EvalResult eval_ir(IRNode *node, Environment *env,
         fn->source_ir = node->data.function.source_ir;
         if (fn->source_ir) east_value_retain(fn->source_ir);
 
+        /* Store function type (not owned — points to IR node's type) */
+        fn->fn_type = node->type;
+
         EastValue *fv = east_function_value(fn);
         return eval_ok(fv);
     }
@@ -627,7 +630,16 @@ EvalResult eval_ir(IRNode *node, Environment *env,
                                node->data.platform.num_type_params);
         }
 
-        EvalResult result = pfn(args, nargs);
+        /* Collect input types from the arg IR nodes */
+        EastType **input_types = NULL;
+        if (nargs > 0) {
+            input_types = calloc(nargs, sizeof(EastType *));
+            for (size_t i = 0; i < nargs; i++)
+                input_types[i] = node->data.platform.args[i]->type;
+        }
+
+        EvalResult result = pfn(args, nargs, input_types, nargs, node->type);
+        free(input_types);
 
         for (size_t i = 0; i < nargs; i++)
             east_value_release(args[i]);

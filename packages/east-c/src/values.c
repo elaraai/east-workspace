@@ -678,14 +678,13 @@ void east_value_dealloc(EastValue *v) {
 void east_value_retain(EastValue *v) {
     if (!v) return;
     if (v->ref_count < 0) return; /* singleton (null) */
-    v->ref_count++;
+    __atomic_add_fetch(&v->ref_count, 1, __ATOMIC_RELAXED);
 }
 
 void east_value_release(EastValue *v) {
     if (!v) return;
     if (v->ref_count < 0) return; /* singleton (null) */
-    v->ref_count--;
-    if (v->ref_count > 0) return;
+    if (__atomic_sub_fetch(&v->ref_count, 1, __ATOMIC_ACQ_REL) > 0) return;
 
     /* Remove from GC tracking list before freeing. */
     if (v->gc_tracked) east_gc_untrack(v);

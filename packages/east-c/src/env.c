@@ -75,12 +75,12 @@ bool env_has(Environment *env, const char *name) {
 }
 
 void env_retain(Environment *env) {
-    if (env) env->ref_count++;
+    if (env) __atomic_add_fetch(&env->ref_count, 1, __ATOMIC_RELAXED);
 }
 
 void env_release(Environment *env) {
     if (!env) return;
-    if (--env->ref_count > 0) return;
+    if (__atomic_sub_fetch(&env->ref_count, 1, __ATOMIC_ACQ_REL) > 0) return;
 
     /* Release all values stored in the locals hashmap, free keys, free map. */
     hashmap_free(env->locals, release_value_cb);

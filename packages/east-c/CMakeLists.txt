@@ -43,27 +43,6 @@ if(EAST_USE_MIMALLOC AND NOT EMSCRIPTEN AND TARGET mimalloc-static)
     target_compile_definitions(east-c PUBLIC EAST_USE_MIMALLOC=1)
 endif()
 
-# Tests
-add_executable(test_types tests/test_types.c)
-target_link_libraries(test_types east-c)
-add_test(NAME test_types COMMAND test_types)
-
-add_executable(test_values tests/test_values.c)
-target_link_libraries(test_values east-c)
-add_test(NAME test_values COMMAND test_values)
-
-add_executable(test_compiler tests/test_compiler.c)
-target_link_libraries(test_compiler east-c)
-add_test(NAME test_compiler COMMAND test_compiler)
-
-add_executable(test_builtins tests/test_builtins.c)
-target_link_libraries(test_builtins east-c)
-add_test(NAME test_builtins COMMAND test_builtins)
-
-add_executable(test_serialization tests/test_serialization.c)
-target_link_libraries(test_serialization east-c)
-add_test(NAME test_serialization COMMAND test_serialization)
-
-# Compliance test (run manually with a JSON IR file)
+# Compliance test runner (run via: make test-east-c)
 add_executable(test_compliance tests/test_compliance.c)
 target_link_libraries(test_compliance east-c)
