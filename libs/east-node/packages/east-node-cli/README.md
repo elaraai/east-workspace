@@ -1,0 +1,157 @@
+# East Node CLI
+
+> Command-line interface for running East IR programs with Node.js
+
+[![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE.md)
+[![Node Version](https://img.shields.io/badge/node-%3E%3D22.0.0-brightgreen.svg)](https://nodejs.org)
+
+**East Node CLI** provides a command-line interface for executing compiled [East](https://github.com/elaraai/East) IR programs using Node.js platform implementations.
+
+## Installation
+
+```bash
+# Install the CLI
+npm install -g @elaraai/east-node-cli
+
+# Install platform packages (required)
+npm install @elaraai/east-node-std
+npm install @elaraai/east-node-io  # if using I/O functions
+```
+
+## Usage
+
+### Running Programs
+
+```bash
+# Run with standard platform
+east-node run ./program.beast2 -p @elaraai/east-node-std
+
+# Run with multiple platforms
+east-node run ./db-query.beast2 \
+    -p @elaraai/east-node-std \
+    -p @elaraai/east-node-io
+
+# Run with input files
+east-node run ./transform.beast2 \
+    -p @elaraai/east-node-std \
+    -i input.json \
+    -i config.east
+
+# Run with output file
+east-node run ./process.beast2 \
+    -p @elaraai/east-node-std \
+    -i input.beast2 \
+    -o result.json
+
+# Verbose mode
+east-node run ./program.beast2 -p @elaraai/east-node-std -v
+```
+
+### Version Information
+
+```bash
+# Show CLI version
+east-node version
+
+# Show CLI and platform versions
+east-node version -p @elaraai/east-node-std -p @elaraai/east-node-io
+```
+
+## CLI Reference
+
+### `east-node run`
+
+Execute an East IR program.
+
+```
+east-node run <ir_file> [options]
+
+Arguments:
+  ir_file                    Path to IR file (.beast2, .beast, .east, or .json)
+
+Options:
+  -p, --package <package>    Platform package to load (can be repeated)
+  -i, --input <file>         Input data file (can be repeated)
+  -o, --output <file>        Output file path for result
+  -v, --verbose              Enable verbose output
+  -h, --help                 Display help
+```
+
+### `east-node version`
+
+Show version information.
+
+```
+east-node version [options]
+
+Options:
+  -p, --package <package>    Platform package to check (can be repeated)
+```
+
+## Supported File Formats
+
+| Extension | Format |
+|-----------|--------|
+| `.beast2`, `.beast` | Binary East format |
+| `.east` | Text East format |
+| `.json` | JSON format |
+
+## Platform Packages
+
+Platform packages provide the runtime implementations for East platform functions:
+
+- **[@elaraai/east-node-std](https://www.npmjs.com/package/@elaraai/east-node-std)** - Standard platform (console, filesystem, crypto, time, etc.)
+- **[@elaraai/east-node-io](https://www.npmjs.com/package/@elaraai/east-node-io)** - I/O platform (SQL, S3, FTP, Redis, MongoDB, etc.)
+
+## Creating Platform Packages
+
+Any npm package can provide platform functions by following this convention:
+
+1. Export a `./platform` subpath that default-exports `PlatformFunction[]`
+2. Export `./package.json` for version discovery
+
+See the [design document](../../docs/east-node-cli-design.md) for details.
+
+## License
+
+Dual-licensed:
+- **Open Source**: [AGPL-3.0](LICENSE.md) - Free for open source use
+- **Commercial**: Available for proprietary use - contact support@elara.ai
+
+
+### Ecosystem
+
+- **[East Node](https://github.com/elaraai/east-node)**: Node.js platform functions for I/O, databases, and system operations. Connect East programs to filesystems, SQL/NoSQL databases, cloud storage, and network services.
+  - [@elaraai/east-node-std](https://www.npmjs.com/package/@elaraai/east-node-std): Filesystem, console, HTTP fetch, crypto, random distributions, timestamps
+  - [@elaraai/east-node-io](https://www.npmjs.com/package/@elaraai/east-node-io): SQLite, PostgreSQL, MySQL, MongoDB, S3, FTP, SFTP
+  - [@elaraai/east-node-cli](https://www.npmjs.com/package/@elaraai/east-node-cli): CLI for running East IR programs in Node.js
+
+- **[East Python](https://github.com/elaraai/east-py)**: Python runtime and platform functions for data science and machine learning. Execute East programs with access to optimization solvers, gradient boosting, neural networks, and model explainability.
+  - [@elaraai/east-py-datascience](https://www.npmjs.com/package/@elaraai/east-py-datascience): TypeScript types for optimization, gradient boosting, neural networks, explainability
+
+- **[East UI](https://github.com/elaraai/east-ui)**: East types and expressions for building dashboards and interactive layouts. Define UIs as data structures that render consistently across React, web, and other environments.
+  - [@elaraai/east-ui](https://www.npmjs.com/package/@elaraai/east-ui): 50+ typed UI components for layouts, forms, charts, tables, dialogs
+  - [@elaraai/east-ui-components](https://www.npmjs.com/package/@elaraai/east-ui-components): React renderer with Chakra UI styling
+
+- **[e3 - East Execution Engine](https://github.com/elaraai/e3)**: Durable execution engine for running East pipelines at scale. Features Git-like content-addressable storage, automatic memoization, task queuing, and real-time monitoring.
+  - [@elaraai/e3](https://www.npmjs.com/package/@elaraai/e3): SDK for authoring e3 packages with typed tasks and pipelines
+  - [@elaraai/e3-core](https://www.npmjs.com/package/@elaraai/e3-core): Git-like object store, task queue, result caching
+  - [@elaraai/e3-types](https://www.npmjs.com/package/@elaraai/e3-types): Shared type definitions for e3 packages
+  - [@elaraai/e3-cli](https://www.npmjs.com/package/@elaraai/e3-cli): `e3 init`, `e3 run`, `e3 logs` commands for managing and monitoring tasks
+  - [@elaraai/e3-api-client](https://www.npmjs.com/package/@elaraai/e3-api-client): HTTP client for remote e3 servers
+  - [@elaraai/e3-api-server](https://www.npmjs.com/package/@elaraai/e3-api-server): REST API server for e3 repositories
+
+## Links
+
+- **Website**: [https://elaraai.com/](https://elaraai.com/)
+- **East Repository**: [https://github.com/elaraai/East](https://github.com/elaraai/East)
+- **Issues**: [https://github.com/elaraai/east-node/issues](https://github.com/elaraai/east-node/issues)
+- **Email**: support@elara.ai
+
+## About Elara
+
+East is developed by [Elara AI Pty Ltd](https://elaraai.com/), an AI-powered platform that creates economic digital twins of businesses that optimize performance. Elara combines business objectives, decisions and data to help organizations make data-driven decisions across operations, purchasing, sales and customer engagement, and project and investment planning. East powers the computational layer of Elara solutions, enabling the expression of complex business logic and data in a simple, type-safe and portable language.
+
+---
+
+*Developed by [Elara AI Pty Ltd](https://elaraai.com/)*

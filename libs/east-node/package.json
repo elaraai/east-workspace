@@ -1,0 +1,55 @@
+{
+  "name": "east-node-monorepo",
+  "version": "0.0.1-beta.6",
+  "private": true,
+  "description": "East Node - Node.js platform integration for East language",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @elaraai/east-node-std && npm run build -w @elaraai/east-node-io && npm run build -w @elaraai/east-node-cli",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "version:std:prerelease": "npm version prerelease --preid=beta --workspace=@elaraai/east-node-std --no-git-tag-version",
+    "version:std:patch": "npm version patch --workspace=@elaraai/east-node-std --no-git-tag-version",
+    "version:std:minor": "npm version minor --workspace=@elaraai/east-node-std --no-git-tag-version",
+    "version:std:major": "npm version major --workspace=@elaraai/east-node-std --no-git-tag-version",
+    "version:io:prerelease": "npm version prerelease --preid=beta --workspace=@elaraai/east-node-io --no-git-tag-version",
+    "version:io:patch": "npm version patch --workspace=@elaraai/east-node-io --no-git-tag-version",
+    "version:io:minor": "npm version minor --workspace=@elaraai/east-node-io --no-git-tag-version",
+    "version:io:major": "npm version major --workspace=@elaraai/east-node-io --no-git-tag-version",
+    "version:cli:prerelease": "npm version prerelease --preid=beta --workspace=@elaraai/east-node-cli --no-git-tag-version",
+    "version:cli:patch": "npm version patch --workspace=@elaraai/east-node-cli --no-git-tag-version",
+    "version:cli:minor": "npm version minor --workspace=@elaraai/east-node-cli --no-git-tag-version",
+    "version:cli:major": "npm version major --workspace=@elaraai/east-node-cli --no-git-tag-version",
+    "version:monorepo:prerelease": "npm version prerelease --preid=beta --no-git-tag-version",
+    "version:monorepo:patch": "npm version patch --no-git-tag-version",
+    "version:monorepo:minor": "npm version minor --no-git-tag-version",
+    "version:monorepo:major": "npm version major --no-git-tag-version",
+    "version:all:prerelease": "npm run version:monorepo:prerelease && npm run version:std:prerelease && npm run version:io:prerelease && npm run version:cli:prerelease",
+    "version:all:patch": "npm run version:monorepo:patch && npm run version:std:patch && npm run version:io:patch && npm run version:cli:patch",
+    "version:all:minor": "npm run version:monorepo:minor && npm run version:std:minor && npm run version:io:minor && npm run version:cli:minor",
+    "version:all:major": "npm run version:monorepo:major && npm run version:std:major && npm run version:io:major && npm run version:cli:major",
+    "link:cli": "npm link -w @elaraai/east-node-cli",
+    "unlink:cli": "npm unlink -g @elaraai/east-node-cli"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/elaraai/east-node.git"
+  },
+  "keywords": [
+    "east",
+    "elara",
+    "node",
+    "platform",
+    "runtime"
+  ],
+  "author": "Elara AI Pty Ltd",
+  "license": "SEE LICENSE IN LICENSE",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "@elaraai/east": "beta"
+  }
+}

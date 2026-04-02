@@ -1,0 +1,68 @@
+{
+  "name": "@elaraai/east-node-cli",
+  "version": "0.0.1-beta.39",
+  "description": "Command-line interface for running East IR programs with Node.js",
+  "bin": {
+    "east-node": "./dist/index.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE.md",
+    "CONTRIBUTING.md",
+    "CLA.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test": "npm run build && node --enable-source-maps --test 'dist/**/*.spec.js'",
+    "version:patch": "npm version patch -m 'chore: bump version to %s'",
+    "version:minor": "npm version minor -m 'chore: bump version to %s'",
+    "version:major": "npm version major -m 'chore: bump version to %s'",
+    "version:prepatch": "npm version prepatch --preid=beta -m 'chore: bump version to %s'",
+    "version:preminor": "npm version preminor --preid=beta -m 'chore: bump version to %s'",
+    "version:premajor": "npm version premajor --preid=beta -m 'chore: bump version to %s'",
+    "version:prerelease": "npm version prerelease --preid=beta -m 'chore: bump version to %s'"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/elaraai/east-node.git",
+    "directory": "packages/east-node-cli"
+  },
+  "keywords": [
+    "east",
+    "elara",
+    "cli",
+    "runtime",
+    "ir"
+  ],
+  "author": "Elara AI Pty Ltd",
+  "license": "SEE LICENSE IN LICENSE",
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "commander": "^14.0.0"
+  },
+  "peerDependencies": {
+    "@elaraai/east": "beta"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.1",
+    "@typescript-eslint/eslint-plugin": "^8.42.0",
+    "@typescript-eslint/parser": "^8.42.0",
+    "eslint": "^9.34.0",
+    "eslint-plugin-headers": "^1.3.3",
+    "typescript": "~5.9.2"
+  }
+}

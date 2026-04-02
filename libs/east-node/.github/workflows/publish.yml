@@ -1,0 +1,270 @@
+name: Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: 'Release type'
+        required: true
+        default: 'prerelease'
+        type: choice
+        options:
+          - prerelease   # 0.0.1-beta.7 -> 0.0.1-beta.8 (npm tag: beta)
+          - prepatch     # 0.0.1-beta.8 -> 0.0.2-beta.0 (npm tag: beta)
+          - preminor     # 0.0.1-beta.8 -> 0.1.0-beta.0 (npm tag: beta)
+          - premajor     # 0.0.1-beta.8 -> 1.0.0-beta.0 (npm tag: beta)
+          - patch        # 0.0.1 -> 0.0.2 (npm tag: latest)
+          - minor        # 0.0.1 -> 0.1.0 (npm tag: latest)
+          - major        # 0.0.1 -> 1.0.0 (npm tag: latest)
+      publish_east_node_std:
+        description: 'Publish @elaraai/east-node-std'
+        required: true
+        default: true
+        type: boolean
+      publish_east_node_io:
+        description: 'Publish @elaraai/east-node-io'
+        required: true
+        default: true
+        type: boolean
+      publish_east_node_cli:
+        description: 'Publish @elaraai/east-node-cli'
+        required: true
+        default: true
+        type: boolean
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Need write to push version bump and tag
+      id-token: write  # Required for npm trusted publishers (OIDC)
+    steps:
+      - name: Generate app token
+        uses: actions/create-github-app-token@v1
+        id: app-token
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          repositories: east-node,east-py,e3
+
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Configure git
+        run: |
+          git config user.name "elara-ci[bot]"
+          git config user.email "elara-ci[bot]@users.noreply.github.com"
+
+      - name: Use Node.js 22.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: 'npm'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Upgrade npm for trusted publishing
+        run: npm install -g npm@latest
+
+      - name: Cache Docker images
+        uses: ScribeMD/docker-cache@0.5.0
+        with:
+          key: docker-${{ runner.os }}-${{ hashFiles('docker-compose.yml') }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build all packages
+        run: npm run build
+
+      - name: Run linter
+        run: npm run lint
+
+      - name: Start test services
+        run: docker compose up -d --wait
+
+      - name: Run tests
+        run: npm test
+
+      - name: Stop test services
+        if: always()
+        run: docker compose down -v
+
+      - name: Determine npm tag
+        id: npm_tag
+        run: |
+          if [[ "${{ inputs.release_type }}" == pre* ]]; then
+            echo "tag=beta" >> $GITHUB_OUTPUT
+            echo "prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "tag=latest" >> $GITHUB_OUTPUT
+            echo "prerelease=false" >> $GITHUB_OUTPUT
+          fi
+
+      # Bump versions in all selected packages
+      - name: Bump east-node-std version
+        if: ${{ inputs.publish_east_node_std }}
+        id: version_std
+        working-directory: packages/east-node-std
+        run: |
+          if [[ "${{ inputs.release_type }}" == pre* ]]; then
+            npm version ${{ inputs.release_type }} --preid=beta --no-git-tag-version
+          else
+            npm version ${{ inputs.release_type }} --no-git-tag-version
+          fi
+          echo "new_version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+
+      - name: Bump east-node-io version
+        if: ${{ inputs.publish_east_node_io }}
+        id: version_io
+        working-directory: packages/east-node-io
+        run: |
+          if [[ "${{ inputs.release_type }}" == pre* ]]; then
+            npm version ${{ inputs.release_type }} --preid=beta --no-git-tag-version
+          else
+            npm version ${{ inputs.release_type }} --no-git-tag-version
+          fi
+          echo "new_version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+
+      - name: Bump east-node-cli version
+        if: ${{ inputs.publish_east_node_cli }}
+        id: version_cli
+        working-directory: packages/east-node-cli
+        run: |
+          if [[ "${{ inputs.release_type }}" == pre* ]]; then
+            npm version ${{ inputs.release_type }} --preid=beta --no-git-tag-version
+          else
+            npm version ${{ inputs.release_type }} --no-git-tag-version
+          fi
+          echo "new_version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+
+      # Commit all version bumps
+      - name: Commit version bumps
+        run: |
+          git add -A
+          PACKAGES=""
+          if [[ "${{ inputs.publish_east_node_std }}" == "true" ]]; then
+            PACKAGES="${PACKAGES} east-node-std@${{ steps.version_std.outputs.new_version }}"
+          fi
+          if [[ "${{ inputs.publish_east_node_io }}" == "true" ]]; then
+            PACKAGES="${PACKAGES} east-node-io@${{ steps.version_io.outputs.new_version }}"
+          fi
+          if [[ "${{ inputs.publish_east_node_cli }}" == "true" ]]; then
+            PACKAGES="${PACKAGES} east-node-cli@${{ steps.version_cli.outputs.new_version }}"
+          fi
+          git commit -m "chore: bump versions -${PACKAGES}" || echo "No changes to commit"
+
+      # Create tags for each package (force to overwrite if retrying)
+      - name: Create tags
+        run: |
+          if [[ "${{ inputs.publish_east_node_std }}" == "true" ]]; then
+            git tag -f "east-node-std-${{ steps.version_std.outputs.new_version }}"
+          fi
+          if [[ "${{ inputs.publish_east_node_io }}" == "true" ]]; then
+            git tag -f "east-node-io-${{ steps.version_io.outputs.new_version }}"
+          fi
+          if [[ "${{ inputs.publish_east_node_cli }}" == "true" ]]; then
+            git tag -f "east-node-cli-${{ steps.version_cli.outputs.new_version }}"
+          fi
+
+      - name: Push changes and tags
+        run: git push origin HEAD --tags --force
+
+      # Rewrite workspace "*" deps to "beta" for publishing only (not committed)
+      - name: Rewrite workspace deps for publish
+        run: |
+          for pkg in packages/*/package.json; do
+            node -e "
+              const fs = require('fs');
+              const pkg = JSON.parse(fs.readFileSync('$pkg', 'utf8'));
+              for (const field of ['dependencies', 'peerDependencies', 'devDependencies']) {
+                if (!pkg[field]) continue;
+                for (const [name, version] of Object.entries(pkg[field])) {
+                  if (name.startsWith('@elaraai/east-node') && version === '*') {
+                    pkg[field][name] = 'beta';
+                  }
+                }
+              }
+              fs.writeFileSync('$pkg', JSON.stringify(pkg, null, 2) + '\n');
+            "
+          done
+
+      # Publish npm packages in dependency order
+      - name: Publish @elaraai/east-node-std
+        if: ${{ inputs.publish_east_node_std }}
+        run: npm publish --access public --provenance --tag ${{ steps.npm_tag.outputs.tag }}
+        working-directory: packages/east-node-std
+
+      - name: Publish @elaraai/east-node-io
+        if: ${{ inputs.publish_east_node_io }}
+        run: npm publish --access public --provenance --tag ${{ steps.npm_tag.outputs.tag }}
+        working-directory: packages/east-node-io
+
+      - name: Publish @elaraai/east-node-cli
+        if: ${{ inputs.publish_east_node_cli }}
+        run: npm publish --access public --provenance --tag ${{ steps.npm_tag.outputs.tag }}
+        working-directory: packages/east-node-cli
+
+      # Create GitHub releases
+      - name: Create GitHub Release for east-node-std
+        if: ${{ inputs.publish_east_node_std }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: east-node-std-${{ steps.version_std.outputs.new_version }}
+          name: "@elaraai/east-node-std ${{ steps.version_std.outputs.new_version }}"
+          generate_release_notes: true
+          prerelease: ${{ steps.npm_tag.outputs.prerelease == 'true' }}
+
+      - name: Create GitHub Release for east-node-io
+        if: ${{ inputs.publish_east_node_io }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: east-node-io-${{ steps.version_io.outputs.new_version }}
+          name: "@elaraai/east-node-io ${{ steps.version_io.outputs.new_version }}"
+          generate_release_notes: true
+          prerelease: ${{ steps.npm_tag.outputs.prerelease == 'true' }}
+
+      - name: Create GitHub Release for east-node-cli
+        if: ${{ inputs.publish_east_node_cli }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: east-node-cli-${{ steps.version_cli.outputs.new_version }}
+          name: "@elaraai/east-node-cli ${{ steps.version_cli.outputs.new_version }}"
+          generate_release_notes: true
+          prerelease: ${{ steps.npm_tag.outputs.prerelease == 'true' }}
+
+      - name: Wait for npm propagation
+        if: ${{ inputs.publish_east_node_std }}
+        uses: nick-invision/retry@v3
+        with:
+          timeout_minutes: 5
+          max_attempts: 20
+          retry_wait_seconds: 15
+          command: npm view "@elaraai/east-node-std@${{ steps.version_std.outputs.new_version }}" version
+
+      - name: Trigger update-deps in dependent repos
+        if: ${{ inputs.publish_east_node_std }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          # Trigger direct dependents - east-py and e3 depend on east-node-std
+          # east -> east-node -> east-py, e3 -> east-ui
+          REPOS="elaraai/east-py elaraai/e3"
+          FAILED=""
+
+          for repo in $REPOS; do
+            echo "Triggering update-deps in $repo..."
+            if gh workflow run update-deps.yml --repo "$repo"; then
+              echo "Successfully triggered $repo"
+            else
+              echo "Failed to trigger $repo"
+              FAILED="$FAILED $repo"
+            fi
+          done
+
+          if [[ -n "$FAILED" ]]; then
+            echo "Failed to trigger update-deps in:$FAILED"
+            exit 1
+          fi
+
+          echo "Successfully triggered update-deps in east-py and e3 (e3 cascades to east-ui)"
