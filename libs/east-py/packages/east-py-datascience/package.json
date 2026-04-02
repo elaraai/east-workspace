@@ -1,0 +1,82 @@
+{
+  "name": "@elaraai/east-py-datascience",
+  "version": "0.0.2-beta.80",
+  "description": "East Data Science - ML/optimization platform functions for East (TypeScript definitions)",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "files": [
+    "dist/src",
+    "!dist/**/*.spec.*",
+    "README.md",
+    "LICENSE.md",
+    "CONTRIBUTING.md",
+    "CLA.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && node --enable-source-maps --test 'dist/test/**/*.spec.js' 'dist/src/**/*.spec.js'",
+    "test:coverage": "npm run build && node --enable-source-maps --test --experimental-test-coverage 'dist/test/**/*.spec.js' 'dist/src/**/*.spec.js'",
+    "test:export": "npm run build && EXPORT_TEST_IR=/tmp/east-py-datascience node --enable-source-maps --test 'dist/test/**/*.spec.js'",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "version:patch": "npm version patch -m 'chore: bump version to %s'",
+    "version:minor": "npm version minor -m 'chore: bump version to %s'",
+    "version:major": "npm version major -m 'chore: bump version to %s'",
+    "version:prepatch": "npm version prepatch --preid=beta -m 'chore: bump version to %s'",
+    "version:preminor": "npm version preminor --preid=beta -m 'chore: bump version to %s'",
+    "version:premajor": "npm version premajor --preid=beta -m 'chore: bump version to %s'",
+    "version:prerelease": "npm version prerelease --preid=beta -m 'chore: bump version to %s'",
+    "version:patch:dry": "npm version patch --no-git-tag-version",
+    "version:minor:dry": "npm version minor --no-git-tag-version",
+    "version:major:dry": "npm version major --no-git-tag-version",
+    "version:prepatch:dry": "npm version prepatch --preid=beta --no-git-tag-version",
+    "version:preminor:dry": "npm version preminor --preid=beta --no-git-tag-version",
+    "version:premajor:dry": "npm version premajor --preid=beta --no-git-tag-version",
+    "version:prerelease:dry": "npm version prerelease --preid=beta --no-git-tag-version",
+    "release:patch": "npm run version:patch && git push && git push --tags",
+    "release:minor": "npm run version:minor && git push && git push --tags",
+    "release:major": "npm run version:major && git push && git push --tags",
+    "release:prepatch": "npm run version:prepatch && git push && git push --tags",
+    "release:preminor": "npm run version:preminor && git push && git push --tags",
+    "release:premajor": "npm run version:premajor && git push && git push --tags",
+    "release:prerelease": "npm run version:prerelease && git push && git push --tags"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/elaraai/east-py.git",
+    "directory": "packages/east-py-datascience"
+  },
+  "keywords": [
+    "east",
+    "elara",
+    "datascience",
+    "ml",
+    "optimization",
+    "mads",
+    "pynomad"
+  ],
+  "author": "Elara AI Pty Ltd",
+  "license": "SEE LICENSE IN LICENSE",
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.1",
+    "@typescript-eslint/eslint-plugin": "^8.42.0",
+    "@typescript-eslint/parser": "^8.42.0",
+    "eslint": "^9.34.0",
+    "eslint-plugin-headers": "^1.3.3",
+    "typescript": "~5.9.2"
+  },
+  "peerDependencies": {
+    "@elaraai/east": "beta",
+    "@elaraai/east-node-std": "beta"
+  }
+}

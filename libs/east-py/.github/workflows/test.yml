@@ -1,0 +1,199 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-east-py:
+    name: Test east-py
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout east repo for test IR generation
+        uses: actions/checkout@v4
+        with:
+          repository: elaraai/east
+          path: east-ts
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: east-ts/.nvmrc
+
+      - name: Install east-ts dependencies and build
+        working-directory: east-ts
+        run: |
+          npm ci
+          npm run build
+
+      - name: Export test IR
+        working-directory: east-ts
+        run: npm run test:export
+        env:
+          EXPORT_TEST_IR: /tmp/east-test-ir
+
+      - name: Install dependencies (with east-c)
+        run: make install
+
+      - name: Lint
+        run: make lint
+
+      - name: Type check
+        run: make typecheck
+
+      - name: Run compliance tests
+        run: make test-east-py
+
+  test-east-py-std:
+    name: Test east-py-std
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout east-node repo for test IR generation
+        uses: actions/checkout@v4
+        with:
+          repository: elaraai/east-node
+          path: east-node
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: east-node/.nvmrc
+
+      - name: Install east-node dependencies and build
+        working-directory: east-node
+        run: |
+          npm ci
+          npm run build
+
+      - name: Export test IR from east-node-std
+        working-directory: east-node
+        run: npm run test:export --workspace=@elaraai/east-node-std
+        env:
+          EXPORT_TEST_IR: /tmp/east-node-std
+
+      - name: Install dependencies (with east-c and Cython extensions)
+        run: make install
+
+      - name: Run compliance tests
+        run: make test-east-py-std
+
+  test-east-py-io:
+    name: Test east-py-io
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout east-node repo for test IR generation
+        uses: actions/checkout@v4
+        with:
+          repository: elaraai/east-node
+          path: east-node
+
+      - name: Cache Docker images
+        uses: ScribeMD/docker-cache@0.5.0
+        with:
+          key: docker-${{ runner.os }}-${{ hashFiles('packages/east-py-io/docker-compose.yml') }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: east-node/.nvmrc
+
+      - name: Install east-node dependencies and build
+        working-directory: east-node
+        run: |
+          npm ci
+          npm run build
+
+      - name: Start test services
+        run: docker compose -f packages/east-py-io/docker-compose.yml up -d --wait
+
+      - name: Export test IR from east-node-io
+        working-directory: east-node
+        run: npm run test:export --workspace=@elaraai/east-node-io
+        timeout-minutes: 5
+        env:
+          EXPORT_TEST_IR: /tmp/east-node-io
+
+      - name: Install dependencies (with east-c and Cython extensions)
+        run: make install
+
+      - name: Run compliance tests
+        run: make test-east-py-io
+
+      - name: Stop test services
+        if: always()
+        run: docker compose -f packages/east-py-io/docker-compose.yml down -v
+
+  test-east-py-datascience:
+    name: Test east-py-datascience
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: packages/east-py-datascience/.nvmrc
+
+      - name: Install Node.js dependencies and build
+        working-directory: packages/east-py-datascience
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install dependencies (with east-c and Cython extensions)
+        run: make install
+
+      - name: Run compliance tests
+        run: make test-east-py-datascience
