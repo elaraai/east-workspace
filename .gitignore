@@ -36,3 +36,6 @@ cdk.context.json
 
 # Vite
 apps/*/dist/
+
+# Local registry (Verdaccio)
+.npmrc
