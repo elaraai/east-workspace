@@ -1,0 +1,30 @@
+[project]
+name = "east-py-runner"
+version = "0.1.0"
+description = "ECS Fargate runner for east-py task execution"
+requires-python = ">=3.11"
+dependencies = [
+    # AWS SDK for S3, DynamoDB, SQS
+    "boto3>=1.34.0",
+    # East-py packages for task execution
+    "east-py>=0.1.0",
+    "east-py-std>=0.1.0",
+    "east-py-io>=0.1.0",
+    "east-py-datascience>=0.1.0",
+    "east-py-cli>=0.1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.uv.sources]
+# TODO: Configure private package source for east-py packages
+# east-py = { index = "elaraai" }
+# east-py-std = { index = "elaraai" }
+# east-py-io = { index = "elaraai" }
+# east-py-datascience = { index = "elaraai" }
+# east-py-cli = { index = "elaraai" }

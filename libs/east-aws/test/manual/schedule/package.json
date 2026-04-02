@@ -1,0 +1,26 @@
+{
+  "name": "e3-manual-schedule-test",
+  "version": "0.0.1-alpha.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --build",
+    "setup": "npm run build && node dist/src/setup.js",
+    "teardown": "npm run build && node dist/src/teardown.js",
+    "status": "npm run build && node dist/src/status.js"
+  },
+  "dependencies": {
+    "@elaraai/e3": "beta",
+    "@elaraai/e3-api-client": "beta",
+    "@elaraai/e3-cloud-client": "*",
+    "@elaraai/east-node-std": "beta",
+    "e3-manual-shared": "*"
+  },
+  "peerDependencies": {
+    "@elaraai/east": "beta"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "~5.9.2"
+  }
+}

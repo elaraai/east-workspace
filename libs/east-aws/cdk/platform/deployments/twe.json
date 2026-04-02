@@ -1,0 +1,41 @@
+{
+  "$schema": "../schemas/deployment.schema.json",
+  "name": "twe-prod",
+  "description": "TWE e3 production environment",
+
+  "aws": {
+    "accountId": "973168821520",
+    "region": "ap-southeast-2",
+    "profile": "elaraai-prod-twe-e3"
+  },
+
+  "deployment": {
+    "id": "twe"
+  },
+
+  "domain": {
+    "baseDomain": "e3.elaraai.com",
+    "hostedZoneId": "Z10452251PCGZVRQ2N81E",
+    "route53RoleArn": "arn:aws:iam::064741130885:role/E3-Route53-CrossAccount"
+  },
+
+  "oidc": {
+    "providerName": "EntraID",
+    "clientId": "598f3635-6ca2-46fa-ad5f-3cc4f8347084",
+    "issuerUrl": "https://login.microsoftonline.com/f6e3d4a6-dd46-4950-ba59-d96255494980/v2.0",
+    "clientSecretArn": "arn:aws:secretsmanager:ap-southeast-2:973168821520:secret:/e3/auth/oidc/client-secret-P4hfa4",
+    "adminGroup": "35e1be0b-790e-4e7d-a281-97d115268a02"
+  },
+
+  "github": {
+    "deployRoleArn": "arn:aws:iam::973168821520:role/E3-GitHubActions-Prod"
+  },
+
+  "scheduling": {
+    "defaultTimezone": "Australia/Sydney"
+  },
+
+  "externalBuckets": [
+    "arn:aws:s3:::elara-prod-twe-upload"
+  ]
+}

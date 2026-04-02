@@ -1,0 +1,12 @@
+# Ignore for east-py context (when using --build-context east-py=../east-py)
+# Note: This file applies to the e3-aws context, not the east-py context
+*.pyc
+__pycache__
+*.egg-info
+.git
+.github
+.vscode
+.idea
+node_modules
+dist
+*.log
