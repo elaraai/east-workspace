@@ -1,0 +1,159 @@
+name: Update Skills
+
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [update-skills]
+
+jobs:
+  update-skills:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate app token
+        uses: actions/create-github-app-token@v1
+        id: app-token
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          repositories: east,east-node,east-py,east-ui,e3,east-plugin
+
+      - name: Checkout east-plugin
+        uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Run tests (quick)
+        run: ./tests/test-all.sh --quick
+
+      - name: Checkout source repos
+        run: |
+          mkdir -p .sources
+          cd .sources
+          for repo in east east-node east-py east-ui e3; do
+            echo "Cloning $repo..."
+            git clone --depth 1 "https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/elaraai/$repo.git"
+          done
+
+      - name: Copy skills
+        run: |
+          copy_skill() {
+            local src="$1"
+            local dest="$2"
+            echo "Copying $src -> skills/$dest/"
+
+            if [ -f ".sources/$src/SKILL.md" ]; then
+              cp ".sources/$src/SKILL.md" "skills/$dest/"
+            else
+              echo "  Warning: SKILL.md not found in $src"
+            fi
+          }
+
+          # east -> skills/east/
+          copy_skill "east" "east"
+
+          # east-node packages
+          copy_skill "east-node/packages/east-node-std" "east-node-std"
+          copy_skill "east-node/packages/east-node-io" "east-node-io"
+
+          # east-py packages
+          copy_skill "east-py/packages/east-py-datascience" "east-py-datascience"
+
+          # east-ui -> skills/east-ui/
+          copy_skill "east-ui" "east-ui"
+
+          # e3 -> skills/e3/
+          copy_skill "e3" "e3"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate search index and bundle
+        run: npm run generate-index -- --base-dir .sources && npm run bundle
+
+      - name: Clean up source repos
+        run: rm -rf .sources
+
+      - name: Configure git
+        run: |
+          git config user.name "elara-ci[bot]"
+          git config user.email "elara-ci[bot]@users.noreply.github.com"
+
+      - name: Check for changes
+        id: changes
+        run: |
+          git add -A
+          if git diff --staged --quiet; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "No changes detected"
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "Changes detected"
+          fi
+
+      - name: Bump version
+        if: steps.changes.outputs.has_changes == 'true'
+        run: |
+          # Read current version
+          CURRENT_VERSION=$(jq -r '.version' .claude-plugin/plugin.json)
+          echo "Current version: $CURRENT_VERSION"
+
+          # Parse version parts (major.minor.patch)
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_VERSION"
+
+          # Increment patch version
+          NEW_PATCH=$((PATCH + 1))
+          NEW_VERSION="$MAJOR.$MINOR.$NEW_PATCH"
+          echo "New version: $NEW_VERSION"
+
+          # Update plugin.json
+          jq --arg v "$NEW_VERSION" '.version = $v' .claude-plugin/plugin.json > .claude-plugin/plugin.json.tmp
+          mv .claude-plugin/plugin.json.tmp .claude-plugin/plugin.json
+
+          git add .claude-plugin/plugin.json
+          echo "new_version=${NEW_VERSION}" >> $GITHUB_ENV
+
+      - name: Create branch and commit
+        if: steps.changes.outputs.has_changes == 'true'
+        run: |
+          BRANCH_NAME="docs/update-skills-$(date +%Y%m%d)"
+          git checkout -b "$BRANCH_NAME"
+          git commit -m "docs: update skills from source repos (v${{ env.new_version }})"
+          git push -u --force "https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/elaraai/east-plugin.git" "$BRANCH_NAME"
+          echo "branch_name=${BRANCH_NAME}" >> $GITHUB_ENV
+
+      - name: Create Pull Request
+        if: steps.changes.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          # Check if PR already exists for this branch
+          EXISTING_PR=$(gh pr list --head "${{ env.branch_name }}" --json number --jq '.[0].number' 2>/dev/null || echo "")
+
+          PR_TITLE="docs: update skills from source repos (v${{ env.new_version }})"
+          PR_BODY="## Skills Update (v${{ env.new_version }})
+
+          Synced SKILL.md files and search index from source repositories:
+          - east
+          - east-node (east-node-std, east-node-io)
+          - east-py (east-py-datascience)
+          - east-ui
+          - e3
+
+          ---
+          *This PR was automatically generated by the update-skills workflow.*"
+
+          if [[ -n "$EXISTING_PR" ]]; then
+            echo "Updating existing PR #${EXISTING_PR}"
+            gh pr edit "$EXISTING_PR" --title "$PR_TITLE" --body "$PR_BODY"
+          else
+            echo "Creating new PR"
+            gh pr create --title "$PR_TITLE" --body "$PR_BODY" --head "${{ env.branch_name }}"
+          fi

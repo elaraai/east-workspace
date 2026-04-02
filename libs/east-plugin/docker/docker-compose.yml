@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  # East Node.js runtime (AGPL-3.0)
+  east-node:
+    build:
+      context: .
+      dockerfile: Dockerfile.east-node
+    image: ghcr.io/elaraai/east-node:latest
+    volumes:
+      - ../:/workspace
+    working_dir: /workspace
+
+  # e3 full runtime (BSL + AGPL)
+  e3:
+    build:
+      context: .
+      dockerfile: Dockerfile.e3
+    image: ghcr.io/elaraai/e3:latest
+    volumes:
+      - ../:/workspace
+      - e3-data:/root/.e3
+    working_dir: /workspace
+
+volumes:
+  e3-data:
