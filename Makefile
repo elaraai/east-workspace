@@ -7,7 +7,7 @@ NVM := . ${NVM_DIR}/nvm.sh && nvm use &&
 endif
 
 .PHONY: help install install-hooks \
-        registry-up registry-down publish-local test-integration restore \
+        registry-up registry-down publish-local publish-status test-integration restore \
         services-up services-down services-status \
         build-all test-all test-export \
         test-export-east test-export-east-node test-export-east-py \
@@ -46,6 +46,10 @@ registry-down:
 ## Build all repos and publish to local registry (in dependency order)
 publish-local: registry-up
 	$(SCRIPTS)/publish-local.sh
+
+## Show publish status: registry, packages, and dependency resolution
+publish-status:
+	$(SCRIPTS)/publish-status.sh
 
 ## Run tests across all repos (starts services, exports IR, runs tests, stops services)
 test-all: services-up test-export
@@ -160,6 +164,7 @@ help:
 	@echo "  registry-up      - Start local npm registry (Docker)"
 	@echo "  registry-down    - Stop local npm registry"
 	@echo "  publish-local    - Build and publish all packages to local registry"
+	@echo "  publish-status   - Show registry, packages, and dep resolution status"
 	@echo "  test-integration - publish-local + test all repos"
 	@echo "  restore          - Remove .npmrc files, reinstall from npm registry"
 	@echo ""
