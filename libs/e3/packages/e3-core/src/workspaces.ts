@@ -1,0 +1,587 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Licensed under BSL 1.1. See LICENSE for details.
+ */
+
+/**
+ * Workspace operations for e3 repositories.
+ *
+ * Workspaces are mutable working copies of packages. They allow:
+ * - Deploying a package to create a working environment
+ * - Modifying data (inputs/outputs)
+ * - Exporting changes back to a new package version
+ *
+ * State is stored in workspaces/<name>.beast2 as a single atomic file.
+ * No state file means the workspace does not exist.
+ *
+ * Per-dataset refs are stored in workspaces/<ws>/data/<path>.ref files.
+ */
+
+import { createWriteStream } from 'fs';
+import * as fs from 'fs/promises';
+import yazl from 'yazl';
+import { decodeBeast2For, encodeBeast2For, variant } from '@elaraai/east';
+import { PackageObjectType, WorkspaceStateType, TaskObjectType, DataflowRunType, DatasetRefType } from '@elaraai/e3-types';
+import type { PackageObject, WorkspaceState, TaskObject, DatasetRef } from '@elaraai/e3-types';
+import { packageResolve, packageRead } from './packages.js';
+import { writeRefsFromPackage } from './dataset-refs.js';
+import {
+  WorkspaceNotFoundError,
+  WorkspaceNotDeployedError,
+  WorkspaceExistsError,
+  WorkspaceLockError,
+} from './errors.js';
+import type { StorageBackend, LockHandle } from './storage/interfaces.js';
+
+/**
+ * List workspace names.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @returns Array of workspace names
+ */
+export async function workspaceList(storage: StorageBackend, repo: string): Promise<string[]> {
+  return storage.refs.workspaceList(repo);
+}
+
+/**
+ * Write workspace state via storage backend.
+ */
+async function writeState(storage: StorageBackend, repo: string, name: string, state: WorkspaceState): Promise<void> {
+  const encoder = encodeBeast2For(WorkspaceStateType);
+  const data = encoder(state);
+  await storage.refs.workspaceWrite(repo, name, data);
+}
+
+/**
+ * Read workspace state.
+ * Returns { exists: false } if workspace doesn't exist.
+ * Returns { exists: true, deployed: false } if workspace exists but not deployed.
+ * Returns { exists: true, deployed: true, state } if workspace is deployed.
+ */
+async function readState(
+  storage: StorageBackend,
+  repo: string,
+  name: string
+): Promise<
+  | { exists: false }
+  | { exists: true; deployed: false }
+  | { exists: true; deployed: true; state: WorkspaceState }
+> {
+  const data = await storage.refs.workspaceRead(repo, name);
+
+  if (data === null) {
+    return { exists: false };
+  }
+
+  // Empty file means workspace exists but is not deployed
+  if (data.length === 0) {
+    return { exists: true, deployed: false };
+  }
+
+  const decoder = decodeBeast2For(WorkspaceStateType);
+  return { exists: true, deployed: true, state: decoder(Buffer.from(data)) };
+}
+
+/**
+ * Read workspace state, throwing if workspace doesn't exist or is not deployed.
+ * @throws {WorkspaceNotFoundError} If workspace doesn't exist
+ * @throws {WorkspaceNotDeployedError} If workspace exists but has no package deployed
+ */
+async function readStateOrThrow(storage: StorageBackend, repo: string, name: string): Promise<WorkspaceState> {
+  const result = await readState(storage, repo, name);
+  if (!result.exists) {
+    throw new WorkspaceNotFoundError(name);
+  }
+  if (!result.deployed) {
+    throw new WorkspaceNotDeployedError(name);
+  }
+  return result.state;
+}
+
+
+/**
+ * Create an empty workspace.
+ *
+ * Creates an undeployed workspace (state file with null package info).
+ * Use workspaceDeploy to deploy a package.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param name - Workspace name
+ * @throws {WorkspaceExistsError} If workspace already exists
+ */
+export async function workspaceCreate(
+  storage: StorageBackend,
+  repo: string,
+  name: string
+): Promise<void> {
+  // Check if workspace already exists
+  const existing = await storage.refs.workspaceRead(repo, name);
+  if (existing !== null) {
+    throw new WorkspaceExistsError(name);
+  }
+
+  // Create empty state to mark workspace as existing but not deployed
+  await storage.refs.workspaceWrite(repo, name, new Uint8Array(0));
+}
+
+/**
+ * Options for workspace removal.
+ */
+export interface WorkspaceRemoveOptions {
+  /**
+   * External workspace lock to use. If provided, the caller is responsible
+   * for releasing the lock after the operation. If not provided, workspaceRemove
+   * will acquire and release a lock internally.
+   */
+  lock?: LockHandle;
+}
+
+/**
+ * Remove a workspace.
+ *
+ * Objects remain until repoGc is run.
+ *
+ * Acquires a workspace lock to prevent removing a workspace while a dataflow
+ * is running. Throws WorkspaceLockError if the workspace is currently locked.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param name - Workspace name
+ * @param options - Optional settings including external lock
+ * @throws {WorkspaceNotFoundError} If workspace doesn't exist
+ * @throws {WorkspaceLockError} If workspace is locked by another process
+ */
+export async function workspaceRemove(
+  storage: StorageBackend,
+  repo: string,
+  name: string,
+  options: WorkspaceRemoveOptions = {}
+): Promise<void> {
+  // Acquire lock if not provided externally
+  const externalLock = options.lock;
+  let lock: LockHandle | null = externalLock ?? null;
+  if (!lock) {
+    lock = await storage.locks.acquire(repo, name, variant('removal', null));
+    if (!lock) {
+      const state = await storage.locks.getState(repo, name);
+      throw new WorkspaceLockError(name, state ? {
+        acquiredAt: state.acquiredAt.toISOString(),
+        operation: state.operation.type,
+      } : undefined);
+    }
+  }
+  try {
+    // Check if workspace exists
+    const existing = await storage.refs.workspaceRead(repo, name);
+    if (existing === null) {
+      throw new WorkspaceNotFoundError(name);
+    }
+
+    // Remove all dataset refs for this workspace
+    await storage.datasets.removeAll(repo, name);
+
+    await storage.refs.workspaceRemove(repo, name);
+  } finally {
+    // Only release the lock if we acquired it internally
+    if (!externalLock) {
+      await lock.release();
+    }
+  }
+}
+
+/**
+ * Get the full state for a workspace.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param name - Workspace name
+ * @returns Workspace state, or null if workspace doesn't exist or is not deployed
+ */
+export async function workspaceGetState(
+  storage: StorageBackend,
+  repo: string,
+  name: string
+): Promise<WorkspaceState | null> {
+  const result = await readState(storage, repo, name);
+  if (!result.exists || !result.deployed) {
+    return null;
+  }
+  return result.state;
+}
+
+/**
+ * Get the deployed package for a workspace.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param name - Workspace name
+ * @returns Package name, version, and hash
+ * @throws {WorkspaceNotFoundError} If workspace doesn't exist
+ * @throws {WorkspaceNotDeployedError} If workspace exists but has no package deployed
+ */
+export async function workspaceGetPackage(
+  storage: StorageBackend,
+  repo: string,
+  name: string
+): Promise<{ name: string; version: string; hash: string }> {
+  const state = await readStateOrThrow(storage, repo, name);
+  return {
+    name: state.packageName,
+    version: state.packageVersion,
+    hash: state.packageHash,
+  };
+}
+
+/**
+ * Options for workspace deployment.
+ */
+export interface WorkspaceDeployOptions {
+  /**
+   * External workspace lock to use. If provided, the caller is responsible
+   * for releasing the lock after the operation. If not provided, workspaceDeploy
+   * will acquire and release a lock internally.
+   */
+  lock?: LockHandle;
+}
+
+/**
+ * Deploy a package to a workspace.
+ *
+ * Creates the workspace if it doesn't exist. Writes state file atomically
+ * containing deployment info. Initializes per-dataset ref files from the
+ * package's data/ directory.
+ *
+ * Acquires a workspace lock to prevent conflicts with running dataflows
+ * or concurrent deploys. Throws WorkspaceLockError if the workspace is
+ * currently locked by another process.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param name - Workspace name
+ * @param pkgName - Package name
+ * @param pkgVersion - Package version
+ * @param options - Optional settings including external lock
+ * @throws {WorkspaceLockError} If workspace is locked by another process
+ */
+export async function workspaceDeploy(
+  storage: StorageBackend,
+  repo: string,
+  name: string,
+  pkgName: string,
+  pkgVersion: string,
+  options: WorkspaceDeployOptions = {}
+): Promise<void> {
+  // Acquire lock if not provided externally
+  const externalLock = options.lock;
+  let lock: LockHandle | null = externalLock ?? null;
+  if (!lock) {
+    lock = await storage.locks.acquire(repo, name, variant('deployment', null));
+    if (!lock) {
+      const state = await storage.locks.getState(repo, name);
+      throw new WorkspaceLockError(name, state ? {
+        acquiredAt: state.acquiredAt.toISOString(),
+        operation: state.operation.type,
+      } : undefined);
+    }
+  }
+  try {
+    // Resolve package hash and read package object
+    const packageHash = await packageResolve(storage, repo, pkgName, pkgVersion);
+    const pkg = await packageRead(storage, repo, pkgName, pkgVersion);
+
+    // Remove any existing dataset refs
+    await storage.datasets.removeAll(repo, name);
+
+    // Initialize per-dataset ref files from the package
+    await writeRefsFromPackage(storage, repo, name, pkg.data.structure, pkg.data.refs);
+
+    const now = new Date();
+    const state: WorkspaceState = {
+      packageName: pkgName,
+      packageVersion: pkgVersion,
+      packageHash,
+      deployedAt: now,
+      currentRunId: variant('none', null),
+    };
+
+    await writeState(storage, repo, name, state);
+  } finally {
+    // Only release the lock if we acquired it internally
+    if (!externalLock) {
+      await lock.release();
+    }
+  }
+}
+
+/**
+ * Result of exporting a workspace
+ */
+export interface WorkspaceExportResult {
+  packageHash: string;
+  objectCount: number;
+  name: string;
+  version: string;
+}
+
+/**
+ * Options for workspace export
+ */
+export interface WorkspaceExportOptions {
+  /** Called after each object is added. Can be used for progress reporting. */
+  onProgress?: (progress: { objectsProcessed: number }) => Promise<void>;
+  /** External workspace lock. If not provided, an exclusive lock will be acquired internally. */
+  lock?: LockHandle;
+}
+
+/**
+ * Fixed mtime for deterministic zip output (Unix epoch)
+ */
+const DETERMINISTIC_MTIME = new Date(0);
+
+/**
+ * Export a workspace as a package.
+ *
+ * 1. Read workspace state
+ * 2. Read deployed package structure using stored packageHash
+ * 3. Create new PackageObject with current structure
+ * 4. Collect all referenced objects from dataset refs
+ * 5. Write per-dataset refs and objects to .zip
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param name - Workspace name
+ * @param zipPath - Path to write the .zip file
+ * @param outputName - Package name (default: deployed package name)
+ * @param version - Package version (default: <pkgVersion>-<short hash>)
+ * @returns Export result with package info
+ * @throws {WorkspaceNotFoundError} If workspace doesn't exist
+ * @throws {WorkspaceNotDeployedError} If workspace exists but has no package deployed
+ */
+export async function workspaceExport(
+  storage: StorageBackend,
+  repo: string,
+  name: string,
+  zipPath: string,
+  outputName?: string,
+  version?: string,
+  options?: WorkspaceExportOptions,
+): Promise<WorkspaceExportResult> {
+  const partialPath = `${zipPath}.partial`;
+
+  // Acquire workspace lock for snapshot consistency
+  const externalLock = options?.lock;
+  let lock: LockHandle | null = externalLock ?? null;
+  if (!lock) {
+    lock = await storage.locks.acquire(repo, name, variant('export', null));
+    if (!lock) {
+      const state = await storage.locks.getState(repo, name);
+      throw new WorkspaceLockError(name, state ? {
+        acquiredAt: state.acquiredAt.toISOString(),
+        operation: state.operation.type,
+      } : undefined);
+    }
+  }
+  try {
+
+  // Get workspace state
+  const state = await readStateOrThrow(storage, repo, name);
+
+  // Read the deployed package object using the stored hash
+  const deployedPkgData = await storage.objects.read(repo, state.packageHash);
+  const decoder = decodeBeast2For(PackageObjectType);
+  const deployedPkgObject = decoder(Buffer.from(deployedPkgData));
+
+  // Determine output name and version
+  const finalName = outputName ?? state.packageName;
+  // For version, use a short identifier from the workspace name + timestamp
+  const finalVersion = version ?? `${state.packageVersion}-${Date.now().toString(36)}`;
+
+  // Read all workspace refs for the package
+  const refList = await storage.datasets.list(repo, name);
+  const workspaceRefs = new Map<string, DatasetRef>();
+  for (const refPath of refList) {
+    const ref = await storage.datasets.read(repo, name, refPath);
+    if (ref) {
+      workspaceRefs.set(refPath, ref);
+    }
+  }
+
+  // Create new PackageObject with inline refs
+  const newPkgObject: PackageObject = {
+    tasks: deployedPkgObject.tasks,
+    data: {
+      structure: deployedPkgObject.data.structure,
+      refs: workspaceRefs,
+    },
+  };
+
+  // Encode and store the new package object
+  const encoder = encodeBeast2For(PackageObjectType);
+  const pkgData = encoder(newPkgObject);
+  const packageHash = await storage.objects.write(repo, pkgData);
+
+  // Create zip file
+  const zipfile = new yazl.ZipFile();
+
+  // Track which objects we've added to avoid duplicates
+  const addedObjects = new Set<string>();
+
+  // Helper to add an object to the zip
+  const addObject = async (hash: string): Promise<void> => {
+    if (addedObjects.has(hash)) return;
+    addedObjects.add(hash);
+
+    const data = await storage.objects.read(repo, hash);
+    const objPath = `objects/${hash.slice(0, 2)}/${hash.slice(2)}.beast2`;
+    zipfile.addBuffer(Buffer.from(data), objPath, { mtime: DETERMINISTIC_MTIME });
+    if (options?.onProgress) await options.onProgress({ objectsProcessed: addedObjects.size });
+  };
+
+  // Helper to collect children from a beast2 object via hash scanning
+  const collectTreeChildren = async (treeData: Uint8Array): Promise<void> => {
+    const dataStr = Buffer.from(treeData).toString('latin1');
+    const hashPattern = /[a-f0-9]{64}/g;
+    const matches = dataStr.matchAll(hashPattern);
+
+    for (const match of matches) {
+      const potentialHash = match[0];
+      if (addedObjects.has(potentialHash)) continue;
+
+      try {
+        await addObject(potentialHash);
+        const childData = await storage.objects.read(repo, potentialHash);
+        await collectTreeChildren(childData);
+      } catch {
+        addedObjects.delete(potentialHash);
+      }
+    }
+  };
+
+  // Add the package object
+  await addObject(packageHash);
+
+  // Collect all task objects and their commandIr references
+  const taskDecoder = decodeBeast2For(TaskObjectType);
+  for (const taskHash of newPkgObject.tasks.values()) {
+    await addObject(taskHash);
+    const taskData = await storage.objects.read(repo, taskHash);
+    const taskObject: TaskObject = taskDecoder(Buffer.from(taskData));
+    await addObject(taskObject.commandIr);
+    const irData = await storage.objects.read(repo, taskObject.commandIr);
+    await collectTreeChildren(irData);
+  }
+
+  // Write ref files to zip and collect value objects
+  const refEncoder = encodeBeast2For(DatasetRefType);
+
+  for (const [refPath, ref] of workspaceRefs) {
+    // Write the DatasetRef to data/ dir in zip
+    const refData = refEncoder(ref);
+    zipfile.addBuffer(Buffer.from(refData), `data/${refPath}.ref`, { mtime: DETERMINISTIC_MTIME });
+
+    // Add the value object if present
+    if (ref.type === 'value') {
+      await addObject(ref.value.hash);
+    }
+  }
+
+  // Write the package ref
+  const refPath = `packages/${finalName}/${finalVersion}`;
+  zipfile.addBuffer(Buffer.from(packageHash + '\n'), refPath, { mtime: DETERMINISTIC_MTIME });
+
+  // Include executions and logs if currentRunId exists
+  if (state.currentRunId.type === 'some') {
+    const currentRunId = state.currentRunId.value;
+    const dataflowRun = await storage.refs.dataflowRunGet(repo, name, currentRunId);
+    if (dataflowRun) {
+      // Write the dataflow run record
+      const runEncoder = encodeBeast2For(DataflowRunType);
+      const dataflowPath = `dataflows/${name}/${currentRunId}.beast2`;
+      zipfile.addBuffer(Buffer.from(runEncoder(dataflowRun)), dataflowPath, { mtime: DETERMINISTIC_MTIME });
+
+      // Include execution files for each task
+      for (const [taskName, execRecord] of dataflowRun.taskExecutions) {
+        const taskHash = newPkgObject.tasks.get(taskName);
+        if (!taskHash) continue;
+
+        // Get the task to find its inputs
+        const taskData = await storage.objects.read(repo, taskHash);
+        const task: TaskObject = taskDecoder(Buffer.from(taskData));
+
+        // Compute inputsHash from workspace refs
+        const inputHashes: string[] = [];
+        for (const inputPath of task.inputs) {
+          try {
+            const { workspaceGetDatasetHash } = await import('./trees.js');
+            const { hash } = await workspaceGetDatasetHash(storage, repo, name, inputPath);
+            if (hash) inputHashes.push(hash);
+          } catch {
+            // Skip if input not available
+          }
+        }
+
+        if (inputHashes.length !== task.inputs.length) continue;
+
+        const { inputsHash } = await import('./executions.js');
+        const inHash = inputsHash(inputHashes);
+
+        // Read and add execution status
+        const execStatus = await storage.refs.executionGet(repo, taskHash, inHash, execRecord.executionId);
+        if (execStatus) {
+          const statusEncoder = await import('@elaraai/e3-types').then(m =>
+            encodeBeast2For(m.ExecutionStatusType)
+          );
+          const statusPath = `executions/${taskHash}/${inHash}/${execRecord.executionId}/status.beast2`;
+          zipfile.addBuffer(Buffer.from(statusEncoder(execStatus)), statusPath, { mtime: DETERMINISTIC_MTIME });
+
+          // Add output file if success
+          if (execStatus.type === 'success') {
+            const outputPath = `executions/${taskHash}/${inHash}/${execRecord.executionId}/output`;
+            zipfile.addBuffer(Buffer.from(execStatus.value.outputHash + '\n'), outputPath, { mtime: DETERMINISTIC_MTIME });
+          }
+        }
+
+        // Read and add logs (stdout/stderr)
+        for (const stream of ['stdout', 'stderr'] as const) {
+          try {
+            const logChunk = await storage.logs.read(repo, taskHash, inHash, execRecord.executionId, stream, { limit: 100 * 1024 * 1024 });
+            if (logChunk.data && logChunk.data.length > 0) {
+              const logPath = `executions/${taskHash}/${inHash}/${execRecord.executionId}/${stream}.txt`;
+              zipfile.addBuffer(Buffer.from(logChunk.data), logPath, { mtime: DETERMINISTIC_MTIME });
+            }
+          } catch {
+            // Skip if log not available
+          }
+        }
+      }
+    }
+  }
+
+  // Finalize and write zip to disk
+  await new Promise<void>((resolve, reject) => {
+    const writeStream = createWriteStream(partialPath);
+    zipfile.outputStream.pipe(writeStream);
+    zipfile.outputStream.on('error', reject);
+    writeStream.on('error', reject);
+    writeStream.on('close', resolve);
+    zipfile.end();
+  });
+
+  // Atomic rename to final path
+  await fs.rename(partialPath, zipPath);
+
+  return {
+    packageHash,
+    objectCount: addedObjects.size,
+    name: finalName,
+    version: finalVersion,
+  };
+
+  } finally {
+    if (!externalLock) {
+      await lock.release();
+    }
+  }
+}
