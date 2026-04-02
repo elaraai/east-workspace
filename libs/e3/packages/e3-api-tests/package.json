@@ -35,13 +35,13 @@
     "directory": "packages/e3-api-tests"
   },
   "dependencies": {
-    "@elaraai/e3": "*",
-    "@elaraai/e3-api-client": "*",
-    "@elaraai/e3-core": "*",
-    "@elaraai/e3-types": "*",
-    "@elaraai/e3-cli": "*",
-    "@elaraai/east": "beta",
-    "@elaraai/east-node-std": "beta"
+    "@elaraai/e3": "workspace:*",
+    "@elaraai/e3-api-client": "workspace:*",
+    "@elaraai/e3-core": "workspace:*",
+    "@elaraai/e3-types": "workspace:*",
+    "@elaraai/e3-cli": "workspace:*",
+    "@elaraai/east": "workspace:*",
+    "@elaraai/east-node-std": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

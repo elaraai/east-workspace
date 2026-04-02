@@ -87,7 +87,7 @@
     "node": ">=22.0.0"
   },
   "devDependencies": {
-    "@elaraai/east-node-std": "*",
+    "@elaraai/east-node-std": "workspace:*",
     "@types/adm-zip": "^0.5.7",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.18.1",
@@ -116,7 +116,7 @@
     "xlsx": "^0.18.5"
   },
   "peerDependencies": {
-    "@elaraai/east": "beta",
-    "@elaraai/east-node-std": "*"
+    "@elaraai/east": "workspace:*",
+    "@elaraai/east-node-std": "workspace:*"
   }
 }

@@ -13,9 +13,9 @@
   },
   "dependencies": {
     "@chakra-ui/react": "^3.0.0",
-    "@elaraai/east": "beta",
-    "@elaraai/east-ui": "*",
-    "@elaraai/east-ui-components": "*",
+    "@elaraai/east": "workspace:*",
+    "@elaraai/east-ui": "workspace:*",
+    "@elaraai/east-ui-components": "workspace:*",
     "@emotion/react": "^11.14.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

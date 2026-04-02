@@ -34,15 +34,15 @@
     "directory": "packages/e3-cli"
   },
   "dependencies": {
-    "@elaraai/e3": "*",
-    "@elaraai/e3-api-client": "*",
-    "@elaraai/e3-core": "*",
-    "@elaraai/e3-types": "*",
+    "@elaraai/e3": "workspace:*",
+    "@elaraai/e3-api-client": "workspace:*",
+    "@elaraai/e3-core": "workspace:*",
+    "@elaraai/e3-types": "workspace:*",
     "commander": "^12.0.0",
     "esbuild": "^0.27.2"
   },
   "peerDependencies": {
-    "@elaraai/east": "beta"
+    "@elaraai/east": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

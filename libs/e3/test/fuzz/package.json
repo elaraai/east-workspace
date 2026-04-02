@@ -17,10 +17,10 @@
     "clean": "rm -rf dist tsconfig.tsbuildinfo"
   },
   "dependencies": {
-    "@elaraai/e3": "*",
-    "@elaraai/e3-cli": "*",
-    "@elaraai/e3-core": "*",
-    "@elaraai/east": "beta"
+    "@elaraai/e3": "workspace:*",
+    "@elaraai/e3-cli": "workspace:*",
+    "@elaraai/e3-core": "workspace:*",
+    "@elaraai/east": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -1,9 +1,19 @@
 {
-	"name": "east-workspace",
-	"version": "0.0.1",
-	"private": true,
-	"description": "East workspace orchestration and cross-repo integration testing",
-	"engines": {
-		"node": ">=22.0.0"
-	}
+  "name": "east-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "description": "East language monorepo",
+  "packageManager": "pnpm@10.8.1",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "test:export": "turbo run test:export"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.0"
+  }
 }

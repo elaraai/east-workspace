@@ -17,11 +17,11 @@
     "test": "node --enable-source-maps --test 'dist/src/**/*.spec.js'"
   },
   "dependencies": {
-    "@elaraai/e3-types": "*",
+    "@elaraai/e3-types": "workspace:*",
     "yazl": "^2.5.1"
   },
   "peerDependencies": {
-    "@elaraai/east": "beta"
+    "@elaraai/east": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.1",

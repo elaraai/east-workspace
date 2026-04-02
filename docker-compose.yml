@@ -1,13 +1,4 @@
 services:
-  # ── Local npm registry (Verdaccio) ──────────────────────────────────
-  verdaccio:
-    image: verdaccio/verdaccio:6
-    ports:
-      - "4873:4873"
-    volumes:
-      - ./verdaccio/config.yaml:/verdaccio/conf/config.yaml
-      - verdaccio-storage:/verdaccio/storage
-
   # ── Test services (shared by east-node and east-py) ─────────────────
   # Start with: docker compose --profile services up -d --wait
 
@@ -126,5 +117,3 @@ services:
       timeout: 5s
       retries: 10
 
-volumes:
-  verdaccio-storage:

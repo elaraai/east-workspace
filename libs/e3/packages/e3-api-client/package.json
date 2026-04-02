@@ -36,13 +36,13 @@
     "directory": "packages/e3-api-client"
   },
   "dependencies": {
-    "@elaraai/e3-types": "*"
+    "@elaraai/e3-types": "workspace:*"
   },
   "peerDependencies": {
-    "@elaraai/east": "beta"
+    "@elaraai/east": "workspace:*"
   },
   "devDependencies": {
-    "@elaraai/east-node-std": "beta",
+    "@elaraai/east-node-std": "workspace:*",
     "@types/node": "^22.0.0",
     "@typescript-eslint/eslint-plugin": "^8.47.0",
     "@typescript-eslint/parser": "^8.47.0",

@@ -10,13 +10,13 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@elaraai/e3": "*",
-    "@elaraai/e3-cli": "*",
-    "@elaraai/e3-core": "*",
-    "@elaraai/e3-api-server": "*",
-    "@elaraai/e3-api-client": "*",
-    "@elaraai/e3-api-tests": "*",
-    "@elaraai/east": "beta"
+    "@elaraai/e3": "workspace:*",
+    "@elaraai/e3-cli": "workspace:*",
+    "@elaraai/e3-core": "workspace:*",
+    "@elaraai/e3-api-server": "workspace:*",
+    "@elaraai/e3-api-client": "workspace:*",
+    "@elaraai/e3-api-tests": "workspace:*",
+    "@elaraai/east": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

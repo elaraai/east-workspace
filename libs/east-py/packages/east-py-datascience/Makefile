@@ -1,31 +1,40 @@
-.PHONY: install build test test-ts test-py lint clean
+# east-py-datascience — hybrid TypeScript + Python package
+# TS deps managed by pnpm from monorepo root. Python deps managed by uv from east-py root.
 
-# Install dependencies
-install:
-	. ${NVM_DIR}/nvm.sh && nvm use && npm ci
-	uv sync
+.PHONY: build test test-ts test-py lint clean help
 
-# Build the project
+## Build the TypeScript project
 build:
-	. ${NVM_DIR}/nvm.sh && nvm use && npm run build
+	pnpm run build
 
-# Run full test suite: export IR from TypeScript, then run Python compliance tests
+## Run full test suite: export IR from TypeScript, then run Python compliance tests
 test: build
-	. ${NVM_DIR}/nvm.sh && nvm use && npm run test:export
+	pnpm run test:export
 	uv run pytest -v
 
-# Run TypeScript tests only (compiles and runs with Node)
+## Run TypeScript tests only
 test-ts:
-	. ${NVM_DIR}/nvm.sh && nvm use && npm run test
+	pnpm run test
 
-# Run Python tests only (requires IR to be exported first)
+## Run Python tests only (requires IR to be exported first)
 test-py:
 	uv run pytest
 
-# Run linting
+## Run linting
 lint:
-	. ${NVM_DIR}/nvm.sh && nvm use && npm run lint
+	pnpm run lint
 
-# Clean build artifacts
+## Clean build artifacts
 clean:
-	rm -rf dist node_modules *.tsbuildinfo .venv uv.lock __pycache__
+	rm -rf dist *.tsbuildinfo __pycache__
+
+## Show available targets
+help:
+	@echo "east-py-datascience (hybrid TS + Python)"
+	@echo ""
+	@echo "  build   - Build TypeScript"
+	@echo "  test    - Export IR + run Python tests"
+	@echo "  test-ts - Run TypeScript tests only"
+	@echo "  test-py - Run Python tests only"
+	@echo "  lint    - Run linter"
+	@echo "  clean   - Clean build artifacts"

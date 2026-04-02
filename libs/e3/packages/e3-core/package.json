@@ -40,13 +40,13 @@
     "directory": "packages/e3-core"
   },
   "dependencies": {
-    "@elaraai/e3": "*",
-    "@elaraai/e3-types": "*",
+    "@elaraai/e3": "workspace:*",
+    "@elaraai/e3-types": "workspace:*",
     "yauzl": "^3.2.0",
     "yazl": "^2.5.1"
   },
   "peerDependencies": {
-    "@elaraai/east": "beta"
+    "@elaraai/east": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

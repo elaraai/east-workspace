@@ -1,19 +1,42 @@
-.PHONY: install build test example lint clean 
+# east — core language package
+# Dependencies are managed by pnpm from the monorepo root.
 
+.PHONY: build test test-export lint example clean help
+
+## Build the package
 build:
-	. ${NVM_DIR}/nvm.sh && nvm use && npm run build
+	pnpm run build
 
-install:
-	. ${NVM_DIR}/nvm.sh && nvm use && npm ci
-
+## Run tests (builds first)
 test:
-	. ${NVM_DIR}/nvm.sh && nvm use && npm run build && npm test
+	pnpm run build && pnpm test
 
+## Export test IR to /tmp/east-test-ir
+test-export:
+	pnpm run build && pnpm run test:export
+
+## Run linter (builds first)
 lint:
-	. ${NVM_DIR}/nvm.sh && nvm use && npm run build && npm run lint
+	pnpm run build && pnpm run lint
 
+## Run examples
 example:
-	. ${NVM_DIR}/nvm.sh && nvm use && npm run build && npm run example
+	pnpm run build && pnpm run example
 
+## Clean build artifacts
 clean:
 	rm -rf ./dist
+
+## Show available targets
+help:
+	@echo "east (core language)"
+	@echo ""
+	@echo "  build       - Build the package"
+	@echo "  test        - Run tests"
+	@echo "  test-export - Export test IR to /tmp/east-test-ir"
+	@echo "  lint        - Run linter"
+	@echo "  example     - Run examples"
+	@echo "  clean       - Clean build artifacts"
+	@echo ""
+	@echo "Dependencies are managed by pnpm from the monorepo root."
+	@echo "Run 'pnpm install' from the workspace root to install deps."
