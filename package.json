@@ -1,0 +1,9 @@
+{
+	"name": "east-workspace",
+	"version": "0.0.1",
+	"private": true,
+	"description": "East workspace orchestration and cross-repo integration testing",
+	"engines": {
+		"node": ">=22.0.0"
+	}
+}

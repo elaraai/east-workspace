@@ -53,3 +53,6 @@ env/
 *.tmp
 .cache/
 .temp/
+
+# Local registry (Verdaccio)
+.npmrc

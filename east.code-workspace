@@ -1,0 +1,128 @@
+{
+	"folders": [
+		{
+			"name": "east",
+			"path": "../east"
+		},
+		{
+			"name": "east-node",
+			"path": "../east-node"
+		},
+		{
+			"name": "east-c",
+			"path": "../east-c"
+		},
+		{
+			"name": "east-py",
+			"path": "../east-py"
+		},
+		{
+			"name": "e3",
+			"path": "../e3"
+		},
+		{
+			"name": "east-ui",
+			"path": "../east-ui"
+		},
+		{
+			"name": "e3-cloud",
+			"path": "../east-aws"
+		},
+		{
+			"name": "east-plugin",
+			"path": "../east-plugin"
+		},
+		{
+			"name": "east-workspace",
+			"path": "."
+		}
+	],
+	"tasks": {
+		"version": "2.0.0",
+		"options": {
+			"env": {
+				"NVM_DIR": "${env:HOME}/.nvm"
+			},
+			"shell": {
+				"executable": "bash",
+				"args": ["-c", ". $NVM_DIR/nvm.sh && eval \"$@\"", "--"]
+			}
+		},
+		"tasks": [
+			{
+				"label": "east: make build",
+				"type": "shell",
+				"command": "make build",
+				"options": {
+					"cwd": "${workspaceFolder:east}"
+				},
+				"group": "build",
+				"problemMatcher": []
+			},
+			{
+				"label": "east-node: make build",
+				"type": "shell",
+				"command": "make build",
+				"options": {
+					"cwd": "${workspaceFolder:east-node}"
+				},
+				"group": "build",
+				"problemMatcher": []
+			},
+			{
+				"label": "east-c: make build",
+				"type": "shell",
+				"command": "make build",
+				"options": {
+					"cwd": "${workspaceFolder:east-c}"
+				},
+				"group": "build",
+				"problemMatcher": []
+			},
+			{
+				"label": "east-py: make build",
+				"type": "shell",
+				"command": "make build",
+				"options": {
+					"cwd": "${workspaceFolder:east-py}"
+				},
+				"group": "build",
+				"problemMatcher": []
+			},
+			{
+				"label": "e3: make build",
+				"type": "shell",
+				"command": "make build",
+				"options": {
+					"cwd": "${workspaceFolder:e3}"
+				},
+				"group": "build",
+				"problemMatcher": []
+			},
+			{
+				"label": "east-ui: make build",
+				"type": "shell",
+				"command": "make build",
+				"options": {
+					"cwd": "${workspaceFolder:east-ui}"
+				},
+				"group": "build",
+				"problemMatcher": []
+			},
+			{
+				"label": "build all",
+				"dependsOn": [
+					"east: make build",
+					"east-node: make build",
+					"east-c: make build",
+					"east-py: make build",
+					"e3: make build",
+					"east-ui: make build"
+				],
+				"dependsOrder": "sequence",
+				"group": "build",
+				"problemMatcher": []
+			}
+		]
+	}
+}
