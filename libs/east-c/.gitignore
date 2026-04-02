@@ -1,0 +1,7 @@
+build/
+build-asan/
+build-debug/
+build-wasm/
+tools/emsdk/
+packages/east-c-wasm/dist/
+packages/east-c-wasm/node_modules/
