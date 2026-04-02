@@ -1,4 +1,4 @@
-.PHONY: update build rebuild clean install install-cli test-east-c test-east-c-std test-east-c-wasm test-all leak-check leak-check-std leak-check-all services-up services-down setup-wasm wasm wasm-install wasm-ts wasm-clean link unlink
+.PHONY: update build rebuild clean install-cli test-east-c test-east-c-std test-east-c-wasm test-all leak-check leak-check-std leak-check-all services-up services-down setup-wasm wasm wasm-install wasm-ts wasm-clean link unlink
 
 build:
 	@mkdir -p build && cd build && cmake .. && cmake --build . -j$$(nproc)
@@ -11,9 +11,6 @@ update:
 
 clean:
 	@rm -rf build
-
-install: build
-	@cd build && cmake --install .
 
 install-cli: build
 	install -d $(HOME)/.local/bin
