@@ -1,0 +1,1036 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ */
+
+import { memo, useMemo, useRef, useState, useEffect, useCallback } from "react";
+import { usePersistedState } from "../../hooks/usePersistedState";
+import {
+    Table as ChakraTable,
+    Box,
+    Text,
+    Skeleton,
+    Splitter,
+    useToken,
+    type TableRootProps,
+} from "@chakra-ui/react";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import {
+    useReactTable,
+    getCoreRowModel,
+    getSortedRowModel,
+    createColumnHelper,
+    type SortingState,
+    type ColumnResizeMode,
+    type ColumnDef,
+} from "@tanstack/react-table";
+import { compareFor, equalFor, printFor, variant, type ValueTypeOf } from "@elaraai/east";
+import { Gantt, Table, type UIComponentType } from "@elaraai/east-ui";
+import { getSomeorUndefined } from "../../utils";
+import { EastChakraComponent } from "../../component";
+import { RowStateManager, type RowKey, type RowState } from "../../utils/RowStateManager";
+import { useColumnPinning, HeaderControls, getHeaderCellStyle, getCellStyle, createGetSortIndex } from "../shared/column-pinning";
+import { EventAxis, generateDateTicks, getDatePosition } from "./EventAxis";
+import { GanttEventRow, type GanttEventValue } from "./GanttEventRow";
+
+// Pre-define equality function at module level
+const ganttRootEqual = equalFor(Gantt.Types.Root);
+
+// Parse CSS size values to pixels (simple numeric extraction)
+const parseSize = (val: string | undefined, defaultVal: number): number => {
+    if (!val) return defaultVal;
+    const num = parseInt(val, 10);
+    return isNaN(num) ? defaultVal : num;
+};
+
+/** East Gantt Root value type */
+export type GanttRootValue = ValueTypeOf<typeof Gantt.Types.Root>;
+
+/** East Gantt Column value type */
+export type GanttColumnValue = ValueTypeOf<typeof Gantt.Types.Column>;
+
+/** East Gantt Cell value type */
+export type GanttCellValue = ValueTypeOf<typeof Gantt.Types.Cell>;
+
+/** East Gantt Row value type */
+export type GanttRowValue = ValueTypeOf<typeof Gantt.Types.Row>;
+
+/** Cell Render Context value type */
+type TableCellRenderContextValue = ValueTypeOf<typeof Table.Types.CellRenderContext>;
+
+/** Column render function type */
+type ColumnRenderFn = (ctx: TableCellRenderContextValue) => ValueTypeOf<UIComponentType>;
+
+// Column sort types for external API
+export type SortDirection = "asc" | "desc";
+export interface ColumnSort {
+    columnKey: string;
+    direction: SortDirection;
+}
+
+// Extend TanStack Table's ColumnMeta for our custom properties
+declare module "@tanstack/react-table" {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    interface ColumnMeta<TData, TValue> {
+        print?: (value: unknown) => string;
+        columnKey?: string;
+        width?: string | undefined;
+        minWidth?: string | undefined;
+        maxWidth?: string | undefined;
+        renderFn?: ColumnRenderFn | undefined;
+    }
+}
+
+/**
+ * Converts an East UI Gantt Root value to Chakra UI TableRoot props.
+ */
+export function toChakraTableRoot(value: GanttRootValue): TableRootProps {
+    const style = getSomeorUndefined(value.style);
+
+    return {
+        variant: style ? getSomeorUndefined(style.variant)?.type : undefined,
+        size: style ? getSomeorUndefined(style.size)?.type : undefined,
+        striped: style ? getSomeorUndefined(style.striped) : undefined,
+        interactive: style ? getSomeorUndefined(style.interactive) : undefined,
+        stickyHeader: style ? getSomeorUndefined(style.stickyHeader) : undefined,
+        showColumnBorder: style ? getSomeorUndefined(style.showColumnBorder) : undefined,
+        colorPalette: style ? getSomeorUndefined(style.colorPalette)?.type : undefined,
+    };
+}
+
+export interface EastChakraGanttProps {
+    value: GanttRootValue;
+    /** Height of the gantt container (required for virtualization) */
+    height?: string | number;
+    /** Estimated row height for virtualization */
+    rowHeight?: number;
+    /** Number of rows to render outside visible area */
+    overscan?: number;
+    /** Callback when sort changes */
+    onSortChange?: (sorts: ColumnSort[]) => void;
+    /** Enable multi-column sorting */
+    enableMultiSort?: boolean;
+    /** Maximum number of sort columns */
+    maxSortColumns?: number;
+    /** Loading delay before showing row content (ms) */
+    loadingDelay?: number;
+    /** Enable column resizing */
+    enableColumnResizing?: boolean;
+    /** Callback when an event is clicked */
+    onEventClick?: (event: GanttEventValue, rowIndex: number, eventIndex: number) => void;
+    /** Initial size of the table panel (0-100) */
+    tablePanelSize?: number;
+    /** Storage key for persisting sort/column/splitter state in localStorage. Omit for ephemeral state. */
+    storageKey: string;
+}
+
+interface GanttPersistedState {
+    sorting: SortingState;
+    columnSizing: Record<string, number>;
+    pinnedColumns: string[];
+    tablePanelSize: number | null;
+}
+
+/**
+ * Renders an East UI Gantt value using Chakra UI components.
+ * Features:
+ * - Row virtualization for large datasets
+ * - Column sorting with multi-sort support
+ * - Column resizing
+ * - Resizable splitter between table and timeline
+ * - SVG-based task and milestone rendering
+ */
+export const EastChakraGantt = memo(function EastChakraGantt({
+    value,
+    height = "100%",
+    rowHeight = 48,
+    overscan = 8,
+    onSortChange,
+    enableMultiSort = true,
+    maxSortColumns = 5,
+    loadingDelay = 200,
+    enableColumnResizing = true,
+    onEventClick,
+    tablePanelSize: tablePanelSizeProp,
+    storageKey,
+}: EastChakraGanttProps) {
+    const props = useMemo(() => toChakraTableRoot(value), [value]);
+    const styleHeight = useMemo(() => {
+        const style = getSomeorUndefined(value.style);
+        return style ? getSomeorUndefined(style.height) : undefined;
+    }, [value]);
+    const headerHeight = 56;
+
+    // Track root container width for accurate splitter sizing
+    const rootRef = useRef<HTMLDivElement>(null);
+    const [containerWidth, setContainerWidth] = useState(0);
+    useEffect(() => {
+        const el = rootRef.current;
+        if (!el) return;
+        const ro = new ResizeObserver(([entry]) => {
+            if (entry) setContainerWidth(entry.contentRect.width);
+        });
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, []);
+
+    // Extract East-side callbacks from style
+    const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
+    const onCellClickFn = useMemo(() => style ? getSomeorUndefined(style.onCellClick) : undefined, [style]);
+    const onCellDoubleClickFn = useMemo(() => style ? getSomeorUndefined(style.onCellDoubleClick) : undefined, [style]);
+    const onRowClickFn = useMemo(() => style ? getSomeorUndefined(style.onRowClick) : undefined, [style]);
+    const onRowDoubleClickFn = useMemo(() => style ? getSomeorUndefined(style.onRowDoubleClick) : undefined, [style]);
+    const onSortChangeFn = useMemo(() => style ? getSomeorUndefined(style.onSortChange) : undefined, [style]);
+    const onTaskClickFn = useMemo(() => style ? getSomeorUndefined(style.onTaskClick) : undefined, [style]);
+    const onTaskDoubleClickFn = useMemo(() => style ? getSomeorUndefined(style.onTaskDoubleClick) : undefined, [style]);
+    const onTaskDragFn = useMemo(() => style ? getSomeorUndefined(style.onTaskDrag) : undefined, [style]);
+    const onTaskProgressChangeFn = useMemo(() => style ? getSomeorUndefined(style.onTaskProgressChange) : undefined, [style]);
+    const onMilestoneClickFn = useMemo(() => style ? getSomeorUndefined(style.onMilestoneClick) : undefined, [style]);
+    const onMilestoneDoubleClickFn = useMemo(() => style ? getSomeorUndefined(style.onMilestoneDoubleClick) : undefined, [style]);
+    const onMilestoneDragFn = useMemo(() => style ? getSomeorUndefined(style.onMilestoneDrag) : undefined, [style]);
+    const onTaskDurationChangeFn = useMemo(() => style ? getSomeorUndefined(style.onTaskDurationChange) : undefined, [style]);
+    const dragStepValue = useMemo(() => style ? getSomeorUndefined(style.dragStep) : undefined, [style]);
+    const durationStepValue = useMemo(() => style ? getSomeorUndefined(style.durationStep) : undefined, [style]);
+    const [gridLineColor] = useToken("colors", ["gray.300"]);
+    const tableContainerRef = useRef<HTMLDivElement>(null);
+    const timelineContainerRef = useRef<HTMLDivElement>(null);
+    const [timelineWidth, setTimelineWidth] = useState(400);
+
+    // Row state management for loading indicators
+    const [rowStateManager] = useState(() => new RowStateManager());
+    const [rowStates, setRowStates] = useState<Map<RowKey, RowState>>(new Map());
+    const visibleRowsRef = useRef<Set<RowKey>>(new Set());
+
+    // Calculate date range from events
+    const dateRange = useMemo(() => {
+        let minDate: Date | null = null;
+        let maxDate: Date | null = null;
+
+        value.rows.forEach((row) => {
+            row.events.forEach((event) => {
+                if (event.type === "Milestone") {
+                    const date = event.value.date;
+                    if (minDate === null || date < minDate) minDate = date;
+                    if (maxDate === null || date > maxDate) maxDate = date;
+                } else {
+                    const start = event.value.start;
+                    const end = event.value.end;
+                    if (minDate === null || start < minDate) minDate = start;
+                    if (maxDate === null || end > maxDate) maxDate = end;
+                }
+            });
+        });
+
+        // Fallback to current date if no events
+        if (minDate === null) minDate = new Date();
+        if (maxDate === null) maxDate = new Date();
+
+        // Add 10% buffer on each side
+        const totalDuration = maxDate.getTime() - minDate.getTime();
+        const bufferDuration = Math.max(totalDuration * 0.1, 24 * 60 * 60 * 1000); // At least 1 day buffer
+
+        return {
+            start: new Date(minDate.getTime() - bufferDuration),
+            end: new Date(maxDate.getTime() + bufferDuration),
+        };
+    }, [value.rows]);
+
+    // Calculate grid line positions for dashed vertical lines
+    const gridLinePositions = useMemo(() => {
+        const dates = generateDateTicks(dateRange.start, dateRange.end, Math.floor(timelineWidth / 100));
+        return dates
+            .map((date) => getDatePosition(date, dateRange.start, dateRange.end, timelineWidth))
+            .filter((x) => x >= 0 && x <= timelineWidth);
+    }, [dateRange.start, dateRange.end, timelineWidth]);
+
+    // Update timeline width when container resizes (including splitter changes)
+    useEffect(() => {
+        const container = timelineContainerRef.current;
+        if (!container) return;
+
+        const updateWidth = () => {
+            const width = container.offsetWidth;
+            setTimelineWidth(Math.max(200, width));
+        };
+
+        updateWidth();
+
+        const resizeObserver = new ResizeObserver(updateWidth);
+        resizeObserver.observe(container);
+
+        return () => resizeObserver.disconnect();
+    }, []);
+
+    // Subscribe to row state changes
+    useEffect(() => {
+        return rowStateManager.subscribe(() => {
+            setRowStates(new Map(rowStateManager.getStates()));
+        });
+    }, [rowStateManager]);
+
+    // Cleanup on unmount
+    useEffect(() => {
+        return () => {
+            rowStateManager.clear();
+        };
+    }, [rowStateManager]);
+
+    // Column helper for type-safe column definitions
+    const columnHelper = createColumnHelper<GanttRowValue>();
+
+    // Create TanStack Table columns from East UI columns
+    const columns = useMemo<ColumnDef<GanttRowValue, GanttCellValue | undefined>[]>(() => {
+        return value.columns.map((col) => {
+            const print = printFor(col.valueType);
+            const compare = compareFor(col.valueType);
+
+            // Extract width values from column config
+            const width = getSomeorUndefined(col.width);
+            const minWidth = getSomeorUndefined(col.minWidth);
+            const maxWidth = getSomeorUndefined(col.maxWidth);
+            const renderFn = getSomeorUndefined(col.render) as ColumnRenderFn | undefined;
+
+            return columnHelper.accessor(
+                (row) => row.cells.get(col.key),
+                {
+                    id: col.key,
+                    header: getSomeorUndefined(col.header) ?? col.key,
+                    enableSorting: true,
+                    sortingFn: (rowA, rowB, columnId) => {
+                        const cellA = rowA.original.cells.get(columnId);
+                        const cellB = rowB.original.cells.get(columnId);
+                        const valA = cellA?.value?.value;
+                        const valB = cellB?.value?.value;
+                        if (valA === undefined || valB === undefined) return 0;
+                        return compare(valA, valB);
+                    },
+                    minSize: parseSize(minWidth, 80),
+                    size: parseSize(width, 150),
+                    maxSize: parseSize(maxWidth, 400),
+                    meta: {
+                        print,
+                        columnKey: col.key,
+                        width,
+                        minWidth,
+                        maxWidth,
+                        renderFn,
+                    },
+                }
+            );
+        });
+    }, [value.columns, columnHelper]);
+
+    // Consolidated persisted state (sorting + column sizing + splitter)
+    const { state: persistedState, setState: setPersistedState } = usePersistedState<GanttPersistedState>(
+        storageKey,
+        { sorting: [], columnSizing: {}, pinnedColumns: [...value.frozen], tablePanelSize: null },
+    );
+    const sorting = useMemo(() => persistedState.sorting, [persistedState.sorting]);
+
+    // Column pinning
+    const { columnPinning, hasFrozen, toggleColumnPin } = useColumnPinning({
+        frozenFromValue: value.frozen,
+        persistedPinnedColumns: persistedState.pinnedColumns,
+        setPersistedPinnedColumns: (updater) => setPersistedState(prev => ({
+            ...prev,
+            pinnedColumns: updater(prev.pinnedColumns ?? [...value.frozen]),
+        })),
+    });
+    const getSortIndex = createGetSortIndex(sorting);
+    const setSorting = useCallback((updater: SortingState | ((prev: SortingState) => SortingState)) => {
+        setPersistedState(prev => ({
+            ...prev,
+            sorting: typeof updater === 'function' ? updater(prev.sorting) : updater,
+        }));
+    }, [setPersistedState]);
+
+    // Handle sorting changes and notify parent
+    const handleSortingChange = useCallback(
+        (updater: SortingState | ((prev: SortingState) => SortingState)) => {
+            setSorting((prev) => {
+                const newSorting = typeof updater === "function" ? updater(prev) : updater;
+
+                // Convert to external ColumnSort format
+                const sorts: ColumnSort[] = newSorting.map((s) => ({
+                    columnKey: s.id,
+                    direction: s.desc ? "desc" : "asc",
+                }));
+                onSortChange?.(sorts);
+
+                // Also call East-side callback if present - called once per sort column
+                if (onSortChangeFn) {
+                    newSorting.forEach((s, index) => {
+                        queueMicrotask(() => onSortChangeFn({
+                            columnKey: s.id,
+                            sortIndex: BigInt(index),
+                            sortDirection: s.desc ? variant('desc', null) : variant('asc', null),
+                        }));
+                    });
+                }
+
+                return newSorting;
+            });
+        },
+        [onSortChange, onSortChangeFn, setSorting]
+    );
+
+    // Handle cell click
+    const handleCellClick = useCallback((rowIndex: bigint, columnKey: string, cellValue: GanttCellValue | undefined) => {
+        if (onCellClickFn && cellValue?.value !== undefined) {
+            queueMicrotask(() => onCellClickFn({ rowIndex, columnKey, cellValue: cellValue.value }));
+        }
+    }, [onCellClickFn]);
+
+    // Handle cell double click
+    const handleCellDoubleClick = useCallback((rowIndex: bigint, columnKey: string, cellValue: GanttCellValue | undefined) => {
+        if (onCellDoubleClickFn && cellValue?.value !== undefined) {
+            queueMicrotask(() => onCellDoubleClickFn({ rowIndex, columnKey, cellValue: cellValue.value }));
+        }
+    }, [onCellDoubleClickFn]);
+
+    // Handle row click
+    const handleRowClick = useCallback((rowIndex: bigint) => {
+        if (onRowClickFn) {
+            queueMicrotask(() => onRowClickFn({ rowIndex }));
+        }
+    }, [onRowClickFn]);
+
+    // Handle row double click
+    const handleRowDoubleClick = useCallback((rowIndex: bigint) => {
+        if (onRowDoubleClickFn) {
+            queueMicrotask(() => onRowDoubleClickFn({ rowIndex }));
+        }
+    }, [onRowDoubleClickFn]);
+
+    // Handle task click (East-side callback)
+    const handleTaskClick = useCallback((rowIndex: bigint, taskIndex: bigint, taskStart: Date, taskEnd: Date) => {
+        if (onTaskClickFn) {
+            queueMicrotask(() => onTaskClickFn({ rowIndex, taskIndex, taskStart, taskEnd }));
+        }
+    }, [onTaskClickFn]);
+
+    // Handle milestone click (East-side callback)
+    const handleMilestoneClick = useCallback((rowIndex: bigint, milestoneIndex: bigint, milestoneDate: Date) => {
+        if (onMilestoneClickFn) {
+            queueMicrotask(() => onMilestoneClickFn({ rowIndex, milestoneIndex, milestoneDate }));
+        }
+    }, [onMilestoneClickFn]);
+
+    // Handle task double click (East-side callback)
+    const handleTaskDoubleClick = useCallback((rowIndex: bigint, taskIndex: bigint, taskStart: Date, taskEnd: Date) => {
+        if (onTaskDoubleClickFn) {
+            queueMicrotask(() => onTaskDoubleClickFn({ rowIndex, taskIndex, taskStart, taskEnd }));
+        }
+    }, [onTaskDoubleClickFn]);
+
+    // Handle milestone double click (East-side callback)
+    const handleMilestoneDoubleClick = useCallback((rowIndex: bigint, milestoneIndex: bigint, milestoneDate: Date) => {
+        if (onMilestoneDoubleClickFn) {
+            queueMicrotask(() => onMilestoneDoubleClickFn({ rowIndex, milestoneIndex, milestoneDate }));
+        }
+    }, [onMilestoneDoubleClickFn]);
+
+    // Handle task drag (East-side callback)
+    const handleTaskDrag = useCallback((
+        rowIndex: bigint,
+        taskIndex: bigint,
+        previousStart: Date,
+        previousEnd: Date,
+        newStart: Date,
+        newEnd: Date
+    ) => {
+        if (onTaskDragFn) {
+            queueMicrotask(() => onTaskDragFn({ rowIndex, taskIndex, previousStart, previousEnd, newStart, newEnd }));
+        }
+    }, [onTaskDragFn]);
+
+    // Handle task progress change (East-side callback)
+    const handleTaskProgressChange = useCallback((
+        rowIndex: bigint,
+        taskIndex: bigint,
+        previousProgress: number,
+        newProgress: number
+    ) => {
+        if (onTaskProgressChangeFn) {
+            queueMicrotask(() => onTaskProgressChangeFn({ rowIndex, taskIndex, previousProgress, newProgress }));
+        }
+    }, [onTaskProgressChangeFn]);
+
+    // Handle milestone drag (East-side callback)
+    const handleMilestoneDrag = useCallback((
+        rowIndex: bigint,
+        milestoneIndex: bigint,
+        previousDate: Date,
+        newDate: Date
+    ) => {
+        if (onMilestoneDragFn) {
+            queueMicrotask(() => onMilestoneDragFn({ rowIndex, milestoneIndex, previousDate, newDate }));
+        }
+    }, [onMilestoneDragFn]);
+
+    // Handle task duration change (East-side callback)
+    const handleTaskDurationChange = useCallback((
+        rowIndex: bigint,
+        taskIndex: bigint,
+        previousEnd: Date,
+        newEnd: Date
+    ) => {
+        if (onTaskDurationChangeFn) {
+            queueMicrotask(() => onTaskDurationChangeFn({ rowIndex, taskIndex, previousEnd, newEnd }));
+        }
+    }, [onTaskDurationChangeFn]);
+
+    // Wrap the onEventClick to also call East callbacks
+    const handleEventClick = useCallback((event: GanttEventValue, rowIndex: number, eventIndex: number) => {
+        onEventClick?.(event, rowIndex, eventIndex);
+
+        // Also call East-side callbacks
+        if (event.type === 'Task' && onTaskClickFn) {
+            handleTaskClick(
+                BigInt(rowIndex),
+                BigInt(eventIndex),
+                event.value.start,
+                event.value.end
+            );
+        } else if (event.type === 'Milestone' && onMilestoneClickFn) {
+            handleMilestoneClick(
+                BigInt(rowIndex),
+                BigInt(eventIndex),
+                event.value.date
+            );
+        }
+    }, [onEventClick, onTaskClickFn, onMilestoneClickFn, handleTaskClick, handleMilestoneClick]);
+
+    // Wrap the onEventDoubleClick to call East callbacks
+    const handleEventDoubleClick = useCallback((event: GanttEventValue, rowIndex: number, eventIndex: number) => {
+        if (event.type === 'Task' && onTaskDoubleClickFn) {
+            handleTaskDoubleClick(
+                BigInt(rowIndex),
+                BigInt(eventIndex),
+                event.value.start,
+                event.value.end
+            );
+        } else if (event.type === 'Milestone' && onMilestoneDoubleClickFn) {
+            handleMilestoneDoubleClick(
+                BigInt(rowIndex),
+                BigInt(eventIndex),
+                event.value.date
+            );
+        }
+    }, [onTaskDoubleClickFn, onMilestoneDoubleClickFn, handleTaskDoubleClick, handleMilestoneDoubleClick]);
+
+    // Handle task drag from GanttEventRow
+    const handleEventTaskDrag = useCallback((
+        rowIndex: number,
+        eventIndex: number,
+        previousStart: Date,
+        previousEnd: Date,
+        newStart: Date,
+        newEnd: Date
+    ) => {
+        handleTaskDrag(BigInt(rowIndex), BigInt(eventIndex), previousStart, previousEnd, newStart, newEnd);
+    }, [handleTaskDrag]);
+
+    // Handle milestone drag from GanttEventRow
+    const handleEventMilestoneDrag = useCallback((
+        rowIndex: number,
+        eventIndex: number,
+        previousDate: Date,
+        newDate: Date
+    ) => {
+        handleMilestoneDrag(BigInt(rowIndex), BigInt(eventIndex), previousDate, newDate);
+    }, [handleMilestoneDrag]);
+
+    // Handle task duration change from GanttEventRow
+    const handleEventTaskDurationChange = useCallback((
+        rowIndex: number,
+        eventIndex: number,
+        previousEnd: Date,
+        newEnd: Date
+    ) => {
+        handleTaskDurationChange(BigInt(rowIndex), BigInt(eventIndex), previousEnd, newEnd);
+    }, [handleTaskDurationChange]);
+
+    // Handle task progress change from GanttEventRow
+    const handleEventTaskProgressChange = useCallback((
+        rowIndex: number,
+        eventIndex: number,
+        previousProgress: number,
+        newProgress: number
+    ) => {
+        handleTaskProgressChange(BigInt(rowIndex), BigInt(eventIndex), previousProgress, newProgress);
+    }, [handleTaskProgressChange]);
+
+    // Convert East TimeStep variant values to TimeStep interface for components
+    const dragStep = useMemo(() => {
+        if (!dragStepValue) return undefined;
+        return { type: dragStepValue.type as "minutes" | "hours" | "days" | "weeks" | "months", value: dragStepValue.value };
+    }, [dragStepValue]);
+
+    const durationStep = useMemo(() => {
+        if (!durationStepValue) return undefined;
+        return { type: durationStepValue.type as "minutes" | "hours" | "days" | "weeks" | "months", value: durationStepValue.value };
+    }, [durationStepValue]);
+
+    // Column sizing (derived from persisted state)
+    const columnSizing = useMemo(() => persistedState.columnSizing, [persistedState.columnSizing]);
+    const setColumnSizing = useCallback((updater: Record<string, number> | ((prev: Record<string, number>) => Record<string, number>)) => {
+        setPersistedState(prev => ({
+            ...prev,
+            columnSizing: typeof updater === 'function' ? updater(prev.columnSizing) : updater,
+        }));
+    }, [setPersistedState]);
+
+    // Persist splitter resize
+    // Splitter drag state: tracks live size during drag, persists on end
+    const [dragSize, setDragSize] = useState<number | null>(null);
+    const handleSplitterResize = useCallback((details: { size: number[] }) => {
+        if (details.size[0] !== undefined) {
+            setDragSize(details.size[0]!);
+        }
+    }, []);
+    const handleSplitterResizeEnd = useCallback((details: { size: number[] }) => {
+        if (details.size[0] !== undefined) {
+            setPersistedState(prev => ({ ...prev, tablePanelSize: details.size[0]! }));
+        }
+        setDragSize(null);
+    }, [setPersistedState]);
+
+    // Create table instance
+    const table = useReactTable({
+        data: value.rows,
+        columns,
+        state: {
+            sorting,
+            columnSizing,
+            columnPinning,
+        },
+        onSortingChange: handleSortingChange,
+        onColumnSizingChange: setColumnSizing,
+        getCoreRowModel: getCoreRowModel(),
+        getSortedRowModel: getSortedRowModel(),
+        enableMultiSort,
+        isMultiSortEvent: () => enableMultiSort,
+        maxMultiSortColCount: maxSortColumns,
+        enableColumnResizing,
+        columnResizeMode: "onChange" as ColumnResizeMode,
+        enableColumnPinning: true,
+    });
+
+    // Get sorted rows from table
+    const { rows } = table.getRowModel();
+
+    // Calculate column size CSS variables for performance
+    const columnSizeVars = useMemo(() => {
+        const headers = table.getFlatHeaders();
+        const colSizes: Record<string, string> = {};
+
+        headers.forEach((header) => {
+            colSizes[`--header-${header.id}-size`] = `${header.getSize()}px`;
+            colSizes[`--col-${header.column.id}-size`] = `${header.column.getSize()}px`;
+        });
+
+        return colSizes;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [table.getState().columnSizingInfo, table.getState().columnSizing]);
+
+    // Compute table panel % from actual column widths and container width
+    const columnTotalWidth = table.getCenterTotalSize();
+    const computedTablePanelSize = useMemo(() => {
+        if (tablePanelSizeProp != null) return tablePanelSizeProp;
+        if (containerWidth <= 0) return 50; // fallback before measurement
+        return Math.min(Math.max((columnTotalWidth / containerWidth) * 100, 15), 75);
+    }, [tablePanelSizeProp, columnTotalWidth, containerWidth]);
+
+    // Effective: dragging > persisted (user-dragged) > computed from column widths
+    const effectiveTablePanelSize = dragSize ?? persistedState.tablePanelSize ?? computedTablePanelSize;
+
+    // Last unpinned column stretches to fill remaining panel space
+    const lastUnpinnedColumnId = useMemo(() => {
+        const headers = table.getFlatHeaders();
+        for (let i = headers.length - 1; i >= 0; i--) {
+            if (!headers[i]!.column.getIsPinned()) return headers[i]!.id;
+        }
+        return null;
+    }, [table]);
+
+    // Virtual row setup
+    const virtualizer = useVirtualizer({
+        count: rows.length,
+        getScrollElement: () => tableContainerRef.current,
+        estimateSize: () => rowHeight,
+        overscan,
+    });
+
+    const virtualItems = virtualizer.getVirtualItems();
+
+    // Process visible rows for loading state
+    useEffect(() => {
+        const currentVisible = new Set<RowKey>();
+
+        virtualItems.forEach((item) => {
+            currentVisible.add(item.index);
+        });
+
+        const prevVisible = visibleRowsRef.current;
+
+        // Find rows that need loading
+        const load: RowKey[] = [];
+        currentVisible.forEach((key) => {
+            const rowState = rowStateManager.getRowState(key);
+            if (rowState.status === "unloaded") {
+                load.push(key);
+            }
+        });
+
+        // Find rows that left viewport
+        const unload: RowKey[] = [];
+        prevVisible.forEach((key) => {
+            if (!currentVisible.has(key)) {
+                unload.push(key);
+            }
+        });
+
+        // Process state changes
+        if (load.length > 0) {
+            rowStateManager.markRowsLoading(load);
+            load.forEach((key) => rowStateManager.scheduleLoaded(key, loadingDelay));
+        }
+
+        if (unload.length > 0) {
+            rowStateManager.markRowsUnloaded(unload);
+        }
+
+        visibleRowsRef.current = currentVisible;
+    }, [virtualItems, rowStateManager, loadingDelay]);
+
+
+    // Sync scroll between table and timeline
+    const handleTableScroll = useCallback(() => {
+        if (tableContainerRef.current && timelineContainerRef.current) {
+            timelineContainerRef.current.scrollTop = tableContainerRef.current.scrollTop;
+        }
+    }, []);
+
+    const handleTimelineScroll = useCallback(() => {
+        if (tableContainerRef.current && timelineContainerRef.current) {
+            tableContainerRef.current.scrollTop = timelineContainerRef.current.scrollTop;
+        }
+    }, []);
+
+    const panels = useMemo(() => [
+        { id: "table", minSize: 20 },
+        { id: "timeline", minSize: 20 },
+    ], []);
+
+    return (
+        <Box
+            ref={rootRef}
+            width="100%"
+            height={styleHeight ?? height}
+            overflow="hidden"
+        >
+        <Splitter.Root
+            size={[effectiveTablePanelSize, 100 - effectiveTablePanelSize]}
+            panels={panels}
+            width="100%"
+            height="100%"
+            onResize={handleSplitterResize}
+            onResizeEnd={handleSplitterResizeEnd}
+        >
+            {/* Table Panel */}
+            <Splitter.Panel id="table">
+                <Box
+                    ref={tableContainerRef}
+                    height="100%"
+                    overflowY="auto"
+                    position="relative"
+                    onScroll={handleTableScroll}
+                >
+                    <ChakraTable.Root
+                        {...props}
+                        style={{
+                            ...columnSizeVars,
+                            width: "100%",
+                            minWidth: table.getCenterTotalSize(),
+                            tableLayout: "fixed",
+                        }}
+                    >
+                        <ChakraTable.Header
+                            style={{ display: "block" }}
+                            position="sticky"
+                            top={0}
+                            zIndex={1}
+                            bg="bg.panel"
+                        >
+                            {table.getHeaderGroups().map((headerGroup) => (
+                                <ChakraTable.Row
+                                    key={headerGroup.id}
+                                    style={{ display: "flex", width: "100%", height: `${headerHeight}px` }}
+                                >
+                                    {headerGroup.headers.map((header) => {
+                                        return (
+                                            <ChakraTable.ColumnHeader
+                                                key={header.id}
+                                                _hover={{ bg: "bg.muted" }}
+                                                transition="background 0.2s"
+                                                style={getHeaderCellStyle(header, hasFrozen, columnSizing, header.id === lastUnpinnedColumnId)}
+                                            >
+                                                <HeaderControls
+                                                    header={header}
+                                                    toggleColumnPin={toggleColumnPin}
+                                                    getSortIndex={getSortIndex}
+                                                    enableMultiSort={enableMultiSort}
+                                                    enableColumnResizing={enableColumnResizing}
+                                                />
+                                            </ChakraTable.ColumnHeader>
+                                        );
+                                    })}
+                                </ChakraTable.Row>
+                            ))}
+                        </ChakraTable.Header>
+
+                        <ChakraTable.Body
+                            style={{
+                                display: "block",
+                                position: "relative",
+                                height: `${virtualizer.getTotalSize()}px`,
+                            }}
+                        >
+                            {virtualItems.map((virtualRow) => {
+                                const row = rows[virtualRow.index];
+                                if (!row) return null;
+
+                                const rowKey = virtualRow.index;
+                                const rowState = rowStates.get(rowKey) || { status: "unloaded" };
+                                const isRowLoading =
+                                    !rowStateManager.isRowLoaded(rowKey) ||
+                                    rowState.status === "loading";
+
+                                const rowIndex = BigInt(virtualRow.index);
+
+                                return (
+                                    <ChakraTable.Row
+                                        key={row.id}
+                                        style={{
+                                            display: "flex",
+                                            position: "absolute",
+                                            top: 0,
+                                            left: 0,
+                                            width: "100%",
+                                            height: `${virtualRow.size}px`,
+                                            transform: `translateY(${virtualRow.start}px)`,
+                                            cursor: (onRowClickFn || onRowDoubleClickFn) ? 'pointer' : undefined,
+                                        }}
+                                        onClick={onRowClickFn ? () => handleRowClick(rowIndex) : undefined}
+                                        onDoubleClick={onRowDoubleClickFn ? () => handleRowDoubleClick(rowIndex) : undefined}
+                                    >
+                                        {row.getVisibleCells().map((cell) => {
+                                            const cellValue = cell.getValue() as
+                                                | GanttCellValue
+                                                | undefined;
+                                            const meta = cell.column.columnDef.meta;
+                                            const columnKey = meta?.columnKey ?? cell.column.id;
+
+                                            const cellStyle = getCellStyle(cell, hasFrozen, columnSizing, cell.column.id === lastUnpinnedColumnId);
+
+                                            const cellClickHandler = onCellClickFn ? (e: React.MouseEvent) => {
+                                                e.stopPropagation();
+                                                handleCellClick(rowIndex, columnKey, cellValue);
+                                            } : undefined;
+
+                                            const cellDoubleClickHandler = onCellDoubleClickFn ? (e: React.MouseEvent) => {
+                                                e.stopPropagation();
+                                                handleCellDoubleClick(rowIndex, columnKey, cellValue);
+                                            } : undefined;
+
+                                            if (isRowLoading) {
+                                                return (
+                                                    <ChakraTable.Cell key={cell.id} style={cellStyle}>
+                                                        <Skeleton height="20px" width="80%" />
+                                                    </ChakraTable.Cell>
+                                                );
+                                            }
+
+                                            if (cellValue == null) {
+                                                return (
+                                                    <ChakraTable.Cell
+                                                        key={cell.id}
+                                                        style={cellStyle}
+                                                        onClick={cellClickHandler}
+                                                        onDoubleClick={cellDoubleClickHandler}
+                                                    />
+                                                );
+                                            }
+
+                                            if (meta?.renderFn) {
+                                                const rendered = meta.renderFn({
+                                                    rowIndex: rowIndex,
+                                                    columnKey,
+                                                    cellValue: cellValue.value,
+                                                });
+                                                return (
+                                                    <ChakraTable.Cell
+                                                        key={cell.id}
+                                                        style={cellStyle}
+                                                        onClick={cellClickHandler}
+                                                        onDoubleClick={cellDoubleClickHandler}
+                                                    >
+                                                        <EastChakraComponent value={rendered} storageKey={`${storageKey}.render.${cell.column.id}`} />
+                                                    </ChakraTable.Cell>
+                                                );
+                                            }
+
+                                            const cellContent = getSomeorUndefined(cellValue.content);
+                                            if (cellContent != null) {
+                                                return (
+                                                    <ChakraTable.Cell
+                                                        key={cell.id}
+                                                        style={cellStyle}
+                                                        onClick={cellClickHandler}
+                                                        onDoubleClick={cellDoubleClickHandler}
+                                                    >
+                                                        <EastChakraComponent value={cellContent} storageKey={`${storageKey}.cell.${cell.column.id}`} />
+                                                    </ChakraTable.Cell>
+                                                );
+                                            }
+
+                                            return (
+                                                <ChakraTable.Cell
+                                                    key={cell.id}
+                                                    style={cellStyle}
+                                                    onClick={cellClickHandler}
+                                                    onDoubleClick={cellDoubleClickHandler}
+                                                >
+                                                    <Text>
+                                                        {meta?.print?.(cellValue.value.value) ?? null}
+                                                    </Text>
+                                                </ChakraTable.Cell>
+                                            );
+                                        })}
+                                    </ChakraTable.Row>
+                                );
+                            })}
+                        </ChakraTable.Body>
+                    </ChakraTable.Root>
+                </Box>
+            </Splitter.Panel>
+
+            <Splitter.ResizeTrigger id="table:timeline" />
+
+            {/* Timeline Panel */}
+            <Splitter.Panel id="timeline">
+                <Box
+                    ref={timelineContainerRef}
+                    width="100%"
+                    height="100%"
+                    overflowY="auto"
+                    overflowX="hidden"
+                    position="relative"
+                    onScroll={handleTimelineScroll}
+                >
+                    {/* Timeline Header - matches table header styling */}
+                    <Box position="sticky" top={0} zIndex={1} bg="bg.panel">
+                        <EventAxis
+                            startDate={dateRange.start}
+                            endDate={dateRange.end}
+                            width={timelineWidth}
+                            height={headerHeight}
+                        />
+                    </Box>
+
+                    {/* Timeline Body - uses same table structure for matching row styles */}
+                    <Box position="relative">
+                        <ChakraTable.Root
+                            {...props}
+                            style={{
+                                width: "100%",
+                                tableLayout: "fixed",
+                                position: "relative",
+                            }}
+                        >
+                        <ChakraTable.Body
+                            style={{
+                                display: "block",
+                                position: "relative",
+                                height: `${virtualizer.getTotalSize()}px`,
+                            }}
+                        >
+                            {virtualItems.map((virtualRow) => {
+                                const row = rows[virtualRow.index];
+                                if (!row) return null;
+
+                                return (
+                                    <ChakraTable.Row
+                                        key={row.id}
+                                        style={{
+                                            display: "flex",
+                                            position: "absolute",
+                                            top: 0,
+                                            left: 0,
+                                            width: "100%",
+                                            height: `${virtualRow.size}px`,
+                                            transform: `translateY(${virtualRow.start}px)`,
+                                        }}
+                                    >
+                                        <ChakraTable.Cell
+                                            style={{ width: "100%", padding: 0 }}
+                                        >
+                                            <svg width="100%" height={virtualRow.size}>
+                                                <GanttEventRow
+                                                    events={row.original.events}
+                                                    rowIndex={virtualRow.index}
+                                                    y={0}
+                                                    width={timelineWidth}
+                                                    height={virtualRow.size}
+                                                    startDate={dateRange.start}
+                                                    endDate={dateRange.end}
+                                                    onEventClick={handleEventClick}
+                                                    onEventDoubleClick={handleEventDoubleClick}
+                                                    onTaskDrag={handleEventTaskDrag}
+                                                    onTaskDurationChange={handleEventTaskDurationChange}
+                                                    onTaskProgressChange={handleEventTaskProgressChange}
+                                                    onMilestoneDrag={handleEventMilestoneDrag}
+                                                    dragStep={dragStep}
+                                                    durationStep={durationStep}
+                                                />
+                                            </svg>
+                                        </ChakraTable.Cell>
+                                    </ChakraTable.Row>
+                                );
+                            })}
+                        </ChakraTable.Body>
+                        </ChakraTable.Root>
+                        {/* Dashed vertical grid lines - rendered on top */}
+                        <svg
+                            width={timelineWidth}
+                            height={virtualizer.getTotalSize()}
+                            style={{
+                                position: "absolute",
+                                top: 0,
+                                left: 0,
+                                pointerEvents: "none",
+                                zIndex: 1,
+                            }}
+                        >
+                            {gridLinePositions.map((x, index) => (
+                                <line
+                                    key={`grid-${index}`}
+                                    x1={x}
+                                    y1={0}
+                                    x2={x}
+                                    y2={virtualizer.getTotalSize()}
+                                    stroke={gridLineColor}
+                                    strokeWidth={1}
+                                    strokeDasharray="4 4"
+                                    opacity={0.6}
+                                />
+                            ))}
+                        </svg>
+                    </Box>
+                </Box>
+            </Splitter.Panel>
+        </Splitter.Root>
+        </Box>
+    );
+}, (prev, next) => ganttRootEqual(prev.value, next.value));

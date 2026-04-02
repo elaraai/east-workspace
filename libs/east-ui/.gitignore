@@ -1,0 +1,15 @@
+node_modules
+dist
+coverage
+.package
+*.beast
+*.avro
+*.csv
+*.vsix
+
+# Allow important config files
+!package.json
+!tsconfig.json
+!package-lock.json
+# Local registry (Verdaccio)
+.npmrc

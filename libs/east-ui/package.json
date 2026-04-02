@@ -1,0 +1,60 @@
+{
+  "name": "east-ui-monorepo",
+  "version": "0.0.1-beta.6",
+  "private": true,
+  "description": "East UI - UI component library for the East language",
+  "workspaces": [
+    "packages/*",
+    "packages/east-ui-extension/webview"
+  ],
+  "scripts": {
+    "build": "npm run build -w @elaraai/east-ui -w @elaraai/east-ui-components -w @elaraai/e3-ui-components -w east-ui-preview -w @elaraai/east-ui-showcase -w east-ui-preview-webview",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "dev": "npm run dev --workspace=@elaraai/east-ui-showcase",
+    "version:east-ui:prerelease": "npm version prerelease --preid=beta --workspace=@elaraai/east-ui --no-git-tag-version",
+    "version:east-ui:patch": "npm version patch --workspace=@elaraai/east-ui --no-git-tag-version",
+    "version:east-ui:minor": "npm version minor --workspace=@elaraai/east-ui --no-git-tag-version",
+    "version:east-ui:major": "npm version major --workspace=@elaraai/east-ui --no-git-tag-version",
+    "version:components:prerelease": "npm version prerelease --preid=beta --workspace=@elaraai/east-ui-components --no-git-tag-version",
+    "version:components:patch": "npm version patch --workspace=@elaraai/east-ui-components --no-git-tag-version",
+    "version:components:minor": "npm version minor --workspace=@elaraai/east-ui-components --no-git-tag-version",
+    "version:components:major": "npm version major --workspace=@elaraai/east-ui-components --no-git-tag-version",
+    "version:e3-components:prerelease": "npm version prerelease --preid=beta --workspace=@elaraai/e3-ui-components --no-git-tag-version",
+    "version:e3-components:patch": "npm version patch --workspace=@elaraai/e3-ui-components --no-git-tag-version",
+    "version:e3-components:minor": "npm version minor --workspace=@elaraai/e3-ui-components --no-git-tag-version",
+    "version:e3-components:major": "npm version major --workspace=@elaraai/e3-ui-components --no-git-tag-version",
+    "version:extension:patch": "npm version patch --workspace=east-ui-preview --no-git-tag-version",
+    "version:extension:minor": "npm version minor --workspace=east-ui-preview --no-git-tag-version",
+    "version:extension:major": "npm version major --workspace=east-ui-preview --no-git-tag-version",
+    "version:monorepo:prerelease": "npm version prerelease --preid=beta --no-git-tag-version",
+    "version:monorepo:patch": "npm version patch --no-git-tag-version",
+    "version:monorepo:minor": "npm version minor --no-git-tag-version",
+    "version:monorepo:major": "npm version major --no-git-tag-version",
+    "version:showcase:prerelease": "npm version prerelease --preid=beta --workspace=@elaraai/east-ui-showcase --no-git-tag-version",
+    "version:showcase:patch": "npm version patch --workspace=@elaraai/east-ui-showcase --no-git-tag-version",
+    "version:showcase:minor": "npm version minor --workspace=@elaraai/east-ui-showcase --no-git-tag-version",
+    "version:showcase:major": "npm version major --workspace=@elaraai/east-ui-showcase --no-git-tag-version",
+    "version:all:prerelease": "npm run version:monorepo:prerelease && npm run version:east-ui:prerelease && npm run version:components:prerelease && npm run version:showcase:prerelease",
+    "version:all:patch": "npm run version:monorepo:patch && npm run version:east-ui:patch && npm run version:components:patch && npm run version:showcase:patch && npm run version:extension:patch",
+    "version:all:minor": "npm run version:monorepo:minor && npm run version:east-ui:minor && npm run version:components:minor && npm run version:showcase:minor && npm run version:extension:minor",
+    "version:all:major": "npm run version:monorepo:major && npm run version:east-ui:major && npm run version:components:major && npm run version:showcase:major && npm run version:extension:major"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/elaraai/east-ui.git"
+  },
+  "keywords": [
+    "east",
+    "elara",
+    "ui"
+  ],
+  "author": "Elara AI Pty Ltd",
+  "license": "SEE LICENSE IN LICENSE",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "@elaraai/east": "beta"
+  }
+}

@@ -1,0 +1,901 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Licensed under AGPL-3.0. See LICENSE file for details.
+ */
+
+import { East, some, StringType, NullType, DateTimeType, variant } from "@elaraai/east";
+import { Gantt, UIComponentType, Grid, State, Reactive, Stack, Badge, Table, Text } from "@elaraai/east-ui";
+import { ShowcaseCard } from "../components";
+
+/**
+ * Gantt showcase - demonstrates Gantt chart variants and features.
+ */
+export default East.function(
+    [],
+    UIComponentType,
+    ($) => {
+        // Basic Gantt with tasks
+        const basic = $.let(
+            ShowcaseCard(
+                "Basic Gantt",
+                "Simple project timeline with tasks",
+                Gantt.Root(
+                    [
+                        { task: "Planning", owner: "Alice", start: new Date("2024-01-01"), end: new Date("2024-01-15") },
+                        { task: "Design", owner: "Bob", start: new Date("2024-01-10"), end: new Date("2024-02-01") },
+                        { task: "Development", owner: "Charlie", start: new Date("2024-01-20"), end: new Date("2024-03-15") },
+                        { task: "Testing", owner: "Diana", start: new Date("2024-03-01"), end: new Date("2024-03-30") },
+                    ],
+                    ["task", "owner"],
+                    row => [Gantt.Task({ start: row.start, end: row.end })]
+                ),
+                some(`
+                    Gantt.Root(
+                        [
+                            { task: "Planning", owner: "Alice", start: new Date("2024-01-01"), end: new Date("2024-01-15") },
+                            { task: "Design", owner: "Bob", start: new Date("2024-01-10"), end: new Date("2024-02-01") },
+                            { task: "Development", owner: "Charlie", start: new Date("2024-01-20"), end: new Date("2024-03-15") },
+                            { task: "Testing", owner: "Diana", start: new Date("2024-03-01"), end: new Date("2024-03-30") },
+                        ],
+                        ["task", "owner"],
+                        row => [Gantt.Task({ start: row.start, end: row.end })]
+                    )
+                `)
+            )
+        );
+
+        // Gantt with custom headers and column widths
+        const customHeaders = $.let(
+            ShowcaseCard(
+                "Custom Headers & Widths",
+                "Object config with custom column headers and widths",
+                Gantt.Root(
+                    [
+                        { phase: "Research", team: "R&D", start: new Date("2024-02-01"), end: new Date("2024-02-28") },
+                        { phase: "Prototype", team: "Engineering", start: new Date("2024-02-15"), end: new Date("2024-03-31") },
+                        { phase: "Launch", team: "Marketing", start: new Date("2024-03-15"), end: new Date("2024-04-15") },
+                    ],
+                    {
+                        phase: { header: "Phase", width: "300px", minWidth: "80px" },
+                        team: { header: "Team", width: "150px", maxWidth: "200px" },
+                    },
+                    row => [Gantt.Task({ start: row.start, end: row.end, colorPalette: "teal" })]
+                ),
+                some(`
+                    Gantt.Root(
+                        [
+                            { phase: "Research", team: "R&D", start: new Date("2024-02-01"), end: new Date("2024-02-28") },
+                            { phase: "Prototype", team: "Engineering", start: new Date("2024-02-15"), end: new Date("2024-03-31") },
+                            { phase: "Launch", team: "Marketing", start: new Date("2024-03-15"), end: new Date("2024-04-15") },
+                        ],
+                        {
+                            phase: { header: "Phase", width: "120px", minWidth: "80px" },
+                            team: { header: "Team", width: "150px", maxWidth: "200px" },
+                        },
+                        row => [Gantt.Task({ start: row.start, end: row.end, colorPalette: "teal" })]
+                    )
+                `)
+            )
+        );
+
+        // Gantt with milestones
+        const withMilestones = $.let(
+            ShowcaseCard(
+                "Tasks & Milestones",
+                "Combining tasks with milestone markers",
+                Gantt.Root(
+                    [
+                        { name: "Sprint 1", start: new Date("2024-01-01"), end: new Date("2024-01-14"), release: new Date("2024-01-14") },
+                        { name: "Sprint 2", start: new Date("2024-01-15"), end: new Date("2024-01-28"), release: new Date("2024-01-28") },
+                        { name: "Sprint 3", start: new Date("2024-01-29"), end: new Date("2024-02-11"), release: new Date("2024-02-11") },
+                    ],
+                    { name: { header: "Sprint" } },
+                    row => [
+                        Gantt.Task({ start: row.start, end: row.end, colorPalette: "blue" }),
+                        Gantt.Milestone({ date: row.release, label: "Release", colorPalette: "green" }),
+                    ]
+                ),
+                some(`
+                    Gantt.Root(
+                        [
+                            { name: "Sprint 1", start: new Date("2024-01-01"), end: new Date("2024-01-14"), release: new Date("2024-01-14") },
+                            { name: "Sprint 2", start: new Date("2024-01-15"), end: new Date("2024-01-28"), release: new Date("2024-01-28") },
+                            { name: "Sprint 3", start: new Date("2024-01-29"), end: new Date("2024-02-11"), release: new Date("2024-02-11") },
+                        ],
+                        { name: { header: "Sprint" } },
+                        row => [
+                            Gantt.Task({ start: row.start, end: row.end, colorPalette: "blue" }),
+                            Gantt.Milestone({ date: row.release, label: "Release", colorPalette: "green" }),
+                        ]
+                    )
+                `)
+            )
+        );
+
+        // Gantt with progress
+        const withProgress = $.let(
+            ShowcaseCard(
+                "Progress Tracking",
+                "Tasks with progress indicators",
+                Gantt.Root(
+                    [
+                        { task: "Backend API", start: new Date("2024-01-01"), end: new Date("2024-02-15"), progress: 100 },
+                        { task: "Frontend UI", start: new Date("2024-01-15"), end: new Date("2024-03-01"), progress: 75 },
+                        { task: "Integration", start: new Date("2024-02-01"), end: new Date("2024-03-15"), progress: 40 },
+                        { task: "QA Testing", start: new Date("2024-02-15"), end: new Date("2024-04-01"), progress: 10 },
+                    ],
+                    { task: { header: "Task" } },
+                    row => [
+                        Gantt.Task({
+                            start: row.start,
+                            end: row.end,
+                            progress: row.progress,
+                            colorPalette: "purple",
+                        }),
+                    ]
+                ),
+                some(`
+                    Gantt.Root(
+                        [
+                            { task: "Backend API", start: new Date("2024-01-01"), end: new Date("2024-02-15"), progress: 100 },
+                            { task: "Frontend UI", start: new Date("2024-01-15"), end: new Date("2024-03-01"), progress: 75 },
+                            { task: "Integration", start: new Date("2024-02-01"), end: new Date("2024-03-15"), progress: 40 },
+                            { task: "QA Testing", start: new Date("2024-02-15"), end: new Date("2024-04-01"), progress: 10 },
+                        ],
+                        { task: { header: "Task" } },
+                        row => [
+                            Gantt.Task({
+                                start: row.start,
+                                end: row.end,
+                                progress: row.progress,
+                                colorPalette: "purple",
+                            }),
+                        ]
+                    )
+                `)
+            )
+        );
+
+        // Colorful tasks
+        const colorful = $.let(
+            ShowcaseCard(
+                "Color Palettes",
+                "Different colors for different task types",
+                Gantt.Root(
+                    [
+                        { type: "Feature", name: "User Auth", start: new Date("2024-01-01"), end: new Date("2024-01-20") },
+                        { type: "Bug Fix", name: "Login Issue", start: new Date("2024-01-10"), end: new Date("2024-01-15") },
+                        { type: "Enhancement", name: "Performance", start: new Date("2024-01-15"), end: new Date("2024-02-01") },
+                        { type: "Feature", name: "Dashboard", start: new Date("2024-01-20"), end: new Date("2024-02-15") },
+                    ],
+                    {
+                        type: { header: "Type" },
+                        name: { header: "Name" },
+                    },
+                    row => [
+                        Gantt.Task({
+                            start: row.start,
+                            end: row.end,
+                            label: row.name,
+                        }),
+                    ]
+                ),
+                some(`
+                    Gantt.Root(
+                        [
+                            { type: "Feature", name: "User Auth", start: new Date("2024-01-01"), end: new Date("2024-01-20") },
+                            { type: "Bug Fix", name: "Login Issue", start: new Date("2024-01-10"), end: new Date("2024-01-15") },
+                            { type: "Enhancement", name: "Performance", start: new Date("2024-01-15"), end: new Date("2024-02-01") },
+                            { type: "Feature", name: "Dashboard", start: new Date("2024-01-20"), end: new Date("2024-02-15") },
+                        ],
+                        {
+                            type: { header: "Type" },
+                            name: { header: "Name" },
+                        },
+                        row => [
+                            Gantt.Task({
+                                start: row.start,
+                                end: row.end,
+                                label: row.name,
+                            }),
+                        ]
+                    )
+                `)
+            )
+        );
+
+        // Styled Gantt
+        const styled = $.let(
+            ShowcaseCard(
+                "Full Styling",
+                "Multiple style options combined",
+                Gantt.Root(
+                    [
+                        { dept: "Engineering", project: "Platform v2", start: new Date("2024-01-01"), end: new Date("2024-03-31") },
+                        { dept: "Design", project: "UI Refresh", start: new Date("2024-01-15"), end: new Date("2024-02-28") },
+                        { dept: "DevOps", project: "CI/CD Pipeline", start: new Date("2024-02-01"), end: new Date("2024-02-28") },
+                        { dept: "QA", project: "Test Automation", start: new Date("2024-02-15"), end: new Date("2024-04-15") },
+                    ],
+                    {
+                        dept: { header: "Department" },
+                        project: { header: "Project" },
+                    },
+                    row => [Gantt.Task({ start: row.start, end: row.end, colorPalette: "cyan" })],
+                    {
+                        variant: "line",
+                        striped: true,
+                        interactive: true,
+                        showToday: true,
+                    }
+                ),
+                some(`
+                    Gantt.Root(
+                        [
+                            { dept: "Engineering", project: "Platform v2", start: new Date("2024-01-01"), end: new Date("2024-03-31") },
+                            { dept: "Design", project: "UI Refresh", start: new Date("2024-01-15"), end: new Date("2024-02-28") },
+                            { dept: "DevOps", project: "CI/CD Pipeline", start: new Date("2024-02-01"), end: new Date("2024-02-28") },
+                            { dept: "QA", project: "Test Automation", start: new Date("2024-02-15"), end: new Date("2024-04-15") },
+                        ],
+                        {
+                            dept: { header: "Department" },
+                            project: { header: "Project" },
+                        },
+                        row => [Gantt.Task({ start: row.start, end: row.end, colorPalette: "cyan" })],
+                        {
+                            variant: "line",
+                            striped: true,
+                            interactive: true,
+                            showToday: true,
+                        }
+                    )
+                `)
+            )
+        );
+
+        // Complex column types with value function
+        const complexColumns = $.let(
+            ShowcaseCard(
+                "Complex Column Types",
+                "Array and struct fields with value functions for sorting",
+                Gantt.Root(
+                    [
+                        { task: "Platform v2", tags: ["backend", "api", "priority"], info: { team: "Core", size: 5n }, start: new Date("2024-01-01"), end: new Date("2024-03-31") },
+                        { task: "UI Refresh", tags: ["frontend", "design"], info: { team: "Web", size: 3n }, start: new Date("2024-01-15"), end: new Date("2024-02-28") },
+                        { task: "CI/CD", tags: ["devops"], info: { team: "Infra", size: 2n }, start: new Date("2024-02-01"), end: new Date("2024-02-28") },
+                    ],
+                    {
+                        task: { header: "Project" },
+                        tags: {
+                            header: "Tags",
+                            value: (tags) => tags.size(),
+                            render: East.function(
+                                [Table.Types.CellRenderContext],
+                                UIComponentType,
+                                ($, ctx) => Text.Root(
+                                    ctx.cellValue.match({ Integer: (_$, v) => East.str`${v} tags` }, _$ => "")
+                                )
+                            ),
+                        },
+                        info: {
+                            header: "Team",
+                            value: (info) => info.size,
+                            render: East.function(
+                                [Table.Types.CellRenderContext],
+                                UIComponentType,
+                                ($, ctx) => Text.Root(
+                                    ctx.cellValue.match({ Integer: (_$, v) => East.str`Team size: ${v}` }, _$ => "")
+                                )
+                            ),
+                        },
+                    },
+                    row => [Gantt.Task({ start: row.start, end: row.end, colorPalette: "purple" })],
+                    { variant: "line", striped: true }
+                ),
+                some(`
+                    Gantt.Root(
+                        [
+                            { task: "Platform v2", tags: ["backend", "api", "priority"], info: { team: "Core", size: 5n }, start: new Date("2024-01-01"), end: new Date("2024-03-31") },
+                            { task: "UI Refresh", tags: ["frontend", "design"], info: { team: "Web", size: 3n }, start: new Date("2024-01-15"), end: new Date("2024-02-28") },
+                            { task: "CI/CD", tags: ["devops"], info: { team: "Infra", size: 2n }, start: new Date("2024-02-01"), end: new Date("2024-02-28") },
+                        ],
+                        {
+                            task: { header: "Project" },
+                            tags: {
+                                header: "Tags",
+                                value: (tags) => tags.size(),
+                                render: East.function(
+                                    [Table.Types.CellRenderContext],
+                                    UIComponentType,
+                                    ($, ctx) => Text.Root(
+                                        ctx.cellValue.match({ Integer: ($, v) => East.str\`\${v} tags\` }, $ => "")
+                                    )
+                                ),
+                            },
+                            info: {
+                                header: "Team",
+                                value: (info) => info.size,
+                                render: East.function(
+                                    [Table.Types.CellRenderContext],
+                                    UIComponentType,
+                                    ($, ctx) => Text.Root(
+                                        ctx.cellValue.match({ Integer: ($, v) => East.str\`Team size: \${v}\` }, $ => "")
+                                    )
+                                ),
+                            },
+                        },
+                        row => [Gantt.Task({ start: row.start, end: row.end, colorPalette: "purple" })],
+                        { variant: "line", striped: true }
+                    )
+                `)
+            )
+        );
+
+        // Column render with row access (closing over data)
+        const ganttRowData = $.let(East.value([
+            { task: "Backend API", owner: "Alice", priority: "high", start: new Date("2024-01-01"), end: new Date("2024-02-15") },
+            { task: "Frontend UI", owner: "Bob", priority: "medium", start: new Date("2024-01-15"), end: new Date("2024-03-01") },
+            { task: "Integration", owner: "Charlie", priority: "high", start: new Date("2024-02-01"), end: new Date("2024-03-15") },
+            { task: "Documentation", owner: "Diana", priority: "low", start: new Date("2024-02-15"), end: new Date("2024-04-01") },
+        ]));
+        const columnRenderWithRow = $.let(
+            ShowcaseCard(
+                "Column Render with Row Access",
+                "Render function closes over data to access other row fields",
+                Gantt.Root(
+                    ganttRowData,
+                    {
+                        task: {
+                            header: "Task",
+                            render: East.function(
+                                [Table.Types.CellRenderContext],
+                                UIComponentType,
+                                ($, ctx) => {
+                                    const row = $.let(ganttRowData.get(ctx.rowIndex));
+                                    return Text.Root(East.str`${row.task} (${row.owner})`);
+                                }
+                            ),
+                        },
+                        priority: {
+                            header: "Priority",
+                            render: East.function(
+                                [Table.Types.CellRenderContext],
+                                UIComponentType,
+                                ($, ctx) => {
+                                    const row = $.let(ganttRowData.get(ctx.rowIndex));
+                                    return Badge.Root(
+                                        East.str`${row.priority} (${row.owner})`,
+                                        { variant: "solid" }
+                                    );
+                                }
+                            ),
+                        },
+                    },
+                    row => [Gantt.Task({ start: row.start, end: row.end })],
+                    { variant: "line", striped: true }
+                ),
+                some(`
+                    const data = [...];
+                    Gantt.Root(
+                        data,
+                        {
+                            task: {
+                                header: "Task",
+                                render: East.function(
+                                    [Table.Types.CellRenderContext],
+                                    UIComponentType,
+                                    ($, ctx) => {
+                                        const row = $.let(East.value(data).index(ctx.rowIndex));
+                                        return Text.Root(East.str\`\${row.task} (\${row.owner})\`);
+                                    }
+                                ),
+                            },
+                        },
+                        row => [Gantt.Task({ start: row.start, end: row.end })],
+                        { variant: "line", striped: true }
+                    )
+                `)
+            )
+        );
+
+        // =====================================================================
+        // INTERACTIVE EXAMPLE - Demonstrate all callbacks
+        // =====================================================================
+
+        // Initialize state for interactive example
+        $.if(State.has("gantt_last_event").not(), $ => {
+            $(State.write([StringType], "gantt_last_event", ""));
+        });
+
+        // Interactive Gantt with all callbacks
+        const interactiveCallbacks = $.let(
+            ShowcaseCard(
+                "All Callbacks",
+                "Click rows, cells, tasks, milestones or drag to see events",
+                Reactive.Root(East.function([], UIComponentType, $ => {
+                    const lastEvent = $.let(State.read([StringType], "gantt_last_event"));
+
+                    // Table-inherited callbacks
+                    const onRowClick = East.function(
+                        [Table.Types.RowClickEvent],
+                        NullType,
+                        ($, event) => {
+                            $(State.write([StringType], "gantt_last_event", East.str`onRowClick: row ${event.rowIndex}`));
+                        }
+                    );
+
+                    const onRowDoubleClick = East.function(
+                        [Table.Types.RowClickEvent],
+                        NullType,
+                        ($, event) => {
+                            $(State.write([StringType], "gantt_last_event", East.str`onRowDoubleClick: row ${event.rowIndex}`));
+                        }
+                    );
+
+                    const onCellClick = East.function(
+                        [Table.Types.CellClickEvent],
+                        NullType,
+                        ($, event) => {
+                            $(State.write([StringType], "gantt_last_event", East.str`onCellClick: row ${event.rowIndex}, col ${event.columnKey}`));
+                        }
+                    );
+
+                    const onCellDoubleClick = East.function(
+                        [Table.Types.CellClickEvent],
+                        NullType,
+                        ($, event) => {
+                            $(State.write([StringType], "gantt_last_event", East.str`onCellDoubleClick: row ${event.rowIndex}, col ${event.columnKey}`));
+                        }
+                    );
+
+                    const onSortChange = East.function(
+                        [Table.Types.SortEvent],
+                        NullType,
+                        ($, event) => {
+                            $(State.write([StringType], "gantt_last_event", East.str`onSortChange: ${event.columnKey} - ${event.sortDirection.getTag()}`));
+                        }
+                    );
+
+                    // Gantt-specific callbacks
+                    const onTaskClick = East.function(
+                        [Gantt.Types.TaskClickEvent],
+                        NullType,
+                        ($, event) => {
+                            $(State.write([StringType], "gantt_last_event", East.str`onTaskClick: row ${event.rowIndex}, task ${event.taskIndex}`));
+                        }
+                    );
+
+                    const onTaskDoubleClick = East.function(
+                        [Gantt.Types.TaskClickEvent],
+                        NullType,
+                        ($, event) => {
+                            $(State.write([StringType], "gantt_last_event", East.str`onTaskDoubleClick: row ${event.rowIndex}, task ${event.taskIndex}`));
+                        }
+                    );
+
+                    const onTaskDrag = East.function(
+                        [Gantt.Types.TaskDragEvent],
+                        NullType,
+                        ($, event) => {
+                            $(State.write([StringType], "gantt_last_event", East.str`onTaskDrag: row ${event.rowIndex}, task ${event.taskIndex} moved`));
+                        }
+                    );
+
+                    const onTaskDurationChange = East.function(
+                        [Gantt.Types.TaskDurationChangeEvent],
+                        NullType,
+                        ($, event) => {
+                            $(State.write([StringType], "gantt_last_event", East.str`onTaskDurationChange: row ${event.rowIndex}, task ${event.taskIndex}, new end date`));
+                        }
+                    );
+
+                    const onTaskProgressChange = East.function(
+                        [Gantt.Types.TaskProgressChangeEvent],
+                        NullType,
+                        ($, event) => {
+                            $(State.write([StringType], "gantt_last_event", East.str`onTaskProgressChange: row ${event.rowIndex}, task ${event.taskIndex}, progress ${event.newProgress}`));
+                        }
+                    );
+
+                    const onMilestoneClick = East.function(
+                        [Gantt.Types.MilestoneClickEvent],
+                        NullType,
+                        ($, event) => {
+                            $(State.write([StringType], "gantt_last_event", East.str`onMilestoneClick: row ${event.rowIndex}, milestone ${event.milestoneIndex}`));
+                        }
+                    );
+
+                    const onMilestoneDoubleClick = East.function(
+                        [Gantt.Types.MilestoneClickEvent],
+                        NullType,
+                        ($, event) => {
+                            $(State.write([StringType], "gantt_last_event", East.str`onMilestoneDoubleClick: row ${event.rowIndex}, milestone ${event.milestoneIndex}`));
+                        }
+                    );
+
+                    const onMilestoneDrag = East.function(
+                        [Gantt.Types.MilestoneDragEvent],
+                        NullType,
+                        ($, event) => {
+                            $(State.write([StringType], "gantt_last_event", East.str`onMilestoneDrag: row ${event.rowIndex}, milestone ${event.milestoneIndex} moved`));
+                        }
+                    );
+
+                    return Stack.VStack([
+                        Gantt.Root(
+                            [
+                                { name: "Sprint 1", start: new Date("2024-01-01"), end: new Date("2024-01-14"), release: new Date("2024-01-14") },
+                                { name: "Sprint 2", start: new Date("2024-01-15"), end: new Date("2024-01-28"), release: new Date("2024-01-28") },
+                                { name: "Sprint 3", start: new Date("2024-01-29"), end: new Date("2024-02-11"), release: new Date("2024-02-11") },
+                            ],
+                            { name: { header: "Sprint" } },
+                            row => [
+                                Gantt.Task({ start: row.start, end: row.end, colorPalette: "blue", progress: 50 }),
+                                Gantt.Milestone({ date: row.release, label: "Release", colorPalette: "green" }),
+                            ],
+                            {
+                                interactive: true,
+                                striped: true,
+                                showToday: true,
+                                onRowClick,
+                                onRowDoubleClick,
+                                onCellClick,
+                                onCellDoubleClick,
+                                onSortChange,
+                                onTaskClick,
+                                onTaskDoubleClick,
+                                onTaskDrag,
+                                onTaskDurationChange,
+                                onTaskProgressChange,
+                                onMilestoneClick,
+                                onMilestoneDoubleClick,
+                                onMilestoneDrag,
+                            }
+                        ),
+                        Badge.Root(
+                            East.equal(lastEvent.length(), 0n).ifElse(
+                                _$ => "Interact with the Gantt chart",
+                                _$ => lastEvent
+                            ),
+                            { colorPalette: "blue", variant: "outline" }
+                        ),
+                    ], { gap: "3", align: "stretch" });
+                })),
+                some(`
+                Reactive.Root(East.function([], UIComponentType, $ => {
+                    const lastEvent = $.let(State.read([StringType], "gantt_last_event"));
+
+                    // Table-inherited callbacks
+                    const onRowClick = East.function(
+                        [Table.Types.RowClickEvent],
+                        NullType,
+                        ($, event) => {
+                            $(State.write([StringType], "gantt_last_event", East.str\`onRowClick: row \${event.rowIndex}\`));
+                        }
+                    );
+
+                    const onRowDoubleClick = East.function(
+                        [Table.Types.RowClickEvent],
+                        NullType,
+                        ($, event) => {
+                            $(State.write([StringType], "gantt_last_event", East.str\`onRowDoubleClick: row \${event.rowIndex}\`));
+                        }
+                    );
+
+                    const onCellClick = East.function(
+                        [Table.Types.CellClickEvent],
+                        NullType,
+                        ($, event) => {
+                            $(State.write([StringType], "gantt_last_event", East.str\`onCellClick: row \${event.rowIndex}, col \${event.columnKey}\`));
+                        }
+                    );
+
+                    const onCellDoubleClick = East.function(
+                        [Table.Types.CellClickEvent],
+                        NullType,
+                        ($, event) => {
+                            $(State.write([StringType], "gantt_last_event", East.str\`onCellDoubleClick: row \${event.rowIndex}, col \${event.columnKey}\`));
+                        }
+                    );
+
+                    const onSortChange = East.function(
+                        [Table.Types.SortEvent],
+                        NullType,
+                        ($, event) => {
+                            $(State.write([StringType], "gantt_last_event", East.str\`onSortChange: \${event.columnKey} - \${event.sortDirection.getTag()}\`));
+                        }
+                    );
+
+                    // Gantt-specific callbacks
+                    const onTaskClick = East.function(
+                        [Gantt.Types.TaskClickEvent],
+                        NullType,
+                        ($, event) => {
+                            $(State.write([StringType], "gantt_last_event", East.str\`onTaskClick: row \${event.rowIndex}, task \${event.taskIndex}\`));
+                        }
+                    );
+
+                    const onTaskDoubleClick = East.function(
+                        [Gantt.Types.TaskClickEvent],
+                        NullType,
+                        ($, event) => {
+                            $(State.write([StringType], "gantt_last_event", East.str\`onTaskDoubleClick: row \${event.rowIndex}, task \${event.taskIndex}\`));
+                        }
+                    );
+
+                    const onTaskDrag = East.function(
+                        [Gantt.Types.TaskDragEvent],
+                        NullType,
+                        ($, event) => {
+                            $(State.write([StringType], "gantt_last_event", East.str\`onTaskDrag: row \${event.rowIndex}, task \${event.taskIndex} moved\`));
+                        }
+                    );
+
+                    const onTaskDurationChange = East.function(
+                        [Gantt.Types.TaskDurationChangeEvent],
+                        NullType,
+                        ($, event) => {
+                            $(State.write([StringType], "gantt_last_event", East.str\`onTaskDurationChange: row \${event.rowIndex}, task \${event.taskIndex}, new end date\`));
+                        }
+                    );
+
+                    const onTaskProgressChange = East.function(
+                        [Gantt.Types.TaskProgressChangeEvent],
+                        NullType,
+                        ($, event) => {
+                            $(State.write([StringType], "gantt_last_event", East.str\`onTaskProgressChange: row \${event.rowIndex}, task \${event.taskIndex}, progress \${event.newProgress}\`));
+                        }
+                    );
+
+                    const onMilestoneClick = East.function(
+                        [Gantt.Types.MilestoneClickEvent],
+                        NullType,
+                        ($, event) => {
+                            $(State.write([StringType], "gantt_last_event", East.str\`onMilestoneClick: row \${event.rowIndex}, milestone \${event.milestoneIndex}\`));
+                        }
+                    );
+
+                    const onMilestoneDoubleClick = East.function(
+                        [Gantt.Types.MilestoneClickEvent],
+                        NullType,
+                        ($, event) => {
+                            $(State.write([StringType], "gantt_last_event", East.str\`onMilestoneDoubleClick: row \${event.rowIndex}, milestone \${event.milestoneIndex}\`));
+                        }
+                    );
+
+                    const onMilestoneDrag = East.function(
+                        [Gantt.Types.MilestoneDragEvent],
+                        NullType,
+                        ($, event) => {
+                            $(State.write([StringType], "gantt_last_event", East.str\`onMilestoneDrag: row \${event.rowIndex}, milestone \${event.milestoneIndex} moved\`));
+                        }
+                    );
+
+                    return Stack.VStack([
+                        Gantt.Root(
+                            [
+                                { name: "Sprint 1", start: new Date("2024-01-01"), end: new Date("2024-01-14"), release: new Date("2024-01-14") },
+                                { name: "Sprint 2", start: new Date("2024-01-15"), end: new Date("2024-01-28"), release: new Date("2024-01-28") },
+                                { name: "Sprint 3", start: new Date("2024-01-29"), end: new Date("2024-02-11"), release: new Date("2024-02-11") },
+                            ],
+                            { name: { header: "Sprint" } },
+                            row => [
+                                Gantt.Task({ start: row.start, end: row.end, colorPalette: "blue", progress: 50 }),
+                                Gantt.Milestone({ date: row.release, label: "Release", colorPalette: "green" }),
+                            ],
+                            {
+                                interactive: true,
+                                striped: true,
+                                showToday: true,
+                                onRowClick,
+                                onRowDoubleClick,
+                                onCellClick,
+                                onCellDoubleClick,
+                                onSortChange,
+                                onTaskClick,
+                                onTaskDoubleClick,
+                                onTaskDrag,
+                                onTaskDurationChange,
+                                onTaskProgressChange,
+                                onMilestoneClick,
+                                onMilestoneDoubleClick,
+                                onMilestoneDrag,
+                            }
+                        ),
+                        Badge.Root(
+                            East.equal(lastEvent.length(), 0n).ifElse($ => "Interact with the Gantt chart", $ => lastEvent),
+                            { colorPalette: "blue", variant: "outline" }
+                        ),
+                    ], { gap: "3", align: "stretch" });
+                }))
+            `)
+            )
+        );
+
+        // =====================================================================
+        // REACTIVE DRAG EXAMPLE - Task dates stored in state and updated on drag
+        // =====================================================================
+
+        // Initialize state for the draggable task's start date
+        $.if(State.has("gantt_task_start").not(), $ => {
+            $(State.write([DateTimeType], "gantt_task_start", new Date("2024-01-15")));
+        });
+
+        const reactiveDrag = $.let(
+            ShowcaseCard(
+                "Reactive Drag",
+                "Drag task to update state - position persists after re-render",
+                Reactive.Root(East.function([], UIComponentType, $ => {
+                    // Read task start date from state
+                    const taskStart = $.let(State.read([DateTimeType], "gantt_task_start"));
+                    // Calculate end date (14 days after start)
+                    const taskEnd = $.let(taskStart.addDays(14));
+
+                    // Callback to update start date when dragged
+                    const onTaskDrag = East.function(
+                        [Gantt.Types.TaskDragEvent],
+                        NullType,
+                        ($, event) => {
+                            $(State.write([DateTimeType], "gantt_task_start", event.newStart));
+                        }
+                    );
+
+                    return Stack.VStack([
+                        Gantt.Root(
+                            [{ name: "Draggable Task" }],
+                            { name: { header: "Task" } },
+                            _row => [
+                                Gantt.Task({
+                                    start: taskStart,
+                                    end: taskEnd,
+                                    label: "Drag me!",
+                                    colorPalette: "orange",
+                                }),
+                            ],
+                            {
+                                interactive: true,
+                                onTaskDrag,
+                                // Snap to 1-day increments when dragging
+                                dragStep: variant("days", 1),
+                                durationStep: variant("days", 1),
+                            }
+                        ),
+                        Text.Root(East.str`Start: ${taskStart}`, { fontSize: "sm", color: "fg.muted" }),
+                    ], { gap: "3", align: "stretch" });
+                })),
+                some(`
+                // Initialize state with task start date
+                $.if(State.has("gantt_task_start").not(), $ => {
+                    $(State.write([DateTimeType], "gantt_task_start", new Date("2024-01-15")));
+                });
+
+                Reactive.Root(East.function([], UIComponentType, $ => {
+                    // Read from state
+                    const taskStart = $.let(State.read([DateTimeType], "gantt_task_start"));
+                    const taskEnd = $.let(taskStart.addDays(14));
+
+                    // Update state on drag
+                    const onTaskDrag = East.function(
+                        [Gantt.Types.TaskDragEvent],
+                        NullType,
+                        ($, event) => {
+                            $(State.write([DateTimeType], "gantt_task_start", event.newStart));
+                        }
+                    );
+
+                    return Gantt.Root(
+                        [{ name: "Draggable Task" }],
+                        { name: { header: "Task" } },
+                        _row => [Gantt.Task({ start: taskStart, end: taskEnd, label: "Drag me!" })],
+                        { interactive: true, onTaskDrag, dragStep: variant("days", 1) }
+                    );
+                }))
+            `)
+            )
+        );
+
+        // Custom height
+        const customHeight = $.let(
+            ShowcaseCard(
+                "Custom Height",
+                "Set height via style to control container size",
+                Gantt.Root(
+                    [
+                        { task: "Planning", owner: "Alice", start: new Date("2024-01-01"), end: new Date("2024-01-15") },
+                        { task: "Design", owner: "Bob", start: new Date("2024-01-10"), end: new Date("2024-02-01") },
+                        { task: "Development", owner: "Charlie", start: new Date("2024-01-20"), end: new Date("2024-03-15") },
+                        { task: "Testing", owner: "Diana", start: new Date("2024-03-01"), end: new Date("2024-03-30") },
+                        { task: "Deployment", owner: "Eve", start: new Date("2024-03-20"), end: new Date("2024-04-15") },
+                    ],
+                    ["task", "owner"],
+                    row => [Gantt.Task({ start: row.start, end: row.end })],
+                    { height: "200px", variant: "line" }
+                ),
+                some(`
+                    Gantt.Root(
+                        [...],
+                        ["task", "owner"],
+                        row => [Gantt.Task({ start: row.start, end: row.end })],
+                        { height: "200px", variant: "line" }
+                    )
+                `)
+            )
+        );
+
+        // Frozen Columns
+        const frozenColumns = $.let(
+            ShowcaseCard(
+                "Frozen Columns",
+                "Pin columns left so they stay visible while scrolling the timeline",
+                Gantt.Root(
+                    [
+                        { id: "#1", task: "Planning", owner: "Alice", dept: "PM", priority: "High", start: new Date("2024-01-01"), end: new Date("2024-01-15") },
+                        { id: "#2", task: "Design", owner: "Bob", dept: "Design", priority: "Medium", start: new Date("2024-01-10"), end: new Date("2024-02-01") },
+                        { id: "#3", task: "Development", owner: "Charlie", dept: "Engineering", priority: "High", start: new Date("2024-01-20"), end: new Date("2024-03-15") },
+                        { id: "#4", task: "Testing", owner: "Diana", dept: "QA", priority: "Low", start: new Date("2024-03-01"), end: new Date("2024-03-30") },
+                        { id: "#5", task: "Deployment", owner: "Eve", dept: "DevOps", priority: "Medium", start: new Date("2024-03-20"), end: new Date("2024-04-15") },
+                    ],
+                    {
+                        id: { header: "ID", width: "80px" },
+                        task: { header: "Task", width: "150px" },
+                        owner: { header: "Owner", width: "120px" },
+                        dept: { header: "Department", width: "150px" },
+                        priority: { header: "Priority", width: "120px" },
+                    },
+                    row => [Gantt.Task({ start: row.start, end: row.end })],
+                    {
+                        frozen: ["id", "task"],
+                        variant: "line",
+                        striped: true,
+                        height: "300px",
+                    }
+                ),
+                some(`
+                    Gantt.Root(
+                        data,
+                        {
+                            id: { header: "ID", width: "80px" },
+                            task: { header: "Task", width: "150px" },
+                            owner: { header: "Owner", width: "120px" },
+                            dept: { header: "Department", width: "150px" },
+                            priority: { header: "Priority", width: "120px" },
+                        },
+                        row => [Gantt.Task({ start: row.start, end: row.end })],
+                        {
+                            frozen: ["id", "task"],
+                            variant: "line",
+                            striped: true,
+                            height: "300px",
+                        }
+                    )
+                `)
+            )
+        );
+
+        return Grid.Root(
+            [
+                Grid.Item(basic),
+                Grid.Item(customHeaders),
+                Grid.Item(withMilestones),
+                Grid.Item(withProgress),
+                Grid.Item(colorful),
+                Grid.Item(styled),
+                // Complex column types with value functions
+                Grid.Item(complexColumns, { colSpan: "2" }),
+                // Column render with row access
+                Grid.Item(columnRenderWithRow, { colSpan: "2" }),
+                // Frozen columns
+                Grid.Item(frozenColumns, { colSpan: "2" }),
+                // Interactive example with all callbacks
+                Grid.Item(interactiveCallbacks, { colSpan: "2" }),
+                // Reactive drag example
+                Grid.Item(reactiveDrag, { colSpan: "2" }),
+                // Custom height
+                Grid.Item(customHeight),
+            ],
+            {
+                templateColumns: "repeat(2, 1fr)",
+                gap: "4",
+            }
+        );
+    }
+);
