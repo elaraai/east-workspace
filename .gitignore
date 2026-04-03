@@ -8,6 +8,9 @@ pnpm-debug.log*
 .yarn/
 package-lock.json
 
+# Turbo
+.turbo/
+
 # Build output
 dist/
 build/

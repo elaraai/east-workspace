@@ -1,54 +1,61 @@
 {
 	"folders": [
 		{
+			"name": "root",
+			"path": "."
+		},
+		{
 			"name": "east",
-			"path": "../east"
+			"path": "libs/east"
 		},
 		{
 			"name": "east-node",
-			"path": "../east-node"
+			"path": "libs/east-node"
 		},
 		{
 			"name": "east-c",
-			"path": "../east-c"
+			"path": "libs/east-c"
 		},
 		{
 			"name": "east-py",
-			"path": "../east-py"
+			"path": "libs/east-py"
 		},
 		{
 			"name": "e3",
-			"path": "../e3"
+			"path": "libs/e3"
 		},
 		{
 			"name": "east-ui",
-			"path": "../east-ui"
-		},
-		{
-			"name": "e3-cloud",
-			"path": "../east-aws"
+			"path": "libs/east-ui"
 		},
 		{
 			"name": "east-plugin",
-			"path": "../east-plugin"
-		},
-		{
-			"name": "east-workspace",
-			"path": "."
+			"path": "libs/east-plugin"
 		}
 	],
 	"tasks": {
 		"version": "2.0.0",
-		"options": {
-			"env": {
-				"NVM_DIR": "${env:HOME}/.nvm"
-			},
-			"shell": {
-				"executable": "bash",
-				"args": ["-c", ". $NVM_DIR/nvm.sh && eval \"$@\"", "--"]
-			}
-		},
 		"tasks": [
+			{
+				"label": "build all",
+				"type": "shell",
+				"command": "make build",
+				"options": {
+					"cwd": "${workspaceFolder:root}"
+				},
+				"group": "build",
+				"problemMatcher": []
+			},
+			{
+				"label": "test all",
+				"type": "shell",
+				"command": "make test",
+				"options": {
+					"cwd": "${workspaceFolder:root}"
+				},
+				"group": "test",
+				"problemMatcher": []
+			},
 			{
 				"label": "east: make build",
 				"type": "shell",
@@ -106,20 +113,6 @@
 				"options": {
 					"cwd": "${workspaceFolder:east-ui}"
 				},
-				"group": "build",
-				"problemMatcher": []
-			},
-			{
-				"label": "build all",
-				"dependsOn": [
-					"east: make build",
-					"east-node: make build",
-					"east-c: make build",
-					"east-py: make build",
-					"e3: make build",
-					"east-ui: make build"
-				],
-				"dependsOrder": "sequence",
 				"group": "build",
 				"problemMatcher": []
 			}
