@@ -1,15 +1,23 @@
 # east-workspace — pnpm + turborepo monorepo
 # All npm deps managed by pnpm from root. Turbo orchestrates build/test/lint.
 
-.PHONY: install build test lint clean services-up services-down services-status test-all test-export help
+.PHONY: setup install build test lint clean services-up services-down services-status test-all test-export help
 
 # ── Setup ─────────────────────────────────────────────────────────────
 
-## Install all dependencies (pnpm for TS, uv for Python, cmake for C)
+## Full first-time setup (install deps + build toolchains + native extensions)
+setup: install
+	$(MAKE) -C $(CURDIR)/libs/east-c setup-wasm
+	$(MAKE) -C $(CURDIR)/libs/east-c build
+	$(MAKE) -C $(CURDIR)/libs/east-c wasm wasm-ts
+	$(MAKE) -C $(CURDIR)/libs/east-py build-eastc
+	$(MAKE) -C $(CURDIR)/libs/east-py install
+
+## Install dependencies (pnpm for TS, uv for Python, cmake for C)
 install:
 	pnpm install
-	cd libs/east-py && make install
-	cd libs/east-c && make build
+	$(MAKE) -C $(CURDIR)/libs/east-py install
+	$(MAKE) -C $(CURDIR)/libs/east-c build
 
 # ── Build / Test / Lint (via Turbo) ──────────────────────────────────
 
@@ -49,16 +57,12 @@ test-export:
 
 # ── Full Test Run ────────────────────────────────────────────────────
 
-## Start services, build everything, run ALL tests (TS + C + WASM + Python), stop services
+## Start services, run ALL tests (TS + C + WASM + Python), stop services
+## Requires: make setup (one-time), make services-up (docker)
 test-all: services-up test-export
 	@exit_code=0; \
 	pnpm test || exit_code=1; \
-	$(MAKE) -C $(CURDIR)/libs/east-c build && $(MAKE) -C $(CURDIR)/libs/east-c test || exit_code=1; \
-	if command -v emcmake >/dev/null 2>&1 || [ -f "$(CURDIR)/libs/east-c/tools/emsdk/upstream/emscripten/emcmake" ]; then \
-		$(MAKE) -C $(CURDIR)/libs/east-c wasm wasm-ts test-east-c-wasm || exit_code=1; \
-	else \
-		echo "Skipping WASM tests (emscripten not installed — run 'cd libs/east-c && make setup-wasm')"; \
-	fi; \
+	$(MAKE) -C $(CURDIR)/libs/east-c test-all || exit_code=1; \
 	$(MAKE) -C $(CURDIR)/libs/east-py test || exit_code=1; \
 	$(MAKE) services-down; \
 	exit $$exit_code
@@ -81,7 +85,8 @@ help:
 	@echo "east-workspace (pnpm + turborepo)"
 	@echo ""
 	@echo "Setup:"
-	@echo "  install          - pnpm install + uv sync (east-py) + cmake (east-c)"
+	@echo "  setup            - Full first-time setup (install + emscripten + cython + wasm)"
+	@echo "  install          - Install deps (pnpm + uv + cmake)"
 	@echo ""
 	@echo "Build / Test / Lint (turbo):"
 	@echo "  build            - Build all packages"
