@@ -1,0 +1,65 @@
+name: Test e3
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "libs/e3/**"
+      - "libs/east/**"
+      - "libs/east-node/**"
+      - "libs/east-py/**"
+      - ".github/workflows/test-e3.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "libs/e3/**"
+      - "libs/east/**"
+      - "libs/east-node/**"
+      - "libs/east-py/**"
+      - ".github/workflows/test-e3.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+
+      - name: Install Node.js dependencies
+        run: pnpm install
+
+      - name: Build e3 packages
+        run: pnpm turbo run build --filter=@elaraai/e3-types --filter=@elaraai/e3 --filter=@elaraai/e3-core --filter=@elaraai/e3-api-client --filter=@elaraai/e3-cli --filter=@elaraai/e3-api-server --filter=@elaraai/e3-api-tests
+
+      - name: Link e3 CLI
+        working-directory: libs/e3
+        run: make link
+
+      - name: Install East runners
+        run: |
+          pnpm --filter=@elaraai/east-node-cli exec east-node --version || true
+          cd libs/east-py && make install-cli
+
+      - name: Lint
+        run: pnpm turbo run lint --filter=@elaraai/e3-types --filter=@elaraai/e3 --filter=@elaraai/e3-core --filter=@elaraai/e3-api-client --filter=@elaraai/e3-cli --filter=@elaraai/e3-api-server --filter=@elaraai/e3-api-tests
+
+      - name: Run tests
+        run: pnpm turbo run test --filter=@elaraai/e3-types --filter=@elaraai/e3 --filter=@elaraai/e3-core --filter=@elaraai/e3-api-client --filter=@elaraai/e3-cli --filter=@elaraai/e3-api-server --filter=@elaraai/e3-api-tests

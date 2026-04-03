@@ -1,0 +1,207 @@
+name: Test east-py
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "libs/east-py/**"
+      - "libs/east/**"
+      - "libs/east-node/**"
+      - "libs/east-c/**"
+      - ".github/workflows/test-east-py.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "libs/east-py/**"
+      - "libs/east/**"
+      - "libs/east-node/**"
+      - "libs/east-c/**"
+      - ".github/workflows/test-east-py.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-east-py:
+    name: Test east-py (core)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+
+      - name: Install Node.js dependencies
+        run: pnpm install
+
+      - name: Build east (for IR export)
+        run: pnpm turbo run build --filter=@elaraai/east
+
+      - name: Export test IR from east
+        run: pnpm turbo run test:export --filter=@elaraai/east
+        env:
+          EXPORT_TEST_IR: /tmp/east-test-ir
+
+      - name: Install C build dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
+
+      - name: Install Python dependencies
+        working-directory: libs/east-py
+        run: make install
+
+      - name: Lint
+        working-directory: libs/east-py
+        run: make lint
+
+      - name: Type check
+        working-directory: libs/east-py
+        run: make typecheck
+
+      - name: Run east-py compliance tests
+        working-directory: libs/east-py
+        run: make test-east-py
+
+  test-east-py-std:
+    name: Test east-py-std
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+
+      - name: Install Node.js dependencies
+        run: pnpm install
+
+      - name: Build east-node-std (for IR export)
+        run: pnpm turbo run build --filter=@elaraai/east-node-std
+
+      - name: Export test IR from east-node-std
+        run: pnpm turbo run test:export --filter=@elaraai/east-node-std
+        env:
+          EXPORT_TEST_IR: /tmp/east-node-std
+
+      - name: Install C build dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
+
+      - name: Install Python dependencies
+        working-directory: libs/east-py
+        run: make install
+
+      - name: Run east-py-std compliance tests
+        working-directory: libs/east-py
+        run: make test-east-py-std
+
+  test-east-py-io:
+    name: Test east-py-io
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+
+      - name: Install Node.js dependencies
+        run: pnpm install
+
+      - name: Build east-node-io (for IR export)
+        run: pnpm turbo run build --filter=@elaraai/east-node-io
+
+      - name: Start test services
+        run: docker compose --profile services up -d --wait
+
+      - name: Export test IR from east-node-io
+        run: pnpm turbo run test:export --filter=@elaraai/east-node-io
+        timeout-minutes: 5
+        env:
+          EXPORT_TEST_IR: /tmp/east-node-io
+
+      - name: Install C build dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
+
+      - name: Install Python dependencies
+        working-directory: libs/east-py
+        run: make install
+
+      - name: Run east-py-io compliance tests
+        working-directory: libs/east-py
+        run: make test-east-py-io
+
+      - name: Stop test services
+        if: always()
+        run: docker compose --profile services down -v
+
+  test-east-py-datascience:
+    name: Test east-py-datascience
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+
+      - name: Install Node.js dependencies
+        run: pnpm install
+
+      - name: Build east-py-datascience
+        run: pnpm turbo run build --filter=@elaraai/east-py-datascience
+
+      - name: Install C build dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
+
+      - name: Install Python dependencies
+        working-directory: libs/east-py
+        run: make install
+
+      - name: Run east-py-datascience tests
+        working-directory: libs/east-py
+        run: make test-east-py-datascience

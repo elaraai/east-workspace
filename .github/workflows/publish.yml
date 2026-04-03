@@ -1,0 +1,240 @@
+name: Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      lib:
+        description: "Library to publish"
+        required: true
+        type: choice
+        options:
+          - east
+          - east-node
+          - east-c-wasm
+          - east-py-datascience
+          - e3
+          - east-ui
+      release_type:
+        description: "Release type"
+        required: true
+        default: "prerelease"
+        type: choice
+        options:
+          - prerelease   # x.y.z-beta.N -> x.y.z-beta.N+1 (npm tag: beta)
+          - prepatch     # x.y.z-beta.N -> x.y.z+1-beta.0 (npm tag: beta)
+          - preminor     # x.y.z -> x.y+1.0-beta.0 (npm tag: beta)
+          - premajor     # x.y.z -> x+1.0.0-beta.0 (npm tag: beta)
+          - patch        # x.y.z -> x.y.z+1 (npm tag: latest)
+          - minor        # x.y.z -> x.y+1.0 (npm tag: latest)
+          - major        # x.y.z -> x+1.0.0 (npm tag: latest)
+      dry_run:
+        description: "Dry run (skip actual publish)"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+      - name: Generate app token
+        uses: actions/create-github-app-token@v1
+        id: app-token
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Configure git
+        run: |
+          git config user.name "elara-ci[bot]"
+          git config user.email "elara-ci[bot]@users.noreply.github.com"
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      # Conditional setup for east-c-wasm
+      - name: Setup Emscripten
+        if: inputs.lib == 'east-c-wasm'
+        uses: mymindstorm/setup-emsdk@v14
+
+      - name: Build WASM
+        if: inputs.lib == 'east-c-wasm'
+        working-directory: libs/east-c
+        run: make wasm
+
+      # Conditional setup for east-py-datascience
+      - name: Install uv
+        if: inputs.lib == 'east-py-datascience'
+        uses: astral-sh/setup-uv@v3
+
+      - name: Set up Python 3.11
+        if: inputs.lib == 'east-py-datascience'
+        run: uv python install 3.11
+
+      - name: Install Python dependencies
+        if: inputs.lib == 'east-py-datascience'
+        working-directory: libs/east-py
+        run: uv sync --all-extras --all-packages
+
+      - name: Determine npm tag
+        id: npm_tag
+        run: |
+          if [[ "${{ inputs.release_type }}" == pre* ]]; then
+            echo "tag=beta" >> $GITHUB_OUTPUT
+            echo "prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "tag=latest" >> $GITHUB_OUTPUT
+            echo "prerelease=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Determine packages to publish
+        id: packages
+        run: |
+          case "${{ inputs.lib }}" in
+            east)
+              echo "dirs=libs/east" >> $GITHUB_OUTPUT
+              echo "names=@elaraai/east" >> $GITHUB_OUTPUT
+              echo "filter=--filter=@elaraai/east" >> $GITHUB_OUTPUT
+              ;;
+            east-node)
+              echo "dirs=libs/east-node/packages/east-node-std libs/east-node/packages/east-node-io libs/east-node/packages/east-node-cli" >> $GITHUB_OUTPUT
+              echo "names=@elaraai/east-node-std @elaraai/east-node-io @elaraai/east-node-cli" >> $GITHUB_OUTPUT
+              echo "filter=--filter=@elaraai/east-node-std --filter=@elaraai/east-node-io --filter=@elaraai/east-node-cli" >> $GITHUB_OUTPUT
+              ;;
+            east-c-wasm)
+              echo "dirs=libs/east-c/packages/east-c-wasm" >> $GITHUB_OUTPUT
+              echo "names=@elaraai/east-c-wasm" >> $GITHUB_OUTPUT
+              echo "filter=--filter=@elaraai/east-c-wasm" >> $GITHUB_OUTPUT
+              ;;
+            east-py-datascience)
+              echo "dirs=libs/east-py/packages/east-py-datascience" >> $GITHUB_OUTPUT
+              echo "names=@elaraai/east-py-datascience" >> $GITHUB_OUTPUT
+              echo "filter=--filter=@elaraai/east-py-datascience" >> $GITHUB_OUTPUT
+              ;;
+            e3)
+              echo "dirs=libs/e3/packages/e3-types libs/e3/packages/e3 libs/e3/packages/e3-api-client libs/e3/packages/e3-core libs/e3/packages/e3-cli libs/e3/packages/e3-api-server libs/e3/packages/e3-api-tests" >> $GITHUB_OUTPUT
+              echo "names=@elaraai/e3-types @elaraai/e3 @elaraai/e3-api-client @elaraai/e3-core @elaraai/e3-cli @elaraai/e3-api-server @elaraai/e3-api-tests" >> $GITHUB_OUTPUT
+              echo "filter=--filter=@elaraai/e3-types --filter=@elaraai/e3 --filter=@elaraai/e3-api-client --filter=@elaraai/e3-core --filter=@elaraai/e3-cli --filter=@elaraai/e3-api-server --filter=@elaraai/e3-api-tests" >> $GITHUB_OUTPUT
+              ;;
+            east-ui)
+              echo "dirs=libs/east-ui/packages/east-ui libs/east-ui/packages/east-ui-components libs/east-ui/packages/e3-ui-components" >> $GITHUB_OUTPUT
+              echo "names=@elaraai/east-ui @elaraai/east-ui-components @elaraai/e3-ui-components" >> $GITHUB_OUTPUT
+              echo "filter=--filter=@elaraai/east-ui --filter=@elaraai/east-ui-components --filter=@elaraai/e3-ui-components" >> $GITHUB_OUTPUT
+              ;;
+          esac
+
+      - name: Build
+        run: pnpm turbo run build ${{ steps.packages.outputs.filter }}
+
+      - name: Lint
+        run: pnpm turbo run lint ${{ steps.packages.outputs.filter }}
+
+      - name: Test
+        run: pnpm turbo run test ${{ steps.packages.outputs.filter }}
+
+      - name: Bump versions and create tags
+        id: bump
+        run: |
+          TAGS=""
+          COMMIT_MSG="chore: bump ${{ inputs.lib }} versions -"
+
+          for dir in ${{ steps.packages.outputs.dirs }}; do
+            cd "$GITHUB_WORKSPACE/$dir"
+            PKG_NAME=$(node -p "require('./package.json').name")
+            PKG_SHORT=$(echo "$PKG_NAME" | sed 's/@elaraai\///')
+
+            if [[ "${{ inputs.release_type }}" == pre* ]]; then
+              npm version ${{ inputs.release_type }} --preid=beta --no-git-tag-version
+            else
+              npm version ${{ inputs.release_type }} --no-git-tag-version
+            fi
+
+            NEW_VERSION=$(node -p "require('./package.json').version")
+            TAG="${PKG_SHORT}-${NEW_VERSION}"
+            TAGS="${TAGS} ${TAG}"
+            COMMIT_MSG="${COMMIT_MSG} ${PKG_SHORT}@${NEW_VERSION}"
+
+            echo "Bumped ${PKG_NAME} to ${NEW_VERSION}"
+          done
+
+          cd "$GITHUB_WORKSPACE"
+          echo "tags=${TAGS}" >> $GITHUB_OUTPUT
+          echo "commit_msg=${COMMIT_MSG}" >> $GITHUB_OUTPUT
+
+      - name: Commit and tag
+        if: ${{ !inputs.dry_run }}
+        run: |
+          git add -A
+          git commit -m "${{ steps.bump.outputs.commit_msg }}"
+          for tag in ${{ steps.bump.outputs.tags }}; do
+            git tag "$tag"
+          done
+          git push origin HEAD --tags
+
+      - name: Rewrite workspace protocol deps for publish
+        run: |
+          for dir in ${{ steps.packages.outputs.dirs }}; do
+            PKG_FILE="$dir/package.json"
+            node -e "
+              const fs = require('fs');
+              const pkg = JSON.parse(fs.readFileSync('$PKG_FILE', 'utf8'));
+              for (const field of ['dependencies', 'peerDependencies', 'devDependencies']) {
+                if (!pkg[field]) continue;
+                for (const [name, version] of Object.entries(pkg[field])) {
+                  if (name.startsWith('@elaraai/') && (version === 'workspace:*' || version === '*')) {
+                    pkg[field][name] = 'beta';
+                  }
+                }
+              }
+              fs.writeFileSync('$PKG_FILE', JSON.stringify(pkg, null, 2) + '\n');
+            "
+          done
+
+      - name: Publish packages
+        if: ${{ !inputs.dry_run }}
+        run: |
+          for dir in ${{ steps.packages.outputs.dirs }}; do
+            echo "Publishing from $dir..."
+            cd "$GITHUB_WORKSPACE/$dir"
+            pnpm publish --access public --provenance --tag ${{ steps.npm_tag.outputs.tag }} --no-git-checks
+          done
+
+      - name: Publish packages (dry run)
+        if: ${{ inputs.dry_run }}
+        run: |
+          for dir in ${{ steps.packages.outputs.dirs }}; do
+            echo "Dry run publish from $dir..."
+            cd "$GITHUB_WORKSPACE/$dir"
+            pnpm publish --access public --provenance --tag ${{ steps.npm_tag.outputs.tag }} --no-git-checks --dry-run
+          done
+
+      - name: Create GitHub Releases
+        if: ${{ !inputs.dry_run }}
+        run: |
+          for tag in ${{ steps.bump.outputs.tags }}; do
+            PKG_SHORT=$(echo "$tag" | sed 's/-[0-9].*//')
+            VERSION=$(echo "$tag" | sed "s/^${PKG_SHORT}-//")
+            gh release create "$tag" \
+              --title "@elaraai/${PKG_SHORT} ${VERSION}" \
+              --generate-notes \
+              ${{ steps.npm_tag.outputs.prerelease == 'true' && '--prerelease' || '' }}
+          done
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}

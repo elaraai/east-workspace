@@ -1,0 +1,44 @@
+name: Test east
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "libs/east/**"
+      - ".github/workflows/test-east.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "libs/east/**"
+      - ".github/workflows/test-east.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build east
+        run: pnpm turbo run build --filter=@elaraai/east
+
+      - name: Lint
+        run: pnpm turbo run lint --filter=@elaraai/east
+
+      - name: Run tests
+        run: pnpm turbo run test --filter=@elaraai/east
