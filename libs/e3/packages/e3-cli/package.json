@@ -19,7 +19,7 @@
     "test": "npm run build && node --enable-source-maps --test 'dist/src/**/*.spec.js'",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "dev": "npm run build && node --enable-source-maps dist/src/cli.js"
+    "dev": "pnpm run build && node --enable-source-maps dist/src/cli.js"
   },
   "keywords": [
     "east",

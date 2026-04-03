@@ -11,12 +11,14 @@
   },
   "dependencies": {
     "@elaraai/e3": "workspace:*",
+    "@elaraai/e3-api-client": "workspace:*",
+    "@elaraai/e3-api-server": "workspace:*",
+    "@elaraai/e3-api-tests": "workspace:*",
     "@elaraai/e3-cli": "workspace:*",
     "@elaraai/e3-core": "workspace:*",
-    "@elaraai/e3-api-server": "workspace:*",
-    "@elaraai/e3-api-client": "workspace:*",
-    "@elaraai/e3-api-tests": "workspace:*",
-    "@elaraai/east": "workspace:*"
+    "@elaraai/e3-types": "workspace:0.0.2-beta.54",
+    "@elaraai/east": "workspace:*",
+    "@elaraai/east-node-std": "workspace:0.0.1-beta.40"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

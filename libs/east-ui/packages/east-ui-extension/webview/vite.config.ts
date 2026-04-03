@@ -40,4 +40,8 @@ export default defineConfig({
     },
     // Ensure we can reference assets properly in webview
     base: './',
+    // Resolve pnpm workspace symlinks correctly
+    resolve: {
+        preserveSymlinks: true,
+    },
 });

@@ -57,11 +57,11 @@
         "onCommand:east-ui.openPreview"
     ],
     "scripts": {
-        "build": "npm run typecheck && npm run build:extension && npm run build:webview",
+        "build": "pnpm run typecheck && pnpm run build:extension && pnpm run build:webview",
         "build:extension": "esbuild src/extension.ts --bundle --outfile=dist/extension.cjs --external:vscode --format=cjs --platform=node --target=node22",
         "typecheck": "tsc --noEmit",
-        "build:webview": "cd webview && npm run build",
-        "watch": "npm run build:extension -- --watch",
+        "build:webview": "cd webview && pnpm run build",
+        "watch": "pnpm run build:extension -- --watch",
         "package": "vsce package --no-dependencies",
         "publish": "vsce publish",
         "test": "echo 'No tests yet'",
@@ -72,6 +72,11 @@
         "get-port": "^7.1.0"
     },
     "devDependencies": {
+        "@elaraai/e3-api-client": "workspace:*",
+        "@elaraai/e3-ui-components": "workspace:*",
+        "@elaraai/east": "workspace:*",
+        "@elaraai/east-ui": "workspace:*",
+        "@elaraai/east-ui-components": "workspace:*",
         "@types/node": "^22.0.0",
         "@types/vscode": "^1.85.0",
         "@typescript-eslint/eslint-plugin": "^8.32.1",

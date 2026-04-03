@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npm run validate:showcases && vite build",
+    "build": "pnpm run validate:showcases && vite build",
     "preview": "vite preview",
     "lint": "eslint .",
     "validate:showcases": "tsc --noEmit -p tsconfig.showcases.json && tsx scripts/validate-showcases.ts"
