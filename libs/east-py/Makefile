@@ -1,6 +1,10 @@
 # east-py — Python monorepo for the East language
 # Python deps managed by uv. TS sub-package (east-py-datascience) uses pnpm from monorepo root.
 
+# In the monorepo, east-c is always the sibling directory.
+# Override with: make <target> EAST_C_SOURCE_DIR=/other/path
+EAST_C_SOURCE_DIR ?= $(CURDIR)/../east-c
+
 .PHONY: install install-cli test test-east-py test-east-py-std test-east-py-io test-east-py-datascience \
         test-export lint lint-headers lint-headers-fix format typecheck check \
         clean build build-cython build-cython-inplace build-eastc clean-cython clean-eastc help
@@ -8,12 +12,11 @@
 # ── Setup ─────────────────────────────────────────────────────────────
 
 ## Install Python dependencies (force-reinstalls east-py to rebuild C extensions)
-## Use EAST_C_SOURCE_DIR to build against a local east-c checkout:
-##   make install EAST_C_SOURCE_DIR=/path/to/east-c
+## Uses sibling east-c by default for native extensions.
 install:
-	uv sync --all-extras --all-packages
+	EAST_C_SOURCE_DIR=$(EAST_C_SOURCE_DIR) uv sync --all-extras --all-packages
 	uv pip install hatchling
-	uv sync --all-extras --all-packages --reinstall-package east-py --reinstall-package east-py-std --reinstall-package east-py-io --reinstall-package east-py-datascience --no-build-isolation
+	EAST_C_SOURCE_DIR=$(EAST_C_SOURCE_DIR) uv sync --all-extras --all-packages --reinstall-package east-py --reinstall-package east-py-std --reinstall-package east-py-io --reinstall-package east-py-datascience --no-build-isolation
 
 ## Install east-py command globally (also syncs local .venv)
 install-cli:
@@ -101,15 +104,13 @@ build-cython:
 	uv run --package east-py python packages/east-py/scripts/build_cython.py
 
 ## Build Cython extensions in-place (for development -- avoids full reinstall)
-## Use EAST_C_SOURCE_DIR for local east-c: make build-cython-inplace EAST_C_SOURCE_DIR=../east-c
 build-cython-inplace:
-	cd packages/east-py && uv run python setup.py build_ext --inplace
+	EAST_C_SOURCE_DIR=$(EAST_C_SOURCE_DIR) cd packages/east-py && uv run python setup.py build_ext --inplace
 
 ## Build east-c via CMake (called automatically by setup.py, but can be run standalone)
-## Override branch: make build-eastc EAST_C_GIT_TAG=my-branch
-## Use local checkout: make build-eastc EAST_C_SOURCE_DIR=/path/to/east-c
+## Uses sibling east-c by default. Override: make build-eastc EAST_C_SOURCE_DIR=/other/path
 build-eastc:
-	cd packages/east-py && cmake -B build/eastc -S cmake/ -DEAST_USE_MIMALLOC=OFF -DBUILD_TESTING=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON $(if $(EAST_C_GIT_TAG),-DEAST_C_GIT_TAG=$(EAST_C_GIT_TAG),) $(if $(EAST_C_SOURCE_DIR),-DEAST_C_SOURCE_DIR=$(EAST_C_SOURCE_DIR),)
+	cd packages/east-py && cmake -B build/eastc -S cmake/ -DEAST_USE_MIMALLOC=OFF -DBUILD_TESTING=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DEAST_C_SOURCE_DIR=$(EAST_C_SOURCE_DIR) $(if $(EAST_C_GIT_TAG),-DEAST_C_GIT_TAG=$(EAST_C_GIT_TAG),)
 	cd packages/east-py && cmake --build build/eastc --parallel
 
 # ── Clean ─────────────────────────────────────────────────────────────
