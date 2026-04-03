@@ -49,12 +49,17 @@ test-export:
 
 # ── Full Test Run ────────────────────────────────────────────────────
 
-## Start services, run all tests, stop services
+## Start services, build everything, run ALL tests (TS + C + WASM + Python), stop services
 test-all: services-up test-export
 	@exit_code=0; \
 	pnpm test || exit_code=1; \
-	cd libs/east-c && make test-all || exit_code=1; \
-	cd libs/east-py && make test || exit_code=1; \
+	$(MAKE) -C $(CURDIR)/libs/east-c build && $(MAKE) -C $(CURDIR)/libs/east-c test || exit_code=1; \
+	if command -v emcmake >/dev/null 2>&1 || [ -f "$(CURDIR)/libs/east-c/tools/emsdk/upstream/emscripten/emcmake" ]; then \
+		$(MAKE) -C $(CURDIR)/libs/east-c wasm wasm-ts test-east-c-wasm || exit_code=1; \
+	else \
+		echo "Skipping WASM tests (emscripten not installed — run 'cd libs/east-c && make setup-wasm')"; \
+	fi; \
+	$(MAKE) -C $(CURDIR)/libs/east-py test || exit_code=1; \
 	$(MAKE) services-down; \
 	exit $$exit_code
 

@@ -34,9 +34,10 @@ test-east-c-std: build
 test-east-c-wasm: wasm-ts
 	@cd packages/east-c-wasm && pnpm run test:compliance
 
-## Run all tests (alias for test-all)
-test: test-all
+## Run native tests (east-c + east-c-std)
+test: test-east-c test-east-c-std
 
+## Run all tests including WASM (requires emscripten — run make wasm first)
 test-all: test-east-c test-east-c-std test-east-c-wasm
 
 # ── Memory leak checks ──────────────────────────────────────────────
