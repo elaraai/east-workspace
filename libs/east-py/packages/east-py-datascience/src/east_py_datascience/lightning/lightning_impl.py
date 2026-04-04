@@ -1249,17 +1249,6 @@ def lightning_train_impl(
         import sys
         print(f"DEBUG weights_variant.type={weights_type} value_type={type(weights_variant.value).__name__}", file=sys.stderr)
         # Check if the variant value element types look correct
-        val = weights_variant.value
-        if hasattr(val, 'element_type'):
-            print(f"DEBUG outer elem_type={val.element_type}", file=sys.stderr)
-        if hasattr(val, '__len__') and len(val) > 0:
-            first = val[0]
-            print(f"DEBUG first elem: type={type(first).__name__} has_len={hasattr(first, '__len__')}", file=sys.stderr)
-            if hasattr(first, 'element_type'):
-                print(f"DEBUG first.element_type={first.element_type}", file=sys.stderr)
-            if hasattr(first, '__len__') and len(first) > 0:
-                second = first[0]
-                print(f"DEBUG second elem: type={type(second).__name__}", file=sys.stderr)
         weights_data = list(weights_variant.value)  # Convert to list
 
         # Validate: group_weights only supported for multi_head and binary

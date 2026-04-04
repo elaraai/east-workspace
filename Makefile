@@ -1,23 +1,33 @@
 # east-workspace — pnpm + turborepo monorepo
 # All npm deps managed by pnpm from root. Turbo orchestrates build/test/lint.
 
-.PHONY: setup install build test lint clean services-up services-down services-status test-all test-export help
+.PHONY: setup install link build test lint clean services-up services-down services-status test-all test-export help
 
 # ── Setup ─────────────────────────────────────────────────────────────
 
-## Full first-time setup (install deps + build toolchains + native extensions)
+## Full first-time setup (install deps + build toolchains + native extensions + link CLIs)
 setup: install
 	$(MAKE) -C $(CURDIR)/libs/east-c setup-wasm
 	$(MAKE) -C $(CURDIR)/libs/east-c build
 	$(MAKE) -C $(CURDIR)/libs/east-c wasm wasm-ts
 	$(MAKE) -C $(CURDIR)/libs/east-py build-eastc
 	$(MAKE) -C $(CURDIR)/libs/east-py install
+	$(MAKE) build
+	$(MAKE) link
 
 ## Install dependencies (pnpm for TS, uv for Python, cmake for C)
 install:
 	pnpm install
 	$(MAKE) -C $(CURDIR)/libs/east-py install
 	$(MAKE) -C $(CURDIR)/libs/east-c build
+
+## Link all CLIs globally (e3, e3-api-server, east-node, east-py, east-c)
+link:
+	cd $(CURDIR)/libs/e3/packages/e3-cli && pnpm link --global
+	cd $(CURDIR)/libs/e3/packages/e3-api-server && pnpm link --global
+	cd $(CURDIR)/libs/east-node/packages/east-node-cli && pnpm link --global
+	$(MAKE) -C $(CURDIR)/libs/east-c install-cli
+	$(MAKE) -C $(CURDIR)/libs/east-py install-cli
 
 # ── Build / Test / Lint (via Turbo) ──────────────────────────────────
 
@@ -87,6 +97,7 @@ help:
 	@echo "Setup:"
 	@echo "  setup            - Full first-time setup (install + emscripten + cython + wasm)"
 	@echo "  install          - Install deps (pnpm + uv + cmake)"
+	@echo "  link             - Link CLIs globally (e3, east-node, east-py, east-c)"
 	@echo ""
 	@echo "Build / Test / Lint (turbo):"
 	@echo "  build            - Build all packages"
