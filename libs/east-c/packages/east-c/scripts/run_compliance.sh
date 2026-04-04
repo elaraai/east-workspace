@@ -81,11 +81,17 @@ for f in "$IR_DIR"/*.json; do
     fi
 done
 
-# Print detailed test output (▶, ✔, ✖, ℹ lines) from each file, sorted by name
+# Print detailed test output (unless EAST_QUIET is set, then only failures)
 for f in "$IR_DIR"/*.json; do
     name=$(basename "$f" .json)
     outfile="$TMPDIR/$name.out"
-    [ -f "$outfile" ] && grep -E '^[▶✔✖ℹ]|^  [✔✖]' "$outfile"
+    if [ -f "$outfile" ]; then
+        if [ "${EAST_QUIET:-}" = "1" ]; then
+            grep -E '^[✖]|^  [✖]' "$outfile" || true
+        else
+            grep -E '^[▶✔✖ℹ]|^  [✔✖]' "$outfile"
+        fi
+    fi
 done
 
 echo ""

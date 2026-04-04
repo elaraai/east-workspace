@@ -35,18 +35,20 @@ test-export:
 
 # ── Tests ─────────────────────────────────────────────────────────────
 
+QUIET_FLAG = $(if $(EAST_QUIET),-q)
+
 test-east-py:
-	uv run --package east-py python packages/east-py/tests/test_compliance.py
+	uv run --package east-py python packages/east-py/tests/test_compliance.py $(QUIET_FLAG)
 
 test-east-py-std:
-	uv run --package east-py-std python packages/east-py/tests/test_compliance.py --ir-dir /tmp/east-node-std -p east_py_std
+	uv run --package east-py-std python packages/east-py/tests/test_compliance.py --ir-dir /tmp/east-node-std -p east_py_std $(QUIET_FLAG)
 
 test-east-py-io:
-	uv run --package east-py-io python packages/east-py/tests/test_compliance.py --ir-dir /tmp/east-node-io -p east_py_std -p east_py_io
+	uv run --package east-py-io python packages/east-py/tests/test_compliance.py --ir-dir /tmp/east-node-io -p east_py_std -p east_py_io $(QUIET_FLAG)
 
 test-east-py-datascience:
 	@cd packages/east-py-datascience && pnpm run test:export
-	uv run --package east-py-datascience python packages/east-py/tests/test_compliance.py --ir-dir /tmp/east-py-datascience -p east_py_datascience
+	uv run --package east-py-datascience python packages/east-py/tests/test_compliance.py --ir-dir /tmp/east-py-datascience -p east_py_datascience $(QUIET_FLAG)
 
 ## Run all tests
 test:

@@ -69,11 +69,12 @@ test-export:
 
 ## Start services, run ALL tests (TS + C + WASM + Python), stop services
 ## Requires: make setup (one-time), make services-up (docker)
+## Output: only errors and summaries (set EAST_VERBOSE=1 for full output)
 test-all: services-up test-export
 	@exit_code=0; \
-	pnpm test || exit_code=1; \
-	$(MAKE) -C $(CURDIR)/libs/east-c test-all || exit_code=1; \
-	$(MAKE) -C $(CURDIR)/libs/east-py test || exit_code=1; \
+	EAST_QUIET=1 pnpm turbo run test --output-logs=errors-only || exit_code=1; \
+	EAST_QUIET=1 $(MAKE) -C $(CURDIR)/libs/east-c test-all || exit_code=1; \
+	EAST_QUIET=1 $(MAKE) -C $(CURDIR)/libs/east-py test || exit_code=1; \
 	$(MAKE) services-down; \
 	exit $$exit_code
 
@@ -113,7 +114,8 @@ help:
 	@echo "  test-export      - Export all test IR"
 	@echo ""
 	@echo "Full test run:"
-	@echo "  test-all         - services-up + test-export + test + services-down"
+	@echo "  test-all         - services-up + test-export + test + services-down (quiet)"
+	@echo "                     Set EAST_QUIET= to see full output"
 	@echo ""
 	@echo "Maintenance:"
 	@echo "  clean            - Remove all build artifacts"

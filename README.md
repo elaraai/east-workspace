@@ -1,266 +1,343 @@
-# East Workspace
+# East
 
-This is the **meta repository** for coordinating all East programming language repositories. It uses git submodules to pin compatible versions of all components.
+**East** is a statically typed, expression-based programming language embedded in TypeScript. Designed for the [Elara](https://elaraai.com/) platform, East enables you to write portable logic once and execute it across multiple environments (JavaScript, Julia, Python, and more), leveraging each language's native performance characteristics and ecosystem.
 
-## 🎯 Purpose
+## Motivation
 
-The East project consists of multiple repositories with different licenses and purposes:
-- **Core language** (TypeScript, AGPL-3.0)
-- **Backend compilers** (Julia, Python - Proprietary)
-- **Platform bindings** (Node.js, Python - AGPL-3.0)
-- **Tooling** (MCP, plugins - AGPL-3.0)
+Delivering a complete business solution requires a wide range of technologies and activities: data integrations, mathematical optimization, machine learning, simulation, user interfaces, authentication & authorization, hosting, managing data consistency, auditing, etc.
+Multiple programming environments are required to solve any given business problem - for example you may use JavaScript for web front ends and python for training and evaluating machine learning models.
 
-This workspace ensures that all repositories work together by tracking specific commit SHAs that are known to be compatible.
+East is designed to make it easy to fuse different technologies together by focussing on a simple yet powerful structural type system which makes all the boilerplate and plumbing work disappear, letting you spend more time solving real-world problems.
+East is intentionally a simple language that is fast to learn and straightforward to implement in new runtimes.
 
-## 📦 Repository Structure
+## Features
 
-```
-east-workspace/
-├── east/              # Core TypeScript language & IR definitions (AGPL-3.0)
-├── East.jl/           # Julia backend compiler (Proprietary)
-├── east-py/           # Python backend runtime (Proprietary)
-├── east-node/         # Node.js platform bindings (AGPL-3.0)
-├── east-node-io/      # Node.js I/O platform functions (AGPL-3.0)
-├── east-py-io/        # Python I/O platform functions (AGPL-3.0)
-├── east-py-std/       # Python standard platform functions (AGPL-3.0)
-├── east-mcp/          # Model Context Protocol integration (AGPL-3.0)
-└── east-plugin/       # Claude Code plugin (AGPL-3.0)
-```
+- **🔒 Static Typing**: All types, functions and values declared explicitly for speed and correctness
+- **🎯 Structural Typing**: Expressive type system with recursive types, first-class functions and polymorphic variants
+- **🚀 Portable IR**: Compile to JavaScript, Python and Julia
+- **🔐 Controlled Side Effects**: Secure execution with cross-language platform-defined effects
+- **🤖 LLM Friendly**: Designed for AI with clear, composable yet stochastic friendly aliases
+- **🔄 Serializable**: All data can be serialized; functions and closures can be transmitted as IR
+- **📦 Minimal Dependencies**: Single runtime dependency (sorted-btree for efficient collections)
+- **🛡️ Total Ordering**: All types have defined comparisons that are consistent across all language targets
 
-## 🚀 Getting Started
 
-### First Time Setup
+## Quick Start
+
+### Installation
 
 ```bash
-# Clone this repository with all submodules
-git clone --recursive git@github.com:elaraai/east-workspace
-cd east-workspace
-
-# Or if already cloned without --recursive
-git submodule update --init --recursive
+npm install @elaraai/east
 ```
 
-Alternatively, use the setup script:
+### Basic Example
+
+
+```typescript
+import { East, IntegerType, ArrayType, StructType, StringType, DictType, NullType } from "@elaraai/east";
+
+// Platform function for logging
+const log = East.platform("log", [StringType], NullType);
+
+const platform = [
+    log.implement(console.log),
+];
+
+// Define sale data type
+const SaleType = StructType({
+    product: StringType,
+    quantity: IntegerType,
+    price: IntegerType
+});
+
+// Calculate revenue per product from sales data
+const calculateRevenue = East.function(
+    [ArrayType(SaleType)],
+    DictType(StringType, IntegerType),
+    ($, sales) => {
+        // Group sales by product and sum revenue (quantity × price)
+        const revenueByProduct = sales.groupSum(
+            // Group by product name
+            ($, sale) => sale.product,
+            // Sum quantity × price
+            ($, sale) => sale.quantity.multiply(sale.price)
+        );
+
+        // Log revenue for each product
+        $(log(East.str`Total Revenue: ${East.Integer.printCurrency(revenueByProduct.sum())}`));
+
+        $.return(revenueByProduct);
+    }
+);
+
+// Compile and execute
+const compiled = East.compile(calculateRevenue, platform);
+
+const sales = [
+    { product: "Widget", quantity: 10n, price: 50n },
+    { product: "Gadget", quantity: 5n, price: 100n },
+    { product: "Widget", quantity: 3n, price: 50n }
+];
+
+compiled(sales);
+// Total Revenue: $1,150
+```
+
+## Type System
+
+East supports a rich type system optimized for business logic and data processing:
+
+| Type | ValueTypeOf<Type> | Mutability | Description |
+|------|-----------------|------------|-------------|
+| **Primitive Types** | | | |
+| `NullType` | `null` | Immutable | Unit type (single value) |
+| `BooleanType` | `boolean` | Immutable | True or false |
+| `IntegerType` | `bigint` | Immutable | 64-bit signed integers |
+| `FloatType` | `number` | Immutable | IEEE 754 double-precision |
+| `StringType` | `string` | Immutable | UTF-8 text |
+| `DateTimeType` | `Date` | Immutable | UTC timestamp with millisecond precision |
+| `BlobType` | `Uint8Array` | Immutable | Binary data |
+| **Mutable Collections** | | | |
+| `ArrayType<T>` | `ValueTypeOf<T>[]` | **Mutable** | Ordered collection |
+| `SetType<K>` | `Set<ValueTypeOf<K>>` | **Mutable** | Sorted set |
+| `DictType<K, V>` | `Map<ValueTypeOf<K>, ValueTypeOf<V>>` | **Mutable** | Sorted dictionary |
+| `RefType<T>` | `ref<ValueTypeOf<T>>` | **Mutable** | Refcell, mutable box |
+| **Numeric Arrays** | | | |
+| `VectorType<FloatType>` | `Float64Array` | **Mutable** | Dense float vector |
+| `VectorType<IntegerType>` | `BigInt64Array` | **Mutable** | Dense integer vector |
+| `VectorType<BooleanType>` | `Uint8ClampedArray` | **Mutable** | Dense boolean vector |
+| `MatrixType<T>` | `matrix<TypedArray>` | **Mutable** | Dense 2D matrix (row-major) |
+| **Compound types** | | | |
+| `StructType<Fields>` | `{...}` | Immutable | Product type (records) |
+| `VariantType<Cases>` | `variant` | Immutable | Sum type (tagged unions) |
+| `RecursiveType<T>` | `ValueTypeOf<T>` | Immutable | Recursive references for trees, DAGs, and circular structures |
+| **Function Type** | | | |
+| `FunctionType<I, O>` | Function | Immutable | First-class functions/closures |
+| `AsyncFunctionType<I, O>` | Function returning `Promise` | Immutable | Asynchronous functions/closures |
+
+## Documentation
+
+- **[SKILL.md](SKILL.md)** - Comprehensive guide with API and example reference
+- **[LICENSE.md](LICENSE.md)** - Dual licensing information (AGPL-3.0 / Commercial)
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** - How to contribute to East
+- **[CLA.md](CLA.md)** - Contributor License Agreement
+
+## Key Concepts
+
+### Platform Functions
+
+East code runs in a controlled environment. You define **platform functions** that your East code can call:
+
+```typescript
+// Define platform functions
+const log = East.platform("log", [StringType], NullType);
+const readFile = East.platform("readFile", [StringType], StringType);
+
+// Provide implementations
+const platform = [
+    log.implement((msg: string) => console.log(msg)),
+    readFile.implement((path: string) => fs.readFileSync(path, 'utf-8')),
+];
+
+// Compile with platform
+const compiled = East.compile(myFunction, platform);
+```
+
+East also supports `asyncPlatform` functions (which may be called by `AsyncFunctionType` user-defined functions), inserting `await` automatically as required.
+In the above, `readFile` could have been implemented using `fs.promises.readFile` to take advantage of concurrency.
+
+### Fluent Interface
+
+Build expressions using chainable methods:
+
+```typescript
+const myFunction = East.function([IntegerType], IntegerType, ($, x) => {
+    // Arithmetic
+    const result = $.const(x.add(10n).multiply(2n));
+
+    // Collections
+    const arr = $.const([1n, 2n, 3n]);
+    const doubled = $.const(arr.map(($, x, i) => x.multiply(2n)));
+    const sum = $.const(doubled.sum());
+
+    // Closures can capture variables from the enclosing scope
+    const addResult = $.const(East.function([IntegerType], IntegerType, ($, y) => {
+        $.return(y.add(result));
+    }));
+
+    $.return(addResult(sum));
+});
+
+// Compile and execute
+const compiled = East.compile(myFunction, []);
+compiled(5n);
+// 42n — result = (5+10)*2 = 30, sum of [2,4,6] = 12, addResult(12) = 12+30 = 42
+```
+
+### Serialization
+
+All East data can be written and read in any of the following formats:
+
+ * East text format (a JSON-like format designed for the East type system)
+ * A binary East format called "beast" (compact, self-describing, streaming)
+ * JSON (with a canonical encoding for each East type)
+
+Note that mutable aliasing _is_ preserved through serialization/deserialization.
+
+Function and closure definitions can be serialized as IR in the Beast2 binary format and transmitted across environments to compile and run on the other side:
+
+```typescript
+import { East, IntegerType, Expr, encodeBeast2For, decodeBeast2For } from "@elaraai/east";
+
+const myFunction = East.function([IntegerType], IntegerType, ($, x) => {
+    $.return(x.add(1n));
+});
+
+// the type of the function (IntegerType -> IntegerType)
+const funcType = Expr.type(myFunction);
+
+// Compile the function (this attaches the IR)
+const compiled = East.compile(myFunction, []);
+
+// Serialize the compiled function to Beast2 (binary format)
+const encode = encodeBeast2For(funcType);
+const bytes = encode(compiled);
+
+// Deserialize and recompile
+const decode = decodeBeast2For(funcType);
+const restored = decode(bytes);
+
+restored(41n); // 42n
+```
+
+## Examples
+
+See the [SKILL.md](./SKILL.md) for more.
+
+## Development
+
+### Building
 
 ```bash
-./setup.sh
+npm run build       # Compile TypeScript to JavaScript
+npm run test        # Run test suite (requires build first)
+npm run lint        # Check code quality with ESLint
+npm run example     # Run the basic example
 ```
 
-### Checking Status
+### Testing
 
-To see the status of all repositories:
+East has a comprehensive test suite with tests covering:
+
+- Type system operations
+- Serialization formats (BEAST v1/v2, JSON, EAST text format)
+- Collections and functional operations
+- Error handling and edge cases
+
+Notably, these tests are hosted in East and allow one to validate the correctness of a new runtime with ease (effectively acting as a compliance suite).
+
+### Release Process
+
+East uses automated releases via GitHub Actions. The process differs for stable and beta releases:
+
+#### Stable Releases
+
+For stable releases (published to npm with `latest` tag):
 
 ```bash
-./status.sh
+npm run release:patch    # 0.0.1 → 0.0.2
+npm run release:minor    # 0.0.1 → 0.1.0
+npm run release:major    # 0.0.1 → 1.0.0
 ```
 
-This shows:
-- Git status of each submodule
-- Current branch and commit
-- Unpushed commits
-- Commits behind remote
+These commands will:
+1. Bump the version in `package.json`
+2. Create a git commit with message `chore: bump version to X.Y.Z`
+3. Create a git tag `vX.Y.Z`
+4. Push the commit and tag to GitHub
+5. GitHub Actions automatically builds, tests, and publishes to npm with `latest` tag
 
-### Updating Submodules
+#### Beta Releases
 
-To update all submodules to their latest commits:
+For beta/prerelease versions (published to npm with `beta` tag):
 
 ```bash
-./update.sh
+npm run release:prepatch      # 0.0.1 → 0.0.2-beta.0
+npm run release:preminor      # 0.0.1 → 0.1.0-beta.0
+npm run release:premajor      # 0.0.1 → 1.0.0-beta.0
+npm run release:prerelease    # 0.0.1-beta.0 → 0.0.1-beta.1
 ```
 
-**⚠️ Important:** After updating, you should:
-1. Run tests across all projects
-2. Commit the submodule changes to lock the new versions
-3. Push to lock these versions for the team
+Beta releases follow the same automated process but are published to npm with the `beta` tag.
 
-## 🔧 Working with Submodules
+#### Manual Version Bumping (Dry Run)
 
-### Making Changes in a Submodule
+To update the version without committing or tagging:
 
 ```bash
-# Navigate to the submodule
-cd east
-
-# Create a branch and make changes
-git checkout -b my-feature
-# ... make changes ...
-git commit -m "Add new feature"
-git push origin my-feature
-
-# Return to meta repo
-cd ..
-
-# The meta repo now shows the submodule has uncommitted changes
-git status
+npm run version:patch:dry
+npm run version:minor:dry
+npm run version:major:dry
+npm run version:prepatch:dry
+npm run version:preminor:dry
+npm run version:premajor:dry
+npm run version:prerelease:dry
 ```
 
-### Updating Meta Repo to Track New Submodule Commit
+#### Requirements
 
-```bash
-# After merging a PR in a submodule, update the meta repo
-cd east
-git checkout main
-git pull
-cd ..
+- **Automated Publishing**: Requires `NPM_TOKEN` secret configured in GitHub repository settings
+- **Pre-publish Checks**: All tests and linting must pass before publishing (enforced by `prepublishOnly` hook)
+- **Node Version**: Requires Node.js ≥22.0.0
 
-# The meta repo will show 'east' has new commits
-git add east
-git commit -m "Update east to include new feature"
-git push
-```
+## License
 
-### Making Breaking Changes Safely
+This project is dual-licensed:
 
-This is the **primary use case** for this workspace.
+- **Open Source**: [AGPL-3.0](LICENSE.md) - Free for open source use with source disclosure requirements
+- **Commercial**: Available for proprietary use - contact support@elara.ai
 
-**Workflow:**
+See [LICENSE.md](LICENSE.md) for full details.
 
-1. **Create a branch in the meta repo**
-   ```bash
-   git checkout -b breaking-change-ir-format
-   ```
+## Contributing
 
-2. **Make changes in the affected submodules**
-   ```bash
-   # Update core IR format
-   cd east
-   git checkout -b update-ir-format
-   # ... make breaking changes to IR ...
-   git commit -m "BREAKING: Update IR format"
-   git push origin update-ir-format
-   cd ..
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
-   # Update Julia backend to support new IR
-   cd East.jl
-   git checkout -b support-new-ir
-   # ... update compiler ...
-   git commit -m "Support new IR format from east"
-   git push origin support-new-ir
-   cd ..
+**Note**: Contributors must sign our [CLA](CLA.md) before we can accept pull requests. This allows us to offer commercial licenses while keeping the project open source.
 
-   # Update Python backend
-   cd east-py
-   git checkout -b support-new-ir
-   # ... update runtime ...
-   git commit -m "Support new IR format from east"
-   git push origin support-new-ir
-   cd ..
-   ```
+### Ecosystem
 
-3. **Update meta repo to track these branches**
-   ```bash
-   git add east East.jl east-py
-   git commit -m "WIP: Breaking IR format change across all backends"
-   git push origin breaking-change-ir-format
-   ```
+- **[East Node](https://github.com/elaraai/east-node)**: Node.js platform functions for I/O, databases, and system operations. Connect East programs to filesystems, SQL/NoSQL databases, cloud storage, and network services.
+  - [@elaraai/east-node-std](https://www.npmjs.com/package/@elaraai/east-node-std): Filesystem, console, HTTP fetch, crypto, random distributions, timestamps
+  - [@elaraai/east-node-io](https://www.npmjs.com/package/@elaraai/east-node-io): SQLite, PostgreSQL, MySQL, MongoDB, S3, FTP, SFTP
+  - [@elaraai/east-node-cli](https://www.npmjs.com/package/@elaraai/east-node-cli): CLI for running East IR programs in Node.js
 
-4. **CI runs integration tests** (see CI section below)
-   - Tests will fail if backends don't support the new IR
-   - Iterate until all tests pass
+- **[East Python](https://github.com/elaraai/east-py)**: Python runtime and platform functions for data science and machine learning. Execute East programs with access to optimization solvers, gradient boosting, neural networks, and model explainability.
+  - [@elaraai/east-py-datascience](https://www.npmjs.com/package/@elaraai/east-py-datascience): TypeScript types for optimization, gradient boosting, neural networks, explainability
 
-5. **Merge PRs in coordination**
-   ```bash
-   # Merge backend PRs first
-   # Then merge core PR
-   # Finally, update meta repo to main branches
-   ```
+- **[East UI](https://github.com/elaraai/east-ui)**: East types and expressions for building dashboards and interactive layouts. Define UIs as data structures that render consistently across React, web, and other environments.
+  - [@elaraai/east-ui](https://www.npmjs.com/package/@elaraai/east-ui): 50+ typed UI components for layouts, forms, charts, tables, dialogs
+  - [@elaraai/east-ui-components](https://www.npmjs.com/package/@elaraai/east-ui-components): React renderer with Chakra UI styling
 
-6. **Update meta repo main branch**
-   ```bash
-   git checkout main
-   git pull
-   ./update.sh  # Get latest from all submodules
-   git add .
-   git commit -m "Release v0.1.0: New IR format with backend support"
-   git push
-   ```
+- **[e3 - East Execution Engine](https://github.com/elaraai/e3)**: Durable execution engine for running East pipelines at scale. Features Git-like content-addressable storage, automatic memoization, task queuing, and real-time monitoring.
+  - [@elaraai/e3](https://www.npmjs.com/package/@elaraai/e3): SDK for authoring e3 packages with typed tasks and pipelines
+  - [@elaraai/e3-core](https://www.npmjs.com/package/@elaraai/e3-core): Git-like object store, task queue, result caching
+  - [@elaraai/e3-types](https://www.npmjs.com/package/@elaraai/e3-types): Shared type definitions for e3 packages
+  - [@elaraai/e3-cli](https://www.npmjs.com/package/@elaraai/e3-cli): `e3 init`, `e3 run`, `e3 logs` commands for managing and monitoring tasks
+  - [@elaraai/e3-api-client](https://www.npmjs.com/package/@elaraai/e3-api-client): HTTP client for remote e3 servers
+  - [@elaraai/e3-api-server](https://www.npmjs.com/package/@elaraai/e3-api-server): REST API server for e3 repositories
 
-## 🧪 Testing
+## Links
 
-### Local Testing
+- **Website**: [https://elaraai.com/](https://elaraai.com/)
+- **Repository**: [https://github.com/elaraai/east](https://github.com/elaraai/east)
+- **Issues**: [https://github.com/elaraai/east/issues](https://github.com/elaraai/east/issues)
+- **Email**: support@elara.ai
 
-Each submodule has its own test suite:
+## About Elara
 
-```bash
-# TypeScript projects
-cd east && npm test
-
-# Julia project
-cd East.jl && julia --project=. -e 'using Pkg; Pkg.test()'
-
-# Python projects
-cd east-py && pytest
-```
-
-### Integration Testing
-
-CI runs integration tests across all projects to ensure compatibility (see `.github/workflows/integration-test.yml`).
-
-## 📋 Release Process
-
-**We don't have a formal release process yet.** This workspace establishes the foundation for one.
-
-Proposed workflow:
-1. Ensure all submodules are on their main branches
-2. Run `./status.sh` to verify everything is clean
-3. Tag the meta repo: `git tag v0.1.0`
-4. Tag each submodule with coordinated versions
-5. Push tags: `git push --tags` (in meta repo and each submodule)
-
-## 🔍 Git Submodules Cheat Sheet
-
-```bash
-# Clone with all submodules
-git clone --recursive <url>
-
-# Initialize submodules after clone
-git submodule update --init --recursive
-
-# Update submodules to latest on their tracked branches
-git submodule update --remote
-
-# See which commits are tracked in submodules
-git submodule status
-
-# See changes in submodules since last commit
-git submodule summary
-
-# Execute command in all submodules
-git submodule foreach 'git status'
-
-# Pull latest in all repos
-git pull --recurse-submodules
-```
-
-## ⚠️ Common Pitfalls
-
-1. **Detached HEAD in submodules**
-   - Submodules checkout specific commits, not branches
-   - Always `git checkout main` before making changes in a submodule
-
-2. **Forgetting to commit submodule updates**
-   - After pulling changes in a submodule, commit the reference update in meta repo
-   - Otherwise team members won't get the update
-
-3. **Nested submodules**
-   - Use `--recursive` flag to handle nested submodules
-
-4. **File dependencies**
-   - TypeScript projects use `file:../east` dependencies
-   - Python projects use `file:../east-py` dependencies
-   - This requires the workspace directory structure
-
-## 📚 Further Reading
-
-- [Git Submodules Documentation](https://git-scm.com/book/en/v2/Git-Tools-Submodules)
-- [Atlassian Submodules Tutorial](https://www.atlassian.com/git/tutorials/git-submodule)
-
-## 📄 License
-
-This meta repository is private. Individual submodules have their own licenses:
-- **AGPL-3.0**: east, east-node, east-node-io, east-py-io, east-py-std, east-mcp, east-plugin
-- **Proprietary**: East.jl, east-py
+East is developed by [Elara AI Pty Ltd](https://elaraai.com/), an AI-powered platform that creates economic digital twins of businesses that optimize performance. Elara combines business objectives, decisions and data to help organizations make data-driven decisions across operations, purchasing, sales and customer engagement, and project and investment planning. East powers the computational layer of Elara solutions, enabling the expression of complex business logic and data in a simple, type-safe and portable language.
 
 ---
 
-**Questions?** Check the individual repository READMEs or ask the team.
+*Developed by [Elara AI Pty Ltd](https://elaraai.com/)*
