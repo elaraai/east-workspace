@@ -1,204 +1,156 @@
-# Design: Optional WASM Backend for East UI
+# Design: WASM Backend for East UI
 
 ## Problem
 
-East UI currently compiles and executes East IR via the JavaScript compiler (`ir.compile(platform)`). For large UI programs with many closures, this is slow — the JS compiler walks the IR tree, generates closures, and executes them interpretively.
+East UI decodes beast2 data values using the TypeScript beast2 decoder
+(`decodeBeast2For`). This decoder:
+1. Is broken for complex recursive types (trailing bytes errors)
+2. Is slower than the C decoder for large values with closures
+3. Runs in the browser's JS thread, blocking rendering
 
-The C backend (`east-c-wasm`) compiles and executes the same IR 4-5x faster, and we've already built the infrastructure: direct beast2→IRNode decoder, WASM direct memory bridge, platform function support.
+## Solution
 
-## Current Flow
+Replace `decodeBeast2For()` calls with `east-c-wasm`'s `decodeValue()` which
+uses the C beast2 decoder + direct memory bridge. This is faster (75ms vs 309ms
+for the UI benchmark), handles all types correctly, and is already built.
 
+## Integration Points
+
+There are **3 places** that decode beast2 data values in east-ui:
+
+### 1. `useDatasetPreview` hook (e3-ui-components)
+
+**File:** `packages/e3-ui-components/src/hooks/useDatasetPreview.ts:160`
+
+**Current:**
+```typescript
+const decoder = decodeBeast2For(status.type, {
+    platform: platformImplementations,
+    skipTypeCheck: true,
+});
+const value = decoder(raw);
 ```
-EastIR.ir (FunctionIR)
-    ↓ ir.compile([...StateImpl, ...OverlayImpl])    // JS compiler
-    ↓ compiled()                                     // JS execution
-    → UIComponentType value (EastVariant/EastStruct)
-    ↓ <EastChakraComponent value={result} />         // React rendering
+
+**Proposed:**
+```typescript
+const value = wasm.decodeValue(raw);
 ```
 
-Entry point: `EastFunction` component in `east-ui-components/src/platform/hooks.tsx` line 245.
+The `status.type` parameter is no longer needed — `decodeValue` is self-describing
+(beast2 v2 includes the type table). The `platform` parameter was for function
+closures in the decoded data — with the C decoder, closures are compiled
+internally and returned as opaque function handles (not yet callable from JS,
+but the data values around them decode correctly).
 
-## Proposed Flow (WASM)
+### 2. State platform — `state_read` (east-ui-components)
 
+**File:** `packages/east-ui-components/src/platform/state-runtime.ts:171`
+
+**Current:**
+```typescript
+const decode = decodeBeast2For(type)
+const ret = getStore().read(key as string);
+return decode(ret);
 ```
-EastIR.ir (FunctionIR)
-    ↓ encodeBeast2For(IRType)(ir)                    // Serialize IR to bytes
-    ↓ wasm.compileFromBeast2(bytes, [...StateImpl, ...OverlayImpl])
-    ↓ compiled()                                     // WASM execution
-    → UIComponentType value (plain JS objects via direct memory bridge)
-    ↓ <EastChakraComponent value={result} />         // React rendering
+
+**Proposed:**
+```typescript
+const ret = getStore().read(key as string);
+return wasm.decodeValue(ret);
 ```
 
-## Key Design Decisions
+State values are beast2-encoded blobs stored in the UIStore. The type is
+known but `decodeValue` doesn't need it — the beast2 header contains the type.
 
-### 1. Optional — not required
+### 3. ReactiveDataset platform — `reactive_dataset_get` (east-ui-components)
 
-The WASM backend is an opt-in enhancement. If `@elaraai/east-c-wasm` is not
-installed or WASM initialization fails, fall back to the JS compiler silently.
+**File:** `packages/east-ui-components/src/platform/dataset-runtime.ts:250`
 
-### 2. Value representation compatibility
+**Current:**
+```typescript
+const decode = decodeBeast2For(type);
+return decode(cached);
+```
 
-The WASM direct memory bridge returns:
-- **Variants**: `{ type: string, value: unknown }` — matches `EastVariant` shape
-- **Structs**: plain objects `{ field1: val1, field2: val2 }` — matches `EastStruct` shape
-- **Arrays**: JS `Array` — same
-- **Sets**: `SortedSet` — same as JS compiler
-- **Dicts**: `SortedMap` — same as JS compiler
-- **Scalars**: `BigInt`, `number`, `string`, `boolean`, `null` — same
+**Proposed:**
+```typescript
+return wasm.decodeValue(cached);
+```
 
-The `EastChakraComponent` dispatcher uses `match()` which reads `.type` and
-`.value` on variants — this works with both `EastVariant` instances and plain
-`{ type, value }` objects.
+Same pattern — cached beast2 bytes decoded on read.
 
-### 3. Platform functions work transparently
+## WASM Lifecycle
 
-`compileFromBeast2(bytes, platform)` accepts the same `PlatformFunction[]`
-array as `ir.compile(platform)`. The WASM platform bridge handles JS↔C
-argument marshalling. StateImpl and OverlayImpl work as-is.
-
-### 4. IR serialization happens once
-
-The beast2-encoded IR bytes can be memoized alongside the EastIR object —
-serialize once, compile on every render as needed (the WASM compile is ~60ms
-for 2.27MB IR, vs ~300ms+ for JS).
-
-## Implementation
-
-### New file: `east-ui-components/src/platform/wasm-backend.ts`
+### Singleton initialization
 
 ```typescript
-import type { PlatformFunction } from "@elaraai/east/internal";
-import type { EastIR } from "@elaraai/east";
+// New file: packages/east-ui-components/src/platform/wasm.ts
 
-/** Lazy-initialized WASM instance (singleton). */
-let wasmInstance: any | null = null;
-let wasmInitPromise: Promise<any> | null = null;
-let wasmFailed = false;
+import type { EastWasm } from '@elaraai/east-c-wasm';
 
-/**
- * Try to initialize the WASM backend.  Returns the EastWasm instance
- * or null if @elaraai/east-c-wasm is not available.
- */
-export async function getWasmBackend(): Promise<any | null> {
-    if (wasmFailed) return null;
-    if (wasmInstance) return wasmInstance;
-    if (wasmInitPromise) return wasmInitPromise;
+let instance: EastWasm | null = null;
+let initPromise: Promise<EastWasm | null> | null = null;
+let failed = false;
 
-    wasmInitPromise = (async () => {
+export async function getWasm(): Promise<EastWasm | null> {
+    if (failed) return null;
+    if (instance) return instance;
+    if (initPromise) return initPromise;
+
+    initPromise = (async () => {
         try {
-            // Dynamic import — doesn't fail at bundle time if package is missing
-            const { createEastWasm } = await import("@elaraai/east-c-wasm/browser");
-            wasmInstance = await createEastWasm();
-            return wasmInstance;
+            const { createEastWasm } = await import('@elaraai/east-c-wasm/browser');
+            instance = await createEastWasm();
+            return instance;
         } catch {
-            wasmFailed = true;
+            failed = true;
             return null;
         }
     })();
 
-    return wasmInitPromise;
+    return initPromise;
 }
 
-/** Cache of beast2-encoded IR bytes, keyed by EastIR reference. */
-const irBytesCache = new WeakMap<EastIR<any, any>, Uint8Array>();
-
-/**
- * Compile and execute East IR via WASM backend.
- * Returns null if WASM is not available (caller should fall back to JS).
- */
-export function compileWithWasm(
-    wasm: any,
-    ir: EastIR<any, any>,
-    platform: PlatformFunction[],
-): (() => unknown) | null {
-    try {
-        // Get or create beast2 bytes for this IR
-        let bytes = irBytesCache.get(ir);
-        if (!bytes) {
-            const { encodeBeast2For } = require("@elaraai/east/internal");
-            const { IRType } = require("@elaraai/east/internal");
-            bytes = encodeBeast2For(IRType)(ir.ir);
-            irBytesCache.set(ir, bytes);
-        }
-
-        const compiled = wasm.compileFromBeast2(bytes, platform);
-        return compiled;
-    } catch {
-        return null;
-    }
+export function getWasmSync(): EastWasm | null {
+    return instance;
 }
 ```
 
-### Modified: `east-ui-components/src/platform/hooks.tsx`
+### Hook for React components
 
 ```typescript
-// Add WASM backend support
-import { getWasmBackend, compileWithWasm } from "./wasm-backend.js";
+// In hooks.tsx or a new useWasm.ts
 
-export function EastFunction({ ir, storageKey, backend }: EastFunctionProps) {
-    // Try WASM backend if requested or available
-    const [wasm, setWasm] = useState<any>(null);
-
+export function useWasm(): EastWasm | null {
+    const [wasm, setWasm] = useState<EastWasm | null>(null);
     useEffect(() => {
-        if (backend !== 'js') {
-            getWasmBackend().then(w => setWasm(w));
-        }
-    }, [backend]);
-
-    const result = useMemo(() => {
-        try {
-            const platform = [...StateImpl, ...OverlayImpl];
-
-            // Try WASM first
-            if (wasm) {
-                const compiled = compileWithWasm(wasm, ir, platform);
-                if (compiled) {
-                    return { compiled, error: null };
-                }
-            }
-
-            // Fall back to JS
-            return { compiled: ir.compile(platform), error: null };
-        } catch (err) {
-            const errorMessage = err instanceof Error ? err.message : String(err);
-            const errorStack = err instanceof Error ? err.stack : undefined;
-            return { compiled: null, error: { message: errorMessage, stack: errorStack } };
-        }
-    }, [ir, wasm]);
-
-    // ... rest unchanged
+        getWasm().then(w => setWasm(w));
+    }, []);
+    return wasm;
 }
 ```
 
-### Props extension
+### Decode helper with fallback
 
 ```typescript
-export interface EastFunctionProps {
-    ir: EastIR<[], any>;
-    storageKey?: string;
-    /** Execution backend: 'auto' (default) tries WASM then JS, 'js' forces JS only */
-    backend?: 'auto' | 'js' | 'wasm';
+export function decodeValue(
+    wasm: EastWasm | null,
+    bytes: Uint8Array,
+    type: EastTypeValue,
+    options?: { platform?: PlatformFunction[] },
+): unknown {
+    if (wasm) {
+        return wasm.decodeValue(bytes);
+    }
+    // Fallback to TS decoder
+    return decodeBeast2For(type, options)(bytes);
 }
 ```
 
-## Variant/Struct Compatibility
+## Dependency
 
-The `EastChakraComponent` dispatcher in `component.tsx` uses `match()` from
-`@elaraai/east` to dispatch on variant tags. This function checks the `.type`
-property of the value, which works for both `EastVariant` instances and plain
-objects with a `type` field.
-
-Similarly, struct field access uses `value.fieldName` which works for both
-`EastStruct` instances (which support `[]` access) and plain objects.
-
-**Potential issue:** If `match()` uses `instanceof EastVariant` checks instead
-of duck-typing, the WASM bridge's plain `{ type, value }` objects would fail.
-Need to verify `match()` implementation.
-
-## Dependencies
-
-`@elaraai/east-c-wasm` would be an **optional peer dependency** of
-`east-ui-components`:
+`@elaraai/east-c-wasm` is an **optional peer dependency** of both
+`east-ui-components` and `e3-ui-components`:
 
 ```json
 {
@@ -213,24 +165,51 @@ Need to verify `match()` implementation.
 }
 ```
 
-This way:
-- If the package is installed, WASM backend is available
-- If not installed, the dynamic import fails gracefully, JS backend is used
-- No bundle size impact if WASM is not used
+If not installed, the dynamic import fails, `getWasm()` returns null,
+and `decodeValue` falls back to the TS decoder. No functional change.
 
-## Browser vs Node
+## Browser Deployment
 
-`east-c-wasm` has two entry points:
-- `@elaraai/east-c-wasm` — Node.js (loads .wasm from filesystem)
-- `@elaraai/east-c-wasm/browser` — Browser (loads .wasm from URL)
+The WASM binary (`east-c.wasm`, ~597KB) needs to be served alongside
+the app bundle. Options:
+- Copy to `public/` in Vite/webpack
+- Serve from CDN
+- `@elaraai/east-c-wasm/browser` handles loading from a URL
 
-east-ui-components runs in the browser, so it uses the `/browser` entry point.
-The WASM file needs to be served alongside the app bundle (e.g., copied to
-`public/` in Vite, or served from a CDN).
+## Value Representation
 
-## Verification
+The WASM `decodeValue` returns JS values via the direct memory bridge:
+- **Variants**: `variant(tag, value)` — branded with `variant_symbol`
+- **Structs**: plain `{ field: value }` objects
+- **Arrays**: JS `Array`
+- **Sets**: `SortedSet` (from `@elaraai/east/internal`)
+- **Dicts**: `SortedMap` (from `@elaraai/east/internal`)
+- **Scalars**: `BigInt`, `number`, `string`, `boolean`, `null`
 
-1. `east-ui-showcase` with WASM: all pages render correctly
-2. `east-ui-showcase` without WASM: falls back to JS, same behavior
-3. State platform functions work: state persistence, reactive updates
-4. Performance: compare JS vs WASM compile+execute times in showcase
+These are compatible with `match()`, `EastChakraComponent`, and all
+existing rendering code.
+
+## Encode Path
+
+State writes and dataset writes use `encodeBeast2For(type)(value)` to
+encode JS values to beast2 bytes. This stays as-is — the TS encoder
+works correctly. Only the decode path changes.
+
+## File Changes
+
+| File | Change |
+|------|--------|
+| `east-ui-components/src/platform/wasm.ts` | **New** — singleton WASM init + decode helper |
+| `east-ui-components/src/platform/state-runtime.ts` | Use `decodeValue` with WASM fallback |
+| `east-ui-components/src/platform/dataset-runtime.ts` | Use `decodeValue` with WASM fallback |
+| `east-ui-components/src/platform/hooks.tsx` | Add `useWasm` hook, pass to components |
+| `east-ui-components/package.json` | Add optional peer dep on `@elaraai/east-c-wasm` |
+| `e3-ui-components/src/hooks/useDatasetPreview.ts` | Use `decodeValue` with WASM fallback |
+| `e3-ui-components/package.json` | Add optional peer dep on `@elaraai/east-c-wasm` |
+
+## What Does NOT Change
+
+- Showcase (`EastFunction` component) — continues using JS compiler
+- State encode (`state_write`) — continues using TS beast2 encoder
+- Dataset encode (`reactive_dataset_set`) — continues using TS beast2 encoder
+- Component rendering — unchanged, values are compatible

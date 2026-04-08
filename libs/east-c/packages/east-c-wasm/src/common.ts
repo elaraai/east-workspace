@@ -34,19 +34,23 @@ export interface EastWasmModule extends EmscriptenModule {
     _east_wasm_compile: (irPtr: number, irLen: number) => number;
     _east_wasm_compile_json: (jsonPtr: number, jsonLen: number) => number;
     _east_wasm_compile_east: (textPtr: number, textLen: number) => number;
-    _east_wasm_call: (handle: number, resultPtr: number, resultLenPtr: number, errorPtr: number, errorLenPtr: number) => number;
-    _east_wasm_call_with_args: (handle: number, argsPtr: number, argsLen: number, resultPtr: number, resultLenPtr: number, errorPtr: number, errorLenPtr: number) => number;
+    _east_wasm_call: (handle: number, resultPtr: number, resultLenPtr: number, errorPtr: number, errorLenPtr: number) => number;  // legacy beast2 path — kept for platform bridge invoke_fn
+    _east_wasm_call_with_args: (handle: number, argsPtr: number, argsLen: number, resultPtr: number, resultLenPtr: number, errorPtr: number, errorLenPtr: number) => number;  // legacy
     _east_wasm_free: (handle: number) => void;
     _east_wasm_gc: () => void;
     _east_wasm_malloc: (size: number) => number;
     _east_wasm_free_buf: (ptr: number) => void;
     _east_wasm_last_error: () => number;
-    _east_wasm_invoke_fn: (handleId: number, argsPtr: number, argsLen: number, resultPtr: number, resultLenPtr: number, errorPtr: number, errorLenPtr: number) => number;
+    _east_wasm_invoke_fn: (handleId: number, argsPtr: number, argsLen: number, resultPtr: number, resultLenPtr: number, errorPtr: number, errorLenPtr: number) => number;  // legacy beast2
+    _east_wasm_invoke_fn_ptr: (handleId: number, argsPtr: number, argsLen: number, errorPtr: number, errorLenPtr: number) => number;
+    _east_wasm_alloc_fn_handle: (fnPtr: number) => number;
     _east_wasm_get_fn_type: (handle: number, outPtr: number, outLenPtr: number) => number;
     // Direct value accessors (pointer-based, no beast2)
     _east_wasm_value_kind: (ptr: number) => number;
     _east_wasm_get_bool: (ptr: number) => number;
-    _east_wasm_get_number: (ptr: number) => number;
+    _east_wasm_get_float: (ptr: number) => number;
+    _east_wasm_get_i64_lo: (ptr: number) => number;
+    _east_wasm_get_i64_hi: (ptr: number) => number;
     _east_wasm_get_string_ptr: (ptr: number) => number;
     _east_wasm_get_string_len: (ptr: number) => number;
     _east_wasm_get_blob_ptr: (ptr: number) => number;
@@ -63,6 +67,8 @@ export interface EastWasmModule extends EmscriptenModule {
     _east_wasm_ref_get: (ptr: number) => number;
     _east_wasm_vector_data: (ptr: number) => number;
     _east_wasm_vector_len: (ptr: number) => number;
+    _east_wasm_vector_elem_kind: (ptr: number) => number;
+    _east_wasm_matrix_elem_kind: (ptr: number) => number;
     _east_wasm_matrix_data: (ptr: number) => number;
     _east_wasm_matrix_rows: (ptr: number) => number;
     _east_wasm_matrix_cols: (ptr: number) => number;
@@ -70,6 +76,20 @@ export interface EastWasmModule extends EmscriptenModule {
     _east_wasm_call_ptr: (handle: number, errorPtr: number, errorLenPtr: number) => number;
     _east_wasm_call_ptr_with_args: (handle: number, argsPtr: number, argsLen: number, errorPtr: number, errorLenPtr: number) => number;
     _east_wasm_decode_value: (dataPtr: number, dataLen: number, errorPtr: number, errorLenPtr: number) => number;
+    // Type accessors (for reading EastType* from WASM memory)
+    _east_wasm_type_kind: (ptr: number) => number;
+    _east_wasm_type_id: (ptr: number) => number;
+    _east_wasm_type_element: (ptr: number) => number;
+    _east_wasm_type_dict_key: (ptr: number) => number;
+    _east_wasm_type_dict_val: (ptr: number) => number;
+    _east_wasm_type_num_fields: (ptr: number) => number;
+    _east_wasm_type_field_name: (ptr: number, idx: number) => number;
+    _east_wasm_type_field_type: (ptr: number, idx: number) => number;
+    _east_wasm_type_fn_num_inputs: (ptr: number) => number;
+    _east_wasm_type_fn_input: (ptr: number, idx: number) => number;
+    _east_wasm_type_fn_output: (ptr: number) => number;
+    _east_wasm_type_recursive_inner: (ptr: number) => number;
+    _east_wasm_fn_type_ptr: (handle: number) => number;
 }
 
 /** Result buffer size (1MB) — matches C side */
@@ -108,8 +128,9 @@ export interface EastWasm {
     /** Compile East IR from East text format. */
     compileFromEast(text: string, platform?: PlatformFunction[]): CompiledFunction;
 
-    /** Decode a beast2 data value (any type) — no IR, no compilation. */
-    decodeValue(bytes: Uint8Array): unknown;
+    /** Decode a beast2 data value (any type) — no IR, no compilation.
+     *  Pass platform functions if the value contains closures that call them. */
+    decodeBeast2(bytes: Uint8Array, platform?: PlatformFunction[]): unknown;
 
     /** Run garbage collection on the WASM heap. */
     gc(): void;
@@ -220,57 +241,95 @@ export function createEastWasmFromModule(
         return handle;
     }
 
-    function callHandle(handle: number): Uint8Array | null {
-        new DataView(mod.HEAPU8.buffer, resultLenPtr, 4).setUint32(0, RESULT_BUF_SIZE, true);
-        new DataView(mod.HEAPU8.buffer, errorLenPtr, 4).setUint32(0, ERROR_BUF_SIZE, true);
+    /** Read an EastType* pointer from WASM memory into an EastTypeValue. */
+    function readTypeFromPtr(ptr: number, seen?: Map<number, EastTypeValue>): EastTypeValue {
+        if (ptr === 0) return { type: 'Null' } as EastTypeValue;
 
-        const rc = mod._east_wasm_call(handle, resultBufPtr, resultLenPtr, errorBufPtr, errorLenPtr);
+        // Handle recursive types — track seen pointers to detect cycles
+        if (!seen) seen = new Map();
+        if (seen.has(ptr)) return seen.get(ptr)!;
 
-        if (rc !== 0) {
-            const errLen = new DataView(mod.HEAPU8.buffer, errorLenPtr, 4).getUint32(0, true);
-            const errBytes = new Uint8Array(mod.HEAPU8.buffer, errorBufPtr, errLen);
-            throw new Error(`east-c-wasm: ${new TextDecoder().decode(errBytes)}`);
+        const kind = mod._east_wasm_type_kind(ptr);
+        const typeId = mod._east_wasm_type_id(ptr);
+
+        /* EastTypeKind enum:
+         * 0:Never 1:Null 2:Boolean 3:Integer 4:Float 5:String
+         * 6:DateTime 7:Blob 8:Array 9:Set 10:Dict 11:Struct
+         * 12:Variant 13:Ref 14:Vector 15:Matrix 16:Function
+         * 17:AsyncFunction 18:Recursive */
+
+        switch (kind) {
+        case 0:  return variant('Never', null) as EastTypeValue;
+        case 1:  return variant('Null', null) as EastTypeValue;
+        case 2:  return variant('Boolean', null) as EastTypeValue;
+        case 3:  return variant('Integer', null) as EastTypeValue;
+        case 4:  return variant('Float', null) as EastTypeValue;
+        case 5:  return variant('String', null) as EastTypeValue;
+        case 6:  return variant('DateTime', null) as EastTypeValue;
+        case 7:  return variant('Blob', null) as EastTypeValue;
+        case 8:  return variant('Array', readTypeFromPtr(mod._east_wasm_type_element(ptr), seen)) as EastTypeValue;
+        case 9:  return variant('Set', readTypeFromPtr(mod._east_wasm_type_element(ptr), seen)) as EastTypeValue;
+        case 10: return variant('Dict', {
+            key: readTypeFromPtr(mod._east_wasm_type_dict_key(ptr), seen),
+            value: readTypeFromPtr(mod._east_wasm_type_dict_val(ptr), seen),
+        }) as EastTypeValue;
+        case 11: { /* Struct */
+            const nf = mod._east_wasm_type_num_fields(ptr);
+            const fields: { name: string; type: EastTypeValue }[] = [];
+            for (let i = 0; i < nf; i++) {
+                fields.push({
+                    name: mod.UTF8ToString(mod._east_wasm_type_field_name(ptr, i)),
+                    type: readTypeFromPtr(mod._east_wasm_type_field_type(ptr, i), seen),
+                });
+            }
+            return variant('Struct', fields) as EastTypeValue;
         }
-
-        const resLen = new DataView(mod.HEAPU8.buffer, resultLenPtr, 4).getUint32(0, true);
-        if (resLen === 0) return null;
-        return new Uint8Array(mod.HEAPU8.buffer, resultBufPtr, resLen).slice();
+        case 12: { /* Variant */
+            const nc = mod._east_wasm_type_num_fields(ptr);
+            const cases: { name: string; type: EastTypeValue }[] = [];
+            for (let i = 0; i < nc; i++) {
+                cases.push({
+                    name: mod.UTF8ToString(mod._east_wasm_type_field_name(ptr, i)),
+                    type: readTypeFromPtr(mod._east_wasm_type_field_type(ptr, i), seen),
+                });
+            }
+            return variant('Variant', cases) as EastTypeValue;
+        }
+        case 13: return variant('Ref', readTypeFromPtr(mod._east_wasm_type_element(ptr), seen)) as EastTypeValue;
+        case 14: return variant('Vector', readTypeFromPtr(mod._east_wasm_type_element(ptr), seen)) as EastTypeValue;
+        case 15: return variant('Matrix', readTypeFromPtr(mod._east_wasm_type_element(ptr), seen)) as EastTypeValue;
+        case 16: /* Function */
+        case 17: { /* AsyncFunction */
+            const ni = mod._east_wasm_type_fn_num_inputs(ptr);
+            const inputs: EastTypeValue[] = [];
+            for (let i = 0; i < ni; i++) {
+                inputs.push(readTypeFromPtr(mod._east_wasm_type_fn_input(ptr, i), seen));
+            }
+            const output = readTypeFromPtr(mod._east_wasm_type_fn_output(ptr), seen);
+            return variant(kind === 17 ? 'AsyncFunction' : 'Function', { inputs, output }) as EastTypeValue;
+        }
+        case 18: { /* Recursive */
+            // Create placeholder, register in seen map, then fill inner
+            const placeholder = variant('Recursive', { id: BigInt(typeId), node: null as any }) as unknown as EastTypeValue;
+            seen.set(ptr, placeholder);
+            const inner = readTypeFromPtr(mod._east_wasm_type_recursive_inner(ptr), seen);
+            (placeholder as any).value.node = inner;
+            return placeholder;
+        }
+        }
+        return variant('Null', null) as EastTypeValue;
     }
 
-    function callHandleWithArgs(handle: number, argsBytes: Uint8Array): Uint8Array | null {
-        const argsPtr = writeBytes(argsBytes);
-        new DataView(mod.HEAPU8.buffer, resultLenPtr, 4).setUint32(0, RESULT_BUF_SIZE, true);
-        new DataView(mod.HEAPU8.buffer, errorLenPtr, 4).setUint32(0, ERROR_BUF_SIZE, true);
-
-        const rc = mod._east_wasm_call_with_args(handle, argsPtr, argsBytes.length, resultBufPtr, resultLenPtr, errorBufPtr, errorLenPtr);
-        mod._free(argsPtr);
-
-        if (rc !== 0) {
-            const errLen = new DataView(mod.HEAPU8.buffer, errorLenPtr, 4).getUint32(0, true);
-            const errBytes = new Uint8Array(mod.HEAPU8.buffer, errorBufPtr, errLen);
-            throw new Error(`east-c-wasm: ${new TextDecoder().decode(errBytes)}`);
-        }
-
-        const resLen = new DataView(mod.HEAPU8.buffer, resultLenPtr, 4).getUint32(0, true);
-        if (resLen === 0) return null;
-        return new Uint8Array(mod.HEAPU8.buffer, resultBufPtr, resLen).slice();
-    }
-
-    /** Ask C for the Beast2-encoded function type of a compiled handle, decode it once. */
+    /** Get function type from compiled handle via direct memory access (no beast2). */
     function getFnTypeFromHandle(handle: number): { inputTypes: EastTypeValue[]; outputType: EastTypeValue } {
-        new DataView(mod.HEAPU8.buffer, resultLenPtr, 4).setUint32(0, RESULT_BUF_SIZE, true);
-
-        const rc = mod._east_wasm_get_fn_type(handle, resultBufPtr, resultLenPtr);
-        if (rc !== 0) {
+        const typePtr = mod._east_wasm_fn_type_ptr(handle);
+        if (typePtr === 0) {
             return { inputTypes: [], outputType: { type: 'Null' } as EastTypeValue };
         }
 
-        const len = new DataView(mod.HEAPU8.buffer, resultLenPtr, 4).getUint32(0, true);
-        const typeBytes = new Uint8Array(mod.HEAPU8.buffer, resultBufPtr, len).slice();
-
-        const fnType = decodeBeast2For(EastTypeType)(typeBytes) as EastTypeValue;
+        const fnType = readTypeFromPtr(typePtr);
         if (fnType.type === 'Function' || fnType.type === 'AsyncFunction') {
-            return { inputTypes: fnType.value.inputs, outputType: fnType.value.output };
+            return { inputTypes: (fnType as any).value.inputs, outputType: (fnType as any).value.output };
         }
         return { inputTypes: [], outputType: { type: 'Null' } as EastTypeValue };
     }
@@ -283,6 +342,13 @@ export function createEastWasmFromModule(
         }
     }
 
+    /** Read a signed 64-bit integer from two 32-bit halves. */
+    function readI64(ptr: number): bigint {
+        const lo = BigInt(mod._east_wasm_get_i64_lo(ptr)) & 0xFFFFFFFFn;
+        const hi = BigInt(mod._east_wasm_get_i64_hi(ptr));
+        return (hi << 32n) | lo;
+    }
+
     /** Read an EastValue* pointer from WASM memory into a JS value. */
     function readValueFromPtr(ptr: number): unknown {
         if (ptr === 0) return null;
@@ -290,14 +356,14 @@ export function createEastWasmFromModule(
         switch (kind) {
         case 0: /* NULL */     return null;
         case 1: /* BOOLEAN */  return mod._east_wasm_get_bool(ptr) !== 0;
-        case 2: /* INTEGER */  return BigInt(mod._east_wasm_get_number(ptr));
-        case 3: /* FLOAT */    return mod._east_wasm_get_number(ptr);
+        case 2: /* INTEGER */  return readI64(ptr);
+        case 3: /* FLOAT */    return mod._east_wasm_get_float(ptr);
         case 4: /* STRING */ {
             const sptr = mod._east_wasm_get_string_ptr(ptr);
             const slen = mod._east_wasm_get_string_len(ptr);
             return mod.UTF8ToString(sptr, slen);
         }
-        case 5: /* DATETIME */ return mod._east_wasm_get_number(ptr);
+        case 5: /* DATETIME */ return new Date(Number(readI64(ptr)));
         case 6: /* BLOB */ {
             const bptr = mod._east_wasm_get_blob_ptr(ptr);
             const blen = mod._east_wasm_get_blob_len(ptr);
@@ -351,18 +417,62 @@ export function createEastWasmFromModule(
         case 13: /* VECTOR */ {
             const vlen = mod._east_wasm_vector_len(ptr);
             const vdata = mod._east_wasm_vector_data(ptr);
-            // Assume float64 for now (most common vector element type)
+            const vkind = mod._east_wasm_vector_elem_kind(ptr);
+            /* EastTypeKind: 2=Boolean, 3=Integer, 4=Float */
+            if (vkind === 3) return new BigInt64Array(mod.HEAP64!.buffer, vdata, vlen).slice();
+            if (vkind === 2) {
+                const raw = new Uint8Array(mod.HEAPU8.buffer, vdata, vlen);
+                return Array.from(raw, b => b !== 0);
+            }
             return new Float64Array(mod.HEAPF64.buffer, vdata, vlen).slice();
         }
         case 14: /* MATRIX */ {
             const rows = mod._east_wasm_matrix_rows(ptr);
             const cols = mod._east_wasm_matrix_cols(ptr);
             const mdata = mod._east_wasm_matrix_data(ptr);
+            const mkind = mod._east_wasm_matrix_elem_kind(ptr);
+            if (mkind === 3) return { rows, cols, data: new BigInt64Array(mod.HEAP64!.buffer, mdata, rows * cols).slice() };
             return { rows, cols, data: new Float64Array(mod.HEAPF64.buffer, mdata, rows * cols).slice() };
         }
-        case 15: /* FUNCTION */
-            // Cannot marshal function values to JS — return a placeholder
-            return { type: 'function', value: null };
+        case 15: /* FUNCTION */ {
+            // Allocate a temp handle and wrap as a callable JS function.
+            const handleId = mod._east_wasm_alloc_fn_handle(ptr);
+            if (handleId === 0) return variant('function', null);
+
+            // Read the function's type to get input/output signatures
+            const fnValCompiledPtr = ptr; // EastValue* with kind=FUNCTION
+            // Get fn_type from the compiled function's type
+            // The function type is on the EastCompiledFn which we can't access directly.
+            // Use the type accessors: the function value's variant type isn't stored on EastValue,
+            // but we can read it from the compiled function via a handle lookup.
+            // For now, create a zero-arg wrapper using invoke_fn_ptr.
+            const wrapper = (...jsArgs: unknown[]): unknown => {
+                const encodedArgs: Uint8Array[] = jsArgs.map((arg, i) => {
+                    // Without knowing arg types, we can't beast2-encode.
+                    // For zero-arg functions this is fine.
+                    throw new Error(`Function value arguments not yet supported (arg ${i})`);
+                });
+                const packedArgs = encodeArgsList(encodedArgs);
+                const argsPtr = mod._malloc(packedArgs.length);
+                mod.HEAPU8.set(packedArgs, argsPtr);
+                new DataView(mod.HEAPU8.buffer, errorLenPtr, 4).setUint32(0, ERROR_BUF_SIZE, true);
+                const resultPtr = mod._east_wasm_invoke_fn_ptr(
+                    handleId, argsPtr, packedArgs.length, errorBufPtr, errorLenPtr);
+                mod._free(argsPtr);
+                if (resultPtr === 0) {
+                    const errLen = new DataView(mod.HEAPU8.buffer, errorLenPtr, 4).getUint32(0, true);
+                    if (errLen > 0) {
+                        const errBytes = new Uint8Array(mod.HEAPU8.buffer, errorBufPtr, errLen);
+                        throw new Error(new TextDecoder().decode(errBytes));
+                    }
+                    return null;
+                }
+                const result = readValueFromPtr(resultPtr);
+                mod._east_wasm_value_release(resultPtr);
+                return result;
+            };
+            return wrapper;
+        }
         default:
             return null;
         }
@@ -461,7 +571,8 @@ export function createEastWasmFromModule(
             return wrapHandle(handle, inputTypes, outputType);
         },
 
-        decodeValue(bytes: Uint8Array): unknown {
+        decodeBeast2(bytes: Uint8Array, platform?: PlatformFunction[]): unknown {
+            ensurePlatformRegistered(platform);
             const dataPtr = writeBytes(bytes);
             new DataView(mod.HEAPU8.buffer, errorLenPtr, 4).setUint32(0, ERROR_BUF_SIZE, true);
             const ptr = mod._east_wasm_decode_value(dataPtr, bytes.length, errorBufPtr, errorLenPtr);
@@ -640,7 +751,10 @@ function extractFnSignature(fnType: EastTypeValue): { inputs: EastTypeValue[]; o
     throw new Error(`extractFnSignature: unexpected type ${(fnType as { type: string }).type}`);
 }
 
-/** Create a JS callable wrapper around a WASM temp handle (for platform function callbacks). */
+/** Create a JS callable wrapper around a WASM temp handle (for platform function callbacks).
+ *  Uses pointer-based invoke: calls _east_wasm_invoke_fn which returns beast2 result bytes,
+ *  but we decode the result via the beast2 path since invoke_fn doesn't have a _ptr variant yet.
+ *  TODO: add east_wasm_invoke_fn_ptr for fully pointer-based invoke. */
 function createFnHandleWrapper(
     handleId: number,
     fnType: EastTypeValue,

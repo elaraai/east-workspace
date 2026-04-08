@@ -352,6 +352,9 @@ static uint32_t compile_ir_node(IRNode *ir) {
         return 0;
     }
 
+    /* Store the Function type (not just the body type) for type marshalling */
+    fn->fn_type = ir->type;
+
     if (num_params > 0 && params) {
         fn->num_params = num_params;
         fn->param_names = calloc(num_params, sizeof(char *));
@@ -580,12 +583,22 @@ EMSCRIPTEN_KEEPALIVE int east_wasm_get_bool(uintptr_t ptr) {
     return ((EastValue *)ptr)->data.boolean ? 1 : 0;
 }
 
-EMSCRIPTEN_KEEPALIVE double east_wasm_get_number(uintptr_t ptr) {
+EMSCRIPTEN_KEEPALIVE double east_wasm_get_float(uintptr_t ptr) {
+    return ((EastValue *)ptr)->data.float64;
+}
+
+/* For i64 values (integer, datetime), return low and high 32-bit halves
+ * since WASM i64 ↔ JS BigInt requires special handling. */
+EMSCRIPTEN_KEEPALIVE uint32_t east_wasm_get_i64_lo(uintptr_t ptr) {
     EastValue *v = (EastValue *)ptr;
-    if (v->kind == EAST_VAL_INTEGER) return (double)v->data.integer;
-    if (v->kind == EAST_VAL_FLOAT) return v->data.float64;
-    if (v->kind == EAST_VAL_DATETIME) return (double)v->data.datetime;
-    return 0.0;
+    int64_t val = (v->kind == EAST_VAL_DATETIME) ? v->data.datetime : v->data.integer;
+    return (uint32_t)(val & 0xFFFFFFFF);
+}
+
+EMSCRIPTEN_KEEPALIVE int32_t east_wasm_get_i64_hi(uintptr_t ptr) {
+    EastValue *v = (EastValue *)ptr;
+    int64_t val = (v->kind == EAST_VAL_DATETIME) ? v->data.datetime : v->data.integer;
+    return (int32_t)(val >> 32);
 }
 
 EMSCRIPTEN_KEEPALIVE uintptr_t east_wasm_get_string_ptr(uintptr_t ptr) {
@@ -667,6 +680,16 @@ EMSCRIPTEN_KEEPALIVE uint32_t east_wasm_vector_len(uintptr_t ptr) {
     return (uint32_t)((EastValue *)ptr)->data.vector.len;
 }
 
+EMSCRIPTEN_KEEPALIVE int east_wasm_vector_elem_kind(uintptr_t ptr) {
+    EastType *et = ((EastValue *)ptr)->data.vector.elem_type;
+    return et ? et->kind : -1;
+}
+
+EMSCRIPTEN_KEEPALIVE int east_wasm_matrix_elem_kind(uintptr_t ptr) {
+    EastType *et = ((EastValue *)ptr)->data.matrix.elem_type;
+    return et ? et->kind : -1;
+}
+
 EMSCRIPTEN_KEEPALIVE uintptr_t east_wasm_matrix_data(uintptr_t ptr) {
     return (uintptr_t)((EastValue *)ptr)->data.matrix.data;
 }
@@ -681,6 +704,79 @@ EMSCRIPTEN_KEEPALIVE uint32_t east_wasm_matrix_cols(uintptr_t ptr) {
 
 EMSCRIPTEN_KEEPALIVE void east_wasm_value_release(uintptr_t ptr) {
     if (ptr) east_value_release((EastValue *)ptr);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Type accessors (for reading EastType* from WASM memory)            */
+/* ------------------------------------------------------------------ */
+
+EMSCRIPTEN_KEEPALIVE int east_wasm_type_kind(uintptr_t ptr) {
+    return ptr ? ((EastType *)ptr)->kind : -1;
+}
+
+EMSCRIPTEN_KEEPALIVE int64_t east_wasm_type_id(uintptr_t ptr) {
+    return ptr ? ((EastType *)ptr)->type_id : -1;
+}
+
+/* Array, Set, Ref, Vector, Matrix: element type */
+EMSCRIPTEN_KEEPALIVE uintptr_t east_wasm_type_element(uintptr_t ptr) {
+    return (uintptr_t)((EastType *)ptr)->data.element;
+}
+
+/* Dict: key and value types */
+EMSCRIPTEN_KEEPALIVE uintptr_t east_wasm_type_dict_key(uintptr_t ptr) {
+    return (uintptr_t)((EastType *)ptr)->data.dict.key;
+}
+
+EMSCRIPTEN_KEEPALIVE uintptr_t east_wasm_type_dict_val(uintptr_t ptr) {
+    return (uintptr_t)((EastType *)ptr)->data.dict.value;
+}
+
+/* Struct/Variant: number of fields/cases */
+EMSCRIPTEN_KEEPALIVE uint32_t east_wasm_type_num_fields(uintptr_t ptr) {
+    EastType *t = (EastType *)ptr;
+    if (t->kind == EAST_TYPE_STRUCT) return (uint32_t)t->data.struct_.num_fields;
+    if (t->kind == EAST_TYPE_VARIANT) return (uint32_t)t->data.variant.num_cases;
+    return 0;
+}
+
+EMSCRIPTEN_KEEPALIVE uintptr_t east_wasm_type_field_name(uintptr_t ptr, uint32_t idx) {
+    EastType *t = (EastType *)ptr;
+    if (t->kind == EAST_TYPE_STRUCT) return (uintptr_t)t->data.struct_.fields[idx].name;
+    if (t->kind == EAST_TYPE_VARIANT) return (uintptr_t)t->data.variant.cases[idx].name;
+    return 0;
+}
+
+EMSCRIPTEN_KEEPALIVE uintptr_t east_wasm_type_field_type(uintptr_t ptr, uint32_t idx) {
+    EastType *t = (EastType *)ptr;
+    if (t->kind == EAST_TYPE_STRUCT) return (uintptr_t)t->data.struct_.fields[idx].type;
+    if (t->kind == EAST_TYPE_VARIANT) return (uintptr_t)t->data.variant.cases[idx].type;
+    return 0;
+}
+
+/* Function: inputs and output */
+EMSCRIPTEN_KEEPALIVE uint32_t east_wasm_type_fn_num_inputs(uintptr_t ptr) {
+    return (uint32_t)((EastType *)ptr)->data.function.num_inputs;
+}
+
+EMSCRIPTEN_KEEPALIVE uintptr_t east_wasm_type_fn_input(uintptr_t ptr, uint32_t idx) {
+    return (uintptr_t)((EastType *)ptr)->data.function.inputs[idx];
+}
+
+EMSCRIPTEN_KEEPALIVE uintptr_t east_wasm_type_fn_output(uintptr_t ptr) {
+    return (uintptr_t)((EastType *)ptr)->data.function.output;
+}
+
+/* Recursive: inner type */
+EMSCRIPTEN_KEEPALIVE uintptr_t east_wasm_type_recursive_inner(uintptr_t ptr) {
+    return (uintptr_t)((EastType *)ptr)->data.recursive.node;
+}
+
+/* Get function type pointer from compiled handle */
+EMSCRIPTEN_KEEPALIVE uintptr_t east_wasm_fn_type_ptr(uint32_t handle) {
+    EastCompiledFn *fn = get_handle(handle);
+    if (!fn) return 0;
+    return (uintptr_t)fn->fn_type;
 }
 
 /* ------------------------------------------------------------------ */
@@ -880,7 +976,7 @@ void east_wasm_free_buf(void *ptr) {
 
 /*
  * Invoke a function via its temp handle (callback from JS into WASM).
- * Args are Beast2-full packed. Result is Beast2-full encoded.
+ * Args are Beast2-full packed. Result is Beast2-full encoded (legacy).
  */
 EMSCRIPTEN_KEEPALIVE
 int east_wasm_invoke_fn(uint32_t handle_id,
@@ -921,4 +1017,55 @@ int east_wasm_invoke_fn(uint32_t handle_id,
     free_args(args, num_args);
 
     return encode_call_result(result, fn->ir->type, result_buf, result_len, error_buf, error_len);
+}
+
+/*
+ * Invoke a function via temp handle — pointer-returning variant (no beast2).
+ */
+EMSCRIPTEN_KEEPALIVE
+uintptr_t east_wasm_invoke_fn_ptr(uint32_t handle_id,
+                                    const uint8_t *args_buf, size_t args_len,
+                                    char *error_buf, size_t *error_len) {
+    EastValue *fn_val = NULL;
+    if (handle_id & 0x80000000) {
+        uint32_t idx = handle_id & 0x7FFFFFFF;
+        if (idx < g_temp_handles.count)
+            fn_val = g_temp_handles.fn_values[idx];
+    }
+    if (!fn_val || fn_val->kind != EAST_VAL_FUNCTION || !fn_val->data.function.compiled) {
+        const char *msg = "invalid function handle";
+        size_t mlen = strlen(msg);
+        if (mlen > *error_len) mlen = *error_len;
+        memcpy(error_buf, msg, mlen);
+        *error_len = mlen;
+        return 0;
+    }
+
+    EastCompiledFn *fn = fn_val->data.function.compiled;
+    uint32_t num_args;
+    EastValue **args = decode_packed_args(args_buf, args_len, &num_args);
+    EvalResult result = east_call(fn, args, num_args);
+    free_args(args, num_args);
+
+    if (result.status == EVAL_ERROR) {
+        const char *msg = result.error_message ? result.error_message : "unknown error";
+        size_t mlen = strlen(msg);
+        if (mlen > *error_len) mlen = *error_len;
+        memcpy(error_buf, msg, mlen);
+        *error_len = mlen;
+        eval_result_free(&result);
+        return 0;
+    }
+
+    EastValue *val = result.value;
+    eval_result_free(&result);
+    return (uintptr_t)val;
+}
+
+/* Allocate a temp handle for a function EastValue* (for JS to invoke later). */
+EMSCRIPTEN_KEEPALIVE
+uint32_t east_wasm_alloc_fn_handle(uintptr_t fn_ptr) {
+    EastValue *v = (EastValue *)fn_ptr;
+    if (!v || v->kind != EAST_VAL_FUNCTION || !v->data.function.compiled) return 0;
+    return alloc_temp_handle(v);
 }

@@ -1144,6 +1144,7 @@ EastCompiledFn *east_compile(IRNode *ir, PlatformRegistry *platform,
     fn->num_params = 0;
     fn->platform = platform;
     fn->builtins = builtins;
+    fn->fn_type = ir->type;  /* function type for WASM type marshalling */
 
     return fn;
 }

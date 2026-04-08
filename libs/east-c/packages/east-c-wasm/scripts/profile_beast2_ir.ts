@@ -85,12 +85,12 @@ function profileValue(filePath: string) {
     console.log(`Mode: value (beast2_decode_auto)\n`);
 
     // Warmup
-    east.decodeValue(new Uint8Array(data));
+    east.decodeBeast2(new Uint8Array(data));
 
     // Timed decode
     const decodeStart = performance.now();
     for (let i = 0; i < iters; i++) {
-        east.decodeValue(new Uint8Array(data));
+        east.decodeBeast2(new Uint8Array(data));
     }
     const decodeMs = (performance.now() - decodeStart) / iters;
     console.log(`=== Decode ===`);
