@@ -568,6 +568,222 @@ static void free_args(EastValue **args, uint32_t num_args) {
     free(args);
 }
 
+/* ------------------------------------------------------------------ */
+/*  Direct value accessors (pointer-based, no beast2 marshalling)      */
+/* ------------------------------------------------------------------ */
+
+EMSCRIPTEN_KEEPALIVE int east_wasm_value_kind(uintptr_t ptr) {
+    return ptr ? ((EastValue *)ptr)->kind : -1;
+}
+
+EMSCRIPTEN_KEEPALIVE int east_wasm_get_bool(uintptr_t ptr) {
+    return ((EastValue *)ptr)->data.boolean ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE double east_wasm_get_number(uintptr_t ptr) {
+    EastValue *v = (EastValue *)ptr;
+    if (v->kind == EAST_VAL_INTEGER) return (double)v->data.integer;
+    if (v->kind == EAST_VAL_FLOAT) return v->data.float64;
+    if (v->kind == EAST_VAL_DATETIME) return (double)v->data.datetime;
+    return 0.0;
+}
+
+EMSCRIPTEN_KEEPALIVE uintptr_t east_wasm_get_string_ptr(uintptr_t ptr) {
+    return (uintptr_t)((EastValue *)ptr)->data.string.data;
+}
+
+EMSCRIPTEN_KEEPALIVE uint32_t east_wasm_get_string_len(uintptr_t ptr) {
+    return (uint32_t)((EastValue *)ptr)->data.string.len;
+}
+
+EMSCRIPTEN_KEEPALIVE uintptr_t east_wasm_get_blob_ptr(uintptr_t ptr) {
+    return (uintptr_t)((EastValue *)ptr)->data.blob.data;
+}
+
+EMSCRIPTEN_KEEPALIVE uint32_t east_wasm_get_blob_len(uintptr_t ptr) {
+    return (uint32_t)((EastValue *)ptr)->data.blob.len;
+}
+
+EMSCRIPTEN_KEEPALIVE uint32_t east_wasm_collection_len(uintptr_t ptr) {
+    EastValue *v = (EastValue *)ptr;
+    switch (v->kind) {
+    case EAST_VAL_ARRAY:  return (uint32_t)v->data.array.len;
+    case EAST_VAL_SET:    return (uint32_t)v->data.set.len;
+    case EAST_VAL_DICT:   return (uint32_t)v->data.dict.len;
+    case EAST_VAL_STRUCT: return (uint32_t)v->data.struct_.num_fields;
+    default: return 0;
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE uintptr_t east_wasm_array_get(uintptr_t ptr, uint32_t idx) {
+    EastValue *v = (EastValue *)ptr;
+    if (idx >= v->data.array.len) return 0;
+    return (uintptr_t)v->data.array.items[idx];
+}
+
+EMSCRIPTEN_KEEPALIVE uintptr_t east_wasm_set_get(uintptr_t ptr, uint32_t idx) {
+    EastValue *v = (EastValue *)ptr;
+    if (idx >= v->data.set.len) return 0;
+    return (uintptr_t)v->data.set.items[idx];
+}
+
+EMSCRIPTEN_KEEPALIVE uintptr_t east_wasm_dict_key(uintptr_t ptr, uint32_t idx) {
+    EastValue *v = (EastValue *)ptr;
+    if (idx >= v->data.dict.len) return 0;
+    return (uintptr_t)v->data.dict.keys[idx];
+}
+
+EMSCRIPTEN_KEEPALIVE uintptr_t east_wasm_dict_value(uintptr_t ptr, uint32_t idx) {
+    EastValue *v = (EastValue *)ptr;
+    if (idx >= v->data.dict.len) return 0;
+    return (uintptr_t)v->data.dict.values[idx];
+}
+
+EMSCRIPTEN_KEEPALIVE uintptr_t east_wasm_struct_field_name(uintptr_t ptr, uint32_t idx) {
+    return (uintptr_t)((EastValue *)ptr)->data.struct_.field_names[idx];
+}
+
+EMSCRIPTEN_KEEPALIVE uintptr_t east_wasm_struct_field_value(uintptr_t ptr, uint32_t idx) {
+    return (uintptr_t)((EastValue *)ptr)->data.struct_.field_values[idx];
+}
+
+EMSCRIPTEN_KEEPALIVE uintptr_t east_wasm_variant_tag(uintptr_t ptr) {
+    return (uintptr_t)((EastValue *)ptr)->data.variant.case_tag;
+}
+
+EMSCRIPTEN_KEEPALIVE uintptr_t east_wasm_variant_value(uintptr_t ptr) {
+    return (uintptr_t)((EastValue *)ptr)->data.variant.value;
+}
+
+EMSCRIPTEN_KEEPALIVE uintptr_t east_wasm_ref_get(uintptr_t ptr) {
+    return (uintptr_t)((EastValue *)ptr)->data.ref.value;
+}
+
+EMSCRIPTEN_KEEPALIVE uintptr_t east_wasm_vector_data(uintptr_t ptr) {
+    return (uintptr_t)((EastValue *)ptr)->data.vector.data;
+}
+
+EMSCRIPTEN_KEEPALIVE uint32_t east_wasm_vector_len(uintptr_t ptr) {
+    return (uint32_t)((EastValue *)ptr)->data.vector.len;
+}
+
+EMSCRIPTEN_KEEPALIVE uintptr_t east_wasm_matrix_data(uintptr_t ptr) {
+    return (uintptr_t)((EastValue *)ptr)->data.matrix.data;
+}
+
+EMSCRIPTEN_KEEPALIVE uint32_t east_wasm_matrix_rows(uintptr_t ptr) {
+    return (uint32_t)((EastValue *)ptr)->data.matrix.rows;
+}
+
+EMSCRIPTEN_KEEPALIVE uint32_t east_wasm_matrix_cols(uintptr_t ptr) {
+    return (uint32_t)((EastValue *)ptr)->data.matrix.cols;
+}
+
+EMSCRIPTEN_KEEPALIVE void east_wasm_value_release(uintptr_t ptr) {
+    if (ptr) east_value_release((EastValue *)ptr);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Pointer-returning call (no beast2 marshalling)                     */
+/* ------------------------------------------------------------------ */
+
+EMSCRIPTEN_KEEPALIVE uintptr_t east_wasm_call_ptr(uint32_t handle,
+                                                    char *error_buf, size_t *error_len) {
+    EastCompiledFn *fn = get_handle(handle);
+    if (!fn) {
+        const char *msg = "invalid handle";
+        size_t mlen = strlen(msg);
+        if (mlen > *error_len) mlen = *error_len;
+        memcpy(error_buf, msg, mlen);
+        *error_len = mlen;
+        return 0;
+    }
+
+    EvalResult result = east_call(fn, NULL, 0);
+    if (result.status == EVAL_ERROR) {
+        const char *msg = result.error_message ? result.error_message : "unknown error";
+        size_t mlen = strlen(msg);
+        if (mlen > *error_len) mlen = *error_len;
+        memcpy(error_buf, msg, mlen);
+        *error_len = mlen;
+        eval_result_free(&result);
+        return 0;
+    }
+
+    EastValue *val = result.value;
+    eval_result_free(&result);
+    /* Caller owns the returned value — must call east_wasm_value_release. */
+    return (uintptr_t)val;
+}
+
+EMSCRIPTEN_KEEPALIVE uintptr_t east_wasm_call_ptr_with_args(uint32_t handle,
+                                                              const uint8_t *args_buf, size_t args_len,
+                                                              char *error_buf, size_t *error_len) {
+    EastCompiledFn *fn = get_handle(handle);
+    if (!fn) {
+        const char *msg = "invalid handle";
+        size_t mlen = strlen(msg);
+        if (mlen > *error_len) mlen = *error_len;
+        memcpy(error_buf, msg, mlen);
+        *error_len = mlen;
+        return 0;
+    }
+
+    uint32_t num_args;
+    EastValue **args = decode_packed_args(args_buf, args_len, &num_args);
+
+    EvalResult result = east_call(fn, args, num_args);
+    free_args(args, num_args);
+
+    if (result.status == EVAL_ERROR) {
+        const char *msg = result.error_message ? result.error_message : "unknown error";
+        size_t mlen = strlen(msg);
+        if (mlen > *error_len) mlen = *error_len;
+        memcpy(error_buf, msg, mlen);
+        *error_len = mlen;
+        eval_result_free(&result);
+        return 0;
+    }
+
+    EastValue *val = result.value;
+    eval_result_free(&result);
+    return (uintptr_t)val;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Beast2 data value decode (returns pointer, no IR needed)           */
+/* ------------------------------------------------------------------ */
+
+EMSCRIPTEN_KEEPALIVE uintptr_t east_wasm_decode_value(const uint8_t *data, size_t len,
+                                                       char *error_buf, size_t *error_len) {
+    clear_last_error();
+    if (!g_initialized) {
+        const char *msg = "east_wasm_init() not called";
+        size_t mlen = strlen(msg);
+        if (mlen > *error_len) mlen = *error_len;
+        memcpy(error_buf, msg, mlen);
+        *error_len = mlen;
+        return 0;
+    }
+
+    EastValue *val = east_beast2_decode_auto(data, len);
+    if (!val) {
+        const char *msg = "failed to decode beast2 value";
+        size_t mlen = strlen(msg);
+        if (mlen > *error_len) mlen = *error_len;
+        memcpy(error_buf, msg, mlen);
+        *error_len = mlen;
+        return 0;
+    }
+
+    /* Caller owns the returned value — must call east_wasm_value_release. */
+    return (uintptr_t)val;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Legacy beast2-based call (kept for backward compatibility)         */
+/* ------------------------------------------------------------------ */
+
 EMSCRIPTEN_KEEPALIVE
 int east_wasm_call(uint32_t handle,
                     uint8_t *result_buf, size_t *result_len,

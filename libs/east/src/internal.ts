@@ -24,6 +24,8 @@ export * from './types.js';
 export * from './fuzz.js';
 export { decodeBeast2For, encodeBeast2For, compileFunctionIR, compileAsyncFunctionIR, EAST_IR_SYMBOL, type Beast2DecodeOptions } from './serialization/beast2.js';
 export { type RuntimeContext } from './compile.js';
+export { SortedSet } from './containers/sortedset.js';
+export { SortedMap } from './containers/sortedmap.js';
 // Patch system internals - value-level operations
 export { diffFor } from './patch/diff.js';
 export { applyFor } from './patch/apply.js';

@@ -19,7 +19,10 @@ import {
     type PlatformFunction,
     encodeBeast2For,
     decodeBeast2For,
+    SortedSet,
+    SortedMap,
 } from "@elaraai/east/internal";
+import { variant } from "@elaraai/east";
 
 // Extend EmscriptenModule with east-c-wasm specific C exports
 export interface EastWasmModule extends EmscriptenModule {
@@ -40,6 +43,33 @@ export interface EastWasmModule extends EmscriptenModule {
     _east_wasm_last_error: () => number;
     _east_wasm_invoke_fn: (handleId: number, argsPtr: number, argsLen: number, resultPtr: number, resultLenPtr: number, errorPtr: number, errorLenPtr: number) => number;
     _east_wasm_get_fn_type: (handle: number, outPtr: number, outLenPtr: number) => number;
+    // Direct value accessors (pointer-based, no beast2)
+    _east_wasm_value_kind: (ptr: number) => number;
+    _east_wasm_get_bool: (ptr: number) => number;
+    _east_wasm_get_number: (ptr: number) => number;
+    _east_wasm_get_string_ptr: (ptr: number) => number;
+    _east_wasm_get_string_len: (ptr: number) => number;
+    _east_wasm_get_blob_ptr: (ptr: number) => number;
+    _east_wasm_get_blob_len: (ptr: number) => number;
+    _east_wasm_collection_len: (ptr: number) => number;
+    _east_wasm_array_get: (ptr: number, idx: number) => number;
+    _east_wasm_set_get: (ptr: number, idx: number) => number;
+    _east_wasm_dict_key: (ptr: number, idx: number) => number;
+    _east_wasm_dict_value: (ptr: number, idx: number) => number;
+    _east_wasm_struct_field_name: (ptr: number, idx: number) => number;
+    _east_wasm_struct_field_value: (ptr: number, idx: number) => number;
+    _east_wasm_variant_tag: (ptr: number) => number;
+    _east_wasm_variant_value: (ptr: number) => number;
+    _east_wasm_ref_get: (ptr: number) => number;
+    _east_wasm_vector_data: (ptr: number) => number;
+    _east_wasm_vector_len: (ptr: number) => number;
+    _east_wasm_matrix_data: (ptr: number) => number;
+    _east_wasm_matrix_rows: (ptr: number) => number;
+    _east_wasm_matrix_cols: (ptr: number) => number;
+    _east_wasm_value_release: (ptr: number) => void;
+    _east_wasm_call_ptr: (handle: number, errorPtr: number, errorLenPtr: number) => number;
+    _east_wasm_call_ptr_with_args: (handle: number, argsPtr: number, argsLen: number, errorPtr: number, errorLenPtr: number) => number;
+    _east_wasm_decode_value: (dataPtr: number, dataLen: number, errorPtr: number, errorLenPtr: number) => number;
 }
 
 /** Result buffer size (1MB) — matches C side */
@@ -77,6 +107,9 @@ export interface EastWasm {
 
     /** Compile East IR from East text format. */
     compileFromEast(text: string, platform?: PlatformFunction[]): CompiledFunction;
+
+    /** Decode a beast2 data value (any type) — no IR, no compilation. */
+    decodeValue(bytes: Uint8Array): unknown;
 
     /** Run garbage collection on the WASM heap. */
     gc(): void;
@@ -250,15 +283,129 @@ export function createEastWasmFromModule(
         }
     }
 
+    /** Read an EastValue* pointer from WASM memory into a JS value. */
+    function readValueFromPtr(ptr: number): unknown {
+        if (ptr === 0) return null;
+        const kind = mod._east_wasm_value_kind(ptr);
+        switch (kind) {
+        case 0: /* NULL */     return null;
+        case 1: /* BOOLEAN */  return mod._east_wasm_get_bool(ptr) !== 0;
+        case 2: /* INTEGER */  return BigInt(mod._east_wasm_get_number(ptr));
+        case 3: /* FLOAT */    return mod._east_wasm_get_number(ptr);
+        case 4: /* STRING */ {
+            const sptr = mod._east_wasm_get_string_ptr(ptr);
+            const slen = mod._east_wasm_get_string_len(ptr);
+            return mod.UTF8ToString(sptr, slen);
+        }
+        case 5: /* DATETIME */ return mod._east_wasm_get_number(ptr);
+        case 6: /* BLOB */ {
+            const bptr = mod._east_wasm_get_blob_ptr(ptr);
+            const blen = mod._east_wasm_get_blob_len(ptr);
+            return new Uint8Array(mod.HEAPU8.buffer, bptr, blen).slice();
+        }
+        case 7: /* ARRAY */ {
+            const len = mod._east_wasm_collection_len(ptr);
+            const arr = new Array(len);
+            for (let i = 0; i < len; i++) {
+                arr[i] = readValueFromPtr(mod._east_wasm_array_get(ptr, i));
+            }
+            return arr;
+        }
+        case 8: /* SET — C stores items in sorted order, SortedSet preserves that */ {
+            const len = mod._east_wasm_collection_len(ptr);
+            const items: unknown[] = [];
+            for (let i = 0; i < len; i++) {
+                items.push(readValueFromPtr(mod._east_wasm_set_get(ptr, i)));
+            }
+            return new SortedSet(items);
+        }
+        case 9: /* DICT — C stores entries in sorted key order, SortedMap preserves that */ {
+            const len = mod._east_wasm_collection_len(ptr);
+            const entries: [unknown, unknown][] = [];
+            for (let i = 0; i < len; i++) {
+                const k = readValueFromPtr(mod._east_wasm_dict_key(ptr, i));
+                const v = readValueFromPtr(mod._east_wasm_dict_value(ptr, i));
+                entries.push([k, v]);
+            }
+            return new SortedMap(entries);
+        }
+        case 10: /* STRUCT */ {
+            const nf = mod._east_wasm_collection_len(ptr);
+            const obj: Record<string, unknown> = {};
+            for (let i = 0; i < nf; i++) {
+                const namePtr = mod._east_wasm_struct_field_name(ptr, i);
+                const name = mod.UTF8ToString(namePtr);
+                const valPtr = mod._east_wasm_struct_field_value(ptr, i);
+                obj[name] = readValueFromPtr(valPtr);
+            }
+            return obj;
+        }
+        case 11: /* VARIANT */ {
+            const tagPtr = mod._east_wasm_variant_tag(ptr);
+            const tag = mod.UTF8ToString(tagPtr);
+            const valPtr = mod._east_wasm_variant_value(ptr);
+            return variant(tag, readValueFromPtr(valPtr));
+        }
+        case 12: /* REF */
+            return readValueFromPtr(mod._east_wasm_ref_get(ptr));
+        case 13: /* VECTOR */ {
+            const vlen = mod._east_wasm_vector_len(ptr);
+            const vdata = mod._east_wasm_vector_data(ptr);
+            // Assume float64 for now (most common vector element type)
+            return new Float64Array(mod.HEAPF64.buffer, vdata, vlen).slice();
+        }
+        case 14: /* MATRIX */ {
+            const rows = mod._east_wasm_matrix_rows(ptr);
+            const cols = mod._east_wasm_matrix_cols(ptr);
+            const mdata = mod._east_wasm_matrix_data(ptr);
+            return { rows, cols, data: new Float64Array(mod.HEAPF64.buffer, mdata, rows * cols).slice() };
+        }
+        case 15: /* FUNCTION */
+            // Cannot marshal function values to JS — return a placeholder
+            return { type: 'function', value: null };
+        default:
+            return null;
+        }
+    }
+
+    /** Call a compiled function, return EastValue* pointer (no beast2). */
+    function callHandlePtr(handle: number): number {
+        new DataView(mod.HEAPU8.buffer, errorLenPtr, 4).setUint32(0, ERROR_BUF_SIZE, true);
+        const ptr = mod._east_wasm_call_ptr(handle, errorBufPtr, errorLenPtr);
+        if (ptr === 0) {
+            const errLen = new DataView(mod.HEAPU8.buffer, errorLenPtr, 4).getUint32(0, true);
+            if (errLen > 0) {
+                const errBytes = new Uint8Array(mod.HEAPU8.buffer, errorBufPtr, errLen);
+                throw new Error(`east-c-wasm: ${new TextDecoder().decode(errBytes)}`);
+            }
+        }
+        return ptr;
+    }
+
+    /** Call a compiled function with args, return EastValue* pointer (no beast2). */
+    function callHandlePtrWithArgs(handle: number, argsBytes: Uint8Array): number {
+        const argsPtr = writeBytes(argsBytes);
+        new DataView(mod.HEAPU8.buffer, errorLenPtr, 4).setUint32(0, ERROR_BUF_SIZE, true);
+        const ptr = mod._east_wasm_call_ptr_with_args(handle, argsPtr, argsBytes.length, errorBufPtr, errorLenPtr);
+        mod._free(argsPtr);
+        if (ptr === 0) {
+            const errLen = new DataView(mod.HEAPU8.buffer, errorLenPtr, 4).getUint32(0, true);
+            if (errLen > 0) {
+                const errBytes = new Uint8Array(mod.HEAPU8.buffer, errorBufPtr, errLen);
+                throw new Error(`east-c-wasm: ${new TextDecoder().decode(errBytes)}`);
+            }
+        }
+        return ptr;
+    }
+
     /** Create a CompiledFunction from a WASM handle + type info */
     function wrapHandle(handle: number, inputTypes: EastTypeValue[], outputType: EastTypeValue): CompiledFunction {
         const inputEncoders = inputTypes.map(t => encodeBeast2For(t));
-        const outputDecoder = decodeBeast2For(outputType);
 
         const fn = (...args: unknown[]): unknown => {
-            let resultBytes: Uint8Array | null;
+            let resultPtr: number;
             if (args.length === 0) {
-                resultBytes = callHandle(handle);
+                resultPtr = callHandlePtr(handle);
             } else {
                 const encodedArgs: Uint8Array[] = args.map((arg, i) => {
                     const encoder = inputEncoders[i];
@@ -266,11 +413,13 @@ export function createEastWasmFromModule(
                     return encoder(arg);
                 });
                 const packedArgs = encodeArgsList(encodedArgs);
-                resultBytes = callHandleWithArgs(handle, packedArgs);
+                resultPtr = callHandlePtrWithArgs(handle, packedArgs);
             }
 
-            if (resultBytes === null) return null;
-            return outputDecoder(resultBytes);
+            if (resultPtr === 0) return null;
+            const result = readValueFromPtr(resultPtr);
+            mod._east_wasm_value_release(resultPtr);
+            return result;
         };
 
         fn.free = () => mod._east_wasm_free(handle);
@@ -310,6 +459,24 @@ export function createEastWasmFromModule(
             const handle = compileEast(textBytes);
             const { inputTypes, outputType } = getFnTypeFromHandle(handle);
             return wrapHandle(handle, inputTypes, outputType);
+        },
+
+        decodeValue(bytes: Uint8Array): unknown {
+            const dataPtr = writeBytes(bytes);
+            new DataView(mod.HEAPU8.buffer, errorLenPtr, 4).setUint32(0, ERROR_BUF_SIZE, true);
+            const ptr = mod._east_wasm_decode_value(dataPtr, bytes.length, errorBufPtr, errorLenPtr);
+            mod._free(dataPtr);
+            if (ptr === 0) {
+                const errLen = new DataView(mod.HEAPU8.buffer, errorLenPtr, 4).getUint32(0, true);
+                if (errLen > 0) {
+                    const errBytes = new Uint8Array(mod.HEAPU8.buffer, errorBufPtr, errLen);
+                    throw new Error(`east-c-wasm decode: ${new TextDecoder().decode(errBytes)}`);
+                }
+                return null;
+            }
+            const result = readValueFromPtr(ptr);
+            mod._east_wasm_value_release(ptr);
+            return result;
         },
 
         gc(): void {

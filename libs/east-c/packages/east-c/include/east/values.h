@@ -113,17 +113,21 @@ EastValue *east_blob(const uint8_t *data, size_t len);
 
 // Collection constructors
 EastValue *east_array_new(EastType *elem_type);
+EastValue *east_array_new_with_capacity(EastType *elem_type, size_t capacity);
 void east_array_push(EastValue *arr, EastValue *val);
 EastValue *east_array_get(EastValue *arr, size_t index);
 size_t east_array_len(EastValue *arr);
 
 EastValue *east_set_new(EastType *elem_type);
+EastValue *east_set_new_with_capacity(EastType *elem_type, size_t capacity);
 void east_set_insert(EastValue *set, EastValue *val);
 bool east_set_has(EastValue *set, EastValue *val);
 bool east_set_delete(EastValue *set, EastValue *val);
 size_t east_set_len(EastValue *set);
 
 EastValue *east_dict_new(EastType *key_type, EastType *val_type);
+EastValue *east_dict_new_with_capacity(EastType *key_type, EastType *val_type,
+                                       size_t capacity);
 void east_dict_set(EastValue *dict, EastValue *key, EastValue *val);
 EastValue *east_dict_get(EastValue *dict, EastValue *key);
 bool east_dict_has(EastValue *dict, EastValue *key);

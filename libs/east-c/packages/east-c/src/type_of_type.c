@@ -1162,11 +1162,23 @@ static EastType *type_cache_get(EastValue *tv)
 {
     if (!tv) return NULL;
 
+    /* Beast2 fast path: type stored as integer index into type table.
+     * Resolves directly to EastType* — no EastValue→EastType conversion. */
+    if (tv->kind == EAST_VAL_INTEGER && ir_type_cache.table_types) {
+        size_t idx = (size_t)tv->data.integer;
+        if (idx < ir_type_cache.table_len) {
+            east_type_retain(ir_type_cache.table_types[idx]);
+            return ir_type_cache.table_types[idx];
+        }
+    }
+
     /* Fast path: check pre-built type table (pointer equality) */
-    for (size_t i = 0; i < ir_type_cache.table_len; i++) {
-        if (ir_type_cache.table_values[i] == tv) {
-            east_type_retain(ir_type_cache.table_types[i]);
-            return ir_type_cache.table_types[i];
+    if (ir_type_cache.table_values) {
+        for (size_t i = 0; i < ir_type_cache.table_len; i++) {
+            if (ir_type_cache.table_values[i] == tv) {
+                east_type_retain(ir_type_cache.table_types[i]);
+                return ir_type_cache.table_types[i];
+            }
         }
     }
 
@@ -1571,9 +1583,13 @@ static IRNode *convert_ir(EastValue *v)
         } else {
             result = with_loc(ir_function(type, captures, nc, params, np, body), s);
         }
-        /* Store original IR variant value for serialization */
-        result->data.function.source_ir = v;
-        east_value_retain(v);
+        /* Store original IR variant value for serialization.
+         * Skip for arena values (ref_count < 0 / immortal) — they are freed
+         * in bulk after IR conversion and must not be referenced later. */
+        if (v->ref_count >= 0) {
+            result->data.function.source_ir = v;
+            east_value_retain(v);
+        }
         ir_node_release(body);
         for (size_t i = 0; i < nc; i++) free(captures[i].name);
         free(captures);

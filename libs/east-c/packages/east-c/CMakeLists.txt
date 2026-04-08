@@ -4,6 +4,7 @@ add_library(east-c
     src/hashmap.c
     src/types.c
     src/values.c
+    src/value_arena.c
     src/ir.c
     src/env.c
     src/compiler.c
