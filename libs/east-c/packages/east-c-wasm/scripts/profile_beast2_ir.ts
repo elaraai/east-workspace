@@ -1,13 +1,14 @@
 /**
  * Beast2 benchmark for east-c-wasm.
  *
- * Tests two paths:
- *   1. IR compile + execute (compileFromBeast2 + call)
- *   2. Data value decode (decodeValue)
+ * Methodology matches profile_beast2_decode.c:
+ *   --ir:    decode IR + compile + execute (call closure if returned)
+ *   --value: decode beast2 data value
+ *   --both:  run both with separate files
  *
  * Usage:
- *   npx tsx scripts/profile_beast2_ir.ts /tmp/ui_fn.beast2 [iterations]        # IR mode
- *   npx tsx scripts/profile_beast2_ir.ts --value /tmp/ui.beast2 [iterations]   # Value decode mode
+ *   npx tsx scripts/profile_beast2_ir.ts --ir /tmp/ui_fn.beast2 [iterations]
+ *   npx tsx scripts/profile_beast2_ir.ts --value /tmp/ui.beast2 [iterations]
  *   npx tsx scripts/profile_beast2_ir.ts --both /tmp/ui_fn.beast2 /tmp/ui.beast2 [iterations]
  *
  * Generate test files:
@@ -17,84 +18,92 @@ import { readFileSync } from 'node:fs';
 import { createEastWasm } from '../dist/src/index.js';
 
 const args = process.argv.slice(2);
-
 let mode: 'ir' | 'value' | 'both' = 'ir';
-let files: string[] = [];
-let iters = 5;
+const files: string[] = [];
+let iters = 3;
 
-// Parse args
-let i = 0;
-while (i < args.length) {
-    if (args[i] === '--value') { mode = 'value'; i++; }
-    else if (args[i] === '--both') { mode = 'both'; i++; }
-    else if (args[i]!.startsWith('-')) { i++; }
-    else if (args[i]!.match(/^\d+$/)) { iters = parseInt(args[i]!, 10); i++; }
-    else { files.push(args[i]!); i++; }
+for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--ir') mode = 'ir';
+    else if (args[i] === '--value') mode = 'value';
+    else if (args[i] === '--both') mode = 'both';
+    else if (args[i]!.match(/^\d+$/)) iters = parseInt(args[i]!, 10);
+    else files.push(args[i]!);
 }
 
 if (files.length === 0) {
-    console.error('Usage: npx tsx scripts/profile_beast2_ir.ts [--value|--both] <file.beast2> [file2.beast2] [iterations]');
+    console.error('Usage: npx tsx scripts/profile_beast2_ir.ts [--ir|--value|--both] <file.beast2> [file2.beast2] [iterations]');
     process.exit(1);
 }
 
 const east = await createEastWasm();
 
-// --- IR compile + execute ---
-async function benchmarkIR(filePath: string) {
+function profileIR(filePath: string) {
     const data = readFileSync(filePath);
-    console.log(`\n=== IR: ${filePath} (${(data.length / 1048576).toFixed(2)} MB) ===\n`);
+    console.log(`File: ${filePath} (${data.length} bytes, ${(data.length / 1048576).toFixed(2)} MB)`);
+    console.log(`Mode: IR (direct decode)\n`);
 
     // Warmup
-    const warmup = east.compileFromBeast2(data);
-    const result = warmup();
-    console.log(`Result preview: ${JSON.stringify(result, (_k, v) => typeof v === 'bigint' ? Number(v) : v, 2)?.slice(0, 500)}...\n`);
+    east.compileFromBeast2(data);
 
-    // Compile benchmark
-    const compileStart = performance.now();
+    // Timed decode+compile
+    const decodeStart = performance.now();
     let compiled;
     for (let i = 0; i < iters; i++) {
         compiled = east.compileFromBeast2(data);
     }
-    const compileMs = (performance.now() - compileStart) / iters;
-    console.log(`  compile: ${compileMs.toFixed(1)} ms/call (${iters}x)`);
+    const decodeMs = (performance.now() - decodeStart) / iters;
+    console.log(`=== IR Decode (direct) ===`);
+    console.log(`  ${iters} iterations: ${decodeMs.toFixed(1)} ms/call\n`);
 
-    // Execute benchmark
+    // Timed execute (call closure if returned)
     try {
+        // Warmup execute
+        compiled!();
+
         const execStart = performance.now();
         for (let i = 0; i < iters; i++) {
             compiled!();
         }
         const execMs = (performance.now() - execStart) / iters;
-        console.log(`  execute: ${execMs.toFixed(1)} ms/call (${iters}x)`);
-        console.log(`  total:   ${(compileMs + execMs).toFixed(1)} ms`);
+        console.log(`=== Execute ===`);
+        console.log(`  ${iters} iterations: ${execMs.toFixed(1)} ms/call\n`);
+        console.log(`=== Summary ===`);
+        console.log(`  decode: ${decodeMs.toFixed(1)} ms`);
+        console.log(`  execute: ${execMs.toFixed(1)} ms`);
+        console.log(`  total: ${(decodeMs + execMs).toFixed(1)} ms`);
     } catch {
-        console.log(`  execute: skipped (result marshalling error)`);
+        console.log(`=== Execute ===`);
+        console.log(`  (skipped — result marshalling error)\n`);
+        console.log(`=== Summary ===`);
+        console.log(`  decode: ${decodeMs.toFixed(1)} ms`);
     }
 }
 
-// --- Data value decode ---
-async function benchmarkValue(filePath: string) {
+function profileValue(filePath: string) {
     const data = readFileSync(filePath);
-    console.log(`\n=== Value decode: ${filePath} (${(data.length / 1048576).toFixed(2)} MB) ===\n`);
+    console.log(`File: ${filePath} (${data.length} bytes, ${(data.length / 1048576).toFixed(2)} MB)`);
+    console.log(`Mode: value (beast2_decode_auto)\n`);
 
     // Warmup
-    const warmup = east.decodeValue(new Uint8Array(data));
-    console.log(`Result preview: ${JSON.stringify(warmup, (_k, v) => typeof v === 'bigint' ? Number(v) : v, 2)?.slice(0, 500)}...\n`);
+    east.decodeValue(new Uint8Array(data));
 
-    // Benchmark
-    const start = performance.now();
+    // Timed decode
+    const decodeStart = performance.now();
     for (let i = 0; i < iters; i++) {
         east.decodeValue(new Uint8Array(data));
     }
-    const ms = (performance.now() - start) / iters;
-    console.log(`  decode:  ${ms.toFixed(1)} ms/call (${iters}x)`);
+    const decodeMs = (performance.now() - decodeStart) / iters;
+    console.log(`=== Decode ===`);
+    console.log(`  ${iters} iterations: ${decodeMs.toFixed(1)} ms/call\n`);
+    console.log(`=== Summary ===`);
+    console.log(`  decode: ${decodeMs.toFixed(1)} ms`);
 }
 
-// Run
 if (mode === 'ir' || mode === 'both') {
-    await benchmarkIR(files[0]!);
+    profileIR(files[0]!);
 }
+if (mode === 'both') console.log('\n');
 if (mode === 'value' || mode === 'both') {
     const valueFile = mode === 'both' ? (files[1] ?? files[0]!) : files[0]!;
-    await benchmarkValue(valueFile);
+    profileValue(valueFile);
 }

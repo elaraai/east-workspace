@@ -50,14 +50,31 @@ static int profile_ir(const uint8_t *data, long fsize, int iters) {
     EastCompiledFn *fn = east_compile(ir, NULL, builtins);
     if (!fn) { fprintf(stderr, "Compile failed!\n"); ir_node_release(ir); builtin_registry_free(builtins); return 1; }
 
-    /* Timed execute */
+    /* Execute — if the result is a function (closure), call it to get the actual value */
     EvalResult result = east_call(fn, NULL, 0);
     if (result.error_message) {
         fprintf(stderr, "Execute failed: %s\n", result.error_message);
     } else {
+        /* Check if result is a closure that needs calling */
+        EastCompiledFn *inner_fn = NULL;
+        if (result.value && result.value->kind == EAST_VAL_FUNCTION && result.value->data.function.compiled) {
+            inner_fn = result.value->data.function.compiled;
+            fprintf(stderr, "  (outer function returns closure — calling it)\n");
+        }
+
         clock_gettime(CLOCK_MONOTONIC, &t0);
         for (int i = 0; i < iters; i++) {
             EvalResult r = east_call(fn, NULL, 0);
+            /* If outer returns a closure, call it */
+            if (inner_fn && r.value && r.value->kind == EAST_VAL_FUNCTION) {
+                EastCompiledFn *cfn = r.value->data.function.compiled;
+                if (cfn) {
+                    EvalResult inner = east_call(cfn, NULL, 0);
+                    east_value_release(r.value);
+                    eval_result_free(&r);
+                    r = inner;
+                }
+            }
             if (r.value) east_value_release(r.value);
             eval_result_free(&r);
         }

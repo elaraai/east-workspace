@@ -1,6 +1,6 @@
 #include "east/values.h"
+#include "east/value_slab.h"
 #include "east/arena.h"
-#include "east/value_arena.h"
 #include "east/gc.h"
 #include "east/types.h"
 
@@ -37,21 +37,15 @@ static bool is_gc_type(EastValueKind kind) {
 }
 
 static EastValue *alloc_value(EastValueKind kind) {
-    EastValue *v = east_calloc(1, sizeof(EastValue));
+    EastValue *v = east_value_slab_alloc();
     if (!v) return NULL;
     v->kind = kind;
-    if (east_value_arena_get_active()) {
-        /* Arena path: immortal, no GC tracking.  The arena frees all
-         * values in bulk — no individual retain/release/free needed. */
-        v->ref_count = -1;
-    } else {
-        v->ref_count = 1;
-        v->gc_tracked = false;
-        v->gc_next = NULL;
-        v->gc_prev = NULL;
-        if (is_gc_type(kind)) {
-            east_gc_track(v);
-        }
+    v->ref_count = 1;
+    v->gc_tracked = false;
+    v->gc_next = NULL;
+    v->gc_prev = NULL;
+    if (is_gc_type(kind)) {
+        east_gc_track(v);
     }
     return v;
 }
@@ -180,7 +174,7 @@ EastValue *east_string(const char *str) {
     v->data.string.len = strlen(str);
     v->data.string.data = east_strdup(str);
     if (!v->data.string.data) {
-        east_free(v);
+        east_value_slab_free(v);
         return NULL;
     }
     return v;
@@ -192,7 +186,7 @@ EastValue *east_string_len(const char *str, size_t len) {
     v->data.string.len = len;
     v->data.string.data = east_alloc(len + 1);
     if (!v->data.string.data) {
-        east_free(v);
+        east_value_slab_free(v);
         return NULL;
     }
     if (str && len > 0) {
@@ -216,7 +210,7 @@ EastValue *east_blob(const uint8_t *data, size_t len) {
     if (len > 0 && data) {
         v->data.blob.data = east_alloc(len);
         if (!v->data.blob.data) {
-            east_free(v);
+            east_value_slab_free(v);
             return NULL;
         }
         memcpy(v->data.blob.data, data, len);
@@ -237,7 +231,7 @@ EastValue *east_array_new(EastType *elem_type) {
     v->data.array.cap = 4;
     v->data.array.items = east_alloc(4 * sizeof(EastValue *));
     if (!v->data.array.items) {
-        east_free(v);
+        east_value_slab_free(v);
         return NULL;
     }
     v->data.array.elem_type = elem_type;
@@ -253,7 +247,7 @@ EastValue *east_array_new_with_capacity(EastType *elem_type, size_t capacity) {
     if (capacity > 0) {
         v->data.array.items = east_alloc(capacity * sizeof(EastValue *));
         if (!v->data.array.items) {
-            east_free(v);
+            east_value_slab_free(v);
             return NULL;
         }
     } else {
@@ -302,7 +296,7 @@ EastValue *east_set_new(EastType *elem_type) {
     v->data.set.cap = 4;
     v->data.set.items = east_alloc(4 * sizeof(EastValue *));
     if (!v->data.set.items) {
-        east_free(v);
+        east_value_slab_free(v);
         return NULL;
     }
     v->data.set.elem_type = elem_type;
@@ -318,7 +312,7 @@ EastValue *east_set_new_with_capacity(EastType *elem_type, size_t capacity) {
     if (capacity > 0) {
         v->data.set.items = east_alloc(capacity * sizeof(EastValue *));
         if (!v->data.set.items) {
-            east_free(v);
+            east_value_slab_free(v);
             return NULL;
         }
     } else {
@@ -427,7 +421,7 @@ EastValue *east_dict_new(EastType *key_type, EastType *val_type) {
     if (!v->data.dict.keys || !v->data.dict.values) {
         east_free(v->data.dict.keys);
         east_free(v->data.dict.values);
-        east_free(v);
+        east_value_slab_free(v);
         return NULL;
     }
     v->data.dict.key_type = key_type;
@@ -449,7 +443,7 @@ EastValue *east_dict_new_with_capacity(EastType *key_type, EastType *val_type,
         if (!v->data.dict.keys || !v->data.dict.values) {
             east_free(v->data.dict.keys);
             east_free(v->data.dict.values);
-            east_free(v);
+            east_value_slab_free(v);
             return NULL;
         }
     } else {
@@ -591,7 +585,7 @@ EastValue *east_struct_new(const char **names, EastValue **values,
         if (!v->data.struct_.field_names || !v->data.struct_.field_values) {
             east_free(v->data.struct_.field_names);
             east_free(v->data.struct_.field_values);
-            east_free(v);
+            east_value_slab_free(v);
             return NULL;
         }
         for (size_t i = 0; i < count; i++) {
@@ -696,7 +690,7 @@ EastValue *east_vector_new(EastType *elem_type, size_t len) {
         v->data.vector.data = east_calloc(len, esize);
         if (!v->data.vector.data) {
             if (elem_type) east_type_release(elem_type);
-            east_free(v);
+            east_value_slab_free(v);
             return NULL;
         }
     } else {
@@ -718,7 +712,7 @@ EastValue *east_matrix_new(EastType *elem_type, size_t rows, size_t cols) {
         v->data.matrix.data = east_calloc(count, esize);
         if (!v->data.matrix.data) {
             if (elem_type) east_type_release(elem_type);
-            east_free(v);
+            east_value_slab_free(v);
             return NULL;
         }
     } else {
@@ -743,7 +737,7 @@ EastValue *east_function_value(EastCompiledFn *fn) {
 /* ------------------------------------------------------------------ */
 
 void east_value_dealloc(EastValue *v) {
-    east_free(v);
+    east_value_slab_free(v);
 }
 
 void east_value_retain(EastValue *v) {
@@ -849,7 +843,7 @@ void east_value_release(EastValue *v) {
         break;
     }
 
-    free(v);
+    east_value_slab_free(v);
 }
 
 /* ------------------------------------------------------------------ */

@@ -555,6 +555,13 @@ void ir_node_release(IRNode *node) {
             ir_variable_free(&node->data.function.captures[i]);
         }
         free(node->data.function.captures);
+        if (node->data.function.capture_types) {
+            for (size_t i = 0; i < node->data.function.num_captures; i++) {
+                if (node->data.function.capture_types[i])
+                    east_type_release(node->data.function.capture_types[i]);
+            }
+            free(node->data.function.capture_types);
+        }
         for (size_t i = 0; i < node->data.function.num_params; i++) {
             ir_variable_free(&node->data.function.params[i]);
         }

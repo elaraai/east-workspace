@@ -5,6 +5,7 @@ add_library(east-c
     src/types.c
     src/values.c
     src/value_arena.c
+    src/value_slab.c
     src/ir.c
     src/env.c
     src/compiler.c

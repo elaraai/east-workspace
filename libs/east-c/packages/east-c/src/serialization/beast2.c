@@ -1488,6 +1488,9 @@ static void beast2_encode_value(ByteBuffer *buf, EastValue *value,
 static EastValue *beast2_decode_value(const uint8_t *data, size_t len,
                                        size_t *offset, EastType *type,
                                        Beast2DecodeCtx *ctx);
+static IRNode *b2ir_decode_node(const uint8_t *data, size_t len, size_t *offset,
+                                EastType **types, size_t type_count,
+                                Beast2StringTableDec *st);
 
 static void beast2_encode_value(ByteBuffer *buf, EastValue *value,
                                 EastType *type, Beast2EncodeCtx *ctx)
@@ -2176,93 +2179,53 @@ static EastValue *beast2_decode_value(const uint8_t *data, size_t len,
 
     case EAST_TYPE_FUNCTION:
     case EAST_TYPE_ASYNC_FUNCTION: {
-        /* Ensure IR type is initialized */
+        /* 1. Decode IR directly to IRNode (no EastValue intermediate).
+         *    capture_types are saved on the IRNode for step 3. */
         if (!east_ir_type) east_type_of_type_init();
 
-        /* 1. Decode IR variant value — beast2_decode_value intercepts
-         * EastTypeType positions and reads plain varint indices when
-         * ctx->global_type_table is set. */
-        Beast2DecodeCtx ir_dctx;
-        beast2_dec_ctx_init(&ir_dctx);
-        ir_dctx.string_table = ctx->string_table;
-        ir_dctx.global_type_table = ctx->global_type_table;
-        ir_dctx.global_types = ctx->global_types;
-        ir_dctx.global_type_table_size = ctx->global_type_table_size;
-        EastValue *ir_value = beast2_decode_value(data, len, offset,
-                                                    east_ir_type, &ir_dctx);
-        beast2_dec_ctx_free(&ir_dctx);
-        if (!ir_value) return NULL;
+        IRNode *ir_node = (ctx->global_types && ctx->string_table)
+            ? b2ir_decode_node(data, len, offset,
+                               ctx->global_types, ctx->global_type_table_size,
+                               ctx->string_table)
+            : NULL;
 
-        /* 2. Extract captures array from decoded IR */
-        EastValue *fn_struct = ir_value->data.variant.value;
-        EastValue *caps_arr = east_struct_get_field_idx(fn_struct, 2); /* captures */
-        size_t ir_ncaps = (caps_arr && caps_arr->kind == EAST_VAL_ARRAY) ? caps_arr->data.array.len : 0;
-
-        /* 3. Read capture count and validate */
-        uint64_t ncaps = read_varint(data, offset);
-        if (ncaps != ir_ncaps) {
-            east_value_release(ir_value);
+        if (!ir_node) {
+            /* Fallback: no type table available (headerless beast2) — not supported */
             return NULL;
         }
 
-        /* 4. Create captures environment and decode each capture value */
+        /* 2. Read capture count and validate */
+        size_t ir_ncaps = ir_node->data.function.num_captures;
+        uint64_t ncaps = read_varint(data, offset);
+        if (ncaps != ir_ncaps) {
+            ir_node_release(ir_node);
+            return NULL;
+        }
+
+        /* 3. Decode capture values using types from the IR Variable nodes */
         Environment *captures_env = env_new(NULL);
+        EastType **cap_types = ir_node->data.function.capture_types;
 
         for (uint64_t i = 0; i < ncaps; i++) {
-            EastValue *cap_var = caps_arr->data.array.items[i];
-            EastValue *cap_s = cap_var->data.variant.value;
-            EastValue *name_v = east_struct_get_field_idx(cap_s, 2); /* name */
-            EastValue *type_v = east_struct_get_field_idx(cap_s, 0); /* type */
-            bool is_mutable = false;
-            EastValue *mut_v = east_struct_get_field_idx(cap_s, 3); /* mutable */
-            if (mut_v && mut_v->kind == EAST_VAL_BOOLEAN) is_mutable = mut_v->data.boolean;
-
-            const char *cap_name = name_v->data.string.data;
-            /* Type may be an integer index (beast2 type table) or an
-             * EastValue type variant (JSON path). */
-            EastType *cap_type;
-            if (type_v && type_v->kind == EAST_VAL_INTEGER && ctx->global_types) {
-                size_t tidx = (size_t)type_v->data.integer;
-                cap_type = (tidx < ctx->global_type_table_size)
-                    ? ctx->global_types[tidx] : NULL;
-                if (cap_type) east_type_retain(cap_type);
-            } else {
-                cap_type = east_type_from_value(type_v);
-            }
+            const char *cap_name = ir_node->data.function.captures[i].name;
+            EastType *cap_type = cap_types ? cap_types[i] : NULL;
 
             EastValue *cap_val = beast2_decode_value(data, len, offset, cap_type, ctx);
-            if (cap_type) east_type_release(cap_type);
             if (!cap_val) {
                 env_release(captures_env);
-                east_value_release(ir_value);
+                ir_node_release(ir_node);
                 return NULL;
             }
 
-            /* Store capture value directly in environment.
-             * The C compiler uses env_update for mutable captures (no Ref
-             * wrapping), so we store all captures the same way. */
             env_set(captures_env, cap_name, cap_val);
             east_value_release(cap_val);
         }
 
-        /* 5. Convert decoded IR to IRNode (use type table for O(1) type resolution) */
-        IRNode *ir_node = (ctx->global_types && ctx->global_type_table)
-            ? east_ir_from_value_with_types(ir_value,
-                  ctx->global_type_table, ctx->global_types,
-                  ctx->global_type_table_size)
-            : east_ir_from_value(ir_value);
-        if (!ir_node) {
-            env_release(captures_env);
-            east_value_release(ir_value);
-            return NULL;
-        }
-
-        /* 6. Build EastCompiledFn */
+        /* 4. Build EastCompiledFn */
         EastCompiledFn *fn = calloc(1, sizeof(EastCompiledFn));
         if (!fn) {
-            ir_node_release(ir_node);
             env_release(captures_env);
-            east_value_release(ir_value);
+            ir_node_release(ir_node);
             return NULL;
         }
 
@@ -2278,7 +2241,7 @@ static EastValue *beast2_decode_value(const uint8_t *data, size_t len,
         }
         fn->platform = east_current_platform();
         fn->builtins = east_current_builtins();
-        fn->source_ir = ir_value; /* already retained from decode */
+        fn->source_ir = NULL; /* direct decode has no EastValue source */
 
         ir_node_release(ir_node);
 
@@ -2757,12 +2720,17 @@ static IRNode *b2ir_decode_node(const uint8_t *data, size_t len, size_t *offset,
         IRNode *body = b2ir_decode_node(data, len, offset, types, type_count, st);
 
         IRVariable *captures = nc > 0 ? calloc(nc, sizeof(IRVariable)) : NULL;
+        EastType **cap_types = nc > 0 ? calloc(nc, sizeof(EastType *)) : NULL;
         IRVariable *params   = np > 0 ? calloc(np, sizeof(IRVariable)) : NULL;
         for (size_t i = 0; i < nc; i++) {
             if (cap_nodes[i] && cap_nodes[i]->kind == IR_VARIABLE) {
                 captures[i].name = strdup(cap_nodes[i]->data.variable.name);
                 captures[i].mutable = cap_nodes[i]->data.variable.mutable;
                 captures[i].captured = cap_nodes[i]->data.variable.captured;
+                if (cap_nodes[i]->type) {
+                    cap_types[i] = cap_nodes[i]->type;
+                    east_type_retain(cap_types[i]);
+                }
             }
         }
         for (size_t i = 0; i < np; i++) {
@@ -2776,6 +2744,10 @@ static IRNode *b2ir_decode_node(const uint8_t *data, size_t len, size_t *offset,
         result = (case_idx == 2)
             ? ir_async_function(type, captures, nc, params, np, body)
             : ir_function(type, captures, nc, params, np, body);
+
+        /* Store capture types on the IRNode for beast2 closure decode */
+        if (result) result->data.function.capture_types = cap_types;
+        else { for (size_t i = 0; i < nc; i++) if (cap_types[i]) east_type_release(cap_types[i]); free(cap_types); }
 
         for (size_t i = 0; i < nc; i++) free(captures[i].name);
         free(captures);

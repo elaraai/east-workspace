@@ -128,6 +128,7 @@ struct IRNode {
         // IR_FUNCTION, IR_ASYNC_FUNCTION
         struct {
             IRVariable *captures;
+            EastType **capture_types;  // per-capture types (for beast2 closure decode, NULL otherwise)
             size_t num_captures;
             IRVariable *params;
             size_t num_params;

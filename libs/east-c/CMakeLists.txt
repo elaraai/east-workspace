@@ -33,7 +33,7 @@ set(PCRE2_SUPPORT_UNICODE ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(pcre2)
 
 # Optional: mimalloc for faster small allocations
-option(EAST_USE_MIMALLOC "Use mimalloc allocator" ON)
+option(EAST_USE_MIMALLOC "Use mimalloc allocator" OFF)
 if(EAST_USE_MIMALLOC AND NOT EMSCRIPTEN)
     FetchContent_Declare(
         mimalloc
