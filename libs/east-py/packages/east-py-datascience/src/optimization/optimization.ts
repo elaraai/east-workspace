@@ -40,6 +40,9 @@ export const ParameterVectorType = VectorType(IntegerType);
 /** Objective function: Vector<Integer> -> Float */
 export const IterativeObjectiveType = FunctionType([ParameterVectorType], FloatType);
 
+/** Per-element contribution function: (Vector<Integer>, Integer) -> Float */
+export const ElementObjectiveType = FunctionType([ParameterVectorType, IntegerType], FloatType);
+
 /** Per-element candidate spaces: Array<Vector<Integer>> */
 export const ParameterSpacesType = ArrayType(ParameterVectorType);
 
@@ -94,6 +97,8 @@ export const IterativeConfigType = StructType({
     random_state: OptionType(IntegerType),
     /** Optimization mode: coordinate (default) or swap for permutations */
     mode: OptionType(ModeType),
+    /** Number of parallel worker threads for samples (default: 1) */
+    workers: OptionType(IntegerType),
 });
 
 /**
@@ -166,6 +171,45 @@ export const optimization_iterative = East.platform(
     IterativeResultType
 );
 
+/**
+ * Incremental iterative optimization over integer parameter vectors.
+ *
+ * Like {@link optimization_iterative}, but takes a **per-element contribution function**
+ * instead of a full objective. The optimizer maintains a running sum and only
+ * recomputes contributions for changed indices — dramatically faster when
+ * individual moves affect only a small part of the total cost.
+ *
+ * The total objective is `sum(elementObjective(vector, i) for all i)`.
+ *
+ * Two modes are available:
+ * - **coordinate** (default): When changing element `i`, recomputes 1 contribution.
+ * - **swap**: When swapping elements `i` and `j`, recomputes 2 contributions.
+ *
+ * @example Incremental rostering
+ * ```ts
+ * // Per-person cost: only recomputes the changed person
+ * const elementObjective = East.function(
+ *     [VectorType(IntegerType), IntegerType], FloatType,
+ *     ($, assignments, personIdx) => {
+ *         const role = $.let(assignments.get(personIdx));
+ *         return $.return(salaryLookup.get(personIdx).get(role).negate());
+ *     }
+ * );
+ * const result = $.let(Optimization.iterativeIncremental(
+ *     elementObjective, spaces, config
+ * ));
+ * ```
+ */
+export const optimization_iterative_incremental = East.platform(
+    "optimization_iterative_incremental",
+    [
+        ElementObjectiveType,     // elementObjective: (Vector<Integer>, Integer) -> Float
+        ParameterSpacesType,      // parameter_spaces: Array<Vector<Integer>>
+        IterativeConfigType,      // config
+    ],
+    IterativeResultType
+);
+
 // ============================================================================
 // Grouped Export
 // ============================================================================
@@ -178,6 +222,8 @@ export const OptimizationTypes = {
     ParameterVectorType,
     /** Objective function type */
     ObjectiveType: IterativeObjectiveType,
+    /** Per-element contribution function type */
+    ElementObjectiveType,
     /** Parameter spaces type */
     SpacesType: ParameterSpacesType,
     /** Initial value strategy variant */
@@ -281,6 +327,51 @@ export const Optimization = {
      * ```
      */
     iterative: optimization_iterative,
+
+    /**
+     * Incremental iterative optimization with per-element contributions.
+     *
+     * `Optimization.iterativeIncremental(elementObjective, spaces, config)`
+     *
+     * Takes a per-element contribution function `(Vector<Integer>, Integer) -> Float`
+     * instead of a full objective. The total objective is the sum of all element
+     * contributions. Only recomputes contributions for changed indices during search.
+     *
+     * Use this when individual moves (coordinate or swap) affect only a small
+     * part of the total cost — e.g., rostering where changing one person's
+     * allocation only changes that person's salary.
+     *
+     * @example Incremental task-worker assignment
+     * ```ts
+     * // Per-task skill score: only recomputes the changed task
+     * const skill = $.let([[3.0, 1.0], [1.0, 3.0], [2.0, 2.0]]);
+     * const elementObjective = East.function(
+     *     [VectorType(IntegerType), IntegerType], FloatType,
+     *     ($, assignments, taskIdx) => {
+     *         const worker = $.let(assignments.get(taskIdx));
+     *         return $.return(skill.get(taskIdx).get(worker));
+     *     }
+     * );
+     * const spaces = $.let([
+     *     new BigInt64Array([0n, 1n]),
+     *     new BigInt64Array([0n, 1n]),
+     *     new BigInt64Array([0n, 1n]),
+     * ]);
+     * const config = $.let({
+     *     iterations: variant('some', 10n),
+     *     samples: variant('some', 3n),
+     *     initial: variant('some', variant('random', null)),
+     *     order: variant('some', variant('sequential', null)),
+     *     random_state: variant('some', 42n),
+     *     mode: variant('none', null),
+     * });
+     * const result = $.let(Optimization.iterativeIncremental(
+     *     elementObjective, spaces, config
+     * ));
+     * // result.best_objective = 8.0 (same result, fewer evaluations)
+     * ```
+     */
+    iterativeIncremental: optimization_iterative_incremental,
 
     /**
      * Type definitions for optimization functions.

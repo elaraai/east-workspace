@@ -74,6 +74,14 @@ EastType *east_literal_value_type = NULL;
 EastType *east_ir_type = NULL;
 EastType *east_ir_type_with_refs = NULL;
 
+void east_type_of_type_free(void)
+{
+    if (east_type_type) { east_type_release(east_type_type); east_type_type = NULL; }
+    if (east_literal_value_type) { east_type_release(east_literal_value_type); east_literal_value_type = NULL; }
+    if (east_ir_type) { east_type_release(east_ir_type); east_ir_type = NULL; }
+    if (east_ir_type_with_refs) { east_type_release(east_ir_type_with_refs); east_ir_type_with_refs = NULL; }
+}
+
 /* ================================================================== */
 /*  Helper: build struct type with sorted fields                       */
 /* ================================================================== */
@@ -202,6 +210,12 @@ void east_type_of_type_init(void)
         EastType *rec_arr = east_array_type(rec);
         EastType *func_struct = make_struct2("inputs", rec_arr, "output", rec);
 
+        /* Recursive -> VariantType({ref: IntegerType, wrapper: StructType({id: IntegerType, inner: self})}) */
+        EastType *rec_wrapper_struct = make_struct2("id", &east_integer_type, "inner", rec);
+        const char *rec_case_names[] = { "ref", "wrapper" };
+        EastType *rec_case_types[] = { &east_integer_type, rec_wrapper_struct };
+        EastType *rec_variant = east_variant_type(rec_case_names, rec_case_types, 2);
+
         /* Case order must match TypeScript declaration order exactly,
          * because beast2 encodes variant case indices numerically. */
         const char *names[] = {
@@ -225,7 +239,7 @@ void east_type_of_type_init(void)
             dict_payload,   /* Dict -> {key: self, value: self} */
             field_array,    /* Struct -> [{name: String, type: self}] */
             field_array,    /* Variant -> [{name: String, type: self}] */
-            &east_integer_type, /* Recursive -> Integer (depth) */
+            rec_variant,    /* Recursive -> Variant({ref: Integer, wrapper: Struct({id: Integer, inner: self})}) */
             func_struct,    /* Function -> {inputs: [self], output: self} */
             func_struct,    /* AsyncFunction -> {inputs: [self], output: self} */
             rec,            /* Vector -> self (element type) */
@@ -452,6 +466,10 @@ typedef struct {
     EastType **wrappers;  /* Speculative recursive wrappers indexed by depth */
     int depth;            /* Current compound type nesting depth */
     int cap;              /* Capacity of wrappers array */
+    /* id → wrapper map for Recursive(ref(id)) resolution */
+    struct { int64_t id; EastType *wrapper; } *id_map;
+    int id_map_len;
+    int id_map_cap;
 } RecCtx;
 
 static void rec_ctx_push(RecCtx *ctx) {
@@ -665,9 +683,55 @@ static EastType *east_type_from_value_ctx(EastValue *v, RecCtx *ctx)
         return rec_ctx_pop(ctx, t);
     }
 
-    /* Recursive(N): self-reference to the compound type at depth - N.
-     * Resolve to the speculative wrapper at that position. */
+    /* Recursive(Variant("ref"|"wrapper", ...)):
+     * Case indices (alphabetically sorted): ref=0, wrapper=1 */
     if (ci == TT_RECURSIVE) {
+        if (payload && payload->kind == EAST_VAL_VARIANT) {
+            size_t rc = payload->data.variant.case_idx;
+            EastValue *rv = payload->data.variant.value;
+
+            if (rc == 0 && rv && rv->kind == EAST_VAL_INTEGER) {
+                /* ref(id): look up wrapper by id */
+                int64_t ref_id = rv->data.integer;
+                for (int i = ctx->id_map_len - 1; i >= 0; i--) {
+                    if (ctx->id_map[i].id == ref_id) {
+                        east_type_retain(ctx->id_map[i].wrapper);
+                        return ctx->id_map[i].wrapper;
+                    }
+                }
+                return east_recursive_type_new();
+            }
+
+            if (rc == 1 && rv && rv->kind == EAST_VAL_STRUCT) {
+                /* wrapper({id, inner}): create recursive type, register, decode inner */
+                int64_t wid = (rv->data.struct_.field_values[0]->kind == EAST_VAL_INTEGER)
+                    ? rv->data.struct_.field_values[0]->data.integer : 0;
+                EastType *wrapper = east_recursive_type_new();
+
+                if (ctx->id_map_len >= ctx->id_map_cap) {
+                    int nc = ctx->id_map_cap ? ctx->id_map_cap * 2 : 4;
+                    void *tmp = realloc(ctx->id_map, (size_t)nc * sizeof(ctx->id_map[0]));
+                    if (tmp) { ctx->id_map = tmp; ctx->id_map_cap = nc; }
+                }
+                ctx->id_map[ctx->id_map_len].id = wid;
+                ctx->id_map[ctx->id_map_len].wrapper = wrapper;
+                ctx->id_map_len++;
+
+                EastType *inner = east_type_from_value_ctx(rv->data.struct_.field_values[1], ctx);
+
+                if (inner) {
+                    east_recursive_type_set(wrapper, inner);
+                    east_recursive_type_finalize(wrapper);
+                    /* Intern: return canonical pointer so types containing
+                     * this recursive type get consistent hash-based interning. */
+                    wrapper = east_recursive_type_intern(wrapper);
+                    /* Update id_map so future ref(id) lookups return canonical */
+                    ctx->id_map[ctx->id_map_len - 1].wrapper = wrapper;
+                }
+                return wrapper;
+            }
+        }
+        /* Legacy fallback: Recursive(Integer(depth)) */
         if (payload && payload->kind == EAST_VAL_INTEGER) {
             int target = ctx->depth - (int)payload->data.integer;
             if (target >= 0 && target < ctx->depth && ctx->wrappers[target]) {
@@ -675,7 +739,6 @@ static EastType *east_type_from_value_ctx(EastValue *v, RecCtx *ctx)
                 return ctx->wrappers[target];
             }
         }
-        /* Fallback: disconnected wrapper */
         return east_recursive_type_new();
     }
 
@@ -691,9 +754,14 @@ static EastType *east_type_from_value_ctx(EastValue *v, RecCtx *ctx)
 
 EastType *east_type_from_value(EastValue *v)
 {
-    RecCtx ctx = { .wrappers = NULL, .depth = 0, .cap = 0 };
+    RecCtx ctx = { .wrappers = NULL, .depth = 0, .cap = 0,
+                   .id_map = NULL, .id_map_len = 0, .id_map_cap = 0 };
     EastType *result = east_type_from_value_ctx(v, &ctx);
     free(ctx.wrappers);
+    free(ctx.id_map);
+    /* Intern recursive types — returns canonical pointer for pointer-based dedup */
+    if (result && result->kind == EAST_TYPE_RECURSIVE)
+        result = east_recursive_type_intern(result);
     return result;
 }
 
@@ -766,21 +834,37 @@ static EastValue *type_to_value_ctx(EastType *type, TVCtx *ctx)
 {
     if (!type) return NULL;
 
-    /* Check for self-reference: pointer matches a recursive wrapper */
+    /* Check for self-reference: pointer matches a recursive wrapper.
+     * Produce Recursive(variant("ref", pointer_id)). */
     for (int i = ctx->num_recs - 1; i >= 0; i--) {
         if (type == ctx->recs[i].wrapper) {
-            int64_t depth = ctx->len - ctx->recs[i].stack_index;
-            return east_variant_new("Recursive", east_integer(depth),
-                                    east_type_type->data.recursive.node);
+            int64_t ptr_id = ctx->recs[i].wrapper->type_id;
+            /* Get the Recursive case's variant type (VariantType({ref, wrapper})) */
+            EastType *vtype = east_type_type->data.recursive.node;
+            EastType *rec_case_type = vtype->data.variant.cases[TT_RECURSIVE].type;
+            EastValue *ref_val = east_variant_new("ref", east_integer(ptr_id), rec_case_type);
+            return east_variant_new("Recursive", ref_val, vtype);
         }
     }
 
     if (type->kind == EAST_TYPE_RECURSIVE) {
-        /* Record wrapper → next stack index, recurse into inner type */
+        /* Recursive wrapper: produce Recursive(variant("wrapper", struct({id, inner}))) */
         tv_ctx_add_rec(ctx, type);
-        EastValue *result = type_to_value_ctx(type->data.recursive.node, ctx);
+        EastValue *inner = type_to_value_ctx(type->data.recursive.node, ctx);
         ctx->num_recs--;
-        return result;
+
+        int64_t ptr_id = type->type_id;
+        EastType *vtype = east_type_type->data.recursive.node;
+        EastType *rec_case_type = vtype->data.variant.cases[TT_RECURSIVE].type;
+        EastType *wrapper_struct_type = rec_case_type->data.variant.cases[1].type; /* "wrapper" case */
+        const char *w_names[] = {"id", "inner"};
+        EastValue *w_vals[] = {east_integer(ptr_id), inner};
+        EastValue *ws = east_struct_new(w_names, w_vals, 2, wrapper_struct_type);
+        east_value_release(w_vals[0]);
+        east_value_release(inner);
+        EastValue *wv = east_variant_new("wrapper", ws, rec_case_type);
+        east_value_release(ws);
+        return east_variant_new("Recursive", wv, vtype);
     }
 
     EastType *vtype = east_type_type->data.recursive.node;  /* inner variant */
@@ -1018,22 +1102,44 @@ static const char *label_from_value(EastValue *label_v)
  * Works because the beast2 decoder deduplicates Struct/Variant values
  * by byte range — identical bytes produce the same EastValue pointer.
  * So pointer equality is sufficient for cache lookup: O(1).
+ *
+ * When a pre-built type table is available (e.g. from beast2 decode),
+ * the table is checked first for O(1) pointer-match resolution —
+ * avoiding the expensive east_type_from_value path entirely.
  */
 typedef struct {
+    /* Pre-built type table (not owned — caller manages lifetime) */
+    EastValue **table_values;
+    EastType  **table_types;
+    size_t table_len;
+    /* Overflow cache for types not in the table */
     EastValue **values;  /* type descriptor values (NOT retained — just pointers for comparison) */
     EastType  **types;   /* corresponding EastType* (retained) */
     size_t len;
     size_t cap;
 } TypeCache;
 
-static TypeCache ir_type_cache = { NULL, NULL, 0, 0 };
+static TypeCache ir_type_cache = { NULL, NULL, 0, NULL, NULL, 0, 0 };
 
 static void type_cache_init(void)
 {
+    ir_type_cache.table_values = NULL;
+    ir_type_cache.table_types = NULL;
+    ir_type_cache.table_len = 0;
     ir_type_cache.len = 0;
     ir_type_cache.cap = 32;
     ir_type_cache.values = calloc(ir_type_cache.cap, sizeof(EastValue *));
     ir_type_cache.types = calloc(ir_type_cache.cap, sizeof(EastType *));
+}
+
+static void type_cache_init_with_table(EastValue **table_values,
+                                       EastType **table_types,
+                                       size_t table_len)
+{
+    type_cache_init();
+    ir_type_cache.table_values = table_values;
+    ir_type_cache.table_types = table_types;
+    ir_type_cache.table_len = table_len;
 }
 
 static void type_cache_free(void)
@@ -1043,6 +1149,9 @@ static void type_cache_free(void)
     }
     free(ir_type_cache.values);
     free(ir_type_cache.types);
+    ir_type_cache.table_values = NULL;
+    ir_type_cache.table_types = NULL;
+    ir_type_cache.table_len = 0;
     ir_type_cache.values = NULL;
     ir_type_cache.types = NULL;
     ir_type_cache.len = 0;
@@ -1053,7 +1162,15 @@ static EastType *type_cache_get(EastValue *tv)
 {
     if (!tv) return NULL;
 
-    /* Pointer equality first (O(1) when beast2 dedup works) */
+    /* Fast path: check pre-built type table (pointer equality) */
+    for (size_t i = 0; i < ir_type_cache.table_len; i++) {
+        if (ir_type_cache.table_values[i] == tv) {
+            east_type_retain(ir_type_cache.table_types[i]);
+            return ir_type_cache.table_types[i];
+        }
+    }
+
+    /* Check overflow cache (pointer equality) */
     for (size_t i = 0; i < ir_type_cache.len; i++) {
         if (ir_type_cache.values[i] == tv) {
             east_type_retain(ir_type_cache.types[i]);
@@ -1064,7 +1181,6 @@ static EastType *type_cache_get(EastValue *tv)
     /* Fall back to value equality for non-deduped values */
     for (size_t i = 0; i < ir_type_cache.len; i++) {
         if (east_value_equal(ir_type_cache.values[i], tv)) {
-            /* Update pointer for future ptr hits */
             ir_type_cache.values[i] = tv;
             east_type_retain(ir_type_cache.types[i]);
             return ir_type_cache.types[i];
@@ -1704,9 +1820,21 @@ cleanup:
     return result;
 }
 
+
 IRNode *east_ir_from_value(EastValue *value)
 {
     type_cache_init();
+    IRNode *result = convert_ir(value);
+    type_cache_free();
+    return result;
+}
+
+IRNode *east_ir_from_value_with_types(EastValue *value,
+                                      EastValue **type_values,
+                                      EastType **types,
+                                      size_t type_count)
+{
+    type_cache_init_with_table(type_values, types, type_count);
     IRNode *result = convert_ir(value);
     type_cache_free();
     return result;

@@ -268,8 +268,8 @@ function containsRecursive(type: EastTypeValue): boolean {
  * @internal
  */
 interface RecursiveValueContext {
-  /** Stack of value generators for recursive back-references. Each takes depth and returns a value. */
-  generators: Array<(depth: number) => any>;
+  /** Map of value generators for recursive back-references, keyed by type id. */
+  generators: Map<bigint, (depth: number) => any>;
   /** Maximum recursion depth before forcing termination */
   maxDepth: number;
 }
@@ -330,9 +330,7 @@ function buildValueGenerator(
     // Create function shell, push, recurse, pop - like apply.ts pattern
     let valueGen: (depth: number) => any;
     const ret = (depth: number) => ref(valueGen(depth));
-    ctx.generators.push(ret);
     valueGen = buildValueGenerator(type.value, ctx);
-    ctx.generators.pop();
     return ret;
   } else if (type.type === "Array") {
     let itemGen: (depth: number) => any;
@@ -341,9 +339,7 @@ function buildValueGenerator(
       const length = Math.floor(Math.random() * (maxLen + 1));
       return Array.from({ length }, () => itemGen(depth));
     };
-    ctx.generators.push(ret);
     itemGen = buildValueGenerator(type.value, ctx);
-    ctx.generators.pop();
     return ret;
   } else if (type.type === "Set") {
     let itemGen: (depth: number) => any;
@@ -356,9 +352,7 @@ function buildValueGenerator(
       }
       return set;
     };
-    ctx.generators.push(ret);
     itemGen = buildValueGenerator(type.value, ctx);
-    ctx.generators.pop();
     return ret;
   } else if (type.type === "Dict") {
     let keyGen: (depth: number) => any;
@@ -372,10 +366,8 @@ function buildValueGenerator(
       }
       return dict;
     };
-    ctx.generators.push(ret);
     keyGen = buildValueGenerator(type.value.key, ctx);
     valueGen = buildValueGenerator(type.value.value, ctx);
-    ctx.generators.pop();
     return ret;
   } else if (type.type === "Struct") {
     let fieldGens: Array<{ name: string; gen: (depth: number) => any }>;
@@ -386,12 +378,10 @@ function buildValueGenerator(
       }
       return obj;
     };
-    ctx.generators.push(ret);
     fieldGens = type.value.map(({ name, type: fieldType }) => ({
       name,
       gen: buildValueGenerator(fieldType, ctx),
     }));
-    ctx.generators.pop();
     return ret;
   } else if (type.type === "Variant") {
     let caseInfos: Array<{ name: string; gen: (depth: number) => any; isTerminal: boolean }>;
@@ -415,26 +405,25 @@ function buildValueGenerator(
 
       return variant(chosen.name, chosen.gen(depth));
     };
-    ctx.generators.push(ret);
     caseInfos = type.value.map(({ name, type: caseType }) => ({
       name,
       gen: buildValueGenerator(caseType, ctx),
       isTerminal: !containsRecursive(caseType),
     }));
-    ctx.generators.pop();
+    return ret;
+  } else if (type.type === "Recursive" && (type.value as any).type === "wrapper") {
+    // Recursive wrapper: register by id, build inner
+    let inner: any;
+    const ret = (...args: any[]) => inner(...args);
+    ctx.generators.set((type.value as any).value.id as bigint, ret);
+    inner = buildValueGenerator((type.value as any).value.inner, ctx);
     return ret;
   } else if (type.type === "Recursive") {
-    // Look up the generator from the context stack using de Bruijn index
-    // IMPORTANT: Capture the generator reference at BUILD time, not runtime,
-    // because the stack will be popped after building completes.
-    const backRefIndex = Number(type.value);
-    const index = ctx.generators.length - backRefIndex;
-    if (index < 0 || index >= ctx.generators.length) {
-      throw new Error(`Invalid recursive back-reference: ${backRefIndex}, stack size: ${ctx.generators.length}`);
-    }
-    const generator = ctx.generators[index];
+    // Look up the generator by type id
+    const id = (type.value as any).value as bigint;
+    const generator = ctx.generators.get(id);
     if (!generator) {
-      throw new Error(`Recursive generator not found at index ${index}`);
+      throw new Error(`Recursive generator not found for id ${id}`);
     }
     // Return a generator that calls the captured recursive generator with depth+1
     return (depth: number) => generator(depth + 1);
@@ -443,18 +432,14 @@ function buildValueGenerator(
     const ret = (depth: number) => {
       return (..._args: any[]) => outputGen(depth);
     };
-    ctx.generators.push(ret);
     outputGen = buildValueGenerator(type.value.output, ctx);
-    ctx.generators.pop();
     return ret;
   } else if (type.type === "AsyncFunction") {
     let outputGen: (depth: number) => any;
     const ret = (depth: number) => {
       return (..._args: any[]) => Promise.resolve(outputGen(depth));
     };
-    ctx.generators.push(ret);
     outputGen = buildValueGenerator(type.value.output, ctx);
-    ctx.generators.pop();
     return ret;
   } else if (type.type === "Vector") {
     const elemType = type.value;
@@ -544,7 +529,6 @@ function randomValueForRecursive(
   };
 
   // Push BEFORE building the inner generator so .Recursive can find it
-  ctx.generators.push(selfGenerator);
 
   // Convert inner node to EastTypeValue with recursive context
   // Pass empty stack - the type structure will build up the stack naturally
@@ -556,7 +540,6 @@ function randomValueForRecursive(
   innerGen = buildValueGenerator(innerTypeValue, ctx);
 
   // Pop after building (generator is now self-contained via closure)
-  ctx.generators.pop();
 
   // Return a function that starts generation at depth 0
   return () => selfGenerator(0);
@@ -584,7 +567,7 @@ export function randomValueFor(type: EastTypeValue): () => any;
 export function randomValueFor<T extends EastType>(type: T): () => ValueTypeOf<T>;
 export function randomValueFor(type: EastTypeValue | EastType): () => any {
   const ctx: RecursiveValueContext = {
-    generators: [],
+    generators: new Map(),
     maxDepth: 5, // Limit recursion depth to avoid huge values
   };
 

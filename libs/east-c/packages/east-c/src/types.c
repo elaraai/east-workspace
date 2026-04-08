@@ -1,4 +1,5 @@
 #include "east/types.h"
+#include "east/type_of_type.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,26 +9,225 @@
 /*  Primitive type singletons (ref_count = -1: never freed)           */
 /* ------------------------------------------------------------------ */
 
-EastType east_never_type    = { .kind = EAST_TYPE_NEVER,    .ref_count = -1, .data = {0} };
-EastType east_null_type     = { .kind = EAST_TYPE_NULL,     .ref_count = -1, .data = {0} };
-EastType east_boolean_type  = { .kind = EAST_TYPE_BOOLEAN,  .ref_count = -1, .data = {0} };
-EastType east_integer_type  = { .kind = EAST_TYPE_INTEGER,  .ref_count = -1, .data = {0} };
-EastType east_float_type    = { .kind = EAST_TYPE_FLOAT,    .ref_count = -1, .data = {0} };
-EastType east_string_type   = { .kind = EAST_TYPE_STRING,   .ref_count = -1, .data = {0} };
-EastType east_datetime_type = { .kind = EAST_TYPE_DATETIME, .ref_count = -1, .data = {0} };
-EastType east_blob_type     = { .kind = EAST_TYPE_BLOB,     .ref_count = -1, .data = {0} };
+EastType east_never_type    = { .kind = EAST_TYPE_NEVER,    .ref_count = -1, .type_id = 0, .data = {0} };
+EastType east_null_type     = { .kind = EAST_TYPE_NULL,     .ref_count = -1, .type_id = 1, .data = {0} };
+EastType east_boolean_type  = { .kind = EAST_TYPE_BOOLEAN,  .ref_count = -1, .type_id = 2, .data = {0} };
+EastType east_integer_type  = { .kind = EAST_TYPE_INTEGER,  .ref_count = -1, .type_id = 3, .data = {0} };
+EastType east_float_type    = { .kind = EAST_TYPE_FLOAT,    .ref_count = -1, .type_id = 4, .data = {0} };
+EastType east_string_type   = { .kind = EAST_TYPE_STRING,   .ref_count = -1, .type_id = 5, .data = {0} };
+EastType east_datetime_type = { .kind = EAST_TYPE_DATETIME, .ref_count = -1, .type_id = 6, .data = {0} };
+EastType east_blob_type     = { .kind = EAST_TYPE_BLOB,     .ref_count = -1, .type_id = 7, .data = {0} };
 
 /* ------------------------------------------------------------------ */
-/*  Internal helpers                                                   */
+/*  Type arena + interning (mirrors TS types.ts hashCombine + intern)  */
+/*                                                                     */
+/*  Interned types are immortal (ref_count=-1), allocated from a       */
+/*  page-based arena.  No individual frees, no cascade-release bugs.   */
+/*  The arena is freed as a whole in east_type_registry_clear().       */
 /* ------------------------------------------------------------------ */
 
-static EastType *alloc_type(EastTypeKind kind)
+static int64_t g_next_type_id = 8;  /* 0-7 reserved for primitive singletons */
+
+/* Page-based arena — stable pointers, never realloc'd */
+#define TYPE_ARENA_PAGE_SIZE 4096
+typedef struct TypeArenaPage {
+    struct TypeArenaPage *next;
+    size_t used;
+    uint8_t data[TYPE_ARENA_PAGE_SIZE];
+} TypeArenaPage;
+static TypeArenaPage *g_type_arena = NULL;
+
+static EastType *arena_alloc_type(EastTypeKind kind)
 {
-    EastType *t = calloc(1, sizeof(EastType));
-    if (!t) return NULL;
+    TypeArenaPage *page = g_type_arena;
+    while (page && page->used + sizeof(EastType) > TYPE_ARENA_PAGE_SIZE)
+        page = page->next;
+    if (!page) {
+        page = calloc(1, sizeof(TypeArenaPage));
+        page->next = g_type_arena;
+        g_type_arena = page;
+    }
+    EastType *t = (EastType *)(page->data + page->used);
+    page->used += sizeof(EastType);
+    memset(t, 0, sizeof(EastType));
     t->kind = kind;
-    t->ref_count = 1;
+    t->ref_count = -1;  /* immortal — east_type_retain/release are no-ops */
+    t->type_id = g_next_type_id++;
     return t;
+}
+
+
+/* ---- Hash-based intern table (FNV-1a, open addressing) ---- */
+
+static inline uint32_t hash_combine(uint32_t h, uint32_t v) {
+    return (h ^ v) * 0x01000193u;
+}
+
+static inline uint32_t hash_string(const char *s) {
+    uint32_t h = 2166136261u;
+    while (*s) { h ^= (uint8_t)*s++; h *= 0x01000193u; }
+    return h;
+}
+
+typedef struct { uint32_t hash; EastType *type; } InternSlot;
+static InternSlot *g_intern_table = NULL;
+static int g_intern_mask = -1;
+static int g_intern_count = 0;
+
+static void intern_grow(void) {
+    int old_cap = g_intern_mask < 0 ? 0 : g_intern_mask + 1;
+    int new_cap = old_cap ? old_cap * 2 : 64;
+    int new_mask = new_cap - 1;
+    InternSlot *nt = calloc(new_cap, sizeof(InternSlot));
+    for (int i = 0; i < old_cap; i++)
+        if (g_intern_table[i].type) {
+            uint32_t h = g_intern_table[i].hash & (uint32_t)new_mask;
+            while (nt[h].type) h = (h + 1) & (uint32_t)new_mask;
+            nt[h] = g_intern_table[i];
+        }
+    free(g_intern_table);
+    g_intern_table = nt;
+    g_intern_mask = new_mask;
+}
+
+static EastType *intern_find(uint32_t hash, bool (*verify)(EastType *, const void *), const void *ctx) {
+    if (!g_intern_table) return NULL;
+    uint32_t h = hash & (uint32_t)g_intern_mask;
+    for (;;) {
+        if (!g_intern_table[h].type) return NULL;
+        if (g_intern_table[h].hash == hash && verify(g_intern_table[h].type, ctx))
+            return g_intern_table[h].type;
+        h = (h + 1) & (uint32_t)g_intern_mask;
+    }
+}
+
+static void intern_put(uint32_t hash, EastType *type) {
+    if (!g_intern_table || g_intern_count * 10 >= (g_intern_mask + 1) * 7)
+        intern_grow();
+    uint32_t h = hash & (uint32_t)g_intern_mask;
+    while (g_intern_table[h].type) h = (h + 1) & (uint32_t)g_intern_mask;
+    g_intern_table[h] = (InternSlot){ hash, type };
+    g_intern_count++;
+}
+
+/* ---- Recursive type intern (linear scan with east_type_equal) ---- */
+
+static EastType **g_recursive_intern = NULL;
+static size_t g_recursive_intern_len = 0;
+static size_t g_recursive_intern_cap = 0;
+
+EastType *east_recursive_type_intern(EastType *rec)
+{
+    if (!rec || rec->kind != EAST_TYPE_RECURSIVE) return rec;
+    for (size_t i = 0; i < g_recursive_intern_len; i++) {
+        if (east_type_equal(g_recursive_intern[i], rec))
+            return g_recursive_intern[i];  /* return canonical pointer */
+    }
+    if (g_recursive_intern_len >= g_recursive_intern_cap) {
+        g_recursive_intern_cap = g_recursive_intern_cap ? g_recursive_intern_cap * 2 : 8;
+        g_recursive_intern = realloc(g_recursive_intern, g_recursive_intern_cap * sizeof(EastType *));
+    }
+    g_recursive_intern[g_recursive_intern_len++] = rec;
+    return rec;  /* this IS the canonical */
+}
+
+/* ---- Cleanup ---- */
+
+/* Free heap-allocated children of an arena type (field names, arrays, etc.)
+ * Does NOT free the type itself (it's arena-allocated). */
+static void type_free_children(EastType *t)
+{
+    switch (t->kind) {
+    case EAST_TYPE_STRUCT:
+        for (size_t i = 0; i < t->data.struct_.num_fields; i++)
+            free(t->data.struct_.fields[i].name);
+        free(t->data.struct_.fields);
+        break;
+    case EAST_TYPE_VARIANT:
+        for (size_t i = 0; i < t->data.variant.num_cases; i++)
+            free(t->data.variant.cases[i].name);
+        free(t->data.variant.cases);
+        break;
+    case EAST_TYPE_FUNCTION:
+    case EAST_TYPE_ASYNC_FUNCTION:
+        free(t->data.function.inputs);
+        break;
+    default:
+        break;
+    }
+}
+
+void east_type_registry_clear(void)
+{
+    /* Free type_of_type globals before arena (they hold refs to arena types) */
+    east_type_of_type_free();
+
+    /* Walk arena pages and free heap children of each type */
+    for (TypeArenaPage *page = g_type_arena; page; page = page->next) {
+        size_t offset = 0;
+        while (offset + sizeof(EastType) <= page->used) {
+            EastType *t = (EastType *)(page->data + offset);
+            type_free_children(t);
+            offset += sizeof(EastType);
+        }
+    }
+
+    /* Free arena pages */
+    TypeArenaPage *page = g_type_arena;
+    while (page) { TypeArenaPage *next = page->next; free(page); page = next; }
+    g_type_arena = NULL;
+
+    free(g_intern_table);
+    g_intern_table = NULL;
+    g_intern_mask = -1;
+    g_intern_count = 0;
+
+    /* Recursive intern list — these are heap-allocated, not arena.
+     * Don't release them here — they're owned by whoever created them. */
+    free(g_recursive_intern);
+    g_recursive_intern = NULL;
+    g_recursive_intern_len = 0;
+    g_recursive_intern_cap = 0;
+
+    g_next_type_id = 8;
+}
+
+/* ---- Intern verify helpers ---- */
+
+typedef struct { EastTypeKind kind; EastType *elem; } VerifyElemCtx;
+static bool verify_elem(EastType *c, const void *ctx) {
+    const VerifyElemCtx *v = ctx;
+    return c->kind == v->kind && c->data.element == v->elem;
+}
+
+typedef struct { EastType *key; EastType *val; } VerifyDictCtx;
+static bool verify_dict(EastType *c, const void *ctx) {
+    const VerifyDictCtx *v = ctx;
+    return c->kind == EAST_TYPE_DICT && c->data.dict.key == v->key && c->data.dict.value == v->val;
+}
+
+typedef struct { const char **names; EastType **types; size_t count; EastTypeKind kind; } VerifyFieldsCtx;
+static bool verify_fields(EastType *c, const void *ctx) {
+    const VerifyFieldsCtx *v = ctx;
+    if (c->kind != v->kind) return false;
+    size_t n = v->kind == EAST_TYPE_STRUCT ? c->data.struct_.num_fields : c->data.variant.num_cases;
+    if (n != v->count) return false;
+    EastTypeField *fields = v->kind == EAST_TYPE_STRUCT ? c->data.struct_.fields : c->data.variant.cases;
+    for (size_t i = 0; i < n; i++) {
+        if (strcmp(fields[i].name, v->names[i]) != 0) return false;
+        if (fields[i].type != v->types[i]) return false;
+    }
+    return true;
+}
+
+typedef struct { EastTypeKind kind; EastType **inputs; size_t ni; EastType *output; } VerifyFnCtx;
+static bool verify_fn(EastType *c, const void *ctx) {
+    const VerifyFnCtx *v = ctx;
+    if (c->kind != v->kind || c->data.function.num_inputs != v->ni || c->data.function.output != v->output)
+        return false;
+    for (size_t i = 0; i < v->ni; i++)
+        if (c->data.function.inputs[i] != v->inputs[i]) return false;
+    return true;
 }
 
 static int field_cmp(const void *a, const void *b)
@@ -41,175 +241,149 @@ static int field_cmp(const void *a, const void *b)
 /*  Constructors                                                       */
 /* ------------------------------------------------------------------ */
 
-EastType *east_array_type(EastType *elem)
-{
-    EastType *t = alloc_type(EAST_TYPE_ARRAY);
-    if (!t) return NULL;
-    east_type_retain(elem);
-    t->data.element = elem;
+static EastType *intern_elem_type(EastTypeKind kind, uint32_t tag, EastType *elem) {
+    uint32_t h = hash_combine(tag, (uint32_t)elem->type_id);
+    VerifyElemCtx ctx = { kind, elem };
+    EastType *cached = intern_find(h, verify_elem, &ctx);
+    if (cached) return cached;
+    EastType *t = arena_alloc_type(kind);
+    t->data.element = elem;  /* no retain — all types are immortal */
+    intern_put(h, t);
     return t;
 }
 
-EastType *east_set_type(EastType *elem)
-{
-    EastType *t = alloc_type(EAST_TYPE_SET);
-    if (!t) return NULL;
-    east_type_retain(elem);
-    t->data.element = elem;
-    return t;
-}
+EastType *east_array_type(EastType *elem)  { return intern_elem_type(EAST_TYPE_ARRAY,  0x41, elem); }
+EastType *east_set_type(EastType *elem)    { return intern_elem_type(EAST_TYPE_SET,    0x53, elem); }
 
 EastType *east_dict_type(EastType *key, EastType *val)
 {
-    EastType *t = alloc_type(EAST_TYPE_DICT);
-    if (!t) return NULL;
-    east_type_retain(key);
-    east_type_retain(val);
+    uint32_t h = hash_combine(0x44, (uint32_t)key->type_id);
+    h = hash_combine(h, (uint32_t)val->type_id);
+    VerifyDictCtx ctx = { key, val };
+    EastType *cached = intern_find(h, verify_dict, &ctx);
+    if (cached) return cached;
+    EastType *t = arena_alloc_type(EAST_TYPE_DICT);
     t->data.dict.key = key;
     t->data.dict.value = val;
+    intern_put(h, t);
     return t;
 }
 
 EastType *east_struct_type(const char **names, EastType **types, size_t count)
 {
-    EastType *t = alloc_type(EAST_TYPE_STRUCT);
-    if (!t) return NULL;
+    /* Hash field names + child type_ids for intern lookup */
+    uint32_t h = hash_combine(0x09, (uint32_t)count);
+    for (size_t i = 0; i < count; i++) {
+        h = hash_combine(h, hash_string(names[i]));
+        h = hash_combine(h, (uint32_t)types[i]->type_id);
+    }
+    VerifyFieldsCtx ctx = { names, types, count, EAST_TYPE_STRUCT };
+    EastType *cached = intern_find(h, verify_fields, &ctx);
+    if (cached) return cached;
 
+    EastType *t = arena_alloc_type(EAST_TYPE_STRUCT);
     EastTypeField *fields = NULL;
     if (count > 0) {
         fields = calloc(count, sizeof(EastTypeField));
-        if (!fields) { free(t); return NULL; }
         for (size_t i = 0; i < count; i++) {
             fields[i].name = strdup(names[i]);
-            if (!fields[i].name) {
-                for (size_t j = 0; j < i; j++) {
-                    free(fields[j].name);
-                    east_type_release(fields[j].type);
-                }
-                free(fields);
-                free(t);
-                return NULL;
-            }
-            east_type_retain(types[i]);
-            fields[i].type = types[i];
+            fields[i].type = types[i];  /* no retain — immortal children */
         }
     }
-
     t->data.struct_.fields = fields;
     t->data.struct_.num_fields = count;
+    intern_put(h, t);
     return t;
 }
 
 EastType *east_variant_type(const char **names, EastType **types, size_t count)
 {
-    EastType *t = alloc_type(EAST_TYPE_VARIANT);
-    if (!t) return NULL;
+    /* Sort names+types alphabetically BEFORE hashing (matching TS VariantType) */
+    /* Use temporary sorted arrays */
+    const char **sorted_names = count > 0 ? malloc(count * sizeof(char*)) : NULL;
+    EastType **sorted_types = count > 0 ? malloc(count * sizeof(EastType*)) : NULL;
+    if (count > 0) {
+        /* Build temp array, sort it */
+        typedef struct { const char *n; EastType *t; } NTP;
+        NTP *tmp = malloc(count * sizeof(NTP));
+        for (size_t i = 0; i < count; i++) { tmp[i].n = names[i]; tmp[i].t = types[i]; }
+        for (size_t i = 1; i < count; i++) {
+            NTP key = tmp[i]; size_t j = i;
+            while (j > 0 && strcmp(tmp[j-1].n, key.n) > 0) { tmp[j] = tmp[j-1]; j--; }
+            tmp[j] = key;
+        }
+        for (size_t i = 0; i < count; i++) { sorted_names[i] = tmp[i].n; sorted_types[i] = tmp[i].t; }
+        free(tmp);
+    }
 
+    uint32_t h = hash_combine(0x08, (uint32_t)count);
+    for (size_t i = 0; i < count; i++) {
+        h = hash_combine(h, hash_string(sorted_names[i]));
+        h = hash_combine(h, (uint32_t)sorted_types[i]->type_id);
+    }
+    VerifyFieldsCtx ctx = { sorted_names, sorted_types, count, EAST_TYPE_VARIANT };
+    EastType *cached = intern_find(h, verify_fields, &ctx);
+    if (cached) { free(sorted_names); free(sorted_types); return cached; }
+
+    EastType *t = arena_alloc_type(EAST_TYPE_VARIANT);
     EastTypeField *cases = NULL;
     if (count > 0) {
         cases = calloc(count, sizeof(EastTypeField));
-        if (!cases) { free(t); return NULL; }
         for (size_t i = 0; i < count; i++) {
-            cases[i].name = strdup(names[i]);
-            if (!cases[i].name) {
-                for (size_t j = 0; j < i; j++) {
-                    free(cases[j].name);
-                    east_type_release(cases[j].type);
-                }
-                free(cases);
-                free(t);
-                return NULL;
-            }
-            east_type_retain(types[i]);
-            cases[i].type = types[i];
+            cases[i].name = strdup(sorted_names[i]);
+            cases[i].type = sorted_types[i];
         }
-        /* Sort cases alphabetically by name — matches TypeScript's
-         * VariantType() which sorts Object.entries() alphabetically.
-         * This ensures beast2 variant case indices are consistent
-         * across all implementations. */
-        qsort(cases, count, sizeof(EastTypeField), field_cmp);
     }
-
     t->data.variant.cases = cases;
     t->data.variant.num_cases = count;
+    intern_put(h, t);
+    free(sorted_names);
+    free(sorted_types);
     return t;
 }
 
-EastType *east_ref_type(EastType *inner)
-{
-    EastType *t = alloc_type(EAST_TYPE_REF);
-    if (!t) return NULL;
-    east_type_retain(inner);
-    t->data.element = inner;
-    return t;
-}
+EastType *east_ref_type(EastType *inner)    { return intern_elem_type(EAST_TYPE_REF,    0x52, inner); }
+EastType *east_vector_type(EastType *elem)  { return intern_elem_type(EAST_TYPE_VECTOR, 0x56, elem); }
+EastType *east_matrix_type(EastType *elem)  { return intern_elem_type(EAST_TYPE_MATRIX, 0x4d, elem); }
 
-EastType *east_vector_type(EastType *elem)
+static EastType *function_type_impl(EastTypeKind kind, uint32_t kind_tag,
+                                     EastType **inputs, size_t num_inputs, EastType *output)
 {
-    EastType *t = alloc_type(EAST_TYPE_VECTOR);
-    if (!t) return NULL;
-    east_type_retain(elem);
-    t->data.element = elem;
-    return t;
-}
+    uint32_t h = hash_combine(kind_tag, (uint32_t)num_inputs);
+    for (size_t i = 0; i < num_inputs; i++)
+        h = hash_combine(h, (uint32_t)inputs[i]->type_id);
+    h = hash_combine(h, (uint32_t)output->type_id);
+    VerifyFnCtx ctx = { kind, inputs, num_inputs, output };
+    EastType *cached = intern_find(h, verify_fn, &ctx);
+    if (cached) return cached;
 
-EastType *east_matrix_type(EastType *elem)
-{
-    EastType *t = alloc_type(EAST_TYPE_MATRIX);
-    if (!t) return NULL;
-    east_type_retain(elem);
-    t->data.element = elem;
+    EastType *t = arena_alloc_type(kind);
+    EastType **inp = NULL;
+    if (num_inputs > 0) {
+        inp = calloc(num_inputs, sizeof(EastType *));
+        for (size_t i = 0; i < num_inputs; i++)
+            inp[i] = inputs[i];  /* no retain — immortal children */
+    }
+    t->data.function.inputs = inp;
+    t->data.function.num_inputs = num_inputs;
+    t->data.function.output = output;  /* no retain — immortal */
+    intern_put(h, t);
     return t;
 }
 
 EastType *east_function_type(EastType **inputs, size_t num_inputs, EastType *output)
 {
-    EastType *t = alloc_type(EAST_TYPE_FUNCTION);
-    if (!t) return NULL;
-
-    EastType **inp = NULL;
-    if (num_inputs > 0) {
-        inp = calloc(num_inputs, sizeof(EastType *));
-        if (!inp) { free(t); return NULL; }
-        for (size_t i = 0; i < num_inputs; i++) {
-            east_type_retain(inputs[i]);
-            inp[i] = inputs[i];
-        }
-    }
-
-    east_type_retain(output);
-    t->data.function.inputs = inp;
-    t->data.function.num_inputs = num_inputs;
-    t->data.function.output = output;
-    return t;
+    return function_type_impl(EAST_TYPE_FUNCTION, 0x46, inputs, num_inputs, output);
 }
 
 EastType *east_async_function_type(EastType **inputs, size_t num_inputs, EastType *output)
 {
-    EastType *t = alloc_type(EAST_TYPE_ASYNC_FUNCTION);
-    if (!t) return NULL;
-
-    EastType **inp = NULL;
-    if (num_inputs > 0) {
-        inp = calloc(num_inputs, sizeof(EastType *));
-        if (!inp) { free(t); return NULL; }
-        for (size_t i = 0; i < num_inputs; i++) {
-            east_type_retain(inputs[i]);
-            inp[i] = inputs[i];
-        }
-    }
-
-    east_type_retain(output);
-    t->data.function.inputs = inp;
-    t->data.function.num_inputs = num_inputs;
-    t->data.function.output = output;
-    return t;
+    return function_type_impl(EAST_TYPE_ASYNC_FUNCTION, 0x61, inputs, num_inputs, output);
 }
 
 EastType *east_recursive_type_new(void)
 {
-    EastType *t = alloc_type(EAST_TYPE_RECURSIVE);
-    if (!t) return NULL;
+    EastType *t = arena_alloc_type(EAST_TYPE_RECURSIVE);
     t->data.recursive.node = NULL;
     t->data.recursive.internal_refs = 0;
     return t;
@@ -355,6 +529,7 @@ void east_recursive_type_finalize(EastType *rec)
     rec->data.recursive.internal_refs = internal;
     rec->ref_count -= internal;
 }
+
 
 /* ------------------------------------------------------------------ */
 /*  Ref counting                                                       */
@@ -564,7 +739,6 @@ static bool type_equal_ctx(EastType *a, EastType *b, TypeEqualCtx *ctx)
 
 bool east_type_equal(EastType *a, EastType *b)
 {
-    /* Fast path: pointer equality (covers non-recursive and shared types) */
     if (a == b) return true;
     if (!a || !b) return false;
     if (a->kind != b->kind) return false;

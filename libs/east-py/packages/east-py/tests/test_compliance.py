@@ -11,6 +11,7 @@ Output matches east-c's run_compliance.sh. Usage:
 """
 
 import io
+import os
 import sys
 import time
 from pathlib import Path
@@ -126,6 +127,10 @@ def _run_one_subprocess(ir_file: Path, verbose: bool, platform_modules: list[str
 
 def main():
     import argparse
+
+    # Auto-detect EAST_QUIET env var
+    env_quiet = os.environ.get("EAST_QUIET") == "1"
+
     parser = argparse.ArgumentParser(description="East compliance test runner")
     parser.add_argument("file", nargs="?", help="Single IR file or stem name")
     parser.add_argument("-q", "--quiet", action="store_true", help="Summary only")
@@ -133,7 +138,7 @@ def main():
     parser.add_argument("-p", "--platform", action="append", default=[], help="Platform module(s) to import")
     args = parser.parse_args()
 
-    quiet = args.quiet
+    quiet = args.quiet or env_quiet
     ir_dir = args.ir_dir
     platform_modules = args.platform
 

@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { ArrayType, BlobType, BooleanType, DateTimeType, DictType, type EastType, FloatType, FunctionType, IntegerType, NullType, RefType, SetType, StringType, StructType, VariantType, VectorType, MatrixType } from "./types.js";
+import { ArrayType, BlobType, BooleanType, DateTimeType, DictType, type EastType, FloatType, FunctionType, IntegerType, NullType, RefType, SetType, StringType, StructType, VariantType, VectorType, MatrixType, assignTypeId } from "./types.js";
 import { DateTimeFormatTokenType } from "./datetime_format/types.js";
 
 /** @internal */
@@ -1303,7 +1303,7 @@ export function applyTypeParameters(type: EastType | string, params: Map<string,
     outStack.pop();
     return self;
   } else if (type.type === "Recursive") {
-    const self = { type: "Recursive" as const, node: undefined as unknown as EastType };
+    const self = assignTypeId({ type: "Recursive" as const, node: undefined as unknown as EastType });
     inStack.push(type);
     outStack.push(self);
     self.node = applyTypeParameters(type.node, params, inStack, outStack);

@@ -20,7 +20,7 @@ import { type DiffContext, computeLCS } from "./types.js";
 
 export function diffFor(type: EastTypeValue, ctx?: DiffContext): (before: any, after: any) => any;
 export function diffFor<T extends EastType>(type: T): (before: ValueTypeOf<T>, after: ValueTypeOf<T>) => any;
-export function diffFor(type: EastTypeValue | EastType, ctx: DiffContext = { diff: [], types: [], equal: [] }): (before: any, after: any) => any {
+export function diffFor(type: EastTypeValue | EastType, ctx: DiffContext = { diff: [], types: [], equal: new Map() }): (before: any, after: any) => any {
   // Convert to EastTypeValue and use a properly typed variable
   const t: EastTypeValue = isVariant(type) ? type : toEastTypeValue(type as EastType);
 
@@ -114,12 +114,10 @@ export function diffFor(type: EastTypeValue | EastType, ctx: DiffContext = { dif
 
     ctx.diff.push(ret);
     ctx.types.push(t);
-    ctx.equal.push(arrayEqual);
     is = isFor(t, ctx.equal);
     elementEqual = equalFor(t.value as EastTypeValue, ctx.equal);
     ctx.diff.pop();
     ctx.types.pop();
-    ctx.equal.pop();
 
     return ret;
   } else if (t.type === "Set") {
@@ -217,13 +215,11 @@ export function diffFor(type: EastTypeValue | EastType, ctx: DiffContext = { dif
 
     ctx.diff.push(ret);
     ctx.types.push(t);
-    ctx.equal.push(dictEqual);
     is = isFor(t, ctx.equal);
     valueDiff = diffFor(t.value.value, ctx);
     valueEqual = equalFor(t.value.value as EastTypeValue, ctx.equal);
     ctx.diff.pop();
     ctx.types.pop();
-    ctx.equal.pop();
 
     return ret;
   } else if (t.type === "Struct") {
@@ -263,14 +259,12 @@ export function diffFor(type: EastTypeValue | EastType, ctx: DiffContext = { dif
 
     ctx.diff.push(ret);
     ctx.types.push(t);
-    ctx.equal.push(structEqual);
     for (const { name, type: fieldType } of t.value) {
       fieldDiffs[name] = diffFor(fieldType, ctx);
       fieldEquals[name] = equalFor(fieldType as EastTypeValue, ctx.equal);
     }
     ctx.diff.pop();
     ctx.types.pop();
-    ctx.equal.pop();
 
     return ret;
   } else if (t.type === "Variant") {
@@ -305,14 +299,12 @@ export function diffFor(type: EastTypeValue | EastType, ctx: DiffContext = { dif
 
     ctx.diff.push(ret);
     ctx.types.push(t);
-    ctx.equal.push(variantEqual);
     for (const { name, type: caseType } of t.value) {
       caseDiffs[name] = diffFor(caseType, ctx);
       caseEquals[name] = equalFor(caseType as EastTypeValue, ctx.equal);
     }
     ctx.diff.pop();
     ctx.types.pop();
-    ctx.equal.pop();
 
     return ret;
   } else if (t.type === "Ref") {
@@ -344,23 +336,34 @@ export function diffFor(type: EastTypeValue | EastType, ctx: DiffContext = { dif
 
     ctx.diff.push(ret);
     ctx.types.push(t);
-    ctx.equal.push(refEqual);
     is = isFor(t, ctx.equal);
     innerDiff = diffFor(t.value, ctx);
     innerEqual = equalFor(t.value as EastTypeValue, ctx.equal);
     ctx.diff.pop();
     ctx.types.pop();
-    ctx.equal.pop();
 
     return ret;
-  } else if (t.type === "Recursive") {
-    // Recursive types use replace-only semantics - no structural patching.
-    // Look up the type and equality function from context, but always replace.
-    const resolvedType = ctx.types[ctx.types.length - Number(t.value)];
-    if (resolvedType === undefined) {
-      throw new Error(`Internal error: Recursive type context not found in diffFor`);
-    }
-    const equal = ctx.equal[ctx.equal.length - Number(t.value)];
+  } else if (t.type === "Recursive" && (t.value as any).type === "wrapper") {
+    // Recursive wrapper: set up context stacks and recurse into inner type.
+    // Uses replace-only semantics - no structural patching.
+    let innerEqual: (a: any, b: any) => boolean;
+
+    const ret = (before: any, after: any) => {
+      if (innerEqual(before, after)) {
+        return variant("unchanged", null);
+      }
+      return variant("replace", { before, after });
+    };
+
+    const selfEqual = equalFor(t, ctx.equal);
+    ctx.equal.set((t.value as any).value.id as bigint, selfEqual);
+    innerEqual = equalFor((t.value as any).value.inner as EastTypeValue, ctx.equal);
+
+    return ret;
+  } else if (t.type === "Recursive" && (t.value as any).type === "ref") {
+    // Self-reference: look up by id
+    const id = (t.value as any).value as bigint;
+    const equal = ctx.equal.get(id);
     if (equal === undefined) {
       throw new Error(`Internal error: Recursive equal context not found in diffFor`);
     }

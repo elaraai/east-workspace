@@ -94,6 +94,22 @@ function shouldIncludeFrame(filename: string): boolean {
  * }
  * ```
  */
+/**
+ * Optional transform applied to filenames captured by get_location().
+ * Use this to normalize absolute paths for reproducible IR across machines.
+ *
+ * @example
+ * ```ts
+ * // Strip absolute path prefix, keep relative from project root
+ * setLocationTransform(f => f.replace(/.*\/dist\//, ''));
+ * ```
+ */
+let _locationTransform: ((loc: Location) => Location) | null = null;
+
+export function setLocationTransform(transform: ((loc: Location) => Location) | null): void {
+  _locationTransform = transform;
+}
+
 export function get_location(): Location[] {
   const err = new Error();
   const stack = err.stack;
@@ -108,11 +124,9 @@ export function get_location(): Location[] {
     if (match) {
       const [, filename, lineNum, column] = match;
       if (filename && filename !== '' && shouldIncludeFrame(filename)) {
-        frames.push({
-          filename,
-          line: Number(lineNum),
-          column: Number(column),
-        });
+        let loc: Location = { filename, line: Number(lineNum), column: Number(column) };
+        if (_locationTransform) loc = _locationTransform(loc);
+        frames.push(loc);
       }
     }
   }

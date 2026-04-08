@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsc --build",
     "lint": "eslint .",
-    "test": "node --enable-source-maps --test 'dist/src/**/*.spec.js'"
+    "test": "node --enable-source-maps --test-reporter=spec --test 'dist/src/**/*.spec.js'"
   },
   "dependencies": {
     "@elaraai/e3-types": "workspace:*",

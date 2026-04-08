@@ -29,7 +29,7 @@ function _encodeJSONPointerComponent(component: string): string {
 }
 
 /** Stack of encoders for recursive types */
-type JSONEncodeTypeContext = ((value: any, ctx?: JSONEncodeValueContext) => unknown)[];
+type JSONEncodeTypeContext = Map<bigint, (value: any, ctx?: JSONEncodeValueContext) => unknown>;
 
 /**
  * Value-level context for tracking seen mutable containers during JSON encoding.
@@ -43,7 +43,7 @@ type JSONEncodeValueContext = {
 };
 
 /** Stack of decoders for recursive types */
-type JSONDecodeTypeContext = ((json: any, ctx?: JSONDecodeValueContext) => any)[];
+type JSONDecodeTypeContext = Map<bigint, (json: any, ctx?: JSONDecodeValueContext) => any>;
 
 /**
  * Value-level context for tracking decoded mutable containers during JSON decoding.
@@ -223,7 +223,7 @@ export function toJSONFor<T extends EastType>(
     type: T,
     typeCtx?: JSONEncodeTypeContext
 ): (value: ValueTypeOf<T>, ctx?: JSONEncodeValueContext) => unknown
-export function toJSONFor(type: EastType | EastTypeValue, typeCtx: JSONEncodeTypeContext = []): (value: any, ctx?: JSONEncodeValueContext) => unknown {
+export function toJSONFor(type: EastType | EastTypeValue, typeCtx: JSONEncodeTypeContext = new Map()): (value: any, ctx?: JSONEncodeValueContext) => unknown {
     // Convert EastType to EastTypeValue if necessary
     if (!isVariant(type)) {
         type = toEastTypeValue(type);
@@ -283,9 +283,7 @@ export function toJSONFor(type: EastType | EastTypeValue, typeCtx: JSONEncodeTyp
             ctx.currentPath.pop();
             return result;
         };
-        typeCtx.push(ret);
         valueToJson = toJSONFor(type.value, typeCtx);
-        typeCtx.pop();
         return ret;
     } else if (type.type === "Array") {
         let valueToJson: (value: any, ctx?: JSONEncodeValueContext) => unknown;
@@ -310,9 +308,7 @@ export function toJSONFor(type: EastType | EastTypeValue, typeCtx: JSONEncodeTyp
             }
             return result;
         };
-        typeCtx.push(ret);
         valueToJson = toJSONFor(type.value, typeCtx);
-        typeCtx.pop();
         return ret;
     } else if (type.type === "Set") {
         const keyToJson = toJSONFor(type.value, typeCtx);
@@ -378,9 +374,7 @@ export function toJSONFor(type: EastType | EastTypeValue, typeCtx: JSONEncodeTyp
             }
             return arr;
         };
-        typeCtx.push(ret);
         valueToJson = toJSONFor(type.value.value, typeCtx);
-        typeCtx.pop();
         return ret;
     } else if (type.type === "Struct") {
         const fieldToJson: { [key: string]: (value: any, ctx?: JSONEncodeValueContext) => unknown } = {};
@@ -393,11 +387,9 @@ export function toJSONFor(type: EastType | EastTypeValue, typeCtx: JSONEncodeTyp
             }
             return obj;
         };
-        typeCtx.push(ret);
         for (const { name, type: t } of type.value) {
             fieldToJson[name] = toJSONFor(t, typeCtx);
         }
-        typeCtx.pop();
         return ret;
     } else if (type.type === "Variant") {
         const caseToJson: { [key: string]: (value: any, ctx?: JSONEncodeValueContext) => unknown } = {};
@@ -408,14 +400,18 @@ export function toJSONFor(type: EastType | EastTypeValue, typeCtx: JSONEncodeTyp
             ctx.currentPath.pop();
             return { type, value: encodedValue };
         };
-        typeCtx.push(ret);
         for (const { name, type: t } of type.value) {
             caseToJson[name] = toJSONFor(t, typeCtx);
         }
-        typeCtx.pop();
+        return ret;
+    } else if (type.type === "Recursive" && (type.value as any).type === "wrapper") {
+        let inner: any;
+        const ret = (...args: any[]) => inner(...args);
+        typeCtx.set((type.value as any).value.id as bigint, ret);
+        inner = toJSONFor((type.value as any).value.inner, typeCtx);
         return ret;
     } else if (type.type === "Recursive") {
-        const ret = typeCtx[typeCtx.length - Number(type.value)];
+        const ret = typeCtx.get((type.value as any).value as bigint);
         if (ret === undefined) {
             throw new Error(`Internal error: Recursive type context not found`);
         }
@@ -493,7 +489,7 @@ export function fromJSONFor(type: EastTypeValue, frozen: boolean = false): (valu
 function createJSONDecoder(
     type: EastTypeValue,
     frozen: boolean = false,
-    typeCtx: JSONDecodeTypeContext = []
+    typeCtx: JSONDecodeTypeContext = new Map()
 ): (value: unknown, ctx?: JSONDecodeValueContext) => any {
     if (type.type === "Never") {
         return ((_: never, _ctx?: JSONDecodeValueContext) => { throw new Error("Cannot decode Never type from JSON"); }) as any;
@@ -631,9 +627,7 @@ function createJSONDecoder(
             }
             return self;
         };
-        typeCtx.push(ret);
         valueFromJson = createJSONDecoder(type.value, frozen, typeCtx);
-        typeCtx.pop();
         return ret;
     } else if (type.type === "Array") {
         let valueFromJson: (value: unknown, ctx?: JSONDecodeValueContext) => any;
@@ -687,9 +681,7 @@ function createJSONDecoder(
             }
             return array;
         };
-        typeCtx.push(ret);
         valueFromJson = createJSONDecoder(type.value, frozen, typeCtx);
-        typeCtx.pop();
         return ret;
     } else if (type.type === "Set") {
         const keyFromJson = createJSONDecoder(type.value, frozen, typeCtx);
@@ -826,9 +818,7 @@ function createJSONDecoder(
             }
             return dict;
         };
-        typeCtx.push(ret);
         valueFromJson = createJSONDecoder(type.value.value, frozen, typeCtx);
-        typeCtx.pop();
         return ret;
     } else if (type.type === "Struct") {
         const fieldFromJson: { [key: string]: (value: any, ctx?: JSONDecodeValueContext) => any } = {};
@@ -869,11 +859,9 @@ function createJSONDecoder(
             }
             return obj;
         };
-        typeCtx.push(ret);
         for (const { name, type: t } of type.value) {
             fieldFromJson[name] = createJSONDecoder(t, frozen, typeCtx);
         }
-        typeCtx.pop();
         return ret;
     } else if (type.type === "Variant") {
         const caseFromJson: { [key: string]: ((value: any, ctx?: JSONDecodeValueContext) => any) | null } = {} as any;
@@ -910,14 +898,18 @@ function createJSONDecoder(
                 ctx.currentPath.pop();
             }
         };
-        typeCtx.push(ret);
         for (const { name, type: t } of type.value) {
             caseFromJson[name] = createJSONDecoder(t, frozen, typeCtx);
         }
-        typeCtx.pop();
+        return ret;
+    } else if (type.type === "Recursive" && (type.value as any).type === "wrapper") {
+        let inner: any;
+        const ret = (...args: any[]) => inner(...args);
+        typeCtx.set((type.value as any).value.id as bigint, ret);
+        inner = createJSONDecoder((type.value as any).value.inner, frozen, typeCtx);
         return ret;
     } else if (type.type === "Recursive") {
-        const ret = typeCtx[typeCtx.length - Number(type.value)];
+        const ret = typeCtx.get((type.value as any).value as bigint);
         if (ret === undefined) {
             throw new Error(`Internal error: Recursive type context not found`);
         }

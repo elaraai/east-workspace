@@ -9,6 +9,7 @@ with no Python IR round-trip.
 """
 
 from pathlib import Path
+from time import perf_counter
 
 from east.runtime.compiler import compile_from_beast2, compile_from_east, compile_from_json
 from east.runtime.platform import PlatformFunction
@@ -28,9 +29,7 @@ def run_program(
     fmt = detect_format(ir_file)
     is_async = False
 
-    if verbose:
-        print(f"Compiling {ir_file} ({fmt})")
-        print(f"  {len(platform_fns)} platform functions")
+    t0 = perf_counter()
 
     # Compile directly from raw data — no Python IR round-trip, single file read
     if fmt == "json":
@@ -46,6 +45,8 @@ def run_program(
         compiled = compile_from_east(text, platform_fns, is_async)
     else:
         raise ValueError(f"Unknown IR format: {fmt}")
+
+    t1 = perf_counter()
 
     handle = compiled._eastc_handle
     input_types = handle.get_input_types()
@@ -66,19 +67,27 @@ def run_program(
             print(f"  Input {i}: {file_path} as {print_type(param_type)}")
         inputs.append(load_value(file_path, param_type))
 
-    # Execute via east-c
-    if verbose:
-        print("Executing...")
+    t2 = perf_counter()
 
+    # Execute via east-c
     from east.runtime._compiler_eastc import _eastc_call
     result = _eastc_call(handle._compiled, handle._input_types, handle._output_type, tuple(inputs))
 
+    t3 = perf_counter()
+
     # Output
     if output_file is not None:
-        if verbose:
-            print(f"Saving output to {output_file}")
         save_value(output_file, result, output_type)
     else:
         print(print_east(result, output_type))
+
+    t4 = perf_counter()
+
+    if verbose:
+        print(f"  Load IR:    {(t1 - t0) * 1000:8.1f} ms", file=__import__("sys").stderr)
+        print(f"  Inputs:     {(t2 - t1) * 1000:8.1f} ms", file=__import__("sys").stderr)
+        print(f"  Execute:    {(t3 - t2) * 1000:8.1f} ms", file=__import__("sys").stderr)
+        print(f"  Output:     {(t4 - t3) * 1000:8.1f} ms", file=__import__("sys").stderr)
+        print(f"  Total:      {(t4 - t0) * 1000:8.1f} ms", file=__import__("sys").stderr)
 
     return result

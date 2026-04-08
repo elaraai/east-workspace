@@ -37,6 +37,7 @@ export const optimizationCoordinate = example({
             order: variant('some', variant('sequential', null)),
             random_state: variant('some', 42n),
             mode: variant('some', variant('coordinate', null)),
+            workers: variant('none', null),
         });
 
         const result = $.let(Optimization.iterative(objective, spaces, config));
@@ -46,6 +47,57 @@ export const optimizationCoordinate = example({
     }),
     inputs: [3n],
     returns: true,
+});
+
+export const optimizationIncremental = example({
+    keywords: ["optimization", "iterative", "incremental", "element", "per-element", "rostering", "assignment", "coordinate descent"],
+    description: "Optimize task-worker assignment using incremental per-element contributions",
+    fn: East.function([], FloatType, ($) => {
+        // 5 tasks, 3 workers. skill[task][worker] = match score.
+        // Element objective: contribution of task i = skill[i][assignment[i]]
+        const skill = $.let([
+            [3.0, 1.0, 2.0],   // task 0: best with worker 0
+            [1.0, 3.0, 2.0],   // task 1: best with worker 1
+            [2.0, 2.0, 3.0],   // task 2: best with worker 2
+            [3.0, 2.0, 1.0],   // task 3: best with worker 0
+            [1.0, 2.0, 3.0],   // task 4: best with worker 2
+        ]);
+
+        const elementObjective = $.const(East.function(
+            [VectorType(IntegerType), IntegerType], FloatType,
+            ($, assignments, taskIdx) => {
+                const worker = $.let(assignments.get(taskIdx));
+                $.return(skill.get(taskIdx).get(worker));
+            }
+        ));
+
+        const spaces = $.let([
+            new BigInt64Array([0n, 1n, 2n]),
+            new BigInt64Array([0n, 1n, 2n]),
+            new BigInt64Array([0n, 1n, 2n]),
+            new BigInt64Array([0n, 1n, 2n]),
+            new BigInt64Array([0n, 1n, 2n]),
+        ]);
+
+        const config = $.let({
+            iterations: variant('some', 10n),
+            samples: variant('some', 3n),
+            initial: variant('some', variant('random', null)),
+            order: variant('some', variant('sequential', null)),
+            random_state: variant('some', 42n),
+            mode: variant('none', null),
+            workers: variant('none', null),
+        });
+
+        const result = $.let(Optimization.iterativeIncremental(
+            elementObjective, spaces, config,
+        ));
+
+        // Optimal: each task assigned to best worker -> 3+3+3+3+3 = 15.0
+        return result.best_objective;
+    }),
+    inputs: [],
+    returns: 15.0,
 });
 
 export const optimizationSwap = example({
@@ -83,6 +135,7 @@ export const optimizationSwap = example({
             order: variant('some', variant('random', null)),
             random_state: variant('some', 42n),
             mode: variant('some', variant('swap', null)),
+            workers: variant('none', null),
         });
 
         const result = $.let(Optimization.iterative(objective, spaces, config));

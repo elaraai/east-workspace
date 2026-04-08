@@ -360,6 +360,33 @@ export const MapieClassifierShapResultType = StructType({
 });
 
 // ============================================================================
+// TreeExplainer Config Type
+// ============================================================================
+
+/**
+ * Configuration for TreeExplainer creation.
+ *
+ * - `path_dependent`: Uses tree structure to compute SHAP values. Fast, but may
+ *   conflate correlated features because it follows the tree's split paths.
+ * - `interventional`: Uses background data to break feature correlations, giving
+ *   causal "what if I changed this feature" explanations. Requires background samples.
+ */
+export const TreeExplainerConfigType = VariantType({
+    /** Path-dependent mode: uses tree structure only (default SHAP behavior) */
+    path_dependent: StructType({
+        /** Tree-based model blob */
+        model: TreeModelBlobType,
+    }),
+    /** Interventional mode: uses background data to break feature correlations */
+    interventional: StructType({
+        /** Tree-based model blob */
+        model: TreeModelBlobType,
+        /** Background data for computing interventional expectations */
+        background: MatrixType(FloatType),
+    }),
+});
+
+// ============================================================================
 // Platform Functions
 // ============================================================================
 
@@ -368,12 +395,18 @@ export const MapieClassifierShapResultType = StructType({
  *
  * Works with XGBoost and LightGBM models (regressor and classifier).
  *
- * @param model - Tree-based model blob (XGBoost or LightGBM)
+ * Two modes:
+ * - `path_dependent`: Uses tree split paths (fast, default SHAP behavior).
+ *   Tells you how the tree *used* features.
+ * - `interventional`: Uses background data to break feature correlations.
+ *   Tells you how *changing* a feature would change the prediction.
+ *
+ * @param config - Variant with mode selection and model/background data
  * @returns SHAP TreeExplainer blob
  */
 export const shap_tree_explainer_create = East.platform(
     "shap_tree_explainer_create",
-    [TreeModelBlobType],
+    [TreeExplainerConfigType],
     ShapModelBlobType
 );
 
@@ -442,6 +475,8 @@ export const ShapTypes = {
     ShapModelBlobType,
     /** Tree model blob type for input */
     TreeModelBlobType,
+    /** TreeExplainer configuration type (path_dependent | interventional) */
+    TreeExplainerConfigType,
     /** Any model blob type for kernel explainer */
     AnyModelBlobType,
 } as const;
@@ -472,16 +507,35 @@ export const Shap = {
     /**
      * Create a SHAP TreeExplainer for tree-based models (XGBoost, LightGBM).
      *
+     * Two modes:
+     * - `path_dependent`: Uses tree split paths. Tells you how the tree used features.
+     * - `interventional`: Uses background data to break correlations. Tells you how
+     *   changing a feature would change the prediction.
+     *
      * @example
      * ```ts
-     * import { East, FloatType, MatrixType } from "@elaraai/east";
+     * import { East, FloatType, variant } from "@elaraai/east";
      * import { Shap, XGBoost } from "@elaraai/east-py-datascience";
      *
-     * const explain = East.function(
+     * // Path-dependent mode (default SHAP behavior)
+     * const explainPD = East.function(
      *     [XGBoost.Types.ModelBlobType],
      *     Shap.Types.ShapModelBlobType,
      *     ($, model) => {
-     *         return $.return(Shap.treeExplainerCreate(model));
+     *         return $.return(Shap.treeExplainerCreate(
+     *             variant('path_dependent', { model })
+     *         ));
+     *     }
+     * );
+     *
+     * // Interventional mode (causal, uses background data)
+     * const explainIV = East.function(
+     *     [XGBoost.Types.ModelBlobType, Shap.Types.MatrixType(FloatType)],
+     *     Shap.Types.ShapModelBlobType,
+     *     ($, model, background) => {
+     *         return $.return(Shap.treeExplainerCreate(
+     *             variant('interventional', { model, background })
+     *         ));
      *     }
      * );
      * ```

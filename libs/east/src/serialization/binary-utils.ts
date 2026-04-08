@@ -286,31 +286,40 @@ export class BufferReader {
     return result;
   }
 
-  /** Read zigzag-encoded signed varint as bigint. */
+  /** Read zigzag-encoded signed varint as bigint.
+   *  Fast path: values fitting in ≤4 varint bytes (28-bit unsigned, ±67M signed)
+   *  are decoded in Number arithmetic — one BigInt() call at the end instead of
+   *  one per byte. Most IR integers (indices, line/col numbers) hit this path. */
   readZigzag(): bigint {
-    let result = 0n;
-    let shift = 0n;
     const buf = this.buffer;
     let off = this.offset;
 
-    while (true) {
-      if (off >= buf.length) {
-        throw new Error(`Buffer underflow reading zigzag at offset ${off}`);
-      }
-
+    // Fast path: decode unsigned zigzag value in Number (up to 4 bytes / 28 bits)
+    let n = 0;
+    let shift = 0;
+    while (shift < 28) {
+      if (off >= buf.length) throw new Error(`Buffer underflow reading zigzag at offset ${off}`);
       const byte = buf[off++]!;
-      result |= BigInt(byte & 0x7F) << shift;
-
+      n |= (byte & 0x7F) << shift;
       if ((byte & 0x80) === 0) {
-        break;
+        this.offset = off;
+        // Zigzag decode: (n >>> 1) ^ -(n & 1)
+        return BigInt((n >>> 1) ^ -(n & 1));
       }
-
-      shift += 7n;
-      if (shift >= 64n) {
-        throw new Error(`Zigzag varint too long at offset ${off - 1}`);
-      }
+      shift += 7;
     }
 
+    // Slow path: >4 bytes, finish in BigInt
+    let result = BigInt(n);
+    let bigShift = 28n;
+    while (true) {
+      if (off >= buf.length) throw new Error(`Buffer underflow reading zigzag at offset ${off}`);
+      const byte = buf[off++]!;
+      result |= BigInt(byte & 0x7F) << bigShift;
+      if ((byte & 0x80) === 0) break;
+      bigShift += 7n;
+      if (bigShift >= 64n) throw new Error(`Zigzag varint too long at offset ${off - 1}`);
+    }
     this.offset = off;
     return (result >> 1n) ^ -(result & 1n);
   }
@@ -356,6 +365,22 @@ export class BufferReader {
       throw new Error(`Buffer underflow reading boolean at offset ${this.offset}`);
     }
     return this.buffer[this.offset++] !== 0;
+  }
+
+  /** Read a single unsigned byte. */
+  readUint8(): number {
+    if (this.offset >= this.buffer.length) {
+      throw new Error(`Buffer underflow reading uint8 at offset ${this.offset}`);
+    }
+    return this.buffer[this.offset++]!;
+  }
+
+  /** Skip N bytes without reading. */
+  skip(length: number): void {
+    if (this.offset + length > this.buffer.length) {
+      throw new Error(`Buffer underflow skipping ${length} bytes at offset ${this.offset}`);
+    }
+    this.offset += length;
   }
 
   /** Read raw bytes of given length (returns a slice). */

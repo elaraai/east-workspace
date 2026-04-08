@@ -3,6 +3,7 @@
 
 #include "types.h"
 #include "values.h"
+#include "ir.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -35,6 +36,12 @@ EastValue *east_beast2_decode_full(const uint8_t *data, size_t len, EastType *ty
 EastValue *east_beast2_decode_auto(const uint8_t *data, size_t len);
 // Extract the type schema from beast2-full encoded data (returns retained EastType*)
 EastType *east_beast2_extract_type(const uint8_t *data, size_t len);
+
+// Decode beast2-full IR and convert to IRNode in one shot.
+// Keeps the type table alive across decode + IR conversion for O(1) type resolution.
+// Returns NULL on failure. Caller must call ir_node_release on the result.
+// ir_value_out (optional): if non-NULL, receives the retained IR EastValue* (for re-serialization).
+IRNode *east_beast2_decode_ir(const uint8_t *data, size_t len, EastValue **ir_value_out);
 
 // Beast v1 binary serialization (magic + type schema + twiddled values)
 ByteBuffer *east_beast_encode(EastValue *value, EastType *type);

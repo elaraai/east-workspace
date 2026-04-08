@@ -16,7 +16,7 @@
   ],
   "scripts": {
     "build": "tsc --build",
-    "test": "npm run build && node --enable-source-maps --test 'dist/src/**/*.spec.js'",
+    "test": "npm run build && node --enable-source-maps --test-reporter=spec --test 'dist/src/**/*.spec.js'",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "dev": "pnpm run build && node --enable-source-maps dist/src/cli.js"

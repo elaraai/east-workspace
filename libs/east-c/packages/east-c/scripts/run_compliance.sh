@@ -94,6 +94,13 @@ for f in "$IR_DIR"/*.json; do
     fi
 done
 
+# Print summary (in quiet mode, only show FAIL/CRASH/ERROR lines)
+if [ "${EAST_QUIET:-}" = "1" ]; then
+    echo -e "$SUMMARY" | grep -E 'FAIL|CRASH|ERROR|MISSING' || true
+else
+    echo -e "$SUMMARY"
+fi
+
 echo ""
 echo "========================================="
 printf "  Total: %d passed, %d failed, %d crashed\n" "$TOTAL_PASS" "$TOTAL_FAIL" "$TOTAL_CRASH"

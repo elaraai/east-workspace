@@ -3,967 +3,756 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { EastTypeValueType, toEastTypeValue, type EastTypeValue } from "../type_of_type.js";
+/**
+ * Beast2 v2 — complete encoder and decoder.
+ *
+ * File layout: magic(8) + type_table_section + string_table_section + value_data
+ * Type table: flat array of unique types, referenced by varint index.
+ * String table: flat array of unique strings, referenced by varint index.
+ * Value data: type-driven positional encoding, no inline type tags.
+ * Functions: IR encoded directly — EastTypeType schema positions auto-emit type table indices.
+ *
+ * See devdocs/BEAST2.md for the full specification.
+ */
+
+import { toEastTypeValue, EastTypeValueType, type EastTypeValue } from "../type_of_type.js";
 import type { EastType, ValueTypeOf } from "../types.js";
+import { getTypeId } from "../types.js";
 import { isVariant, variant } from "../containers/variant.js";
-import {
-  BufferWriter,
-  BufferReader,
-} from "./binary-utils.js";
-import { printFor } from "./east.js";
+import { BufferWriter, BufferReader } from "./binary-utils.js";
 import { ref } from "../containers/ref.js";
 import { matrix } from "../containers/matrix.js";
 import { EAST_IR_SYMBOL, EAST_CAPTURES_SYMBOL, ReturnException, compile_internal, type RuntimeContext } from "../compile.js";
 import { InternalError } from "../error.js";
-import { type FunctionIR, type AsyncFunctionIR } from "../ir.js";
+import { IRType, type FunctionIR, type AsyncFunctionIR } from "../ir.js";
 import type { PlatformFunction } from "../platform.js";
 import type { AnalyzedIR } from "../analyze.js";
+import { EastIR, AsyncEastIR } from "../eastir.js";
+import { TypeTableBuilder, writeTypeTableSection, readTypeTableSection } from "./beast2-type-table.js";
 
-const printTypeValue = printFor(EastTypeValueType) as (type: EastTypeValue) => string;
+// type_id of EastTypeValueType — schema positions with this id encode values as table indices
+const EAST_TYPE_TYPE_TID = getTypeId(EastTypeValueType);
 
-function _bytesPerElement(elementType: EastTypeValue): number {
-  if (elementType.type === "Float") return 8;
-  if (elementType.type === "Integer") return 8;
-  if (elementType.type === "Boolean") return 1;
-  throw new Error(`Unsupported vector/matrix element type: ${elementType.type}`);
+// Shared empty set for compile_internal's compilingNodes parameter (avoids per-call allocation)
+const EMPTY_SET = new Set<any>();
+
+
+// =============================================================================
+// Magic bytes (v2: last byte = 0x02)
+// =============================================================================
+
+export const MAGIC_BYTES = new Uint8Array([0x89, 0x45, 0x61, 0x73, 0x74, 0x0D, 0x0A, 0x02]);
+
+function verifyMagic(data: Uint8Array): void {
+  if (data.length < 8) {
+    throw new Error(`Data too short for Beast2 format: ${data.length} bytes`);
+  }
+  for (let i = 0; i < 8; i++) {
+    if (data[i] !== MAGIC_BYTES[i]) {
+      if (i < 7) throw new Error(`Invalid Beast2 magic at offset ${i}: expected 0x${MAGIC_BYTES[i]!.toString(16)}, got 0x${data[i]!.toString(16)}`);
+      throw new Error(`Unknown Beast2 version: 0x${data[i]!.toString(16)}`);
+    }
+  }
 }
 
 // =============================================================================
-// Context types for backreference tracking
+// Public types
 // =============================================================================
-
-/** Stack of encoders for recursive types */
-export type Beast2EncodeTypeContext = ((value: any, writer: BufferWriter, ctx?: Beast2EncodeContext) => void)[];
-
-/**
- * Value-level context for tracking mutable aliases during encoding.
- *
- * - refs: Map from mutable containers (Array/Set/Dict) to their byte offset (where inline content begins, after varint(0))
- */
-export type Beast2EncodeContext = {
-  refs: Map<any, number>;
-  globalTypeTable?: Map<any, number>;
-};
-
-/** Stack of decoders for recursive types */
-export type Beast2DecodeTypeContext = ((buffer: Uint8Array, offset: number, ctx?: Beast2DecodeContext) => [any, number])[];
-
-/**
- * Value-level context for tracking mutable aliases during decoding.
- *
- * - refs: Map from byte offset to deserialized mutable container (Array/Set/Dict)
- */
-export type Beast2DecodeContext = {
-  refs: Map<number, any>;
-};
-
-/** Cursor-based decoder function type (zero-allocation). Reads from BufferReader and mutates offset in place. */
-export type CursorDecoder = (reader: BufferReader, refs: Map<number, any>) => any;
-
-/** Stack of cursor-based decoders for recursive types */
-type CursorTypeContext = CursorDecoder[];
-
-/**
- * Options for decoding, allowing function compilation.
- * When platform is provided, decoded functions will be compiled to callables with IR attached.
- * When not provided, raw FunctionIR/AsyncFunctionIR is returned.
- */
-/**
- * Callback invoked when a function handle is encountered during handle-aware decoding.
- * Returns a callable JS function wrapper for the handle.
- */
-export type FunctionHandleResolver = (handleId: number, fnType: EastTypeValue) => (...args: any[]) => any;
 
 export type Beast2DecodeOptions = {
   platform?: PlatformFunction[];
-  /**
-   * When true, skip decoding and verifying the type header on each call.
-   * The type header is still used to determine the value data offset on the
-   * first call, but subsequent calls reuse the cached offset.
-   *
-   * This can dramatically improve performance for large recursive types
-   * (e.g. UIComponentType) where the type header is tens of KB and decoding
-   * + comparing it on every call dominates total decode time.
-   *
-   * Only use this when you trust the data was encoded with the correct type.
-   */
-  skipTypeCheck?: boolean;
-  /**
-   * Handle-aware decoding mode. When set, function positions in the value stream
-   * contain varint handle IDs instead of IR+captures. The resolver is called to
-   * create callable wrappers for each handle.
-   */
-  functionHandleResolver?: FunctionHandleResolver;
-  /** Global type table for IR decoding. Set internally by the beast2 header reader. */
-  globalTypeTable?: EastTypeValue[];
 };
 
 // =============================================================================
-// Value encoding/decoding factories (closure-compiler pattern)
+// Internal context types
 // =============================================================================
 
-export function encodeBeast2ValueToBufferFor(type: EastTypeValue, typeCtx: Beast2EncodeTypeContext = []): (value: any, writer: BufferWriter, ctx?: Beast2EncodeContext) => void {
-  if (type.type === "Never") {
-    return (_: unknown, _writer: BufferWriter, _ctx?: Beast2EncodeContext) => { throw new Error(`Attempted to encode value of type .Never`)};
-  } else if (type.type === "Null") {
-    return (_: null, _writer: BufferWriter, _ctx?: Beast2EncodeContext) => { /* null encodes as nothing */ };
-  } else if (type.type === "Boolean") {
-    return (x: boolean, writer: BufferWriter, _ctx?: Beast2EncodeContext) => writer.writeUint8(x ? 1 : 0);
-  } else if (type.type === "Integer") {
-    return (x: bigint, writer: BufferWriter, _ctx?: Beast2EncodeContext) => writer.writeZigzag(x);
-  } else if (type.type === "Float") {
-    return (x: number, writer: BufferWriter, _ctx?: Beast2EncodeContext) => writer.writeFloat64LE(x);
-  } else if (type.type === "String") {
-    return (x: string, writer: BufferWriter, _ctx?: Beast2EncodeContext) => writer.writeStringUtf8Varint(x);
-  } else if (type.type === "DateTime") {
-    return (x: Date, writer: BufferWriter, _ctx?: Beast2EncodeContext) => writer.writeZigzag(BigInt(x.valueOf()));
-  } else if (type.type === "Blob") {
-    return (x: Uint8Array, writer: BufferWriter, _ctx?: Beast2EncodeContext) => {
-      writer.writeVarint(x.length);
-      writer.writeBytes(x);
-    };
-  } else if (type.type === "Ref") {
-    let valueEncoder: (value: any, writer: BufferWriter, ctx?: Beast2EncodeContext) => void;
-    const ret = (x: ref<any>, writer: BufferWriter, ctx: Beast2EncodeContext = { refs: new Map() }) => {
-      // Check for backreference
-      if (ctx.refs.has(x)) {
-        const offset = ctx.refs.get(x)!;
-        writer.writeVarint(writer.currentOffset - offset);
-        return;
-      }
-      // Write inline marker and register
-      writer.writeVarint(0);
-      ctx.refs.set(x, writer.currentOffset);
-      // Encode contents
-      valueEncoder(x.value, writer, ctx);
-    };
-    typeCtx.push(ret);
-    valueEncoder = encodeBeast2ValueToBufferFor(type.value, typeCtx);
-    typeCtx.pop();
-    return ret;
-  } else if (type.type === "Array") {
-    let valueEncoder: (value: any, writer: BufferWriter, ctx?: Beast2EncodeContext) => void;
-    const ret = (x: any[], writer: BufferWriter, ctx: Beast2EncodeContext = { refs: new Map() }) => {
-      // Check for backreference
-      if (ctx.refs.has(x)) {
-        const offset = ctx.refs.get(x)!;
-        writer.writeVarint(writer.currentOffset - offset);
-        return;
-      }
-      // Write inline marker and register
-      writer.writeVarint(0);
-      ctx.refs.set(x, writer.currentOffset);
-      // Encode contents
-      writer.writeVarint(x.length);
-      for (const item of x) {
-        valueEncoder(item, writer, ctx);
-      }
-    };
-    typeCtx.push(ret);
-    valueEncoder = encodeBeast2ValueToBufferFor(type.value, typeCtx);
-    typeCtx.pop();
-    return ret;
-  } else if (type.type === "Set") {
-    const keyEncoder = encodeBeast2ValueToBufferFor(type.value, typeCtx);
-    return (x: Set<any>, writer: BufferWriter, ctx: Beast2EncodeContext = { refs: new Map() }) => {
-      // Check for backreference
-      if (ctx.refs.has(x)) {
-        const offset = ctx.refs.get(x)!;
-        writer.writeVarint(writer.currentOffset - offset);
-        return;
-      }
-      // Write inline marker and register
-      writer.writeVarint(0);
-      ctx.refs.set(x, writer.currentOffset);
-      // Encode contents
-      writer.writeVarint(x.size);
-      for (const key of x) {
-        keyEncoder(key, writer, ctx);
-      }
-    };
-  } else if (type.type === "Dict") {
-    const keyEncoder = encodeBeast2ValueToBufferFor(type.value.key, typeCtx);
-    let valueEncoder: (value: any, writer: BufferWriter, ctx?: Beast2EncodeContext) => void;
-    const ret = (x: Map<any, any>, writer: BufferWriter, ctx: Beast2EncodeContext = { refs: new Map() }) => {
-      // Check for backreference
-      if (ctx.refs.has(x)) {
-        const offset = ctx.refs.get(x)!;
-        writer.writeVarint(writer.currentOffset - offset);
-        return;
-      }
-      // Write inline marker and register
-      writer.writeVarint(0);
-      ctx.refs.set(x, writer.currentOffset);
-      // Encode contents
-      writer.writeVarint(x.size);
-      for (const [k, v] of x) {
-        keyEncoder(k, writer, ctx);
-        valueEncoder(v, writer, ctx);
-      }
-    };
-    typeCtx.push(ret);
-    valueEncoder = encodeBeast2ValueToBufferFor(type.value.value, typeCtx);
-    typeCtx.pop();
-    return ret;
-  } else if (type.type === "Struct") {
-    const fieldEncoders: [string, (value: any, writer: BufferWriter, ctx?: Beast2EncodeContext) => void][] = [];
-    const ret = (x: Record<string, any>, writer: BufferWriter, ctx: Beast2EncodeContext = { refs: new Map() }) => {
-      for (const [k, encoder] of fieldEncoders) {
-        encoder(x[k], writer, ctx);
-      }
-    };
-    typeCtx.push(ret);
-    for (const { name, type: fieldType } of type.value) {
-      fieldEncoders.push([name, encodeBeast2ValueToBufferFor(fieldType, typeCtx)]);
-    }
-    typeCtx.pop();
-    return ret;
-  } else if (type.type === "Variant") {
-    const caseEncoders: Record<string, (value: any, writer: BufferWriter, ctx?: Beast2EncodeContext) => void> = {};
-    const caseTags = Object.fromEntries(type.value.map(({ name }, i) => [name, i]));
-    const ret = (x: any, writer: BufferWriter, ctx: Beast2EncodeContext = { refs: new Map() }) => {
-      const tag = x.type as string;
-      const tagIndex = caseTags[tag]!;
-      writer.writeVarint(tagIndex);
-      caseEncoders[tag]!(x.value, writer, ctx);
-    };
-    typeCtx.push(ret);
-    for (const { name, type: caseType } of type.value) {
-      caseEncoders[name] = encodeBeast2ValueToBufferFor(caseType, typeCtx);
-    }
-    typeCtx.pop();
-    return ret;
-  } else if (type.type === "Recursive") {
-    const ret = typeCtx[typeCtx.length - Number(type.value)];
-    if (ret === undefined) {
-      throw new Error(`Internal error: Recursive type context not found`);
-    }
-    return ret;
-  } else if (type.type === "Function") {
-    return (value: any, writer: BufferWriter, ctx: Beast2EncodeContext = { refs: new Map() }) => {
-      // Get IR from function
-      const ir = value[EAST_IR_SYMBOL] as FunctionIR | undefined;
+type ValueEncoder = (value: any, writer: BufferWriter, ctx: EncodeContext) => void;
+type ValueDecoder = (reader: BufferReader, ctx: DecodeContext) => any;
 
-      if (!ir) {
-        throw new Error(
-          `Cannot serialize function: no IR attached. ` +
-          `Functions must be compiled from East IR to be serializable.`
-        );
-      }
-
-      // Serialize the IR using global type table indices
-      if (!ctx.globalTypeTable) throw new InternalError('Function encoding requires globalTypeTable in context');
-      encodeIRWithGlobalTable(ir, writer, ctx, ctx.globalTypeTable);
-
-      // Serialize capture values
-      const captures = value[EAST_CAPTURES_SYMBOL] as RuntimeContext | undefined;
-      const captureCount = ir.value.captures.length;
-
-      // Write number of captures
-      writer.writeVarint(captureCount);
-
-      // Serialize each capture value using its type from the IR
-      for (const captureVar of ir.value.captures) {
-        const name = captureVar.value.name;
-        const captureType = captureVar.value.type;
-
-        // Captured variables are stored as variants - extract the value
-        if (!captures) {
-          throw new InternalError(`Function has captures in IR but no EAST_CAPTURES_SYMBOL`);
-        }
-        const captureEntry = captures[name];
-        if (!captureEntry) {
-          throw new InternalError(`Capture '${name}' not found in function's capture context`);
-        }
-        const captureValue = captureEntry.value;
-
-        // Get encoder for this capture's type and encode the value
-        const captureEncoder = encodeBeast2ValueToBufferFor(captureType, typeCtx);
-        captureEncoder(captureValue, writer, ctx);
-      }
-    };
-  } else if (type.type === "AsyncFunction") {
-    return (value: any, writer: BufferWriter, ctx: Beast2EncodeContext = { refs: new Map() }) => {
-      // Get IR from function
-      const ir = value[EAST_IR_SYMBOL] as AsyncFunctionIR | undefined;
-
-      if (!ir) {
-        throw new Error(
-          `Cannot serialize async function: no IR attached. ` +
-          `Functions must be compiled from East IR to be serializable.`
-        );
-      }
-
-      // Serialize the IR using global type table indices
-      if (!ctx.globalTypeTable) throw new InternalError('Function encoding requires globalTypeTable in context');
-      encodeIRWithGlobalTable(ir, writer, ctx, ctx.globalTypeTable);
-
-      // Serialize capture values
-      const captures = value[EAST_CAPTURES_SYMBOL] as RuntimeContext | undefined;
-      const captureCount = ir.value.captures.length;
-
-      // Write number of captures
-      writer.writeVarint(captureCount);
-
-      // Serialize each capture value using its type from the IR
-      for (const captureVar of ir.value.captures) {
-        const name = captureVar.value.name;
-        const captureType = captureVar.value.type;
-
-        // Captured variables are stored as variants - extract the value
-        if (!captures) {
-          throw new InternalError(`AsyncFunction has captures in IR but no EAST_CAPTURES_SYMBOL`);
-        }
-        const captureEntry = captures[name];
-        if (!captureEntry) {
-          throw new InternalError(`Capture '${name}' not found in async function's capture context`);
-        }
-        const captureValue = captureEntry.value;
-
-        // Get encoder for this capture's type and encode the value
-        const captureEncoder = encodeBeast2ValueToBufferFor(captureType, typeCtx);
-        captureEncoder(captureValue, writer, ctx);
-      }
-    };
-  } else if (type.type === "Vector") {
-    return (value: Float64Array | BigInt64Array | Uint8ClampedArray, writer: BufferWriter, _ctx: Beast2EncodeContext = { refs: new Map() }) => {
-      writer.writeVarint(value.length);
-      writer.writeBytes(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
-    };
-  } else if (type.type === "Matrix") {
-    return (value: any, writer: BufferWriter, _ctx: Beast2EncodeContext = { refs: new Map() }) => {
-      const { data, rows, cols } = value;
-      writer.writeVarint(rows);
-      writer.writeVarint(cols);
-      writer.writeBytes(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
-    };
-  } else {
-    throw new Error(`Unhandled type ${(type satisfies never as EastTypeValue).type}`);
-  }
+interface EncodeContext {
+  refs: Map<any, number>;
+  typeTable: TypeTableBuilder;
+  stringTable: Map<string, number>;
+  irEncoder: ValueEncoder;
 }
 
-export function decodeBeast2ValueFor(type: EastTypeValue | EastType, _typeCtx: Beast2DecodeTypeContext = [], options?: Beast2DecodeOptions): (buffer: Uint8Array, offset: number, ctx?: Beast2DecodeContext) => [any, number] {
-  // Delegate to cursor-based decoder and wrap result in tuple for backward compatibility
-  const cursorDecoder = _decodeCursorFor(type, [], options);
-  return (buffer: Uint8Array, offset: number, ctx?: Beast2DecodeContext): [any, number] => {
-    const reader = new BufferReader(buffer, offset);
-    const refs = ctx?.refs ?? new Map<number, any>();
-    const value = cursorDecoder(reader, refs);
-    return [value, reader.offset];
-  };
+interface DecodeContext {
+  refs: Map<number, any>;
+  typeTable: EastTypeValue[];
+  stringTable: string[];
+  irDecoder: ValueDecoder;
+  platform: PlatformFunction[];
+  platformFns: Record<string, any>;
+  asyncPlatformFns: Set<string>;
 }
 
 // =============================================================================
-// Cursor-based decoder factory (zero-allocation hot path)
+// Value encoder factory
 // =============================================================================
 
 /**
- * Build a cursor-based decoder for the given type. Instead of returning
- * [value, offset] tuples, reads from a mutable BufferReader and returns
- * just the value. This eliminates millions of tuple allocations for large
- * deeply-nested types like UIComponentType.
+ * Build a value encoder closure tree for the given type.
+ * The tree is built once and reused for every encode call.
  */
-export function _decodeCursorFor(type: EastTypeValue | EastType, typeCtx: CursorTypeContext = [], options?: Beast2DecodeOptions): CursorDecoder {
-  if (!isVariant(type)) {
-    type = toEastTypeValue(type);
+function buildEncoder(type: EastTypeValue, typeCtx: Map<bigint, ValueEncoder> = new Map()): ValueEncoder {
+  // At EastTypeType schema positions, encode values as type table indices.
+  // Types are added lazily — if not already in the table, addETV adds it.
+  if (getTypeId(type) === EAST_TYPE_TYPE_TID) {
+    return (value: any, writer: BufferWriter, ctx: EncodeContext) => {
+      if (!ctx.typeTable.has(value)) ctx.typeTable.addETV(value);
+      writer.writeVarint(ctx.typeTable.indexOf(value));
+    };
   }
 
-  if (type.type === "Never") {
-    return () => { throw new Error(`Attempted to decode value of type .Never`); };
-  } else if (type.type === "Null") {
-    return () => null;
-  } else if (type.type === "Boolean") {
-    return (reader: BufferReader) => reader.readBoolean();
-  } else if (type.type === "Integer") {
-    return (reader: BufferReader) => reader.readZigzag();
-  } else if (type.type === "Float") {
-    return (reader: BufferReader) => reader.readFloat64LE();
-  } else if (type.type === "String") {
-    return (reader: BufferReader) => reader.readStringUtf8Varint();
-  } else if (type.type === "DateTime") {
-    return (reader: BufferReader) => new Date(Number(reader.readZigzag()));
-  } else if (type.type === "Blob") {
-    return (reader: BufferReader) => {
-      const length = reader.readVarint();
-      return reader.readBytes(length);
-    };
-  } else if (type.type === "Ref") {
-    let valueDecoder: CursorDecoder;
-    const ret: CursorDecoder = (reader: BufferReader, refs: Map<number, any>) => {
-      const startOffset = reader.offset;
-      const refOrLength = reader.readVarint();
-      if (refOrLength > 0) {
-        const targetOffset = startOffset - refOrLength;
-        if (!refs.has(targetOffset)) {
-          throw new Error(`Undefined backreference at offset ${startOffset}, target ${targetOffset}`);
+  switch (type.type) {
+    case "Never":
+      return () => { throw new Error("Cannot encode value of type Never"); };
+
+    case "Null":
+      return () => {};
+
+    case "Boolean":
+      return (value, writer) => writer.writeUint8(value ? 1 : 0);
+
+    case "Integer":
+      return (value, writer) => writer.writeZigzag(value);
+
+    case "Float":
+      return (value, writer) => writer.writeFloat64LE(value);
+
+    case "String":
+      return (value: string, writer: BufferWriter, ctx: EncodeContext) => {
+        let idx = ctx.stringTable.get(value);
+        if (idx === undefined) {
+          idx = ctx.stringTable.size;
+          ctx.stringTable.set(value, idx);
         }
-        return refs.get(targetOffset);
-      }
-      const result: ref<any> = ref(undefined);
-      refs.set(reader.offset, result);
-      result.value = valueDecoder(reader, refs);
-      return result;
-    };
-    typeCtx.push(ret);
-    valueDecoder = _decodeCursorFor(type.value, typeCtx, options);
-    typeCtx.pop();
-    return ret;
-  } else if (type.type === "Array") {
-    let valueDecoder: CursorDecoder;
-    const ret: CursorDecoder = (reader: BufferReader, refs: Map<number, any>) => {
-      const startOffset = reader.offset;
-      const refOrLength = reader.readVarint();
-      if (refOrLength > 0) {
-        const targetOffset = startOffset - refOrLength;
-        if (!refs.has(targetOffset)) {
-          throw new Error(`Undefined backreference at offset ${startOffset}, target ${targetOffset}`);
+        writer.writeVarint(idx);
+      };
+
+    case "DateTime":
+      return (value, writer) => writer.writeZigzag(BigInt(value.valueOf()));
+
+    case "Blob":
+      return (value, writer) => {
+        writer.writeVarint(value.length);
+        writer.writeBytes(value);
+      };
+
+    case "Ref": {
+      let innerEncoder: ValueEncoder;
+      const ret: ValueEncoder = (value, writer, ctx) => {
+        if (ctx.refs.has(value)) {
+          writer.writeVarint(writer.currentOffset - ctx.refs.get(value)!);
+          return;
         }
-        return refs.get(targetOffset);
-      }
-      const result: any[] = [];
-      refs.set(reader.offset, result);
-      const length = reader.readVarint();
-      for (let i = 0; i < length; i++) {
-        result.push(valueDecoder(reader, refs));
-      }
-      return result;
-    };
-    typeCtx.push(ret);
-    valueDecoder = _decodeCursorFor(type.value, typeCtx, options);
-    typeCtx.pop();
-    return ret;
-  } else if (type.type === "Set") {
-    const keyDecoder = _decodeCursorFor(type.value, typeCtx, options);
-    return (reader: BufferReader, refs: Map<number, any>) => {
-      const startOffset = reader.offset;
-      const refOrLength = reader.readVarint();
-      if (refOrLength > 0) {
-        const targetOffset = startOffset - refOrLength;
-        if (!refs.has(targetOffset)) {
-          throw new Error(`Undefined backreference at offset ${startOffset}, target ${targetOffset}`);
-        }
-        return refs.get(targetOffset);
-      }
-      const result = new Set<any>();
-      refs.set(reader.offset, result);
-      const length = reader.readVarint();
-      for (let i = 0; i < length; i++) {
-        result.add(keyDecoder(reader, refs));
-      }
-      return result;
-    };
-  } else if (type.type === "Dict") {
-    const keyDecoder = _decodeCursorFor(type.value.key, typeCtx, options);
-    let valueDecoder: CursorDecoder;
-    const ret: CursorDecoder = (reader: BufferReader, refs: Map<number, any>) => {
-      const startOffset = reader.offset;
-      const refOrLength = reader.readVarint();
-      if (refOrLength > 0) {
-        const targetOffset = startOffset - refOrLength;
-        if (!refs.has(targetOffset)) {
-          throw new Error(`Undefined backreference at offset ${startOffset}, target ${targetOffset}`);
-        }
-        return refs.get(targetOffset);
-      }
-      const result = new Map<any, any>();
-      refs.set(reader.offset, result);
-      const length = reader.readVarint();
-      for (let i = 0; i < length; i++) {
-        const key = keyDecoder(reader, refs);
-        const value = valueDecoder(reader, refs);
-        result.set(key, value);
-      }
-      return result;
-    };
-    typeCtx.push(ret);
-    valueDecoder = _decodeCursorFor(type.value.value, typeCtx, options);
-    typeCtx.pop();
-    return ret;
-  } else if (type.type === "Struct") {
-    const fieldDecoders: [string, CursorDecoder][] = [];
-    const ret: CursorDecoder = (reader: BufferReader, refs: Map<number, any>) => {
-      const result: Record<string, any> = {};
-      for (const [k, decoder] of fieldDecoders) {
-        result[k] = decoder(reader, refs);
-      }
-      return result;
-    };
-    typeCtx.push(ret);
-    for (const { name, type: fieldType } of type.value) {
-      fieldDecoders.push([name, _decodeCursorFor(fieldType, typeCtx, options)]);
+        writer.writeVarint(0);
+        ctx.refs.set(value, writer.currentOffset);
+        innerEncoder(value.value, writer, ctx);
+      };
+
+      innerEncoder = buildEncoder(type.value, typeCtx);
+
+      return ret;
     }
-    typeCtx.pop();
-    return ret;
-  } else if (type.type === "Variant") {
-    const caseDecoders: [string, CursorDecoder][] = [];
-    const ret: CursorDecoder = (reader: BufferReader, refs: Map<number, any>) => {
-      const tagIndex = reader.readVarint();
-      if (tagIndex >= caseDecoders.length) {
-        throw new Error(`Invalid variant tag ${tagIndex} at offset ${reader.offset}`);
-      }
-      const [caseName, caseDecoder] = caseDecoders[tagIndex]!;
-      const v = variant(caseName, undefined as any);
-      (v as any).value = caseDecoder(reader, refs);
-      return v;
-    };
-    typeCtx.push(ret);
-    for (const { name, type: caseType } of type.value) {
-      caseDecoders.push([name, _decodeCursorFor(caseType, typeCtx, options)]);
+
+    case "Array": {
+      let elemEncoder: ValueEncoder;
+      const ret: ValueEncoder = (value, writer, ctx) => {
+        if (ctx.refs.has(value)) {
+          writer.writeVarint(writer.currentOffset - ctx.refs.get(value)!);
+          return;
+        }
+        writer.writeVarint(0);
+        ctx.refs.set(value, writer.currentOffset);
+        writer.writeVarint(value.length);
+        for (const item of value) elemEncoder(item, writer, ctx);
+      };
+
+      elemEncoder = buildEncoder(type.value, typeCtx);
+
+      return ret;
     }
-    typeCtx.pop();
-    return ret;
-  } else if (type.type === "Recursive") {
-    const ret = typeCtx[typeCtx.length - Number(type.value)];
-    if (ret === undefined) {
-      throw new Error(`Internal error: Recursive type context not found`);
-    }
-    return ret;
-  } else if (type.type === "Function") {
-    // Handle-aware mode: read varint handle ID, create wrapper via resolver
-    if (options?.functionHandleResolver) {
-      const resolver = options.functionHandleResolver;
-      const fnType = type as EastTypeValue;
-      return (reader: BufferReader, _refs: Map<number, any>) => {
-        const handleId = reader.readVarint();
-        return resolver(handleId, fnType);
+
+    case "Set": {
+      const keyEncoder = buildEncoder(type.value, typeCtx);
+      return (value, writer, ctx) => {
+        if (ctx.refs.has(value)) {
+          writer.writeVarint(writer.currentOffset - ctx.refs.get(value)!);
+          return;
+        }
+        writer.writeVarint(0);
+        ctx.refs.set(value, writer.currentOffset);
+        writer.writeVarint(value.size);
+        for (const key of value) keyEncoder(key, writer, ctx);
       };
     }
 
-    const platform = options?.platform ?? [];
-    const platformFns = Object.fromEntries(platform.map(fn => [fn.name, fn.fn]));
-    const asyncPlatformFns = new Set(platform.filter(fn => fn.type === 'async').map(fn => fn.name));
+    case "Dict": {
+      const keyEncoder = buildEncoder(type.value.key, typeCtx);
+      let valEncoder: ValueEncoder;
+      const ret: ValueEncoder = (value, writer, ctx) => {
+        if (ctx.refs.has(value)) {
+          writer.writeVarint(writer.currentOffset - ctx.refs.get(value)!);
+          return;
+        }
+        writer.writeVarint(0);
+        ctx.refs.set(value, writer.currentOffset);
+        writer.writeVarint(value.size);
+        for (const [k, v] of value) {
+          keyEncoder(k, writer, ctx);
+          valEncoder(v, writer, ctx);
+        }
+      };
 
-    return (reader: BufferReader, refs: Map<number, any>) => {
-      if (!options?.globalTypeTable) throw new InternalError('Function decoding requires globalTypeTable in options');
-      const ir = decodeIRWithGlobalTable(reader, refs, options.globalTypeTable) as FunctionIR;
+      valEncoder = buildEncoder(type.value.value, typeCtx);
 
-      if (ir.type !== "Function") {
-        throw new Error(`Expected Function IR, got ${ir.type} at offset ${reader.offset}`);
+      return ret;
+    }
+
+    case "Struct": {
+      const fieldEncoders: [string, ValueEncoder][] = [];
+      const ret: ValueEncoder = (value, writer, ctx) => {
+        for (const [name, enc] of fieldEncoders) enc(value[name], writer, ctx);
+      };
+
+      for (const { name, type: fieldType } of type.value) {
+        fieldEncoders.push([name, buildEncoder(fieldType, typeCtx)]);
       }
 
-      const captureCount = reader.readVarint();
-      if (captureCount !== ir.value.captures.length) {
-        throw new Error(
-          `Capture count mismatch: IR has ${ir.value.captures.length} captures, ` +
-          `but serialized data has ${captureCount}`
-        );
+      return ret;
+    }
+
+    case "Variant": {
+      const caseEncoders: Record<string, ValueEncoder> = {};
+      const caseTags: Record<string, number> = {};
+      const ret: ValueEncoder = (value, writer, ctx) => {
+        writer.writeVarint(caseTags[value.type]!);
+        caseEncoders[value.type]!(value.value, writer, ctx);
+      };
+
+      for (let i = 0; i < type.value.length; i++) {
+        const { name, type: caseType } = type.value[i]!;
+        caseTags[name] = i;
+        caseEncoders[name] = buildEncoder(caseType, typeCtx);
       }
 
-      const captureContext: RuntimeContext = {};
-      for (const captureVar of ir.value.captures) {
-        const name = captureVar.value.name;
-        const captureType = captureVar.value.type;
-        const captureDecoder = _decodeCursorFor(captureType, [], options);
-        const captureValue = captureDecoder(reader, refs);
-        captureContext[name] = captureVar.value.mutable
-          ? variant("boxed", captureValue)
-          : variant("value", captureValue);
-      }
+      return ret;
+    }
 
-      const typeContext: Record<string, EastTypeValue> = {};
-      for (const captureVar of ir.value.captures) {
-        typeContext[captureVar.value.name] = captureVar.value.type;
+    case "Recursive": {
+      if ((type.value as any).type === "wrapper") {
+        let inner: ValueEncoder;
+        const ret: ValueEncoder = (value, writer, ctx) => inner(value, writer, ctx);
+        typeCtx.set((type.value as any).value.id as bigint, ret);
+        inner = buildEncoder((type.value as any).value.inner, typeCtx);
+        return ret;
       }
+      const target = typeCtx.get((type.value as any).value as bigint);
+      if (!target) throw new InternalError("Recursive type context not found during encoder build");
+      return target;
+    }
 
-      // Skip analyzeIR — the IR was already analyzed before serialization.
-      let rawFn: any;
-      try {
-        const analyzedIR = { ...ir, value: { ...ir.value, isAsync: false } } as AnalyzedIR;
-        const compiled = compile_internal(analyzedIR, typeContext, platformFns, asyncPlatformFns, platform, true, new Set());
-        rawFn = compiled(captureContext);
-      } catch (e: unknown) {
-        throw new Error(`Failed to compile decoded function: ${(e as Error).message}`);
-      }
+    case "Function":
+    case "AsyncFunction": {
+      // Pre-build capture encoders from the function type's IR capture types.
+      // At build time we don't know the capture types (they come from the IR),
+      // so we build them lazily on first call and cache.
+      const captureEncoderCache = new Map<EastTypeValue, ValueEncoder>();
 
-      const fn = (...inputs: any[]) => {
-        try {
-          return rawFn(...inputs);
-        } catch (e: unknown) {
-          if (e instanceof ReturnException) {
-            return e.value;
-          } else {
-            throw e;
+      return (value: any, writer: BufferWriter, ctx: EncodeContext) => {
+        const ir = value[EAST_IR_SYMBOL] as FunctionIR | AsyncFunctionIR | undefined;
+        if (!ir) throw new Error("Cannot serialize function: no IR attached");
+
+        // Encode IR directly — buildEncoder for IRType automatically handles
+        // EastTypeType positions as type table indices (no separate substitution)
+        ctx.irEncoder(ir, writer, ctx);
+
+        // Encode captures
+        const captures = value[EAST_CAPTURES_SYMBOL] as RuntimeContext | undefined;
+        const captureList = ir.value.captures;
+        writer.writeVarint(captureList.length);
+
+        for (const captureVar of captureList) {
+          const name = captureVar.value.name;
+          const captureType = captureVar.value.type as EastTypeValue;
+
+          if (!captures) throw new InternalError("Function has captures but no EAST_CAPTURES_SYMBOL");
+          const entry = captures[name];
+          if (!entry) throw new InternalError(`Capture '${name}' not found`);
+
+          // Get or build cached encoder for this capture type
+          let enc = captureEncoderCache.get(captureType);
+          if (!enc) {
+            enc = buildEncoder(captureType);
+            captureEncoderCache.set(captureType, enc);
           }
+          enc(entry.value, writer, ctx);
         }
-      };
-
-      Object.defineProperty(fn, EAST_IR_SYMBOL, {
-        value: ir,
-        writable: false,
-        enumerable: false,
-        configurable: false
-      });
-
-      Object.defineProperty(fn, EAST_CAPTURES_SYMBOL, {
-        value: captureContext,
-        writable: false,
-        enumerable: false,
-        configurable: false
-      });
-
-      return fn;
-    };
-  } else if (type.type === "AsyncFunction") {
-    // Handle-aware mode: read varint handle ID, create wrapper via resolver
-    if (options?.functionHandleResolver) {
-      const resolver = options.functionHandleResolver;
-      const fnType = type as EastTypeValue;
-      return (reader: BufferReader, _refs: Map<number, any>) => {
-        const handleId = reader.readVarint();
-        return resolver(handleId, fnType);
       };
     }
 
-    const platform = options?.platform ?? [];
-    const platformFns = Object.fromEntries(platform.map(fn => [fn.name, fn.fn]));
-    const asyncPlatformFns = new Set(platform.filter(fn => fn.type === 'async').map(fn => fn.name));
+    case "Vector":
+      return (value, writer) => {
+        writer.writeVarint(value.length);
+        writer.writeBytes(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
+      };
 
-    return (reader: BufferReader, refs: Map<number, any>) => {
-      if (!options?.globalTypeTable) throw new InternalError('AsyncFunction decoding requires globalTypeTable in options');
-      const ir = decodeIRWithGlobalTable(reader, refs, options.globalTypeTable) as AsyncFunctionIR;
+    case "Matrix":
+      return (value, writer) => {
+        writer.writeVarint(value.rows);
+        writer.writeVarint(value.cols);
+        writer.writeBytes(new Uint8Array(value.data.buffer, value.data.byteOffset, value.data.byteLength));
+      };
 
-      if (ir.type !== "AsyncFunction") {
-        throw new Error(`Expected AsyncFunction IR, got ${ir.type} at offset ${reader.offset}`);
+    default:
+      throw new Error(`Unknown type: ${(type as any).type}`);
+  }
+}
+
+// =============================================================================
+// Value decoder factory
+// =============================================================================
+
+/**
+ * Build a value decoder closure tree for the given type.
+ * The tree is built once and reused for every decode call.
+ */
+function buildDecoder(type: EastTypeValue, typeCtx: Map<bigint, ValueDecoder> = new Map()): ValueDecoder {
+  // At EastTypeType schema positions, decode values from type table indices.
+  if (getTypeId(type) === EAST_TYPE_TYPE_TID) {
+    return (reader: BufferReader, ctx: DecodeContext) => {
+      const idx = reader.readVarint();
+      if (idx >= ctx.typeTable.length) throw new Error(`Type table index ${idx} out of bounds (table has ${ctx.typeTable.length} entries)`);
+      return ctx.typeTable[idx]!;
+    };
+  }
+
+  switch (type.type) {
+    case "Never":
+      return () => { throw new Error("Cannot decode value of type Never"); };
+
+    case "Null":
+      return () => null;
+
+    case "Boolean":
+      return (reader) => reader.readBoolean();
+
+    case "Integer":
+      return (reader) => reader.readZigzag();
+
+    case "Float":
+      return (reader) => reader.readFloat64LE();
+
+    case "String":
+      return (reader: BufferReader, ctx: DecodeContext) => {
+        const idx = reader.readVarint();
+        if (idx >= ctx.stringTable.length) throw new Error(`String table index ${idx} out of bounds (table has ${ctx.stringTable.length} entries)`);
+        return ctx.stringTable[idx]!;
+      };
+
+    case "DateTime":
+      return (reader) => new Date(Number(reader.readZigzag()));
+
+    case "Blob":
+      return (reader) => reader.readBytes(reader.readVarint());
+
+    case "Ref": {
+      let innerDecoder: ValueDecoder;
+      const ret: ValueDecoder = (reader, ctx) => {
+        const startOffset = reader.offset;
+        const dist = reader.readVarint();
+        if (dist > 0) {
+          const target = ctx.refs.get(startOffset - dist);
+          if (!target) throw new Error(`Undefined Ref backreference at offset ${startOffset}, target ${startOffset - dist}`);
+          return target;
+        }
+        const r = ref(undefined as any);
+        ctx.refs.set(reader.offset, r);
+        r.value = innerDecoder(reader, ctx);
+        return r;
+      };
+
+      innerDecoder = buildDecoder(type.value, typeCtx);
+
+      return ret;
+    }
+
+    case "Array": {
+      let elemDecoder: ValueDecoder;
+      const ret: ValueDecoder = (reader, ctx) => {
+        const startOffset = reader.offset;
+        const dist = reader.readVarint();
+        if (dist > 0) {
+          const target = ctx.refs.get(startOffset - dist);
+          if (!target) throw new Error(`Undefined Array backreference at offset ${startOffset}`);
+          return target;
+        }
+        const refOffset = reader.offset;
+        const count = reader.readVarint();
+        const arr = new Array(count);
+        ctx.refs.set(refOffset, arr);
+        for (let i = 0; i < count; i++) arr[i] = elemDecoder(reader, ctx);
+        return arr;
+      };
+
+      elemDecoder = buildDecoder(type.value, typeCtx);
+
+      return ret;
+    }
+
+    case "Set": {
+      const keyDecoder = buildDecoder(type.value, typeCtx);
+      return (reader, ctx) => {
+        const startOffset = reader.offset;
+        const dist = reader.readVarint();
+        if (dist > 0) {
+          const target = ctx.refs.get(startOffset - dist);
+          if (!target) throw new Error(`Undefined Set backreference at offset ${startOffset}`);
+          return target;
+        }
+        const set = new Set<any>();
+        ctx.refs.set(reader.offset, set);
+        const count = reader.readVarint();
+        for (let i = 0; i < count; i++) set.add(keyDecoder(reader, ctx));
+        return set;
+      };
+    }
+
+    case "Dict": {
+      const keyDecoder = buildDecoder(type.value.key, typeCtx);
+      let valDecoder: ValueDecoder;
+      const ret: ValueDecoder = (reader, ctx) => {
+        const startOffset = reader.offset;
+        const dist = reader.readVarint();
+        if (dist > 0) {
+          const target = ctx.refs.get(startOffset - dist);
+          if (!target) throw new Error(`Undefined Dict backreference at offset ${startOffset}`);
+          return target;
+        }
+        const map = new Map<any, any>();
+        ctx.refs.set(reader.offset, map);
+        const count = reader.readVarint();
+        for (let i = 0; i < count; i++) map.set(keyDecoder(reader, ctx), valDecoder(reader, ctx));
+        return map;
+      };
+
+      valDecoder = buildDecoder(type.value.value, typeCtx);
+
+      return ret;
+    }
+
+    case "Struct": {
+      const fields = type.value as { name: string; type: EastTypeValue }[];
+      const names: string[] = [];
+      const decoders: ValueDecoder[] = [];
+      const ret: ValueDecoder = (reader, ctx) => {
+        const result: Record<string, any> = {};
+        for (let i = 0; i < names.length; i++) result[names[i]!] = decoders[i]!(reader, ctx);
+        return result;
+      };
+
+      for (const { name, type: fieldType } of fields) {
+        names.push(name);
+        decoders.push(buildDecoder(fieldType, typeCtx));
       }
 
-      const captureCount = reader.readVarint();
-      if (captureCount !== ir.value.captures.length) {
-        throw new Error(
-          `Capture count mismatch: IR has ${ir.value.captures.length} captures, ` +
-          `but serialized data has ${captureCount}`
-        );
+      return ret;
+    }
+
+    case "Variant": {
+      const caseDecoders: [string, ValueDecoder][] = [];
+      const ret: ValueDecoder = (reader, ctx) => {
+        const tagIndex = reader.readVarint();
+        if (tagIndex >= caseDecoders.length) throw new Error(`Invalid variant tag ${tagIndex}`);
+        const [caseName, caseDec] = caseDecoders[tagIndex]!;
+        return variant(caseName, caseDec(reader, ctx));
+      };
+
+      for (const { name, type: caseType } of type.value) {
+        caseDecoders.push([name, buildDecoder(caseType, typeCtx)]);
       }
 
-      const captureContext: RuntimeContext = {};
-      for (const captureVar of ir.value.captures) {
-        const name = captureVar.value.name;
-        const captureType = captureVar.value.type;
-        const captureDecoder = _decodeCursorFor(captureType, [], options);
-        const captureValue = captureDecoder(reader, refs);
-        captureContext[name] = captureVar.value.mutable
-          ? variant("boxed", captureValue)
-          : variant("value", captureValue);
-      }
+      return ret;
+    }
 
-      const typeContext: Record<string, EastTypeValue> = {};
-      for (const captureVar of ir.value.captures) {
-        typeContext[captureVar.value.name] = captureVar.value.type;
+    case "Recursive": {
+      if ((type.value as any).type === "wrapper") {
+        let inner: ValueDecoder;
+        const ret: ValueDecoder = (reader, ctx) => inner(reader, ctx);
+        typeCtx.set((type.value as any).value.id as bigint, ret);
+        inner = buildDecoder((type.value as any).value.inner, typeCtx);
+        return ret;
       }
+      const target = typeCtx.get((type.value as any).value as bigint);
+      if (!target) throw new InternalError("Recursive type context not found during decoder build");
+      return target;
+    }
 
-      // Skip analyzeIR — the IR was already analyzed before serialization.
-      let rawFn: any;
-      try {
-        const analyzedIR = { ...ir, value: { ...ir.value, isAsync: true } } as AnalyzedIR;
-        const compiled = compile_internal(analyzedIR, typeContext, platformFns, asyncPlatformFns, platform, true, new Set());
-        rawFn = compiled(captureContext);
-      } catch (e: unknown) {
-        throw new Error(`Failed to compile decoded async function: ${(e as Error).message}`);
-      }
+    case "Function":
+    case "AsyncFunction": {
+      const isAsync = type.type === "AsyncFunction";
+      const fnType = type;
 
-      const fn = async (...inputs: any[]) => {
-        try {
-          return await rawFn(...inputs);
-        } catch (e: unknown) {
-          if (e instanceof ReturnException) {
-            return e.value;
-          } else {
-            throw e;
+      // Cache capture decoders (same capture types produce same decoder)
+      const captureDecoderCache = new Map<EastTypeValue, ValueDecoder>();
+
+      return (reader: BufferReader, ctx: DecodeContext) => {
+        // Decode IR directly — buildDecoder for IRType automatically restores
+        // EastTypeType positions from type table indices
+        const ir = ctx.irDecoder(reader, ctx) as FunctionIR | AsyncFunctionIR;
+
+        if (ir.type !== (isAsync ? "AsyncFunction" : "Function")) {
+          throw new Error(`Expected ${fnType.type} IR, got ${ir.type}`);
+        }
+
+        // Decode captures
+        const captureCount = reader.readVarint();
+        if (captureCount !== ir.value.captures.length) {
+          throw new Error(`Capture count mismatch: IR has ${ir.value.captures.length}, data has ${captureCount}`);
+        }
+
+        const captureContext: RuntimeContext = {};
+        const typeContext: Record<string, EastTypeValue> = {};
+
+        for (const captureVar of ir.value.captures) {
+          const name = captureVar.value.name;
+          const captureType = captureVar.value.type as EastTypeValue;
+
+          // Get or build cached decoder for this capture type
+          let dec = captureDecoderCache.get(captureType);
+          if (!dec) {
+            dec = buildDecoder(captureType);
+            captureDecoderCache.set(captureType, dec);
           }
+          const captureValue = dec(reader, ctx);
+
+          captureContext[name] = captureVar.value.mutable
+            ? variant("boxed", captureValue)
+            : variant("value", captureValue);
+          typeContext[name] = captureType;
         }
+
+        // Compile IR to callable function — mutate in place to avoid object spread allocations
+        (ir.value as any).isAsync = isAsync;
+        const compiled = compile_internal(ir as any as AnalyzedIR, typeContext, ctx.platformFns, ctx.asyncPlatformFns, ctx.platform, true, EMPTY_SET);
+        const rawFn = compiled(captureContext);
+
+        const fn = isAsync
+          ? async (...inputs: any[]) => {
+              try { return await rawFn(...inputs); }
+              catch (e) { if (e instanceof ReturnException) return e.value; throw e; }
+            }
+          : (...inputs: any[]) => {
+              try { return rawFn(...inputs); }
+              catch (e) { if (e instanceof ReturnException) return e.value; throw e; }
+            };
+
+        // Attach IR and captures for re-serialization
+        Object.defineProperty(fn, EAST_IR_SYMBOL, { value: ir, writable: false, enumerable: false, configurable: false });
+        Object.defineProperty(fn, EAST_CAPTURES_SYMBOL, { value: captureContext, writable: false, enumerable: false, configurable: false });
+
+        return fn;
       };
-
-      Object.defineProperty(fn, EAST_IR_SYMBOL, {
-        value: ir,
-        writable: false,
-        enumerable: false,
-        configurable: false
-      });
-
-      Object.defineProperty(fn, EAST_CAPTURES_SYMBOL, {
-        value: captureContext,
-        writable: false,
-        enumerable: false,
-        configurable: false
-      });
-
-      return fn;
-    };
-  } else if (type.type === "Vector") {
-    const bytesPerElement = _bytesPerElement(type.value);
-    return (reader: BufferReader) => {
-      const length = reader.readVarint();
-      const byteLen = length * bytesPerElement;
-      // Copy bytes to a new aligned buffer
-      const rawBytes = new Uint8Array(reader.readBytesView(byteLen));
-      if (type.value.type === "Float") {
-        return new Float64Array(rawBytes.buffer, 0, length);
-      } else if (type.value.type === "Integer") {
-        return new BigInt64Array(rawBytes.buffer, 0, length);
-      } else {
-        return new Uint8ClampedArray(rawBytes.buffer, 0, length);
-      }
-    };
-  } else if (type.type === "Matrix") {
-    const bytesPerElement = _bytesPerElement(type.value);
-    return (reader: BufferReader) => {
-      const rows = reader.readVarint();
-      const cols = reader.readVarint();
-      const byteLen = rows * cols * bytesPerElement;
-      const rawBytes = new Uint8Array(reader.readBytesView(byteLen));
-      if (type.value.type === "Float") {
-        return matrix(new Float64Array(rawBytes.buffer, 0, rows * cols), rows, cols);
-      } else if (type.value.type === "Integer") {
-        return matrix(new BigInt64Array(rawBytes.buffer, 0, rows * cols), rows, cols);
-      } else {
-        return matrix(new Uint8ClampedArray(rawBytes.buffer, 0, rows * cols), rows, cols);
-      }
-    };
-  } else {
-    throw new Error(`Unhandled type ${(type satisfies never as EastTypeValue).type}`);
-  }
-}
-
-// =============================================================================
-// High-level API (header-free encoding)
-// =============================================================================
-
-export function encodeBeast2ValueFor(type: EastTypeValue): (value: any) => Uint8Array
-export function encodeBeast2ValueFor<T extends EastType>(type: T): (value: ValueTypeOf<T>) => Uint8Array
-export function encodeBeast2ValueFor(type: EastTypeValue | EastType): (value: any) => Uint8Array {
-  // Convert EastType to EastTypeValue if necessary
-  if (!isVariant(type)) {
-    type = toEastTypeValue(type);
-  }
-
-  const encoder = encodeBeast2ValueToBufferFor(type as EastTypeValue);
-  return (value: any): Uint8Array => {
-    const writer = new BufferWriter();
-    const ctx: Beast2EncodeContext = { refs: new Map() };
-    encoder(value, writer, ctx);
-    return writer.toUint8Array();
-  };
-}
-
-// =============================================================================
-// Beast format (Minimal header with self-describing type)
-// =============================================================================
-
-// Magic bytes for Beast format
-// 0x89       - Invalid UTF-8 marker (like PNG)
-// 0x45 0x61 0x73 0x74 - "East" (human-readable in hex dumps)
-// 0x0D 0x0A  - CRLF (detects line-ending corruption)
-// Last byte  - Encoding mode:
-//   0x01 "standard" — backreferences for mutable containers only (Array/Set/Dict/Ref)
-const BEAST2_STANDARD = 0x01;
-export const MAGIC_BYTES = new Uint8Array([0x89, 0x45, 0x61, 0x73, 0x74, 0x0D, 0x0A, BEAST2_STANDARD]);
-
-/** Verify magic bytes. Throws on invalid data. */
-function verifyMagic(data: Uint8Array): void {
-  if (data.length < 8) {
-    throw new Error(`Data too short for Beast format: ${data.length} bytes`);
-  }
-  for (let i = 0; i < MAGIC_BYTES.length; i++) {
-    if (data[i] !== MAGIC_BYTES[i]) {
-      if (i < 7) {
-        throw new Error(`Invalid Beast magic bytes at offset ${i}: expected 0x${MAGIC_BYTES[i]!.toString(16)}, got 0x${data[i]!.toString(16)}`);
-      }
-      throw new Error(`Unknown Beast encoding mode: 0x${data[i]!.toString(16)}`);
     }
+
+    case "Vector": {
+      const elemType = type.value.type;
+      const bpe = elemType === "Float" ? 8 : elemType === "Integer" ? 8 : 1;
+      return (reader) => {
+        const len = reader.readVarint();
+        const raw = new Uint8Array(reader.readBytesView(len * bpe));
+        if (elemType === "Float") return new Float64Array(raw.buffer, 0, len);
+        if (elemType === "Integer") return new BigInt64Array(raw.buffer, 0, len);
+        return new Uint8ClampedArray(raw.buffer, 0, len);
+      };
+    }
+
+    case "Matrix": {
+      const elemType = type.value.type;
+      const bpe = elemType === "Float" ? 8 : elemType === "Integer" ? 8 : 1;
+      return (reader) => {
+        const rows = reader.readVarint();
+        const cols = reader.readVarint();
+        const raw = new Uint8Array(reader.readBytesView(rows * cols * bpe));
+        if (elemType === "Float") return matrix(new Float64Array(raw.buffer, 0, rows * cols), rows, cols);
+        if (elemType === "Integer") return matrix(new BigInt64Array(raw.buffer, 0, rows * cols), rows, cols);
+        return matrix(new Uint8ClampedArray(raw.buffer, 0, rows * cols), rows, cols);
+      };
+    }
+
+    default:
+      throw new Error(`Unknown type: ${(type as any).type}`);
   }
 }
 
-const typeEncoder = encodeBeast2ValueToBufferFor(EastTypeValueType);
-const typeCursorDecoder = _decodeCursorFor(EastTypeValueType);
+// =============================================================================
+// String table section
+// =============================================================================
 
-// IR type table — deduplicates EastTypeValue objects in function IR encoding
-import { initIRTypeTable, preCollectAllIRTypes } from "./beast2-ir-table.js";
-const { encodeIRWithGlobalTable, decodeIRWithGlobalTable, writeGlobalTypeTable, readGlobalTypeTable } = initIRTypeTable(
-  type => encodeBeast2ValueToBufferFor(toEastTypeValue(type)),
-  type => _decodeCursorFor(toEastTypeValue(type)),
-);
+/**
+ * Write the string table section:
+ *   [varint header_byte_length] [varint count] [string entries...]
+ * Each string entry: [varint byte_length] [UTF-8 bytes]
+ */
+function writeStringTableSection(stringTable: Map<string, number>, writer: BufferWriter): void {
+  const hw = new BufferWriter();
+  hw.writeVarint(stringTable.size);
+  // Write strings in index order (Map preserves insertion order, indices are sequential)
+  for (const [str] of stringTable) {
+    hw.writeStringUtf8Varint(str);
+  }
+  const headerBytes = hw.toUint8Array();
+  writer.writeVarint(headerBytes.length);
+  writer.writeBytes(headerBytes);
+}
+
+/**
+ * Read the string table section into a string[] array.
+ */
+function readStringTableSection(reader: BufferReader): string[] {
+  const headerByteLength = reader.readVarint();
+  const headerEnd = reader.offset + headerByteLength;
+  const count = reader.readVarint();
+  const table = new Array<string>(count);
+  for (let i = 0; i < count; i++) {
+    table[i] = reader.readStringUtf8Varint();
+  }
+  if (reader.offset !== headerEnd) {
+    throw new Error(`String table size mismatch: expected offset ${headerEnd}, got ${reader.offset}`);
+  }
+  return table;
+}
+
+// =============================================================================
+// IR encoder/decoder (module-level singletons)
+// =============================================================================
+
+const irTypeValue = toEastTypeValue(IRType);
+const irEncoder = buildEncoder(irTypeValue);
+const irDecoder = buildDecoder(irTypeValue);
+
+// =============================================================================
+// Public API — Encode
+// =============================================================================
 
 export function encodeBeast2For(type: EastTypeValue): (value: any) => Uint8Array
 export function encodeBeast2For<T extends EastType>(type: T): (value: ValueTypeOf<T>) => Uint8Array
 export function encodeBeast2For(type: EastTypeValue | EastType): (value: any) => Uint8Array {
-  // Convert EastType to EastTypeValue if necessary
-  if (!isVariant(type)) {
-      type = toEastTypeValue(type);
-  }
+  const eastType = isVariant(type) ? undefined : type as EastType;
+  const typeValue = isVariant(type) ? type as EastTypeValue : toEastTypeValue(type as EastType);
+  const valueEncoder = buildEncoder(typeValue);
 
-  const valueEncoder = encodeBeast2ValueToBufferFor(type as EastTypeValue);
+  // Pre-build the type table for the root type (stable across encode calls).
+  // IR types from function values are added per-call since they vary.
+  const baseBuilder = new TypeTableBuilder();
+  const baseRootIdx = eastType ? baseBuilder.add(eastType) : baseBuilder.add(typeValue);
 
   return (value: any) => {
+    // Encode value data first — types and strings are added lazily.
+    // Types are discovered at EastTypeType positions (IR annotations).
+    // Strings are discovered at every String value position.
+    const builder = baseBuilder.clone();
+    const stringTable = new Map<string, number>();
+    const valueWriter = new BufferWriter();
+    const ctx: EncodeContext = { refs: new Map(), typeTable: builder, stringTable, irEncoder };
+    valueEncoder(value, valueWriter, ctx);
+
+    // Now write the final blob: magic + type table + string table + value data
     const writer = new BufferWriter();
-
-    // Write magic bytes (8 bytes)
     writer.writeBytes(MAGIC_BYTES);
-
-    // Write type schema
-    typeEncoder(type, writer, { refs: new Map() });
-
-    // Pre-scan value tree to collect all IR types into a global table
-    const globalTypeTable = new Map<any, number>();
-    preCollectAllIRTypes(value, globalTypeTable, EAST_IR_SYMBOL, EAST_CAPTURES_SYMBOL);
-
-    // Write global type table
-    writeGlobalTypeTable(globalTypeTable, writer);
-
-    // Write value with global type table in context
-    const ctx: Beast2EncodeContext = { refs: new Map(), globalTypeTable };
-    valueEncoder(value, writer, ctx);
+    writeTypeTableSection(baseRootIdx, builder.entries, writer);
+    writeStringTableSection(stringTable, writer);
+    writer.writeBytes(valueWriter.toUint8Array());
 
     return writer.toUint8Array();
   };
 }
 
-export function decodeBeast2(data: Uint8Array): { type: EastTypeValue; value: any } {
-  verifyMagic(data);
-
-  // Decode type schema
-  const reader = new BufferReader(data, MAGIC_BYTES.length);
-  const refs = new Map<number, any>();
-  const type = typeCursorDecoder(reader, refs) as EastTypeValue;
-
-  // Read global type table
-  const globalTypeTable = readGlobalTypeTable(reader);
-
-  // Decode value with global type table
-  const valueDecoder = _decodeCursorFor(type, [], { globalTypeTable });
-  const value = valueDecoder(reader, refs);
-
-  // Verify we consumed all data
-  if (reader.offset !== data.length) {
-    throw new Error(`Unexpected data after Beast value at offset ${reader.offset} (${data.length - reader.offset} bytes remaining)`);
-  }
-
-  return { type, value };
-}
+// =============================================================================
+// Public API — Decode (known type)
+// =============================================================================
 
 export function decodeBeast2For(type: EastTypeValue, options?: Beast2DecodeOptions): (data: Uint8Array) => any
 export function decodeBeast2For<T extends EastType>(type: T, options?: Beast2DecodeOptions): (data: Uint8Array) => ValueTypeOf<T>
 export function decodeBeast2For(type: EastTypeValue | EastType, options?: Beast2DecodeOptions): (data: Uint8Array) => any {
-  // Convert EastType to EastTypeValue if necessary
-  if (!isVariant(type)) {
-      type = toEastTypeValue(type);
-  }
+  if (!isVariant(type)) type = toEastTypeValue(type);
+  const typeValue = type as EastTypeValue;
 
-  const skipTypeCheck = options?.skipTypeCheck ?? false;
-
-  // Pre-encode the expected type header bytes for fast byte-level comparison.
-  const typeWriter = new BufferWriter();
-  typeEncoder(type, typeWriter, { refs: new Map() });
-  const expectedTypeBytes = typeWriter.toUint8Array();
-  const typeHeaderEnd = MAGIC_BYTES.length + expectedTypeBytes.length;
+  // Pre-build value decoder once (reused on every decode call)
+  const valueDecoder = buildDecoder(typeValue);
+  const platform = options?.platform ?? [];
+  const platformFns = Object.fromEntries(platform.map(fn => [fn.name, fn.fn]));
+  const asyncPlatformFns = new Set(platform.filter(fn => fn.type === 'async').map(fn => fn.name));
 
   return (data: Uint8Array) => {
     verifyMagic(data);
 
-    if (!skipTypeCheck) {
-      if (data.length < typeHeaderEnd) {
-        throw new Error(`Data too short for type header: expected at least ${typeHeaderEnd} bytes, got ${data.length}`);
-      }
-      for (let i = 0; i < expectedTypeBytes.length; i++) {
-        if (data[MAGIC_BYTES.length + i] !== expectedTypeBytes[i]) {
-          const typeReader = new BufferReader(data, MAGIC_BYTES.length);
-          const decodedType = typeCursorDecoder(typeReader, new Map()) as EastTypeValue;
-          throw new Error(`Type mismatch: expected ${printTypeValue(type as EastTypeValue)}, got ${printTypeValue(decodedType)}`);
-        }
-      }
-    }
+    const reader = new BufferReader(data, MAGIC_BYTES.length);
+    const { typeTable } = readTypeTableSection(reader);
+    const stringTable = readStringTableSection(reader);
 
-    // Read the global type table (comes after type header, before value data)
-    const reader = new BufferReader(data, typeHeaderEnd);
-    const globalTypeTable = readGlobalTypeTable(reader);
-
-    // Build decoder with this file's global type table
-    const decoder = _decodeCursorFor(type as EastTypeValue, [], { ...options, globalTypeTable });
-    const refs = new Map<number, any>();
-    const value = decoder(reader, refs);
+    const ctx: DecodeContext = {
+      refs: new Map(),
+      typeTable,
+      stringTable,
+      irDecoder,
+      platform,
+      platformFns,
+      asyncPlatformFns,
+    };
+    const value = valueDecoder(reader, ctx);
 
     if (reader.offset !== data.length) {
-      throw new Error(`Unexpected data after Beast value at offset ${reader.offset} (${data.length - reader.offset} bytes remaining)`);
+      throw new Error(`${data.length - reader.offset} trailing bytes at offset ${reader.offset}`);
     }
 
     return value;
   };
 }
 
-/**
- * Decode beast2-full data with handle-aware function decoding.
- * At function type positions, reads varint handle IDs and calls the resolver
- * to create callable wrappers. Returns type, decoded value, and collected handles.
- */
-export function decodeBeast2WithHandles(
-  data: Uint8Array,
-  resolver: FunctionHandleResolver,
-): { type: EastTypeValue; value: any; handles: number[] } {
+// =============================================================================
+// Public API — Decode (self-describing)
+// =============================================================================
+
+export function decodeBeast2(data: Uint8Array, options?: Beast2DecodeOptions): { type: EastTypeValue; value: any } {
   verifyMagic(data);
 
-  // Decode type schema
   const reader = new BufferReader(data, MAGIC_BYTES.length);
-  const typeRefs = new Map<number, any>();
-  const type = typeCursorDecoder(reader, typeRefs) as EastTypeValue;
+  const { rootType, typeTable } = readTypeTableSection(reader);
+  const stringTable = readStringTableSection(reader);
 
-  // Read global type table (skip past it — handle-aware mode doesn't use IR)
-  const globalTypeTable = readGlobalTypeTable(reader);
-
-  // Collect handles
-  const handles: number[] = [];
-  const wrappingResolver: FunctionHandleResolver = (handleId, fnType) => {
-    handles.push(handleId);
-    return resolver(handleId, fnType);
+  const valueDecoder = buildDecoder(rootType);
+  const platform = options?.platform ?? [];
+  const ctx: DecodeContext = {
+    refs: new Map(),
+    typeTable,
+    stringTable,
+    irDecoder,
+    platform,
+    platformFns: Object.fromEntries(platform.map(fn => [fn.name, fn.fn])),
+    asyncPlatformFns: new Set(platform.filter(fn => fn.type === 'async').map(fn => fn.name)),
   };
+  const value = valueDecoder(reader, ctx);
 
-  // Decode value with handle-aware decoder
-  const cursorDecoder = _decodeCursorFor(type, [], { functionHandleResolver: wrappingResolver, globalTypeTable });
-  const refs = new Map<number, any>();
-  const value = cursorDecoder(reader, refs);
+  if (reader.offset !== data.length) {
+    throw new Error(`${data.length - reader.offset} trailing bytes at offset ${reader.offset}`);
+  }
 
-  return { type, value, handles };
+  return { type: rootType, value };
 }
 
 // =============================================================================
-// Function serialization helpers
+// Re-exports
 // =============================================================================
 
-// Re-export for convenience
 export { EAST_IR_SYMBOL, EAST_CAPTURES_SYMBOL } from "../compile.js";
 
-import { EastIR, AsyncEastIR } from "../eastir.js";
-
-/**
- * Compile a deserialized FunctionIR to an executable function.
- *
- * @param ir - The FunctionIR returned from BEAST2 deserialization
- * @param platform - Platform functions required for execution
- * @returns Compiled JavaScript function
- *
- * @example
- * ```ts
- * const funcType = FunctionType([IntegerType], IntegerType);
- * const data = encodeBeast2For(funcType)(myCompiledFunc);
- * const ir = decodeBeast2For(funcType)(data);
- * const recompiled = compileFunctionIR(ir, []);
- * const result = recompiled(42n);
- * ```
- */
-export function compileFunctionIR<I extends any[], O>(
-  ir: FunctionIR,
-  platform: PlatformFunction[]
-): (...args: I) => O {
+export function compileFunctionIR<I extends any[], O>(ir: FunctionIR, platform: PlatformFunction[]): (...args: I) => O {
   return new EastIR(ir).compile(platform) as (...args: I) => O;
 }
 
-/**
- * Compile a deserialized AsyncFunctionIR to an executable async function.
- *
- * @param ir - The AsyncFunctionIR returned from BEAST2 deserialization
- * @param platform - Platform functions required for execution
- * @returns Compiled JavaScript async function
- */
-export function compileAsyncFunctionIR<I extends any[], O>(
-  ir: AsyncFunctionIR,
-  platform: PlatformFunction[]
-): (...args: I) => Promise<O> {
+export function compileAsyncFunctionIR<I extends any[], O>(ir: AsyncFunctionIR, platform: PlatformFunction[]): (...args: I) => Promise<O> {
   return new AsyncEastIR(ir).compile(platform) as (...args: I) => Promise<O>;
 }

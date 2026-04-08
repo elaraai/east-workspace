@@ -1331,6 +1331,29 @@ ModelBlobType = VariantType(
     ]
 )
 
+# TreeExplainer config type - path_dependent (tree structure) or interventional (background data)
+TreeExplainerConfigType = VariantType(
+    [
+        (
+            "path_dependent",
+            StructType(
+                [
+                    ("model", ModelBlobType),
+                ]
+            ),
+        ),
+        (
+            "interventional",
+            StructType(
+                [
+                    ("model", ModelBlobType),
+                    ("background", MatrixType(FloatType)),
+                ]
+            ),
+        ),
+    ]
+)
+
 # ============================================================================
 # Helper Functions
 # ============================================================================
@@ -1413,6 +1436,7 @@ __all__ = [
     "ShapValuesType",
     "ShapBaseValueType",
     "ShapResultType",
+    "TreeExplainerConfigType",
     "FeatureImportanceType",
     # Torch Types
     "TorchActivationType",

@@ -30,7 +30,7 @@
     ],
     "scripts": {
         "build": "tsc",
-        "test:compliance": "npm run build && node --enable-source-maps --test 'dist/test/compliance.spec.js'",
+        "test:compliance": "npm run build && node --enable-source-maps --test-reporter=spec --test 'dist/test/compliance.spec.js'",
         "lint": "eslint .",
         "package": "npm run build && mkdir -p .package && npm pack --pack-destination .package"
     },

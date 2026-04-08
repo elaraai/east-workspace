@@ -311,7 +311,11 @@ export async function packageRead(
   const hash = await packageResolve(storage, repo, name, version);
   const data = await storage.objects.read(repo, hash);
   const decoder = decodeBeast2For(PackageObjectType);
-  return decoder(Buffer.from(data));
+  try {
+    return decoder(Buffer.from(data));
+  } catch (err: any) {
+    throw new Error(`Failed to decode package ${name}@${version} (hash: ${hash}, size: ${data.byteLength} bytes): ${err.message}`);
+  }
 }
 
 /**

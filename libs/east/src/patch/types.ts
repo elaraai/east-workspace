@@ -43,8 +43,8 @@ export interface DiffContext {
   diff: Array<(before: any, after: any) => any>;
   /** Types at each level - used to call equalFor/compareFor on Recursive back-references */
   types: Array<EastTypeValue>;
-  /** Equality handlers built in parallel - passed to equalFor for Recursive resolution */
-  equal: Array<(a: any, b: any) => boolean>;
+  /** Equality handlers for recursive types, keyed by type id */
+  equal: Map<bigint, (a: any, b: any) => boolean>;
 }
 
 /**
@@ -55,10 +55,10 @@ export interface ApplyContext {
   apply: Array<(base: any, patch: any) => any>;
   /** Types at each level */
   types: Array<EastTypeValue>;
-  /** Equality handlers built in parallel - passed to equalFor for Recursive resolution */
-  equal: Array<(a: any, b: any) => boolean>;
+  /** Equality handlers for recursive types, keyed by type id */
+  equal: Map<bigint, (a: any, b: any) => boolean>;
   /** Print handlers built in parallel - used for error messages */
-  print: Array<(value: any) => string>;
+  print: Map<bigint, (value: any) => string>;
 }
 
 /**
@@ -73,10 +73,10 @@ export interface ComposeContext {
   invert: Array<(patch: any) => any>;
   /** Types at each level */
   types: Array<EastTypeValue>;
-  /** Equality handlers built in parallel - passed to equalFor for Recursive resolution */
-  equal: Array<(a: any, b: any) => boolean>;
+  /** Equality handlers for recursive types, keyed by type id */
+  equal: Map<bigint, (a: any, b: any) => boolean>;
   /** Print handlers built in parallel - used for error messages */
-  print: Array<(value: any) => string>;
+  print: Map<bigint, (value: any) => string>;
 }
 
 /**
@@ -87,8 +87,8 @@ export interface InvertContext {
   invert: Array<(patch: any) => any>;
   /** Types at each level */
   types: Array<EastTypeValue>;
-  /** Equality handlers built in parallel - passed to equalFor for Recursive resolution */
-  equal: Array<(a: any, b: any) => boolean>;
+  /** Equality handlers for recursive types, keyed by type id */
+  equal: Map<bigint, (a: any, b: any) => boolean>;
 }
 
 // ============================================================================
@@ -157,20 +157,6 @@ export class ConflictError extends Error {
 // Helper functions
 // ============================================================================
 
-/**
- * Resolve a type that might be a Recursive back-reference.
- * @internal
- */
-export function resolveType(t: EastTypeValue, types: Array<EastTypeValue>): EastTypeValue {
-  if (t.type === "Recursive") {
-    const resolved = types[types.length - Number(t.value)];
-    if (resolved === undefined) {
-      throw new Error(`Internal error: Recursive type not found in context`);
-    }
-    return resolved;
-  }
-  return t;
-}
 
 /**
  * Compute the Longest Common Subsequence of two arrays.

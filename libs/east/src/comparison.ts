@@ -7,15 +7,15 @@ import type { EastType, ValueTypeOf } from "./types.js";
 import { isVariant, variant } from "./containers/variant.js";
 import type { ref } from "./containers/ref.js";
 
-/** Stack of comparers for recursive types */
-type TypeContext = (((x: any, y: any, ctx?: ValueContext) => boolean))[];
+/** Map of comparers for recursive types, keyed by recursive type id (bigint) */
+type TypeContext = Map<bigint, any>;
 
 /** Tracks (x,y) pairs previously/currently being compared */
 type ValueContext = Map<any, Set<any>>;
 
 export function isFor(type: EastTypeValue, typeCtx?: TypeContext): (x: any, y: any, ctx?: ValueContext) => boolean
 export function isFor<T extends EastType>(type: T): (x: ValueTypeOf<T>, y: ValueTypeOf<T>) => boolean
-export function isFor(type: EastTypeValue | EastType, typeCtx: TypeContext = []): (x: any, y: any, ctx?: ValueContext) => boolean {
+export function isFor(type: EastTypeValue | EastType, typeCtx: TypeContext = new Map()): (x: any, y: any, ctx?: ValueContext) => boolean {
   // Convert EastType to EastTypeValue if necessary
   if (!isVariant(type)) {
     type = toEastTypeValue(type as EastType);
@@ -76,11 +76,9 @@ export function isFor(type: EastTypeValue | EastType, typeCtx: TypeContext = [])
       }
       return true;
     }
-    typeCtx.push(ret);
     for (const field of type.value) {
       field_comparers.push([field.name, isFor(field.type, typeCtx)] as const);
     }
-    typeCtx.pop();
     return ret;
   } else if (type.type === "Variant") {
     const case_comparers: Record<string, (x: any, y: any, ctx?: ValueContext) => boolean> = {};
@@ -91,14 +89,20 @@ export function isFor(type: EastTypeValue | EastType, typeCtx: TypeContext = [])
       if (x.type !== y.type) return false;
       return case_comparers[x.type]!(x.value, y.value, ctx);
     };
-    typeCtx.push(ret);
     for (const { name, type: caseType } of type.value) {
       case_comparers[name] = isFor(caseType, typeCtx);
     }
-    typeCtx.pop();
+    return ret;
+  } else if (type.type === "Recursive" && (type.value as any).type === "wrapper") {
+    // Recursive wrapper: register handler by id, build inner
+    let inner: (x: any, y: any, ctx?: ValueContext) => boolean;
+    const ret = (x: any, y: any, ctx?: ValueContext) => inner(x, y, ctx);
+    typeCtx.set((type.value as any).value.id as bigint, ret);
+    inner = isFor((type.value as any).value.inner, typeCtx);
     return ret;
   } else if (type.type === "Recursive") {
-    const ret = typeCtx[typeCtx.length - Number(type.value)];
+    // Self-reference: look up by id
+    const ret = typeCtx.get((type.value as any).value as bigint);
     if (ret === undefined) {
       throw new Error(`Internal error: Recursive type context not found`);
     }
@@ -114,7 +118,7 @@ export function isFor(type: EastTypeValue | EastType, typeCtx: TypeContext = [])
 
 export function equalFor(type: EastTypeValue, typeCtx?: TypeContext): (x: any, y: any, ctx?: ValueContext) => boolean
 export function equalFor<T extends EastType>(type: T): (x: ValueTypeOf<T>, y: ValueTypeOf<T>) => boolean
-export function equalFor(type: EastTypeValue | EastType, typeCtx: TypeContext = []): (x: any, y: any, ctx?: ValueContext) => boolean {
+export function equalFor(type: EastTypeValue | EastType, typeCtx: TypeContext = new Map()): (x: any, y: any, ctx?: ValueContext) => boolean {
   // Convert EastType to EastTypeValue if necessary
   if (!isVariant(type)) {
     type = toEastTypeValue(type);
@@ -192,9 +196,7 @@ export function equalFor(type: EastTypeValue | EastType, typeCtx: TypeContext = 
       // Now do the actual comparison
       return value_comparer(x.value, y.value, ctx);
     };
-    typeCtx.push(ret);
     value_comparer = equalFor(type.value as EastTypeValue, typeCtx);
-    typeCtx.pop();
     return ret;
   } else if (type.type === "Array") {
     let value_comparer: (x: any, y: any, ctx?: ValueContext) => boolean;
@@ -230,9 +232,7 @@ export function equalFor(type: EastTypeValue | EastType, typeCtx: TypeContext = 
       }
       return true;
     };
-    typeCtx.push(ret);
     value_comparer = equalFor(type.value as EastTypeValue, typeCtx);
-    typeCtx.pop();
     return ret;
   } else if (type.type === "Set") {
     return (x: Set<any>, y: Set<any>, _ctx?: ValueContext) => {
@@ -276,9 +276,7 @@ export function equalFor(type: EastTypeValue | EastType, typeCtx: TypeContext = 
       }
       return true;
     }
-    typeCtx.push(ret);
     value_comparer = equalFor(type.value.value, typeCtx);
-    typeCtx.pop();
     return ret;
   } else if (type.type === "Struct") {
     const field_comparers: [string, (x: any, y: any, ctx?: ValueContext) => boolean][] = [];
@@ -313,11 +311,9 @@ export function equalFor(type: EastTypeValue | EastType, typeCtx: TypeContext = 
       }
       return true;
     }
-    typeCtx.push(ret);
     for (const field of type.value) {
       field_comparers.push([field.name, equalFor(field.type, typeCtx)] as const);
     }
-    typeCtx.pop();
     return ret;
   } else if (type.type === "Variant") {
     const case_comparers: Record<string, (x: any, y: any, ctx?: ValueContext) => boolean> = {};
@@ -346,14 +342,18 @@ export function equalFor(type: EastTypeValue | EastType, typeCtx: TypeContext = 
 
       return case_comparers[x.type]!(x.value, y.value, ctx);
     };
-    typeCtx.push(ret);
     for (const { name, type: caseType } of type.value) {
       case_comparers[name] = equalFor(caseType, typeCtx);
     }
-    typeCtx.pop();
+    return ret;
+  } else if (type.type === "Recursive" && (type.value as any).type === "wrapper") {
+    let inner: (x: any, y: any, ctx?: ValueContext) => boolean;
+    const ret = (x: any, y: any, ctx?: ValueContext) => inner(x, y, ctx);
+    typeCtx.set((type.value as any).value.id as bigint, ret);
+    inner = equalFor((type.value as any).value.inner, typeCtx);
     return ret;
   } else if (type.type === "Recursive") {
-    const ret = typeCtx[typeCtx.length - Number(type.value)];
+    const ret = typeCtx.get((type.value as any).value as bigint);
     if (ret === undefined) {
       throw new Error(`Internal error: Recursive type context not found`);
     }
@@ -373,7 +373,7 @@ export function equalFor(type: EastTypeValue | EastType, typeCtx: TypeContext = 
 
 export function notEqualFor(type: EastTypeValue, typeCtx?: TypeContext): (x: any, y: any, ctx?: ValueContext) => boolean
 export function notEqualFor<T extends EastType>(type: T): (x: ValueTypeOf<T>, y: ValueTypeOf<T>) => boolean
-export function notEqualFor(type: EastTypeValue | EastType, typeCtx: TypeContext = []): (x: any, y: any, ctx?: ValueContext) => boolean {
+export function notEqualFor(type: EastTypeValue | EastType, typeCtx: TypeContext = new Map()): (x: any, y: any, ctx?: ValueContext) => boolean {
   const equal = equalFor(type as any, typeCtx);
   return (x: any, y: any, ctx?: ValueContext) => !equal(x, y, ctx);
 
@@ -445,7 +445,7 @@ export function notEqualFor(type: EastTypeValue | EastType, typeCtx: TypeContext
   //   typeCtx.pop();
   //   return ret;
   // } else if (type.type === "Recursive") {
-  //   const ret = typeCtx[typeCtx.length - Number(type.value)];
+  //   const ret = typeCtx[typeCtx.length - Number(type.value.value)];
   //   if (ret === undefined) {
   //     throw new Error(`Internal error: Recursive type context not found`);
   //   }
@@ -459,7 +459,7 @@ export function notEqualFor(type: EastTypeValue | EastType, typeCtx: TypeContext
 
 export function lessFor(type: EastTypeValue, typeCtx?: TypeContext): (x: any, y: any, ctx?: ValueContext) => boolean
 export function lessFor<T extends EastType>(type: T): (x: ValueTypeOf<T>, y: ValueTypeOf<T>) => boolean
-export function lessFor(type: EastTypeValue | EastType, typeCtx: TypeContext = []): (x: any, y: any, ctx?: ValueContext) => boolean {
+export function lessFor(type: EastTypeValue | EastType, typeCtx: TypeContext = new Map()): (x: any, y: any, ctx?: ValueContext) => boolean {
   const cmp = compareFor(type as any, typeCtx);
   return (x: any, y: any, ctx?: ValueContext) => cmp(x, y, ctx) === -1;
 
@@ -546,7 +546,7 @@ export function lessFor(type: EastTypeValue | EastType, typeCtx: TypeContext = [
   //   typeCtx.pop();
   //   return ret;
   // } else if (type.type === "Recursive") {
-  //   const ret = typeCtx[typeCtx.length - Number(type.value)];
+  //   const ret = typeCtx[typeCtx.length - Number(type.value.value)];
   //   if (ret === undefined) {
   //     throw new Error(`Internal error: Recursive type context not found`);
   //   }
@@ -560,7 +560,7 @@ export function lessFor(type: EastTypeValue | EastType, typeCtx: TypeContext = [
 
 export function lessEqualFor(type: EastTypeValue, typeCtx?: TypeContext): (x: any, y: any, ctx?: ValueContext) => boolean
 export function lessEqualFor<T extends EastType>(type: T): (x: ValueTypeOf<T>, y: ValueTypeOf<T>) => boolean
-export function lessEqualFor(type: EastTypeValue | EastType, typeCtx: TypeContext = []): (x: any, y: any, ctx?: ValueContext) => boolean {
+export function lessEqualFor(type: EastTypeValue | EastType, typeCtx: TypeContext = new Map()): (x: any, y: any, ctx?: ValueContext) => boolean {
   const cmp = compareFor(type as any, typeCtx);
   return (x: any, y: any, ctx?: ValueContext) => cmp(x, y, ctx) !== 1;
 
@@ -642,7 +642,7 @@ export function lessEqualFor(type: EastTypeValue | EastType, typeCtx: TypeContex
   //   typeCtx.pop();
   //   return ret;
   // } else if (type.type === "Recursive") {
-  //   const ret = typeCtx[typeCtx.length - Number(type.value)];
+  //   const ret = typeCtx[typeCtx.length - Number(type.value.value)];
   //   if (ret === undefined) {
   //     throw new Error(`Internal error: Recursive type context not found`);
   //   }
@@ -656,7 +656,7 @@ export function lessEqualFor(type: EastTypeValue | EastType, typeCtx: TypeContex
 
 export function greaterEqualFor(type: EastTypeValue, typeCtx?: TypeContext): (x: any, y: any, ctx?: ValueContext) => boolean
 export function greaterEqualFor<T extends EastType>(type: T): (x: ValueTypeOf<T>, y: ValueTypeOf<T>) => boolean
-export function greaterEqualFor(type: EastTypeValue | EastType, typeCtx: TypeContext = []): (x: any, y: any, ctx?: ValueContext) => boolean {
+export function greaterEqualFor(type: EastTypeValue | EastType, typeCtx: TypeContext = new Map()): (x: any, y: any, ctx?: ValueContext) => boolean {
   const cmp = compareFor(type as any, typeCtx);
   return (x: any, y: any, ctx?: ValueContext) => cmp(x, y, ctx) !== -1;
 
@@ -738,7 +738,7 @@ export function greaterEqualFor(type: EastTypeValue | EastType, typeCtx: TypeCon
   //   typeCtx.pop();
   //   return ret;
   // } else if (type.type === "Recursive") {
-  //   const ret = typeCtx[typeCtx.length - Number(type.value)];
+  //   const ret = typeCtx[typeCtx.length - Number(type.value.value)];
   //   if (ret === undefined) {
   //     throw new Error(`Internal error: Recursive type context not found`);
   //   }
@@ -752,7 +752,7 @@ export function greaterEqualFor(type: EastTypeValue | EastType, typeCtx: TypeCon
 
 export function greaterFor(type: EastTypeValue, typeCtx?: TypeContext): (x: any, y: any, ctx?: ValueContext) => boolean
 export function greaterFor<T extends EastType>(type: T): (x: ValueTypeOf<T>, y: ValueTypeOf<T>) => boolean
-export function greaterFor(type: EastTypeValue | EastType, typeCtx: TypeContext = []): (x: any, y: any, ctx?: ValueContext) => boolean {
+export function greaterFor(type: EastTypeValue | EastType, typeCtx: TypeContext = new Map()): (x: any, y: any, ctx?: ValueContext) => boolean {
   const cmp = compareFor(type as any, typeCtx);
   return (x: any, y: any, ctx?: ValueContext) => cmp(x, y, ctx) === 1;
 
@@ -834,7 +834,7 @@ export function greaterFor(type: EastTypeValue | EastType, typeCtx: TypeContext 
   //   typeCtx.pop();
   //   return ret;
   // } else if (type.type === "Recursive") {
-  //   const ret = typeCtx[typeCtx.length - Number(type.value)];
+  //   const ret = typeCtx[typeCtx.length - Number(type.value.value)];
   //   if (ret === undefined) {
   //     throw new Error(`Internal error: Recursive type context not found`);
   //   }
@@ -848,7 +848,7 @@ export function greaterFor(type: EastTypeValue | EastType, typeCtx: TypeContext 
 
 export function compareFor(type: EastTypeValue, typeCtx?: TypeContext): (x: any, y: any, ctx?: ValueContext) => 1 | 0 | -1
 export function compareFor<T extends EastType>(type: T): (x: ValueTypeOf<T>, y: ValueTypeOf<T>) => 1 | 0 | -1
-export function compareFor(type: EastTypeValue | EastType, typeCtx: TypeContext = []): (x: any, y: any, ctx?: ValueContext) => 1 | 0 | -1 {
+export function compareFor(type: EastTypeValue | EastType, typeCtx: TypeContext = new Map()): (x: any, y: any, ctx?: ValueContext) => 1 | 0 | -1 {
   // Convert EastType to EastTypeValue if necessary
   if (!isVariant(type)) {
     type = toEastTypeValue(type as EastType);
@@ -939,9 +939,7 @@ export function compareFor(type: EastTypeValue | EastType, typeCtx: TypeContext 
       // Now do the actual comparison
       return value_comparer(x.value, y.value, ctx);
     };
-    typeCtx.push(ret as any);
     value_comparer = compareFor(type.value, typeCtx);
-    typeCtx.pop();
     return ret;
   } else if (type.type === "Array") {
     let value_comparer: (x: any, y: any, ctx?: ValueContext) => 1 | 0 | -1;
@@ -976,9 +974,7 @@ export function compareFor(type: EastTypeValue | EastType, typeCtx: TypeContext 
       }
       return x.length > y.length ? 1 : x.length < y.length ? -1 : 0;
     };
-    typeCtx.push(ret as any);
     value_comparer = compareFor(type.value, typeCtx);
-    typeCtx.pop();
     return ret;
   } else if (type.type === "Set") {
     // Set keys cannot contain mutable containers, so no cycles possible
@@ -1041,9 +1037,7 @@ export function compareFor(type: EastTypeValue | EastType, typeCtx: TypeContext 
       // x ran out first, compare sizes: if y has more elements, x < y
       return yiterator.next().done ? 0 : -1;
     };
-    typeCtx.push(ret as any);
     value_comparer = compareFor(type.value.value, typeCtx);
-    typeCtx.pop();
     return ret;
   } else if (type.type === "Struct") {
     const field_comparers: [string, (x: any, y: any, ctx?: ValueContext) => 1 | 0 | -1][] = [];
@@ -1054,11 +1048,9 @@ export function compareFor(type: EastTypeValue | EastType, typeCtx: TypeContext 
       }
       return 0;
     };
-    typeCtx.push(ret as any);
     for (const field of type.value) {
       field_comparers.push([field.name, compareFor(field.type, typeCtx)] as const);
     }
-    typeCtx.pop();
     return ret;
   } else if (type.type === "Variant") {
     const case_comparers: Record<string, (x: any, y: any, ctx?: ValueContext) => 1 | 0 | -1> = {};
@@ -1068,14 +1060,18 @@ export function compareFor(type: EastTypeValue | EastType, typeCtx: TypeContext 
 
       return case_comparers[x.type]!(x.value, y.value, ctx);
     };
-    typeCtx.push(ret as any);
     for (const { name, type: caseType } of type.value) {
       case_comparers[name] = compareFor(caseType, typeCtx);
     }
-    typeCtx.pop();
+    return ret;
+  } else if (type.type === "Recursive" && (type.value as any).type === "wrapper") {
+    let inner: (x: any, y: any, ctx?: ValueContext) => 0 | 1 | -1;
+    const ret = (x: any, y: any, ctx?: ValueContext): 0 | 1 | -1 => inner(x, y, ctx);
+    typeCtx.set((type.value as any).value.id as bigint, ret as any);
+    inner = compareFor((type.value as any).value.inner, typeCtx);
     return ret;
   } else if (type.type === "Recursive") {
-    const ret = typeCtx[typeCtx.length - Number(type.value)] as any;
+    const ret = typeCtx.get((type.value as any).value as bigint) as any;
     if (ret === undefined) {
       throw new Error(`Internal error: Recursive type context not found`);
     }

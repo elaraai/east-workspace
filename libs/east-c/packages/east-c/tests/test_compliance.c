@@ -27,6 +27,7 @@ static int g_tests_run = 0;
 static int g_tests_passed = 0;
 static int g_tests_failed = 0;
 static const char *g_current_describe = "";
+static int g_quiet = 0;  /* Set by EAST_QUIET=1 env var */
 
 /* ------------------------------------------------------------------ */
 /*  Test platform functions                                            */
@@ -59,7 +60,7 @@ static EvalResult plat_describe(EastValue **args, size_t num_args, EastType **in
 
     const char *prev_describe = g_current_describe;
     g_current_describe = name;
-    printf("\xe2\x96\xb6 %s\n", name);
+    if (!g_quiet) printf("\xe2\x96\xb6 %s\n", name);
 
     int failed_before = g_tests_failed;
 
@@ -89,7 +90,7 @@ static EvalResult plat_describe(EastValue **args, size_t num_args, EastType **in
 
     if (g_tests_failed > failed_before) {
         printf("\xe2\x9c\x96 %s (%.6fms)\n", name, desc_ms);
-    } else {
+    } else if (!g_quiet) {
         printf("\xe2\x9c\x94 %s (%.6fms)\n", name, desc_ms);
     }
 
@@ -148,7 +149,7 @@ static EvalResult plat_test(EastValue **args, size_t num_args, EastType **input_
         free((void *)err_msg);
     } else {
         g_tests_passed++;
-        printf("  \xe2\x9c\x94 %s (%.6fms)\n", name, test_ms);
+        if (!g_quiet) printf("  \xe2\x9c\x94 %s (%.6fms)\n", name, test_ms);
     }
 
     return eval_ok(east_null());
@@ -197,6 +198,12 @@ int main(int argc, char **argv)
 
     const char *json_path = argv[1];
 
+    /* Check EAST_QUIET env var */
+    {
+        const char *eq = getenv("EAST_QUIET");
+        g_quiet = (eq != NULL && strcmp(eq, "1") == 0);
+    }
+
     /* Initialize type descriptors */
     east_type_of_type_init();
 
@@ -222,7 +229,7 @@ int main(int argc, char **argv)
     clock_gettime(CLOCK_MONOTONIC, &t1);
     double load_ms = (t1.tv_sec - t0.tv_sec) * 1000.0 +
                      (t1.tv_nsec - t0.tv_nsec) / 1e6;
-    printf("Load: %.1f ms (%.1f MB)\n", load_ms, json_len / (1024.0 * 1024.0));
+    if (!g_quiet) printf("Load: %.1f ms (%.1f MB)\n", load_ms, json_len / (1024.0 * 1024.0));
 
     /* Stage 2: Decode JSON to EastValue using IRType */
     clock_gettime(CLOCK_MONOTONIC, &t0);
@@ -233,7 +240,7 @@ int main(int argc, char **argv)
     clock_gettime(CLOCK_MONOTONIC, &t1);
     double decode_ms = (t1.tv_sec - t0.tv_sec) * 1000.0 +
                        (t1.tv_nsec - t0.tv_nsec) / 1e6;
-    printf("Decode: %.1f ms\n", decode_ms);
+    if (!g_quiet) printf("Decode: %.1f ms\n", decode_ms);
 
     if (!ir_val) {
         fprintf(stderr, "Failed to decode JSON as IR\n");
@@ -249,7 +256,7 @@ int main(int argc, char **argv)
     clock_gettime(CLOCK_MONOTONIC, &t1);
     double convert_ms = (t1.tv_sec - t0.tv_sec) * 1000.0 +
                         (t1.tv_nsec - t0.tv_nsec) / 1e6;
-    printf("Convert: %.1f ms\n", convert_ms);
+    if (!g_quiet) printf("Convert: %.1f ms\n", convert_ms);
 
     if (!ir) {
         fprintf(stderr, "Failed to convert IR value to IR node\n");
@@ -278,7 +285,7 @@ int main(int argc, char **argv)
     /* Extract the filename from path for display */
     const char *fname = strrchr(json_path, '/');
     fname = fname ? fname + 1 : json_path;
-    printf("\n%s:\n", fname);
+    if (!g_quiet) printf("\n%s:\n", fname);
 
     EvalResult result = east_call(fn, NULL, 0);
 
@@ -298,7 +305,7 @@ int main(int argc, char **argv)
         }
     }
 
-    printf("\xe2\x84\xb9 tests %d\n", g_tests_run);
+    if (!g_quiet) printf("\xe2\x84\xb9 tests %d\n", g_tests_run);
     printf("\nResults: %d/%d passed", g_tests_passed, g_tests_run);
     if (g_tests_failed > 0) {
         printf(" (%d failed)", g_tests_failed);
@@ -310,6 +317,7 @@ int main(int argc, char **argv)
     eval_result_free(&result);
     east_compiled_fn_free(fn);
     ir_node_release(ir);
+    east_type_registry_clear();
     platform_registry_free(platform);
     builtin_registry_free(builtins);
 

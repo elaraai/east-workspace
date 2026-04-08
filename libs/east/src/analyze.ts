@@ -1719,11 +1719,14 @@ export function analyzeIR<T extends IR>(
       // Visit the value expression
       const valueInfo = visit(node.value.value, ctx, expectedReturnType);
 
-      // Validate result type matches expanded type
-      if (valueInfo.value.type.type !== "Never" && !isTypeValueEqual(node.value.type, valueInfo.value.type)) {
+      // Validate result type matches expanded type.
+      // The value type may be Recursive(wrapper({id, inner})) — unwrap for comparison.
+      const inputType = valueInfo.value.type.type === "Recursive" && (valueInfo.value.type.value as any).type === "wrapper"
+        ? (valueInfo.value.type.value as any).value.inner : valueInfo.value.type;
+      if (inputType.type !== "Never" && !isTypeValueEqual(node.value.type, inputType)) {
         throw new Error(
           `UnwrapRecursive result type ${printTypeValue(node.value.type)} ` +
-          `does not match recursive type ${printTypeValue(valueInfo.value.type)} ` +
+          `does not match recursive type ${printTypeValue(inputType)} ` +
           `at ${printLocationValue(node.value.location)}`
         );
       }
@@ -1735,11 +1738,14 @@ export function analyzeIR<T extends IR>(
       // Visit the value expression
       const valueInfo = visit(node.value.value, ctx, expectedReturnType);
 
-      // Validate value type matches expanded recursive type
-      if (valueInfo.value.type.type !== "Never" && !isTypeValueEqual(valueInfo.value.type, node.value.type)) {
+      // Validate value type matches the inner type of the recursive wrapper.
+      // node.value.type is Recursive(wrapper({id, inner})) — the value has the inner type.
+      const expectedType = node.value.type.type === "Recursive" && (node.value.type.value as any).type === "wrapper"
+        ? (node.value.type.value as any).value.inner : node.value.type;
+      if (valueInfo.value.type.type !== "Never" && !isTypeValueEqual(valueInfo.value.type, expectedType)) {
         throw new Error(
           `WrapRecursive value has type ${printTypeValue(valueInfo.value.type)} ` +
-          `but expects ${printTypeValue(node.value.type)} ` +
+          `but expects ${printTypeValue(expectedType)} ` +
           `at ${printLocationValue(node.value.location)}`
         );
       }

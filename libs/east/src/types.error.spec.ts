@@ -31,6 +31,7 @@ import {
     TypeMismatchError,
     printTypeSummary,
     TypeWiden,
+    getTypeId,
 } from "./types.js";
 
 /** Extract error from assert.throws with proper typing */
@@ -210,24 +211,27 @@ describe("printTypeSummary", () => {
     });
 
     // --- Recursive types ---
-    test("recursive linked list at depth 0 (transparent, shows variant summary)", () => {
+    test("recursive linked list at depth 0 (shows wrapper)", () => {
         const t = RecursiveType(self => VariantType({ nil: NullType, cons: StructType({ head: IntegerType, tail: self }) }));
-        assert.strictEqual(printTypeSummary(t, 0), ".Variant (cons | nil)");
+        const id = getTypeId(t);
+        assert.strictEqual(printTypeSummary(t, 0), `.Recursive .wrapper (id=${id}, inner=.Variant (cons | nil))`);
     });
 
     test("recursive linked list at depth 1", () => {
         const t = RecursiveType(self => VariantType({ nil: NullType, cons: StructType({ head: IntegerType, tail: self }) }));
+        const id = getTypeId(t);
         assert.strictEqual(
             printTypeSummary(t, 1),
-            '.Variant [(name="cons", type=.Struct [2 fields]), (name="nil", type=.Null)]'
+            `.Recursive .wrapper (id=${id}, inner=.Variant [(name="cons", type=.Struct [2 fields]), (name="nil", type=.Null)])`
         );
     });
 
     test("recursive linked list at depth 2 (shows self-reference)", () => {
         const t = RecursiveType(self => VariantType({ nil: NullType, cons: StructType({ head: IntegerType, tail: self }) }));
+        const id = getTypeId(t);
         assert.strictEqual(
             printTypeSummary(t, 2),
-            '.Variant [(name="cons", type=.Struct [(name="head", type=.Integer), (name="tail", type=.Recursive 2)]), (name="nil", type=.Null)]'
+            `.Recursive .wrapper (id=${id}, inner=.Variant [(name="cons", type=.Struct [(name="head", type=.Integer), (name="tail", type=.Recursive .ref ${id})]), (name="nil", type=.Null)])`
         );
     });
 
@@ -238,22 +242,25 @@ describe("printTypeSummary", () => {
 
     test("recursive binary tree at depth 0", () => {
         const t = RecursiveType(self => StructType({ value: IntegerType, left: OptionType(self), right: OptionType(self) }));
-        assert.strictEqual(printTypeSummary(t, 0), ".Struct [3 fields]");
+        const id = getTypeId(t);
+        assert.strictEqual(printTypeSummary(t, 0), `.Recursive .wrapper (id=${id}, inner=.Struct [3 fields])`);
     });
 
     test("recursive binary tree at depth 1 (option collapses)", () => {
         const t = RecursiveType(self => StructType({ value: IntegerType, left: OptionType(self), right: OptionType(self) }));
+        const id = getTypeId(t);
         assert.strictEqual(
             printTypeSummary(t, 1),
-            '.Struct [(name="value", type=.Integer), (name="left", type=.Variant (none | some)), (name="right", type=.Variant (none | some))]'
+            `.Recursive .wrapper (id=${id}, inner=.Struct [(name="value", type=.Integer), (name="left", type=.Variant (none | some)), (name="right", type=.Variant (none | some))])`
         );
     });
 
     test("recursive binary tree at depth 2 (shows self-reference in option)", () => {
         const t = RecursiveType(self => StructType({ value: IntegerType, left: OptionType(self), right: OptionType(self) }));
+        const id = getTypeId(t);
         assert.strictEqual(
             printTypeSummary(t, 2),
-            '.Struct [(name="value", type=.Integer), (name="left", type=.Variant [(name="none", type=.Null), (name="some", type=.Recursive 2)]), (name="right", type=.Variant [(name="none", type=.Null), (name="some", type=.Recursive 2)])]'
+            `.Recursive .wrapper (id=${id}, inner=.Struct [(name="value", type=.Integer), (name="left", type=.Variant [(name="none", type=.Null), (name="some", type=.Recursive .ref ${id})]), (name="right", type=.Variant [(name="none", type=.Null), (name="some", type=.Recursive .ref ${id})])])`
         );
     });
 
@@ -269,25 +276,27 @@ describe("printTypeSummary", () => {
 
     test("complex type at depth 2 (expands struct, truncates at maxFields=3)", () => {
         const ListType = RecursiveType(self => VariantType({ nil: NullType, cons: StructType({ head: IntegerType, tail: self }) }));
+        const lid = getTypeId(ListType);
         const t = ArrayType(StructType({
             name: StringType, data: DictType(StringType, FloatType),
             children: ListType, score: FloatType, tags: SetType(StringType),
         }));
         assert.strictEqual(
             printTypeSummary(t, 2),
-            '.Array .Struct [(name="name", type=.String), (name="data", type=.Dict ...), (name="children", type=.Variant (cons | nil)), ... and 2 more]'
+            `.Array .Struct [(name="name", type=.String), (name="data", type=.Dict ...), (name="children", type=.Recursive .wrapper (id=${lid}, inner=.Variant (cons | nil))), ... and 2 more]`
         );
     });
 
     test("complex type at depth 3", () => {
         const ListType = RecursiveType(self => VariantType({ nil: NullType, cons: StructType({ head: IntegerType, tail: self }) }));
+        const lid = getTypeId(ListType);
         const t = ArrayType(StructType({
             name: StringType, data: DictType(StringType, FloatType),
             children: ListType, score: FloatType, tags: SetType(StringType),
         }));
         assert.strictEqual(
             printTypeSummary(t, 3),
-            '.Array .Struct [(name="name", type=.String), (name="data", type=.Dict (key=.String, value=.Float)), (name="children", type=.Variant [(name="cons", type=.Struct [2 fields]), (name="nil", type=.Null)]), ... and 2 more]'
+            `.Array .Struct [(name="name", type=.String), (name="data", type=.Dict (key=.String, value=.Float)), (name="children", type=.Recursive .wrapper (id=${lid}, inner=.Variant [(name="cons", type=.Struct [2 fields]), (name="nil", type=.Null)])), ... and 2 more]`
         );
     });
 
@@ -436,10 +445,11 @@ describe("TypeEqual error messages", () => {
         assert.strictEqual(err.message, 'expected .Function (inputs=[.Integer], output=.Null) but got .AsyncFunction (inputs=[.Integer], output=.Null): incompatible types');
     });
 
-    test("RecursiveType vs Integer (recursive wrapper is transparent in summary)", () => {
+    test("RecursiveType vs Integer (shows wrapper in summary)", () => {
         const t = RecursiveType(self => VariantType({ nil: NullType, cons: StructType({ head: IntegerType, tail: self }) }));
+        const id = getTypeId(t);
         const err = catchError(() => TypeEqual(t, IntegerType));
-        assert.strictEqual(err.message, 'expected .Variant [(name="cons", type=.Struct [2 fields]), (name="nil", type=.Null)] but got .Integer: incompatible types');
+        assert.strictEqual(err.message, `expected .Recursive .wrapper (id=${id}, inner=.Variant [(name="cons", type=.Struct [2 fields]), (name="nil", type=.Null)]) but got .Integer: incompatible types`);
     });
 
     // --- Inner mismatches with path ---

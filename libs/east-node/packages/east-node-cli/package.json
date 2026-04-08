@@ -24,7 +24,7 @@
     "build": "tsc",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "test": "npm run build && node --enable-source-maps --test 'dist/**/*.spec.js'",
+    "test": "npm run build && node --enable-source-maps --test-reporter=spec --test 'dist/**/*.spec.js'",
     "version:patch": "npm version patch -m 'chore: bump version to %s'",
     "version:minor": "npm version minor -m 'chore: bump version to %s'",
     "version:major": "npm version major -m 'chore: bump version to %s'",

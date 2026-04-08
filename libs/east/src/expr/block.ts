@@ -5,7 +5,7 @@
 
 import { type AST, type IfElseAST, type Label, type TryCatchAST, type VariableAST } from "../ast.js";
 import { get_location, printLocations, type Location } from "../location.js";
-import { type EastType, FunctionType, isSubtype, NullType, printType, isTypeEqual, StringType, NeverType, VariantType, BooleanType, TypeUnion, IntegerType, StructType, ArrayType, type ValueTypeOf, AsyncFunctionType, type RefType, type SetType, type DictType, type RecursiveType, type RecursiveTypeMarker } from "../types.js";
+import { type EastType, FunctionType, isSubtype, NullType, printType, isTypeEqual, StringType, NeverType, VariantType, BooleanType, TypeUnion, IntegerType, StructType, ArrayType, type ValueTypeOf, AsyncFunctionType, type RefType, type SetType, type DictType, type RecursiveType, type RecursiveTypeMarker, assignTypeId } from "../types.js";
 
 import type { ExprType, SubtypeExprOrValue, TypeOf } from "./types.js";
 import { AstSymbol, Expr, TypeSymbol } from "./expr.js";
@@ -1359,7 +1359,7 @@ function applyTypeArgs<T extends EastType | string>(
       // RecursiveTypeMarker (self-reference) - leave alone
       return t as EastType;
     }
-    return { type: "Recursive", node: applyTypeArgs(typeArgs, (t as any).node) } as EastType;
+    return assignTypeId({ type: "Recursive" as const, node: applyTypeArgs(typeArgs, (t as any).node) }) as EastType;
   } else {
     return t as EastType;
   }

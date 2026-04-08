@@ -26,6 +26,9 @@ extern EastType *east_ir_type_with_refs;  // IRType with EastTypeType → Intege
 // Initialize the type descriptors. Call once at startup.
 void east_type_of_type_init(void);
 
+// Free the type descriptors. Called by east_type_registry_clear().
+void east_type_of_type_free(void);
+
 // Convert decoded EastTypeType variant value -> EastType*
 EastType *east_type_from_value(EastValue *value);
 
@@ -34,5 +37,13 @@ EastValue *east_type_to_value(EastType *type);
 
 // Convert decoded IRType variant value -> IRNode*
 IRNode *east_ir_from_value(EastValue *value);
+
+// Convert decoded IRType variant value -> IRNode*, using a pre-built type table
+// for O(1) type resolution (avoids expensive east_type_from_value per node).
+// type_values[i] and types[i] must correspond (same type, value vs pointer form).
+IRNode *east_ir_from_value_with_types(EastValue *value,
+                                      EastValue **type_values,
+                                      EastType **types,
+                                      size_t type_count);
 
 #endif

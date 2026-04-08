@@ -8,6 +8,67 @@ import { SortedSet } from "./containers/sortedset.js";
 import { type variant, variant_symbol } from "./containers/variant.js";
 import { isMatrix, type matrix } from "./containers/matrix.js";
 
+// =============================================================================
+// Type identity — every EastType gets a unique integer ID via a Symbol property.
+// This enables O(1) identity-based lookup across independently constructed
+// type objects that are structurally identical. Mirrors east-c's pointer interning.
+// =============================================================================
+
+export const type_id_symbol: unique symbol = Symbol("type_id");
+let _next_type_id = 0;
+
+/** Runtime type identity — all stamped EastType and EastTypeValue objects carry this. */
+export type TypeIdentity = {
+  [type_id_symbol]?: number;
+};
+
+/** Assign a unique type_id to an EastType. Called by every type constructor. */
+export function assignTypeId<T>(type: T): T & TypeIdentity {
+  (type as TypeIdentity)[type_id_symbol] = _next_type_id++;
+  return type as T & TypeIdentity;
+}
+
+/** Get the type_id of an EastType, EastTypeValue, or any stamped object. */
+export function getTypeId(type: any): number | undefined {
+  return type?.[type_id_symbol];
+}
+
+// =============================================================================
+// Type interning — ensures structurally identical compound types share identity.
+// Mirrors east-c's pointer-based hash table interning.
+// Uses integer hashing of child type_ids for O(1) lookup with zero GC pressure.
+// =============================================================================
+
+function hashCombine(h: number, v: number): number {
+  return ((h ^ v) * 0x01000193) | 0;
+}
+
+// Intern table: hash → type. On collision we chain (store array).
+const _intern = new Map<number, any | any[]>();
+
+function internLookup(hash: number, verify: (candidate: any) => boolean): any | undefined {
+  const entry = _intern.get(hash);
+  if (entry === undefined) return undefined;
+  if (Array.isArray(entry)) {
+    for (const candidate of entry) {
+      if (verify(candidate)) return candidate;
+    }
+    return undefined;
+  }
+  return verify(entry) ? entry : undefined;
+}
+
+function internStore(hash: number, type: any): void {
+  const existing = _intern.get(hash);
+  if (existing === undefined) {
+    _intern.set(hash, type);
+  } else if (Array.isArray(existing)) {
+    existing.push(type);
+  } else {
+    _intern.set(hash, [existing, type]);
+  }
+}
+
 /**
  * Error thrown when type operations encounter incompatible types.
  *
@@ -39,44 +100,51 @@ function withPathSegment<T>(segment: string, fn: () => T): T {
 }
 
 /** Represents the Never type (bottom type) in East's type system. */
-export type NeverType = { type: "Never" };
+export type NeverType = { type: "Never", [type_id_symbol]?: number };
 /** Singleton instance of the Never type. */
-export const NeverType: NeverType = { type: "Never" };
+export const NeverType: NeverType = assignTypeId({ type: "Never" });
 
 /** Represents the Null type (unit type) in East's type system. */
-export type NullType = { type: "Null" };
+export type NullType = { type: "Null", [type_id_symbol]?: number };
 /** Singleton instance of the Null type. */
-export const NullType: NullType = { type: "Null" };
+export const NullType: NullType = assignTypeId({ type: "Null" });
 
 /** Represents the Boolean type in East's type system. */
-export type BooleanType = { type: "Boolean" };
+export type BooleanType = { type: "Boolean", [type_id_symbol]?: number };
 /** Singleton instance of the Boolean type. */
-export const BooleanType: BooleanType = { type: "Boolean" };
+export const BooleanType: BooleanType = assignTypeId({ type: "Boolean" });
 
 /** Represents the Integer type (arbitrary-precision integers) in East's type system. */
-export type IntegerType = { type: "Integer" };
+export type IntegerType = { type: "Integer", [type_id_symbol]?: number };
 /** Singleton instance of the Integer type. */
-export const IntegerType: IntegerType = { type: "Integer" };
+export const IntegerType: IntegerType = assignTypeId({ type: "Integer" });
 
 /** Represents the Float type (64-bit floating point) in East's type system. */
-export type FloatType = { type: "Float" };
+export type FloatType = { type: "Float", [type_id_symbol]?: number };
 /** Singleton instance of the Float type. */
-export const FloatType: FloatType = { type: "Float" };
+export const FloatType: FloatType = assignTypeId({ type: "Float" });
 
 /** Represents the String type in East's type system. */
-export type StringType = { type: "String" };
+export type StringType = { type: "String", [type_id_symbol]?: number };
 /** Singleton instance of the String type. */
-export const StringType: StringType = { type: "String" };
+export const StringType: StringType = assignTypeId({ type: "String" });
 
 /** Represents the DateTime type in East's type system. */
-export type DateTimeType = { type: "DateTime" };
+export type DateTimeType = { type: "DateTime", [type_id_symbol]?: number };
 /** Singleton instance of the DateTime type. */
-export const DateTimeType: DateTimeType = { type: "DateTime" };
+export const DateTimeType: DateTimeType = assignTypeId({ type: "DateTime" });
 
 /** Represents the Blob type (immutable binary data) in East's type system. */
-export type BlobType = { type: "Blob" };
+export type BlobType = { type: "Blob", [type_id_symbol]?: number };
 /** Singleton instance of the Blob type. */
-export const BlobType: BlobType = { type: "Blob" };
+export const BlobType: BlobType = assignTypeId({ type: "Blob" });
+
+/** Returns true if the type is a primitive (no child types, no refs possible). */
+export function isPrimitiveType(type: EastType): boolean {
+  const t = type.type;
+  return t === "Never" || t === "Null" || t === "Boolean" || t === "Integer" ||
+    t === "Float" || t === "String" || t === "DateTime" || t === "Blob";
+}
 
 /**
  * Represents a reference type in East's type system.
@@ -87,7 +155,7 @@ export const BlobType: BlobType = { type: "Blob" };
  *
  * @typeParam T - The type of value held by the reference
  */
-export type RefType<T = any> = { type: "Ref", value: T };
+export type RefType<T = any> = { type: "Ref", value: T, [type_id_symbol]?: number };
 /**
  * Constructs a reference (or cell) type with the specified element type.
  *
@@ -101,7 +169,12 @@ export type RefType<T = any> = { type: "Ref", value: T };
  * @throws When the element type contains functions
  */
 export function RefType<const T>(type: T): RefType<T> {
-  return { type: "Ref", value: type };
+  const h = hashCombine(0x52, (type as TypeIdentity)?.[type_id_symbol] ?? 0);
+  const cached = internLookup(h, (c: any) => c.type === "Ref" && c.value === type);
+  if (cached) return cached;
+  const result = assignTypeId({ type: "Ref" as const, value: type });
+  internStore(h, result);
+  return result;
 };
 
 /**
@@ -109,7 +182,7 @@ export function RefType<const T>(type: T): RefType<T> {
  *
  * @typeParam T - The type of elements in the array
  */
-export type ArrayType<T = any> = { type: "Array", value: T };
+export type ArrayType<T = any> = { type: "Array", value: T, [type_id_symbol]?: number };
 /**
  * Constructs an Array type with the specified element type.
  *
@@ -119,7 +192,12 @@ export type ArrayType<T = any> = { type: "Array", value: T };
  * @throws When the element type contains functions
  */
 export function ArrayType<const T>(type: T): ArrayType<T> {
-  return { type: "Array", value: type };
+  const h = hashCombine(0x41, (type as TypeIdentity)?.[type_id_symbol] ?? 0);
+  const cached = internLookup(h, (c: any) => c.type === "Array" && c.value === type);
+  if (cached) return cached;
+  const result = assignTypeId({ type: "Array" as const, value: type });
+  internStore(h, result);
+  return result;
 };
 
 /**
@@ -130,7 +208,7 @@ export function ArrayType<const T>(type: T): ArrayType<T> {
  * @remarks
  * Sets are mutable and sorted. Keys must be immutable types with a total ordering.
  */
-export type SetType<T = any> = { type: "Set", key: T };
+export type SetType<T = any> = { type: "Set", key: T, [type_id_symbol]?: number };
 /**
  * Constructs a Set type with the specified key type.
  *
@@ -143,7 +221,12 @@ export function SetType<const T>(type: T): SetType<T> {
   if (typeof type !== "string" && !isImmutableType(type as EastType)) {
     throw new Error(`Set key type must be an immutable type, got ${printType(type as EastType)}`);
   }
-  return { type: "Set", key: type };
+  const h = hashCombine(0x53, (type as TypeIdentity)?.[type_id_symbol] ?? 0);
+  const cached = internLookup(h, (c: any) => c.type === "Set" && c.key === type);
+  if (cached) return cached;
+  const result = assignTypeId({ type: "Set" as const, key: type });
+  internStore(h, result);
+  return result;
 };
 
 /**
@@ -155,7 +238,7 @@ export function SetType<const T>(type: T): SetType<T> {
  * @remarks
  * Dicts are mutable and sorted by key. Keys must be immutable types with a total ordering.
  */
-export type DictType<K = any, T = any> = { type: "Dict", key: K, value: T };
+export type DictType<K = any, T = any> = { type: "Dict", key: K, value: T, [type_id_symbol]?: number };
 /**
  * Constructs a Dict type with the specified key and value types.
  *
@@ -170,7 +253,13 @@ export function DictType<const K, const T>(key: K, value: T): DictType<K, T> {
   if (typeof key !== "string" && !isImmutableType(key as EastType)) {
     throw new Error(`Dict key type must be an immutable type, got ${printType(key as EastType)}`);
   }
-  return { type: "Dict", key, value };
+  let h = hashCombine(0x44, (key as TypeIdentity)?.[type_id_symbol] ?? 0);
+  h = hashCombine(h, (value as TypeIdentity)?.[type_id_symbol] ?? 0);
+  const cached = internLookup(h, (c: any) => c.type === "Dict" && c.key === key && c.value === value);
+  if (cached) return cached;
+  const result = assignTypeId({ type: "Dict" as const, key, value });
+  internStore(h, result);
+  return result;
 };
 
 /**
@@ -181,7 +270,7 @@ export function DictType<const K, const T>(key: K, value: T): DictType<K, T> {
  * @remarks
  * Structs are immutable and field order is significant for structural typing.
  */
-export type StructType<Fields extends { [K in string]: any } = { [K in string]: any }> = { type: "Struct", fields: Fields };
+export type StructType<Fields extends { [K in string]: any } = { [K in string]: any }> = { type: "Struct", fields: Fields, [type_id_symbol]?: number };
 /**
  * Constructs a Struct type with the specified field types.
  *
@@ -190,7 +279,7 @@ export type StructType<Fields extends { [K in string]: any } = { [K in string]: 
  * @returns A Struct type
  */
 export function StructType<const Fields extends { [K in string]: any }>(field_types: Fields): StructType<Fields> {
-  return { type: "Struct", fields: field_types };
+  return assignTypeId({ type: "Struct" as const, fields: field_types });
 };
 
 /**
@@ -201,7 +290,7 @@ export function StructType<const Fields extends { [K in string]: any }>(field_ty
  * @remarks
  * Variants are immutable and cases are automatically sorted alphabetically by name.
  */
-export type VariantType<Cases extends { [K in string]: any } = { [K in string]: any }> = { type: "Variant", cases: Cases };
+export type VariantType<Cases extends { [K in string]: any } = { [K in string]: any }> = { type: "Variant", cases: Cases, [type_id_symbol]?: number };
 /**
  * Constructs a Variant type with the specified cases.
  *
@@ -212,7 +301,7 @@ export type VariantType<Cases extends { [K in string]: any } = { [K in string]: 
 export function VariantType<const Cases extends { [K in string]: any }>(case_types: Cases): VariantType<Cases> {
   // Cases are sorted alphabetically by their name
   const cases_sorted = Object.fromEntries(Object.entries(case_types).sort((x, y) => x[0] < y[0] ? -1 : x[0] === y[0] ? 0 : 1)) as Cases;
-  return { type: "Variant", cases: cases_sorted };
+  return assignTypeId({ type: "Variant" as const, cases: cases_sorted });
 };
 
 /**
@@ -297,7 +386,7 @@ function validateNotMutuallyRecursive(type: EastType | string, allowedMarker: Re
   check(type, true);
 }
 
-export type RecursiveTypeMarker = { type: "Recursive" };
+export type RecursiveTypeMarker = { type: "Recursive", [type_id_symbol]?: number };
 
 /**
  * Represents a recursive data type in East's type system.
@@ -309,7 +398,7 @@ export type RecursiveTypeMarker = { type: "Recursive" };
  * Only simple recursion (SCC size 1) is supported - nested RecursiveTypes with cross-references
  * will throw an error during construction.
  */
-export type RecursiveType<Node = any> = { type: "Recursive", node: Node };
+export type RecursiveType<Node = any> = { type: "Recursive", node: Node, [type_id_symbol]?: number };
 /**
  * Constructs a recursive type with the specified node structure.
  *
@@ -346,15 +435,26 @@ export type RecursiveType<Node = any> = { type: "Recursive", node: Node };
  * ```
  */
 export function RecursiveType<F extends (self: RecursiveTypeMarker) => EastType>(f: F): RecursiveType<ReturnType<F>> {
-  const ret = { type: "Recursive", node: undefined } as any;
+  const ret = assignTypeId({ type: "Recursive" as const, node: undefined }) as any;
   const type = f(ret);
   (ret as any).node = type;
 
   // Validate SCC size 1 (no nested RecursiveTypes with cross-references)
   validateNotMutuallyRecursive(type, ret);
 
+  // Intern: if a structurally identical RecursiveType already exists, reuse it.
+  // This ensures two independently-created RecursiveTypes with the same structure
+  // share a single type_id, making id-based Recursive refs work correctly.
+  for (const existing of _recursiveIntern) {
+    if (isTypeEqual(existing, ret)) {
+      return existing as RecursiveType<ReturnType<F>>;
+    }
+  }
+  _recursiveIntern.push(ret);
+
   return ret as RecursiveType<ReturnType<F>>;
 };
+const _recursiveIntern: EastType[] = [];
 
 /**
  * Represents a Function type in East's type system.
@@ -369,7 +469,7 @@ export function RecursiveType<F extends (self: RecursiveTypeMarker) => EastType>
  * 
  * @see {@link AsyncFunctionType} for asynchronous functions.
  */
-export type FunctionType<I extends any[] = any[], O extends any = any> = { type: "Function", inputs: I, output: O };
+export type FunctionType<I extends any[] = any[], O extends any = any> = { type: "Function", inputs: I, output: O, [type_id_symbol]?: number };
 /**
  * Constructs a Function type with the specified input and output types.
  *
@@ -380,7 +480,17 @@ export type FunctionType<I extends any[] = any[], O extends any = any> = { type:
  * @see {@link AsyncFunctionType} for asynchronous functions.
  */
 export function FunctionType<const I extends any[], const O extends any>(inputs: I, output: O): FunctionType<I, O> {
-  return { type: "Function", inputs, output };
+  let h = hashCombine(0x46, inputs.length);
+  for (const inp of inputs) h = hashCombine(h, (inp as TypeIdentity)?.[type_id_symbol] ?? 0);
+  h = hashCombine(h, (output as TypeIdentity)?.[type_id_symbol] ?? 0);
+  const cached = internLookup(h, (c: any) =>
+    c.type === "Function" && c.inputs.length === inputs.length && c.output === output &&
+    c.inputs.every((inp: any, i: number) => inp === inputs[i])
+  );
+  if (cached) return cached;
+  const result = assignTypeId({ type: "Function" as const, inputs, output });
+  internStore(h, result);
+  return result;
 };
 
 /**
@@ -396,7 +506,7 @@ export function FunctionType<const I extends any[], const O extends any>(inputs:
  * 
  * @see {@link FunctionType} for synchronous functions.
  */
-export type AsyncFunctionType<I extends any[] = any[], O extends any = any> = { type: "AsyncFunction", inputs: I, output: O };
+export type AsyncFunctionType<I extends any[] = any[], O extends any = any> = { type: "AsyncFunction", inputs: I, output: O, [type_id_symbol]?: number };
 /**
  * Constructs an AsyncFunction type with the specified input and output types.
  *
@@ -407,23 +517,43 @@ export type AsyncFunctionType<I extends any[] = any[], O extends any = any> = { 
  * @see {@link AsyncFunctionType} for asynchronous functions.
  */
 export function AsyncFunctionType<const I extends any[], const O extends any>(inputs: I, output: O): AsyncFunctionType<I, O> {
-  return { type: "AsyncFunction", inputs, output };
+  let h = hashCombine(0x61, inputs.length);
+  for (const inp of inputs) h = hashCombine(h, (inp as TypeIdentity)?.[type_id_symbol] ?? 0);
+  h = hashCombine(h, (output as TypeIdentity)?.[type_id_symbol] ?? 0);
+  const cached = internLookup(h, (c: any) =>
+    c.type === "AsyncFunction" && c.inputs.length === inputs.length && c.output === output &&
+    c.inputs.every((inp: any, i: number) => inp === inputs[i])
+  );
+  if (cached) return cached;
+  const result = assignTypeId({ type: "AsyncFunction" as const, inputs, output });
+  internStore(h, result);
+  return result;
 };
 
-export type VectorType<T = any> = { type: "Vector", element: T };
+export type VectorType<T = any> = { type: "Vector", element: T, [type_id_symbol]?: number };
 export function VectorType<const T>(element: T): VectorType<T> {
   if (typeof element !== "string" && (element as any).type !== "Float" && (element as any).type !== "Integer" && (element as any).type !== "Boolean") {
     throw new Error(`Vector element type must be Float, Integer, or Boolean, got ${printType(element as EastType)}`);
   }
-  return { type: "Vector", element };
+  const h = hashCombine(0x56, (element as TypeIdentity)?.[type_id_symbol] ?? 0);
+  const cached = internLookup(h, (c: any) => c.type === "Vector" && c.element === element);
+  if (cached) return cached;
+  const result = assignTypeId({ type: "Vector" as const, element });
+  internStore(h, result);
+  return result;
 };
 
-export type MatrixType<T = any> = { type: "Matrix", element: T };
+export type MatrixType<T = any> = { type: "Matrix", element: T, [type_id_symbol]?: number };
 export function MatrixType<const T>(element: T): MatrixType<T> {
   if (typeof element !== "string" && (element as any).type !== "Float" && (element as any).type !== "Integer" && (element as any).type !== "Boolean") {
     throw new Error(`Matrix element type must be Float, Integer, or Boolean, got ${printType(element as EastType)}`);
   }
-  return { type: "Matrix", element };
+  const h = hashCombine(0x4d, (element as TypeIdentity)?.[type_id_symbol] ?? 0);
+  const cached = internLookup(h, (c: any) => c.type === "Matrix" && c.element === element);
+  if (cached) return cached;
+  const result = assignTypeId({ type: "Matrix" as const, element });
+  internStore(h, result);
+  return result;
 };
 
 
@@ -759,28 +889,32 @@ export function EastTypeOf<V>(value: V): EastTypeOf<V> {
  * For {@link RecursiveType}, uses cycle tracking to handle recursive references.
  */
 // Cache for memoizing isTypeEqual results (top-level calls only)
-const typeEqualCache = new WeakMap<EastType, WeakMap<EastType, boolean>>();
+const typeEqualCache = new Map<number, Map<number, boolean>>();
 
 export function isTypeEqual(t1: EastType, t2: EastType, r1: EastType = t1, r2: EastType = t2): boolean {
   // Fast path: reference equality
   if (t1 === t2) return true;
 
+  // Fast path: type_id equality (interned types with same id are structurally equal)
+  const tid1 = getTypeId(t1 as any);
+  const tid2 = getTypeId(t2 as any);
+  if (tid1 !== undefined && tid1 === tid2) return true;
+
   // Memoization for top-level calls only (r1/r2 are just for internal cycle detection)
   const isTopLevel = r1 === t1 && r2 === t2;
-  if (isTopLevel) {
-    const innerCache = typeEqualCache.get(t1);
+  if (isTopLevel && tid1 !== undefined && tid2 !== undefined) {
+    const innerCache = typeEqualCache.get(tid1);
     if (innerCache) {
-      const cached = innerCache.get(t2);
+      const cached = innerCache.get(tid2);
       if (cached !== undefined) return cached;
     }
     const result = isTypeEqualImpl(t1, t2, r1, r2);
-    // Store result in cache
-    let cache = typeEqualCache.get(t1);
+    let cache = typeEqualCache.get(tid1);
     if (!cache) {
-      cache = new WeakMap();
-      typeEqualCache.set(t1, cache);
+      cache = new Map();
+      typeEqualCache.set(tid1, cache);
     }
-    cache.set(t2, result);
+    cache.set(tid2, result);
     return result;
   }
 
@@ -1120,14 +1254,14 @@ export function printType(type: EastType, stack: EastType[] = []): string {
   } else if (type.type === "Matrix") {
     return `.Matrix ${printType(type.element, stack)}`;
   } else if (type.type === "Recursive") {
-    // TODO update for our new recursive type representation
-    const idx = stack.indexOf(type.node);
+    const idx = stack.indexOf(type);
     if (idx !== -1) {
-      // Recursive reference
-      return `.Recursive ${stack.length - idx}`;
+      return `.Recursive .ref ${getTypeId(type)}`;
     }
-
-    return printType(type.node, stack);
+    stack.push(type);
+    const inner = printType(type.node, stack);
+    stack.pop();
+    return `.Recursive .wrapper (id=${getTypeId(type)}, inner=${inner})`;
   } else if (type.type === "Function") {
     // Note: functions can't be inside recursive types
     stack.push(type);
@@ -1229,11 +1363,14 @@ export function printTypeSummary(type: EastType, maxDepth = 1, maxFields = 3, st
   } else if (type.type === "Matrix") {
     return `.Matrix ${printTypeSummary(type.element, maxDepth, maxFields, stack)}`;
   } else if (type.type === "Recursive") {
-    const idx = stack.indexOf(type.node);
+    const idx = stack.indexOf(type);
     if (idx !== -1) {
-      return `.Recursive ${stack.length - idx}`;
+      return `.Recursive .ref ${getTypeId(type)}`;
     }
-    return printTypeSummary(type.node, maxDepth, maxFields, stack);
+    stack.push(type);
+    const inner = printTypeSummary(type.node, maxDepth, maxFields, stack);
+    stack.pop();
+    return `.Recursive .wrapper (id=${getTypeId(type)}, inner=${inner})`;
   } else if (type.type === "Function") {
     if (maxDepth <= 0) return `.Function ...`;
     stack.push(type);
@@ -1308,29 +1445,37 @@ export type SubType<T> =
  * - {@link FunctionType} uses contravariant inputs and covariant outputs
  */
 // Cache for memoizing isSubtype results
-const isSubtypeCache = new WeakMap<EastType, WeakMap<EastType, boolean>>();
+const isSubtypeCache = new Map<number, Map<number, boolean>>();
 
 export function isSubtype(t1: EastType, t2: EastType): boolean {
   // Fast path: reference equality (reflexivity)
   if (t1 === t2) return true;
 
+  // Fast path: type_id equality
+  const tid1 = getTypeId(t1 as any);
+  const tid2 = getTypeId(t2 as any);
+  if (tid1 !== undefined && tid1 === tid2) return true;
+
   // Check cache
-  const innerCache = isSubtypeCache.get(t1);
-  if (innerCache) {
-    const cached = innerCache.get(t2);
-    if (cached !== undefined) return cached;
+  if (tid1 !== undefined && tid2 !== undefined) {
+    const innerCache = isSubtypeCache.get(tid1);
+    if (innerCache) {
+      const cached = innerCache.get(tid2);
+      if (cached !== undefined) return cached;
+    }
+
+    const result = isSubtypeImpl(t1, t2);
+
+    let cache = isSubtypeCache.get(tid1);
+    if (!cache) {
+      cache = new Map();
+      isSubtypeCache.set(tid1, cache);
+    }
+    cache.set(tid2, result);
+    return result;
   }
 
-  const result = isSubtypeImpl(t1, t2);
-
-  // Store in cache
-  let cache = isSubtypeCache.get(t1);
-  if (!cache) {
-    cache = new WeakMap();
-    isSubtypeCache.set(t1, cache);
-  }
-  cache.set(t2, result);
-  return result;
+  return isSubtypeImpl(t1, t2);
 }
 
 function isSubtypeImpl(t1: EastType, t2: EastType): boolean {

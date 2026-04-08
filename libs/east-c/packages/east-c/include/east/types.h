@@ -37,6 +37,7 @@ typedef struct {
 struct EastType {
     EastTypeKind kind;
     int ref_count;
+    int64_t type_id;    // stable interned ID (-1 = not interned)
     union {
         // Array, Set, Ref, Vector, Matrix: element type
         EastType *element;
@@ -100,6 +101,14 @@ EastType *east_async_function_type(EastType **inputs, size_t num_inputs, EastTyp
 EastType *east_recursive_type_new(void);
 void east_recursive_type_set(EastType *rec, EastType *node);
 // Must be called after east_recursive_type_set to enable automatic cycle breaking.
+// Intern a finalized recursive type: if a structurally identical one exists,
+// returns the canonical pointer. Otherwise registers as new canonical.
+// Call after east_recursive_type_finalize at serialization boundaries.
+EastType *east_recursive_type_intern(EastType *rec);
+
+// Free the global type registry. Call at shutdown for clean leak reports.
+void east_type_registry_clear(void);
+
 // Counts internal back-references and adjusts refcount so only external refs are tracked.
 void east_recursive_type_finalize(EastType *rec);
 

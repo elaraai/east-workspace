@@ -21,7 +21,7 @@ import { type ApplyContext, ConflictError } from "./types.js";
 
 export function applyFor(type: EastTypeValue, ctx?: ApplyContext): (base: any, patch: any) => any;
 export function applyFor<T extends EastType>(type: T): (base: ValueTypeOf<T>, patch: any) => ValueTypeOf<T>;
-export function applyFor(type: EastTypeValue | EastType, ctx: ApplyContext = { apply: [], types: [], equal: [], print: [] }): (base: any, patch: any) => any {
+export function applyFor(type: EastTypeValue | EastType, ctx: ApplyContext = { apply: [], types: [], equal: new Map(), print: new Map() }): (base: any, patch: any) => any {
   // Convert to EastTypeValue and use a properly typed variable
   const t: EastTypeValue = isVariant(type) ? type : toEastTypeValue(type as EastType);
 
@@ -123,15 +123,13 @@ export function applyFor(type: EastTypeValue | EastType, ctx: ApplyContext = { a
 
     ctx.apply.push(ret);
     ctx.types.push(t);
-    ctx.equal.push(arrayEqual);
-    ctx.print.push(arrayPrint);
+
     elementApply = applyFor(t.value, ctx);
     elementEqual = equalFor(t.value as EastTypeValue, ctx.equal);
     elementPrint = printFor(t.value as EastTypeValue, ctx.print);
     ctx.apply.pop();
     ctx.types.pop();
-    ctx.equal.pop();
-    ctx.print.pop();
+
 
     return ret;
   } else if (t.type === "Set") {
@@ -239,8 +237,7 @@ export function applyFor(type: EastTypeValue | EastType, ctx: ApplyContext = { a
 
     ctx.apply.push(ret);
     ctx.types.push(t);
-    ctx.equal.push(dictEqual);
-    ctx.print.push(dictPrint);
+
     valueApply = applyFor(t.value.value, ctx);
     valueEqual = equalFor(t.value.value as EastTypeValue, ctx.equal);
     // Keys can't be recursive, so no context needed
@@ -249,8 +246,7 @@ export function applyFor(type: EastTypeValue | EastType, ctx: ApplyContext = { a
     valuePrint = printFor(t.value.value as EastTypeValue, ctx.print);
     ctx.apply.pop();
     ctx.types.pop();
-    ctx.equal.pop();
-    ctx.print.pop();
+
 
     return ret;
   } else if (t.type === "Struct") {
@@ -288,15 +284,13 @@ export function applyFor(type: EastTypeValue | EastType, ctx: ApplyContext = { a
 
     ctx.apply.push(ret);
     ctx.types.push(t);
-    ctx.equal.push(equal);
-    ctx.print.push(structPrint);
+
     for (const { name, type: fieldType } of t.value) {
       fieldApplies[name] = applyFor(fieldType, ctx);
     }
     ctx.apply.pop();
     ctx.types.pop();
-    ctx.equal.pop();
-    ctx.print.pop();
+
 
     return ret;
   } else if (t.type === "Variant") {
@@ -335,15 +329,13 @@ export function applyFor(type: EastTypeValue | EastType, ctx: ApplyContext = { a
 
     ctx.apply.push(ret);
     ctx.types.push(t);
-    ctx.equal.push(equal);
-    ctx.print.push(variantPrint);
+
     for (const { name, type: caseType } of t.value) {
       caseApplies[name] = applyFor(caseType, ctx);
     }
     ctx.apply.pop();
     ctx.types.pop();
-    ctx.equal.pop();
-    ctx.print.pop();
+
 
     return ret;
   } else if (t.type === "Ref") {
@@ -375,13 +367,11 @@ export function applyFor(type: EastTypeValue | EastType, ctx: ApplyContext = { a
 
     ctx.apply.push(ret);
     ctx.types.push(t);
-    ctx.equal.push(equal);
-    ctx.print.push(refPrint);
+
     innerApply = applyFor(t.value, ctx);
     ctx.apply.pop();
     ctx.types.pop();
-    ctx.equal.pop();
-    ctx.print.pop();
+
 
     return ret;
   } else if (t.type === "Recursive") {

@@ -124,10 +124,10 @@ function _decodeRelativeRef(refStr: string, currentPath: string[]): string[] {
  * Uses late binding to break circular dependencies.
  */
 /** Stack of printers for recursive types */
-type EastPrintTypeContext = ((value: any, ctx?: EastPrintValueContext) => string)[];
+type EastPrintTypeContext = Map<bigint, (value: any, ctx?: EastPrintValueContext) => string>;
 
 /** Stack of parsers for recursive types */
-type EastParseTypeContext = ((input: string, pos: number, ctx?: EastParseValueContext) => ParseSuccess<any>)[];
+type EastParseTypeContext = Map<bigint, (input: string, pos: number, ctx?: EastParseValueContext) => ParseSuccess<any>>;
 
 /**
  * Value-level context for tracking mutable aliases during printing.
@@ -193,7 +193,7 @@ export function printFor<T extends EastType>(
 ): (value: ValueTypeOf<T>, ctx?: EastPrintValueContext) => string
 export function printFor(
   type: EastTypeValue | EastType,
-  typeCtx: EastPrintTypeContext = []
+  typeCtx: EastPrintTypeContext = new Map()
 ): (value: any, ctx?: EastPrintValueContext) => string {
   // Convert EastType to EastTypeValue if necessary
   if (!isVariant(type)) {
@@ -247,9 +247,7 @@ export function printFor(
       ctx.currentPath.pop();
       return `&${str}`;
     };
-    typeCtx.push(ret);
     value_printer = printFor(type.value, typeCtx);
-    typeCtx.pop();
     return ret;
   } else if (type.type === "Array") {
     let value_printer: (value: any, ctx?: EastPrintValueContext) => string;
@@ -272,9 +270,7 @@ export function printFor(
       }
       return `[${parts.join(", ")}]`;
     };
-    typeCtx.push(ret);
     value_printer = printFor(type.value, typeCtx);
-    typeCtx.pop();
     return ret;
   } else if (type.type === "Set") {
     const key_printer = printFor(type.value, typeCtx);
@@ -326,9 +322,7 @@ export function printFor(
       }
       return `{${parts.join(",")}}`;
     };
-    typeCtx.push(ret);
     value_printer = printFor(type.value.value, typeCtx);
-    typeCtx.pop();
     return ret;
   } else if (type.type === "Struct") {
     const field_printers: [string, (value: any, ctx?: EastPrintValueContext) => string][] = [];
@@ -346,11 +340,9 @@ export function printFor(
       }
       return `(${parts.join(", ")})`;
     };
-    typeCtx.push(ret);
     for (const { name: k, type: t } of type.value) {
       field_printers.push([k, printFor(t, typeCtx)]);
     }
-    typeCtx.pop();
     return ret;
   } else if (type.type === "Variant") {
     const case_printers: Record<string, (value: any, ctx?: EastPrintValueContext) => string> = {};
@@ -361,7 +353,6 @@ export function printFor(
       ctx.currentPath.pop();
       return result;
     };
-    typeCtx.push(ret);
     for (const { name: k, type: t } of type.value) {
       if (t.type === "Null") {
         const prefix = `.${printIdentifier(k)}`;
@@ -372,7 +363,6 @@ export function printFor(
         case_printers[k] = (value: any, ctx?: EastPrintValueContext) => prefix + print_data(value, ctx);
       }
     }
-    typeCtx.pop();
     return ret;
   } else if (type.type === "Function") {
     // This is just a convenience printer - functions cannot be serialized/deserialized
@@ -405,8 +395,14 @@ export function printFor(
       }
       return `mat[${rowParts.join(", ")}]`;
     };
+  } else if (type.type === "Recursive" && (type.value as any).type === "wrapper") {
+    let inner: any;
+    const ret = (...args: any[]) => inner(...args);
+    typeCtx.set((type.value as any).value.id as bigint, ret);
+    inner = printFor((type.value as any).value.inner, typeCtx);
+    return ret;
   } else if (type.type === "Recursive") {
-    const ret = typeCtx[typeCtx.length - Number(type.value)];
+    const ret = typeCtx.get((type.value as any).value as bigint);
     if (ret === undefined) {
       throw new Error(`Internal error: Recursive type context not found`);
     }
@@ -502,7 +498,7 @@ const consumeWhitespace = (input: string, pos: number): number => {
   return pos;
 };
 
-const createParser = (type: EastTypeValue, frozen: boolean, typeCtx: EastParseTypeContext = []): Parser<any> => {
+const createParser = (type: EastTypeValue, frozen: boolean, typeCtx: EastParseTypeContext = new Map()): Parser<any> => {
   switch (type.type) {
     case "Null":
        return parseNull;
@@ -541,7 +537,14 @@ const createParser = (type: EastTypeValue, frozen: boolean, typeCtx: EastParseTy
     case "Never":
       return (_input: string, pos: number, _ctx?: EastParseValueContext) => { throw new ParseError(`Attempted to parse value of type .Never`, pos) };
     case "Recursive":
-      const ret = typeCtx[typeCtx.length - Number(type.value)];
+      if ((type.value as any).type === "wrapper") {
+        let inner: any;
+        const wrapRet = (...args: any[]) => inner(...args);
+        typeCtx.set((type.value as any).value.id as bigint, wrapRet);
+        inner = createParser((type.value as any).value.inner, frozen, typeCtx);
+        return wrapRet;
+      }
+      const ret = typeCtx.get((type.value as any).value as bigint);
       if (ret === undefined) {
         throw new Error(`Internal error: Recursive type context not found`);
       }
@@ -940,9 +943,7 @@ const createRefParser = (value_type: EastTypeValue, frozen: boolean, typeCtx: Ea
 
     return { value: r, position };
   };
-  typeCtx.push(ret);
   valueParser = createParser(value_type, frozen, typeCtx);
-  typeCtx.pop();
   return ret;
 };
 
@@ -1016,9 +1017,7 @@ const createArrayParser = (value_type: EastTypeValue, frozen: boolean, typeCtx: 
       elementIndex++;
     }
   };
-  typeCtx.push(ret);
   valueParser = createParser(value_type, frozen, typeCtx);
-  typeCtx.pop();
   return ret;
 };
 
@@ -1201,9 +1200,7 @@ const createDictParser = (key_type: EastTypeValue, value_type: EastTypeValue, fr
       entryIndex++;
     }
   };
-  typeCtx.push(ret);
   valueParser = createParser(value_type, frozen, typeCtx);
-  typeCtx.pop();
   return ret;
 };
 
@@ -1392,11 +1389,9 @@ const createStructParser = (fields: { name: string, type: EastTypeValue }[], fro
 
     return { value: result, position: pos+1 };
   };
-  typeCtx.push(ret);
   for (const field of fields) {
     fieldParsers.push(createParser(field.type, frozen, typeCtx));
   }
-  typeCtx.pop();
   return ret;
 };
 
@@ -1453,7 +1448,6 @@ const createVariantParser = (cases: { name: string, type: EastTypeValue }[], fro
       if (ctx) ctx.currentPath.pop();
     }
   };
-  typeCtx.push(ret);
   for (const { name, type: caseType } of cases) {
     if (caseType.type === 'Null') {
       // Special case for null type - the "null" is actually optional
@@ -1474,7 +1468,6 @@ const createVariantParser = (cases: { name: string, type: EastTypeValue }[], fro
       caseParsers[name] = createParser(caseType, frozen, typeCtx);
     }
   }
-  typeCtx.pop();
   return ret;
 }
 

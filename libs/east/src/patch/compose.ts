@@ -21,7 +21,7 @@ import { invertFor } from "./invert.js";
 
 export function composeFor(type: EastTypeValue, ctx?: ComposeContext): (first: any, second: any) => any;
 export function composeFor<T extends EastType>(type: T): (first: any, second: any) => any;
-export function composeFor(type: EastTypeValue | EastType, ctx: ComposeContext = { compose: [], apply: [], invert: [], types: [], equal: [], print: [] }): (first: any, second: any) => any {
+export function composeFor(type: EastTypeValue | EastType, ctx: ComposeContext = { compose: [], apply: [], invert: [], types: [], equal: new Map(), print: new Map() }): (first: any, second: any) => any {
   // Convert to EastTypeValue and use a properly typed variable
   const t: EastTypeValue = isVariant(type) ? type : toEastTypeValue(type as EastType);
 
@@ -87,8 +87,6 @@ export function composeFor(type: EastTypeValue | EastType, ctx: ComposeContext =
     // Push compose context first
     ctx.compose.push(composeRet);
     ctx.types.push(t);
-    ctx.equal.push(arrayEqual);
-    ctx.print.push(arrayPrint);
 
     // Build apply/invert handlers using applyFor/invertFor
     applyRet = applyFor(t, { apply: ctx.apply, types: ctx.types, equal: ctx.equal, print: ctx.print });
@@ -105,8 +103,6 @@ export function composeFor(type: EastTypeValue | EastType, ctx: ComposeContext =
     ctx.apply.pop();
     ctx.invert.pop();
     ctx.types.pop();
-    ctx.equal.pop();
-    ctx.print.pop();
 
     return composeRet;
   } else if (t.type === "Set") {
@@ -242,8 +238,6 @@ export function composeFor(type: EastTypeValue | EastType, ctx: ComposeContext =
     // Push compose context first
     ctx.compose.push(composeRet);
     ctx.types.push(t);
-    ctx.equal.push(dictEqual);
-    ctx.print.push(dictPrint);
 
     // Build Dict apply/invert handlers (these recurse internally with their own push/pop)
     applyRet = applyFor(t, { apply: ctx.apply, types: ctx.types, equal: ctx.equal, print: ctx.print });
@@ -262,8 +256,6 @@ export function composeFor(type: EastTypeValue | EastType, ctx: ComposeContext =
     ctx.apply.pop();
     ctx.invert.pop();
     ctx.types.pop();
-    ctx.equal.pop();
-    ctx.print.pop();
 
     return composeRet;
   } else if (t.type === "Struct") {
@@ -314,8 +306,6 @@ export function composeFor(type: EastTypeValue | EastType, ctx: ComposeContext =
     // Push compose context first
     ctx.compose.push(composeRet);
     ctx.types.push(t);
-    ctx.equal.push(structEqual);
-    ctx.print.push(structPrint);
 
     // Build apply/invert handlers using applyFor/invertFor
     applyRet = applyFor(t, { apply: ctx.apply, types: ctx.types, equal: ctx.equal, print: ctx.print });
@@ -334,8 +324,6 @@ export function composeFor(type: EastTypeValue | EastType, ctx: ComposeContext =
     ctx.apply.pop();
     ctx.invert.pop();
     ctx.types.pop();
-    ctx.equal.pop();
-    ctx.print.pop();
 
     return composeRet;
   } else if (t.type === "Variant") {
@@ -384,8 +372,6 @@ export function composeFor(type: EastTypeValue | EastType, ctx: ComposeContext =
     // Push compose context first
     ctx.compose.push(composeRet);
     ctx.types.push(t);
-    ctx.equal.push(variantEqual);
-    ctx.print.push(variantPrint);
 
     // Build apply/invert handlers using applyFor/invertFor
     applyRet = applyFor(t, { apply: ctx.apply, types: ctx.types, equal: ctx.equal, print: ctx.print });
@@ -404,8 +390,6 @@ export function composeFor(type: EastTypeValue | EastType, ctx: ComposeContext =
     ctx.apply.pop();
     ctx.invert.pop();
     ctx.types.pop();
-    ctx.equal.pop();
-    ctx.print.pop();
 
     return composeRet;
   } else if (t.type === "Ref") {
@@ -448,8 +432,6 @@ export function composeFor(type: EastTypeValue | EastType, ctx: ComposeContext =
     // Push compose context first
     ctx.compose.push(composeRet);
     ctx.types.push(t);
-    ctx.equal.push(refEqual);
-    ctx.print.push(refPrint);
 
     // Build Ref apply/invert handlers (these recurse internally with their own push/pop)
     applyRet = applyFor(t, { apply: ctx.apply, types: ctx.types, equal: ctx.equal, print: ctx.print });
@@ -466,8 +448,6 @@ export function composeFor(type: EastTypeValue | EastType, ctx: ComposeContext =
     ctx.apply.pop();
     ctx.invert.pop();
     ctx.types.pop();
-    ctx.equal.pop();
-    ctx.print.pop();
 
     return composeRet;
   } else if (t.type === "Recursive") {

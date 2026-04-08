@@ -16,7 +16,11 @@ import * as ex from "./optimization.examples.js";
 
 describeEast("Optimization platform functions", (test) => {
 
-    Assert.examples(test, { optimizationCoordinate: ex.optimizationCoordinate, optimizationSwap: ex.optimizationSwap });
+    Assert.examples(test, {
+        optimizationCoordinate: ex.optimizationCoordinate,
+        optimizationSwap: ex.optimizationSwap,
+        optimizationIncremental: ex.optimizationIncremental,
+    });
 
     test("iterative finds optimal task-worker assignment", $ => {
         // 5 tasks, 3 workers. skill[task][worker] = match score.
@@ -58,6 +62,7 @@ describeEast("Optimization platform functions", (test) => {
             order: variant('some', variant('sequential', null)),
             random_state: variant('some', 42n),
             mode: variant('none', null),
+            workers: variant('none', null),
         });
 
         const result = $.let(Optimization.iterative(
@@ -95,6 +100,7 @@ describeEast("Optimization platform functions", (test) => {
             order: variant('some', variant('random', null)),
             random_state: variant('some', 123n),
             mode: variant('none', null),
+            workers: variant('none', null),
         });
 
         const result1 = $.let(Optimization.iterative(objective, spaces, config));
@@ -129,6 +135,7 @@ describeEast("Optimization platform functions", (test) => {
             order: variant('none', null),
             random_state: variant('none', null),
             mode: variant('none', null),
+            workers: variant('none', null),
         });
 
         const result = $.let(Optimization.iterative(objective, spaces, config));
@@ -167,6 +174,7 @@ describeEast("Optimization platform functions", (test) => {
             order: variant('some', variant('sequential', null)),
             random_state: variant('none', null),
             mode: variant('none', null),
+            workers: variant('none', null),
         });
 
         const result = $.let(Optimization.iterative(objective, spaces, config));
@@ -217,6 +225,7 @@ describeEast("Optimization platform functions", (test) => {
             order: variant('some', variant('random', null)),
             random_state: variant('some', 42n),
             mode: variant('some', variant('swap', null)),
+            workers: variant('none', null),
         });
 
         const result = $.let(Optimization.iterative(objective, spaces, config));
@@ -257,6 +266,7 @@ describeEast("Optimization platform functions", (test) => {
             order: variant('some', variant('sequential', null)),
             random_state: variant('none', null),
             mode: variant('some', variant('swap', null)),
+            workers: variant('none', null),
         });
 
         const result = $.let(Optimization.iterative(objective, spaces, config));
@@ -296,6 +306,7 @@ describeEast("Optimization platform functions", (test) => {
             order: variant('some', variant('random', null)),
             random_state: variant('some', 99n),
             mode: variant('some', variant('swap', null)),
+            workers: variant('none', null),
         });
 
         const result1 = $.let(Optimization.iterative(objective, spaces, config));
@@ -336,6 +347,7 @@ describeEast("Optimization platform functions", (test) => {
             order: variant('some', variant('random', null)),
             random_state: variant('some', 42n),
             mode: variant('some', variant('swap', null)),
+            workers: variant('none', null),
         });
 
         const result = $.let(Optimization.iterative(objective, spaces, config));
@@ -343,6 +355,183 @@ describeEast("Optimization platform functions", (test) => {
         $(Assert.equal(result.success, true));
         // Optimal distance = 5 (sequential order), negated = -5.0
         $(Assert.equal(result.best_objective, East.value(-5.0)));
+    });
+
+    // ── Incremental tests ──────────────────────────────────────────────
+
+    test("incremental finds optimal task-worker assignment", $ => {
+        // Same problem as the non-incremental test, but using per-element objective
+        const skill = $.let([
+            [3.0, 1.0, 2.0],
+            [1.0, 3.0, 2.0],
+            [2.0, 2.0, 3.0],
+            [3.0, 2.0, 1.0],
+            [1.0, 2.0, 3.0],
+        ]);
+
+        const elementObjective = East.function(
+            [VectorType(IntegerType), IntegerType], FloatType,
+            ($, assignments, taskIdx) => {
+                const worker = $.let(assignments.get(taskIdx));
+                return $.return(skill.get(taskIdx).get(worker));
+            }
+        );
+
+        const spaces = $.let([
+            new BigInt64Array([0n, 1n, 2n]),
+            new BigInt64Array([0n, 1n, 2n]),
+            new BigInt64Array([0n, 1n, 2n]),
+            new BigInt64Array([0n, 1n, 2n]),
+            new BigInt64Array([0n, 1n, 2n]),
+        ]);
+
+        const config = $.let({
+            iterations: variant('some', 10n),
+            samples: variant('some', 3n),
+            initial: variant('some', variant('random', null)),
+            order: variant('some', variant('sequential', null)),
+            random_state: variant('some', 42n),
+            mode: variant('none', null),
+            workers: variant('none', null),
+        });
+
+        const result = $.let(Optimization.iterativeIncremental(
+            elementObjective, spaces, config,
+        ));
+
+        $(Assert.equal(result.success, true));
+        // Optimal: 3+3+3+3+3 = 15.0
+        $(Assert.equal(result.best_objective, East.value(15.0)));
+    });
+
+    test("incremental with swap mode finds optimal permutation", $ => {
+        // Per-element: contribution of position i = position * value[perm[i]]
+        const values = $.let([1.0, 3.0, 2.0]);
+
+        const elementObjective = East.function(
+            [VectorType(IntegerType), IntegerType], FloatType,
+            ($, perm, posIdx) => {
+                const itemIdx = $.let(perm.get(posIdx));
+                return $.return(posIdx.toFloat().multiply(values.get(itemIdx)));
+            }
+        );
+
+        const spaces = $.let([
+            new BigInt64Array([0n, 1n, 2n]),
+            new BigInt64Array([0n, 1n, 2n]),
+            new BigInt64Array([0n, 1n, 2n]),
+        ]);
+
+        const config = $.let({
+            iterations: variant('some', 20n),
+            samples: variant('some', 1n),
+            initial: variant('some', variant('first', null)),
+            order: variant('some', variant('sequential', null)),
+            random_state: variant('none', null),
+            mode: variant('some', variant('swap', null)),
+            workers: variant('none', null),
+        });
+
+        const result = $.let(Optimization.iterativeIncremental(
+            elementObjective, spaces, config,
+        ));
+
+        $(Assert.equal(result.success, true));
+        // Optimal: [0, 2, 1] → 0*1 + 1*2 + 2*3 = 8.0
+        $(Assert.equal(result.best_objective, East.value(8.0)));
+    });
+
+    test("incremental with parallel workers", $ => {
+        // Same task-worker problem, but with workers: 2
+        const skill = $.let([
+            [3.0, 1.0, 2.0],
+            [1.0, 3.0, 2.0],
+            [2.0, 2.0, 3.0],
+        ]);
+
+        const elementObjective = East.function(
+            [VectorType(IntegerType), IntegerType], FloatType,
+            ($, assignments, taskIdx) => {
+                const worker = $.let(assignments.get(taskIdx));
+                return $.return(skill.get(taskIdx).get(worker));
+            }
+        );
+
+        const spaces = $.let([
+            new BigInt64Array([0n, 1n, 2n]),
+            new BigInt64Array([0n, 1n, 2n]),
+            new BigInt64Array([0n, 1n, 2n]),
+        ]);
+
+        const config = $.let({
+            iterations: variant('some', 10n),
+            samples: variant('some', 4n),
+            initial: variant('some', variant('random', null)),
+            order: variant('some', variant('sequential', null)),
+            random_state: variant('some', 42n),
+            mode: variant('none', null),
+            workers: variant('some', 2n),
+        });
+
+        const result = $.let(Optimization.iterativeIncremental(
+            elementObjective, spaces, config,
+        ));
+
+        $(Assert.equal(result.success, true));
+        // Optimal: 3+3+3 = 9.0
+        $(Assert.equal(result.best_objective, East.value(9.0)));
+    });
+
+    test("incremental matches non-incremental result", $ => {
+        // Verify incremental produces same result as full objective
+        const skill = $.let([
+            [3.0, 1.0],
+            [1.0, 3.0],
+            [2.0, 2.0],
+        ]);
+
+        // Full objective
+        const fullObjective = East.function(
+            [VectorType(IntegerType)], FloatType,
+            ($, assignments) => {
+                const total = $.let(0.0);
+                $.for(East.Array.range(0n, East.value(3n)), ($, i) => {
+                    const w = $.let(assignments.get(i));
+                    $.assign(total, total.add(skill.get(i).get(w)));
+                });
+                return $.return(total);
+            }
+        );
+
+        // Per-element objective
+        const elementObjective = East.function(
+            [VectorType(IntegerType), IntegerType], FloatType,
+            ($, assignments, taskIdx) => {
+                const w = $.let(assignments.get(taskIdx));
+                return $.return(skill.get(taskIdx).get(w));
+            }
+        );
+
+        const spaces = $.let([
+            new BigInt64Array([0n, 1n]),
+            new BigInt64Array([0n, 1n]),
+            new BigInt64Array([0n, 1n]),
+        ]);
+
+        const config = $.let({
+            iterations: variant('some', 10n),
+            samples: variant('some', 1n),
+            initial: variant('some', variant('first', null)),
+            order: variant('some', variant('sequential', null)),
+            random_state: variant('none', null),
+            mode: variant('none', null),
+            workers: variant('none', null),
+        });
+
+        const fullResult = $.let(Optimization.iterative(fullObjective, spaces, config));
+        const incrResult = $.let(Optimization.iterativeIncremental(elementObjective, spaces, config));
+
+        $(Assert.equal(fullResult.best_objective, incrResult.best_objective));
     });
 
 }, { exportOnly: true });

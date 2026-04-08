@@ -330,9 +330,11 @@ export {
 export {
     Optimization,
     optimization_iterative,
+    optimization_iterative_incremental,
     OptimizationTypes,
     ParameterVectorType,
     IterativeObjectiveType,
+    ElementObjectiveType,
     ParameterSpacesType,
     InitialStrategyType,
     EvaluationOrderType,

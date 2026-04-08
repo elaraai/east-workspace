@@ -701,7 +701,8 @@ cdef object _c_type_tag_to_py_type(_eastc.EastType *c_type):
 cdef object _c_type_tag_to_py_type_impl(_eastc.EastType *c_type, uintptr_t key):
     cdef _eastc.EastTypeKind kind = c_type.kind
 
-    # RECURSIVE wrapper: resolve to inner node
+    # RECURSIVE wrapper: resolve to inner node (don't push onto stack —
+    # only Struct/Variant push, matching py_type_to_c's _type_ctx)
     if kind == _eastc.EAST_TYPE_RECURSIVE:
         if c_type.data.recursive.node == NULL:
             return EastVariant("Recursive", 1)
@@ -725,29 +726,65 @@ cdef object _c_type_tag_to_py_type_impl(_eastc.EastType *c_type, uintptr_t key):
     elif kind == _eastc.EAST_TYPE_NEVER:
         return EastVariant("Never", None)
 
-    # Compound types — push onto stack before recursing into children
+    # Simple compound types — no stack push needed (recursive self-references
+    # only occur through Struct/Variant fields, not through element types)
+    if kind == _eastc.EAST_TYPE_ARRAY:
+        elem = _c_type_tag_to_py_type(c_type.data.element)
+        result = EastVariant("Array", elem)
+        _py_type_cache[key] = result
+        return result
+    elif kind == _eastc.EAST_TYPE_SET:
+        elem = _c_type_tag_to_py_type(c_type.data.element)
+        result = EastVariant("Set", elem)
+        _py_type_cache[key] = result
+        return result
+    elif kind == _eastc.EAST_TYPE_VECTOR:
+        elem = _c_type_tag_to_py_type(c_type.data.element)
+        result = EastVariant("Vector", elem)
+        _py_type_cache[key] = result
+        return result
+    elif kind == _eastc.EAST_TYPE_MATRIX:
+        elem = _c_type_tag_to_py_type(c_type.data.element)
+        result = EastVariant("Matrix", elem)
+        _py_type_cache[key] = result
+        return result
+    elif kind == _eastc.EAST_TYPE_REF:
+        elem = _c_type_tag_to_py_type(c_type.data.element)
+        result = EastVariant("Ref", elem)
+        _py_type_cache[key] = result
+        return result
+    elif kind == _eastc.EAST_TYPE_DICT:
+        k = _c_type_tag_to_py_type(c_type.data.dict.key)
+        v = _c_type_tag_to_py_type(c_type.data.dict.value)
+        result = EastVariant("Dict", EastStruct({"key": k, "value": v}))
+        _py_type_cache[key] = result
+        return result
+
+    # Function/AsyncFunction — no stack push (py_type_to_c doesn't push for these)
+    if kind == _eastc.EAST_TYPE_FUNCTION or kind == _eastc.EAST_TYPE_ASYNC_FUNCTION:
+        inputs = []
+        for i in range(c_type.data.function.num_inputs):
+            inputs.append(_c_type_tag_to_py_type(c_type.data.function.inputs[i]))
+        output = _c_type_tag_to_py_type(c_type.data.function.output)
+        from east.types.type_of_type import EastTypeType
+        if kind == _eastc.EAST_TYPE_FUNCTION:
+            result = EastVariant("Function", EastStruct({
+                "inputs": EastArray(EastTypeType, inputs),
+                "output": output,
+            }))
+        else:
+            result = EastVariant("AsyncFunction", EastStruct({
+                "inputs": EastArray(EastTypeType, inputs),
+                "output": output,
+            }))
+        _py_type_cache[key] = result
+        return result
+
+    # Struct/Variant — push onto stack (Recursive(depth) counts these entries,
+    # matching py_type_to_c's _type_ctx which only pushes for Struct/Variant)
     _type_convert_stack.append(key)
     try:
-        if kind == _eastc.EAST_TYPE_ARRAY:
-            elem = _c_type_tag_to_py_type(c_type.data.element)
-            result = EastVariant("Array", elem)
-        elif kind == _eastc.EAST_TYPE_SET:
-            elem = _c_type_tag_to_py_type(c_type.data.element)
-            result = EastVariant("Set", elem)
-        elif kind == _eastc.EAST_TYPE_VECTOR:
-            elem = _c_type_tag_to_py_type(c_type.data.element)
-            result = EastVariant("Vector", elem)
-        elif kind == _eastc.EAST_TYPE_MATRIX:
-            elem = _c_type_tag_to_py_type(c_type.data.element)
-            result = EastVariant("Matrix", elem)
-        elif kind == _eastc.EAST_TYPE_REF:
-            elem = _c_type_tag_to_py_type(c_type.data.element)
-            result = EastVariant("Ref", elem)
-        elif kind == _eastc.EAST_TYPE_DICT:
-            k = _c_type_tag_to_py_type(c_type.data.dict.key)
-            v = _c_type_tag_to_py_type(c_type.data.dict.value)
-            result = EastVariant("Dict", EastStruct({"key": k, "value": v}))
-        elif kind == _eastc.EAST_TYPE_STRUCT:
+        if kind == _eastc.EAST_TYPE_STRUCT:
             fields = []
             for i in range(c_type.data.struct_.num_fields):
                 name = c_type.data.struct_.fields[i].name.decode("utf-8")
@@ -761,26 +798,6 @@ cdef object _c_type_tag_to_py_type_impl(_eastc.EastType *c_type, uintptr_t key):
                 ctype = _c_type_tag_to_py_type(c_type.data.variant.cases[i].type)
                 cases.append(EastStruct({"name": name, "type": ctype}))
             result = EastVariant("Variant", EastArray(EastVariant("Variant", None), cases))
-        elif kind == _eastc.EAST_TYPE_FUNCTION:
-            inputs = []
-            for i in range(c_type.data.function.num_inputs):
-                inputs.append(_c_type_tag_to_py_type(c_type.data.function.inputs[i]))
-            output = _c_type_tag_to_py_type(c_type.data.function.output)
-            from east.types.type_of_type import EastTypeType
-            result = EastVariant("Function", EastStruct({
-                "inputs": EastArray(EastTypeType, inputs),
-                "output": output,
-            }))
-        elif kind == _eastc.EAST_TYPE_ASYNC_FUNCTION:
-            inputs = []
-            for i in range(c_type.data.function.num_inputs):
-                inputs.append(_c_type_tag_to_py_type(c_type.data.function.inputs[i]))
-            output = _c_type_tag_to_py_type(c_type.data.function.output)
-            from east.types.type_of_type import EastTypeType
-            result = EastVariant("AsyncFunction", EastStruct({
-                "inputs": EastArray(EastTypeType, inputs),
-                "output": output,
-            }))
         else:
             raise ValueError(f"Unknown C type kind: {kind}")
     finally:

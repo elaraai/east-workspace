@@ -3,9 +3,9 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { ArrayType, BlobType, BooleanType, DateTimeType, FloatType, IntegerType, NullType, printType, RecursiveType, StringType, StructType, VariantType, type EastType } from "./types.js"
+import { ArrayType, BlobType, BooleanType, DateTimeType, FloatType, IntegerType, NullType, printType, RecursiveType, StringType, StructType, VariantType, type EastType, type_id_symbol, getTypeId, isPrimitiveType } from "./types.js"
 import { isVariant, variant } from "./containers/variant.js";
-import { equalFor } from "./comparison.js";
+
 
 /** The type of primitive literal values in IR.
  * Used to represent the values in ValueIR nodes.
@@ -59,7 +59,7 @@ export const EastTypeType = RecursiveType(type => VariantType({
   "Dict": StructType({ key: type, value: type }),
   "Struct": ArrayType(StructType({ name: StringType, type: type })),
   "Variant": ArrayType(StructType({ name: StringType, type: type })),
-  "Recursive": IntegerType,
+  "Recursive": VariantType({ ref: IntegerType, wrapper: StructType({ id: IntegerType, inner: type }) }),
   "Function": StructType({
     inputs: ArrayType(type),
     output: type,
@@ -106,48 +106,59 @@ export type EastTypeValue =
   | DictTypeValue
   | StructTypeValue
   | VariantTypeValue
-  | variant<"Recursive", bigint>
+  | variant<"Recursive", variant<"ref", bigint> | variant<"wrapper", { id: bigint, inner: any }>>
   | FunctionTypeValue
   | AsyncFunctionTypeValue
   | VectorTypeValue
   | MatrixTypeValue;
 
 
-// Cache for memoizing toEastTypeValue results (top-level non-recursive calls only)
-const toEastTypeValueCache = new WeakMap<EastType, EastTypeValue>();
+// Cache keyed by type_id. Only caches top-level (non-recursive-context) calls.
+// With type interning in types.ts, structurally identical EastType objects share
+// the same type_id, so this cache ensures identity-based dedup of EastTypeValues.
+const toEastTypeValueCache = new Map<number, EastTypeValue>();
 
 export function toEastTypeValue(type: EastType, stack?: EastType[], is_recursive?: boolean): EastTypeValue
 export function toEastTypeValue(type: EastType | string): EastTypeValue | string
 export function toEastTypeValue(type: EastType | string, stack: EastType[] = [], is_recursive: boolean = false): EastTypeValue | string {
   if (typeof type === "string") {
-    // Used for generics (type parameters)
     return type;
   }
 
   if (isVariant(type)) {
-    return type as EastTypeValue;  // Already converted, return as-is
+    return type as EastTypeValue;
   }
 
-  // Memoization for top-level calls (empty stack, not in recursive context)
-  const isTopLevel = stack.length === 0 && !is_recursive;
-  if (isTopLevel) {
-    const cached = toEastTypeValueCache.get(type);
+  // Cache when no RecursiveType is on the stack. Inside a Recursive scope,
+  // results contain ref(id) values that must stay inside their enclosing wrapper.
+  // Outside, RecursiveTypes are fetched from cache as complete wrapper({id, inner}) values.
+  // This ensures ref(id) only appears inside wrapper inner types, never standalone.
+  const typeId = getTypeId(type);
+  const hasRecursiveOnStack = !isPrimitiveType(type) && stack.some((s: any) => s.type === "Recursive");
+  const canCache = typeId !== undefined && !hasRecursiveOnStack;
+
+  if (canCache) {
+    const cached = toEastTypeValueCache.get(typeId);
     if (cached !== undefined) return cached;
-    const result = toEastTypeValueImpl(type, stack, is_recursive);
-    toEastTypeValueCache.set(type, result);
-    return result;
   }
 
-  return toEastTypeValueImpl(type, stack, is_recursive);
+  const result = toEastTypeValueImpl(type, stack, is_recursive);
+
+  // Always stamp the ETV with the type_id (needed for type table dedup via tidMap).
+  // Only cache the result when outside a recursive scope.
+  if (typeId !== undefined) {
+    (result as any)[type_id_symbol] = typeId;
+  }
+  if (canCache) {
+    toEastTypeValueCache.set(typeId!, result);
+  }
+
+  return result;
 }
 
 function toEastTypeValueImpl(type: EastType, stack: EastType[], is_recursive: boolean): EastTypeValue {
-  if (is_recursive) {
-    const idx = stack.indexOf(type);
-    if (idx !== -1) {
-      return variant("Recursive", BigInt(stack.length - idx));
-    }
-  }
+  // Note: self-reference detection for Recursive types is handled in the
+  // type.type === "Recursive" branch below (stack.indexOf check).
 
   if (type.type === "Never") {
     return variant("Never", null);
@@ -199,7 +210,16 @@ function toEastTypeValueImpl(type: EastType, stack: EastType[], is_recursive: bo
     stack.pop();
     return ret;
   } else if (type.type === "Recursive") {
-    return toEastTypeValue(type.node, stack, true);
+    const tid = getTypeId(type)!;
+    // Self-reference: this RecursiveType is already on the stack.
+    if (stack.indexOf(type) !== -1) {
+      return variant("Recursive", variant("ref", BigInt(tid)));
+    }
+    // First encounter: push, recurse into inner, produce wrapper.
+    stack.push(type);
+    const inner = toEastTypeValueImpl(type.node, stack, false);
+    stack.pop();
+    return variant("Recursive", variant("wrapper", { id: BigInt(tid), inner }));
   } else if (type.type === "Function") {
     stack.push(type);
     const ret = variant("Function", {
@@ -243,30 +263,105 @@ export const EastTypeValueType: EastTypeValue = toEastTypeValue(EastTypeType);
  * @remarks
  * This is the {@link EastTypeValue} version of {@link isTypeEqual}.
 */
-const isTypeValueEqualUncached = equalFor(EastTypeValueType);
-const isTypeValueEqualCache = new WeakMap<EastTypeValue, WeakMap<EastTypeValue, boolean>>();
+const isTypeValueEqualCache = new Map<number, Map<number, boolean>>();
 
+/**
+ * Check structural equality of two EastTypeValues.
+ * Handles Recursive ref/wrapper equivalence: ref(N) and wrapper({id=N, inner})
+ * denote the same recursive type when N matches.
+ */
 export function isTypeValueEqual(t1: EastTypeValue, t2: EastTypeValue): boolean {
   // Fast path: reference equality
   if (t1 === t2) return true;
 
+  // Fast path: type_id equality
+  const tid1 = getTypeId(t1);
+  const tid2 = getTypeId(t2);
+  if (tid1 !== undefined && tid1 === tid2) return true;
+
+  // Recursive ref/wrapper equivalence: ref(N) and wrapper({id=N, inner})
+  // denote the same recursive type when ids match.
+  if (t1.type === "Recursive" && t2.type === "Recursive") {
+    const v1 = t1.value as any;
+    const v2 = t2.value as any;
+    const id1 = v1.type === "ref" ? v1.value : v1.type === "wrapper" ? v1.value.id : undefined;
+    const id2 = v2.type === "ref" ? v2.value : v2.type === "wrapper" ? v2.value.id : undefined;
+    if (id1 !== undefined && id2 !== undefined && id1 === id2) return true;
+  }
+
   // Check cache
-  const innerCache = isTypeValueEqualCache.get(t1);
-  if (innerCache) {
-    const cached = innerCache.get(t2);
-    if (cached !== undefined) return cached;
+  if (tid1 !== undefined && tid2 !== undefined) {
+    const innerCache = isTypeValueEqualCache.get(tid1);
+    if (innerCache) {
+      const cached = innerCache.get(tid2);
+      if (cached !== undefined) return cached;
+    }
+    const result = isTypeValueEqualImpl(t1, t2);
+    let cache = isTypeValueEqualCache.get(tid1);
+    if (!cache) { cache = new Map(); isTypeValueEqualCache.set(tid1, cache); }
+    cache.set(tid2, result);
+    return result;
   }
 
-  const result = isTypeValueEqualUncached(t1, t2);
+  return isTypeValueEqualImpl(t1, t2);
+}
 
-  // Store in cache
-  let cache = isTypeValueEqualCache.get(t1);
-  if (!cache) {
-    cache = new WeakMap();
-    isTypeValueEqualCache.set(t1, cache);
+/** Structural comparison that uses isTypeValueEqual for children (handles ref/wrapper). */
+function isTypeValueEqualImpl(t1: EastTypeValue, t2: EastTypeValue): boolean {
+  if (t1.type !== t2.type) return false;
+  switch (t1.type) {
+    case "Never": case "Null": case "Boolean": case "Integer":
+    case "Float": case "String": case "DateTime": case "Blob":
+      return true;
+    case "Ref": case "Array": case "Vector": case "Matrix":
+      return isTypeValueEqual(t1.value, (t2 as any).value);
+    case "Set":
+      return isTypeValueEqual(t1.value, (t2 as any).value);
+    case "Dict":
+      return isTypeValueEqual(t1.value.key, (t2 as any).value.key) &&
+             isTypeValueEqual(t1.value.value, (t2 as any).value.value);
+    case "Struct": {
+      const f1 = t1.value as { name: string; type: EastTypeValue }[];
+      const f2 = (t2 as any).value as { name: string; type: EastTypeValue }[];
+      if (f1.length !== f2.length) return false;
+      for (let i = 0; i < f1.length; i++) {
+        if (f1[i]!.name !== f2[i]!.name) return false;
+        if (!isTypeValueEqual(f1[i]!.type, f2[i]!.type)) return false;
+      }
+      return true;
+    }
+    case "Variant": {
+      const c1 = t1.value as { name: string; type: EastTypeValue }[];
+      const c2 = (t2 as any).value as { name: string; type: EastTypeValue }[];
+      if (c1.length !== c2.length) return false;
+      for (let i = 0; i < c1.length; i++) {
+        if (c1[i]!.name !== c2[i]!.name) return false;
+        if (!isTypeValueEqual(c1[i]!.type, c2[i]!.type)) return false;
+      }
+      return true;
+    }
+    case "Function": case "AsyncFunction": {
+      const fn1 = t1.value as { inputs: EastTypeValue[]; output: EastTypeValue };
+      const fn2 = (t2 as any).value as { inputs: EastTypeValue[]; output: EastTypeValue };
+      if (fn1.inputs.length !== fn2.inputs.length) return false;
+      for (let i = 0; i < fn1.inputs.length; i++) {
+        if (!isTypeValueEqual(fn1.inputs[i]!, fn2.inputs[i]!)) return false;
+      }
+      return isTypeValueEqual(fn1.output, fn2.output);
+    }
+    case "Recursive": {
+      const v1 = t1.value as any;
+      const v2 = (t2 as any).value as any;
+      const id1 = v1.type === "ref" ? v1.value : v1.type === "wrapper" ? v1.value.id : undefined;
+      const id2 = v2.type === "ref" ? v2.value : v2.type === "wrapper" ? v2.value.id : undefined;
+      // ref(N) and wrapper({id=N}) denote the same recursive type when ids match.
+      // Different ids means different recursive types (interning ensures structurally
+      // identical RecursiveTypes share the same id).
+      return id1 !== undefined && id2 !== undefined && id1 === id2;
+    }
+    default:
+      return false;
   }
-  cache.set(t2, result);
-  return result;
 }
 
 /**
@@ -287,7 +382,7 @@ export function isTypeValueEqual(t1: EastTypeValue, t2: EastTypeValue): boolean 
  * - {@link FunctionType} and {@link AsyncFunctionType} use contravariant inputs and covariant outputs (and FunctionType is a subtype of AsyncFunctionType if their signatures match)
  */
 // Cache for memoizing isSubtypeValue results (top-level calls only)
-const isSubtypeValueCache = new WeakMap<EastTypeValue, WeakMap<EastTypeValue, boolean>>();
+const isSubtypeValueCache = new Map<number, Map<number, boolean>>();
 
 export function isSubtypeValue(
   t1: EastTypeValue | string,
@@ -303,22 +398,26 @@ export function isSubtypeValue(
   // Fast path: reference equality (reflexivity - every type is subtype of itself)
   if (t1 === t2) return true;
 
+  // Fast path: type_id equality
+  const tid1 = getTypeId(t1);
+  const tid2 = getTypeId(t2);
+  if (tid1 !== undefined && tid1 === tid2) return true;
+
   // Memoization for top-level calls (empty stacks)
   const isTopLevel = stack1.length === 0 && stack2.length === 0;
-  if (isTopLevel) {
-    const innerCache = isSubtypeValueCache.get(t1);
+  if (isTopLevel && tid1 !== undefined && tid2 !== undefined) {
+    const innerCache = isSubtypeValueCache.get(tid1);
     if (innerCache) {
-      const cached = innerCache.get(t2);
+      const cached = innerCache.get(tid2);
       if (cached !== undefined) return cached;
     }
     const result = isSubtypeValueImpl(t1, t2, stack1, stack2);
-    // Store in cache
-    let cache = isSubtypeValueCache.get(t1);
+    let cache = isSubtypeValueCache.get(tid1);
     if (!cache) {
-      cache = new WeakMap();
-      isSubtypeValueCache.set(t1, cache);
+      cache = new Map();
+      isSubtypeValueCache.set(tid1, cache);
     }
-    cache.set(t2, result);
+    cache.set(tid2, result);
     return result;
   }
 
@@ -331,30 +430,30 @@ function isSubtypeValueImpl(
   stack1: EastTypeValue[],
   stack2: EastTypeValue[],
 ): boolean {
-  // Equi-recursive type subtyping: unfold recursive types when only one side is recursive
-  if (t1.type === "Recursive") {
-    if (t2.type === "Recursive") {
-      // Recursive types are invariant - heap allocations must match exactly
-      const r1 = stack1[stack1.length - Number(t1.value)];
-      if (r1 === undefined) {
-        throw new Error(`Invalid Recursive type reference: ${t1.value} at depth ${stack1.length}`);
-      }
-      const r2 = stack2[stack2.length - Number(t2.value)];
-      if (r2 === undefined) {
-        throw new Error(`Invalid Recursive type reference: ${t2.value} at depth ${stack2.length}`);
-      }
-      return isTypeValueEqual(r1, r2);
+  // Recursive wrappers: push inner to context map, recurse into inner type
+  if (t1.type === "Recursive" && t1.value.type === "wrapper") {
+    stack1.push(t1);
+    const result = isSubtypeValueImpl(t1.value.value.inner, t2, stack1, stack2);
+    stack1.pop();
+    return result;
+  }
+  if (t2.type === "Recursive" && t2.value.type === "wrapper") {
+    stack2.push(t2);
+    const result = isSubtypeValueImpl(t1, t2.value.value.inner, stack1, stack2);
+    stack2.pop();
+    return result;
+  }
+
+  // Equi-recursive type subtyping for self-references (id-based)
+  if (t1.type === "Recursive" && t1.value.type === "ref") {
+    if (t2.type === "Recursive" && t2.value.type === "ref") {
+      // Both are refs — they're equal if they reference the same type_id
+      return t1.value.value === t2.value.value;
     } else {
-      // Recursive cannot fit in non-recursive (infinite cannot fit in finite)
       return false;
     }
-  } else if (t2.type === "Recursive") {
-    // If the head is "on the stack" we can do head covariance by unfolding once
-    const r2 = stack2[stack2.length - Number(t2.value)];
-    if (r2 === undefined) {
-      throw new Error(`Invalid Recursive type reference: ${t2.value} at depth ${stack2.length}`);
-    }
-    return isSubtypeValue(t1, r2, stack1, stack2.slice(0, stack2.length - Number(t2.value)));
+  } else if (t2.type === "Recursive" && t2.value.type === "ref") {
+    return false;
   }
 
   // Never is subtype of everything
@@ -490,7 +589,7 @@ function isSubtypeValueImpl(
 }
 
 // Cache for memoizing expandTypeValue results (top-level calls only)
-const expandTypeValueCache = new WeakMap<EastTypeValue, EastTypeValue>();
+const expandTypeValueCache = new Map<number, EastTypeValue>();
 
 /** Expand recursive types one level deeper, if necessary */
 export function expandTypeValue(type: EastTypeValue, root: EastTypeValue = type, depth = 0n): EastTypeValue {
@@ -505,11 +604,14 @@ export function expandTypeValue(type: EastTypeValue, root: EastTypeValue = type,
   // Memoization for top-level calls
   const isTopLevel = root === type && depth === 0n;
   if (isTopLevel) {
-    const cached = expandTypeValueCache.get(type);
-    if (cached !== undefined) return cached;
-    const result = expandTypeValueImpl(type, root, depth);
-    expandTypeValueCache.set(type, result);
-    return result;
+    const tid = getTypeId(type);
+    if (tid !== undefined) {
+      const cached = expandTypeValueCache.get(tid);
+      if (cached !== undefined) return cached;
+      const result = expandTypeValueImpl(type, root, depth);
+      expandTypeValueCache.set(tid, result);
+      return result;
+    }
   }
 
   return expandTypeValueImpl(type, root, depth);
@@ -549,9 +651,13 @@ function expandTypeValueImpl(type: EastTypeValue, root: EastTypeValue, depth: bi
       inputs: type.value.inputs.map(i => expandTypeValue(i, root, depth + 1n)),
       output: expandTypeValue(type.value.output, root, depth + 1n),
     });
-  } else if (type.type === "Recursive" && depth === type.value) {
-    // Unfold once
+  } else if (type.type === "Recursive" && type.value.type === "ref" && depth === type.value.value) {
+    // Unfold once (self-reference at matching depth)
     return root;
+  } else if (type.type === "Recursive" && type.value.type === "wrapper") {
+    // Recursive wrapper: expand the inner type
+    return variant("Recursive", variant("wrapper", { id: type.value.value.id, inner: expandTypeValue(type.value.value.inner, root, depth) })) as EastTypeValue;
+
   } else {
     return type;
   }
@@ -575,7 +681,8 @@ export function isDataTypeValue(
   // checked this type in the current path, so it's safe (would have returned
   // false already if it contained functions)
   if (type.type === "Recursive") {
-    return true;
+    if (type.value.type === "wrapper") return isDataTypeValue(type.value.value.inner, depth);
+    return true; // Self-reference — already checked in current path
   }
 
   // Function types are not data types

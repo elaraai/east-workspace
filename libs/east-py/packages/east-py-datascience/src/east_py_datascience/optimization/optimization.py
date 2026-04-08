@@ -58,6 +58,7 @@ IterativeConfigType = StructType(
         ("order", OptionType(EvaluationOrderType)),
         ("random_state", OptionType(IntegerType)),
         ("mode", OptionType(ModeType)),
+        ("workers", OptionType(IntegerType)),
     ]
 )
 
@@ -77,7 +78,10 @@ IterativeResultType = StructType(
 # Platform Function Registration
 # ============================================================================
 
-from east_py_datascience.optimization._optimization_eastc import optimization_iterative_capsule
+from east_py_datascience.optimization._optimization_eastc import (
+    optimization_iterative_capsule,
+    optimization_iterative_incremental_capsule,  # incremental per-element variant
+)
 
 optimization_impl = [
     PlatformFunction(
@@ -91,6 +95,18 @@ optimization_impl = [
         type="sync",
         fn=None,
         c_callback=optimization_iterative_capsule,
+    ),
+    PlatformFunction(
+        name="optimization_iterative_incremental",
+        inputs=[
+            FunctionType([VectorType(IntegerType), IntegerType], FloatType),
+            ArrayType(VectorType(IntegerType)),
+            IterativeConfigType,
+        ],
+        output=IterativeResultType,
+        type="sync",
+        fn=None,
+        c_callback=optimization_iterative_incremental_capsule,
     ),
 ]
 

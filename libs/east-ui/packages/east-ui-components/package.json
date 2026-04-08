@@ -24,8 +24,8 @@
     "build": "tsc --noEmit && vite build",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "test": "node --import tsx --test test/**/*.spec.ts",
-    "test:watch": "node --import tsx --test --watch test/**/*.spec.ts"
+    "test": "node --import tsx --test-reporter=spec --test test/**/*.spec.ts",
+    "test:watch": "node --import tsx --test-reporter=spec --test --watch test/**/*.spec.ts"
   },
   "peerDependencies": {
     "@elaraai/e3-api-client": "workspace:*",

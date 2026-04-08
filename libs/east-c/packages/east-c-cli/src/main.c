@@ -321,17 +321,40 @@ static int cmd_run(const char *ir_path,
     /* Load IR */
     struct timespec t_decode, t_convert;
     clock_gettime(CLOCK_MONOTONIC, &t0);
-    EastValue *ir_val = load_ir(ir_path, verbose);
-    if (!ir_val) {
-        platform_registry_free(platform);
-        builtin_registry_free(builtins);
-        return 1;
-    }
-    clock_gettime(CLOCK_MONOTONIC, &t_decode);
 
-    IRNode *ir = east_ir_from_value(ir_val);
-    clock_gettime(CLOCK_MONOTONIC, &t_convert);
-    east_value_release(ir_val);
+    IRNode *ir = NULL;
+    EastValue *ir_val = NULL;
+    FileFormat ir_fmt = detect_format(ir_path);
+
+    if (ir_fmt == FMT_BEAST2) {
+        /* Beast2: use combined decode+convert for O(1) type resolution */
+        size_t flen = 0;
+        uint8_t *fdata = read_file_binary(ir_path, &flen);
+        if (!fdata) {
+            platform_registry_free(platform);
+            builtin_registry_free(builtins);
+            return 1;
+        }
+        clock_gettime(CLOCK_MONOTONIC, &t_decode);
+        ir = east_beast2_decode_ir(fdata, flen, &ir_val);
+        free(fdata);
+        clock_gettime(CLOCK_MONOTONIC, &t_convert);
+    } else {
+        /* JSON/Beast/East: decode IR value, then convert */
+        ir_val = load_ir(ir_path, verbose);
+        if (!ir_val) {
+            platform_registry_free(platform);
+            builtin_registry_free(builtins);
+            return 1;
+        }
+        clock_gettime(CLOCK_MONOTONIC, &t_decode);
+        ir = east_ir_from_value(ir_val);
+        clock_gettime(CLOCK_MONOTONIC, &t_convert);
+    }
+
+    /* ir_val is retained by east_beast2_decode_ir or loaded by load_ir;
+     * the IRNode's source_ir holds its own ref if needed for re-serialization. */
+    if (ir_val) east_value_release(ir_val);
 
     if (!ir) {
         fprintf(stderr, "Error: Failed to convert IR value to IR node\n");

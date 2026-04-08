@@ -22,6 +22,7 @@ from east_py_datascience.types import (
     ShapResultType,
     ShapValuesType,
     StringVectorType,
+    TreeExplainerConfigType,
     _get_option,
 )
 
@@ -85,20 +86,12 @@ def _check_shap_support() -> None:
 # ============================================================================
 
 
-def shap_tree_explainer_create_impl(
-    model_blob: EastVariant,
-) -> EastVariant:
-    """Create SHAP TreeExplainer for tree-based models.
+def _extract_tree_model(model_blob: EastVariant, function_name: str):
+    """Extract the underlying tree model from a model blob variant.
 
-    Supports:
-    - XGBoost regressor/classifier/quantile models directly
-    - MAPIE conformal regressors/classifiers with XGBoost base (extracts underlying estimator)
+    Returns:
+        Tuple of (model, n_features)
     """
-    _check_shap_support()
-    import shap
-
-    function_name = "shap_tree_explainer_create"
-
     model_type = model_blob.type
     model_value = model_blob.value
 
@@ -113,102 +106,159 @@ def shap_tree_explainer_create_impl(
             "Use KernelExplainer for other model types."
         )
 
-    try:
-        n_features = int(model_value["n_features"])
+    n_features = int(model_value["n_features"])
 
-        if model_type in xgboost_types:
-            # Direct XGBoost model
-            model_data = _deserialize_model(model_value["data"])
+    if model_type in xgboost_types:
+        # Direct XGBoost model
+        model_data = _deserialize_model(model_value["data"])
 
-            # For quantile models, select the median quantile (or closest to 0.5)
-            if model_type == "xgboost_quantile":
-                quantiles = sorted(model_data.keys())
-                median_q = min(quantiles, key=lambda q: abs(q - 0.5))
-                model = model_data[median_q]
-            elif model_type == "xgboost_classifier":
-                # Classifier stores {"model": xgb_model, "classes": ...}
-                model = model_data["model"]
-            else:
-                model = model_data
-
-        elif model_type in mapie_regressor_types:
-            # MAPIE regressor - extract underlying XGBoost estimator
-            data_variant = model_value["data"]
-            base_model_type = data_variant.type
-
-            if base_model_type != "xgboost":
-                raise RuntimeError(
-                    f"{function_name}: TreeExplainer requires XGBoost base model, "
-                    f"but MAPIE model uses {base_model_type}. Use KernelExplainer instead."
-                )
-
-            model_bytes, _, _ = _extract_from_mapie_data(data_variant)
-            combined = _deserialize_model(model_bytes)
-            mapie_model = combined["mapie"]
-
-            # Extract the underlying estimator from MAPIE
-            # MAPIE 1.2.0 uses _estimator, older versions use single_estimator_ or estimator_
-            if hasattr(mapie_model, '_estimator'):
-                model = mapie_model._estimator
-            elif hasattr(mapie_model, 'single_estimator_'):
-                model = mapie_model.single_estimator_
-            elif hasattr(mapie_model, 'estimator_'):
-                model = mapie_model.estimator_
-            elif hasattr(mapie_model, 'estimator'):
-                model = mapie_model.estimator
-            else:
-                raise RuntimeError(
-                    f"{function_name}: Could not extract base estimator from MAPIE regressor"
-                )
-
-        elif model_type in mapie_classifier_types:
-            # MAPIE classifier - extract underlying XGBoost estimator
-            data_variant = model_value["data"]
-            base_model_type = data_variant.type
-
-            if base_model_type != "xgboost":
-                raise RuntimeError(
-                    f"{function_name}: TreeExplainer requires XGBoost base model, "
-                    f"but MAPIE model uses {base_model_type}. Use KernelExplainer instead."
-                )
-
-            model_bytes, _, _ = _extract_from_mapie_data(data_variant)
-            combined = _deserialize_model(model_bytes)
-            mapie_model = combined["mapie"]
-
-            # Extract the underlying estimator from MAPIE classifier
-            # MAPIE 1.2.0 uses _estimator, older versions use single_estimator_ or estimator
-            if hasattr(mapie_model, '_estimator'):
-                model = mapie_model._estimator
-            elif hasattr(mapie_model, 'single_estimator_'):
-                model = mapie_model.single_estimator_
-            elif hasattr(mapie_model, 'estimator_'):
-                model = mapie_model.estimator_
-            elif hasattr(mapie_model, 'estimator'):
-                model = mapie_model.estimator
-            else:
-                raise RuntimeError(
-                    f"{function_name}: Could not extract base estimator from MAPIE classifier"
-                )
+        # For quantile models, select the median quantile (or closest to 0.5)
+        if model_type == "xgboost_quantile":
+            quantiles = sorted(model_data.keys())
+            median_q = min(quantiles, key=lambda q: abs(q - 0.5))
+            model = model_data[median_q]
+        elif model_type == "xgboost_classifier":
+            # Classifier stores {"model": xgb_model, "classes": ...}
+            model = model_data["model"]
         else:
-            raise RuntimeError(f"{function_name}: Unsupported model type {model_type}")
+            model = model_data
 
+    elif model_type in mapie_regressor_types:
+        # MAPIE regressor - extract underlying XGBoost estimator
+        data_variant = model_value["data"]
+        base_model_type = data_variant.type
+
+        if base_model_type != "xgboost":
+            raise RuntimeError(
+                f"{function_name}: TreeExplainer requires XGBoost base model, "
+                f"but MAPIE model uses {base_model_type}. Use KernelExplainer instead."
+            )
+
+        model_bytes, _, _ = _extract_from_mapie_data(data_variant)
+        combined = _deserialize_model(model_bytes)
+        mapie_model = combined["mapie"]
+
+        # Extract the underlying estimator from MAPIE
+        # MAPIE 1.2.0 uses _estimator, older versions use single_estimator_ or estimator_
+        if hasattr(mapie_model, '_estimator'):
+            model = mapie_model._estimator
+        elif hasattr(mapie_model, 'single_estimator_'):
+            model = mapie_model.single_estimator_
+        elif hasattr(mapie_model, 'estimator_'):
+            model = mapie_model.estimator_
+        elif hasattr(mapie_model, 'estimator'):
+            model = mapie_model.estimator
+        else:
+            raise RuntimeError(
+                f"{function_name}: Could not extract base estimator from MAPIE regressor"
+            )
+
+    elif model_type in mapie_classifier_types:
+        # MAPIE classifier - extract underlying XGBoost estimator
+        data_variant = model_value["data"]
+        base_model_type = data_variant.type
+
+        if base_model_type != "xgboost":
+            raise RuntimeError(
+                f"{function_name}: TreeExplainer requires XGBoost base model, "
+                f"but MAPIE model uses {base_model_type}. Use KernelExplainer instead."
+            )
+
+        model_bytes, _, _ = _extract_from_mapie_data(data_variant)
+        combined = _deserialize_model(model_bytes)
+        mapie_model = combined["mapie"]
+
+        # Extract the underlying estimator from MAPIE classifier
+        # MAPIE 1.2.0 uses _estimator, older versions use single_estimator_ or estimator
+        if hasattr(mapie_model, '_estimator'):
+            model = mapie_model._estimator
+        elif hasattr(mapie_model, 'single_estimator_'):
+            model = mapie_model.single_estimator_
+        elif hasattr(mapie_model, 'estimator_'):
+            model = mapie_model.estimator_
+        elif hasattr(mapie_model, 'estimator'):
+            model = mapie_model.estimator
+        else:
+            raise RuntimeError(
+                f"{function_name}: Could not extract base estimator from MAPIE classifier"
+            )
+    else:
+        raise RuntimeError(f"{function_name}: Unsupported model type {model_type}")
+
+    return model, n_features
+
+
+def shap_tree_explainer_create_impl(
+    config: EastVariant,
+) -> EastVariant:
+    """Create SHAP TreeExplainer for tree-based models.
+
+    Accepts a variant config:
+    - path_dependent: Uses tree structure only (default SHAP behavior).
+    - interventional: Uses background data to break feature correlations (causal).
+
+    Supports:
+    - XGBoost regressor/classifier/quantile models directly
+    - MAPIE conformal regressors/classifiers with XGBoost base (extracts underlying estimator)
+    """
+    _check_shap_support()
+    import shap
+
+    function_name = "shap_tree_explainer_create"
+
+    config_mode = config.type
+    config_value = config.value
+
+    if config_mode not in ("path_dependent", "interventional"):
+        raise RuntimeError(
+            f"{function_name}: Expected path_dependent or interventional config, got {config_mode}"
+        )
+
+    try:
+        model_blob = config_value["model"]
+        model, n_features = _extract_tree_model(model_blob, function_name)
+
+        background_data = None
+        has_categorical = False
+        if config_mode == "interventional":
+            background_data = config_value["background"].data
+
+            # Check for categorical features — SHAP interventional TreeExplainer
+            # doesn't support them, so we fall back to KernelExplainer
+            model_type = model_blob.type
+            if model_type in ("xgboost_regressor", "xgboost_classifier", "xgboost_quantile"):
+                cat_opt = _get_option(model_blob.value.get("categorical_features"), None)
+                if cat_opt is not None:
+                    has_categorical = True
     except Exception as e:
         raise RuntimeError(f"{function_name}: Invalid input data - {e}") from e
 
-    # Create TreeExplainer
+    # Create explainer
     try:
-        # Suppress SHAP warnings
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=Warning)
-            explainer = shap.TreeExplainer(model)
+            if config_mode == "interventional":
+                explainer = shap.TreeExplainer(
+                    model,
+                    data=background_data,
+                    feature_perturbation="interventional",
+                )
+                if has_categorical:
+                    # Bypass SHAP's Python-level guard for XGBoost categorical
+                    # features. The C++ extension (since SHAP 0.49.0) correctly
+                    # handles categorical splits, but the Python guard
+                    # (_xgboost_cat_unsupported) blocks it preemptively.
+                    explainer.model.cat_feature_indices = None
+            else:
+                explainer = shap.TreeExplainer(model)
     except Exception as e:
         raise RuntimeError(
             f"{function_name}: Failed to create TreeExplainer - {e}"
         ) from e
 
+    explainer_tag = "shap_tree_explainer"
     return EastVariant(
-        "shap_tree_explainer",
+        explainer_tag,
         EastStruct(
             {
                 "data": _serialize_explainer(explainer),
@@ -492,6 +542,12 @@ def shap_compute_values_impl(
 
     # Compute SHAP values
     try:
+        # Bypass SHAP's Python-level guard for XGBoost categorical features.
+        # The C++ extension correctly handles categorical splits, but the
+        # Python guard (_xgboost_cat_unsupported) blocks it preemptively.
+        if hasattr(explainer, 'model') and hasattr(explainer.model, 'cat_feature_indices'):
+            explainer.model.cat_feature_indices = None
+
         # Suppress SHAP warnings
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=Warning)
@@ -660,7 +716,7 @@ def shap_feature_importance_impl(
 shap_impl = [
     PlatformFunction(
         name="shap_tree_explainer_create",
-        inputs=[ModelBlobType],
+        inputs=[TreeExplainerConfigType],
         output=ModelBlobType,
         type="sync",
         fn=shap_tree_explainer_create_impl,

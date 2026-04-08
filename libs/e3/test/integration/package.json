@@ -6,7 +6,7 @@
   "description": "Integration tests for e3 - tests CLI and runner together",
   "scripts": {
     "build": "tsc --build",
-    "test": "npm run build && node --enable-source-maps --test 'dist/**/*.spec.js'",
+    "test": "npm run build && node --enable-source-maps --test-reporter=spec --test 'dist/**/*.spec.js'",
     "clean": "rm -rf dist"
   },
   "dependencies": {

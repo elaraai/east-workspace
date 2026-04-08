@@ -18,7 +18,7 @@ import { type InvertContext } from "./types.js";
 
 export function invertFor(type: EastTypeValue, ctx?: InvertContext): (patch: any) => any;
 export function invertFor<T extends EastType>(type: T): (patch: any) => any;
-export function invertFor(type: EastTypeValue | EastType, ctx: InvertContext = { invert: [], types: [], equal: [] }): (patch: any) => any {
+export function invertFor(type: EastTypeValue | EastType, ctx: InvertContext = { invert: [], types: [], equal: new Map() }): (patch: any) => any {
   // Convert to EastTypeValue and use a properly typed variable
   const t: EastTypeValue = isVariant(type) ? type : toEastTypeValue(type as EastType);
 
@@ -94,11 +94,9 @@ export function invertFor(type: EastTypeValue | EastType, ctx: InvertContext = {
 
     ctx.invert.push(ret);
     ctx.types.push(t);
-    ctx.equal.push(arrayEqual);
     elementInvert = invertFor(t.value, ctx);
     ctx.invert.pop();
     ctx.types.pop();
-    ctx.equal.pop();
 
     return ret;
   } else if (t.type === "Set") {
@@ -160,11 +158,9 @@ export function invertFor(type: EastTypeValue | EastType, ctx: InvertContext = {
 
     ctx.invert.push(ret);
     ctx.types.push(t);
-    ctx.equal.push(dictEqual);
     valueInvert = invertFor(t.value.value, ctx);
     ctx.invert.pop();
     ctx.types.pop();
-    ctx.equal.pop();
 
     return ret;
   } else if (t.type === "Struct") {
@@ -202,13 +198,11 @@ export function invertFor(type: EastTypeValue | EastType, ctx: InvertContext = {
 
     ctx.invert.push(ret);
     ctx.types.push(t);
-    ctx.equal.push(structEqual);
     for (const { name, type: fieldType } of t.value) {
       fieldInverts[name] = invertFor(fieldType, ctx);
     }
     ctx.invert.pop();
     ctx.types.pop();
-    ctx.equal.pop();
 
     return ret;
   } else if (t.type === "Variant") {
@@ -238,13 +232,11 @@ export function invertFor(type: EastTypeValue | EastType, ctx: InvertContext = {
 
     ctx.invert.push(ret);
     ctx.types.push(t);
-    ctx.equal.push(variantEqual);
     for (const { name, type: caseType } of t.value) {
       caseInverts[name] = invertFor(caseType, ctx);
     }
     ctx.invert.pop();
     ctx.types.pop();
-    ctx.equal.pop();
 
     return ret;
   } else if (t.type === "Ref") {
@@ -271,11 +263,9 @@ export function invertFor(type: EastTypeValue | EastType, ctx: InvertContext = {
 
     ctx.invert.push(ret);
     ctx.types.push(t);
-    ctx.equal.push(refEqual);
     innerInvert = invertFor(t.value, ctx);
     ctx.invert.pop();
     ctx.types.pop();
-    ctx.equal.pop();
 
     return ret;
   } else if (t.type === "Recursive") {

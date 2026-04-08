@@ -335,14 +335,7 @@ static void clear_last_error(void) {
 /* ------------------------------------------------------------------ */
 
 /* Compile an IR value (already decoded) to a handle. */
-static uint32_t compile_ir_value(EastValue *ir_val) {
-    IRNode *ir = east_ir_from_value(ir_val);
-    east_value_release(ir_val);
-    if (!ir) {
-        set_last_error("failed to convert IR value to IR node tree");
-        return 0;
-    }
-
+static uint32_t compile_ir_node(IRNode *ir) {
     IRNode *body = ir;
     size_t num_params = 0;
     IRVariable *params = NULL;
@@ -376,6 +369,17 @@ static uint32_t compile_ir_value(EastValue *ir_val) {
 
     ir_node_release(ir);
     return handle;
+}
+
+/* Compile an IR value (EastValue*) to a handle — decodes to IRNode first. */
+static uint32_t compile_ir_value(EastValue *ir_val) {
+    IRNode *ir = east_ir_from_value(ir_val);
+    east_value_release(ir_val);
+    if (!ir) {
+        set_last_error("failed to convert IR value to IR node tree");
+        return 0;
+    }
+    return compile_ir_node(ir);
 }
 
 /* ------------------------------------------------------------------ */
@@ -431,10 +435,11 @@ uint32_t east_wasm_compile(const uint8_t *ir_bytes, size_t ir_len) {
     clear_last_error();
     if (!g_initialized) { set_last_error("east_wasm_init() not called"); return 0; }
 
-    EastValue *ir_val = east_beast2_decode_full(ir_bytes, ir_len, east_ir_type);
-    if (!ir_val) { set_last_error("failed to decode Beast2-full IR bytes"); return 0; }
+    /* Combined decode+convert with O(1) type resolution via type table */
+    IRNode *ir = east_beast2_decode_ir(ir_bytes, ir_len, NULL);
+    if (!ir) { set_last_error("failed to decode Beast2-full IR bytes"); return 0; }
 
-    return compile_ir_value(ir_val);
+    return compile_ir_node(ir);
 }
 
 EMSCRIPTEN_KEEPALIVE

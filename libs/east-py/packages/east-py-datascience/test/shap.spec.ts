@@ -13,7 +13,7 @@ import * as ex from "./shap.examples.js";
 
 describeEast("SHAP platform functions", (test) => {
 
-    Assert.examples(test, { shapTreeExplainer: ex.shapTreeExplainer, shapKernelExplainer: ex.shapKernelExplainer });
+    Assert.examples(test, { shapTreeExplainer: ex.shapTreeExplainer, shapTreeExplainerCategorical: ex.shapTreeExplainerCategorical, shapTreeExplainerInterventionalCategorical: ex.shapTreeExplainerInterventionalCategorical, shapMapieCategoricalInterventional: ex.shapMapieCategoricalInterventional, shapTreeExplainerInterventional: ex.shapTreeExplainerInterventional, shapKernelExplainer: ex.shapKernelExplainer });
     // Note: LightGBM TreeExplainer tests removed due to SHAP compatibility issues.
     // Use KernelExplainer for LightGBM models.
 
@@ -50,7 +50,60 @@ describeEast("SHAP platform functions", (test) => {
         });
 
         const model = $.let(XGBoost.trainRegressor(X, y, config));
-        const explainer = $.let(Shap.treeExplainerCreate(model));
+        const explainer = $.let(Shap.treeExplainerCreate(variant('path_dependent', { model })));
+        const feature_names = $.let(["feature1", "feature2"]);
+        const result = $.let(Shap.computeValues(explainer, X, feature_names));
+
+        // Regression returns matrix_2d variant
+        $.match(result.shap_values, {
+            matrix_2d: ($, shap_matrix) => {
+                $(Assert.equal(shap_matrix.rows(), 8n));
+                $(Assert.equal(shap_matrix.getRow(0n).length(), 2n));
+            },
+            tensor_3d: ($) => $(Assert.fail("Expected matrix_2d for regression")),
+        });
+    });
+
+    test("tree_explainer interventional mode with XGBoost regressor", $ => {
+        const X = $.let(East.Matrix.fromArray([
+            [1.0, 2.0],
+            [2.0, 3.0],
+            [3.0, 4.0],
+            [4.0, 5.0],
+            [5.0, 6.0],
+            [6.0, 7.0],
+            [7.0, 8.0],
+            [8.0, 9.0],
+        ]));
+        const y = $.let(new Float64Array([3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0, 17.0]));
+
+        const config = $.let({
+            n_estimators: variant('some', 50n),
+            max_depth: variant('some', 3n),
+            learning_rate: variant('some', 0.1),
+            min_child_weight: variant('none', null),
+            subsample: variant('none', null),
+            colsample_bytree: variant('none', null),
+            reg_alpha: variant('none', null),
+            reg_lambda: variant('none', null),
+            gamma: variant('none', null),
+            random_state: variant('some', 42n),
+            n_jobs: variant('none', null),
+            sample_weight: variant('none', null),
+            categorical_features: variant('none', null),
+            categorical_n: variant('none', null),
+            max_cat_to_onehot: variant('none', null),
+            max_cat_threshold: variant('none', null),
+        });
+
+        const model = $.let(XGBoost.trainRegressor(X, y, config));
+        // Use subset as background data for interventional mode
+        const background = $.let(East.Matrix.fromArray([
+            [1.0, 2.0],
+            [4.0, 5.0],
+            [8.0, 9.0],
+        ]));
+        const explainer = $.let(Shap.treeExplainerCreate(variant('interventional', { model, background })));
         const feature_names = $.let(["feature1", "feature2"]);
         const result = $.let(Shap.computeValues(explainer, X, feature_names));
 
@@ -97,7 +150,7 @@ describeEast("SHAP platform functions", (test) => {
         });
 
         const model = $.let(XGBoost.trainClassifier(X, y, config));
-        const explainer = $.let(Shap.treeExplainerCreate(model));
+        const explainer = $.let(Shap.treeExplainerCreate(variant('path_dependent', { model })));
         const feature_names = $.let(["feature1", "feature2"]);
         const result = $.let(Shap.computeValues(explainer, X, feature_names));
 
@@ -147,7 +200,7 @@ describeEast("SHAP platform functions", (test) => {
         // Train quantile model
         const model = $.let(XGBoost.trainQuantile(X, y, config));
         // TreeExplainer uses the median (0.5) quantile model
-        const explainer = $.let(Shap.treeExplainerCreate(model));
+        const explainer = $.let(Shap.treeExplainerCreate(variant('path_dependent', { model })));
         const feature_names = $.let(["feature1", "feature2"]);
         const result = $.let(Shap.computeValues(explainer, X, feature_names));
 
@@ -194,7 +247,7 @@ describeEast("SHAP platform functions", (test) => {
         });
 
         const model = $.let(XGBoost.trainRegressor(X, y, config));
-        const explainer = $.let(Shap.treeExplainerCreate(model));
+        const explainer = $.let(Shap.treeExplainerCreate(variant('path_dependent', { model })));
         const feature_names = $.let(["feature1", "feature2"]);
         const shap_result = $.let(Shap.computeValues(explainer, X, feature_names));
         const importance = $.let(Shap.featureImportance(shap_result.shap_values, feature_names));
@@ -386,7 +439,7 @@ describeEast("SHAP platform functions", (test) => {
         });
 
         const model = $.let(XGBoost.trainClassifier(X, y, config));
-        const explainer = $.let(Shap.treeExplainerCreate(model));
+        const explainer = $.let(Shap.treeExplainerCreate(variant('path_dependent', { model })));
         const feature_names = $.let(["feature1", "feature2"]);
         const result = $.let(Shap.computeValues(explainer, X, feature_names));
 
@@ -445,7 +498,7 @@ describeEast("SHAP platform functions", (test) => {
         });
 
         const model = $.let(XGBoost.trainClassifier(X, y, config));
-        const explainer = $.let(Shap.treeExplainerCreate(model));
+        const explainer = $.let(Shap.treeExplainerCreate(variant('path_dependent', { model })));
         const feature_names = $.let(["feature1", "feature2"]);
         const shap_result = $.let(Shap.computeValues(explainer, X, feature_names));
         const importance = $.let(Shap.featureImportance(shap_result.shap_values, feature_names));
@@ -931,7 +984,7 @@ describeEast("SHAP platform functions", (test) => {
         const model = $.let(MAPIE.trainConformalRegressor(X_train, y_train, X_calib, y_calib, config));
 
         // TreeExplainer extracts underlying XGBoost from MAPIE
-        const explainer = $.let(Shap.treeExplainerCreate(model));
+        const explainer = $.let(Shap.treeExplainerCreate(variant('path_dependent', { model })));
         const feature_names = $.let(["feature1", "feature2"]);
         const X_explain = $.let(East.Matrix.fromArray([
             [2.0, 3.0],
@@ -989,7 +1042,7 @@ describeEast("SHAP platform functions", (test) => {
         const model = $.let(MAPIE.trainConformalClassifier(X_train, y_train, X_calib, y_calib, config));
 
         // TreeExplainer extracts underlying XGBoost from MAPIE
-        const explainer = $.let(Shap.treeExplainerCreate(model));
+        const explainer = $.let(Shap.treeExplainerCreate(variant('path_dependent', { model })));
         const feature_names = $.let(["feature1", "feature2"]);
         const X_explain = $.let(East.Matrix.fromArray([
             [0.5, 0.5],
@@ -1049,7 +1102,7 @@ describeEast("SHAP platform functions", (test) => {
         const model = $.let(MAPIE.trainConformalClassifier(X_train, y_train, X_calib, y_calib, config));
 
         // TreeExplainer extracts underlying XGBoost from MAPIE
-        const explainer = $.let(Shap.treeExplainerCreate(model));
+        const explainer = $.let(Shap.treeExplainerCreate(variant('path_dependent', { model })));
         const feature_names = $.let(["feature1", "feature2"]);
         const result = $.let(Shap.computeValues(explainer, X_train, feature_names));
 

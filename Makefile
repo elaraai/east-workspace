@@ -1,5 +1,8 @@
 # east-workspace — pnpm + turborepo monorepo
 # All npm deps managed by pnpm from root. Turbo orchestrates build/test/lint.
+#
+# EAST_QUIET=1 — suppress passing test output (only show failures + summaries)
+# Default: verbose in sub-lib targets, quiet in test-all
 
 .PHONY: setup install link build test lint clean services-up services-down services-status test-all test-export help
 
@@ -35,7 +38,7 @@ link:
 build:
 	pnpm build
 
-## Run all tests (does not start services — use test-all for that)
+## Run TS tests only (does not start services — use test-all for that)
 test:
 	pnpm test
 
@@ -47,11 +50,11 @@ lint:
 
 ## Start test services (Postgres, MySQL, MongoDB, Redis, MinIO, FTP, SFTP, httpbin)
 services-up:
-	docker compose --profile services up -d --wait
+	@docker compose --profile services up -d --wait 2>&1 | tail -1
 
 ## Stop test services
 services-down:
-	docker compose --profile services down -v
+	@docker compose --profile services down -v 2>&1 | tail -1
 
 ## Show test services status
 services-status:
@@ -61,21 +64,29 @@ services-status:
 
 ## Export all test IR (required before east-py and east-c compliance tests)
 test-export:
-	cd libs/east && make test-export
-	cd libs/east-node && make test-export
-	cd libs/east-py && make test-export
+	@echo "Exporting test IR..."
+	@EAST_QUIET=1 $(MAKE) --no-print-directory -C $(CURDIR)/libs/east test-export 2>&1 | tail -1
+	@EAST_QUIET=1 $(MAKE) --no-print-directory -C $(CURDIR)/libs/east-node test-export 2>&1 | tail -1
+	@EAST_QUIET=1 $(MAKE) --no-print-directory -C $(CURDIR)/libs/east-py test-export 2>&1 | tail -1
 
 # ── Full Test Run ────────────────────────────────────────────────────
 
 ## Start services, run ALL tests (TS + C + WASM + Python), stop services
-## Requires: make setup (one-time), make services-up (docker)
-## Output: only errors and summaries (set EAST_VERBOSE=1 for full output)
+## Requires: make setup (one-time)
+## Sets EAST_QUIET=1 so each runner only outputs failures + summaries.
 test-all: services-up test-export
 	@exit_code=0; \
-	EAST_QUIET=1 pnpm turbo run test --output-logs=errors-only || exit_code=1; \
-	EAST_QUIET=1 $(MAKE) -C $(CURDIR)/libs/east-c test-all || exit_code=1; \
-	EAST_QUIET=1 $(MAKE) -C $(CURDIR)/libs/east-py test || exit_code=1; \
-	$(MAKE) services-down; \
+	echo ""; \
+	echo "=== TypeScript ==="; \
+	EAST_QUIET=1 pnpm turbo run test --output-logs=errors-only 2>&1 | tail -5 || exit_code=1; \
+	echo ""; \
+	echo "=== east-c ==="; \
+	EAST_QUIET=1 $(MAKE) --no-print-directory -C $(CURDIR)/libs/east-c test-all || exit_code=1; \
+	echo ""; \
+	echo "=== east-py ==="; \
+	EAST_QUIET=1 $(MAKE) --no-print-directory -C $(CURDIR)/libs/east-py test || exit_code=1; \
+	echo ""; \
+	$(MAKE) --no-print-directory services-down; \
 	exit $$exit_code
 
 # ── Clean ────────────────────────────────────────────────────────────
@@ -102,7 +113,7 @@ help:
 	@echo ""
 	@echo "Build / Test / Lint (turbo):"
 	@echo "  build            - Build all packages"
-	@echo "  test             - Run all tests"
+	@echo "  test             - Run TS tests (turbo)"
 	@echo "  lint             - Lint all packages"
 	@echo ""
 	@echo "Test services (Docker):"
@@ -114,8 +125,10 @@ help:
 	@echo "  test-export      - Export all test IR"
 	@echo ""
 	@echo "Full test run:"
-	@echo "  test-all         - services-up + test-export + test + services-down (quiet)"
-	@echo "                     Set EAST_QUIET= to see full output"
+	@echo "  test-all         - services + export + TS + C + Python (quiet mode)"
+	@echo ""
+	@echo "Environment:"
+	@echo "  EAST_QUIET=1     - Only show failures + summaries (default in test-all)"
 	@echo ""
 	@echo "Maintenance:"
 	@echo "  clean            - Remove all build artifacts"

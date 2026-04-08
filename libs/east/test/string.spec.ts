@@ -4,6 +4,10 @@
  */
 import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, StructType, variant, VariantType, FloatType, DateTimeType, BlobType, SetType, DictType, RecursiveType, ref, RefType } from "../src/index.js";
 import { EastTypeType, toEastTypeValue } from "../src/type_of_type.js";
+import { printFor as eastPrintFor } from "../src/serialization/east.js";
+import { toJSONFor as eastToJSONFor } from "../src/serialization/json.js";
+const printTypeValue = eastPrintFor(EastTypeType) as (value: any) => string;
+const printTypeValueJSON = eastToJSONFor(EastTypeType) as (value: any) => any;
 import { describeEast as describe, assertEast as assert } from "./platforms.spec.js";
 import * as ex from "./string.examples.js";
 
@@ -153,7 +157,7 @@ await describe("String", (test) => {
         $(assert.equal(East.print(dictType), '.Dict (key=.String, value=.Integer)'));
         $(assert.equal(East.print(structType), '.Struct [(name=\"name\", type=.String), (name=\"age\", type=.Integer)]'));
         $(assert.equal(East.print(variantType), '.Variant [(name=\"none\", type=.Null), (name=\"some\", type=.Integer)]'));
-        $(assert.equal(East.print(linkedListType), '.Variant [(name=\"cons\", type=.Struct [(name=\"head\", type=.Integer), (name=\"tail\", type=.Recursive 2)]), (name=\"nil\", type=.Null)]'));
+        $(assert.equal(East.print(linkedListType), printTypeValue(toEastTypeValue(LinkedListType))));
     });
 
     test("Parsing values", $ => {
@@ -327,7 +331,7 @@ await describe("String", (test) => {
         $(assert.equal(East.value('.Dict (key=.String, value=.Integer)').parse(EastTypeType), dictType));
         $(assert.equal(East.value('.Struct [(name=\"name\", type=.String), (name=\"age\", type=.Integer)]').parse(EastTypeType), structType));
         $(assert.equal(East.value('.Variant [(name=\"none\", type=.Null), (name=\"some\", type=.Integer)]').parse(EastTypeType), variantType));
-        $(assert.equal(East.value('.Variant [(name=\"cons\", type=.Struct [(name=\"head\", type=.Integer), (name=\"tail\", type=.Recursive 2)]), (name=\"nil\", type=.Null)]').parse(EastTypeType), linkedListType));
+        $(assert.equal(East.value(printTypeValue(toEastTypeValue(LinkedListType))).parse(EastTypeType), linkedListType));
     });
 
     assert.examples(test, {
@@ -1018,7 +1022,7 @@ await describe("String", (test) => {
         $(assert.equal(printJson(dictType), '{"type":"Dict","value":{"key":{"type":"String","value":null},"value":{"type":"Integer","value":null}}}'));
         $(assert.equal(printJson(structType), '{"type":"Struct","value":[{"name":"name","type":{"type":"String","value":null}},{"name":"age","type":{"type":"Integer","value":null}}]}'));
         $(assert.equal(printJson(variantType), '{"type":"Variant","value":[{"name":"none","type":{"type":"Null","value":null}},{"name":"some","type":{"type":"Integer","value":null}}]}'));
-        $(assert.equal(printJson(linkedListType), '{"type":"Variant","value":[{"name":"cons","type":{"type":"Struct","value":[{"name":"head","type":{"type":"Integer","value":null}},{"name":"tail","type":{"type":"Recursive","value":"2"}}]}},{"name":"nil","type":{"type":"Null","value":null}}]}'));
+        $(assert.equal(printJson(linkedListType), JSON.stringify(printTypeValueJSON(toEastTypeValue(LinkedListType)))));
     });
     
     assert.examples(test, {
@@ -1167,7 +1171,7 @@ await describe("String", (test) => {
         $(assert.equal(East.value('{"type":"Dict","value":{"key":{"type":"String","value":null},"value":{"type":"Integer","value":null}}}').parseJson(EastTypeType), dictType));
         $(assert.equal(East.value('{"type":"Struct","value":[{"name":"name","type":{"type":"String","value":null}},{"name":"age","type":{"type":"Integer","value":null}}]}').parseJson(EastTypeType), structType));
         $(assert.equal(East.value('{"type":"Variant","value":[{"name":"none","type":{"type":"Null","value":null}},{"name":"some","type":{"type":"Integer","value":null}}]}').parseJson(EastTypeType), variantType));
-        $(assert.equal(East.value('{"type":"Variant","value":[{"name":"cons","type":{"type":"Struct","value":[{"name":"head","type":{"type":"Integer","value":null}},{"name":"tail","type":{"type":"Recursive","value":"2"}}]}},{"name":"nil","type":{"type":"Null","value":null}}]}').parseJson(EastTypeType), linkedListType));
+        $(assert.equal(East.value(JSON.stringify(printTypeValueJSON(toEastTypeValue(LinkedListType)))).parseJson(EastTypeType), linkedListType));
     });
 
     test("JSON parsing error messages", $ => {

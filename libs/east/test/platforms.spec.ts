@@ -6,8 +6,8 @@ import assert from "node:assert/strict";
 import util from "node:util";
 import { test as testNode, describe as describeNode } from "node:test";
 import { writeFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
-import { AsyncFunctionType, East, Expr, get_location, printLocations, IRType, NullType, StringType, toJSONFor, type SubtypeExprOrValue } from "../src/index.js";
+import { join, basename } from "node:path";
+import { AsyncFunctionType, East, Expr, get_location, printLocations, IRType, NullType, StringType, toJSONFor, setLocationTransform, type SubtypeExprOrValue } from "../src/index.js";
 import { valueOrExprToAstTyped } from "../src/expr/ast.js";
 import type { TypeSymbol } from "../src/expr/expr.js";
 import type { BlockBuilder } from "../src/expr/block.js";
@@ -66,7 +66,7 @@ const describe = East.asyncPlatform("describe", [StringType, AsyncFunctionType([
  *
  * @returns A platform object with `testPass`, `testFail`, `test`, and `describe` functions
  */
-function createTestPlatform() {
+function createTestPlatform(extraPlatform: any[] = []) {
     return [
         testPass.implement(() => { }), // Assertion passed - do nothing (test continues)
         testFail.implement((message: string) => {
@@ -75,6 +75,7 @@ function createTestPlatform() {
         }),
         test.implement((name: string, body: () => Promise<null>) => testNode(name, async () => { await body(); })),
         describe.implement((name: string, body: () => Promise<null>) => describeNode(name, async () => { await body(); })),
+        ...extraPlatform,
     ];
 }
 
@@ -111,10 +112,24 @@ const IRToJSON = toJSONFor(IRType);
  * EXPORT_TEST_IR=./test-ir npm test
  * ```
  */
+export interface DescribeEastOptions {
+    /** Extra platform functions available to tests. */
+    extraPlatform?: any[];
+    /** When true (default), source locations use `<suite>:<test>:line:col` instead
+     *  of absolute file paths. Makes IR byte-level reproducible across machines
+     *  and gives other runtimes useful test context in error messages. */
+    stableLocations?: boolean;
+}
+
 export function describeEast(
     suiteName: string,
-    builder: (test: (name: string, body: ($: BlockBuilder<NullType>) => void) => void) => void
+    builder: (test: (name: string, body: ($: BlockBuilder<NullType>) => void) => void) => void,
+    options?: DescribeEastOptions | any[],
 ) {
+    // Back-compat: third arg can be extraPlatform array or options object
+    const opts: DescribeEastOptions = Array.isArray(options) ? { extraPlatform: options } : (options ?? {});
+
+    let currentTestName = "";
     const tests: Array<{ name: string, body: ($: BlockBuilder<NullType>) => void }> = [];
 
     // Collect all test names and bodies
@@ -122,14 +137,31 @@ export function describeEast(
         tests.push({ name, body });
     });
 
+    // Enable stable locations (default true): replace absolute paths with
+    // <file>:<suite>:<test> and zero line/col — fully reproducible across machines
+    // and immune to line number shifts from code changes
+    if (opts.stableLocations !== false) {
+        setLocationTransform(loc => ({
+            filename: `<${basename(loc.filename).replace(/\.[^.]+$/, '')}>:<${suiteName}>:<${currentTestName}>`,
+            line: 0,
+            column: 0,
+        }));
+    }
+
     // Create a single East function that uses describe/test platform functions
     const suiteFunction = East.asyncFunction([], NullType, $ => {
         $(describe.call($, suiteName, East.asyncFunction([], NullType, $ => {
             for (const { name, body } of tests) {
+                currentTestName = name;
                 $(test.call($, name, East.asyncFunction([], NullType, body)));
             }
         })));
     });
+
+    // Clear stable locations after building
+    if (opts.stableLocations !== false) {
+        setLocationTransform(null);
+    }
 
     // Auto-export test IR if EXPORT_TEST_IR environment variable is set to a path
     if (process.env.EXPORT_TEST_IR) {
@@ -143,14 +175,16 @@ export function describeEast(
 
             const filename = join(outputDir, `${suiteName.replace(/[^a-zA-Z0-9]/g, '_')}.json`);
             writeFileSync(filename, JSON.stringify(irJSON, null, 2));
-            console.log(`✓ Exported test IR: ${filename}`);
+            if (process.env.EAST_QUIET !== '1') {
+                console.log(`✓ Exported test IR: ${filename}`);
+            }
         } catch (err) {
             console.error(`✗ Failed to export test IR for "${suiteName}":`, err);
         }
     }
 
     // Run the test suite using the Node.js platform implementation
-    const platform = createTestPlatform();
+    const platform = createTestPlatform(opts.extraPlatform ?? []);
     const compiled = suiteFunction.toIR().compile(platform);
     return compiled();
 }
