@@ -27,6 +27,7 @@ export function generateWebviewHtml(
     <script nonce="${nonce}">
         window.__E3_API_URL__ = ${JSON.stringify(serverUrl)};
         window.__E3_REPO_PATH__ = ${JSON.stringify(repoPath)};
+        window.__EAST_WASM_URL__ = "${webviewUri}/east-c.wasm";
         // Forward console.log/warn/error to VS Code output channel
         (function() {
             var vscode = acquireVsCodeApi();
@@ -35,13 +36,28 @@ export function generateWebviewHtml(
                 origFn.apply(console, args);
                 var parts = [];
                 for (var i = 0; i < args.length; i++) {
-                    parts.push(typeof args[i] === 'string' ? args[i] : JSON.stringify(args[i]));
+                    try { parts.push(typeof args[i] === 'string' ? args[i] : JSON.stringify(args[i], function(k,v){ return typeof v === 'bigint' ? v.toString() + 'n' : v; })); } catch(e) { parts.push(String(args[i])); }
                 }
                 vscode.postMessage({ type: 'log', level: level, message: parts.join(' ') });
             }
             console.log = function() { forward('info', origLog, arguments); };
             console.warn = function() { forward('warn', origWarn, arguments); };
             console.error = function() { forward('error', origError, arguments); };
+            // Catch uncaught errors with full stack trace
+            window.addEventListener('error', function(ev) {
+                forward('error', origError, [
+                    '[uncaught]', ev.message,
+                    '\\n  at ' + ev.filename + ':' + ev.lineno + ':' + ev.colno,
+                    ev.error && ev.error.stack ? '\\n' + ev.error.stack : ''
+                ]);
+            });
+            window.addEventListener('unhandledrejection', function(ev) {
+                var r = ev.reason;
+                forward('error', origError, [
+                    '[unhandled promise]',
+                    r instanceof Error ? r.message + '\\n' + r.stack : String(r)
+                ]);
+            });
         })();
     </script>
     <script nonce="${nonce}" src="${webviewUri}/index.js"></script>

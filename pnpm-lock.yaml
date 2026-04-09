@@ -536,6 +536,9 @@ importers:
 
   libs/east-ui/packages/e3-ui-components:
     dependencies:
+      '@elaraai/east-c-wasm':
+        specifier: workspace:*
+        version: link:../../../east-c/packages/east-c-wasm
       '@emotion/react':
         specifier: ^11.14.0
         version: 11.14.0(@types/react@19.2.14)(react@19.2.4)
@@ -616,6 +619,25 @@ importers:
         specifier: ^4.3.0
         version: 4.5.4(@types/node@22.19.15)(rollup@4.60.1)(typescript@5.9.3)(vite@6.4.1(@types/node@22.19.15)(tsx@4.21.0))
 
+  libs/east-ui/packages/e3-ui-showcase:
+    dependencies:
+      '@elaraai/e3':
+        specifier: workspace:*
+        version: link:../../../e3/packages/e3
+      '@elaraai/east':
+        specifier: workspace:*
+        version: link:../../../east
+      '@elaraai/east-ui':
+        specifier: workspace:*
+        version: link:../east-ui
+    devDependencies:
+      '@types/node':
+        specifier: ^22.18.1
+        version: 22.19.15
+      typescript:
+        specifier: ~5.9.2
+        version: 5.9.3
+
   libs/east-ui/packages/east-ui:
     dependencies:
       '@elaraai/east':
@@ -661,6 +683,9 @@ importers:
       '@elaraai/east':
         specifier: workspace:*
         version: link:../../../east
+      '@elaraai/east-c-wasm':
+        specifier: workspace:*
+        version: link:../../../east-c/packages/east-c-wasm
       '@elaraai/east-ui':
         specifier: workspace:*
         version: link:../east-ui
@@ -798,6 +823,9 @@ importers:
       '@elaraai/east':
         specifier: workspace:*
         version: link:../../../east
+      '@elaraai/east-c-wasm':
+        specifier: workspace:*
+        version: link:../../../east-c/packages/east-c-wasm
       '@elaraai/east-ui':
         specifier: workspace:*
         version: link:../east-ui
@@ -846,6 +874,9 @@ importers:
       '@elaraai/east':
         specifier: workspace:*
         version: link:../../../../east
+      '@elaraai/east-c-wasm':
+        specifier: workspace:*
+        version: link:../../../../east-c/packages/east-c-wasm
       '@elaraai/east-ui':
         specifier: workspace:*
         version: link:../../east-ui

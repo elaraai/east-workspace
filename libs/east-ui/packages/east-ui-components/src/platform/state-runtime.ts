@@ -18,9 +18,9 @@
 import {
     type EastTypeValue,
     encodeBeast2For,
-    decodeBeast2For,
 } from "@elaraai/east";
 import { type PlatformFunction } from "@elaraai/east/internal";
+import { getWasmSync, decodeBeast2Value } from "./wasm.js";
 import { state_read, state_write, state_has } from "@elaraai/east-ui";
 import { UIStore, type UIStoreInterface } from "./store.js";
 
@@ -167,13 +167,11 @@ export const StateImpl: PlatformFunction[] = [
     }),
     state_read.implement((type: EastTypeValue) => (key: unknown) => {
         trackKey(key as string)
-        // return (fn as (v: unknown) => unknown)(value);
-        const decode = decodeBeast2For(type)
         const ret = getStore().read(key as string);
         if (ret === undefined) {
             throw new Error(`Key not found: ${key as string}`);
         }
-        return decode(ret);
+        return decodeBeast2Value(getWasmSync(), ret, type);
     }),
     state_has.implement((key) => {
         return getStore().has(key);

@@ -31,9 +31,15 @@
     "@elaraai/e3-api-client": "workspace:*",
     "@elaraai/e3-types": "workspace:*",
     "@elaraai/east": "workspace:*",
+    "@elaraai/east-c-wasm": "workspace:*",
     "@elaraai/east-ui": "workspace:*",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@elaraai/east-c-wasm": {
+      "optional": true
+    }
   },
   "dependencies": {
     "@chakra-ui/charts": "^3.30.0",

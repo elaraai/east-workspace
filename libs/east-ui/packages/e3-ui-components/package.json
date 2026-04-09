@@ -30,11 +30,17 @@
     "@elaraai/e3-api-client": "workspace:*",
     "@elaraai/e3-types": "workspace:*",
     "@elaraai/east": "workspace:*",
+    "@elaraai/east-c-wasm": "workspace:*",
     "@elaraai/east-ui": "workspace:*",
     "@elaraai/east-ui-components": "workspace:*",
     "@tanstack/react-query": "^5.62.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@elaraai/east-c-wasm": {
+      "optional": true
+    }
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",

@@ -1,0 +1,22 @@
+{
+  "name": "@elaraai/e3-ui-showcase",
+  "version": "0.0.1",
+  "private": true,
+  "description": "e3 showcase package with East UI component tasks",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --build",
+    "export": "node --enable-source-maps dist/index.js"
+  },
+  "dependencies": {
+    "@elaraai/e3": "workspace:*",
+    "@elaraai/east": "workspace:*",
+    "@elaraai/east-ui": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.1",
+    "typescript": "~5.9.2"
+  }
+}

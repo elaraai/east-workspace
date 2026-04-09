@@ -1,7 +1,7 @@
 # east-ui — UI packages and VS Code extension
 # Dependencies are managed by pnpm from the monorepo root.
 
-.PHONY: build test lint dev clean extension extension-install help
+.PHONY: build test lint dev clean extension extension-install extension-uninstall help
 
 ## Build all packages (in dependency order)
 build:
@@ -27,6 +27,10 @@ extension:
 extension-install: extension
 	code --install-extension packages/east-ui-extension/*.vsix
 
+## Uninstall the VSCode extension
+extension-uninstall:
+	code --uninstall-extension elaraai.east-ui-preview || true
+
 ## Clean build artifacts
 clean:
 	rm -rf packages/*/dist packages/east-ui-extension/*.vsix
@@ -41,6 +45,7 @@ help:
 	@echo "  dev               - Run showcase dev server"
 	@echo "  extension         - Build and package VS Code extension"
 	@echo "  extension-install - Install VS Code extension"
+	@echo "  extension-uninstall - Uninstall VS Code extension"
 	@echo "  clean             - Clean build artifacts"
 	@echo ""
 	@echo "Dependencies are managed by pnpm from the monorepo root."

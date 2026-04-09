@@ -10,9 +10,105 @@ East UI decodes beast2 data values using the TypeScript beast2 decoder
 
 ## Solution
 
-Replace `decodeBeast2For()` calls with `east-c-wasm`'s `decodeValue()` which
+Replace `decodeBeast2For()` calls with `east-c-wasm`'s `decodeBeast2()` which
 uses the C beast2 decoder + direct memory bridge. This is faster (75ms vs 309ms
 for the UI benchmark), handles all types correctly, and is already built.
+
+## east-c-wasm API
+
+The `@elaraai/east-c-wasm` package (v0.1.1-beta) exposes a high-level
+`EastWasm` interface and platform-specific loaders:
+
+### Entry points
+
+| Export path | Usage | Loader |
+|-------------|-------|--------|
+| `@elaraai/east-c-wasm` | Node.js | `createEastWasm(options?)` |
+| `@elaraai/east-c-wasm/browser` | Browser | `createEastWasmBrowser({ wasmUrl, glueUrl? })` |
+| `@elaraai/east-c-wasm/common` | Platform-agnostic core | `createEastWasmFromModule(mod, state?)` |
+| `@elaraai/east-c-wasm/east-c.wasm` | Raw WASM binary (~598KB) | — |
+| `@elaraai/east-c-wasm/glue` | Emscripten glue JS | — |
+
+### EastWasm interface
+
+```typescript
+interface EastWasm {
+    /** Compile East IR from Beast2-full encoded bytes. */
+    compileFromBeast2(bytes: Uint8Array, platform?: PlatformFunction[]): CompiledFunction;
+
+    /** Compile East IR from JSON bytes. */
+    compileFromJson(json: Uint8Array, platform?: PlatformFunction[]): CompiledFunction;
+
+    /** Compile East IR from East text format. */
+    compileFromEast(text: string, platform?: PlatformFunction[]): CompiledFunction;
+
+    /** Decode a beast2 data value (any type) — no IR, no compilation.
+     *  Pass platform functions if the value contains closures that call them. */
+    decodeBeast2(bytes: Uint8Array, platform?: PlatformFunction[]): unknown;
+
+    /** Run garbage collection on the WASM heap. */
+    gc(): void;
+}
+
+interface CompiledFunction {
+    (...args: unknown[]): unknown;
+    free(): void;  // Release WASM handle
+}
+```
+
+### Browser loader
+
+```typescript
+import { createEastWasmBrowser } from '@elaraai/east-c-wasm/browser';
+
+const wasm = await createEastWasmBrowser({ wasmUrl: '/path/to/east-c.wasm' });
+```
+
+The browser loader requires a URL to the WASM binary. The glue JS URL is
+inferred from `wasmUrl` by replacing `.wasm` with `.js`, or can be provided
+explicitly via `glueUrl`.
+
+### Value representation (direct memory bridge)
+
+`decodeBeast2()` reads `EastValue*` pointers directly from WASM memory via
+per-kind accessor functions (`_east_wasm_value_kind`, `_east_wasm_get_bool`,
+`_east_wasm_array_get`, etc.) — no intermediate beast2 re-encoding. Returned
+JS values:
+
+| East type | JS representation |
+|-----------|-------------------|
+| Null | `null` |
+| Boolean | `boolean` |
+| Integer | `BigInt` |
+| Float | `number` |
+| String | `string` |
+| DateTime | `Date` |
+| Blob | `Uint8Array` |
+| Array | `Array` |
+| Set | `SortedSet` (from `@elaraai/east/internal`) |
+| Dict | `SortedMap` (from `@elaraai/east/internal`) |
+| Struct | `{ field: value }` plain object |
+| Variant | `variant(tag, value)` — branded with `variant_symbol` |
+| Ref | unwrapped inner value |
+| Vector | `Float64Array` / `BigInt64Array` (copied from WASM heap) |
+| Matrix | `{ rows, cols, data: Float64Array }` |
+| Function | callable JS wrapper (invokes WASM handle) |
+
+These are compatible with `match()`, `EastChakraComponent`, and all
+existing rendering code.
+
+### Platform function bridge
+
+Platform functions (State, Dataset, Overlay) are registered with the WASM
+module and called back from C via a packed binary protocol:
+
+```
+[count:u32le][len1:u32le][data1][len2:u32le][data2]...
+```
+
+Function-valued arguments use a sentinel (`0xFFFFFFFF`) followed by a handle ID
+and type bytes. The bridge creates callable JS wrappers around WASM function
+handles, enabling closures in decoded data to call back into the C runtime.
 
 ## Integration Points
 
@@ -33,14 +129,12 @@ const value = decoder(raw);
 
 **Proposed:**
 ```typescript
-const value = wasm.decodeValue(raw);
+const value = wasm.decodeBeast2(raw, platformImplementations);
 ```
 
-The `status.type` parameter is no longer needed — `decodeValue` is self-describing
-(beast2 v2 includes the type table). The `platform` parameter was for function
-closures in the decoded data — with the C decoder, closures are compiled
-internally and returned as opaque function handles (not yet callable from JS,
-but the data values around them decode correctly).
+The `status.type` parameter is no longer needed — beast2 v2 includes the type
+table, making the format self-describing. The `skipTypeCheck` option is
+irrelevant since the C decoder validates types structurally during decode.
 
 ### 2. State platform — `state_read` (east-ui-components)
 
@@ -56,11 +150,11 @@ return decode(ret);
 **Proposed:**
 ```typescript
 const ret = getStore().read(key as string);
-return wasm.decodeValue(ret);
+return wasm.decodeBeast2(ret);
 ```
 
 State values are beast2-encoded blobs stored in the UIStore. The type is
-known but `decodeValue` doesn't need it — the beast2 header contains the type.
+known but `decodeBeast2` doesn't need it — the beast2 header contains the type.
 
 ### 3. ReactiveDataset platform — `reactive_dataset_get` (east-ui-components)
 
@@ -74,7 +168,7 @@ return decode(cached);
 
 **Proposed:**
 ```typescript
-return wasm.decodeValue(cached);
+return wasm.decodeBeast2(cached);
 ```
 
 Same pattern — cached beast2 bytes decoded on read.
@@ -99,8 +193,10 @@ export async function getWasm(): Promise<EastWasm | null> {
 
     initPromise = (async () => {
         try {
-            const { createEastWasm } = await import('@elaraai/east-c-wasm/browser');
-            instance = await createEastWasm();
+            const { createEastWasmBrowser } = await import('@elaraai/east-c-wasm/browser');
+            instance = await createEastWasmBrowser({
+                wasmUrl: getWasmUrl(),
+            });
             return instance;
         } catch {
             failed = true;
@@ -113,6 +209,12 @@ export async function getWasm(): Promise<EastWasm | null> {
 
 export function getWasmSync(): EastWasm | null {
     return instance;
+}
+
+function getWasmUrl(): string {
+    // Extension webview: served as extension asset via webviewUri
+    // Standalone app: served from public/ or CDN
+    return (window as any).__EAST_WASM_URL__ ?? './east-c.wasm';
 }
 ```
 
@@ -133,14 +235,14 @@ export function useWasm(): EastWasm | null {
 ### Decode helper with fallback
 
 ```typescript
-export function decodeValue(
+export function decodeBeast2Value(
     wasm: EastWasm | null,
     bytes: Uint8Array,
     type: EastTypeValue,
     options?: { platform?: PlatformFunction[] },
 ): unknown {
     if (wasm) {
-        return wasm.decodeValue(bytes);
+        return wasm.decodeBeast2(bytes, options?.platform);
     }
     // Fallback to TS decoder
     return decodeBeast2For(type, options)(bytes);
@@ -155,7 +257,7 @@ export function decodeValue(
 ```json
 {
   "peerDependencies": {
-    "@elaraai/east-c-wasm": ">=0.1.0"
+    "@elaraai/east-c-wasm": "workspace:*"
   },
   "peerDependenciesMeta": {
     "@elaraai/east-c-wasm": {
@@ -166,28 +268,112 @@ export function decodeValue(
 ```
 
 If not installed, the dynamic import fails, `getWasm()` returns null,
-and `decodeValue` falls back to the TS decoder. No functional change.
+and `decodeBeast2Value` falls back to the TS decoder. No functional change.
 
-## Browser Deployment
+## east-ui-extension Integration
 
-The WASM binary (`east-c.wasm`, ~597KB) needs to be served alongside
-the app bundle. Options:
-- Copy to `public/` in Vite/webpack
-- Serve from CDN
-- `@elaraai/east-c-wasm/browser` handles loading from a URL
+The VS Code extension webview (`packages/east-ui-extension/`) bundles all
+code into a single IIFE file via Vite. WASM integration requires:
 
-## Value Representation
+### 1. WASM binary as extension asset
 
-The WASM `decodeValue` returns JS values via the direct memory bridge:
-- **Variants**: `variant(tag, value)` — branded with `variant_symbol`
-- **Structs**: plain `{ field: value }` objects
-- **Arrays**: JS `Array`
-- **Sets**: `SortedSet` (from `@elaraai/east/internal`)
-- **Dicts**: `SortedMap` (from `@elaraai/east/internal`)
-- **Scalars**: `BigInt`, `number`, `string`, `boolean`, `null`
+The WASM binary (~598KB) and Emscripten glue JS must be served as webview-
+accessible files alongside the bundled `index.js`.
 
-These are compatible with `match()`, `EastChakraComponent`, and all
-existing rendering code.
+**Approach:** Copy the WASM binary and glue JS into `dist/webview/` at build
+time, then serve via `webview.asWebviewUri()`:
+
+```typescript
+// src/webview/html.ts — add WASM URL as a webview global
+window.__EAST_WASM_URL__ = ${JSON.stringify(`${webviewUri}/east-c.wasm`)};
+```
+
+### 2. Vite config changes
+
+```typescript
+// webview/vite.config.ts — additions:
+{
+    build: {
+        rollupOptions: {
+            // Exclude WASM-related imports from the bundle — loaded at runtime
+            external: (id: string) =>
+                id.startsWith('node:') ||
+                id === '@elaraai/east-c-wasm/browser' ||
+                id.endsWith('.wasm'),
+        },
+    },
+}
+```
+
+The `@elaraai/east-c-wasm/browser` dynamic import uses Vite's `@vite-ignore`
+comment (already present in the browser loader's `import()` call), so Vite
+won't try to bundle the glue script.
+
+### 3. Build step: copy WASM assets
+
+```makefile
+# Makefile or package.json script
+build:webview:
+    cd webview && pnpm run build
+    cp node_modules/@elaraai/east-c-wasm/dist/wasm/east-c.wasm dist/webview/
+    cp node_modules/@elaraai/east-c-wasm/dist/wasm/east-c.js dist/webview/
+```
+
+### 4. CSP already allows WASM
+
+The extension's Content Security Policy already includes `'wasm-unsafe-eval'`:
+
+```html
+<meta http-equiv="Content-Security-Policy"
+    content="... script-src 'nonce-${nonce}' 'wasm-unsafe-eval' ...">
+```
+
+No CSP changes needed.
+
+### 5. Webview dependency
+
+Add `@elaraai/east-c-wasm` to the webview's `package.json`:
+
+```json
+// webview/package.json
+{
+  "dependencies": {
+    "@elaraai/east-c-wasm": "workspace:*"
+  }
+}
+```
+
+And to the extension's `devDependencies` (needed for the WASM asset copy):
+
+```json
+// package.json (extension root)
+{
+  "devDependencies": {
+    "@elaraai/east-c-wasm": "workspace:*"
+  }
+}
+```
+
+### 6. Extension summary
+
+| Concern | Status |
+|---------|--------|
+| CSP (`wasm-unsafe-eval`) | Already present |
+| WASM binary serving | Copy to `dist/webview/`, serve via `asWebviewUri()` |
+| Glue JS serving | Copy alongside WASM binary |
+| URL injection | `window.__EAST_WASM_URL__` global in webview HTML |
+| Vite bundling | Exclude browser loader from IIFE bundle |
+| Fallback | Dynamic import failure → TS decoder (unchanged behavior) |
+
+## Browser Deployment (Standalone)
+
+For standalone Vite/webpack apps (not the VS Code extension), the WASM binary
+(`east-c.wasm`, ~598KB) and glue JS (`east-c.js`) need to be served alongside
+the app bundle:
+
+- Copy both files to `public/` in Vite
+- Or serve from CDN
+- Set `window.__EAST_WASM_URL__` or pass URL directly to `createEastWasmBrowser`
 
 ## Encode Path
 
@@ -200,12 +386,17 @@ works correctly. Only the decode path changes.
 | File | Change |
 |------|--------|
 | `east-ui-components/src/platform/wasm.ts` | **New** — singleton WASM init + decode helper |
-| `east-ui-components/src/platform/state-runtime.ts` | Use `decodeValue` with WASM fallback |
-| `east-ui-components/src/platform/dataset-runtime.ts` | Use `decodeValue` with WASM fallback |
+| `east-ui-components/src/platform/state-runtime.ts` | Use `decodeBeast2Value` with WASM fallback |
+| `east-ui-components/src/platform/dataset-runtime.ts` | Use `decodeBeast2Value` with WASM fallback |
 | `east-ui-components/src/platform/hooks.tsx` | Add `useWasm` hook, pass to components |
 | `east-ui-components/package.json` | Add optional peer dep on `@elaraai/east-c-wasm` |
-| `e3-ui-components/src/hooks/useDatasetPreview.ts` | Use `decodeValue` with WASM fallback |
+| `e3-ui-components/src/hooks/useDatasetPreview.ts` | Use `decodeBeast2Value` with WASM fallback |
 | `e3-ui-components/package.json` | Add optional peer dep on `@elaraai/east-c-wasm` |
+| `east-ui-extension/src/webview/html.ts` | Add `__EAST_WASM_URL__` global |
+| `east-ui-extension/webview/vite.config.ts` | Exclude WASM browser loader from bundle |
+| `east-ui-extension/webview/package.json` | Add `@elaraai/east-c-wasm` dependency |
+| `east-ui-extension/package.json` | Add `@elaraai/east-c-wasm` devDependency |
+| `east-ui-extension/Makefile` or build script | Copy WASM + glue to `dist/webview/` |
 
 ## What Does NOT Change
 

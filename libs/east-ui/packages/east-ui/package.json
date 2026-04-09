@@ -12,10 +12,15 @@
     "./internal": {
       "types": "./dist/src/internal.d.ts",
       "default": "./dist/src/internal.js"
+    },
+    "./examples/buttons": {
+      "types": "./dist/test/buttons/button.examples.d.ts",
+      "default": "./dist/test/buttons/button.examples.js"
     }
   },
   "files": [
     "dist/src",
+    "dist/test/**/*.examples.*",
     "!dist/src/**/*.spec.*",
     "README.md",
     "LICENSE.md",

@@ -8,7 +8,6 @@ import { useQuery } from '@tanstack/react-query';
 import { datasetGetStatus, datasetGet } from '@elaraai/e3-api-client';
 import type { RequestOptions } from '@elaraai/e3-api-client';
 import {
-    decodeBeast2For,
     isTypeValueEqual,
     toEastTypeValue,
     variant,
@@ -20,6 +19,8 @@ import {
     StateImpl,
     DatasetImpl,
     OverlayImpl,
+    getWasmSync,
+    decodeBeast2Value,
 } from '@elaraai/east-ui-components';
 import type { QueryOverrides } from './types.js';
 
@@ -92,16 +93,18 @@ export function useDatasetPreview(
         const hash = raw.hash?.type === 'some' ? raw.hash.value : null;
         const sizeBytes = raw.size?.type === 'some' ? Number(raw.size.value) : null;
 
+        const type = raw.type as EastTypeValue;
+
         let isUI = false;
         try {
-            isUI = isTypeValueEqual(raw.type, toEastTypeValue(UIComponentType));
-        } catch {
-            // not a UI component
+            isUI = isTypeValueEqual(type, toEastTypeValue(UIComponentType));
+        } catch (e) {
+            console.error(`${LOG_PREFIX} isTypeValueEqual failed for`, datasetPath, e instanceof Error ? e.message : e);
         }
 
         const status: DatasetStatus = {
             path: raw.path,
-            type: raw.type,
+            type,
             refType: raw.refType,
             hash,
             sizeBytes,
@@ -157,11 +160,9 @@ export function useDatasetPreview(
         const raw = valueQuery.data.data;
         const decodeStart = performance.now();
         try {
-            const decoder = decodeBeast2For(status.type, {
+            const value = decodeBeast2Value(getWasmSync(), raw, status.type, {
                 platform: platformImplementations,
-                skipTypeCheck: true,
             });
-            const value = decoder(raw);
             const ms = performance.now() - decodeStart;
             console.log(`${LOG_PREFIX} decoded`, datasetPath, {
                 payloadKB: (raw.length / 1024).toFixed(1),

@@ -279,6 +279,12 @@ export { usePersistedState, type PersistedStateResult } from "./hooks/usePersist
 
 // Platform (State Management)
 export {
+    // WASM backend (optional)
+    EastWasmProvider,
+    getWasm,
+    getWasmSync,
+    decodeBeast2Value,
+
     // State namespace (main API)
     State,
 

@@ -18,9 +18,9 @@
 import {
     type EastTypeValue,
     encodeBeast2For,
-    decodeBeast2For,
 } from "@elaraai/east";
 import { type PlatformFunction } from "@elaraai/east/internal";
+import { getWasmSync, decodeBeast2Value } from "./wasm.js";
 import {
     reactive_dataset_get,
     reactive_dataset_set,
@@ -247,8 +247,7 @@ export const ReactiveDatasetPlatform: PlatformFunction[] = [
         }
 
         // Decode and return
-        const decode = decodeBeast2For(type);
-        return decode(cached);
+        return decodeBeast2Value(getWasmSync(), cached, type);
     }),
 
     /**

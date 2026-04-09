@@ -8,6 +8,10 @@ import { openPreviewCommand } from './commands/openPreview.js';
 import { stopE3Server } from './server/e3Server.js';
 
 export function activate(context: vscode.ExtensionContext) {
+    console.log(`[east-ui] activated from: ${context.extensionPath}`);
+    console.log(`[east-ui] extension mode: ${context.extensionMode === vscode.ExtensionMode.Development ? 'development' : context.extensionMode === vscode.ExtensionMode.Test ? 'test' : 'production'}`);
+    console.log(`[east-ui] hostname: ${require('os').hostname()}`);
+
     const disposable = vscode.commands.registerCommand(
         'east-ui.openPreview',
         async () => {

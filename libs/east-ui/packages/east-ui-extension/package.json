@@ -75,6 +75,7 @@
         "@elaraai/e3-api-client": "workspace:*",
         "@elaraai/e3-ui-components": "workspace:*",
         "@elaraai/east": "workspace:*",
+        "@elaraai/east-c-wasm": "workspace:*",
         "@elaraai/east-ui": "workspace:*",
         "@elaraai/east-ui-components": "workspace:*",
         "@types/node": "^22.0.0",
