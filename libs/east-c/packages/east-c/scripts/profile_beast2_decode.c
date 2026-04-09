@@ -134,6 +134,19 @@ static int profile_value(const uint8_t *data, long fsize, int iters) {
             fprintf(stderr, "  re-encoded size: %zu bytes (%.2f MB)\n", blob->len, blob->len / 1048576.0);
             byte_buffer_free(blob);
 
+            /* Write re-encoded blob for cross-decoder testing */
+            blob = east_beast2_encode_full(val, decoded_type);
+            {
+                const char *out_path = "/tmp/ui_reencoded.beast2";
+                FILE *out = fopen(out_path, "wb");
+                if (out) {
+                    fwrite(blob->data, 1, blob->len, out);
+                    fclose(out);
+                    fprintf(stderr, "  wrote %s (%zu bytes)\n", out_path, blob->len);
+                }
+            }
+            byte_buffer_free(blob);
+
             /* Timed iterations */
             clock_gettime(CLOCK_MONOTONIC, &t0);
             for (int i = 0; i < iters; i++) {

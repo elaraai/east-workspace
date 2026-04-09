@@ -503,6 +503,8 @@ EvalResult eval_ir(IRNode *node, Environment *env,
         /* Store source IR for serialization */
         fn->source_ir = node->data.function.source_ir;
         if (fn->source_ir) east_value_retain(fn->source_ir);
+        fn->source_ir_node = node;
+        ir_node_retain(node);
 
         /* Store function type (not owned — points to IR node's type) */
         fn->fn_type = node->type;
@@ -1239,6 +1241,11 @@ void east_compiled_fn_free(EastCompiledFn *fn)
     if (fn->source_ir) {
         east_value_release(fn->source_ir);
         fn->source_ir = NULL;
+    }
+
+    if (fn->source_ir_node) {
+        ir_node_release(fn->source_ir_node);
+        fn->source_ir_node = NULL;
     }
 
     east_free(fn);

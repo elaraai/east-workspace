@@ -16,8 +16,9 @@ struct EastCompiledFn {
     size_t num_params;
     PlatformRegistry *platform;
     BuiltinRegistry *builtins;
-    EastValue *source_ir;  // original IR variant value for serialization
-    EastType *fn_type;     // Function/AsyncFunction type (inputs + output), not owned
+    EastValue *source_ir;       // original IR variant value for serialization (from compile path)
+    IRNode *source_ir_node;     // original IR node for serialization (from beast2 decode path)
+    EastType *fn_type;          // Function/AsyncFunction type (inputs + output), not owned
 };
 
 // Top-level API

@@ -27,7 +27,16 @@ add_library(east-c
     src/builtins/patch.c
     src/serialization/json.c
     src/serialization/beast.c
-    src/serialization/beast2.c
+    src/serialization/beast2/tags.c
+    src/serialization/beast2/string_table.c
+    src/serialization/beast2/type_table.c
+    src/serialization/beast2/backref.c
+    src/serialization/beast2/dedup.c
+    src/serialization/beast2/value_encode.c
+    src/serialization/beast2/value_decode.c
+    src/serialization/beast2/full.c
+    src/serialization/beast2/ir_decode.c
+    src/serialization/beast2/ir_encode.c
     src/serialization/csv.c
     src/serialization/east_parser.c
     src/serialization/east_printer.c
