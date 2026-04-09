@@ -120,9 +120,13 @@ WASM decode OK, type: Grid
 
 Compliance tests: 46/46 Beast v2 tests pass, including closure round-trip cases.
 
-## Known issue: byte identity
+## Known issue: encode is not canonical
 
 **The re-encoded blob is 2.19MB, not the original 2.58MB.** Semantic equivalence is preserved (WASM decodes successfully, structure is correct), but the bytes are NOT identical. This matters for content-addressed storage (e3 hashes task outputs for dedup and cache invalidation).
+
+**The core invariant** that must hold: given a value + type, the encoder must produce identical bytes every time, regardless of how the value was constructed. Encode and decode MUST remain independent. The encoder should never need to know that a value "came from a decode" — that would be terrible architecture.
+
+If this invariant holds, byte identity comes for free: encoding the same logical value always produces the same bytes.
 
 ### Observed difference
 
@@ -132,19 +136,17 @@ Compliance tests: 46/46 Beast v2 tests pass, including closure round-trip cases.
 | Type table section length | 1342 bytes | 1837 bytes |
 | Type count in type table | 78 | 96 |
 
-The C re-encoded blob has a **larger type table with 18 extra type entries** but a **smaller overall file**. This suggests the C encoder is:
-1. Creating additional type entries that should dedupe with existing ones (pointer-identity dedup in `flat_tt_add_et` is missing some equivalent types)
-2. More aggressive about something (string table dedup? backreferences?) that offsets the type table bloat
+The C re-encoded blob has a **larger type table with 18 extra type entries** but a **smaller overall file**. This means the C encoder is not canonical — two valid encodings of the same value differ.
 
-### Suspected root cause
+### Root cause
 
-`flat_tt_add_et` uses **pointer-identity** deduplication. When the C decoder reconstructs types from a decoded beast2 blob, the resulting `EastType*` pointers may not match what TS's original encode pass would produce, even if they're structurally identical.
+`flat_tt_add_et` uses **pointer-identity** deduplication. This only produces canonical output if structurally identical types are guaranteed to have identical pointers everywhere in the codebase. That guarantee is broken in at least one of these ways:
 
-Specifically: during decode, `read_type_table_section` builds `EastType*` objects from the wire format. These go through the type constructors (which have interning), so in theory structurally identical types should get the same pointer. But:
+1. **Decoder interning is incomplete.** `read_type_table_section` reconstructs `EastType*` objects from the wire format via the type constructors. The type constructors have interning, so structurally identical types SHOULD get the same pointer. But if the decoder bypasses interning (e.g., constructs types directly without going through the canonical constructor path), distinct pointers for structurally identical types leak out.
 
-- If TS encoded types in DFS order A, B, C, D and C re-encodes in order A, B, D, C (because the walk order through IRNodes differs from TS's walk through EastValue)
-- Or if the C decoder creates a type that later gets interned with a different type constructed from the IR walk
-- The flat type table pointer dedup will miss some equivalences
+2. **Walk order differs.** Even with perfect pointer dedup, the order in which types are added to `flat_tt` depends on the walk order through the value graph. If the IRNode walk visits types in order A, B, D, C while the original TS walk was A, B, C, D, the type table has the same entries but in different positions → different wire bytes.
+
+Both issues violate the "encode must be canonical" invariant. Both need to be fixed in the encoder/interning, NOT by smuggling decode state into the encoder.
 
 ### How to reproduce
 
@@ -201,19 +203,29 @@ print(f'type count: orig={o_count} new={n_count}')
 # type count: orig=78 new=96
 ```
 
-### Ideas for a fix
+### Fixing it
 
-**Option A: Replay decoded type table on re-encode**
+Encode must remain independent of decode. The fix is to make encode canonical:
 
-During `east_beast2_decode_*`, cache the decoded type table (the raw bytes or the parsed entry list). During re-encode, if the source blob is available, reuse the same type table layout instead of rebuilding via `flat_tt_add_et`. Pros: byte-identical. Cons: requires tracking the source blob through the value lifetime, and only works for values that came from decode (not values constructed fresh).
+**Fix 1: Guarantee decoder interning is complete**
 
-**Option B: Interning-aware type reconstruction**
+Audit `read_type_table_section` and verify that EVERY reconstructed `EastType*` is canonical — i.e., structurally equivalent types always return the same pointer, whether they were constructed during decode, during IR conversion, or from user code. The existing type constructors have interning, but the decoder must route every type construction through them (not directly allocate `EastType` objects).
 
-Fix `read_type_table_section` to guarantee that structurally identical types produce pointer-identical `EastType*`. This would require the decoder to walk the type table bottom-up and canonicalize each entry through the type constructors before building parent types. Pros: fixes the underlying dedup bug. Cons: harder to implement, need to verify no regressions in existing interning.
+If this is already the case, instrument `flat_tt_add_et` to log when two entries in the flat table are structurally equivalent but have different pointers — that's the smoking gun.
 
-**Option C: Walk order fix**
+**Fix 2: Make walk order deterministic and match TS**
 
-Make the C re-encoder walk types in the same order as the TS encoder. The TS encoder walks values first, then types at variant/struct boundaries. The C re-encoder should match this walk order exactly. Pros: no changes to interning. Cons: requires understanding the exact TS walk order and matching it precisely in C.
+The flat type table is built in walk order: `flat_tt_add_et` is called as the encoder descends into the value graph. The order of additions becomes the type table indices in the wire format.
+
+For canonical output:
+- The walk order must be deterministic (currently it is — depth-first in struct field order, variant case order, etc.)
+- It must match the TS encoder's walk order exactly (currently it may not, particularly for IR encoding where the walk happens over IRNode fields instead of EastValue struct fields)
+
+The fix is probably not "make C walk the same as TS" — it's "pick ONE canonical walk order and enforce it in both TS and C". The two implementations must agree on what the canonical encoding is. Pick the order from the beast2 spec (or define it in the spec if undefined) and enforce it in both runtimes.
+
+**Fix 3: Test**
+
+Add a round-trip test to the compliance suite: `encode(decode(bytes)) == bytes` for the benchmark blob and any other non-trivial case. This would catch any future regression in canonicality.
 
 ### What works now (semantic equivalence)
 
