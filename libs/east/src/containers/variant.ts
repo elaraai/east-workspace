@@ -4,7 +4,7 @@
  *
  * @remarks
  */
-export const variant_symbol = Symbol("variant");
+export const variant_symbol = Symbol.for("@elaraai/east/variant");
 export type variant_symbol = typeof variant_symbol;
 
 /**

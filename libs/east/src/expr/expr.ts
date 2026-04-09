@@ -16,13 +16,13 @@ import type { CallableAsyncFunctionExpr } from "./asyncfunction.js";
  */
 export type ToExpr = <T extends AST>(ast: T, node_type?: any) => Expr<T["type"]>
 
-export const TypeSymbol = Symbol("type");
+export const TypeSymbol = Symbol.for("@elaraai/east/expr/type");
 export type TypeSymbol = typeof TypeSymbol;
 
-export const AstSymbol = Symbol("ast");
+export const AstSymbol = Symbol.for("@elaraai/east/expr/ast");
 export type AstSymbol = typeof AstSymbol;
 
-export const FactorySymbol = Symbol("factory");
+export const FactorySymbol = Symbol.for("@elaraai/east/expr/factory");
 export type FactorySymbol = typeof FactorySymbol;
 
 /**

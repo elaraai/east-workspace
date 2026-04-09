@@ -14,7 +14,7 @@ import { isMatrix, type matrix } from "./containers/matrix.js";
 // type objects that are structurally identical. Mirrors east-c's pointer interning.
 // =============================================================================
 
-export const type_id_symbol: unique symbol = Symbol("type_id");
+export const type_id_symbol: unique symbol = Symbol.for("@elaraai/east/type_id") as any;
 let _next_type_id = 0;
 
 /** Runtime type identity — all stamped EastType and EastTypeValue objects carry this. */

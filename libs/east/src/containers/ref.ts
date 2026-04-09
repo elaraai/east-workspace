@@ -4,7 +4,7 @@
  *
  * @remarks
  */
-export const ref_symbol = Symbol("ref");
+export const ref_symbol = Symbol.for("@elaraai/east/ref");
 export type ref_symbol = typeof ref_symbol;
 
 /**

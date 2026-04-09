@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-export const matrix_symbol = Symbol("matrix");
+export const matrix_symbol = Symbol.for("@elaraai/east/matrix");
 export type matrix_symbol = typeof matrix_symbol;
 
 export type matrix<T = Float64Array | BigInt64Array | Uint8ClampedArray> = {
