@@ -9,7 +9,8 @@
  */
 
 import { toEastTypeValue, type EastTypeValue } from "../../type_of_type.js";
-import { EAST_IR_SYMBOL, EAST_CAPTURES_SYMBOL, type RuntimeContext } from "../../compile.js";
+import { EAST_IR_SYMBOL, EAST_CAPTURES_SYMBOL, EAST_SOURCE_MAP_SYMBOL, type RuntimeContext } from "../../compile.js";
+import type { SourceMap } from "../../location.js";
 import { IRType, type FunctionIR, type AsyncFunctionIR } from "../../ir.js";
 import type { TypeTableBuilder } from "./type-table.js";
 
@@ -32,10 +33,11 @@ const irTypeValue = toEastTypeValue(IRType);
  * into a table. Identity-keyed dedup: same JS object → same table index.
  * Returns the table entries in first-encounter order.
  */
-export function buildValueTable(rootValue: any, rootType: EastTypeValue, typeTableBuilder?: TypeTableBuilder): ValueTableEntry[] {
+export function buildValueTable(rootValue: any, rootType: EastTypeValue, typeTableBuilder?: TypeTableBuilder): { entries: ValueTableEntry[], sourceMap: SourceMap | null } {
   const table: ValueTableEntry[] = [];
   const indexMap = new Map<any, number>();
   const recursiveCtx = new Map<bigint, EastTypeValue>(); // id → inner type
+  let discoveredSourceMap: SourceMap | null = null;
 
   function walk(value: any, type: EastTypeValue): void {
     switch (type.type) {
@@ -111,6 +113,10 @@ export function buildValueTable(rootValue: any, rootType: EastTypeValue, typeTab
         // are mutable containers that go in the value table like everything else.
         const ir = value[EAST_IR_SYMBOL] as FunctionIR | AsyncFunctionIR | undefined;
         if (!ir) return;
+        // Discover source map from first function encountered
+        if (!discoveredSourceMap) {
+          discoveredSourceMap = (value as any)[EAST_SOURCE_MAP_SYMBOL] as SourceMap | undefined ?? null;
+        }
         walk(ir, irTypeValue);
         // Walk capture values (user-level data)
         const captures = value[EAST_CAPTURES_SYMBOL] as RuntimeContext | undefined;
@@ -130,7 +136,7 @@ export function buildValueTable(rootValue: any, rootType: EastTypeValue, typeTab
   }
 
   walk(rootValue, rootType);
-  return table;
+  return { entries: table, sourceMap: discoveredSourceMap };
 }
 
 /**

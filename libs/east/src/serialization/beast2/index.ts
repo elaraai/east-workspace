@@ -394,9 +394,12 @@ function buildDecoder(type: EastTypeValue, typeCtx: Map<bigint, ValueDecoder> = 
               catch (e) { if (e instanceof ReturnException) return e.value; throw e; }
             };
 
-        // Attach IR and captures for re-serialization
+        // Attach IR, captures, and source map for re-serialization
         Object.defineProperty(fn, EAST_IR_SYMBOL, { value: ir, writable: false, enumerable: false, configurable: false });
         Object.defineProperty(fn, EAST_CAPTURES_SYMBOL, { value: captureContext, writable: false, enumerable: false, configurable: false });
+        if (ctx.sourceMap) {
+          Object.defineProperty(fn, EAST_SOURCE_MAP_SYMBOL, { value: ctx.sourceMap, writable: false, enumerable: false, configurable: false });
+        }
 
         return fn;
       };
@@ -669,14 +672,17 @@ export function encodeBeast2For(type: EastTypeValue | EastType, options?: { sour
   return (value: any) => {
     const builder = baseBuilder.clone();
     const stringTable = new Map<string, number>();
-    // Extract source map: explicit option > auto-detect from function value > null
-    const sourceMap = options?.sourceMap ?? (value?.[EAST_SOURCE_MAP_SYMBOL] as SourceMap | undefined) ?? null;
-
     // Build the mutable value table by walking the value graph.
-    // Pass the type table builder so recursive types are registered during the walk
-    // (wrappers are added before refs, satisfying the ordering constraint).
-    const vtEntries = buildValueTable(value, typeValue, builder);
+    // The walk also discovers the source map from any function in the value graph.
+    const vtResult = buildValueTable(value, typeValue, builder);
+    const vtEntries = vtResult.entries;
     const indexMap = buildIndexMap(vtEntries);
+
+    // Source map: explicit option > root value > discovered during walk > null
+    const sourceMap = options?.sourceMap
+      ?? (value?.[EAST_SOURCE_MAP_SYMBOL] as SourceMap | undefined)
+      ?? vtResult.sourceMap
+      ?? null;
     const ctx: EncodeContext = { indexMap, typeTable: builder, stringTable };
 
     // Encode value table entries FIRST — this discovers types and strings

@@ -326,26 +326,8 @@ EastValue *beast2_decode_value(const uint8_t *data, size_t len,
         fn->builtins = east_current_builtins();
         fn->source_ir = ir_value;
 
-        /* Copy source map from decode context onto compiled function */
-        if (ctx->source_map && ctx->source_map->num_stacks > 1) {
-            EastSourceMap *sm = calloc(1, sizeof(EastSourceMap));
-            sm->num_stacks = ctx->source_map->num_stacks;
-            sm->stacks = calloc(sm->num_stacks, sizeof(EastLocation *));
-            sm->stack_counts = calloc(sm->num_stacks, sizeof(size_t));
-            for (size_t i = 0; i < sm->num_stacks; i++) {
-                sm->stack_counts[i] = ctx->source_map->stack_counts[i];
-                if (sm->stack_counts[i] > 0) {
-                    sm->stacks[i] = calloc(sm->stack_counts[i], sizeof(EastLocation));
-                    for (size_t j = 0; j < sm->stack_counts[i]; j++) {
-                        sm->stacks[i][j].filename = ctx->source_map->stacks[i][j].filename
-                            ? strdup(ctx->source_map->stacks[i][j].filename) : NULL;
-                        sm->stacks[i][j].line = ctx->source_map->stacks[i][j].line;
-                        sm->stacks[i][j].column = ctx->source_map->stacks[i][j].column;
-                    }
-                }
-            }
-            fn->source_map = sm;
-        }
+        /* Share source map from decode context (not owned — blob outlives functions) */
+        fn->source_map = ctx->source_map;
 
         EastValue *result = east_function_value(fn);
         return result;

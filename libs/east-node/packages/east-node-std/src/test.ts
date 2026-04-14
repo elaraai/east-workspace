@@ -7,7 +7,7 @@ import util from "node:util";
 import { test as testNode, describe as describeNode } from "node:test";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { AsyncFunctionType, East, Expr, get_location, IRType, NullType, printLocations, StringType, toJSONFor, type SubtypeExprOrValue, type ExampleDef } from "@elaraai/east";
+import { AsyncFunctionType, East, Expr, get_location, IRType, NullType, printLocations, StringType, toJSONFor, type SubtypeExprOrValue, type ExampleDef, ArrayType, IntegerType, StructType } from "@elaraai/east";
 import type { BlockBuilder, PlatformFunction, TypeSymbol } from "@elaraai/east/internal";
 
 const { str } = East;
@@ -73,7 +73,13 @@ export const TestImpl: PlatformFunction[] = [
     describe.implement((name: string, body: () => Promise<null>) => describeNode(name, async () => { await body(); })),
 ]
 
-const IRToJSON = toJSONFor(IRType);
+/* Type-directed JSON serialization for the test IR export format:
+ * StructType({ ir: IRType, source_map: StructType({ stacks: Array(Array(Struct({column,filename,line}))) }) })
+ * Note: struct fields are sorted alphabetically in East's structural type system. */
+const LocationType = StructType({ column: IntegerType, filename: StringType, line: IntegerType });
+const SourceMapType = StructType({ stacks: ArrayType(ArrayType(LocationType)) });
+const ExportWrapperType = StructType({ ir: IRType, source_map: SourceMapType });
+const exportToJSON = toJSONFor(ExportWrapperType);
 
 /**
  * Configuration options for East test suites.
@@ -204,10 +210,14 @@ export function describeEast(
             mkdirSync(outputDir, { recursive: true });
 
             const ir = suiteFunction.toIR();
-            const irJSON = IRToJSON(ir.ir);
+            const stacks = (ir.source_map?.entries() ?? [[]]).map(
+              stack => stack.map(frame => ({ column: frame.column, filename: frame.filename, line: frame.line }))
+            );
+            const wrapperValue = { ir: ir.ir, source_map: { stacks } };
+            const wrapperJSON = exportToJSON(wrapperValue);
 
             const filename = join(outputDir, `${suiteName.replace(/[^a-zA-Z0-9]/g, '_')}.json`);
-            writeFileSync(filename, JSON.stringify(irJSON, null, 2));
+            writeFileSync(filename, JSON.stringify(wrapperJSON, null, 2));
             console.log(`✓ Exported test IR: ${filename}`);
         } catch (err) {
             console.error(`✗ Failed to export test IR for "${suiteName}":`, err);

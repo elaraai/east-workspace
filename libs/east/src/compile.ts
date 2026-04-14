@@ -346,6 +346,16 @@ export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeVal
         configurable: false
       });
 
+      // Propagate source map from enclosing compilation scope
+      if (source_map) {
+        Object.defineProperty(fn, EAST_SOURCE_MAP_SYMBOL, {
+          value: source_map,
+          writable: false,
+          enumerable: false,
+          configurable: false
+        });
+      }
+
       return fn;
     }
   } else if (ir.type === "AsyncFunction") {
@@ -394,6 +404,16 @@ export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeVal
         enumerable: false,
         configurable: false
       });
+
+      // Propagate source map from enclosing compilation scope
+      if (source_map) {
+        Object.defineProperty(fn, EAST_SOURCE_MAP_SYMBOL, {
+          value: source_map,
+          writable: false,
+          enumerable: false,
+          configurable: false
+        });
+      }
 
       return fn;
     }
