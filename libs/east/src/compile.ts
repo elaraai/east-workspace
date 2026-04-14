@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { type BuiltinName } from "./builtins.js";
-import { type IR, type LocationValue, printLocationValue } from "./ir.js";
+import { type IR } from "./ir.js";
 import { compareFor, equalFor, greaterEqualFor, greaterFor, isFor, lessEqualFor, lessFor, notEqualFor } from "./comparison.js";
 import { diffFor } from "./patch/diff.js";
 import { applyFor } from "./patch/apply.js";
@@ -13,6 +13,7 @@ import { ConflictError } from "./patch/index.js";
 import { printFor, parseFor } from "./serialization/east.js";
 import { variant, type option } from "./containers/variant.js";
 import { EastError, InternalError } from "./error.js";
+import { get_current_source_map, type SourceMap } from "./location.js";
 import { SortedSet } from "./containers/sortedset.js";
 import { SortedMap } from "./containers/sortedmap.js";
 import { BufferWriter } from "./serialization/binary-utils.js";
@@ -40,6 +41,12 @@ export const EAST_IR_SYMBOL = Symbol.for("east.ir");
  * This enables serialization of closures (functions with captures).
  */
 export const EAST_CAPTURES_SYMBOL = Symbol.for("east.captures");
+
+/**
+ * Symbol used to attach source map to compiled functions.
+ * Enables encoding location stacks into beast2 source_map_section.
+ */
+export const EAST_SOURCE_MAP_SYMBOL = Symbol.for("east.source_map");
 
 // =============================================================================
 // Context Value Types - for variables in execution context
@@ -114,23 +121,29 @@ class BreakException {
 *
 * @internal
 */
+// Captured once per top-level compile; all closures share the same SourceMap.
+let _compile_source_map: SourceMap | null = null;
+
 export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeValue>, platform: Record<string, (...args: any[]) => any>, asyncPlatformFns: Set<string>, platformDef: PlatformFunction[], fresh_ctx: boolean = true, compilingNodes: Set<IR> = new Set()): (ctx: RuntimeContext) => any {
+  // Capture source map from the active scope on first call
+  if (fresh_ctx) _compile_source_map = get_current_source_map();
+  const source_map = _compile_source_map;
+
   // The IR is checked prior to compilation, so we can assume it's valid here.
   // The compiler needs to take care that Promises are properly awaited, so most IR nodes need both sync and async implementations.
   // We assume unnecessary `async` functions degrade performance but unnecessary `await`s are not too bad, so while we could be more "specific" in our awaits we do not bother
-
-  // TODO if function calls accepted the call Location, we could probably simplify the call site code generation
 
   if (ir.type === "Value") {
     const v = ir.value.value.value;
     return (_ctx: RuntimeContext) => v;
   } else if (ir.type === "Error") {
     const message_compiled = compile_internal(ir.value.message, ctx, platform, asyncPlatformFns, platformDef, false, compilingNodes);
-    const location = ir.value.location;
     if (ir.value.isAsync) {
-      return async (ctx: RuntimeContext) => { throw new EastError(await message_compiled(ctx), { location: location }); };
+      const err_loc_id = ir.value.loc_id;
+      return async (ctx: RuntimeContext) => { throw new EastError(await message_compiled(ctx), { loc_id: err_loc_id, source_map }); };
     } else {
-      return (ctx: RuntimeContext) => { throw new EastError(message_compiled(ctx), { location: location }); };
+      const err_loc_id = ir.value.loc_id;
+      return (ctx: RuntimeContext) => { throw new EastError(message_compiled(ctx), { loc_id: err_loc_id, source_map }); };
     }
   } else if (ir.type === "TryCatch") {
     const try_body = compile_internal(ir.value.try_body, Object.create(ctx), platform, asyncPlatformFns, platformDef, true, compilingNodes);
@@ -154,7 +167,7 @@ export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeVal
             if (e instanceof EastError) {
               const new_ctx: RuntimeContext = Object.create(ctx);
               new_ctx[message_name] = variant("value", e.message);
-              new_ctx[stack_name] = variant("value", e.location);
+              new_ctx[stack_name] = variant("value", e.source_map ? [...e.source_map.resolve(e.loc_id)].map(l => ({ filename: l.filename, line: l.line, column: l.column })) : []);
               return await catch_body(new_ctx);
             } else {
               throw(e);
@@ -169,7 +182,7 @@ export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeVal
             if (e instanceof EastError) {
               const new_ctx: RuntimeContext = Object.create(ctx);
               new_ctx[message_name] = variant("value", e.message);
-              new_ctx[stack_name] = variant("value", e.location);
+              new_ctx[stack_name] = variant("value", e.source_map ? [...e.source_map.resolve(e.loc_id)].map(l => ({ filename: l.filename, line: l.line, column: l.column })) : []);
               return await catch_body(new_ctx);
             } else {
               throw(e);
@@ -188,7 +201,7 @@ export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeVal
             if (e instanceof EastError) {
               const new_ctx: RuntimeContext = Object.create(ctx);
               new_ctx[message_name] = variant("value", e.message);
-              new_ctx[stack_name] = variant("value", e.location);
+              new_ctx[stack_name] = variant("value", e.source_map ? [...e.source_map.resolve(e.loc_id)].map(l => ({ filename: l.filename, line: l.line, column: l.column })) : []);
               return catch_body(new_ctx);
             } else {
               throw(e);
@@ -203,7 +216,7 @@ export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeVal
             if (e instanceof EastError) {
               const new_ctx: RuntimeContext = Object.create(ctx);
               new_ctx[message_name] = variant("value", e.message);
-              new_ctx[stack_name] = variant("value", e.location);
+              new_ctx[stack_name] = variant("value", e.source_map ? [...e.source_map.resolve(e.loc_id)].map(l => ({ filename: l.filename, line: l.line, column: l.column })) : []);
               return catch_body(new_ctx);
             } else {
               throw(e);
@@ -387,7 +400,7 @@ export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeVal
   } else if (ir.type === "Call") {
     const compiled_f = compile_internal(ir.value.function, ctx, platform, asyncPlatformFns, platformDef, false, compilingNodes);
     const compiled_args = ir.value.arguments.map(argument => compile_internal(argument, ctx, platform, asyncPlatformFns, platformDef, false, compilingNodes));
-    const location = ir.value.location;
+    const loc_id = ir.value.loc_id;
 
     if (ir.value.isAsync) {
       // need to await the arguments
@@ -402,12 +415,12 @@ export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeVal
           if (e instanceof ReturnException) {
             return e.value;
           } else if (e instanceof EastError) {
-            e.location.push(...location); // The fact that we need to push the call location not the definition location means we need to handle this here
+            // TODO: push loc_id to EastError once SourceMap resolution is wired up
             throw(e);
           } else if (e instanceof ContinueException) {
-            throw new Error(`continue failed to find label ${e.label} at ${printLocationValue(ir.value.location)}`)
+            throw new Error(`continue failed to find label ${e.label} at loc_id ${loc_id}`)
           } else if (e instanceof BreakException) {
-            throw new Error(`break failed to find label ${e.label} at ${printLocationValue(ir.value.location)}`)
+            throw new Error(`break failed to find label ${e.label} at loc_id ${loc_id}`)
           } else {
             throw(e);
           }
@@ -421,12 +434,12 @@ export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeVal
           if (e instanceof ReturnException) {
             return e.value;
           } else if (e instanceof EastError) {
-            e.location.push(...location); // The fact that we need to push the call location not the definition location means we need to handle this here
+            // TODO: push loc_id to EastError once SourceMap resolution is wired up
             throw(e);
           } else if (e instanceof ContinueException) {
-            throw new Error(`continue failed to find label ${e.label} at ${printLocationValue(ir.value.location)}`)
+            throw new Error(`continue failed to find label ${e.label} at loc_id ${loc_id}`)
           } else if (e instanceof BreakException) {
-            throw new Error(`break failed to find label ${e.label} at ${printLocationValue(ir.value.location)}`)
+            throw new Error(`break failed to find label ${e.label} at loc_id ${loc_id}`)
           } else {
             throw(e);
           }
@@ -436,7 +449,7 @@ export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeVal
   } else if (ir.type === "CallAsync") {
     const compiled_f = compile_internal(ir.value.function, ctx, platform, asyncPlatformFns, platformDef, false, compilingNodes);
     const compiled_args = ir.value.arguments.map(argument => compile_internal(argument, ctx, platform, asyncPlatformFns, platformDef, false, compilingNodes));
-    const location = ir.value.location;
+    const loc_id = ir.value.loc_id;
 
     return async (ctx: RuntimeContext) => {
       try {
@@ -449,12 +462,12 @@ export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeVal
         if (e instanceof ReturnException) {
           return e.value;
         } else if (e instanceof EastError) {
-          e.location.push(...location); // The fact that we need to push the call location not the definition location means we need to handle this here
+          // TODO: push loc_id to EastError once SourceMap resolution is wired up
           throw(e);
         } else if (e instanceof ContinueException) {
-          throw new Error(`continue failed to find label ${e.label} at ${printLocationValue(ir.value.location)}`)
+          throw new Error(`continue failed to find label ${e.label} at loc_id ${loc_id}`)
         } else if (e instanceof BreakException) {
-          throw new Error(`break failed to find label ${e.label} at ${printLocationValue(ir.value.location)}`)
+          throw new Error(`break failed to find label ${e.label} at loc_id ${loc_id}`)
         } else {
           throw(e);
         }
@@ -987,14 +1000,15 @@ export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeVal
     });
 
     // Special optimization for regex builtins with literal pattern/flags
+    const loc_id = ir.value.loc_id;
     if ((ir.value.builtin === "RegexContains" || ir.value.builtin === "RegexIndexOf" || ir.value.builtin === "RegexReplace") &&
     ir.value.arguments[1]?.type === "Value" &&
     ir.value.arguments[2]?.type === "Value") {
       if (ir.value.arguments[1].value.value.type !== "String") {
-        throw new Error(`Regex builtin pattern argument must be String literal at ${printLocationValue(ir.value.arguments[1].value.location)}`);
+        throw new Error(`Regex builtin pattern argument must be String literal at loc_id ${ir.value.arguments[1].value.loc_id}`);
       }
       if (ir.value.arguments[2].value.value.type !== "String") {
-        throw new Error(`Regex builtin flags argument must be String literal at ${printLocationValue(ir.value.arguments[2].value.location)}`);
+        throw new Error(`Regex builtin flags argument must be String literal at loc_id ${ir.value.arguments[2].value.loc_id}`);
       }
 
       // Compile regex once at closure compilation time
@@ -1032,7 +1046,7 @@ export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeVal
         // Check if replacement is also constant for full optimization
         if (ir.value.arguments[3]?.type === "Value") {
           if (ir.value.arguments[3].value.value.type !== "String") {
-            throw new Error(`RegexReplace builtin replacement argument must be String literal at ${printLocationValue(ir.value.arguments[3].value.location)}`);
+            throw new Error(`RegexReplace builtin replacement argument must be String literal at loc_id ${ir.value.arguments[3].value.loc_id}`);
           }
 
           // FULL OPTIMIZATION: Pattern, flags, and replacement are all constant
@@ -1048,7 +1062,7 @@ export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeVal
               i += char.length;
               let char2 = replacement[i];
               if (char2 === undefined) {
-                return (_ctx: RuntimeContext) => { throw new EastError(`invalid regex replacement string: unescaped $ at end of string`, { location: ir.value.arguments[3].value.location }) };
+                return (_ctx: RuntimeContext) => { throw new EastError(`invalid regex replacement string: unescaped $ at end of string`, { loc_id, source_map }) };
               } else if (char2 === '$') {
                 i += 1;
               } else if (char2 >= '1' && char2 <= '9') {
@@ -1065,23 +1079,23 @@ export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeVal
                 char2 = replacement[i];
                 while (true) {
                   if (char2 === undefined) {
-                    return (_ctx: RuntimeContext) => { throw new EastError(`invalid regex replacement string: unterminated group name in $<...>`, { location: ir.value.arguments[3].value.location }) };
+                    return (_ctx: RuntimeContext) => { throw new EastError(`invalid regex replacement string: unterminated group name in $<...>`, { loc_id, source_map }) };
                   }
                   if (char2 === '>') {
                     break;
                   }
                   if (!((char2 >= '0' && char2 <= '9') || (char2 >= 'a' && char2 <= 'z') || (char2 >= 'A' && char2 <= 'Z') || char2 === '_')) {
-                    return (_ctx: RuntimeContext) => { throw new EastError(`invalid regex replacement string: invalid character ${JSON.stringify(char2)} in group name in $<...>`, { location: ir.value.arguments[3].value.location }) };
+                    return (_ctx: RuntimeContext) => { throw new EastError(`invalid regex replacement string: invalid character ${JSON.stringify(char2)} in group name in $<...>`, { loc_id, source_map }) };
                   }
                   i += 1;
                   char2 = replacement[i];
                 }
                 if (i === init_i) {
-                  return (_ctx: RuntimeContext) => { throw new EastError(`invalid regex replacement string: empty group name in $<>`, { location: ir.value.arguments[3].value.location }) };
+                  return (_ctx: RuntimeContext) => { throw new EastError(`invalid regex replacement string: empty group name in $<>`, { loc_id, source_map }) };
                 }
                 i += 1; // for closing >
               } else {
-                return (_ctx: RuntimeContext) => { throw new EastError(`invalid regex replacement string: unescaped $ at $${char2}`, { location: ir.value.arguments[3].value.location }) };
+                return (_ctx: RuntimeContext) => { throw new EastError(`invalid regex replacement string: unescaped $ at $${char2}`, { loc_id, source_map }) };
               }
             } else {
               i += char.length;
@@ -1109,7 +1123,7 @@ export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeVal
                 i += char.length;
                 let char2 = replacement[i];
                 if (char2 === undefined) {
-                  throw new EastError(`invalid regex replacement string: unescaped $ at end of string`, { location: ir.value.arguments[3].value.location });
+                  throw new EastError(`invalid regex replacement string: unescaped $ at end of string`, { loc_id, source_map });
                 } else if (char2 === '$') {
                   i += 1;
                 } else if (char2 >= '1' && char2 <= '9') {
@@ -1126,23 +1140,23 @@ export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeVal
                   char2 = replacement[i];
                   while (true) {
                     if (char2 === undefined) {
-                      throw new EastError(`invalid regex replacement string: unterminated group name in $<...>`, { location: ir.value.arguments[3].value.location });
+                      throw new EastError(`invalid regex replacement string: unterminated group name in $<...>`, { loc_id, source_map });
                     }
                     if (char2 === '>') {
                       break;
                     }
                     if (!((char2 >= '0' && char2 <= '9') || (char2 >= 'a' && char2 <= 'z') || (char2 >= 'A' && char2 <= 'Z') || char2 === '_')) {
-                      throw new EastError(`invalid regex replacement string: invalid character ${JSON.stringify(char2)} in group name in $<...>`, { location: ir.value.arguments[3].value.location });
+                      throw new EastError(`invalid regex replacement string: invalid character ${JSON.stringify(char2)} in group name in $<...>`, { loc_id, source_map });
                     }
                     i += 1;
                     char2 = replacement[i];
                   }
                   if (i === init_i) {
-                    throw new EastError(`invalid regex replacement string: empty group name in $<>`, { location: ir.value.arguments[3].value.location });
+                    throw new EastError(`invalid regex replacement string: empty group name in $<>`, { loc_id, source_map });
                   }
                   i += 1; // for closing >
                 } else {
-                  throw new EastError(`invalid regex replacement string: unescaped $ at $${char2}`, { location: ir.value.arguments[3].value.location });
+                  throw new EastError(`invalid regex replacement string: unescaped $ at $${char2}`, { loc_id, source_map });
                 }
               } else {
                 i += char.length;
@@ -1154,7 +1168,7 @@ export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeVal
       }
     }
 
-    const evaluator = builtin_evaluators[ir.value.builtin](ir.value.location, platformDef, ...ir.value.type_parameters);
+    const evaluator = builtin_evaluators[ir.value.builtin](ir.value.loc_id, source_map, platformDef, ...ir.value.type_parameters);
     if (argsAsync) {
       return async (ctx: RuntimeContext) => {
         const args_resolved: any[] = [];
@@ -1167,6 +1181,7 @@ export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeVal
       return (ctx: RuntimeContext) => evaluator(...args.map(a => a(ctx)));
     }
   } else if (ir.type === "Platform") {
+    const loc_id = ir.value.loc_id;
     let argsAsync = false;
     const args = ir.value.arguments.map(a => {
       if (a.value.isAsync) {
@@ -1188,9 +1203,8 @@ export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeVal
       if (!platformFn.fn) {
         // Missing generic platform function - create stub that throws at runtime
         const name = ir.value.name;
-        const location = ir.value.location;
         evaluator = () => {
-          throw new EastError(`Platform function '${name}' is not available`, { location });
+          throw new EastError(`Platform function '${name}' is not available`, { loc_id, source_map });
         };
       } else {
         evaluator = platformFn.fn(...typeParams);
@@ -1201,9 +1215,8 @@ export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeVal
       if (platformEvaluator === undefined) {
         // Missing platform function - create stub that throws at runtime
         const name = ir.value.name;
-        const location = ir.value.location;
         evaluator = () => {
-          throw new EastError(`Platform function '${name}' is not available`, { location });
+          throw new EastError(`Platform function '${name}' is not available`, { loc_id, source_map });
         };
       } else {
         evaluator = platformEvaluator;
@@ -1222,24 +1235,24 @@ export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeVal
       return (ctx: RuntimeContext) => evaluator(...args.map(a => a(ctx))); // evaluator can return Promise unconditionally in tail position if the platform function is async
     }
   } else {
-    throw new Error(`Unhandled IR type ${(ir satisfies never as IR).type} at ${printLocationValue((ir as IR).value.location)}`); // The `satisfies never` here ensures that this branch is unreachable if all IR types are handled
+    throw new Error(`Unhandled IR type ${(ir satisfies never as IR).type} at loc_id ${(ir as IR).value.loc_id}`); // The `satisfies never` here ensures that this branch is unreachable if all IR types are handled
   }
 }
 
 /** Used to call a compiled function with the given arguments and handle errors within builtin functions */
-function call_function(location: LocationValue[], compiled_f: (...args: any[]) => any, ...args: any[]): any {
+function call_function(loc_id: bigint, source_map: SourceMap | null, compiled_f: (...args: any[]) => any, ...args: any[]): any {
   try {
     return compiled_f(...args);
   } catch (e: unknown) {
     if (e instanceof ReturnException) {
       return e.value;
     } else if (e instanceof EastError) {
-      e.location.push(...location); // The fact that we need to push the call location not the definition location means we need to handle this here
+      // TODO: push loc_id to EastError once SourceMap resolution is wired up
       throw(e);
     } else if (e instanceof ContinueException) {
-      throw new Error(`continue failed to find label ${e.label} at ${printLocationValue(location)}`)
+      throw new Error(`continue failed to find label ${e.label} at loc_id ${loc_id}`)
     } else if (e instanceof BreakException) {
-      throw new Error(`break failed to find label ${e.label} at ${printLocationValue(location)}`)
+      throw new Error(`break failed to find label ${e.label} at loc_id ${loc_id}`)
     } else {
       throw(e);
     }
@@ -1275,58 +1288,58 @@ function createTypedArray(elementType: EastTypeValue, values: any[]): Float64Arr
 }
 
 /** @internal */
-const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platformDef: PlatformFunction[], ...arg_types: any[]) => (...args: any[]) => any> = {
-  Is: (_location: LocationValue[], _platformDef: PlatformFunction[], T: EastTypeValue) => isFor(T),
-  Equal: (_location: LocationValue[], _platformDef: PlatformFunction[], T: EastTypeValue) => equalFor(T),
-  NotEqual: (_location: LocationValue[], _platformDef: PlatformFunction[], T: EastTypeValue) => notEqualFor(T),
-  Less: (_location: LocationValue[], _platformDef: PlatformFunction[], T: EastTypeValue) => lessFor(T),
-  LessEqual: (_location: LocationValue[], _platformDef: PlatformFunction[], T: EastTypeValue) => lessEqualFor(T),
-  Greater: (_location: LocationValue[], _platformDef: PlatformFunction[], T: EastTypeValue) => greaterFor(T),
-  GreaterEqual: (_location: LocationValue[], _platformDef: PlatformFunction[], T: EastTypeValue) => greaterEqualFor(T),
-  Diff: (_location: LocationValue[], _platformDef: PlatformFunction[], T: EastTypeValue) => diffFor(T),
-  ApplyPatch: (location: LocationValue[], _platformDef: PlatformFunction[], T: EastTypeValue) => {
+const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: SourceMap | null, platformDef: PlatformFunction[], ...arg_types: any[]) => (...args: any[]) => any> = {
+  Is: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => isFor(T),
+  Equal: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => equalFor(T),
+  NotEqual: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => notEqualFor(T),
+  Less: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => lessFor(T),
+  LessEqual: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => lessEqualFor(T),
+  Greater: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => greaterFor(T),
+  GreaterEqual: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => greaterEqualFor(T),
+  Diff: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => diffFor(T),
+  ApplyPatch: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => {
     const apply = applyFor(T);
     return (base: any, patch: any) => {
       try {
         return apply(base, patch);
       } catch (e) {
         if (e instanceof ConflictError) {
-          throw new EastError(e.message, { location });
+          throw new EastError(e.message, { loc_id, source_map });
         }
         throw e;
       }
     };
   },
-  ComposePatch: (location: LocationValue[], _platformDef: PlatformFunction[], T: EastTypeValue) => {
+  ComposePatch: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => {
     const compose = composeFor(T);
     return (first: any, second: any) => {
       try {
         return compose(first, second);
       } catch (e) {
         if (e instanceof ConflictError) {
-          throw new EastError(e.message, { location });
+          throw new EastError(e.message, { loc_id, source_map });
         }
         throw e;
       }
     };
   },
-  InvertPatch: (_location: LocationValue[], _platformDef: PlatformFunction[], T: EastTypeValue) => invertFor(T),
-  BooleanNot: (_location: LocationValue[]) => (x: boolean) => !x,
-  BooleanOr: (_location: LocationValue[]) => (x: boolean, y: boolean) => x || y,
-  BooleanAnd: (_location: LocationValue[]) => (x: boolean, y: boolean) => x && y,
-  BooleanXor: (_location: LocationValue[]) => (x: boolean, y: boolean) => x !== y,
+  InvertPatch: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => invertFor(T),
+  BooleanNot: (_loc_id: bigint, _source_map: SourceMap | null) => (x: boolean) => !x,
+  BooleanOr: (_loc_id: bigint, _source_map: SourceMap | null) => (x: boolean, y: boolean) => x || y,
+  BooleanAnd: (_loc_id: bigint, _source_map: SourceMap | null) => (x: boolean, y: boolean) => x && y,
+  BooleanXor: (_loc_id: bigint, _source_map: SourceMap | null) => (x: boolean, y: boolean) => x !== y,
   
-  IntegerToFloat: (_location: LocationValue[]) => (x: bigint) => Number(x),
-  IntegerNegate: (_location: LocationValue[]) => (x: bigint) => BigInt.asIntN(64, -x),
-  IntegerAdd: (_location: LocationValue[]) => (x: bigint, y: bigint) => BigInt.asIntN(64, x + y),
-  IntegerSubtract: (_location: LocationValue[]) => (x: bigint, y: bigint) => BigInt.asIntN(64, x - y),
-  IntegerMultiply: (_location: LocationValue[]) => (x: bigint, y: bigint) => BigInt.asIntN(64, x * y),
-  IntegerDivide: (_location: LocationValue[]) => (x: bigint, y: bigint) => x === 0n ? 0n : x / y,
-  IntegerRemainder: (_location: LocationValue[]) => (x: bigint, y: bigint) => x === 0n ? 0n : x % y,
-  IntegerPow: (_location: LocationValue[]) => (x: bigint, y: bigint) => y >= 0n ? BigInt.asIntN(64, x ** y) : 0n,
-  IntegerAbs: (_location: LocationValue[]) => (x: bigint) => BigInt.asIntN(64, x < 0n ? -x : x),
-  IntegerSign: (_location: LocationValue[]) => (x: bigint) => x > 0n ? 1n : x < 0n ? -1n : 0n,
-  IntegerLog: (_location: LocationValue[]) => (value: bigint, base: bigint) => {
+  IntegerToFloat: (_loc_id: bigint, _source_map: SourceMap | null) => (x: bigint) => Number(x),
+  IntegerNegate: (_loc_id: bigint, _source_map: SourceMap | null) => (x: bigint) => BigInt.asIntN(64, -x),
+  IntegerAdd: (_loc_id: bigint, _source_map: SourceMap | null) => (x: bigint, y: bigint) => BigInt.asIntN(64, x + y),
+  IntegerSubtract: (_loc_id: bigint, _source_map: SourceMap | null) => (x: bigint, y: bigint) => BigInt.asIntN(64, x - y),
+  IntegerMultiply: (_loc_id: bigint, _source_map: SourceMap | null) => (x: bigint, y: bigint) => BigInt.asIntN(64, x * y),
+  IntegerDivide: (_loc_id: bigint, _source_map: SourceMap | null) => (x: bigint, y: bigint) => x === 0n ? 0n : x / y,
+  IntegerRemainder: (_loc_id: bigint, _source_map: SourceMap | null) => (x: bigint, y: bigint) => x === 0n ? 0n : x % y,
+  IntegerPow: (_loc_id: bigint, _source_map: SourceMap | null) => (x: bigint, y: bigint) => y >= 0n ? BigInt.asIntN(64, x ** y) : 0n,
+  IntegerAbs: (_loc_id: bigint, _source_map: SourceMap | null) => (x: bigint) => BigInt.asIntN(64, x < 0n ? -x : x),
+  IntegerSign: (_loc_id: bigint, _source_map: SourceMap | null) => (x: bigint) => x > 0n ? 1n : x < 0n ? -1n : 0n,
+  IntegerLog: (_loc_id: bigint, _source_map: SourceMap | null) => (value: bigint, base: bigint) => {
     if (value === 0n) return 0n;
     if (base <= 1n) return 0n; // Invalid base
     
@@ -1341,51 +1354,51 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
     return result;
   },
   
-  FloatToInteger: (location: LocationValue[]) => (x: number) => {
-    if (Number.isNaN(x)) throw new EastError("Cannot convert NaN to integer", { location });
-    if (x >= 9223372036854775808) throw new EastError("Float too high to convert to integer", { location });
-    if (x < -9223372036854775808) throw new EastError("Float too low to convert to integer", { location });
-    if (!Number.isInteger(x)) { throw new EastError("Cannot convert non-integer float to integer", { location }); }
+  FloatToInteger: (loc_id: bigint, source_map: SourceMap | null) => (x: number) => {
+    if (Number.isNaN(x)) throw new EastError("Cannot convert NaN to integer", { loc_id, source_map });
+    if (x >= 9223372036854775808) throw new EastError("Float too high to convert to integer", { loc_id, source_map });
+    if (x < -9223372036854775808) throw new EastError("Float too low to convert to integer", { loc_id, source_map });
+    if (!Number.isInteger(x)) { throw new EastError("Cannot convert non-integer float to integer", { loc_id, source_map }); }
     return BigInt(x);
   },
-  FloatNegate: (_location: LocationValue[]) => (x: bigint) => -x,
-  FloatAdd: (_location: LocationValue[]) => (x: number, y: number) => x + y,
-  FloatSubtract: (_location: LocationValue[]) => (x: number, y: number) => x - y,
-  FloatMultiply: (_location: LocationValue[]) => (x: number, y: number) => x * y,
-  FloatDivide: (_location: LocationValue[]) => (x: number, y: number) => x / y,
-  FloatRemainder: (_location: LocationValue[]) => (x: number, y: number) => x % y,
-  FloatPow: (_location: LocationValue[]) => (x: number, y: number) => x ** y,
-  FloatAbs: (_location: LocationValue[]) => (x: number) => x < 0 ? -x : x,
-  FloatSign: (_location: LocationValue[]) => (x: number) => x > 0 ? 1 : x < 0 ? -1 : 0, // What sign is NaN?
-  FloatSqrt: (_location: LocationValue[]) => (value: number) => Math.sqrt(value),
-  FloatLog: (_location: LocationValue[]) => (value: number) => Math.log(value),
-  FloatExp: (_location: LocationValue[]) => (value: number) => Math.exp(value),
-  FloatSin: (_location: LocationValue[]) => (value: number) => Math.sin(value),
-  FloatCos: (_location: LocationValue[]) => (value: number) => Math.cos(value),
-  FloatTan: (_location: LocationValue[]) => (value: number) => Math.tan(value),
+  FloatNegate: (_loc_id: bigint, _source_map: SourceMap | null) => (x: bigint) => -x,
+  FloatAdd: (_loc_id: bigint, _source_map: SourceMap | null) => (x: number, y: number) => x + y,
+  FloatSubtract: (_loc_id: bigint, _source_map: SourceMap | null) => (x: number, y: number) => x - y,
+  FloatMultiply: (_loc_id: bigint, _source_map: SourceMap | null) => (x: number, y: number) => x * y,
+  FloatDivide: (_loc_id: bigint, _source_map: SourceMap | null) => (x: number, y: number) => x / y,
+  FloatRemainder: (_loc_id: bigint, _source_map: SourceMap | null) => (x: number, y: number) => x % y,
+  FloatPow: (_loc_id: bigint, _source_map: SourceMap | null) => (x: number, y: number) => x ** y,
+  FloatAbs: (_loc_id: bigint, _source_map: SourceMap | null) => (x: number) => x < 0 ? -x : x,
+  FloatSign: (_loc_id: bigint, _source_map: SourceMap | null) => (x: number) => x > 0 ? 1 : x < 0 ? -1 : 0, // What sign is NaN?
+  FloatSqrt: (_loc_id: bigint, _source_map: SourceMap | null) => (value: number) => Math.sqrt(value),
+  FloatLog: (_loc_id: bigint, _source_map: SourceMap | null) => (value: number) => Math.log(value),
+  FloatExp: (_loc_id: bigint, _source_map: SourceMap | null) => (value: number) => Math.exp(value),
+  FloatSin: (_loc_id: bigint, _source_map: SourceMap | null) => (value: number) => Math.sin(value),
+  FloatCos: (_loc_id: bigint, _source_map: SourceMap | null) => (value: number) => Math.cos(value),
+  FloatTan: (_loc_id: bigint, _source_map: SourceMap | null) => (value: number) => Math.tan(value),
   
-  Print: (_location: LocationValue[], _platformDef: PlatformFunction[], T: EastTypeValue) => {
+  Print: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => {
     return printFor(T);
   },
-  Parse: (location: LocationValue[], _platformDef: PlatformFunction[], T: EastTypeValue) => {
+  Parse: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => {
     const p = parseFor(T);
     return (x: string) => {
       const result = p(x);
       if (result.success) {
         return result.value;
       } else {
-        throw new EastError(`Failed to parse ${printTypeValue(T)} at ${result.position}: ${result.error}`, { location });
+        throw new EastError(`Failed to parse ${printTypeValue(T)} at ${result.position}: ${result.error}`, { loc_id, source_map });
       }
     }
   },
-  StringConcat: (_location: LocationValue[]) => (x: string, y: string) => x + y,
-  StringRepeat: (_location: LocationValue[]) => (x: string, y: bigint) => y > 0n ? x.repeat(Number(y)) : "",
-  StringLength: (_location: LocationValue[]) => (x: string) => {
+  StringConcat: (_loc_id: bigint, _source_map: SourceMap | null) => (x: string, y: string) => x + y,
+  StringRepeat: (_loc_id: bigint, _source_map: SourceMap | null) => (x: string, y: bigint) => y > 0n ? x.repeat(Number(y)) : "",
+  StringLength: (_loc_id: bigint, _source_map: SourceMap | null) => (x: string) => {
     let len = 0;
     for (const _ of x) len++;
     return BigInt(len);
   },
-  StringSubstring: (_location: LocationValue[]) => (x: string, from: bigint, to: bigint) => {
+  StringSubstring: (_loc_id: bigint, _source_map: SourceMap | null) => (x: string, from: bigint, to: bigint) => {
     // Convert bigint indices to numbers, handle forgiving semantics like JavaScript
     let fromNum = Number(from);
     let toNum = Number(to);
@@ -1423,9 +1436,9 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
     
     return x.substring(codeUnitFrom, codeUnitTo);
   },
-  StringUpperCase: (_location: LocationValue[]) => (x: string) => x.toUpperCase(),
-  StringLowerCase: (_location: LocationValue[]) => (x: string) => x.toLowerCase(),
-  StringSplit: (_location: LocationValue[]) => (x: string, delimiter: string) => {
+  StringUpperCase: (_loc_id: bigint, _source_map: SourceMap | null) => (x: string) => x.toUpperCase(),
+  StringLowerCase: (_loc_id: bigint, _source_map: SourceMap | null) => (x: string) => x.toLowerCase(),
+  StringSplit: (_loc_id: bigint, _source_map: SourceMap | null) => (x: string, delimiter: string) => {
     if (delimiter === "") {
       if (x === "") {
         // Split always returns at least one element
@@ -1437,13 +1450,13 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
     }
     return x.split(delimiter);
   },
-  StringTrim: (_location: LocationValue[]) => (x: string) => x.trim(),
-  StringTrimStart: (_location: LocationValue[]) => (x: string) => x.trimStart(),
-  StringTrimEnd: (_location: LocationValue[]) => (x: string) => x.trimEnd(),
-  StringStartsWith: (_location: LocationValue[]) => (x: string, prefix: string) => x.startsWith(prefix),
-  StringEndsWith: (_location: LocationValue[]) => (x: string, suffix: string) => x.endsWith(suffix),
-  StringContains: (_location: LocationValue[]) => (x: string, substring: string) => x.includes(substring),
-  StringIndexOf: (_location: LocationValue[]) => (x: string, substring: string) => {
+  StringTrim: (_loc_id: bigint, _source_map: SourceMap | null) => (x: string) => x.trim(),
+  StringTrimStart: (_loc_id: bigint, _source_map: SourceMap | null) => (x: string) => x.trimStart(),
+  StringTrimEnd: (_loc_id: bigint, _source_map: SourceMap | null) => (x: string) => x.trimEnd(),
+  StringStartsWith: (_loc_id: bigint, _source_map: SourceMap | null) => (x: string, prefix: string) => x.startsWith(prefix),
+  StringEndsWith: (_loc_id: bigint, _source_map: SourceMap | null) => (x: string, suffix: string) => x.endsWith(suffix),
+  StringContains: (_loc_id: bigint, _source_map: SourceMap | null) => (x: string, substring: string) => x.includes(substring),
+  StringIndexOf: (_loc_id: bigint, _source_map: SourceMap | null) => (x: string, substring: string) => {
     const codeUnitIndex = x.indexOf(substring);
     if (codeUnitIndex === -1) return -1n;
     
@@ -1462,15 +1475,15 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
     }
     return -1n;
   },
-  StringReplace: (_location: LocationValue[]) => (x: string, searchValue: string, replaceValue: string) => {
+  StringReplace: (_loc_id: bigint, _source_map: SourceMap | null) => (x: string, searchValue: string, replaceValue: string) => {
     // Replace all occurrences (like JavaScript's string.replaceAll with string)
     return x.replaceAll(searchValue, replaceValue);
   },
-  RegexContains: (_location: LocationValue[]) => (text: string, pattern: string, flags: string) => {
+  RegexContains: (_loc_id: bigint, _source_map: SourceMap | null) => (text: string, pattern: string, flags: string) => {
     const regex = new RegExp(pattern, flags);
     return regex.test(text);
   },
-  RegexIndexOf: (_location: LocationValue[]) => (text: string, pattern: string, flags: string) => {
+  RegexIndexOf: (_loc_id: bigint, _source_map: SourceMap | null) => (text: string, pattern: string, flags: string) => {
     const regex = new RegExp(pattern, flags);
     const codeUnitIndex = text.search(regex);
     if (codeUnitIndex === -1) return -1n;
@@ -1487,7 +1500,7 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
     }
     return -1n;
   },
-  RegexReplace: (location: LocationValue[]) => (text: string, pattern: string, flags: string, replacement: string) => {
+  RegexReplace: (loc_id: bigint, source_map: SourceMap | null) => (text: string, pattern: string, flags: string, replacement: string) => {
     // Ensure global flag is set for replaceAll semantics
     const globalFlags = flags.includes('g') ? flags : flags + 'g';
     const regex = new RegExp(pattern, globalFlags);
@@ -1502,7 +1515,7 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
         i += char.length;
         let char2 = replacement[i];
         if (char2 === undefined) {
-          throw new EastError(`invalid regex replacement string: unescaped $ at end of string`, { location });
+          throw new EastError(`invalid regex replacement string: unescaped $ at end of string`, { loc_id, source_map });
         } else if (char2 === '$') {
           i += 1;
         } else if (char2 >= '1' && char2 <= '9') {
@@ -1519,23 +1532,23 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
           char2 = replacement[i];
           while (true) {
             if (char2 === undefined) {
-              throw new EastError(`invalid regex replacement string: unterminated group name in $<...>`, { location });
+              throw new EastError(`invalid regex replacement string: unterminated group name in $<...>`, { loc_id, source_map });
             }
             if (char2 === '>') {
               break;
             }
             if (!((char2 >= '0' && char2 <= '9') || (char2 >= 'a' && char2 <= 'z') || (char2 >= 'A' && char2 <= 'Z') || char2 === '_')) {
-              throw new EastError(`invalid regex replacement string: invalid character ${JSON.stringify(char2)} in group name in $<...>`, { location });
+              throw new EastError(`invalid regex replacement string: invalid character ${JSON.stringify(char2)} in group name in $<...>`, { loc_id, source_map });
             }
             i += 1;
             char2 = replacement[i];
           }
           if (i === init_i) {
-            throw new EastError(`invalid regex replacement string: empty group name in $<>`, { location });
+            throw new EastError(`invalid regex replacement string: empty group name in $<>`, { loc_id, source_map });
           }
           i += 1; // for closing >
         } else {
-          throw new EastError(`invalid regex replacement string: unescaped $ at $${char2}`, { location });
+          throw new EastError(`invalid regex replacement string: unescaped $ at $${char2}`, { loc_id, source_map });
         }
       } else {
         i += char.length;
@@ -1543,14 +1556,14 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
     }
     return text.replaceAll(regex, replacement);
   },
-  StringEncodeUtf8: (_location: LocationValue[]) => {
+  StringEncodeUtf8: (_loc_id: bigint, _source_map: SourceMap | null) => {
     // do not add BOM for UTF-8
     const encoder = new TextEncoder();
     return (x: string) => {
       return encoder.encode(x);
     };
   },
-  StringEncodeUtf16: (_location: LocationValue[]) => {
+  StringEncodeUtf16: (_loc_id: bigint, _source_map: SourceMap | null) => {
     // always use little-endian with BOM (most common in practice)
     return (x: string) => {
       const buffer = new BufferWriter();
@@ -1563,76 +1576,76 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       return buffer.toUint8Array();
     };
   },
-  StringParseJSON: (location: LocationValue[], _platformDef: PlatformFunction[], type: EastTypeValue) => {
+  StringParseJSON: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], type: EastTypeValue) => {
     const fromJSON = fromJSONFor(type);
     return (x: string) => {
       let parsed: any;
       try {
         parsed = JSON.parse(x);
       } catch (e: unknown) {
-        throw new EastError(`Failed to parse JSON: ${(e as Error).message}`, { location });
+        throw new EastError(`Failed to parse JSON: ${(e as Error).message}`, { loc_id, source_map });
       }
       try {
         return fromJSON(parsed);
       } catch (e: unknown) {
-        throw new EastError(`Failed to convert JSON to ${printTypeValue(type)}: ${(e as Error).message}`, { location });
+        throw new EastError(`Failed to convert JSON to ${printTypeValue(type)}: ${(e as Error).message}`, { loc_id, source_map });
       }
     }
   },
-  StringPrintJSON: (_location: LocationValue[], _platformDef: PlatformFunction[], type: EastTypeValue) => {
+  StringPrintJSON: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], type: EastTypeValue) => {
     const toJSON = toJSONFor(type);
     return (x: any) => JSON.stringify(toJSON(x));
   },
   
-  DateTimeGetYear: (_location: LocationValue[]) => (date: Date) => BigInt(date.getUTCFullYear()),
-  DateTimeGetMonth: (_location: LocationValue[]) => (date: Date) => BigInt(date.getUTCMonth() + 1), // JavaScript months are 0-based, East uses 1-based
-  DateTimeGetDayOfMonth: (_location: LocationValue[]) => (date: Date) => BigInt(date.getUTCDate()),
-  DateTimeGetHour: (_location: LocationValue[]) => (date: Date) => BigInt(date.getUTCHours()),
-  DateTimeGetMinute: (_location: LocationValue[]) => (date: Date) => BigInt(date.getUTCMinutes()),
-  DateTimeGetSecond: (_location: LocationValue[]) => (date: Date) => BigInt(date.getUTCSeconds()),
-  DateTimeGetDayOfWeek: (_location: LocationValue[]) => (date: Date) => {
+  DateTimeGetYear: (_loc_id: bigint, _source_map: SourceMap | null) => (date: Date) => BigInt(date.getUTCFullYear()),
+  DateTimeGetMonth: (_loc_id: bigint, _source_map: SourceMap | null) => (date: Date) => BigInt(date.getUTCMonth() + 1), // JavaScript months are 0-based, East uses 1-based
+  DateTimeGetDayOfMonth: (_loc_id: bigint, _source_map: SourceMap | null) => (date: Date) => BigInt(date.getUTCDate()),
+  DateTimeGetHour: (_loc_id: bigint, _source_map: SourceMap | null) => (date: Date) => BigInt(date.getUTCHours()),
+  DateTimeGetMinute: (_loc_id: bigint, _source_map: SourceMap | null) => (date: Date) => BigInt(date.getUTCMinutes()),
+  DateTimeGetSecond: (_loc_id: bigint, _source_map: SourceMap | null) => (date: Date) => BigInt(date.getUTCSeconds()),
+  DateTimeGetDayOfWeek: (_loc_id: bigint, _source_map: SourceMap | null) => (date: Date) => {
     const jsDay = date.getUTCDay(); // JavaScript: 0=Sunday, 1=Monday, ..., 6=Saturday
     return BigInt(jsDay === 0 ? 7 : jsDay); // ISO 8601: 1=Monday, 2=Tuesday, ..., 7=Sunday
   },
-  DateTimeGetMillisecond: (_location: LocationValue[]) => (date: Date) => BigInt(date.getUTCMilliseconds()),
-  DateTimeAddMilliseconds: (_location: LocationValue[]) => (date: Date, milliseconds: bigint) => new Date(date.getTime() + Number(milliseconds)),
-  DateTimeDurationMilliseconds: (_location: LocationValue[]) => (date1: Date, date2: Date) => BigInt(date1.getTime() - date2.getTime()),
-  DateTimeToEpochMilliseconds: (_location: LocationValue[]) => (date: Date) => BigInt(date.getTime()),
-  DateTimeFromEpochMilliseconds: (_location: LocationValue[]) => (milliseconds: bigint) => new Date(Number(milliseconds)),
-  DateTimeFromComponents: (_location: LocationValue[]) => (year: bigint, month: bigint, day: bigint, hour: bigint, minute: bigint, second: bigint, millisecond: bigint) =>
+  DateTimeGetMillisecond: (_loc_id: bigint, _source_map: SourceMap | null) => (date: Date) => BigInt(date.getUTCMilliseconds()),
+  DateTimeAddMilliseconds: (_loc_id: bigint, _source_map: SourceMap | null) => (date: Date, milliseconds: bigint) => new Date(date.getTime() + Number(milliseconds)),
+  DateTimeDurationMilliseconds: (_loc_id: bigint, _source_map: SourceMap | null) => (date1: Date, date2: Date) => BigInt(date1.getTime() - date2.getTime()),
+  DateTimeToEpochMilliseconds: (_loc_id: bigint, _source_map: SourceMap | null) => (date: Date) => BigInt(date.getTime()),
+  DateTimeFromEpochMilliseconds: (_loc_id: bigint, _source_map: SourceMap | null) => (milliseconds: bigint) => new Date(Number(milliseconds)),
+  DateTimeFromComponents: (_loc_id: bigint, _source_map: SourceMap | null) => (year: bigint, month: bigint, day: bigint, hour: bigint, minute: bigint, second: bigint, millisecond: bigint) =>
     new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second), Number(millisecond))),
-  DateTimePrintFormat: (_location: LocationValue[]) => (date: Date, tokens: DateTimeFormatToken[]) => {
+  DateTimePrintFormat: (_loc_id: bigint, _source_map: SourceMap | null) => (date: Date, tokens: DateTimeFormatToken[]) => {
     return formatDateTime(date, tokens);
   },
-  DateTimeParseFormat: (location: LocationValue[]) => (str: string, tokens: DateTimeFormatToken[]) => {
+  DateTimeParseFormat: (loc_id: bigint, source_map: SourceMap | null) => (str: string, tokens: DateTimeFormatToken[]) => {
     const result = parseDateTimeFormatted(str, tokens);
     if (result.success) {
       return result.value;
     } else {
-      throw new EastError(`Failed to parse datetime at position ${result.position}: ${result.error}`, { location });
+      throw new EastError(`Failed to parse datetime at position ${result.position}: ${result.error}`, { loc_id, source_map });
     }
   },
 
-  BlobSize: (_location: LocationValue[]) => (data: Uint8Array) => BigInt(data.length),
-  BlobGetUint8: (location: LocationValue[]) => (data: Uint8Array, index: bigint) => {
+  BlobSize: (_loc_id: bigint, _source_map: SourceMap | null) => (data: Uint8Array) => BigInt(data.length),
+  BlobGetUint8: (loc_id: bigint, source_map: SourceMap | null) => (data: Uint8Array, index: bigint) => {
     const i = Number(index);
     if (i < 0 || i >= data.length) {
-      throw new EastError(`Blob index ${index} out of bounds`, { location });
+      throw new EastError(`Blob index ${index} out of bounds`, { loc_id, source_map });
     } else {
       return BigInt(data[i]!);
     }
   },
-  BlobDecodeUtf8: (location: LocationValue[]) => {
+  BlobDecodeUtf8: (loc_id: bigint, source_map: SourceMap | null) => {
     const decoder = new TextDecoder('utf-8', { fatal: true });
     return (data: Uint8Array) => {
       try {
         return decoder.decode(data);
       } catch {
-        throw new EastError("Blob is not valid UTF-8", { location });
+        throw new EastError("Blob is not valid UTF-8", { loc_id, source_map });
       }
     };
   },
-  BlobDecodeUtf16: (location: LocationValue[]) => {
+  BlobDecodeUtf16: (loc_id: bigint, source_map: SourceMap | null) => {
     const decoder_be = new TextDecoder('utf-16be', { fatal: true });
     const decoder_le = new TextDecoder('utf-16le', { fatal: true });
     return (data: Uint8Array) => {
@@ -1650,91 +1663,91 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
         // No BOM, default to little-endian (not unicode spec compliant, but more common in practice)
         return decoder_le.decode(data);
       } catch {
-        throw new EastError("Blob is not valid UTF-16", { location });
+        throw new EastError("Blob is not valid UTF-16", { loc_id, source_map });
       }
     };
   },
-  BlobEncodeBeast: (_location: LocationValue[], _platformDef: PlatformFunction[], type: EastTypeValue) => {
+  BlobEncodeBeast: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], type: EastTypeValue) => {
     const encodeBeast = encodeBeastFor(type);
     return (value: any) => {
       return encodeBeast(value);
     }
   },
-  BlobDecodeBeast: (location: LocationValue[], _platformDef: PlatformFunction[], type: EastTypeValue) => {
+  BlobDecodeBeast: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], type: EastTypeValue) => {
     const decodeBeast = decodeBeastFor(type);
     return (data: Uint8Array) => {
       try {
         return decodeBeast(data);
       } catch (e: unknown) {
-        throw new EastError(`Failed to decode Beast data: ${(e as Error).message}`, { location });
+        throw new EastError(`Failed to decode Beast data: ${(e as Error).message}`, { loc_id, source_map });
       }
     }
   },
-  BlobEncodeBeast2: (_location: LocationValue[], _platformDef: PlatformFunction[], type: EastTypeValue) => {
+  BlobEncodeBeast2: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], type: EastTypeValue) => {
     const encodeBeast2 = encodeBeast2For(type);
     return (value: any) => {
       return encodeBeast2(value);
     }
   },
-  BlobDecodeBeast2: (location: LocationValue[], platformDef: PlatformFunction[], type: EastTypeValue) => {
+  BlobDecodeBeast2: (loc_id: bigint, source_map: SourceMap | null, platformDef: PlatformFunction[], type: EastTypeValue) => {
     const decodeBeast2 = decodeBeast2For(type, { platform: platformDef });
     return (data: Uint8Array) => {
       try {
         return decodeBeast2(data);
       } catch (e: unknown) {
-        throw new EastError(`Failed to decode Beast2 data: ${(e as Error).message}`, { location });
+        throw new EastError(`Failed to decode Beast2 data: ${(e as Error).message}`, { loc_id, source_map });
       }
     }
   },
-  BlobDecodeCsv: (location: LocationValue[], _platformDef: PlatformFunction[], structType: EastTypeValue, _configType: EastTypeValue) => {
+  BlobDecodeCsv: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], structType: EastTypeValue, _configType: EastTypeValue) => {
     return (data: Uint8Array, config: any) => {
       try {
         const decoder = decodeCsvFor(structType, config);
         return decoder(data);
       } catch (e: unknown) {
-        throw new EastError(`Failed to decode CSV data: ${(e as Error).message}`, { location });
+        throw new EastError(`Failed to decode CSV data: ${(e as Error).message}`, { loc_id, source_map });
       }
     }
   },
-  ArrayEncodeCsv: (location: LocationValue[], _platformDef: PlatformFunction[], structType: EastTypeValue, _configType: EastTypeValue) => {
+  ArrayEncodeCsv: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], structType: EastTypeValue, _configType: EastTypeValue) => {
     return (data: any[], config: any) => {
       try {
         const encoder = encodeCsvFor(structType, config);
         return encoder(data);
       } catch (e: unknown) {
-        throw new EastError(`Failed to encode CSV data: ${(e as Error).message}`, { location });
+        throw new EastError(`Failed to encode CSV data: ${(e as Error).message}`, { loc_id, source_map });
       }
     }
   },
 
-  RefGet: (_location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (ref: ref<any>) => {
+  RefGet: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (ref: ref<any>) => {
     return ref.value;
   },
-  RefUpdate: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (ref: ref<any>, value: any) => {
+  RefUpdate: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (ref: ref<any>, value: any) => {
     if (Object.isFrozen(ref)) {
-      throw new EastError("Cannot modify frozen Ref", { location });
+      throw new EastError("Cannot modify frozen Ref", { loc_id, source_map });
     }
     ref.value = value;
     return null;
   },
-  RefMerge: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (ref: ref<any>, value: any, merger: (existing: any, value: any) => any) => {
+  RefMerge: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (ref: ref<any>, value: any, merger: (existing: any, value: any) => any) => {
     if (Object.isFrozen(ref)) {
-      throw new EastError("Cannot modify frozen Ref", { location });
+      throw new EastError("Cannot modify frozen Ref", { loc_id, source_map });
     }
-    const new_value = call_function(location, merger, ref.value, value);
+    const new_value = call_function(loc_id, source_map,merger, ref.value, value);
     ref.value = new_value;
     return null;
   },
   
-  ArrayGenerate: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (size: bigint, f: (i: bigint) => any) => {
+  ArrayGenerate: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (size: bigint, f: (i: bigint) => any) => {
     const result: any[] = [];
     for (let i = 0n; i < size; i += 1n) {
-      const v = call_function(location, f, i);
+      const v = call_function(loc_id, source_map,f, i);
       result.push(v);
     }
     return result;
   },
-  ArrayRange: (_location: LocationValue[]) => (start: bigint, end: bigint, step: bigint) => {
+  ArrayRange: (_loc_id: bigint, _source_map: SourceMap | null) => (start: bigint, end: bigint, step: bigint) => {
     const result: any[] = [];
     if (step === 0n) {
       return result; // empty array
@@ -1749,7 +1762,7 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
     }
     return result;
   },
-  ArrayLinspace: (_location: LocationValue[]) => (start: number, end: number, size: bigint) => {
+  ArrayLinspace: (_loc_id: bigint, _source_map: SourceMap | null) => (start: number, end: number, size: bigint) => {
     const result: any[] = [];
     if (size <= 0n) {
       return result; // empty array
@@ -1763,28 +1776,28 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
     }
     return result;
   },
-  ArraySize: (_location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[]) => BigInt(array.length),
-  ArrayHas: (_location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], key: bigint) => {
+  ArraySize: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[]) => BigInt(array.length),
+  ArrayHas: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], key: bigint) => {
     const i = Number(key);
     return i >= 0 && i < array.length;
   },
-  ArrayGet: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], key: bigint) => {
+  ArrayGet: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], key: bigint) => {
     const i = Number(key);
     if (i < 0 || i >= array.length) {
-      throw new EastError(`Array index ${key} out of bounds`, { location });
+      throw new EastError(`Array index ${key} out of bounds`, { loc_id, source_map });
     } else {
       return array[i];
     }
   },
-  ArrayGetOrDefault: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], key: bigint, defaultFn: (key: bigint) => any) => {
+  ArrayGetOrDefault: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], key: bigint, defaultFn: (key: bigint) => any) => {
     const i = Number(key);
     if (i < 0 || i >= array.length) {
-      return call_function(location, defaultFn, key);
+      return call_function(loc_id, source_map,defaultFn, key);
     } else {
       return array[i];
     }
   },
-  ArrayTryGet: (_location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], key: bigint) => {
+  ArrayTryGet: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], key: bigint) => {
     const i = Number(key);
     if (i < 0 || i >= array.length) {
       return variant("none", null);
@@ -1792,100 +1805,100 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       return variant("some", array[i]);
     }
   },
-  ArrayUpdate: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], key: bigint, value: any) => {
+  ArrayUpdate: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], key: bigint, value: any) => {
     if (Object.isFrozen(array)) {
-      throw new EastError("Cannot modify frozen Array", { location });
+      throw new EastError("Cannot modify frozen Array", { loc_id, source_map });
     }
     const i = Number(key);
     if (i < 0 || i >= array.length) {
-      throw new EastError(`Array index ${key} out of bounds`, { location });
+      throw new EastError(`Array index ${key} out of bounds`, { loc_id, source_map });
     } else {
       array[i] = value;
       return null;
     }
   },
-  ArrayMerge: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], key: bigint, value: any, merger: (existing: any, value: any, key: bigint) => any) => {
+  ArrayMerge: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], key: bigint, value: any, merger: (existing: any, value: any, key: bigint) => any) => {
     if (Object.isFrozen(array)) {
-      throw new EastError("Cannot modify frozen Array", { location });
+      throw new EastError("Cannot modify frozen Array", { loc_id, source_map });
     }
     const i = Number(key);
     if (i < 0 || i >= array.length) {
-      throw new EastError(`Array index ${key} out of bounds`, { location });
+      throw new EastError(`Array index ${key} out of bounds`, { loc_id, source_map });
     } else {
-      const new_value = call_function(location, merger, array[i], value, key);
+      const new_value = call_function(loc_id, source_map,merger, array[i], value, key);
       array[i] = new_value;
       return null;
     }
   },
-  ArrayPushLast: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], value: any) => {
+  ArrayPushLast: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], value: any) => {
     if (Object.isFrozen(array)) {
-      throw new EastError("Cannot modify frozen Array", { location });
+      throw new EastError("Cannot modify frozen Array", { loc_id, source_map });
     }
     if ((iterationLocks.get(array) || 0) > 0) {
-      throw new EastError("Cannot modify Array during iteration", { location });
+      throw new EastError("Cannot modify Array during iteration", { loc_id, source_map });
     }
     array.push(value);
     return null;
   },
-  ArrayPopLast: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[]) => {
+  ArrayPopLast: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[]) => {
     if (Object.isFrozen(array)) {
-      throw new EastError("Cannot modify frozen Array", { location });
+      throw new EastError("Cannot modify frozen Array", { loc_id, source_map });
     }
     if ((iterationLocks.get(array) || 0) > 0) {
-      throw new EastError("Cannot modify Array during iteration", { location });
+      throw new EastError("Cannot modify Array during iteration", { loc_id, source_map });
     }
     if (array.length === 0) {
-      throw new EastError("Cannot pop from empty Array", { location });
+      throw new EastError("Cannot pop from empty Array", { loc_id, source_map });
     } else {
       return array.pop();
     }
   },
-  ArrayPushFirst: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], value: any) => {
+  ArrayPushFirst: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], value: any) => {
     if (Object.isFrozen(array)) {
-      throw new EastError("Cannot modify frozen Array", { location });
+      throw new EastError("Cannot modify frozen Array", { loc_id, source_map });
     }
     if ((iterationLocks.get(array) || 0) > 0) {
-      throw new EastError("Cannot modify Array during iteration", { location });
+      throw new EastError("Cannot modify Array during iteration", { loc_id, source_map });
     }
     array.unshift(value);
     return null;
   },
-  ArrayPopFirst: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[]) => {
+  ArrayPopFirst: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[]) => {
     if (Object.isFrozen(array)) {
-      throw new EastError("Cannot modify frozen Array", { location });
+      throw new EastError("Cannot modify frozen Array", { loc_id, source_map });
     }
     if ((iterationLocks.get(array) || 0) > 0) {
-      throw new EastError("Cannot modify Array during iteration", { location });
+      throw new EastError("Cannot modify Array during iteration", { loc_id, source_map });
     }
     if (array.length === 0) {
-      throw new EastError("Cannot pop from empty Array", { location });
+      throw new EastError("Cannot pop from empty Array", { loc_id, source_map });
     } else {
       return array.shift();
     }
   },
-  ArrayAppend: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], other: any[]) => {
+  ArrayAppend: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], other: any[]) => {
     if (Object.isFrozen(array)) {
-      throw new EastError("Cannot modify frozen Array", { location });
+      throw new EastError("Cannot modify frozen Array", { loc_id, source_map });
     }
     if ((iterationLocks.get(array) || 0) > 0) {
-      throw new EastError("Cannot modify Array during iteration", { location });
+      throw new EastError("Cannot modify Array during iteration", { loc_id, source_map });
     }
     array.push(...other);
     return null;
   },
-  ArrayPrepend: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], other: any[]) => {
+  ArrayPrepend: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], other: any[]) => {
     if (Object.isFrozen(array)) {
-      throw new EastError("Cannot modify frozen Array", { location });
+      throw new EastError("Cannot modify frozen Array", { loc_id, source_map });
     }
     if ((iterationLocks.get(array) || 0) > 0) {
-      throw new EastError("Cannot modify Array during iteration", { location });
+      throw new EastError("Cannot modify Array during iteration", { loc_id, source_map });
     }
     array.unshift(...other);
     return null;
   },
-  ArrayMergeAll: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue, _T2: EastTypeValue) => (array: any[], other: any[], merger: (v1: any, v2: any, key: bigint) => any) => {
+  ArrayMergeAll: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue, _T2: EastTypeValue) => (array: any[], other: any[], merger: (v1: any, v2: any, key: bigint) => any) => {
     if (Object.isFrozen(array)) {
-      throw new EastError("Cannot modify frozen Array", { location });
+      throw new EastError("Cannot modify frozen Array", { loc_id, source_map });
     }
     lockForIteration(array);
     lockForIteration(other);
@@ -1893,10 +1906,10 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       for (let i = 0; i < other.length; i++) {
         const key = BigInt(i);
         if (i < array.length) {
-          const new_value = call_function(location, merger, array[i], other[i], key);
+          const new_value = call_function(loc_id, source_map,merger, array[i], other[i], key);
           array[i] = new_value;
         } else {
-          throw new EastError(`Array index ${key} out of bounds`, { location });
+          throw new EastError(`Array index ${key} out of bounds`, { loc_id, source_map });
         }
       }
     } finally {
@@ -1905,29 +1918,29 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
     }
     return null;
   },
-  ArrayClear: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[]) => {
+  ArrayClear: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[]) => {
     if (Object.isFrozen(array)) {
-      throw new EastError("Cannot modify frozen Array", { location });
+      throw new EastError("Cannot modify frozen Array", { loc_id, source_map });
     }
     if ((iterationLocks.get(array) || 0) > 0) {
-      throw new EastError("Cannot modify Array during iteration", { location });
+      throw new EastError("Cannot modify Array during iteration", { loc_id, source_map });
     }
     array.length = 0;
     return null;
   },
-  ArraySortInPlace: (location: LocationValue[], _platformDef: PlatformFunction[], T: EastTypeValue, T2: EastTypeValue) => (array: any[], by: (a: any) => any) => {
+  ArraySortInPlace: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue, T2: EastTypeValue) => (array: any[], by: (a: any) => any) => {
     if (Object.isFrozen(array)) {
-      throw new EastError("Cannot modify frozen Array", { location });
+      throw new EastError("Cannot modify frozen Array", { loc_id, source_map });
     }
     if ((iterationLocks.get(array) || 0) > 0) {
-      throw new EastError("Cannot modify Array during iteration", { location });
+      throw new EastError("Cannot modify Array during iteration", { loc_id, source_map });
     }
     lockForIteration(array);
     try {
       const cmp = compareFor(T2);
       array.sort((a, b) => {
-        const projectedA = call_function(location, by, a);
-        const projectedB = call_function(location, by, b);
+        const projectedA = call_function(loc_id, source_map,by, a);
+        const projectedB = call_function(loc_id, source_map,by, b);
         return cmp(projectedA, projectedB);
       });
     } finally {
@@ -1935,42 +1948,42 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
     }
     return null;
   },
-  ArrayReverseInPlace: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[]) => {
+  ArrayReverseInPlace: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[]) => {
     if (Object.isFrozen(array)) {
-      throw new EastError("Cannot modify frozen Array", { location });
+      throw new EastError("Cannot modify frozen Array", { loc_id, source_map });
     }
     if ((iterationLocks.get(array) || 0) > 0) {
-      throw new EastError("Cannot modify Array during iteration", { location });
+      throw new EastError("Cannot modify Array during iteration", { loc_id, source_map });
     }
     array.reverse();
     return null;
   },
-  ArraySort: (location: LocationValue[], _platformDef: PlatformFunction[], T: EastTypeValue, T2: EastTypeValue) => (array: any[], by: (a: any) => any) => {
+  ArraySort: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue, T2: EastTypeValue) => (array: any[], by: (a: any) => any) => {
     const cmp = compareFor(T2);
     const newArray = [...array];
     newArray.sort((a, b) => {
-      const projectedA = call_function(location, by, a);
-      const projectedB = call_function(location, by, b);
+      const projectedA = call_function(loc_id, source_map,by, a);
+      const projectedB = call_function(loc_id, source_map,by, b);
       return cmp(projectedA, projectedB);
     });
     return newArray;
   },
-  ArrayReverse: (_location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[]) => {
+  ArrayReverse: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[]) => {
     const newArray = [...array];
     newArray.reverse();
     return newArray;
   },
-  ArrayIsSorted: (location: LocationValue[], _platformDef: PlatformFunction[], T: EastTypeValue, T2: EastTypeValue) => {
+  ArrayIsSorted: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue, T2: EastTypeValue) => {
     const cmp = compareFor(T2);
     return (array: any[], by: (a: any) => any) => {
       if (array.length < 2) return true;
 
       lockForIteration(array);
       try {
-        let projectedPrev = call_function(location, by, array[0]!);
+        let projectedPrev = call_function(loc_id, source_map,by, array[0]!);
 
         for (let i = 1; i < array.length; i++) {
-          const projectedCurr = call_function(location, by, array[i]);
+          const projectedCurr = call_function(loc_id, source_map,by, array[i]);
 
           if (cmp(projectedPrev, projectedCurr) > 0) {
             return false;
@@ -1984,7 +1997,7 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       return true;
     };
   },
-  ArrayFindSortedFirst: (location: LocationValue[], _platformDef: PlatformFunction[], T: EastTypeValue, T2: EastTypeValue) => {
+  ArrayFindSortedFirst: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue, T2: EastTypeValue) => {
     const cmp = compareFor(T2);
     return (array: any[], key: any, by: (a: any) => any) => {
       let low = 0;
@@ -1994,7 +2007,7 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       try {
         while (low < high) {
           const mid = Math.floor((low + high) / 2);
-          const projectedMid = call_function(location, by, array[mid]!);
+          const projectedMid = call_function(loc_id, source_map,by, array[mid]!);
 
           if (cmp(projectedMid, key) < 0) {
             low = mid + 1;
@@ -2009,7 +2022,7 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       return BigInt(low);
     };
   },
-  ArrayFindSortedLast: (location: LocationValue[], _platformDef: PlatformFunction[], T: EastTypeValue, T2: EastTypeValue) => {
+  ArrayFindSortedLast: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue, T2: EastTypeValue) => {
     const cmp = compareFor(T2);
     return (array: any[], key: any, by: (a: any) => any) => {
       let low = 0;
@@ -2019,7 +2032,7 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       try {
         while (low < high) {
           const mid = Math.floor((low + high) / 2);
-          const projectedMid = call_function(location, by, array[mid]!);
+          const projectedMid = call_function(loc_id, source_map,by, array[mid]!);
 
           if (cmp(projectedMid, key) <= 0) {
             low = mid + 1;
@@ -2034,7 +2047,7 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       return BigInt(low);
     };
   },
-  ArrayFindSortedRange: (location: LocationValue[], _platformDef: PlatformFunction[], T: EastTypeValue, T2: EastTypeValue) => {
+  ArrayFindSortedRange: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue, T2: EastTypeValue) => {
     const cmp = compareFor(T2);
     return (array: any[], key: any, by: (a: any) => any) => {
       let lo = -1;
@@ -2045,7 +2058,7 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
         // Main search loop - find any equal element or determine the range doesn't exist
         while (lo < hi - 1) {
           const mid = Math.floor((lo + hi) / 2);
-          const projectedMid = call_function(location, by, array[mid]!);
+          const projectedMid = call_function(loc_id, source_map,by, array[mid]!);
 
           const cmpResult = cmp(projectedMid, key);
           if (cmpResult < 0) {
@@ -2062,7 +2075,7 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
 
             while (firstLo < firstHi - 1) {
               const firstMid = Math.floor((firstLo + firstHi) / 2);
-              const projectedFirst = call_function(location, by, array[firstMid]!);
+              const projectedFirst = call_function(loc_id, source_map,by, array[firstMid]!);
 
               if (cmp(projectedFirst, key) < 0) {
                 firstLo = firstMid;
@@ -2077,7 +2090,7 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
 
             while (lastLo < lastHi - 1) {
               const lastMid = Math.floor((lastLo + lastHi) / 2);
-              const projectedLast = call_function(location, by, array[lastMid]!);
+              const projectedLast = call_function(loc_id, source_map,by, array[lastMid]!);
 
               if (cmp(projectedLast, key) <= 0) {
                 lastLo = lastMid;
@@ -2097,13 +2110,13 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       return { start: BigInt(lo + 1), end: BigInt(lo + 1) };
     };
   },
-  ArrayFindFirst: (location: LocationValue[], _platformDef: PlatformFunction[], T: EastTypeValue, T2: EastTypeValue) => {
+  ArrayFindFirst: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue, T2: EastTypeValue) => {
     const cmp = compareFor(T2);
     return (array: any[], value: any, by: (a: any) => any) => {
       lockForIteration(array);
       try {
         for (let i = 0; i < array.length; i++) {
-          const projected = call_function(location, by, array[i]);
+          const projected = call_function(loc_id, source_map,by, array[i]);
           if (cmp(projected, value) === 0) {
             return variant("some", BigInt(i));
           }
@@ -2114,64 +2127,64 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       }
     };
   },
-  ArrayConcat: (_location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (a1: any[], a2: any[]) => {
+  ArrayConcat: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (a1: any[], a2: any[]) => {
     return [...a1, ...a2];
   },
-  ArraySlice: (_location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], start: bigint, end: bigint) => {
+  ArraySlice: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], start: bigint, end: bigint) => {
     const startNum = Number(start);
     const endNum = Number(end);
     return array.slice(startNum, endNum);
   },
-  ArrayGetKeys: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], keys: bigint[], onMissing: (key: bigint) => any) => {
+  ArrayGetKeys: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], keys: bigint[], onMissing: (key: bigint) => any) => {
     return keys.map(k => {
       const i = Number(k);
       if (i < 0 || i >= array.length) {
-        return call_function(location, onMissing, k);
+        return call_function(loc_id, source_map,onMissing, k);
       } else {
         return array[i];
       }
     });
   },
-  ArrayForEach: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue, _T2: EastTypeValue) => (array: any[], f: (x: any, i: bigint) => any) => {
+  ArrayForEach: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue, _T2: EastTypeValue) => (array: any[], f: (x: any, i: bigint) => any) => {
     lockForIteration(array);
     try {
       array.forEach((x, i) => {
-        return call_function(location, f, x, BigInt(i));
+        return call_function(loc_id, source_map,f, x, BigInt(i));
       });
       return null;
     } finally {
       unlockForIteration(array);
     }
   },
-  ArrayCopy: (_location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[]) => {
+  ArrayCopy: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[]) => {
     return [...array];
   },
-  ArrayMap: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue, _T2: EastTypeValue) => (array: any[], f: (x: any, i: bigint) => any) => {
+  ArrayMap: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue, _T2: EastTypeValue) => (array: any[], f: (x: any, i: bigint) => any) => {
     lockForIteration(array);
     try {
       return array.map((x, i) => {
-        return call_function(location, f, x, BigInt(i));
+        return call_function(loc_id, source_map,f, x, BigInt(i));
       });
     } finally {
       unlockForIteration(array);
     }
   },
-  ArrayFilter: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue, _T2: EastTypeValue) => (array: any[], f: (x: any, i: bigint) => any) => {
+  ArrayFilter: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue, _T2: EastTypeValue) => (array: any[], f: (x: any, i: bigint) => any) => {
     lockForIteration(array);
     try {
       return array.filter((x, i) => {
-        return call_function(location, f, x, BigInt(i));
+        return call_function(loc_id, source_map,f, x, BigInt(i));
       });
     } finally {
       unlockForIteration(array);
     }
   },
-  ArrayFilterMap: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue, _T2: EastTypeValue) => (array: any[], f: (x: any, i: bigint) => any) => {
+  ArrayFilterMap: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue, _T2: EastTypeValue) => (array: any[], f: (x: any, i: bigint) => any) => {
     lockForIteration(array);
     try {
       const result: any[] = [];
       for (let i = 0; i < array.length; i++) {
-        const v: option<any> = call_function(location, f, array[i], BigInt(i));
+        const v: option<any> = call_function(loc_id, source_map,f, array[i], BigInt(i));
         if (v.type === "some") {
           result.push(v.value);
         }
@@ -2181,11 +2194,11 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       unlockForIteration(array);
     }
   },
-  ArrayFirstMap: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue, _T2: EastTypeValue) => (array: any[], f: (x: any, i: bigint) => any) => {
+  ArrayFirstMap: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue, _T2: EastTypeValue) => (array: any[], f: (x: any, i: bigint) => any) => {
     lockForIteration(array);
     try {
       for (let i = 0; i < array.length; i++) {
-        const v: option<any> = call_function(location, f, array[i], BigInt(i));
+        const v: option<any> = call_function(loc_id, source_map,f, array[i], BigInt(i));
         if (v.type === "some") {
           return v;
         }
@@ -2195,41 +2208,41 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       unlockForIteration(array);
     }
   },
-  ArrayFold: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue, _T2: EastTypeValue) => (array: any[], init: any, f: (acc: any, x: any, i: bigint) => any) => {
+  ArrayFold: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue, _T2: EastTypeValue) => (array: any[], init: any, f: (acc: any, x: any, i: bigint) => any) => {
     lockForIteration(array);
     try {
       return array.reduce((acc, x, i) => {
-        return call_function(location, f, acc, x, BigInt(i));
+        return call_function(loc_id, source_map,f, acc, x, BigInt(i));
       }, init);
     } finally {
       unlockForIteration(array);
     }
   },
-  ArrayMapReduce: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue, _T2: EastTypeValue) => (array: any[], mapFn: (x: any, i: bigint) => any, reduceFn: (x: any, y:any) => any) => {
+  ArrayMapReduce: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue, _T2: EastTypeValue) => (array: any[], mapFn: (x: any, i: bigint) => any, reduceFn: (x: any, y:any) => any) => {
     if (array.length === 0) {
-      throw new EastError("Cannot reduce empty array with no initial value", { location });
+      throw new EastError("Cannot reduce empty array with no initial value", { loc_id, source_map });
     }
     lockForIteration(array);
     try {
-      let acc = call_function(location, mapFn, array[0], 0n);
+      let acc = call_function(loc_id, source_map,mapFn, array[0], 0n);
       for (let i = 1; i < array.length; i++) {
-        const mapped = call_function(location, mapFn, array[i], BigInt(i));
-        acc = call_function(location, reduceFn, acc, mapped);
+        const mapped = call_function(loc_id, source_map,mapFn, array[i], BigInt(i));
+        acc = call_function(loc_id, source_map,reduceFn, acc, mapped);
       }
       return acc;
     } finally {
       unlockForIteration(array);
     }
   },
-  ArrayStringJoin: (_location: LocationValue[], _platformDef: PlatformFunction[]) => (x: string[], y:string) => x.join(y),
-  ArrayToSet: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue, T2: EastTypeValue) => {
+  ArrayStringJoin: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[]) => (x: string[], y:string) => x.join(y),
+  ArrayToSet: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue, T2: EastTypeValue) => {
     const compare = compareFor(T2);
     return (array: any[], f: (x: any, i: bigint) => any) => {
       lockForIteration(array);
       try {
         const result = new SortedSet([], compare);
         for (let i = 0; i < array.length; i++) {
-          const v = call_function(location, f, array[i], BigInt(i));
+          const v = call_function(loc_id, source_map,f, array[i], BigInt(i));
           result.add(v);
         }
         return result;
@@ -2238,7 +2251,7 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       }
     }
   },
-  ArrayToDict: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue, K2: EastTypeValue, _T2: EastTypeValue) => {
+  ArrayToDict: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue, K2: EastTypeValue, _T2: EastTypeValue) => {
     const compare = compareFor(K2);
     return (array: any[], keyFn: (v: any, i: bigint) => any, valueFn: (v: any, i: bigint) => any, onConflict: (v1: any, v2: any, k: any) => null) => {
       const result = new SortedMap([], compare);
@@ -2246,13 +2259,13 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       try {
         for (let i = 0; i < array.length; i++) {
           const v = array[i];
-          const k = call_function(location, keyFn, v, BigInt(i));
-          let val = call_function(location, valueFn, v, BigInt(i));
+          const k = call_function(loc_id, source_map,keyFn, v, BigInt(i));
+          let val = call_function(loc_id, source_map,valueFn, v, BigInt(i));
           const existing = result.get(k);
           if (existing === undefined) {
             result.set(k, val);
           } else {
-            val = call_function(location, onConflict, existing, val, k);
+            val = call_function(loc_id, source_map,onConflict, existing, val, k);
             result.set(k, val);
           }
         }
@@ -2262,19 +2275,19 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       }
     }
   },
-  ArrayFlattenToArray: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], fn: (value: any) => any[]) => {
+  ArrayFlattenToArray: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], fn: (value: any) => any[]) => {
     return array.flatMap(v => {
-      return call_function(location, fn, v);
+      return call_function(loc_id, source_map,fn, v);
     });
   },
-  ArrayFlattenToSet: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue, K2: EastTypeValue) => {
+  ArrayFlattenToSet: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue, K2: EastTypeValue) => {
     const compare = compareFor(K2);
     return (array: any[], fn: (value: any) => any[]) => {
       const result = new SortedSet([], compare);
       lockForIteration(array);
       try {
         for (const v of array) {
-          const subset = call_function(location, fn, v);
+          const subset = call_function(loc_id, source_map,fn, v);
           for (const k of subset) {
             result.add(k);
           }
@@ -2285,20 +2298,20 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       }
     }
   },
-  ArrayFlattenToDict: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue, K2: EastTypeValue, _T2: EastTypeValue) => {
+  ArrayFlattenToDict: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue, K2: EastTypeValue, _T2: EastTypeValue) => {
     const compare = compareFor(K2);
     return (array: any[], fn: (value: any) => any[], onConflict: (v1: any, v2: any, k: any) => null) => {
       const result = new SortedMap([], compare);
       lockForIteration(array);
       try {
         for (const v of array) {
-          const subdict = call_function(location, fn, v);
+          const subdict = call_function(loc_id, source_map,fn, v);
           for (const [k, val] of subdict.entries()) {
             const existing = result.get(k);
             if (existing === undefined) {
               result.set(k, val);
             } else {
-              const new_val = call_function(location, onConflict, existing, val, k);
+              const new_val = call_function(loc_id, source_map,onConflict, existing, val, k);
               result.set(k, new_val);
             }
           }
@@ -2309,7 +2322,7 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       }
     }
   },
-  ArrayGroupFold: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue, K2: EastTypeValue, _V2: EastTypeValue) => {
+  ArrayGroupFold: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue, K2: EastTypeValue, _V2: EastTypeValue) => {
     const compare = compareFor(K2);
     return (array: any[], keyFn: (v: any, i: bigint) => any, init: (k: any) => any, folder: (acc: any, v: any, i: bigint) => any) => {
       const result = new SortedMap([], compare);
@@ -2317,12 +2330,12 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       try {
         for (let i = 0; i < array.length; i++) {
           const v = array[i];
-          const k = call_function(location, keyFn, v, BigInt(i));
+          const k = call_function(loc_id, source_map,keyFn, v, BigInt(i));
           let existing = result.get(k);
           if (existing === undefined) {
-            existing = call_function(location, init, k);
+            existing = call_function(loc_id, source_map,init, k);
           }
-          const new_val = call_function(location, folder, existing, v, BigInt(i));
+          const new_val = call_function(loc_id, source_map,folder, existing, v, BigInt(i));
           result.set(k, new_val);
         }
         return result;
@@ -2332,14 +2345,14 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
     }
   },
 
-  SetGenerate: (location: LocationValue[], _platformDef: PlatformFunction[], K: EastTypeValue) => {
+  SetGenerate: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue) => {
     const keyComparer = compareFor(K);
     return (size: bigint, keyFn: (i: bigint) => any, onConflict: (key: any) => null) => {
       const result = new SortedSet([], keyComparer);
       for (let i = 0n; i < size; i += 1n) {
-        const k = call_function(location, keyFn, i);
+        const k = call_function(loc_id, source_map,keyFn, i);
         if (result.has(k)) {
-          call_function(location, onConflict, k);
+          call_function(loc_id, source_map,onConflict, k);
         } else {
           result.add(k);
         }
@@ -2347,111 +2360,111 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       return result;
     }
   },
-  SetSize: (_location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue) => (s: Set<any>) => BigInt(s.size),
-  SetHas: (_location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue) => (s: Set<any>, key: any) => s.has(key),
-  SetInsert: (location: LocationValue[], _platformDef: PlatformFunction[], K: EastTypeValue) => {
+  SetSize: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue) => (s: Set<any>) => BigInt(s.size),
+  SetHas: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue) => (s: Set<any>, key: any) => s.has(key),
+  SetInsert: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue) => {
     const print = printFor(K);
     return (s: Set<any>, key: any) => {
       if (Object.isFrozen(s)) {
-        throw new EastError("Cannot modify frozen Set", { location });
+        throw new EastError("Cannot modify frozen Set", { loc_id, source_map });
       }
       if ((iterationLocks.get(s) || 0) > 0) {
-        throw new EastError("Cannot modify Set during iteration", { location });
+        throw new EastError("Cannot modify Set during iteration", { loc_id, source_map });
       }
       const size_before = s.size;
       s.add(key);
       if (s.size === size_before) {
-        throw new EastError(`Set already contains key ${print(key)}`, { location });
+        throw new EastError(`Set already contains key ${print(key)}`, { loc_id, source_map });
       }
       return null;
     }
   },
-  SetTryInsert: (location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue) => (s: Set<any>, key: any) => {
+  SetTryInsert: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue) => (s: Set<any>, key: any) => {
     if (Object.isFrozen(s)) {
-      throw new EastError("Cannot modify frozen Set", { location });
+      throw new EastError("Cannot modify frozen Set", { loc_id, source_map });
     }
     if ((iterationLocks.get(s) || 0) > 0) {
-      throw new EastError("Cannot modify Set during iteration", { location });
+      throw new EastError("Cannot modify Set during iteration", { loc_id, source_map });
     }
     const size_before = s.size;
     s.add(key);
     return s.size > size_before;
   },
-  SetDelete: (location: LocationValue[], _platformDef: PlatformFunction[], K: EastTypeValue) => {
+  SetDelete: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue) => {
     const print = printFor(K);
     return (s: Set<any>, key: any) => {
       if (Object.isFrozen(s)) {
-        throw new EastError("Cannot modify frozen Set", { location });
+        throw new EastError("Cannot modify frozen Set", { loc_id, source_map });
       }
       if ((iterationLocks.get(s) || 0) > 0) {
-        throw new EastError("Cannot modify Set during iteration", { location });
+        throw new EastError("Cannot modify Set during iteration", { loc_id, source_map });
       }
       if (!s.delete(key)) {
-        throw new EastError(`Set does not contain key ${print(key)}`, { location });
+        throw new EastError(`Set does not contain key ${print(key)}`, { loc_id, source_map });
       }
       return null;
     }
   },
-  SetTryDelete: (location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue) => (s: Set<any>, key: any) => {
+  SetTryDelete: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue) => (s: Set<any>, key: any) => {
     if (Object.isFrozen(s)) {
-      throw new EastError("Cannot modify frozen Set", { location });
+      throw new EastError("Cannot modify frozen Set", { loc_id, source_map });
     }
     if ((iterationLocks.get(s) || 0) > 0) {
-      throw new EastError("Cannot modify Set during iteration", { location });
+      throw new EastError("Cannot modify Set during iteration", { loc_id, source_map });
     }
     return s.delete(key);
   },
-  SetClear: (location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue) => (s: Set<any>) => {
+  SetClear: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue) => (s: Set<any>) => {
     if (Object.isFrozen(s)) {
-      throw new EastError("Cannot modify frozen Set", { location });
+      throw new EastError("Cannot modify frozen Set", { loc_id, source_map });
     }
     if ((iterationLocks.get(s) || 0) > 0) {
-      throw new EastError("Cannot modify Set during iteration", { location });
+      throw new EastError("Cannot modify Set during iteration", { loc_id, source_map });
     }
     s.clear();
     return null
   },
-  SetUnionInPlace: (location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue) => (s1: Set<any>, s2: Set<any>) => {
+  SetUnionInPlace: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue) => (s1: Set<any>, s2: Set<any>) => {
     if (Object.isFrozen(s1)) {
-      throw new EastError("Cannot modify frozen Set", { location });
+      throw new EastError("Cannot modify frozen Set", { loc_id, source_map });
     }
     if ((iterationLocks.get(s1) || 0) > 0) {
-      throw new EastError("Cannot modify Set during iteration", { location });
+      throw new EastError("Cannot modify Set during iteration", { loc_id, source_map });
     }
     s2.forEach(v => s1.add(v));
     return null;
   },
-  SetUnion: (_location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue) => (s1: Set<any>, s2: Set<any>) => s1.union(s2),
-  SetIntersect: (_location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue) => (s1: Set<any>, s2: Set<any>) => s1.intersection(s2),
-  SetDiff: (_location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue) => (s1: Set<any>, s2: Set<any>) => s1.difference(s2),
-  SetSymDiff: (_location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue) => (s1: Set<any>, s2: Set<any>) => s1.symmetricDifference(s2),
-  SetIsSubset: (_location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue) => (s1: Set<any>, s2: Set<any>) => s1.isSubsetOf(s2),
-  SetIsDisjoint: (_location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue) => (s1: Set<any>, s2: Set<any>) => s1.isDisjointFrom(s2),
-  SetCopy: (_location: LocationValue[], _platformDef: PlatformFunction[], K: EastTypeValue) => {
+  SetUnion: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue) => (s1: Set<any>, s2: Set<any>) => s1.union(s2),
+  SetIntersect: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue) => (s1: Set<any>, s2: Set<any>) => s1.intersection(s2),
+  SetDiff: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue) => (s1: Set<any>, s2: Set<any>) => s1.difference(s2),
+  SetSymDiff: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue) => (s1: Set<any>, s2: Set<any>) => s1.symmetricDifference(s2),
+  SetIsSubset: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue) => (s1: Set<any>, s2: Set<any>) => s1.isSubsetOf(s2),
+  SetIsDisjoint: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue) => (s1: Set<any>, s2: Set<any>) => s1.isDisjointFrom(s2),
+  SetCopy: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue) => {
     const compare = compareFor(K);
     return (s: SortedSet<any>) => {
       return new SortedSet([...s], compare);
     }
   },
-  SetForEach: (location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue, _T2: EastTypeValue) => (s: Set<any>, f: (x: any) => any) => {
+  SetForEach: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _T2: EastTypeValue) => (s: Set<any>, f: (x: any) => any) => {
     lockForIteration(s);
     try {
       s.forEach(x => {
-        call_function(location, f, x);
+        call_function(loc_id, source_map,f, x);
       });
       return null;
     } finally {
       unlockForIteration(s);
     }
   },
-  SetFilter: (location: LocationValue[], _platformDef: PlatformFunction[], K: EastTypeValue) => {
+  SetFilter: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue) => {
     const compare = compareFor(K);
     return (s: SortedSet<any>, f: (x: any) => any) => {
       const result = new SortedSet([], compare);
       lockForIteration(s);
       try {
         s.forEach(x => {
-          const keep = call_function(location, f, x);
+          const keep = call_function(loc_id, source_map,f, x);
           if (keep) {
             result.add(x);
           }
@@ -2462,14 +2475,14 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       }
     }
   },
-  SetFilterMap: (location: LocationValue[], _platformDef: PlatformFunction[], K: EastTypeValue, _V2: EastTypeValue) => {
+  SetFilterMap: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue, _V2: EastTypeValue) => {
     const compare = compareFor(K);
     return (s: SortedSet<any>, f: (k: any) => option<any>) => {
       const result = new SortedMap([], compare);
       lockForIteration(s);
       try {
         s.forEach(k => {
-          const v2: option<any> = call_function(location, f, k);
+          const v2: option<any> = call_function(loc_id, source_map,f, k);
           if (v2.type === "some") {
             result.set(k, v2.value);
           }
@@ -2480,11 +2493,11 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       }
     }
   },
-  SetFirstMap: (location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue, _T2: EastTypeValue) => (s: SortedSet<any>, f: (k: any) => any) => {
+  SetFirstMap: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _T2: EastTypeValue) => (s: SortedSet<any>, f: (k: any) => any) => {
     lockForIteration(s);
     try {
       for (const k of s) {
-        const v: option<any> = call_function(location, f, k);
+        const v: option<any> = call_function(loc_id, source_map,f, k);
         if (v.type === "some") {
           return v;
         }
@@ -2494,32 +2507,32 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       unlockForIteration(s);
     }
   },
-  SetMapReduce: (location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue, _T2: EastTypeValue) => (s: SortedSet<any>, mapFn: (k: any) => any, reduceFn: (x: any, y: any) => any) => {
+  SetMapReduce: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _T2: EastTypeValue) => (s: SortedSet<any>, mapFn: (k: any) => any, reduceFn: (x: any, y: any) => any) => {
     if (s.size === 0) {
-      throw new EastError("Cannot reduce empty set with no initial value", { location });
+      throw new EastError("Cannot reduce empty set with no initial value", { loc_id, source_map });
     }
     lockForIteration(s);
     try {
       const iterator = s[Symbol.iterator]();
       const first = iterator.next().value;
-      let acc = call_function(location, mapFn, first);
+      let acc = call_function(loc_id, source_map,mapFn, first);
       for (const k of iterator) {
-        const mapped = call_function(location, mapFn, k);
-        acc = call_function(location, reduceFn, acc, mapped);
+        const mapped = call_function(loc_id, source_map,mapFn, k);
+        acc = call_function(loc_id, source_map,reduceFn, acc, mapped);
       }
       return acc;
     } finally {
       unlockForIteration(s);
     }
   },
-  SetMap: (location: LocationValue[], _platformDef: PlatformFunction[], K: EastTypeValue, _T2: EastTypeValue) => {
+  SetMap: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue, _T2: EastTypeValue) => {
     const compare = compareFor(K);
     return (s: SortedSet<any>, f: (x: any) => any) => {
       const result = new SortedMap([], compare);
       lockForIteration(s);
       try {
         s.forEach(x => {
-          const v = call_function(location, f, x);
+          const v = call_function(loc_id, source_map,f, x);
           result.set(x, v);
         });
         return result;
@@ -2528,24 +2541,24 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       }
     }
   },
-  SetReduce: (location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue, _T2: EastTypeValue) => (s: Set<any>, f: (acc: any, x: any) => any, init: any) => {
+  SetReduce: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _T2: EastTypeValue) => (s: Set<any>, f: (acc: any, x: any) => any, init: any) => {
     let acc = init;
     lockForIteration(s);
     try {
       for (const x of s) {
-        acc = call_function(location, f, acc, x);
+        acc = call_function(loc_id, source_map,f, acc, x);
       }
       return acc;
     } finally {
       unlockForIteration(s);
     }
   },
-  SetToArray: (location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue, _T2: EastTypeValue) => (s: Set<any>, valueFn: (key: any) => any) => {
+  SetToArray: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _T2: EastTypeValue) => (s: Set<any>, valueFn: (key: any) => any) => {
     const ret = [];
     lockForIteration(s);
     try {
       for (const k of s) {
-        const v = call_function(location, valueFn, k);
+        const v = call_function(loc_id, source_map,valueFn, k);
         ret.push(v);
       }
       return ret;
@@ -2553,14 +2566,14 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       unlockForIteration(s);
     }
   },
-  SetToSet: (location: LocationValue[], _platformDef: PlatformFunction[], K: EastTypeValue, K2: EastTypeValue) => {
+  SetToSet: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue, K2: EastTypeValue) => {
     const compare = compareFor(K2);
     return (s: SortedSet<any>, f: (x: any) => any) => {
       const result = new SortedSet([], compare);
       lockForIteration(s);
       try {
         for (const x of s) {
-          const v = call_function(location, f, x);
+          const v = call_function(loc_id, source_map,f, x);
           result.add(v);
         };
         return result;
@@ -2569,18 +2582,18 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       }
     }
   },
-  SetToDict: (location: LocationValue[], _platformDef: PlatformFunction[], K: EastTypeValue, K2: EastTypeValue, _V2: EastTypeValue) => {
+  SetToDict: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue, K2: EastTypeValue, _V2: EastTypeValue) => {
     const compare = compareFor(K2);
     return (s: Set<any>, keyFn: (key: any) => any, valueFn: (key: any) => any, onConflict: (v1: any, v2: any, k: any) => null) => {
       const result = new SortedMap([], compare);
       lockForIteration(s);
       try {
         for (const k of s) {
-          const k2 = call_function(location, keyFn, k);
-          let v2 = call_function(location, valueFn, k);
+          const k2 = call_function(loc_id, source_map,keyFn, k);
+          let v2 = call_function(loc_id, source_map,valueFn, k);
           const existing = result.get(k2);
           if (existing !== undefined) {
-            v2 = call_function(location, onConflict, existing, v2, k2);
+            v2 = call_function(loc_id, source_map,onConflict, existing, v2, k2);
             result.set(k2, v2);
           } else {
             result.set(k2, v2);
@@ -2592,12 +2605,12 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       }
     }
   },
-  SetFlattenToArray: (location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue, _T2: EastTypeValue) => (s: Set<any>, fn: (value: any) => any[]) => {
+  SetFlattenToArray: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _T2: EastTypeValue) => (s: Set<any>, fn: (value: any) => any[]) => {
     const ret = [];
     lockForIteration(s);
     try {
       for (const k of s) {
-        const subarray = call_function(location, fn, k);
+        const subarray = call_function(loc_id, source_map,fn, k);
         ret.push(...subarray);
       }
       return ret;
@@ -2605,14 +2618,14 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       unlockForIteration(s);
     }
   },
-  SetFlattenToSet: (location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue, K2: EastTypeValue) => {
+  SetFlattenToSet: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, K2: EastTypeValue) => {
     const compare = compareFor(K2);
     return (s: Set<any>, fn: (value: any) => any[]) => {
       const result = new SortedSet([], compare);
       lockForIteration(s);
       try {
         for (const k of s) {
-          const subset = call_function(location, fn, k);
+          const subset = call_function(loc_id, source_map,fn, k);
           for (const k2 of subset) {
             result.add(k2);
           }
@@ -2623,20 +2636,20 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       }
     }
   },
-  SetFlattenToDict: (location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue, K2: EastTypeValue, _V2: EastTypeValue) => {
+  SetFlattenToDict: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, K2: EastTypeValue, _V2: EastTypeValue) => {
     const compare = compareFor(K2);
     return (s: Set<any>, fn: (value: any) => any[], onConflict: (v1: any, v2: any, k: any) => null) => {
       const result = new SortedMap([], compare);
       lockForIteration(s);
       try {
         for (const k of s) {
-          const subdict = call_function(location, fn, k);
+          const subdict = call_function(loc_id, source_map,fn, k);
           for (const [k2, v2] of subdict.entries()) {
             const existing = result.get(k2);
             if (existing === undefined) {
               result.set(k2, v2);
             } else {
-              const new_v2 = call_function(location, onConflict, existing, v2, k2);
+              const new_v2 = call_function(loc_id, source_map,onConflict, existing, v2, k2);
               result.set(k2, new_v2);
             }
           }
@@ -2647,19 +2660,19 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       }
     }
   },
-  SetGroupFold: (location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue, K2: EastTypeValue, _T2: EastTypeValue) => {
+  SetGroupFold: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, K2: EastTypeValue, _T2: EastTypeValue) => {
     const compare = compareFor(K2);
     return (s: Set<any>, keyFn: (k: any) => any, init: (k2: any) => any, folder: (acc: any, k: any) => any) => {
       const result = new SortedMap([], compare);
       lockForIteration(s);
       try {
         for (const k of s) {
-          const k2 = call_function(location, keyFn, k);
+          const k2 = call_function(loc_id, source_map,keyFn, k);
           let existing = result.get(k2);
           if (existing === undefined) {
-            existing = call_function(location, init, k2);
+            existing = call_function(loc_id, source_map,init, k2);
           }
-          const new_val = call_function(location, folder, existing, k);
+          const new_val = call_function(loc_id, source_map,folder, existing, k);
           result.set(k2, new_val);
         }
         return result;
@@ -2669,16 +2682,16 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
     }
   },
 
-  DictGenerate: (location: LocationValue[], _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue) => {
+  DictGenerate: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue) => {
     const keyComparer = compareFor(K);
     return (size: bigint, keyFn: (i: bigint) => any, valueFn: (i: bigint) => any, onConflict: (v1: any, v2: any, key: any) => any) => {
       const result = new SortedMap([], keyComparer);
       for (let i = 0n; i < size; i += 1n) {
-        const k = call_function(location, keyFn, i);
-        const v = call_function(location, valueFn, i);
+        const k = call_function(loc_id, source_map,keyFn, i);
+        const v = call_function(loc_id, source_map,valueFn, i);
         const existing = result.get(k);
         if (existing !== undefined) {
-          const v2 = call_function(location, onConflict, existing, v, k);
+          const v2 = call_function(loc_id, source_map,onConflict, existing, v, k);
           result.set(k, v2);
         } else {
           result.set(k, v);
@@ -2687,28 +2700,28 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       return result;
     }
   },
-  DictSize: (_location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue) => (d: Map<any, any>) => BigInt(d.size),
-  DictHas: (_location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue) => (d: Map<any, any>, key: any) => d.has(key),
-  DictGet: (location: LocationValue[], _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue) => {
+  DictSize: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue) => (d: Map<any, any>) => BigInt(d.size),
+  DictHas: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue) => (d: Map<any, any>, key: any) => d.has(key),
+  DictGet: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue) => {
     const print = printFor(K);
     return (d: Map<any, any>, key: any) => {
       const result = d.get(key);
       if (result === undefined) {
-        throw new EastError(`Dict does not contain key ${print(key)}`, { location });
+        throw new EastError(`Dict does not contain key ${print(key)}`, { loc_id, source_map });
       } else {
         return result;
       }
     }
   },
-  DictGetOrDefault: (location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue) => (d: Map<any, any>, key: any, onMissingFn: (key: any) => any) => {
+  DictGetOrDefault: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue) => (d: Map<any, any>, key: any, onMissingFn: (key: any) => any) => {
     const result = d.get(key);
     if (result === undefined) {
-      return call_function(location, onMissingFn, key);
+      return call_function(loc_id, source_map,onMissingFn, key);
     } else {
       return result;
     }
   },
-  DictTryGet: (_location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue) => (d: Map<any, any>, key: any) => {
+  DictTryGet: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue) => (d: Map<any, any>, key: any) => {
     const result = d.get(key);
     if (result === undefined) {
       return variant("none", null);
@@ -2716,194 +2729,194 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       return variant("some", result);
     }
   },
-  DictInsert: (location: LocationValue[], _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue) => {
+  DictInsert: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue) => {
     const print = printFor(K);
     return (d: Map<any, any>, key: any, value: any) => {
       if (Object.isFrozen(d)) {
-        throw new EastError("Cannot modify frozen Dict", { location });
+        throw new EastError("Cannot modify frozen Dict", { loc_id, source_map });
       }
       if ((iterationLocks.get(d) || 0) > 0) {
-        throw new EastError("Cannot modify Dict during iteration", { location });
+        throw new EastError("Cannot modify Dict during iteration", { loc_id, source_map });
       }
       const existing = d.get(key);
       if (existing !== undefined) {
-        throw new EastError(`Dict already contains key ${print(key)}`, { location });
+        throw new EastError(`Dict already contains key ${print(key)}`, { loc_id, source_map });
       } else {
         d.set(key, value);
       }
       return null;
     }
   },
-  DictGetOrInsert: (location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue) => (d: Map<any, any>, key: any, onMissing: (key: any) => any) => {
+  DictGetOrInsert: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue) => (d: Map<any, any>, key: any, onMissing: (key: any) => any) => {
     if (Object.isFrozen(d)) {
-      throw new EastError("Cannot modify frozen Dict", { location });
+      throw new EastError("Cannot modify frozen Dict", { loc_id, source_map });
     }
     if ((iterationLocks.get(d) || 0) > 0) {
-      throw new EastError("Cannot modify Dict during iteration", { location });
+      throw new EastError("Cannot modify Dict during iteration", { loc_id, source_map });
     }
     const existing = d.get(key);
     if (existing === undefined) {
-      const newValue = call_function(location, onMissing, key);
+      const newValue = call_function(loc_id, source_map,onMissing, key);
       d.set(key, newValue);
       return newValue;
     } else {
       return existing;
     }
   },
-  DictInsertOrUpdate: (location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue) => (d: Map<any, any>, key: any, value: any, onConflictFn: (existing: any, newValue: any, key: any) => any) => {
+  DictInsertOrUpdate: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue) => (d: Map<any, any>, key: any, value: any, onConflictFn: (existing: any, newValue: any, key: any) => any) => {
     if (Object.isFrozen(d)) {
-      throw new EastError("Cannot modify frozen Dict", { location });
+      throw new EastError("Cannot modify frozen Dict", { loc_id, source_map });
     }
     if ((iterationLocks.get(d) || 0) > 0) {
-      throw new EastError("Cannot modify Dict during iteration", { location });
+      throw new EastError("Cannot modify Dict during iteration", { loc_id, source_map });
     }
     const existing = d.get(key);
     if (existing !== undefined) {
-      const result = call_function(location, onConflictFn, existing, value, key);
+      const result = call_function(loc_id, source_map,onConflictFn, existing, value, key);
       d.set(key, result);
     } else {
       d.set(key, value);
     }
     return null;
   },
-  DictUpdate: (location: LocationValue[], _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue) => {
+  DictUpdate: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue) => {
     const print = printFor(K);
     return (d: Map<any, any>, key: any, value: any) => {
       if (Object.isFrozen(d)) {
-        throw new EastError("Cannot modify frozen Dict", { location });
+        throw new EastError("Cannot modify frozen Dict", { loc_id, source_map });
       }
       if (d.has(key)) {
         d.set(key, value);
         return null;
       } else {
-        throw new EastError(`Dict does not contain key ${print(key)}`, { location });
+        throw new EastError(`Dict does not contain key ${print(key)}`, { loc_id, source_map });
       }
     }
   },
-  DictSwap: (location: LocationValue[], _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue) => {
+  DictSwap: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue) => {
     const print = printFor(K);
     return (d: Map<any, any>, key: any, value: any) => {
       if (Object.isFrozen(d)) {
-        throw new EastError("Cannot modify frozen Dict", { location });
+        throw new EastError("Cannot modify frozen Dict", { loc_id, source_map });
       }
       let existing = d.get(key);
       if (existing === undefined) {
-        throw new EastError(`Dict does not contain key ${print(key)}`, { location });
+        throw new EastError(`Dict does not contain key ${print(key)}`, { loc_id, source_map });
       }
       d.set(key, value);
       return existing;
     };
   },
-  DictMerge: (location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue) => (d: Map<any, any>, key: any, value: any, mergeFn: (existing: any, value: any, key: any) => any, initialFn: (key: any) => any) => {
+  DictMerge: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue) => (d: Map<any, any>, key: any, value: any, mergeFn: (existing: any, value: any, key: any) => any, initialFn: (key: any) => any) => {
     if (Object.isFrozen(d)) {
-      throw new EastError("Cannot modify frozen Dict", { location });
+      throw new EastError("Cannot modify frozen Dict", { loc_id, source_map });
     }
     if ((iterationLocks.get(d) || 0) > 0) {
-      throw new EastError("Cannot modify Dict during iteration", { location });
+      throw new EastError("Cannot modify Dict during iteration", { loc_id, source_map });
     }
     let existing = d.get(key);
     if (existing === undefined) {
-      existing = call_function(location, initialFn, key);
+      existing = call_function(loc_id, source_map,initialFn, key);
     }
-    const new_value = call_function(location, mergeFn, existing, value, key);
+    const new_value = call_function(loc_id, source_map,mergeFn, existing, value, key);
     d.set(key, new_value);
     return null;
   },
-  DictDelete: (location: LocationValue[], _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue) => {
+  DictDelete: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue) => {
     const print = printFor(K);
     return (d: Map<any, any>, key: any) => {
       if (Object.isFrozen(d)) {
-        throw new EastError("Cannot modify frozen Dict", { location });
+        throw new EastError("Cannot modify frozen Dict", { loc_id, source_map });
       }
       if ((iterationLocks.get(d) || 0) > 0) {
-        throw new EastError("Cannot modify Dict during iteration", { location });
+        throw new EastError("Cannot modify Dict during iteration", { loc_id, source_map });
       }
       const existed = d.delete(key);
       if (!existed) {
-        throw new EastError(`Dict does not contain key ${print(key)}`, { location });
+        throw new EastError(`Dict does not contain key ${print(key)}`, { loc_id, source_map });
       }
       return null;
     }
   },
-  DictTryDelete: (location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue) => (d: Map<any, any>, key: any) => {
+  DictTryDelete: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue) => (d: Map<any, any>, key: any) => {
     if (Object.isFrozen(d)) {
-      throw new EastError("Cannot modify frozen Dict", { location });
+      throw new EastError("Cannot modify frozen Dict", { loc_id, source_map });
     }
     if ((iterationLocks.get(d) || 0) > 0) {
-      throw new EastError("Cannot modify Dict during iteration", { location });
+      throw new EastError("Cannot modify Dict during iteration", { loc_id, source_map });
     }
     return d.delete(key);
   },
-  DictPop: (location: LocationValue[], _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue) => {
+  DictPop: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue) => {
     const print = printFor(K);
     return (d: Map<any, any>, key: any) => {
       if (Object.isFrozen(d)) {
-        throw new EastError("Cannot modify frozen Dict", { location });
+        throw new EastError("Cannot modify frozen Dict", { loc_id, source_map });
       }
       if ((iterationLocks.get(d) || 0) > 0) {
-        throw new EastError("Cannot modify Dict during iteration", { location });
+        throw new EastError("Cannot modify Dict during iteration", { loc_id, source_map });
       }
       const existing = d.get(key);
       if (existing === undefined) {
-        throw new EastError(`Dict does not contain key ${print(key)}`, { location });
+        throw new EastError(`Dict does not contain key ${print(key)}`, { loc_id, source_map });
       } else {
         d.delete(key);
         return existing;
       }
     };
   },
-  DictClear: (location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue) => (d: Map<any, any>) => {
+  DictClear: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue) => (d: Map<any, any>) => {
     if (Object.isFrozen(d)) {
-      throw new EastError("Cannot modify frozen Dict", { location });
+      throw new EastError("Cannot modify frozen Dict", { loc_id, source_map });
     }
     if ((iterationLocks.get(d) || 0) > 0) {
-      throw new EastError("Cannot modify Dict during iteration", { location });
+      throw new EastError("Cannot modify Dict during iteration", { loc_id, source_map });
     }
     d.clear();
     return null;
   },
-  DictUnionInPlace: (location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue) => (d1: Map<any, any>, d2: Map<any, any>, onConflict: (v1: any, v2: any, key: any) => any) => {
+  DictUnionInPlace: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue) => (d1: Map<any, any>, d2: Map<any, any>, onConflict: (v1: any, v2: any, key: any) => any) => {
     if (Object.isFrozen(d1)) {
-      throw new EastError("Cannot modify frozen Dict", { location });
+      throw new EastError("Cannot modify frozen Dict", { loc_id, source_map });
     }
     if ((iterationLocks.get(d1) || 0) > 0) {
-      throw new EastError("Cannot modify Dict during iteration", { location });
+      throw new EastError("Cannot modify Dict during iteration", { loc_id, source_map });
     }
     d2.forEach((v2, k) => {
       const v1 = d1.get(k);
       if (v1 === undefined) {
         d1.set(k, v2);
       } else {
-        const new_value = call_function(location, onConflict, v1, v2, k);
+        const new_value = call_function(loc_id, source_map,onConflict, v1, v2, k);
         d1.set(k, new_value);
       }
     });
     return null;
   },
-  DictMergeAll: (location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue) => (d1: SortedMap<any, any>, d2: SortedMap<any, any>, mergeFn: (v1: any, v2: any, key: any) => any, initialFn: (key: any) => any) => {
+  DictMergeAll: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue) => (d1: SortedMap<any, any>, d2: SortedMap<any, any>, mergeFn: (v1: any, v2: any, key: any) => any, initialFn: (key: any) => any) => {
     if (Object.isFrozen(d1)) {
-      throw new EastError("Cannot modify frozen Dict", { location });
+      throw new EastError("Cannot modify frozen Dict", { loc_id, source_map });
     }
     if ((iterationLocks.get(d1) || 0) > 0) {
-      throw new EastError("Cannot modify Dict during iteration", { location });
+      throw new EastError("Cannot modify Dict during iteration", { loc_id, source_map });
     }
     d2.forEach((v2, k) => {
       let v1 = d1.get(k);
       if (v1 === undefined) {
-        v1 = call_function(location, initialFn, k);
+        v1 = call_function(loc_id, source_map,initialFn, k);
       }
-      const new_value = call_function(location, mergeFn, v1, v2, k);
+      const new_value = call_function(loc_id, source_map,mergeFn, v1, v2, k);
       d1.set(k, new_value);
     });
     return null;
   },
-  DictKeys: (_location: LocationValue[], _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue) => {
+  DictKeys: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue) => {
     const compare = compareFor(K);
     return (d: Map<any, any>) => {
       return new SortedSet([...d.keys()], compare);
     }
   },
-  DictGetKeys: (location: LocationValue[], _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue) => {
+  DictGetKeys: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue) => {
     const compare = compareFor(K);
     return (d: SortedMap<any, any>, keys: SortedSet<any>, onMissing: (key: any) => any) => {
       const result = new SortedMap([], compare);
@@ -2912,38 +2925,38 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
         if (v !== undefined) {
           result.set(k, v);
         } else {
-          const new_v = call_function(location, onMissing, k);
+          const new_v = call_function(loc_id, source_map,onMissing, k);
           result.set(k, new_v);
         }
       }
       return result;
     }
   },
-  DictForEach: (location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue, _T2) => (d: Map<any, any>, f: (k: any, v: any) => any) => {
+  DictForEach: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue, _T2) => (d: Map<any, any>, f: (k: any, v: any) => any) => {
     lockForIteration(d);
     try {
       d.forEach((v, k) => {
-        call_function(location, f, v, k);
+        call_function(loc_id, source_map,f, v, k);
       });
       return null;
     } finally {
       unlockForIteration(d);
     }
   },
-  DictCopy: (_location: LocationValue[], _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue) => {
+  DictCopy: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue) => {
     const compare = compareFor(K);
     return (d: SortedMap<any, any>) => {
       return new SortedMap([...d], compare);
     }
   },
-  DictMap: (location: LocationValue[], _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue, _V2: EastTypeValue) => {
+  DictMap: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue, _V2: EastTypeValue) => {
     const compare = compareFor(K);
     return (d: SortedMap<any, any>, f: (v: any, k: any) => any) => {
       const result = new SortedMap([], compare);
       lockForIteration(d);
       try {
         for (const [k, v] of d) {
-          const v2 = call_function(location, f, v, k);
+          const v2 = call_function(loc_id, source_map,f, v, k);
           result.set(k, v2);
         }
         return result;
@@ -2952,14 +2965,14 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       }
     }
   },
-  DictFilter: (location: LocationValue[], _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue) => {
+  DictFilter: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue) => {
     const compare = compareFor(K);
     return (d: SortedMap<any, any>, f: (v: any, k: any) => any) => {
       const result = new SortedMap([], compare);
       lockForIteration(d);
       try {
         for (const [k, v] of d) {
-          const keep = call_function(location, f, v, k);
+          const keep = call_function(loc_id, source_map,f, v, k);
           if (keep) {
             result.set(k, v);
           }
@@ -2970,14 +2983,14 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       }
     }
   },
-  DictFilterMap: (location: LocationValue[], _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue, _V2: EastTypeValue) => {
+  DictFilterMap: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue, _V2: EastTypeValue) => {
     const compare = compareFor(K);
     return (d: SortedMap<any, any>, f: (v: any, k: any) => option<any>) => {
       const result = new SortedMap([], compare);
       lockForIteration(d);
       try {
         for (const [k, v] of d) {
-          const v2: option<any> = call_function(location, f, v, k);
+          const v2: option<any> = call_function(loc_id, source_map,f, v, k);
           if (v2.type === "some") {
             result.set(k, v2.value);
           }
@@ -2988,11 +3001,11 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       }
     }
   },
-  DictFirstMap: (location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue, _T2: EastTypeValue) => (d: Map<any, any>, f: (v: any, k: any) => option<any>) => {
+  DictFirstMap: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue, _T2: EastTypeValue) => (d: Map<any, any>, f: (v: any, k: any) => option<any>) => {
     lockForIteration(d);
     try {
       for (const [k, v] of d) {
-        const result: option<any> = call_function(location, f, v, k);
+        const result: option<any> = call_function(loc_id, source_map,f, v, k);
         if (result.type === "some") {
           return result;
         }
@@ -3002,42 +3015,42 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       unlockForIteration(d);
     }
   },
-  DictMapReduce: (location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue, _T2: EastTypeValue) => (d: Map<any, any>, mapFn: (v: any, k: any) => any, reduceFn: (x: any, y: any) => any) => {
+  DictMapReduce: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue, _T2: EastTypeValue) => (d: Map<any, any>, mapFn: (v: any, k: any) => any, reduceFn: (x: any, y: any) => any) => {
     if (d.size === 0) {
-      throw new EastError("Cannot reduce empty dictionary with no initial value", { location });
+      throw new EastError("Cannot reduce empty dictionary with no initial value", { loc_id, source_map });
     }
     lockForIteration(d);
     try {
       const iterator = d[Symbol.iterator]();
       const first = iterator.next().value!;
-      let acc = call_function(location, mapFn, first[1], first[0]);
+      let acc = call_function(loc_id, source_map,mapFn, first[1], first[0]);
       for (const [k, v] of iterator) {
-        const mapped = call_function(location, mapFn, v, k);
-        acc = call_function(location, reduceFn, acc, mapped);
+        const mapped = call_function(loc_id, source_map,mapFn, v, k);
+        acc = call_function(loc_id, source_map,reduceFn, acc, mapped);
       }
       return acc;
     } finally {
       unlockForIteration(d);
     }
   },
-  DictReduce: (location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue, _T2: EastTypeValue) => (d: Map<any, any>, f: (acc: any, v: any, k: any) => any, init: any) => {
+  DictReduce: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue, _T2: EastTypeValue) => (d: Map<any, any>, f: (acc: any, v: any, k: any) => any, init: any) => {
     let acc = init;
     lockForIteration(d);
     try {
       for (const [k, v] of d) {
-        acc = call_function(location, f, acc, v, k);
+        acc = call_function(loc_id, source_map,f, acc, v, k);
       }
       return acc;
     } finally {
       unlockForIteration(d);
     }
   },
-  DictToArray: (location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue, _T2: EastTypeValue) => (d: Map<any, any>, valueFn: (v: any, k: any) => any) => {
+  DictToArray: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue, _T2: EastTypeValue) => (d: Map<any, any>, valueFn: (v: any, k: any) => any) => {
     const ret = [];
     lockForIteration(d);
     try {
       for (const [k, v] of d) {
-        const v2 = call_function(location, valueFn, v, k);
+        const v2 = call_function(loc_id, source_map,valueFn, v, k);
         ret.push(v2);
       }
       return ret;
@@ -3045,14 +3058,14 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       unlockForIteration(d);
     }
   },
-  DictToSet: (location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue, K2: EastTypeValue) => {
+  DictToSet: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue, K2: EastTypeValue) => {
     const compare = compareFor(K2);
     return (d: SortedMap<any, any>, fn: (v: any, k: any) => any) => {
       const result = new SortedSet([], compare);
       lockForIteration(d);
       try {
         for (const [k, v] of d) {
-          const k2 = call_function(location, fn, v, k);
+          const k2 = call_function(loc_id, source_map,fn, v, k);
           result.add(k2);
         }
         return result;
@@ -3061,18 +3074,18 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       }
     }
   },
-  DictToDict: (location: LocationValue[], _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue, K2: EastTypeValue, _V2: EastTypeValue) => {
+  DictToDict: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue, K2: EastTypeValue, _V2: EastTypeValue) => {
     const compare = compareFor(K2);
     return (d: Map<any, any>, keyFn: (v: any, k: any) => any, valueFn: (v: any, k: any) => any, onConflict: (v1: any, v2: any, k: any) => any) => {
       const result = new SortedMap([], compare);
       lockForIteration(d);
       try {
         for (const [k, v] of d) {
-          const k2 = call_function(location, keyFn, v, k);
-          const v2 = call_function(location, valueFn, v, k);
+          const k2 = call_function(loc_id, source_map,keyFn, v, k);
+          const v2 = call_function(loc_id, source_map,valueFn, v, k);
           const existing = result.get(k2);
           if (existing !== undefined) {
-            const v3 = call_function(location, onConflict, existing, v2, k2);
+            const v3 = call_function(loc_id, source_map,onConflict, existing, v2, k2);
             result.set(k2, v3);
           } else {
             result.set(k2, v2);
@@ -3084,12 +3097,12 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       }
     }
   },
-  DictFlattenToArray: (location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue, _T2: EastTypeValue) => (d: Map<any, any>, fn: (key: any, value: any) => any[]) => {
+  DictFlattenToArray: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue, _T2: EastTypeValue) => (d: Map<any, any>, fn: (key: any, value: any) => any[]) => {
     const ret = [];
     lockForIteration(d);
     try {
       for (const [k, v] of d.entries()) {
-        const subarray = call_function(location, fn, v, k);
+        const subarray = call_function(loc_id, source_map,fn, v, k);
         for (const item of subarray) {
           ret.push(item);
         }
@@ -3099,14 +3112,14 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       unlockForIteration(d);
     }
   },
-  DictFlattenToSet: (location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue, K2: EastTypeValue) => {
+  DictFlattenToSet: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue, K2: EastTypeValue) => {
     const compare = compareFor(K2);
     return (d: Map<any, any>, fn: (key: any, value: any) => any[]) => {
       const result = new SortedSet([], compare);
       lockForIteration(d);
       try {
         for (const [k, v] of d.entries()) {
-          const subset = call_function(location, fn, v, k);
+          const subset = call_function(loc_id, source_map,fn, v, k);
           for (const k2 of subset) {
             result.add(k2);
           }
@@ -3117,20 +3130,20 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       }
     }
   },
-  DictFlattenToDict: (location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue, K2: EastTypeValue, _V2: EastTypeValue) => {
+  DictFlattenToDict: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue, K2: EastTypeValue, _V2: EastTypeValue) => {
     const compare = compareFor(K2);
     return (d: Map<any, any>, fn: (key: any, value: any) => any[], onConflict: (v1: any, v2: any, k: any) => null) => {
       const result = new SortedMap([], compare);
       lockForIteration(d);
       try {
         for (const [k, v] of d.entries()) {
-          const subdict = call_function(location, fn, v, k);
+          const subdict = call_function(loc_id, source_map,fn, v, k);
           for (const [k2, v2] of subdict.entries()) {
             const existing = result.get(k2);
             if (existing === undefined) {
               result.set(k2, v2);
             } else {
-              const new_v2 = call_function(location, onConflict, existing, v2, k2);
+              const new_v2 = call_function(loc_id, source_map,onConflict, existing, v2, k2);
               result.set(k2, new_v2);
             }
           }
@@ -3141,19 +3154,19 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
       }
     }
   },
-  DictGroupFold: (location: LocationValue[], _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue, K2: EastTypeValue, _T2: EastTypeValue) => {
+  DictGroupFold: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue, K2: EastTypeValue, _T2: EastTypeValue) => {
     const compare = compareFor(K2);
     return (d: Map<any, any>, keyFn: (v: any, k: any) => any, init: (k2: any) => any, folder: (acc: any, v: any, k: any) => any) => {
       const result = new SortedMap([], compare);
       lockForIteration(d);
       try {
         for (const [k, v] of d.entries()) {
-          const k2 = call_function(location, keyFn, v, k);
+          const k2 = call_function(loc_id, source_map,keyFn, v, k);
           let existing = result.get(k2);
           if (existing === undefined) {
-            existing = call_function(location, init, k2);
+            existing = call_function(loc_id, source_map,init, k2);
           }
-          const new_val = call_function(location, folder, existing, v, k);
+          const new_val = call_function(loc_id, source_map,folder, existing, v, k);
           result.set(k2, new_val);
         }
         return result;
@@ -3164,24 +3177,24 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
   },
 
   // Vector builtins
-  VectorLength: (_location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (vec: Float64Array | BigInt64Array | Uint8ClampedArray) => BigInt(vec.length),
+  VectorLength: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (vec: Float64Array | BigInt64Array | Uint8ClampedArray) => BigInt(vec.length),
 
-  VectorGet: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (vec: Float64Array | BigInt64Array | Uint8ClampedArray, idx: bigint) => {
+  VectorGet: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (vec: Float64Array | BigInt64Array | Uint8ClampedArray, idx: bigint) => {
     const i = Number(idx);
     if (i < 0 || i >= vec.length) {
-      throw new EastError(`Vector index ${idx} out of bounds (length ${vec.length})`, { location });
+      throw new EastError(`Vector index ${idx} out of bounds (length ${vec.length})`, { loc_id, source_map });
     }
     if (vec instanceof Uint8ClampedArray) return vec[i]! !== 0;
     return vec[i]!;
   },
 
-  VectorSet: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (vec: Float64Array | BigInt64Array | Uint8ClampedArray, idx: bigint, value: any) => {
+  VectorSet: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (vec: Float64Array | BigInt64Array | Uint8ClampedArray, idx: bigint, value: any) => {
     if (Object.isFrozen(vec)) {
-      throw new EastError("Cannot modify frozen Vector", { location });
+      throw new EastError("Cannot modify frozen Vector", { loc_id, source_map });
     }
     const i = Number(idx);
     if (i < 0 || i >= vec.length) {
-      throw new EastError(`Vector index ${idx} out of bounds (length ${vec.length})`, { location });
+      throw new EastError(`Vector index ${idx} out of bounds (length ${vec.length})`, { loc_id, source_map });
     }
     if (vec instanceof Uint8ClampedArray) {
       vec[i] = value ? 1 : 0;
@@ -3191,27 +3204,27 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
     return null;
   },
 
-  VectorSlice: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (vec: Float64Array | BigInt64Array | Uint8ClampedArray, start: bigint, end: bigint) => {
+  VectorSlice: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (vec: Float64Array | BigInt64Array | Uint8ClampedArray, start: bigint, end: bigint) => {
     const s = Number(start);
     const e = Number(end);
     if (s < 0 || e > vec.length || s > e) {
-      throw new EastError(`Vector slice [${start}, ${end}) out of bounds (length ${vec.length})`, { location });
+      throw new EastError(`Vector slice [${start}, ${end}) out of bounds (length ${vec.length})`, { loc_id, source_map });
     }
     return vec.slice(s, e);
   },
 
-  VectorConcat: (_location: LocationValue[], _platformDef: PlatformFunction[], T: EastTypeValue) => (a: Float64Array | BigInt64Array | Uint8ClampedArray, b: Float64Array | BigInt64Array | Uint8ClampedArray) => {
+  VectorConcat: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => (a: Float64Array | BigInt64Array | Uint8ClampedArray, b: Float64Array | BigInt64Array | Uint8ClampedArray) => {
     const result = allocateTypedArray(T, a.length + b.length);
     result.set(a as any);
     result.set(b as any, a.length);
     return result;
   },
 
-  VectorFromArray: (_location: LocationValue[], _platformDef: PlatformFunction[], T: EastTypeValue) => (arr: any[]) => {
+  VectorFromArray: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => (arr: any[]) => {
     return createTypedArray(T, arr);
   },
 
-  VectorToArray: (_location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (vec: Float64Array | BigInt64Array | Uint8ClampedArray) => {
+  VectorToArray: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (vec: Float64Array | BigInt64Array | Uint8ClampedArray) => {
     if (vec instanceof Uint8ClampedArray) {
       return Array.from(vec, v => v !== 0);
     }
@@ -3223,26 +3236,26 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
     return Array.from(vec);
   },
 
-  VectorToMatrix: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (vec: Float64Array | BigInt64Array | Uint8ClampedArray, rows: bigint, cols: bigint) => {
+  VectorToMatrix: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (vec: Float64Array | BigInt64Array | Uint8ClampedArray, rows: bigint, cols: bigint) => {
     const r = Number(rows);
     const c = Number(cols);
     if (r * c !== vec.length) {
-      throw new EastError(`Cannot reshape vector of length ${vec.length} to matrix ${r}×${c}`, { location });
+      throw new EastError(`Cannot reshape vector of length ${vec.length} to matrix ${r}×${c}`, { loc_id, source_map });
     }
     return matrix(vec.slice() as any, r, c);
   },
 
-  VectorZeros: (_location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (len: bigint) => {
+  VectorZeros: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (len: bigint) => {
     return new Float64Array(Number(len));
   },
 
-  VectorOnes: (_location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (len: bigint) => {
+  VectorOnes: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (len: bigint) => {
     const arr = new Float64Array(Number(len));
     arr.fill(1.0);
     return arr;
   },
 
-  VectorFill: (_location: LocationValue[], _platformDef: PlatformFunction[], T: EastTypeValue) => (len: bigint, value: any) => {
+  VectorFill: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => (len: bigint, value: any) => {
     const n = Number(len);
     if (T.type === "Float") {
       const arr = new Float64Array(n);
@@ -3259,49 +3272,49 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
     }
   },
 
-  VectorMap: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue, U: EastTypeValue) => (vec: Float64Array | BigInt64Array | Uint8ClampedArray, f: (elem: any, idx: bigint) => any) => {
+  VectorMap: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue, U: EastTypeValue) => (vec: Float64Array | BigInt64Array | Uint8ClampedArray, f: (elem: any, idx: bigint) => any) => {
     const len = vec.length;
     const results: any[] = [];
     for (let i = 0; i < len; i++) {
       const elem = vec instanceof Uint8ClampedArray ? (vec[i]! !== 0) : vec[i]!;
-      results.push(call_function(location, f, elem, BigInt(i)));
+      results.push(call_function(loc_id, source_map,f, elem, BigInt(i)));
     }
     return createTypedArray(U, results);
   },
 
-  VectorFold: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue, _U: EastTypeValue) => (vec: Float64Array | BigInt64Array | Uint8ClampedArray, init: any, f: (acc: any, elem: any, idx: bigint) => any) => {
+  VectorFold: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue, _U: EastTypeValue) => (vec: Float64Array | BigInt64Array | Uint8ClampedArray, init: any, f: (acc: any, elem: any, idx: bigint) => any) => {
     let acc = init;
     for (let i = 0; i < vec.length; i++) {
       const elem = vec instanceof Uint8ClampedArray ? (vec[i]! !== 0) : vec[i]!;
-      acc = call_function(location, f, acc, elem, BigInt(i));
+      acc = call_function(loc_id, source_map,f, acc, elem, BigInt(i));
     }
     return acc;
   },
 
   // Matrix builtins
-  MatrixRows: (_location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (m: any) => BigInt(m.rows),
+  MatrixRows: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (m: any) => BigInt(m.rows),
 
-  MatrixCols: (_location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (m: any) => BigInt(m.cols),
+  MatrixCols: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (m: any) => BigInt(m.cols),
 
-  MatrixGet: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (m: any, row: bigint, col: bigint) => {
+  MatrixGet: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (m: any, row: bigint, col: bigint) => {
     const r = Number(row);
     const c = Number(col);
     if (r < 0 || r >= m.rows || c < 0 || c >= m.cols) {
-      throw new EastError(`Matrix index (${row}, ${col}) out of bounds (${m.rows}×${m.cols})`, { location });
+      throw new EastError(`Matrix index (${row}, ${col}) out of bounds (${m.rows}×${m.cols})`, { loc_id, source_map });
     }
     const val = m.data[r * m.cols + c];
     if (m.data instanceof Uint8ClampedArray) return val !== 0;
     return val;
   },
 
-  MatrixSet: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (m: any, row: bigint, col: bigint, value: any) => {
+  MatrixSet: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (m: any, row: bigint, col: bigint, value: any) => {
     if (Object.isFrozen(m.data)) {
-      throw new EastError("Cannot modify frozen Matrix", { location });
+      throw new EastError("Cannot modify frozen Matrix", { loc_id, source_map });
     }
     const r = Number(row);
     const c = Number(col);
     if (r < 0 || r >= m.rows || c < 0 || c >= m.cols) {
-      throw new EastError(`Matrix index (${row}, ${col}) out of bounds (${m.rows}×${m.cols})`, { location });
+      throw new EastError(`Matrix index (${row}, ${col}) out of bounds (${m.rows}×${m.cols})`, { loc_id, source_map });
     }
     if (m.data instanceof Uint8ClampedArray) {
       m.data[r * m.cols + c] = value ? 1 : 0;
@@ -3311,30 +3324,30 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
     return null;
   },
 
-  MatrixGetRow: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (m: any, row: bigint) => {
+  MatrixGetRow: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (m: any, row: bigint) => {
     const r = Number(row);
     if (r < 0 || r >= m.rows) {
-      throw new EastError(`Matrix row ${row} out of bounds (${m.rows} rows)`, { location });
+      throw new EastError(`Matrix row ${row} out of bounds (${m.rows} rows)`, { loc_id, source_map });
     }
     const start = r * m.cols;
     return m.data.slice(start, start + m.cols);
   },
 
-  MatrixGetCol: (location: LocationValue[], _platformDef: PlatformFunction[], T: EastTypeValue) => (m: any, col: bigint) => {
+  MatrixGetCol: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => (m: any, col: bigint) => {
     const c = Number(col);
     if (c < 0 || c >= m.cols) {
-      throw new EastError(`Matrix column ${col} out of bounds (${m.cols} cols)`, { location });
+      throw new EastError(`Matrix column ${col} out of bounds (${m.cols} cols)`, { loc_id, source_map });
     }
     const result = allocateTypedArray(T, m.rows);
     for (let r = 0; r < m.rows; r++) result[r] = m.data[r * m.cols + c] as never;
     return result;
   },
 
-  MatrixToVector: (_location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (m: any) => {
+  MatrixToVector: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (m: any) => {
     return m.data.slice();
   },
 
-  MatrixFromArray: (location: LocationValue[], _platformDef: PlatformFunction[], T: EastTypeValue) => (arr: any[][]) => {
+  MatrixFromArray: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => (arr: any[][]) => {
     if (arr.length === 0) {
       return matrix(createTypedArray(T, []), 0, 0);
     }
@@ -3342,7 +3355,7 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
     const cols = arr[0]!.length;
     for (let i = 1; i < rows; i++) {
       if (arr[i]!.length !== cols) {
-        throw new EastError(`Jagged array: row 0 has ${cols} columns but row ${i} has ${arr[i]!.length}`, { location });
+        throw new EastError(`Jagged array: row 0 has ${cols} columns but row ${i} has ${arr[i]!.length}`, { loc_id, source_map });
       }
     }
     const flat: any[] = [];
@@ -3352,7 +3365,7 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
     return matrix(createTypedArray(T, flat), rows, cols);
   },
 
-  MatrixToArray: (_location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (m: any) => {
+  MatrixToArray: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (m: any) => {
     const result: any[][] = [];
     for (let r = 0; r < m.rows; r++) {
       const row: any[] = [];
@@ -3365,7 +3378,7 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
     return result;
   },
 
-  MatrixTranspose: (_location: LocationValue[], _platformDef: PlatformFunction[], T: EastTypeValue) => (m: any) => {
+  MatrixTranspose: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => (m: any) => {
     const result = allocateTypedArray(T, m.rows * m.cols);
     for (let r = 0; r < m.rows; r++) {
       for (let c = 0; c < m.cols; c++) {
@@ -3375,17 +3388,17 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
     return matrix(result, m.cols, m.rows);
   },
 
-  MatrixZeros: (_location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (rows: bigint, cols: bigint) => {
+  MatrixZeros: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (rows: bigint, cols: bigint) => {
     return matrix(new Float64Array(Number(rows) * Number(cols)), Number(rows), Number(cols));
   },
 
-  MatrixOnes: (_location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (rows: bigint, cols: bigint) => {
+  MatrixOnes: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (rows: bigint, cols: bigint) => {
     const data = new Float64Array(Number(rows) * Number(cols));
     data.fill(1.0);
     return matrix(data, Number(rows), Number(cols));
   },
 
-  MatrixFill: (_location: LocationValue[], _platformDef: PlatformFunction[], T: EastTypeValue) => (rows: bigint, cols: bigint, value: any) => {
+  MatrixFill: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => (rows: bigint, cols: bigint, value: any) => {
     const r = Number(rows);
     const c = Number(cols);
     const n = r * c;
@@ -3404,24 +3417,24 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
     }
   },
 
-  MatrixMapElements: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue, U: EastTypeValue) => (m: any, f: (elem: any, row: bigint, col: bigint) => any) => {
+  MatrixMapElements: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue, U: EastTypeValue) => (m: any, f: (elem: any, row: bigint, col: bigint) => any) => {
     const results: any[] = [];
     for (let r = 0; r < m.rows; r++) {
       for (let c = 0; c < m.cols; c++) {
         const val = m.data[r * m.cols + c];
         const elem = m.data instanceof Uint8ClampedArray ? val !== 0 : val;
-        results.push(call_function(location, f, elem, BigInt(r), BigInt(c)));
+        results.push(call_function(loc_id, source_map,f, elem, BigInt(r), BigInt(c)));
       }
     }
     return matrix(createTypedArray(U, results), m.rows, m.cols);
   },
 
-  MatrixMapRows: (location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue, U: EastTypeValue) => (m: any, f: (row: any, idx: bigint) => any) => {
+  MatrixMapRows: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue, U: EastTypeValue) => (m: any, f: (row: any, idx: bigint) => any) => {
     const resultRows: any[] = [];
     for (let r = 0; r < m.rows; r++) {
       const start = r * m.cols;
       const rowVec = m.data.slice(start, start + m.cols);
-      const resultRow = call_function(location, f, rowVec, BigInt(r));
+      const resultRow = call_function(loc_id, source_map,f, rowVec, BigInt(r));
       resultRows.push(resultRow);
     }
     if (resultRows.length === 0) {
@@ -3435,7 +3448,7 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
     return matrix(data, m.rows, newCols);
   },
 
-  MatrixToRows: (_location: LocationValue[], _platformDef: PlatformFunction[], _T: EastTypeValue) => (m: any): (Float64Array | BigInt64Array | Uint8ClampedArray)[] => {
+  MatrixToRows: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (m: any): (Float64Array | BigInt64Array | Uint8ClampedArray)[] => {
     const rows: (Float64Array | BigInt64Array | Uint8ClampedArray)[] = [];
     for (let r = 0; r < m.rows; r++) {
       rows.push(m.data.slice(r * m.cols, (r + 1) * m.cols));
@@ -3443,14 +3456,14 @@ const builtin_evaluators: Record<BuiltinName, (location: LocationValue[], platfo
     return rows;
   },
 
-  MatrixFromRows: (location: LocationValue[], _platformDef: PlatformFunction[], T: EastTypeValue) => (arr: any[]) => {
+  MatrixFromRows: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => (arr: any[]) => {
     if (arr.length === 0) {
       return matrix(allocateTypedArray(T, 0), 0, 0);
     }
     const cols = arr[0].length;
     for (let i = 1; i < arr.length; i++) {
       if (arr[i].length !== cols) {
-        throw new EastError(`Jagged rows: row 0 has ${cols} columns but row ${i} has ${arr[i].length}`, { location });
+        throw new EastError(`Jagged rows: row 0 has ${cols} columns but row ${i} has ${arr[i].length}`, { loc_id, source_map });
       }
     }
     const data = allocateTypedArray(T, arr.length * cols);

@@ -1,6 +1,6 @@
 #include "internal.h"
 
-/*  BEAST2 Decoder                                                     */
+/*  BEAST2 v4 Decoder                                                  */
 /* ================================================================== */
 
 EastValue *beast2_decode_value(const uint8_t *data, size_t len,
@@ -12,18 +12,6 @@ EastValue *beast2_decode_value(const uint8_t *data, size_t len,
                                       Beast2DecodeCtx *ctx)
 {
     if (!type) return NULL;
-
-    /* Type table reference: at EastTypeType positions in function IR,
-     * read a varint index and return it as an integer value.  The IR
-     * conversion (type_cache_get) resolves the index directly to
-     * EastType* via the type table — no EastValue* type tree needed. */
-    if (type == east_type_type && ctx->global_types) {
-        uint64_t idx = read_varint(data, offset);
-        if (idx < ctx->global_type_table_size) {
-            return east_integer((int64_t)idx);
-        }
-        return east_null();
-    }
 
     switch (type->kind) {
     case EAST_TYPE_NEVER:
@@ -81,103 +69,23 @@ EastValue *beast2_decode_value(const uint8_t *data, size_t len,
         return val;
     }
 
-    case EAST_TYPE_ARRAY: {
-        /* Backreference protocol */
-        size_t pre_offset = *offset;
-        uint64_t distance = read_varint(data, offset);
-        if (distance > 0) {
-            /* Backreference: look up value at (pre_offset - distance).
-             * Use pre_offset (before reading varint) to match encoder which
-             * computes distance from buf->len before writing the varint. */
-            size_t ref_off = pre_offset - distance;
-            EastValue *ref = beast2_dec_ctx_find(ctx, ref_off);
-            if (ref) {
-                ctx->backref_count++;
-                east_value_retain(ref);
-                return ref;
-            }
-            return beast2_backref_error(ctx, pre_offset, distance, len, type);
-        }
-        /* Inline: store offset, decode contents */
-        size_t content_off = *offset;
-
-        EastType *elem_type = type->data.element;
-        uint64_t count = read_varint(data, offset);
-        EastValue *arr = east_array_new_with_capacity(elem_type, (size_t)count);
-        if (!arr) return NULL;
-
-        beast2_dec_ctx_add(ctx, arr, content_off);
-
-        for (uint64_t i = 0; i < count; i++) {
-            EastValue *elem = beast2_decode_value(data, len, offset, elem_type, ctx);
-            if (!elem) { east_value_release(arr); return NULL; }
-            east_array_push(arr, elem);
-            east_value_release(elem);
-        }
-        return arr;
-    }
-
-    case EAST_TYPE_SET: {
-        size_t pre_offset = *offset;
-        uint64_t distance = read_varint(data, offset);
-        if (distance > 0) {
-            size_t ref_off = pre_offset - distance;
-            EastValue *ref = beast2_dec_ctx_find(ctx, ref_off);
-            if (ref) { ctx->backref_count++; east_value_retain(ref); return ref; }
-            return beast2_backref_error(ctx, pre_offset, distance, len, type);
-        }
-        size_t content_off = *offset;
-
-        EastType *elem_type = type->data.element;
-        uint64_t count = read_varint(data, offset);
-        EastValue *set = east_set_new_with_capacity(elem_type, (size_t)count);
-        if (!set) return NULL;
-
-        beast2_dec_ctx_add(ctx, set, content_off);
-
-        for (uint64_t i = 0; i < count; i++) {
-            EastValue *elem = beast2_decode_value(data, len, offset, elem_type, ctx);
-            if (!elem) { east_value_release(set); return NULL; }
-            east_set_insert(set, elem);
-            east_value_release(elem);
-        }
-        return set;
-    }
-
+    case EAST_TYPE_ARRAY:
+    case EAST_TYPE_SET:
     case EAST_TYPE_DICT: {
-        size_t pre_offset = *offset;
-        uint64_t distance = read_varint(data, offset);
-        if (distance > 0) {
-            size_t ref_off = pre_offset - distance;
-            EastValue *ref = beast2_dec_ctx_find(ctx, ref_off);
-            if (ref) { ctx->backref_count++; east_value_retain(ref); return ref; }
-            return beast2_backref_error(ctx, pre_offset, distance, len, type);
+        /* v4: mutable containers are read as varint(value_table_index) */
+        if (ctx->mutable_values) {
+            uint64_t idx = read_varint(data, offset);
+            if (idx < ctx->mutable_values_count) {
+                east_value_retain(ctx->mutable_values[idx]);
+                return ctx->mutable_values[idx];
+            }
+            return NULL;
         }
-        size_t content_off = *offset;
-
-        EastType *key_type = type->data.dict.key;
-        EastType *val_type = type->data.dict.value;
-        uint64_t count = read_varint(data, offset);
-        EastValue *dict = east_dict_new_with_capacity(key_type, val_type, (size_t)count);
-        if (!dict) return NULL;
-
-        beast2_dec_ctx_add(ctx, dict, content_off);
-
-        for (uint64_t i = 0; i < count; i++) {
-            EastValue *k = beast2_decode_value(data, len, offset, key_type, ctx);
-            if (!k) { east_value_release(dict); return NULL; }
-            EastValue *v = beast2_decode_value(data, len, offset, val_type, ctx);
-            if (!v) { east_value_release(k); east_value_release(dict); return NULL; }
-            east_dict_set(dict, k, v);
-            east_value_release(k);
-            east_value_release(v);
-        }
-        return dict;
+        return NULL;
     }
 
     case EAST_TYPE_STRUCT: {
         size_t dedup_start = *offset;
-        int backref_before = ctx->backref_count;
         size_t nf = type->data.struct_.num_fields;
         const char **names = malloc(nf * sizeof(char *));
         EastValue **values = malloc(nf * sizeof(EastValue *));
@@ -201,28 +109,14 @@ EastValue *beast2_decode_value(const uint8_t *data, size_t len,
             }
         }
 
-        /* Dedup: check if identical bytes were decoded before under this type.
-         * Skip dedup if any backreferences were resolved during field decoding,
-         * because backref distances are relative to buffer position — identical
-         * bytes at different positions would resolve to different targets. */
-        int had_backref = (ctx->backref_count != backref_before);
+        /* Dedup: check if identical bytes were decoded before under this type. */
         size_t dedup_len = *offset - dedup_start;
 #ifndef BEAST2_NO_DEDUP
-#ifdef BEAST2_PROFILE_DEDUP
-        double t_start = beast2_clock_us();
-#endif
         uint64_t dedup_hash = hash_byte_range(data + dedup_start, dedup_len, (uintptr_t)type);
         ctx->dedup_bytes_hashed += dedup_len;
-        if (!had_backref) {
+        {
             EastValue *cached = beast2_dedup_find(ctx, dedup_hash, data, dedup_start, dedup_len, type);
             if (cached) {
-#ifdef BEAST2_PROFILE_DEDUP
-                double elapsed = beast2_clock_us() - t_start;
-                typeof(ctx->type_stats[0]) *ts = beast2_type_stats_get(ctx, type);
-                ts->hits++;
-                ts->bytes_hashed += dedup_len;
-                ts->time_us += elapsed;
-#endif
                 ctx->dedup_hits++;
                 for (size_t i = 0; i < nf; i++)
                     east_value_release(values[i]);
@@ -232,15 +126,6 @@ EastValue *beast2_decode_value(const uint8_t *data, size_t len,
                 return cached;
             }
         }
-#ifdef BEAST2_PROFILE_DEDUP
-        {
-            double elapsed = beast2_clock_us() - t_start;
-            typeof(ctx->type_stats[0]) *ts = beast2_type_stats_get(ctx, type);
-            ts->misses++;
-            ts->bytes_hashed += dedup_len;
-            ts->time_us += elapsed;
-        }
-#endif
         ctx->dedup_misses++;
 #endif
 
@@ -251,15 +136,13 @@ EastValue *beast2_decode_value(const uint8_t *data, size_t len,
         free(names);
         free(values);
 #ifndef BEAST2_NO_DEDUP
-        if (!had_backref)
-            beast2_dedup_add(ctx, dedup_hash, dedup_start, dedup_len, type, result);
+        beast2_dedup_add(ctx, dedup_hash, dedup_start, dedup_len, type, result);
 #endif
         return result;
     }
 
     case EAST_TYPE_VARIANT: {
         size_t dedup_start = *offset;
-        int backref_before = ctx->backref_count;
         uint64_t case_idx = read_varint(data, offset);
         if (case_idx >= type->data.variant.num_cases) return NULL;
 
@@ -268,73 +151,41 @@ EastValue *beast2_decode_value(const uint8_t *data, size_t len,
         EastValue *case_value = beast2_decode_value(data, len, offset, case_type, ctx);
         if (!case_value) return NULL;
 
-        /* Dedup: check if identical bytes were decoded before under this type.
-         * Skip when backreferences were resolved (same reason as struct). */
-        int had_backref = (ctx->backref_count != backref_before);
+        /* Dedup */
         size_t dedup_len = *offset - dedup_start;
 #ifndef BEAST2_NO_DEDUP
-#ifdef BEAST2_PROFILE_DEDUP
-        double vt_start = beast2_clock_us();
-#endif
         uint64_t dedup_hash = hash_byte_range(data + dedup_start, dedup_len, (uintptr_t)type);
         ctx->dedup_bytes_hashed += dedup_len;
-        if (!had_backref) {
+        {
             EastValue *cached = beast2_dedup_find(ctx, dedup_hash, data, dedup_start, dedup_len, type);
             if (cached) {
-#ifdef BEAST2_PROFILE_DEDUP
-                double elapsed = beast2_clock_us() - vt_start;
-                typeof(ctx->type_stats[0]) *ts = beast2_type_stats_get(ctx, type);
-                ts->hits++;
-                ts->bytes_hashed += dedup_len;
-                ts->time_us += elapsed;
-#endif
                 ctx->dedup_hits++;
                 east_value_release(case_value);
                 east_value_retain(cached);
                 return cached;
             }
         }
-#ifdef BEAST2_PROFILE_DEDUP
-        {
-            double elapsed = beast2_clock_us() - vt_start;
-            typeof(ctx->type_stats[0]) *ts = beast2_type_stats_get(ctx, type);
-            ts->misses++;
-            ts->bytes_hashed += dedup_len;
-            ts->time_us += elapsed;
-        }
-#endif
         ctx->dedup_misses++;
 #endif
 
         EastValue *result = east_variant_new_idx((size_t)case_idx, case_value, type);
         east_value_release(case_value);
 #ifndef BEAST2_NO_DEDUP
-        if (!had_backref)
-            beast2_dedup_add(ctx, dedup_hash, dedup_start, dedup_len, type, result);
+        beast2_dedup_add(ctx, dedup_hash, dedup_start, dedup_len, type, result);
 #endif
         return result;
     }
 
     case EAST_TYPE_REF: {
-        /* Ref also uses backreference protocol */
-        size_t pre_offset = *offset;
-        uint64_t distance = read_varint(data, offset);
-        if (distance > 0) {
-            size_t ref_off = pre_offset - distance;
-            EastValue *ref = beast2_dec_ctx_find(ctx, ref_off);
-            if (ref) { ctx->backref_count++; east_value_retain(ref); return ref; }
-            return beast2_backref_error(ctx, pre_offset, distance, len, type);
+        /* v4: mutable containers are read as varint(value_table_index) */
+        if (ctx->mutable_values) {
+            uint64_t idx = read_varint(data, offset);
+            if (idx < ctx->mutable_values_count) {
+                east_value_retain(ctx->mutable_values[idx]);
+                return ctx->mutable_values[idx];
+            }
         }
-        size_t content_off = *offset;
-
-        EastType *inner_type = type->data.element;
-        EastValue *inner = beast2_decode_value(data, len, offset, inner_type, ctx);
-        if (!inner) return NULL;
-        EastValue *ref = east_ref_new(inner);
-        east_value_release(inner);
-
-        beast2_dec_ctx_add(ctx, ref, content_off);
-        return ref;
+        return NULL;
     }
 
     case EAST_TYPE_VECTOR: {
@@ -398,41 +249,49 @@ EastValue *beast2_decode_value(const uint8_t *data, size_t len,
 
     case EAST_TYPE_FUNCTION:
     case EAST_TYPE_ASYNC_FUNCTION: {
-        /* 1. Decode IR directly to IRNode (no EastValue intermediate).
-         *    capture_types are saved on the IRNode for step 3. */
+        /* 1. Decode IR as regular EastValue variant tree (unified decoder) */
         if (!east_ir_type) east_type_of_type_init();
 
-        IRNode *ir_node = (ctx->global_types && ctx->string_table)
-            ? b2ir_decode_node(data, len, offset,
-                               ctx->global_types, ctx->global_type_table_size,
-                               ctx->string_table)
-            : NULL;
+        EastValue *ir_value = beast2_decode_value(data, len, offset, east_ir_type, ctx);
+        if (!ir_value) return NULL;
 
-        if (!ir_node) {
-            /* Fallback: no type table available (headerless beast2) — not supported */
-            return NULL;
-        }
+        /* 2. Extract capture/param info directly from EastValue IR
+         *    (defer IRNode conversion to first east_call for speed).
+         *    Function struct fields: type=0, loc_id=1, captures=2, parameters=3, body=4
+         *    Variable struct fields: type=0, loc_id=1, name=2, mutable=3, captured=4 */
+        EastValue *fn_struct = ir_value->data.variant.value;
+        EastValue *caps_arr = east_struct_get_field_idx(fn_struct, 2);
+        EastValue *params_arr = east_struct_get_field_idx(fn_struct, 3);
 
-        /* 2. Read capture count and validate */
-        size_t ir_ncaps = ir_node->data.function.num_captures;
+        size_t ncaps_ir = (caps_arr && caps_arr->kind == EAST_VAL_ARRAY)
+            ? caps_arr->data.array.len : 0;
+        size_t nparams = (params_arr && params_arr->kind == EAST_VAL_ARRAY)
+            ? params_arr->data.array.len : 0;
+
+        /* 3. Read capture count and validate */
         uint64_t ncaps = read_varint(data, offset);
-        if (ncaps != ir_ncaps) {
-            ir_node_release(ir_node);
+        if (ncaps != ncaps_ir) {
+            east_value_release(ir_value);
             return NULL;
         }
 
-        /* 3. Decode capture values using types from the IR Variable nodes */
+        /* 4. Decode capture values using types from the EastValue IR */
         Environment *captures_env = env_new(NULL);
-        EastType **cap_types = ir_node->data.function.capture_types;
 
         for (uint64_t i = 0; i < ncaps; i++) {
-            const char *cap_name = ir_node->data.function.captures[i].name;
-            EastType *cap_type = cap_types ? cap_types[i] : NULL;
+            EastValue *cap_var = caps_arr->data.array.items[i];
+            EastValue *cap_s = cap_var->data.variant.value;
+            EastValue *name_v = east_struct_get_field_idx(cap_s, 2);
+            EastValue *type_v = east_struct_get_field_idx(cap_s, 0);
+
+            const char *cap_name = name_v->data.string.data;
+            EastType *cap_type = east_type_from_value(type_v);
 
             EastValue *cap_val = beast2_decode_value(data, len, offset, cap_type, ctx);
+            if (cap_type) east_type_release(cap_type);
             if (!cap_val) {
                 env_release(captures_env);
-                ir_node_release(ir_node);
+                east_value_release(ir_value);
                 return NULL;
             }
 
@@ -440,28 +299,53 @@ EastValue *beast2_decode_value(const uint8_t *data, size_t len,
             east_value_release(cap_val);
         }
 
-        /* 4. Build EastCompiledFn */
+        /* 5. Extract param names */
+        char **param_names = nparams > 0 ? calloc(nparams, sizeof(char *)) : NULL;
+        for (size_t i = 0; i < nparams; i++) {
+            EastValue *par_var = params_arr->data.array.items[i];
+            EastValue *par_s = par_var->data.variant.value;
+            EastValue *name_v = east_struct_get_field_idx(par_s, 2);
+            param_names[i] = strdup(name_v->data.string.data);
+        }
+
+        /* 6. Build EastCompiledFn (IR body set lazily on first east_call) */
         EastCompiledFn *fn = calloc(1, sizeof(EastCompiledFn));
         if (!fn) {
             env_release(captures_env);
-            ir_node_release(ir_node);
+            east_value_release(ir_value);
+            for (size_t i = 0; i < nparams; i++) free(param_names[i]);
+            free(param_names);
             return NULL;
         }
 
-        fn->ir = ir_node->data.function.body;
-        ir_node_retain(fn->ir);
+        fn->ir = NULL;  /* lazy — converted from source_ir on first call */
         fn->captures = captures_env;
-        fn->num_params = ir_node->data.function.num_params;
-        if (fn->num_params > 0) {
-            fn->param_names = calloc(fn->num_params, sizeof(char *));
-            for (size_t i = 0; i < fn->num_params; i++) {
-                fn->param_names[i] = strdup(ir_node->data.function.params[i].name);
-            }
-        }
+        fn->param_names = param_names;
+        fn->num_params = nparams;
         fn->platform = east_current_platform();
         fn->builtins = east_current_builtins();
-        fn->source_ir = NULL;
-        fn->source_ir_node = ir_node; /* retain for re-encoding (no release) */
+        fn->source_ir = ir_value;
+
+        /* Copy source map from decode context onto compiled function */
+        if (ctx->source_map && ctx->source_map->num_stacks > 1) {
+            EastSourceMap *sm = calloc(1, sizeof(EastSourceMap));
+            sm->num_stacks = ctx->source_map->num_stacks;
+            sm->stacks = calloc(sm->num_stacks, sizeof(EastLocation *));
+            sm->stack_counts = calloc(sm->num_stacks, sizeof(size_t));
+            for (size_t i = 0; i < sm->num_stacks; i++) {
+                sm->stack_counts[i] = ctx->source_map->stack_counts[i];
+                if (sm->stack_counts[i] > 0) {
+                    sm->stacks[i] = calloc(sm->stack_counts[i], sizeof(EastLocation));
+                    for (size_t j = 0; j < sm->stack_counts[i]; j++) {
+                        sm->stacks[i][j].filename = ctx->source_map->stacks[i][j].filename
+                            ? strdup(ctx->source_map->stacks[i][j].filename) : NULL;
+                        sm->stacks[i][j].line = ctx->source_map->stacks[i][j].line;
+                        sm->stacks[i][j].column = ctx->source_map->stacks[i][j].column;
+                    }
+                }
+            }
+            fn->source_map = sm;
+        }
 
         EastValue *result = east_function_value(fn);
         return result;

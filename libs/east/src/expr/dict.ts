@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import type { AST } from "../ast.js";
-import { get_location } from "../location.js";
+import { get_location_id } from "../location.js";
 import { DictType, BooleanType, FunctionType, IntegerType, type EastType, NullType, OptionType, SetType, NeverType, VariantType, printType, FloatType, isTypeEqual, ArrayType } from "../types.js";
 import { valueOrExprToAst, valueOrExprToAstTyped } from "./ast.js";
 import type { BooleanExpr } from "./boolean.js";
@@ -73,7 +73,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: IntegerType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "DictSize",
       type_parameters: [this.key_type as EastType, this.value_type as EastType],
       arguments: [this[AstSymbol]],
@@ -102,7 +102,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: BooleanType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "DictHas",
       type_parameters: [this.key_type as EastType, this.value_type as EastType],
       arguments: [this[AstSymbol], keyAst],
@@ -150,7 +150,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
       return this[FactorySymbol]({
         ast_type: "Builtin",
         type: this.value_type as EastType,
-        location: get_location(),
+        loc_id: get_location_id(),
         builtin: "DictGet",
         type_parameters: [this.key_type as EastType, this.value_type as EastType],
         arguments: [this[AstSymbol], keyAst],
@@ -162,7 +162,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
       return this[FactorySymbol]({
         ast_type: "Builtin",
         type: this.value_type as EastType,
-        location: get_location(),
+        loc_id: get_location_id(),
         builtin: "DictGetOrDefault",
         type_parameters: [this.key_type as EastType, this.value_type as EastType],
         arguments: [this[AstSymbol], keyAst, onMissingAst],
@@ -208,7 +208,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: OptionType(this.value_type as EastType),
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "DictTryGet",
       type_parameters: [this.key_type as EastType, this.value_type as EastType],
       arguments: [this[AstSymbol], keyAst],
@@ -247,7 +247,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: NullType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "DictInsert",
       type_parameters: [this.key_type as EastType, this.value_type as EastType],
       arguments: [this[AstSymbol], keyAst, valueAst],
@@ -296,7 +296,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: NullType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "DictInsertOrUpdate",
       type_parameters: [this.key_type as EastType, this.value_type as EastType],
       arguments: [this[AstSymbol], keyAst, valueAst, Expr.ast(onConflictExpr as any)],
@@ -335,7 +335,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: NullType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "DictUpdate",
       type_parameters: [this.key_type as EastType, this.value_type as EastType],
       arguments: [this[AstSymbol], keyAst, valueAst],
@@ -394,7 +394,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
     let initialExpr;
     if (initialFn === undefined) {
       // Default: create function that throws error
-      initialExpr = Expr.function([this.key_type as EastType], this.value_type as EastType, ($, key) => $.error(Expr.str`Key ${key} not found in dictionary`, get_location()));
+      initialExpr = Expr.function([this.key_type as EastType], this.value_type as EastType, ($, key) => $.error(Expr.str`Key ${key} not found in dictionary`, get_location_id()));
     } else {
       initialExpr = Expr.from(initialFn as any, FunctionType([this.key_type as EastType], this.value_type as EastType));
     }
@@ -402,7 +402,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: NullType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "DictMerge",
       type_parameters: [this.key_type as EastType, this.value_type as EastType, value2Type as EastType],
       arguments: [this[AstSymbol], keyAst, valueAst, Expr.ast(updateFnExpr as any), Expr.ast(initialExpr as any)],
@@ -441,7 +441,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: this.value_type as EastType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "DictGetOrInsert",
       type_parameters: [this.key_type as EastType, this.value_type as EastType],
       arguments: [this[AstSymbol], keyAst, Expr.ast(defaultValueExpr as any)],
@@ -478,7 +478,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: NullType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "DictDelete",
       type_parameters: [this.key_type as EastType, this.value_type as EastType],
       arguments: [this[AstSymbol], keyAst],
@@ -511,7 +511,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: BooleanType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "DictTryDelete",
       type_parameters: [this.key_type as EastType, this.value_type as EastType],
       arguments: [this[AstSymbol], keyAst],
@@ -546,7 +546,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: this.value_type as EastType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "DictPop",
       type_parameters: [this.key_type as EastType, this.value_type as EastType],
       arguments: [this[AstSymbol], keyAst],
@@ -583,7 +583,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: this.value_type as EastType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "DictSwap",
       type_parameters: [this.key_type as EastType, this.value_type as EastType],
       arguments: [this[AstSymbol], keyAst, valueAst],
@@ -612,7 +612,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: NullType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "DictClear",
       type_parameters: [this.key_type as EastType, this.value_type as EastType],
       arguments: [this[AstSymbol]],
@@ -651,7 +651,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
     let mergerAst;
     if (mergeFn === undefined) {
       // Default: replace existing value with new value (ignore key and existing, return new)
-      const mergerExpr = Expr.function([this.value_type as EastType, this.value_type as EastType, this.key_type as EastType], this.value_type as EastType, ($, _v1, _v2, k) => $.error(Expr.str`Key ${k} exists in both dictionaries`, get_location()));
+      const mergerExpr = Expr.function([this.value_type as EastType, this.value_type as EastType, this.key_type as EastType], this.value_type as EastType, ($, _v1, _v2, k) => $.error(Expr.str`Key ${k} exists in both dictionaries`, get_location_id()));
       mergerAst = Expr.ast(mergerExpr);
     } else {
       const mergerExpr = Expr.from(mergeFn as any, FunctionType([this.value_type as EastType, this.value_type as EastType, this.key_type as EastType], this.value_type as EastType));
@@ -661,7 +661,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: NullType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "DictUnionInPlace",
       type_parameters: [this.key_type as EastType, this.value_type as EastType],
       arguments: [this[AstSymbol], Expr.ast(dict2Expr), mergerAst],
@@ -711,7 +711,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
     let initialExpr;
     if (initialFn === undefined) {
       // Default: create function that throws error
-      initialExpr = Expr.function([this.key_type as EastType], this.value_type as EastType, ($, key) => $.error(Expr.str`Key ${key} not found in dictionary`, get_location()));
+      initialExpr = Expr.function([this.key_type as EastType], this.value_type as EastType, ($, key) => $.error(Expr.str`Key ${key} not found in dictionary`, get_location_id()));
     } else {
       initialExpr = Expr.from(initialFn as any, FunctionType([this.key_type as EastType], this.value_type as EastType));
     }
@@ -719,7 +719,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: NullType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "DictMergeAll",
       type_parameters: [this.key_type as EastType, this.value_type as EastType, value2Type as EastType],
       arguments: [this[AstSymbol], dict2Ast, Expr.ast(mergerExpr as any), Expr.ast(initialExpr as any)],
@@ -747,7 +747,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: SetType(this.key_type as EastType),
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "DictKeys",
       type_parameters: [this.key_type as EastType, this.value_type as EastType],
       arguments: [this[AstSymbol]],
@@ -793,7 +793,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
     let onMissingAst;
     if (onMissing === undefined) {
       // Default: throw error with key information if key doesn't exist
-      const defaultFunction = Expr.function([this.key_type as EastType], this.value_type as EastType, ($, key) => $.error(Expr.str`Key ${key} not found in dictionary`, get_location()));
+      const defaultFunction = Expr.function([this.key_type as EastType], this.value_type as EastType, ($, key) => $.error(Expr.str`Key ${key} not found in dictionary`, get_location_id()));
       onMissingAst = Expr.ast(defaultFunction);
     } else {
       const onMissingExpr = Expr.from(onMissing as any, FunctionType([this.key_type as EastType], this.value_type as EastType));
@@ -803,7 +803,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: this[TypeSymbol],
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "DictGetKeys",
       type_parameters: [this.key_type as EastType, this.value_type as EastType],
       arguments: [this[AstSymbol], keysAst, onMissingAst],
@@ -844,7 +844,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: NullType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "DictForEach",
       type_parameters: [this.key_type as EastType, this.value_type as EastType, returnType],
       arguments: [this[AstSymbol], fnAst],
@@ -871,7 +871,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: this[TypeSymbol],
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "DictCopy",
       type_parameters: [this.key_type as EastType, this.value_type as EastType],
       arguments: [this[AstSymbol]],
@@ -914,7 +914,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
     return Expr.fromAst({
       ast_type: "Builtin",
       type: DictType(this.key_type, returnType),
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "DictMap",
       type_parameters: [this.key_type as EastType, this.value_type as EastType, returnType],
       arguments: [this[AstSymbol], Expr.ast(fnExpr as any)],
@@ -946,7 +946,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
     return Expr.fromAst({
       ast_type: "Builtin",
       type: this[TypeSymbol],
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "DictFilter",
       type_parameters: [this.key_type as EastType, this.value_type as EastType],
       arguments: [this[AstSymbol], fnAst],
@@ -1005,7 +1005,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
     return Expr.fromAst({
       ast_type: "Builtin",
       type: this[TypeSymbol],
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "DictFilterMap",
       type_parameters: [this.key_type as EastType, this.value_type as EastType, someType as EastType],
       arguments: [this[AstSymbol], fnAst],
@@ -1062,7 +1062,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
     return Expr.fromAst({
       ast_type: "Builtin",
       type: ArrayType(returnType),
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "DictToArray",
       type_parameters: [this.key_type as EastType, this.value_type as EastType, returnType as EastType],
       arguments: [this[AstSymbol], Expr.ast(fnExpr as any)],
@@ -1117,7 +1117,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
     return Expr.fromAst({
       ast_type: "Builtin",
       type: SetType(keyType),
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "DictToSet",
       type_parameters: [this.key_type as EastType, this.value_type as EastType, keyType as EastType],
       arguments: [this[AstSymbol], keyFnAst],
@@ -1183,8 +1183,8 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
 
     let onConflictAst;
     if (onConflictFn === undefined) {
-      const location = get_location();
-      const onConflictFunction = Expr.function([valueType, valueType, keyType], valueType, ($, existing, value, key) => $.error(Expr.str`Cannot insert duplicate key ${key} into dict`, location));
+      const loc_id = get_location_id();
+      const onConflictFunction = Expr.function([valueType, valueType, keyType], valueType, ($, existing, value, key) => $.error(Expr.str`Cannot insert duplicate key ${key} into dict`, loc_id));
       onConflictAst = Expr.ast(onConflictFunction);
     } else {
       onConflictAst = valueOrExprToAstTyped(onConflictFn as any, FunctionType([valueType, valueType, keyType], valueType));
@@ -1193,7 +1193,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
     return Expr.fromAst({
       ast_type: "Builtin",
       type: DictType(keyType, valueType),
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "DictToDict",
       type_parameters: [this.key_type as EastType, this.value_type as EastType, keyType, valueType],
       arguments: [this[AstSymbol], keyFnAst, valueFnAst, onConflictAst],
@@ -1244,7 +1244,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
     return Expr.fromAst({
       ast_type: "Builtin",
       type: ArrayType(elementType as EastType),
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "DictFlattenToArray",
       type_parameters: [this.key_type as EastType, this.value_type as EastType, elementType as EastType],
       arguments: [this[AstSymbol], fnAst],
@@ -1293,7 +1293,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
     return Expr.fromAst({
       ast_type: "Builtin",
       type: SetType(elementType as EastType),
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "DictFlattenToSet",
       type_parameters: [this.key_type as EastType, this.value_type as EastType, elementType as EastType],
       arguments: [this[AstSymbol], fnAst],
@@ -1345,8 +1345,8 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
 
     let onConflictAst;
     if (onConflictFn === undefined) {
-      const location = get_location();
-      const onConflictFunction = Expr.function([valueType, valueType, keyType], valueType, ($, existing, value, key) => $.error(Expr.str`Cannot insert duplicate key ${key} into dict`, location));
+      const loc_id = get_location_id();
+      const onConflictFunction = Expr.function([valueType, valueType, keyType], valueType, ($, existing, value, key) => $.error(Expr.str`Cannot insert duplicate key ${key} into dict`, loc_id));
       onConflictAst = Expr.ast(onConflictFunction);
     } else {
       onConflictAst = valueOrExprToAstTyped(onConflictFn as any, FunctionType([valueType, valueType, keyType], valueType));
@@ -1355,7 +1355,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
     return Expr.fromAst({
       ast_type: "Builtin",
       type: DictType(keyType as EastType, valueType as EastType),
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "DictFlattenToDict",
       type_parameters: [this.key_type as EastType, this.value_type as EastType, keyType as EastType, valueType as EastType],
       arguments: [this[AstSymbol], fnAst, onConflictAst],
@@ -1397,7 +1397,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
     return Expr.fromAst({
       ast_type: "Builtin",
       type: DictType(keyType as EastType, initType as EastType),
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "DictGroupFold",
       type_parameters: [this.key_type as EastType, this.value_type as EastType, keyType as EastType, initType as EastType],
       arguments: [this[AstSymbol], keyFnAst, initFnAst, reduceFnAst],
@@ -1750,7 +1750,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: returnType as EastType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "DictReduce",
       type_parameters: [this.key_type as EastType, this.value_type as EastType, returnType as EastType],
       arguments: [this[AstSymbol], fnAst, initAst],
@@ -1790,7 +1790,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: mapType as EastType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "DictMapReduce",
       type_parameters: [this.key_type as EastType, this.value_type as EastType, mapType],
       arguments: [this[AstSymbol], mapAst, combineAst],
@@ -1841,7 +1841,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
     return Expr.fromAst({
       ast_type: "Builtin",
       type: returnType as EastType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "DictFirstMap",
       type_parameters: [this.key_type as EastType, this.value_type as EastType, someType as EastType],
       arguments: [this[AstSymbol], fnAst],
@@ -1885,20 +1885,20 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
         const valueParam: AST = {
           ast_type: "Variable",
           type: this.value_type as EastType,
-          location: get_location(),
+          loc_id: get_location_id(),
           mutable: false,
         };
         const keyParam: AST = {
           ast_type: "Variable",
           type: this.key_type as EastType,
-          location: get_location(),
+          loc_id: get_location_id(),
           mutable: false,
         };
         // Check if boolean value is NOT true, then return some(null) to stop, otherwise return none to continue
         const notCondition: AST = {
           ast_type: "Builtin",
           type: BooleanType,
-          location: get_location(),
+          loc_id: get_location_id(),
           builtin: "BooleanNot",
           type_parameters: [],
           arguments: [valueParam]
@@ -1906,23 +1906,23 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
         const checkFnAst: AST = {
           ast_type: "Function",
           type: FunctionType([this.value_type as EastType, this.key_type as EastType], optionType) as any,
-          location: get_location(),
+          loc_id: get_location_id(),
           parameters: [valueParam as any, keyParam as any],
           body: {
             ast_type: "IfElse",
             type: optionType as any,
-            location: get_location(),
+            loc_id: get_location_id(),
             ifs: [{
               predicate: notCondition,
-              body: { ast_type: "Variant", type: optionType as any, location: get_location(), case: "some", value: { ast_type: "Value", type: NullType, location: get_location(), value: null } }
+              body: { ast_type: "Variant", type: optionType as any, loc_id: get_location_id(), case: "some", value: { ast_type: "Value", type: NullType, loc_id: get_location_id(), value: null } }
             }],
-            else_body: { ast_type: "Variant", type: optionType as any, location: get_location(), case: "none", value: { ast_type: "Value", type: NullType, location: get_location(), value: null } }
+            else_body: { ast_type: "Variant", type: optionType as any, loc_id: get_location_id(), case: "none", value: { ast_type: "Value", type: NullType, loc_id: get_location_id(), value: null } }
           }
         };
         const result: any = Expr.fromAst({
           ast_type: "Builtin",
           type: optionType as any,
-          location: get_location(),
+          loc_id: get_location_id(),
           builtin: "DictFirstMap",
           type_parameters: [this.key_type as EastType, this.value_type as EastType, NullType],
           arguments: [this[AstSymbol], checkFnAst],
@@ -1975,36 +1975,36 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
         const valueParam: AST = {
           ast_type: "Variable",
           type: this.value_type as EastType,
-          location: get_location(),
+          loc_id: get_location_id(),
           mutable: false,
         };
         const keyParam: AST = {
           ast_type: "Variable",
           type: this.key_type as EastType,
-          location: get_location(),
+          loc_id: get_location_id(),
           mutable: false,
         };
         // Check if boolean value is true, then return some(null) to stop, otherwise return none to continue
         const checkFnAst: AST = {
           ast_type: "Function",
           type: FunctionType([this.value_type as EastType, this.key_type as EastType], optionType) as any,
-          location: get_location(),
+          loc_id: get_location_id(),
           parameters: [valueParam as any, keyParam as any],
           body: {
             ast_type: "IfElse",
             type: optionType as any,
-            location: get_location(),
+            loc_id: get_location_id(),
             ifs: [{
               predicate: valueParam,
-              body: { ast_type: "Variant", type: optionType as any, location: get_location(), case: "some", value: { ast_type: "Value", type: NullType, location: get_location(), value: null } }
+              body: { ast_type: "Variant", type: optionType as any, loc_id: get_location_id(), case: "some", value: { ast_type: "Value", type: NullType, loc_id: get_location_id(), value: null } }
             }],
-            else_body: { ast_type: "Variant", type: optionType as any, location: get_location(), case: "none", value: { ast_type: "Value", type: NullType, location: get_location(), value: null } }
+            else_body: { ast_type: "Variant", type: optionType as any, loc_id: get_location_id(), case: "none", value: { ast_type: "Value", type: NullType, loc_id: get_location_id(), value: null } }
           }
         };
         const result: any = Expr.fromAst({
           ast_type: "Builtin",
           type: optionType as any,
-          location: get_location(),
+          loc_id: get_location_id(),
           builtin: "DictFirstMap",
           type_parameters: [this.key_type as EastType, this.value_type as EastType, NullType],
           arguments: [this[AstSymbol], checkFnAst],

@@ -3,8 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import type { AST, Label, VariableAST } from "./ast.js";
-import { printLocationValue, type IR, type IRLabel, type LocationValue, type VariableIR } from "./ir.js";
-import { printLocations, type Location } from "./location.js";
+import type { IR, IRLabel, VariableIR } from "./ir.js";
 import { toEastTypeValue, type LiteralValue } from "./type_of_type.js";
 import { ArrayType, DictType, type EastType, FunctionType, isSubtype, isTypeEqual, NeverType, NullType, printType, RefType, SetType, StructType, VariantType, VectorType, MatrixType } from "./types.js";
 import { variant } from "./containers/variant.js";
@@ -13,8 +12,8 @@ import { applyTypeParameters, Builtins } from "./builtins.js";
 
 /** @internal An exception throw for the purpose of early loop continue */
 export class OutOfScopeException extends Error {
-  constructor(public definedLocation: Location[]) {
-    super(`Variable defined at ${printLocations(definedLocation)} is out of scope here`);
+  constructor(public definedLocation: bigint) {
+    super(`Variable defined at loc_id ${definedLocation} is out of scope here`);
   }
 }
 
@@ -29,15 +28,6 @@ type Ctx = {
   inputs: EastType[],
   output: EastType,
   async: boolean,
-}
-
-// TODO we should probably redo type checking exhaustively here?
-function toLocationValues(locations: Location[]): LocationValue[] {
-  return locations.map(loc => ({
-    filename: loc.filename,
-    line: BigInt(loc.line),
-    column: BigInt(loc.column),
-  }));
 }
 
 
@@ -56,7 +46,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
           ctx.captures.add(ir);
           return ir;
         } else {
-          throw new OutOfScopeException(ast.location);
+          throw new OutOfScopeException(ast.loc_id);
         }
       }
     } else if (ast.ast_type === "Let") {
@@ -66,7 +56,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       const variable: VariableIR = variant("Variable", {
         type: toEastTypeValue(ast.variable.type),
         name: `_${ctx.n_vars}`,
-        location: toLocationValues(ast.variable.location),
+        loc_id: ast.variable.loc_id,
         mutable: ast.variable.mutable,
         captured: false,
       });
@@ -79,14 +69,14 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
         if (!isSubtype(ast.value.type, ast.variable.type)) {
           throw new Error(
             `Cannot initialize variable of type ${printType(ast.variable.type)} ` +
-            `with value of type ${printType(ast.value.type)} at ${printLocations(ast.location)}`
+            `with value of type ${printType(ast.value.type)} at loc_id ${ast.loc_id}`
           );
         }
 
         value = variant("As", {
           type: toEastTypeValue(ast.variable.type),
           value,
-          location: toLocationValues(ast.location),
+          loc_id: ast.loc_id,
         });
       }
 
@@ -95,7 +85,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
 
       return variant("Let", {
         type: toEastTypeValue(ast.type),
-        location: toLocationValues(ast.location),
+        loc_id: ast.loc_id,
         variable,
         value,
       });
@@ -104,7 +94,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       const variable = ast_to_ir(ast.variable, ctx) as VariableIR;
 
       if (!variable.value.mutable) {
-        throw new Error(`Variable defined const at ${printLocationValue(variable.value.location)} is being reassigned at ${printLocations(ast.location)}`)
+        throw new Error(`Variable defined const at loc_id ${variable.value.loc_id} is being reassigned at loc_id ${ast.loc_id}`)
       }
 
       let value = ast_to_ir(ast.value, ctx);
@@ -119,20 +109,20 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
         if (!isSubtype(ast.value.type, ast.variable.type)) {
           throw new Error(
             `Cannot assign value of type ${printType(ast.value.type)} ` +
-            `to variable of type ${printType(ast.variable.type)} at ${printLocations(ast.location)}`
+            `to variable of type ${printType(ast.variable.type)} at loc_id ${ast.loc_id}`
           );
         }
 
         value = variant("As", {
           type: variableType,
           value,
-          location: toLocationValues(ast.location),
+          loc_id: ast.loc_id,
         });
       }
 
       return variant("Assign", {
         type: toEastTypeValue(ast.type),
-        location: toLocationValues(ast.location),
+        loc_id: ast.loc_id,
         variable,
         value,
       });
@@ -146,7 +136,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
 
       return variant("Block", {
         type: toEastTypeValue(ast.type),
-        location: toLocationValues(ast.location),
+        loc_id: ast.loc_id,
         statements,
       });
     } else if (ast.ast_type === "Builtin") {
@@ -154,20 +144,20 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       const builtin_name = ast.builtin;
       const builtin_def = Builtins[builtin_name];
       if (!builtin_def) {
-        throw new Error(`Unknown builtin function '${builtin_name}' at ${printLocations(ast.location)}`);
+        throw new Error(`Unknown builtin function '${builtin_name}' at loc_id ${ast.loc_id}`);
       }
       if (builtin_def.type_parameters.length !== ast.type_parameters.length) {
-        throw new Error(`Builtin function '${builtin_name}' expected ${builtin_def.type_parameters.length} type parameters, got ${ast.type_parameters.length} at ${printLocations(ast.location)}`);
+        throw new Error(`Builtin function '${builtin_name}' expected ${builtin_def.type_parameters.length} type parameters, got ${ast.type_parameters.length} at loc_id ${ast.loc_id}`);
       }
       const type_map = new Map(builtin_def.type_parameters.map((name, i) => [name, ast.type_parameters[i]!] as const));
 
       if (ast.arguments.length !== builtin_def.inputs.length) {
-        throw new Error(`Builtin function '${builtin_name}' expected ${builtin_def.inputs.length} arguments, got ${ast.arguments.length} at ${printLocations(ast.location)}`);
+        throw new Error(`Builtin function '${builtin_name}' expected ${builtin_def.inputs.length} arguments, got ${ast.arguments.length} at loc_id ${ast.loc_id}`);
       }
 
       return variant("Builtin", {
         type: toEastTypeValue(ast.type),
-        location: toLocationValues(ast.location),
+        loc_id: ast.loc_id,
         builtin: ast.builtin,
         type_parameters: ast.type_parameters.map(tp => toEastTypeValue(tp)),
         arguments: ast.arguments.map((arg, i) => {
@@ -178,13 +168,13 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
           if (arg.type.type !== "Never" && !isTypeEqual(arg.type, expectedType)) {
             if (!isSubtype(arg.type, expectedType)) {
               throw new Error(
-                `Builtin ${builtin_name} with type parameters [${ast.type_parameters.map(tp => printType(tp)).join(", ")}] argument ${i} of type ${printType(arg.type)} is not compatible with expected type ${printType(expectedType)} at ${printLocations(ast.location)}`
+                `Builtin ${builtin_name} with type parameters [${ast.type_parameters.map(tp => printType(tp)).join(", ")}] argument ${i} of type ${printType(arg.type)} is not compatible with expected type ${printType(expectedType)} at loc_id ${ast.loc_id}`
               );
             }
             arg_ir = variant("As", {
               type: toEastTypeValue(expectedType),
               value: arg_ir,
-              location: toLocationValues(ast.location),
+              loc_id: ast.loc_id,
             });
           }
 
@@ -193,12 +183,12 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       });
     } else if (ast.ast_type === "Platform") {
       if (ctx.async === false && ast.async === true) {
-        throw new Error(`Async platform call not allowed outside async function at ${printLocations(ast.location)}`);
+        throw new Error(`Async platform call not allowed outside async function at loc_id ${ast.loc_id}`);
       }
 
       return variant("Platform", {
         type: toEastTypeValue(ast.type),
-        location: toLocationValues(ast.location),
+        loc_id: ast.loc_id,
         name: ast.name,
         type_parameters: ast.type_parameters.map(tp => toEastTypeValue(tp)),
         arguments: ast.arguments.map(ast => ast_to_ir(ast, ctx)), // type equality handled at Expr/AST level
@@ -208,24 +198,24 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
     } else if (ast.ast_type === "Struct") {
       return variant("Struct", {
         type: toEastTypeValue(ast.type),
-        location: toLocationValues(ast.location),
+        loc_id: ast.loc_id,
         fields: Object.entries(ast.fields).map(([name, fieldAst]) => {
           let value = ast_to_ir(fieldAst, ctx);
           const expectedType = (ast.type as StructType).fields[name];
           if (!expectedType) {
-            throw new Error(`Struct type does not have field '${name}' at ${printLocations(ast.location)}`);
+            throw new Error(`Struct type does not have field '${name}' at loc_id ${ast.loc_id}`);
           }
           if (!isTypeEqual(fieldAst.type, expectedType)) {
             if (isSubtype(fieldAst.type, expectedType)) {
               value = variant("As", {
                 type: toEastTypeValue(expectedType),
                 value,
-                location: toLocationValues(ast.location),
+                loc_id: ast.loc_id,
               })
             } else {
               throw new Error(
                 `Cannot assign field '${name}' of type ${printType((ast.type as StructType).fields[name]!)} ` +
-                `with value of type ${printType(fieldAst.type)} at ${printLocations(ast.location)}`
+                `with value of type ${printType(fieldAst.type)} at loc_id ${ast.loc_id}`
               );
             }
           }
@@ -235,7 +225,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
     } else if (ast.ast_type === "GetField") {
       return variant("GetField", {
         type: toEastTypeValue(ast.type),
-        location: toLocationValues(ast.location),
+        loc_id: ast.loc_id,
         struct: ast_to_ir(ast.struct, ctx),
         field: ast.field,
       });
@@ -247,18 +237,18 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
           value = variant("As", {
             type: toEastTypeValue(expectedType),
             value,
-            location: toLocationValues(ast.location),
+            loc_id: ast.loc_id,
           })
         } else {
           throw new Error(
             `Cannot assign case '${ast.case}' of type ${printType(expectedType)} ` +
-            `with value of type ${printType(ast.value.type)} at ${printLocations(ast.location)}`
+            `with value of type ${printType(ast.value.type)} at loc_id ${ast.loc_id}`
           );
         }
       }
       return variant("Variant", {
         type: toEastTypeValue(ast.type),
-        location: toLocationValues(ast.location),
+        loc_id: ast.loc_id,
         case: ast.case,
         value,
       });
@@ -267,7 +257,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
         const param: VariableIR = variant("Variable", {
           type: toEastTypeValue(parameter.type),
           name: `_${ctx.n_vars}`,
-          location: toLocationValues(parameter.location),
+          loc_id: parameter.loc_id,
           mutable: parameter.mutable, // false...
           captured: false,
         });
@@ -300,7 +290,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
 
       return variant("Function", {
         type: toEastTypeValue(ast.type),
-        location: toLocationValues(ast.location),
+        loc_id: ast.loc_id,
         parameters,
         captures: [...captures],
         body,
@@ -310,7 +300,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
         const param: VariableIR = variant("Variable", {
           type: toEastTypeValue(parameter.type),
           name: `_${ctx.n_vars}`,
-          location: toLocationValues(parameter.location),
+          loc_id: parameter.loc_id,
           mutable: parameter.mutable, // false...
           captured: false,
         });
@@ -343,7 +333,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
 
       return variant("AsyncFunction", {
         type: toEastTypeValue(ast.type),
-        location: toLocationValues(ast.location),
+        loc_id: ast.loc_id,
         parameters,
         captures: [...captures],
         body,
@@ -353,7 +343,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       // TODO - what about widening the result with As?
       return variant("Call", {
         type: toEastTypeValue(ast.type),
-        location: toLocationValues(ast.location),
+        loc_id: ast.loc_id,
         function: ast_to_ir(ast.function, ctx),
         arguments: ast.arguments.map((argument, i) => {
           let arg = ast_to_ir(argument, ctx);
@@ -362,13 +352,13 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
           if (!isTypeEqual(argument.type, expectedType)) {
             if (!isSubtype(argument.type, expectedType)) {
               throw new Error(
-                `Argument ${i} of type ${printType(argument.type)} is not compatible with expected type ${printType(expectedType)} at ${printLocations(ast.location)}`
+                `Argument ${i} of type ${printType(argument.type)} is not compatible with expected type ${printType(expectedType)} at loc_id ${ast.loc_id}`
               );
             }
             arg = variant("As", {
               type: toEastTypeValue(expectedType),
               value: arg,
-              location: toLocationValues(ast.location),
+              loc_id: ast.loc_id,
             });
           }
 
@@ -377,14 +367,14 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       });
     } else if (ast.ast_type === "CallAsync") {
       if (ctx.async === false) {
-        throw new Error(`Async function call not allowed outside async function at ${printLocations(ast.location)}`);
+        throw new Error(`Async function call not allowed outside async function at loc_id ${ast.loc_id}`);
       }
 
       // TODO - type equality could have been handled at Expr/AST level instead
       // TODO - what about widening the result with As?
       return variant("CallAsync", {
         type: toEastTypeValue(ast.type),
-        location: toLocationValues(ast.location),
+        loc_id: ast.loc_id,
         function: ast_to_ir(ast.function, ctx),
         arguments: ast.arguments.map((argument, i) => {
           let arg = ast_to_ir(argument, ctx);
@@ -393,13 +383,13 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
           if (!isTypeEqual(argument.type, expectedType)) {
             if (!isSubtype(argument.type, expectedType)) {
               throw new Error(
-                `Argument ${i} of type ${printType(argument.type)} is not compatible with expected type ${printType(expectedType)} at ${printLocations(ast.location)}`
+                `Argument ${i} of type ${printType(argument.type)} is not compatible with expected type ${printType(expectedType)} at loc_id ${ast.loc_id}`
               );
             }
             arg = variant("As", {
               type: toEastTypeValue(expectedType),
               value: arg,
-              location: toLocationValues(ast.location),
+              loc_id: ast.loc_id,
             });
           }
 
@@ -412,38 +402,38 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       if (!isTypeEqual(ast.value.type, valueType)) {
         if (!isSubtype(ast.value.type, valueType)) {
           throw new Error(
-            `Ref value of type ${printType(ast.value.type)} is not compatible with expected type ${printType(valueType)} at ${printLocations(ast.location)}`
+            `Ref value of type ${printType(ast.value.type)} is not compatible with expected type ${printType(valueType)} at loc_id ${ast.loc_id}`
           );
         }
         value = variant("As", {
           type: toEastTypeValue(valueType),
           value,
-          location: toLocationValues(ast.location),
+          loc_id: ast.loc_id,
         });
       }
 
       return variant("NewRef", {
         type: toEastTypeValue(ast.type),
-        location: toLocationValues(ast.location),
+        loc_id: ast.loc_id,
         value,
       });
     } else if (ast.ast_type === "NewArray") {
       const valueType = (ast.type as ArrayType).value;
       return variant("NewArray", {
         type: toEastTypeValue(ast.type),
-        location: toLocationValues(ast.location),
+        loc_id: ast.loc_id,
         values: ast.values.map((v, i) => {
           let value = ast_to_ir(v, ctx);
           if (!isTypeEqual(v.type, valueType)) {
             if (!isSubtype(v.type, valueType)) {
               throw new Error(
-                `Array value at entry ${i} of type ${printType(v.type)} is not compatible with expected type ${printType(valueType)} at ${printLocations(ast.location)}`
+                `Array value at entry ${i} of type ${printType(v.type)} is not compatible with expected type ${printType(valueType)} at loc_id ${ast.loc_id}`
               );
             }
             value = variant("As", {
               type: toEastTypeValue(valueType),
               value,
-              location: toLocationValues(ast.location),
+              loc_id: ast.loc_id,
             });
           }
 
@@ -454,19 +444,19 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       const keyType = (ast.type as SetType).key;
       return variant("NewSet", {
         type: toEastTypeValue(ast.type),
-        location: toLocationValues(ast.location),
+        loc_id: ast.loc_id,
         values: ast.values.map((k, i) => {
           let key = ast_to_ir(k, ctx);
           if (!isTypeEqual(k.type, keyType)) {
             if (!isSubtype(k.type, keyType)) {
               throw new Error(
-                `Set key at entry ${i} of type ${printType(k.type)} is not compatible with expected type ${printType(keyType)} at ${printLocations(ast.location)}`
+                `Set key at entry ${i} of type ${printType(k.type)} is not compatible with expected type ${printType(keyType)} at loc_id ${ast.loc_id}`
               );
             }
             key = variant("As", {
               type: toEastTypeValue(keyType),
               value: key,
-              location: toLocationValues(ast.location),
+              loc_id: ast.loc_id,
             });
           }
 
@@ -478,19 +468,19 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       const valueType = (ast.type as DictType).value;
       return variant("NewDict", {
         type: toEastTypeValue(ast.type),
-        location: toLocationValues(ast.location),
+        loc_id: ast.loc_id,
         values: ast.values.map(([k, v], i) => {
           let key = ast_to_ir(k, ctx);
           if (!isTypeEqual(k.type, keyType)) {
             if (!isSubtype(k.type, keyType)) {
               throw new Error(
-                `Dict key at entry ${i} of type ${printType(k.type)} is not compatible with expected type ${printType(keyType)} at ${printLocations(ast.location)}`
+                `Dict key at entry ${i} of type ${printType(k.type)} is not compatible with expected type ${printType(keyType)} at loc_id ${ast.loc_id}`
               );
             }
             key = variant("As", {
               type: toEastTypeValue(keyType),
               value: key,
-              location: toLocationValues(ast.location),
+              loc_id: ast.loc_id,
             });
           }
 
@@ -498,13 +488,13 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
           if (!isTypeEqual(v.type, valueType)) {
             if (!isSubtype(v.type, valueType)) {
               throw new Error(
-                `Dict value at entry ${i} of type ${printType(v.type)} is not compatible with expected type ${printType(valueType)} at ${printLocations(ast.location)}`
+                `Dict value at entry ${i} of type ${printType(v.type)} is not compatible with expected type ${printType(valueType)} at loc_id ${ast.loc_id}`
               );
             }
             value = variant("As", {
               type: toEastTypeValue(valueType),
               value,
-              location: toLocationValues(ast.location),
+              loc_id: ast.loc_id,
             });
           };
 
@@ -533,14 +523,14 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
         if (branch.body.type.type !== "Never" && !isTypeEqual(branch.body.type, ast.type)) {
           if (!isSubtype(branch.body.type, ast.type)) {
             throw new Error(
-              `If branch body of type ${printType(branch.body.type)} is not compatible with expected type ${printType(ast.type)} at ${printLocations(ast.location)}`
+              `If branch body of type ${printType(branch.body.type)} is not compatible with expected type ${printType(ast.type)} at loc_id ${ast.loc_id}`
             );
           }
 
           branch_body = variant("As", {
             type: toEastTypeValue(ast.type),
             value: branch_body,
-            location: toLocationValues(ast.location),
+            loc_id: ast.loc_id,
           });
         }
 
@@ -565,27 +555,27 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       if (ast.else_body.type.type !== "Never" && !isTypeEqual(ast.else_body.type, ast.type)) {
         if (!isSubtype(ast.else_body.type, ast.type)) {
           throw new Error(
-            `Else branch body of type ${printType(ast.else_body.type)} is not compatible with expected type ${printType(ast.type)} at ${printLocations(ast.location)}`
+            `Else branch body of type ${printType(ast.else_body.type)} is not compatible with expected type ${printType(ast.type)} at loc_id ${ast.loc_id}`
           );
         }
 
         else_body = variant("As", {
           type: toEastTypeValue(ast.type),
           value: else_body,
-          location: toLocationValues(ast.location),
+          loc_id: ast.loc_id,
         });
       }
 
       return variant("IfElse", {
         type: toEastTypeValue(ast.type),
-        location: toLocationValues(ast.location),
+        loc_id: ast.loc_id,
         ifs,
         else_body,
       });
     } else if (ast.ast_type === "Error") {
       return variant("Error", {
         type: variant("Never", null),
-        location: toLocationValues(ast.location),
+        loc_id: ast.loc_id,
         message: ast_to_ir(ast.message, ctx),
       });
     } else if (ast.ast_type === "TryCatch") {
@@ -608,7 +598,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       const message: VariableIR = variant("Variable", {
         type: toEastTypeValue(ast.message.type),
         name: `_${ctx.n_vars}`,
-        location: toLocationValues(ast.message.location),
+        loc_id: ast.message.loc_id,
         mutable: ast.message.mutable, // false...
         captured: false,
       });
@@ -617,7 +607,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       const stack: VariableIR = variant("Variable", {
         type: toEastTypeValue(ast.stack.type),
         name: `_${ctx.n_vars}`,
-        location: toLocationValues(ast.stack.location),
+        loc_id: ast.stack.loc_id,
         mutable: ast.stack.mutable, // false...
         captured: false,
       });
@@ -657,14 +647,14 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       } else {
         finally_body = variant("Value", {
           type: toEastTypeValue(NullType),
-          location: toLocationValues(ast.location),
+          loc_id: ast.loc_id,
           value: variant("Null", null),
         });
       }
 
       return variant("TryCatch", {
         type: toEastTypeValue(ast.type),
-        location: toLocationValues(ast.location),
+        loc_id: ast.loc_id,
         try_body,
         catch_body,
         message,
@@ -693,25 +683,25 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       }
 
       if (type.type !== value.type) {
-        throw new Error(`Literal value type mismatch at ${printLocations(ast.location)}: expected .${type.type} but got .${value.type}`);
+        throw new Error(`Literal value type mismatch at loc_id ${ast.loc_id}: expected .${type.type} but got .${value.type}`);
       }
 
       return variant("Value", {
         type,
-        location: toLocationValues(ast.location),
+        loc_id: ast.loc_id,
         value,
       });
     } else if (ast.ast_type === "As") {
       return variant("As", {
         type: toEastTypeValue(ast.type),
-        location: toLocationValues(ast.location),
+        loc_id: ast.loc_id,
         value: ast_to_ir(ast.value, ctx),
       });
     } else if (ast.ast_type === "While") {
       const predicate = ast_to_ir(ast.predicate, ctx);
       const label: IRLabel = {
         name: `_${ctx.n_loops}`,
-        location: toLocationValues(ast.label.location),
+        loc_id: ast.label.loc_id,
       }
       ctx.n_loops += 1;
 
@@ -732,7 +722,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
 
       return variant("While", {
         type: variant("Null", null),
-        location: toLocationValues(ast.location),
+        loc_id: ast.loc_id,
         label,
         predicate,
         body,
@@ -741,14 +731,14 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       const array = ast_to_ir(ast.array, ctx);
       const label: IRLabel = {
         name: `_${ctx.n_loops}`,
-        location: toLocationValues(ast.label.location),
+        loc_id: ast.label.loc_id,
       }
       ctx.n_loops += 1;
 
       const value: VariableIR = variant("Variable", {
         type: toEastTypeValue(ast.value.type),
         name: `_${ctx.n_vars}`,
-        location: toLocationValues(ast.value.location),
+        loc_id: ast.value.loc_id,
         mutable: ast.value.mutable, // false...
         captured: false,
       });
@@ -757,7 +747,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       const key: VariableIR = variant("Variable", {
         type: toEastTypeValue(ast.key.type),
         name: `_${ctx.n_vars}`,
-        location: toLocationValues(ast.key.location),
+        loc_id: ast.key.loc_id,
         mutable: ast.key.mutable, // false...
         captured: false,
       });
@@ -780,7 +770,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
 
       return variant("ForArray", {
         type: variant("Null", null),
-        location: toLocationValues(ast.location),
+        loc_id: ast.loc_id,
         label,
         key,
         value,
@@ -791,14 +781,14 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       const set = ast_to_ir(ast.set, ctx);
       const label: IRLabel = {
         name: `_${ctx.n_loops}`,
-        location: toLocationValues(ast.label.location),
+        loc_id: ast.label.loc_id,
       }
       ctx.n_loops += 1;
 
       const key: VariableIR = variant("Variable", {
         type: toEastTypeValue(ast.key.type),
         name: `_${ctx.n_vars}`,
-        location: toLocationValues(ast.key.location),
+        loc_id: ast.key.loc_id,
         mutable: ast.key.mutable, // false...
         captured: false,
       });
@@ -821,7 +811,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
 
       return variant("ForSet", {
         type: variant("Null", null),
-        location: toLocationValues(ast.location),
+        loc_id: ast.loc_id,
         label,
         key,
         set,
@@ -831,14 +821,14 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       const dict = ast_to_ir(ast.dict, ctx);
       const label: IRLabel = {
         name: `_${ctx.n_loops}`,
-        location: toLocationValues(ast.label.location),
+        loc_id: ast.label.loc_id,
       }
       ctx.n_loops += 1;
 
       const value: VariableIR = variant("Variable", {
         type: toEastTypeValue(ast.value.type),
         name: `_${ctx.n_vars}`,
-        location: toLocationValues(ast.value.location),
+        loc_id: ast.value.loc_id,
         mutable: ast.value.mutable, // false...
         captured: false,
       });
@@ -847,7 +837,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       const key: VariableIR = variant("Variable", {
         type: toEastTypeValue(ast.key.type),
         name: `_${ctx.n_vars}`,
-        location: toLocationValues(ast.key.location),
+        loc_id: ast.key.loc_id,
         mutable: ast.key.mutable, // false...
         captured: false,
       });
@@ -870,7 +860,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
 
       return variant("ForDict", {
         type: variant("Null", null),
-        location: toLocationValues(ast.location),
+        loc_id: ast.loc_id,
         label,
         key,
         value,
@@ -885,7 +875,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
         const variable: VariableIR = variant("Variable", {
           type: toEastTypeValue(v.variable.type),
           name: `_${ctx.n_vars}`,
-          location: toLocationValues(v.variable.location),
+          loc_id: v.variable.loc_id,
           mutable: v.variable.mutable, // false...
           captured: false,
         });
@@ -909,14 +899,14 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
         if (v.body.type.type !== "Never" && !isTypeEqual(v.body.type, ast.type)) {
           if (!isSubtype(v.body.type, ast.type)) {
             throw new Error(
-              `Match case '${k}' body of type ${printType(v.body.type)} is not compatible with expected type ${printType(ast.type)} at ${printLocations(ast.location)}`
+              `Match case '${k}' body of type ${printType(v.body.type)} is not compatible with expected type ${printType(ast.type)} at loc_id ${ast.loc_id}`
             );
           }
 
           body = variant("As", {
             type: toEastTypeValue(ast.type),
             value: body,
-            location: toLocationValues(ast.location),
+            loc_id: ast.loc_id,
           });
         }
 
@@ -925,14 +915,14 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
 
       return variant("Match", {
         type: toEastTypeValue(ast.type),
-        location: toLocationValues(ast.location),
+        loc_id: ast.loc_id,
         variant: variant_expr,
         cases,
       });
     } else if (ast.ast_type === "UnwrapRecursive") {
       return variant("UnwrapRecursive", {
         type: toEastTypeValue(ast.type),
-        location: toLocationValues(ast.location),
+        loc_id: ast.loc_id,
         value: ast_to_ir(ast.value, ctx),
       });
     } else if (ast.ast_type === "WrapRecursive") {
@@ -942,7 +932,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       }
       const existing = ctx.recursiveASTs.has(ast);
       if (existing) {
-        throw new Error(`Circular reference detected when converting AST to IR at ${printLocations(ast.location)}`);
+        throw new Error(`Circular reference detected when converting AST to IR at loc_id ${ast.loc_id}`);
       }
 
       // Register before recursing (enables cycle detection)
@@ -951,7 +941,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       // Create WrapRecursive IR node with placeholder
       const wrapIR: any = variant("WrapRecursive", {
         type: toEastTypeValue(ast.type),
-        location: toLocationValues(ast.location),
+        loc_id: ast.loc_id,
         value: ast_to_ir(ast.value, ctx),
       });
 
@@ -962,52 +952,52 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
     } else if (ast.ast_type === "Break") {
       const label = ctx.loop_ctx.get(ast.label);
       if (label === undefined) {
-        throw new Error(`Label defined at ${printLocations(ast.label.location)} is not in scope at break at ${printLocations(ast.location)}`)
+        throw new Error(`Label defined at loc_id ${ast.label.loc_id} is not in scope at break at loc_id ${ast.loc_id}`)
       }
 
       return variant("Break", {
         type: variant("Never", null),
-        location: toLocationValues(ast.location),
+        loc_id: ast.loc_id,
         label,
       });
     } else if (ast.ast_type === "Continue") {
       const label = ctx.loop_ctx.get(ast.label);
       if (label === undefined) {
-        throw new Error(`Label defined at ${printLocations(ast.label.location)} is not in scope at continue at ${printLocations(ast.location)}`)
+        throw new Error(`Label defined at loc_id ${ast.label.loc_id} is not in scope at continue at loc_id ${ast.loc_id}`)
       }
 
       return variant("Continue", {
         type: variant("Never", null),
-        location: toLocationValues(ast.location),
+        loc_id: ast.loc_id,
         label,
       });
     } else if (ast.ast_type === "Return") {
       if (!isSubtype(ast.value.type, ctx.output)) {
-        throw new Error(`Attempted to return value of type ${printType(ast.value.type)} at ${printLocations(ast.location)}, but function expected return type of ${printType(ctx.output)}`)
+        throw new Error(`Attempted to return value of type ${printType(ast.value.type)} at loc_id ${ast.loc_id}, but function expected return type of ${printType(ctx.output)}`)
       }
 
       return variant("Return", {
         type: variant("Never", null),
-        location: toLocationValues(ast.location),
+        loc_id: ast.loc_id,
         value: ast_to_ir(ast.value, ctx),
       });
     } else if (ast.ast_type === "NewVector") {
       const elementType = (ast.type as VectorType).element;
       return variant("NewVector", {
         type: toEastTypeValue(ast.type),
-        location: toLocationValues(ast.location),
+        loc_id: ast.loc_id,
         values: ast.values.map((v, i) => {
           let value = ast_to_ir(v, ctx);
           if (!isTypeEqual(v.type, elementType)) {
             if (!isSubtype(v.type, elementType)) {
               throw new Error(
-                `Vector value at entry ${i} of type ${printType(v.type)} is not compatible with expected type ${printType(elementType)} at ${printLocations(ast.location)}`
+                `Vector value at entry ${i} of type ${printType(v.type)} is not compatible with expected type ${printType(elementType)} at loc_id ${ast.loc_id}`
               );
             }
             value = variant("As", {
               type: toEastTypeValue(elementType),
               value,
-              location: toLocationValues(ast.location),
+              loc_id: ast.loc_id,
             });
           }
           return value;
@@ -1017,7 +1007,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       const elementType = (ast.type as MatrixType).element;
       return variant("NewMatrix", {
         type: toEastTypeValue(ast.type),
-        location: toLocationValues(ast.location),
+        loc_id: ast.loc_id,
         rows: BigInt(ast.rows),
         cols: BigInt(ast.cols),
         values: ast.values.map((v, i) => {
@@ -1025,13 +1015,13 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
           if (!isTypeEqual(v.type, elementType)) {
             if (!isSubtype(v.type, elementType)) {
               throw new Error(
-                `Matrix value at entry ${i} of type ${printType(v.type)} is not compatible with expected type ${printType(elementType)} at ${printLocations(ast.location)}`
+                `Matrix value at entry ${i} of type ${printType(v.type)} is not compatible with expected type ${printType(elementType)} at loc_id ${ast.loc_id}`
               );
             }
             value = variant("As", {
               type: toEastTypeValue(elementType),
               value,
-              location: toLocationValues(ast.location),
+              loc_id: ast.loc_id,
             });
           }
           return value;
@@ -1043,11 +1033,11 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
   } catch (e: unknown) {
     if (e instanceof Error) {
       if (ast.ast_type === "Builtin") {
-        e.message += `\n    at ${ast.ast_type} ${ast.builtin} node located at ${printLocations(ast.location)}`;
+        e.message += `\n    at ${ast.ast_type} ${ast.builtin} node located at loc_id ${ast.loc_id}`;
       } else if (ast.ast_type === "Platform") {
-        e.message += `\n    at ${ast.ast_type} ${ast.name} node located at ${printLocations(ast.location)}`;
+        e.message += `\n    at ${ast.ast_type} ${ast.name} node located at loc_id ${ast.loc_id}`;
       } else{
-        e.message += `\n    at ${ast.ast_type} node located at ${printLocations(ast.location)}`;
+        e.message += `\n    at ${ast.ast_type} node located at loc_id ${ast.loc_id}`;
       }
     }
     throw e;

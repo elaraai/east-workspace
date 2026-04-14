@@ -2,7 +2,28 @@
 
 ## Status
 
-**Partially fixed.** Closures now survive decode→re-encode (were being silently dropped). Byte-identical round-trip is NOT yet achieved — see [Known Issue](#known-issue-byte-identity) below.
+**Three bugs fixed, one C-side remnant, byte-identity blocked only by a TS-side issue.**
+
+1. ✅ Closures now survive decode→re-encode (were being silently dropped). Done in the `09292d1a` fix.
+2. ✅ Stale Recursive wrapper pointers after `read_type_table_section` intern fixup — the C decoder was leaving compound types (Function/Struct/Variant) holding the pre-intern Recursive wrapper pointer while `types[rec_idx]` got swapped to the canonical. On the profiler's second decode this caused the encoder to see TWO distinct Recursive pointers and emit the entire UI recursive tree TWICE in the flat type table. Fixed by adding a pass-4 canonicalization that rebuilds compound types with canonical children (see `type_table.c:440-560`).
+3. ✅ C decoder was silently dropping location array backreferences (`ir_decode.c` old code hit `if (dist > 0) return;`). Fixed by adding a `Beast2LocRefs` offset→locations map threaded through the IR decode recursion; inline locations are registered on first sight and resolved on backref with a deep copy (including `strdup`'d filenames). This recovered ~320KB of body content on the benchmark blob.
+4. ❌ TS `visitET` encoder uses object-identity dedup instead of structural (`beast2-type-table.ts:132-201`); `StructType`/`VariantType` in `types.ts:281,301` don't intern. TS produces 16 structurally-duplicate type entries that C's pointer dedup merges away. This is the entire remaining byte-identity gap (~86KB).
+
+**Current state of the benchmark round-trip** (`/tmp/ui.beast2` → decode → encode → `/tmp/ui_reencoded.beast2`):
+
+| | TS original | C (before fixes) | C (after fix #2) | C (after fix #3) |
+|---|---|---|---|---|
+| Total size | 2,701,300 | 2,296,679 | 2,295,928 | **2,614,874** |
+| Diff from TS | — | −404,621 | −405,372 | **−86,426** |
+| Type table section length | 1342 B | 1837 B | 1086 B | 1086 B |
+| Type table entry count | 78 | 96 | 60 | 60 |
+| Structurally-duplicate type entries | 16 | 35 | 0 | 0 |
+
+Byte-identity still fails, but all known C-side bugs are fixed. The remaining 86 KB gap is driven entirely by TS bug #4: TS's type table has 16 redundant entries (10 copies of `Optional<String>`, 3 copies of `Optional<Style>`, etc.), which also inflates every subsequent varint type-index in the body. Once TS is fixed to dedupe structurally, C is already producing the canonical encoding.
+
+Compliance: **1538/1538 east-c tests pass** after all three fixes.
+
+See [Bug #2: Stale Recursive pointers after intern fixup](#bug-2-stale-recursive-pointers-after-intern-fixup) and [Bug #3: Location backreferences silently dropped](#bug-3-location-backreferences-silently-dropped) for diagnosis details.
 
 ## Problem
 

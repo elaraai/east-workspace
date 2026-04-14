@@ -156,7 +156,7 @@ export function toEastTypeValue(type: EastType | string, stack: EastType[] = [],
   return result;
 }
 
-function toEastTypeValueImpl(type: EastType, stack: EastType[], is_recursive: boolean): EastTypeValue {
+function toEastTypeValueImpl(type: EastType, stack: EastType[], _is_recursive: boolean): EastTypeValue {
   // Note: self-reference detection for Recursive types is handled in the
   // type.type === "Recursive" branch below (stack.indexOf check).
 

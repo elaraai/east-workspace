@@ -12,7 +12,7 @@ export default {
     const len = Expr.from(length, IntegerType);
     return Expr.fromAst({
       ast_type: "Builtin", type: VectorType(FloatType), builtin: "VectorZeros",
-      type_parameters: [FloatType], arguments: [len[AstSymbol]], location: len[AstSymbol].location,
+      type_parameters: [FloatType], arguments: [len[AstSymbol]], loc_id: len[AstSymbol].loc_id,
     }) as any;
   },
 
@@ -20,7 +20,7 @@ export default {
     const len = Expr.from(length, IntegerType);
     return Expr.fromAst({
       ast_type: "Builtin", type: VectorType(FloatType), builtin: "VectorOnes",
-      type_parameters: [FloatType], arguments: [len[AstSymbol]], location: len[AstSymbol].location,
+      type_parameters: [FloatType], arguments: [len[AstSymbol]], loc_id: len[AstSymbol].loc_id,
     }) as any;
   },
 
@@ -30,7 +30,7 @@ export default {
     const elemType = val[TypeSymbol];
     return Expr.fromAst({
       ast_type: "Builtin", type: VectorType(elemType), builtin: "VectorFill",
-      type_parameters: [elemType as EastType], arguments: [len[AstSymbol], val[AstSymbol]], location: len[AstSymbol].location,
+      type_parameters: [elemType as EastType], arguments: [len[AstSymbol], val[AstSymbol]], loc_id: len[AstSymbol].loc_id,
     }) as any;
   },
 
@@ -43,7 +43,7 @@ export default {
     }
     return Expr.fromAst({
       ast_type: "Builtin", type: VectorType(elemType), builtin: "VectorFromArray",
-      type_parameters: [elemType as EastType], arguments: [arrAst], location: arrAst.location,
+      type_parameters: [elemType as EastType], arguments: [arrAst], loc_id: arrAst.loc_id,
     }) as any;
   },
 };

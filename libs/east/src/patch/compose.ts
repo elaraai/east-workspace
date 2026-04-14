@@ -12,7 +12,7 @@
 import { toEastTypeValue, type EastTypeValue } from "../type_of_type.js";
 import type { EastType } from "../types.js";
 import { isVariant, variant, type variant as VariantValue } from "../containers/variant.js";
-import { equalFor, compareFor } from "../comparison.js";
+import { compareFor } from "../comparison.js";
 import { printFor } from "../serialization/east.js";
 import { SortedMap } from "../containers/sortedmap.js";
 import { type ComposeContext, ConflictError } from "./types.js";
@@ -80,9 +80,6 @@ export function composeFor(type: EastTypeValue | EastType, ctx: ComposeContext =
         return variant("patch", result);
       }
     };
-
-    const arrayEqual = equalFor(t, ctx.equal);
-    const arrayPrint = printFor(t, ctx.print);
 
     // Push compose context first
     ctx.compose.push(composeRet);
@@ -229,12 +226,6 @@ export function composeFor(type: EastTypeValue | EastType, ctx: ComposeContext =
       }
     };
 
-    // Build print handler for this dict type
-    const dictPrint = printFor(t, ctx.print);
-
-    // Build dict equality using equalFor with current context
-    const dictEqual = equalFor(t, ctx.equal);
-
     // Push compose context first
     ctx.compose.push(composeRet);
     ctx.types.push(t);
@@ -300,9 +291,6 @@ export function composeFor(type: EastTypeValue | EastType, ctx: ComposeContext =
       }
     };
 
-    const structEqual = equalFor(t, ctx.equal);
-    const structPrint = printFor(t, ctx.print);
-
     // Push compose context first
     ctx.compose.push(composeRet);
     ctx.types.push(t);
@@ -366,9 +354,6 @@ export function composeFor(type: EastTypeValue | EastType, ctx: ComposeContext =
       }
     };
 
-    const variantEqual = equalFor(t, ctx.equal);
-    const variantPrint = printFor(t, ctx.print);
-
     // Push compose context first
     ctx.compose.push(composeRet);
     ctx.types.push(t);
@@ -422,12 +407,6 @@ export function composeFor(type: EastTypeValue | EastType, ctx: ComposeContext =
         }
       }
     };
-
-    // Build print handler for this ref type
-    const refPrint = printFor(t, ctx.print);
-
-    // Build ref equality using equalFor with current context
-    const refEqual = equalFor(t, ctx.equal);
 
     // Push compose context first
     ctx.compose.push(composeRet);

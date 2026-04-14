@@ -153,18 +153,71 @@ TypeTableResult read_type_table_section(const uint8_t *data, size_t len, size_t 
 void type_table_result_free(TypeTableResult *r);
 
 /* ================================================================== */
+/*  Source Map Section (sourcemap_table.c)                              */
+/* ================================================================== */
+
+typedef struct {
+    EastLocation **stacks;
+    size_t *stack_counts;
+    size_t num_stacks;
+} Beast2SourceMap;
+
+void write_source_map_section(Beast2SourceMap *sm, Beast2StringTableEnc *st, ByteBuffer *buf);
+Beast2SourceMap read_source_map_section(const uint8_t *data, size_t len, size_t *offset,
+                                         Beast2StringTableDec *st);
+void beast2_source_map_free(Beast2SourceMap *sm);
+
+
+/* ================================================================== */
+/*  Value Table Section (value_table.c)                                 */
+/* ================================================================== */
+
+/* Kind tags for value table entries */
+#define VT_TAG_ARRAY  0x0A
+#define VT_TAG_DICT   0x0B
+#define VT_TAG_SET    0x0C
+#define VT_TAG_REF    0x0D
+
+typedef struct {
+    uint8_t kind;       /* VT_TAG_ARRAY | VT_TAG_SET | VT_TAG_DICT | VT_TAG_REF */
+    EastType *type;     /* the mutable container's type */
+    EastValue *value;   /* the actual value */
+} Beast2VTEntry;
+
+typedef struct {
+    Beast2VTEntry *entries;
+    size_t count;
+    size_t capacity;
+    /* identity map: EastValue* → index */
+    Beast2PtrSlot *map;
+    int map_mask;
+    int map_count;
+} Beast2ValueTable;
+
+void beast2_vt_init(Beast2ValueTable *vt);
+void beast2_vt_free(Beast2ValueTable *vt);
+void beast2_vt_walk(Beast2ValueTable *vt, EastValue *value, EastType *type,
+                     Beast2FlatTypeTable *tt);
+int  beast2_vt_find(Beast2ValueTable *vt, EastValue *value);
+
+/* Write value table section — declared after Beast2EncodeCtx (see below) */
+
+/* Read value table section (two-pass decode). Populates ctx->mutable_values. */
+typedef struct {
+    EastValue **values;   /* pre-allocated mutable containers by index */
+    size_t count;
+} Beast2MutableValues;
+
+Beast2MutableValues read_value_table_section(const uint8_t *data, size_t len, size_t *offset,
+                                              EastType **types, size_t type_count,
+                                              Beast2StringTableDec *st);
+void beast2_mutable_values_free(Beast2MutableValues *mv);
+
+/* ================================================================== */
 /*  Backreference / Encode-Decode Contexts (backref.c)                  */
 /* ================================================================== */
 
 typedef struct {
-    uintptr_t key;     /* 0 = empty slot */
-    size_t offset;
-} Beast2EncSlot;
-
-typedef struct {
-    Beast2EncSlot *slots;
-    int mask;          /* capacity - 1 (capacity is power of 2) */
-    int count;
     /* Optional: when set, function values are encoded as handle IDs */
     Beast2HandleAllocFn fn_handle_alloc;
     void *fn_handle_user_data;
@@ -172,12 +225,14 @@ typedef struct {
     Beast2FlatTypeTable *flat_type_table;
     /* v2 string table (NULL if headerless/v1 mode) */
     Beast2StringTableEnc *string_table;
+    /* v4 value table for mutable container indexing (NULL if not v4) */
+    Beast2ValueTable *value_table;
+    /* v4 source map discovered from function value during encode (NULL initially) */
+    Beast2SourceMap *source_map;
 } Beast2EncodeCtx;
 
-typedef struct {
-    size_t key;        /* 0 = empty (offset 0 never used as backreference target) */
-    EastValue *value;
-} Beast2DecSlot;
+/* Write value table section (needs Beast2EncodeCtx) */
+void write_value_table_section(Beast2ValueTable *vt, Beast2EncodeCtx *ctx, ByteBuffer *buf);
 
 /* Value dedup: identical byte ranges (under the same type) produce the same
  * EastValue pointer.  This enables O(1) pointer-equality caching downstream
@@ -191,36 +246,31 @@ typedef struct {
 } Beast2DedupSlot;
 
 typedef struct {
-    Beast2DecSlot *slots;
-    int mask;
-    int count;
     /* Struct/Variant value dedup */
     Beast2DedupSlot *dedup_slots;
     int dedup_mask;
     int dedup_count;
-    /* Backreference tracking: incremented when a backref is resolved.
-     * Struct/Variant dedup is unsafe when backrefs were used because
-     * backreference distances are relative to buffer position, so
-     * identical bytes at different positions resolve to different targets. */
-    int backref_count;
     /* Profiling counters (always present, negligible cost) */
     int dedup_hits;
     int dedup_misses;
     size_t dedup_bytes_hashed;
     /* Global type table for IR decoding (NULL if not used) */
-    EastValue **global_type_table;
-    EastType **global_types;          /* parallel EastType* array for IR type resolution */
+    EastType **global_types;
     size_t global_type_table_size;
-    /* v2 string table for decoding (NULL if headerless/v1 mode) */
+    /* String table for decoding */
     Beast2StringTableDec *string_table;
+    /* v4 mutable values (decoded from value table section) */
+    EastValue **mutable_values;
+    size_t mutable_values_count;
+    /* v4 source map for loc_id resolution */
+    Beast2SourceMap *source_map;
 #ifdef BEAST2_PROFILE_DEDUP
-    /* Per-type dedup stats: open-addressing table keyed by EastType* */
     struct {
         EastType *type;
         int hits;
         int misses;
         size_t bytes_hashed;
-        double time_us;  /* cumulative microseconds spent hashing+lookup+insert */
+        double time_us;
     } *type_stats;
     int type_stats_mask;
     int type_stats_count;
@@ -229,18 +279,9 @@ typedef struct {
 
 void beast2_enc_ctx_init(Beast2EncodeCtx *ctx);
 void beast2_enc_ctx_free(Beast2EncodeCtx *ctx);
-int  beast2_enc_ctx_find(Beast2EncodeCtx *ctx, EastValue *value);
-void beast2_enc_ctx_add(Beast2EncodeCtx *ctx, EastValue *value, size_t offset);
 
 void beast2_dec_ctx_init(Beast2DecodeCtx *ctx);
 void beast2_dec_ctx_free(Beast2DecodeCtx *ctx);
-EastValue *beast2_dec_ctx_find(Beast2DecodeCtx *ctx, size_t offset);
-void beast2_dec_ctx_add(Beast2DecodeCtx *ctx, EastValue *value, size_t offset);
-
-/* Diagnostic for undefined backreference (returns NULL). */
-EastValue *beast2_backref_error(Beast2DecodeCtx *ctx, size_t pre_offset,
-                                 uint64_t distance, size_t data_len,
-                                 EastType *type);
 
 /* ================================================================== */
 /*  Dedup helpers (dedup.c)                                             */
@@ -269,15 +310,5 @@ void beast2_encode_value(ByteBuffer *buf, EastValue *value,
 EastValue *beast2_decode_value(const uint8_t *data, size_t len,
                                 size_t *offset, EastType *type,
                                 Beast2DecodeCtx *ctx);
-
-/* ================================================================== */
-/*  Direct IRNode encode/decode (ir_decode.c / ir_encode.c)             */
-/* ================================================================== */
-
-IRNode *b2ir_decode_node(const uint8_t *data, size_t len, size_t *offset,
-                         EastType **types, size_t type_count,
-                         Beast2StringTableDec *st);
-
-void b2ir_encode_node(ByteBuffer *buf, IRNode *node, Beast2EncodeCtx *ctx);
 
 #endif /* BEAST2_INTERNAL_H */

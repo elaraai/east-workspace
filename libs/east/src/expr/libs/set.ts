@@ -65,7 +65,7 @@ export default {
       builtin: "SetGenerate",
       type_parameters: [keyType],
       arguments: [length_expr[AstSymbol], generator_expr[AstSymbol], on_conflict_expr[AstSymbol]],
-      location: length_expr[AstSymbol].location,
+      loc_id: length_expr[AstSymbol].loc_id,
     });
   },
 }

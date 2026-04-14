@@ -26,7 +26,7 @@ import {
     NullType,
     DictType,
 } from "../../src/index.js";
-import { encodeBeast2For, decodeBeast2 } from "../../src/serialization/beast2.js";
+import { encodeBeast2For, decodeBeast2 } from "../../src/serialization/beast2/index.js";
 import { variant } from "../../src/containers/variant.js";
 
 // ---------------------------------------------------------------------------

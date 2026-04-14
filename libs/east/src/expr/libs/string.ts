@@ -3,6 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { type StructType, StringType, type IntegerType } from "../../types.js";
+import { get_location_id } from "../../location.js";
 import type { ArrayExpr } from "../array.js";
 import { Expr } from "../expr.js";
 import type { StringExpr } from "../string.js";
@@ -70,7 +71,7 @@ export default {
       ast_type: "Builtin",
       type: StringType,
       builtin: "StringPrintJSON",
-      location: [{ filename: "stdlib", line: 1, column: 1 }],
+      loc_id: get_location_id(),
       type_parameters: [Expr.type(value)],
       arguments: [Expr.ast(value)],
     })

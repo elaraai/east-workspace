@@ -4,11 +4,11 @@
  */
 
 import { type AST, type IfElseAST, type Label, type TryCatchAST, type VariableAST } from "../ast.js";
-import { get_location, printLocations, type Location } from "../location.js";
+import { ensure_source_map, get_current_source_map, get_location, get_location_id, printLocations } from "../location.js";
 import { type EastType, FunctionType, isSubtype, NullType, printType, isTypeEqual, StringType, NeverType, VariantType, BooleanType, TypeUnion, IntegerType, StructType, ArrayType, type ValueTypeOf, AsyncFunctionType, type RefType, type SetType, type DictType, type RecursiveType, type RecursiveTypeMarker, assignTypeId } from "../types.js";
 
 import type { ExprType, SubtypeExprOrValue, TypeOf } from "./types.js";
-import { AstSymbol, Expr, TypeSymbol } from "./expr.js";
+import { AstSymbol, Expr, SourceMapSymbol, TypeSymbol } from "./expr.js";
 import { NeverExpr } from "./never.js";
 import { NullExpr } from "./null.js";
 import { BooleanExpr } from "./boolean.js";
@@ -79,7 +79,7 @@ export function fromAst<T extends AST>(ast: T): Expr<T["type"]> {
   } else if (type === "Matrix") {
     return new MatrixExpr((ast.type as any).element, ast, fromAst);
   } else {
-    throw new Error(`fromAst not implemented for type ${printType(ast.type satisfies never)} at ${printLocations(ast.location)}`);
+    throw new Error(`fromAst not implemented for type ${printType(ast.type satisfies never)} at loc_id ${ast.loc_id}`);
   }
 }
 
@@ -92,7 +92,7 @@ export function fromAst<T extends AST>(ast: T): Expr<T["type"]> {
  * @returns the compiled function
  */
 export function compile<I extends any[], O>(f: FunctionExpr<I, O>, platform: PlatformFunction[]): (...inputs: { [K in keyof I]: ValueTypeOf<I[K]> }) => ValueTypeOf<O>  {
-  return f.toIR().compile(platform);
+  return ensure_source_map(() => f.toIR().compile(platform));
 }
 
 /**
@@ -103,7 +103,7 @@ export function compile<I extends any[], O>(f: FunctionExpr<I, O>, platform: Pla
  * @returns the compiled async function
  */
 export function compileAsync<I extends any[], O>(f: AsyncFunctionExpr<I, O>, platform: PlatformFunction[]): (...inputs: { [K in keyof I]: ValueTypeOf<I[K]> }) => Promise<ValueTypeOf<O>>  {
-  return f.toIR().compile(platform);
+  return ensure_source_map(() => f.toIR().compile(platform));
 }
 
 /**
@@ -132,7 +132,7 @@ export function from(value: any, type?: EastType): Expr<any> {
     const input_variables: VariableAST[] = inputs.map(i => ({
       ast_type: "Variable",
       type: i,
-      location: get_location(),
+      loc_id: get_location_id(),
       mutable: false,
     }));
 
@@ -158,17 +158,17 @@ export function from(value: any, type?: EastType): Expr<any> {
     let body_ast: AST;
     if (isTypeEqual(output, NullType)) {
       if (statements.length === 0) {
-        body_ast = { ast_type: "Value", type: NullType, location: get_location(), value: null };
+        body_ast = { ast_type: "Value", type: NullType, loc_id: get_location_id(), value: null };
       } else if (statements.length === 1 && isSubtype(statements[0]!.type, NullType)) {
         body_ast = statements[0]!;
       } else {
         if (!isSubtype(statements[statements.length - 1]!.type, NullType)) {
-          statements.push({ ast_type: "Value", type: NullType, location: get_location(), value: null });
+          statements.push({ ast_type: "Value", type: NullType, loc_id: get_location_id(), value: null });
         }
         body_ast = {
           ast_type: "Block",
           type: statements[statements.length - 1]!.type,
-          location: get_location(),
+          loc_id: get_location_id(),
           statements: statements,
         }
       }
@@ -187,7 +187,7 @@ export function from(value: any, type?: EastType): Expr<any> {
         body_ast = {
           ast_type: "Block",
           type: statements[statements.length - 1]!.type,
-          location: get_location(),
+          loc_id: get_location_id(),
           statements: statements,
         }
       }
@@ -200,7 +200,7 @@ export function from(value: any, type?: EastType): Expr<any> {
     const ast: AST = {
       ast_type: "Function",
       type: FunctionType(inputs, output),
-      location: get_location(),
+      loc_id: get_location_id(),
       parameters: input_variables,
       body: body_ast,
     };
@@ -215,7 +215,7 @@ export function from(value: any, type?: EastType): Expr<any> {
     const input_variables: VariableAST[] = inputs.map(i => ({
       ast_type: "Variable",
       type: i,
-      location: get_location(),
+      loc_id: get_location_id(),
       mutable: false,
     }));
 
@@ -241,17 +241,17 @@ export function from(value: any, type?: EastType): Expr<any> {
     let body_ast: AST;
     if (isTypeEqual(output, NullType)) {
       if (statements.length === 0) {
-        body_ast = { ast_type: "Value", type: NullType, location: get_location(), value: null };
+        body_ast = { ast_type: "Value", type: NullType, loc_id: get_location_id(), value: null };
       } else if (statements.length === 1 && isSubtype(statements[0]!.type, NullType)) {
         body_ast = statements[0]!;
       } else {
         if (!isSubtype(statements[statements.length - 1]!.type, NullType)) {
-          statements.push({ ast_type: "Value", type: NullType, location: get_location(), value: null });
+          statements.push({ ast_type: "Value", type: NullType, loc_id: get_location_id(), value: null });
         }
         body_ast = {
           ast_type: "Block",
           type: statements[statements.length - 1]!.type,
-          location: get_location(),
+          loc_id: get_location_id(),
           statements: statements,
         }
       }
@@ -270,7 +270,7 @@ export function from(value: any, type?: EastType): Expr<any> {
         body_ast = {
           ast_type: "Block",
           type: statements[statements.length - 1]!.type,
-          location: get_location(),
+          loc_id: get_location_id(),
           statements: statements,
         }
       }
@@ -283,7 +283,7 @@ export function from(value: any, type?: EastType): Expr<any> {
     const ast: AST = {
       ast_type: "AsyncFunction",
       type: FunctionType(inputs, output),
-      location: get_location(),
+      loc_id: get_location_id(),
       parameters: input_variables,
       body: body_ast,
     };
@@ -306,10 +306,11 @@ export function func<const I extends EastType[], O extends EastType>(input_types
 /** @internal */
 export function func<const I extends EastType[], F extends ($: BlockBuilder<NeverType>, ...inputs: { [K in keyof I]: ExprType<I[K]> }) => any>(input_types: I, output_type: undefined, body: F): CallableFunctionExpr<I, TypeOf<ReturnType<F> extends void ? NeverType : ReturnType<F>>>
 export function func(input_types: EastType[], output_type: EastType | undefined, body: ($: BlockBuilder<any>, ...inputs: Expr[]) => any): Expr<FunctionType<any[], any>> {
+  return ensure_source_map(() => {
   const parameters: VariableAST[] = input_types.map(i => ({
     ast_type: "Variable",
     type: i,
-    location: get_location(),
+    loc_id: get_location_id(),
     mutable: false,
   }));
   const $ = BlockBuilder<any>(output_type ?? NeverType);
@@ -328,14 +329,14 @@ export function func(input_types: EastType[], output_type: EastType | undefined,
     
     let body_ast: AST;
     if (statements.length === 0) {
-      body_ast = { ast_type: "Value", type: NullType, location: get_location(), value: null };
+      body_ast = { ast_type: "Value", type: NullType, loc_id: get_location_id(), value: null };
     } else if (statements.length === 1) {
       body_ast = statements[0]!;
     } else {
       body_ast = {
         ast_type: "Block",
         type: statements[statements.length - 1]!.type,
-        location: get_location(),
+        loc_id: get_location_id(),
         statements: statements,
       };
     }
@@ -346,7 +347,7 @@ export function func(input_types: EastType[], output_type: EastType | undefined,
     const ast = {
       ast_type: "Function" as const,
       type: FunctionType(input_types, ret_type),
-      location: get_location(),
+      loc_id: get_location_id(),
       parameters: parameters,
       body: body_ast,
     };
@@ -362,14 +363,14 @@ export function func(input_types: EastType[], output_type: EastType | undefined,
 
     let body_ast: AST;
     if (statements.length === 0) {
-      body_ast = { ast_type: "Value", type: NullType, location: get_location(), value: null };
+      body_ast = { ast_type: "Value", type: NullType, loc_id: get_location_id(), value: null };
     } else if (statements.length === 1) {
       body_ast = statements[0]!;
     } else {
       body_ast = {
         ast_type: "Block",
         type: statements[statements.length - 1]!.type,
-        location: get_location(),
+        loc_id: get_location_id(),
         statements: statements,
       };
     }
@@ -381,13 +382,16 @@ export function func(input_types: EastType[], output_type: EastType | undefined,
     const ast = {
       ast_type: "Function" as const,
       type: FunctionType(input_types, output_type),
-      location: get_location(),
+      loc_id: get_location_id(),
       parameters: parameters,
       body: body_ast,
     };
 
-    return fromAst(ast);
+    const expr = fromAst(ast);
+    Object.defineProperty(expr, SourceMapSymbol, { enumerable: false, value: get_current_source_map() });
+    return expr;
   }
+  }); // ensure_source_map
 }
 
 /** Define an East function.
@@ -400,10 +404,11 @@ export function asyncFunction<const I extends EastType[], O extends EastType>(in
 /** @internal */
 export function asyncFunction<const I extends EastType[], F extends ($: BlockBuilder<NeverType>, ...inputs: { [K in keyof I]: ExprType<I[K]> }) => any>(input_types: I, output_type: undefined, body: F): CallableAsyncFunctionExpr<I, TypeOf<ReturnType<F> extends void ? NeverType : ReturnType<F>>>
 export function asyncFunction(input_types: EastType[], output_type: EastType | undefined, body: ($: BlockBuilder<any>, ...inputs: Expr[]) => any): Expr<AsyncFunctionType<any[], any>> {
+  return ensure_source_map(() => {
   const parameters: VariableAST[] = input_types.map(i => ({
     ast_type: "Variable",
     type: i,
-    location: get_location(),
+    loc_id: get_location_id(),
     mutable: false,
   }));
   const $ = BlockBuilder<any>(output_type ?? NeverType);
@@ -422,14 +427,14 @@ export function asyncFunction(input_types: EastType[], output_type: EastType | u
     
     let body_ast: AST;
     if (statements.length === 0) {
-      body_ast = { ast_type: "Value", type: NullType, location: get_location(), value: null };
+      body_ast = { ast_type: "Value", type: NullType, loc_id: get_location_id(), value: null };
     } else if (statements.length === 1) {
       body_ast = statements[0]!;
     } else {
       body_ast = {
         ast_type: "Block",
         type: statements[statements.length - 1]!.type,
-        location: get_location(),
+        loc_id: get_location_id(),
         statements: statements,
       };
     }
@@ -440,7 +445,7 @@ export function asyncFunction(input_types: EastType[], output_type: EastType | u
     const ast = {
       ast_type: "AsyncFunction" as const,
       type: AsyncFunctionType(input_types, ret_type),
-      location: get_location(),
+      loc_id: get_location_id(),
       parameters: parameters,
       body: body_ast,
     };
@@ -456,14 +461,14 @@ export function asyncFunction(input_types: EastType[], output_type: EastType | u
 
     let body_ast: AST;
     if (statements.length === 0) {
-      body_ast = { ast_type: "Value", type: NullType, location: get_location(), value: null };
+      body_ast = { ast_type: "Value", type: NullType, loc_id: get_location_id(), value: null };
     } else if (statements.length === 1) {
       body_ast = statements[0]!;
     } else {
       body_ast = {
         ast_type: "Block",
         type: statements[statements.length - 1]!.type,
-        location: get_location(),
+        loc_id: get_location_id(),
         statements: statements,
       };
     }
@@ -475,13 +480,16 @@ export function asyncFunction(input_types: EastType[], output_type: EastType | u
     const ast = {
       ast_type: "AsyncFunction" as const,
       type: AsyncFunctionType(input_types, output_type),
-      location: get_location(),
+      loc_id: get_location_id(),
       parameters: parameters,
       body: body_ast,
     };
 
-    return fromAst(ast);
+    const expr = fromAst(ast);
+    Object.defineProperty(expr, SourceMapSymbol, { enumerable: false, value: get_current_source_map() });
+    return expr;
   }
+  }); // ensure_source_map
 }
 
 /** Template string literal to create an East string dynamically from components
@@ -492,14 +500,14 @@ export function asyncFunction(input_types: EastType[], output_type: EastType | u
  * ```
 */
 export function str(strings: TemplateStringsArray, ...expressions: (Expr | string)[]): StringExpr {
-  const location = get_location();
+  const loc_id = get_location_id();
 
   // For simple strings, e.g: str`abc`
   if (strings.length === 1) {
     return fromAst({
       ast_type: "Value",
       type: StringType,
-      location,
+      loc_id,
       value: strings[0]!,
     }) as StringExpr;
   }
@@ -512,7 +520,7 @@ export function str(strings: TemplateStringsArray, ...expressions: (Expr | strin
       ret = {
         ast_type: "Value",
         type: StringType,
-        location,
+        loc_id,
         value: expressions[0],
       };
     } else if (isTypeEqual(Expr.type(expressions[0]!), StringType)) {
@@ -521,7 +529,7 @@ export function str(strings: TemplateStringsArray, ...expressions: (Expr | strin
       ret = {
         ast_type: "Builtin",
         type: StringType,
-        location,
+        loc_id,
         builtin: "Print",
         type_parameters: [Expr.type(expressions[0]!)],
         arguments: [Expr.ast(expressions[0]!)],
@@ -532,12 +540,12 @@ export function str(strings: TemplateStringsArray, ...expressions: (Expr | strin
       ret = {
         ast_type: "Builtin",
         type: StringType,
-        location: ret.location,
+        loc_id: ret.loc_id,
         builtin: "StringConcat",
         type_parameters: [],
         arguments: [ret, {
           ast_type: "Value",
-          location: ret.location,
+          loc_id: ret.loc_id,
           type: StringType,
           value: strings[1]!,
         }]
@@ -550,13 +558,13 @@ export function str(strings: TemplateStringsArray, ...expressions: (Expr | strin
         ret = {
           ast_type: "Builtin",
           type: StringType,
-          location: ret.location,
+          loc_id: ret.loc_id,
           builtin: "StringConcat",
           type_parameters: [],
           arguments: [ret, {
             ast_type: "Value",
             type: StringType,
-            location,
+            loc_id,
             value: expr,
           }]
         };
@@ -564,7 +572,7 @@ export function str(strings: TemplateStringsArray, ...expressions: (Expr | strin
         ret = {
           ast_type: "Builtin",
           type: StringType,
-          location: ret.location,
+          loc_id: ret.loc_id,
           builtin: "StringConcat",
           type_parameters: [],
           arguments: [ret, Expr.ast(expr)]
@@ -573,30 +581,30 @@ export function str(strings: TemplateStringsArray, ...expressions: (Expr | strin
         ret = {
           ast_type: "Builtin",
           type: StringType,
-          location: ret.location,
+          loc_id: ret.loc_id,
           builtin: "StringConcat",
           type_parameters: [],
           arguments: [ret, {
             ast_type: "Builtin",
             type: StringType,
-            location: ret.location,
+            loc_id: ret.loc_id,
             builtin: "Print",
             type_parameters: [Expr.type(expr)],
             arguments: [Expr.ast(expr)],
           }]
         };
       }
-  
+
       if (strings[i]!.length > 0) {
         ret = {
           ast_type: "Builtin",
           type: StringType,
-          location: ret.location,
+          loc_id: ret.loc_id,
           builtin: "StringConcat",
           type_parameters: [],
           arguments: [ret, {
             ast_type: "Value",
-            location: ret.location,
+            loc_id: ret.loc_id,
             type: StringType,
             value: strings[i]!,
           }]
@@ -609,7 +617,7 @@ export function str(strings: TemplateStringsArray, ...expressions: (Expr | strin
     let ret: AST = {
       ast_type: "Value",
       type: StringType,
-      location: get_location(),
+      loc_id: get_location_id(),
       value: strings[0]!,
     };
   
@@ -619,13 +627,13 @@ export function str(strings: TemplateStringsArray, ...expressions: (Expr | strin
         ret = {
           ast_type: "Builtin",
           type: StringType,
-          location: ret.location,
+          loc_id: ret.loc_id,
           builtin: "StringConcat",
           type_parameters: [],
           arguments: [ret, {
             ast_type: "Value",
             type: StringType,
-            location,
+            loc_id,
             value: expr,
           }]
         };
@@ -633,7 +641,7 @@ export function str(strings: TemplateStringsArray, ...expressions: (Expr | strin
         ret = {
           ast_type: "Builtin",
           type: StringType,
-          location: ret.location,
+          loc_id: ret.loc_id,
           builtin: "StringConcat",
           type_parameters: [],
           arguments: [ret, Expr.ast(expr)]
@@ -642,37 +650,37 @@ export function str(strings: TemplateStringsArray, ...expressions: (Expr | strin
         ret = {
           ast_type: "Builtin",
           type: StringType,
-          location: ret.location,
+          loc_id: ret.loc_id,
           builtin: "StringConcat",
           type_parameters: [],
           arguments: [ret, {
             ast_type: "Builtin",
             type: StringType,
-            location: ret.location,
+            loc_id: ret.loc_id,
             builtin: "Print",
             type_parameters: [Expr.type(expr)],
             arguments: [Expr.ast(expr)],
           }]
         };
       }
-  
+
       if (strings[i]!.length > 0) {
         ret = {
           ast_type: "Builtin",
           type: StringType,
-          location: ret.location,
+          loc_id: ret.loc_id,
           builtin: "StringConcat",
           type_parameters: [],
           arguments: [ret, {
             ast_type: "Value",
-            location: ret.location,
+            loc_id: ret.loc_id,
             type: StringType,
             value: strings[i]!,
           }]
         };
       }
     }
-  
+
     return fromAst(ret) as StringExpr;
   }
 }
@@ -709,7 +717,7 @@ export function block<F extends ($: BlockBuilder<NeverType>) => any>(body: F): R
   if (statements.length === 0) {
     return fromAst({
       ast_type: "Value",
-      location: get_location(),
+      loc_id: get_location_id(),
       type: ret_type,
       value: null,
     }) as any;
@@ -718,7 +726,7 @@ export function block<F extends ($: BlockBuilder<NeverType>) => any>(body: F): R
   } else {
     return fromAst({
       ast_type: "Block",
-      location: get_location(),
+      loc_id: get_location_id(),
       type: ret_type,
       statements: statements,
     }) as any;
@@ -728,13 +736,13 @@ export function block<F extends ($: BlockBuilder<NeverType>) => any>(body: F): R
 /**
  * Create an East error expression
  */
-export function error(message: SubtypeExprOrValue<StringType>, location: Location[] = get_location()): NeverExpr {
+export function error(message: SubtypeExprOrValue<StringType>, loc_id: bigint = get_location_id()): NeverExpr {
   const messageAst = message instanceof Expr ? Expr.ast(message as Expr<StringType>) : valueOrExprToAstTyped(message, StringType);
   return fromAst({
     ast_type: "Error",
     type: NeverType,
     message: messageAst,
-    location,
+    loc_id,
   }) as NeverExpr;
 }
 
@@ -753,7 +761,7 @@ export function matchExpr<Cases extends Record<string, any>, Handlers extends { 
     const data_variable: VariableAST = {
       ast_type: "Variable",
       type: t,
-      location: get_location(),
+      loc_id: get_location_id(),
       mutable: false,
     };
 
@@ -769,7 +777,7 @@ export function matchExpr<Cases extends Record<string, any>, Handlers extends { 
   return fromAst({
     ast_type: "Match",
     type: out_type,
-    location: get_location(),
+    loc_id: get_location_id(),
     variant: Expr.ast(variant),
     cases: cases_out,
   }) as any;
@@ -785,14 +793,14 @@ export function tryCatch<T1, F extends ($: BlockBuilder<NeverType>, message: Exp
   const message_variable = {
     ast_type: "Variable" as const,
     type: StringType,
-    location: get_location(),
+    loc_id: get_location_id(),
     mutable: false,
   };
 
   const stack_variable = {
     ast_type: "Variable" as const,
     type: ArrayType(StructType({ filename: StringType, line: IntegerType, column: IntegerType })),
-    location: get_location(),
+    loc_id: get_location_id(),
     mutable: false,
   };
 
@@ -808,7 +816,7 @@ export function tryCatch<T1, F extends ($: BlockBuilder<NeverType>, message: Exp
   return fromAst({
     ast_type: "TryCatch",
     type: ret_type,
-    location: get_location(),
+    loc_id: get_location_id(),
     try_body: Expr.ast(try_body),
     catch_body: catch_body_ast,
     message: message_variable,
@@ -822,7 +830,7 @@ export function equal<T>(left: Expr<T>, right: SubtypeExprOrValue<NoInfer<T>>): 
   return fromAst({
     ast_type: "Builtin",
     type: BooleanType,
-    location: get_location(),
+    loc_id: get_location_id(),
     builtin: "Equal",
     type_parameters: [Expr.type(left) as EastType],
     arguments: [Expr.ast(left), rightAst],
@@ -835,7 +843,7 @@ export function notEqual<T>(left: Expr<T>, right: SubtypeExprOrValue<NoInfer<T>>
   return fromAst({
     ast_type: "Builtin",
     type: BooleanType,
-    location: get_location(),
+    loc_id: get_location_id(),
     builtin: "NotEqual",
     type_parameters: [Expr.type(left) as EastType],
     arguments: [Expr.ast(left), rightAst],
@@ -848,7 +856,7 @@ export function less<T>(left: Expr<T>, right: SubtypeExprOrValue<NoInfer<T>>): B
   return fromAst({
     ast_type: "Builtin",
     type: BooleanType,
-    location: get_location(),
+    loc_id: get_location_id(),
     builtin: "Less",
     type_parameters: [Expr.type(left) as EastType],
     arguments: [Expr.ast(left), rightAst],
@@ -861,7 +869,7 @@ export function lessEqual<T>(left: Expr<T>, right: SubtypeExprOrValue<NoInfer<T>
   return fromAst({
     ast_type: "Builtin",
     type: BooleanType,
-    location: get_location(),
+    loc_id: get_location_id(),
     builtin: "LessEqual",
     type_parameters: [Expr.type(left) as EastType],
     arguments: [Expr.ast(left), rightAst],
@@ -874,7 +882,7 @@ export function greater<T>(left: Expr<T>, right: SubtypeExprOrValue<NoInfer<T>>)
   return fromAst({
     ast_type: "Builtin",
     type: BooleanType,
-    location: get_location(),
+    loc_id: get_location_id(),
     builtin: "Greater",
     type_parameters: [Expr.type(left) as EastType],
     arguments: [Expr.ast(left), rightAst],
@@ -887,7 +895,7 @@ export function greaterEqual<T>(left: Expr<T>, right: SubtypeExprOrValue<NoInfer
   return fromAst({
     ast_type: "Builtin",
     type: BooleanType,
-    location: get_location(),
+    loc_id: get_location_id(),
     builtin: "GreaterEqual",
     type_parameters: [Expr.type(left) as EastType],
     arguments: [Expr.ast(left), rightAst],
@@ -941,7 +949,7 @@ export function is<T>(left: Expr<T>, right: SubtypeExprOrValue<NoInfer<T>>): Boo
   return fromAst({
     ast_type: "Builtin",
     type: BooleanType,
-    location: get_location(),
+    loc_id: get_location_id(),
     builtin: "Is",
     type_parameters: [Expr.type(left) as EastType],
     arguments: [Expr.ast(left), rightAst],
@@ -954,7 +962,7 @@ export function print(value: Expr): StringExpr {
   return fromAst({
     ast_type: "Builtin",
     type: StringType,
-    location: get_location(),
+    loc_id: get_location_id(),
     builtin: "Print",
     type_parameters: [valueAst.type],
     arguments: [valueAst],
@@ -976,7 +984,7 @@ export function diff<T extends EastType>(before: Expr<T>, after: Expr<T>): ExprT
   return fromAst({
     ast_type: "Builtin",
     type: patchType,
-    location: get_location(),
+    loc_id: get_location_id(),
     builtin: "Diff",
     type_parameters: [valueType, patchType],
     arguments: [beforeAst, afterAst],
@@ -994,7 +1002,7 @@ export function applyPatch<T extends EastType>(value: Expr<T>, patch: Expr<Patch
   return fromAst({
     ast_type: "Builtin",
     type: valueType,
-    location: get_location(),
+    loc_id: get_location_id(),
     builtin: "ApplyPatch",
     type_parameters: [valueType, patchType],
     arguments: [valueAst, patchAst],
@@ -1013,7 +1021,7 @@ export function composePatch<T extends EastType>(first: Expr<PatchTypeOf<T>>, se
   return fromAst({
     ast_type: "Builtin",
     type: patchType,
-    location: get_location(),
+    loc_id: get_location_id(),
     builtin: "ComposePatch",
     type_parameters: [valueType, patchType],
     arguments: [firstAst, secondAst],
@@ -1030,7 +1038,7 @@ export function invertPatch<T extends EastType>(patch: Expr<PatchTypeOf<T>>, typ
   return fromAst({
     ast_type: "Builtin",
     type: patchType,
-    location: get_location(),
+    loc_id: get_location_id(),
     builtin: "InvertPatch",
     type_parameters: [valueType, patchType],
     arguments: [patchAst],
@@ -1123,7 +1131,7 @@ export function platform<const Inputs extends EastType[], Output extends EastTyp
         ast = {
           ast_type: "As",
           type: expectedType,
-          location: get_location(),
+          loc_id: get_location_id(),
           value: ast,
         }
       }
@@ -1134,7 +1142,7 @@ export function platform<const Inputs extends EastType[], Output extends EastTyp
     return fromAst({
       ast_type: "Platform",
       type: output_type,
-      location: get_location(),
+      loc_id: get_location_id(),
       name: name,
       type_parameters: [],
       arguments: argAsts,
@@ -1235,7 +1243,7 @@ export function asyncPlatform<const Inputs extends EastType[], Output extends Ea
         ast = {
           ast_type: "As",
           type: expectedType,
-          location: get_location(),
+          loc_id: get_location_id(),
           value: ast,
         }
       }
@@ -1246,7 +1254,7 @@ export function asyncPlatform<const Inputs extends EastType[], Output extends Ea
     return fromAst({
       ast_type: "Platform",
       type: output_type,
-      location: get_location(),
+      loc_id: get_location_id(),
       name: name,
       type_parameters: [],
       arguments: argAsts,
@@ -1520,7 +1528,7 @@ export function genericPlatform<
         ast = {
           ast_type: "As",
           type: expectedType,
-          location: get_location(),
+          loc_id: get_location_id(),
           value: ast,
         }
       }
@@ -1532,7 +1540,7 @@ export function genericPlatform<
     return fromAst({
       ast_type: "Platform",
       type: outputType,
-      location: get_location(),
+      loc_id: get_location_id(),
       name: name,
       type_parameters: type_args,
       arguments: argAsts,
@@ -1716,7 +1724,7 @@ export function asyncGenericPlatform<
         ast = {
           ast_type: "As",
           type: expectedType,
-          location: get_location(),
+          loc_id: get_location_id(),
           value: ast,
         }
       }
@@ -1728,7 +1736,7 @@ export function asyncGenericPlatform<
     return fromAst({
       ast_type: "Platform",
       type: outputType,
-      location: get_location(),
+      loc_id: get_location_id(),
       name: name,
       type_parameters: type_args,
       arguments: argAsts,
@@ -1818,7 +1826,7 @@ export type BlockBuilder<Ret> = ((expr: Expr) => void) & {
     & (<K>(array: SetExpr<K>, body: ($: BlockBuilder<Ret>, key: ExprType<K>, label: Label) => void) => void)
     & (<K, T>(array: DictExpr<K, T>, body: ($: BlockBuilder<Ret>, value: ExprType<T>, key: ExprType<K>, label: Label) => void) => void)
   /** Throw an error immediately with a given error message. */
-  error: (message: StringExpr | string, location?: Location[]) => NeverExpr,
+  error: (message: StringExpr | string, loc_id?: bigint) => NeverExpr,
   /** Run some code and catch any errors that occur. */
   try: (try_block: ($: BlockBuilder<Ret>) => (void | Expr)) => TryCatchExpr<Ret>,
 }
@@ -1859,14 +1867,14 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
     const variable: VariableAST = {
       ast_type: "Variable",
       type: type ?? ast.type,
-      location: get_location(),
+      loc_id: get_location_id(),
       mutable: false,
     };
 
     statements.push({
       ast_type: "Let",
       type: NullType,
-      location: get_location(),
+      loc_id: get_location_id(),
       variable,
       value: ast,
     });
@@ -1892,14 +1900,14 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
     const variable: VariableAST = {
       ast_type: "Variable",
       type: type ?? ast.type,
-      location: get_location(),
+      loc_id: get_location_id(),
       mutable: true,
     };
 
     statements.push({
       ast_type: "Let",
       type: NullType,
-      location: get_location(),
+      loc_id: get_location_id(),
       variable,
       value: ast,
     });
@@ -1924,7 +1932,7 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
     }
 
     if (!v.mutable) {
-      throw new Error(`Cannot assign to variable defined at ${printLocations(v.location)} defined as const`);
+      throw new Error(`Cannot assign to variable defined at loc_id ${v.loc_id} defined as const`);
     }
 
     const ast_value = value instanceof Expr ? Expr.ast(value) : valueOrExprToAstTyped(value, v.type);
@@ -1932,7 +1940,7 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
     const ast: AST = {
       ast_type: "Assign",
       type: NullType,
-      location: get_location(),
+      loc_id: get_location_id(),
       variable: v,
       value: ast_value,
     }
@@ -1964,7 +1972,7 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
     const ast = {
       ast_type: "Return" as const,
       type: NeverType,
-      location: get_location(),
+      loc_id: get_location_id(),
       value: expAst
     };
     statements.push(ast);
@@ -1980,7 +1988,7 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
     const ast = {
       ast_type: "Break" as const,
       type: NeverType,
-      location: get_location(),
+      loc_id: get_location_id(),
       label,
     };
     
@@ -1997,7 +2005,7 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
     const ast = {
       ast_type: "Continue" as const,
       type: NeverType,
-      location: get_location(),
+      loc_id: get_location_id(),
       label,
     };
     statements.push(ast);
@@ -2028,29 +2036,29 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
 
     let true_ast: AST;
     if (true_stmts.length === 0) {
-      true_ast = { ast_type: "Value", type: NullType, location: get_location(), value: null };
+      true_ast = { ast_type: "Value", type: NullType, loc_id: get_location_id(), value: null };
     } else if (true_stmts.length === 1 && isSubtype(true_stmts[0]!.type, NullType)) {
       true_ast = true_stmts[0]!;
     } else {
       if (!isSubtype(true_stmts[true_stmts.length - 1]!.type, NullType)) {
-        true_stmts.push({ ast_type: "Value", type: NullType, location: get_location(), value: null });
+        true_stmts.push({ ast_type: "Value", type: NullType, loc_id: get_location_id(), value: null });
       }
       true_ast = {
         ast_type: "Block",
         type: true_stmts[true_stmts.length - 1]!.type,
-        location: get_location(),
+        loc_id: get_location_id(),
         statements: true_stmts,
       }
     }
     const if_else_ast: AST = {
       ast_type: "IfElse",
       type: NullType,
-      location: get_location(),
+      loc_id: get_location_id(),
       ifs: [{
         predicate: Expr.ast(predicate),
         body: true_ast,
       }],
-      else_body: { ast_type: "Value", type: NullType, location: get_location(), value: null },
+      else_body: { ast_type: "Value", type: NullType, loc_id: get_location_id(), value: null },
     };
 
     statements.push(if_else_ast);
@@ -2076,13 +2084,13 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
       const data_variable: VariableAST = {
         ast_type: "Variable",
         type: t,
-        location: get_location(),
+        loc_id: get_location_id(),
         mutable: false,
       };
 
 
       if (f === undefined) {
-        cases_out[k] = { variable: data_variable, body: { ast_type: "Value", type: NullType, location: get_location(), value: null } };
+        cases_out[k] = { variable: data_variable, body: { ast_type: "Value", type: NullType, loc_id: get_location_id(), value: null } };
       } else {
         const data = fromAst(data_variable) as ExprType<Cases[string]>;
 
@@ -2098,17 +2106,17 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
 
         let expr: AST;
         if (stmts.length === 0) {
-          expr = { ast_type: "Value", type: NullType, location: get_location(), value: null };
+          expr = { ast_type: "Value", type: NullType, loc_id: get_location_id(), value: null };
         } else if (stmts.length === 1 && isSubtype(stmts[0]!.type, NullType)) {
           expr = stmts[0]!;
         } else {
           if (!isSubtype(stmts[stmts.length - 1]!.type, NullType)) {
-            stmts.push({ ast_type: "Value", type: NullType, location: get_location(), value: null });
+            stmts.push({ ast_type: "Value", type: NullType, loc_id: get_location_id(), value: null });
           }
           expr = {
             ast_type: "Block",
             type: stmts[stmts.length - 1]!.type,
-            location: get_location(),
+            loc_id: get_location_id(),
             statements: stmts,
           }
         }
@@ -2122,7 +2130,7 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
     const ast = {
       ast_type: "Match" as const,
       type: out_type,
-      location: get_location(),
+      loc_id: get_location_id(),
       variant: Expr.ast(variant),
       cases: cases_out,
     }
@@ -2145,7 +2153,7 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
       throw new Error(`while predicate expected to have type Boolean, got ${printType(predicateAst.type)}`);
     }
 
-    const label = { location: get_location() };
+    const label = { loc_id: get_location_id() };
 
     const $_body = BlockBuilder<Ret>(return_type);
     const ret = body($_body, label);
@@ -2159,17 +2167,17 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
 
     let expr: AST;
     if (stmts.length === 0) {
-      expr = { ast_type: "Value", type: NullType, location: get_location(), value: null };
+      expr = { ast_type: "Value", type: NullType, loc_id: get_location_id(), value: null };
     } else if (stmts.length === 1 && isSubtype(stmts[0]!.type, NullType)) {
       expr = stmts[0]!;
     } else {
       if (!isSubtype(stmts[stmts.length - 1]!.type, NullType)) {
-        stmts.push({ ast_type: "Value", type: NullType, location: get_location(), value: null });
+        stmts.push({ ast_type: "Value", type: NullType, loc_id: get_location_id(), value: null });
       }
       expr = {
         ast_type: "Block",
         type: stmts[stmts.length - 1]!.type,
-        location: get_location(),
+        loc_id: get_location_id(),
         statements: stmts,
       }
     }
@@ -2181,7 +2189,7 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
     const ast = {
       ast_type: "While" as const,
       type: NullType,
-      location: get_location(),
+      loc_id: get_location_id(),
       predicate: predicateAst,
       label,
       body: expr,
@@ -2200,7 +2208,7 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
       const value_variable: VariableAST = {
         ast_type: "Variable",
         type: Expr.type(collection).value as EastType,
-        location: get_location(),
+        loc_id: get_location_id(),
         mutable: false,
       };
       const value = fromAst(value_variable);
@@ -2208,12 +2216,12 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
       const key_variable: VariableAST = {
         ast_type: "Variable",
         type: IntegerType,
-        location: get_location(),
+        loc_id: get_location_id(),
         mutable: false,
       };
       const key = fromAst(key_variable) as IntegerExpr;
 
-      const label = { location: get_location() };
+      const label = { loc_id: get_location_id() };
 
       const $ = BlockBuilder<Ret>(return_type);
       const ret = body($, value, key, label);
@@ -2227,17 +2235,17 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
 
       let expr: AST;
       if (stmts.length === 0) {
-        expr = { ast_type: "Value", type: NullType, location: get_location(), value: null };
+        expr = { ast_type: "Value", type: NullType, loc_id: get_location_id(), value: null };
       } else if (stmts.length === 1 && isSubtype(stmts[0]!.type, NullType)) {
         expr = stmts[0]!;
       } else {
         if (!isSubtype(stmts[stmts.length - 1]!.type, NullType)) {
-          stmts.push({ ast_type: "Value", type: NullType, location: get_location(), value: null });
+          stmts.push({ ast_type: "Value", type: NullType, loc_id: get_location_id(), value: null });
         }
         expr = {
           ast_type: "Block",
           type: stmts[stmts.length - 1]!.type,
-          location: get_location(),
+          loc_id: get_location_id(),
           statements: stmts,
         }
       }
@@ -2245,7 +2253,7 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
       const ast = {
         ast_type: "ForArray" as const,
         type: NullType,
-        location: get_location(),
+        loc_id: get_location_id(),
         label,
         array: Expr.ast(collection),
         key: key_variable,
@@ -2260,12 +2268,12 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
       const key_variable: VariableAST = {
         ast_type: "Variable",
         type: Expr.type(collection).key as EastType,
-        location: get_location(),
+        loc_id: get_location_id(),
         mutable: false,
       };
       const key = fromAst(key_variable) as IntegerExpr;
 
-      const label = { location: get_location() };
+      const label = { loc_id: get_location_id() };
 
       const $ = BlockBuilder<Ret>(return_type);
       const ret = body($, key, label);
@@ -2279,17 +2287,17 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
 
       let expr: AST;
       if (stmts.length === 0) {
-        expr = { ast_type: "Value", type: NullType, location: get_location(), value: null };
+        expr = { ast_type: "Value", type: NullType, loc_id: get_location_id(), value: null };
       } else if (stmts.length === 1 && isSubtype(stmts[0]!.type, NullType)) {
         expr = stmts[0]!;
       } else {
         if (!isSubtype(stmts[stmts.length - 1]!.type, NullType)) {
-          stmts.push({ ast_type: "Value", type: NullType, location: get_location(), value: null });
+          stmts.push({ ast_type: "Value", type: NullType, loc_id: get_location_id(), value: null });
         }
         expr = {
           ast_type: "Block",
           type: stmts[stmts.length - 1]!.type,
-          location: get_location(),
+          loc_id: get_location_id(),
           statements: stmts,
         }
       }
@@ -2297,7 +2305,7 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
       const ast = {
         ast_type: "ForSet" as const,
         type: NullType,
-        location: get_location(),
+        loc_id: get_location_id(),
         label,
         set: Expr.ast(collection),
         key: key_variable,
@@ -2311,7 +2319,7 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
       const value_variable: VariableAST = {
         ast_type: "Variable",
         type: Expr.type(collection).value as EastType,
-        location: get_location(),
+        loc_id: get_location_id(),
         mutable: false,
       };
       const value = fromAst(value_variable);
@@ -2319,12 +2327,12 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
       const key_variable: VariableAST = {
         ast_type: "Variable",
         type: Expr.type(collection).key as EastType,
-        location: get_location(),
+        loc_id: get_location_id(),
         mutable: false,
       };
       const key = fromAst(key_variable) as IntegerExpr;
 
-      const label = { location: get_location() };
+      const label = { loc_id: get_location_id() };
 
       const $ = BlockBuilder<Ret>(return_type);
       const ret = body($, value, key, label);
@@ -2338,17 +2346,17 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
 
       let expr: AST;
       if (stmts.length === 0) {
-        expr = { ast_type: "Value", type: NullType, location: get_location(), value: null };
+        expr = { ast_type: "Value", type: NullType, loc_id: get_location_id(), value: null };
       } else if (stmts.length === 1 && isSubtype(stmts[0]!.type, NullType)) {
         expr = stmts[0]!;
       } else {
         if (!isSubtype(stmts[stmts.length - 1]!.type, NullType)) {
-          stmts.push({ ast_type: "Value", type: NullType, location: get_location(), value: null });
+          stmts.push({ ast_type: "Value", type: NullType, loc_id: get_location_id(), value: null });
         }
         expr = {
           ast_type: "Block",
           type: stmts[stmts.length - 1]!.type,
-          location: get_location(),
+          loc_id: get_location_id(),
           statements: stmts,
         }
       }
@@ -2356,7 +2364,7 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
       const ast = {
         ast_type: "ForDict" as const,
         type: NullType,
-        location: get_location(),
+        loc_id: get_location_id(),
         label,
         dict: Expr.ast(collection),
         key: key_variable,
@@ -2372,20 +2380,20 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
     }
   }) as any;
 
-  $.error = (message: StringExpr | string, location?: Location[]): NeverExpr => {
+  $.error = (message: StringExpr | string, loc_id?: bigint): NeverExpr => {
     if (isTypeEqual($.type(), NeverType)) {
       throw new Error(`Unreachable statement detected at ${printLocations(get_location())}`);
     }
 
-    if (location === undefined) {
-      location = get_location();
+    if (loc_id === undefined) {
+      loc_id = get_location_id();
     }
 
     const ast = {
       ast_type: "Error" as const,
       type: NeverType,
       message: message instanceof Expr ? Expr.ast(message) : valueOrExprToAstTyped(message, StringType),
-      location,
+      loc_id,
     }
 
     statements.push(ast);
@@ -2409,7 +2417,7 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
     }
 
     if (try_stmts.length === 0 || !isSubtype(try_stmts[try_stmts.length - 1]!.type, NullType)) {
-      try_stmts.push({ ast_type: "Value", type: NullType, location: get_location(), value: null });
+      try_stmts.push({ ast_type: "Value", type: NullType, loc_id: get_location_id(), value: null });
     }
 
     let try_expr: AST;
@@ -2419,7 +2427,7 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
       try_expr = {
         ast_type: "Block",
         type: try_stmts[try_stmts.length - 1]!.type,
-        location: get_location(),
+        loc_id: get_location_id(),
         statements: try_stmts,
       }
     }
@@ -2428,23 +2436,23 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
     const message_variable: VariableAST = {
       ast_type: "Variable",
       type: StringType,
-      location: get_location(),
+      loc_id: get_location_id(),
       mutable: false,
     };
 
     const stack_variable: VariableAST = {
       ast_type: "Variable",
       type: ArrayType(StructType({ filename: StringType, line: IntegerType, column: IntegerType })),
-      location: get_location(),
+      loc_id: get_location_id(),
       mutable: false,
     };
 
     const try_catch_ast: TryCatchAST = {
       ast_type: "TryCatch",
       type: NullType,
-      location: get_location(),
+      loc_id: get_location_id(),
       try_body: try_expr,
-      catch_body: { ast_type: "Value", type: NullType, location: get_location(), value: null }, // will be updated later
+      catch_body: { ast_type: "Value", type: NullType, loc_id: get_location_id(), value: null }, // will be updated later
       message: message_variable,
       stack: stack_variable,
     };
@@ -2480,13 +2488,13 @@ class IfElseExpr<Ret> extends NullExpr {
     }
 
     if (stmts.length === 0 || !isSubtype(stmts[stmts.length - 1]!.type, NullType)) {
-      stmts.push({ ast_type: "Value", type: NullType, location: get_location(), value: null });
+      stmts.push({ ast_type: "Value", type: NullType, loc_id: get_location_id(), value: null });
     }
 
     (this[AstSymbol] as IfElseAST).else_body = stmts.length === 1 ? stmts[0]! : {
       ast_type: "Block",
       type: stmts[stmts.length - 1]!.type,
-      location: get_location(),
+      loc_id: get_location_id(),
       statements: stmts,
     };
 
@@ -2531,7 +2539,7 @@ class IfElseExpr<Ret> extends NullExpr {
     }
 
     if (stmts.length === 0 || !isSubtype(stmts[stmts.length - 1]!.type, NullType)) {
-      stmts.push({ ast_type: "Value", type: NullType, location: get_location(), value: null });
+      stmts.push({ ast_type: "Value", type: NullType, loc_id: get_location_id(), value: null });
     }
 
     (this[AstSymbol] as IfElseAST).ifs.push({
@@ -2539,7 +2547,7 @@ class IfElseExpr<Ret> extends NullExpr {
       body: stmts.length === 1 ? stmts[0]! : {
         ast_type: "Block",
         type: stmts[stmts.length - 1]!.type,
-        location: get_location(),
+        loc_id: get_location_id(),
         statements: stmts,
       },
     })
@@ -2576,13 +2584,13 @@ class TryCatchExpr<Ret> extends NullExpr {
     }
 
     if (stmts.length === 0 || !isSubtype(stmts[stmts.length - 1]!.type, NullType)) {
-      stmts.push({ ast_type: "Value", type: NullType, location: get_location(), value: null });
+      stmts.push({ ast_type: "Value", type: NullType, loc_id: get_location_id(), value: null });
     }
 
     (this[AstSymbol] as TryCatchAST).catch_body = stmts.length === 1 ? stmts[0]! : {
       ast_type: "Block",
       type: stmts[stmts.length - 1]!.type,
-      location: get_location(),
+      loc_id: get_location_id(),
       statements: stmts,
     };
 
@@ -2607,13 +2615,13 @@ class TryCatchExpr<Ret> extends NullExpr {
     }
 
     if (stmts.length === 0 || !isSubtype(stmts[stmts.length - 1]!.type, NullType)) {
-      stmts.push({ ast_type: "Value", type: NullType, location: get_location(), value: null });
+      stmts.push({ ast_type: "Value", type: NullType, loc_id: get_location_id(), value: null });
     }
 
     (this[AstSymbol] as TryCatchAST).finally_body = stmts.length === 1 ? stmts[0]! : {
       ast_type: "Block",
       type: stmts[stmts.length - 1]!.type,
-      location: get_location(),
+      loc_id: get_location_id(),
       statements: stmts,
     };
   }

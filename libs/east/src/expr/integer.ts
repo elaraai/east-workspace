@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import type { AST } from "../ast.js";
-import { get_location } from "../location.js";
+import { get_location_id } from "../location.js";
 import { FloatType, IntegerType, isTypeEqual } from "../types.js";
 import { AstSymbol, Expr, FactorySymbol, type ToExpr } from "./expr.js";
 import { valueOrExprToAst } from "./ast.js";
@@ -62,7 +62,7 @@ export class IntegerExpr extends Expr<IntegerType> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: IntegerType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "IntegerNegate",
       type_parameters: [],
       arguments: [this[AstSymbol]],
@@ -97,7 +97,7 @@ export class IntegerExpr extends Expr<IntegerType> {
       return this[FactorySymbol]({
         ast_type: "Builtin",
         type: FloatType,
-        location: get_location(),
+        loc_id: get_location_id(),
         builtin: "FloatAdd",
         type_parameters: [],
         arguments: [this.toFloat()[AstSymbol], rightAst],
@@ -106,7 +106,7 @@ export class IntegerExpr extends Expr<IntegerType> {
       return this[FactorySymbol]({
         ast_type: "Builtin",
         type: IntegerType,
-        location: get_location(),
+        loc_id: get_location_id(),
         builtin: "IntegerAdd",
         type_parameters: [],
         arguments: [this[AstSymbol], rightAst],
@@ -138,7 +138,7 @@ export class IntegerExpr extends Expr<IntegerType> {
       return this[FactorySymbol]({
         ast_type: "Builtin",
         type: FloatType,
-        location: get_location(),
+        loc_id: get_location_id(),
         builtin: "FloatSubtract",
         type_parameters: [],
         arguments: [this.toFloat()[AstSymbol], rightAst],
@@ -147,7 +147,7 @@ export class IntegerExpr extends Expr<IntegerType> {
       return this[FactorySymbol]({
         ast_type: "Builtin",
         type: IntegerType,
-        location: get_location(),
+        loc_id: get_location_id(),
         builtin: "IntegerSubtract",
         type_parameters: [],
         arguments: [this[AstSymbol], rightAst],
@@ -179,7 +179,7 @@ export class IntegerExpr extends Expr<IntegerType> {
       return this[FactorySymbol]({
         ast_type: "Builtin",
         type: FloatType,
-        location: get_location(),
+        loc_id: get_location_id(),
         builtin: "FloatMultiply",
         type_parameters: [],
         arguments: [this.toFloat()[AstSymbol], rightAst],
@@ -188,7 +188,7 @@ export class IntegerExpr extends Expr<IntegerType> {
       return this[FactorySymbol]({
         ast_type: "Builtin",
         type: IntegerType,
-        location: get_location(),
+        loc_id: get_location_id(),
         builtin: "IntegerMultiply",
         type_parameters: [],
         arguments: [this[AstSymbol], rightAst],
@@ -225,7 +225,7 @@ export class IntegerExpr extends Expr<IntegerType> {
       return this[FactorySymbol]({
         ast_type: "Builtin",
         type: FloatType,
-        location: get_location(),
+        loc_id: get_location_id(),
         builtin: "FloatDivide",
         type_parameters: [],
         arguments: [this.toFloat()[AstSymbol], rightAst],
@@ -234,7 +234,7 @@ export class IntegerExpr extends Expr<IntegerType> {
       return this[FactorySymbol]({
         ast_type: "Builtin",
         type: IntegerType,
-        location: get_location(),
+        loc_id: get_location_id(),
         builtin: "IntegerDivide",
         type_parameters: [],
         arguments: [this[AstSymbol], rightAst],
@@ -271,7 +271,7 @@ export class IntegerExpr extends Expr<IntegerType> {
       return this[FactorySymbol]({
         ast_type: "Builtin",
         type: FloatType,
-        location: get_location(),
+        loc_id: get_location_id(),
         builtin: "FloatRemainder",
         type_parameters: [],
         arguments: [this.toFloat()[AstSymbol], rightAst],
@@ -280,7 +280,7 @@ export class IntegerExpr extends Expr<IntegerType> {
       return this[FactorySymbol]({
         ast_type: "Builtin",
         type: IntegerType,
-        location: get_location(),
+        loc_id: get_location_id(),
         builtin: "IntegerRemainder",
         type_parameters: [],
         arguments: [this[AstSymbol], rightAst],
@@ -317,7 +317,7 @@ export class IntegerExpr extends Expr<IntegerType> {
       return this[FactorySymbol]({
         ast_type: "Builtin",
         type: FloatType,
-        location: get_location(),
+        loc_id: get_location_id(),
         builtin: "FloatPow",
         type_parameters: [],
         arguments: [this.toFloat()[AstSymbol], rightAst],
@@ -326,7 +326,7 @@ export class IntegerExpr extends Expr<IntegerType> {
       return this[FactorySymbol]({
         ast_type: "Builtin",
         type: IntegerType,
-        location: get_location(),
+        loc_id: get_location_id(),
         builtin: "IntegerPow",
         type_parameters: [],
         arguments: [this[AstSymbol], rightAst],
@@ -354,7 +354,7 @@ export class IntegerExpr extends Expr<IntegerType> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: IntegerType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "IntegerAbs",
       type_parameters: [],
       arguments: [this[AstSymbol]],
@@ -381,7 +381,7 @@ export class IntegerExpr extends Expr<IntegerType> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: IntegerType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "IntegerSign",
       type_parameters: [],
       arguments: [this[AstSymbol]],
@@ -413,7 +413,7 @@ export class IntegerExpr extends Expr<IntegerType> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: IntegerType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "IntegerLog",
       type_parameters: [],
       arguments: [this[AstSymbol], baseAst],
@@ -442,7 +442,7 @@ export class IntegerExpr extends Expr<IntegerType> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: FloatType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "IntegerToFloat",
       type_parameters: [],
       arguments: [this[AstSymbol]],

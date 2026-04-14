@@ -108,10 +108,6 @@ export function diffFor(type: EastTypeValue | EastType, ctx: DiffContext = { dif
       return variant("patch", operations);
     };
 
-    // Build array equality using equalFor with current context
-    // This must be pushed BEFORE recursing so children can reference it via .Recursive
-    const arrayEqual = equalFor(t, ctx.equal);
-
     ctx.diff.push(ret);
     ctx.types.push(t);
     is = isFor(t, ctx.equal);
@@ -209,10 +205,6 @@ export function diffFor(type: EastTypeValue | EastType, ctx: DiffContext = { dif
       return variant("patch", operations);
     };
 
-    // Build dict equality using equalFor with current context
-    // This must be pushed BEFORE recursing so children can reference it via .Recursive
-    const dictEqual = equalFor(t, ctx.equal);
-
     ctx.diff.push(ret);
     ctx.types.push(t);
     is = isFor(t, ctx.equal);
@@ -253,10 +245,6 @@ export function diffFor(type: EastTypeValue | EastType, ctx: DiffContext = { dif
       return variant("patch", patchFields);
     };
 
-    // Build struct equality using equalFor with current context
-    // This must be pushed BEFORE recursing so children can reference it via .Recursive
-    const structEqual = equalFor(t, ctx.equal);
-
     ctx.diff.push(ret);
     ctx.types.push(t);
     for (const { name, type: fieldType } of t.value) {
@@ -294,9 +282,6 @@ export function diffFor(type: EastTypeValue | EastType, ctx: DiffContext = { dif
       return variant("patch", variant(caseName, casePatch));
     };
 
-    // Build variant equality using equalFor with current context
-    const variantEqual = equalFor(t, ctx.equal);
-
     ctx.diff.push(ret);
     ctx.types.push(t);
     for (const { name, type: caseType } of t.value) {
@@ -329,10 +314,6 @@ export function diffFor(type: EastTypeValue | EastType, ctx: DiffContext = { dif
 
       return variant("patch", innerPatch);
     };
-
-    // Build ref equality using equalFor with current context
-    // This must be pushed BEFORE recursing so children can reference it via .Recursive
-    const refEqual = equalFor(t, ctx.equal);
 
     ctx.diff.push(ret);
     ctx.types.push(t);

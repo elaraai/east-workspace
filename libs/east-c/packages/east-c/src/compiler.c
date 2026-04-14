@@ -1,10 +1,26 @@
 #include "east/compiler.h"
+#include "east/type_of_type.h"
 #include "east/arena.h"
 #include "east/gc.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* Thread-local source map for loc_id resolution at error time */
+static __thread const EastSourceMap *g_current_source_map = NULL;
+
+/* Lazy IR compilation: convert source_ir EastValue → IRNode body on first use */
+static void east_compile_lazy(EastCompiledFn *fn)
+{
+    if (fn->ir || !fn->source_ir) return;
+    IRNode *ir_node = east_ir_from_value(fn->source_ir);
+    if (ir_node && (ir_node->kind == IR_FUNCTION || ir_node->kind == IR_ASYNC_FUNCTION)) {
+        fn->ir = ir_node->data.function.body;
+        ir_node_retain(fn->ir);
+    }
+    if (ir_node) ir_node_release(ir_node);
+}
 
 /* ------------------------------------------------------------------ */
 /*  Convenience constructors for EvalResult                            */
@@ -34,6 +50,28 @@ EvalResult eval_error(const char *msg)
     };
 }
 
+/* Resolve loc_id and append to an EvalResult's location stack */
+static void eval_result_add_loc_id(EvalResult *r, int64_t loc_id)
+{
+    if (!r || r->status != EVAL_ERROR || loc_id <= 0) return;
+    size_t count = 0;
+    const EastLocation *locs = east_source_map_resolve(g_current_source_map, loc_id, &count);
+    if (!locs || count == 0) return;
+    size_t old = r->num_locations;
+    size_t total = old + count;
+    EastLocation *combined = realloc(r->locations,
+                                      total * sizeof(EastLocation));
+    if (!combined) return;
+    for (size_t i = 0; i < count; i++) {
+        combined[old + i].filename = locs[i].filename
+                                     ? strdup(locs[i].filename) : NULL;
+        combined[old + i].line = locs[i].line;
+        combined[old + i].column = locs[i].column;
+    }
+    r->locations = combined;
+    r->num_locations = total;
+}
+
 /* Create an error result with location from an IR node.
  * Takes ownership of msg (caller must not free). */
 static EvalResult eval_error_at_owned(char *msg, IRNode *node)
@@ -46,33 +84,8 @@ static EvalResult eval_error_at_owned(char *msg, IRNode *node)
         .locations = NULL,
         .num_locations = 0,
     };
-    if (node && node->locations && node->num_locations > 0) {
-        r.locations = east_locations_dup(node->locations,
-                                          node->num_locations);
-        r.num_locations = node->num_locations;
-    }
+    if (node) eval_result_add_loc_id(&r, node->loc_id);
     return r;
-}
-
-/* Extend an error result's location stack with a call site's location */
-static void eval_result_extend_location(EvalResult *r,
-                                         const EastLocation *locs,
-                                         size_t num_locs)
-{
-    if (!r || r->status != EVAL_ERROR || !locs || num_locs == 0) return;
-    size_t old = r->num_locations;
-    size_t total = old + num_locs;
-    EastLocation *combined = realloc(r->locations,
-                                      total * sizeof(EastLocation));
-    if (!combined) return;
-    for (size_t i = 0; i < num_locs; i++) {
-        combined[old + i].filename = locs[i].filename
-                                     ? strdup(locs[i].filename) : NULL;
-        combined[old + i].line = locs[i].line;
-        combined[old + i].column = locs[i].column;
-    }
-    r->locations = combined;
-    r->num_locations = total;
 }
 
 void eval_result_free(EvalResult *result)
@@ -87,7 +100,9 @@ void eval_result_free(EvalResult *result)
         result->error_message = NULL;
     }
     if (result->locations) {
-        east_locations_free(result->locations, result->num_locations);
+        for (size_t i = 0; i < result->num_locations; i++)
+            free(result->locations[i].filename);
+        free(result->locations);
         result->locations = NULL;
         result->num_locations = 0;
     }
@@ -160,7 +175,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
                                      platform, builtins);
         if (val_res.status != EVAL_OK) return val_res;
 
-        env_update(env, node->data.assign.name, val_res.value);
+        env_update(env, node->data.assign.var.name, val_res.value);
         east_value_release(val_res.value);
         return eval_ok(east_null());
     }
@@ -220,8 +235,8 @@ EvalResult eval_ir(IRNode *node, Environment *env,
             IRMatchCase *mc = &node->data.match.cases[i];
             if (strcmp(mc->case_name, case_name) == 0) {
                 Environment *match_env = env_new(env);
-                if (mc->bind_name && inner) {
-                    env_set(match_env, mc->bind_name, inner);
+                if (mc->bind.name && inner) {
+                    env_set(match_env, mc->bind.name, inner);
                 }
                 EvalResult body_res = eval_ir(mc->body, match_env,
                                               platform, builtins);
@@ -237,7 +252,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
 
     /* ----- IR_WHILE ------------------------------------------------ */
     case IR_WHILE: {
-        const char *loop_label = node->data.while_.label;
+        const char *loop_label = node->data.while_.label.name;
 
         for (;;) {
             EvalResult cond_res = eval_ir(node->data.while_.cond, env,
@@ -287,7 +302,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
         }
 
         size_t len = east_array_len(arr);
-        const char *loop_label = node->data.for_array.label;
+        const char *loop_label = node->data.for_array.label.name;
         bool should_break = false;
 
         arr->iter_lock++;
@@ -296,11 +311,11 @@ EvalResult eval_ir(IRNode *node, Environment *env,
 
             EastValue *elem = east_array_get(arr, i);
             /* env_set retains internally, no extra retain needed */
-            env_set(iter_env, node->data.for_array.var_name, elem);
+            env_set(iter_env, node->data.for_array.var.name, elem);
 
-            if (node->data.for_array.index_name) {
+            if (node->data.for_array.index_var.name) {
                 EastValue *idx = east_integer((int64_t)i);
-                env_set(iter_env, node->data.for_array.index_name, idx);
+                env_set(iter_env, node->data.for_array.index_var.name, idx);
                 east_value_release(idx);
             }
 
@@ -354,7 +369,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
         }
 
         size_t len = east_set_len(set);
-        const char *loop_label = node->data.for_set.label;
+        const char *loop_label = node->data.for_set.label.name;
         bool should_break = false;
 
         set->iter_lock++;
@@ -363,7 +378,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
 
             EastValue *elem = set->data.set.items[i];
             /* env_set retains internally, no extra retain needed */
-            env_set(iter_env, node->data.for_set.var_name, elem);
+            env_set(iter_env, node->data.for_set.var.name, elem);
 
             EvalResult body_res = eval_ir(node->data.for_set.body,
                                           iter_env, platform, builtins);
@@ -415,7 +430,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
         }
 
         size_t len = east_dict_len(dict);
-        const char *loop_label = node->data.for_dict.label;
+        const char *loop_label = node->data.for_dict.label.name;
         bool should_break = false;
 
         dict->iter_lock++;
@@ -425,8 +440,8 @@ EvalResult eval_ir(IRNode *node, Environment *env,
             EastValue *key = dict->data.dict.keys[i];
             EastValue *val = dict->data.dict.values[i];
             /* env_set retains internally, no extra retain needed */
-            env_set(iter_env, node->data.for_dict.key_name, key);
-            env_set(iter_env, node->data.for_dict.val_name, val);
+            env_set(iter_env, node->data.for_dict.key.name, key);
+            env_set(iter_env, node->data.for_dict.val.name, val);
 
             EvalResult body_res = eval_ir(node->data.for_dict.body,
                                           iter_env, platform, builtins);
@@ -503,8 +518,6 @@ EvalResult eval_ir(IRNode *node, Environment *env,
         /* Store source IR for serialization */
         fn->source_ir = node->data.function.source_ir;
         if (fn->source_ir) east_value_retain(fn->source_ir);
-        fn->source_ir_node = node;
-        ir_node_retain(node);
 
         /* Store function type (not owned — points to IR node's type) */
         fn->fn_type = node->type;
@@ -527,6 +540,13 @@ EvalResult eval_ir(IRNode *node, Environment *env,
         }
 
         EastCompiledFn *cfn = func_val->data.function.compiled;
+
+        /* Lazy IR conversion for beast2-decoded functions */
+        if (!cfn->ir && cfn->source_ir) east_compile_lazy(cfn);
+        if (!cfn->ir) {
+            east_value_release(func_val);
+            return eval_error("function has no IR body");
+        }
 
         /* Evaluate arguments */
         size_t nargs = node->data.call.num_args;
@@ -578,9 +598,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
 
         /* Extend error location stack with call site */
         if (body_res.status == EVAL_ERROR) {
-            eval_result_extend_location(&body_res,
-                                         node->locations,
-                                         node->num_locations);
+            eval_result_add_loc_id(&body_res, node->loc_id);
         }
 
         return body_res;
@@ -648,9 +666,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
         free(args);
 
         if (result.status != EVAL_OK) {
-            eval_result_extend_location(&result,
-                                         node->locations,
-                                         node->num_locations);
+            eval_result_add_loc_id(&result, node->loc_id);
             return result;
         }
         if (!result.value) result.value = east_null();
@@ -732,8 +748,8 @@ EvalResult eval_ir(IRNode *node, Environment *env,
         return (EvalResult){
             .status = EVAL_BREAK,
             .value = NULL,
-            .label = node->data.loop_ctrl.label
-                     ? strdup(node->data.loop_ctrl.label) : NULL,
+            .label = node->data.loop_ctrl.label.name
+                     ? strdup(node->data.loop_ctrl.label.name) : NULL,
             .error_message = NULL,
         };
     }
@@ -743,8 +759,8 @@ EvalResult eval_ir(IRNode *node, Environment *env,
         return (EvalResult){
             .status = EVAL_CONTINUE,
             .value = NULL,
-            .label = node->data.loop_ctrl.label
-                     ? strdup(node->data.loop_ctrl.label) : NULL,
+            .label = node->data.loop_ctrl.label.name
+                     ? strdup(node->data.loop_ctrl.label.name) : NULL,
             .error_message = NULL,
         };
     }
@@ -776,18 +792,18 @@ EvalResult eval_ir(IRNode *node, Environment *env,
             Environment *catch_env = env_new(env);
 
             /* Bind the error message as a string value */
-            if (node->data.try_catch.message_var &&
-                node->data.try_catch.message_var[0]) {
+            if (node->data.try_catch.message_var.name &&
+                node->data.try_catch.message_var.name[0]) {
                 EastValue *err_val = east_string(
                     try_res.error_message ? try_res.error_message : "");
-                env_set(catch_env, node->data.try_catch.message_var,
+                env_set(catch_env, node->data.try_catch.message_var.name,
                         err_val);
                 east_value_release(err_val);
             }
 
             /* Bind the location stack as an array of structs */
-            if (node->data.try_catch.stack_var &&
-                node->data.try_catch.stack_var[0]) {
+            if (node->data.try_catch.stack_var.name &&
+                node->data.try_catch.stack_var.name[0]) {
                 EastType *loc_struct_type = east_struct_type(
                     (const char *[]){"column", "filename", "line"},
                     (EastType *[]){&east_integer_type, &east_string_type,
@@ -812,7 +828,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
                         east_value_release(vals[j]);
                 }
 
-                env_set(catch_env, node->data.try_catch.stack_var,
+                env_set(catch_env, node->data.try_catch.stack_var.name,
                         stack_arr);
                 east_value_release(stack_arr);
                 east_type_release(loc_arr_type);
@@ -1167,16 +1183,26 @@ void east_set_thread_context(PlatformRegistry *p, BuiltinRegistry *b) {
     current_builtins = b;
 }
 
+void east_set_source_map(const EastSourceMap *sm) {
+    g_current_source_map = sm;
+}
+
 EvalResult east_call(EastCompiledFn *fn, EastValue **args,
                      size_t num_args)
 {
     if (!fn) return eval_error("null function");
 
-    /* Save and set current platform/builtins for nested access */
+    /* Lazy IR conversion: beast2-decoded functions defer convert_ir to first call */
+    if (!fn->ir && fn->source_ir) east_compile_lazy(fn);
+    if (!fn->ir) return eval_error("function has no IR body");
+
+    /* Save and set current platform/builtins/source_map for nested access */
     PlatformRegistry *saved_platform = current_platform;
     BuiltinRegistry *saved_builtins = current_builtins;
+    const EastSourceMap *saved_source_map = g_current_source_map;
     current_platform = fn->platform;
     current_builtins = fn->builtins;
+    if (fn->source_map) g_current_source_map = fn->source_map;
 
     east_call_depth++;
 
@@ -1209,9 +1235,10 @@ EvalResult east_call(EastCompiledFn *fn, EastValue **args,
         east_gc_collect();
     }
 
-    /* Restore saved platform/builtins */
+    /* Restore saved platform/builtins/source_map */
     current_platform = saved_platform;
     current_builtins = saved_builtins;
+    g_current_source_map = saved_source_map;
 
     return result;
 }
@@ -1241,11 +1268,6 @@ void east_compiled_fn_free(EastCompiledFn *fn)
     if (fn->source_ir) {
         east_value_release(fn->source_ir);
         fn->source_ir = NULL;
-    }
-
-    if (fn->source_ir_node) {
-        ir_node_release(fn->source_ir_node);
-        fn->source_ir_node = NULL;
     }
 
     east_free(fn);

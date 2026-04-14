@@ -4,7 +4,6 @@
  */
 import { type BuiltinName } from "./builtins.js";
 import type { EastType, NeverType, NullType } from "./types.js";
-import type { Location } from "./location.js";
 
 // This is the TypeScript-native, typed AST (abstract syntax tree) for East.
 // At this stage variable resolution has not been completed and nodes may need to be compared by object identity to understand the code.
@@ -16,7 +15,7 @@ import type { Location } from "./location.js";
 export type ErrorAST = {
   ast_type: "Error",
   type: NeverType,
-  location: Location[],
+  loc_id: bigint,
   message: AST,
 }
 
@@ -24,7 +23,7 @@ export type ErrorAST = {
 export type TryCatchAST = {
   ast_type: "TryCatch",
   type: EastType,
-  location: Location[],
+  loc_id: bigint,
   try_body: AST,
   catch_body: AST,
   message: VariableAST,
@@ -36,7 +35,7 @@ export type TryCatchAST = {
 export type ValueAST = {
   ast_type: "Value",
   type: EastType,
-  location: Location[],
+  loc_id: bigint,
   value: null | boolean | bigint | number | string | Date | Uint8Array,
 };
 
@@ -44,7 +43,7 @@ export type ValueAST = {
 export type AsAST = {
   ast_type: "As",
   type: EastType,
-  location: Location[],
+  loc_id: bigint,
   value: AST,
 };
 
@@ -52,7 +51,7 @@ export type AsAST = {
 export type VariableAST = {
   ast_type: "Variable",
   type: EastType,
-  location: Location[],
+  loc_id: bigint,
   mutable: boolean,
 };
 
@@ -60,7 +59,7 @@ export type VariableAST = {
 export type LetAST = {
   ast_type: "Let",
   type: EastType,
-  location: Location[],
+  loc_id: bigint,
   variable: VariableAST,
   value: AST,
 };
@@ -69,7 +68,7 @@ export type LetAST = {
 export type AssignAST = {
   ast_type: "Assign",
   type: EastType,
-  location: Location[],
+  loc_id: bigint,
   variable: VariableAST,
   value: AST,
 };
@@ -78,7 +77,7 @@ export type AssignAST = {
 export type FunctionAST = {
   ast_type: "Function",
   type: EastType,
-  location: Location[],
+  loc_id: bigint,
   parameters: VariableAST[],
   body: AST,
 };
@@ -87,7 +86,7 @@ export type FunctionAST = {
 export type AsyncFunctionAST = {
   ast_type: "AsyncFunction",
   type: EastType,
-  location: Location[],
+  loc_id: bigint,
   parameters: VariableAST[],
   body: AST,
 };
@@ -97,7 +96,7 @@ export type AsyncFunctionAST = {
 export type CallAST = {
   ast_type: "Call",
   type: EastType,
-  location: Location[],
+  loc_id: bigint,
   function: AST,
   arguments: AST[],
 };
@@ -106,7 +105,7 @@ export type CallAST = {
 export type CallAsyncAST = {
   ast_type: "CallAsync",
   type: EastType,
-  location: Location[],
+  loc_id: bigint,
   function: AST,
   arguments: AST[],
 };
@@ -115,7 +114,7 @@ export type CallAsyncAST = {
 export type NewRefAST = {
   ast_type: "NewRef",
   type: EastType,
-  location: Location[],
+  loc_id: bigint,
   value: AST,
 };
 
@@ -123,7 +122,7 @@ export type NewRefAST = {
 export type NewArrayAST = {
   ast_type: "NewArray",
   type: EastType,
-  location: Location[],
+  loc_id: bigint,
   values: AST[],
 };
 
@@ -131,7 +130,7 @@ export type NewArrayAST = {
 export type NewSetAST = {
   ast_type: "NewSet",
   type: EastType,
-  location: Location[],
+  loc_id: bigint,
   values: AST[],
 };
 
@@ -139,7 +138,7 @@ export type NewSetAST = {
 export type NewDictAST = {
   ast_type: "NewDict",
   type: EastType,
-  location: Location[],
+  loc_id: bigint,
   values: [AST, AST][],
 };
 
@@ -147,7 +146,7 @@ export type NewDictAST = {
 export type StructAST = {
   ast_type: "Struct",
   type: EastType,
-  location: Location[],
+  loc_id: bigint,
   fields: Record<string, AST>,
 };
 
@@ -155,7 +154,7 @@ export type StructAST = {
 export type GetFieldAST = {
   ast_type: "GetField",
   type: EastType,
-  location: Location[],
+  loc_id: bigint,
   field: string,
   struct: AST,
 };
@@ -164,7 +163,7 @@ export type GetFieldAST = {
 export type VariantAST = {
   ast_type: "Variant",
   type: EastType,
-  location: Location[],
+  loc_id: bigint,
   case: string,
   value: AST,
 };
@@ -173,7 +172,7 @@ export type VariantAST = {
 export type BlockAST = {
   ast_type: "Block",
   type: EastType,
-  location: Location[],
+  loc_id: bigint,
   statements: AST[],
 }
 
@@ -181,7 +180,7 @@ export type BlockAST = {
 export type IfElseAST = {
   ast_type: "IfElse",
   type: EastType,
-  location: Location[],
+  loc_id: bigint,
   ifs: {
     predicate: AST,
     body: AST,
@@ -193,7 +192,7 @@ export type IfElseAST = {
 export type MatchAST = {
   ast_type: "Match",
   type: EastType,
-  location: Location[],
+  loc_id: bigint,
   variant: AST,
   cases: Record<string, { variable: VariableAST, body: AST }>,
 };
@@ -201,7 +200,7 @@ export type MatchAST = {
 export type UnwrapRecursiveAST = {
   ast_type: "UnwrapRecursive",
   type: EastType,
-  location: Location[],
+  loc_id: bigint,
   value: AST,
 };
 
@@ -209,20 +208,20 @@ export type UnwrapRecursiveAST = {
 export type WrapRecursiveAST = {
   ast_type: "WrapRecursive",
   type: EastType,
-  location: Location[],
+  loc_id: bigint,
   value: AST,
 };
 
 /** @internal */
 export type Label = {
-  location: Location[],
+  loc_id: bigint,
 }
 
 /** @internal */
 export type WhileAST = {
   ast_type: "While",
   type: NullType,
-  location: Location[],
+  loc_id: bigint,
   predicate: AST,
   label: Label,
   body: AST,
@@ -232,7 +231,7 @@ export type WhileAST = {
 export type ForArrayAST = {
   ast_type: "ForArray",
   type: NullType,
-  location: Location[],
+  loc_id: bigint,
   array: AST,
   label: Label,
   key: VariableAST,
@@ -244,7 +243,7 @@ export type ForArrayAST = {
 export type ForSetAST = {
   ast_type: "ForSet",
   type: NullType,
-  location: Location[],
+  loc_id: bigint,
   set: AST,
   label: Label,
   key: VariableAST,
@@ -255,7 +254,7 @@ export type ForSetAST = {
 export type ForDictAST = {
   ast_type: "ForDict",
   type: NullType,
-  location: Location[],
+  loc_id: bigint,
   dict: AST,
   label: Label,
   key: VariableAST,
@@ -267,7 +266,7 @@ export type ForDictAST = {
 export type ReturnAST = {
   ast_type: "Return",
   type: NeverType,
-  location: Location[],
+  loc_id: bigint,
   value: AST,
 };
 
@@ -275,7 +274,7 @@ export type ReturnAST = {
 export type ContinueAST = {
   ast_type: "Continue",
   type: NeverType,
-  location: Location[],
+  loc_id: bigint,
   label: Label,
 };
 
@@ -283,7 +282,7 @@ export type ContinueAST = {
 export type BreakAST = {
   ast_type: "Break",
   type: NeverType,
-  location: Location[],
+  loc_id: bigint,
   label: Label,
 };
 
@@ -291,7 +290,7 @@ export type BreakAST = {
 export type BuiltinAST = {
   ast_type: "Builtin",
   type: EastType,
-  location: Location[],
+  loc_id: bigint,
   builtin: BuiltinName,
   type_parameters: EastType[],
   arguments: AST[],
@@ -301,7 +300,7 @@ export type BuiltinAST = {
 export type PlatformAST = {
   ast_type: "Platform",
   type: EastType,
-  location: Location[],
+  loc_id: bigint,
   name: string,
   type_parameters: EastType[],
   arguments: AST[],
@@ -315,7 +314,7 @@ export type PlatformAST = {
 export type NewVectorAST = {
   ast_type: "NewVector",
   type: EastType,
-  location: Location[],
+  loc_id: bigint,
   values: AST[],
 };
 
@@ -323,7 +322,7 @@ export type NewVectorAST = {
 export type NewMatrixAST = {
   ast_type: "NewMatrix",
   type: EastType,
-  location: Location[],
+  loc_id: bigint,
   values: AST[],
   rows: number,
   cols: number,

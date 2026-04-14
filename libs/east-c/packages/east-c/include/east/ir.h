@@ -52,15 +52,27 @@ typedef enum {
 
 typedef struct IRNode IRNode;
 
+/* A Variable sub-node as it appears in the IR wire format:
+ *   StructType({ type, loc_id, name, mutable, captured })
+ *
+ * `loc_id` is an index into the source map (0 = no location). Resolution
+ * to filename/line/col happens lazily at error-printing time. */
 typedef struct {
     char *name;
     bool mutable;
     bool captured;
+    int64_t loc_id;
 } IRVariable;
+
+/* A Label sub-node: { name: String, loc_id: Integer } */
+typedef struct {
+    char *name;
+    int64_t loc_id;
+} IRLabel;
 
 typedef struct {
     char *case_name;
-    char *bind_name;
+    IRVariable bind;           /* case binding variable (name + location) */
     IRNode *body;
 } IRMatchCase;
 
@@ -68,8 +80,7 @@ struct IRNode {
     IRNodeKind kind;
     int ref_count;
     EastType *type;
-    EastLocation *locations;     // Source location stack (array, owned)
-    size_t num_locations;
+    int64_t loc_id;              // Index into source map (0 = no location)
     union {
         // IR_VALUE
         struct { EastValue *value; } value;
@@ -81,7 +92,7 @@ struct IRNode {
         struct { IRVariable var; IRNode *value; } let;
 
         // IR_ASSIGN
-        struct { char *name; IRNode *value; } assign;
+        struct { IRVariable var; IRNode *value; } assign;
 
         // IR_BLOCK
         struct { IRNode **stmts; size_t num_stmts; } block;
@@ -97,32 +108,32 @@ struct IRNode {
         } match;
 
         // IR_WHILE
-        struct { IRNode *cond; IRNode *body; char *label; } while_;
+        struct { IRNode *cond; IRNode *body; IRLabel label; } while_;
 
         // IR_FOR_ARRAY
         struct {
-            char *var_name;
-            char *index_name;  // may be NULL
+            IRVariable var;        /* loop variable */
+            IRVariable index_var;  /* index variable — name may be empty */
             IRNode *array;
             IRNode *body;
-            char *label;
+            IRLabel label;
         } for_array;
 
         // IR_FOR_SET
         struct {
-            char *var_name;
+            IRVariable var;        /* loop variable */
             IRNode *set;
             IRNode *body;
-            char *label;
+            IRLabel label;
         } for_set;
 
         // IR_FOR_DICT
         struct {
-            char *key_name;
-            char *val_name;
+            IRVariable key;        /* key variable */
+            IRVariable val;        /* value variable */
             IRNode *dict;
             IRNode *body;
-            char *label;
+            IRLabel label;
         } for_dict;
 
         // IR_FUNCTION, IR_ASYNC_FUNCTION
@@ -167,7 +178,7 @@ struct IRNode {
         struct { IRNode *value; } return_;
 
         // IR_BREAK, IR_CONTINUE
-        struct { char *label; } loop_ctrl;
+        struct { IRLabel label; } loop_ctrl;
 
         // IR_ERROR
         struct { IRNode *message; } error;
@@ -175,10 +186,10 @@ struct IRNode {
         // IR_TRY_CATCH
         struct {
             IRNode *try_body;
-            char *message_var;    // variable name for error message (string)
-            char *stack_var;      // variable name for location stack (array of structs)
+            IRVariable message_var;  /* bound message string variable */
+            IRVariable stack_var;    /* bound stack array variable */
             IRNode *catch_body;
-            IRNode *finally_body; // may be NULL if no finally block
+            IRNode *finally_body;    /* may be NULL if no finally block */
         } try_catch;
 
         // IR_NEW_ARRAY, IR_NEW_SET
@@ -273,10 +284,5 @@ IRNode *ir_unwrap_recursive(EastType *type, IRNode *value);
 // Ref counting
 void ir_node_retain(IRNode *node);
 void ir_node_release(IRNode *node);
-
-// Location management
-void ir_node_set_location(IRNode *node, const EastLocation *locs, size_t num_locs);
-EastLocation *east_locations_dup(const EastLocation *src, size_t count);
-void east_locations_free(EastLocation *locs, size_t count);
 
 #endif

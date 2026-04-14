@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import type { AST } from "../ast.js";
-import { get_location } from "../location.js";
+import { get_location_id } from "../location.js";
 import { BooleanType, NeverType, TypeUnion } from "../types.js";
 import { AstSymbol, Expr, FactorySymbol, type ToExpr } from "./expr.js";
 import type { ExprType, TypeOf } from "./types.js";
@@ -61,7 +61,7 @@ export class BooleanExpr extends Expr<BooleanType> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: BooleanType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "BooleanNot",
       type_parameters: [],
       arguments: [this[AstSymbol]],
@@ -150,7 +150,7 @@ export class BooleanExpr extends Expr<BooleanType> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: BooleanType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "BooleanOr",
       type_parameters: [],
       arguments: [this[AstSymbol], yAst],
@@ -185,7 +185,7 @@ export class BooleanExpr extends Expr<BooleanType> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: BooleanType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "BooleanAnd",
       type_parameters: [],
       arguments: [this[AstSymbol], yAst],
@@ -219,7 +219,7 @@ export class BooleanExpr extends Expr<BooleanType> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: BooleanType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "BooleanXor",
       type_parameters: [],
       arguments: [this[AstSymbol], yAst],
@@ -266,7 +266,7 @@ export class BooleanExpr extends Expr<BooleanType> {
     return this[FactorySymbol]({
       ast_type: "IfElse",
       type,
-      location: get_location(),
+      loc_id: get_location_id(),
       ifs: [{
         predicate: this[AstSymbol],
         body: true_expr[AstSymbol],

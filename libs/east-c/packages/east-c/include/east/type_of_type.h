@@ -38,12 +38,22 @@ EastValue *east_type_to_value(EastType *type);
 // Convert decoded IRType variant value -> IRNode*
 IRNode *east_ir_from_value(EastValue *value);
 
-// Convert decoded IRType variant value -> IRNode*, using a pre-built type table
-// for O(1) type resolution (avoids expensive east_type_from_value per node).
-// type_values[i] and types[i] must correspond (same type, value vs pointer form).
-IRNode *east_ir_from_value_with_types(EastValue *value,
-                                      EastValue **type_values,
-                                      EastType **types,
-                                      size_t type_count);
+// Source map: array of location stacks for loc_id → location resolution.
+typedef struct EastSourceMap {
+    EastLocation **stacks;   // stacks[i] = array of EastLocation frames
+    size_t *stack_counts;    // stack_counts[i] = number of frames in stack i
+    size_t num_stacks;       // total number of stacks (including sentinel 0)
+} EastSourceMap;
+
+// Free a source map's contents (stacks, stack_counts, filenames).
+void east_source_map_free(EastSourceMap *sm);
+
+// Resolve a loc_id to EastLocation using a source map.
+// Returns the location stack and count. Does NOT allocate — pointers
+// into the source map are returned directly. Returns NULL if loc_id
+// is 0 or out of range.
+const EastLocation *east_source_map_resolve(const EastSourceMap *sm,
+                                             int64_t loc_id,
+                                             size_t *out_count);
 
 #endif

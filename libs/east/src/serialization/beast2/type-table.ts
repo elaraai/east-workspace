@@ -13,11 +13,11 @@
  * See devdocs/BEAST2.md for the format specification.
  */
 
-import { toEastTypeValue, type EastTypeValue, EastTypeValueType } from "../type_of_type.js";
-import type { EastType } from "../types.js";
-import { getTypeId } from "../types.js";
-import { isVariant, variant } from "../containers/variant.js";
-import { BufferWriter, BufferReader } from "./binary-utils.js";
+import { toEastTypeValue, type EastTypeValue } from "../../type_of_type.js";
+import type { EastType } from "../../types.js";
+import { getTypeId } from "../../types.js";
+import { isVariant, variant } from "../../containers/variant.js";
+import { BufferWriter, BufferReader } from "../binary-utils.js";
 
 // =============================================================================
 // Tag bytes (frequency-ordered, used as direct array indices)
@@ -79,6 +79,8 @@ export class TypeTableBuilder {
   private readonly etvMap = new Map<any, number>();
   /** type_id → table index (for cross-object lookup when identity fails) */
   private readonly tidMap = new Map<number, number>();
+  /** Recursive wrapper source ID (bigint) → table index */
+  private readonly recIdMap = new Map<bigint, number>();
 
   /** Get the type_id → index map (for IR type substitution). */
   getIndexMap(): Map<number, number> {
@@ -92,6 +94,7 @@ export class TypeTableBuilder {
     for (const [k, v] of this.etMap) c.etMap.set(k, v);
     for (const [k, v] of this.etvMap) c.etvMap.set(k, v);
     for (const [k, v] of this.tidMap) c.tidMap.set(k, v);
+    for (const [k, v] of this.recIdMap) c.recIdMap.set(k, v);
     return c;
   }
 
@@ -108,7 +111,7 @@ export class TypeTableBuilder {
     return this.visitETV(etv);
   }
 
-  /** Look up an EastTypeValue's table index by identity or type_id. */
+  /** Look up an EastTypeValue's table index by identity, type_id, or recursive ref ID. */
   indexOf(etv: EastTypeValue): number {
     const idx = this.etvMap.get(etv);
     if (idx !== undefined) return idx;
@@ -117,14 +120,25 @@ export class TypeTableBuilder {
       const tidIdx = this.tidMap.get(tid);
       if (tidIdx !== undefined) return tidIdx;
     }
+    // Recursive ref: look up by the ref's bigint ID
+    if ((etv as any).type === "Recursive" && (etv as any).value?.type === "ref") {
+      const refId = (etv as any).value.value as bigint;
+      const recIdx = this.recIdMap.get(refId);
+      if (recIdx !== undefined) return recIdx;
+    }
     throw new Error(`Type not in table: ${(etv as any).type}`);
   }
 
-  /** Check if an EastTypeValue is in the table (by identity or type_id). */
+  /** Check if an EastTypeValue is in the table (by identity, type_id, or recursive ref ID). */
   has(etv: EastTypeValue): boolean {
     if (this.etvMap.has(etv)) return true;
     const tid = getTypeId(etv);
-    return tid !== undefined && this.tidMap.has(tid);
+    if (tid !== undefined && this.tidMap.has(tid)) return true;
+    // Recursive ref: check by bigint ID
+    if ((etv as any).type === "Recursive" && (etv as any).value?.type === "ref") {
+      return this.recIdMap.has((etv as any).value.value as bigint);
+    }
+    return false;
   }
 
   // ── EastType walker (handles Recursive wrappers) ────────────────────
@@ -141,7 +155,10 @@ export class TypeTableBuilder {
       this.etMap.set(type, idx);
       // Register type_id so ETV path can find this entry via tidMap
       const recTid = getTypeId(type);
-      if (recTid !== undefined) this.tidMap.set(recTid, idx);
+      if (recTid !== undefined) {
+        this.tidMap.set(recTid, idx);
+        this.recIdMap.set(BigInt(recTid), idx);
+      }
       const innerIdx = this.visitET(t.node);
       this.entries[idx] = { tag: TAG_RECURSIVE, params: varint(innerIdx) };
       return idx;
@@ -218,15 +235,20 @@ export class TypeTableBuilder {
       const inner = etv.value as any;
       if (inner.type === "wrapper") {
         // Recursive wrapper: allocate first, recurse into inner, fill.
-        // Same ordering as visitET — wrapper gets a lower index than inner.
         const idx = this.allocate();
-        this.entries[idx] = { tag: TAG_RECURSIVE, params: EMPTY }; // Mark tag early so ref scan finds it
+        this.entries[idx] = { tag: TAG_RECURSIVE, params: EMPTY };
         this.registerETV(etv, idx);
+        // Register wrapper's bigint ID so refs can find it
+        const wrapperId = inner.value.id as bigint;
+        this.recIdMap.set(wrapperId, idx);
         const innerIdx = this.visitETV(inner.value.inner as EastTypeValue);
-        this.entries[idx] = { tag: TAG_RECURSIVE, params: varint(innerIdx) }; // Fill real params
+        this.entries[idx] = { tag: TAG_RECURSIVE, params: varint(innerIdx) };
         return idx;
       }
-      // Self-reference Recursive(ref(depth)) — find existing wrapper.
+      // Self-reference Recursive(ref) — find existing wrapper by ID or type_id.
+      const refId = (etv.value as any).value as bigint;
+      const recIdx = this.recIdMap.get(refId);
+      if (recIdx !== undefined) return recIdx;
       const tid = getTypeId(etv);
       if (tid !== undefined) {
         const tidIdx = this.tidMap.get(tid);
@@ -565,7 +587,7 @@ const PRIMITIVE_ETV: EastTypeValue[] = [
  * self-references use depth-based Recursive(N) — compatible with
  * _decodeCursorFor's typeCtx stack mechanism.
  */
-function reconstructTypes(parsed: ParsedEntry[], rootIdx: number): EastTypeValue[] {
+function reconstructTypes(parsed: ParsedEntry[], _rootIdx: number): EastTypeValue[] {
   const table = new Array<EastTypeValue>(parsed.length);
   // Track which indices are Recursive wrappers and their inner indices
   const recursiveEntries = new Map<number, number>(); // wrapper_idx → inner_idx

@@ -437,7 +437,16 @@ TypeTableResult read_type_table_section(const uint8_t *data, size_t len, size_t 
         }
     }
 
-    /* Fixup: set inner type for Recursive wrappers */
+    /* Fixup: set inner type for Recursive wrappers.
+     *
+     * This may call east_recursive_type_intern which, on the second+ decode
+     * in the same process, returns a canonical Recursive pointer DIFFERENT
+     * from the freshly-allocated wrapper. In that case the compound types
+     * built in the second pass still hold the stale wrapper pointer via
+     * their internal data.function.output / data.struct_.fields[i].type
+     * etc. We track which indices had their Recursive replaced so we can
+     * rebuild stale compounds in pass 4. */
+    bool any_rec_replaced = false;
     for (size_t i = 0; i < (size_t)entry_count; i++) {
         if (parsed[i].tag == BEAST2_TAG_RECURSIVE) {
             size_t inner_idx = parsed[i].child_indices[0];
@@ -455,7 +464,109 @@ TypeTableResult read_type_table_section(const uint8_t *data, size_t len, size_t 
              * The extra retain balances the table's release. */
             east_type_retain(types[inner_idx]);
             east_recursive_type_finalize(types[i]);
-            types[i] = east_recursive_type_intern(types[i]);
+            EastType *interned = east_recursive_type_intern(types[i]);
+            if (interned != types[i]) {
+                /* Intern returned a pre-existing canonical — the wrapper we
+                 * built is now orphaned, but compound types built in pass 2
+                 * still reference it. Release our original and retain the
+                 * canonical. Pass 4 will rebuild the stale compounds. */
+                east_type_retain(interned);
+                east_type_release(types[i]);
+                types[i] = interned;
+                any_rec_replaced = true;
+            }
+        }
+    }
+
+    /* Pass 4: canonicalization.
+     *
+     * If pass 3 replaced any Recursive wrapper with a canonical pointer from
+     * a previous decode, compound types built in pass 2 still internally
+     * reference the stale wrapper. Rebuild them in forward index order so
+     * each compound's children (at lower indices, already rebuilt this pass,
+     * or Recursive wrappers already canonical after pass 3) are canonical.
+     *
+     * The TS encoder's flat_tt DFS guarantees children appear at lower
+     * indices than their parents (except Recursive wrappers, which are
+     * allocated in pass 1 and canonical after pass 3), so a single forward
+     * pass is sufficient. */
+    if (any_rec_replaced) {
+        for (size_t i = 0; i < (size_t)entry_count; i++) {
+            uint8_t tag = parsed[i].tag;
+            if (tag == BEAST2_TAG_RECURSIVE || tag <= BEAST2_TAG_NEVER)
+                continue;  /* primitives and recursives are canonical */
+
+            EastType *old = types[i];
+            EastType *rebuilt = NULL;
+
+            if (tag == BEAST2_TAG_ARRAY) {
+                rebuilt = east_array_type(types[parsed[i].child_indices[0]]);
+            } else if (tag == BEAST2_TAG_SET) {
+                rebuilt = east_set_type(types[parsed[i].child_indices[0]]);
+            } else if (tag == BEAST2_TAG_REF) {
+                rebuilt = east_ref_type(types[parsed[i].child_indices[0]]);
+            } else if (tag == BEAST2_TAG_VECTOR) {
+                rebuilt = east_vector_type(types[parsed[i].child_indices[0]]);
+            } else if (tag == BEAST2_TAG_MATRIX) {
+                rebuilt = east_matrix_type(types[parsed[i].child_indices[0]]);
+            } else if (tag == BEAST2_TAG_DICT) {
+                rebuilt = east_dict_type(types[parsed[i].child_indices[0]],
+                                          types[parsed[i].child_indices[1]]);
+            } else if (tag == BEAST2_TAG_STRUCT) {
+                size_t nf = parsed[i].num_children;
+                const char **names = malloc(nf * sizeof(char*));
+                EastType **field_types = malloc(nf * sizeof(EastType*));
+                for (size_t j = 0; j < nf; j++) {
+                    names[j] = parsed[i].names[j];
+                    field_types[j] = types[parsed[i].child_indices[j]];
+                }
+                rebuilt = east_struct_type(names, field_types, nf);
+                free(names);
+                free(field_types);
+            } else if (tag == BEAST2_TAG_VARIANT) {
+                size_t nc = parsed[i].num_children;
+                const char **names = malloc(nc * sizeof(char*));
+                EastType **case_types = malloc(nc * sizeof(EastType*));
+                for (size_t j = 0; j < nc; j++) {
+                    names[j] = parsed[i].names[j];
+                    case_types[j] = types[parsed[i].child_indices[j]];
+                }
+                rebuilt = east_variant_type(names, case_types, nc);
+                free(names);
+                free(case_types);
+            } else if (tag == BEAST2_TAG_FUNCTION) {
+                size_t ni = parsed[i].num_children - 1;
+                EastType **inputs = malloc(ni * sizeof(EastType*));
+                for (size_t j = 0; j < ni; j++) {
+                    inputs[j] = types[parsed[i].child_indices[j]];
+                    east_type_retain(inputs[j]);
+                }
+                EastType *output = types[parsed[i].child_indices[ni]];
+                east_type_retain(output);
+                rebuilt = east_function_type(inputs, ni, output);
+                free(inputs);
+            } else if (tag == BEAST2_TAG_ASYNC_FN) {
+                size_t ni = parsed[i].num_children - 1;
+                EastType **inputs = malloc(ni * sizeof(EastType*));
+                for (size_t j = 0; j < ni; j++) {
+                    inputs[j] = types[parsed[i].child_indices[j]];
+                    east_type_retain(inputs[j]);
+                }
+                EastType *output = types[parsed[i].child_indices[ni]];
+                east_type_retain(output);
+                rebuilt = east_async_function_type(inputs, ni, output);
+                free(inputs);
+            }
+
+            if (rebuilt && rebuilt != old) {
+                east_type_release(old);
+                types[i] = rebuilt;
+            } else if (rebuilt) {
+                /* rebuilt == old: the constructor returned the existing
+                 * pointer (already canonical). Constructors retain on
+                 * success, so release the extra retain. */
+                east_type_release(rebuilt);
+            }
         }
     }
 

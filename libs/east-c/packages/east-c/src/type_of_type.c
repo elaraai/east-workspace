@@ -25,14 +25,9 @@
 
 /* Common IR struct fields */
 #define IR_TYPE      0   /* EastTypeType */
-#define IR_LOCATION  1   /* [Location] */
+#define IR_LOC_ID    1   /* Integer (source map index) */
 
-/* Location struct: { filename, line, column } */
-#define LOC_FILENAME 0
-#define LOC_LINE     1
-#define LOC_COLUMN   2
-
-/* IRLabel struct: { name, location } */
+/* IRLabel struct: { name, loc_id } */
 #define LABEL_NAME   0
 
 /* Struct/Variant field entry in EastTypeType: { name, type } */
@@ -60,7 +55,7 @@
 #define FN_INPUTS  0
 #define FN_OUTPUT  1
 
-/* Variable struct: { type, location, name, mutable, captured } */
+/* Variable struct: { type, loc_id, name, mutable, captured } */
 #define VAR_NAME      2
 #define VAR_MUTABLE   3
 #define VAR_CAPTURED  4
@@ -273,18 +268,11 @@ void east_type_of_type_init(void)
          * Field order must match TypeScript declaration order exactly,
          * because beast2 encodes struct fields positionally. */
 
-        /* LocationType: { filename, line, column } */
-        EastType *loc_struct = make_struct3(
-            "filename", &east_string_type,
-            "line", &east_integer_type,
-            "column", &east_integer_type
-        );
-        EastType *loc_arr = east_array_type(loc_struct);
         EastType *ir_arr = east_array_type(ir);
         EastType *tt_arr = east_array_type(tt);
 
-        /* IRLabelType: { name, location } */
-        EastType *ir_label = make_struct2("name", &east_string_type, "location", loc_arr);
+        /* IRLabelType: { name, loc_id } */
+        EastType *ir_label = make_struct2("name", &east_string_type, "loc_id", &east_integer_type);
 
         /* Dict entry: { key, value } */
         EastType *kv_struct = make_struct2("key", ir, "value", ir);
@@ -316,41 +304,43 @@ void east_type_of_type_init(void)
         #define S7(n1,t1,n2,t2,n3,t3,n4,t4,n5,t5,n6,t6,n7,t7) \
             east_struct_type((const char*[]){n1,n2,n3,n4,n5,n6,n7}, (EastType*[]){t1,t2,t3,t4,t5,t6,t7}, 7)
 
-        /* All field orderings must match TypeScript declaration order exactly. */
-        EastType *c_error         = make_struct3("type",tt, "location",loc_arr, "message",ir);
-        EastType *c_try_catch     = S7("type",tt, "location",loc_arr, "try_body",ir, "catch_body",ir, "message",ir, "stack",ir, "finally_body",ir);
-        EastType *c_value         = make_struct3("type",tt, "location",loc_arr, "value",lv);
-        EastType *c_variable      = S5("type",tt, "location",loc_arr, "name",&east_string_type, "mutable",&east_boolean_type, "captured",&east_boolean_type);
-        EastType *c_let           = S4("type",tt, "location",loc_arr, "variable",ir, "value",ir);
-        EastType *c_assign        = S4("type",tt, "location",loc_arr, "variable",ir, "value",ir);
-        EastType *c_as            = make_struct3("type",tt, "location",loc_arr, "value",ir);
-        EastType *c_function      = S5("type",tt, "location",loc_arr, "captures",ir_arr, "parameters",ir_arr, "body",ir);
+        /* All field orderings must match TypeScript declaration order exactly.
+         * v4: location → loc_id (Integer, index into source map). */
+        EastType *li = &east_integer_type;  /* loc_id type shorthand */
+        EastType *c_error         = make_struct3("type",tt, "loc_id",li, "message",ir);
+        EastType *c_try_catch     = S7("type",tt, "loc_id",li, "try_body",ir, "catch_body",ir, "message",ir, "stack",ir, "finally_body",ir);
+        EastType *c_value         = make_struct3("type",tt, "loc_id",li, "value",lv);
+        EastType *c_variable      = S5("type",tt, "loc_id",li, "name",&east_string_type, "mutable",&east_boolean_type, "captured",&east_boolean_type);
+        EastType *c_let           = S4("type",tt, "loc_id",li, "variable",ir, "value",ir);
+        EastType *c_assign        = S4("type",tt, "loc_id",li, "variable",ir, "value",ir);
+        EastType *c_as            = make_struct3("type",tt, "loc_id",li, "value",ir);
+        EastType *c_function      = S5("type",tt, "loc_id",li, "captures",ir_arr, "parameters",ir_arr, "body",ir);
         EastType *c_async_fn      = c_function; east_type_retain(c_async_fn);
-        EastType *c_call          = S4("type",tt, "location",loc_arr, "function",ir, "arguments",ir_arr);
+        EastType *c_call          = S4("type",tt, "loc_id",li, "function",ir, "arguments",ir_arr);
         EastType *c_call_async    = c_call; east_type_retain(c_call_async);
-        EastType *c_new_ref       = make_struct3("type",tt, "location",loc_arr, "value",ir);
-        EastType *c_new_array     = make_struct3("type",tt, "location",loc_arr, "values",ir_arr);
-        EastType *c_new_set       = make_struct3("type",tt, "location",loc_arr, "values",ir_arr);
-        EastType *c_new_dict      = make_struct3("type",tt, "location",loc_arr, "values",kv_arr);
-        EastType *c_new_vector    = make_struct3("type",tt, "location",loc_arr, "values",ir_arr);
-        EastType *c_new_matrix    = S5("type",tt, "location",loc_arr, "values",ir_arr, "rows",&east_integer_type, "cols",&east_integer_type);
-        EastType *c_struct        = make_struct3("type",tt, "location",loc_arr, "fields",sf_arr);
-        EastType *c_get_field     = S4("type",tt, "location",loc_arr, "field",&east_string_type, "struct",ir);
-        EastType *c_variant       = S4("type",tt, "location",loc_arr, "case",&east_string_type, "value",ir);
-        EastType *c_block         = make_struct3("type",tt, "location",loc_arr, "statements",ir_arr);
-        EastType *c_if_else       = S4("type",tt, "location",loc_arr, "ifs",if_arr, "else_body",ir);
-        EastType *c_match         = S4("type",tt, "location",loc_arr, "variant",ir, "cases",match_arr);
-        EastType *c_unwrap        = make_struct3("type",tt, "location",loc_arr, "value",ir);
-        EastType *c_wrap          = make_struct3("type",tt, "location",loc_arr, "value",ir);
-        EastType *c_while         = S5("type",tt, "location",loc_arr, "predicate",ir, "label",ir_label, "body",ir);
-        EastType *c_for_array     = S7("type",tt, "location",loc_arr, "array",ir, "label",ir_label, "key",ir, "value",ir, "body",ir);
-        EastType *c_for_set       = S6("type",tt, "location",loc_arr, "set",ir, "label",ir_label, "key",ir, "body",ir);
-        EastType *c_for_dict      = S7("type",tt, "location",loc_arr, "dict",ir, "label",ir_label, "key",ir, "value",ir, "body",ir);
-        EastType *c_return        = make_struct3("type",tt, "location",loc_arr, "value",ir);
-        EastType *c_continue      = make_struct3("type",tt, "location",loc_arr, "label",ir_label);
-        EastType *c_break         = make_struct3("type",tt, "location",loc_arr, "label",ir_label);
-        EastType *c_builtin       = S5("type",tt, "location",loc_arr, "builtin",&east_string_type, "type_parameters",tt_arr, "arguments",ir_arr);
-        EastType *c_platform      = S7("type",tt, "location",loc_arr, "name",&east_string_type, "type_parameters",tt_arr, "arguments",ir_arr, "async",&east_boolean_type, "optional",&east_boolean_type);
+        EastType *c_new_ref       = make_struct3("type",tt, "loc_id",li, "value",ir);
+        EastType *c_new_array     = make_struct3("type",tt, "loc_id",li, "values",ir_arr);
+        EastType *c_new_set       = make_struct3("type",tt, "loc_id",li, "values",ir_arr);
+        EastType *c_new_dict      = make_struct3("type",tt, "loc_id",li, "values",kv_arr);
+        EastType *c_new_vector    = make_struct3("type",tt, "loc_id",li, "values",ir_arr);
+        EastType *c_new_matrix    = S5("type",tt, "loc_id",li, "values",ir_arr, "rows",&east_integer_type, "cols",&east_integer_type);
+        EastType *c_struct        = make_struct3("type",tt, "loc_id",li, "fields",sf_arr);
+        EastType *c_get_field     = S4("type",tt, "loc_id",li, "field",&east_string_type, "struct",ir);
+        EastType *c_variant       = S4("type",tt, "loc_id",li, "case",&east_string_type, "value",ir);
+        EastType *c_block         = make_struct3("type",tt, "loc_id",li, "statements",ir_arr);
+        EastType *c_if_else       = S4("type",tt, "loc_id",li, "ifs",if_arr, "else_body",ir);
+        EastType *c_match         = S4("type",tt, "loc_id",li, "variant",ir, "cases",match_arr);
+        EastType *c_unwrap        = make_struct3("type",tt, "loc_id",li, "value",ir);
+        EastType *c_wrap          = make_struct3("type",tt, "loc_id",li, "value",ir);
+        EastType *c_while         = S5("type",tt, "loc_id",li, "predicate",ir, "label",ir_label, "body",ir);
+        EastType *c_for_array     = S7("type",tt, "loc_id",li, "array",ir, "label",ir_label, "key",ir, "value",ir, "body",ir);
+        EastType *c_for_set       = S6("type",tt, "loc_id",li, "set",ir, "label",ir_label, "key",ir, "body",ir);
+        EastType *c_for_dict      = S7("type",tt, "loc_id",li, "dict",ir, "label",ir_label, "key",ir, "value",ir, "body",ir);
+        EastType *c_return        = make_struct3("type",tt, "loc_id",li, "value",ir);
+        EastType *c_continue      = make_struct3("type",tt, "loc_id",li, "label",ir_label);
+        EastType *c_break         = make_struct3("type",tt, "loc_id",li, "label",ir_label);
+        EastType *c_builtin       = S5("type",tt, "loc_id",li, "builtin",&east_string_type, "type_parameters",tt_arr, "arguments",ir_arr);
+        EastType *c_platform      = S7("type",tt, "loc_id",li, "name",&east_string_type, "type_parameters",tt_arr, "arguments",ir_arr, "async",&east_boolean_type, "optional",&east_boolean_type);
 
         /* Case order must match TypeScript declaration order exactly,
          * because beast2 encodes variant case indices numerically. */
@@ -383,8 +373,6 @@ void east_type_of_type_init(void)
         #undef S7
 
         /* Release shared sub-types */
-        east_type_release(loc_struct);
-        east_type_release(loc_arr);
         east_type_release(ir_arr);
         east_type_release(tt_arr);
         east_type_release(ir_label);
@@ -1311,6 +1299,9 @@ static IRVariable var_from_ir_value(EastValue *v)
     var.name = strdup(get_str_idx(s, VAR_NAME));
     var.mutable = get_bool_idx(s, VAR_MUTABLE);
     var.captured = get_bool_idx(s, VAR_CAPTURED);
+    EastValue *loc_id_v = get_field_idx(s, IR_LOC_ID);
+    if (loc_id_v && loc_id_v->kind == EAST_VAL_INTEGER)
+        var.loc_id = loc_id_v->data.integer;
     return var;
 }
 
@@ -1318,38 +1309,13 @@ static IRVariable var_from_ir_value(EastValue *v)
 /*  east_ir_from_value                                                 */
 /* ================================================================== */
 
-/* Extract location array from a deserialized IR struct and set it on the node */
+/* Copy loc_id from IR variant struct to IRNode (lazy — no resolution) */
 static void apply_location(IRNode *node, EastValue *s)
 {
     if (!node || !s) return;
-    EastValue *loc_arr = get_field_idx(s, IR_LOCATION);
-    if (!loc_arr || loc_arr->kind != EAST_VAL_ARRAY) return;
-    size_t n = loc_arr->data.array.len;
-    if (n == 0) return;
-
-    EastLocation *locs = calloc(n, sizeof(EastLocation));
-    if (!locs) return;
-
-    for (size_t i = 0; i < n; i++) {
-        EastValue *loc = loc_arr->data.array.items[i];
-        if (loc && loc->kind == EAST_VAL_STRUCT) {
-            EastValue *fn = east_struct_get_field_idx(loc, LOC_FILENAME);
-            EastValue *ln = east_struct_get_field_idx(loc, LOC_LINE);
-            EastValue *col = east_struct_get_field_idx(loc, LOC_COLUMN);
-            if (fn && fn->kind == EAST_VAL_STRING) {
-                locs[i].filename = strdup(fn->data.string.data);
-            }
-            if (ln && ln->kind == EAST_VAL_INTEGER) {
-                locs[i].line = ln->data.integer;
-            }
-            if (col && col->kind == EAST_VAL_INTEGER) {
-                locs[i].column = col->data.integer;
-            }
-        }
-    }
-
-    node->locations = locs;
-    node->num_locations = n;
+    EastValue *loc_id_v = get_field_idx(s, IR_LOC_ID);
+    if (!loc_id_v || loc_id_v->kind != EAST_VAL_INTEGER) return;
+    node->loc_id = loc_id_v->data.integer;
 }
 
 /* Helper: convert IR and apply location from struct s */
@@ -1470,7 +1436,10 @@ static IRNode *convert_ir(EastValue *v)
             EastValue *var_v = east_struct_get_field_idx(c, MC_VAR);
             if (var_v && var_v->kind == EAST_VAL_VARIANT) {
                 EastValue *vs = var_v->data.variant.value;
-                cases[i].bind_name = strdup(get_str_idx(vs, VAR_NAME));
+                cases[i].bind.name = strdup(get_str_idx(vs, VAR_NAME));
+                /* Compiler/JSON path: sub-node Variable locations not
+                 * reconstructed. Left as NULL — round-trip through JSON
+                 * loses debug info for sub-node Variables. */
             }
             cases[i].body = convert_ir(east_struct_get_field_idx(c, MC_BODY));
         }
@@ -1479,7 +1448,7 @@ static IRNode *convert_ir(EastValue *v)
         for (size_t i = 0; i < nc; i++) {
             ir_node_release(cases[i].body);
             free(cases[i].case_name);
-            free(cases[i].bind_name);
+            free(cases[i].bind.name);
         }
         free(cases);
         goto cleanup;
@@ -1845,13 +1814,32 @@ IRNode *east_ir_from_value(EastValue *value)
     return result;
 }
 
-IRNode *east_ir_from_value_with_types(EastValue *value,
-                                      EastValue **type_values,
-                                      EastType **types,
-                                      size_t type_count)
+const EastLocation *east_source_map_resolve(const EastSourceMap *sm,
+                                             int64_t loc_id,
+                                             size_t *out_count)
 {
-    type_cache_init_with_table(type_values, types, type_count);
-    IRNode *result = convert_ir(value);
-    type_cache_free();
-    return result;
+    if (!sm || loc_id <= 0 || (size_t)loc_id >= sm->num_stacks) {
+        if (out_count) *out_count = 0;
+        return NULL;
+    }
+    if (out_count) *out_count = sm->stack_counts[loc_id];
+    return sm->stacks[loc_id];
+}
+
+void east_source_map_free(EastSourceMap *sm)
+{
+    if (!sm) return;
+    for (size_t i = 0; i < sm->num_stacks; i++) {
+        if (sm->stacks[i]) {
+            for (size_t j = 0; j < sm->stack_counts[i]; j++) {
+                free(sm->stacks[i][j].filename);
+            }
+            free(sm->stacks[i]);
+        }
+    }
+    free(sm->stacks);
+    free(sm->stack_counts);
+    sm->stacks = NULL;
+    sm->stack_counts = NULL;
+    sm->num_stacks = 0;
 }

@@ -22,6 +22,9 @@ export type TypeSymbol = typeof TypeSymbol;
 export const AstSymbol = Symbol.for("@elaraai/east/expr/ast");
 export type AstSymbol = typeof AstSymbol;
 
+export const SourceMapSymbol = Symbol.for("@elaraai/east/expr/source_map");
+export type SourceMapSymbol = typeof SourceMapSymbol;
+
 export const FactorySymbol = Symbol.for("@elaraai/east/expr/factory");
 export type FactorySymbol = typeof FactorySymbol;
 

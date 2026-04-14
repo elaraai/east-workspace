@@ -7,7 +7,7 @@ import util from "node:util";
 import { test as testNode, describe as describeNode } from "node:test";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { join, basename } from "node:path";
-import { AsyncFunctionType, East, Expr, get_location, printLocations, IRType, NullType, StringType, toJSONFor, setLocationTransform, type SubtypeExprOrValue } from "../src/index.js";
+import { ArrayType, AsyncFunctionType, East, Expr, get_location, IntegerType, printLocations, IRType, NullType, StringType, StructType, toJSONFor, type SubtypeExprOrValue } from "../src/index.js";
 import { valueOrExprToAstTyped } from "../src/expr/ast.js";
 import type { TypeSymbol } from "../src/expr/expr.js";
 import type { BlockBuilder } from "../src/expr/block.js";
@@ -79,7 +79,13 @@ function createTestPlatform(extraPlatform: any[] = []) {
     ];
 }
 
-const IRToJSON = toJSONFor(IRType);
+/* Type-directed JSON serialization for the test IR export format:
+ * StructType({ ir: IRType, source_map: StructType({ stacks: Array(Array(Struct({column,filename,line}))) }) })
+ * Note: struct fields are sorted alphabetically in East's structural type system. */
+const LocationType = StructType({ column: IntegerType, filename: StringType, line: IntegerType });
+const SourceMapType = StructType({ stacks: ArrayType(ArrayType(LocationType)) });
+const ExportWrapperType = StructType({ ir: IRType, source_map: SourceMapType });
+const exportToJSON = toJSONFor(ExportWrapperType);
 
 /**
  * Defines and runs an East test suite using platform functions.
@@ -115,10 +121,6 @@ const IRToJSON = toJSONFor(IRType);
 export interface DescribeEastOptions {
     /** Extra platform functions available to tests. */
     extraPlatform?: any[];
-    /** When true (default), source locations use `<suite>:<test>:line:col` instead
-     *  of absolute file paths. Makes IR byte-level reproducible across machines
-     *  and gives other runtimes useful test context in error messages. */
-    stableLocations?: boolean;
 }
 
 export function describeEast(
@@ -137,17 +139,6 @@ export function describeEast(
         tests.push({ name, body });
     });
 
-    // Enable stable locations (default true): replace absolute paths with
-    // <file>:<suite>:<test> and zero line/col — fully reproducible across machines
-    // and immune to line number shifts from code changes
-    if (opts.stableLocations !== false) {
-        setLocationTransform(loc => ({
-            filename: `<${basename(loc.filename).replace(/\.[^.]+$/, '')}>:<${suiteName}>:<${currentTestName}>`,
-            line: 0,
-            column: 0,
-        }));
-    }
-
     // Create a single East function that uses describe/test platform functions
     const suiteFunction = East.asyncFunction([], NullType, $ => {
         $(describe.call($, suiteName, East.asyncFunction([], NullType, $ => {
@@ -158,11 +149,6 @@ export function describeEast(
         })));
     });
 
-    // Clear stable locations after building
-    if (opts.stableLocations !== false) {
-        setLocationTransform(null);
-    }
-
     // Auto-export test IR if EXPORT_TEST_IR environment variable is set to a path
     if (process.env.EXPORT_TEST_IR) {
         const outputDir = process.env.EXPORT_TEST_IR;
@@ -171,10 +157,14 @@ export function describeEast(
             mkdirSync(outputDir, { recursive: true });
 
             const ir = suiteFunction.toIR();
-            const irJSON = IRToJSON(ir.ir);
+            const stacks = (ir.source_map?.entries() ?? [[]]).map(
+              stack => stack.map(frame => ({ column: frame.column, filename: frame.filename, line: frame.line }))
+            );
+            const wrapperValue = { ir: ir.ir, source_map: { stacks } };
+            const wrapperJSON = exportToJSON(wrapperValue);
 
             const filename = join(outputDir, `${suiteName.replace(/[^a-zA-Z0-9]/g, '_')}.json`);
-            writeFileSync(filename, JSON.stringify(irJSON, null, 2));
+            writeFileSync(filename, JSON.stringify(wrapperJSON, null, 2));
             if (process.env.EAST_QUIET !== '1') {
                 console.log(`✓ Exported test IR: ${filename}`);
             }

@@ -6,10 +6,11 @@ import type { AST } from "../ast.js";
 import { ast_to_ir } from "../ast_to_ir.js";
 import { AsyncEastIR } from "../eastir.js";
 import type { AsyncFunctionIR } from "../ir.js";
-import { get_location } from "../location.js";
+import { get_location_id } from "../location.js";
+import type { SourceMap } from "../location.js";
 import { AsyncFunctionType, type EastType } from "../types.js";
 import { valueOrExprToAstTyped } from "./ast.js";
-import { AstSymbol, Expr, FactorySymbol, type ToExpr } from "./expr.js";
+import { AstSymbol, Expr, FactorySymbol, SourceMapSymbol, type ToExpr } from "./expr.js";
 import type { ExprType, SubtypeExprOrValue } from "./types.js";
 
 /**
@@ -36,7 +37,7 @@ export class AsyncFunctionExpr<I extends any[], O extends any> extends Expr<Asyn
     return this[FactorySymbol]({
       ast_type: "CallAsync",
       type: this.output_type as EastType,
-      location: get_location(),
+      loc_id: get_location_id(),
       function: this[AstSymbol],
       arguments: inputs,
     }) as ExprType<O>;
@@ -48,7 +49,9 @@ export class AsyncFunctionExpr<I extends any[], O extends any> extends Expr<Asyn
   */
   toIR(): AsyncEastIR<I, O> {
     const ir = ast_to_ir(this[AstSymbol]) as AsyncFunctionIR;
-    return new AsyncEastIR(ir);
+    const result = new AsyncEastIR<I, O>(ir);
+    result.source_map = (this as any)[SourceMapSymbol] as SourceMap | null ?? null;
+    return result;
   }
 }
 

@@ -49,7 +49,7 @@ export default {
       builtin: "ArrayRange",
       type_parameters: [],
       arguments: [start_val[AstSymbol], end_val[AstSymbol], step_val[AstSymbol]],
-      location: start_val[AstSymbol].location,
+      loc_id: start_val[AstSymbol].loc_id,
     });
   },
 
@@ -94,7 +94,7 @@ export default {
       builtin: "ArrayLinspace",
       type_parameters: [],
       arguments: [start_val[AstSymbol], stop_val[AstSymbol], count_val[AstSymbol]],
-      location: start_val[AstSymbol].location,
+      loc_id: start_val[AstSymbol].loc_id,
     });
   },
 
@@ -137,7 +137,7 @@ export default {
       builtin: "ArrayGenerate",
       type_parameters: [value_type_deduced as EastType],
       arguments: [length_expr[AstSymbol], generator_expr[AstSymbol]],
-      location: length_expr[AstSymbol].location,
+      loc_id: length_expr[AstSymbol].loc_id,
     });
   },
 }

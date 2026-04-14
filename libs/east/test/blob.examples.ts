@@ -140,9 +140,11 @@ export const blobEncodeBeastV2 = example({
     }),
     inputs: [],
     returns: new Uint8Array([
-        137, 69, 97, 115, 116, 13, 10, 2,  // magic (v2)
+        137, 69, 97, 115, 116, 13, 10, 4,  // magic v4
         3, 0, 1, 2,                          // type table: header=3, root=0, count=1, Integer
         1, 0,                                // string table: empty
+        1, 0,                                // source map: empty
+        1, 0,                                // value table: empty
         84,                                  // zigzag(42) = 84
     ]),
 });

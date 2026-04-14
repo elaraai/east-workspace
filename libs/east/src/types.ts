@@ -279,7 +279,30 @@ export type StructType<Fields extends { [K in string]: any } = { [K in string]: 
  * @returns A Struct type
  */
 export function StructType<const Fields extends { [K in string]: any }>(field_types: Fields): StructType<Fields> {
-  return assignTypeId({ type: "Struct" as const, fields: field_types });
+  // Intern: structurally identical struct types (same field order, same names,
+  // same child type_ids) share a single canonical object. This mirrors the
+  // existing interning for Array/Dict/Function etc. and is required for the
+  // beast2 v2 encoder to produce a canonical type table — otherwise calling
+  // StructType({ x: Int, y: Int }) twice would yield two distinct entries.
+  const keys = Object.keys(field_types as any);
+  let h = hashCombine(0x09, keys.length);
+  for (const k of keys) {
+    h = hashCombine(h, ((field_types as any)[k] as TypeIdentity)?.[type_id_symbol] ?? 0);
+  }
+  const cached = internLookup(h, (c: any) => {
+    if (c.type !== "Struct") return false;
+    const ck = Object.keys(c.fields);
+    if (ck.length !== keys.length) return false;
+    for (let i = 0; i < keys.length; i++) {
+      if (ck[i] !== keys[i]) return false;
+      if (c.fields[keys[i]!] !== (field_types as any)[keys[i]!]) return false;
+    }
+    return true;
+  });
+  if (cached) return cached;
+  const result = assignTypeId({ type: "Struct" as const, fields: field_types });
+  internStore(h, result);
+  return result;
 };
 
 /**
@@ -301,7 +324,28 @@ export type VariantType<Cases extends { [K in string]: any } = { [K in string]: 
 export function VariantType<const Cases extends { [K in string]: any }>(case_types: Cases): VariantType<Cases> {
   // Cases are sorted alphabetically by their name
   const cases_sorted = Object.fromEntries(Object.entries(case_types).sort((x, y) => x[0] < y[0] ? -1 : x[0] === y[0] ? 0 : 1)) as Cases;
-  return assignTypeId({ type: "Variant" as const, cases: cases_sorted });
+  // Intern: match Struct. Hash is computed over the sorted keys so two calls
+  // with cases in different orders produce the same hash, and verify confirms
+  // identical names and child type_ids.
+  const keys = Object.keys(cases_sorted);
+  let h = hashCombine(0x08, keys.length);
+  for (const k of keys) {
+    h = hashCombine(h, ((cases_sorted as any)[k] as TypeIdentity)?.[type_id_symbol] ?? 0);
+  }
+  const cached = internLookup(h, (c: any) => {
+    if (c.type !== "Variant") return false;
+    const ck = Object.keys(c.cases);
+    if (ck.length !== keys.length) return false;
+    for (let i = 0; i < keys.length; i++) {
+      if (ck[i] !== keys[i]) return false;
+      if (c.cases[keys[i]!] !== (cases_sorted as any)[keys[i]!]) return false;
+    }
+    return true;
+  });
+  if (cached) return cached;
+  const result = assignTypeId({ type: "Variant" as const, cases: cases_sorted });
+  internStore(h, result);
+  return result;
 };
 
 /**

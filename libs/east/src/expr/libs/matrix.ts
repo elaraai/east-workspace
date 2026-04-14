@@ -13,7 +13,7 @@ export default {
     const c = Expr.from(cols, IntegerType);
     return Expr.fromAst({
       ast_type: "Builtin", type: MatrixType(FloatType), builtin: "MatrixZeros",
-      type_parameters: [FloatType], arguments: [r[AstSymbol], c[AstSymbol]], location: r[AstSymbol].location,
+      type_parameters: [FloatType], arguments: [r[AstSymbol], c[AstSymbol]], loc_id: r[AstSymbol].loc_id,
     }) as any;
   },
 
@@ -22,7 +22,7 @@ export default {
     const c = Expr.from(cols, IntegerType);
     return Expr.fromAst({
       ast_type: "Builtin", type: MatrixType(FloatType), builtin: "MatrixOnes",
-      type_parameters: [FloatType], arguments: [r[AstSymbol], c[AstSymbol]], location: r[AstSymbol].location,
+      type_parameters: [FloatType], arguments: [r[AstSymbol], c[AstSymbol]], loc_id: r[AstSymbol].loc_id,
     }) as any;
   },
 
@@ -33,7 +33,7 @@ export default {
     const elemType = val[TypeSymbol];
     return Expr.fromAst({
       ast_type: "Builtin", type: MatrixType(elemType), builtin: "MatrixFill",
-      type_parameters: [elemType as EastType], arguments: [r[AstSymbol], c[AstSymbol], val[AstSymbol]], location: r[AstSymbol].location,
+      type_parameters: [elemType as EastType], arguments: [r[AstSymbol], c[AstSymbol], val[AstSymbol]], loc_id: r[AstSymbol].loc_id,
     }) as any;
   },
 
@@ -47,7 +47,7 @@ export default {
     }
     return Expr.fromAst({
       ast_type: "Builtin", type: MatrixType(elemType), builtin: "MatrixFromArray",
-      type_parameters: [elemType as EastType], arguments: [arrAst], location: arrAst.location,
+      type_parameters: [elemType as EastType], arguments: [arrAst], loc_id: arrAst.loc_id,
     }) as any;
   },
 
@@ -60,7 +60,7 @@ export default {
     }
     return Expr.fromAst({
       ast_type: "Builtin", type: MatrixType(elemType), builtin: "MatrixFromRows",
-      type_parameters: [elemType as EastType], arguments: [arrAst], location: arrAst.location,
+      type_parameters: [elemType as EastType], arguments: [arrAst], loc_id: arrAst.loc_id,
     }) as any;
   },
 };

@@ -13,7 +13,7 @@ overhead in the inner optimization loop.
 from cpython.pycapsule cimport PyCapsule_New
 from libc.stddef cimport size_t
 from libc.stdint cimport int64_t
-from libc.stdlib cimport malloc, free, rand, srand
+from libc.stdlib cimport malloc, free, realloc, rand, srand
 from libc.string cimport strdup, memcpy
 from libc.math cimport INFINITY
 
@@ -800,6 +800,561 @@ cdef _eastc.EvalResult _optimization_iterative_incremental_impl(
     return _eastc.eval_ok(result)
 
 
+# ─── Inline C for grouped pthread worker ──────────────────────────────
+
+cdef extern from *:
+    """
+    #include <pthread.h>
+    #include <stdlib.h>
+    #include <string.h>
+    #include <math.h>
+    #include "east/compiler.h"
+    #include "east/values.h"
+    #include "east/eval_result.h"
+
+    /* Forward declarations from incremental block */
+    static unsigned int _incr_rand(unsigned int *state);
+    static double _eval_elem(EastCompiledFn *compiled, EastValue *params,
+                             EastValue *idx_val, int64_t idx, EvalResult *err);
+
+    typedef struct {
+        /* shared read-only */
+        EastCompiledFn *compiled;
+        EastValue      **spaces;
+        size_t           n_dims;
+        EastType        *elem_type;
+        int              max_iterations;
+        int              use_random_init;
+        int              use_swap;
+        unsigned int     seed;
+        PlatformRegistry *platform;
+        BuiltinRegistry  *builtins;
+        /* unique group values (shared read-only) */
+        int64_t         *group_keys;
+        size_t           n_groups;
+        /* per-thread output */
+        double       best_obj;
+        EastValue   *best_params;
+        int          iterations;
+        int          evaluations;
+        int          had_error;
+        EvalResult   error_result;
+    } GroupSampleWork;
+
+    /* Find index of value in group_keys array, or -1 */
+    static int _find_group(int64_t *keys, size_t n, int64_t val) {
+        for (size_t i = 0; i < n; i++)
+            if (keys[i] == val) return (int)i;
+        return -1;
+    }
+
+    static void *_grouped_sample_worker(void *arg) {
+        GroupSampleWork *w = (GroupSampleWork *)arg;
+        east_set_thread_context(w->platform, w->builtins);
+
+        size_t n = w->n_dims;
+        size_t ng = w->n_groups;
+        unsigned int rng = w->seed;
+
+        EastValue *params = east_vector_new(w->elem_type, n);
+        if (!params) {
+            w->had_error = 1;
+            w->error_result = eval_error("grouped: vector alloc failed");
+            return NULL;
+        }
+        int64_t *pdata = (int64_t *)params->data.vector.data;
+
+        double *gcontribs = (double *)malloc(ng * sizeof(double));
+        if (!gcontribs) {
+            east_value_release(params);
+            w->had_error = 1;
+            w->error_result = eval_error("grouped: alloc failed");
+            return NULL;
+        }
+
+        EastValue *idx_val = east_integer(0);
+        EvalResult tmp_err;
+        tmp_err.status = EVAL_OK;
+
+        /* initialise parameters (same as incremental) */
+        if (w->use_swap) {
+            EastValue *sp0 = w->spaces[0];
+            int64_t *sp_data = (int64_t *)sp0->data.vector.data;
+            size_t sp_len = sp0->data.vector.len;
+            for (size_t i = 0; i < n; i++)
+                pdata[i] = (i < sp_len) ? sp_data[i] : 0;
+            for (size_t i = 1; i < n; i++) {
+                int64_t v = pdata[i];
+                size_t j = i;
+                while (j > 0 && pdata[j - 1] > v) { pdata[j] = pdata[j - 1]; j--; }
+                pdata[j] = v;
+            }
+            if (w->use_random_init) {
+                for (size_t i = n - 1; i > 0; i--) {
+                    size_t j = _incr_rand(&rng) % (i + 1);
+                    int64_t t = pdata[i]; pdata[i] = pdata[j]; pdata[j] = t;
+                }
+            }
+        } else {
+            for (size_t i = 0; i < n; i++) {
+                EastValue *sp = w->spaces[i];
+                int64_t *sp_data = (int64_t *)sp->data.vector.data;
+                size_t sp_len = sp->data.vector.len;
+                if (w->use_random_init && sp_len > 0)
+                    pdata[i] = sp_data[_incr_rand(&rng) % sp_len];
+                else if (sp_len > 0)
+                    pdata[i] = sp_data[0];
+            }
+        }
+
+        /* compute initial group contributions */
+        double total = 0.0;
+        for (size_t g = 0; g < ng; g++) {
+            tmp_err.status = EVAL_OK;
+            gcontribs[g] = _eval_elem(w->compiled, params, idx_val,
+                                       w->group_keys[g], &tmp_err);
+            if (tmp_err.status != EVAL_OK) goto error;
+            total += gcontribs[g];
+            w->evaluations++;
+        }
+
+        double best_obj = total;
+        EastValue *sample_best = east_vector_new(w->elem_type, n);
+        memcpy(sample_best->data.vector.data, pdata, n * sizeof(int64_t));
+
+        /* optimisation loop */
+        for (int iter = 0; iter < w->max_iterations; iter++) {
+            int changed = 0;
+
+            if (w->use_swap) {
+                for (size_t i = 0; i < n; i++) {
+                    for (size_t j = i + 1; j < n; j++) {
+                        int64_t val_i = pdata[i], val_j = pdata[j];
+                        if (val_i == val_j) continue;  /* same group, no effect */
+
+                        int gi = _find_group(w->group_keys, ng, val_i);
+                        int gj = _find_group(w->group_keys, ng, val_j);
+                        double old_gi = gcontribs[gi], old_gj = gcontribs[gj];
+
+                        /* swap */
+                        pdata[i] = val_j; pdata[j] = val_i;
+
+                        tmp_err.status = EVAL_OK;
+                        double new_gi = _eval_elem(w->compiled, params, idx_val,
+                                                   val_i, &tmp_err);
+                        if (tmp_err.status != EVAL_OK) {
+                            east_value_release(sample_best);
+                            goto error;
+                        }
+                        w->evaluations++;
+
+                        tmp_err.status = EVAL_OK;
+                        double new_gj = _eval_elem(w->compiled, params, idx_val,
+                                                   val_j, &tmp_err);
+                        if (tmp_err.status != EVAL_OK) {
+                            east_value_release(sample_best);
+                            goto error;
+                        }
+                        w->evaluations++;
+
+                        double new_total = total - old_gi - old_gj + new_gi + new_gj;
+                        if (new_total > best_obj) {
+                            best_obj = new_total;
+                            total = new_total;
+                            gcontribs[gi] = new_gi;
+                            gcontribs[gj] = new_gj;
+                            memcpy(sample_best->data.vector.data, pdata,
+                                   n * sizeof(int64_t));
+                            changed = 1;
+                        } else {
+                            /* undo swap */
+                            pdata[i] = val_i; pdata[j] = val_j;
+                        }
+                    }
+                }
+            } else {
+                /* coordinate descent */
+                for (size_t i = 0; i < n; i++) {
+                    EastValue *sp = w->spaces[i];
+                    int64_t *sp_data = (int64_t *)sp->data.vector.data;
+                    size_t sp_len = sp->data.vector.len;
+
+                    int64_t old_val = pdata[i];
+                    int g_old = _find_group(w->group_keys, ng, old_val);
+                    double saved_old_contrib = gcontribs[g_old];
+
+                    int64_t best_val = old_val;
+                    /* track best contributions for both affected groups */
+                    double best_old_g = saved_old_contrib;
+                    double best_new_g = 0.0;
+                    int best_g_new_idx = -1;
+
+                    for (size_t c = 0; c < sp_len; c++) {
+                        int64_t cand = sp_data[c];
+                        if (cand == pdata[i] && cand == old_val) {
+                            /* no change from current best or original — already evaluated */
+                        }
+                        pdata[i] = cand;
+
+                        int g_new = _find_group(w->group_keys, ng, cand);
+
+                        double trial_total;
+                        if (g_new == g_old) {
+                            /* same group: recompute just that one group */
+                            tmp_err.status = EVAL_OK;
+                            double gc = _eval_elem(w->compiled, params, idx_val,
+                                                    cand, &tmp_err);
+                            if (tmp_err.status != EVAL_OK) {
+                                east_value_release(sample_best);
+                                goto error;
+                            }
+                            w->evaluations++;
+                            trial_total = total - saved_old_contrib + gc;
+                            if (trial_total > best_obj) {
+                                best_obj = trial_total;
+                                best_val = cand;
+                                best_old_g = gc;
+                                best_g_new_idx = -1;  /* same group */
+                                changed = 1;
+                            }
+                        } else {
+                            /* different groups: recompute both */
+                            tmp_err.status = EVAL_OK;
+                            double gc_old = _eval_elem(w->compiled, params, idx_val,
+                                                        old_val, &tmp_err);
+                            if (tmp_err.status != EVAL_OK) {
+                                east_value_release(sample_best);
+                                goto error;
+                            }
+                            w->evaluations++;
+
+                            tmp_err.status = EVAL_OK;
+                            double gc_new = _eval_elem(w->compiled, params, idx_val,
+                                                        cand, &tmp_err);
+                            if (tmp_err.status != EVAL_OK) {
+                                east_value_release(sample_best);
+                                goto error;
+                            }
+                            w->evaluations++;
+
+                            trial_total = total - saved_old_contrib - gcontribs[g_new]
+                                          + gc_old + gc_new;
+                            if (trial_total > best_obj) {
+                                best_obj = trial_total;
+                                best_val = cand;
+                                best_old_g = gc_old;
+                                best_new_g = gc_new;
+                                best_g_new_idx = g_new;
+                                changed = 1;
+                            }
+                        }
+                    }
+
+                    /* apply best for this position */
+                    pdata[i] = best_val;
+                    gcontribs[g_old] = best_old_g;
+                    if (best_g_new_idx >= 0)
+                        gcontribs[best_g_new_idx] = best_new_g;
+                    /* recalc total from contributions */
+                    total = 0.0;
+                    for (size_t g = 0; g < ng; g++) total += gcontribs[g];
+
+                    if (changed)
+                        memcpy(sample_best->data.vector.data, pdata,
+                               n * sizeof(int64_t));
+                }
+            }
+
+            w->iterations++;
+            if (!changed) break;
+        }
+
+        w->best_obj = best_obj;
+        w->best_params = sample_best;
+        east_value_release(params);
+        east_value_release(idx_val);
+        free(gcontribs);
+        return NULL;
+
+    error:
+        east_value_release(params);
+        east_value_release(idx_val);
+        free(gcontribs);
+        w->had_error = 1;
+        w->error_result = tmp_err;
+        return NULL;
+    }
+    """
+    ctypedef struct GroupSampleWork:
+        _eastc.EastCompiledFn *compiled
+        _eastc.EastValue **spaces
+        size_t n_dims
+        _eastc.EastType *elem_type
+        int max_iterations
+        int use_random_init
+        int use_swap
+        unsigned int seed
+        _eastc.PlatformRegistry *platform
+        _eastc.BuiltinRegistry *builtins
+        int64_t *group_keys
+        size_t n_groups
+        double best_obj
+        _eastc.EastValue *best_params
+        int iterations
+        int evaluations
+        int had_error
+        _eastc.EvalResult error_result
+
+    void *_grouped_sample_worker(void *arg) nogil
+
+
+# ─── Grouped implementation ───────────────────────────────────────────
+
+cdef _eastc.EvalResult _optimization_iterative_grouped_impl(
+        _eastc.EastValue **args, size_t num_args,
+        _eastc.EastType **input_types, size_t num_input_types,
+        _eastc.EastType *output_type) noexcept with gil:
+    """Group-based iterative optimisation with per-value contributions
+    and multi-threaded sample parallelism."""
+    cdef _eastc.EvalResult err
+    err.status = _eastc.EVAL_ERROR
+    err.value = NULL
+    err.label = NULL
+    err.error_message = NULL
+    err.locations = NULL
+    err.num_locations = 0
+
+    if num_args < 3 or args[0] == NULL or args[1] == NULL or args[2] == NULL:
+        err.error_message = strdup(b"iterative_grouped requires 3 arguments")
+        return err
+
+    cdef _eastc.EastValue *fn_val = args[0]
+    cdef _eastc.EastValue *spaces_val = args[1]
+    cdef _eastc.EastValue *config_val = args[2]
+
+    if fn_val.kind != _eastc.EAST_VAL_FUNCTION:
+        err.error_message = strdup(b"iterative_grouped: arg 0 must be function")
+        return err
+    if spaces_val.kind != _eastc.EAST_VAL_ARRAY:
+        err.error_message = strdup(b"iterative_grouped: arg 1 must be array")
+        return err
+
+    cdef _eastc.EastCompiledFn *compiled = fn_val.data.function.compiled
+    cdef size_t n_dims = _eastc.east_array_len(spaces_val)
+
+    # ── parse config (same as incremental) ────────────────────────────
+    cdef int max_iterations = 100
+    cdef int num_samples = 1
+    cdef bint use_random_init = False
+    cdef bint use_swap = False
+    cdef int num_workers = 1
+    cdef unsigned int seed = 42
+
+    cdef _eastc.EastValue *opt_val
+    cdef _eastc.EastValue *inner_val
+
+    opt_val = _eastc.east_struct_get_field(config_val, "iterations")
+    if opt_val != NULL and opt_val.kind == _eastc.EAST_VAL_VARIANT:
+        if opt_val.data.variant.value != NULL and opt_val.data.variant.value.kind == _eastc.EAST_VAL_INTEGER:
+            max_iterations = <int>opt_val.data.variant.value.data.integer
+
+    opt_val = _eastc.east_struct_get_field(config_val, "samples")
+    if opt_val != NULL and opt_val.kind == _eastc.EAST_VAL_VARIANT:
+        if opt_val.data.variant.value != NULL and opt_val.data.variant.value.kind == _eastc.EAST_VAL_INTEGER:
+            num_samples = <int>opt_val.data.variant.value.data.integer
+
+    opt_val = _eastc.east_struct_get_field(config_val, "random_state")
+    if opt_val != NULL and opt_val.kind == _eastc.EAST_VAL_VARIANT:
+        if opt_val.data.variant.value != NULL and opt_val.data.variant.value.kind == _eastc.EAST_VAL_INTEGER:
+            seed = <unsigned int>opt_val.data.variant.value.data.integer
+
+    opt_val = _eastc.east_struct_get_field(config_val, "initial")
+    if opt_val != NULL and opt_val.kind == _eastc.EAST_VAL_VARIANT:
+        inner_val = opt_val.data.variant.value
+        if inner_val != NULL and inner_val.kind == _eastc.EAST_VAL_VARIANT:
+            if inner_val.data.variant.case_tag != NULL:
+                if inner_val.data.variant.case_tag[0] == b'r':
+                    use_random_init = True
+
+    opt_val = _eastc.east_struct_get_field(config_val, "mode")
+    if opt_val != NULL and opt_val.kind == _eastc.EAST_VAL_VARIANT:
+        inner_val = opt_val.data.variant.value
+        if inner_val != NULL and inner_val.kind == _eastc.EAST_VAL_VARIANT:
+            if inner_val.data.variant.case_tag != NULL:
+                if inner_val.data.variant.case_tag[0] == b's':
+                    use_swap = True
+
+    opt_val = _eastc.east_struct_get_field(config_val, "workers")
+    if opt_val != NULL and opt_val.kind == _eastc.EAST_VAL_VARIANT:
+        if opt_val.data.variant.value != NULL and opt_val.data.variant.value.kind == _eastc.EAST_VAL_INTEGER:
+            num_workers = <int>opt_val.data.variant.value.data.integer
+    if num_workers < 1:
+        num_workers = 1
+    if num_workers > num_samples:
+        num_workers = num_samples
+
+    # ── extract spaces ────────────────────────────────────────────────
+    cdef _eastc.EastType *elem_type = &_eastc.east_integer_type
+    cdef _eastc.EastValue *sp0
+    if n_dims > 0:
+        sp0 = _eastc.east_array_get(spaces_val, 0)
+        if sp0 != NULL and sp0.kind == _eastc.EAST_VAL_VECTOR:
+            elem_type = sp0.data.vector.elem_type
+
+    cdef _eastc.EastValue **spaces = <_eastc.EastValue**>malloc(n_dims * sizeof(_eastc.EastValue*))
+    if spaces == NULL:
+        err.error_message = strdup(b"iterative_grouped: out of memory")
+        return err
+    cdef size_t i, j, g
+    for i in range(n_dims):
+        spaces[i] = _eastc.east_array_get(spaces_val, i)
+
+    # ── collect unique group keys from all spaces ─────────────────────
+    cdef int64_t *group_keys = <int64_t*>malloc(1024 * sizeof(int64_t))
+    cdef size_t n_groups = 0
+    cdef size_t group_cap = 1024
+    cdef int64_t *sp_data
+    cdef size_t sp_len
+    cdef bint found
+
+    for i in range(n_dims):
+        sp_data = <int64_t*>spaces[i].data.vector.data
+        sp_len = spaces[i].data.vector.len
+        for j in range(sp_len):
+            found = False
+            for g in range(n_groups):
+                if group_keys[g] == sp_data[j]:
+                    found = True
+                    break
+            if not found:
+                if n_groups >= group_cap:
+                    group_cap *= 2
+                    group_keys = <int64_t*>realloc(group_keys, group_cap * sizeof(int64_t))
+                group_keys[n_groups] = sp_data[j]
+                n_groups += 1
+
+    # ── allocate sample work units ────────────────────────────────────
+    cdef GroupSampleWork *work = <GroupSampleWork*>malloc(num_samples * sizeof(GroupSampleWork))
+    if work == NULL:
+        free(spaces)
+        free(group_keys)
+        err.error_message = strdup(b"iterative_grouped: out of memory")
+        return err
+
+    cdef int s
+    for s in range(num_samples):
+        work[s].compiled = compiled
+        work[s].spaces = spaces
+        work[s].n_dims = n_dims
+        work[s].elem_type = elem_type
+        work[s].max_iterations = max_iterations
+        work[s].use_random_init = use_random_init
+        work[s].use_swap = use_swap
+        work[s].seed = seed + <unsigned int>s
+        work[s].platform = compiled.platform
+        work[s].builtins = compiled.builtins
+        work[s].group_keys = group_keys
+        work[s].n_groups = n_groups
+        work[s].best_obj = -INFINITY
+        work[s].best_params = NULL
+        work[s].iterations = 0
+        work[s].evaluations = 0
+        work[s].had_error = 0
+
+    # ── run samples ───────────────────────────────────────────────────
+    cdef pthread_t *threads
+    cdef int launched, batch
+
+    if num_workers <= 1:
+        for s in range(num_samples):
+            _grouped_sample_worker(&work[s])
+    else:
+        threads = <pthread_t*>malloc(num_workers * sizeof(pthread_t))
+        if threads == NULL:
+            free(work)
+            free(spaces)
+            free(group_keys)
+            err.error_message = strdup(b"iterative_grouped: thread alloc failed")
+            return err
+
+        launched = 0
+        while launched < num_samples:
+            batch = num_samples - launched
+            if batch > num_workers:
+                batch = num_workers
+
+            with nogil:
+                for i in range(<size_t>batch):
+                    pthread_create(&threads[i], NULL, _grouped_sample_worker,
+                                   &work[launched + <int>i])
+                for i in range(<size_t>batch):
+                    pthread_join(threads[i], NULL)
+
+            launched += batch
+
+        free(threads)
+
+    # ── collect results ───────────────────────────────────────────────
+    cdef double global_best_obj = -INFINITY
+    cdef _eastc.EastValue *global_best_params = NULL
+    cdef int total_iterations = 0
+    cdef int total_evaluations = 0
+    cdef int k
+
+    for s in range(num_samples):
+        if work[s].had_error:
+            for k in range(num_samples):
+                if k != s and work[k].best_params != NULL:
+                    _eastc.east_value_release(work[k].best_params)
+            err = work[s].error_result
+            free(work)
+            free(spaces)
+            free(group_keys)
+            return err
+
+        total_iterations += work[s].iterations
+        total_evaluations += work[s].evaluations
+
+        if work[s].best_obj > global_best_obj:
+            if global_best_params != NULL:
+                _eastc.east_value_release(global_best_params)
+            global_best_obj = work[s].best_obj
+            global_best_params = work[s].best_params
+        elif work[s].best_params != NULL:
+            _eastc.east_value_release(work[s].best_params)
+
+    free(work)
+    free(spaces)
+    free(group_keys)
+
+    # ── build result struct ───────────────────────────────────────────
+    cdef const char **field_names = <const char**>malloc(5 * sizeof(const char*))
+    cdef _eastc.EastValue **field_values = <_eastc.EastValue**>malloc(5 * sizeof(_eastc.EastValue*))
+
+    field_names[0] = "best_parameters"
+    field_names[1] = "best_objective"
+    field_names[2] = "iterations"
+    field_names[3] = "evaluations"
+    field_names[4] = "success"
+
+    if global_best_params != NULL:
+        field_values[0] = global_best_params
+    else:
+        field_values[0] = _eastc.east_vector_new(elem_type, 0)
+    field_values[1] = _eastc.east_float(global_best_obj if global_best_params != NULL else 0.0)
+    field_values[2] = _eastc.east_integer(total_iterations)
+    field_values[3] = _eastc.east_integer(total_evaluations)
+    field_values[4] = _eastc.east_boolean(global_best_params != NULL)
+
+    cdef _eastc.EastValue *result = _eastc.east_struct_new(
+        field_names, field_values, 5, output_type)
+
+    free(field_names)
+    free(field_values)
+
+    return _eastc.eval_ok(result)
+
+
 # ─── PyCapsule exports ────────────────────────────────────────────────
 
 optimization_iterative_capsule = PyCapsule_New(
@@ -808,4 +1363,8 @@ optimization_iterative_capsule = PyCapsule_New(
 
 optimization_iterative_incremental_capsule = PyCapsule_New(
     <void*>_optimization_iterative_incremental_impl, "east_platform_fn", NULL
+)
+
+optimization_iterative_grouped_capsule = PyCapsule_New(
+    <void*>_optimization_iterative_grouped_impl, "east_platform_fn", NULL
 )

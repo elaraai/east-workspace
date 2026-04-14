@@ -31,6 +31,7 @@ link:
 	cd $(CURDIR)/libs/east-node/packages/east-node-cli && pnpm link --global
 	$(MAKE) -C $(CURDIR)/libs/east-c install-cli
 	$(MAKE) -C $(CURDIR)/libs/east-py install-cli
+	$(MAKE) -C $(CURDIR)/libs/east-ui extension-install
 
 # ── Build / Test / Lint (via Turbo) ──────────────────────────────────
 

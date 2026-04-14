@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import type { AST } from "../ast.js";
-import { get_location } from "../location.js";
+import { get_location_id } from "../location.js";
 import { ArrayType, BlobType, BooleanType, IntegerType, isDataType, StringType, type EastType } from "../types.js";
 import { valueOrExprToAstTyped } from "./ast.js";
 import type { BooleanExpr } from "./boolean.js";
@@ -75,7 +75,7 @@ export class StringExpr extends Expr<StringType> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: type as any,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "Parse",
       type_parameters: [type as any],
       arguments: [this[AstSymbol]],
@@ -106,7 +106,7 @@ export class StringExpr extends Expr<StringType> {
       ast_type: "Builtin",
       type: type,
       builtin: "StringParseJSON",
-      location: [{ filename: "stdlib", line: 1, column: 1 }],
+      loc_id: get_location_id(),
       type_parameters: [type],
       arguments: [this[AstSymbol]],
     });
@@ -134,7 +134,7 @@ export class StringExpr extends Expr<StringType> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: StringType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "StringConcat",
       type_parameters: [],
       arguments: [this[AstSymbol], stringAst],
@@ -164,7 +164,7 @@ export class StringExpr extends Expr<StringType> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: StringType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "StringRepeat",
       type_parameters: [],
       arguments: [this[AstSymbol], countAst],
@@ -191,7 +191,7 @@ export class StringExpr extends Expr<StringType> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: IntegerType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "StringLength",
       type_parameters: [],
       arguments: [this[AstSymbol]],
@@ -224,7 +224,7 @@ export class StringExpr extends Expr<StringType> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: StringType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "StringSubstring",
       type_parameters: [],
       arguments: [this[AstSymbol], fromAst, toAst],
@@ -251,7 +251,7 @@ export class StringExpr extends Expr<StringType> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: StringType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "StringUpperCase",
       type_parameters: [],
       arguments: [this[AstSymbol]],
@@ -278,7 +278,7 @@ export class StringExpr extends Expr<StringType> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: StringType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "StringLowerCase",
       type_parameters: [],
       arguments: [this[AstSymbol]],
@@ -308,7 +308,7 @@ export class StringExpr extends Expr<StringType> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: ArrayType(StringType),
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "StringSplit",
       type_parameters: [],
       arguments: [this[AstSymbol], delimiterAst],
@@ -336,7 +336,7 @@ export class StringExpr extends Expr<StringType> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: StringType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "StringTrim",
       type_parameters: [],
       arguments: [this[AstSymbol]],
@@ -363,7 +363,7 @@ export class StringExpr extends Expr<StringType> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: StringType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "StringTrimStart",
       type_parameters: [],
       arguments: [this[AstSymbol]],
@@ -390,7 +390,7 @@ export class StringExpr extends Expr<StringType> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: StringType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "StringTrimEnd",
       type_parameters: [],
       arguments: [this[AstSymbol]],
@@ -420,7 +420,7 @@ export class StringExpr extends Expr<StringType> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: BooleanType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "StringStartsWith",
       type_parameters: [],
       arguments: [this[AstSymbol], prefixAst],
@@ -450,7 +450,7 @@ export class StringExpr extends Expr<StringType> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: BooleanType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "StringEndsWith",
       type_parameters: [],
       arguments: [this[AstSymbol], suffixAst],
@@ -505,7 +505,7 @@ export class StringExpr extends Expr<StringType> {
       return this[FactorySymbol]({
         ast_type: "Builtin",
         type: BooleanType,
-        location: get_location(),
+        loc_id: get_location_id(),
         builtin: "RegexContains",
         type_parameters: [],
         arguments: [this[AstSymbol], patternAst, flagsAst],
@@ -515,7 +515,7 @@ export class StringExpr extends Expr<StringType> {
       return this[FactorySymbol]({
         ast_type: "Builtin",
         type: BooleanType,
-        location: get_location(),
+        loc_id: get_location_id(),
         builtin: "StringContains",
         type_parameters: [],
         arguments: [this[AstSymbol], substringAst],
@@ -571,7 +571,7 @@ export class StringExpr extends Expr<StringType> {
       return this[FactorySymbol]({
         ast_type: "Builtin",
         type: IntegerType,
-        location: get_location(),
+        loc_id: get_location_id(),
         builtin: "RegexIndexOf",
         type_parameters: [],
         arguments: [this[AstSymbol], patternAst, flagsAst],
@@ -581,7 +581,7 @@ export class StringExpr extends Expr<StringType> {
       return this[FactorySymbol]({
         ast_type: "Builtin",
         type: IntegerType,
-        location: get_location(),
+        loc_id: get_location_id(),
         builtin: "StringIndexOf",
         type_parameters: [],
         arguments: [this[AstSymbol], substringAst],
@@ -642,7 +642,7 @@ export class StringExpr extends Expr<StringType> {
       return this[FactorySymbol]({
         ast_type: "Builtin",
         type: StringType,
-        location: get_location(),
+        loc_id: get_location_id(),
         builtin: "RegexReplace",
         type_parameters: [],
         arguments: [this[AstSymbol], patternAst, flagsAst, replaceAst],
@@ -653,7 +653,7 @@ export class StringExpr extends Expr<StringType> {
       return this[FactorySymbol]({
         ast_type: "Builtin",
         type: StringType,
-        location: get_location(),
+        loc_id: get_location_id(),
         builtin: "StringReplace",
         type_parameters: [],
         arguments: [this[AstSymbol], searchAst, replaceAst],
@@ -682,7 +682,7 @@ export class StringExpr extends Expr<StringType> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: BlobType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "StringEncodeUtf8",
       type_parameters: [],
       arguments: [this[AstSymbol]],
@@ -710,7 +710,7 @@ export class StringExpr extends Expr<StringType> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: BlobType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "StringEncodeUtf16",
       type_parameters: [],
       arguments: [this[AstSymbol]],

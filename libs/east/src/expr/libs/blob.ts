@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { get_location } from "../../location.js";
+import { get_location_id } from "../../location.js";
 import { BlobType } from "../../types.js";
 import type { BlobExpr } from "../blob.js";
 import { Expr } from "../expr.js";
@@ -48,7 +48,7 @@ export default {
       return Expr.fromAst({
         ast_type: "Builtin",
         type: BlobType,
-        location: get_location(),
+        loc_id: get_location_id(),
         builtin: "BlobEncodeBeast",
         type_parameters: [Expr.type(value)],
         arguments: [Expr.ast(value)],
@@ -57,7 +57,7 @@ export default {
       return Expr.fromAst({
         ast_type: "Builtin",
         type: BlobType,
-        location: get_location(),
+        loc_id: get_location_id(),
         builtin: "BlobEncodeBeast2",
         type_parameters: [Expr.type(value)],
         arguments: [Expr.ast(value)],

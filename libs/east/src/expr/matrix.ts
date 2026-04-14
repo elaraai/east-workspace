@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import type { AST } from "../ast.js";
-import { get_location } from "../location.js";
+import { get_location_id } from "../location.js";
 import { IntegerType, VectorType, MatrixType, NullType, FunctionType, ArrayType, type EastType, type NeverType, isSubtype, printType, isTypeEqual } from "../types.js";
 import { valueOrExprToAstTyped } from "./ast.js";
 import type { IntegerExpr } from "./integer.js";
@@ -36,7 +36,7 @@ export class MatrixExpr<T extends any> extends Expr<MatrixType<T>> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: IntegerType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "MatrixRows",
       type_parameters: [this.element_type as EastType],
       arguments: [this[AstSymbol]],
@@ -52,7 +52,7 @@ export class MatrixExpr<T extends any> extends Expr<MatrixType<T>> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: IntegerType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "MatrixCols",
       type_parameters: [this.element_type as EastType],
       arguments: [this[AstSymbol]],
@@ -74,7 +74,7 @@ export class MatrixExpr<T extends any> extends Expr<MatrixType<T>> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: this.element_type as EastType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "MatrixGet",
       type_parameters: [this.element_type as EastType],
       arguments: [this[AstSymbol], r, c],
@@ -98,7 +98,7 @@ export class MatrixExpr<T extends any> extends Expr<MatrixType<T>> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: NullType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "MatrixSet",
       type_parameters: [this.element_type as EastType],
       arguments: [this[AstSymbol], r, c, v],
@@ -118,7 +118,7 @@ export class MatrixExpr<T extends any> extends Expr<MatrixType<T>> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: VectorType(this.element_type as EastType),
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "MatrixGetRow",
       type_parameters: [this.element_type as EastType],
       arguments: [this[AstSymbol], r],
@@ -138,7 +138,7 @@ export class MatrixExpr<T extends any> extends Expr<MatrixType<T>> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: VectorType(this.element_type as EastType),
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "MatrixGetCol",
       type_parameters: [this.element_type as EastType],
       arguments: [this[AstSymbol], c],
@@ -154,7 +154,7 @@ export class MatrixExpr<T extends any> extends Expr<MatrixType<T>> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: MatrixType(this.element_type as EastType),
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "MatrixTranspose",
       type_parameters: [this.element_type as EastType],
       arguments: [this[AstSymbol]],
@@ -170,7 +170,7 @@ export class MatrixExpr<T extends any> extends Expr<MatrixType<T>> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: VectorType(this.element_type as EastType),
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "MatrixToVector",
       type_parameters: [this.element_type as EastType],
       arguments: [this[AstSymbol]],
@@ -186,7 +186,7 @@ export class MatrixExpr<T extends any> extends Expr<MatrixType<T>> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: ArrayType(ArrayType(this.element_type as EastType)),
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "MatrixToArray",
       type_parameters: [this.element_type as EastType],
       arguments: [this[AstSymbol]],
@@ -202,7 +202,7 @@ export class MatrixExpr<T extends any> extends Expr<MatrixType<T>> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: ArrayType(VectorType(this.element_type as EastType)),
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "MatrixToRows",
       type_parameters: [this.element_type as EastType],
       arguments: [this[AstSymbol]],
@@ -238,7 +238,7 @@ export class MatrixExpr<T extends any> extends Expr<MatrixType<T>> {
       return this[FactorySymbol]({
         ast_type: "Builtin",
         type: MatrixType(result_elem_type),
-        location: get_location(),
+        loc_id: get_location_id(),
         builtin: "MatrixMapRows",
         type_parameters: [this.element_type as EastType, result_elem_type],
         arguments: [this[AstSymbol], fn[AstSymbol]],

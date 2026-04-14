@@ -286,9 +286,6 @@ describe("toEastTypeValue", () => {
       }));
       const ConsStruct = ListType.node.cases.cons;
 
-      // Convert ListType first (fills cache)
-      const listETV = toEastTypeValue(ListType);
-
       // Convert ConsStruct independently
       const consETV = toEastTypeValue(ConsStruct);
       const tailField = consETV.value.find((f: any) => f.name === "tail");

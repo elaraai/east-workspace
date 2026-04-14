@@ -6,10 +6,11 @@ import type { AST } from "../ast.js";
 import { ast_to_ir } from "../ast_to_ir.js";
 import { EastIR } from "../eastir.js";
 import type { FunctionIR } from "../ir.js";
-import { get_location } from "../location.js";
+import { get_location_id } from "../location.js";
+import type { SourceMap } from "../location.js";
 import { FunctionType, type EastType } from "../types.js";
 import { valueOrExprToAstTyped } from "./ast.js";
-import { AstSymbol, Expr, FactorySymbol, type ToExpr } from "./expr.js";
+import { AstSymbol, Expr, FactorySymbol, SourceMapSymbol, type ToExpr } from "./expr.js";
 import type { ExprType, SubtypeExprOrValue } from "./types.js";
 
 /**
@@ -39,7 +40,7 @@ export class FunctionExpr<I extends any[], O extends any> extends Expr<FunctionT
     return this[FactorySymbol]({
       ast_type: "Call",
       type: this.output_type as EastType,
-      location: get_location(),
+      loc_id: get_location_id(),
       function: this[AstSymbol],
       arguments: inputs,
     }) as FunctionReturnType<O>;
@@ -51,7 +52,9 @@ export class FunctionExpr<I extends any[], O extends any> extends Expr<FunctionT
   */
   toIR(): EastIR<I, O> {
     const ir = ast_to_ir(this[AstSymbol]) as FunctionIR;
-    return new EastIR(ir);
+    const result = new EastIR<I, O>(ir);
+    result.source_map = (this as any)[SourceMapSymbol] as SourceMap | null ?? null;
+    return result;
   }
 }
 

@@ -9,6 +9,9 @@
 #include "types.h"
 #include "values.h"
 
+/* Forward-declare source map (defined in type_of_type.h) */
+typedef struct EastSourceMap EastSourceMap;
+
 struct EastCompiledFn {
     IRNode *ir;
     Environment *captures;
@@ -16,9 +19,9 @@ struct EastCompiledFn {
     size_t num_params;
     PlatformRegistry *platform;
     BuiltinRegistry *builtins;
-    EastValue *source_ir;       // original IR variant value for serialization (from compile path)
-    IRNode *source_ir_node;     // original IR node for serialization (from beast2 decode path)
+    EastValue *source_ir;       // original IR variant value for serialization
     EastType *fn_type;          // Function/AsyncFunction type (inputs + output), not owned
+    EastSourceMap *source_map;  // owned, for loc_id resolution at error time (may be NULL)
 };
 
 // Top-level API
@@ -35,5 +38,8 @@ BuiltinRegistry *east_current_builtins(void);
 
 // Set thread-local platform/builtins for worker threads (call before beast2 decode)
 void east_set_thread_context(PlatformRegistry *p, BuiltinRegistry *b);
+
+// Set thread-local source map for loc_id resolution (call before eval_ir / east_call)
+void east_set_source_map(const EastSourceMap *sm);
 
 #endif

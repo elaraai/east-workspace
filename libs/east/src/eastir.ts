@@ -4,14 +4,16 @@
  */
 import { type ValueTypeOf } from "./types.js";
 import type { AsyncFunctionIR, FunctionIR } from "./ir.js";
-import { compile_internal, ReturnException, EAST_IR_SYMBOL } from "./compile.js";
+import { compile_internal, ReturnException, EAST_IR_SYMBOL, EAST_SOURCE_MAP_SYMBOL } from "./compile.js";
 import type { PlatformFunction } from "./platform.js";
 import { analyzeIR } from "./analyze.js";
+import type { SourceMap } from "./location.js";
 
 /** A helper class wrapping East's "intermediate representation" (IR) for a free function.
  * The IR can be serialized and saved, or compiled so that the function can be executed.
  */
 export class EastIR<Inputs extends any[], Output extends any> {
+  public source_map: SourceMap | null = null;
   constructor(public ir: FunctionIR) {
     if (ir.type !== "Function") {
       throw new Error(`Expected function expression, got a ${ir.type}`)
@@ -52,13 +54,21 @@ export class EastIR<Inputs extends any[], Output extends any> {
       }
     };
 
-    // Attach IR to wrapper for serialization support
+    // Attach IR and source map to wrapper for serialization support
     Object.defineProperty(wrapper, EAST_IR_SYMBOL, {
       value: this.ir,
       writable: false,
       enumerable: false,
       configurable: false
     });
+    if (this.source_map) {
+      Object.defineProperty(wrapper, EAST_SOURCE_MAP_SYMBOL, {
+        value: this.source_map,
+        writable: false,
+        enumerable: false,
+        configurable: false
+      });
+    }
 
     return wrapper;
   }
@@ -68,6 +78,7 @@ export class EastIR<Inputs extends any[], Output extends any> {
  * The IR can be serialized and saved, or compiled so that the function can be executed.
  */
 export class AsyncEastIR<Inputs extends any[], Output extends any> {
+  public source_map: SourceMap | null = null;
   constructor(public ir: AsyncFunctionIR) {
     if (ir.type !== "AsyncFunction") {
       throw new Error(`Expected async function expression, got a ${ir.type}`)
@@ -111,13 +122,21 @@ export class AsyncEastIR<Inputs extends any[], Output extends any> {
       }
     };
 
-    // Attach IR to wrapper for serialization support
+    // Attach IR and source map to wrapper for serialization support
     Object.defineProperty(wrapper, EAST_IR_SYMBOL, {
       value: this.ir,
       writable: false,
       enumerable: false,
       configurable: false
     });
+    if (this.source_map) {
+      Object.defineProperty(wrapper, EAST_SOURCE_MAP_SYMBOL, {
+        value: this.source_map,
+        writable: false,
+        enumerable: false,
+        configurable: false
+      });
+    }
 
     return wrapper;
   }

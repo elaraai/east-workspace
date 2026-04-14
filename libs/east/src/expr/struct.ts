@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import type { AST } from "../ast.js";
-import { get_location } from "../location.js";
+import { get_location_id } from "../location.js";
 import { StructType } from "../types.js";
 import {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -65,7 +65,7 @@ const _StructExpr = class StructExpr<Fields extends Record<string, any>> extends
         get: () => this[FactorySymbol]({
           ast_type: "GetField",
           type,
-          location: get_location(),
+          loc_id: get_location_id(),
           field: key,
           struct: ast,
         }),

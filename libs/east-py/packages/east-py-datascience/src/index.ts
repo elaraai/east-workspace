@@ -331,6 +331,7 @@ export {
     Optimization,
     optimization_iterative,
     optimization_iterative_incremental,
+    optimization_iterative_grouped,
     OptimizationTypes,
     ParameterVectorType,
     IterativeObjectiveType,

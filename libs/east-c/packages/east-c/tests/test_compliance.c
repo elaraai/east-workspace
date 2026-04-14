@@ -67,15 +67,26 @@ static EvalResult plat_describe(EastValue **args, size_t num_args, EastType **in
     struct timespec dt0, dt1;
     clock_gettime(CLOCK_MONOTONIC, &dt0);
 
-    /* Call the body function (second argument) */
-    if (num_args > 1 && args[1] && args[1]->kind == EAST_VAL_FUNCTION) {
+    /* Call the body function (second argument).
+     *
+     * plat_test() catches errors in individual test bodies and returns ok,
+     * so test-level failures do NOT abort the describe. A describe body
+     * only aborts if its setup code (outside any test() call) throws — in
+     * which case any test() calls after the throw are never registered and
+     * are silently lost. Count that as one failure so the error isn't
+     * invisible. */
+    if (num_args <= 1 || !args[1] || args[1]->kind != EAST_VAL_FUNCTION) {
+        g_tests_run++;
+        g_tests_failed++;
+        printf("  \xe2\x9c\x96 describe \"%s\": no body (not a function)\n", name);
+    } else {
         EastCompiledFn *body = args[1]->data.function.compiled;
         EvalResult r = east_call(body, NULL, 0);
         if (r.status == EVAL_ERROR) {
             /* Count as a failed test so errors don't vanish silently */
             g_tests_run++;
             g_tests_failed++;
-            printf("  \xe2\x9c\x96 describe \"%s\": %s\n",
+            printf("  \xe2\x9c\x96 describe \"%s\" setup: %s\n",
                    name, r.error_message ? r.error_message : "?");
             eval_result_free(&r);
         } else {
@@ -109,6 +120,15 @@ static EvalResult plat_test(EastValue **args, size_t num_args, EastType **input_
 
     g_tests_run++;
 
+    /* Reject tests with no body or non-function body. Previously these were
+     * silently counted as PASSED because `failed` stayed 0 and the success
+     * branch was taken — hiding real bugs like lost function compilation. */
+    if (num_args <= 1 || !args[1] || args[1]->kind != EAST_VAL_FUNCTION) {
+        g_tests_failed++;
+        printf("  \xe2\x9c\x96 %s: no body (test arg missing or not a function)\n", name);
+        return eval_ok(east_null());
+    }
+
     struct timespec tt0, tt1;
     clock_gettime(CLOCK_MONOTONIC, &tt0);
 
@@ -118,21 +138,19 @@ static EvalResult plat_test(EastValue **args, size_t num_args, EastType **input_
     const char *err_file = NULL;
     long err_line = 0, err_col = 0;
 
-    if (num_args > 1 && args[1] && args[1]->kind == EAST_VAL_FUNCTION) {
-        EastCompiledFn *body = args[1]->data.function.compiled;
-        EvalResult r = east_call(body, NULL, 0);
-        if (r.status == EVAL_ERROR) {
-            failed = 1;
-            if (r.error_message) err_msg = strdup(r.error_message);
-            if (r.locations && r.num_locations > 0) {
-                if (r.locations[0].filename) err_file = strdup(r.locations[0].filename);
-                err_line = (long)r.locations[0].line;
-                err_col = (long)r.locations[0].column;
-            }
+    EastCompiledFn *body = args[1]->data.function.compiled;
+    EvalResult r = east_call(body, NULL, 0);
+    if (r.status == EVAL_ERROR) {
+        failed = 1;
+        if (r.error_message) err_msg = strdup(r.error_message);
+        if (r.locations && r.num_locations > 0) {
+            if (r.locations[0].filename) err_file = strdup(r.locations[0].filename);
+            err_line = (long)r.locations[0].line;
+            err_col = (long)r.locations[0].column;
         }
-        if (r.value) east_value_release(r.value);
-        eval_result_free(&r);
     }
+    if (r.value) east_value_release(r.value);
+    eval_result_free(&r);
 
     clock_gettime(CLOCK_MONOTONIC, &tt1);
     double test_ms = (tt1.tv_sec - tt0.tv_sec) * 1000.0 +
@@ -231,27 +249,85 @@ int main(int argc, char **argv)
                      (t1.tv_nsec - t0.tv_nsec) / 1e6;
     if (!g_quiet) printf("Load: %.1f ms (%.1f MB)\n", load_ms, json_len / (1024.0 * 1024.0));
 
-    /* Stage 2: Decode JSON to EastValue using IRType */
+    /* Stage 2: Decode JSON wrapper {source_map, ir} */
     clock_gettime(CLOCK_MONOTONIC, &t0);
 
-    EastValue *ir_val = east_json_decode(json, east_ir_type);
+    /* Build wrapper type: Struct({ir: IRType, source_map: SourceMapType}) */
+    /* source_map: { stacks: Array(Array(Struct({filename, line, column}))) } */
+    EastType *loc_struct = east_struct_type(
+        (const char*[]){"filename", "line", "column"},
+        (EastType*[]){&east_string_type, &east_integer_type, &east_integer_type}, 3);
+    EastType *loc_arr = east_array_type(loc_struct);
+    EastType *stacks_arr = east_array_type(loc_arr);
+    EastType *sm_type = east_struct_type(
+        (const char*[]){"stacks"}, (EastType*[]){stacks_arr}, 1);
+    EastType *wrapper_type = east_struct_type(
+        (const char*[]){"ir", "source_map"},
+        (EastType*[]){east_ir_type, sm_type}, 2);
+
+    EastValue *wrapper_val = east_json_decode(json, wrapper_type);
     free(json);
+
+    east_type_release(loc_struct);
+    east_type_release(loc_arr);
+    east_type_release(stacks_arr);
+    east_type_release(sm_type);
+    east_type_release(wrapper_type);
 
     clock_gettime(CLOCK_MONOTONIC, &t1);
     double decode_ms = (t1.tv_sec - t0.tv_sec) * 1000.0 +
                        (t1.tv_nsec - t0.tv_nsec) / 1e6;
     if (!g_quiet) printf("Decode: %.1f ms\n", decode_ms);
 
-    if (!ir_val) {
+    if (!wrapper_val) {
         fprintf(stderr, "Failed to decode JSON as IR\n");
         return 1;
     }
 
-    /* Stage 3: Convert EastValue variant tree to IRNode */
+    /* Extract source_map and ir from wrapper.
+     * Struct fields are sorted alphabetically: ir=0, source_map=1 */
+    EastValue *ir_val = east_struct_get_field_idx(wrapper_val, 0);  /* ir */
+    EastValue *sm_val = east_struct_get_field_idx(wrapper_val, 1);  /* source_map */
+
+    /* Build EastSourceMap from the decoded source_map value */
+    EastSourceMap source_map = {0};
+    if (sm_val && sm_val->kind == EAST_VAL_STRUCT) {
+        EastValue *stacks_val = east_struct_get_field_idx(sm_val, 0); /* stacks */
+        if (stacks_val && stacks_val->kind == EAST_VAL_ARRAY) {
+            size_t ns = stacks_val->data.array.len;
+            source_map.num_stacks = ns;
+            source_map.stacks = calloc(ns, sizeof(EastLocation *));
+            source_map.stack_counts = calloc(ns, sizeof(size_t));
+            for (size_t i = 0; i < ns; i++) {
+                EastValue *stack = stacks_val->data.array.items[i];
+                if (!stack || stack->kind != EAST_VAL_ARRAY) continue;
+                size_t nf = stack->data.array.len;
+                source_map.stack_counts[i] = nf;
+                if (nf == 0) continue;
+                source_map.stacks[i] = calloc(nf, sizeof(EastLocation));
+                for (size_t j = 0; j < nf; j++) {
+                    EastValue *frame = stack->data.array.items[j];
+                    if (!frame || frame->kind != EAST_VAL_STRUCT) continue;
+                    /* Struct fields sorted: column=0, filename=1, line=2 */
+                    EastValue *col_v = east_struct_get_field_idx(frame, 0);
+                    EastValue *fn_v = east_struct_get_field_idx(frame, 1);
+                    EastValue *ln_v = east_struct_get_field_idx(frame, 2);
+                    if (fn_v && fn_v->kind == EAST_VAL_STRING)
+                        source_map.stacks[i][j].filename = strdup(fn_v->data.string.data);
+                    if (ln_v && ln_v->kind == EAST_VAL_INTEGER)
+                        source_map.stacks[i][j].line = ln_v->data.integer;
+                    if (col_v && col_v->kind == EAST_VAL_INTEGER)
+                        source_map.stacks[i][j].column = col_v->data.integer;
+                }
+            }
+        }
+    }
+
+    /* Stage 3: Convert EastValue variant tree to IRNode (loc_id copied, not resolved) */
     clock_gettime(CLOCK_MONOTONIC, &t0);
 
     IRNode *ir = east_ir_from_value(ir_val);
-    east_value_release(ir_val);
+    east_value_release(wrapper_val);
 
     clock_gettime(CLOCK_MONOTONIC, &t1);
     double convert_ms = (t1.tv_sec - t0.tv_sec) * 1000.0 +
@@ -260,6 +336,7 @@ int main(int argc, char **argv)
 
     if (!ir) {
         fprintf(stderr, "Failed to convert IR value to IR node\n");
+        east_source_map_free(&source_map);
         return 1;
     }
 
@@ -279,8 +356,14 @@ int main(int argc, char **argv)
     if (!fn) {
         fprintf(stderr, "Failed to compile IR\n");
         ir_node_release(ir);
+        east_source_map_free(&source_map);
         return 1;
     }
+
+    /* Set source map on compiled function and thread-local for loc_id resolution */
+    fn->source_map = calloc(1, sizeof(EastSourceMap));
+    *fn->source_map = source_map;  /* transfer ownership */
+    east_set_source_map(fn->source_map);
 
     /* Extract the filename from path for display */
     const char *fname = strrchr(json_path, '/');
@@ -293,7 +376,15 @@ int main(int argc, char **argv)
     double exec_ms = (t1.tv_sec - t0.tv_sec) * 1000.0 +
                      (t1.tv_nsec - t0.tv_nsec) / 1e6;
 
+    /* A fatal error in the top-level script is itself a compliance failure.
+     * Previously only individual test() failures contributed to the exit
+     * code, so a crash before any tests registered would print to stderr
+     * but return 0 (success) — the shell aggregator would see "Results:
+     * 0/0 passed" and count it as a pass. Track it as a fatal failure so
+     * both the per-file Results line and the exit code reflect it. */
+    int fatal = 0;
     if (result.status == EVAL_ERROR) {
+        fatal = 1;
         fprintf(stderr, "\nFATAL ERROR: %s\n",
                 result.error_message ? result.error_message : "unknown");
         if (result.locations && result.num_locations > 0) {
@@ -307,8 +398,10 @@ int main(int argc, char **argv)
 
     if (!g_quiet) printf("\xe2\x84\xb9 tests %d\n", g_tests_run);
     printf("\nResults: %d/%d passed", g_tests_passed, g_tests_run);
-    if (g_tests_failed > 0) {
-        printf(" (%d failed)", g_tests_failed);
+    if (g_tests_failed > 0 || fatal) {
+        printf(" (%d failed", g_tests_failed);
+        if (fatal) printf(", FATAL");
+        printf(")");
     }
     printf("\nExecute: %.1f ms\n", exec_ms);
 
@@ -321,5 +414,5 @@ int main(int argc, char **argv)
     platform_registry_free(platform);
     builtin_registry_free(builtins);
 
-    return g_tests_failed > 0 ? 1 : 0;
+    return (g_tests_failed > 0 || fatal) ? 1 : 0;
 }

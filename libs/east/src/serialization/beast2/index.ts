@@ -15,23 +15,26 @@
  * See devdocs/BEAST2.md for the full specification.
  */
 
-import { toEastTypeValue, EastTypeValueType, type EastTypeValue } from "../type_of_type.js";
-import type { EastType, ValueTypeOf } from "../types.js";
-import { getTypeId } from "../types.js";
-import { isVariant, variant } from "../containers/variant.js";
-import { BufferWriter, BufferReader } from "./binary-utils.js";
-import { ref } from "../containers/ref.js";
-import { matrix } from "../containers/matrix.js";
-import { EAST_IR_SYMBOL, EAST_CAPTURES_SYMBOL, ReturnException, compile_internal, type RuntimeContext } from "../compile.js";
-import { InternalError } from "../error.js";
-import { IRType, type FunctionIR, type AsyncFunctionIR } from "../ir.js";
-import type { PlatformFunction } from "../platform.js";
-import type { AnalyzedIR } from "../analyze.js";
-import { EastIR, AsyncEastIR } from "../eastir.js";
-import { TypeTableBuilder, writeTypeTableSection, readTypeTableSection } from "./beast2-type-table.js";
+import { toEastTypeValue, type EastTypeValue } from "../../type_of_type.js";
+import type { EastType, ValueTypeOf } from "../../types.js";
+import { isVariant, variant } from "../../containers/variant.js";
+import { BufferWriter, BufferReader } from "../binary-utils.js";
+import { ref } from "../../containers/ref.js";
+import { matrix } from "../../containers/matrix.js";
+import { EAST_IR_SYMBOL, EAST_CAPTURES_SYMBOL, EAST_SOURCE_MAP_SYMBOL, ReturnException, compile_internal, type RuntimeContext } from "../../compile.js";
+import { InternalError } from "../../error.js";
+import { IRType, type FunctionIR, type AsyncFunctionIR } from "../../ir.js";
+import type { PlatformFunction } from "../../platform.js";
+import type { AnalyzedIR } from "../../analyze.js";
+import { EastIR, AsyncEastIR } from "../../eastir.js";
+import { TypeTableBuilder, writeTypeTableSection, readTypeTableSection } from "./type-table.js";
+import { writeStringTableSection, readStringTableSection } from "./string-table.js";
+import { writeSourceMapSection, readSourceMapSection } from "./sourcemap-table.js";
+import type { SourceMap } from "../../location.js";
+import { buildValueTable, buildIndexMap, isMutableType, type ValueTableEntry, TAG_ARRAY, TAG_DICT, TAG_SET, TAG_REF } from "./value-table.js";
 
-// type_id of EastTypeValueType — schema positions with this id encode values as table indices
-const EAST_TYPE_TYPE_TID = getTypeId(EastTypeValueType);
+// v4: EastTypeType values are encoded as regular variants (no special type-table-index encoding).
+// This ensures uniform encoding across value stream and value table, and simplifies multi-runtime implementations.
 
 // Shared empty set for compile_internal's compilingNodes parameter (avoids per-call allocation)
 const EMPTY_SET = new Set<any>();
@@ -41,7 +44,7 @@ const EMPTY_SET = new Set<any>();
 // Magic bytes (v2: last byte = 0x02)
 // =============================================================================
 
-export const MAGIC_BYTES = new Uint8Array([0x89, 0x45, 0x61, 0x73, 0x74, 0x0D, 0x0A, 0x02]);
+export const MAGIC_BYTES = new Uint8Array([0x89, 0x45, 0x61, 0x73, 0x74, 0x0D, 0x0A, 0x04]);
 
 function verifyMagic(data: Uint8Array): void {
   if (data.length < 8) {
@@ -71,17 +74,16 @@ type ValueEncoder = (value: any, writer: BufferWriter, ctx: EncodeContext) => vo
 type ValueDecoder = (reader: BufferReader, ctx: DecodeContext) => any;
 
 interface EncodeContext {
-  refs: Map<any, number>;
+  indexMap: Map<any, number>;  // identity map: mutable value → table index
   typeTable: TypeTableBuilder;
   stringTable: Map<string, number>;
-  irEncoder: ValueEncoder;
 }
 
 interface DecodeContext {
-  refs: Map<number, any>;
+  mutableValues: any[];  // decoded mutable containers by index
   typeTable: EastTypeValue[];
   stringTable: string[];
-  irDecoder: ValueDecoder;
+  sourceMap: SourceMap | null;
   platform: PlatformFunction[];
   platformFns: Record<string, any>;
   asyncPlatformFns: Set<string>;
@@ -96,15 +98,6 @@ interface DecodeContext {
  * The tree is built once and reused for every encode call.
  */
 function buildEncoder(type: EastTypeValue, typeCtx: Map<bigint, ValueEncoder> = new Map()): ValueEncoder {
-  // At EastTypeType schema positions, encode values as type table indices.
-  // Types are added lazily — if not already in the table, addETV adds it.
-  if (getTypeId(type) === EAST_TYPE_TYPE_TID) {
-    return (value: any, writer: BufferWriter, ctx: EncodeContext) => {
-      if (!ctx.typeTable.has(value)) ctx.typeTable.addETV(value);
-      writer.writeVarint(ctx.typeTable.indexOf(value));
-    };
-  }
-
   switch (type.type) {
     case "Never":
       return () => { throw new Error("Cannot encode value of type Never"); };
@@ -140,75 +133,16 @@ function buildEncoder(type: EastTypeValue, typeCtx: Map<bigint, ValueEncoder> = 
         writer.writeBytes(value);
       };
 
-    case "Ref": {
-      let innerEncoder: ValueEncoder;
-      const ret: ValueEncoder = (value, writer, ctx) => {
-        if (ctx.refs.has(value)) {
-          writer.writeVarint(writer.currentOffset - ctx.refs.get(value)!);
-          return;
-        }
-        writer.writeVarint(0);
-        ctx.refs.set(value, writer.currentOffset);
-        innerEncoder(value.value, writer, ctx);
-      };
-
-      innerEncoder = buildEncoder(type.value, typeCtx);
-
-      return ret;
-    }
-
-    case "Array": {
-      let elemEncoder: ValueEncoder;
-      const ret: ValueEncoder = (value, writer, ctx) => {
-        if (ctx.refs.has(value)) {
-          writer.writeVarint(writer.currentOffset - ctx.refs.get(value)!);
-          return;
-        }
-        writer.writeVarint(0);
-        ctx.refs.set(value, writer.currentOffset);
-        writer.writeVarint(value.length);
-        for (const item of value) elemEncoder(item, writer, ctx);
-      };
-
-      elemEncoder = buildEncoder(type.value, typeCtx);
-
-      return ret;
-    }
-
-    case "Set": {
-      const keyEncoder = buildEncoder(type.value, typeCtx);
-      return (value, writer, ctx) => {
-        if (ctx.refs.has(value)) {
-          writer.writeVarint(writer.currentOffset - ctx.refs.get(value)!);
-          return;
-        }
-        writer.writeVarint(0);
-        ctx.refs.set(value, writer.currentOffset);
-        writer.writeVarint(value.size);
-        for (const key of value) keyEncoder(key, writer, ctx);
-      };
-    }
-
+    case "Ref":
+    case "Array":
+    case "Set":
     case "Dict": {
-      const keyEncoder = buildEncoder(type.value.key, typeCtx);
-      let valEncoder: ValueEncoder;
-      const ret: ValueEncoder = (value, writer, ctx) => {
-        if (ctx.refs.has(value)) {
-          writer.writeVarint(writer.currentOffset - ctx.refs.get(value)!);
-          return;
-        }
-        writer.writeVarint(0);
-        ctx.refs.set(value, writer.currentOffset);
-        writer.writeVarint(value.size);
-        for (const [k, v] of value) {
-          keyEncoder(k, writer, ctx);
-          valEncoder(v, writer, ctx);
-        }
+      // v4: all mutable containers are in the value table, encoded as varint(index)
+      return (value, writer, ctx) => {
+        const idx = ctx.indexMap.get(value);
+        if (idx === undefined) throw new InternalError(`Mutable ${type.type} not found in value table during encode`);
+        writer.writeVarint(idx);
       };
-
-      valEncoder = buildEncoder(type.value.value, typeCtx);
-
-      return ret;
     }
 
     case "Struct": {
@@ -256,20 +190,16 @@ function buildEncoder(type: EastTypeValue, typeCtx: Map<bigint, ValueEncoder> = 
 
     case "Function":
     case "AsyncFunction": {
-      // Pre-build capture encoders from the function type's IR capture types.
-      // At build time we don't know the capture types (they come from the IR),
-      // so we build them lazily on first call and cache.
+      // Build IR encoder in the same typeCtx so recursive types resolve correctly
+      const fnIrEncoder = buildEncoder(irTypeValue, typeCtx);
       const captureEncoderCache = new Map<EastTypeValue, ValueEncoder>();
 
       return (value: any, writer: BufferWriter, ctx: EncodeContext) => {
         const ir = value[EAST_IR_SYMBOL] as FunctionIR | AsyncFunctionIR | undefined;
         if (!ir) throw new Error("Cannot serialize function: no IR attached");
 
-        // Encode IR directly — buildEncoder for IRType automatically handles
-        // EastTypeType positions as type table indices (no separate substitution)
-        ctx.irEncoder(ir, writer, ctx);
+        fnIrEncoder(ir, writer, ctx);
 
-        // Encode captures
         const captures = value[EAST_CAPTURES_SYMBOL] as RuntimeContext | undefined;
         const captureList = ir.value.captures;
         writer.writeVarint(captureList.length);
@@ -282,10 +212,9 @@ function buildEncoder(type: EastTypeValue, typeCtx: Map<bigint, ValueEncoder> = 
           const entry = captures[name];
           if (!entry) throw new InternalError(`Capture '${name}' not found`);
 
-          // Get or build cached encoder for this capture type
           let enc = captureEncoderCache.get(captureType);
           if (!enc) {
-            enc = buildEncoder(captureType);
+            enc = buildEncoder(captureType, typeCtx);
             captureEncoderCache.set(captureType, enc);
           }
           enc(entry.value, writer, ctx);
@@ -320,15 +249,6 @@ function buildEncoder(type: EastTypeValue, typeCtx: Map<bigint, ValueEncoder> = 
  * The tree is built once and reused for every decode call.
  */
 function buildDecoder(type: EastTypeValue, typeCtx: Map<bigint, ValueDecoder> = new Map()): ValueDecoder {
-  // At EastTypeType schema positions, decode values from type table indices.
-  if (getTypeId(type) === EAST_TYPE_TYPE_TID) {
-    return (reader: BufferReader, ctx: DecodeContext) => {
-      const idx = reader.readVarint();
-      if (idx >= ctx.typeTable.length) throw new Error(`Type table index ${idx} out of bounds (table has ${ctx.typeTable.length} entries)`);
-      return ctx.typeTable[idx]!;
-    };
-  }
-
   switch (type.type) {
     case "Never":
       return () => { throw new Error("Cannot decode value of type Never"); };
@@ -358,89 +278,17 @@ function buildDecoder(type: EastTypeValue, typeCtx: Map<bigint, ValueDecoder> = 
     case "Blob":
       return (reader) => reader.readBytes(reader.readVarint());
 
-    case "Ref": {
-      let innerDecoder: ValueDecoder;
-      const ret: ValueDecoder = (reader, ctx) => {
-        const startOffset = reader.offset;
-        const dist = reader.readVarint();
-        if (dist > 0) {
-          const target = ctx.refs.get(startOffset - dist);
-          if (!target) throw new Error(`Undefined Ref backreference at offset ${startOffset}, target ${startOffset - dist}`);
-          return target;
-        }
-        const r = ref(undefined as any);
-        ctx.refs.set(reader.offset, r);
-        r.value = innerDecoder(reader, ctx);
-        return r;
-      };
-
-      innerDecoder = buildDecoder(type.value, typeCtx);
-
-      return ret;
-    }
-
-    case "Array": {
-      let elemDecoder: ValueDecoder;
-      const ret: ValueDecoder = (reader, ctx) => {
-        const startOffset = reader.offset;
-        const dist = reader.readVarint();
-        if (dist > 0) {
-          const target = ctx.refs.get(startOffset - dist);
-          if (!target) throw new Error(`Undefined Array backreference at offset ${startOffset}`);
-          return target;
-        }
-        const refOffset = reader.offset;
-        const count = reader.readVarint();
-        const arr = new Array(count);
-        ctx.refs.set(refOffset, arr);
-        for (let i = 0; i < count; i++) arr[i] = elemDecoder(reader, ctx);
-        return arr;
-      };
-
-      elemDecoder = buildDecoder(type.value, typeCtx);
-
-      return ret;
-    }
-
-    case "Set": {
-      const keyDecoder = buildDecoder(type.value, typeCtx);
-      return (reader, ctx) => {
-        const startOffset = reader.offset;
-        const dist = reader.readVarint();
-        if (dist > 0) {
-          const target = ctx.refs.get(startOffset - dist);
-          if (!target) throw new Error(`Undefined Set backreference at offset ${startOffset}`);
-          return target;
-        }
-        const set = new Set<any>();
-        ctx.refs.set(reader.offset, set);
-        const count = reader.readVarint();
-        for (let i = 0; i < count; i++) set.add(keyDecoder(reader, ctx));
-        return set;
-      };
-    }
-
+    case "Ref":
+    case "Array":
+    case "Set":
     case "Dict": {
-      const keyDecoder = buildDecoder(type.value.key, typeCtx);
-      let valDecoder: ValueDecoder;
-      const ret: ValueDecoder = (reader, ctx) => {
-        const startOffset = reader.offset;
-        const dist = reader.readVarint();
-        if (dist > 0) {
-          const target = ctx.refs.get(startOffset - dist);
-          if (!target) throw new Error(`Undefined Dict backreference at offset ${startOffset}`);
-          return target;
-        }
-        const map = new Map<any, any>();
-        ctx.refs.set(reader.offset, map);
-        const count = reader.readVarint();
-        for (let i = 0; i < count; i++) map.set(keyDecoder(reader, ctx), valDecoder(reader, ctx));
-        return map;
+      // v4: mutable containers are read as varint(table_index) — the actual
+      // content was decoded from the mutable_value_table_section.
+      return (reader, ctx) => {
+        const idx = reader.readVarint();
+        if (idx >= ctx.mutableValues.length) throw new Error(`Invalid mutable value table index ${idx} (table has ${ctx.mutableValues.length} entries)`);
+        return ctx.mutableValues[idx];
       };
-
-      valDecoder = buildDecoder(type.value.value, typeCtx);
-
-      return ret;
     }
 
     case "Struct": {
@@ -494,14 +342,11 @@ function buildDecoder(type: EastTypeValue, typeCtx: Map<bigint, ValueDecoder> = 
     case "AsyncFunction": {
       const isAsync = type.type === "AsyncFunction";
       const fnType = type;
-
-      // Cache capture decoders (same capture types produce same decoder)
+      const fnIrDecoder = buildDecoder(irTypeValue, typeCtx);
       const captureDecoderCache = new Map<EastTypeValue, ValueDecoder>();
 
       return (reader: BufferReader, ctx: DecodeContext) => {
-        // Decode IR directly — buildDecoder for IRType automatically restores
-        // EastTypeType positions from type table indices
-        const ir = ctx.irDecoder(reader, ctx) as FunctionIR | AsyncFunctionIR;
+        const ir = fnIrDecoder(reader, ctx) as FunctionIR | AsyncFunctionIR;
 
         if (ir.type !== (isAsync ? "AsyncFunction" : "Function")) {
           throw new Error(`Expected ${fnType.type} IR, got ${ir.type}`);
@@ -523,7 +368,7 @@ function buildDecoder(type: EastTypeValue, typeCtx: Map<bigint, ValueDecoder> = 
           // Get or build cached decoder for this capture type
           let dec = captureDecoderCache.get(captureType);
           if (!dec) {
-            dec = buildDecoder(captureType);
+            dec = buildDecoder(captureType, typeCtx);
             captureDecoderCache.set(captureType, dec);
           }
           const captureValue = dec(reader, ctx);
@@ -591,79 +436,280 @@ function buildDecoder(type: EastTypeValue, typeCtx: Map<bigint, ValueDecoder> = 
 // String table section
 // =============================================================================
 
-/**
- * Write the string table section:
- *   [varint header_byte_length] [varint count] [string entries...]
- * Each string entry: [varint byte_length] [UTF-8 bytes]
- */
-function writeStringTableSection(stringTable: Map<string, number>, writer: BufferWriter): void {
-  const hw = new BufferWriter();
-  hw.writeVarint(stringTable.size);
-  // Write strings in index order (Map preserves insertion order, indices are sequential)
-  for (const [str] of stringTable) {
-    hw.writeStringUtf8Varint(str);
-  }
-  const headerBytes = hw.toUint8Array();
-  writer.writeVarint(headerBytes.length);
-  writer.writeBytes(headerBytes);
-}
-
-/**
- * Read the string table section into a string[] array.
- */
-function readStringTableSection(reader: BufferReader): string[] {
-  const headerByteLength = reader.readVarint();
-  const headerEnd = reader.offset + headerByteLength;
-  const count = reader.readVarint();
-  const table = new Array<string>(count);
-  for (let i = 0; i < count; i++) {
-    table[i] = reader.readStringUtf8Varint();
-  }
-  if (reader.offset !== headerEnd) {
-    throw new Error(`String table size mismatch: expected offset ${headerEnd}, got ${reader.offset}`);
-  }
-  return table;
-}
+// String table functions extracted to beast2-string-table.ts
 
 // =============================================================================
 // IR encoder/decoder (module-level singletons)
 // =============================================================================
 
 const irTypeValue = toEastTypeValue(IRType);
-const irEncoder = buildEncoder(irTypeValue);
-const irDecoder = buildDecoder(irTypeValue);
+
+// =============================================================================
+// Mutable value table section (v4)
+// =============================================================================
+
+function writeValueTableEntry(entry: ValueTableEntry, writer: BufferWriter, ctx: EncodeContext, encTypeCtx: Map<bigint, ValueEncoder>): void {
+  const type = entry.type;
+  const value = entry.value;
+
+  // Write kind tag
+  writer.writeUint8(entry.kind);
+
+  // Element encoder — handles both inline (non-mutable) and table-ref (mutable) cases
+  const encodeElem = (elemType: EastTypeValue, val: any, w: BufferWriter, c: EncodeContext) => {
+    if (isMutableType(elemType)) {
+      const idx = c.indexMap.get(val);
+      if (idx === undefined) throw new InternalError("Nested mutable value not in value table");
+      w.writeVarint(idx);
+    } else {
+      buildEncoder(elemType, encTypeCtx)(val, w, c);
+    }
+  };
+
+  switch (type.type) {
+    case "Array": {
+      if (!ctx.typeTable.has(type.value)) ctx.typeTable.addETV(type.value);
+      writer.writeVarint(ctx.typeTable.indexOf(type.value));
+      writer.writeVarint(value.length);
+      for (const item of value) encodeElem(type.value, item, writer, ctx);
+      break;
+    }
+    case "Set": {
+      if (!ctx.typeTable.has(type.value)) ctx.typeTable.addETV(type.value);
+      writer.writeVarint(ctx.typeTable.indexOf(type.value));
+      writer.writeVarint(value.size);
+      for (const key of value) encodeElem(type.value, key, writer, ctx);
+      break;
+    }
+    case "Dict": {
+      if (!ctx.typeTable.has(type.value.key)) ctx.typeTable.addETV(type.value.key);
+      if (!ctx.typeTable.has(type.value.value)) ctx.typeTable.addETV(type.value.value);
+      writer.writeVarint(ctx.typeTable.indexOf(type.value.key));
+      writer.writeVarint(ctx.typeTable.indexOf(type.value.value));
+      writer.writeVarint(value.size);
+      for (const [k, v] of value) {
+        encodeElem(type.value.key, k, writer, ctx);
+        encodeElem(type.value.value, v, writer, ctx);
+      }
+      break;
+    }
+    case "Ref": {
+      if (!ctx.typeTable.has(type.value)) ctx.typeTable.addETV(type.value);
+      writer.writeVarint(ctx.typeTable.indexOf(type.value));
+      encodeElem(type.value, value.value, writer, ctx);
+      break;
+    }
+  }
+}
+
+function readMutableValueTableSection(reader: BufferReader, ctx: DecodeContext): void {
+  const sectionByteLength = reader.readVarint();
+  const sectionEnd = reader.offset + sectionByteLength;
+  const entryCount = reader.readVarint();
+
+  if (entryCount === 0) {
+    if (reader.offset !== sectionEnd) throw new Error(`Value table section size mismatch`);
+    return;
+  }
+
+  // Two-pass decode: pre-allocate all containers, then fill elements.
+  // Each entry is prefixed with varint(byte_length), enabling trivial skip in pass 1.
+
+  // Pass 1: read entry headers, pre-allocate empty containers, skip element data by byte length
+  const entryOffsets: number[] = new Array(entryCount);
+  const entryLengths: number[] = new Array(entryCount);
+
+  for (let i = 0; i < entryCount; i++) {
+    const entryByteLength = reader.readVarint();
+    const entryStart = reader.offset;
+    const kindTag = reader.readUint8();
+
+    switch (kindTag) {
+      case TAG_ARRAY: {
+        reader.readVarint(); // elem type idx (skip)
+        const count = reader.readVarint();
+        ctx.mutableValues.push(new Array(count));
+        break;
+      }
+      case TAG_SET: {
+        reader.readVarint(); // elem type idx (skip)
+        reader.readVarint(); // count (skip — Set doesn't pre-allocate by count)
+        ctx.mutableValues.push(new Set<any>());
+        break;
+      }
+      case TAG_DICT: {
+        reader.readVarint(); // key type idx (skip)
+        reader.readVarint(); // val type idx (skip)
+        reader.readVarint(); // count (skip)
+        ctx.mutableValues.push(new Map<any, any>());
+        break;
+      }
+      case TAG_REF: {
+        reader.readVarint(); // inner type idx (skip)
+        ctx.mutableValues.push(ref(undefined as any));
+        break;
+      }
+      default:
+        throw new Error(`Unknown value table kind tag 0x${kindTag.toString(16)}`);
+    }
+
+    entryOffsets[i] = entryStart;
+    entryLengths[i] = entryByteLength;
+    // Skip to next entry using byte length
+    reader.offset = entryStart + entryByteLength;
+  }
+
+  if (reader.offset !== sectionEnd) {
+    throw new Error(`Value table section size mismatch: expected ${sectionEnd}, got ${reader.offset}`);
+  }
+
+  // Pre-build decoders for ALL recursive types in the decoded type table into
+  // a shared typeCtx. This ensures cross-type references resolve correctly
+  // (e.g., IR arrays inside Functions reference both IRType and EastTypeType).
+  const decTypeCtx = new Map<bigint, ValueDecoder>();
+  for (const t of ctx.typeTable) {
+    if (t.type === "Recursive" && (t.value as any)?.type === "wrapper") {
+      buildDecoder(t, decTypeCtx);
+    }
+  }
+
+  // Cache decoders by element type index — most entries share the same type
+  const decoderCache = new Map<number, ValueDecoder>();
+  const getCachedDecoder = (typeIdx: number): ValueDecoder => {
+    let dec = decoderCache.get(typeIdx);
+    if (!dec) {
+      dec = buildDecoder(ctx.typeTable[typeIdx]!, decTypeCtx);
+      decoderCache.set(typeIdx, dec);
+    }
+    return dec;
+  };
+
+  // Pass 2: fill elements in REVERSE order — children (higher indices) before parents.
+  // The walker produces parents-before-children, so reversing ensures a parent's
+  // element decoders (e.g., Function compilers) see fully-populated child entries.
+  for (let i = entryCount - 1; i >= 0; i--) {
+    const r = new BufferReader(reader.buffer, entryOffsets[i]!);
+    const kindTag = r.readUint8();
+
+    switch (kindTag) {
+      case TAG_ARRAY: {
+        const elemTypeIdx = r.readVarint();
+        const elemType = ctx.typeTable[elemTypeIdx]!;
+        const count = r.readVarint();
+        const arr = ctx.mutableValues[i]! as any[];
+        const isMut = isMutableType(elemType);
+        const dec = isMut ? null : getCachedDecoder(elemTypeIdx);
+        for (let j = 0; j < count; j++) {
+          arr[j] = isMut ? ctx.mutableValues[r.readVarint()] : dec!(r, ctx);
+        }
+        break;
+      }
+      case TAG_SET: {
+        const elemTypeIdx = r.readVarint();
+        const elemType = ctx.typeTable[elemTypeIdx]!;
+        const count = r.readVarint();
+        const set = ctx.mutableValues[i]! as Set<any>;
+        const isMut = isMutableType(elemType);
+        const dec = isMut ? null : getCachedDecoder(elemTypeIdx);
+        for (let j = 0; j < count; j++) {
+          set.add(isMut ? ctx.mutableValues[r.readVarint()] : dec!(r, ctx));
+        }
+        break;
+      }
+      case TAG_DICT: {
+        const keyTypeIdx = r.readVarint();
+        const valTypeIdx = r.readVarint();
+        const keyType = ctx.typeTable[keyTypeIdx]!;
+        const valType = ctx.typeTable[valTypeIdx]!;
+        const count = r.readVarint();
+        const map = ctx.mutableValues[i]! as Map<any, any>;
+        const keyMut = isMutableType(keyType);
+        const valMut = isMutableType(valType);
+        const keyDec = keyMut ? null : getCachedDecoder(keyTypeIdx);
+        const valDec = valMut ? null : getCachedDecoder(valTypeIdx);
+        for (let j = 0; j < count; j++) {
+          const k = keyMut ? ctx.mutableValues[r.readVarint()] : keyDec!(r, ctx);
+          const v = valMut ? ctx.mutableValues[r.readVarint()] : valDec!(r, ctx);
+          map.set(k, v);
+        }
+        break;
+      }
+      case TAG_REF: {
+        const innerTypeIdx = r.readVarint();
+        const innerType = ctx.typeTable[innerTypeIdx]!;
+        const rv = ctx.mutableValues[i]! as { value: any };
+        if (isMutableType(innerType)) {
+          rv.value = ctx.mutableValues[r.readVarint()];
+        } else {
+          rv.value = getCachedDecoder(innerTypeIdx)(r, ctx);
+        }
+        break;
+      }
+    }
+  }
+}
 
 // =============================================================================
 // Public API — Encode
 // =============================================================================
 
-export function encodeBeast2For(type: EastTypeValue): (value: any) => Uint8Array
-export function encodeBeast2For<T extends EastType>(type: T): (value: ValueTypeOf<T>) => Uint8Array
-export function encodeBeast2For(type: EastTypeValue | EastType): (value: any) => Uint8Array {
+export function encodeBeast2For(type: EastTypeValue, options?: { sourceMap?: SourceMap | null }): (value: any) => Uint8Array
+export function encodeBeast2For<T extends EastType>(type: T, options?: { sourceMap?: SourceMap | null }): (value: ValueTypeOf<T>) => Uint8Array
+export function encodeBeast2For(type: EastTypeValue | EastType, options?: { sourceMap?: SourceMap | null }): (value: any) => Uint8Array {
   const eastType = isVariant(type) ? undefined : type as EastType;
   const typeValue = isVariant(type) ? type as EastTypeValue : toEastTypeValue(type as EastType);
-  const valueEncoder = buildEncoder(typeValue);
+  // Build encoder tree once at setup — save the typeCtx for reuse by value table entries
+  const setupTypeCtx = new Map<bigint, ValueEncoder>();
+  const valueEncoder = buildEncoder(typeValue, setupTypeCtx);
 
   // Pre-build the type table for the root type (stable across encode calls).
-  // IR types from function values are added per-call since they vary.
   const baseBuilder = new TypeTableBuilder();
   const baseRootIdx = eastType ? baseBuilder.add(eastType) : baseBuilder.add(typeValue);
 
   return (value: any) => {
-    // Encode value data first — types and strings are added lazily.
-    // Types are discovered at EastTypeType positions (IR annotations).
-    // Strings are discovered at every String value position.
     const builder = baseBuilder.clone();
     const stringTable = new Map<string, number>();
+    // Extract source map: explicit option > auto-detect from function value > null
+    const sourceMap = options?.sourceMap ?? (value?.[EAST_SOURCE_MAP_SYMBOL] as SourceMap | undefined) ?? null;
+
+    // Build the mutable value table by walking the value graph.
+    // Pass the type table builder so recursive types are registered during the walk
+    // (wrappers are added before refs, satisfying the ordering constraint).
+    const vtEntries = buildValueTable(value, typeValue, builder);
+    const indexMap = buildIndexMap(vtEntries);
+    const ctx: EncodeContext = { indexMap, typeTable: builder, stringTable };
+
+    // Encode value table entries FIRST — this discovers types and strings
+    // from inside mutable containers (which are varint refs in the value stream)
+    const vtWriter = new BufferWriter();
+    vtWriter.writeVarint(vtEntries.length);
+    for (const entry of vtEntries) {
+      // Buffer each entry, then write varint(byte_length) + entry bytes
+      const entryWriter = new BufferWriter();
+      writeValueTableEntry(entry, entryWriter, ctx, setupTypeCtx);
+      const entryBytes = entryWriter.toUint8Array();
+      vtWriter.writeVarint(entryBytes.length);
+      vtWriter.writeBytes(entryBytes);
+    }
+
+    // Encode the value stream (mutable containers are written as varint indices)
     const valueWriter = new BufferWriter();
-    const ctx: EncodeContext = { refs: new Map(), typeTable: builder, stringTable, irEncoder };
     valueEncoder(value, valueWriter, ctx);
 
-    // Now write the final blob: magic + type table + string table + value data
+    // Source map filenames must be added to stringTable before writing string table section
+    const smWriter = new BufferWriter();
+    writeSourceMapSection(sourceMap, stringTable, smWriter);
+
+    // Write the final blob: magic + type table + string table + source map + value table + value data
     const writer = new BufferWriter();
     writer.writeBytes(MAGIC_BYTES);
     writeTypeTableSection(baseRootIdx, builder.entries, writer);
     writeStringTableSection(stringTable, writer);
+    writer.writeBytes(smWriter.toUint8Array());
+    // Write value table section with byte-length prefix
+    const vtBytes = vtWriter.toUint8Array();
+    writer.writeVarint(vtBytes.length);
+    writer.writeBytes(vtBytes);
     writer.writeBytes(valueWriter.toUint8Array());
 
     return writer.toUint8Array();
@@ -692,16 +738,18 @@ export function decodeBeast2For(type: EastTypeValue | EastType, options?: Beast2
     const reader = new BufferReader(data, MAGIC_BYTES.length);
     const { typeTable } = readTypeTableSection(reader);
     const stringTable = readStringTableSection(reader);
+    const sourceMap = readSourceMapSection(reader, stringTable);
 
     const ctx: DecodeContext = {
-      refs: new Map(),
+      mutableValues: [],
       typeTable,
       stringTable,
-      irDecoder,
+      sourceMap,
       platform,
       platformFns,
       asyncPlatformFns,
     };
+    readMutableValueTableSection(reader, ctx);
     const value = valueDecoder(reader, ctx);
 
     if (reader.offset !== data.length) {
@@ -722,18 +770,20 @@ export function decodeBeast2(data: Uint8Array, options?: Beast2DecodeOptions): {
   const reader = new BufferReader(data, MAGIC_BYTES.length);
   const { rootType, typeTable } = readTypeTableSection(reader);
   const stringTable = readStringTableSection(reader);
+  const sourceMap = readSourceMapSection(reader, stringTable);
 
   const valueDecoder = buildDecoder(rootType);
   const platform = options?.platform ?? [];
   const ctx: DecodeContext = {
-    refs: new Map(),
+    mutableValues: [],
     typeTable,
     stringTable,
-    irDecoder,
+    sourceMap,
     platform,
     platformFns: Object.fromEntries(platform.map(fn => [fn.name, fn.fn])),
     asyncPlatformFns: new Set(platform.filter(fn => fn.type === 'async').map(fn => fn.name)),
   };
+  readMutableValueTableSection(reader, ctx);
   const value = valueDecoder(reader, ctx);
 
   if (reader.offset !== data.length) {
@@ -747,7 +797,7 @@ export function decodeBeast2(data: Uint8Array, options?: Beast2DecodeOptions): {
 // Re-exports
 // =============================================================================
 
-export { EAST_IR_SYMBOL, EAST_CAPTURES_SYMBOL } from "../compile.js";
+// EAST_IR_SYMBOL and EAST_CAPTURES_SYMBOL are exported from compile.js directly
 
 export function compileFunctionIR<I extends any[], O>(ir: FunctionIR, platform: PlatformFunction[]): (...args: I) => O {
   return new EastIR(ir).compile(platform) as (...args: I) => O;

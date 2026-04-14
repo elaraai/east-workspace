@@ -12,7 +12,7 @@
  */
 
 import type { AsyncFunctionIR, FunctionIR, IR } from "./ir.js";
-import { printLocationValue } from "./ir.js";
+
 import type { EastTypeValue, StructTypeValue } from "./type_of_type.js";
 import { isTypeValueEqual, isSubtypeValue, expandTypeValue, toEastTypeValue } from "./type_of_type.js";
 import { printTypeValue } from "./compile.js";
@@ -154,7 +154,7 @@ export function analyzeIR<T extends IR>(
   function visit(node: IR, ctx: VariableContext, expectedReturnType?: EastTypeValue): AnalyzedIR {
     // Detect circular IR (we don't cache because we're building new nodes)
     if (visiting.has(node)) {
-      throw new Error(`Circular IR reference detected at ${printLocationValue(node.value.location)}`);
+      throw new Error(`Circular IR reference detected at loc_id ${node.value.loc_id}`);
     }
 
     visiting.add(node);
@@ -174,7 +174,7 @@ export function analyzeIR<T extends IR>(
       if (node.value.type.type !== node.value.value.type) {
         throw new Error(
           `Value node expected value of type .${node.value.type.type} ` +
-          `but got .${node.value.value.type} at ${printLocationValue(node.value.location)}`
+          `but got .${node.value.value.type} at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -195,7 +195,7 @@ export function analyzeIR<T extends IR>(
       // Validate variable is in scope
       if (varMeta === undefined) {
         throw new Error(
-          `Variable ${name} not in scope at ${printLocationValue(node.value.location)}`
+          `Variable ${name} not in scope at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -203,7 +203,7 @@ export function analyzeIR<T extends IR>(
       if (!isTypeValueEqual(varMeta.type, node.value.type)) {
         throw new Error(
           `Variable ${name} has type ${printTypeValue(varMeta.type)} ` +
-          `but expected ${printTypeValue(node.value.type)} at ${printLocationValue(node.value.location)}`
+          `but expected ${printTypeValue(node.value.type)} at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -213,7 +213,7 @@ export function analyzeIR<T extends IR>(
           `Variable ${name} mutability mismatch: ` +
           `context has ${varMeta.mutable ? 'mutable' : 'const'} ` +
           `but IR expects ${node.value.mutable ? 'mutable' : 'const'} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -265,7 +265,7 @@ export function analyzeIR<T extends IR>(
           `has type ${printTypeValue(node.value.variable.value.type)} ` +
           `but value has type ${printTypeValue(valueInfo.value.type)}. ` +
           `Insert an As node if subtyping is intended. ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -302,7 +302,7 @@ export function analyzeIR<T extends IR>(
       if (varMeta === undefined) {
         throw new Error(
           `Cannot assign to variable ${varName} which is not in scope ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -310,7 +310,7 @@ export function analyzeIR<T extends IR>(
       if (!node.value.variable.value.mutable) {
         throw new Error(
           `Cannot reassign const variable ${varName} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -318,7 +318,7 @@ export function analyzeIR<T extends IR>(
       if (!varMeta.mutable) {
         throw new Error(
           `Cannot reassign variable ${varName} - context says it's const ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -333,7 +333,7 @@ export function analyzeIR<T extends IR>(
           `Variable ${varName} has type ${printTypeValue(varMeta.type)} ` +
           `but value has type ${printTypeValue(valueInfo.value.type)}. ` +
           `Insert an As node if subtyping is intended. ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -366,7 +366,7 @@ export function analyzeIR<T extends IR>(
         throw new Error(
           `Block evaluates to type ${printTypeValue(lastType)} ` +
           `but expected ${printTypeValue(node.value.type)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -390,7 +390,7 @@ export function analyzeIR<T extends IR>(
         throw new Error(
           `Cannot cast value of type ${printTypeValue(valueInfo.value.type)} ` +
           `to type ${printTypeValue(node.value.type)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -400,14 +400,14 @@ export function analyzeIR<T extends IR>(
       if (valueInfo.value.type.type === "Never") {
         throw new Error(
           `Cannot cast .Never to type ${printTypeValue(node.value.type)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
       if (isTypeValueEqual(valueInfo.value.type, node.value.type)) {
         throw new Error(
           `Unnecessary As node: value is already of type ${printTypeValue(node.value.type)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -422,7 +422,7 @@ export function analyzeIR<T extends IR>(
         if (!node.value.optional) {
           throw new Error(
             `Platform function '${node.value.name}' not found ` +
-            `at ${printLocationValue(node.value.location)}`
+            `at loc_id ${node.value.loc_id}`
           );
         }
 
@@ -456,7 +456,7 @@ export function analyzeIR<T extends IR>(
         throw new Error(
           `Platform function '${node.value.name}' expects ${expectedTypeParamCount} ` +
           `type parameters, got ${typeParams.length} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -479,7 +479,7 @@ export function analyzeIR<T extends IR>(
         throw new Error(
           `Platform function '${node.value.name}' expects ${inputTypes.length} arguments ` +
           `but got ${node.value.arguments.length} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -504,7 +504,7 @@ export function analyzeIR<T extends IR>(
             `Expected type ${printTypeValue(expectedType)} ` +
             `but got ${printTypeValue(argAnalyzed.value.type)}. ` +
             `Insert an As node if subtyping is intended. ` +
-            `at ${printLocationValue(node.value.location)}`
+            `at loc_id ${node.value.loc_id}`
           );
         }
       }
@@ -520,7 +520,7 @@ export function analyzeIR<T extends IR>(
           `Platform function '${node.value.name}' return type ` +
           `expected to be ${printTypeValue(outputType)} ` +
           `but IR has ${printTypeValue(node.value.type)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -540,7 +540,7 @@ export function analyzeIR<T extends IR>(
       if (node.value.type.type !== "Function") {
         throw new Error(
           `Expected Function type, got ${printTypeValue(node.value.type)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -553,14 +553,14 @@ export function analyzeIR<T extends IR>(
         if (outerVar === undefined) {
           throw new Error(
             `Captured variable ${captureVar.value.name} not in scope ` +
-            `at ${printLocationValue(node.value.location)}`
+            `at loc_id ${node.value.loc_id}`
           );
         }
         if (!isTypeValueEqual(outerVar.type, captureVar.value.type)) {
           throw new Error(
             `Captured variable ${captureVar.value.name} has type ${printTypeValue(outerVar.type)} ` +
             `but expected ${printTypeValue(captureVar.value.type)} ` +
-            `at ${printLocationValue(node.value.location)}`
+            `at loc_id ${node.value.loc_id}`
           );
         }
         if (outerVar.mutable !== captureVar.value.mutable) {
@@ -568,7 +568,7 @@ export function analyzeIR<T extends IR>(
             `Captured variable ${captureVar.value.name} mutability mismatch: ` +
             `context has ${outerVar.mutable ? 'mutable' : 'const'} ` +
             `but IR expects ${captureVar.value.mutable ? 'mutable' : 'const'} ` +
-            `at ${printLocationValue(node.value.location)}`
+            `at loc_id ${node.value.loc_id}`
           );
         }
 
@@ -620,7 +620,7 @@ export function analyzeIR<T extends IR>(
         throw new Error(
           `Function body returns type ${printTypeValue(bodyInfo.value.type)} ` +
           `but function signature expects ${printTypeValue(expectedOutput)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -640,7 +640,7 @@ export function analyzeIR<T extends IR>(
       if (node.value.type.type !== "AsyncFunction") {
         throw new Error(
           `Expected AsyncFunction type, got ${printTypeValue(node.value.type)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -653,14 +653,14 @@ export function analyzeIR<T extends IR>(
         if (outerVar === undefined) {
           throw new Error(
             `Captured variable ${captureVar.value.name} not in scope ` +
-            `at ${printLocationValue(node.value.location)}`
+            `at loc_id ${node.value.loc_id}`
           );
         }
         if (!isTypeValueEqual(outerVar.type, captureVar.value.type)) {
           throw new Error(
             `Captured variable ${captureVar.value.name} has type ${printTypeValue(outerVar.type)} ` +
             `but expected ${printTypeValue(captureVar.value.type)} ` +
-            `at ${printLocationValue(node.value.location)}`
+            `at loc_id ${node.value.loc_id}`
           );
         }
         if (outerVar.mutable !== captureVar.value.mutable) {
@@ -668,7 +668,7 @@ export function analyzeIR<T extends IR>(
             `Captured variable ${captureVar.value.name} mutability mismatch: ` +
             `context has ${outerVar.mutable ? 'mutable' : 'const'} ` +
             `but IR expects ${captureVar.value.mutable ? 'mutable' : 'const'} ` +
-            `at ${printLocationValue(node.value.location)}`
+            `at loc_id ${node.value.loc_id}`
           );
         }
 
@@ -720,7 +720,7 @@ export function analyzeIR<T extends IR>(
         throw new Error(
           `AsyncFunction body returns type ${printTypeValue(bodyInfo.value.type)} ` +
           `but function signature expects ${printTypeValue(expectedOutput)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -743,7 +743,7 @@ export function analyzeIR<T extends IR>(
       if (fnInfo.value.type.type !== "Function") {
         throw new Error(
           `Call expects Function type, got ${printTypeValue(fnInfo.value.type)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -752,7 +752,7 @@ export function analyzeIR<T extends IR>(
         throw new Error(
           `Function expects ${fnInfo.value.type.value.inputs.length} arguments, ` +
           `got ${node.value.arguments.length} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -775,7 +775,7 @@ export function analyzeIR<T extends IR>(
             `Expected type ${printTypeValue(expectedType)} ` +
             `but got ${printTypeValue(argInfo.value.type)}. ` +
             `Insert an As node if subtyping is intended. ` +
-            `at ${printLocationValue(node.value.location)}`
+            `at loc_id ${node.value.loc_id}`
           );
         }
       }
@@ -785,7 +785,7 @@ export function analyzeIR<T extends IR>(
         throw new Error(
           `Function call return type expected to be ${printTypeValue(fnInfo.value.type.value.output)} ` +
           `but IR has ${printTypeValue(node.value.type)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -812,7 +812,7 @@ export function analyzeIR<T extends IR>(
       if (fnInfo.value.type.type !== "AsyncFunction") {
         throw new Error(
           `CallAsync expects AsyncFunction type, got ${printTypeValue(fnInfo.value.type)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -821,7 +821,7 @@ export function analyzeIR<T extends IR>(
         throw new Error(
           `Function expects ${fnInfo.value.type.value.inputs.length} arguments, ` +
           `got ${node.value.arguments.length} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -840,7 +840,7 @@ export function analyzeIR<T extends IR>(
             `Expected type ${printTypeValue(expectedType)} ` +
             `but got ${printTypeValue(argInfo.value.type)}. ` +
             `Insert an As node if subtyping is intended. ` +
-            `at ${printLocationValue(node.value.location)}`
+            `at loc_id ${node.value.loc_id}`
           );
         }
       }
@@ -850,7 +850,7 @@ export function analyzeIR<T extends IR>(
         throw new Error(
           `Function call return type expected to be ${printTypeValue(fnInfo.value.type.value.output)} ` +
           `but IR has ${printTypeValue(node.value.type)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -876,7 +876,7 @@ export function analyzeIR<T extends IR>(
       if (!builtin) {
         throw new Error(
           `Unknown builtin function '${builtinName}' ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -884,7 +884,7 @@ export function analyzeIR<T extends IR>(
         throw new Error(
           `Builtin function '${builtinName}' expects ${builtin.inputs.length} arguments, ` +
           `but got ${node.value.arguments.length} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -913,7 +913,7 @@ export function analyzeIR<T extends IR>(
       // Validate we're inside a function
       if (!expectedReturnType) {
         throw new Error(
-          `Return statement outside of function at ${printLocationValue(node.value.location)}`
+          `Return statement outside of function at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -925,7 +925,7 @@ export function analyzeIR<T extends IR>(
         throw new Error(
           `Return statement returns type ${printTypeValue(valueInfo.value.type)} ` +
           `but function signature expects ${printTypeValue(expectedReturnType)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -945,7 +945,7 @@ export function analyzeIR<T extends IR>(
       if (node.value.type.type !== "Ref") {
         throw new Error(
           `NewRef node must have Ref type, got ${printTypeValue(node.value.type)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -959,7 +959,7 @@ export function analyzeIR<T extends IR>(
         throw new Error(
           `Ref value has type ${printTypeValue(valueInfo.value.type)} ` +
           `but Ref expects ${printTypeValue(elementType)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
     }
@@ -969,7 +969,7 @@ export function analyzeIR<T extends IR>(
       if (node.value.type.type !== "Array") {
         throw new Error(
           `NewArray node must have Array type, got ${printTypeValue(node.value.type)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -990,7 +990,7 @@ export function analyzeIR<T extends IR>(
           throw new Error(
             `Array element ${i} has type ${printTypeValue(valueInfo.value.type)} ` +
             `but array expects ${printTypeValue(elementType)} ` +
-            `at ${printLocationValue(node.value.location)}`
+            `at loc_id ${node.value.loc_id}`
           );
         }
       }
@@ -1001,7 +1001,7 @@ export function analyzeIR<T extends IR>(
       if (node.value.type.type !== "Set") {
         throw new Error(
           `NewSet node must have Set type, got ${printTypeValue(node.value.type)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -1022,7 +1022,7 @@ export function analyzeIR<T extends IR>(
           throw new Error(
             `Set element ${i} has type ${printTypeValue(keyInfo.value.type)} ` +
             `but set expects ${printTypeValue(keyType)} ` +
-            `at ${printLocationValue(node.value.location)}`
+            `at loc_id ${node.value.loc_id}`
           );
         }
       }
@@ -1033,7 +1033,7 @@ export function analyzeIR<T extends IR>(
       if (node.value.type.type !== "Dict") {
         throw new Error(
           `NewDict node must have Dict type, got ${printTypeValue(node.value.type)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -1060,7 +1060,7 @@ export function analyzeIR<T extends IR>(
           throw new Error(
             `Dict key ${i} has type ${printTypeValue(keyInfo.value.type)} ` +
             `but dict expects ${printTypeValue(keyType)} ` +
-            `at ${printLocationValue(node.value.location)}`
+            `at loc_id ${node.value.loc_id}`
           );
         }
 
@@ -1069,7 +1069,7 @@ export function analyzeIR<T extends IR>(
           throw new Error(
             `Dict value ${i} has type ${printTypeValue(valInfo.value.type)} ` +
             `but dict expects ${printTypeValue(valueType)} ` +
-            `at ${printLocationValue(node.value.location)}`
+            `at loc_id ${node.value.loc_id}`
           );
         }
       }
@@ -1083,7 +1083,7 @@ export function analyzeIR<T extends IR>(
       if (arrayInfo.value.type.type !== "Array") {
         throw new Error(
           `ForArray expects Array type, got ${printTypeValue(arrayInfo.value.type)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -1093,7 +1093,7 @@ export function analyzeIR<T extends IR>(
       if (node.value.key.value.type.type !== "Integer") {
         throw new Error(
           `ForArray key must be Integer type, got ${printTypeValue(node.value.key.value.type)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -1102,7 +1102,7 @@ export function analyzeIR<T extends IR>(
         throw new Error(
           `ForArray value variable has type ${printTypeValue(node.value.value.value.type)} ` +
           `but array elements have type ${printTypeValue(elementType)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -1153,7 +1153,7 @@ export function analyzeIR<T extends IR>(
       if (setInfo.value.type.type !== "Set") {
         throw new Error(
           `ForSet expects Set type, got ${printTypeValue(setInfo.value.type)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -1164,7 +1164,7 @@ export function analyzeIR<T extends IR>(
         throw new Error(
           `ForSet key variable has type ${printTypeValue(node.value.key.value.type)} ` +
           `but set elements have type ${printTypeValue(elementType)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -1196,7 +1196,7 @@ export function analyzeIR<T extends IR>(
       if (dictInfo.value.type.type !== "Dict") {
         throw new Error(
           `ForDict expects Dict type, got ${printTypeValue(dictInfo.value.type)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -1208,7 +1208,7 @@ export function analyzeIR<T extends IR>(
         throw new Error(
           `ForDict key variable has type ${printTypeValue(node.value.key.value.type)} ` +
           `but dict keys have type ${printTypeValue(keyType)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -1217,7 +1217,7 @@ export function analyzeIR<T extends IR>(
         throw new Error(
           `ForDict value variable has type ${printTypeValue(node.value.value.value.type)} ` +
           `but dict values have type ${printTypeValue(valueType)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -1269,7 +1269,7 @@ export function analyzeIR<T extends IR>(
         if (predicateInfo.value.type.type !== "Boolean") {
           throw new Error(
             `IfElse predicate ${i} must be Boolean type, got ${printTypeValue(predicateInfo.value.type)} ` +
-            `at ${printLocationValue(node.value.location)}`
+            `at loc_id ${node.value.loc_id}`
           );
         }
 
@@ -1289,7 +1289,7 @@ export function analyzeIR<T extends IR>(
           throw new Error(
             `IfElse branch ${i} returns type ${printTypeValue(bodyInfo.value.type)} ` +
             `but IfElse expects ${printTypeValue(node.value.type)} ` +
-            `at ${printLocationValue(node.value.location)}`
+            `at loc_id ${node.value.loc_id}`
           );
         }
 
@@ -1312,7 +1312,7 @@ export function analyzeIR<T extends IR>(
         throw new Error(
           `IfElse else branch returns type ${printTypeValue(elseInfo.value.type)} ` +
           `but IfElse expects ${printTypeValue(node.value.type)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -1321,7 +1321,7 @@ export function analyzeIR<T extends IR>(
         throw new Error(
           `IfElse has all branches returning Never, so it must have type Never, ` +
           `but has type ${printTypeValue(node.value.type)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -1329,7 +1329,7 @@ export function analyzeIR<T extends IR>(
       if (node.value.type.type === "Never" && !allBranchesNever) {
         throw new Error(
           `IfElse has type Never but not all branches diverge ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -1352,7 +1352,7 @@ export function analyzeIR<T extends IR>(
       if (predicateInfo.value.type.type !== "Boolean") {
         throw new Error(
           `While predicate must be Boolean type, got ${printTypeValue(predicateInfo.value.type)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -1388,7 +1388,7 @@ export function analyzeIR<T extends IR>(
       if (messageInfo.value.type.type !== "String") {
         throw new Error(
           `Error message must be String type, got ${printTypeValue(messageInfo.value.type)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -1404,7 +1404,7 @@ export function analyzeIR<T extends IR>(
       if (node.value.message.value.type.type !== "String") {
         throw new Error(
           `TryCatch message variable must be String type, got ${printTypeValue(node.value.message.value.type)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -1413,7 +1413,7 @@ export function analyzeIR<T extends IR>(
       if (!isTypeValueEqual(node.value.stack.value.type, stackType)) {
         throw new Error(
           `TryCatch stack variable must be ${printTypeValue(stackType)} type, got ${printTypeValue(node.value.stack.value.type)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -1449,7 +1449,7 @@ export function analyzeIR<T extends IR>(
         throw new Error(
           `TryCatch try body returns type ${printTypeValue(tryInfo.value.type)} ` +
           `but TryCatch expects ${printTypeValue(node.value.type)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -1457,7 +1457,7 @@ export function analyzeIR<T extends IR>(
         throw new Error(
           `TryCatch catch body returns type ${printTypeValue(catchInfo.value.type)} ` +
           `but TryCatch expects ${printTypeValue(node.value.type)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -1467,7 +1467,7 @@ export function analyzeIR<T extends IR>(
         throw new Error(
           `TryCatch has both try and catch bodies returning Never, so it must have type Never, ` +
           `but has type ${printTypeValue(node.value.type)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -1494,7 +1494,7 @@ export function analyzeIR<T extends IR>(
       if (node.value.type.type !== "Struct") {
         throw new Error(
           `Struct node must have Struct type, got ${printTypeValue(node.value.type)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -1505,7 +1505,7 @@ export function analyzeIR<T extends IR>(
         throw new Error(
           `Struct type has ${structType.value.length} fields but struct value has ` +
           `${node.value.fields.length} fields ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -1522,7 +1522,7 @@ export function analyzeIR<T extends IR>(
         if (typeField.name !== field.name) {
           throw new Error(
             `Struct has field ${typeField.name} at position ${i}, but value does not ` +
-            `at ${printLocationValue(node.value.location)}`
+            `at loc_id ${node.value.loc_id}`
           );
         }
 
@@ -1531,7 +1531,7 @@ export function analyzeIR<T extends IR>(
           throw new Error(
             `Struct field ${field.name} has type ${printTypeValue(fieldInfo.value.type)} ` +
             `but struct type expects ${printTypeValue(typeField.type)} ` +
-            `at ${printLocationValue(node.value.location)}`
+            `at loc_id ${node.value.loc_id}`
           );
         }
       }
@@ -1546,7 +1546,7 @@ export function analyzeIR<T extends IR>(
       if (structInfo.value.type.type !== "Struct") {
         throw new Error(
           `GetField expects Struct type, got ${printTypeValue(structInfo.value.type)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -1557,7 +1557,7 @@ export function analyzeIR<T extends IR>(
       if (!field) {
         throw new Error(
           `Struct does not have field ${node.value.field} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -1566,7 +1566,7 @@ export function analyzeIR<T extends IR>(
         throw new Error(
           `GetField result type ${printTypeValue(node.value.type)} ` +
           `does not match field type ${printTypeValue(field.type)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -1581,7 +1581,7 @@ export function analyzeIR<T extends IR>(
       if (node.value.type.type !== "Variant") {
         throw new Error(
           `Variant node must have Variant type, got ${printTypeValue(node.value.type)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -1590,7 +1590,7 @@ export function analyzeIR<T extends IR>(
       if (variantType.type !== "Variant") {
         throw new Error(
           `Expanded Variant type is not Variant, got ${printTypeValue(variantType)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -1599,7 +1599,7 @@ export function analyzeIR<T extends IR>(
       if (!caseType) {
         throw new Error(
           `Variant type does not have case ${node.value.case} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -1608,7 +1608,7 @@ export function analyzeIR<T extends IR>(
         throw new Error(
           `Variant case ${node.value.case} value has type ${printTypeValue(valueInfo.value.type)} ` +
           `but variant type expects ${printTypeValue(caseType.type)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -1623,7 +1623,7 @@ export function analyzeIR<T extends IR>(
       if (variantInfo.value.type.type !== "Variant") {
         throw new Error(
           `Match expects Variant type, got ${printTypeValue(variantInfo.value.type)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -1632,7 +1632,7 @@ export function analyzeIR<T extends IR>(
       if (variantType.type !== "Variant") {
         throw new Error(
           `Expanded Match variant type is not Variant, got ${printTypeValue(variantType)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -1641,7 +1641,7 @@ export function analyzeIR<T extends IR>(
         throw new Error(
           `Match has ${node.value.cases.length} cases but variant type has ` +
           `${variantType.value.length} cases ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -1655,7 +1655,7 @@ export function analyzeIR<T extends IR>(
         if (!typeCase) {
           throw new Error(
             `Match has case ${matchCase.case} but variant type does not ` +
-            `at ${printLocationValue(node.value.location)}`
+            `at loc_id ${node.value.loc_id}`
           );
         }
 
@@ -1664,7 +1664,7 @@ export function analyzeIR<T extends IR>(
           throw new Error(
             `Match case ${matchCase.case} variable has type ${printTypeValue(matchCase.variable.value.type)} ` +
             `but variant case has type ${printTypeValue(typeCase.type)} ` +
-            `at ${printLocationValue(node.value.location)}`
+            `at loc_id ${node.value.loc_id}`
           );
         }
 
@@ -1698,7 +1698,7 @@ export function analyzeIR<T extends IR>(
           throw new Error(
             `Match case ${matchCase.case} returns type ${printTypeValue(bodyInfo.value.type)} ` +
             `but Match expects ${printTypeValue(node.value.type)} ` +
-            `at ${printLocationValue(node.value.location)}`
+            `at loc_id ${node.value.loc_id}`
           );
         }
       }
@@ -1708,7 +1708,7 @@ export function analyzeIR<T extends IR>(
         throw new Error(
           `Match has all cases returning Never, so it must have type Never, ` +
           `but has type ${printTypeValue(node.value.type)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -1727,7 +1727,7 @@ export function analyzeIR<T extends IR>(
         throw new Error(
           `UnwrapRecursive result type ${printTypeValue(node.value.type)} ` +
           `does not match recursive type ${printTypeValue(inputType)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -1746,7 +1746,7 @@ export function analyzeIR<T extends IR>(
         throw new Error(
           `WrapRecursive value has type ${printTypeValue(valueInfo.value.type)} ` +
           `but expects ${printTypeValue(expectedType)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -1758,7 +1758,7 @@ export function analyzeIR<T extends IR>(
       if (node.value.type.type !== "Vector") {
         throw new Error(
           `NewVector node must have Vector type, got ${printTypeValue(node.value.type)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -1779,7 +1779,7 @@ export function analyzeIR<T extends IR>(
           throw new Error(
             `Vector element ${i} has type ${printTypeValue(valueInfo.value.type)} ` +
             `but vector expects ${printTypeValue(elementType)} ` +
-            `at ${printLocationValue(node.value.location)}`
+            `at loc_id ${node.value.loc_id}`
           );
         }
       }
@@ -1790,7 +1790,7 @@ export function analyzeIR<T extends IR>(
       if (node.value.type.type !== "Matrix") {
         throw new Error(
           `NewMatrix node must have Matrix type, got ${printTypeValue(node.value.type)} ` +
-          `at ${printLocationValue(node.value.location)}`
+          `at loc_id ${node.value.loc_id}`
         );
       }
 
@@ -1811,14 +1811,14 @@ export function analyzeIR<T extends IR>(
           throw new Error(
             `Matrix element ${i} has type ${printTypeValue(valueInfo.value.type)} ` +
             `but matrix expects ${printTypeValue(elementType)} ` +
-            `at ${printLocationValue(node.value.location)}`
+            `at loc_id ${node.value.loc_id}`
           );
         }
       }
     }
 
     else {
-      throw new Error(`Unhandled IR type: ${(node satisfies never as IR).type} at ${printLocationValue((node as IR).value?.location || { file: "unknown", line: 0, column: 0 })}`);
+      throw new Error(`Unhandled IR type: ${(node satisfies never as IR).type} at loc_id ${(node as IR).value?.loc_id ?? -1n}`);
     }
 
     return {

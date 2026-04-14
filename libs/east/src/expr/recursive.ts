@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import type { AST } from "../ast.js";
-import { get_location } from "../location.js";
+import { get_location_id } from "../location.js";
 import { RecursiveType } from "../types.js";
 import { Expr, FactorySymbol, AstSymbol, type ToExpr } from "./expr.js";
 import type { ExprType, SubtypeExprOrValue } from "./types.js";
@@ -68,7 +68,7 @@ export class RecursiveExpr<T> extends Expr<RecursiveType<T>> {
     const unwrapAst: AST = {
       ast_type: "UnwrapRecursive",
       type: this.nodeType as AST["type"],
-      location: get_location(),
+      loc_id: get_location_id(),
       value: this[AstSymbol],
     };
     return this[FactorySymbol](unwrapAst) as ExprType<T>;
@@ -101,7 +101,7 @@ export class RecursiveExpr<T> extends Expr<RecursiveType<T>> {
     const wrapAst: AST = {
       ast_type: "WrapRecursive",
       type: type,
-      location: get_location(),
+      loc_id: get_location_id(),
       value: valueAst,
     };
     return factory(wrapAst) as RecursiveExpr<T>;

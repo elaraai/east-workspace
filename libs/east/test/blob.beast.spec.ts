@@ -4,7 +4,6 @@
  */
 import {
   East,
-  Expr,
   NullType,
   BooleanType,
   IntegerType,

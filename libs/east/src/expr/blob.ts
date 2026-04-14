@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import type { AST } from "../ast.js";
-import { get_location } from "../location.js";
+import { get_location_id } from "../location.js";
 import { ArrayType, IntegerType, StringType, type BlobType, type EastType, type StructType } from "../types.js";
 import { valueOrExprToAstTyped } from "./ast.js";
 import { AstSymbol, Expr, FactorySymbol, type ToExpr } from "./expr.js";
@@ -64,7 +64,7 @@ export class BlobExpr extends Expr<BlobType> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: IntegerType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "BlobSize",
       type_parameters: [],
       arguments: [this[AstSymbol]],
@@ -97,7 +97,7 @@ export class BlobExpr extends Expr<BlobType> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: IntegerType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "BlobGetUint8",
       type_parameters: [],
       arguments: [this[AstSymbol], offsetAst],
@@ -130,7 +130,7 @@ export class BlobExpr extends Expr<BlobType> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: StringType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "BlobDecodeUtf8",
       type_parameters: [],
       arguments: [this[AstSymbol]],
@@ -161,7 +161,7 @@ export class BlobExpr extends Expr<BlobType> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: StringType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "BlobDecodeUtf16",
       type_parameters: [],
       arguments: [this[AstSymbol]],
@@ -193,7 +193,7 @@ export class BlobExpr extends Expr<BlobType> {
       return this[FactorySymbol]({
         ast_type: "Builtin",
         type,
-        location: get_location(),
+        loc_id: get_location_id(),
         builtin: "BlobDecodeBeast",
         type_parameters: [type],
         arguments: [this[AstSymbol]],
@@ -202,7 +202,7 @@ export class BlobExpr extends Expr<BlobType> {
       return this[FactorySymbol]({
         ast_type: "Builtin",
         type,
-        location: get_location(),
+        loc_id: get_location_id(),
         builtin: "BlobDecodeBeast2",
         type_parameters: [type],
         arguments: [this[AstSymbol]],
@@ -241,7 +241,7 @@ export class BlobExpr extends Expr<BlobType> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: ArrayType(structType),
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "BlobDecodeCsv",
       type_parameters: [structType, CsvParseConfigType],
       arguments: [this[AstSymbol], configAst],

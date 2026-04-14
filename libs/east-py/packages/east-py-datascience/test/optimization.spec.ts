@@ -20,6 +20,7 @@ describeEast("Optimization platform functions", (test) => {
         optimizationCoordinate: ex.optimizationCoordinate,
         optimizationSwap: ex.optimizationSwap,
         optimizationIncremental: ex.optimizationIncremental,
+        optimizationGrouped: ex.optimizationGrouped,
     });
 
     test("iterative finds optimal task-worker assignment", $ => {
@@ -532,6 +533,185 @@ describeEast("Optimization platform functions", (test) => {
         const incrResult = $.let(Optimization.iterativeIncremental(elementObjective, spaces, config));
 
         $(Assert.equal(fullResult.best_objective, incrResult.best_objective));
+    });
+
+    // ── Grouped tests ─────────────────────────────────────────────────
+
+    test("grouped finds optimal slot-to-worker assignment", $ => {
+        // 6 slots, 3 workers. Group objective: per-worker cost.
+        const shiftCosts = $.let([10.0, 20.0, 15.0, 25.0, 30.0, 5.0]);
+        const nSlots = East.value(6n);
+
+        const groupObjective = East.function(
+            [VectorType(IntegerType), IntegerType], FloatType,
+            ($, assignments, workerId) => {
+                const cost = $.let(0.0);
+                $.for(East.Array.range(0n, nSlots), ($, slot) => {
+                    $.if(East.equal(assignments.get(slot), workerId), $ => {
+                        $.assign(cost, cost.add(shiftCosts.get(slot)));
+                    });
+                });
+                return $.return(cost.negate());
+            }
+        );
+
+        const workers = East.Vector.fromArray([0n, 1n, 2n]);
+        const spaces = $.let([workers, workers, workers, workers, workers, workers]);
+
+        const config = $.let({
+            iterations: variant('some', 20n),
+            samples: variant('some', 5n),
+            initial: variant('some', variant('random', null)),
+            order: variant('some', variant('sequential', null)),
+            random_state: variant('some', 42n),
+            mode: variant('none', null),
+            workers: variant('none', null),
+        });
+
+        const result = $.let(Optimization.iterativeGrouped(
+            groupObjective, spaces, config,
+        ));
+
+        $(Assert.equal(result.success, true));
+        // Total cost = -(10+20+15+25+30+5) = -105 (no per-worker penalty)
+        $(Assert.equal(result.best_objective, East.value(-105.0)));
+    });
+
+    test("grouped with overtime penalty prefers balanced assignment", $ => {
+        // 6 slots, 3 workers. Overtime penalty if >2 slots per worker.
+        const shiftCosts = $.let([10.0, 10.0, 10.0, 10.0, 10.0, 10.0]);
+        const nSlots = East.value(6n);
+
+        const groupObjective = East.function(
+            [VectorType(IntegerType), IntegerType], FloatType,
+            ($, assignments, workerId) => {
+                const cost = $.let(0.0);
+                const count = $.let(0n);
+                $.for(East.Array.range(0n, nSlots), ($, slot) => {
+                    $.if(East.equal(assignments.get(slot), workerId), $ => {
+                        $.assign(cost, cost.add(shiftCosts.get(slot)));
+                        $.assign(count, count.add(1n));
+                    });
+                });
+                // Heavy overtime penalty
+                $.if(count.greater(2n), $ => {
+                    $.assign(cost, cost.add(count.subtract(2n).toFloat().multiply(100.0)));
+                });
+                return $.return(cost.negate());
+            }
+        );
+
+        const workers = East.Vector.fromArray([0n, 1n, 2n]);
+        const spaces = $.let([workers, workers, workers, workers, workers, workers]);
+
+        const config = $.let({
+            iterations: variant('some', 20n),
+            samples: variant('some', 5n),
+            initial: variant('some', variant('random', null)),
+            order: variant('some', variant('sequential', null)),
+            random_state: variant('some', 42n),
+            mode: variant('none', null),
+            workers: variant('none', null),
+        });
+
+        const result = $.let(Optimization.iterativeGrouped(
+            groupObjective, spaces, config,
+        ));
+
+        $(Assert.equal(result.success, true));
+        // Balanced: 2 each, no overtime. Cost = -(6*10) = -60
+        $(Assert.equal(result.best_objective, East.value(-60.0)));
+    });
+
+    test("grouped matches full objective result", $ => {
+        // Verify grouped produces same result as full objective
+        const shiftCosts = $.let([5.0, 10.0, 15.0, 20.0]);
+        const nSlots = East.value(4n);
+        const nWorkers = East.value(2n);
+
+        const fullObjective = East.function(
+            [VectorType(IntegerType)], FloatType,
+            ($, assignments) => {
+                const total = $.let(0.0);
+                $.for(East.Array.range(0n, nWorkers), ($, wid) => {
+                    $.for(East.Array.range(0n, nSlots), ($, slot) => {
+                        $.if(East.equal(assignments.get(slot), wid), $ => {
+                            $.assign(total, total.add(shiftCosts.get(slot)));
+                        });
+                    });
+                });
+                return $.return(total.negate());
+            }
+        );
+
+        const groupObjective = East.function(
+            [VectorType(IntegerType), IntegerType], FloatType,
+            ($, assignments, workerId) => {
+                const cost = $.let(0.0);
+                $.for(East.Array.range(0n, nSlots), ($, slot) => {
+                    $.if(East.equal(assignments.get(slot), workerId), $ => {
+                        $.assign(cost, cost.add(shiftCosts.get(slot)));
+                    });
+                });
+                return $.return(cost.negate());
+            }
+        );
+
+        const workers = East.Vector.fromArray([0n, 1n]);
+        const spaces = $.let([workers, workers, workers, workers]);
+
+        const config = $.let({
+            iterations: variant('some', 10n),
+            samples: variant('some', 1n),
+            initial: variant('some', variant('first', null)),
+            order: variant('some', variant('sequential', null)),
+            random_state: variant('none', null),
+            mode: variant('none', null),
+            workers: variant('none', null),
+        });
+
+        const fullResult = $.let(Optimization.iterative(fullObjective, spaces, config));
+        const groupResult = $.let(Optimization.iterativeGrouped(groupObjective, spaces, config));
+
+        $(Assert.equal(fullResult.best_objective, groupResult.best_objective));
+    });
+
+    test("grouped with parallel workers", $ => {
+        const shiftCosts = $.let([10.0, 20.0, 15.0]);
+        const nSlots = East.value(3n);
+
+        const groupObjective = East.function(
+            [VectorType(IntegerType), IntegerType], FloatType,
+            ($, assignments, workerId) => {
+                const cost = $.let(0.0);
+                $.for(East.Array.range(0n, nSlots), ($, slot) => {
+                    $.if(East.equal(assignments.get(slot), workerId), $ => {
+                        $.assign(cost, cost.add(shiftCosts.get(slot)));
+                    });
+                });
+                return $.return(cost.negate());
+            }
+        );
+
+        const workers = East.Vector.fromArray([0n, 1n]);
+        const spaces = $.let([workers, workers, workers]);
+
+        const config = $.let({
+            iterations: variant('some', 10n),
+            samples: variant('some', 4n),
+            initial: variant('some', variant('random', null)),
+            order: variant('some', variant('sequential', null)),
+            random_state: variant('some', 42n),
+            mode: variant('none', null),
+            workers: variant('some', 2n),
+        });
+
+        const result = $.let(Optimization.iterativeGrouped(
+            groupObjective, spaces, config,
+        ));
+
+        $(Assert.equal(result.success, true));
+        $(Assert.equal(result.best_objective, East.value(-45.0)));
     });
 
 }, { exportOnly: true });

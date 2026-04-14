@@ -2,18 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import {
-  East,
-  Expr,
-  NullType, BooleanType, IntegerType, FloatType, StringType, DateTimeType, BlobType,
-  ArrayType, SetType, DictType, StructType, VariantType,
-  variant,
-  RecursiveType,
-  ref,
-  RefType,
-  VectorType,
-  MatrixType,
-} from "../src/index.js";
+import { East, StringType, BlobType } from "../src/index.js";
 import { describeEast as describe, assertEast as assert } from "./platforms.spec.js";
 import * as ex from "./blob.examples.js";
 

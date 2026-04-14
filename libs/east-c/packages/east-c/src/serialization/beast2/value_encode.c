@@ -9,16 +9,6 @@ void beast2_encode_value(ByteBuffer *buf, EastValue *value,
 {
     if (!type) return;
 
-    /* Type table reference: at EastTypeType positions in function IR,
-     * write the type index as a plain unsigned varint (matching TS encoder).
-     * This avoids the transform+rewrite approach and zigzag encoding. */
-    if (type == east_type_type && ctx->flat_type_table) {
-        int idx = flat_tt_etv_find(ctx->flat_type_table, value);
-        if (idx < 0) idx = (int)flat_tt_add_etv(ctx->flat_type_table, value);
-        write_varint(buf, (uint64_t)idx);
-        return;
-    }
-
     switch (type->kind) {
     case EAST_TYPE_NEVER:
         break;
@@ -63,61 +53,13 @@ void beast2_encode_value(ByteBuffer *buf, EastValue *value,
         break;
     }
 
-    case EAST_TYPE_ARRAY: {
-        /* Backreference protocol */
-        int ref_offset = beast2_enc_ctx_find(ctx, value);
-        if (ref_offset >= 0) {
-            /* Backreference: distance from current position to stored offset */
-            write_varint(buf, (uint64_t)(buf->len - (size_t)ref_offset));
-            break;
-        }
-        /* Inline: write 0, register, then encode contents */
-        write_varint(buf, 0);
-        beast2_enc_ctx_add(ctx, value, buf->len);
-
-        EastType *elem_type = type->data.element;
-        size_t count = value->data.array.len;
-        write_varint(buf, (uint64_t)count);
-        for (size_t i = 0; i < count; i++) {
-            beast2_encode_value(buf, value->data.array.items[i], elem_type, ctx);
-        }
-        break;
-    }
-
-    case EAST_TYPE_SET: {
-        int ref_offset = beast2_enc_ctx_find(ctx, value);
-        if (ref_offset >= 0) {
-            write_varint(buf, (uint64_t)(buf->len - (size_t)ref_offset));
-            break;
-        }
-        write_varint(buf, 0);
-        beast2_enc_ctx_add(ctx, value, buf->len);
-
-        EastType *elem_type = type->data.element;
-        size_t count = value->data.set.len;
-        write_varint(buf, (uint64_t)count);
-        for (size_t i = 0; i < count; i++) {
-            beast2_encode_value(buf, value->data.set.items[i], elem_type, ctx);
-        }
-        break;
-    }
-
+    case EAST_TYPE_ARRAY:
+    case EAST_TYPE_SET:
     case EAST_TYPE_DICT: {
-        int ref_offset = beast2_enc_ctx_find(ctx, value);
-        if (ref_offset >= 0) {
-            write_varint(buf, (uint64_t)(buf->len - (size_t)ref_offset));
-            break;
-        }
-        write_varint(buf, 0);
-        beast2_enc_ctx_add(ctx, value, buf->len);
-
-        EastType *key_type = type->data.dict.key;
-        EastType *val_type = type->data.dict.value;
-        size_t count = value->data.dict.len;
-        write_varint(buf, (uint64_t)count);
-        for (size_t i = 0; i < count; i++) {
-            beast2_encode_value(buf, value->data.dict.keys[i], key_type, ctx);
-            beast2_encode_value(buf, value->data.dict.values[i], val_type, ctx);
+        /* v4: mutable containers emit varint(value_table_index) */
+        if (ctx->value_table) {
+            int idx = beast2_vt_find(ctx->value_table, value);
+            write_varint(buf, (uint64_t)(idx >= 0 ? idx : 0));
         }
         break;
     }
@@ -150,16 +92,11 @@ void beast2_encode_value(ByteBuffer *buf, EastValue *value,
     }
 
     case EAST_TYPE_REF: {
-        /* Ref also uses backreference protocol */
-        int ref_offset = beast2_enc_ctx_find(ctx, value);
-        if (ref_offset >= 0) {
-            write_varint(buf, (uint64_t)(buf->len - (size_t)ref_offset));
-            break;
+        /* v4: mutable containers emit varint(value_table_index) */
+        if (ctx->value_table) {
+            int idx = beast2_vt_find(ctx->value_table, value);
+            write_varint(buf, (uint64_t)(idx >= 0 ? idx : 0));
         }
-        write_varint(buf, 0);
-        beast2_enc_ctx_add(ctx, value, buf->len);
-
-        beast2_encode_value(buf, value->data.ref.value, type->data.element, ctx);
         break;
     }
 
@@ -225,95 +162,59 @@ void beast2_encode_value(ByteBuffer *buf, EastValue *value,
         }
 
         EastCompiledFn *fn = value->data.function.compiled;
-        if (!fn || (!fn->source_ir && !fn->source_ir_node)) break;
+        if (!fn || !fn->source_ir) break;
 
         /* Ensure IR type is initialized */
         if (!east_ir_type) east_type_of_type_init();
 
-        /* Encode IR + captures via either the EastValue source (compile path)
-         * or the IRNode source (beast2 decode path). */
-        if (fn->source_ir) {
-            /* 1. Encode the source IR variant tree (with type table substitution) */
-            if (ctx->flat_type_table) {
-                Beast2EncodeCtx ir_ctx;
-                beast2_enc_ctx_init(&ir_ctx);
-                ir_ctx.string_table = ctx->string_table;
-                ir_ctx.flat_type_table = ctx->flat_type_table;
-                beast2_encode_value(buf, fn->source_ir, east_ir_type, &ir_ctx);
-                beast2_enc_ctx_free(&ir_ctx);
-            } else {
-                beast2_encode_value(buf, fn->source_ir, east_ir_type, ctx);
-            }
+        /* Auto-extract source map from function (like TS EAST_SOURCE_MAP_SYMBOL) */
+        if (fn->source_map && !ctx->source_map)
+            ctx->source_map = fn->source_map;
 
-            /* 2. Extract captures array from source_ir */
-            EastValue *fn_struct = fn->source_ir->data.variant.value;
-            EastValue *caps_arr = east_struct_get_field_idx(fn_struct, 2); /* captures */
-            size_t ncaps = (caps_arr && caps_arr->kind == EAST_VAL_ARRAY) ? caps_arr->data.array.len : 0;
-
-            /* 3. Write capture count */
-            write_varint(buf, (uint64_t)ncaps);
-
-            /* 4. For each capture, encode its value from the environment */
-            for (size_t i = 0; i < ncaps; i++) {
-                EastValue *cap_var = caps_arr->data.array.items[i];
-                EastValue *cap_s = cap_var->data.variant.value;
-                EastValue *name_v = east_struct_get_field_idx(cap_s, 2); /* name */
-                EastValue *type_v = east_struct_get_field_idx(cap_s, 0); /* type */
-                bool is_mutable = false;
-                EastValue *mut_v = east_struct_get_field_idx(cap_s, 3); /* mutable */
-                if (mut_v && mut_v->kind == EAST_VAL_BOOLEAN) is_mutable = mut_v->data.boolean;
-
-                const char *cap_name = name_v->data.string.data;
-                EastType *cap_type = east_type_from_value(type_v);
-
-                EastValue *cap_val = env_get(fn->captures, cap_name);
-                if (cap_val && is_mutable && cap_val->kind == EAST_VAL_REF) {
-                    EastValue *inner = east_ref_get(cap_val);
-                    beast2_encode_value(buf, inner, cap_type, ctx);
-                    east_value_release(inner);
-                } else if (cap_val) {
-                    beast2_encode_value(buf, cap_val, cap_type, ctx);
-                }
-
-                if (cap_type) east_type_release(cap_type);
-            }
+        /* 1. Encode the source IR variant tree (with fresh backref ctx for IR) */
+        if (ctx->flat_type_table) {
+            Beast2EncodeCtx ir_ctx;
+            beast2_enc_ctx_init(&ir_ctx);
+            ir_ctx.string_table = ctx->string_table;
+            ir_ctx.flat_type_table = ctx->flat_type_table;
+            ir_ctx.value_table = ctx->value_table;
+            beast2_encode_value(buf, fn->source_ir, east_ir_type, &ir_ctx);
+            beast2_enc_ctx_free(&ir_ctx);
         } else {
-            /* Use source_ir_node (IRNode*) — beast2 decode path */
-            IRNode *ir_node = fn->source_ir_node;
+            beast2_encode_value(buf, fn->source_ir, east_ir_type, ctx);
+        }
 
-            /* 1. Encode the IR directly from the IRNode tree */
-            if (ctx->flat_type_table) {
-                Beast2EncodeCtx ir_ctx;
-                beast2_enc_ctx_init(&ir_ctx);
-                ir_ctx.string_table = ctx->string_table;
-                ir_ctx.flat_type_table = ctx->flat_type_table;
-                b2ir_encode_node(buf, ir_node, &ir_ctx);
-                beast2_enc_ctx_free(&ir_ctx);
-            } else {
-                b2ir_encode_node(buf, ir_node, ctx);
+        /* 2. Extract captures array from source_ir */
+        EastValue *fn_struct = fn->source_ir->data.variant.value;
+        EastValue *caps_arr = east_struct_get_field_idx(fn_struct, 2); /* captures */
+        size_t ncaps = (caps_arr && caps_arr->kind == EAST_VAL_ARRAY) ? caps_arr->data.array.len : 0;
+
+        /* 3. Write capture count */
+        write_varint(buf, (uint64_t)ncaps);
+
+        /* 4. For each capture, encode its value from the environment */
+        for (size_t i = 0; i < ncaps; i++) {
+            EastValue *cap_var = caps_arr->data.array.items[i];
+            EastValue *cap_s = cap_var->data.variant.value;
+            EastValue *name_v = east_struct_get_field_idx(cap_s, 2); /* name */
+            EastValue *type_v = east_struct_get_field_idx(cap_s, 0); /* type */
+            bool is_mutable = false;
+            EastValue *mut_v = east_struct_get_field_idx(cap_s, 3); /* mutable */
+            if (mut_v && mut_v->kind == EAST_VAL_BOOLEAN) is_mutable = mut_v->data.boolean;
+
+            const char *cap_name = name_v->data.string.data;
+            EastType *cap_type = east_type_from_value(type_v);
+
+            EastValue *cap_val = env_get(fn->captures, cap_name);
+            if (cap_val && is_mutable && cap_val->kind == EAST_VAL_REF) {
+                EastValue *inner = east_ref_get(cap_val);
+                beast2_encode_value(buf, inner, cap_type, ctx);
+                east_value_release(inner);
+            } else if (cap_val) {
+                beast2_encode_value(buf, cap_val, cap_type, ctx);
             }
 
-            /* 2. Extract captures from IRNode */
-            size_t ncaps = ir_node->data.function.num_captures;
-
-            /* 3. Write capture count */
-            write_varint(buf, (uint64_t)ncaps);
-
-            /* 4. For each capture, encode its value from the environment */
-            for (size_t i = 0; i < ncaps; i++) {
-                IRVariable *cap = &ir_node->data.function.captures[i];
-                EastType *cap_type = ir_node->data.function.capture_types
-                    ? ir_node->data.function.capture_types[i] : NULL;
-
-                EastValue *cap_val = env_get(fn->captures, cap->name);
-                if (cap_val && cap->mutable && cap_val->kind == EAST_VAL_REF) {
-                    EastValue *inner = east_ref_get(cap_val);
-                    beast2_encode_value(buf, inner, cap_type, ctx);
-                    east_value_release(inner);
-                } else if (cap_val) {
-                    beast2_encode_value(buf, cap_val, cap_type, ctx);
-                }
-            }
+            if (cap_type) east_type_release(cap_type);
         }
         break;
     }

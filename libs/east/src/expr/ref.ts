@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import type { AST } from "../ast.js";
-import { get_location } from "../location.js";
+import { get_location_id } from "../location.js";
 import { FunctionType, NullType, RefType, type EastType } from "../types.js";
 import { AstSymbol, Expr, FactorySymbol, TypeSymbol, type ToExpr } from "./expr.js";
 import type { ExprType, SubtypeExprOrValue } from "./types.js";
@@ -62,7 +62,7 @@ export class RefExpr<T extends any> extends Expr<RefType<T>> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: this.value_type as EastType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "RefGet",
       type_parameters: [this.value_type as EastType],
       arguments: [Expr.ast(this)],
@@ -92,7 +92,7 @@ export class RefExpr<T extends any> extends Expr<RefType<T>> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: NullType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "RefUpdate",
       type_parameters: [this.value_type as EastType],
       arguments: [Expr.ast(this), Expr.ast(value)],
@@ -123,7 +123,7 @@ export class RefExpr<T extends any> extends Expr<RefType<T>> {
    * @see {@link update} for simply replacing the value.
    */
   merge<T2>(value: Expr<T2>, updateFn: SubtypeExprOrValue<FunctionType<[T, NoInfer<T2>], T>>): ExprType<NullType> {
-    const location = get_location();
+    const loc_id = get_location_id();
     const value2Type = value[TypeSymbol];
 
     const updateFnExpr = Expr.from(updateFn as any, FunctionType([value2Type, this.value_type], this.value_type));
@@ -131,7 +131,7 @@ export class RefExpr<T extends any> extends Expr<RefType<T>> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: NullType,
-      location,
+      loc_id,
       builtin: "RefMerge",
       type_parameters: [this.value_type as EastType, value2Type as EastType],
       arguments: [this[AstSymbol], value[AstSymbol], updateFnExpr[AstSymbol]],

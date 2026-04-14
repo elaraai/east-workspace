@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import type { AST } from "../ast.js";
-import { get_location } from "../location.js";
+import { get_location_id } from "../location.js";
 import { BooleanType, NeverType, StringType, TypeUnion, VariantType } from "../types.js";
 import type { BlockBuilder } from "./block.js";
 import { equal, notEqual } from "./block.js";
@@ -147,9 +147,9 @@ export class VariantExpr<Cases extends Record<string, any>> extends Expr<Variant
   unwrap<Case extends keyof Cases, F extends ($: BlockBuilder<NeverType>) => any>(name: Case, onOther: F): ExprType<TypeUnion<Cases[Case], TypeOf<ReturnType<F>>>>
   unwrap<Case extends keyof Cases>(name: Case): ExprType<Cases[Case]>
   unwrap(): "some" extends keyof Cases ? ExprType<Cases["some"]> : ExprType<NeverType>
-  unwrap(name: string = "some", onOther: ($: BlockBuilder<NeverType>) => any = ($) => $.error(`Variant does not have case ${String(name)}`, get_location())): Expr {
+  unwrap(name: string = "some", onOther: ($: BlockBuilder<NeverType>) => any = ($) => $.error(`Variant does not have case ${String(name)}`, get_location_id())): Expr {
     if (onOther === undefined) {
-      onOther = $ => $.error(`Variant does not have case ${String(name)}`, get_location()) as any; // expression-based error should use parent call location
+      onOther = $ => $.error(`Variant does not have case ${String(name)}`, get_location_id()) as any; // expression-based error should use parent call location
     }
     const handlers = Object.fromEntries(Object.keys(this.cases).map(caseName => [caseName, caseName === name ? (_$: BlockBuilder<NeverType>, data: any) => data : ($: BlockBuilder<NeverType>, _data: any) => onOther($)] as const)) as Record<keyof Cases, () => any>;
     return Expr.match(this, handlers) as any;

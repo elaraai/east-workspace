@@ -35,8 +35,8 @@ add_library(east-c
     src/serialization/beast2/value_encode.c
     src/serialization/beast2/value_decode.c
     src/serialization/beast2/full.c
-    src/serialization/beast2/ir_decode.c
-    src/serialization/beast2/ir_encode.c
+    src/serialization/beast2/sourcemap_table.c
+    src/serialization/beast2/value_table.c
     src/serialization/csv.c
     src/serialization/east_parser.c
     src/serialization/east_printer.c

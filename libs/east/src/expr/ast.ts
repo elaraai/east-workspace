@@ -4,7 +4,7 @@
  */
 
 import type { AST } from "../ast.js";
-import { get_location } from "../location.js";
+import { get_location_id } from "../location.js";
 import { SortedMap } from "../containers/sortedmap.js";
 import { SortedSet } from "../containers/sortedset.js";
 import {
@@ -42,30 +42,30 @@ export function valueOrExprToAst(value: any): AST {
   if (value instanceof Expr) {
     return value[AstSymbol];
   } else if (value === null) {
-    return { ast_type: "Value", type: NullType, value, location: get_location() };
+    return { ast_type: "Value", type: NullType, value, loc_id: get_location_id() };
   } else if (typeof value === "boolean") {
-    return { ast_type: "Value", type: BooleanType, value, location: get_location() };
+    return { ast_type: "Value", type: BooleanType, value, loc_id: get_location_id() };
   } else if (typeof value === "bigint") {
-    return { ast_type: "Value", type: IntegerType, value, location: get_location() };
+    return { ast_type: "Value", type: IntegerType, value, loc_id: get_location_id() };
   } else if (typeof value === "number") {
-    return { ast_type: "Value", type: FloatType, value, location: get_location() };
+    return { ast_type: "Value", type: FloatType, value, loc_id: get_location_id() };
   } else if (typeof value === "string") {
-    return { ast_type: "Value", type: StringType, value, location: get_location() };
+    return { ast_type: "Value", type: StringType, value, loc_id: get_location_id() };
   } else if (value instanceof Date) {
-    return { ast_type: "Value", type: DateTimeType, value, location: get_location() };
+    return { ast_type: "Value", type: DateTimeType, value, loc_id: get_location_id() };
   } else if (value instanceof Float64Array) {
-    const values = Array.from(value).map(v => ({ ast_type: "Value" as const, type: FloatType, value: v, location: get_location() }));
-    return { ast_type: "NewVector", type: VectorType(FloatType), values, location: get_location() };
+    const values = Array.from(value).map(v => ({ ast_type: "Value" as const, type: FloatType, value: v, loc_id: get_location_id() }));
+    return { ast_type: "NewVector", type: VectorType(FloatType), values, loc_id: get_location_id() };
   } else if (value instanceof BigInt64Array) {
     const values: AST[] = [];
-    for (let i = 0; i < value.length; i++) values.push({ ast_type: "Value", type: IntegerType, value: value[i]!, location: get_location() });
-    return { ast_type: "NewVector", type: VectorType(IntegerType), values, location: get_location() };
+    for (let i = 0; i < value.length; i++) values.push({ ast_type: "Value", type: IntegerType, value: value[i]!, loc_id: get_location_id() });
+    return { ast_type: "NewVector", type: VectorType(IntegerType), values, loc_id: get_location_id() };
   } else if (value instanceof Uint8ClampedArray) {
     const values: AST[] = [];
-    for (let i = 0; i < value.length; i++) values.push({ ast_type: "Value", type: BooleanType, value: value[i]! !== 0, location: get_location() });
-    return { ast_type: "NewVector", type: VectorType(BooleanType), values, location: get_location() };
+    for (let i = 0; i < value.length; i++) values.push({ ast_type: "Value", type: BooleanType, value: value[i]! !== 0, loc_id: get_location_id() });
+    return { ast_type: "NewVector", type: VectorType(BooleanType), values, loc_id: get_location_id() };
   } else if (value instanceof Uint8Array) {
-    return { ast_type: "Value", type: BlobType, value, location: get_location() };
+    return { ast_type: "Value", type: BlobType, value, loc_id: get_location_id() };
   } else if (isMatrix(value)) {
     const m = value as any;
     let elementType: EastType;
@@ -75,12 +75,12 @@ export function valueOrExprToAst(value: any): AST {
     const values: AST[] = [];
     for (let i = 0; i < m.data.length; i++) {
       if (elementType.type === "Boolean") {
-        values.push({ ast_type: "Value", type: BooleanType, value: m.data[i] !== 0, location: get_location() });
+        values.push({ ast_type: "Value", type: BooleanType, value: m.data[i] !== 0, loc_id: get_location_id() });
       } else {
-        values.push({ ast_type: "Value", type: elementType, value: m.data[i], location: get_location() });
+        values.push({ ast_type: "Value", type: elementType, value: m.data[i], loc_id: get_location_id() });
       }
     }
-    return { ast_type: "NewMatrix", type: MatrixType(elementType), values, rows: m.rows, cols: m.cols, location: get_location() };
+    return { ast_type: "NewMatrix", type: MatrixType(elementType), values, rows: m.rows, cols: m.cols, loc_id: get_location_id() };
   } else if (typeof value === "function") {
     throw new Error(`Unable to convert function to AST without knowing it's type`);
   } else if (isRef(value)) {
@@ -89,7 +89,7 @@ export function valueOrExprToAst(value: any): AST {
       ast_type: "NewRef",
       type: RefType(val_ast.type),
       value: val_ast,
-      location: get_location()
+      loc_id: get_location_id()
     };
   } else if (Array.isArray(value)) {
     const values = value.map(x => valueOrExprToAst(x));
@@ -100,7 +100,7 @@ export function valueOrExprToAst(value: any): AST {
       }
       value_type = TypeUnion(value_type, ast.type);
     }
-    return { ast_type: "NewArray", type: ArrayType(value_type), values, location: get_location() };
+    return { ast_type: "NewArray", type: ArrayType(value_type), values, loc_id: get_location_id() };
   } else if (value instanceof Set || value instanceof SortedSet) {
     const values = [...value].map(x => valueOrExprToAst(x));
     let value_type = values.length > 0 ? values[0]!.type : NeverType;
@@ -110,7 +110,7 @@ export function valueOrExprToAst(value: any): AST {
       }
       value_type = TypeUnion(value_type, ast.type);
     }
-    return { ast_type: "NewSet", type: SetType(value_type), values, location: get_location() };
+    return { ast_type: "NewSet", type: SetType(value_type), values, loc_id: get_location_id() };
   } else if (value instanceof Map || value instanceof SortedMap) {
     const values: [AST, AST][] = [...value].map(([k, v]) => [valueOrExprToAst(k), valueOrExprToAst(v)]);
     let key_type = values.length > 0 ? values[0]![0].type : NeverType;
@@ -125,7 +125,7 @@ export function valueOrExprToAst(value: any): AST {
       }
       value_type = TypeUnion(value_type, v.type);
     }
-    return { ast_type: "NewDict", type: DictType(key_type, value_type), values, location: get_location() };
+    return { ast_type: "NewDict", type: DictType(key_type, value_type), values, loc_id: get_location_id() };
   } else if (isVariant(value)) {
     const name = value.type;
     const val = value.value;
@@ -134,7 +134,7 @@ export function valueOrExprToAst(value: any): AST {
       throw new Error(`Unable to convert variant to Variant expression: case ${name} has type .Never`);
     }
     const case_types = { [name]: val_ast.type };
-    return { ast_type: "Variant", type: VariantType(case_types), case: name, value: val_ast, location: get_location() };
+    return { ast_type: "Variant", type: VariantType(case_types), case: name, value: val_ast, loc_id: get_location_id() };
   } else if (typeof value === "object" && Object.getPrototypeOf(value) === Object.getPrototypeOf({})) {
     const fields = Object.fromEntries(Object.entries(value).map(([k, v]) => [k, valueOrExprToAst(v)]));
     const field_types = Object.fromEntries(Object.entries(fields).map(([k, ast]) => {
@@ -143,7 +143,7 @@ export function valueOrExprToAst(value: any): AST {
       }
       return [k, ast.type];
     }));
-    return { ast_type: "Struct", type: StructType(field_types), fields, location: get_location() };
+    return { ast_type: "Struct", type: StructType(field_types), fields, loc_id: get_location_id() };
   } else {
     throw new Error(`Unable to convert value ${value} to AST`);
   }
@@ -152,7 +152,7 @@ export function valueOrExprToAst(value: any): AST {
 /**
  * Convert a value to AST with explicit type checking
  */
-export function valueOrExprToAstTyped<T extends EastType>(value: any, type: T, visited?: Set<any>, location = get_location()): AST & { type: T } {
+export function valueOrExprToAstTyped<T extends EastType>(value: any, type: T, visited?: Set<any>, loc_id = get_location_id()): AST & { type: T } {
   if (value instanceof Expr) {
     const valueType = value[TypeSymbol];
     if (!isSubtype(valueType, type)) {
@@ -166,44 +166,44 @@ export function valueOrExprToAstTyped<T extends EastType>(value: any, type: T, v
     if (value !== null) {
       throw new Error(`Expected null but got ${value}`);
     }
-    return { ast_type: "Value", type, value, location };
+    return { ast_type: "Value", type, value, loc_id };
   } else if (type.type === "Boolean") {
     if (typeof value !== "boolean") {
       console.log(value)
       throw new Error(`Expected boolean but got ${value === null ? "null" : typeof value}`);
     }
-    return { ast_type: "Value", type, value, location };
+    return { ast_type: "Value", type, value, loc_id };
   } else if (type.type === "Integer") {
     if (typeof value !== "bigint") {
       throw new Error(`Expected bigint but got ${value === null ? "null" : typeof value}`);
     }
-    return { ast_type: "Value", type, value, location };
+    return { ast_type: "Value", type, value, loc_id };
   } else if (type.type === "Float") {
     if (typeof value !== "number") {
       throw new Error(`Expected number but got ${value === null ? "null" : typeof value}`);
     }
-    return { ast_type: "Value", type, value, location };
+    return { ast_type: "Value", type, value, loc_id };
   } else if (type.type === "String") {
     if (typeof value !== "string") {
       throw new Error(`Expected string but got ${value === null ? "null" : typeof value}`);
     }
-    return { ast_type: "Value", type, value, location };
+    return { ast_type: "Value", type, value, loc_id };
   } else if (type.type === "DateTime") {
     if (!(value instanceof Date)) {
       throw new Error(`Expected Date but got ${value === null ? "null" : typeof value}`);
     }
-    return { ast_type: "Value", type, value, location };
+    return { ast_type: "Value", type, value, loc_id };
   } else if (type.type === "Blob") {
     if (!(value instanceof Uint8Array)) {
       throw new Error(`Expected Uint8Array but got ${value === null ? "null" : typeof value}`);
     }
-    return { ast_type: "Value", type, value, location };
+    return { ast_type: "Value", type, value, loc_id };
   } else if (type.type === "Ref") {
     if (!isRef(value)) {
       throw new Error(`Expected ref but got ${value === null ? "null" : typeof value}`);
     }
 
-    const val_ast = valueOrExprToAstTyped(value.value, type.value, visited, location);
+    const val_ast = valueOrExprToAstTyped(value.value, type.value, visited, loc_id);
     if (!isSubtype(val_ast.type, type.value)) {
       throw new Error(`Ref value expected to have type ${printTypeSummary(type.value)} but got type ${printTypeSummary(val_ast.type)}`);
     }
@@ -214,64 +214,64 @@ export function valueOrExprToAstTyped<T extends EastType>(value: any, type: T, v
       ast_type: "NewRef",
       type,
       value: val_ast,
-      location
+      loc_id
     };
   } else if (type.type === "Array") {
     if (!Array.isArray(value)) {
       throw new Error(`Expected array but got ${value === null ? "null" : typeof value}`);
     }
     const values = value.map((x, i) => {
-      const ast = valueOrExprToAstTyped(x, type.value, visited, location);
+      const ast = valueOrExprToAstTyped(x, type.value, visited, loc_id);
       if (ast.type.type === "Never") {
         throw new Error(`Unable to convert array to Array expression: element at index ${i} has type .Never`);
       }
       return ast;
     });
-    return { ast_type: "NewArray", type, values, location };
+    return { ast_type: "NewArray", type, values, loc_id };
   } else if (type.type === "Set") {
     if (!(value instanceof Set || value instanceof SortedSet)) {
       throw new Error(`Expected set but got ${value === null ? "null" : typeof value}`);
     }
     const values = [...value].map((x, i) => {
-      const ast = valueOrExprToAstTyped(x, type.key, visited, location);
+      const ast = valueOrExprToAstTyped(x, type.key, visited, loc_id);
       if (ast.type.type === "Never") {
         throw new Error(`Unable to convert set to Set expression: element at index ${i} has type .Never`);
       }
       return ast;
     });
-    return { ast_type: "NewSet", type, values, location };
+    return { ast_type: "NewSet", type, values, loc_id };
   } else if (type.type === "Dict") {
     if (!(value instanceof Map || value instanceof SortedMap)) {
       throw new Error(`Expected dict but got ${value === null ? "null" : typeof value}`);
     }
     const values: [AST, AST][] = [...value].map(([k, v], i) => {
-      const key_ast = valueOrExprToAstTyped(k, type.key, visited, location);
+      const key_ast = valueOrExprToAstTyped(k, type.key, visited, loc_id);
       if (key_ast.type.type === "Never") {
         throw new Error(`Unable to convert dict to Dict expression: key at index ${i} has type .Never`);
       }
 
-      const value_ast = valueOrExprToAstTyped(v, type.value, visited, location);
+      const value_ast = valueOrExprToAstTyped(v, type.value, visited, loc_id);
       if (value_ast.type.type === "Never") {
         throw new Error(`Unable to convert dict to Dict expression: value at index ${i} has type .Never`);
       }
 
       return [key_ast, value_ast];
     });
-    return { ast_type: "NewDict", type, values, location };
+    return { ast_type: "NewDict", type, values, loc_id };
   } else if (type.type === "Struct") {
     if (typeof value !== "object" || value === null) {
       throw new Error(`Expected object but got ${value === null ? "null" : typeof value}`);
     }
     const fields = Object.fromEntries(
       Object.entries(type.fields).map(([k, fieldType]) => {
-        const ast = valueOrExprToAstTyped(value[k], fieldType, visited, location);
+        const ast = valueOrExprToAstTyped(value[k], fieldType, visited, loc_id);
         if (ast.type.type === "Never") {
           throw new Error(`Unable to convert object to Struct expression: field ${k} has type .Never`);
         }
         return [k, ast];
       })
     );
-    return { ast_type: "Struct", type, fields, location };
+    return { ast_type: "Struct", type, fields, loc_id };
   } else if (type.type === "Variant") {
     if (!isVariant(value)) {
       throw new Error(`Expected variant but got ${value === null ? "null" : typeof value}`);
@@ -282,7 +282,7 @@ export function valueOrExprToAstTyped<T extends EastType>(value: any, type: T, v
       throw new Error(`Variant case ${name} not found in type`);
     }
 
-    const valueAst = valueOrExprToAstTyped((value as variant).value, caseType, visited, location);
+    const valueAst = valueOrExprToAstTyped((value as variant).value, caseType, visited, loc_id);
     if (!isSubtype(valueAst.type, caseType)) {
       throw new Error(`Variant case ${name} expected to have type ${printTypeSummary(caseType)} but got type ${printTypeSummary(valueAst.type)}`);
     }
@@ -290,7 +290,7 @@ export function valueOrExprToAstTyped<T extends EastType>(value: any, type: T, v
       throw new Error(`Unable to convert variant to Variant expression: case ${name} has type .Never`);
     }
 
-    return { ast_type: "Variant", type, case: name, value: valueAst, location };
+    return { ast_type: "Variant", type, case: name, value: valueAst, loc_id };
   } else if (type.type === "Recursive") {
     // Check if we're already processing this value -> circular reference (error)
     if (visited) {
@@ -306,12 +306,12 @@ export function valueOrExprToAstTyped<T extends EastType>(value: any, type: T, v
     visited.add(value);
 
     // Process the value with the node type
-    const node = valueOrExprToAstTyped(value, type.node, visited, location);
+    const node = valueOrExprToAstTyped(value, type.node, visited, loc_id);
 
     visited.delete(value);
 
     // Wrap in WrapRecursive so fromAst returns a RecursiveExpr
-    return { ast_type: "WrapRecursive", type, value: node, location };
+    return { ast_type: "WrapRecursive", type, value: node, loc_id };
   } else if (type.type === "Function") {
     if (typeof value !== "function") {
       throw new Error(`Expected function but got ${value === null ? "null" : typeof value}`);
@@ -330,12 +330,12 @@ export function valueOrExprToAstTyped<T extends EastType>(value: any, type: T, v
       const values: AST[] = [];
       for (let i = 0; i < value.length; i++) {
         if (elemType.type === "Boolean") {
-          values.push({ ast_type: "Value", type: elemType, value: (value as Uint8Array)[i]! !== 0, location });
+          values.push({ ast_type: "Value", type: elemType, value: (value as Uint8Array)[i]! !== 0, loc_id });
         } else {
-          values.push({ ast_type: "Value", type: elemType, value: value[i]!, location });
+          values.push({ ast_type: "Value", type: elemType, value: value[i]!, loc_id });
         }
       }
-      return { ast_type: "NewVector", type, values, location } as any;
+      return { ast_type: "NewVector", type, values, loc_id } as any;
     }
     throw new Error(`Expected TypedArray for Vector type but got ${typeof value}`);
   } else if (type.type === "Matrix") {
@@ -345,12 +345,12 @@ export function valueOrExprToAstTyped<T extends EastType>(value: any, type: T, v
       const values: AST[] = [];
       for (let i = 0; i < m.data.length; i++) {
         if (elemType.type === "Boolean") {
-          values.push({ ast_type: "Value", type: elemType, value: m.data[i] !== 0, location });
+          values.push({ ast_type: "Value", type: elemType, value: m.data[i] !== 0, loc_id });
         } else {
-          values.push({ ast_type: "Value", type: elemType, value: m.data[i], location });
+          values.push({ ast_type: "Value", type: elemType, value: m.data[i], loc_id });
         }
       }
-      return { ast_type: "NewMatrix", type, values, rows: m.rows, cols: m.cols, location } as any;
+      return { ast_type: "NewMatrix", type, values, rows: m.rows, cols: m.cols, loc_id } as any;
     }
     throw new Error(`Expected matrix for Matrix type but got ${typeof value}`);
   } else {

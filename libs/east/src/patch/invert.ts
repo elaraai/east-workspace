@@ -12,7 +12,7 @@
 import { toEastTypeValue, type EastTypeValue } from "../type_of_type.js";
 import type { EastType } from "../types.js";
 import { isVariant, variant, type variant as VariantValue } from "../containers/variant.js";
-import { equalFor, compareFor } from "../comparison.js";
+import { compareFor } from "../comparison.js";
 import { SortedMap } from "../containers/sortedmap.js";
 import { type InvertContext } from "./types.js";
 
@@ -89,9 +89,6 @@ export function invertFor(type: EastTypeValue | EastType, ctx: InvertContext = {
       }
     };
 
-    // Build array equality using equalFor with current context
-    const arrayEqual = equalFor(t, ctx.equal);
-
     ctx.invert.push(ret);
     ctx.types.push(t);
     elementInvert = invertFor(t.value, ctx);
@@ -153,9 +150,6 @@ export function invertFor(type: EastTypeValue | EastType, ctx: InvertContext = {
       }
     };
 
-    // Build dict equality using equalFor with current context
-    const dictEqual = equalFor(t, ctx.equal);
-
     ctx.invert.push(ret);
     ctx.types.push(t);
     valueInvert = invertFor(t.value.value, ctx);
@@ -193,9 +187,6 @@ export function invertFor(type: EastTypeValue | EastType, ctx: InvertContext = {
       }
     };
 
-    // Build struct equality using equalFor with current context
-    const structEqual = equalFor(t, ctx.equal);
-
     ctx.invert.push(ret);
     ctx.types.push(t);
     for (const { name, type: fieldType } of t.value) {
@@ -227,9 +218,6 @@ export function invertFor(type: EastTypeValue | EastType, ctx: InvertContext = {
       }
     };
 
-    // Build variant equality using equalFor with current context
-    const variantEqual = equalFor(t, ctx.equal);
-
     ctx.invert.push(ret);
     ctx.types.push(t);
     for (const { name, type: caseType } of t.value) {
@@ -257,9 +245,6 @@ export function invertFor(type: EastTypeValue | EastType, ctx: InvertContext = {
         throw new Error(`Invalid patch type for ref inversion: ${patch.type}`);
       }
     };
-
-    // Build ref equality using equalFor with current context
-    const refEqual = equalFor(t, ctx.equal);
 
     ctx.invert.push(ret);
     ctx.types.push(t);

@@ -114,9 +114,6 @@ export function applyFor(type: EastTypeValue | EastType, ctx: ApplyContext = { a
       }
     };
 
-    // Build print handler for this array type (used in error messages)
-    const arrayPrint = printFor(t, ctx.print);
-
     // Build array equality using equalFor with current context
     // This must be pushed BEFORE recursing so children can reference it via .Recursive
     arrayEqual = equalFor(t, ctx.equal);
@@ -228,9 +225,6 @@ export function applyFor(type: EastTypeValue | EastType, ctx: ApplyContext = { a
       }
     };
 
-    // Build print handler for this dict type (used in error messages)
-    const dictPrint = printFor(t, ctx.print);
-
     // Build dict equality using equalFor with current context
     // This must be pushed BEFORE recursing so children can reference it via .Recursive
     dictEqual = equalFor(t, ctx.equal);
@@ -275,9 +269,6 @@ export function applyFor(type: EastTypeValue | EastType, ctx: ApplyContext = { a
       }
     };
 
-    // Build print handler for this struct type
-    const structPrint = printFor(t, ctx.print);
-
     // Build struct equality using equalFor with current context
     // This must be pushed BEFORE recursing so children can reference it via .Recursive
     equal = equalFor(t, ctx.equal);
@@ -320,9 +311,6 @@ export function applyFor(type: EastTypeValue | EastType, ctx: ApplyContext = { a
       }
     };
 
-    // Build print handler for this variant type
-    const variantPrint = printFor(t, ctx.print);
-
     // Build variant equality using equalFor with current context
     // This must be pushed BEFORE recursing so children can reference it via .Recursive
     equal = equalFor(t, ctx.equal);
@@ -357,9 +345,6 @@ export function applyFor(type: EastTypeValue | EastType, ctx: ApplyContext = { a
         throw new Error(`Invalid patch type for ref: ${patch.type}`);
       }
     };
-
-    // Build print handler for this ref type
-    const refPrint = printFor(t, ctx.print);
 
     // Build ref equality using equalFor with current context
     // This must be pushed BEFORE recursing so children can reference it via .Recursive

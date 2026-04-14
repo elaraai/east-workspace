@@ -8,9 +8,9 @@ export type Location = {
   /** The source file path */
   filename: string,
   /** The 1-based line number */
-  line: number,
+  line: bigint,
   /** The 1-based column number */
-  column: number,
+  column: bigint,
 }
 
 /**
@@ -21,7 +21,7 @@ export type Location = {
  *
  * @example
  * ```ts
- * const loc = { filename: "main.ts", line: 42, column: 15 };
+ * const loc = { filename: "main.ts", line: 42n, column: 15n };
  * printLocation(loc); // "main.ts 42:15"
  * ```
  */
@@ -38,8 +38,8 @@ export function printLocation(location: Location): string {
  * @example
  * ```ts
  * const locs = [
- *   { filename: "main.ts", line: 42, column: 15 },
- *   { filename: "lib.ts", line: 10, column: 5 }
+ *   { filename: "main.ts", line: 42n, column: 15n },
+ *   { filename: "lib.ts", line: 10n, column: 5n }
  * ];
  * printLocations(locs);
  * // "main.ts 42:15
@@ -94,23 +94,9 @@ function shouldIncludeFrame(filename: string): boolean {
  * }
  * ```
  */
-/**
- * Optional transform applied to filenames captured by get_location().
- * Use this to normalize absolute paths for reproducible IR across machines.
- *
- * @example
- * ```ts
- * // Strip absolute path prefix, keep relative from project root
- * setLocationTransform(f => f.replace(/.*\/dist\//, ''));
- * ```
- */
-let _locationTransform: ((loc: Location) => Location) | null = null;
 
-export function setLocationTransform(transform: ((loc: Location) => Location) | null): void {
-  _locationTransform = transform;
-}
 
-export function get_location(): Location[] {
+function capture_stack_frames(): Location[] {
   const err = new Error();
   const stack = err.stack;
   if (!stack) return [];
@@ -124,12 +110,83 @@ export function get_location(): Location[] {
     if (match) {
       const [, filename, lineNum, column] = match;
       if (filename && filename !== '' && shouldIncludeFrame(filename)) {
-        let loc: Location = { filename, line: Number(lineNum), column: Number(column) };
-        if (_locationTransform) loc = _locationTransform(loc);
+        let loc: Location = { filename, line: BigInt(lineNum!), column: BigInt(column!) };
         frames.push(loc);
       }
     }
   }
 
   return frames;
+}
+
+export function get_location(): Location[] {
+  return capture_stack_frames();
+}
+
+// ── SourceMap ──────────────────────────────────────────────────────────
+
+/** Reserved sentinel: resolve(0n) returns [], the "no/unknown location" id. */
+export const UNKNOWN_LOC_ID: bigint = 0n;
+
+export class SourceMap {
+  /** Location stacks, indexed by Number(loc_id). stacks[0] is always []. */
+  private readonly stacks: Location[][] = [[]];
+  /** Content key → loc_id for dedup during construction. */
+  private readonly intern = new Map<string, bigint>();
+
+  /** Intern a location stack. Returns a stable loc_id (bigint).
+   *  Equal content returns the same id. Empty stack → UNKNOWN_LOC_ID. */
+  intern_stack(stack: Location[]): bigint {
+    if (stack.length === 0) return UNKNOWN_LOC_ID;
+    const key = stack.map(l => `${l.filename}|${l.line}|${l.column}`).join('\n');
+    const existing = this.intern.get(key);
+    if (existing !== undefined) return existing;
+    const id = BigInt(this.stacks.length);
+    this.stacks.push(stack);
+    this.intern.set(key, id);
+    return id;
+  }
+
+  /** Resolve a loc_id to its stack. Returns [] for UNKNOWN_LOC_ID or out-of-range. */
+  resolve(loc_id: bigint): readonly Location[] {
+    return this.stacks[Number(loc_id)] ?? [];
+  }
+
+  /** Total number of entries, including the reserved empty entry at index 0. */
+  get size(): bigint { return BigInt(this.stacks.length); }
+
+  /** All entries in loc_id order (for serialization). Entry 0 is always []. */
+  entries(): readonly Location[][] { return this.stacks; }
+}
+
+// ── Scoped context ─────────────────────────────────────────────────────
+
+let _currentMap: SourceMap | null = null;
+
+/** Run `fn` with `map` as the current scope's source map. Re-entrant safe. */
+export function with_source_map<T>(map: SourceMap, fn: () => T): T {
+  const prev = _currentMap;
+  _currentMap = map;
+  try { return fn(); }
+  finally { _currentMap = prev; }
+}
+
+/** Wraps `fn` in a new `with_source_map` only if no map is currently active.
+ *  Nested calls inherit the existing map. */
+export function ensure_source_map<T>(fn: () => T): T {
+  if (_currentMap) return fn();
+  return with_source_map(new SourceMap(), fn);
+}
+
+/** Returns the current SourceMap, or null if outside any with_source_map scope. */
+export function get_current_source_map(): SourceMap | null {
+  return _currentMap;
+}
+
+/** Capture current stack and intern into the active SourceMap.
+ *  Returns UNKNOWN_LOC_ID (0n) if no map is active. */
+export function get_location_id(): bigint {
+  if (!_currentMap) return UNKNOWN_LOC_ID;
+  const stack = capture_stack_frames();
+  return _currentMap.intern_stack(stack);
 }

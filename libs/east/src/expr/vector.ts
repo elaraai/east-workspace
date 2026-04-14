@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import type { AST } from "../ast.js";
-import { get_location } from "../location.js";
+import { get_location_id } from "../location.js";
 import { IntegerType, VectorType, MatrixType, NullType, FunctionType, ArrayType, type EastType, type NeverType, isSubtype, printType, isTypeEqual } from "../types.js";
 import { valueOrExprToAst, valueOrExprToAstTyped } from "./ast.js";
 import type { IntegerExpr } from "./integer.js";
@@ -37,7 +37,7 @@ export class VectorExpr<T extends any> extends Expr<VectorType<T>> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: IntegerType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "VectorLength",
       type_parameters: [this.element_type as EastType],
       arguments: [this[AstSymbol]],
@@ -57,7 +57,7 @@ export class VectorExpr<T extends any> extends Expr<VectorType<T>> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: this.element_type as EastType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "VectorGet",
       type_parameters: [this.element_type as EastType],
       arguments: [this[AstSymbol], idx],
@@ -79,7 +79,7 @@ export class VectorExpr<T extends any> extends Expr<VectorType<T>> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: NullType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "VectorSet",
       type_parameters: [this.element_type as EastType],
       arguments: [this[AstSymbol], idx, val],
@@ -101,7 +101,7 @@ export class VectorExpr<T extends any> extends Expr<VectorType<T>> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: VectorType(this.element_type as EastType),
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "VectorSlice",
       type_parameters: [this.element_type as EastType],
       arguments: [this[AstSymbol], s, e],
@@ -118,7 +118,7 @@ export class VectorExpr<T extends any> extends Expr<VectorType<T>> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: VectorType(this.element_type as EastType),
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "VectorConcat",
       type_parameters: [this.element_type as EastType],
       arguments: [this[AstSymbol], Expr.ast(other)],
@@ -134,7 +134,7 @@ export class VectorExpr<T extends any> extends Expr<VectorType<T>> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: ArrayType(this.element_type as EastType),
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "VectorToArray",
       type_parameters: [this.element_type as EastType],
       arguments: [this[AstSymbol]],
@@ -157,7 +157,7 @@ export class VectorExpr<T extends any> extends Expr<VectorType<T>> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: MatrixType(this.element_type as EastType),
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "VectorToMatrix",
       type_parameters: [this.element_type as EastType],
       arguments: [this[AstSymbol], r, c],
@@ -190,7 +190,7 @@ export class VectorExpr<T extends any> extends Expr<VectorType<T>> {
         return this[FactorySymbol]({
           ast_type: "Builtin",
           type: VectorType(output_type),
-          location: get_location(),
+          loc_id: get_location_id(),
           builtin: "VectorMap",
           type_parameters: [this.element_type as EastType, output_type],
           arguments: [this[AstSymbol], fn[AstSymbol]],
@@ -220,7 +220,7 @@ export class VectorExpr<T extends any> extends Expr<VectorType<T>> {
     return this[FactorySymbol]({
       ast_type: "Builtin",
       type: returnType as EastType,
-      location: get_location(),
+      loc_id: get_location_id(),
       builtin: "VectorFold",
       type_parameters: [this.element_type as EastType, returnType as EastType],
       arguments: [this[AstSymbol], initAst, combineAst],

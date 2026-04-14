@@ -100,6 +100,60 @@ export const optimizationIncremental = example({
     returns: 15.0,
 });
 
+export const optimizationGrouped = example({
+    keywords: ["optimization", "iterative", "grouped", "group", "per-value", "rostering", "bin packing", "assignment"],
+    description: "Optimize slot-to-worker rostering using grouped per-value contributions",
+    fn: East.function([], FloatType, ($) => {
+        // 6 shift slots assigned to 3 workers (IDs 0-2).
+        // Each worker's cost = sum of shift costs for their assigned slots.
+        // Penalty if a worker has > 2 slots (overtime).
+        const shiftCosts = $.let([10.0, 20.0, 15.0, 25.0, 30.0, 5.0]);
+        const nSlots = East.value(6n);
+
+        const groupObjective = $.const(East.function(
+            [VectorType(IntegerType), IntegerType], FloatType,
+            ($, assignments, workerId) => {
+                const cost = $.let(0.0);
+                const count = $.let(0n);
+                $.for(East.Array.range(0n, nSlots), ($, slot) => {
+                    $.if(East.equal(assignments.get(slot), workerId), $ => {
+                        $.assign(cost, cost.add(shiftCosts.get(slot)));
+                        $.assign(count, count.add(1n));
+                    });
+                });
+                // Overtime penalty: 50 per extra slot beyond 2
+                $.if(count.greater(2n), $ => {
+                    $.assign(cost, cost.add(count.subtract(2n).toFloat().multiply(50.0)));
+                });
+                $.return(cost.negate());
+            }
+        ));
+
+        // Each slot can be assigned to worker 0, 1, or 2
+        const workers = East.Vector.fromArray([0n, 1n, 2n]);
+        const spaces = $.let([workers, workers, workers, workers, workers, workers]);
+
+        const config = $.let({
+            iterations: variant('some', 20n),
+            samples: variant('some', 5n),
+            initial: variant('some', variant('random', null)),
+            order: variant('some', variant('sequential', null)),
+            random_state: variant('some', 42n),
+            mode: variant('none', null),
+            workers: variant('none', null),
+        });
+
+        const result = $.let(Optimization.iterativeGrouped(
+            groupObjective, spaces, config,
+        ));
+
+        // Optimal: 2 slots each, no overtime. Total cost = -(10+20+15+25+30+5) = -105
+        return result.best_objective;
+    }),
+    inputs: [],
+    returns: -105.0,
+});
+
 export const optimizationSwap = example({
     keywords: ["optimization", "iterative", "swap", "permutation", "scheduling", "job order", "weighted completion time"],
     description: "Find optimal job execution order to minimize weighted completion time using swap mode",

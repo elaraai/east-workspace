@@ -22,7 +22,7 @@ export { OutOfScopeException } from './ast_to_ir.js';
 export * from './type_of_type.js';
 export * from './types.js';
 export * from './fuzz.js';
-export { decodeBeast2For, encodeBeast2For, compileFunctionIR, compileAsyncFunctionIR, EAST_IR_SYMBOL, type Beast2DecodeOptions } from './serialization/beast2.js';
+export { decodeBeast2For, encodeBeast2For, compileFunctionIR, compileAsyncFunctionIR, type Beast2DecodeOptions } from './serialization/beast2/index.js';
 export { type RuntimeContext } from './compile.js';
 export { SortedSet } from './containers/sortedset.js';
 export { SortedMap } from './containers/sortedmap.js';

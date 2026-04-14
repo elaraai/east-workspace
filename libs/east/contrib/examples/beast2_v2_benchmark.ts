@@ -12,7 +12,7 @@ import {
   RecursiveType, VariantType, ArrayType, OptionType, StructType,
   StringType, IntegerType, FloatType, BooleanType, FunctionType, NullType, DictType,
 } from "../../src/index.js";
-import { encodeBeast2For as v2Encode, decodeBeast2For as v2Decode } from "../../src/serialization/beast2.js";
+import { encodeBeast2For as v2Encode, decodeBeast2For as v2Decode } from "../../src/serialization/beast2/index.js";
 import { variant } from "../../src/containers/variant.js";
 import { IRType } from "../../src/ir.js";
 import { EAST_IR_SYMBOL } from "../../src/compile.js";

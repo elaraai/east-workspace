@@ -22,12 +22,18 @@ static IRVariable ir_variable_dup(const IRVariable *src) {
     v.name = src->name ? strdup(src->name) : NULL;
     v.mutable = src->mutable;
     v.captured = src->captured;
+    v.loc_id = src->loc_id;
     return v;
 }
 
 static void ir_variable_free(IRVariable *v) {
     free(v->name);
     v->name = NULL;
+}
+
+static void ir_label_free(IRLabel *l) {
+    free(l->name);
+    l->name = NULL;
 }
 
 /* Duplicate an array of IRVariable structs (deep-copies names). */
@@ -100,7 +106,8 @@ IRNode *ir_let(EastType *type, const char *var_name, bool mutable, bool captured
 IRNode *ir_assign(EastType *type, const char *name, IRNode *value) {
     IRNode *n = ir_alloc(IR_ASSIGN, type);
     if (!n) return NULL;
-    n->data.assign.name = name ? strdup(name) : NULL;
+    n->data.assign.var.name = name ? strdup(name) : NULL;
+    /* mutable/captured unused for Assign targets; calloc leaves them false */
     n->data.assign.value = value;
     if (value) ir_node_retain(value);
     return n;
@@ -133,12 +140,11 @@ IRNode *ir_match(EastType *type, IRNode *expr, IRMatchCase *cases, size_t num_ca
     if (expr) ir_node_retain(expr);
     n->data.match.num_cases = num_cases;
     if (num_cases > 0 && cases) {
-        n->data.match.cases = malloc(num_cases * sizeof(IRMatchCase));
+        n->data.match.cases = calloc(num_cases, sizeof(IRMatchCase));
         for (size_t i = 0; i < num_cases; i++) {
             n->data.match.cases[i].case_name =
                 cases[i].case_name ? strdup(cases[i].case_name) : NULL;
-            n->data.match.cases[i].bind_name =
-                cases[i].bind_name ? strdup(cases[i].bind_name) : NULL;
+            n->data.match.cases[i].bind = ir_variable_dup(&cases[i].bind);
             n->data.match.cases[i].body = cases[i].body;
             if (cases[i].body) ir_node_retain(cases[i].body);
         }
@@ -155,7 +161,7 @@ IRNode *ir_while(EastType *type, IRNode *cond, IRNode *body, const char *label) 
     if (cond) ir_node_retain(cond);
     n->data.while_.body = body;
     if (body) ir_node_retain(body);
-    n->data.while_.label = label ? strdup(label) : NULL;
+    n->data.while_.label.name = label ? strdup(label) : NULL;
     return n;
 }
 
@@ -163,13 +169,13 @@ IRNode *ir_for_array(EastType *type, const char *var, const char *idx,
                      IRNode *array, IRNode *body, const char *label) {
     IRNode *n = ir_alloc(IR_FOR_ARRAY, type);
     if (!n) return NULL;
-    n->data.for_array.var_name = var ? strdup(var) : NULL;
-    n->data.for_array.index_name = idx ? strdup(idx) : NULL;
+    n->data.for_array.var.name = var ? strdup(var) : NULL;
+    n->data.for_array.index_var.name = idx ? strdup(idx) : NULL;
     n->data.for_array.array = array;
     if (array) ir_node_retain(array);
     n->data.for_array.body = body;
     if (body) ir_node_retain(body);
-    n->data.for_array.label = label ? strdup(label) : NULL;
+    n->data.for_array.label.name = label ? strdup(label) : NULL;
     return n;
 }
 
@@ -177,12 +183,12 @@ IRNode *ir_for_set(EastType *type, const char *var, IRNode *set,
                    IRNode *body, const char *label) {
     IRNode *n = ir_alloc(IR_FOR_SET, type);
     if (!n) return NULL;
-    n->data.for_set.var_name = var ? strdup(var) : NULL;
+    n->data.for_set.var.name = var ? strdup(var) : NULL;
     n->data.for_set.set = set;
     if (set) ir_node_retain(set);
     n->data.for_set.body = body;
     if (body) ir_node_retain(body);
-    n->data.for_set.label = label ? strdup(label) : NULL;
+    n->data.for_set.label.name = label ? strdup(label) : NULL;
     return n;
 }
 
@@ -190,13 +196,13 @@ IRNode *ir_for_dict(EastType *type, const char *key, const char *val,
                     IRNode *dict, IRNode *body, const char *label) {
     IRNode *n = ir_alloc(IR_FOR_DICT, type);
     if (!n) return NULL;
-    n->data.for_dict.key_name = key ? strdup(key) : NULL;
-    n->data.for_dict.val_name = val ? strdup(val) : NULL;
+    n->data.for_dict.key.name = key ? strdup(key) : NULL;
+    n->data.for_dict.val.name = val ? strdup(val) : NULL;
     n->data.for_dict.dict = dict;
     if (dict) ir_node_retain(dict);
     n->data.for_dict.body = body;
     if (body) ir_node_retain(body);
-    n->data.for_dict.label = label ? strdup(label) : NULL;
+    n->data.for_dict.label.name = label ? strdup(label) : NULL;
     return n;
 }
 
@@ -286,14 +292,14 @@ IRNode *ir_return(EastType *type, IRNode *value) {
 IRNode *ir_break(const char *label) {
     IRNode *n = ir_alloc(IR_BREAK, NULL);
     if (!n) return NULL;
-    n->data.loop_ctrl.label = label ? strdup(label) : NULL;
+    n->data.loop_ctrl.label.name = label ? strdup(label) : NULL;
     return n;
 }
 
 IRNode *ir_continue(const char *label) {
     IRNode *n = ir_alloc(IR_CONTINUE, NULL);
     if (!n) return NULL;
-    n->data.loop_ctrl.label = label ? strdup(label) : NULL;
+    n->data.loop_ctrl.label.name = label ? strdup(label) : NULL;
     return n;
 }
 
@@ -312,8 +318,8 @@ IRNode *ir_try_catch(EastType *type, IRNode *try_body,
     if (!n) return NULL;
     n->data.try_catch.try_body = try_body;
     if (try_body) ir_node_retain(try_body);
-    n->data.try_catch.message_var = message_var ? strdup(message_var) : NULL;
-    n->data.try_catch.stack_var = stack_var ? strdup(stack_var) : NULL;
+    n->data.try_catch.message_var.name = message_var ? strdup(message_var) : NULL;
+    n->data.try_catch.stack_var.name = stack_var ? strdup(stack_var) : NULL;
     n->data.try_catch.catch_body = catch_body;
     if (catch_body) ir_node_retain(catch_body);
     n->data.try_catch.finally_body = finally_body;
@@ -432,33 +438,6 @@ IRNode *ir_unwrap_recursive(EastType *type, IRNode *value) {
 /*  Location management                                                 */
 /* ------------------------------------------------------------------ */
 
-EastLocation *east_locations_dup(const EastLocation *src, size_t count) {
-    if (!src || count == 0) return NULL;
-    EastLocation *dst = malloc(count * sizeof(EastLocation));
-    if (!dst) return NULL;
-    for (size_t i = 0; i < count; i++) {
-        dst[i].filename = src[i].filename ? strdup(src[i].filename) : NULL;
-        dst[i].line = src[i].line;
-        dst[i].column = src[i].column;
-    }
-    return dst;
-}
-
-void east_locations_free(EastLocation *locs, size_t count) {
-    if (!locs) return;
-    for (size_t i = 0; i < count; i++) {
-        free(locs[i].filename);
-    }
-    free(locs);
-}
-
-void ir_node_set_location(IRNode *node, const EastLocation *locs, size_t num_locs) {
-    if (!node) return;
-    east_locations_free(node->locations, node->num_locations);
-    node->locations = east_locations_dup(locs, num_locs);
-    node->num_locations = num_locs;
-}
-
 /* ------------------------------------------------------------------ */
 /*  Ref counting                                                        */
 /* ------------------------------------------------------------------ */
@@ -493,7 +472,7 @@ void ir_node_release(IRNode *node) {
         break;
 
     case IR_ASSIGN:
-        free(node->data.assign.name);
+        ir_variable_free(&node->data.assign.var);
         ir_node_release(node->data.assign.value);
         break;
 
@@ -514,7 +493,7 @@ void ir_node_release(IRNode *node) {
         ir_node_release(node->data.match.expr);
         for (size_t i = 0; i < node->data.match.num_cases; i++) {
             free(node->data.match.cases[i].case_name);
-            free(node->data.match.cases[i].bind_name);
+            ir_variable_free(&node->data.match.cases[i].bind);
             ir_node_release(node->data.match.cases[i].body);
         }
         free(node->data.match.cases);
@@ -523,30 +502,30 @@ void ir_node_release(IRNode *node) {
     case IR_WHILE:
         ir_node_release(node->data.while_.cond);
         ir_node_release(node->data.while_.body);
-        free(node->data.while_.label);
+        ir_label_free(&node->data.while_.label);
         break;
 
     case IR_FOR_ARRAY:
-        free(node->data.for_array.var_name);
-        free(node->data.for_array.index_name);
+        ir_variable_free(&node->data.for_array.var);
+        ir_variable_free(&node->data.for_array.index_var);
         ir_node_release(node->data.for_array.array);
         ir_node_release(node->data.for_array.body);
-        free(node->data.for_array.label);
+        ir_label_free(&node->data.for_array.label);
         break;
 
     case IR_FOR_SET:
-        free(node->data.for_set.var_name);
+        ir_variable_free(&node->data.for_set.var);
         ir_node_release(node->data.for_set.set);
         ir_node_release(node->data.for_set.body);
-        free(node->data.for_set.label);
+        ir_label_free(&node->data.for_set.label);
         break;
 
     case IR_FOR_DICT:
-        free(node->data.for_dict.key_name);
-        free(node->data.for_dict.val_name);
+        ir_variable_free(&node->data.for_dict.key);
+        ir_variable_free(&node->data.for_dict.val);
         ir_node_release(node->data.for_dict.dict);
         ir_node_release(node->data.for_dict.body);
-        free(node->data.for_dict.label);
+        ir_label_free(&node->data.for_dict.label);
         break;
 
     case IR_FUNCTION:
@@ -611,7 +590,7 @@ void ir_node_release(IRNode *node) {
 
     case IR_BREAK:
     case IR_CONTINUE:
-        free(node->data.loop_ctrl.label);
+        ir_label_free(&node->data.loop_ctrl.label);
         break;
 
     case IR_ERROR:
@@ -620,8 +599,8 @@ void ir_node_release(IRNode *node) {
 
     case IR_TRY_CATCH:
         ir_node_release(node->data.try_catch.try_body);
-        free(node->data.try_catch.message_var);
-        free(node->data.try_catch.stack_var);
+        ir_variable_free(&node->data.try_catch.message_var);
+        ir_variable_free(&node->data.try_catch.stack_var);
         ir_node_release(node->data.try_catch.catch_body);
         ir_node_release(node->data.try_catch.finally_body);
         break;
@@ -686,6 +665,5 @@ void ir_node_release(IRNode *node) {
         break;
     }
 
-    east_locations_free(node->locations, node->num_locations);
     free(node);
 }

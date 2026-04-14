@@ -6,3 +6,4 @@ coverage
 *.avro
 *.json
 *.csv
+*.cpuprofile

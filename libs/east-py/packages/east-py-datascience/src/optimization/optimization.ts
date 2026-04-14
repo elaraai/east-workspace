@@ -210,6 +210,49 @@ export const optimization_iterative_incremental = East.platform(
     IterativeResultType
 );
 
+/**
+ * Group-based incremental iterative optimization.
+ *
+ * Like {@link optimization_iterative_incremental}, but contributions are grouped
+ * by **value** rather than by index. The group objective receives the full vector
+ * and a group key (a value that appears in the vector), and returns the total
+ * contribution of all elements assigned to that group.
+ *
+ * When element `i` changes from value A to value B, only 2 groups are recomputed:
+ * `groupObjective(vector, A)` and `groupObjective(vector, B)`.
+ *
+ * Use this when cost is associated with values (e.g., employees, bins, vehicles)
+ * rather than positions (e.g., slots, items, stops).
+ *
+ * @example Rostering — slot → employee assignment
+ * ```ts
+ * const groupObjective = East.function(
+ *     [VectorType(IntegerType), IntegerType], FloatType,
+ *     ($, slotAssignments, employeeId) => {
+ *         const cost = $.let(0.0);
+ *         $.for(East.Array.range(0n, nSlots), ($, slot) => {
+ *             $.if(East.equal(slotAssignments.get(slot), employeeId), $ => {
+ *                 $.assign(cost, cost.add(shiftRates.get(slot)));
+ *             });
+ *         });
+ *         return $.return(cost.negate());
+ *     }
+ * );
+ * const result = $.let(Optimization.iterativeGrouped(
+ *     groupObjective, spaces, config
+ * ));
+ * ```
+ */
+export const optimization_iterative_grouped = East.platform(
+    "optimization_iterative_grouped",
+    [
+        ElementObjectiveType,     // groupObjective: (Vector<Integer>, Integer) -> Float
+        ParameterSpacesType,      // parameter_spaces: Array<Vector<Integer>>
+        IterativeConfigType,      // config
+    ],
+    IterativeResultType
+);
+
 // ============================================================================
 // Grouped Export
 // ============================================================================
@@ -372,6 +415,41 @@ export const Optimization = {
      * ```
      */
     iterativeIncremental: optimization_iterative_incremental,
+
+    /**
+     * Group-based incremental optimization with per-value contributions.
+     *
+     * `Optimization.iterativeGrouped(groupObjective, spaces, config)`
+     *
+     * Takes a group objective `(Vector<Integer>, Integer) -> Float` where the
+     * second argument is a **value** (group key), not an index. Returns the total
+     * contribution of all elements assigned to that value.
+     *
+     * When element `i` changes from value A to B, recomputes only groups A and B.
+     * Use this when cost is per-value (employee, bin, vehicle) not per-position.
+     *
+     * @example Group-based task assignment
+     * ```ts
+     * // 6 tasks assigned to workers 0-2. Cost = per-worker total.
+     * const taskCosts = $.let([10.0, 20.0, 15.0, 25.0, 30.0, 5.0]);
+     * const groupObjective = East.function(
+     *     [VectorType(IntegerType), IntegerType], FloatType,
+     *     ($, assignments, workerId) => {
+     *         const total = $.let(0.0);
+     *         $.for(East.Array.range(0n, East.value(6n)), ($, task) => {
+     *             $.if(East.equal(assignments.get(task), workerId), $ => {
+     *                 $.assign(total, total.add(taskCosts.get(task)));
+     *             });
+     *         });
+     *         return $.return(total.negate());
+     *     }
+     * );
+     * const result = $.let(Optimization.iterativeGrouped(
+     *     groupObjective, spaces, config
+     * ));
+     * ```
+     */
+    iterativeGrouped: optimization_iterative_grouped,
 
     /**
      * Type definitions for optimization functions.
