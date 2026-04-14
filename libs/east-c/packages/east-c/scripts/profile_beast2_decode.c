@@ -178,13 +178,15 @@ int main(int argc, char **argv) {
     }
 
     int ir_mode = 0;
+    const char *phase = NULL;  /* NULL=all, "decode", "compile", "execute" */
     int arg_idx = 1;
-    if (strcmp(argv[1], "--ir") == 0) {
-        ir_mode = 1;
-        arg_idx = 2;
+    while (arg_idx < argc && argv[arg_idx][0] == '-') {
+        if (strcmp(argv[arg_idx], "--ir") == 0) { ir_mode = 1; arg_idx++; }
+        else if (strcmp(argv[arg_idx], "--phase") == 0 && arg_idx + 1 < argc) { phase = argv[++arg_idx]; arg_idx++; }
+        else { arg_idx++; }
     }
     if (arg_idx >= argc) {
-        fprintf(stderr, "Usage: %s [--ir] <file.beast2> [iterations]\n", argv[0]);
+        fprintf(stderr, "Usage: %s [--ir] [--phase decode|compile|execute] <file.beast2> [iterations]\n", argv[0]);
         return 1;
     }
 

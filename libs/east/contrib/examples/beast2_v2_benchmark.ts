@@ -381,6 +381,72 @@ await cpuProfile("decode", () => {
 const decElapsed = performance.now() - decStart;
 console.log(`  decode: ${(decElapsed / DECODE_ITERS).toFixed(1)} ms/call`);
 
+// Profile IR decode + execute (if IR blob was written)
+if (irValue) {
+  const { analyzeIR } = await import("../../src/analyze.js");
+  const { compile_internal, ReturnException } = await import("../../src/compile.js");
+  const irBlob = new Uint8Array(fs.readFileSync("/tmp/ui_fn.beast2"));
+  const irDecoder = v2Decode(IRType);
+
+  // Warmup: decode IR → compile → execute
+  const warmupIR = irDecoder(irBlob) as any;
+  const warmupAnalyzed = analyzeIR(warmupIR, []);
+  const warmupCompiled = compile_internal(warmupAnalyzed, {}, {}, new Set(), [], true, new Set());
+  const warmupFn = warmupCompiled({});
+  try { warmupFn(); } catch (e) { if (!(e instanceof ReturnException)) throw e; }
+
+  const EXEC_ITERS = 3;
+  // Note: analyzeIR is NOT needed for decoded IR — it was already valid when encoded.
+  // The beast2 decoder casts directly to AnalyzedIR (index.ts:384).
+  let decTotal = 0, compileTotal = 0, execTotal = 0;
+  for (let i = 0; i < EXEC_ITERS; i++) {
+    const t0 = performance.now();
+    const ir = irDecoder(irBlob) as any;
+    const t1 = performance.now();
+    const compiled = compile_internal(ir as any, {}, {}, new Set(), [], true, new Set());
+    const fn = compiled({});
+    const t2 = performance.now();
+    try { fn(); } catch (e) { if (!(e instanceof ReturnException)) throw e; }
+    const t3 = performance.now();
+    decTotal += t1 - t0;
+    compileTotal += t2 - t1;
+    execTotal += t3 - t2;
+  }
+  console.log(`\n  IR pipeline (${EXEC_ITERS} iterations, no analyzeIR):`);
+  console.log(`    beast2 decode:  ${(decTotal / EXEC_ITERS).toFixed(1)} ms`);
+  console.log(`    compile:        ${(compileTotal / EXEC_ITERS).toFixed(1)} ms`);
+  console.log(`    execute:        ${(execTotal / EXEC_ITERS).toFixed(1)} ms`);
+  console.log(`    total:          ${((decTotal + compileTotal + execTotal) / EXEC_ITERS).toFixed(1)} ms`);
+
+  // Profile decode phase with CPU profiler
+  console.log(`\n  Profiling IR decode (${EXEC_ITERS} iterations)...`);
+  await cpuProfile("ir_decode", () => {
+    for (let i = 0; i < EXEC_ITERS; i++) irDecoder(irBlob);
+  });
+  console.log(`  wrote ir_decode.cpuprofile`);
+
+  // Profile compile phase
+  const irForCompile = irDecoder(irBlob) as any;
+  console.log(`  Profiling IR compile (${EXEC_ITERS} iterations)...`);
+  await cpuProfile("ir_compile", () => {
+    for (let i = 0; i < EXEC_ITERS; i++) {
+      compile_internal(irForCompile as any, {}, {}, new Set(), [], true, new Set());
+    }
+  });
+  console.log(`  wrote ir_compile.cpuprofile`);
+
+  // Profile execute phase
+  const compiledForExec = compile_internal(irForCompile as any, {}, {}, new Set(), [], true, new Set());
+  const fnForExec = compiledForExec({});
+  console.log(`  Profiling IR execute (${EXEC_ITERS * 3} iterations)...`);
+  await cpuProfile("ir_execute", () => {
+    for (let i = 0; i < EXEC_ITERS * 3; i++) {
+      try { fnForExec(); } catch (e) { if (!(e instanceof ReturnException)) throw e; }
+    }
+  });
+  console.log(`  wrote ir_execute.cpuprofile`);
+}
+
 console.log("\n=== Summary ===");
 console.log(`  size: ${humanSize(v2Blob.length)}`);
 console.log(`  encode: ${(encElapsed / ENCODE_ITERS).toFixed(1)} ms`);
