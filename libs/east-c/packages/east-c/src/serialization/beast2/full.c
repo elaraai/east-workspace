@@ -219,9 +219,9 @@ IRNode *east_beast2_decode_ir(const uint8_t *data, size_t len, EastValue **ir_va
     Beast2StringTableDec st = read_string_table_section(data, len, &offset);
     Beast2SourceMap sm = read_source_map_section(data, len, &offset, &st);
 
-    /* Skip value table section */
-    uint64_t vt_byte_len = read_varint(data, &offset);
-    offset += (size_t)vt_byte_len;
+    /* Read value table section (IR arrays are mutable containers) */
+    Beast2MutableValues mv = read_value_table_section(data, len, &offset,
+                                                        tt.types, tt.count, &st);
 
     /* Decode IR as EastValue variant tree */
     Beast2DecodeCtx dctx;
@@ -229,6 +229,9 @@ IRNode *east_beast2_decode_ir(const uint8_t *data, size_t len, EastValue **ir_va
     dctx.global_types = tt.types;
     dctx.global_type_table_size = tt.count;
     dctx.string_table = &st;
+    dctx.mutable_values = mv.values;
+    dctx.mutable_values_count = mv.count;
+    dctx.source_map = &sm;
     EastValue *ir_value = beast2_decode_value(data, len, &offset, east_ir_type, &dctx);
     beast2_dec_ctx_free(&dctx);
 
@@ -236,6 +239,7 @@ IRNode *east_beast2_decode_ir(const uint8_t *data, size_t len, EastValue **ir_va
         type_table_result_free(&tt);
         string_table_dec_free(&st);
         beast2_source_map_free(&sm);
+        free(mv.values);
         return NULL;
     }
 
@@ -250,6 +254,7 @@ IRNode *east_beast2_decode_ir(const uint8_t *data, size_t len, EastValue **ir_va
     type_table_result_free(&tt);
     string_table_dec_free(&st);
     beast2_source_map_free(&sm);
+    free(mv.values);
     return ir;
 }
 
