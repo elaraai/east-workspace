@@ -71,11 +71,23 @@ def load_ir(file_path: Path) -> Any:
 
     elif fmt == "json":
         from east.serialization.json import decode_json_for
+        from east.types.types import ArrayType, IntegerType, StringType, StructType
 
         with open(file_path, "rb") as f:
             data = f.read()
-        decoder = decode_json_for(IRType)
-        return decoder(data)
+
+        # Try wrapper format first: {ir, source_map} (exported by TS test suite)
+        LocationType = StructType({"column": IntegerType, "filename": StringType, "line": IntegerType})
+        SourceMapType = StructType({"stacks": ArrayType(ArrayType(LocationType))})
+        WrapperType = StructType({"ir": IRType, "source_map": SourceMapType})
+        try:
+            wrapper = decode_json_for(WrapperType)(data)
+            return wrapper.ir
+        except Exception:
+            pass
+
+        # Fallback: raw IR type (legacy format)
+        return decode_json_for(IRType)(data)
 
     else:
         raise ValueError(f"Unknown format: {fmt}")

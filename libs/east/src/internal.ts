@@ -38,7 +38,7 @@ export * from './datetime_format/print.js';
 export * from './datetime_format/parse.js';
 // Profiling exports - for performance analysis
 export { analyzeIR } from './analyze.js';
-export { compile_internal } from './compile.js';
+export { compile_internal, EAST_IR_SYMBOL, EAST_SOURCE_MAP_SYMBOL } from './compile.js';
 
 /**
  * Type helper for platform function definitions.

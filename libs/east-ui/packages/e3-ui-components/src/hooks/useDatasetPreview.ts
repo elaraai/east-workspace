@@ -94,7 +94,7 @@ export function useDatasetPreview(
         const sizeBytes = raw.size?.type === 'some' ? Number(raw.size.value) : null;
 
         const type = raw.type as EastTypeValue;
-
+        console.log(raw.type);
         let isUI = false;
         try {
             isUI = isTypeValueEqual(type, toEastTypeValue(UIComponentType));

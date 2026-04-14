@@ -42,6 +42,7 @@ static EastValue *alloc_value(EastValueKind kind) {
     v->kind = kind;
     v->ref_count = 1;
     v->gc_tracked = false;
+    v->gc_gen = 0;
     v->gc_next = NULL;
     v->gc_prev = NULL;
     if (is_gc_type(kind)) {

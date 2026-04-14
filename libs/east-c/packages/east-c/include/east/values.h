@@ -37,6 +37,7 @@ struct EastValue {
     struct EastValue *gc_prev;
     int gc_refs;           /* temporary refcount during collection */
     bool gc_tracked;       /* true if in GC tracking list */
+    uint8_t gc_gen;        /* GC generation: 0=young, 1=old */
     int iter_lock;         /* iteration lock count (>0 = locked, mutation forbidden) */
 
     union {

@@ -455,16 +455,35 @@ uint32_t east_wasm_compile_json(const uint8_t *json, size_t json_len) {
     memcpy(json_str, json, json_len);
     json_str[json_len] = '\0';
 
-    char *decode_error = NULL;
-    EastValue *ir_val = east_json_decode_with_error(json_str, east_ir_type, &decode_error);
+    EastSourceMap *source_map = NULL;
+    IRNode *ir = east_json_decode_ir(json_str, NULL, &source_map);
     free(json_str);
-    if (!ir_val) {
-        if (decode_error) { set_last_error(decode_error); free(decode_error); }
-        else { set_last_error("failed to decode JSON IR"); }
+    if (!ir) {
+        set_last_error("failed to decode JSON IR");
         return 0;
     }
 
-    return compile_ir_value(ir_val);
+    /* Compile — compile_ir_node releases ir */
+    uint32_t handle = compile_ir_node(ir);
+    if (handle == 0) {
+        if (source_map) { east_source_map_free(source_map); free(source_map); }
+        return 0;
+    }
+
+    /* Attach source map to the compiled function */
+    if (source_map) {
+        EastValue *fn_val = g_handles[handle];
+        if (fn_val && fn_val->kind == EAST_VAL_FUNCTION &&
+            fn_val->data.function.compiled) {
+            fn_val->data.function.compiled->source_map = source_map;
+            east_set_source_map(source_map);
+        } else {
+            east_source_map_free(source_map);
+            free(source_map);
+        }
+    }
+
+    return handle;
 }
 
 EMSCRIPTEN_KEEPALIVE
@@ -961,7 +980,7 @@ void east_wasm_free(uint32_t handle) {
 
 EMSCRIPTEN_KEEPALIVE
 void east_wasm_gc(void) {
-    east_gc_collect();
+    east_gc_collect_full();
 }
 
 EMSCRIPTEN_KEEPALIVE

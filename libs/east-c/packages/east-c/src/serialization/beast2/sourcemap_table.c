@@ -21,7 +21,7 @@
 /*  Write source map section                                           */
 /* ================================================================== */
 
-void write_source_map_section(Beast2SourceMap *sm, Beast2StringTableEnc *st, ByteBuffer *buf)
+void write_source_map_section(EastSourceMap *sm, Beast2StringTableEnc *st, ByteBuffer *buf)
 {
     ByteBuffer *hdr = byte_buffer_new(256);
 
@@ -55,10 +55,10 @@ void write_source_map_section(Beast2SourceMap *sm, Beast2StringTableEnc *st, Byt
 /*  Read source map section                                            */
 /* ================================================================== */
 
-Beast2SourceMap read_source_map_section(const uint8_t *data, size_t len, size_t *offset,
+EastSourceMap read_source_map_section(const uint8_t *data, size_t len, size_t *offset,
                                          Beast2StringTableDec *st)
 {
-    Beast2SourceMap sm = {0};
+    EastSourceMap sm = {0};
 
     uint64_t section_byte_length = read_varint(data, offset);
     size_t section_end = *offset + (size_t)section_byte_length;
@@ -97,7 +97,7 @@ Beast2SourceMap read_source_map_section(const uint8_t *data, size_t len, size_t 
 /*  Free source map                                                    */
 /* ================================================================== */
 
-void beast2_source_map_free(Beast2SourceMap *sm)
+void beast2_source_map_free(EastSourceMap *sm)
 {
     if (!sm) return;
     for (size_t i = 0; i < sm->num_stacks; i++) {

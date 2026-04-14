@@ -4,25 +4,30 @@
 # EAST_QUIET=1 — suppress passing test output (only show failures + summaries)
 # Default: verbose in sub-lib targets, quiet in test-all
 
-.PHONY: setup install link build test lint clean services-up services-down services-status test-all test-export help
+.PHONY: setup install build link test lint clean services-up services-down services-status test-all test-export help
 
-# ── Setup ─────────────────────────────────────────────────────────────
+# ── Setup (one-time) ─────────────────────────────────────────────────
 
-## Full first-time setup (install deps + build toolchains + native extensions + link CLIs)
-setup: install
+## One-time setup of build tools (emscripten SDK for WASM compilation)
+setup:
 	$(MAKE) -C $(CURDIR)/libs/east-c setup-wasm
+
+# ── Install ──────────────────────────────────────────────────────────
+
+## Install all dependencies (pnpm for TS, uv for Python)
+install:
+	pnpm install
+	$(MAKE) -C $(CURDIR)/libs/east-py install
+
+# ── Build ────────────────────────────────────────────────────────────
+
+## Build everything: east-c native + WASM, east-py (Cython), all TS packages
+build:
 	$(MAKE) -C $(CURDIR)/libs/east-c build
 	$(MAKE) -C $(CURDIR)/libs/east-c wasm wasm-ts
 	$(MAKE) -C $(CURDIR)/libs/east-py build-eastc
 	$(MAKE) -C $(CURDIR)/libs/east-py install
-	$(MAKE) build
-	$(MAKE) link
-
-## Install dependencies (pnpm for TS, uv for Python, cmake for C)
-install:
-	pnpm install
-	$(MAKE) -C $(CURDIR)/libs/east-py install
-	$(MAKE) -C $(CURDIR)/libs/east-c build
+	pnpm build
 
 ## Link all CLIs globally (e3, e3-api-server, east-node, east-py, east-c)
 link:
@@ -33,11 +38,7 @@ link:
 	$(MAKE) -C $(CURDIR)/libs/east-py install-cli
 	$(MAKE) -C $(CURDIR)/libs/east-ui extension-install
 
-# ── Build / Test / Lint (via Turbo) ──────────────────────────────────
-
-## Build all packages
-build:
-	pnpm build
+# ── Test / Lint (via Turbo) ──────────────────────────────────────────
 
 ## Run TS tests only (does not start services — use test-all for that)
 test:
@@ -73,7 +74,7 @@ test-export:
 # ── Full Test Run ────────────────────────────────────────────────────
 
 ## Start services, run ALL tests (TS + C + WASM + Python), stop services
-## Requires: make setup (one-time)
+## Requires: make setup (one-time), make install, make build
 ## Sets EAST_QUIET=1 so each runner only outputs failures + summaries.
 test-all: services-up test-export
 	@exit_code=0; \
@@ -107,13 +108,14 @@ clean:
 help:
 	@echo "east-workspace (pnpm + turborepo)"
 	@echo ""
-	@echo "Setup:"
-	@echo "  setup            - Full first-time setup (install + emscripten + cython + wasm)"
-	@echo "  install          - Install deps (pnpm + uv + cmake)"
-	@echo "  link             - Link CLIs globally (e3, east-node, east-py, east-c)"
+	@echo "First time:"
+	@echo "  setup            - Install emscripten SDK (one-time)"
+	@echo "  install          - Install deps (pnpm + uv)"
+	@echo "  build            - Build everything (east-c + WASM + east-py + TS)"
+	@echo "  link             - Link CLIs globally"
 	@echo ""
-	@echo "Build / Test / Lint (turbo):"
-	@echo "  build            - Build all packages"
+	@echo "Development:"
+	@echo "  build            - Rebuild everything"
 	@echo "  test             - Run TS tests (turbo)"
 	@echo "  lint             - Lint all packages"
 	@echo ""
@@ -122,10 +124,8 @@ help:
 	@echo "  services-down    - Stop test services"
 	@echo "  services-status  - Show test services status"
 	@echo ""
-	@echo "Test IR export:"
-	@echo "  test-export      - Export all test IR"
-	@echo ""
 	@echo "Full test run:"
+	@echo "  test-export      - Export all test IR"
 	@echo "  test-all         - services + export + TS + C + Python (quiet mode)"
 	@echo ""
 	@echo "Environment:"

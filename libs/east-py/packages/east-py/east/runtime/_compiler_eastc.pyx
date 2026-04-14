@@ -107,15 +107,43 @@ cdef object _compile_from_ir_node(_eastc.IRNode* ir_node, _eastc.EastValue* c_ir
 # ─── Compile from JSON (fast path — no Python round-trip) ────────────────
 
 cpdef object compile_eastc_from_json(bytes json_data, list platform_list, bint is_async):
-    """Compile East IR directly from JSON bytes — no Python IR round-trip."""
+    """Compile East IR directly from JSON bytes — no Python IR round-trip.
+
+    Supports both wrapper format {ir, source_map} (exported by TS test suite)
+    and raw IR format (legacy). Extracts and attaches source map if present.
+    """
     _ensure_runtime()
 
-    cdef _eastc.EastValue* c_ir_val = _eastc.east_json_decode(
-        <const char*>json_data, _eastc.east_ir_type)
-    if c_ir_val == NULL:
-        raise RuntimeError("east_json_decode failed for IR")
+    cdef _eastc.EastValue* c_ir_val = NULL
+    cdef _eastc.EastSourceMap* source_map = NULL
+    cdef _eastc.IRNode* ir_node = _eastc.east_json_decode_ir(
+        <const char*>json_data, &c_ir_val, &source_map)
+    if ir_node == NULL:
+        if c_ir_val != NULL:
+            _eastc.east_value_release(c_ir_val)
+        raise RuntimeError("east_json_decode_ir failed for IR")
 
-    return _compile_from_c_ir_val(c_ir_val, platform_list, is_async)
+    cdef object result = _compile_from_ir_node(ir_node, c_ir_val, platform_list, is_async)
+
+    # Attach source map to the compiled function if present
+    cdef uintptr_t sm_compiled_ptr
+    cdef _eastc.EastCompiledFn* sm_cfn
+    if source_map != NULL:
+        try:
+            handle = result._eastc_handle
+            sm_compiled_ptr = handle._compiled
+            sm_cfn = <_eastc.EastCompiledFn*>sm_compiled_ptr
+            if sm_cfn != NULL:
+                sm_cfn.source_map = source_map
+                _eastc.east_set_source_map(source_map)
+            else:
+                _eastc.east_source_map_free(source_map)
+                free(source_map)
+        except Exception:
+            _eastc.east_source_map_free(source_map)
+            free(source_map)
+
+    return result
 
 
 # ─── Compile from BEAST2 (fast path — no Python round-trip) ──────────────

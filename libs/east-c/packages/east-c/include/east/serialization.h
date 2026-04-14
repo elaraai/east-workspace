@@ -4,6 +4,7 @@
 #include "types.h"
 #include "values.h"
 #include "ir.h"
+#include "type_of_type.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -42,6 +43,13 @@ EastType *east_beast2_extract_type(const uint8_t *data, size_t len);
 // Returns NULL on failure. Caller must call ir_node_release on the result.
 // ir_value_out (optional): if non-NULL, receives the retained IR EastValue* (for re-serialization).
 IRNode *east_beast2_decode_ir(const uint8_t *data, size_t len, EastValue **ir_value_out);
+
+// Decode JSON IR in wrapper format {ir, source_map} and convert to IRNode.
+// Tries wrapper format first (TS test suite export), falls back to raw IR.
+// ir_value_out (optional): if non-NULL, receives the retained IR EastValue*.
+// source_map_out (optional): if non-NULL, receives heap-allocated EastSourceMap* (caller owns).
+IRNode *east_json_decode_ir(const char *json, EastValue **ir_value_out,
+                             EastSourceMap **source_map_out);
 
 // Beast v1 binary serialization (magic + type schema + twiddled values)
 ByteBuffer *east_beast_encode(EastValue *value, EastType *type);

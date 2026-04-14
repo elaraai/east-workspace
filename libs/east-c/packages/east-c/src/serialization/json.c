@@ -2484,3 +2484,122 @@ EastValue *east_json_decode_with_error(const char *json, EastType *type, char **
     jde_free(&err);
     return result;
 }
+
+/* ------------------------------------------------------------------ */
+/*  JSON IR wrapper decode (mirrors east_beast2_decode_ir for JSON)    */
+/* ------------------------------------------------------------------ */
+
+#include "east/type_of_type.h"
+#include "east/compiler.h"
+
+/* Build source map from decoded wrapper value.
+ * sm_val is a Struct({stacks: Array(Array(Struct({column,filename,line})))}).
+ * Returns heap-allocated EastSourceMap or NULL. */
+static EastSourceMap *build_source_map_from_value(EastValue *sm_val) {
+    if (!sm_val || sm_val->kind != EAST_VAL_STRUCT) return NULL;
+    EastValue *stacks_val = east_struct_get_field_idx(sm_val, 0);
+    if (!stacks_val || stacks_val->kind != EAST_VAL_ARRAY) return NULL;
+
+    size_t ns = stacks_val->data.array.len;
+    if (ns == 0) return NULL;
+
+    EastSourceMap *sm = calloc(1, sizeof(EastSourceMap));
+    sm->num_stacks = ns;
+    sm->stacks = calloc(ns, sizeof(EastLocation *));
+    sm->stack_counts = calloc(ns, sizeof(size_t));
+
+    for (size_t i = 0; i < ns; i++) {
+        EastValue *stack = stacks_val->data.array.items[i];
+        if (!stack || stack->kind != EAST_VAL_ARRAY) continue;
+        size_t nf = stack->data.array.len;
+        sm->stack_counts[i] = nf;
+        if (nf == 0) continue;
+        sm->stacks[i] = calloc(nf, sizeof(EastLocation));
+        for (size_t j = 0; j < nf; j++) {
+            EastValue *frame = stack->data.array.items[j];
+            if (!frame || frame->kind != EAST_VAL_STRUCT) continue;
+            /* Field order matches type creation: filename=0, line=1, column=2 */
+            EastValue *fn_v = east_struct_get_field_idx(frame, 0);
+            EastValue *ln_v = east_struct_get_field_idx(frame, 1);
+            EastValue *col_v = east_struct_get_field_idx(frame, 2);
+            if (fn_v && fn_v->kind == EAST_VAL_STRING)
+                sm->stacks[i][j].filename = strdup(fn_v->data.string.data);
+            if (ln_v && ln_v->kind == EAST_VAL_INTEGER)
+                sm->stacks[i][j].line = ln_v->data.integer;
+            if (col_v && col_v->kind == EAST_VAL_INTEGER)
+                sm->stacks[i][j].column = col_v->data.integer;
+        }
+    }
+    return sm;
+}
+
+IRNode *east_json_decode_ir(const char *json, EastValue **ir_value_out,
+                             EastSourceMap **source_map_out)
+{
+    if (ir_value_out) *ir_value_out = NULL;
+    if (source_map_out) *source_map_out = NULL;
+    if (!json) return NULL;
+    if (!east_type_type) east_type_of_type_init();
+
+    /* Build wrapper type: Struct({ir: IRType, source_map: SourceMapType}) */
+    EastType *loc_struct = east_struct_type(
+        (const char*[]){"filename", "line", "column"},
+        (EastType*[]){&east_string_type, &east_integer_type, &east_integer_type}, 3);
+    EastType *loc_arr = east_array_type(loc_struct);
+    EastType *stacks_arr = east_array_type(loc_arr);
+    EastType *sm_type = east_struct_type(
+        (const char*[]){"stacks"}, (EastType*[]){stacks_arr}, 1);
+    EastType *wrapper_type = east_struct_type(
+        (const char*[]){"ir", "source_map"},
+        (EastType*[]){east_ir_type, sm_type}, 2);
+
+    EastValue *wrapper_val = east_json_decode(json, wrapper_type);
+
+    east_type_release(loc_struct);
+    east_type_release(loc_arr);
+    east_type_release(stacks_arr);
+    east_type_release(sm_type);
+    east_type_release(wrapper_type);
+
+    EastValue *ir_val = NULL;
+    EastSourceMap *source_map = NULL;
+
+    if (wrapper_val) {
+        /* Struct fields sorted alphabetically: ir=0, source_map=1 */
+        ir_val = east_struct_get_field_idx(wrapper_val, 0);
+        EastValue *sm_val = east_struct_get_field_idx(wrapper_val, 1);
+        source_map = build_source_map_from_value(sm_val);
+        if (ir_val) east_value_retain(ir_val);
+        east_value_release(wrapper_val);
+    } else {
+        /* Fallback: raw IR type (legacy format) */
+        ir_val = east_json_decode(json, east_ir_type);
+    }
+
+    if (!ir_val) {
+        if (source_map) { east_source_map_free(source_map); free(source_map); }
+        return NULL;
+    }
+
+    IRNode *ir = east_ir_from_value(ir_val);
+    if (!ir) {
+        east_value_release(ir_val);
+        if (source_map) { east_source_map_free(source_map); free(source_map); }
+        return NULL;
+    }
+
+    if (source_map_out) {
+        *source_map_out = source_map;
+    } else if (source_map) {
+        east_source_map_free(source_map);
+        free(source_map);
+    }
+
+    if (ir_value_out) {
+        *ir_value_out = ir_val;
+    } else {
+        east_value_release(ir_val);
+    }
+
+    return ir;
+}

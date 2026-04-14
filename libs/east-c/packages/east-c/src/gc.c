@@ -11,52 +11,92 @@
 #include <string.h>
 
 /* ------------------------------------------------------------------ */
-/*  GC tracking list (circular doubly-linked with sentinel)            */
+/*  Two-generation GC tracking lists                                    */
+/*                                                                      */
+/*  Each generation is a circular doubly-linked list with a sentinel.   */
+/*  Young: newly tracked objects since last young collection.           */
+/*  Old: survivors of at least one young collection.                    */
 /* ------------------------------------------------------------------ */
 
-/* _Thread_local can't have self-referencing initializers, so we
- * lazy-init the sentinel's next/prev pointers on first use. */
-static _Thread_local EastValue gc_sentinel = {
+static _Thread_local EastValue gc_young_sentinel = {
     .kind = EAST_VAL_NULL,
     .ref_count = -1,
     .gc_next = NULL,
     .gc_prev = NULL,
     .gc_tracked = false,
+    .gc_gen = 0,
 };
 
-static _Thread_local size_t gc_count = 0;
+static _Thread_local EastValue gc_old_sentinel = {
+    .kind = EAST_VAL_NULL,
+    .ref_count = -1,
+    .gc_next = NULL,
+    .gc_prev = NULL,
+    .gc_tracked = false,
+    .gc_gen = 1,
+};
+
+static _Thread_local size_t gc_young_count = 0;
+static _Thread_local size_t gc_old_count = 0;
+
+/* Visit-once stamp for gc_traverse (environment chain dedup).
+ * Incremented before each Phase 2 and Phase 3. */
 static _Thread_local unsigned gc_generation = 0;
 
+/* Scheduling counters.
+ * gc_young_net_allocs is signed: can go negative when young objects are
+ * freed by refcounting before a collection triggers (east_gc_untrack
+ * decrements it). Negative values correctly fail the >= threshold check. */
+static _Thread_local int gc_young_net_allocs = 0;
+static _Thread_local int gc_young_collections = 0;
+
 static inline void gc_ensure_init(void) {
-    if (!gc_sentinel.gc_next) {
-        gc_sentinel.gc_next = &gc_sentinel;
-        gc_sentinel.gc_prev = &gc_sentinel;
+    if (!gc_young_sentinel.gc_next) {
+        gc_young_sentinel.gc_next = &gc_young_sentinel;
+        gc_young_sentinel.gc_prev = &gc_young_sentinel;
+    }
+    if (!gc_old_sentinel.gc_next) {
+        gc_old_sentinel.gc_next = &gc_old_sentinel;
+        gc_old_sentinel.gc_prev = &gc_old_sentinel;
     }
 }
 
 void east_gc_track(EastValue *v) {
     if (!v || v->gc_tracked) return;
     gc_ensure_init();
-    v->gc_next = gc_sentinel.gc_next;
-    v->gc_prev = &gc_sentinel;
-    gc_sentinel.gc_next->gc_prev = v;
-    gc_sentinel.gc_next = v;
+    /* Insert into young generation list */
+    v->gc_next = gc_young_sentinel.gc_next;
+    v->gc_prev = &gc_young_sentinel;
+    gc_young_sentinel.gc_next->gc_prev = v;
+    gc_young_sentinel.gc_next = v;
     v->gc_tracked = true;
-    gc_count++;
+    v->gc_gen = 0;
+    gc_young_count++;
+    gc_young_net_allocs++;
 }
 
 void east_gc_untrack(EastValue *v) {
     if (!v || !v->gc_tracked) return;
+    /* Unlink from whichever list it's in */
     v->gc_prev->gc_next = v->gc_next;
     v->gc_next->gc_prev = v->gc_prev;
     v->gc_next = NULL;
     v->gc_prev = NULL;
     v->gc_tracked = false;
-    gc_count--;
+    if (v->gc_gen == 0) {
+        gc_young_count--;
+        gc_young_net_allocs--;
+    } else {
+        gc_old_count--;
+    }
 }
 
 size_t east_gc_tracked_count(void) {
-    return gc_count;
+    return gc_young_count + gc_old_count;
+}
+
+bool east_gc_should_collect(void) {
+    return gc_young_net_allocs >= GC_YOUNG_THRESHOLD;
 }
 
 /* ------------------------------------------------------------------ */
@@ -65,7 +105,6 @@ size_t east_gc_tracked_count(void) {
 
 typedef void (*gc_visit_fn)(EastValue *child, void *ctx);
 
-/* hashmap_iter callback that visits each value in an environment */
 typedef struct {
     gc_visit_fn visit;
     void *ctx;
@@ -77,6 +116,11 @@ static void env_visit_cb(const char *key, void *value, void *ctx) {
     if (value) ectx->visit((EastValue *)value, ectx->ctx);
 }
 
+/* gc_traverse visits v's children unconditionally and calls the callback
+ * on each child. It does NOT deduplicate or skip children based on
+ * gc_generation — the generation stamp is only used to avoid re-traversing
+ * shared environment chains (parent envs reachable from multiple function
+ * values). The callback decides what to do with each child. */
 static void gc_traverse(EastValue *v, gc_visit_fn visit, void *ctx) {
     switch (v->kind) {
     case EAST_VAL_ARRAY:
@@ -139,38 +183,9 @@ static void gc_traverse(EastValue *v, gc_visit_fn visit, void *ctx) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Cycle collector: trial-deletion algorithm                          */
+/*  Phase 4 helper: destroy contents of a garbage value                */
 /* ------------------------------------------------------------------ */
 
-/*
- * Phase 1: copy ref_count → gc_refs for all tracked objects
- * Phase 2: for each tracked object, traverse its references and
- *          decrement gc_refs of tracked children (trial deletion)
- * Phase 3: objects with gc_refs > 0 are roots; rescue all objects
- *          transitively reachable from roots
- * Phase 4: remaining objects with gc_refs == 0 are garbage — collect
- */
-
-/* Phase 2 visitor: decrement gc_refs of tracked children */
-static void subtract_ref(EastValue *child, void *ctx) {
-    (void)ctx;
-    if (child && child->gc_tracked) {
-        child->gc_refs--;
-    }
-}
-
-/* Phase 3 visitor: rescue tentatively unreachable objects */
-static void rescue_visit(EastValue *child, void *ctx) {
-    (void)ctx;
-    if (child && child->gc_tracked && child->gc_refs == 0) {
-        child->gc_refs = 1; /* mark as rescued */
-        gc_traverse(child, rescue_visit, NULL);
-    }
-}
-
-/* Phase 4: destroy contents of a garbage value without triggering
- * cascading frees into other garbage objects (their ref_count has
- * been set to INT_MAX so east_value_release won't free them). */
 static void gc_destroy_contents(EastValue *v) {
     switch (v->kind) {
     case EAST_VAL_ARRAY:
@@ -247,56 +262,191 @@ static void gc_destroy_contents(EastValue *v) {
     }
 }
 
-void east_gc_collect(void) {
-    gc_ensure_init();
-    if (gc_count == 0) return;
+/* ------------------------------------------------------------------ */
+/*  Promotion: move a young survivor to old generation                 */
+/* ------------------------------------------------------------------ */
 
-    /* Phase 1: copy refcounts */
-    for (EastValue *v = gc_sentinel.gc_next; v != &gc_sentinel;
-         v = v->gc_next) {
+/* Direct list splice — NOT via east_gc_untrack/east_gc_track, which
+ * would corrupt the gc_young_net_allocs counter. */
+static void gc_promote(EastValue *v) {
+    /* Unlink from young list */
+    v->gc_prev->gc_next = v->gc_next;
+    v->gc_next->gc_prev = v->gc_prev;
+    gc_young_count--;
+
+    /* Link into old list */
+    v->gc_next = gc_old_sentinel.gc_next;
+    v->gc_prev = &gc_old_sentinel;
+    gc_old_sentinel.gc_next->gc_prev = v;
+    gc_old_sentinel.gc_next = v;
+    v->gc_gen = 1;
+    gc_old_count++;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Young collection: trial-deletion on young generation only          */
+/* ------------------------------------------------------------------ */
+
+/* Phase 2 visitor: decrement gc_refs of young tracked children only.
+ * Old objects are treated as external references. */
+static void subtract_ref_young(EastValue *child, void *ctx) {
+    (void)ctx;
+    if (child && child->gc_tracked && child->gc_gen == 0) {
+        child->gc_refs--;
+    }
+}
+
+/* Phase 3 visitor: rescue tentatively unreachable young objects */
+static void rescue_visit_young(EastValue *child, void *ctx) {
+    (void)ctx;
+    if (child && child->gc_tracked && child->gc_gen == 0 &&
+        child->gc_refs == 0) {
+        child->gc_refs = 1;
+        gc_traverse(child, rescue_visit_young, NULL);
+    }
+}
+
+static void gc_collect_young_impl(void) {
+    if (gc_young_count == 0) return;
+
+    /* Phase 1: copy refcounts for young objects */
+    for (EastValue *v = gc_young_sentinel.gc_next;
+         v != &gc_young_sentinel; v = v->gc_next) {
         v->gc_refs = v->ref_count;
     }
 
-    /* Phase 2: subtract internal references (trial deletion)
-     * Increment gc_generation so each shared env is visited only once. */
+    /* Phase 2: trial deletion — only subtract refs between young objects */
     gc_generation++;
-    for (EastValue *v = gc_sentinel.gc_next; v != &gc_sentinel;
-         v = v->gc_next) {
-        gc_traverse(v, subtract_ref, NULL);
+    for (EastValue *v = gc_young_sentinel.gc_next;
+         v != &gc_young_sentinel; v = v->gc_next) {
+        gc_traverse(v, subtract_ref_young, NULL);
     }
 
-    /* Phase 3: rescue objects reachable from roots (gc_refs > 0)
-     * New generation so envs are re-traversable for rescue. */
+    /* Phase 3: rescue young objects reachable from young roots */
     gc_generation++;
-    for (EastValue *v = gc_sentinel.gc_next; v != &gc_sentinel;
-         v = v->gc_next) {
+    for (EastValue *v = gc_young_sentinel.gc_next;
+         v != &gc_young_sentinel; v = v->gc_next) {
         if (v->gc_refs > 0) {
-            gc_traverse(v, rescue_visit, NULL);
+            gc_traverse(v, rescue_visit_young, NULL);
         }
     }
 
-    /* Phase 4: collect garbage (gc_refs == 0 after rescue) */
-
-    /* 4a: Build garbage list and untrack.  Set ref_count to INT_MAX
-     *     so that east_value_release called during gc_destroy_contents
-     *     on other garbage objects will not trigger their deallocation. */
-    size_t garbage_cap = 64;
+    /* Phase 4a: build garbage list, untrack, set ref_count = INT_MAX */
+    size_t garbage_cap = gc_young_count > 0 ? gc_young_count : 64;
     size_t garbage_len = 0;
     EastValue **garbage = malloc(garbage_cap * sizeof(EastValue *));
     if (!garbage) return; /* OOM — skip collection */
 
-    EastValue *v = gc_sentinel.gc_next;
-    while (v != &gc_sentinel) {
+    EastValue *v = gc_young_sentinel.gc_next;
+    while (v != &gc_young_sentinel) {
         EastValue *next = v->gc_next;
         if (v->gc_refs == 0) {
-            /* Unlink from tracking list */
             v->gc_prev->gc_next = v->gc_next;
             v->gc_next->gc_prev = v->gc_prev;
             v->gc_next = NULL;
             v->gc_prev = NULL;
             v->gc_tracked = false;
-            gc_count--;
+            gc_young_count--;
+            v->ref_count = INT_MAX;
+            garbage[garbage_len++] = v;
+        }
+        v = next;
+    }
 
+    /* Phase 4b: destroy contents of garbage (breaks cycles) */
+    for (size_t i = 0; i < garbage_len; i++)
+        gc_destroy_contents(garbage[i]);
+
+    /* Phase 4c: free garbage structs */
+    for (size_t i = 0; i < garbage_len; i++)
+        east_value_dealloc(garbage[i]);
+
+    free(garbage);
+
+    /* Phase 4d: promote ALL remaining young objects to old */
+    v = gc_young_sentinel.gc_next;
+    while (v != &gc_young_sentinel) {
+        EastValue *next = v->gc_next;
+        gc_promote(v);
+        v = next;
+    }
+    /* Young list is now empty */
+}
+
+/* ------------------------------------------------------------------ */
+/*  Full collection: trial-deletion on all tracked objects             */
+/* ------------------------------------------------------------------ */
+
+/* Phase 2 visitor: decrement gc_refs of all tracked children */
+static void subtract_ref(EastValue *child, void *ctx) {
+    (void)ctx;
+    if (child && child->gc_tracked) {
+        child->gc_refs--;
+    }
+}
+
+/* Phase 3 visitor: rescue tentatively unreachable objects */
+static void rescue_visit(EastValue *child, void *ctx) {
+    (void)ctx;
+    if (child && child->gc_tracked && child->gc_refs == 0) {
+        child->gc_refs = 1;
+        gc_traverse(child, rescue_visit, NULL);
+    }
+}
+
+static void gc_collect_full_impl(void) {
+    gc_ensure_init();
+
+    /* Merge young into old */
+    if (gc_young_count > 0) {
+        EastValue *v = gc_young_sentinel.gc_next;
+        while (v != &gc_young_sentinel) {
+            EastValue *next = v->gc_next;
+            gc_promote(v);
+            v = next;
+        }
+    }
+
+    if (gc_old_count == 0) return;
+
+    /* Phase 1: copy refcounts */
+    for (EastValue *v = gc_old_sentinel.gc_next;
+         v != &gc_old_sentinel; v = v->gc_next) {
+        v->gc_refs = v->ref_count;
+    }
+
+    /* Phase 2: trial deletion */
+    gc_generation++;
+    for (EastValue *v = gc_old_sentinel.gc_next;
+         v != &gc_old_sentinel; v = v->gc_next) {
+        gc_traverse(v, subtract_ref, NULL);
+    }
+
+    /* Phase 3: rescue from roots */
+    gc_generation++;
+    for (EastValue *v = gc_old_sentinel.gc_next;
+         v != &gc_old_sentinel; v = v->gc_next) {
+        if (v->gc_refs > 0) {
+            gc_traverse(v, rescue_visit, NULL);
+        }
+    }
+
+    /* Phase 4a: build garbage list */
+    size_t garbage_cap = 64;
+    size_t garbage_len = 0;
+    EastValue **garbage = malloc(garbage_cap * sizeof(EastValue *));
+    if (!garbage) return;
+
+    EastValue *v = gc_old_sentinel.gc_next;
+    while (v != &gc_old_sentinel) {
+        EastValue *next = v->gc_next;
+        if (v->gc_refs == 0) {
+            v->gc_prev->gc_next = v->gc_next;
+            v->gc_next->gc_prev = v->gc_prev;
+            v->gc_next = NULL;
+            v->gc_prev = NULL;
+            v->gc_tracked = false;
+            gc_old_count--;
             v->ref_count = INT_MAX;
 
             if (garbage_len >= garbage_cap) {
@@ -311,15 +461,46 @@ void east_gc_collect(void) {
         v = next;
     }
 
-    /* 4b: Destroy contents of each garbage object (breaks cycles) */
-    for (size_t i = 0; i < garbage_len; i++) {
+    /* Phase 4b: destroy contents */
+    for (size_t i = 0; i < garbage_len; i++)
         gc_destroy_contents(garbage[i]);
-    }
 
-    /* 4c: Free the garbage objects themselves (pool-aware) */
-    for (size_t i = 0; i < garbage_len; i++) {
+    /* Phase 4c: free garbage structs */
+    for (size_t i = 0; i < garbage_len; i++)
         east_value_dealloc(garbage[i]);
-    }
 
     free(garbage);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Public API                                                          */
+/* ------------------------------------------------------------------ */
+
+void east_gc_collect_young(void) {
+    gc_ensure_init();
+    gc_collect_young_impl();
+    gc_young_net_allocs = 0;
+}
+
+void east_gc_collect(void) {
+    gc_ensure_init();
+    if (gc_young_count == 0 && gc_old_count == 0) return;
+
+    bool full = (++gc_young_collections >= GC_FULL_INTERVAL);
+    if (full) gc_young_collections = 0;
+
+    if (full) {
+        gc_collect_full_impl();
+    } else {
+        gc_collect_young_impl();
+    }
+
+    gc_young_net_allocs = 0;
+}
+
+void east_gc_collect_full(void) {
+    gc_ensure_init();
+    gc_collect_full_impl();
+    gc_young_net_allocs = 0;
+    gc_young_collections = 0;
 }

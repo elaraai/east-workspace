@@ -1,22 +1,28 @@
 {
   "name": "@elaraai/e3-ui-showcase",
   "version": "0.0.1",
-  "private": true,
-  "description": "e3 showcase package with East UI component tasks",
+  "description": "E3 Ui Showcase",
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc --build",
-    "export": "node --enable-source-maps dist/index.js"
+    "build": "tsc",
+    "main": "node --max-old-space-size=16000 ./dist/main.js",
+    "test": "node --enable-source-maps --test 'dist/**/*.spec.js'",
+    "test:export": "EXPORT_TEST_IR=/tmp/e3-ui-showcase-tests node --enable-source-maps --test 'dist/**/*.spec.js' 2>&1 | grep 'Exported test IR'",
+    "lint": "eslint ."
   },
   "dependencies": {
-    "@elaraai/e3": "workspace:*",
     "@elaraai/east": "workspace:*",
-    "@elaraai/east-ui": "workspace:*"
+    "@elaraai/east-node-std": "workspace:*",
+    "@elaraai/east-node-io": "workspace:*",
+    "@elaraai/e3": "workspace:*",
+    "@elaraai/e3-types": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^22.18.1",
-    "typescript": "~5.9.2"
-  }
+    "@types/node": "^22",
+    "typescript": "^5",
+    "eslint": "^9",
+    "@typescript-eslint/eslint-plugin": "^8",
+    "@typescript-eslint/parser": "^8"
+  },
+  "engines": { "node": ">=22" }
 }

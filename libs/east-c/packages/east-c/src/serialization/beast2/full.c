@@ -37,8 +37,8 @@ ByteBuffer *east_beast2_encode_full(EastValue *value, EastType *type)
     beast2_encode_value(value_buf, value, type, &ctx);
 
     /* 4. Write source map section (discovered from function values, or empty) */
-    Beast2SourceMap empty_sm = {0};
-    Beast2SourceMap *sm = ctx.source_map ? ctx.source_map : &empty_sm;
+    EastSourceMap empty_sm = {0};
+    EastSourceMap *sm = ctx.source_map ? ctx.source_map : &empty_sm;
     ByteBuffer *sm_buf = byte_buffer_new(16);
     write_source_map_section(sm, &string_table, sm_buf);
 
@@ -119,7 +119,7 @@ EastValue *east_beast2_decode_full(const uint8_t *data, size_t len,
     Beast2StringTableDec st = read_string_table_section(data, len, &offset);
 
     /* 4. Read source map section */
-    Beast2SourceMap sm = read_source_map_section(data, len, &offset, &st);
+    EastSourceMap sm = read_source_map_section(data, len, &offset, &st);
 
     /* 5. Read value table section (two-pass) */
     Beast2MutableValues mv = read_value_table_section(data, len, &offset,
@@ -179,7 +179,7 @@ EastValue *east_beast2_decode_auto(const uint8_t *data, size_t len)
     Beast2StringTableDec st = read_string_table_section(data, len, &offset);
 
     /* 3. Read source map section */
-    Beast2SourceMap sm = read_source_map_section(data, len, &offset, &st);
+    EastSourceMap sm = read_source_map_section(data, len, &offset, &st);
 
     /* 4. Read value table section */
     Beast2MutableValues mv = read_value_table_section(data, len, &offset,
@@ -217,7 +217,7 @@ IRNode *east_beast2_decode_ir(const uint8_t *data, size_t len, EastValue **ir_va
     size_t offset = 8;
     TypeTableResult tt = read_type_table_section(data, len, &offset);
     Beast2StringTableDec st = read_string_table_section(data, len, &offset);
-    Beast2SourceMap sm = read_source_map_section(data, len, &offset, &st);
+    EastSourceMap sm = read_source_map_section(data, len, &offset, &st);
 
     /* Read value table section (IR arrays are mutable containers) */
     Beast2MutableValues mv = read_value_table_section(data, len, &offset,

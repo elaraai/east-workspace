@@ -284,6 +284,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
                 return body_res;
             }
             east_value_release(body_res.value);
+            east_gc_maybe_collect_young(); /* safe point: loop back-edge */
         }
 
         return eval_ok(east_null());
@@ -348,6 +349,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
                 return body_res;
             }
             east_value_release(body_res.value);
+            east_gc_maybe_collect_young(); /* safe point: loop back-edge */
         }
         arr->iter_lock--;
 
@@ -409,6 +411,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
                 return body_res;
             }
             east_value_release(body_res.value);
+            east_gc_maybe_collect_young(); /* safe point: loop back-edge */
         }
         set->iter_lock--;
 
@@ -472,6 +475,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
                 return body_res;
             }
             east_value_release(body_res.value);
+            east_gc_maybe_collect_young(); /* safe point: loop back-edge */
         }
         dict->iter_lock--;
 
@@ -1225,13 +1229,11 @@ EvalResult east_call(EastCompiledFn *fn, EastValue **args,
         result = eval_ok(ret_val);
     }
 
-    /* Run cycle collector only at outermost call.
-     * Nested calls (from builtins like array_group_fold) hold references
-     * via C stack variables invisible to the GC, which can cause the GC
-     * to incorrectly collect live objects.  Non-cyclic values are still
-     * freed immediately by refcounting at every level. */
+    /* Run scheduled collection (young or full per GC_FULL_INTERVAL) at
+     * outermost call return.  Young-only safe points also fire at loop
+     * back-edges within eval_ir. */
     east_call_depth--;
-    if (east_call_depth == 0) {
+    if (east_call_depth == 0 && east_gc_should_collect()) {
         east_gc_collect();
     }
 

@@ -176,6 +176,9 @@ cdef extern from "east/values.h":
     ctypedef struct PlatformRegistry:
         pass
 
+    ctypedef struct EastSourceMap:
+        pass
+
     ctypedef struct EastCompiledFn:
         IRNode *ir
         Environment *captures
@@ -185,6 +188,7 @@ cdef extern from "east/values.h":
         BuiltinRegistry *builtins
         EastValue *source_ir
         EastType *fn_type
+        EastSourceMap *source_map
 
     # Nested structs for the value union
     ctypedef struct _EastValueStringData:
@@ -352,6 +356,8 @@ cdef extern from "east/serialization.h":
     char *east_json_encode(EastValue *value, EastType *type)
     EastValue *east_json_decode(const char *json, EastType *type)
     EastValue *east_json_decode_with_error(const char *json, EastType *type, char **error_out)
+    # JSON IR wrapper decode (mirrors east_beast2_decode_ir for JSON)
+    IRNode *east_json_decode_ir(const char *json, EastValue **ir_value_out, EastSourceMap **source_map_out)
 
     # CSV serialization
     char *east_csv_encode(EastValue *array, EastType *type, EastValue *config)
@@ -430,6 +436,8 @@ cdef extern from "east/compiler.h":
     PlatformRegistry *east_current_platform()
     BuiltinRegistry *east_current_builtins()
     void east_set_thread_context(PlatformRegistry *p, BuiltinRegistry *b)
+    void east_set_source_map(const EastSourceMap *sm)
+    void east_source_map_free(EastSourceMap *sm)
 
 
 # ─── type_of_type.h ─────────────────────────────────────────────────────

@@ -22,9 +22,7 @@ function runAndCatch(name: string, fn: () => void) {
         if (e instanceof EastError) {
             console.log("EastError caught:");
             console.log("  Message:", e.eastMessage);
-            console.log("  loc_id:", e.loc_id);
-            const stack = e.source_map?.resolve(e.loc_id) ?? [];
-            for (const loc of stack) {
+            for (const loc of e.location) {
                 console.log(`    ${loc.filename}:${loc.line}:${loc.column}`);
             }
             console.log("  toString():", e.toString());

@@ -324,6 +324,7 @@ static int cmd_run(const char *ir_path,
 
     IRNode *ir = NULL;
     EastValue *ir_val = NULL;
+    EastSourceMap *json_source_map = NULL;
     FileFormat ir_fmt = detect_format(ir_path);
 
     if (ir_fmt == FMT_BEAST2) {
@@ -339,8 +340,21 @@ static int cmd_run(const char *ir_path,
         ir = east_beast2_decode_ir(fdata, flen, &ir_val);
         free(fdata);
         clock_gettime(CLOCK_MONOTONIC, &t_convert);
+    } else if (ir_fmt == FMT_JSON) {
+        /* JSON: decode wrapper {ir, source_map} with source map extraction */
+        size_t flen = 0;
+        char *text = read_file_text(ir_path, &flen);
+        if (!text) {
+            platform_registry_free(platform);
+            builtin_registry_free(builtins);
+            return 1;
+        }
+        clock_gettime(CLOCK_MONOTONIC, &t_decode);
+        ir = east_json_decode_ir(text, &ir_val, &json_source_map);
+        free(text);
+        clock_gettime(CLOCK_MONOTONIC, &t_convert);
     } else {
-        /* JSON/Beast/East: decode IR value, then convert */
+        /* Beast v1/East text: decode IR value, then convert */
         ir_val = load_ir(ir_path, verbose);
         if (!ir_val) {
             platform_registry_free(platform);
@@ -352,7 +366,7 @@ static int cmd_run(const char *ir_path,
         clock_gettime(CLOCK_MONOTONIC, &t_convert);
     }
 
-    /* ir_val is retained by east_beast2_decode_ir or loaded by load_ir;
+    /* ir_val is retained by the decode functions;
      * the IRNode's source_ir holds its own ref if needed for re-serialization. */
     if (ir_val) east_value_release(ir_val);
 
@@ -461,6 +475,12 @@ static int cmd_run(const char *ir_path,
         platform_registry_free(platform);
         builtin_registry_free(builtins);
         return 1;
+    }
+
+    /* Attach source map (from JSON wrapper or beast2 decode) */
+    if (json_source_map) {
+        fn->source_map = json_source_map;
+        east_set_source_map(fn->source_map);
     }
 
     /* Set parameter names so east_call can bind arguments */

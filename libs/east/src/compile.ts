@@ -13,6 +13,7 @@ import { ConflictError } from "./patch/index.js";
 import { printFor, parseFor } from "./serialization/east.js";
 import { variant, type option } from "./containers/variant.js";
 import { EastError, InternalError } from "./error.js";
+import type { Location } from "./location.js";
 import { get_current_source_map, type SourceMap } from "./location.js";
 import { SortedSet } from "./containers/sortedset.js";
 import { SortedMap } from "./containers/sortedmap.js";
@@ -139,11 +140,11 @@ export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeVal
   } else if (ir.type === "Error") {
     const message_compiled = compile_internal(ir.value.message, ctx, platform, asyncPlatformFns, platformDef, false, compilingNodes);
     if (ir.value.isAsync) {
-      const err_loc_id = ir.value.loc_id;
-      return async (ctx: RuntimeContext) => { throw new EastError(await message_compiled(ctx), { loc_id: err_loc_id, source_map }); };
+      const err_location = source_map?.resolve(ir.value.loc_id) as Location[] ?? [];
+      return async (ctx: RuntimeContext) => { throw new EastError(await message_compiled(ctx), { location: err_location }); };
     } else {
-      const err_loc_id = ir.value.loc_id;
-      return (ctx: RuntimeContext) => { throw new EastError(message_compiled(ctx), { loc_id: err_loc_id, source_map }); };
+      const err_location = source_map?.resolve(ir.value.loc_id) as Location[] ?? [];
+      return (ctx: RuntimeContext) => { throw new EastError(message_compiled(ctx), { location: err_location }); };
     }
   } else if (ir.type === "TryCatch") {
     const try_body = compile_internal(ir.value.try_body, Object.create(ctx), platform, asyncPlatformFns, platformDef, true, compilingNodes);
@@ -167,7 +168,7 @@ export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeVal
             if (e instanceof EastError) {
               const new_ctx: RuntimeContext = Object.create(ctx);
               new_ctx[message_name] = variant("value", e.message);
-              new_ctx[stack_name] = variant("value", e.source_map ? [...e.source_map.resolve(e.loc_id)].map(l => ({ filename: l.filename, line: l.line, column: l.column })) : []);
+              new_ctx[stack_name] = variant("value", e.location.map(l => ({ filename: l.filename, line: l.line, column: l.column })));
               return await catch_body(new_ctx);
             } else {
               throw(e);
@@ -182,7 +183,7 @@ export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeVal
             if (e instanceof EastError) {
               const new_ctx: RuntimeContext = Object.create(ctx);
               new_ctx[message_name] = variant("value", e.message);
-              new_ctx[stack_name] = variant("value", e.source_map ? [...e.source_map.resolve(e.loc_id)].map(l => ({ filename: l.filename, line: l.line, column: l.column })) : []);
+              new_ctx[stack_name] = variant("value", e.location.map(l => ({ filename: l.filename, line: l.line, column: l.column })));
               return await catch_body(new_ctx);
             } else {
               throw(e);
@@ -201,7 +202,7 @@ export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeVal
             if (e instanceof EastError) {
               const new_ctx: RuntimeContext = Object.create(ctx);
               new_ctx[message_name] = variant("value", e.message);
-              new_ctx[stack_name] = variant("value", e.source_map ? [...e.source_map.resolve(e.loc_id)].map(l => ({ filename: l.filename, line: l.line, column: l.column })) : []);
+              new_ctx[stack_name] = variant("value", e.location.map(l => ({ filename: l.filename, line: l.line, column: l.column })));
               return catch_body(new_ctx);
             } else {
               throw(e);
@@ -216,7 +217,7 @@ export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeVal
             if (e instanceof EastError) {
               const new_ctx: RuntimeContext = Object.create(ctx);
               new_ctx[message_name] = variant("value", e.message);
-              new_ctx[stack_name] = variant("value", e.source_map ? [...e.source_map.resolve(e.loc_id)].map(l => ({ filename: l.filename, line: l.line, column: l.column })) : []);
+              new_ctx[stack_name] = variant("value", e.location.map(l => ({ filename: l.filename, line: l.line, column: l.column })));
               return catch_body(new_ctx);
             } else {
               throw(e);
@@ -1082,7 +1083,7 @@ export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeVal
               i += char.length;
               let char2 = replacement[i];
               if (char2 === undefined) {
-                return (_ctx: RuntimeContext) => { throw new EastError(`invalid regex replacement string: unescaped $ at end of string`, { loc_id, source_map }) };
+                return (_ctx: RuntimeContext) => { throw new EastError(`invalid regex replacement string: unescaped $ at end of string`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] }) };
               } else if (char2 === '$') {
                 i += 1;
               } else if (char2 >= '1' && char2 <= '9') {
@@ -1099,23 +1100,23 @@ export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeVal
                 char2 = replacement[i];
                 while (true) {
                   if (char2 === undefined) {
-                    return (_ctx: RuntimeContext) => { throw new EastError(`invalid regex replacement string: unterminated group name in $<...>`, { loc_id, source_map }) };
+                    return (_ctx: RuntimeContext) => { throw new EastError(`invalid regex replacement string: unterminated group name in $<...>`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] }) };
                   }
                   if (char2 === '>') {
                     break;
                   }
                   if (!((char2 >= '0' && char2 <= '9') || (char2 >= 'a' && char2 <= 'z') || (char2 >= 'A' && char2 <= 'Z') || char2 === '_')) {
-                    return (_ctx: RuntimeContext) => { throw new EastError(`invalid regex replacement string: invalid character ${JSON.stringify(char2)} in group name in $<...>`, { loc_id, source_map }) };
+                    return (_ctx: RuntimeContext) => { throw new EastError(`invalid regex replacement string: invalid character ${JSON.stringify(char2)} in group name in $<...>`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] }) };
                   }
                   i += 1;
                   char2 = replacement[i];
                 }
                 if (i === init_i) {
-                  return (_ctx: RuntimeContext) => { throw new EastError(`invalid regex replacement string: empty group name in $<>`, { loc_id, source_map }) };
+                  return (_ctx: RuntimeContext) => { throw new EastError(`invalid regex replacement string: empty group name in $<>`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] }) };
                 }
                 i += 1; // for closing >
               } else {
-                return (_ctx: RuntimeContext) => { throw new EastError(`invalid regex replacement string: unescaped $ at $${char2}`, { loc_id, source_map }) };
+                return (_ctx: RuntimeContext) => { throw new EastError(`invalid regex replacement string: unescaped $ at $${char2}`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] }) };
               }
             } else {
               i += char.length;
@@ -1143,7 +1144,7 @@ export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeVal
                 i += char.length;
                 let char2 = replacement[i];
                 if (char2 === undefined) {
-                  throw new EastError(`invalid regex replacement string: unescaped $ at end of string`, { loc_id, source_map });
+                  throw new EastError(`invalid regex replacement string: unescaped $ at end of string`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
                 } else if (char2 === '$') {
                   i += 1;
                 } else if (char2 >= '1' && char2 <= '9') {
@@ -1160,23 +1161,23 @@ export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeVal
                   char2 = replacement[i];
                   while (true) {
                     if (char2 === undefined) {
-                      throw new EastError(`invalid regex replacement string: unterminated group name in $<...>`, { loc_id, source_map });
+                      throw new EastError(`invalid regex replacement string: unterminated group name in $<...>`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
                     }
                     if (char2 === '>') {
                       break;
                     }
                     if (!((char2 >= '0' && char2 <= '9') || (char2 >= 'a' && char2 <= 'z') || (char2 >= 'A' && char2 <= 'Z') || char2 === '_')) {
-                      throw new EastError(`invalid regex replacement string: invalid character ${JSON.stringify(char2)} in group name in $<...>`, { loc_id, source_map });
+                      throw new EastError(`invalid regex replacement string: invalid character ${JSON.stringify(char2)} in group name in $<...>`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
                     }
                     i += 1;
                     char2 = replacement[i];
                   }
                   if (i === init_i) {
-                    throw new EastError(`invalid regex replacement string: empty group name in $<>`, { loc_id, source_map });
+                    throw new EastError(`invalid regex replacement string: empty group name in $<>`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
                   }
                   i += 1; // for closing >
                 } else {
-                  throw new EastError(`invalid regex replacement string: unescaped $ at $${char2}`, { loc_id, source_map });
+                  throw new EastError(`invalid regex replacement string: unescaped $ at $${char2}`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
                 }
               } else {
                 i += char.length;
@@ -1224,7 +1225,7 @@ export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeVal
         // Missing generic platform function - create stub that throws at runtime
         const name = ir.value.name;
         evaluator = () => {
-          throw new EastError(`Platform function '${name}' is not available`, { loc_id, source_map });
+          throw new EastError(`Platform function '${name}' is not available`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
         };
       } else {
         evaluator = platformFn.fn(...typeParams);
@@ -1236,7 +1237,7 @@ export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeVal
         // Missing platform function - create stub that throws at runtime
         const name = ir.value.name;
         evaluator = () => {
-          throw new EastError(`Platform function '${name}' is not available`, { loc_id, source_map });
+          throw new EastError(`Platform function '${name}' is not available`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
         };
       } else {
         evaluator = platformEvaluator;
@@ -1324,7 +1325,7 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
         return apply(base, patch);
       } catch (e) {
         if (e instanceof ConflictError) {
-          throw new EastError(e.message, { loc_id, source_map });
+          throw new EastError(e.message, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
         }
         throw e;
       }
@@ -1337,7 +1338,7 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
         return compose(first, second);
       } catch (e) {
         if (e instanceof ConflictError) {
-          throw new EastError(e.message, { loc_id, source_map });
+          throw new EastError(e.message, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
         }
         throw e;
       }
@@ -1375,10 +1376,10 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
   },
   
   FloatToInteger: (loc_id: bigint, source_map: SourceMap | null) => (x: number) => {
-    if (Number.isNaN(x)) throw new EastError("Cannot convert NaN to integer", { loc_id, source_map });
-    if (x >= 9223372036854775808) throw new EastError("Float too high to convert to integer", { loc_id, source_map });
-    if (x < -9223372036854775808) throw new EastError("Float too low to convert to integer", { loc_id, source_map });
-    if (!Number.isInteger(x)) { throw new EastError("Cannot convert non-integer float to integer", { loc_id, source_map }); }
+    if (Number.isNaN(x)) throw new EastError("Cannot convert NaN to integer", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+    if (x >= 9223372036854775808) throw new EastError("Float too high to convert to integer", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+    if (x < -9223372036854775808) throw new EastError("Float too low to convert to integer", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+    if (!Number.isInteger(x)) { throw new EastError("Cannot convert non-integer float to integer", { location: (source_map?.resolve(loc_id) ?? []) as Location[] }); }
     return BigInt(x);
   },
   FloatNegate: (_loc_id: bigint, _source_map: SourceMap | null) => (x: bigint) => -x,
@@ -1407,7 +1408,7 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
       if (result.success) {
         return result.value;
       } else {
-        throw new EastError(`Failed to parse ${printTypeValue(T)} at ${result.position}: ${result.error}`, { loc_id, source_map });
+        throw new EastError(`Failed to parse ${printTypeValue(T)} at ${result.position}: ${result.error}`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       }
     }
   },
@@ -1535,7 +1536,7 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
         i += char.length;
         let char2 = replacement[i];
         if (char2 === undefined) {
-          throw new EastError(`invalid regex replacement string: unescaped $ at end of string`, { loc_id, source_map });
+          throw new EastError(`invalid regex replacement string: unescaped $ at end of string`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
         } else if (char2 === '$') {
           i += 1;
         } else if (char2 >= '1' && char2 <= '9') {
@@ -1552,23 +1553,23 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
           char2 = replacement[i];
           while (true) {
             if (char2 === undefined) {
-              throw new EastError(`invalid regex replacement string: unterminated group name in $<...>`, { loc_id, source_map });
+              throw new EastError(`invalid regex replacement string: unterminated group name in $<...>`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
             }
             if (char2 === '>') {
               break;
             }
             if (!((char2 >= '0' && char2 <= '9') || (char2 >= 'a' && char2 <= 'z') || (char2 >= 'A' && char2 <= 'Z') || char2 === '_')) {
-              throw new EastError(`invalid regex replacement string: invalid character ${JSON.stringify(char2)} in group name in $<...>`, { loc_id, source_map });
+              throw new EastError(`invalid regex replacement string: invalid character ${JSON.stringify(char2)} in group name in $<...>`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
             }
             i += 1;
             char2 = replacement[i];
           }
           if (i === init_i) {
-            throw new EastError(`invalid regex replacement string: empty group name in $<>`, { loc_id, source_map });
+            throw new EastError(`invalid regex replacement string: empty group name in $<>`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
           }
           i += 1; // for closing >
         } else {
-          throw new EastError(`invalid regex replacement string: unescaped $ at $${char2}`, { loc_id, source_map });
+          throw new EastError(`invalid regex replacement string: unescaped $ at $${char2}`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
         }
       } else {
         i += char.length;
@@ -1603,12 +1604,12 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
       try {
         parsed = JSON.parse(x);
       } catch (e: unknown) {
-        throw new EastError(`Failed to parse JSON: ${(e as Error).message}`, { loc_id, source_map });
+        throw new EastError(`Failed to parse JSON: ${(e as Error).message}`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       }
       try {
         return fromJSON(parsed);
       } catch (e: unknown) {
-        throw new EastError(`Failed to convert JSON to ${printTypeValue(type)}: ${(e as Error).message}`, { loc_id, source_map });
+        throw new EastError(`Failed to convert JSON to ${printTypeValue(type)}: ${(e as Error).message}`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       }
     }
   },
@@ -1642,7 +1643,7 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     if (result.success) {
       return result.value;
     } else {
-      throw new EastError(`Failed to parse datetime at position ${result.position}: ${result.error}`, { loc_id, source_map });
+      throw new EastError(`Failed to parse datetime at position ${result.position}: ${result.error}`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
   },
 
@@ -1650,7 +1651,7 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
   BlobGetUint8: (loc_id: bigint, source_map: SourceMap | null) => (data: Uint8Array, index: bigint) => {
     const i = Number(index);
     if (i < 0 || i >= data.length) {
-      throw new EastError(`Blob index ${index} out of bounds`, { loc_id, source_map });
+      throw new EastError(`Blob index ${index} out of bounds`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     } else {
       return BigInt(data[i]!);
     }
@@ -1661,7 +1662,7 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
       try {
         return decoder.decode(data);
       } catch {
-        throw new EastError("Blob is not valid UTF-8", { loc_id, source_map });
+        throw new EastError("Blob is not valid UTF-8", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       }
     };
   },
@@ -1683,7 +1684,7 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
         // No BOM, default to little-endian (not unicode spec compliant, but more common in practice)
         return decoder_le.decode(data);
       } catch {
-        throw new EastError("Blob is not valid UTF-16", { loc_id, source_map });
+        throw new EastError("Blob is not valid UTF-16", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       }
     };
   },
@@ -1699,7 +1700,7 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
       try {
         return decodeBeast(data);
       } catch (e: unknown) {
-        throw new EastError(`Failed to decode Beast data: ${(e as Error).message}`, { loc_id, source_map });
+        throw new EastError(`Failed to decode Beast data: ${(e as Error).message}`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       }
     }
   },
@@ -1715,7 +1716,7 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
       try {
         return decodeBeast2(data);
       } catch (e: unknown) {
-        throw new EastError(`Failed to decode Beast2 data: ${(e as Error).message}`, { loc_id, source_map });
+        throw new EastError(`Failed to decode Beast2 data: ${(e as Error).message}`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       }
     }
   },
@@ -1725,7 +1726,7 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
         const decoder = decodeCsvFor(structType, config);
         return decoder(data);
       } catch (e: unknown) {
-        throw new EastError(`Failed to decode CSV data: ${(e as Error).message}`, { loc_id, source_map });
+        throw new EastError(`Failed to decode CSV data: ${(e as Error).message}`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       }
     }
   },
@@ -1735,7 +1736,7 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
         const encoder = encodeCsvFor(structType, config);
         return encoder(data);
       } catch (e: unknown) {
-        throw new EastError(`Failed to encode CSV data: ${(e as Error).message}`, { loc_id, source_map });
+        throw new EastError(`Failed to encode CSV data: ${(e as Error).message}`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       }
     }
   },
@@ -1745,14 +1746,14 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
   },
   RefUpdate: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (ref: ref<any>, value: any) => {
     if (Object.isFrozen(ref)) {
-      throw new EastError("Cannot modify frozen Ref", { loc_id, source_map });
+      throw new EastError("Cannot modify frozen Ref", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     ref.value = value;
     return null;
   },
   RefMerge: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (ref: ref<any>, value: any, merger: (existing: any, value: any) => any) => {
     if (Object.isFrozen(ref)) {
-      throw new EastError("Cannot modify frozen Ref", { loc_id, source_map });
+      throw new EastError("Cannot modify frozen Ref", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     const new_value = call_function(loc_id, source_map,merger, ref.value, value);
     ref.value = new_value;
@@ -1804,7 +1805,7 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
   ArrayGet: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], key: bigint) => {
     const i = Number(key);
     if (i < 0 || i >= array.length) {
-      throw new EastError(`Array index ${key} out of bounds`, { loc_id, source_map });
+      throw new EastError(`Array index ${key} out of bounds`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     } else {
       return array[i];
     }
@@ -1827,11 +1828,11 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
   },
   ArrayUpdate: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], key: bigint, value: any) => {
     if (Object.isFrozen(array)) {
-      throw new EastError("Cannot modify frozen Array", { loc_id, source_map });
+      throw new EastError("Cannot modify frozen Array", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     const i = Number(key);
     if (i < 0 || i >= array.length) {
-      throw new EastError(`Array index ${key} out of bounds`, { loc_id, source_map });
+      throw new EastError(`Array index ${key} out of bounds`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     } else {
       array[i] = value;
       return null;
@@ -1839,11 +1840,11 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
   },
   ArrayMerge: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], key: bigint, value: any, merger: (existing: any, value: any, key: bigint) => any) => {
     if (Object.isFrozen(array)) {
-      throw new EastError("Cannot modify frozen Array", { loc_id, source_map });
+      throw new EastError("Cannot modify frozen Array", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     const i = Number(key);
     if (i < 0 || i >= array.length) {
-      throw new EastError(`Array index ${key} out of bounds`, { loc_id, source_map });
+      throw new EastError(`Array index ${key} out of bounds`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     } else {
       const new_value = call_function(loc_id, source_map,merger, array[i], value, key);
       array[i] = new_value;
@@ -1852,73 +1853,73 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
   },
   ArrayPushLast: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], value: any) => {
     if (Object.isFrozen(array)) {
-      throw new EastError("Cannot modify frozen Array", { loc_id, source_map });
+      throw new EastError("Cannot modify frozen Array", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(array) || 0) > 0) {
-      throw new EastError("Cannot modify Array during iteration", { loc_id, source_map });
+      throw new EastError("Cannot modify Array during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     array.push(value);
     return null;
   },
   ArrayPopLast: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[]) => {
     if (Object.isFrozen(array)) {
-      throw new EastError("Cannot modify frozen Array", { loc_id, source_map });
+      throw new EastError("Cannot modify frozen Array", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(array) || 0) > 0) {
-      throw new EastError("Cannot modify Array during iteration", { loc_id, source_map });
+      throw new EastError("Cannot modify Array during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if (array.length === 0) {
-      throw new EastError("Cannot pop from empty Array", { loc_id, source_map });
+      throw new EastError("Cannot pop from empty Array", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     } else {
       return array.pop();
     }
   },
   ArrayPushFirst: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], value: any) => {
     if (Object.isFrozen(array)) {
-      throw new EastError("Cannot modify frozen Array", { loc_id, source_map });
+      throw new EastError("Cannot modify frozen Array", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(array) || 0) > 0) {
-      throw new EastError("Cannot modify Array during iteration", { loc_id, source_map });
+      throw new EastError("Cannot modify Array during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     array.unshift(value);
     return null;
   },
   ArrayPopFirst: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[]) => {
     if (Object.isFrozen(array)) {
-      throw new EastError("Cannot modify frozen Array", { loc_id, source_map });
+      throw new EastError("Cannot modify frozen Array", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(array) || 0) > 0) {
-      throw new EastError("Cannot modify Array during iteration", { loc_id, source_map });
+      throw new EastError("Cannot modify Array during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if (array.length === 0) {
-      throw new EastError("Cannot pop from empty Array", { loc_id, source_map });
+      throw new EastError("Cannot pop from empty Array", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     } else {
       return array.shift();
     }
   },
   ArrayAppend: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], other: any[]) => {
     if (Object.isFrozen(array)) {
-      throw new EastError("Cannot modify frozen Array", { loc_id, source_map });
+      throw new EastError("Cannot modify frozen Array", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(array) || 0) > 0) {
-      throw new EastError("Cannot modify Array during iteration", { loc_id, source_map });
+      throw new EastError("Cannot modify Array during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     array.push(...other);
     return null;
   },
   ArrayPrepend: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[], other: any[]) => {
     if (Object.isFrozen(array)) {
-      throw new EastError("Cannot modify frozen Array", { loc_id, source_map });
+      throw new EastError("Cannot modify frozen Array", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(array) || 0) > 0) {
-      throw new EastError("Cannot modify Array during iteration", { loc_id, source_map });
+      throw new EastError("Cannot modify Array during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     array.unshift(...other);
     return null;
   },
   ArrayMergeAll: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue, _T2: EastTypeValue) => (array: any[], other: any[], merger: (v1: any, v2: any, key: bigint) => any) => {
     if (Object.isFrozen(array)) {
-      throw new EastError("Cannot modify frozen Array", { loc_id, source_map });
+      throw new EastError("Cannot modify frozen Array", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     lockForIteration(array);
     lockForIteration(other);
@@ -1929,7 +1930,7 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
           const new_value = call_function(loc_id, source_map,merger, array[i], other[i], key);
           array[i] = new_value;
         } else {
-          throw new EastError(`Array index ${key} out of bounds`, { loc_id, source_map });
+          throw new EastError(`Array index ${key} out of bounds`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
         }
       }
     } finally {
@@ -1940,20 +1941,20 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
   },
   ArrayClear: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[]) => {
     if (Object.isFrozen(array)) {
-      throw new EastError("Cannot modify frozen Array", { loc_id, source_map });
+      throw new EastError("Cannot modify frozen Array", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(array) || 0) > 0) {
-      throw new EastError("Cannot modify Array during iteration", { loc_id, source_map });
+      throw new EastError("Cannot modify Array during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     array.length = 0;
     return null;
   },
   ArraySortInPlace: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue, T2: EastTypeValue) => (array: any[], by: (a: any) => any) => {
     if (Object.isFrozen(array)) {
-      throw new EastError("Cannot modify frozen Array", { loc_id, source_map });
+      throw new EastError("Cannot modify frozen Array", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(array) || 0) > 0) {
-      throw new EastError("Cannot modify Array during iteration", { loc_id, source_map });
+      throw new EastError("Cannot modify Array during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     lockForIteration(array);
     try {
@@ -1970,10 +1971,10 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
   },
   ArrayReverseInPlace: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (array: any[]) => {
     if (Object.isFrozen(array)) {
-      throw new EastError("Cannot modify frozen Array", { loc_id, source_map });
+      throw new EastError("Cannot modify frozen Array", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(array) || 0) > 0) {
-      throw new EastError("Cannot modify Array during iteration", { loc_id, source_map });
+      throw new EastError("Cannot modify Array during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     array.reverse();
     return null;
@@ -2240,7 +2241,7 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
   },
   ArrayMapReduce: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue, _T2: EastTypeValue) => (array: any[], mapFn: (x: any, i: bigint) => any, reduceFn: (x: any, y:any) => any) => {
     if (array.length === 0) {
-      throw new EastError("Cannot reduce empty array with no initial value", { loc_id, source_map });
+      throw new EastError("Cannot reduce empty array with no initial value", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     lockForIteration(array);
     try {
@@ -2386,25 +2387,25 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     const print = printFor(K);
     return (s: Set<any>, key: any) => {
       if (Object.isFrozen(s)) {
-        throw new EastError("Cannot modify frozen Set", { loc_id, source_map });
+        throw new EastError("Cannot modify frozen Set", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       }
       if ((iterationLocks.get(s) || 0) > 0) {
-        throw new EastError("Cannot modify Set during iteration", { loc_id, source_map });
+        throw new EastError("Cannot modify Set during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       }
       const size_before = s.size;
       s.add(key);
       if (s.size === size_before) {
-        throw new EastError(`Set already contains key ${print(key)}`, { loc_id, source_map });
+        throw new EastError(`Set already contains key ${print(key)}`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       }
       return null;
     }
   },
   SetTryInsert: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue) => (s: Set<any>, key: any) => {
     if (Object.isFrozen(s)) {
-      throw new EastError("Cannot modify frozen Set", { loc_id, source_map });
+      throw new EastError("Cannot modify frozen Set", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(s) || 0) > 0) {
-      throw new EastError("Cannot modify Set during iteration", { loc_id, source_map });
+      throw new EastError("Cannot modify Set during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     const size_before = s.size;
     s.add(key);
@@ -2414,42 +2415,42 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     const print = printFor(K);
     return (s: Set<any>, key: any) => {
       if (Object.isFrozen(s)) {
-        throw new EastError("Cannot modify frozen Set", { loc_id, source_map });
+        throw new EastError("Cannot modify frozen Set", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       }
       if ((iterationLocks.get(s) || 0) > 0) {
-        throw new EastError("Cannot modify Set during iteration", { loc_id, source_map });
+        throw new EastError("Cannot modify Set during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       }
       if (!s.delete(key)) {
-        throw new EastError(`Set does not contain key ${print(key)}`, { loc_id, source_map });
+        throw new EastError(`Set does not contain key ${print(key)}`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       }
       return null;
     }
   },
   SetTryDelete: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue) => (s: Set<any>, key: any) => {
     if (Object.isFrozen(s)) {
-      throw new EastError("Cannot modify frozen Set", { loc_id, source_map });
+      throw new EastError("Cannot modify frozen Set", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(s) || 0) > 0) {
-      throw new EastError("Cannot modify Set during iteration", { loc_id, source_map });
+      throw new EastError("Cannot modify Set during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     return s.delete(key);
   },
   SetClear: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue) => (s: Set<any>) => {
     if (Object.isFrozen(s)) {
-      throw new EastError("Cannot modify frozen Set", { loc_id, source_map });
+      throw new EastError("Cannot modify frozen Set", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(s) || 0) > 0) {
-      throw new EastError("Cannot modify Set during iteration", { loc_id, source_map });
+      throw new EastError("Cannot modify Set during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     s.clear();
     return null
   },
   SetUnionInPlace: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue) => (s1: Set<any>, s2: Set<any>) => {
     if (Object.isFrozen(s1)) {
-      throw new EastError("Cannot modify frozen Set", { loc_id, source_map });
+      throw new EastError("Cannot modify frozen Set", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(s1) || 0) > 0) {
-      throw new EastError("Cannot modify Set during iteration", { loc_id, source_map });
+      throw new EastError("Cannot modify Set during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     s2.forEach(v => s1.add(v));
     return null;
@@ -2529,7 +2530,7 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
   },
   SetMapReduce: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _T2: EastTypeValue) => (s: SortedSet<any>, mapFn: (k: any) => any, reduceFn: (x: any, y: any) => any) => {
     if (s.size === 0) {
-      throw new EastError("Cannot reduce empty set with no initial value", { loc_id, source_map });
+      throw new EastError("Cannot reduce empty set with no initial value", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     lockForIteration(s);
     try {
@@ -2727,7 +2728,7 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     return (d: Map<any, any>, key: any) => {
       const result = d.get(key);
       if (result === undefined) {
-        throw new EastError(`Dict does not contain key ${print(key)}`, { loc_id, source_map });
+        throw new EastError(`Dict does not contain key ${print(key)}`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       } else {
         return result;
       }
@@ -2753,14 +2754,14 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     const print = printFor(K);
     return (d: Map<any, any>, key: any, value: any) => {
       if (Object.isFrozen(d)) {
-        throw new EastError("Cannot modify frozen Dict", { loc_id, source_map });
+        throw new EastError("Cannot modify frozen Dict", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       }
       if ((iterationLocks.get(d) || 0) > 0) {
-        throw new EastError("Cannot modify Dict during iteration", { loc_id, source_map });
+        throw new EastError("Cannot modify Dict during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       }
       const existing = d.get(key);
       if (existing !== undefined) {
-        throw new EastError(`Dict already contains key ${print(key)}`, { loc_id, source_map });
+        throw new EastError(`Dict already contains key ${print(key)}`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       } else {
         d.set(key, value);
       }
@@ -2769,10 +2770,10 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
   },
   DictGetOrInsert: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue) => (d: Map<any, any>, key: any, onMissing: (key: any) => any) => {
     if (Object.isFrozen(d)) {
-      throw new EastError("Cannot modify frozen Dict", { loc_id, source_map });
+      throw new EastError("Cannot modify frozen Dict", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(d) || 0) > 0) {
-      throw new EastError("Cannot modify Dict during iteration", { loc_id, source_map });
+      throw new EastError("Cannot modify Dict during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     const existing = d.get(key);
     if (existing === undefined) {
@@ -2785,10 +2786,10 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
   },
   DictInsertOrUpdate: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue) => (d: Map<any, any>, key: any, value: any, onConflictFn: (existing: any, newValue: any, key: any) => any) => {
     if (Object.isFrozen(d)) {
-      throw new EastError("Cannot modify frozen Dict", { loc_id, source_map });
+      throw new EastError("Cannot modify frozen Dict", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(d) || 0) > 0) {
-      throw new EastError("Cannot modify Dict during iteration", { loc_id, source_map });
+      throw new EastError("Cannot modify Dict during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     const existing = d.get(key);
     if (existing !== undefined) {
@@ -2803,13 +2804,13 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     const print = printFor(K);
     return (d: Map<any, any>, key: any, value: any) => {
       if (Object.isFrozen(d)) {
-        throw new EastError("Cannot modify frozen Dict", { loc_id, source_map });
+        throw new EastError("Cannot modify frozen Dict", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       }
       if (d.has(key)) {
         d.set(key, value);
         return null;
       } else {
-        throw new EastError(`Dict does not contain key ${print(key)}`, { loc_id, source_map });
+        throw new EastError(`Dict does not contain key ${print(key)}`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       }
     }
   },
@@ -2817,11 +2818,11 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     const print = printFor(K);
     return (d: Map<any, any>, key: any, value: any) => {
       if (Object.isFrozen(d)) {
-        throw new EastError("Cannot modify frozen Dict", { loc_id, source_map });
+        throw new EastError("Cannot modify frozen Dict", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       }
       let existing = d.get(key);
       if (existing === undefined) {
-        throw new EastError(`Dict does not contain key ${print(key)}`, { loc_id, source_map });
+        throw new EastError(`Dict does not contain key ${print(key)}`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       }
       d.set(key, value);
       return existing;
@@ -2829,10 +2830,10 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
   },
   DictMerge: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue) => (d: Map<any, any>, key: any, value: any, mergeFn: (existing: any, value: any, key: any) => any, initialFn: (key: any) => any) => {
     if (Object.isFrozen(d)) {
-      throw new EastError("Cannot modify frozen Dict", { loc_id, source_map });
+      throw new EastError("Cannot modify frozen Dict", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(d) || 0) > 0) {
-      throw new EastError("Cannot modify Dict during iteration", { loc_id, source_map });
+      throw new EastError("Cannot modify Dict during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     let existing = d.get(key);
     if (existing === undefined) {
@@ -2846,24 +2847,24 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     const print = printFor(K);
     return (d: Map<any, any>, key: any) => {
       if (Object.isFrozen(d)) {
-        throw new EastError("Cannot modify frozen Dict", { loc_id, source_map });
+        throw new EastError("Cannot modify frozen Dict", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       }
       if ((iterationLocks.get(d) || 0) > 0) {
-        throw new EastError("Cannot modify Dict during iteration", { loc_id, source_map });
+        throw new EastError("Cannot modify Dict during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       }
       const existed = d.delete(key);
       if (!existed) {
-        throw new EastError(`Dict does not contain key ${print(key)}`, { loc_id, source_map });
+        throw new EastError(`Dict does not contain key ${print(key)}`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       }
       return null;
     }
   },
   DictTryDelete: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue) => (d: Map<any, any>, key: any) => {
     if (Object.isFrozen(d)) {
-      throw new EastError("Cannot modify frozen Dict", { loc_id, source_map });
+      throw new EastError("Cannot modify frozen Dict", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(d) || 0) > 0) {
-      throw new EastError("Cannot modify Dict during iteration", { loc_id, source_map });
+      throw new EastError("Cannot modify Dict during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     return d.delete(key);
   },
@@ -2871,14 +2872,14 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     const print = printFor(K);
     return (d: Map<any, any>, key: any) => {
       if (Object.isFrozen(d)) {
-        throw new EastError("Cannot modify frozen Dict", { loc_id, source_map });
+        throw new EastError("Cannot modify frozen Dict", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       }
       if ((iterationLocks.get(d) || 0) > 0) {
-        throw new EastError("Cannot modify Dict during iteration", { loc_id, source_map });
+        throw new EastError("Cannot modify Dict during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       }
       const existing = d.get(key);
       if (existing === undefined) {
-        throw new EastError(`Dict does not contain key ${print(key)}`, { loc_id, source_map });
+        throw new EastError(`Dict does not contain key ${print(key)}`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       } else {
         d.delete(key);
         return existing;
@@ -2887,20 +2888,20 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
   },
   DictClear: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue) => (d: Map<any, any>) => {
     if (Object.isFrozen(d)) {
-      throw new EastError("Cannot modify frozen Dict", { loc_id, source_map });
+      throw new EastError("Cannot modify frozen Dict", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(d) || 0) > 0) {
-      throw new EastError("Cannot modify Dict during iteration", { loc_id, source_map });
+      throw new EastError("Cannot modify Dict during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     d.clear();
     return null;
   },
   DictUnionInPlace: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue) => (d1: Map<any, any>, d2: Map<any, any>, onConflict: (v1: any, v2: any, key: any) => any) => {
     if (Object.isFrozen(d1)) {
-      throw new EastError("Cannot modify frozen Dict", { loc_id, source_map });
+      throw new EastError("Cannot modify frozen Dict", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(d1) || 0) > 0) {
-      throw new EastError("Cannot modify Dict during iteration", { loc_id, source_map });
+      throw new EastError("Cannot modify Dict during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     d2.forEach((v2, k) => {
       const v1 = d1.get(k);
@@ -2915,10 +2916,10 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
   },
   DictMergeAll: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue) => (d1: SortedMap<any, any>, d2: SortedMap<any, any>, mergeFn: (v1: any, v2: any, key: any) => any, initialFn: (key: any) => any) => {
     if (Object.isFrozen(d1)) {
-      throw new EastError("Cannot modify frozen Dict", { loc_id, source_map });
+      throw new EastError("Cannot modify frozen Dict", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if ((iterationLocks.get(d1) || 0) > 0) {
-      throw new EastError("Cannot modify Dict during iteration", { loc_id, source_map });
+      throw new EastError("Cannot modify Dict during iteration", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     d2.forEach((v2, k) => {
       let v1 = d1.get(k);
@@ -3037,7 +3038,7 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
   },
   DictMapReduce: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue, _T2: EastTypeValue) => (d: Map<any, any>, mapFn: (v: any, k: any) => any, reduceFn: (x: any, y: any) => any) => {
     if (d.size === 0) {
-      throw new EastError("Cannot reduce empty dictionary with no initial value", { loc_id, source_map });
+      throw new EastError("Cannot reduce empty dictionary with no initial value", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     lockForIteration(d);
     try {
@@ -3202,7 +3203,7 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
   VectorGet: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (vec: Float64Array | BigInt64Array | Uint8ClampedArray, idx: bigint) => {
     const i = Number(idx);
     if (i < 0 || i >= vec.length) {
-      throw new EastError(`Vector index ${idx} out of bounds (length ${vec.length})`, { loc_id, source_map });
+      throw new EastError(`Vector index ${idx} out of bounds (length ${vec.length})`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if (vec instanceof Uint8ClampedArray) return vec[i]! !== 0;
     return vec[i]!;
@@ -3210,11 +3211,11 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
 
   VectorSet: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (vec: Float64Array | BigInt64Array | Uint8ClampedArray, idx: bigint, value: any) => {
     if (Object.isFrozen(vec)) {
-      throw new EastError("Cannot modify frozen Vector", { loc_id, source_map });
+      throw new EastError("Cannot modify frozen Vector", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     const i = Number(idx);
     if (i < 0 || i >= vec.length) {
-      throw new EastError(`Vector index ${idx} out of bounds (length ${vec.length})`, { loc_id, source_map });
+      throw new EastError(`Vector index ${idx} out of bounds (length ${vec.length})`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if (vec instanceof Uint8ClampedArray) {
       vec[i] = value ? 1 : 0;
@@ -3228,7 +3229,7 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     const s = Number(start);
     const e = Number(end);
     if (s < 0 || e > vec.length || s > e) {
-      throw new EastError(`Vector slice [${start}, ${end}) out of bounds (length ${vec.length})`, { loc_id, source_map });
+      throw new EastError(`Vector slice [${start}, ${end}) out of bounds (length ${vec.length})`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     return vec.slice(s, e);
   },
@@ -3260,7 +3261,7 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     const r = Number(rows);
     const c = Number(cols);
     if (r * c !== vec.length) {
-      throw new EastError(`Cannot reshape vector of length ${vec.length} to matrix ${r}×${c}`, { loc_id, source_map });
+      throw new EastError(`Cannot reshape vector of length ${vec.length} to matrix ${r}×${c}`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     return matrix(vec.slice() as any, r, c);
   },
@@ -3320,7 +3321,7 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     const r = Number(row);
     const c = Number(col);
     if (r < 0 || r >= m.rows || c < 0 || c >= m.cols) {
-      throw new EastError(`Matrix index (${row}, ${col}) out of bounds (${m.rows}×${m.cols})`, { loc_id, source_map });
+      throw new EastError(`Matrix index (${row}, ${col}) out of bounds (${m.rows}×${m.cols})`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     const val = m.data[r * m.cols + c];
     if (m.data instanceof Uint8ClampedArray) return val !== 0;
@@ -3329,12 +3330,12 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
 
   MatrixSet: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (m: any, row: bigint, col: bigint, value: any) => {
     if (Object.isFrozen(m.data)) {
-      throw new EastError("Cannot modify frozen Matrix", { loc_id, source_map });
+      throw new EastError("Cannot modify frozen Matrix", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     const r = Number(row);
     const c = Number(col);
     if (r < 0 || r >= m.rows || c < 0 || c >= m.cols) {
-      throw new EastError(`Matrix index (${row}, ${col}) out of bounds (${m.rows}×${m.cols})`, { loc_id, source_map });
+      throw new EastError(`Matrix index (${row}, ${col}) out of bounds (${m.rows}×${m.cols})`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     if (m.data instanceof Uint8ClampedArray) {
       m.data[r * m.cols + c] = value ? 1 : 0;
@@ -3347,7 +3348,7 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
   MatrixGetRow: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (m: any, row: bigint) => {
     const r = Number(row);
     if (r < 0 || r >= m.rows) {
-      throw new EastError(`Matrix row ${row} out of bounds (${m.rows} rows)`, { loc_id, source_map });
+      throw new EastError(`Matrix row ${row} out of bounds (${m.rows} rows)`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     const start = r * m.cols;
     return m.data.slice(start, start + m.cols);
@@ -3356,7 +3357,7 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
   MatrixGetCol: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], T: EastTypeValue) => (m: any, col: bigint) => {
     const c = Number(col);
     if (c < 0 || c >= m.cols) {
-      throw new EastError(`Matrix column ${col} out of bounds (${m.cols} cols)`, { loc_id, source_map });
+      throw new EastError(`Matrix column ${col} out of bounds (${m.cols} cols)`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
     const result = allocateTypedArray(T, m.rows);
     for (let r = 0; r < m.rows; r++) result[r] = m.data[r * m.cols + c] as never;
@@ -3375,7 +3376,7 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     const cols = arr[0]!.length;
     for (let i = 1; i < rows; i++) {
       if (arr[i]!.length !== cols) {
-        throw new EastError(`Jagged array: row 0 has ${cols} columns but row ${i} has ${arr[i]!.length}`, { loc_id, source_map });
+        throw new EastError(`Jagged array: row 0 has ${cols} columns but row ${i} has ${arr[i]!.length}`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       }
     }
     const flat: any[] = [];
@@ -3483,7 +3484,7 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
     const cols = arr[0].length;
     for (let i = 1; i < arr.length; i++) {
       if (arr[i].length !== cols) {
-        throw new EastError(`Jagged rows: row 0 has ${cols} columns but row ${i} has ${arr[i].length}`, { loc_id, source_map });
+        throw new EastError(`Jagged rows: row 0 has ${cols} columns but row ${i} has ${arr[i].length}`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       }
     }
     const data = allocateTypedArray(T, arr.length * cols);

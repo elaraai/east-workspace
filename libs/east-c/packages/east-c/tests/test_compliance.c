@@ -308,10 +308,10 @@ int main(int argc, char **argv)
                 for (size_t j = 0; j < nf; j++) {
                     EastValue *frame = stack->data.array.items[j];
                     if (!frame || frame->kind != EAST_VAL_STRUCT) continue;
-                    /* Struct fields sorted: column=0, filename=1, line=2 */
-                    EastValue *col_v = east_struct_get_field_idx(frame, 0);
-                    EastValue *fn_v = east_struct_get_field_idx(frame, 1);
-                    EastValue *ln_v = east_struct_get_field_idx(frame, 2);
+                    /* Field order matches type creation: filename=0, line=1, column=2 */
+                    EastValue *fn_v = east_struct_get_field_idx(frame, 0);
+                    EastValue *ln_v = east_struct_get_field_idx(frame, 1);
+                    EastValue *col_v = east_struct_get_field_idx(frame, 2);
                     if (fn_v && fn_v->kind == EAST_VAL_STRING)
                         source_map.stacks[i][j].filename = strdup(fn_v->data.string.data);
                     if (ln_v && ln_v->kind == EAST_VAL_INTEGER)

@@ -624,18 +624,33 @@ importers:
       '@elaraai/e3':
         specifier: workspace:*
         version: link:../../../e3/packages/e3
+      '@elaraai/e3-types':
+        specifier: workspace:*
+        version: link:../../../e3/packages/e3-types
       '@elaraai/east':
         specifier: workspace:*
         version: link:../../../east
-      '@elaraai/east-ui':
+      '@elaraai/east-node-io':
         specifier: workspace:*
-        version: link:../east-ui
+        version: link:../../../east-node/packages/east-node-io
+      '@elaraai/east-node-std':
+        specifier: workspace:*
+        version: link:../../../east-node/packages/east-node-std
     devDependencies:
       '@types/node':
-        specifier: ^22.18.1
+        specifier: ^22
         version: 22.19.15
+      '@typescript-eslint/eslint-plugin':
+        specifier: ^8
+        version: 8.58.0(@typescript-eslint/parser@8.58.0(eslint@9.39.4)(typescript@5.9.3))(eslint@9.39.4)(typescript@5.9.3)
+      '@typescript-eslint/parser':
+        specifier: ^8
+        version: 8.58.0(eslint@9.39.4)(typescript@5.9.3)
+      eslint:
+        specifier: ^9
+        version: 9.39.4
       typescript:
-        specifier: ~5.9.2
+        specifier: ^5
         version: 5.9.3
 
   libs/east-ui/packages/east-ui:

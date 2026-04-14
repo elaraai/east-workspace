@@ -354,10 +354,26 @@ function isTypeValueEqualImpl(t1: EastTypeValue, t2: EastTypeValue): boolean {
       const v2 = (t2 as any).value as any;
       const id1 = v1.type === "ref" ? v1.value : v1.type === "wrapper" ? v1.value.id : undefined;
       const id2 = v2.type === "ref" ? v2.value : v2.type === "wrapper" ? v2.value.id : undefined;
-      // ref(N) and wrapper({id=N}) denote the same recursive type when ids match.
-      // Different ids means different recursive types (interning ensures structurally
-      // identical RecursiveTypes share the same id).
-      return id1 !== undefined && id2 !== undefined && id1 === id2;
+      // Same id → same recursive type (fast path, works within one process)
+      if (id1 !== undefined && id2 !== undefined && id1 === id2) return true;
+      // Both refs with different ids → different recursive scopes
+      if (v1.type === "ref" && v2.type === "ref") return false;
+      // Both wrappers with different ids: structural comparison (alpha-equivalence).
+      // Types from different processes have different ids for the same structure.
+      // Pre-seed cache so inner ref(id1) ≡ ref(id2) during recursion.
+      if (v1.type === "wrapper" && v2.type === "wrapper") {
+        const refT1 = { type: "Recursive" as const, value: { type: "ref" as const, value: id1 } } as EastTypeValue;
+        const refT2 = { type: "Recursive" as const, value: { type: "ref" as const, value: id2 } } as EastTypeValue;
+        const refTid1 = getTypeId(refT1);
+        const refTid2 = getTypeId(refT2);
+        if (refTid1 !== undefined && refTid2 !== undefined) {
+          let c = isTypeValueEqualCache.get(refTid1);
+          if (!c) { c = new Map(); isTypeValueEqualCache.set(refTid1, c); }
+          c.set(refTid2, true);
+        }
+        return isTypeValueEqual(v1.value.inner, v2.value.inner);
+      }
+      return false;
     }
     default:
       return false;

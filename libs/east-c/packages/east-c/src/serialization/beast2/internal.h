@@ -12,7 +12,6 @@
 #include "east/serialization.h"
 #include "east/types.h"
 #include "east/values.h"
-#include "east/value_arena.h"
 #include "east/compiler.h"
 #include "east/type_of_type.h"
 #include "east/env.h"
@@ -156,16 +155,11 @@ void type_table_result_free(TypeTableResult *r);
 /*  Source Map Section (sourcemap_table.c)                              */
 /* ================================================================== */
 
-typedef struct {
-    EastLocation **stacks;
-    size_t *stack_counts;
-    size_t num_stacks;
-} Beast2SourceMap;
 
-void write_source_map_section(Beast2SourceMap *sm, Beast2StringTableEnc *st, ByteBuffer *buf);
-Beast2SourceMap read_source_map_section(const uint8_t *data, size_t len, size_t *offset,
+void write_source_map_section(EastSourceMap *sm, Beast2StringTableEnc *st, ByteBuffer *buf);
+EastSourceMap read_source_map_section(const uint8_t *data, size_t len, size_t *offset,
                                          Beast2StringTableDec *st);
-void beast2_source_map_free(Beast2SourceMap *sm);
+void beast2_source_map_free(EastSourceMap *sm);
 
 
 /* ================================================================== */
@@ -228,7 +222,7 @@ typedef struct {
     /* v4 value table for mutable container indexing (NULL if not v4) */
     Beast2ValueTable *value_table;
     /* v4 source map discovered from function value during encode (NULL initially) */
-    Beast2SourceMap *source_map;
+    EastSourceMap *source_map;
 } Beast2EncodeCtx;
 
 /* Write value table section (needs Beast2EncodeCtx) */
@@ -263,7 +257,7 @@ typedef struct {
     EastValue **mutable_values;
     size_t mutable_values_count;
     /* v4 source map for loc_id resolution */
-    Beast2SourceMap *source_map;
+    EastSourceMap *source_map;
 #ifdef BEAST2_PROFILE_DEDUP
     struct {
         EastType *type;
