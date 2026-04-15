@@ -61,6 +61,8 @@ export async function getTask(
       commandIr: task.commandIr,
       inputs: task.inputs,
       output: task.output,
+      kind: task.kind,
+      metadata: task.metadata,
     });
   } catch (err) {
     return sendError(TaskDetailsType, errorToVariant(err));

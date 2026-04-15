@@ -463,6 +463,7 @@ describe('gc', () => {
         commandIr: irHash,
         inputs: [[variant('field', 'x')]],
         output: [variant('field', 'y')],
+        kind: variant('none', null), metadata: variant('none', null),
       } as TaskObject);
       const taskHash = 'b'.repeat(64);
 

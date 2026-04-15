@@ -27,6 +27,7 @@ import {
   IntegerType,
   FloatType,
   BooleanType,
+  BlobType,
   NullType,
   EastTypeType,
   type EastType,
@@ -457,6 +458,8 @@ export const TaskDetailsType = StructType({
   commandIr: StringType,
   inputs: ArrayType(TreePathType),
   output: TreePathType,
+  kind: OptionType(StringType),
+  metadata: OptionType(BlobType),
 });
 
 // =============================================================================

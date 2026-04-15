@@ -268,6 +268,7 @@ describe('executions', () => {
         commandIr: 'a'.repeat(64), // Non-existent hash
         inputs: [],
         output: [],
+        kind: variant('none', null), metadata: variant('none', null),
       };
       const encoder = encodeBeast2For(TaskObjectType);
       const taskHash = await objectWrite(testRepo, encoder(task));
@@ -291,6 +292,7 @@ describe('executions', () => {
         commandIr: commandIrHash,
         inputs: [[variant('field', 'test')]],
         output: [variant('field', 'output')],
+        kind: variant('none', null), metadata: variant('none', null),
       };
       const encoder = encodeBeast2For(TaskObjectType);
       const taskHash = await objectWrite(testRepo, encoder(task));
@@ -323,6 +325,7 @@ describe('executions', () => {
         commandIr: commandIrHash,
         inputs: [[variant('field', 'test')]],
         output: [variant('field', 'output')],
+        kind: variant('none', null), metadata: variant('none', null),
       };
       const encoder = encodeBeast2For(TaskObjectType);
       const taskHash = await objectWrite(testRepo, encoder(task));
@@ -357,6 +360,7 @@ describe('executions', () => {
         commandIr: commandIrHash,
         inputs: [[variant('field', 'test')]],
         output: [variant('field', 'output')],
+        kind: variant('none', null), metadata: variant('none', null),
       };
       const encoder = encodeBeast2For(TaskObjectType);
       const taskHash = await objectWrite(testRepo, encoder(task));
@@ -391,6 +395,7 @@ describe('executions', () => {
         commandIr: commandIrHash,
         inputs: [[variant('field', 'test')]],
         output: [variant('field', 'output')],
+        kind: variant('none', null), metadata: variant('none', null),
       };
       const encoder = encodeBeast2For(TaskObjectType);
       const taskHash = await objectWrite(testRepo, encoder(task));
@@ -437,6 +442,7 @@ describe('executions', () => {
         commandIr: commandIrHash,
         inputs: [],
         output: [variant('field', 'output')],
+        kind: variant('none', null), metadata: variant('none', null),
       };
       const encoder = encodeBeast2For(TaskObjectType);
       const taskHash = await objectWrite(testRepo, encoder(task));

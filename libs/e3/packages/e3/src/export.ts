@@ -152,6 +152,8 @@ export async function export_(pkg: PackageDef<Record<string, unknown>>, outputPa
         commandIr: commandIrHash,
         inputs: inputPaths,
         output: item.output.path,
+        kind: item.taskKind ? variant('some', item.taskKind) : variant('none', null),
+        metadata: item.metadata ? variant('some', item.metadata) : variant('none', null),
       };
 
       // Serialize and add to zip

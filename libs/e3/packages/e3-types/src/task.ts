@@ -16,7 +16,7 @@
  * specified paths - the task just references locations, not types.
  */
 
-import { StructType, StringType, ArrayType, ValueTypeOf } from '@elaraai/east';
+import { StructType, StringType, ArrayType, BlobType, OptionType, ValueTypeOf } from '@elaraai/east';
 import { TreePathType } from './structure.js';
 
 /**
@@ -60,6 +60,10 @@ export const TaskObjectType = StructType({
   inputs: ArrayType(TreePathType),
   /** Output path: where to write the output dataset in the data tree */
   output: TreePathType,
+  /** Task kind: "data" (default), "ui", or future extensions. None for old packages. */
+  kind: OptionType(StringType),
+  /** Opaque extension metadata (beast2-encoded). Interpreted by the kind-specific consumer. */
+  metadata: OptionType(BlobType),
 });
 export type TaskObjectType = typeof TaskObjectType;
 

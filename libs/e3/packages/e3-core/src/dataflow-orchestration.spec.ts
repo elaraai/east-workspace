@@ -103,6 +103,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
         commandIr: commandIrHash,
         inputs: t.inputs,
         output: t.output,
+        kind: variant('none', null), metadata: variant('none', null),
       };
       const taskHash = await objectWrite(repoPath, taskEncoder(taskObj));
       tasksMap.set(t.name, taskHash);

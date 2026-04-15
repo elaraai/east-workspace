@@ -78,6 +78,10 @@ export interface TaskDef<TOutput extends EastType = EastType, Path extends TreeP
   readonly output: DatasetDef<TOutput, Path>;
   /** Dependencies: all trees, datasets and tasks this task depends on */
   readonly deps: Set<DataTreeDef | DatasetDef | TaskDef>;
+  /** Task kind: "data" (default), "ui", or future extensions */
+  readonly taskKind?: string;
+  /** Opaque extension metadata (beast2-encoded) */
+  readonly metadata?: Uint8Array;
 }
 
 /**

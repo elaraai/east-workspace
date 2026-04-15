@@ -154,16 +154,7 @@ export const TaskDetailsType = StructType({
 
 ### DatasetStatusDetailType (e3-types/api.ts)
 
-```typescript
-export const DatasetStatusDetailType = StructType({
-  path: StringType,
-  type: EastTypeType,
-  refType: StringType,
-  hash: OptionType(StringType),
-  size: OptionType(IntegerType),
-  taskKind: OptionType(StringType),   // NEW — "ui" if produced by a UI task
-});
-```
+No changes. Browser gets kind from the task list endpoint, not from dataset status.
 
 ### e3.task() config (e3/src/task.ts)
 
@@ -353,9 +344,21 @@ export function EastFunction({ ir, storageKey }: EastFunctionProps) {
 ### Browser UI detection
 
 ```typescript
-// useDatasetPreview.ts — check taskKind from dataset status
-const isUI = status?.taskKind?.value === 'ui';
-// No isTypeValueEqual. No task list fetch. Just read the field.
+// Fetch task list once per workspace, build output→kind map
+const tasks = useQuery(['tasks', workspace], () => taskList(apiUrl, repo, workspace, reqOpts));
+const taskKindByOutput = useMemo(() => {
+  const map = new Map<string, string>();
+  for (const t of tasks.data ?? []) {
+    const outputStr = '.' + t.output.map((s: any) => s.value).join('.');
+    const kind = t.kind?.value ?? 'data';
+    map.set(outputStr, kind);
+  }
+  return map;
+}, [tasks.data]);
+
+// In useDatasetPreview — check kind from task lookup
+const isUI = taskKindByOutput.get(datasetPath) === 'ui';
+// No isTypeValueEqual. No type comparison.
 ```
 
 ## Developer Experience
@@ -503,15 +506,16 @@ Total: ~23 deprecated aliases deleted.
 
 ## Implementation order
 
-1. Add `kind`/`metadata` to `TaskObjectType`, `TaskDetailsType`, `DatasetStatusDetailType` in e3-types
+1. Add `kind`/`metadata` to `TaskObjectType` and `TaskDetailsType` in e3-types
 2. Update `e3.task()` and `export.ts` to write kind/metadata
-3. Update `e3-core` and `e3-api-server` to read/propagate kind
+3. Update `e3-api-server` task handler to include kind/metadata in TaskDetails response
 4. Create `@elaraai/e3-ui` package with `Data`, `ui()`, `DataManifestType`
-5. Rename files + exports in `east-ui-components` (the big rename)
-6. Delete `east-ui/src/platform/dataset.ts`, clean `east-ui` exports
-7. Implement `DataImpl` platform functions
-8. Update `useDatasetPreview` to use `taskKind`
-9. Update `EastFunction`/`EastComponent` to include `DataImpl`
-10. Update `e3-ui-showcase` to use `e3.ui()` + `Data.bind`/`State.bind`
-11. Delete all deprecated aliases
-12. Update CLAUDE.md files
+5. Update `State` in east-ui to bind pattern
+6. Rename files + exports in `east-ui-components` (the big rename)
+7. Delete `east-ui/src/platform/dataset.ts`, clean `east-ui` exports
+8. Implement `DataImpl` and updated `StateImpl` platform functions
+9. Update `useDatasetPreview` to detect UI from task list (not type comparison)
+10. Update `EastFunction`/`EastComponent` to include `DataImpl`
+11. Update `e3-ui-showcase` to use `e3.ui()` + `Data.bind`/`State.bind`
+12. Delete all deprecated aliases
+13. Update CLAUDE.md files

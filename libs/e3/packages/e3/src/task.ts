@@ -169,19 +169,19 @@ export function task<Name extends string, Inputs extends readonly DatasetDef[], 
   name: Name,
   inputs: [...Inputs],
   fn: FunctionExpr<ExtractDatasetTypes<Inputs>, Output> | CallableFunctionExpr<ExtractDatasetTypes<Inputs>, Output>,
-  config?: { runner?: string[] },
+  config?: { runner?: string[], kind?: string, metadata?: Uint8Array },
 ): TaskDef<Output, [variant<'field', 'tasks'>, variant<'field', Name>, variant<'field', 'output'>]>;
 export function task<Name extends string, Inputs extends readonly DatasetDef[], Output extends EastType>(
   name: Name,
   inputs: [...Inputs],
   fn: AsyncFunctionExpr<ExtractDatasetTypes<Inputs>, Output> | CallableAsyncFunctionExpr<ExtractDatasetTypes<Inputs>, Output>,
-  config?: { runner?: string[] },
+  config?: { runner?: string[], kind?: string, metadata?: Uint8Array },
 ): TaskDef<Output, [variant<'field', 'tasks'>, variant<'field', Name>, variant<'field', 'output'>]>;
 export function task(
   name: string,
   inputs: DatasetDef[],
   fn: FunctionExpr<any, any> | AsyncFunctionExpr<any, any>,
-  config?: { runner?: string[] },
+  config?: { runner?: string[], kind?: string, metadata?: Uint8Array },
 ): TaskDef {
   const ir = fn.toIR().ir;
   const outputType = Expr.type(fn as Expr<any>).output as EastType;
@@ -234,6 +234,8 @@ export function task(
     inputs: input_datasets,
     output,
     deps: collectDeps(taskTree, output, input_datasets),
+    taskKind: config?.kind,
+    metadata: config?.metadata,
   };
 
   // Add the task to the output's deps so downstream tasks collect this task's deps
