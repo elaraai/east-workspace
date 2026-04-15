@@ -41,7 +41,7 @@ export {
     type UIStoreOptions,
     PersistentUIStore,
     createPersistentUIStore,
-} from "./store.js";
+} from "./state-store.js";
 
 // WASM backend (optional)
 export {
@@ -168,7 +168,7 @@ export {
     useEastKey,
     useEastWrite,
     useEastBatch,
-} from "./hooks.js";
+} from "./state-hooks.js";
 
 // =============================================================================
 // StateRuntime Namespace

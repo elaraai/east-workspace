@@ -11,7 +11,7 @@ import { enableTracking, disableTracking, getStore } from "../platform/state-run
 import {
     enableDatasetTracking,
     disableDatasetTracking,
-    getDatasetStore,
+    getReactiveDatasetCache,
 } from "../platform/dataset-runtime.js";
 
 /**
@@ -26,7 +26,7 @@ export interface ReactiveValue {
  */
 function tryGetDatasetStore() {
     try {
-        return getDatasetStore();
+        return getReactiveDatasetCache();
     } catch {
         return null;
     }

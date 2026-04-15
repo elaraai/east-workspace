@@ -3,138 +3,165 @@
  * Licensed under AGPL-3.0. See LICENSE file for details.
  */
 
+import { useState, useMemo } from "react";
 import {
     Box,
+    Button,
     Container,
     Flex,
-    Tabs,
+    Heading,
+    Input,
+    InputGroup,
+    Kbd,
+    SimpleGrid,
+    Stack,
     Text,
 } from "@chakra-ui/react";
-import { UIStoreProvider, State, OverlayManagerProvider } from "@elaraai/east-ui-components";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faMagnifyingGlass } from "@fortawesome/free-solid-svg-icons";
+import { UIStoreProvider, UIStore, OverlayManagerProvider } from "@elaraai/east-ui-components";
 import { ElaraLogo } from "./components/ElaraLogo";
-import {
-    OverviewPage,
-    TypographyPage,
-    ButtonsPage,
-    FormsPage,
-    FeedbackPage,
-    DisplayPage,
-    ChartsPage,
-    LayoutPage,
-    DisclosurePage,
-    CollectionsPage,
-    PlatformPage,
-    ReactivePage,
-    ContainerPage,
-    NavigationPage,
-    OverlaysPage,
-} from "./pages";
+import { ExampleCard } from "./components/ExampleCard";
+import * as buttonExamples from "@elaraai/east-ui/examples/buttons";
 
-// Use State.store singleton - same store that State.Implementation writes to
-const store = State.store;
+// Build catalog from examples
+interface CatalogEntry {
+    name: string;
+    category: string;
+    keywords: string[];
+    description: string;
+    fn: any;
+    inputs: any[];
+}
 
-const tabs = [
-    { key: "overview", label: "Overview" },
-    { key: "typography", label: "Typography" },
-    { key: "buttons", label: "Buttons" },
-    { key: "forms", label: "Forms" },
-    { key: "feedback", label: "Feedback" },
-    { key: "display", label: "Display" },
-    { key: "navigation", label: "Navigation" },
-    { key: "layout", label: "Layout" },
-    { key: "container", label: "Container" },
-    { key: "overlays", label: "Overlays" },
-    { key: "disclosure", label: "Disclosure" },
-    { key: "collections", label: "Collections" },
-    { key: "charts", label: "Charts" },
-    { key: "platform", label: "Platform" },
-    { key: "reactive", label: "Reactive" },
-];
+function buildCatalog(): CatalogEntry[] {
+    const entries: CatalogEntry[] = [];
+    for (const [name, ex] of Object.entries(buttonExamples)) {
+        const e = ex as any;
+        entries.push({ name, category: "Buttons", keywords: e.keywords, description: e.description, fn: e.fn, inputs: e.inputs });
+    }
+    // Add more categories as examples are migrated to State.bind:
+    // import * as formExamples from "@elaraai/east-ui/examples/forms";
+    // for (const [name, ex] of Object.entries(formExamples)) { ... }
+    return entries;
+}
+
+const catalog = buildCatalog();
+const categories = [...new Set(catalog.map(e => e.category))];
+const store = new UIStore();
 
 export function App() {
+    const [search, setSearch] = useState("");
+    const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+
+    const filtered = useMemo(() => {
+        let results = catalog;
+        if (selectedCategory) {
+            results = results.filter(e => e.category === selectedCategory);
+        }
+        if (search.trim()) {
+            const q = search.toLowerCase();
+            results = results.filter(e =>
+                e.description.toLowerCase().includes(q) ||
+                e.keywords.some(k => k.toLowerCase().includes(q)) ||
+                e.name.toLowerCase().includes(q)
+            );
+        }
+        return results;
+    }, [search, selectedCategory]);
+
     return (
         <UIStoreProvider store={store}>
             <OverlayManagerProvider>
-            <Box bg="gray.50" _dark={{ bg: "gray.900" }} minH="100vh">
-                {/* Header */}
-                <Box
-                    bg="white"
-                    _dark={{ bg: "gray.800" }}
-                    borderBottomWidth="1px"
-                    borderColor="gray.200"
-                    py={4}
-                >
+                <Flex minH="100vh" bg="gray.50" _dark={{ bg: "gray.900" }}>
+                    {/* Sidebar */}
+                    <Box
+                        w="220px"
+                        minH="100vh"
+                        bg="white"
+                        _dark={{ bg: "gray.800" }}
+                        borderRightWidth="1px"
+                        borderColor="gray.200"
+                        py="6"
+                        px="4"
+                        flexShrink={0}
+                    >
+                        <Flex align="center" gap="2" mb="6">
+                            <ElaraLogo height="24px" />
+                            <Text fontSize="sm" fontWeight="semibold">East UI</Text>
+                        </Flex>
+
+                        <Stack gap="1">
+                            <Button
+                                variant={!selectedCategory ? "subtle" : "ghost"}
+                                colorPalette={!selectedCategory ? "blue" : undefined}
+                                justifyContent="flex-start"
+                                w="full"
+                                size="sm"
+                                onClick={() => setSelectedCategory(null)}
+                            >
+                                All ({catalog.length})
+                            </Button>
+                            {categories.map(cat => {
+                                const count = catalog.filter(e => e.category === cat).length;
+                                const isActive = selectedCategory === cat;
+                                return (
+                                    <Button
+                                        key={cat}
+                                        variant={isActive ? "subtle" : "ghost"}
+                                        colorPalette={isActive ? "blue" : undefined}
+                                        justifyContent="flex-start"
+                                        w="full"
+                                        size="sm"
+                                        onClick={() => setSelectedCategory(cat)}
+                                    >
+                                        {cat} ({count})
+                                    </Button>
+                                );
+                            })}
+                        </Stack>
+                    </Box>
+
+                    {/* Main content */}
+                    <Box flex="1" p="6">
                         <Container maxW="container.xl">
-                            <Flex align="center" gap={3}>
-                                <ElaraLogo height="28px" />
-                                <Text fontSize="lg" fontWeight="semibold">
-                                    East UI <Text as="span" color="gray.500" fontWeight="normal">Showcase</Text>
-                                </Text>
+                            {/* Header + Search */}
+                            <Flex align="center" justify="space-between" mb="6">
+                                <Heading size="lg">
+                                    {selectedCategory ?? "All Components"}
+                                </Heading>
+                                <InputGroup
+                                    maxW="300px"
+                                    startElement={<FontAwesomeIcon icon={faMagnifyingGlass} />}
+                                    endElement={<Kbd>⌘K</Kbd>}
+                                >
+                                    <Input
+                                        placeholder="Search examples..."
+                                        value={search}
+                                        onChange={(e) => setSearch(e.target.value)}
+                                        bg="white"
+                                        _dark={{ bg: "gray.800" }}
+                                    />
+                                </InputGroup>
                             </Flex>
+
+                            {/* Examples grid */}
+                            {filtered.length === 0 ? (
+                                <Text color="gray.400">No examples match your search.</Text>
+                            ) : (
+                                <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} gap="4">
+                                    {filtered.map(entry => (
+                                        <ExampleCard
+                                            key={entry.name}
+                                            name={entry.name}
+                                            example={entry}
+                                        />
+                                    ))}
+                                </SimpleGrid>
+                            )}
                         </Container>
-                </Box>
-
-                {/* Tabs */}
-                <Container maxW="container.xl" py={6}>
-                    <Tabs.Root defaultValue="overview" variant="enclosed" lazyMount={true}>
-                        <Tabs.List>
-                            {tabs.map((tab) => (
-                                <Tabs.Trigger key={tab.key} value={tab.key}>
-                                    {tab.label}
-                                </Tabs.Trigger>
-                            ))}
-                        </Tabs.List>
-
-                        <Box pt={6}>
-                            <Tabs.Content value="overview">
-                                <OverviewPage />
-                            </Tabs.Content>
-                            <Tabs.Content value="typography">
-                                <TypographyPage />
-                            </Tabs.Content>
-                            <Tabs.Content value="buttons">
-                                <ButtonsPage />
-                            </Tabs.Content>
-                            <Tabs.Content value="forms">
-                                <FormsPage />
-                            </Tabs.Content>
-                            <Tabs.Content value="feedback">
-                                <FeedbackPage />
-                            </Tabs.Content>
-                            <Tabs.Content value="display">
-                                <DisplayPage />
-                            </Tabs.Content>
-                            <Tabs.Content value="navigation">
-                                <NavigationPage />
-                            </Tabs.Content>
-                            <Tabs.Content value="layout">
-                                <LayoutPage />
-                            </Tabs.Content>
-                            <Tabs.Content value="container">
-                                <ContainerPage />
-                            </Tabs.Content>
-                            <Tabs.Content value="overlays">
-                                <OverlaysPage />
-                            </Tabs.Content>
-                            <Tabs.Content value="disclosure">
-                                <DisclosurePage />
-                            </Tabs.Content>
-                            <Tabs.Content value="collections">
-                                <CollectionsPage />
-                            </Tabs.Content>
-                            <Tabs.Content value="charts">
-                                <ChartsPage />
-                            </Tabs.Content>
-                            <Tabs.Content value="platform">
-                                <PlatformPage />
-                            </Tabs.Content>
-                            <Tabs.Content value="reactive">
-                                <ReactivePage />
-                            </Tabs.Content>
-                        </Box>
-                    </Tabs.Root>
-                </Container>
-            </Box>
+                    </Box>
+                </Flex>
             </OverlayManagerProvider>
         </UIStoreProvider>
     );
