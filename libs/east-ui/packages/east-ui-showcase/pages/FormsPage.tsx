@@ -1,14 +1,2 @@
-/**
- * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under AGPL-3.0. See LICENSE file for details.
- */
-
-import { EastFunction } from "@elaraai/east-ui-components";
-import formsShowcase from "../showcases/forms/all";
-
-// Pre-compile IR at module load time
-const formsIR = formsShowcase.toIR();
-
-export function FormsPage() {
-    return <EastFunction ir={formsIR} storageKey="forms" />;
-}
+import { Text } from "@chakra-ui/react";
+export function FormsPage() { return <Text color="gray.400">Coming soon — examples being migrated to State.bind</Text>; }

@@ -8,8 +8,8 @@ import { Box, Text, Button, Flex } from '@chakra-ui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faDownload } from '@fortawesome/free-solid-svg-icons';
 import {
-    EastStoreProvider,
-    createEastStore,
+    UIStoreProvider,
+    createUIStore,
     EastChakraComponent,
 } from '@elaraai/east-ui-components';
 import type { RequestOptions } from '@elaraai/e3-api-client';
@@ -60,7 +60,7 @@ export interface DatasetContentProps {
 }
 
 export function DatasetContent({ preview, download, datasetPath }: DatasetContentProps) {
-    const store = useMemo(() => createEastStore(), [
+    const store = useMemo(() => createUIStore(), [
         // eslint-disable-next-line react-hooks/exhaustive-deps
         preview.state === 'ui' ? preview.component : null,
     ]);
@@ -79,13 +79,13 @@ export function DatasetContent({ preview, download, datasetPath }: DatasetConten
 
         case 'ui':
             return (
-                <EastStoreProvider store={store}>
+                <UIStoreProvider store={store}>
                     <ErrorBoundary>
                         <Box height="100%" overflow="auto" p="4">
                             <EastChakraComponent value={preview.component} storageKey={datasetPath} />
                         </Box>
                     </ErrorBoundary>
-                </EastStoreProvider>
+                </UIStoreProvider>
             );
 
         case 'value':

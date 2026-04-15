@@ -17,14 +17,14 @@ import {
 import { UIComponentType } from '@elaraai/east-ui';
 import {
     StateImpl,
-    DatasetImpl,
+    ReactiveDatasetPlatform,
     OverlayImpl,
     getWasmSync,
     decodeBeast2Value,
 } from '@elaraai/east-ui-components';
 import type { QueryOverrides } from './types.js';
 
-const platformImplementations = [...StateImpl, ...DatasetImpl, ...OverlayImpl];
+const platformImplementations = [...StateImpl, ...ReactiveDatasetPlatform, ...OverlayImpl];
 
 const VALUE_SIZE_LIMIT = 200 * 1024; // 200KB
 const LOG_PREFIX = '[dataset-preview]';

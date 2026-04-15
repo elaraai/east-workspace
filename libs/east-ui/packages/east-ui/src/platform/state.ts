@@ -4,72 +4,64 @@
  */
 
 /**
- * State management platform function signatures.
+ * State platform function — browser-local key-value store with reactive tracking.
  *
- * @remarks
- * This module contains only platform function definitions created with `East.platform()`.
- * All runtime implementations are in `@elaraai/east-ui-components`.
+ * `State.bind([T], key)` returns a struct of closures: `{ read, write, has }`.
+ * Use inside `Reactive.Root` for reactive re-rendering when state changes.
  *
  * @packageDocumentation
  */
 
-import { East, StringType, NullType, BooleanType } from "@elaraai/east";
+import { East, StringType, NullType, BooleanType, FunctionType, StructType } from "@elaraai/east";
 
 /**
- * Reads a Beast2-encoded value from state storage.
+ * Bind to a browser-local state key, returning reactive accessors.
  *
- * @param key - The state key to read from
- * @returns Option of Beast2-encoded blob (some if exists, none if not found)
+ * @typeParam T - The East type of the state value
+ * @param key - The state key
+ * @returns A struct with `read`, `write`, and `has` closures
  *
  * @remarks
- * Returns `none` if the key does not exist, `some(blob)` if it does.
+ * - `read()` returns the current value and tracks the dependency for reactive updates
+ * - `write(value)` writes to the state store
+ * - `has()` checks if the key exists
+ *
  * Implementation provided by `StateImpl` in `@elaraai/east-ui-components`.
+ *
+ * @example
+ * ```ts
+ * import { State, Reactive, Text } from "@elaraai/east-ui";
+ * import { East, IntegerType, NullType } from "@elaraai/east";
+ *
+ * Reactive.Root($ => {
+ *     const counter = $(State.bind([IntegerType], "clickCount"));
+ *     const count = $(counter.read());
+ *     return Text.Root(East.str`Count: ${count}`);
+ * });
+ * ```
  */
-export const state_read = East.genericPlatform(
-    "state_read", 
-    ["T"],
-    [StringType], 
-    "T",
-    {
-        optional: true
-    }
+const state_bind = East.genericPlatform("state_bind", ["T"], [StringType],
+    StructType({
+        read: FunctionType([], "T"),
+        write: FunctionType(["T"], NullType),
+        has: FunctionType([], BooleanType),
+    }),
+    { optional: true }
 );
 
 /**
- * Writes a Beast2-encoded value to state storage.
+ * State management platform functions for East UI.
  *
- * @param key - The state key to write to
- * @param value - The value to write (some to set, none to delete)
- * @returns Null
+ * @example
+ * ```ts
+ * import { State } from "@elaraai/east-ui";
+ * import { IntegerType } from "@elaraai/east";
  *
- * @remarks
- * Pass `none` to delete the key from state.
- * Implementation provided by `StateImpl` in `@elaraai/east-ui-components`.
+ * const counter = $(State.bind([IntegerType], "myKey"));
+ * const value = $(counter.read());
+ * $(counter.write(value.add(1n)));
+ * ```
  */
-export const state_write = East.genericPlatform(
-    "state_write", 
-    ["T"],
-    [StringType, "T"], 
-    NullType,
-    {
-        optional: true
-    }
-);
-
-/**
- * Checks if a key exists in state storage.
- *
- * @param key - The state key to check
- * @returns Boolean indicating whether the key exists
- *
- * @remarks
- * Implementation provided by `StateImpl` in `@elaraai/east-ui-components`.
- */
-export const state_has = East.platform(
-    "state_has", 
-    [StringType], 
-    BooleanType,
-    {
-        optional: true
-    }
-);
+export const State = {
+    bind: state_bind,
+} as const;

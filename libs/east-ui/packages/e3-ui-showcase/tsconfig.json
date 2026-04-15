@@ -1,4 +1,5 @@
 {
+  "exclude": ["dist"],
   "compilerOptions": {
     "outDir": "./dist",
     "module": "nodenext",
@@ -11,12 +12,13 @@
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "strict": true,
+    "jsx": "react-jsx",
     "verbatimModuleSyntax": true,
     "isolatedModules": true,
     "noUncheckedSideEffectImports": true,
     "moduleDetection": "force",
     "skipLibCheck": true,
+    "noErrorTruncation": true,
     "incremental": true
-  },
-  "exclude": ["dist"]
+  }
 }

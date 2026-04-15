@@ -186,12 +186,9 @@ export function createEastWasmFromModule(
     externalState?: { platformFns: Map<string, PlatformRegistration>; genericCache: Map<string, PlatformFn> },
 ): EastWasm {
     const platformFns = externalState?.platformFns ?? new Map<string, PlatformRegistration>();
-    const genericCache = externalState?.genericCache ?? new Map<string, PlatformFn>();
 
     // Pre-allocate result and error buffers in WASM memory
-    const resultBufPtr = mod._malloc(RESULT_BUF_SIZE);
     const errorBufPtr = mod._malloc(ERROR_BUF_SIZE);
-    const resultLenPtr = mod._malloc(4);
     const errorLenPtr = mod._malloc(4);
 
 

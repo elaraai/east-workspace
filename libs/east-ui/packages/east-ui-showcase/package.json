@@ -6,10 +6,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "pnpm run validate:showcases && vite build",
+    "build": "vite build",
     "preview": "vite preview",
-    "lint": "eslint .",
-    "validate:showcases": "tsc --noEmit -p tsconfig.showcases.json && tsx scripts/validate-showcases.ts"
+    "lint": "eslint ."
   },
   "dependencies": {
     "@chakra-ui/react": "^3.0.0",

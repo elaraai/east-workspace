@@ -46,22 +46,19 @@ export const buttonReactiveCounter = example({
     fn: East.function([], UIComponentType, (_$) => {
         // Reactive.Root re-renders when state changes
         return Reactive.Root(East.function([], UIComponentType, $ => {
-            // Initialize counter state
-            $.if(State.has("counter").not(), $ => {
-                $(State.write([IntegerType], "counter", 0n));
-            });
+            // Bind to counter state — returns { read, write, has }
+            const counter = $.let(State.bind([IntegerType], "counter"));
+            const count = $.let(counter.read());
 
-            const count = $.let(State.read([IntegerType], "counter"), IntegerType);
-
-            // Define callbacks that modify state (must be stored in $.const)
+            // Define callbacks that modify state
             const increment = $.const(East.function([], NullType, $ => {
-                const current = $.let(State.read([IntegerType], "counter"), IntegerType);
-                $(State.write([IntegerType], "counter", current.add(1n)));
+                const current = $.let(counter.read());
+                $(counter.write(current.add(1n)));
             }));
 
             const decrement = $.const(East.function([], NullType, $ => {
-                const current = $.let(State.read([IntegerType], "counter"), IntegerType);
-                $(State.write([IntegerType], "counter", current.subtract(1n)));
+                const current = $.let(counter.read());
+                $(counter.write(current.subtract(1n)));
             }));
 
             return Stack.VStack([

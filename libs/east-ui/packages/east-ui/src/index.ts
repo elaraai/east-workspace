@@ -67,21 +67,6 @@ export { Reactive } from "./reactive/index.js";
 // Component Types
 export { UIComponentType } from "./component.js";
 
-// Platform (state and dataset management - signatures only)
-export {
-    // State
-    State,
-    state_read,
-    state_write,
-    state_has,
-    // ReactiveDataset
-    ReactiveDataset,
-    Dataset, // deprecated alias
-    reactive_dataset_get,
-    reactive_dataset_set,
-    reactive_dataset_has,
-    reactive_dataset_list,
-    reactive_dataset_subscribe,
-    DatasetPathSegmentType,
-    DatasetPathType,
-} from "./platform/index.js";
+// Platform (state management - signatures only)
+// For e3 dataset bindings, use Data.bind from @elaraai/e3-ui
+export { State } from "./platform/index.js";

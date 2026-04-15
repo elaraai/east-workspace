@@ -1,14 +1,2 @@
-/**
- * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under AGPL-3.0. See LICENSE file for details.
- */
-
-import { EastFunction } from "@elaraai/east-ui-components";
-import feedbackShowcase from "../showcases/feedback/all";
-
-// Pre-compile IR at module load time
-const feedbackIR = feedbackShowcase.toIR();
-
-export function FeedbackPage() {
-    return <EastFunction ir={feedbackIR} storageKey="feedback" />;
-}
+import { Text } from "@chakra-ui/react";
+export function FeedbackPage() { return <Text color="gray.400">Coming soon — examples being migrated to State.bind</Text>; }

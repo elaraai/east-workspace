@@ -534,6 +534,37 @@ importers:
         specifier: ~5.9.2
         version: 5.9.3
 
+  libs/east-ui/packages/e3-ui:
+    dependencies:
+      '@elaraai/e3':
+        specifier: workspace:*
+        version: link:../../../e3/packages/e3
+      '@elaraai/e3-types':
+        specifier: workspace:*
+        version: link:../../../e3/packages/e3-types
+      '@elaraai/east':
+        specifier: workspace:*
+        version: link:../../../east
+      '@elaraai/east-ui':
+        specifier: workspace:*
+        version: link:../east-ui
+    devDependencies:
+      '@types/node':
+        specifier: ^22
+        version: 22.19.15
+      '@typescript-eslint/eslint-plugin':
+        specifier: ^8
+        version: 8.58.0(@typescript-eslint/parser@8.58.0(eslint@9.39.4)(typescript@5.9.3))(eslint@9.39.4)(typescript@5.9.3)
+      '@typescript-eslint/parser':
+        specifier: ^8
+        version: 8.58.0(eslint@9.39.4)(typescript@5.9.3)
+      eslint:
+        specifier: ^9
+        version: 9.39.4
+      typescript:
+        specifier: ~5.9.2
+        version: 5.9.3
+
   libs/east-ui/packages/e3-ui-components:
     dependencies:
       '@elaraai/east-c-wasm':
@@ -695,6 +726,9 @@ importers:
       '@chakra-ui/react':
         specifier: ^3.0.0
         version: 3.34.0(@emotion/react@11.14.0(@types/react@19.2.14)(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@elaraai/e3-ui':
+        specifier: workspace:*
+        version: link:../e3-ui
       '@elaraai/east':
         specifier: workspace:*
         version: link:../../../east
