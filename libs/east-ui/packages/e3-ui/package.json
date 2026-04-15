@@ -1,0 +1,49 @@
+{
+  "name": "@elaraai/e3-ui",
+  "version": "0.0.1",
+  "description": "e3 + UI bridge — Data bindings, ui() task, manifest",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "files": [
+    "dist/src",
+    "!dist/src/**/*.spec.*",
+    "README.md",
+    "LICENSE.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint .",
+    "test": "echo 'no tests yet'"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/elaraai/east-ui.git",
+    "directory": "packages/e3-ui"
+  },
+  "keywords": ["east", "elara", "e3", "ui", "data", "bindings"],
+  "author": "Elara AI Pty Ltd",
+  "license": "SEE LICENSE IN LICENSE",
+  "type": "module",
+  "engines": { "node": ">=22.0.0" },
+  "dependencies": {
+    "@elaraai/e3": "workspace:*",
+    "@elaraai/e3-types": "workspace:*"
+  },
+  "peerDependencies": {
+    "@elaraai/east": "workspace:*",
+    "@elaraai/east-ui": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@typescript-eslint/eslint-plugin": "^8",
+    "@typescript-eslint/parser": "^8",
+    "eslint": "^9",
+    "typescript": "~5.9.2"
+  }
+}
