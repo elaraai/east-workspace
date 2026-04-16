@@ -5,8 +5,14 @@
 
 import { Icon } from "../../src/display/icon/index.js";
 import { describeEast as describe, Assert, TestImpl } from "@elaraai/east-node-std";
+import * as ex from "./icon.examples.js";
 
 describe("Icon", (test) => {
+    Assert.examples(test, {
+        iconBasic: ex.iconBasic,
+        iconStyles: ex.iconStyles,
+    });
+
     // =========================================================================
     // Icon.Root - Basic with prefix
     // =========================================================================

@@ -24,6 +24,14 @@
     "./examples/layout": {
       "types": "./dist/test/layout/index.d.ts",
       "default": "./dist/test/layout/index.js"
+    },
+    "./examples/container": {
+      "types": "./dist/test/container/card.examples.d.ts",
+      "default": "./dist/test/container/card.examples.js"
+    },
+    "./examples/display": {
+      "types": "./dist/test/display/index.d.ts",
+      "default": "./dist/test/display/index.js"
     }
   },
   "files": [

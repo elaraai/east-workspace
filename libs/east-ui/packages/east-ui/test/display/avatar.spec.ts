@@ -5,8 +5,15 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Avatar, Style } from "../../src/index.js";
+import * as ex from "./avatar.examples.js";
 
 describeEast("Avatar", (test) => {
+    Assert.examples(test, {
+        avatarBasic: ex.avatarBasic,
+        avatarSizes: ex.avatarSizes,
+        avatarColors: ex.avatarColors,
+    });
+
     // =========================================================================
     // Basic Creation
     // =========================================================================

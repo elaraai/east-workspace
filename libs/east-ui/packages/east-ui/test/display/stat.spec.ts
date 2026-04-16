@@ -5,8 +5,16 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Stat, Text } from "../../src/index.js";
+import * as ex from "./stat.examples.js";
 
 describeEast("Stat", (test) => {
+    Assert.examples(test, {
+        statBasic: ex.statBasic,
+        statHelpText: ex.statHelpText,
+        statIndicators: ex.statIndicators,
+        statRichValues: ex.statRichValues,
+    });
+
     // =========================================================================
     // Basic Creation
     // =========================================================================

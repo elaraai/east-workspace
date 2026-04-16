@@ -5,8 +5,23 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Card, Text, Heading, Button, Stack, Style } from "../../src/index.js";
+import * as ex from "./card.examples.js";
 
 describeEast("Card", (test) => {
+    Assert.examples(test, {
+        cardBasic: ex.cardBasic,
+        cardHeader: ex.cardHeader,
+        cardHeaderDesc: ex.cardHeaderDesc,
+        cardFooter: ex.cardFooter,
+        cardElevated: ex.cardElevated,
+        cardOutline: ex.cardOutline,
+        cardSubtle: ex.cardSubtle,
+        cardDimensions: ex.cardDimensions,
+        cardFlexible: ex.cardFlexible,
+        cardMultiple: ex.cardMultiple,
+        cardSizes: ex.cardSizes,
+    });
+
     // =========================================================================
     // Basic Creation
     // =========================================================================

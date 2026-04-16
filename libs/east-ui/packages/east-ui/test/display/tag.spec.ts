@@ -5,8 +5,19 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Tag, Style } from "../../src/index.js";
+import * as ex from "./tag.examples.js";
 
 describeEast("Tag", (test) => {
+    Assert.examples(test, {
+        tagBasic: ex.tagBasic,
+        tagClosable: ex.tagClosable,
+        tagVariants: ex.tagVariants,
+        tagCustom: ex.tagCustom,
+        tagDynamic: ex.tagDynamic,
+        tagBorder: ex.tagBorder,
+        tagBoxModel: ex.tagBoxModel,
+    });
+
     // =========================================================================
     // Basic Creation
     // =========================================================================

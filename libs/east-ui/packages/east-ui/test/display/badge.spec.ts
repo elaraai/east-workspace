@@ -5,8 +5,19 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Badge, Style } from "../../src/index.js";
+import * as ex from "./badge.examples.js";
 
 describeEast("Badge", (test) => {
+    Assert.examples(test, {
+        badgeBasic: ex.badgeBasic,
+        badgeVariants: ex.badgeVariants,
+        badgeColors: ex.badgeColors,
+        badgeCustom: ex.badgeCustom,
+        badgeFixedWidth: ex.badgeFixedWidth,
+        badgeBorder: ex.badgeBorder,
+        badgeBoxModel: ex.badgeBoxModel,
+    });
+
     // =========================================================================
     // Basic Creation
     // =========================================================================
