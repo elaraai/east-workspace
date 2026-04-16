@@ -3,6 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
+// Platform — reactive dataset cache, runtime, and React hooks for Data.bind
+export * from './platform/index.js';
+
 // Utilities
 export { formatApiError, formatError } from './errors.js';
 

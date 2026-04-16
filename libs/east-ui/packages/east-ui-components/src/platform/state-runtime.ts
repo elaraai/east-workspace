@@ -17,6 +17,8 @@ import { type PlatformFunction } from "@elaraai/east/internal";
 import { getWasmSync, decodeBeast2Value } from "./wasm.js";
 import { State } from "@elaraai/east-ui";
 import { UIStore, type UIStoreInterface } from "./state-store.js";
+import { registerReactiveTracker } from "../reactive/tracker.js";
+import { registerPlatformImplementation } from "./registry.js";
 
 // =============================================================================
 // Singleton Store
@@ -92,3 +94,19 @@ export const StateImpl: PlatformFunction[] = [
         };
     }),
 ];
+
+// Register State tracker and platform implementation at module load
+registerReactiveTracker({
+    id: "s",
+    enableTracking,
+    disableTracking,
+    getStore: () => {
+        const store = getStore();
+        return {
+            subscribe: (key: string, cb: () => void) => store.subscribe(key, cb),
+            getKeyVersion: (key: string) => store.getKeyVersion(key),
+        };
+    },
+});
+
+registerPlatformImplementation(StateImpl);

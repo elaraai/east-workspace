@@ -14,10 +14,10 @@ import {
 } from "react";
 import { UIComponentType } from "@elaraai/east-ui";
 import { type UIStoreInterface } from "./state-store.js";
-import { StateImpl, getStore } from "./state-runtime.js";
+import { getStore } from "./state-runtime.js";
 import { EastChakraComponent } from "../component.js";
 import type { EastIR, ValueTypeOf } from "@elaraai/east";
-import { OverlayImpl } from "../overlays/overlay-manager.js";
+import { getRegisteredPlatformImplementations } from "./registry.js";
 import { Alert, Box, Code, Text, Stack } from "@chakra-ui/react";
 
 /**
@@ -246,7 +246,7 @@ export function EastFunction({ ir, storageKey }: EastFunctionProps) {
     // Compile IR via JS
     const result = useMemo(() => {
         try {
-            return { compiled: ir.compile([...StateImpl, ...OverlayImpl]), error: null };
+            return { compiled: ir.compile(getRegisteredPlatformImplementations()), error: null };
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : String(err);
             const errorStack = err instanceof Error ? err.stack : undefined;

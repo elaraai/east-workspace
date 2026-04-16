@@ -19,7 +19,7 @@
  */
 
 import { QueryClient } from "@tanstack/react-query";
-import { type ValueTypeOf, variant } from "@elaraai/east";
+import { variant } from "@elaraai/east";
 import {
     datasetGet,
     datasetSet,
@@ -29,17 +29,6 @@ import {
     type DatasetStatusInfo,
 } from "@elaraai/e3-api-client";
 import type { TreePath } from "@elaraai/e3-types";
-import { DatasetPathSegmentType, DatasetPathType } from "@elaraai/east-ui";
-
-/**
- * Dataset path segment - derived from East type definition.
- */
-export type DatasetPathSegment = ValueTypeOf<typeof DatasetPathSegmentType>;
-
-/**
- * Dataset path - derived from East type definition.
- */
-export type DatasetPath = ValueTypeOf<typeof DatasetPathType>;
 
 /**
  * Configuration for the ReactiveDatasetCache.
@@ -49,6 +38,8 @@ export interface ReactiveDatasetCacheConfig {
     apiUrl: string;
     /** Repository name (default: 'default') */
     repo?: string;
+    /** Workspace name — required for Data.bind */
+    workspace?: string;
     /** Authentication token */
     token?: string;
     /** Default stale time in ms (default: 30000) */
@@ -56,26 +47,21 @@ export interface ReactiveDatasetCacheConfig {
 }
 
 /**
- * @deprecated Use `ReactiveDatasetCacheConfig` instead.
- */
-export type DatasetStoreConfig = ReactiveDatasetCacheConfig;
-
-/**
  * Interface for the ReactiveDatasetCache.
  */
 export interface ReactiveDatasetCacheInterface {
     /** Read a cached dataset value synchronously */
-    read(workspace: string, path: DatasetPath): Uint8Array | undefined;
+    read(workspace: string, path: TreePath): Uint8Array | undefined;
     /** Check if a dataset is cached */
-    has(workspace: string, path: DatasetPath): boolean;
+    has(workspace: string, path: TreePath): boolean;
     /** Write a dataset value (async - mutates remotely) */
-    write(workspace: string, path: DatasetPath, value: Uint8Array): Promise<void>;
+    write(workspace: string, path: TreePath, value: Uint8Array): Promise<void>;
     /** Preload a dataset into cache */
-    preload(workspace: string, path: DatasetPath): Promise<void>;
+    preload(workspace: string, path: TreePath): Promise<void>;
     /** List fields at a path */
-    list(workspace: string, path: DatasetPath): Promise<string[]>;
+    list(workspace: string, path: TreePath): Promise<string[]>;
     /** Set polling interval for a dataset */
-    setRefetchInterval(workspace: string, path: DatasetPath, intervalMs: number): void;
+    setRefetchInterval(workspace: string, path: TreePath, intervalMs: number): void;
     /** Subscribe to changes on a specific key */
     subscribe(key: string, callback: () => void): () => void;
     /** Subscribe to all changes */
@@ -95,29 +81,24 @@ export interface ReactiveDatasetCacheInterface {
 }
 
 /**
- * @deprecated Use `ReactiveDatasetCacheInterface` instead.
- */
-export type DatasetStoreInterface = ReactiveDatasetCacheInterface;
-
-/**
  * Convert a dataset path to a string key for caching.
  */
-export function datasetPathToString(path: DatasetPath): string {
+export function datasetPathToString(path: TreePath): string {
     return path.map(p => p.value).join(".");
 }
 
 /**
  * Create a cache key from workspace and path.
  */
-export function datasetCacheKey(workspace: string, path: DatasetPath): string {
+export function datasetCacheKey(workspace: string, path: TreePath): string {
     const pathStr = datasetPathToString(path);
     return pathStr ? `${workspace}.${pathStr}` : workspace;
 }
 
 /**
- * Convert our DatasetPath to e3-api-client TreePath.
+ * Convert our TreePath to e3-api-client TreePath.
  */
-function toTreePath(path: DatasetPath): TreePath {
+function toTreePath(path: TreePath): TreePath {
     return path as TreePath;
 }
 
@@ -137,6 +118,7 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
     private config: {
         apiUrl: string;
         repo: string;
+        workspace: string | undefined;
         token: string | undefined;
         staleTime: number;
     };
@@ -180,6 +162,7 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
         this.config = {
             apiUrl: config.apiUrl,
             repo: config.repo ?? "default",
+            workspace: config.workspace,
             token: config.token,
             staleTime: config.staleTime ?? 30000,
         };
@@ -194,6 +177,9 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
             repo: this.config.repo,
             staleTime: this.config.staleTime,
         };
+        if (this.config.workspace !== undefined) {
+            result.workspace = this.config.workspace;
+        }
         if (this.config.token !== undefined) {
             result.token = this.config.token;
         }
@@ -203,7 +189,7 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
     /**
      * Create a TanStack Query key.
      */
-    private queryKey(workspace: string, path: DatasetPath): readonly unknown[] {
+    private queryKey(workspace: string, path: TreePath): readonly unknown[] {
         return ["dataset", workspace, datasetPathToString(path)] as const;
     }
 
@@ -217,7 +203,7 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
     /**
      * Read a dataset value synchronously from cache.
      */
-    read(workspace: string, path: DatasetPath): Uint8Array | undefined {
+    read(workspace: string, path: TreePath): Uint8Array | undefined {
         const key = datasetCacheKey(workspace, path);
         return this.cache.get(key);
     }
@@ -225,7 +211,7 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
     /**
      * Check if a dataset is cached.
      */
-    has(workspace: string, path: DatasetPath): boolean {
+    has(workspace: string, path: TreePath): boolean {
         const key = datasetCacheKey(workspace, path);
         return this.cache.has(key);
     }
@@ -233,7 +219,7 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
     /**
      * Write a dataset value (async - mutates remotely).
      */
-    async write(workspace: string, path: DatasetPath, value: Uint8Array): Promise<void> {
+    async write(workspace: string, path: TreePath, value: Uint8Array): Promise<void> {
         const key = datasetCacheKey(workspace, path);
 
         // Optimistic update
@@ -284,7 +270,7 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
     /**
      * Preload a dataset into cache.
      */
-    async preload(workspace: string, path: DatasetPath): Promise<void> {
+    async preload(workspace: string, path: TreePath): Promise<void> {
         const key = datasetCacheKey(workspace, path);
 
         // Check if already cached
@@ -316,7 +302,7 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
     /**
      * Fetch a dataset from e3 using e3-api-client.
      */
-    private async fetchDataset(workspace: string, path: DatasetPath): Promise<Uint8Array> {
+    private async fetchDataset(workspace: string, path: TreePath): Promise<Uint8Array> {
         const result = await datasetGet(
             this.config.apiUrl,
             this.config.repo,
@@ -330,7 +316,7 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
     /**
      * List fields at a path using e3-api-client.
      */
-    async list(workspace: string, path: DatasetPath): Promise<string[]> {
+    async list(workspace: string, path: TreePath): Promise<string[]> {
         if (path.length === 0) {
             // Root listing
             return e3DatasetList(
@@ -362,7 +348,7 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
      *
      * Multiple subscriptions to the same workspace share a single poller.
      */
-    setRefetchInterval(workspace: string, path: DatasetPath, intervalMs: number): void {
+    setRefetchInterval(workspace: string, path: TreePath, intervalMs: number): void {
         const pathStr = datasetPathToString(path);
 
         // Get or create workspace poller
@@ -459,9 +445,9 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
     }
 
     /**
-     * Convert a path string back to DatasetPath.
+     * Convert a path string back to TreePath.
      */
-    private stringToPath(pathStr: string): DatasetPath {
+    private stringToPath(pathStr: string): TreePath {
         if (!pathStr) return [];
         return pathStr.split(".").map(field => variant("field", field));
     }
@@ -616,12 +602,3 @@ export function createReactiveDatasetCache(queryClient: QueryClient, config: Rea
     return new ReactiveDatasetCache(queryClient, config);
 }
 
-/**
- * @deprecated Use `ReactiveDatasetCache` instead.
- */
-export const DatasetStore = ReactiveDatasetCache;
-
-/**
- * @deprecated Use `createReactiveDatasetCache` instead.
- */
-export const createDatasetStore = createReactiveDatasetCache;

@@ -32,14 +32,15 @@
   "type": "module",
   "engines": { "node": ">=22.0.0" },
   "dependencies": {
-    "@elaraai/e3": "workspace:*",
     "@elaraai/e3-types": "workspace:*"
   },
   "peerDependencies": {
+    "@elaraai/e3": "workspace:*",
     "@elaraai/east": "workspace:*",
     "@elaraai/east-ui": "workspace:*"
   },
   "devDependencies": {
+    "@elaraai/e3": "workspace:*",
     "@types/node": "^22",
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",

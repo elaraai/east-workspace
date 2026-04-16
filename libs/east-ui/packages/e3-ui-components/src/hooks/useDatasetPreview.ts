@@ -17,11 +17,11 @@ import {
 import { UIComponentType } from '@elaraai/east-ui';
 import {
     StateImpl,
-    ReactiveDatasetPlatform,
     OverlayImpl,
     getWasmSync,
     decodeBeast2Value,
 } from '@elaraai/east-ui-components';
+import { ReactiveDatasetPlatform } from '../platform/dataset-runtime.js';
 import type { QueryOverrides } from './types.js';
 
 const platformImplementations = [...StateImpl, ...ReactiveDatasetPlatform, ...OverlayImpl];

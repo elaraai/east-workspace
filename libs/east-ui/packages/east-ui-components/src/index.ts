@@ -285,9 +285,6 @@ export {
     getWasmSync,
     decodeBeast2Value,
 
-    // State namespace (main API)
-    State,
-
     // State implementation (for compilation)
     StateImpl,
     StateRuntime,
@@ -315,57 +312,20 @@ export {
     type EastComponentProps,
     EastFunction,
     type EastFunctionProps,
-
-    // Legacy aliases
-    EastStoreProvider,
-    useEastStore,
-    useEastState,
-    useEastKey,
-    useEastWrite,
-    useEastBatch,
-    createEastStore,
-
-    // Dataset namespace (main API)
-    Dataset,
-
-    // Dataset implementation (for compilation)
-    DatasetImpl,
-    DatasetRuntime,
-
-    // Dataset Store
-    DatasetStore,
-    createDatasetStore,
-    type DatasetStoreInterface,
-    type DatasetStoreConfig,
-    type DatasetPath,
-    type DatasetPathSegment,
-    datasetCacheKey,
-    datasetPathToString,
-
-    // Dataset tracking functions
-    getDatasetStore,
-    initializeDatasetStore,
-    clearDatasetStore,
-    enableDatasetTracking,
-    disableDatasetTracking,
-    isDatasetTracking,
-    trackDatasetPath,
-    preloadDatasetList,
-    clearDatasetListCache,
-
-    // Dataset React Provider and Hooks
-    DatasetStoreProvider,
-    type DatasetStoreProviderProps,
-    useDatasetStore,
-    useDatasetStoreSubscription,
-    useDatasetKey,
-    usePreloadDatasets,
-    type DatasetToPreload,
-    type PreloadDatasetsResult,
-    useDatasetWrite,
-    useDatasetHas,
-
-    // Dataset Loader Component
-    DatasetLoader,
-    type DatasetLoaderProps,
 } from "./platform/index.js";
+
+// Reactive tracker registry
+export {
+    type ReactiveTracker,
+    type ReactiveTrackerStore,
+    registerReactiveTracker,
+    subscribeTrackers,
+    getReactiveTrackers,
+    getTrackersVersion,
+} from "./reactive/tracker.js";
+
+// Platform implementation registry
+export {
+    registerPlatformImplementation,
+    getRegisteredPlatformImplementations,
+} from "./platform/registry.js";

@@ -214,3 +214,7 @@ export const DrawerOpenImpl: PlatformFunction = drawer_open.implement((input) =>
  * ```
  */
 export const OverlayImpl: PlatformFunction[] = [DialogOpenImpl, DrawerOpenImpl];
+
+// Register Overlay platform implementation at module load
+import { registerPlatformImplementation } from "../platform/registry.js";
+registerPlatformImplementation(OverlayImpl);

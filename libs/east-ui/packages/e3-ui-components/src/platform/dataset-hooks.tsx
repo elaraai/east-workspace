@@ -16,20 +16,22 @@ import {
     useMemo,
     useCallback,
     useState,
+    useRef,
     useSyncExternalStore,
     type ReactNode,
 } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { TreePath } from "@elaraai/e3-types";
 import {
     ReactiveDatasetCache,
     type ReactiveDatasetCacheInterface,
     type ReactiveDatasetCacheConfig,
-    type DatasetPath,
     datasetCacheKey,
 } from "./dataset-store.js";
 import {
     initializeReactiveDatasetCache,
     clearReactiveDatasetCache,
+    createDatasetTracker,
 } from "./dataset-runtime.js";
 
 // =============================================================================
@@ -49,11 +51,6 @@ export interface ReactiveDatasetProviderProps {
     /** Optional external QueryClient (if not provided, one will be created) */
     queryClient?: QueryClient;
 }
-
-/**
- * @deprecated Use `ReactiveDatasetProviderProps` instead.
- */
-export type DatasetStoreProviderProps = ReactiveDatasetProviderProps;
 
 /**
  * Provides a ReactiveDatasetCache to the component tree.
@@ -103,14 +100,23 @@ export function ReactiveDatasetProvider({
         [queryClient, config.apiUrl, config.repo, config.token, config.staleTime]
     );
 
-    // Set global cache reference and configure scheduler
-    useEffect(() => {
+    // Synchronous registration: initialize singleton cache, register tracker
+    // and platform implementation BEFORE first render of children.
+    // This ensures EastReactiveComponent children see the Data tracker on
+    // their first render pass, and Data.bind reads find the cache.
+    const unregisterRef = useRef<(() => void) | null>(null);
+    useMemo(() => {
+        unregisterRef.current?.();
         initializeReactiveDatasetCache(cache);
-
-        // Configure deferred notifications
         cache.setScheduler((notify) => queueMicrotask(notify));
+        unregisterRef.current = createDatasetTracker(cache);
+    }, [cache]);
 
+    // Cleanup on cache change or unmount
+    useEffect(() => {
         return () => {
+            unregisterRef.current?.();
+            unregisterRef.current = null;
             cache.destroy();
             clearReactiveDatasetCache();
         };
@@ -137,11 +143,6 @@ export function ReactiveDatasetProvider({
     );
 }
 
-/**
- * @deprecated Use `ReactiveDatasetProvider` instead.
- */
-export const DatasetStoreProvider = ReactiveDatasetProvider;
-
 // =============================================================================
 // Hooks
 // =============================================================================
@@ -161,11 +162,6 @@ export function useReactiveDatasetCache(): ReactiveDatasetCacheInterface {
 }
 
 /**
- * @deprecated Use `useReactiveDatasetCache` instead.
- */
-export const useDatasetStore = useReactiveDatasetCache;
-
-/**
  * Hook to subscribe to reactive dataset cache changes using React 18's useSyncExternalStore.
  *
  * @returns The current snapshot version
@@ -179,18 +175,13 @@ export function useReactiveDatasetCacheSubscription(): number {
 }
 
 /**
- * @deprecated Use `useReactiveDatasetCacheSubscription` instead.
- */
-export const useDatasetStoreSubscription = useReactiveDatasetCacheSubscription;
-
-/**
  * Hook to subscribe to a specific reactive dataset key.
  *
  * @param workspace - The workspace name
  * @param path - The dataset path
  * @returns The cached value, or undefined if not loaded
  */
-export function useReactiveDatasetKey(workspace: string, path: DatasetPath): Uint8Array | undefined {
+export function useReactiveDatasetKey(workspace: string, path: TreePath): Uint8Array | undefined {
     const cache = useReactiveDatasetCache();
     const key = datasetCacheKey(workspace, path);
 
@@ -207,22 +198,12 @@ export function useReactiveDatasetKey(workspace: string, path: DatasetPath): Uin
 }
 
 /**
- * @deprecated Use `useReactiveDatasetKey` instead.
- */
-export const useDatasetKey = useReactiveDatasetKey;
-
-/**
  * Reactive dataset to preload.
  */
 export interface ReactiveDatasetToPreload {
     workspace: string;
-    path: DatasetPath;
+    path: TreePath;
 }
-
-/**
- * @deprecated Use `ReactiveDatasetToPreload` instead.
- */
-export type DatasetToPreload = ReactiveDatasetToPreload;
 
 /**
  * Result of usePreloadReactiveDatasets hook.
@@ -235,11 +216,6 @@ export interface PreloadReactiveDatasetsResult {
     /** Reload all datasets */
     reload: () => void;
 }
-
-/**
- * @deprecated Use `PreloadReactiveDatasetsResult` instead.
- */
-export type PreloadDatasetsResult = PreloadReactiveDatasetsResult;
 
 /**
  * Hook to preload reactive datasets before rendering.
@@ -310,11 +286,6 @@ export function usePreloadReactiveDatasets(datasets: ReactiveDatasetToPreload[])
 }
 
 /**
- * @deprecated Use `usePreloadReactiveDatasets` instead.
- */
-export const usePreloadDatasets = usePreloadReactiveDatasets;
-
-/**
  * Props for the ReactiveDatasetLoader component.
  */
 export interface ReactiveDatasetLoaderProps {
@@ -327,11 +298,6 @@ export interface ReactiveDatasetLoaderProps {
     /** Error render function */
     onError?: (error: Error, reload: () => void) => ReactNode;
 }
-
-/**
- * @deprecated Use `ReactiveDatasetLoaderProps` instead.
- */
-export type DatasetLoaderProps = ReactiveDatasetLoaderProps;
 
 /**
  * Component that preloads reactive datasets before rendering children.
@@ -388,11 +354,6 @@ export function ReactiveDatasetLoader({
 }
 
 /**
- * @deprecated Use `ReactiveDatasetLoader` instead.
- */
-export const DatasetLoader = ReactiveDatasetLoader;
-
-/**
  * Hook to write to a reactive dataset from React code.
  *
  * @returns A function to write to a dataset
@@ -418,21 +379,16 @@ export const DatasetLoader = ReactiveDatasetLoader;
  */
 export function useReactiveDatasetWrite(): (
     workspace: string,
-    path: DatasetPath,
+    path: TreePath,
     value: Uint8Array
 ) => Promise<void> {
     const cache = useReactiveDatasetCache();
     return useCallback(
-        (workspace: string, path: DatasetPath, value: Uint8Array) =>
+        (workspace: string, path: TreePath, value: Uint8Array) =>
             cache.write(workspace, path, value),
         [cache]
     );
 }
-
-/**
- * @deprecated Use `useReactiveDatasetWrite` instead.
- */
-export const useDatasetWrite = useReactiveDatasetWrite;
 
 /**
  * Hook to check if a reactive dataset is cached.
@@ -441,7 +397,7 @@ export const useDatasetWrite = useReactiveDatasetWrite;
  * @param path - The dataset path
  * @returns True if the dataset is cached
  */
-export function useReactiveDatasetHas(workspace: string, path: DatasetPath): boolean {
+export function useReactiveDatasetHas(workspace: string, path: TreePath): boolean {
     const cache = useReactiveDatasetCache();
     const key = datasetCacheKey(workspace, path);
 
@@ -457,7 +413,3 @@ export function useReactiveDatasetHas(workspace: string, path: DatasetPath): boo
     return useSyncExternalStore(subscribe, getSnapshot);
 }
 
-/**
- * @deprecated Use `useReactiveDatasetHas` instead.
- */
-export const useDatasetHas = useReactiveDatasetHas;
