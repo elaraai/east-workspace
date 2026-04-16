@@ -44,6 +44,10 @@
     "./examples/navigation": {
       "types": "./dist/test/navigation/breadcrumb.examples.d.ts",
       "default": "./dist/test/navigation/breadcrumb.examples.js"
+    },
+    "./examples/disclosure": {
+      "types": "./dist/test/disclosure/index.d.ts",
+      "default": "./dist/test/disclosure/index.js"
     }
   },
   "files": [

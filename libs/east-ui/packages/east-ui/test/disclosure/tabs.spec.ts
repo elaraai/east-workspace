@@ -5,8 +5,21 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Tabs, Text } from "../../src/index.js";
+import * as ex from "./tabs.examples.js";
 
 describeEast("Tabs", (test) => {
+    Assert.examples(test, {
+        tabsBasic: ex.tabsBasic,
+        tabsLine: ex.tabsLine,
+        tabsEnclosed: ex.tabsEnclosed,
+        tabsOutline: ex.tabsOutline,
+        tabsSubtle: ex.tabsSubtle,
+        tabsFitted: ex.tabsFitted,
+        tabsSizes: ex.tabsSizes,
+        tabsWithDisabled: ex.tabsWithDisabled,
+        tabsInteractive: ex.tabsInteractive,
+    });
+
     // =========================================================================
     // Tabs.Item
     // =========================================================================

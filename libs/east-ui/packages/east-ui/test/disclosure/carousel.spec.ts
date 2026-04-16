@@ -5,8 +5,19 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Carousel, Text } from "../../src/index.js";
+import * as ex from "./carousel.examples.js";
 
 describeEast("Carousel", (test) => {
+    Assert.examples(test, {
+        carouselBasic: ex.carouselBasic,
+        carouselLoop: ex.carouselLoop,
+        carouselMultiSlide: ex.carouselMultiSlide,
+        carouselNoControls: ex.carouselNoControls,
+        carouselDraggable: ex.carouselDraggable,
+        carouselMinimal: ex.carouselMinimal,
+        carouselInteractive: ex.carouselInteractive,
+    });
+
     // =========================================================================
     // Basic Creation
     // =========================================================================

@@ -5,8 +5,19 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Accordion, Text } from "../../src/index.js";
+import * as ex from "./accordion.examples.js";
 
 describeEast("Accordion", (test) => {
+    Assert.examples(test, {
+        accordionBasic: ex.accordionBasic,
+        accordionMultiple: ex.accordionMultiple,
+        accordionCollapsible: ex.accordionCollapsible,
+        accordionEnclosed: ex.accordionEnclosed,
+        accordionSubtle: ex.accordionSubtle,
+        accordionPlain: ex.accordionPlain,
+        accordionInteractive: ex.accordionInteractive,
+    });
+
     // =========================================================================
     // Accordion.Item
     // =========================================================================
