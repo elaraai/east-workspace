@@ -6,8 +6,24 @@
 import { East } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Gantt, Text, Badge, Table, UIComponentType } from "../../src/index.js";
+import * as ex from "./gantt.examples.js";
 
 describeEast("Gantt", (test) => {
+    Assert.examples(test, {
+        ganttBasic: ex.ganttBasic,
+        ganttCustomHeaders: ex.ganttCustomHeaders,
+        ganttWithMilestones: ex.ganttWithMilestones,
+        ganttWithProgress: ex.ganttWithProgress,
+        ganttColorful: ex.ganttColorful,
+        ganttStyled: ex.ganttStyled,
+        ganttComplexColumns: ex.ganttComplexColumns,
+        ganttColumnRenderWithRow: ex.ganttColumnRenderWithRow,
+        ganttInteractiveCallbacks: ex.ganttInteractiveCallbacks,
+        ganttReactiveDrag: ex.ganttReactiveDrag,
+        ganttCustomHeight: ex.ganttCustomHeight,
+        ganttFrozenColumns: ex.ganttFrozenColumns,
+    });
+
     // =========================================================================
     // Basic Gantt Creation
     // =========================================================================

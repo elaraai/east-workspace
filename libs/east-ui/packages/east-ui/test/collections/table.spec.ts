@@ -6,8 +6,24 @@
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Table, Badge, Text, Stack, UIComponentType } from "../../src/index.js";
 import { East } from "@elaraai/east";
+import * as ex from "./table.examples.js";
 
 describeEast("Table", (test) => {
+    Assert.examples(test, {
+        tableBasic: ex.tableBasic,
+        tableCustomHeaders: ex.tableCustomHeaders,
+        tableStriped: ex.tableStriped,
+        tableInteractive: ex.tableInteractive,
+        tableWithBadge: ex.tableWithBadge,
+        tableFullStyled: ex.tableFullStyled,
+        tableComplexColumns: ex.tableComplexColumns,
+        tableColumnRenderWithRow: ex.tableColumnRenderWithRow,
+        tableWrappingTags: ex.tableWrappingTags,
+        tableInteractiveCallbacks: ex.tableInteractiveCallbacks,
+        tableCustomHeight: ex.tableCustomHeight,
+        tableFrozenColumns: ex.tableFrozenColumns,
+    });
+
     // =========================================================================
     // Simple Array Syntax
     // =========================================================================

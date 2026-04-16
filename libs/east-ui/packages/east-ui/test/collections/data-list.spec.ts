@@ -6,8 +6,19 @@
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { East, OptionType, StringType, variant } from "@elaraai/east";
 import { DataList, Text } from "../../src/index.js";
+import * as ex from "./data-list.examples.js";
 
 describeEast("DataList", (test) => {
+    Assert.examples(test, {
+        dataListBasic: ex.dataListBasic,
+        dataListHorizontal: ex.dataListHorizontal,
+        dataListBold: ex.dataListBold,
+        dataListSmall: ex.dataListSmall,
+        dataListLarge: ex.dataListLarge,
+        dataListProfile: ex.dataListProfile,
+        dataListRichValues: ex.dataListRichValues,
+    });
+
     // =========================================================================
     // DataList.Root - Basic Creation
     // =========================================================================

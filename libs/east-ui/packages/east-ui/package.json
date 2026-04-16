@@ -52,6 +52,10 @@
     "./examples/overlays": {
       "types": "./dist/test/overlays/index.d.ts",
       "default": "./dist/test/overlays/index.js"
+    },
+    "./examples/collections": {
+      "types": "./dist/test/collections/index.d.ts",
+      "default": "./dist/test/collections/index.js"
     }
   },
   "files": [

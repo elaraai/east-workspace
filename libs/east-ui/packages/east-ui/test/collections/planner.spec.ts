@@ -6,8 +6,33 @@
 import { East, FloatType, StringType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Planner, Text, Badge, Table, UIComponentType } from "../../src/index.js";
+import * as ex from "./planner.examples.js";
 
 describeEast("Planner", (test) => {
+    Assert.examples(test, {
+        plannerBasic: ex.plannerBasic,
+        plannerWithLabels: ex.plannerWithLabels,
+        plannerMultipleEvents: ex.plannerMultipleEvents,
+        plannerSingleSlotMode: ex.plannerSingleSlotMode,
+        plannerFractionalSteps: ex.plannerFractionalSteps,
+        plannerCustomSlotLabels: ex.plannerCustomSlotLabels,
+        plannerStyled: ex.plannerStyled,
+        plannerComplexColumns: ex.plannerComplexColumns,
+        plannerColumnRenderWithRow: ex.plannerColumnRenderWithRow,
+        plannerWithBoundaries: ex.plannerWithBoundaries,
+        plannerWithContextMenu: ex.plannerWithContextMenu,
+        plannerPopoverClick: ex.plannerPopoverClick,
+        plannerPopoverHover: ex.plannerPopoverHover,
+        plannerPopoverAndContextMenu: ex.plannerPopoverAndContextMenu,
+        plannerReadOnlyMode: ex.plannerReadOnlyMode,
+        plannerEventStyling: ex.plannerEventStyling,
+        plannerOverlappingEvents: ex.plannerOverlappingEvents,
+        plannerWithIcons: ex.plannerWithIcons,
+        plannerLabelAlignment: ex.plannerLabelAlignment,
+        plannerCustomHeight: ex.plannerCustomHeight,
+        plannerFrozenColumns: ex.plannerFrozenColumns,
+    });
+
     // =========================================================================
     // Basic Event Creation
     // =========================================================================

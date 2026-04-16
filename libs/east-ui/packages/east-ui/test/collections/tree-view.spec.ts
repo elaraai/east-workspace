@@ -5,8 +5,20 @@
 
 import { TreeView } from "../../src/collections/tree-view/index.js";
 import { describeEast as describe, Assert, TestImpl } from "@elaraai/east-node-std";
+import * as ex from "./tree-view.examples.js";
 
 describe("TreeView", (test) => {
+    Assert.examples(test, {
+        treeViewFile: ex.treeViewFile,
+        treeViewIcons: ex.treeViewIcons,
+        treeViewOrg: ex.treeViewOrg,
+        treeViewSmall: ex.treeViewSmall,
+        treeViewSolid: ex.treeViewSolid,
+        treeViewExpanded: ex.treeViewExpanded,
+        treeViewInteractiveSelection: ex.treeViewInteractiveSelection,
+        treeViewInteractiveExpand: ex.treeViewInteractiveExpand,
+    });
+
     // =========================================================================
     // TreeView.Item - Basic
     // =========================================================================
