@@ -5,7 +5,7 @@
 
 import { memo, useMemo } from "react";
 import { Chart, useChart } from "@chakra-ui/charts";
-import { Line, LineChart, CartesianGrid, Legend, Tooltip, XAxis, YAxis, Brush, ReferenceLine, ReferenceDot, ReferenceArea, type LineProps } from "recharts";
+import { Line, LineChart, CartesianGrid, Legend, Tooltip, XAxis, YAxis, Brush, ReferenceLine, ReferenceDot, ReferenceArea, ResponsiveContainer, type LineProps } from "recharts";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Chart as EastChart } from "@elaraai/east-ui";
 import type { LineChartSeriesType } from "@elaraai/east-ui/internal";
@@ -158,6 +158,7 @@ export const EastChakraLineChart = memo(function EastChakraLineChart({ value }: 
 
     return (
         <Chart.Root chart={chart} w="full" h="full">
+            <ResponsiveContainer width="100%" height="100%">
             <LineChart data={chart.data} margin={layout.margin}>
                 {grid.show && <CartesianGrid {...grid.props} />}
                 {!xAxis.props.hide && (
@@ -232,6 +233,7 @@ export const EastChakraLineChart = memo(function EastChakraLineChart({ value }: 
                     <ReferenceDot key={`dot-${i}`} {...props} />
                 ))}
             </LineChart>
+            </ResponsiveContainer>
         </Chart.Root>
     );
 }, (prev, next) => lineChartEqual(prev.value, next.value));

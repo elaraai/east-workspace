@@ -5,7 +5,7 @@
 
 import { memo, useMemo } from "react";
 import { Chart, useChart } from "@chakra-ui/charts";
-import { Bar, BarChart, CartesianGrid, Legend, Tooltip, XAxis, YAxis, Brush, ReferenceLine, ReferenceDot, ReferenceArea } from "recharts";
+import { Bar, BarChart, CartesianGrid, Legend, Tooltip, XAxis, YAxis, Brush, ReferenceLine, ReferenceDot, ReferenceArea, ResponsiveContainer } from "recharts";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Chart as EastChart } from "@elaraai/east-ui";
 import { getSomeorUndefined } from "../../utils";
@@ -160,6 +160,7 @@ export const EastChakraBarChart = memo(function EastChakraBarChart({ value }: Ea
 
     return (
         <Chart.Root chart={chart} w="full" h="full">
+            <ResponsiveContainer width="100%" height="100%">
             <BarChart
                 data={chart.data}
                 layout={options.layout}
@@ -241,6 +242,7 @@ export const EastChakraBarChart = memo(function EastChakraBarChart({ value }: Ea
                     <ReferenceDot key={`dot-${i}`} {...props} />
                 ))}
             </BarChart>
+            </ResponsiveContainer>
         </Chart.Root>
     );
 }, (prev, next) => barChartEqual(prev.value, next.value));

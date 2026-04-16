@@ -20,6 +20,7 @@ import {
     ReferenceLine,
     ReferenceDot,
     ReferenceArea,
+    ResponsiveContainer,
     type LineProps,
     type AreaProps,
 } from "recharts";
@@ -572,6 +573,7 @@ export const EastChakraComposedChart = memo(function EastChakraComposedChart({ v
 
     return (
         <Chart.Root chart={chart} w="full" h="full">
+            <ResponsiveContainer width="100%" height="100%">
             <ComposedChart
                 data={chart.data}
                 layout={options.layout as "horizontal" | "vertical"}
@@ -622,6 +624,7 @@ export const EastChakraComposedChart = memo(function EastChakraComposedChart({ v
                     <ReferenceDot key={`refDot-${i}`} {...props} zIndex={1000 + 10 * (composedSeries.length + references.areas.length + references.lines.length + i)} />
                 ))}
             </ComposedChart>
+            </ResponsiveContainer>
         </Chart.Root>
     );
 }, (prev, next) => composedChartEqual(prev.value, next.value));

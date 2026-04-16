@@ -276,6 +276,7 @@ export {
 
 // Hooks
 export { usePersistedState, type PersistedStateResult } from "./hooks/usePersistedState.js";
+export { useWasm } from "./hooks/useWasm.js";
 
 // Platform (State Management)
 export {
@@ -312,6 +313,8 @@ export {
     type EastComponentProps,
     EastFunction,
     type EastFunctionProps,
+    EncodedEastFunction,
+    type EncodedEastFunctionProps,
 } from "./platform/index.js";
 
 // Reactive tracker registry

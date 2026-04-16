@@ -53,6 +53,10 @@ export {
     EastFunction,
     type EastFunctionProps,
 } from "./state-hooks.js";
+export {
+    EncodedEastFunction,
+    type EncodedEastFunctionProps,
+} from "./encoded-east-function.js";
 
 // =============================================================================
 // StateRuntime Namespace

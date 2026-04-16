@@ -5,7 +5,7 @@
 
 import { memo, useMemo } from "react";
 import { Chart, useChart } from "@chakra-ui/charts";
-import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Legend, Tooltip } from "recharts";
+import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Legend, Tooltip, ResponsiveContainer } from "recharts";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Chart as EastChart } from "@elaraai/east-ui";
 import { getSomeorUndefined } from "../../utils";
@@ -100,6 +100,7 @@ export const EastChakraRadarChart = memo(function EastChakraRadarChart({ value }
             w="full"
             h="full"
         >
+            <ResponsiveContainer width="100%" height="100%">
             <RadarChart
                 data={chart.data}
                 margin={margin}
@@ -125,6 +126,7 @@ export const EastChakraRadarChart = memo(function EastChakraRadarChart({ value }
                     />
                 ))}
             </RadarChart>
+            </ResponsiveContainer>
         </Chart.Root>
     );
 }, (prev, next) => radarChartEqual(prev.value, next.value));

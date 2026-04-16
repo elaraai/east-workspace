@@ -5,7 +5,8 @@
 
 import { memo, useMemo } from "react";
 import { Chart, useChart } from "@chakra-ui/charts";
-import { Area, AreaChart, CartesianGrid, Legend, Tooltip, XAxis, YAxis, Brush, ReferenceLine, ReferenceDot, ReferenceArea, type AreaProps } from "recharts";
+import { Box } from "@chakra-ui/react";
+import { Area, AreaChart, CartesianGrid, Legend, Tooltip, XAxis, YAxis, Brush, ReferenceLine, ReferenceDot, ReferenceArea, ResponsiveContainer, type AreaProps } from "recharts";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Chart as EastChart } from "@elaraai/east-ui";
 import { getSomeorUndefined } from "../../utils";
@@ -154,6 +155,7 @@ export const EastChakraAreaChart = memo(function EastChakraAreaChart({ value }: 
 
     return (
         <Chart.Root chart={chart} w="full" h="full">
+            <ResponsiveContainer width="100%" height="100%">
             <AreaChart
                 data={chart.data}
                 {...(options.stackOffset && { stackOffset: options.stackOffset })}
@@ -230,6 +232,7 @@ export const EastChakraAreaChart = memo(function EastChakraAreaChart({ value }: 
                     );
                 })}
             </AreaChart>
+            </ResponsiveContainer>
         </Chart.Root>
     );
 }, (prev, next) => areaChartEqual(prev.value, next.value));
@@ -375,6 +378,7 @@ export const EastChakraAreaRangeChart = memo(function EastChakraAreaRangeChart({
 
     return (
         <Chart.Root chart={chart} w="full" h="full">
+            <ResponsiveContainer width="100%" height="100%">
             <AreaChart
                 data={chart.data}
                 margin={layout.margin}
@@ -429,6 +433,7 @@ export const EastChakraAreaRangeChart = memo(function EastChakraAreaRangeChart({
                     <ReferenceDot key={`dot-${i}`} {...props} />
                 ))}
             </AreaChart>
+            </ResponsiveContainer>
         </Chart.Root>
     );
 }, (prev, next) => areaRangeChartEqual(prev.value, next.value));

@@ -5,7 +5,7 @@
 
 import { memo, useMemo } from "react";
 import { Chart, useChart } from "@chakra-ui/charts";
-import { Pie, PieChart, Legend, Tooltip, Cell } from "recharts";
+import { Pie, PieChart, Legend, Tooltip, Cell, ResponsiveContainer } from "recharts";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Chart as EastChart } from "@elaraai/east-ui";
 import { getSomeorUndefined } from "../../utils";
@@ -107,6 +107,7 @@ export const EastChakraPieChart = memo(function EastChakraPieChart({ value }: Ea
             w="full"
             h="full"
         >
+            <ResponsiveContainer width="100%" height="100%">
             <PieChart margin={margin}>
                 {showTooltip && (
                     <Tooltip {...tooltipProps} content={<Chart.Tooltip />} />
@@ -134,6 +135,7 @@ export const EastChakraPieChart = memo(function EastChakraPieChart({ value }: Ea
                     ))}
                 </Pie>
             </PieChart>
+            </ResponsiveContainer>
         </Chart.Root>
     );
 }, (prev, next) => pieChartEqual(prev.value, next.value));

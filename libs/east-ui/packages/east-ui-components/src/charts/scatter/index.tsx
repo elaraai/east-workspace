@@ -5,7 +5,7 @@
 
 import { memo, useMemo } from "react";
 import { Chart, useChart } from "@chakra-ui/charts";
-import { Scatter, ScatterChart, CartesianGrid, Legend, Tooltip, XAxis, YAxis, ReferenceLine, ReferenceDot, ReferenceArea } from "recharts";
+import { Scatter, ScatterChart, CartesianGrid, Legend, Tooltip, XAxis, YAxis, ReferenceLine, ReferenceDot, ReferenceArea, ResponsiveContainer } from "recharts";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Chart as EastChart } from "@elaraai/east-ui";
 import { getSomeorUndefined } from "../../utils";
@@ -176,6 +176,7 @@ export const EastChakraScatterChart = memo(function EastChakraScatterChart({ val
 
     return (
         <Chart.Root chart={chart} w="full" h="full">
+            <ResponsiveContainer width="100%" height="100%">
             <ScatterChart data={chart.data} margin={margin}>
                 {grid.show && <CartesianGrid {...grid.props} />}
                 {!xAxis.props.hide && scatterData.xAxisDataKey && (
@@ -236,6 +237,7 @@ export const EastChakraScatterChart = memo(function EastChakraScatterChart({ val
                     <ReferenceDot key={`dot-${i}`} {...props} />
                 ))}
             </ScatterChart>
+            </ResponsiveContainer>
         </Chart.Root>
     );
 }, (prev, next) => scatterChartEqual(prev.value, next.value));

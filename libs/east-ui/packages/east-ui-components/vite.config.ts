@@ -19,10 +19,8 @@ export default defineConfig({
         'react-dom',
         'react/jsx-runtime',
         '@chakra-ui/react',
-        '@elaraai/east',
-        '@elaraai/east-ui',
         'shiki',
-      ].includes(id) || id.startsWith('node:'),
+      ].includes(id) || id.startsWith('node:') || id.startsWith('@elaraai/'),
       output: {
         globals: {
           react: 'React',

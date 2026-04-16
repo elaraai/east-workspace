@@ -56,7 +56,6 @@
     "@tanstack/react-table": "^8.21.3",
     "@tanstack/react-virtual": "^3.13.9",
     "recharts": "3.5.1",
-    "shiki": "^3.19.0",
     "sorted-btree": "^2.0.0-alpha.0",
     "use-local-storage-state": "^19.5.0"
   },

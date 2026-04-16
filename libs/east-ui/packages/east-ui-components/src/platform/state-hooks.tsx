@@ -9,9 +9,11 @@ import {
     useEffect,
     useMemo,
     useCallback,
+    useState,
     useSyncExternalStore,
     type ReactNode,
 } from "react";
+import { Skeleton } from "@chakra-ui/react";
 import { UIComponentType } from "@elaraai/east-ui";
 import { type UIStoreInterface } from "./state-store.js";
 import { getStore } from "./state-runtime.js";
@@ -258,21 +260,59 @@ export interface EastFunctionProps {
  * ```
  */
 export function EastFunction({ ir, storageKey }: EastFunctionProps) {
-    // Compile IR via JS
-    const result = useMemo((): { compiled: () => ValueTypeOf<UIComponentType>; error: null } | { compiled: null; error: unknown } => {
-        try {
-            return { compiled: ir.compile(getRegisteredPlatformImplementations()), error: null };
-        } catch (err) {
-            return { compiled: null, error: err };
-        }
+    // Defer compile until after the first paint so the skeleton can show
+    // immediately. The closure-compiler in libs/east/src/compile.ts is sync
+    // and per-example takes ~30ms — without deferral it blocks the paint.
+    const [state, setState] = useState<CompileState>({ kind: "loading" });
+
+    useEffect(() => {
+        setState({ kind: "loading" });
+        let cancelled = false;
+        const run = () => {
+            if (cancelled) return;
+            try {
+                const compiled = ir.compile(getRegisteredPlatformImplementations());
+                if (!cancelled) setState({ kind: "ready", compiled });
+            } catch (error) {
+                if (!cancelled) setState({ kind: "error", error });
+            }
+        };
+        const handle = scheduleIdle(run);
+        return () => {
+            cancelled = true;
+            cancelIdle(handle);
+        };
     }, [ir]);
 
-    if (result.error) {
-        const info = toEastErrorInfo(result.error);
+    if (state.kind === "loading") {
+        return <Skeleton h="full" w="full" />;
+    }
+    if (state.kind === "error") {
+        const info = toEastErrorInfo(state.error);
         return <EastErrorDisplay title="East Compilation Error" message={info.message} stack={info.stack} />;
     }
+    return <EastComponent render={state.compiled} storageKey={storageKey} />;
+}
 
-    return <EastComponent render={result.compiled!} storageKey={storageKey} />;
+type CompileState =
+    | { kind: "loading" }
+    | { kind: "ready"; compiled: () => ValueTypeOf<UIComponentType> }
+    | { kind: "error"; error: unknown };
+
+/** Schedule a compile during browser idle time, falling back to setTimeout. */
+function scheduleIdle(fn: () => void): number {
+    if (typeof requestIdleCallback === "function") {
+        return requestIdleCallback(fn, { timeout: 1000 });
+    }
+    return setTimeout(fn, 0) as unknown as number;
+}
+
+function cancelIdle(handle: number): void {
+    if (typeof cancelIdleCallback === "function") {
+        cancelIdleCallback(handle);
+    } else {
+        clearTimeout(handle);
+    }
 }
 
 /**

@@ -4,47 +4,15 @@
  */
 
 import { memo, useMemo } from "react";
-import { CodeBlock as ChakraCodeBlock, IconButton, Box, createShikiAdapter } from "@chakra-ui/react";
-import { createHighlighter, type HighlighterGeneric } from "shiki";
+import { Box, IconButton, Text, Flex } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faCopy } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { CodeBlock } from "@elaraai/east-ui";
 import { getSomeorUndefined } from "../../utils";
 
 // Pre-define the equality function at module level
 const codeBlockEqual = equalFor(CodeBlock.Types.CodeBlock);
-
-// Cache the highlighter promise so it's only created once
-let highlighterPromise: Promise<HighlighterGeneric<any, any>> | null = null;
-
-function getHighlighter(): Promise<HighlighterGeneric<any, any>> {
-    if (!highlighterPromise) {
-        highlighterPromise = createHighlighter({
-            langs: [
-                "typescript",
-                "javascript",
-                "json",
-                "html",
-                "css",
-                "python",
-                "rust",
-                "go",
-                "sql",
-                "bash",
-                "markdown",
-                "yaml",
-                "xml",
-            ],
-            themes: ["github-dark"],
-        });
-    }
-    return highlighterPromise;
-}
-
-// Create a singleton Shiki adapter that uses the cached highlighter
-const shikiAdapter = createShikiAdapter<HighlighterGeneric<any, any>>({
-    load: getHighlighter,
-    theme: "github-dark",
-});
 
 /** East CodeBlock value type */
 export type CodeBlockValue = ValueTypeOf<typeof CodeBlock.Types.CodeBlock>;
@@ -80,11 +48,9 @@ export interface CodeBlockProps {
  * Pure function - easy to test independently.
  */
 export function toCodeBlockProps(value: CodeBlockValue): CodeBlockProps {
-    // Language is now a variant - extract the tag name
     const languageVariant = getSomeorUndefined(value.language);
     const language = languageVariant?.type;
 
-    // Convert bigint[] to number[] for highlightLines
     const highlightLinesBigint = getSomeorUndefined(value.highlightLines);
     const highlightLines = highlightLinesBigint?.map(n => Number(n));
 
@@ -123,76 +89,114 @@ export interface EastChakraCodeBlockProps {
 }
 
 /**
- * Renders an East UI CodeBlock value using Chakra UI CodeBlock component
- * with Shiki syntax highlighting.
+ * Renders an East UI CodeBlock value as a plain `<pre><code>` block.
  *
  * @remarks
- * This component automatically sets up syntax highlighting using Shiki.
- * Supported languages: typescript, javascript, json, html, css, python,
- * rust, go, sql, bash, markdown, yaml, xml.
+ * Syntax highlighting has intentionally been removed — the previous Shiki
+ * integration via Chakra's `CodeBlock.AdapterProvider` caused "Shiki instance
+ * has been disposed" errors under virtualized mounts, and the singleton
+ * highlighter lifecycle was fragile. This renderer is now a thin styled
+ * `<pre>` with optional line numbers, line highlights, title and copy button.
  */
 export const EastChakraCodeBlock = memo(function EastChakraCodeBlock({ value }: EastChakraCodeBlockProps) {
     const props = useMemo(() => toCodeBlockProps(value), [value]);
-
-    const meta = useMemo(() => {
-        const result: { showLineNumbers?: boolean; highlightLines?: number[] } = {};
-        if (props.showLineNumbers !== undefined) {
-            result.showLineNumbers = props.showLineNumbers;
-        }
-        if (props.highlightLines !== undefined) {
-            result.highlightLines = props.highlightLines;
-        }
-        return Object.keys(result).length > 0 ? result : undefined;
-    }, [props.showLineNumbers, props.highlightLines]);
-
     const showHeader = props.title || props.showCopyButton;
+    const highlightSet = useMemo(
+        () => props.highlightLines ? new Set(props.highlightLines) : null,
+        [props.highlightLines],
+    );
+    const lines = useMemo(() => value.code.split("\n"), [value.code]);
+
+    const copy = () => {
+        void navigator.clipboard.writeText(value.code);
+    };
 
     return (
-        <ChakraCodeBlock.AdapterProvider value={shikiAdapter}>
-            <Box
-                    maxHeight={props.maxHeight}
-                    overflow={props.overflow ?? "auto"}
-                    overflowX={props.overflowX}
-                    overflowY={props.overflowY}
-                    width={props.width}
-                    height={props.height}
-                    minWidth={props.minWidth}
-                    minHeight={props.minHeight}
-                    maxWidth={props.maxWidth}
-                    pt={props.pt}
-                    pr={props.pr}
-                    pb={props.pb}
-                    pl={props.pl}
-                    mt={props.mt}
-                    mr={props.mr}
-                    mb={props.mb}
-                    ml={props.ml}
-                    opacity={props.opacity}
+        <Box
+            maxHeight={props.maxHeight}
+            overflow={props.overflow ?? "auto"}
+            overflowX={props.overflowX}
+            overflowY={props.overflowY}
+            width={props.width}
+            height={props.height}
+            minWidth={props.minWidth}
+            minHeight={props.minHeight}
+            maxWidth={props.maxWidth}
+            pt={props.pt}
+            pr={props.pr}
+            pb={props.pb}
+            pl={props.pl}
+            mt={props.mt}
+            mr={props.mr}
+            mb={props.mb}
+            ml={props.ml}
+            opacity={props.opacity}
+            borderWidth="1px"
+            borderRadius="md"
+            bg="gray.50"
+            _dark={{ bg: "gray.900", borderColor: "gray.700" }}
+        >
+            {showHeader && (
+                <Flex
+                    align="center"
+                    justify="space-between"
+                    px="3"
+                    py="2"
+                    borderBottomWidth="1px"
+                    borderColor="inherit"
                 >
-                <ChakraCodeBlock.Root
-                    code={value.code}
-                    language={props.language}
-                    meta={meta}
-                >
-                    {showHeader && (
-                        <ChakraCodeBlock.Header>
-                            {props.title && <ChakraCodeBlock.Title>{props.title}</ChakraCodeBlock.Title>}
-                            {props.showCopyButton && (
-                                <ChakraCodeBlock.CopyTrigger asChild>
-                                    <IconButton variant="ghost" size="2xs">
-                                        <ChakraCodeBlock.CopyIndicator />
-                                    </IconButton>
-                                </ChakraCodeBlock.CopyTrigger>
-                            )}
-                        </ChakraCodeBlock.Header>
+                    {props.title
+                        ? <Text fontSize="sm" fontWeight="medium">{props.title}</Text>
+                        : <Box />}
+                    {props.showCopyButton && (
+                        <IconButton
+                            variant="ghost"
+                            size="2xs"
+                            aria-label="Copy code"
+                            onClick={copy}
+                        >
+                            <FontAwesomeIcon icon={faCopy} />
+                        </IconButton>
                     )}
-                    <ChakraCodeBlock.Content>
-                        <ChakraCodeBlock.Code>
-                            <ChakraCodeBlock.CodeText />
-                        </ChakraCodeBlock.Code>
-                    </ChakraCodeBlock.Content>
-                </ChakraCodeBlock.Root>
+                </Flex>
+            )}
+            <Box
+                as="pre"
+                m="0"
+                p="3"
+                fontSize="sm"
+                fontFamily="mono"
+                lineHeight="1.5"
+                overflow="auto"
+                data-language={props.language}
+            >
+                <Box as="code">
+                    {lines.map((line, i) => {
+                        const n = i + 1;
+                        const highlighted = highlightSet?.has(n);
+                        const highlightProps = highlighted
+                            ? { bg: "yellow.100", _dark: { bg: "yellow.900" }, mx: "-3", px: "3" }
+                            : {};
+                        return (
+                            <Flex key={i} {...highlightProps}>
+                                {props.showLineNumbers && (
+                                    <Box
+                                        as="span"
+                                        color="gray.500"
+                                        textAlign="right"
+                                        pr="3"
+                                        userSelect="none"
+                                        minW="2.5em"
+                                    >
+                                        {n}
+                                    </Box>
+                                )}
+                                <Box as="span" flex="1" whiteSpace="pre">{line || "\u00a0"}</Box>
+                            </Flex>
+                        );
+                    })}
+                </Box>
             </Box>
-        </ChakraCodeBlock.AdapterProvider>
+        </Box>
     );
 }, (prev, next) => codeBlockEqual(prev.value, next.value));
