@@ -5,8 +5,21 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Separator } from "../../src/index.js";
+import * as ex from "./separator.examples.js";
 
 describeEast("Separator", (test) => {
+    Assert.examples(test, {
+        separatorHorizontal: ex.separatorHorizontal,
+        separatorVertical: ex.separatorVertical,
+        separatorSolid: ex.separatorSolid,
+        separatorDashed: ex.separatorDashed,
+        separatorDotted: ex.separatorDotted,
+        separatorSizes: ex.separatorSizes,
+        separatorLabeled: ex.separatorLabeled,
+        separatorColored: ex.separatorColored,
+        separatorFormDivider: ex.separatorFormDivider,
+    });
+
     // =========================================================================
     // Basic Creation
     // =========================================================================

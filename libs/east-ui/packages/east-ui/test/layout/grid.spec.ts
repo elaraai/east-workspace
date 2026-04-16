@@ -5,8 +5,20 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Grid, Style, Text } from "../../src/index.js";
+import * as ex from "./grid.examples.js";
 
 describeEast("Grid", (test) => {
+    Assert.examples(test, {
+        gridBasic3Col: ex.gridBasic3Col,
+        gridColSpan: ex.gridColSpan,
+        gridGaps: ex.gridGaps,
+        gridFixedWidths: ex.gridFixedWidths,
+        gridCentered: ex.gridCentered,
+        gridResponsive: ex.gridResponsive,
+        gridDense: ex.gridDense,
+        gridFullWidth: ex.gridFullWidth,
+    });
+
     // Helper to create a simple text component (already returns UIComponentType)
 
     // =========================================================================

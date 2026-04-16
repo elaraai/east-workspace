@@ -5,8 +5,20 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { CodeBlock } from "../../src/index.js";
+import * as ex from "./code-block.examples.js";
 
 describeEast("CodeBlock", (test) => {
+    Assert.examples(test, {
+        codeBlockBasic: ex.codeBlockBasic,
+        codeBlockWithLanguage: ex.codeBlockWithLanguage,
+        codeBlockLineNumbers: ex.codeBlockLineNumbers,
+        codeBlockHighlighted: ex.codeBlockHighlighted,
+        codeBlockMaxHeight: ex.codeBlockMaxHeight,
+        codeBlockPython: ex.codeBlockPython,
+        codeBlockJson: ex.codeBlockJson,
+        codeBlockBash: ex.codeBlockBash,
+    });
+
     // =========================================================================
     // Basic Creation
     // =========================================================================

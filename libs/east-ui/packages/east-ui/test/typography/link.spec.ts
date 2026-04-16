@@ -5,8 +5,19 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Link } from "../../src/index.js";
+import * as ex from "./link.examples.js";
 
 describeEast("Link", (test) => {
+    Assert.examples(test, {
+        linkBasic: ex.linkBasic,
+        linkExternal: ex.linkExternal,
+        linkUnderline: ex.linkUnderline,
+        linkPlain: ex.linkPlain,
+        linkColors: ex.linkColors,
+        linkInContext: ex.linkInContext,
+        linkCombined: ex.linkCombined,
+    });
+
     // =========================================================================
     // Basic Creation
     // =========================================================================

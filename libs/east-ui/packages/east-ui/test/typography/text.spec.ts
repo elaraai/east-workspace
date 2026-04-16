@@ -5,8 +5,27 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Text, Style } from "../../src/index.js";
+import * as ex from "./text.examples.js";
 
 describeEast("Text", (test) => {
+    Assert.examples(test, {
+        textBasic: ex.textBasic,
+        textColored: ex.textColored,
+        textBold: ex.textBold,
+        textItalic: ex.textItalic,
+        textFontWeights: ex.textFontWeights,
+        textTransforms: ex.textTransforms,
+        textBackground: ex.textBackground,
+        textBordered: ex.textBordered,
+        textColors: ex.textColors,
+        textCombined: ex.textCombined,
+        textDecoration: ex.textDecoration,
+        textSpacing: ex.textSpacing,
+        textOpacity: ex.textOpacity,
+        textPaddingMargin: ex.textPaddingMargin,
+        textOverflow: ex.textOverflow,
+    });
+
     // =========================================================================
     // Basic Creation
     // =========================================================================

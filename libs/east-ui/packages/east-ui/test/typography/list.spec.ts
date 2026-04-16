@@ -5,8 +5,20 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { List } from "../../src/index.js";
+import * as ex from "./list.examples.js";
 
 describeEast("List", (test) => {
+    Assert.examples(test, {
+        listUnordered: ex.listUnordered,
+        listOrdered: ex.listOrdered,
+        listWithGap: ex.listWithGap,
+        listColored: ex.listColored,
+        listGreen: ex.listGreen,
+        listFeatures: ex.listFeatures,
+        listSteps: ex.listSteps,
+        listEmpty: ex.listEmpty,
+    });
+
     // =========================================================================
     // Basic Creation
     // =========================================================================

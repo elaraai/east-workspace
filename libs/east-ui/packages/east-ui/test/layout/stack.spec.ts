@@ -5,8 +5,20 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Stack, Text, Style } from "../../src/index.js";
+import * as ex from "./stack.examples.js";
 
 describeEast("Stack", (test) => {
+    Assert.examples(test, {
+        stackBasicVStack: ex.stackBasicVStack,
+        stackBasicHStack: ex.stackBasicHStack,
+        stackJustifiedHStack: ex.stackJustifiedHStack,
+        stackCentered: ex.stackCentered,
+        stackWrapping: ex.stackWrapping,
+        stackStretched: ex.stackStretched,
+        stackNested: ex.stackNested,
+        stackNavbar: ex.stackNavbar,
+    });
+
     // =========================================================================
     // Basic Creation
     // =========================================================================

@@ -5,8 +5,20 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Flex, Text, Style } from "../../src/index.js";
+import * as ex from "./flex.examples.js";
 
 describeEast("Flex", (test) => {
+    Assert.examples(test, {
+        flexBasic: ex.flexBasic,
+        flexRowJustify: ex.flexRowJustify,
+        flexColumn: ex.flexColumn,
+        flexWrap: ex.flexWrap,
+        flexCentered: ex.flexCentered,
+        flexNested: ex.flexNested,
+        flexAlignItems: ex.flexAlignItems,
+        flexReverse: ex.flexReverse,
+    });
+
     // =========================================================================
     // Basic Creation
     // =========================================================================

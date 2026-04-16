@@ -5,8 +5,19 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Code, Style } from "../../src/index.js";
+import * as ex from "./code.examples.js";
 
 describeEast("Code", (test) => {
+    Assert.examples(test, {
+        codeBasic: ex.codeBasic,
+        codeSubtle: ex.codeSubtle,
+        codeSurface: ex.codeSurface,
+        codeOutline: ex.codeOutline,
+        codeSizes: ex.codeSizes,
+        codeColors: ex.codeColors,
+        codeCombined: ex.codeCombined,
+    });
+
     // =========================================================================
     // Basic Creation
     // =========================================================================

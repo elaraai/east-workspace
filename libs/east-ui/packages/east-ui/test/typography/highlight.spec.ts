@@ -5,8 +5,19 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Highlight } from "../../src/index.js";
+import * as ex from "./highlight.examples.js";
 
 describeEast("Highlight", (test) => {
+    Assert.examples(test, {
+        highlightSingleTerm: ex.highlightSingleTerm,
+        highlightMultipleTerms: ex.highlightMultipleTerms,
+        highlightCustomColor: ex.highlightCustomColor,
+        highlightGreen: ex.highlightGreen,
+        highlightBlue: ex.highlightBlue,
+        highlightSearchResult: ex.highlightSearchResult,
+        highlightNoMatches: ex.highlightNoMatches,
+    });
+
     // =========================================================================
     // Basic Creation
     // =========================================================================

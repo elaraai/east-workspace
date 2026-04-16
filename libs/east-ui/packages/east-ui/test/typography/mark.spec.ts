@@ -5,8 +5,20 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Mark } from "../../src/index.js";
+import * as ex from "./mark.examples.js";
 
 describeEast("Mark", (test) => {
+    Assert.examples(test, {
+        markBasic: ex.markBasic,
+        markSubtle: ex.markSubtle,
+        markSolid: ex.markSolid,
+        markText: ex.markText,
+        markPlain: ex.markPlain,
+        markColors: ex.markColors,
+        markSolidColors: ex.markSolidColors,
+        markInContext: ex.markInContext,
+    });
+
     // =========================================================================
     // Basic Creation
     // =========================================================================

@@ -5,8 +5,19 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Heading, Style } from "../../src/index.js";
+import * as ex from "./heading.examples.js";
 
 describeEast("Heading", (test) => {
+    Assert.examples(test, {
+        headingBasic: ex.headingBasic,
+        headingStandardSizes: ex.headingStandardSizes,
+        headingExtendedSizes: ex.headingExtendedSizes,
+        headingSemanticLevels: ex.headingSemanticLevels,
+        headingColored: ex.headingColored,
+        headingAlignment: ex.headingAlignment,
+        headingCombined: ex.headingCombined,
+    });
+
     // =========================================================================
     // Basic Creation
     // =========================================================================
