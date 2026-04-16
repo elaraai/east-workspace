@@ -32,6 +32,14 @@
     "./examples/display": {
       "types": "./dist/test/display/index.d.ts",
       "default": "./dist/test/display/index.js"
+    },
+    "./examples/feedback": {
+      "types": "./dist/test/feedback/index.d.ts",
+      "default": "./dist/test/feedback/index.js"
+    },
+    "./examples/forms": {
+      "types": "./dist/test/forms/index.d.ts",
+      "default": "./dist/test/forms/index.js"
     }
   },
   "files": [

@@ -5,8 +5,15 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Checkbox, Style } from "../../src/index.js";
+import * as ex from "./checkbox.examples.js";
 
 describeEast("Checkbox", (test) => {
+    Assert.examples(test, {
+        checkboxBasic: ex.checkboxBasic,
+        checkboxSizes: ex.checkboxSizes,
+        checkboxInteractive: ex.checkboxInteractive,
+    });
+
     // =========================================================================
     // Basic Creation
     // =========================================================================

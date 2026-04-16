@@ -5,8 +5,18 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Alert } from "../../src/index.js";
+import * as ex from "./alert.examples.js";
 
 describeEast("Alert", (test) => {
+    Assert.examples(test, {
+        alertInfo: ex.alertInfo,
+        alertSuccess: ex.alertSuccess,
+        alertWarning: ex.alertWarning,
+        alertError: ex.alertError,
+        alertVariants: ex.alertVariants,
+        alertTitleOnly: ex.alertTitleOnly,
+    });
+
     // =========================================================================
     // Basic Creation with Status
     // =========================================================================

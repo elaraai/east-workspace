@@ -5,8 +5,20 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Combobox, Style } from "../../src/index.js";
+import * as ex from "./combobox.examples.js";
 
 describeEast("Combobox", (test) => {
+    Assert.examples(test, {
+        comboboxBasic: ex.comboboxBasic,
+        comboboxWithValue: ex.comboboxWithValue,
+        comboboxSizes: ex.comboboxSizes,
+        comboboxDisabled: ex.comboboxDisabled,
+        comboboxCustomValue: ex.comboboxCustomValue,
+        comboboxMultiple: ex.comboboxMultiple,
+        comboboxInteractive: ex.comboboxInteractive,
+        comboboxInteractiveMulti: ex.comboboxInteractiveMulti,
+    });
+
     // =========================================================================
     // Combobox.Item
     // =========================================================================

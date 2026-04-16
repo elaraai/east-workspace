@@ -6,8 +6,22 @@
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Input, Style } from "../../src/index.js";
 import { tokenizeDateTimeFormat } from "@elaraai/east/internal";
+import * as ex from "./input.examples.js";
 
 describeEast("Input", (test) => {
+    Assert.examples(test, {
+        inputString: ex.inputString,
+        inputInteger: ex.inputInteger,
+        inputFloat: ex.inputFloat,
+        inputDateTime: ex.inputDateTime,
+        inputSizes: ex.inputSizes,
+        inputVariants: ex.inputVariants,
+        inputStringInteractive: ex.inputStringInteractive,
+        inputIntegerInteractive: ex.inputIntegerInteractive,
+        inputFloatInteractive: ex.inputFloatInteractive,
+        inputDateTimeInteractive: ex.inputDateTimeInteractive,
+    });
+
     // =========================================================================
     // String Input - Basic Creation
     // =========================================================================

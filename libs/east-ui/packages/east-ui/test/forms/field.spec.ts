@@ -5,8 +5,13 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Field } from "../../src/index.js";
+import * as ex from "./field.examples.js";
 
 describeEast("Field", (test) => {
+    Assert.examples(test, {
+        fieldBasic: ex.fieldBasic,
+    });
+
     // =========================================================================
     // Basic Creation
     // =========================================================================

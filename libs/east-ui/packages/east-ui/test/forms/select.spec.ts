@@ -5,8 +5,14 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Select, Style } from "../../src/index.js";
+import * as ex from "./select.examples.js";
 
 describeEast("Select", (test) => {
+    Assert.examples(test, {
+        selectBasic: ex.selectBasic,
+        selectInteractive: ex.selectInteractive,
+    });
+
     // =========================================================================
     // Select.Item
     // =========================================================================

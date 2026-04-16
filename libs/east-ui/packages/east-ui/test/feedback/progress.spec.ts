@@ -5,8 +5,18 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Progress, Style } from "../../src/index.js";
+import * as ex from "./progress.examples.js";
 
 describeEast("Progress", (test) => {
+    Assert.examples(test, {
+        progressBasic: ex.progressBasic,
+        progressLabeled: ex.progressLabeled,
+        progressColors: ex.progressColors,
+        progressSizes: ex.progressSizes,
+        progressStriped: ex.progressStriped,
+        progressRange: ex.progressRange,
+    });
+
     // =========================================================================
     // Basic Creation
     // =========================================================================

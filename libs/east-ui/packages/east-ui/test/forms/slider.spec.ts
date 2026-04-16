@@ -5,8 +5,14 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Slider, Style } from "../../src/index.js";
+import * as ex from "./slider.examples.js";
 
 describeEast("Slider", (test) => {
+    Assert.examples(test, {
+        sliderBasic: ex.sliderBasic,
+        sliderInteractive: ex.sliderInteractive,
+    });
+
     // =========================================================================
     // Basic Creation
     // =========================================================================

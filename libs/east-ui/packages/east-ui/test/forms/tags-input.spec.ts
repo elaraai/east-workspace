@@ -5,8 +5,14 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { TagsInput, Style } from "../../src/index.js";
+import * as ex from "./tags-input.examples.js";
 
 describeEast("TagsInput", (test) => {
+    Assert.examples(test, {
+        tagsInputBasic: ex.tagsInputBasic,
+        tagsInputInteractive: ex.tagsInputInteractive,
+    });
+
     // =========================================================================
     // Basic Creation
     // =========================================================================
