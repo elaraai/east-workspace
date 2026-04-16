@@ -20,12 +20,15 @@ export default defineConfig({
         'react/jsx-runtime',
         '@chakra-ui/react',
         '@elaraai/e3-api-client',
+        '@elaraai/e3-types',
+        '@elaraai/e3-ui',
         '@elaraai/east',
+        '@elaraai/east/internal',
         '@elaraai/east-ui',
         '@elaraai/east-ui-components',
         '@tanstack/react-query',
         '@tanstack/react-virtual',
-      ].includes(id) || id.startsWith('node:'),
+      ].includes(id) || id.startsWith('node:') || id.startsWith('@elaraai/'),
       output: {
         globals: {
           react: 'React',

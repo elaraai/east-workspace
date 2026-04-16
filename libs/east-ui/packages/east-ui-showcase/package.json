@@ -13,9 +13,11 @@
   "dependencies": {
     "@chakra-ui/react": "^3.0.0",
     "@elaraai/east": "workspace:*",
+    "@elaraai/east-c-wasm": "workspace:*",
     "@elaraai/east-ui": "workspace:*",
     "@elaraai/east-ui-components": "workspace:*",
     "@emotion/react": "^11.14.0",
+    "@tanstack/react-virtual": "^3.13.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.1.0"

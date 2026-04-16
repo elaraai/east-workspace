@@ -32,7 +32,15 @@ export function ExampleCard({ name, example }: { name: string; example: Example 
                 </HStack>
             </Card.Header>
             <Card.Body pt="0">
-                <Box borderWidth="1px" borderRadius="md" p="3" bg="white" _dark={{ bg: "gray.800" }}>
+                <Box
+                    borderWidth="1px"
+                    borderRadius="md"
+                    p="3"
+                    bg="white"
+                    _dark={{ bg: "gray.800" }}
+                    h="280px"
+                    overflow="hidden"
+                >
                     <EastFunction ir={ir} storageKey={`example-${name}`} />
                 </Box>
             </Card.Body>

@@ -29,6 +29,13 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // Absolute URL for the east-c WASM binary, resolved against document base.
+      // Needed because browser.ts derives the glue URL by replacing `.wasm` → `.js`
+      // and dynamically imports it — a relative path would resolve against the
+      // east-c-wasm package module, not the document.
+      window.__EAST_WASM_URL__ = new URL('east-c.wasm', document.baseURI).href;
+    </script>
     <script type="module" src="./main.tsx"></script>
   </body>
 </html>
