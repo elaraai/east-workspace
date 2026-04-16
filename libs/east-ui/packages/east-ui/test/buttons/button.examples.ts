@@ -47,7 +47,8 @@ export const buttonReactiveCounter = example({
         // Reactive.Root re-renders when state changes
         return Reactive.Root(East.function([], UIComponentType, $ => {
             // Bind to counter state — returns { read, write, has }
-            const counter = $.let(State.bind([IntegerType], "counter"));
+            // Default value (0n) initializes the key on first bind.
+            const counter = $.let(State.bind([IntegerType], "counter", 0n));
             const count = $.let(counter.read());
 
             // Define callbacks that modify state

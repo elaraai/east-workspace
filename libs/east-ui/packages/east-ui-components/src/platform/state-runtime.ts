@@ -74,19 +74,29 @@ export function trackKey(key: string): void {
  * Returns a struct of closures: { read, write, has }.
  */
 export const StateImpl: PlatformFunction[] = [
-    State.bind.implement((type: EastTypeValue) => (key: unknown) => {
+    State.bind.implement((type: EastTypeValue) => (key: unknown, defaultValue: unknown) => {
         const k = key as string;
+        const encode = encodeBeast2For(type);
+
+        // Eagerly initialize the key with defaultValue if not yet set.
+        // This ensures read() always returns a value and has() is always true
+        // after the first bind.
+        if (!getStore().has(k)) {
+            getStore().write(k, encode(defaultValue));
+        }
+
         return {
             read: () => {
                 trackKey(k);
                 const ret = getStore().read(k);
+                // Should never happen: bind() initialized the key above.
+                // Defensive fallback returns the default rather than throwing.
                 if (ret === undefined) {
-                    throw new Error(`Key not found: ${k}`);
+                    return defaultValue;
                 }
                 return decodeBeast2Value(getWasmSync(), ret, type);
             },
             write: (value: unknown) => {
-                const encode = encodeBeast2For(type);
                 getStore().write(k, encode(value));
                 return null;
             },

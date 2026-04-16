@@ -12,6 +12,7 @@ import {
     subscribeTrackers,
     getTrackersVersion,
 } from "./tracker.js";
+import { EastErrorBoundary, EastErrorDisplay, toEastErrorInfo } from "./error-display.js";
 
 /**
  * Value type for ReactiveComponent variant.
@@ -40,8 +41,9 @@ export function EastReactiveComponent({ value, storageKey }: { value: ReactiveVa
     // Track which keys each tracker records
     const depsRef = useRef<Map<string, string[]>>(new Map());
 
-    // Execute render with dependency tracking for all registered trackers
-    const executeWithTracking = useCallback(() => {
+    // Execute render with dependency tracking for all registered trackers.
+    // Returns either a successful render result or an error to display.
+    const executeWithTracking = useCallback((): { ok: true; value: ValueTypeOf<typeof UIComponentType> } | { ok: false; error: unknown } => {
         for (const t of trackers) t.enableTracking();
 
         try {
@@ -51,10 +53,15 @@ export function EastReactiveComponent({ value, storageKey }: { value: ReactiveVa
                 deps.set(t.id, t.disableTracking());
             }
             depsRef.current = deps;
-            return result;
+            return { ok: true, value: result };
         } catch (e) {
-            for (const t of trackers) t.disableTracking();
-            throw e;
+            // Capture deps even on error so we re-render when they change
+            const deps = new Map<string, string[]>();
+            for (const t of trackers) {
+                deps.set(t.id, t.disableTracking());
+            }
+            depsRef.current = deps;
+            return { ok: false, error: e };
         }
     }, [value, trackers]);
 
@@ -90,9 +97,18 @@ export function EastReactiveComponent({ value, storageKey }: { value: ReactiveVa
     // eslint-disable-next-line react-hooks/exhaustive-deps
     const result = useMemo(() => executeWithTracking(), [executeWithTracking, snapshot, trackersVersion]);
 
-    if (result === undefined || result === null) {
+    if (!result.ok) {
+        const info = toEastErrorInfo(result.error);
+        return <EastErrorDisplay title="East Render Error" message={info.message} stack={info.stack} />;
+    }
+
+    if (result.value === undefined || result.value === null) {
         return null;
     }
 
-    return <EastChakraComponent value={result} storageKey={storageKey} />;
+    return (
+        <EastErrorBoundary title="East Render Error" resetKey={snapshot}>
+            <EastChakraComponent value={result.value} storageKey={storageKey} />
+        </EastErrorBoundary>
+    );
 }

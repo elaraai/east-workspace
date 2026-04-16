@@ -18,7 +18,7 @@ import { getStore } from "./state-runtime.js";
 import { EastChakraComponent } from "../component.js";
 import type { EastIR, ValueTypeOf } from "@elaraai/east";
 import { getRegisteredPlatformImplementations } from "./registry.js";
-import { Alert, Box, Code, Text, Stack } from "@chakra-ui/react";
+import { EastErrorBoundary, EastErrorDisplay, toEastErrorInfo } from "../reactive/error-display.js";
 
 /**
  * React context for the UI store.
@@ -188,14 +188,29 @@ export interface EastComponentProps {
 export function EastComponent({ render, storageKey }: EastComponentProps) {
     // Render once - no state subscription
     // For reactivity, use Reactive.Root within the East function
-    const result = useMemo(() => render(), [render]);
+    const result = useMemo((): { ok: true; value: ValueTypeOf<UIComponentType> } | { ok: false; error: unknown } => {
+        try {
+            return { ok: true, value: render() };
+        } catch (e) {
+            return { ok: false, error: e };
+        }
+    }, [render]);
 
-    if (result === undefined || result === null) {
+    if (!result.ok) {
+        const info = toEastErrorInfo(result.error);
+        return <EastErrorDisplay title="East Render Error" message={info.message} stack={info.stack} />;
+    }
+
+    if (result.value === undefined || result.value === null) {
         return null;
     }
 
     // Result should be UI component data - render it
-    return <EastChakraComponent value={result} storageKey={storageKey} />;
+    return (
+        <EastErrorBoundary title="East Render Error" resetKey={render}>
+            <EastChakraComponent value={result.value} storageKey={storageKey} />
+        </EastErrorBoundary>
+    );
 }
 
 /**
@@ -244,47 +259,17 @@ export interface EastFunctionProps {
  */
 export function EastFunction({ ir, storageKey }: EastFunctionProps) {
     // Compile IR via JS
-    const result = useMemo(() => {
+    const result = useMemo((): { compiled: () => ValueTypeOf<UIComponentType>; error: null } | { compiled: null; error: unknown } => {
         try {
             return { compiled: ir.compile(getRegisteredPlatformImplementations()), error: null };
         } catch (err) {
-            const errorMessage = err instanceof Error ? err.message : String(err);
-            const errorStack = err instanceof Error ? err.stack : undefined;
-            return { compiled: null, error: { message: errorMessage, stack: errorStack } };
+            return { compiled: null, error: err };
         }
     }, [ir]);
 
-    // Show error alert if compilation failed
     if (result.error) {
-        return (
-            <Alert.Root status="error">
-                <Alert.Indicator />
-                <Stack gap="2" flex="1">
-                    <Alert.Title>East Compilation Error</Alert.Title>
-                    <Alert.Description>
-                        <Box>
-                            <Text fontWeight="medium">{result.error.message}</Text>
-                            {result.error.stack && (
-                                <Code
-                                    display="block"
-                                    whiteSpace="pre-wrap"
-                                    fontSize="xs"
-                                    mt="2"
-                                    p="2"
-                                    bg="red.50"
-                                    _dark={{ bg: "red.900" }}
-                                    borderRadius="md"
-                                    maxHeight="200px"
-                                    overflow="auto"
-                                >
-                                    {result.error.stack}
-                                </Code>
-                            )}
-                        </Box>
-                    </Alert.Description>
-                </Stack>
-            </Alert.Root>
-        );
+        const info = toEastErrorInfo(result.error);
+        return <EastErrorDisplay title="East Compilation Error" message={info.message} stack={info.stack} />;
     }
 
     return <EastComponent render={result.compiled!} storageKey={storageKey} />;
