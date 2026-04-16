@@ -5,8 +5,28 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Chart } from "../../src/index.js";
+import * as ex from "./scatter.examples.js";
 
 describeEast("Chart.Scatter", (test) => {
+    Assert.examples(test, {
+        scatterBasic: ex.scatterBasic,
+        scatterWithLabels: ex.scatterWithLabels,
+        scatterCustomDomain: ex.scatterCustomDomain,
+        scatterWithTooltip: ex.scatterWithTooltip,
+        scatterSparseMultiSeries: ex.scatterSparseMultiSeries,
+        scatterWithLegend: ex.scatterWithLegend,
+        scatterWithReferenceLines: ex.scatterWithReferenceLines,
+        scatterWithReferenceArea: ex.scatterWithReferenceArea,
+        scatterDualYAxis: ex.scatterDualYAxis,
+        scatterWithReferenceDot: ex.scatterWithReferenceDot,
+        scatterPivotWithColors: ex.scatterPivotWithColors,
+        scatterPivotWithoutColors: ex.scatterPivotWithoutColors,
+        scatterMultiPivotWithColors: ex.scatterMultiPivotWithColors,
+        scatterIntegerXAxis: ex.scatterIntegerXAxis,
+        scatterFloatXAxis: ex.scatterFloatXAxis,
+        scatterMultiPivotWithoutColors: ex.scatterMultiPivotWithoutColors,
+    });
+
     // =========================================================================
     // Basic Scatter Charts
     // =========================================================================

@@ -5,8 +5,16 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Chart } from "../../src/index.js";
+import * as ex from "./radar.examples.js";
 
 describeEast("Chart.Radar", (test) => {
+    Assert.examples(test, {
+        radarBasic: ex.radarBasic,
+        radarMultiSeries: ex.radarMultiSeries,
+        radarSkillsComparison: ex.radarSkillsComparison,
+        radarHighOpacity: ex.radarHighOpacity,
+    });
+
     // =========================================================================
     // Basic Radar Charts
     // =========================================================================

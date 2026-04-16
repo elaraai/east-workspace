@@ -6,8 +6,18 @@
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { some } from "@elaraai/east";
 import { Chart } from "../../src/index.js";
+import * as ex from "./bar-segment.examples.js";
 
 describeEast("Chart.BarSegment", (test) => {
+    Assert.examples(test, {
+        barSegmentBasic: ex.barSegmentBasic,
+        barSegmentWithValues: ex.barSegmentWithValues,
+        barSegmentTraffic: ex.barSegmentTraffic,
+        barSegmentBudget: ex.barSegmentBudget,
+        barSegmentNoLabels: ex.barSegmentNoLabels,
+        barSegmentAscending: ex.barSegmentAscending,
+    });
+
     // =========================================================================
     // Basic BarSegment
     // =========================================================================

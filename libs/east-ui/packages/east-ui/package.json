@@ -56,6 +56,46 @@
     "./examples/collections": {
       "types": "./dist/test/collections/index.d.ts",
       "default": "./dist/test/collections/index.js"
+    },
+    "./examples/charts": {
+      "types": "./dist/test/charts/index.d.ts",
+      "default": "./dist/test/charts/index.js"
+    },
+    "./examples/typography/*": {
+      "types": "./dist/test/typography/*.examples.d.ts",
+      "default": "./dist/test/typography/*.examples.js"
+    },
+    "./examples/layout/*": {
+      "types": "./dist/test/layout/*.examples.d.ts",
+      "default": "./dist/test/layout/*.examples.js"
+    },
+    "./examples/display/*": {
+      "types": "./dist/test/display/*.examples.d.ts",
+      "default": "./dist/test/display/*.examples.js"
+    },
+    "./examples/feedback/*": {
+      "types": "./dist/test/feedback/*.examples.d.ts",
+      "default": "./dist/test/feedback/*.examples.js"
+    },
+    "./examples/forms/*": {
+      "types": "./dist/test/forms/*.examples.d.ts",
+      "default": "./dist/test/forms/*.examples.js"
+    },
+    "./examples/disclosure/*": {
+      "types": "./dist/test/disclosure/*.examples.d.ts",
+      "default": "./dist/test/disclosure/*.examples.js"
+    },
+    "./examples/overlays/*": {
+      "types": "./dist/test/overlays/*.examples.d.ts",
+      "default": "./dist/test/overlays/*.examples.js"
+    },
+    "./examples/collections/*": {
+      "types": "./dist/test/collections/*.examples.d.ts",
+      "default": "./dist/test/collections/*.examples.js"
+    },
+    "./examples/charts/*": {
+      "types": "./dist/test/charts/*.examples.d.ts",
+      "default": "./dist/test/charts/*.examples.js"
     }
   },
   "files": [

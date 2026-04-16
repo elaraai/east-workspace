@@ -6,8 +6,18 @@
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Chart } from "../../src/index.js";
 import { none, some } from "@elaraai/east";
+import * as ex from "./bar-list.examples.js";
 
 describeEast("Chart.BarList", (test) => {
+    Assert.examples(test, {
+        barListBasic: ex.barListBasic,
+        barListCompact: ex.barListCompact,
+        barListFunnel: ex.barListFunnel,
+        barListCurrency: ex.barListCurrency,
+        barListCustomColors: ex.barListCustomColors,
+        barListNoValues: ex.barListNoValues,
+    });
+
     // =========================================================================
     // Basic BarList
     // =========================================================================

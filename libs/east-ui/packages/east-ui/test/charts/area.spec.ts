@@ -5,8 +5,36 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Chart } from "../../src/index.js";
+import * as ex from "./area.examples.js";
 
 describeEast("Chart.Area", (test) => {
+    Assert.examples(test, {
+        areaBasic: ex.areaBasic,
+        areaMultiSeries: ex.areaMultiSeries,
+        areaStacked: ex.areaStacked,
+        areaPercentStacked: ex.areaPercentStacked,
+        areaCurved: ex.areaCurved,
+        areaOpacity: ex.areaOpacity,
+        areaWithBrush: ex.areaWithBrush,
+        areaSparseMultiSeries: ex.areaSparseMultiSeries,
+        areaWithBrushAndLabels: ex.areaWithBrushAndLabels,
+        areaWithReferenceLine: ex.areaWithReferenceLine,
+        areaWithReferenceArea: ex.areaWithReferenceArea,
+        areaDualYAxis: ex.areaDualYAxis,
+        areaRange: ex.areaRange,
+        areaRangeMulti: ex.areaRangeMulti,
+        areaPivotWithColors: ex.areaPivotWithColors,
+        areaPivotWithoutColors: ex.areaPivotWithoutColors,
+        areaMultiPivotWithColors: ex.areaMultiPivotWithColors,
+        areaMultiPivotWithoutColors: ex.areaMultiPivotWithoutColors,
+        areaStackedPivotSparse: ex.areaStackedPivotSparse,
+        areaBrushDateFormatting: ex.areaBrushDateFormatting,
+        areaIntegerXAxis: ex.areaIntegerXAxis,
+        areaFloatXAxis: ex.areaFloatXAxis,
+        areaStringXAxis: ex.areaStringXAxis,
+        areaAxisFormatting: ex.areaAxisFormatting,
+    });
+
     // =========================================================================
     // Basic Area Charts
     // =========================================================================

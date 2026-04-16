@@ -5,8 +5,31 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Chart } from "../../src/index.js";
+import * as ex from "./composed.examples.js";
 
 describeEast("Chart.Composed", (test) => {
+    Assert.examples(test, {
+        composedBasic: ex.composedBasic,
+        composedAllTypes: ex.composedAllTypes,
+        composedConfidenceBand: ex.composedConfidenceBand,
+        composedStackedAreas: ex.composedStackedAreas,
+        composedStackedBars: ex.composedStackedBars,
+        composedSparseData: ex.composedSparseData,
+        composedNaturalCurve: ex.composedNaturalCurve,
+        composedDualYAxis: ex.composedDualYAxis,
+        composedWithReference: ex.composedWithReference,
+        composedWithBrush: ex.composedWithBrush,
+        composedPivotWithColors: ex.composedPivotWithColors,
+        composedPivotWithoutColors: ex.composedPivotWithoutColors,
+        composedMultiPivotWithColors: ex.composedMultiPivotWithColors,
+        composedMultiPivotWithoutColors: ex.composedMultiPivotWithoutColors,
+        composedMultiDualAxisWithAreaRange: ex.composedMultiDualAxisWithAreaRange,
+        composedIntegerXAxis: ex.composedIntegerXAxis,
+        composedFloatXAxis: ex.composedFloatXAxis,
+        composedStringXAxis: ex.composedStringXAxis,
+        composedAxisFormatting: ex.composedAxisFormatting,
+    });
+
     // =========================================================================
     // Basic Composed Charts
     // =========================================================================

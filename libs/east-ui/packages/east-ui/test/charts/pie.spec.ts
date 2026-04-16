@@ -6,8 +6,18 @@
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Chart } from "../../src/index.js";
 import { none, some } from "@elaraai/east";
+import * as ex from "./pie.examples.js";
 
 describeEast("Chart.Pie", (test) => {
+    Assert.examples(test, {
+        pieBasic: ex.pieBasic,
+        pieDonut: ex.pieDonut,
+        pieWithLegend: ex.pieWithLegend,
+        pieSemiCircle: ex.pieSemiCircle,
+        pieWithPadding: ex.pieWithPadding,
+        pieWithLabels: ex.pieWithLabels,
+    });
+
     // =========================================================================
     // Basic Pie Charts
     // =========================================================================

@@ -5,8 +5,35 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Chart } from "../../src/index.js";
+import * as ex from "./line.examples.js";
 
 describeEast("Chart.Line", (test) => {
+    Assert.examples(test, {
+        lineBasic: ex.lineBasic,
+        lineMultiSeries: ex.lineMultiSeries,
+        lineNatural: ex.lineNatural,
+        lineStep: ex.lineStep,
+        lineNoDots: ex.lineNoDots,
+        lineThickLine: ex.lineThickLine,
+        lineSparseMultiSeries: ex.lineSparseMultiSeries,
+        linePerSeriesStyling: ex.linePerSeriesStyling,
+        lineDotsOnly: ex.lineDotsOnly,
+        lineWithBrush: ex.lineWithBrush,
+        lineWithBrushAndLabels: ex.lineWithBrushAndLabels,
+        lineWithReferenceLine: ex.lineWithReferenceLine,
+        lineWithReferenceArea: ex.lineWithReferenceArea,
+        lineWithReferenceDot: ex.lineWithReferenceDot,
+        lineDualYAxis: ex.lineDualYAxis,
+        linePivotWithColors: ex.linePivotWithColors,
+        linePivotWithoutColors: ex.linePivotWithoutColors,
+        lineMultiPivotWithColors: ex.lineMultiPivotWithColors,
+        lineMultiPivotWithoutColors: ex.lineMultiPivotWithoutColors,
+        lineAxisFormatting: ex.lineAxisFormatting,
+        lineIntegerXAxis: ex.lineIntegerXAxis,
+        lineFloatXAxis: ex.lineFloatXAxis,
+        lineStringXAxis: ex.lineStringXAxis,
+    });
+
     // =========================================================================
     // Basic Line Charts
     // =========================================================================

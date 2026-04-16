@@ -5,8 +5,20 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Sparkline } from "../../src/index.js";
+import * as ex from "./sparkline.examples.js";
 
 describeEast("Sparkline", (test) => {
+    Assert.examples(test, {
+        sparklineLine: ex.sparklineLine,
+        sparklineArea: ex.sparklineArea,
+        sparklineColors: ex.sparklineColors,
+        sparklineSizes: ex.sparklineSizes,
+        sparklineStock: ex.sparklineStock,
+        sparklineMetric: ex.sparklineMetric,
+        sparklineTableCell: ex.sparklineTableCell,
+        sparklineDowntrend: ex.sparklineDowntrend,
+    });
+
     // =========================================================================
     // Basic Creation
     // =========================================================================

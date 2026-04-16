@@ -5,8 +5,32 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Chart } from "../../src/index.js";
+import * as ex from "./bar.examples.js";
 
 describeEast("Chart.Bar", (test) => {
+    Assert.examples(test, {
+        barBasic: ex.barBasic,
+        barStacked: ex.barStacked,
+        barPercentStacked: ex.barPercentStacked,
+        barHorizontal: ex.barHorizontal,
+        barGrouped: ex.barGrouped,
+        barCurrency: ex.barCurrency,
+        barWithBrush: ex.barWithBrush,
+        barSparseMultiSeries: ex.barSparseMultiSeries,
+        barWithBrushAndLabels: ex.barWithBrushAndLabels,
+        barWithReferenceLine: ex.barWithReferenceLine,
+        barWithReferenceArea: ex.barWithReferenceArea,
+        barDualYAxis: ex.barDualYAxis,
+        barPivotWithColors: ex.barPivotWithColors,
+        barPivotWithoutColors: ex.barPivotWithoutColors,
+        barMultiPivotWithColors: ex.barMultiPivotWithColors,
+        barMultiPivotWithoutColors: ex.barMultiPivotWithoutColors,
+        barIntegerXAxis: ex.barIntegerXAxis,
+        barFloatXAxis: ex.barFloatXAxis,
+        barStringXAxis: ex.barStringXAxis,
+        barAxisFormatting: ex.barAxisFormatting,
+    });
+
     // =========================================================================
     // Basic Bar Charts
     // =========================================================================
