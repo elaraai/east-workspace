@@ -5,8 +5,14 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Tooltip, Button, Text } from "../../src/index.js";
+import * as ex from "./tooltip.examples.js";
 
 describeEast("Tooltip", (test) => {
+    Assert.examples(test, {
+        tooltipBasic: ex.tooltipBasic,
+        tooltipArrow: ex.tooltipArrow,
+    });
+
     // =========================================================================
     // Basic Creation
     // =========================================================================

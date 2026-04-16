@@ -1,0 +1,107 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Licensed under AGPL-3.0. See LICENSE file for details.
+ */
+import { East, BooleanType, IntegerType, NullType, variant, example } from "@elaraai/east";
+import { Badge, Button, Drawer, Reactive, Stack, State, Text, UIComponentType } from "../../src/index.js";
+
+export const drawerRight = example({
+    keywords: ["Drawer", "Root", "placement", "end", "right"],
+    description: "Slide-in panel from right",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Drawer.Root(
+            Button.Root("Open Drawer"),
+            [
+                Stack.VStack([
+                    Text.Root("This is a drawer panel that slides in from the side."),
+                    Text.Root("Great for navigation, settings, or detailed content.", { color: "gray.500" }),
+                ], { gap: "4" }),
+            ],
+            { title: "Drawer Title", description: "Slide-in panel", placement: "end", size: "md" }
+        );
+    }),
+    inputs: [],
+});
+
+export const drawerLeft = example({
+    keywords: ["Drawer", "Root", "placement", "start", "left", "navigation"],
+    description: "Slide-in panel from left",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Drawer.Root(
+            Button.Root("Open Navigation", { variant: "outline" }),
+            [
+                Stack.VStack([
+                    Button.Root("Dashboard", { variant: "ghost", size: "sm" }),
+                    Button.Root("Projects", { variant: "ghost", size: "sm" }),
+                    Button.Root("Team", { variant: "ghost", size: "sm" }),
+                    Button.Root("Settings", { variant: "ghost", size: "sm" }),
+                ], { gap: "1", align: "stretch" }),
+            ],
+            { title: "Navigation", placement: "start" }
+        );
+    }),
+    inputs: [],
+});
+
+export const drawerInteractive = example({
+    keywords: ["Drawer", "Root", "Reactive", "State", "onOpenChange", "interactive"],
+    description: "Drawer with onOpenChange callback",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const openCountBind = $.let(State.bind([IntegerType], "drawer_open_count", 0n));
+
+            const onOpenChange = $.const(East.function(
+                [BooleanType],
+                NullType,
+                ($, isOpen) => {
+                    const openCount = $.let(openCountBind.read());
+                    $.if(isOpen, $ => {
+                        $(openCountBind.write(openCount.add(1n)));
+                    });
+                }
+            ));
+
+            const openCount = $.let(openCountBind.read());
+
+            return Stack.VStack([
+                Drawer.Root(
+                    Button.Root("Open Drawer"),
+                    [
+                        Stack.VStack([
+                            Text.Root("This drawer counts how many times it's been opened."),
+                            Badge.Root(East.str`Times opened: ${openCount}`, { colorPalette: "purple", size: "lg" }),
+                        ], { gap: "4" }),
+                    ],
+                    { title: "Interactive Drawer", placement: "end", onOpenChange }
+                ),
+                Badge.Root(East.str`Drawer opened: ${openCount} times`, { colorPalette: "purple", variant: "solid" }),
+            ], { gap: "3", align: "flex-start" });
+        }));
+    }),
+    inputs: [],
+});
+
+export const drawerProgrammatic = example({
+    keywords: ["Drawer", "open", "programmatic", "onClick"],
+    description: "Drawer.open() without trigger",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Button.Root("Open Drawer Programmatically", {
+            variant: "solid",
+            colorPalette: "purple",
+            onClick: East.function([], NullType, $ => {
+                $(Drawer.open(East.value({
+                    body: [
+                        Stack.VStack([
+                            Text.Root("This drawer was opened programmatically using Drawer.open()!"),
+                            Text.Root("Great for navigation, notifications, or dynamic content.", { color: "gray.500" }),
+                        ], { gap: "4" }),
+                    ],
+                    title: variant("some", "Programmatic Drawer"),
+                    description: variant("some", "Opened via Drawer.open()"),
+                    style: variant("none", null),
+                }, Drawer.Types.OpenInput)));
+            }),
+        });
+    }),
+    inputs: [],
+});

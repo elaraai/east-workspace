@@ -48,6 +48,10 @@
     "./examples/disclosure": {
       "types": "./dist/test/disclosure/index.d.ts",
       "default": "./dist/test/disclosure/index.js"
+    },
+    "./examples/overlays": {
+      "types": "./dist/test/overlays/index.d.ts",
+      "default": "./dist/test/overlays/index.js"
     }
   },
   "files": [
