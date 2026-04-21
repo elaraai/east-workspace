@@ -7,16 +7,14 @@ import { writeFileSync, statSync } from 'fs';
 import { extname } from 'path';
 import {
     EastIR,
-    AsyncEastIR,
     encodeBeast2For,
     encodeEastFor,
     encodeJSONFor,
     printFor,
 } from '@elaraai/east';
-import type { PlatformFunction, FunctionIR, AsyncFunctionIR, ValueTypeOf, EastTypeValue } from '@elaraai/east/internal';
-import { EAST_SOURCE_MAP_SYMBOL, printTypeValue } from '@elaraai/east/internal';
-import type { SourceMap } from '@elaraai/east/internal';
-import { loadIR, loadInput } from './loader.js';
+import type { PlatformFunction, EastTypeValue } from '@elaraai/east/internal';
+import { printTypeValue } from '@elaraai/east/internal';
+import { loadEastIR, loadInput } from './loader.js';
 
 function now(): bigint { return process.hrtime.bigint(); }
 function elapsed(start: bigint, end: bigint): number { return Number(end - start) / 1e6; }
@@ -44,13 +42,15 @@ export async function runProgram(
 ): Promise<unknown> {
     const t0 = now();
 
-    // Load and parse the IR
-    const ir = loadIR(irPath);
+    // Load as an EastIR bundle so source_map travels with the IR and error
+    // frames resolve end-to-end.
+    const eastIR = loadEastIR(irPath);
+    const ir = eastIR.ir;
+    const isAsync = eastIR instanceof EastIR ? false : true;
 
-    // Get the function's input types
-    const inputTypes = ir?.value?.type?.value?.inputs ?? [];
-    const outputType = (ir?.value?.type?.value?.output ?? null) as EastTypeValue | null;
-    const isAsync = ir.type === 'AsyncFunction';
+    // Get the function's input/output types from the IR.
+    const inputTypes = (ir as any)?.value?.type?.value?.inputs ?? [];
+    const outputType = ((ir as any)?.value?.type?.value?.output ?? null) as EastTypeValue | null;
 
     // Validate input count
     if (inputPaths.length !== inputTypes.length) {
@@ -88,16 +88,9 @@ export async function runProgram(
 
     const t1 = now();
 
-    // The beast2 decoder attaches the decoded source map to the root Function
-    // / AsyncFunction IR via EAST_SOURCE_MAP_SYMBOL. Forward it to EastIR so
-    // loc_ids resolve into source locations in error stacks at runtime.
-    const sourceMap = (ir as any)[EAST_SOURCE_MAP_SYMBOL] as SourceMap | undefined;
-
     let result: unknown;
-    if (ir.type === 'Function') {
-        const eastIR = new EastIR(ir as FunctionIR);
-        if (sourceMap) eastIR.source_map = sourceMap;
-        const compiled = eastIR.compile(platformFns);
+    if (!isAsync) {
+        const compiled = (eastIR as EastIR<any, any>).compile(platformFns);
         const t2 = now();
 
         result = compiled(...inputs);
@@ -108,9 +101,7 @@ export async function runProgram(
 
         if (verbose) printTimingAndMemory(t0, t1, t2, t3, t4, t5);
     } else {
-        const asyncEastIR = new AsyncEastIR(ir as AsyncFunctionIR);
-        if (sourceMap) asyncEastIR.source_map = sourceMap;
-        const compiled = asyncEastIR.compile(platformFns);
+        const compiled = (eastIR as any).compile(platformFns);
         const t2 = now();
 
         result = await compiled(...inputs);

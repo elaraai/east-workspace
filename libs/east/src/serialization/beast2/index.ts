@@ -762,21 +762,76 @@ export function decodeBeast2For(type: EastTypeValue | EastType, options?: Beast2
       throw new Error(`${data.length - reader.offset} trailing bytes at offset ${reader.offset}`);
     }
 
-    // Attach source map when the root is a Function / AsyncFunction IR variant.
-    // Runtime Function values get this inside the Function decoder (line ~401);
-    // the IR case is the CLI's serialized form and needs it here so loadIR +
-    // EastIR.compile can resolve loc_ids back to source locations.
-    if (sourceMap && (value?.type === 'Function' || value?.type === 'AsyncFunction')) {
-      Object.defineProperty(value, EAST_SOURCE_MAP_SYMBOL, {
-        value: sourceMap,
-        writable: false,
-        enumerable: false,
-        configurable: false,
-      });
-    }
-
     return value;
   };
+}
+
+// =============================================================================
+// Public API — EastIR bundle (IR + source map travelling together)
+// =============================================================================
+// An EastIR instance carries both the Function IR tree and its SourceMap.
+// These helpers serialize / deserialize the bundle end-to-end so that loc_ids
+// remain resolvable across process boundaries. Mirrors the C native shape:
+// `east_beast2_decode_ir(data, len, &ir_value, &source_map)` — both come out
+// of / go into the same blob.
+
+/** Encode an EastIR (or AsyncEastIR) as a beast2 blob that carries both the
+ *  IR and its source map. Prefer this over `encodeBeast2For(IRType)(ir)` when
+ *  encoding a program rather than opaque IR data. */
+export function encodeEastIR<I extends any[], O>(eastIR: EastIR<I, O> | AsyncEastIR<I, O>): Uint8Array {
+  return encodeBeast2For(IRType, { sourceMap: eastIR.source_map })(eastIR.ir as any);
+}
+
+/** Decode a beast2 blob whose root is a Function IR into an EastIR. The
+ *  returned wrapper has its source_map populated from the blob's source_map
+ *  section, so downstream compile() resolves loc_ids automatically. */
+export function decodeEastIR<I extends any[] = any[], O = any>(data: Uint8Array): EastIR<I, O> {
+  const { ir, sourceMap } = decodeIRWithSourceMap(data);
+  if (ir.type !== 'Function') {
+    throw new Error(`decodeEastIR: expected Function IR at root, got ${ir.type}. Use decodeAsyncEastIR for async functions.`);
+  }
+  const result = new EastIR<I, O>(ir as FunctionIR);
+  result.source_map = sourceMap;
+  return result;
+}
+
+/** Async-function variant of decodeEastIR. */
+export function decodeAsyncEastIR<I extends any[] = any[], O = any>(data: Uint8Array): AsyncEastIR<I, O> {
+  const { ir, sourceMap } = decodeIRWithSourceMap(data);
+  if (ir.type !== 'AsyncFunction') {
+    throw new Error(`decodeAsyncEastIR: expected AsyncFunction IR at root, got ${ir.type}. Use decodeEastIR for sync functions.`);
+  }
+  const result = new AsyncEastIR<I, O>(ir as AsyncFunctionIR);
+  result.source_map = sourceMap;
+  return result;
+}
+
+/** Internal: decode IRType blob and return both the IR value and the decoded
+ *  source map. Shared by decodeEastIR / decodeAsyncEastIR. */
+function decodeIRWithSourceMap(data: Uint8Array): { ir: any; sourceMap: SourceMap | null } {
+  verifyMagic(data);
+  const reader = new BufferReader(data, MAGIC_BYTES.length);
+  const { typeTable } = readTypeTableSection(reader);
+  const stringTable = readStringTableSection(reader);
+  const sourceMap = readSourceMapSection(reader, stringTable);
+
+  const irTypeValue = toEastTypeValue(IRType);
+  const valueDecoder = buildDecoder(irTypeValue);
+  const ctx: DecodeContext = {
+    mutableValues: [],
+    typeTable,
+    stringTable,
+    sourceMap,
+    platform: [],
+    platformFns: {},
+    asyncPlatformFns: new Set(),
+  };
+  readMutableValueTableSection(reader, ctx);
+  const ir = valueDecoder(reader, ctx);
+  if (reader.offset !== data.length) {
+    throw new Error(`${data.length - reader.offset} trailing bytes at offset ${reader.offset}`);
+  }
+  return { ir, sourceMap };
 }
 
 // =============================================================================

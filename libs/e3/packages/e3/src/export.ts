@@ -16,7 +16,7 @@
 import * as fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import yazl from 'yazl';
-import { variant, encodeBeast2For, printIdentifier, SortedMap, toEastTypeValue, IRType } from '@elaraai/east';
+import { variant, encodeBeast2For, encodeEastIR, EastIR, AsyncEastIR, printIdentifier, SortedMap, toEastTypeValue } from '@elaraai/east';
 import type { Structure, PackageObject, DatasetRef } from '@elaraai/e3-types';
 import { DatasetRefType, PackageObjectType, TaskObjectType } from '@elaraai/e3-types';
 import type { PackageDef, PackageItem } from './types.js';
@@ -112,11 +112,19 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
         return seg.value;
       }).join('/');
 
-      // Serialize default value (if present) and build DatasetRef
+      // Serialize default value (if present) and build DatasetRef.
+      // When the dataset default is an EastIR / AsyncEastIR bundle (e.g. a
+      // task's function_ir dataset set by task.ts), use encodeEastIR so the
+      // source map is preserved in the beast2 blob. Otherwise fall back to
+      // the generic typed encoder.
       let datasetRef: DatasetRef;
       if (item.default !== undefined) {
-        const valueEncoder = encodeBeast2For(item.type);
-        const valueData = valueEncoder(item.default);
+        let valueData: Uint8Array;
+        if (item.default instanceof EastIR || item.default instanceof AsyncEastIR) {
+          valueData = encodeEastIR(item.default);
+        } else {
+          valueData = encodeBeast2For(item.type)(item.default);
+        }
         const valueHash = addObject(zipfile, Buffer.from(valueData));
         datasetRef = variant('value', { hash: valueHash, versions: new Map() });
       } else {
@@ -142,9 +150,9 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
       // Note: e3.task() includes function_ir in inputs, e3.customTask() does not
       const inputPaths = item.inputs.map(input => input.path);
 
-      // Serialize command IR
-      const commandIrEncoder = encodeBeast2For(IRType);
-      const commandIrData = commandIrEncoder(item.command);
+      // Serialize command IR — item.command is an EastIR bundle so this
+      // preserves the source map.
+      const commandIrData = encodeEastIR(item.command);
       const commandIrHash = addObject(zipfile, Buffer.from(commandIrData));
 
       // Build TaskObject

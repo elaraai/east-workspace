@@ -562,7 +562,7 @@ const parseInteger: Parser<bigint> = (input: string, pos: number, _ctx?: EastPar
   }
 
   let start = pos;
-  if (input[pos] === '-') {
+  if (input[pos] === '-' || input[pos] === '+') {
     pos++;
   }
 
@@ -581,7 +581,8 @@ const parseInteger: Parser<bigint> = (input: string, pos: number, _ctx?: EastPar
   let value: bigint;
 
   try {
-    value = BigInt(intStr);
+    // BigInt() rejects a leading '+', so strip it before constructing.
+    value = BigInt(intStr[0] === '+' ? intStr.slice(1) : intStr);
   } catch {
     // BigInt() throws if the string is invalid (shouldn't happen given our parsing logic)
     throw new ParseError(`expected integer, got ${JSON.stringify(intStr)}`, start);

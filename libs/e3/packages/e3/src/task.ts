@@ -11,8 +11,8 @@
  * - `.tasks.${name}.output` - The output dataset (public)
  */
 
-import type { AsyncFunctionExpr, BlockBuilder, CallableAsyncFunctionExpr, CallableFunctionExpr, EastType, ExprType, FunctionExpr, FunctionIR, AsyncFunctionIR } from '@elaraai/east';
-import { Expr, variant, ArrayType, StringType, East, IRType } from '@elaraai/east';
+import type { AsyncFunctionExpr, BlockBuilder, CallableAsyncFunctionExpr, CallableFunctionExpr, EastType, ExprType, FunctionExpr } from '@elaraai/east';
+import { Expr, variant, ArrayType, StringType, East, IRType, EastIR, AsyncEastIR } from '@elaraai/east';
 import type { DatasetDef, DataTreeDef, TaskDef } from './types.js';
 
 /**
@@ -58,13 +58,15 @@ function createTaskTree(name: string): DataTreeDef {
  * @param ir - The compiled function IR
  * @returns A DatasetDef for the function IR (private, not typed)
  */
-function createFunctionIRDataset(name: string, taskTree: DataTreeDef, ir: FunctionIR | AsyncFunctionIR): DatasetDef {
+function createFunctionIRDataset(name: string, taskTree: DataTreeDef, eastIR: EastIR<any, any> | AsyncEastIR<any, any>): DatasetDef {
   return {
     kind: 'dataset',
     name: 'function_ir',
     path: [variant('field', 'tasks'), variant('field', name), variant('field', 'function_ir')],
     type: IRType,
-    default: ir as any, // The IR value itself is the default
+    // Store the full EastIR/AsyncEastIR bundle so export.ts can use encodeEastIR
+    // and preserve source_map into the beast2 blob.
+    default: eastIR as any,
     writable: false,
     deps: new Set([...taskTree.deps, taskTree]),
   };
@@ -180,14 +182,16 @@ export function task(
   fn: FunctionExpr<any, any> | AsyncFunctionExpr<any, any>,
   config?: { runner?: string[], kind?: string, metadata?: Uint8Array },
 ): TaskDef {
-  const ir = fn.toIR().ir;
+  // Keep the full EastIR bundle (IR + source_map) so we don't drop the
+  // source map before it reaches the beast2 encoder in export.ts.
+  const eastIR = fn.toIR();
   const outputType = Expr.type(fn as Expr<any>).output as EastType;
 
   // Create the task's subtree at .tasks.${name}
   const taskTree = createTaskTree(name);
 
-  // Create the function_ir dataset (private, holds the IR)
-  const functionIRDataset = createFunctionIRDataset(name, taskTree, ir);
+  // Create the function_ir dataset (private, holds the IR bundle)
+  const functionIRDataset = createFunctionIRDataset(name, taskTree, eastIR);
 
   // The first input is the FunctionIR to execute
   const input_datasets = [
@@ -227,7 +231,8 @@ export function task(
   const taskDef: TaskDef = {
     kind: 'task',
     name,
-    command: commandFn.toIR().ir,
+    // Keep the full EastIR bundle so export.ts can encode with source map.
+    command: commandFn.toIR() as EastIR<[string[], string], string[]>,
     inputs: input_datasets,
     output,
     deps: collectDeps(taskTree, output, input_datasets),
@@ -272,7 +277,8 @@ export function customTask<Name extends string, Inputs extends Array<DatasetDef>
   const taskDef: TaskDef<Output, [variant<'field', 'tasks'>, variant<'field', Name>, variant<'field', 'output'>]> = {
     kind: 'task',
     name,
-    command: commandFn.toIR().ir,
+    // Keep the full EastIR bundle so export.ts can encode with source map.
+    command: commandFn.toIR() as EastIR<[string[], string], string[]>,
     inputs,
     output,
     deps: collectDeps(taskTree, output, inputs),

@@ -14,7 +14,7 @@
  * - **Task**: A transformation that reads input datasets and produces an output dataset
  */
 
-import type { EastType, FunctionIR, ValueTypeOf, variant } from '@elaraai/east';
+import type { EastType, EastIR, ValueTypeOf, variant } from '@elaraai/east';
 import type { TreePath } from '@elaraai/e3-types';
 
 /**
@@ -70,8 +70,9 @@ export interface TaskDef<TOutput extends EastType = EastType, Path extends TreeP
   readonly kind: 'task';
   /** Task name */
   readonly name: string;
-  /** Command construction function */
-  readonly command: FunctionIR;
+  /** Command construction function — an EastIR bundle carrying both the IR
+   *  and its source map so export serialization can preserve source locations. */
+  readonly command: EastIR<[string[], string], string[]>;
   /** Input datasets this task reads from */
   readonly inputs: DatasetDef[];
   /** Output dataset this task writes to (at `.outputs.${name}`) */

@@ -12,9 +12,13 @@ import {
     decodeBeast2,
     decodeEastFor,
     decodeJSONFor,
+    decodeEastIR,
+    decodeAsyncEastIR,
+    EastIR,
+    AsyncEastIR,
     type EastTypeValue,
 } from '@elaraai/east';
-import type { PlatformFunction, IR, ValueTypeOf } from '@elaraai/east/internal';
+import type { PlatformFunction, IR, ValueTypeOf, SourceMap } from '@elaraai/east/internal';
 
 const require = createRequire(import.meta.url);
 
@@ -185,6 +189,9 @@ function getFileFormat(filePath: string): 'beast2' | 'east' | 'json' {
  * - `.east` - Text East format
  * - `.json` - JSON format
  *
+ * Source maps are NOT returned from this function — use {@link loadEastIR}
+ * if you need the source map along with the IR.
+ *
  * @param filePath - Path to the IR file
  * @returns Parsed IR (FunctionIR or AsyncFunctionIR)
  */
@@ -220,6 +227,40 @@ export function loadIR(filePath: string): ValueTypeOf<IR> {
     }
 
     return ir;
+}
+
+/**
+ * Loads an IR file and returns an EastIR / AsyncEastIR bundle (IR + source
+ * map). Prefer this over {@link loadIR} when the caller will compile + run
+ * the IR, so that error locations resolve end-to-end.
+ *
+ * Supports `.beast2` / `.beast` (source map read from the blob), `.json`
+ * (source map read from the `{ir, source_map}` wrapper format), and `.east`
+ * (no source map available — field stays null).
+ */
+export function loadEastIR(filePath: string): EastIR<any, any> | AsyncEastIR<any, any> {
+    const format = getFileFormat(filePath);
+    const data = readFileSync(filePath);
+
+    if (format === 'beast2') {
+        // Peek at the root variant to pick sync/async decoder.
+        const probe = decodeIRFromBeast2(data);
+        if (probe.type === 'Function') {
+            return decodeEastIR(data);
+        }
+        if (probe.type === 'AsyncFunction') {
+            return decodeAsyncEastIR(data);
+        }
+        throw new Error(`IR file must contain a function or async function, got "${probe.type}"`);
+    }
+
+    // For east / json formats we fall back to the IR-only path (no source map).
+    // JSON wrapper parsing for {ir, source_map} can be added here if needed.
+    const ir = loadIR(filePath);
+    if (ir.type === 'Function') {
+        return new EastIR<any, any>(ir as any);
+    }
+    return new AsyncEastIR<any, any>(ir as any);
 }
 
 /**

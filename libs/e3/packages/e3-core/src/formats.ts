@@ -13,6 +13,11 @@ import {
   parseFor,
   printFor,
   fromJSONFor,
+  encodeEastIR,
+  decodeEastIR,
+  decodeAsyncEastIR,
+  EastIR,
+  AsyncEastIR,
   IRType,
   type IR,
 } from '@elaraai/east';
@@ -51,11 +56,44 @@ export async function loadIR(filePath: string): Promise<IR> {
 }
 
 /**
- * Encode IR to Beast2 format
+ * Encode IR to Beast2 format.
+ *
+ * NOTE: this is a "raw IR" path and does NOT include a source map in the
+ * blob. For program serialization use `eastIRToBeast2` or `encodeEastIR`
+ * which preserve the source map end-to-end.
  */
 export function irToBeast2(ir: IR): Uint8Array {
   const encoder = encodeBeast2For(IRType);
   return encoder(ir);
+}
+
+/**
+ * Encode an EastIR bundle (IR + source map) to Beast2 format.
+ *
+ * Use this when serializing a program so that downstream CLIs can resolve
+ * loc_ids back to source locations on error.
+ */
+export function eastIRToBeast2(eastIR: EastIR<any, any> | AsyncEastIR<any, any>): Uint8Array {
+  return encodeEastIR(eastIR);
+}
+
+/**
+ * Load an EastIR bundle from a .beast2 file, returning the appropriate
+ * sync/async wrapper based on the IR root variant.
+ */
+export async function loadEastIR(filePath: string): Promise<EastIR<any, any> | AsyncEastIR<any, any>> {
+  const data = await fs.readFile(filePath);
+  // Peek at the IR root to decide which decoder to use. Both decoders would
+  // work except they throw on the wrong root variant.
+  try {
+    return decodeEastIR(data);
+  } catch (err) {
+    const msg = (err as Error).message ?? '';
+    if (msg.includes('AsyncFunction')) {
+      return decodeAsyncEastIR(data);
+    }
+    throw err;
+  }
 }
 
 /**

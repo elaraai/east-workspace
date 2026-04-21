@@ -15,8 +15,7 @@
  * Note: Local process execution is in execution/LocalTaskRunner.ts
  */
 
-import { decodeBeast2For, EastIR, IRType } from '@elaraai/east';
-import type { FunctionIR } from '@elaraai/east';
+import { decodeEastIR } from '@elaraai/east';
 import type { ExecutionStatus } from '@elaraai/e3-types';
 import type { StorageBackend, LogChunk } from './storage/interfaces.js';
 import { computeHash } from './objects.js';
@@ -297,12 +296,9 @@ export async function evaluateCommandIr(
   const irData = await storage.objects.read(repo, commandIrHash);
 
   try {
-    // Decode the IR from beast2 format
-    const decoder = decodeBeast2For(IRType);
-    const ir = decoder(Buffer.from(irData)) as FunctionIR;
-
-    // Create EastIR wrapper and compile it (no platform functions needed)
-    const eastIr = new EastIR<[string[], string], string[]>(ir);
+    // Decode as an EastIR bundle so the source map travels with the IR and
+    // loc_ids resolve to source locations if compile() throws.
+    const eastIr = decodeEastIR<[string[], string], string[]>(Buffer.from(irData));
     const compiledFn = eastIr.compile([]);
 
     // Execute the compiled function with inputPaths and outputPath
