@@ -86,6 +86,14 @@ static EvalResult eval_error_at_owned(char *msg, IRNode *node)
     return r;
 }
 
+/* Convenience wrapper for callers with a const char* message and an IRNode in
+ * scope. Use this instead of `eval_error(msg)` so runtime errors carry the
+ * IR node's source location. */
+static EvalResult eval_error_at(IRNode *node, const char *msg)
+{
+    return eval_error_at_owned(msg ? strdup(msg) : NULL, node);
+}
+
 void eval_result_free(EvalResult *result)
 {
     if (!result) return;
@@ -148,7 +156,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         if (!v) {
             char buf[256];
             snprintf(buf, sizeof(buf), "Undefined variable: %s", node->data.variable.name);
-            return eval_error(buf);
+            return eval_error_at(node, buf);
         }
         east_value_retain(v);
         return eval_ok(v);
@@ -214,7 +222,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         EastValue *val = expr_res.value;
         if (val->kind != EAST_VAL_VARIANT) {
             east_value_release(val);
-            return eval_error("match expression is not a variant");
+            return eval_error_at(node, "match expression is not a variant");
         }
 
         const char *case_name = east_variant_case_name(val);
@@ -235,7 +243,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         }
 
         east_value_release(val);
-        return eval_error("no matching case in match expression");
+        return eval_error_at(node, "no matching case in match expression");
     }
 
     /* ----- IR_WHILE ------------------------------------------------ */
@@ -284,7 +292,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         EastValue *arr = arr_res.value;
         if (arr->kind != EAST_VAL_ARRAY) {
             east_value_release(arr);
-            return eval_error("for-array: expression is not an array");
+            return eval_error_at(node, "for-array: expression is not an array");
         }
 
         size_t len = east_array_len(arr);
@@ -350,7 +358,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         EastValue *set = set_res.value;
         if (set->kind != EAST_VAL_SET) {
             east_value_release(set);
-            return eval_error("for-set: expression is not a set");
+            return eval_error_at(node, "for-set: expression is not a set");
         }
 
         size_t len = east_set_len(set);
@@ -410,7 +418,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         EastValue *dict = dict_res.value;
         if (dict->kind != EAST_VAL_DICT) {
             east_value_release(dict);
-            return eval_error("for-dict: expression is not a dict");
+            return eval_error_at(node, "for-dict: expression is not a dict");
         }
 
         size_t len = east_dict_len(dict);
@@ -468,7 +476,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
     case IR_FUNCTION:
     case IR_ASYNC_FUNCTION: {
         EastCompiledFn *fn = east_calloc(1, sizeof(EastCompiledFn));
-        if (!fn) return eval_error("out of memory");
+        if (!fn) return eval_error_at(node, "out of memory");
 
         /* Share the enclosing environment for captured variables.
          * Mutable captures must see modifications from both sides. */
@@ -482,7 +490,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
             if (!fn->param_names) {
                 env_release(fn->captures);
                 east_free(fn);
-                return eval_error("out of memory");
+                return eval_error_at(node, "out of memory");
             }
             for (size_t i = 0; i < fn->num_params; i++) {
                 fn->param_names[i] = east_strdup(node->data.function.params[i].name);
@@ -519,7 +527,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         EastValue *func_val = func_res.value;
         if (func_val->kind != EAST_VAL_FUNCTION) {
             east_value_release(func_val);
-            return eval_error("call target is not a function");
+            return eval_error_at(node, "call target is not a function");
         }
 
         EastCompiledFn *cfn = func_val->data.function.compiled;
@@ -532,7 +540,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                 args = calloc(nargs, sizeof(EastValue *));
                 if (!args) {
                     east_value_release(func_val);
-                    return eval_error("out of memory");
+                    return eval_error_at(node, "out of memory");
                 }
                 for (size_t i = 0; i < nargs; i++) {
                     EvalResult arg_res = eval_ir(node->data.call.args[i], env, platform, builtins);
@@ -563,7 +571,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         if (!cfn->ir && cfn->source_ir) east_compile_lazy(cfn);
         if (!cfn->ir) {
             east_value_release(func_val);
-            return eval_error("function has no IR body");
+            return eval_error_at(node, "function has no IR body");
         }
 
         /* Evaluate arguments */
@@ -573,7 +581,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
             args = calloc(nargs, sizeof(EastValue *));
             if (!args) {
                 east_value_release(func_val);
-                return eval_error("out of memory");
+                return eval_error_at(node, "out of memory");
             }
             for (size_t i = 0; i < nargs; i++) {
                 EvalResult arg_res = eval_ir(node->data.call.args[i], env, platform, builtins);
@@ -641,7 +649,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         EastValue **args = NULL;
         if (nargs > 0) {
             args = calloc(nargs, sizeof(EastValue *));
-            if (!args) return eval_error("out of memory");
+            if (!args) return eval_error_at(node, "out of memory");
             for (size_t i = 0; i < nargs; i++) {
                 EvalResult arg_res = eval_ir(node->data.platform.args[i], env, platform, builtins);
                 if (arg_res.status != EVAL_OK) {
@@ -691,7 +699,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         EastValue **args = NULL;
         if (nargs > 0) {
             args = calloc(nargs, sizeof(EastValue *));
-            if (!args) return eval_error("out of memory");
+            if (!args) return eval_error_at(node, "out of memory");
             for (size_t i = 0; i < nargs; i++) {
                 EvalResult arg_res = eval_ir(node->data.builtin.args[i], env, platform, builtins);
                 if (arg_res.status != EVAL_OK) {
@@ -1033,7 +1041,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
             if (!names || !vals) {
                 free(names);
                 free(vals);
-                return eval_error("out of memory");
+                return eval_error_at(node, "out of memory");
             }
         }
 
@@ -1069,7 +1077,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         EastValue *s = expr_res.value;
         if (s->kind != EAST_VAL_STRUCT) {
             east_value_release(s);
-            return eval_error("get_field: value is not a struct");
+            return eval_error_at(node, "get_field: value is not a struct");
         }
 
         EastValue *field = east_struct_get_field(s, node->data.get_field.field_name);
@@ -1077,7 +1085,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
             char buf[256];
             snprintf(buf, sizeof(buf), "no field named '%s'", node->data.get_field.field_name);
             east_value_release(s);
-            return eval_error(buf);
+            return eval_error_at(node, buf);
         }
 
         east_value_retain(field);
@@ -1103,7 +1111,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
 
     } /* end switch */
 
-    return eval_error("unhandled IR node kind");
+    return eval_error_at(node, "unhandled IR node kind");
 }
 
 /* ------------------------------------------------------------------ */
