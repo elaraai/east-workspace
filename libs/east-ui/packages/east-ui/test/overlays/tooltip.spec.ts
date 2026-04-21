@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Tooltip, Button, Text } from "../../src/index.js";
+import { Tooltip, Button, Text } from "@elaraai/east-ui";
 import * as ex from "./tooltip.examples.js";
 
 describeEast("Tooltip", (test) => {

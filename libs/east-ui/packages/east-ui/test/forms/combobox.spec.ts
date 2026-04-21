@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Combobox, Style } from "../../src/index.js";
+import { Combobox, Style } from "@elaraai/east-ui";
 import * as ex from "./combobox.examples.js";
 
 describeEast("Combobox", (test) => {
@@ -17,6 +17,8 @@ describeEast("Combobox", (test) => {
         comboboxMultiple: ex.comboboxMultiple,
         comboboxInteractive: ex.comboboxInteractive,
         comboboxInteractiveMulti: ex.comboboxInteractiveMulti,
+        comboboxOnInputValueChange: ex.comboboxOnInputValueChange,
+        comboboxOnOpenChange: ex.comboboxOnOpenChange,
     });
 
     // =========================================================================

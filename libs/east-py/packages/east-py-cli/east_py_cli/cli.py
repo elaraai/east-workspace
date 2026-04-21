@@ -88,20 +88,12 @@ def cmd_run(args: argparse.Namespace) -> int:
             return 1
 
     try:
-        if args.verbose:
-            import east
-            print(f"east-py {east.__version__}")
-
         # Load platform functions from packages
         platform_fns = []
         for package in args.package:
-            if args.verbose:
-                print(f"Loading platform: {package}")
             try:
                 fns = load_platform(package)
                 platform_fns.extend(fns)
-                if args.verbose:
-                    print(f"  Loaded {len(fns)} platform functions")
             except (ImportError, ValueError) as e:
                 print(f"Error: {e}", file=sys.stderr)
                 return 1
@@ -110,13 +102,11 @@ def cmd_run(args: argparse.Namespace) -> int:
         run_program(
             ir_file=args.ir_file,
             platform_fns=platform_fns,
+            packages=list(args.package),
             input_files=args.input,
             output_file=args.output,
             verbose=args.verbose,
         )
-
-        if args.verbose:
-            print("Done.")
 
         return 0
 
@@ -124,11 +114,6 @@ def cmd_run(args: argparse.Namespace) -> int:
         if isinstance(e, EastError):
             # Show clean IR stack trace for East errors
             print(f"Error: {e}", file=sys.stderr)
-            if args.verbose:
-                import traceback
-
-                print("\nPython traceback:", file=sys.stderr)
-                traceback.print_exc()
         else:
             # Show full traceback for unexpected errors
             import traceback

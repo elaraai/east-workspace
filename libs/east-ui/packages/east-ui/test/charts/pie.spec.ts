@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Chart } from "../../src/index.js";
+import { Chart } from "@elaraai/east-ui";
 import { none, some } from "@elaraai/east";
 import * as ex from "./pie.examples.js";
 

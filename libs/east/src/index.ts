@@ -15,6 +15,7 @@ export * from './comparison.js';
 export * from './ast.js';
 export * from './expr/index.js';
 export * from './ir.js';
+export * from './walker.js';
 export * from './error.js';
 export * from './compile.js';
 export * from './default.js';

@@ -1,9 +1,9 @@
 /**
  * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under AGPL-3.0. See LICENSE file for details.
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, example } from "@elaraai/east";
-import { Button, Chart, Popover, Text, UIComponentType } from "../../src/index.js";
+import { East, BooleanType, IntegerType, NullType, example } from "@elaraai/east";
+import { Button, Chart, Popover, Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const popoverBasic = example({
     keywords: ["Popover", "Root", "title", "description", "click"],
@@ -45,6 +45,34 @@ export const popoverChart = example({
             ],
             { hasArrow: true, title: "Weekly Sales" }
         );
+    }),
+    inputs: [],
+});
+
+export const popoverInteractive = example({
+    keywords: ["Popover", "Reactive", "State", "interactive", "onOpenChange"],
+    description: "Popover whose onOpenChange counts open/close transitions",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const bind = $.let(State.bind([IntegerType], "popover_toggles", 0n));
+            const value = $.let(bind.read());
+            const onOpenChange = $.const(East.function([BooleanType], NullType, ($, _open) => {
+                const cur = $.let(bind.read());
+                $(bind.write(cur.add(1n)));
+            }));
+            return Stack.VStack([
+                Popover.Root(
+                    Button.Root("Open popover"),
+                    [Text.Root("Popover content")],
+                    {
+                        title: "Reactive popover",
+                        description: "Each open/close fires onOpenChange",
+                        onOpenChange,
+                    },
+                ),
+                Text.Root(East.str`Toggled ${East.print(value)} times`),
+            ], { gap: "3", align: "stretch" });
+        }));
     }),
     inputs: [],
 });

@@ -13,7 +13,8 @@
 #include <limits.h>
 #include <unistd.h>
 
-static EvalResult path_join(EastValue **args, size_t num_args) {
+static EvalResult path_join(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+{
     (void)num_args;
     EastValue *segments = args[0];
     size_t count = east_array_len(segments);
@@ -55,7 +56,8 @@ static EvalResult path_join(EastValue **args, size_t num_args) {
     return eval_ok(result);
 }
 
-static EvalResult path_resolve(EastValue **args, size_t num_args) {
+static EvalResult path_resolve(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+{
     (void)num_args;
     const char *path = args[0]->data.string.data;
 
@@ -84,7 +86,8 @@ static EvalResult path_resolve(EastValue **args, size_t num_args) {
     return eval_ok(east_string(path));
 }
 
-static EvalResult path_dirname(EastValue **args, size_t num_args) {
+static EvalResult path_dirname(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+{
     (void)num_args;
     const char *path = args[0]->data.string.data;
     size_t len = args[0]->data.string.len;
@@ -110,7 +113,8 @@ static EvalResult path_dirname(EastValue **args, size_t num_args) {
     return eval_ok(east_string_len(path, dir_len));
 }
 
-static EvalResult path_basename(EastValue **args, size_t num_args) {
+static EvalResult path_basename(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+{
     (void)num_args;
     const char *path = args[0]->data.string.data;
     size_t len = args[0]->data.string.len;
@@ -131,7 +135,8 @@ static EvalResult path_basename(EastValue **args, size_t num_args) {
     return eval_ok(east_string(last_slash + 1));
 }
 
-static EvalResult path_extname(EastValue **args, size_t num_args) {
+static EvalResult path_extname(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+{
     (void)num_args;
     const char *path = args[0]->data.string.data;
     size_t len = args[0]->data.string.len;
@@ -160,7 +165,8 @@ static EvalResult path_extname(EastValue **args, size_t num_args) {
     return eval_ok(east_string(last_dot));
 }
 
-void east_std_register_path(PlatformRegistry *reg) {
+void east_std_register_path(PlatformRegistry *reg)
+{
     platform_registry_add(reg, "path_join", path_join, false);
     platform_registry_add(reg, "path_resolve", path_resolve, false);
     platform_registry_add(reg, "path_dirname", path_dirname, false);

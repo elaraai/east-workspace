@@ -23,6 +23,7 @@ FetchContent_Declare(
     pcre2
     URL https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.44/pcre2-10.44.tar.gz
     URL_HASH SHA256=86b9cb0aa3bcb7994faa88018292bc704cdbb708e785f7c74352ff6ea7d3175b
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 set(PCRE2_BUILD_PCRE2_8 ON CACHE BOOL "" FORCE)
 set(PCRE2_BUILD_PCRE2_16 OFF CACHE BOOL "" FORCE)
@@ -32,9 +33,17 @@ set(PCRE2_BUILD_PCRE2GREP OFF CACHE BOOL "" FORCE)
 set(PCRE2_SUPPORT_UNICODE ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(pcre2)
 
+# Silence pedantic warnings from 3rd-party PCRE2 sources
+if(TARGET pcre2-8-static)
+    target_compile_options(pcre2-8-static PRIVATE -w)
+endif()
+if(TARGET pcre2-posix-static)
+    target_compile_options(pcre2-posix-static PRIVATE -w)
+endif()
+
 # Optional: mimalloc for faster small allocations
 option(EAST_USE_MIMALLOC "Use mimalloc allocator" OFF)
-if(EAST_USE_MIMALLOC AND NOT EMSCRIPTEN)
+if(EAST_USE_MIMALLOC)
     FetchContent_Declare(
         mimalloc
         GIT_REPOSITORY https://github.com/microsoft/mimalloc.git
@@ -49,11 +58,5 @@ endif()
 enable_testing()
 
 add_subdirectory(packages/east-c)
-
-# WASM build only includes the core library — no std or CLI
-if(EMSCRIPTEN)
-    add_subdirectory(packages/east-c-wasm)
-else()
-    add_subdirectory(packages/east-c-std)
-    add_subdirectory(packages/east-c-cli)
-endif()
+add_subdirectory(packages/east-c-std)
+add_subdirectory(packages/east-c-cli)

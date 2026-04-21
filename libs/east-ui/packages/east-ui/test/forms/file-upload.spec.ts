@@ -4,12 +4,14 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { FileUpload } from "../../src/index.js";
+import { FileUpload } from "@elaraai/east-ui";
 import * as ex from "./file-upload.examples.js";
 
 describeEast("FileUpload", (test) => {
     Assert.examples(test, {
         fileUploadBasic: ex.fileUploadBasic,
+        fileUploadInteractive: ex.fileUploadInteractive,
+        fileUploadOnFileReject: ex.fileUploadOnFileReject,
     });
 
     // =========================================================================

@@ -12,17 +12,11 @@
     "forceConsistentCasingInFileNames": true,
     "declaration": true,
     "declarationMap": true,
-    "sourceMap": true,
-    "composite": true
+    "sourceMap": true
   },
   "include": [
     "*.ts",
     "generators/*.ts",
     "scenarios/*.ts"
-  ],
-  "references": [
-    { "path": "../../packages/e3" },
-    { "path": "../../packages/e3-cli" },
-    { "path": "../../packages/e3-core" }
   ]
 }

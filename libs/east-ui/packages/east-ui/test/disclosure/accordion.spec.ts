@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Accordion, Text } from "../../src/index.js";
+import { Accordion, Text } from "@elaraai/east-ui";
 import * as ex from "./accordion.examples.js";
 
 describeEast("Accordion", (test) => {

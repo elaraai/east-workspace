@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useMemo, useCallback } from "react";
+import { memo, useMemo, useCallback, useState, useEffect } from "react";
 import { Portal } from "@chakra-ui/react";
 import { Select as ChakraSelect, createListCollection, type SelectRootProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
@@ -49,12 +49,16 @@ export interface EastChakraSelectProps {
  * Renders an East UI Select value using Chakra UI Select component.
  */
 export const EastChakraSelect = memo(function EastChakraSelect({ value }: EastChakraSelectProps) {
-    const props = useMemo(() => toChakraSelect(value), [value]);
+    const [props, setProps] = useState(toChakraSelect(value));
     const placeholder = useMemo(() => getSomeorUndefined(value.placeholder), [value.placeholder]);
     const onChangeFn = useMemo(() => getSomeorUndefined(value.onChange), [value.onChange]);
     const onChangeMultipleFn = useMemo(() => getSomeorUndefined(value.onChangeMultiple), [value.onChangeMultiple]);
     const onOpenChangeFn = useMemo(() => getSomeorUndefined(value.onOpenChange), [value.onOpenChange]);
     const isMultiple = useMemo(() => getSomeorUndefined(value.multiple), [value.multiple]);
+
+    useEffect(() => {
+        setProps(() => toChakraSelect(value));
+    }, [value]);
 
     const collection = useMemo(() => {
         const items = value.items.map(item => ({
@@ -66,6 +70,7 @@ export const EastChakraSelect = memo(function EastChakraSelect({ value }: EastCh
     }, [value.items]);
 
     const handleValueChange = useCallback((details: { value: string[] }) => {
+        setProps(prev => ({ ...prev, value: details.value }));
         if (isMultiple && onChangeMultipleFn) {
             queueMicrotask(() => onChangeMultipleFn(details.value));
         } else if (!isMultiple && onChangeFn && details.value.length > 0) {
@@ -83,8 +88,8 @@ export const EastChakraSelect = memo(function EastChakraSelect({ value }: EastCh
         <ChakraSelect.Root
             collection={collection}
             {...props}
-            onValueChange={(onChangeFn || onChangeMultipleFn) ? handleValueChange : undefined}
-            onOpenChange={onOpenChangeFn ? handleOpenChange : undefined}
+            onValueChange={handleValueChange}
+            onOpenChange={handleOpenChange}
         >
             <ChakraSelect.HiddenSelect />
             <ChakraSelect.Control>

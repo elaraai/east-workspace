@@ -1,11 +1,10 @@
 {
   "name": "@elaraai/e3-ui-showcase",
-  "version": "0.0.1",
+  "version": "1.0.0-beta.0",
   "description": "E3 Ui Showcase",
   "type": "module",
   "scripts": {
-    "build": "tsc",
-    "main": "node --max-old-space-size=16000 ./dist/main.js",
+    "build": "node --max-old-space-size=16000 ./node_modules/typescript/bin/tsc",
     "test": "node --enable-source-maps --test 'dist/**/*.spec.js'",
     "test:export": "EXPORT_TEST_IR=/tmp/e3-ui-showcase-tests node --enable-source-maps --test 'dist/**/*.spec.js' 2>&1 | grep 'Exported test IR'",
     "lint": "eslint ."
@@ -15,7 +14,9 @@
     "@elaraai/east-node-std": "workspace:*",
     "@elaraai/east-node-io": "workspace:*",
     "@elaraai/e3": "workspace:*",
-    "@elaraai/e3-types": "workspace:*"
+    "@elaraai/e3-types": "workspace:*",
+    "@elaraai/e3-ui": "workspace:*",
+    "@elaraai/east-ui": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22",
@@ -24,5 +25,7 @@
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8"
   },
-  "engines": { "node": ">=22" }
+  "engines": {
+    "node": ">=22"
+  }
 }

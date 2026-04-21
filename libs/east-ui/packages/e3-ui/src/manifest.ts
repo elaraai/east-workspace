@@ -4,10 +4,8 @@
  */
 
 /**
- * Data manifest for UI tasks — declares which datasets a UI reads and writes.
- *
- * Encoded as beast2 and stored in the task's `metadata` blob.
- * Used by the browser for preloading and future visual editing.
+ * Data manifest for UI tasks — declares which datasets a UI binds to via
+ * `Data.bind()`. Stored as a beast2-encoded blob in the task's `metadata`.
  *
  * @packageDocumentation
  */
@@ -18,12 +16,10 @@ import { TreePathType } from '@elaraai/e3-types';
 /**
  * East type for the UI binding manifest.
  *
- * @property reads - Dataset paths this UI reads reactively
- * @property writes - Input paths this UI can write to
+ * @property paths - Dataset paths this UI accesses (read or write) via Data.bind.
  */
 export const DataManifestType = StructType({
-  reads: ArrayType(TreePathType),
-  writes: ArrayType(TreePathType),
+  paths: ArrayType(TreePathType),
 });
 
 export type DataManifest = ValueTypeOf<typeof DataManifestType>;

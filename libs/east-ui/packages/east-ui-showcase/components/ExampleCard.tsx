@@ -16,7 +16,15 @@ interface Example {
     inputs: unknown[];
 }
 
-export function ExampleCard({ name, example }: { name: string; example: Example }) {
+export function ExampleCard({
+    name,
+    example,
+    bodyHeight = "280px",
+}: {
+    name: string;
+    example: Example;
+    bodyHeight?: string;
+}) {
     const ir = useMemo(() => example.fn.toIR() as EastIR<[], typeof UIComponentType>, [example.fn]);
 
     return (
@@ -38,7 +46,7 @@ export function ExampleCard({ name, example }: { name: string; example: Example 
                     p="3"
                     bg="white"
                     _dark={{ bg: "gray.800" }}
-                    h="280px"
+                    h={bodyHeight}
                     overflow="hidden"
                 >
                     <EastFunction ir={ir} storageKey={`example-${name}`} />

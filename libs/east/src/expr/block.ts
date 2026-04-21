@@ -92,7 +92,10 @@ export function fromAst<T extends AST>(ast: T): Expr<T["type"]> {
  * @returns the compiled function
  */
 export function compile<I extends any[], O>(f: FunctionExpr<I, O>, platform: PlatformFunction[]): (...inputs: { [K in keyof I]: ValueTypeOf<I[K]> }) => ValueTypeOf<O>  {
-  return ensure_source_map(() => f.toIR().compile(platform));
+  // EastIR.compile activates the SourceMap attached to the IR (captured at
+  // East.function build time) so loc_ids resolve end-to-end without the
+  // caller needing to manage scopes.
+  return f.toIR().compile(platform);
 }
 
 /**
@@ -103,7 +106,7 @@ export function compile<I extends any[], O>(f: FunctionExpr<I, O>, platform: Pla
  * @returns the compiled async function
  */
 export function compileAsync<I extends any[], O>(f: AsyncFunctionExpr<I, O>, platform: PlatformFunction[]): (...inputs: { [K in keyof I]: ValueTypeOf<I[K]> }) => Promise<ValueTypeOf<O>>  {
-  return ensure_source_map(() => f.toIR().compile(platform));
+  return f.toIR().compile(platform);
 }
 
 /**

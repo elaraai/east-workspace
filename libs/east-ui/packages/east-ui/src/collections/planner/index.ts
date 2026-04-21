@@ -336,9 +336,11 @@ type ColumnSpec<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
     | (keyof DataFields<NoInfer<T>>)[]
     | { [K in keyof DataFields<NoInfer<T>>]?: TableColumnConfig<DataFields<NoInfer<T>>[K], DataRowType<NoInfer<T>>> };
 
-// Extract column key strings from a ColumnSpec value
-type ColumnKeys<T extends SubtypeExprOrValue<ArrayType<StructType>>, C extends ColumnSpec<T>> =
-    C extends (infer K)[] ? K & string : C extends object ? Extract<keyof C, string> : string;
+// Every key in the data struct is a valid column key. Deriving from T (rather
+// than the columns object) keeps inference reliable when the column configs
+// contain render functions or complex field types.
+type DataFieldKeys<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
+    Extract<keyof DataFields<NoInfer<T>>, string>;
 
 // ============================================================================
 // Main Planner Factory
@@ -383,7 +385,7 @@ function createPlanner<
     data: T,
     columns: C,
     events: (row: ExprType<RowElement<T>>) => SubtypeExprOrValue<ArrayType<PlannerEventType>>,
-    style?: PlannerStyle<ColumnKeys<T, NoInfer<C>>>,
+    style?: PlannerStyle<DataFieldKeys<T>>,
     eventPopover?: SubtypeExprOrValue<FunctionType<[EventPopoverContextType], UIComponentType>>
 ): ExprType<UIComponentType> {
     const data_expr = East.value(data) as ExprType<ArrayType<StructType>>;

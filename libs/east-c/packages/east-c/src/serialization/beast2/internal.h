@@ -3,7 +3,7 @@
  *
  * This header is private to the beast2 implementation and is not part of
  * the public east/serialization.h API.  It exposes shared helpers,
- * structs, and constants used across the beast2/*.c source files.
+ * structs, and constants used across the beast2 .c source files.
  */
 
 #ifndef BEAST2_INTERNAL_H
@@ -26,24 +26,24 @@
 /*  Tag bytes (defined in tags.c)                                      */
 /* ================================================================== */
 
-#define BEAST2_TAG_NULL      0x00
-#define BEAST2_TAG_STRING    0x01
-#define BEAST2_TAG_INTEGER   0x02
-#define BEAST2_TAG_FLOAT     0x03
-#define BEAST2_TAG_BOOLEAN   0x04
-#define BEAST2_TAG_DATETIME  0x05
-#define BEAST2_TAG_BLOB      0x06
-#define BEAST2_TAG_NEVER     0x07
-#define BEAST2_TAG_VARIANT   0x08
-#define BEAST2_TAG_STRUCT    0x09
-#define BEAST2_TAG_ARRAY     0x0A
-#define BEAST2_TAG_DICT      0x0B
-#define BEAST2_TAG_SET       0x0C
-#define BEAST2_TAG_REF       0x0D
-#define BEAST2_TAG_VECTOR    0x0E
-#define BEAST2_TAG_MATRIX    0x0F
-#define BEAST2_TAG_FUNCTION  0x10
-#define BEAST2_TAG_ASYNC_FN  0x11
+#define BEAST2_TAG_NULL 0x00
+#define BEAST2_TAG_STRING 0x01
+#define BEAST2_TAG_INTEGER 0x02
+#define BEAST2_TAG_FLOAT 0x03
+#define BEAST2_TAG_BOOLEAN 0x04
+#define BEAST2_TAG_DATETIME 0x05
+#define BEAST2_TAG_BLOB 0x06
+#define BEAST2_TAG_NEVER 0x07
+#define BEAST2_TAG_VARIANT 0x08
+#define BEAST2_TAG_STRUCT 0x09
+#define BEAST2_TAG_ARRAY 0x0A
+#define BEAST2_TAG_DICT 0x0B
+#define BEAST2_TAG_SET 0x0C
+#define BEAST2_TAG_REF 0x0D
+#define BEAST2_TAG_VECTOR 0x0E
+#define BEAST2_TAG_MATRIX 0x0F
+#define BEAST2_TAG_FUNCTION 0x10
+#define BEAST2_TAG_ASYNC_FN 0x11
 #define BEAST2_TAG_RECURSIVE 0x12
 
 /* Map EastTypeKind → tag byte */
@@ -77,7 +77,7 @@ double b2_read_float64_le(const uint8_t *data, size_t *offset);
 /* ================================================================== */
 
 typedef struct {
-    uint32_t hash;  /* 0 = empty slot */
+    uint32_t hash; /* 0 = empty slot */
     size_t idx;
 } Beast2StrEncSlot;
 
@@ -111,12 +111,12 @@ void string_table_dec_free(Beast2StringTableDec *t);
 
 typedef struct {
     uint8_t tag;
-    uint8_t *params;    /* varint-encoded parameters, or NULL for primitives */
+    uint8_t *params; /* varint-encoded parameters, or NULL for primitives */
     size_t params_len;
 } Beast2FlatEntry;
 
 typedef struct {
-    uintptr_t key;  /* EastType* or EastValue* pointer, 0 = empty */
+    uintptr_t key; /* EastType* or EastValue* pointer, 0 = empty */
     size_t idx;
 } Beast2PtrSlot;
 
@@ -136,16 +136,16 @@ typedef struct {
 
 typedef struct {
     EastType *root_type;
-    EastType **types;       /* reconstructed EastType* array (retained) */
+    EastType **types;        /* reconstructed EastType* array (retained) */
     EastValue **type_values; /* EastValue* via east_type_to_value (retained, for IR restore) */
     size_t count;
 } TypeTableResult;
 
 void flat_tt_init(Beast2FlatTypeTable *t);
 void flat_tt_free(Beast2FlatTypeTable *t);
-int  flat_tt_et_find(Beast2FlatTypeTable *t, EastType *type);
+int flat_tt_et_find(Beast2FlatTypeTable *t, EastType *type);
 size_t flat_tt_add_et(Beast2FlatTypeTable *t, EastType *type);
-int  flat_tt_etv_find(Beast2FlatTypeTable *t, EastValue *val);
+int flat_tt_etv_find(Beast2FlatTypeTable *t, EastValue *val);
 size_t flat_tt_add_etv(Beast2FlatTypeTable *t, EastValue *etv);
 void write_type_table_section(size_t root_idx, Beast2FlatTypeTable *t, ByteBuffer *buf);
 TypeTableResult read_type_table_section(const uint8_t *data, size_t len, size_t *offset);
@@ -158,7 +158,7 @@ void type_table_result_free(TypeTableResult *r);
 
 void write_source_map_section(EastSourceMap *sm, Beast2StringTableEnc *st, ByteBuffer *buf);
 EastSourceMap read_source_map_section(const uint8_t *data, size_t len, size_t *offset,
-                                         Beast2StringTableDec *st);
+                                      Beast2StringTableDec *st);
 void beast2_source_map_free(EastSourceMap *sm);
 
 
@@ -167,15 +167,15 @@ void beast2_source_map_free(EastSourceMap *sm);
 /* ================================================================== */
 
 /* Kind tags for value table entries */
-#define VT_TAG_ARRAY  0x0A
-#define VT_TAG_DICT   0x0B
-#define VT_TAG_SET    0x0C
-#define VT_TAG_REF    0x0D
+#define VT_TAG_ARRAY 0x0A
+#define VT_TAG_DICT 0x0B
+#define VT_TAG_SET 0x0C
+#define VT_TAG_REF 0x0D
 
 typedef struct {
-    uint8_t kind;       /* VT_TAG_ARRAY | VT_TAG_SET | VT_TAG_DICT | VT_TAG_REF */
-    EastType *type;     /* the mutable container's type */
-    EastValue *value;   /* the actual value */
+    uint8_t kind;     /* VT_TAG_ARRAY | VT_TAG_SET | VT_TAG_DICT | VT_TAG_REF */
+    EastType *type;   /* the mutable container's type */
+    EastValue *value; /* the actual value */
 } Beast2VTEntry;
 
 typedef struct {
@@ -191,20 +191,20 @@ typedef struct {
 void beast2_vt_init(Beast2ValueTable *vt);
 void beast2_vt_free(Beast2ValueTable *vt);
 void beast2_vt_walk(Beast2ValueTable *vt, EastValue *value, EastType *type,
-                     Beast2FlatTypeTable *tt);
-int  beast2_vt_find(Beast2ValueTable *vt, EastValue *value);
+                    Beast2FlatTypeTable *tt);
+int beast2_vt_find(Beast2ValueTable *vt, EastValue *value);
 
 /* Write value table section — declared after Beast2EncodeCtx (see below) */
 
 /* Read value table section (two-pass decode). Populates ctx->mutable_values. */
 typedef struct {
-    EastValue **values;   /* pre-allocated mutable containers by index */
+    EastValue **values; /* pre-allocated mutable containers by index */
     size_t count;
 } Beast2MutableValues;
 
 Beast2MutableValues read_value_table_section(const uint8_t *data, size_t len, size_t *offset,
-                                              EastType **types, size_t type_count,
-                                              Beast2StringTableDec *st);
+                                             EastType **types, size_t type_count,
+                                             Beast2StringTableDec *st);
 void beast2_mutable_values_free(Beast2MutableValues *mv);
 
 /* ================================================================== */
@@ -232,7 +232,7 @@ void write_value_table_section(Beast2ValueTable *vt, Beast2EncodeCtx *ctx, ByteB
  * EastValue pointer.  This enables O(1) pointer-equality caching downstream
  * (e.g. TypeCache in type_of_type.c). */
 typedef struct {
-    uint64_t hash;       /* 0 = empty slot */
+    uint64_t hash; /* 0 = empty slot */
     size_t byte_start;
     size_t byte_len;
     EastType *type;
@@ -282,12 +282,10 @@ void beast2_dec_ctx_free(Beast2DecodeCtx *ctx);
 /* ================================================================== */
 
 uint64_t hash_byte_range(const uint8_t *data, size_t len, uintptr_t type_ptr);
-EastValue *beast2_dedup_find(Beast2DecodeCtx *ctx, uint64_t hash,
-                              const uint8_t *data, size_t byte_start,
-                              size_t byte_len, EastType *type);
-void beast2_dedup_add(Beast2DecodeCtx *ctx, uint64_t hash,
-                       size_t byte_start, size_t byte_len,
-                       EastType *type, EastValue *value);
+EastValue *beast2_dedup_find(Beast2DecodeCtx *ctx, uint64_t hash, const uint8_t *data,
+                             size_t byte_start, size_t byte_len, EastType *type);
+void beast2_dedup_add(Beast2DecodeCtx *ctx, uint64_t hash, size_t byte_start, size_t byte_len,
+                      EastType *type, EastValue *value);
 
 #ifdef BEAST2_PROFILE_DEDUP
 double beast2_clock_us(void);
@@ -299,10 +297,8 @@ void beast2_dedup_print_stats(Beast2DecodeCtx *ctx);
 /*  Value encode/decode (value_encode.c / value_decode.c)               */
 /* ================================================================== */
 
-void beast2_encode_value(ByteBuffer *buf, EastValue *value,
-                          EastType *type, Beast2EncodeCtx *ctx);
-EastValue *beast2_decode_value(const uint8_t *data, size_t len,
-                                size_t *offset, EastType *type,
-                                Beast2DecodeCtx *ctx);
+void beast2_encode_value(ByteBuffer *buf, EastValue *value, EastType *type, Beast2EncodeCtx *ctx);
+EastValue *beast2_decode_value(const uint8_t *data, size_t len, size_t *offset, EastType *type,
+                               Beast2DecodeCtx *ctx);
 
 #endif /* BEAST2_INTERNAL_H */

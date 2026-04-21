@@ -21,7 +21,7 @@
 extern EastType *east_type_type;          // Recursive variant: 19 type cases
 extern EastType *east_literal_value_type; // Variant: 7 literal value cases
 extern EastType *east_ir_type;            // Recursive variant: 34 IR node cases
-extern EastType *east_ir_type_with_refs;  // IRType with EastTypeType → IntegerType (for type table)
+extern EastType *east_ir_type_with_refs; // IRType with EastTypeType → IntegerType (for type table)
 
 // Initialize the type descriptors. Call once at startup.
 void east_type_of_type_init(void);
@@ -40,9 +40,9 @@ IRNode *east_ir_from_value(EastValue *value);
 
 // Source map: array of location stacks for loc_id → location resolution.
 typedef struct EastSourceMap {
-    EastLocation **stacks;   // stacks[i] = array of EastLocation frames
-    size_t *stack_counts;    // stack_counts[i] = number of frames in stack i
-    size_t num_stacks;       // total number of stacks (including sentinel 0)
+    EastLocation **stacks; // stacks[i] = array of EastLocation frames
+    size_t *stack_counts;  // stack_counts[i] = number of frames in stack i
+    size_t num_stacks;     // total number of stacks (including sentinel 0)
 } EastSourceMap;
 
 // Free a source map's contents (stacks, stack_counts, filenames).
@@ -52,8 +52,7 @@ void east_source_map_free(EastSourceMap *sm);
 // Returns the location stack and count. Does NOT allocate — pointers
 // into the source map are returned directly. Returns NULL if loc_id
 // is 0 or out of range.
-const EastLocation *east_source_map_resolve(const EastSourceMap *sm,
-                                             int64_t loc_id,
-                                             size_t *out_count);
+const EastLocation *east_source_map_resolve(const EastSourceMap *sm, int64_t loc_id,
+                                            size_t *out_count);
 
 #endif

@@ -480,61 +480,7 @@ main();
 
 ## Workflow Updates
 
-### publish.yml Changes
-
-Add the CLI package to the publish workflow:
-
-```yaml
-on:
-  workflow_dispatch:
-    inputs:
-      publish_east_node_std:
-        description: 'Publish @elaraai/east-node-std'
-        required: true
-        default: true
-        type: boolean
-      publish_east_node_io:
-        description: 'Publish @elaraai/east-node-io'
-        required: true
-        default: true
-        type: boolean
-      publish_east_node_cli:
-        description: 'Publish @elaraai/east-node-cli'
-        required: true
-        default: true
-        type: boolean
-      # ... rest of config
-```
-
-Add publish step (CLI has no dependencies on other east-node packages):
-
-```yaml
-# 3. east-node-cli (no workspace dependencies - platforms are loaded dynamically)
-- name: Publish @elaraai/east-node-cli
-  if: ${{ inputs.publish_east_node_cli }}
-  run: npm publish --access public --provenance --tag ${{ inputs.npm_tag }}
-  working-directory: packages/east-node-cli
-```
-
-### Root package.json Updates
-
-Add to workspaces, build scripts, and version scripts:
-
-```json
-{
-  "scripts": {
-    "build": "npm run build -w @elaraai/east-node-std && npm run build -w @elaraai/east-node-io && npm run build -w @elaraai/east-node-cli",
-    "version:cli:prerelease": "npm version prerelease --preid=beta --workspace=@elaraai/east-node-cli --no-git-tag-version",
-    "version:cli:patch": "npm version patch --workspace=@elaraai/east-node-cli --no-git-tag-version",
-    "version:cli:minor": "npm version minor --workspace=@elaraai/east-node-cli --no-git-tag-version",
-    "version:cli:major": "npm version major --workspace=@elaraai/east-node-cli --no-git-tag-version",
-    "version:all:prerelease": "npm run version:monorepo:prerelease && npm run version:std:prerelease && npm run version:io:prerelease && npm run version:cli:prerelease",
-    "version:all:patch": "npm run version:monorepo:patch && npm run version:std:patch && npm run version:io:patch && npm run version:cli:patch",
-    "version:all:minor": "npm run version:monorepo:minor && npm run version:std:minor && npm run version:io:minor && npm run version:cli:minor",
-    "version:all:major": "npm run version:monorepo:major && npm run version:std:major && npm run version:io:major && npm run version:cli:major"
-  }
-}
-```
+The CLI is published alongside every other `@elaraai/*` npm package under a single unified version via the root `.github/workflows/npm-publish.yml` workflow. No per-package publish configuration is required.
 
 ## Usage Examples
 

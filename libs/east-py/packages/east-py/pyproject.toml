@@ -1,6 +1,6 @@
 [project]
 name = "east-py"
-version = "0.1.0"
+version = "1.0.0b0"
 description = "Python runtime for the East programming language"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -51,14 +51,31 @@ Repository = "https://github.com/elaraai/east-py"
 Issues = "https://github.com/elaraai/east-py/issues"
 
 [build-system]
-requires = ["setuptools>=69.0.0", "cython>=3.0.0", "numpy>=1.26.0"]
-build-backend = "setuptools.build_meta"
+requires = ["scikit-build-core>=0.10", "cython>=3.0.0", "numpy>=1.26.0"]
+build-backend = "scikit_build_core.build"
 
-[tool.setuptools.packages.find]
-include = ["east*"]
+# scikit-build-core drives the build via the CMakeLists.txt at this
+# package's root. Native code (Cython + east-c link) lives there; this
+# section only configures packaging-side concerns.
+[tool.scikit-build]
+cmake.version = ">=3.18"
+cmake.build-type = "Release"
+wheel.packages = ["east"]
+# Editable installs (pip install -e .) rebuild incrementally when sources
+# change. Re-importing picks up the new .so without an explicit reinstall.
+# build-dir keeps the cmake build tree in-tree so incremental builds work
+# across reinstalls (default is a temp dir that gets purged).
+editable.rebuild = true
+# Silence the per-import "Running cmake --build" message — it's noise
+# during normal use and pollutes captured stdout when downstream packages
+# invoke `python -c "import east; ..."` from their own CMakeLists.
+editable.verbose = false
+build-dir = "build/{wheel_tag}"
 
-[tool.setuptools.package-data]
-east = ["py.typed"]
+# Include .pxd files in the wheel + sdist so downstream packages
+# (east-py-std, east-py-datascience) can `cimport east._eastc` etc.
+sdist.include = ["east/**/*.pxd", "east/**/*.pyx", "east/py.typed"]
+wheel.exclude = ["east/**/*.c"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

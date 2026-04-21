@@ -10,11 +10,5 @@
   "exclude": [
     "node_modules",
     "dist"
-  ],
-  "references": [
-    { "path": "../e3" },
-    { "path": "../e3-cli" },
-    { "path": "../e3-api-client" },
-    { "path": "../e3-types" }
   ]
 }

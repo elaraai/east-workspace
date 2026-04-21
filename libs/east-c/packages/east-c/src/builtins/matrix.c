@@ -14,7 +14,8 @@
 /* ------------------------------------------------------------------ */
 /* Helper: call a function value                                      */
 /* ------------------------------------------------------------------ */
-static EastValue *call_fn(EastValue *fn, EastValue **call_args, size_t nargs) {
+static EastValue *call_fn(EastValue *fn, EastValue **call_args, size_t nargs)
+{
     EvalResult r = east_call(fn->data.function.compiled, call_args, nargs);
     if (r.status == EVAL_OK || r.status == EVAL_RETURN) return r.value;
     /* Propagate error from callback */
@@ -28,27 +29,27 @@ static EastValue *call_fn(EastValue *fn, EastValue **call_args, size_t nargs) {
 /* ------------------------------------------------------------------ */
 /* Helpers: element access based on type                               */
 /* ------------------------------------------------------------------ */
-static size_t elem_size(EastType *et) {
+static size_t elem_size(EastType *et)
+{
     if (et->kind == EAST_TYPE_FLOAT) return sizeof(double);
     if (et->kind == EAST_TYPE_INTEGER) return sizeof(int64_t);
     if (et->kind == EAST_TYPE_BOOLEAN) return sizeof(bool);
     return sizeof(double);
 }
 
-static EastValue *mat_get_elem(EastValue *mat, size_t r, size_t c) {
+static EastValue *mat_get_elem(EastValue *mat, size_t r, size_t c)
+{
     EastType *et = mat->data.matrix.elem_type;
     size_t cols = mat->data.matrix.cols;
     size_t idx = r * cols + c;
-    if (et->kind == EAST_TYPE_FLOAT)
-        return east_float(((double *)mat->data.matrix.data)[idx]);
-    if (et->kind == EAST_TYPE_INTEGER)
-        return east_integer(((int64_t *)mat->data.matrix.data)[idx]);
-    if (et->kind == EAST_TYPE_BOOLEAN)
-        return east_boolean(((bool *)mat->data.matrix.data)[idx]);
+    if (et->kind == EAST_TYPE_FLOAT) return east_float(((double *)mat->data.matrix.data)[idx]);
+    if (et->kind == EAST_TYPE_INTEGER) return east_integer(((int64_t *)mat->data.matrix.data)[idx]);
+    if (et->kind == EAST_TYPE_BOOLEAN) return east_boolean(((bool *)mat->data.matrix.data)[idx]);
     return east_null();
 }
 
-static void mat_set_elem(EastValue *mat, size_t r, size_t c, EastValue *val) {
+static void mat_set_elem(EastValue *mat, size_t r, size_t c, EastValue *val)
+{
     EastType *et = mat->data.matrix.elem_type;
     size_t cols = mat->data.matrix.cols;
     size_t idx = r * cols + c;
@@ -60,62 +61,48 @@ static void mat_set_elem(EastValue *mat, size_t r, size_t c, EastValue *val) {
         ((bool *)mat->data.matrix.data)[idx] = val->data.boolean;
 }
 
-/* ------------------------------------------------------------------ */
-/* Vector element helpers (reused from vector.c logic)                */
-/* ------------------------------------------------------------------ */
-static EastValue *vec_get_elem(EastValue *vec, size_t i) {
-    EastType *et = vec->data.vector.elem_type;
-    if (et->kind == EAST_TYPE_FLOAT)
-        return east_float(((double *)vec->data.vector.data)[i]);
-    if (et->kind == EAST_TYPE_INTEGER)
-        return east_integer(((int64_t *)vec->data.vector.data)[i]);
-    if (et->kind == EAST_TYPE_BOOLEAN)
-        return east_boolean(((bool *)vec->data.vector.data)[i]);
-    return east_null();
-}
-
 /* --- implementations --- */
 
-static EastValue *matrix_rows_impl(EastValue **args, size_t n) {
+static EastValue *matrix_rows_impl(EastValue **args, size_t n)
+{
     (void)n;
     return east_integer((int64_t)args[0]->data.matrix.rows);
 }
 
-static EastValue *matrix_cols_impl(EastValue **args, size_t n) {
+static EastValue *matrix_cols_impl(EastValue **args, size_t n)
+{
     (void)n;
     return east_integer((int64_t)args[0]->data.matrix.cols);
 }
 
-static EastValue *matrix_get_impl(EastValue **args, size_t n) {
+static EastValue *matrix_get_impl(EastValue **args, size_t n)
+{
     (void)n;
     int64_t row = args[1]->data.integer;
     int64_t col = args[2]->data.integer;
     EastValue *mat = args[0];
-    if (row < 0 || (size_t)row >= mat->data.matrix.rows ||
-        col < 0 || (size_t)col >= mat->data.matrix.cols) {
+    if (row < 0 || (size_t)row >= mat->data.matrix.rows || col < 0 ||
+        (size_t)col >= mat->data.matrix.cols) {
         char msg[128];
-        snprintf(msg, sizeof(msg),
-                 "Matrix index (%lld, %lld) out of bounds (%zux%zu)",
-                 (long long)row, (long long)col,
-                 mat->data.matrix.rows, mat->data.matrix.cols);
+        snprintf(msg, sizeof(msg), "Matrix index (%lld, %lld) out of bounds (%zux%zu)",
+                 (long long)row, (long long)col, mat->data.matrix.rows, mat->data.matrix.cols);
         east_builtin_error(msg);
         return NULL;
     }
     return mat_get_elem(mat, (size_t)row, (size_t)col);
 }
 
-static EastValue *matrix_set_impl(EastValue **args, size_t n) {
+static EastValue *matrix_set_impl(EastValue **args, size_t n)
+{
     (void)n;
     int64_t row = args[1]->data.integer;
     int64_t col = args[2]->data.integer;
     EastValue *mat = args[0];
-    if (row < 0 || (size_t)row >= mat->data.matrix.rows ||
-        col < 0 || (size_t)col >= mat->data.matrix.cols) {
+    if (row < 0 || (size_t)row >= mat->data.matrix.rows || col < 0 ||
+        (size_t)col >= mat->data.matrix.cols) {
         char msg[128];
-        snprintf(msg, sizeof(msg),
-                 "Matrix index (%lld, %lld) out of bounds (%zux%zu)",
-                 (long long)row, (long long)col,
-                 mat->data.matrix.rows, mat->data.matrix.cols);
+        snprintf(msg, sizeof(msg), "Matrix index (%lld, %lld) out of bounds (%zux%zu)",
+                 (long long)row, (long long)col, mat->data.matrix.rows, mat->data.matrix.cols);
         east_builtin_error(msg);
         return NULL;
     }
@@ -123,34 +110,35 @@ static EastValue *matrix_set_impl(EastValue **args, size_t n) {
     return east_null();
 }
 
-static EastValue *matrix_get_row_impl(EastValue **args, size_t n) {
+static EastValue *matrix_get_row_impl(EastValue **args, size_t n)
+{
     (void)n;
     EastValue *mat = args[0];
     int64_t row = args[1]->data.integer;
     if (row < 0 || (size_t)row >= mat->data.matrix.rows) {
         char msg[128];
-        snprintf(msg, sizeof(msg),
-                 "Matrix row %lld out of bounds (%zu rows)",
-                 (long long)row, mat->data.matrix.rows);
+        snprintf(msg, sizeof(msg), "Matrix row %lld out of bounds (%zu rows)", (long long)row,
+                 mat->data.matrix.rows);
         east_builtin_error(msg);
         return NULL;
     }
     size_t cols = mat->data.matrix.cols;
     EastValue *vec = east_vector_new(mat->data.matrix.elem_type, cols);
     size_t es = elem_size(mat->data.matrix.elem_type);
-    memcpy(vec->data.vector.data, (char *)mat->data.matrix.data + (size_t)row * cols * es, cols * es);
+    memcpy(vec->data.vector.data, (char *)mat->data.matrix.data + (size_t)row * cols * es,
+           cols * es);
     return vec;
 }
 
-static EastValue *matrix_get_col_impl(EastValue **args, size_t n) {
+static EastValue *matrix_get_col_impl(EastValue **args, size_t n)
+{
     (void)n;
     EastValue *mat = args[0];
     int64_t col = args[1]->data.integer;
     if (col < 0 || (size_t)col >= mat->data.matrix.cols) {
         char msg[128];
-        snprintf(msg, sizeof(msg),
-                 "Matrix column %lld out of bounds (%zu cols)",
-                 (long long)col, mat->data.matrix.cols);
+        snprintf(msg, sizeof(msg), "Matrix column %lld out of bounds (%zu cols)", (long long)col,
+                 mat->data.matrix.cols);
         east_builtin_error(msg);
         return NULL;
     }
@@ -170,7 +158,8 @@ static EastValue *matrix_get_col_impl(EastValue **args, size_t n) {
     return vec;
 }
 
-static EastValue *matrix_to_vector_impl(EastValue **args, size_t n) {
+static EastValue *matrix_to_vector_impl(EastValue **args, size_t n)
+{
     (void)n;
     EastValue *mat = args[0];
     size_t total = mat->data.matrix.rows * mat->data.matrix.cols;
@@ -180,7 +169,8 @@ static EastValue *matrix_to_vector_impl(EastValue **args, size_t n) {
     return vec;
 }
 
-static EastValue *matrix_from_array_impl(EastValue **args, size_t n) {
+static EastValue *matrix_from_array_impl(EastValue **args, size_t n)
+{
     (void)n;
     EastValue *arr = args[0];
     size_t rows = east_array_len(arr);
@@ -191,8 +181,10 @@ static EastValue *matrix_from_array_impl(EastValue **args, size_t n) {
     EastType *et = &east_float_type;
     if (cols > 0) {
         EastValue *first_elem = east_array_get(first_row, 0);
-        if (first_elem->kind == EAST_VAL_INTEGER) et = &east_integer_type;
-        else if (first_elem->kind == EAST_VAL_BOOLEAN) et = &east_boolean_type;
+        if (first_elem->kind == EAST_VAL_INTEGER)
+            et = &east_integer_type;
+        else if (first_elem->kind == EAST_VAL_BOOLEAN)
+            et = &east_boolean_type;
     }
     EastValue *mat = east_matrix_new(et, rows, cols);
     for (size_t r = 0; r < rows; r++) {
@@ -204,7 +196,8 @@ static EastValue *matrix_from_array_impl(EastValue **args, size_t n) {
     return mat;
 }
 
-static EastValue *matrix_to_array_impl(EastValue **args, size_t n) {
+static EastValue *matrix_to_array_impl(EastValue **args, size_t n)
+{
     (void)n;
     EastValue *mat = args[0];
     size_t rows = mat->data.matrix.rows;
@@ -226,7 +219,8 @@ static EastValue *matrix_to_array_impl(EastValue **args, size_t n) {
     return result;
 }
 
-static EastValue *matrix_transpose_impl(EastValue **args, size_t n) {
+static EastValue *matrix_transpose_impl(EastValue **args, size_t n)
+{
     (void)n;
     EastValue *mat = args[0];
     size_t rows = mat->data.matrix.rows;
@@ -245,7 +239,8 @@ static EastValue *matrix_transpose_impl(EastValue **args, size_t n) {
     return result;
 }
 
-static EastValue *matrix_zeros_impl(EastValue **args, size_t n) {
+static EastValue *matrix_zeros_impl(EastValue **args, size_t n)
+{
     (void)n;
     size_t rows = (size_t)args[0]->data.integer;
     size_t cols = (size_t)args[1]->data.integer;
@@ -254,24 +249,29 @@ static EastValue *matrix_zeros_impl(EastValue **args, size_t n) {
     return mat;
 }
 
-static EastValue *matrix_ones_impl(EastValue **args, size_t n) {
+static EastValue *matrix_ones_impl(EastValue **args, size_t n)
+{
     (void)n;
     size_t rows = (size_t)args[0]->data.integer;
     size_t cols = (size_t)args[1]->data.integer;
     EastValue *mat = east_matrix_new(&east_float_type, rows, cols);
     double *data = (double *)mat->data.matrix.data;
-    for (size_t i = 0; i < rows * cols; i++) data[i] = 1.0;
+    for (size_t i = 0; i < rows * cols; i++)
+        data[i] = 1.0;
     return mat;
 }
 
-static EastValue *matrix_fill_impl(EastValue **args, size_t n) {
+static EastValue *matrix_fill_impl(EastValue **args, size_t n)
+{
     (void)n;
     size_t rows = (size_t)args[0]->data.integer;
     size_t cols = (size_t)args[1]->data.integer;
     EastValue *val = args[2];
     EastType *et = &east_float_type;
-    if (val->kind == EAST_VAL_INTEGER) et = &east_integer_type;
-    else if (val->kind == EAST_VAL_BOOLEAN) et = &east_boolean_type;
+    if (val->kind == EAST_VAL_INTEGER)
+        et = &east_integer_type;
+    else if (val->kind == EAST_VAL_BOOLEAN)
+        et = &east_boolean_type;
     EastValue *mat = east_matrix_new(et, rows, cols);
     for (size_t r = 0; r < rows; r++)
         for (size_t c = 0; c < cols; c++)
@@ -279,7 +279,8 @@ static EastValue *matrix_fill_impl(EastValue **args, size_t n) {
     return mat;
 }
 
-static EastValue *matrix_map_elements_impl(EastValue **args, size_t n) {
+static EastValue *matrix_map_elements_impl(EastValue **args, size_t n)
+{
     (void)n;
     EastValue *mat = args[0];
     EastValue *fn = args[1];
@@ -291,9 +292,15 @@ static EastValue *matrix_map_elements_impl(EastValue **args, size_t n) {
             EastValue *elem = mat_get_elem(mat, r, c);
             EastValue *ri = east_integer((int64_t)r);
             EastValue *ci = east_integer((int64_t)c);
-            EastValue *call_args[] = { elem, ri, ci };
+            EastValue *call_args[] = {elem, ri, ci};
             EastValue *mapped = call_fn(fn, call_args, 3);
-            if (!mapped) { east_value_release(elem); east_value_release(ri); east_value_release(ci); east_value_release(result); return NULL; }
+            if (!mapped) {
+                east_value_release(elem);
+                east_value_release(ri);
+                east_value_release(ci);
+                east_value_release(result);
+                return NULL;
+            }
             mat_set_elem(result, r, c, mapped);
             east_value_release(elem);
             east_value_release(ri);
@@ -304,7 +311,8 @@ static EastValue *matrix_map_elements_impl(EastValue **args, size_t n) {
     return result;
 }
 
-static EastValue *matrix_map_rows_impl(EastValue **args, size_t n) {
+static EastValue *matrix_map_rows_impl(EastValue **args, size_t n)
+{
     (void)n;
     EastValue *mat = args[0];
     EastValue *fn = args[1];
@@ -320,11 +328,14 @@ static EastValue *matrix_map_rows_impl(EastValue **args, size_t n) {
         EastValue *row_vec = east_vector_new(et, cols);
         memcpy(row_vec->data.vector.data, (char *)mat->data.matrix.data + r * cols * es, cols * es);
         EastValue *ri = east_integer((int64_t)r);
-        EastValue *call_args[] = { row_vec, ri };
+        EastValue *call_args[] = {row_vec, ri};
         EastValue *result_vec = call_fn(fn, call_args, 2);
         if (!result_vec) {
-            for (size_t j = 0; j < r; j++) east_value_release(row_vecs[j]);
-            free(row_vecs); east_value_release(row_vec); east_value_release(ri);
+            for (size_t j = 0; j < r; j++)
+                east_value_release(row_vecs[j]);
+            free(row_vecs);
+            east_value_release(row_vec);
+            east_value_release(ri);
             return NULL;
         }
         row_vecs[r] = result_vec;
@@ -345,7 +356,8 @@ static EastValue *matrix_map_rows_impl(EastValue **args, size_t n) {
     return result;
 }
 
-static EastValue *matrix_to_rows_impl(EastValue **args, size_t n) {
+static EastValue *matrix_to_rows_impl(EastValue **args, size_t n)
+{
     (void)n;
     EastValue *mat = args[0];
     size_t rows = mat->data.matrix.rows;
@@ -364,7 +376,8 @@ static EastValue *matrix_to_rows_impl(EastValue **args, size_t n) {
     return result;
 }
 
-static EastValue *matrix_from_rows_impl(EastValue **args, size_t n) {
+static EastValue *matrix_from_rows_impl(EastValue **args, size_t n)
+{
     (void)n;
     EastValue *arr = args[0];
     size_t rows = east_array_len(arr);
@@ -383,27 +396,113 @@ static EastValue *matrix_from_rows_impl(EastValue **args, size_t n) {
 
 /* --- factory functions --- */
 
-static BuiltinImpl matrix_rows_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return matrix_rows_impl; }
-static BuiltinImpl matrix_cols_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return matrix_cols_impl; }
-static BuiltinImpl matrix_get_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return matrix_get_impl; }
-static BuiltinImpl matrix_set_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return matrix_set_impl; }
-static BuiltinImpl matrix_get_row_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return matrix_get_row_impl; }
-static BuiltinImpl matrix_get_col_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return matrix_get_col_impl; }
-static BuiltinImpl matrix_to_vector_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return matrix_to_vector_impl; }
-static BuiltinImpl matrix_from_array_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return matrix_from_array_impl; }
-static BuiltinImpl matrix_to_array_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return matrix_to_array_impl; }
-static BuiltinImpl matrix_transpose_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return matrix_transpose_impl; }
-static BuiltinImpl matrix_zeros_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return matrix_zeros_impl; }
-static BuiltinImpl matrix_ones_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return matrix_ones_impl; }
-static BuiltinImpl matrix_fill_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return matrix_fill_impl; }
-static BuiltinImpl matrix_map_elements_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return matrix_map_elements_impl; }
-static BuiltinImpl matrix_map_rows_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return matrix_map_rows_impl; }
-static BuiltinImpl matrix_to_rows_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return matrix_to_rows_impl; }
-static BuiltinImpl matrix_from_rows_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return matrix_from_rows_impl; }
+static BuiltinImpl matrix_rows_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return matrix_rows_impl;
+}
+static BuiltinImpl matrix_cols_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return matrix_cols_impl;
+}
+static BuiltinImpl matrix_get_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return matrix_get_impl;
+}
+static BuiltinImpl matrix_set_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return matrix_set_impl;
+}
+static BuiltinImpl matrix_get_row_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return matrix_get_row_impl;
+}
+static BuiltinImpl matrix_get_col_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return matrix_get_col_impl;
+}
+static BuiltinImpl matrix_to_vector_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return matrix_to_vector_impl;
+}
+static BuiltinImpl matrix_from_array_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return matrix_from_array_impl;
+}
+static BuiltinImpl matrix_to_array_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return matrix_to_array_impl;
+}
+static BuiltinImpl matrix_transpose_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return matrix_transpose_impl;
+}
+static BuiltinImpl matrix_zeros_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return matrix_zeros_impl;
+}
+static BuiltinImpl matrix_ones_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return matrix_ones_impl;
+}
+static BuiltinImpl matrix_fill_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return matrix_fill_impl;
+}
+static BuiltinImpl matrix_map_elements_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return matrix_map_elements_impl;
+}
+static BuiltinImpl matrix_map_rows_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return matrix_map_rows_impl;
+}
+static BuiltinImpl matrix_to_rows_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return matrix_to_rows_impl;
+}
+static BuiltinImpl matrix_from_rows_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return matrix_from_rows_impl;
+}
 
 /* --- registration --- */
 
-void east_register_matrix_builtins(BuiltinRegistry *reg) {
+void east_register_matrix_builtins(BuiltinRegistry *reg)
+{
     builtin_registry_register(reg, "MatrixRows", matrix_rows_factory);
     builtin_registry_register(reg, "MatrixCols", matrix_cols_factory);
     builtin_registry_register(reg, "MatrixGet", matrix_get_factory);

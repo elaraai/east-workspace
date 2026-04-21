@@ -3,8 +3,8 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { East, example, some, none } from "@elaraai/east";
-import { Chart, Box, UIComponentType } from "../../src/index.js";
+import { East, IntegerType, NullType, example, some, none } from "@elaraai/east";
+import { Box, Button, Chart, Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const barListBasic = example({
     keywords: ["Chart", "BarList", "ranking", "sort", "showValue"],
@@ -128,6 +128,35 @@ export const barListNoValues = example({
                 color: "orange.subtle",
             }),
         ], { width: "100%" });
+    }),
+    inputs: [],
+});
+
+export const barListInteractive = example({
+    keywords: ["Chart", "BarList", "Reactive", "State", "interactive", "counter"],
+    description: "BarList where the Cherry value is driven by a reactive counter",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const counter = $.let(State.bind([IntegerType], "barlist_counter", 0n));
+            const value = $.let(counter.read());
+            const inc = $.const(East.function([], NullType, $ => {
+                const cur = $.let(counter.read());
+                $(counter.write(cur.add(1n)));
+            }));
+            return Stack.VStack([
+                Box.Root([
+                    Chart.BarList([
+                        { name: "Apple", value: 320, color: some("red.subtle") },
+                        { name: "Banana", value: 180, color: some("yellow.subtle") },
+                        { name: "Cherry", value: value.toFloat().multiply(25.0).add(95.0), color: some("pink.subtle") },
+                    ], {
+                        sort: { by: "value", direction: "desc" },
+                        showValue: true,
+                    }),
+                ], { width: "100%" }),
+                Button.Root("Bump Cherry", { onClick: inc }),
+            ], { gap: "3", align: "stretch" });
+        }));
     }),
     inputs: [],
 });

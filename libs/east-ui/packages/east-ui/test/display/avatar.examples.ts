@@ -1,9 +1,9 @@
 /**
  * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under AGPL-3.0. See LICENSE file for details.
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, example } from "@elaraai/east";
-import { Avatar, Stack, UIComponentType } from "../../src/index.js";
+import { East, IntegerType, NullType, example } from "@elaraai/east";
+import { Avatar, Button, Reactive, Stack, State, UIComponentType } from "@elaraai/east-ui";
 
 export const avatarBasic = example({
     keywords: ["Avatar", "Root", "name", "basic"],
@@ -44,6 +44,26 @@ export const avatarColors = example({
             Avatar.Root({ name: "Blue User", colorPalette: "blue" }),
             Avatar.Root({ name: "Purple User", colorPalette: "purple" }),
         ], { gap: "2" });
+    }),
+    inputs: [],
+});
+
+export const avatarInteractive = example({
+    keywords: ["Avatar", "Reactive", "State", "interactive", "counter"],
+    description: "Avatar whose name changes from a counter",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const counter = $.let(State.bind([IntegerType], "avatar_counter", 0n));
+            const value = $.let(counter.read());
+            const inc = $.const(East.function([], NullType, $ => {
+                const cur = $.let(counter.read());
+                $(counter.write(cur.add(1n)));
+            }));
+            return Stack.VStack([
+                Avatar.Root({ name: East.str`User ${East.print(value)}`, size: "lg" }),
+                Button.Root("Cycle user", { onClick: inc }),
+            ], { gap: "3", align: "center" });
+        }));
     }),
     inputs: [],
 });

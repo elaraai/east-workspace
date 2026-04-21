@@ -1,9 +1,9 @@
 /**
  * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under AGPL-3.0. See LICENSE file for details.
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, example } from "@elaraai/east";
-import { Box, Separator, Stack, Text, UIComponentType } from "../../src/index.js";
+import { East, IntegerType, NullType, example } from "@elaraai/east";
+import { Box, Button, Reactive, Separator, Stack, State, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const separatorHorizontal = example({
     keywords: ["Separator", "Root", "orientation", "horizontal"],
@@ -123,6 +123,28 @@ export const separatorFormDivider = example({
             }),
             Text.Root("Email and Phone fields..."),
         ], { gap: "3", width: "100%" });
+    }),
+    inputs: [],
+});
+
+export const separatorInteractive = example({
+    keywords: ["Separator", "Reactive", "State", "interactive", "label"],
+    description: "Separator whose label updates from a reactive counter",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const counter = $.let(State.bind([IntegerType], "separator_counter", 0n));
+            const value = $.let(counter.read());
+            const inc = $.const(East.function([], NullType, $ => {
+                const cur = $.let(counter.read());
+                $(counter.write(cur.add(1n)));
+            }));
+            return Stack.VStack([
+                Text.Root("Above"),
+                Separator.Root({ label: East.str`STEP ${East.print(value)}` }),
+                Text.Root("Below"),
+                Button.Root("Next step", { onClick: inc }),
+            ], { gap: "3", align: "stretch" });
+        }));
     }),
     inputs: [],
 });

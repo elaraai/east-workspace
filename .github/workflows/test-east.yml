@@ -35,10 +35,10 @@ jobs:
         run: pnpm install
 
       - name: Build east
-        run: pnpm turbo run build --filter=@elaraai/east
+        run: pnpm --filter=@elaraai/east run build
 
       - name: Lint
-        run: pnpm turbo run lint --filter=@elaraai/east
+        run: pnpm --filter=@elaraai/east run lint
 
       - name: Run tests
-        run: pnpm turbo run test --filter=@elaraai/east
+        run: pnpm --filter=@elaraai/east run test

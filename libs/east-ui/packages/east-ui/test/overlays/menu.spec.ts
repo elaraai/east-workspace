@@ -4,13 +4,15 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Menu, Button, Text } from "../../src/index.js";
+import { Menu, Button, Text } from "@elaraai/east-ui";
 import * as ex from "./menu.examples.js";
 
 describeEast("Menu", (test) => {
     Assert.examples(test, {
         menuBasic: ex.menuBasic,
         menuDisabled: ex.menuDisabled,
+        menuOnSelect: ex.menuOnSelect,
+        menuOnOpenChange: ex.menuOnOpenChange,
     });
 
     // =========================================================================

@@ -13,7 +13,7 @@
  */
 
 import { East, NullType, BooleanType, FunctionType, StructType } from '@elaraai/east';
-import { TreePathType } from '@elaraai/e3-types';
+import { TreePathType, DatasetStatusType } from '@elaraai/e3-types';
 
 /**
  * Bind to an e3 dataset by path, returning reactive accessors.
@@ -47,8 +47,26 @@ const data_bind = East.genericPlatform("data_bind", ["T"], [TreePathType],
   StructType({
     read: FunctionType([], "T"),
     write: FunctionType(["T"], NullType),
+    /**
+     * Like `write`, but also kicks off a workspace dataflow run so downstream
+     * tasks recompute against the new value. Use for terminal user actions
+     * (e.g. a Slider's `onChangeEnd`); use plain `write` for high-frequency
+     * optimistic updates where you don't want every tick to drive the
+     * dataflow.
+     */
+    writeAndStart: FunctionType(["T"], NullType),
     has: FunctionType([], BooleanType),
-  })
+    /**
+     * Per-dataset freshness signal — same vocabulary as the e3 platform's
+     * `DatasetStatusType` ("unset" | "stale" | "up-to-date"). Becomes "stale"
+     * the moment a local write fires (optimistic), flips to "up-to-date" once
+     * the server confirms. Downstream task outputs flip to "stale" while their
+     * producing tasks catch up with new inputs. UIs can pattern-match this to
+     * disable controls during in-flight writes / pending recomputations.
+     */
+    status: FunctionType([], DatasetStatusType),
+  }),
+  { optional: true }
 );
 
 /**

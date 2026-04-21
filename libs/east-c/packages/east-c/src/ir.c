@@ -7,7 +7,8 @@
 /*  Internal helpers                                                    */
 /* ------------------------------------------------------------------ */
 
-static IRNode *ir_alloc(IRNodeKind kind, EastType *type) {
+static IRNode *ir_alloc(IRNodeKind kind, EastType *type)
+{
     IRNode *node = calloc(1, sizeof(IRNode));
     if (!node) return NULL;
     node->kind = kind;
@@ -17,7 +18,8 @@ static IRNode *ir_alloc(IRNodeKind kind, EastType *type) {
     return node;
 }
 
-static IRVariable ir_variable_dup(const IRVariable *src) {
+static IRVariable ir_variable_dup(const IRVariable *src)
+{
     IRVariable v;
     v.name = src->name ? strdup(src->name) : NULL;
     v.mutable = src->mutable;
@@ -26,18 +28,21 @@ static IRVariable ir_variable_dup(const IRVariable *src) {
     return v;
 }
 
-static void ir_variable_free(IRVariable *v) {
+static void ir_variable_free(IRVariable *v)
+{
     free(v->name);
     v->name = NULL;
 }
 
-static void ir_label_free(IRLabel *l) {
+static void ir_label_free(IRLabel *l)
+{
     free(l->name);
     l->name = NULL;
 }
 
 /* Duplicate an array of IRVariable structs (deep-copies names). */
-static IRVariable *ir_variables_dup(const IRVariable *src, size_t count) {
+static IRVariable *ir_variables_dup(const IRVariable *src, size_t count)
+{
     if (count == 0 || !src) return NULL;
     IRVariable *dst = malloc(count * sizeof(IRVariable));
     if (!dst) return NULL;
@@ -48,7 +53,8 @@ static IRVariable *ir_variables_dup(const IRVariable *src, size_t count) {
 }
 
 /* Duplicate an array of IRNode pointers, retaining each. */
-static IRNode **ir_nodes_dup(IRNode **src, size_t count) {
+static IRNode **ir_nodes_dup(IRNode **src, size_t count)
+{
     if (count == 0 || !src) return NULL;
     IRNode **dst = malloc(count * sizeof(IRNode *));
     if (!dst) return NULL;
@@ -60,7 +66,8 @@ static IRNode **ir_nodes_dup(IRNode **src, size_t count) {
 }
 
 /* Duplicate an array of EastType pointers, retaining each. */
-static EastType **ir_types_dup(EastType **src, size_t count) {
+static EastType **ir_types_dup(EastType **src, size_t count)
+{
     if (count == 0 || !src) return NULL;
     EastType **dst = malloc(count * sizeof(EastType *));
     if (!dst) return NULL;
@@ -75,7 +82,8 @@ static EastType **ir_types_dup(EastType **src, size_t count) {
 /*  Builder functions                                                   */
 /* ------------------------------------------------------------------ */
 
-IRNode *ir_value(EastType *type, EastValue *value) {
+IRNode *ir_value(EastType *type, EastValue *value)
+{
     IRNode *n = ir_alloc(IR_VALUE, type);
     if (!n) return NULL;
     n->data.value.value = value;
@@ -83,7 +91,8 @@ IRNode *ir_value(EastType *type, EastValue *value) {
     return n;
 }
 
-IRNode *ir_variable(EastType *type, const char *name, bool mutable, bool captured) {
+IRNode *ir_variable(EastType *type, const char *name, bool mutable, bool captured)
+{
     IRNode *n = ir_alloc(IR_VARIABLE, type);
     if (!n) return NULL;
     n->data.variable.name = name ? strdup(name) : NULL;
@@ -92,7 +101,8 @@ IRNode *ir_variable(EastType *type, const char *name, bool mutable, bool capture
     return n;
 }
 
-IRNode *ir_let(EastType *type, const char *var_name, bool mutable, bool captured, IRNode *value) {
+IRNode *ir_let(EastType *type, const char *var_name, bool mutable, bool captured, IRNode *value)
+{
     IRNode *n = ir_alloc(IR_LET, type);
     if (!n) return NULL;
     n->data.let.var.name = var_name ? strdup(var_name) : NULL;
@@ -103,7 +113,8 @@ IRNode *ir_let(EastType *type, const char *var_name, bool mutable, bool captured
     return n;
 }
 
-IRNode *ir_assign(EastType *type, const char *name, IRNode *value) {
+IRNode *ir_assign(EastType *type, const char *name, IRNode *value)
+{
     IRNode *n = ir_alloc(IR_ASSIGN, type);
     if (!n) return NULL;
     n->data.assign.var.name = name ? strdup(name) : NULL;
@@ -113,7 +124,8 @@ IRNode *ir_assign(EastType *type, const char *name, IRNode *value) {
     return n;
 }
 
-IRNode *ir_block(EastType *type, IRNode **stmts, size_t num_stmts) {
+IRNode *ir_block(EastType *type, IRNode **stmts, size_t num_stmts)
+{
     IRNode *n = ir_alloc(IR_BLOCK, type);
     if (!n) return NULL;
     n->data.block.stmts = ir_nodes_dup(stmts, num_stmts);
@@ -121,7 +133,8 @@ IRNode *ir_block(EastType *type, IRNode **stmts, size_t num_stmts) {
     return n;
 }
 
-IRNode *ir_if_else(EastType *type, IRNode *cond, IRNode *then_b, IRNode *else_b) {
+IRNode *ir_if_else(EastType *type, IRNode *cond, IRNode *then_b, IRNode *else_b)
+{
     IRNode *n = ir_alloc(IR_IF_ELSE, type);
     if (!n) return NULL;
     n->data.if_else.cond = cond;
@@ -133,7 +146,8 @@ IRNode *ir_if_else(EastType *type, IRNode *cond, IRNode *then_b, IRNode *else_b)
     return n;
 }
 
-IRNode *ir_match(EastType *type, IRNode *expr, IRMatchCase *cases, size_t num_cases) {
+IRNode *ir_match(EastType *type, IRNode *expr, IRMatchCase *cases, size_t num_cases)
+{
     IRNode *n = ir_alloc(IR_MATCH, type);
     if (!n) return NULL;
     n->data.match.expr = expr;
@@ -154,7 +168,8 @@ IRNode *ir_match(EastType *type, IRNode *expr, IRMatchCase *cases, size_t num_ca
     return n;
 }
 
-IRNode *ir_while(EastType *type, IRNode *cond, IRNode *body, const char *label) {
+IRNode *ir_while(EastType *type, IRNode *cond, IRNode *body, const char *label)
+{
     IRNode *n = ir_alloc(IR_WHILE, type);
     if (!n) return NULL;
     n->data.while_.cond = cond;
@@ -165,8 +180,9 @@ IRNode *ir_while(EastType *type, IRNode *cond, IRNode *body, const char *label) 
     return n;
 }
 
-IRNode *ir_for_array(EastType *type, const char *var, const char *idx,
-                     IRNode *array, IRNode *body, const char *label) {
+IRNode *ir_for_array(EastType *type, const char *var, const char *idx, IRNode *array, IRNode *body,
+                     const char *label)
+{
     IRNode *n = ir_alloc(IR_FOR_ARRAY, type);
     if (!n) return NULL;
     n->data.for_array.var.name = var ? strdup(var) : NULL;
@@ -179,8 +195,8 @@ IRNode *ir_for_array(EastType *type, const char *var, const char *idx,
     return n;
 }
 
-IRNode *ir_for_set(EastType *type, const char *var, IRNode *set,
-                   IRNode *body, const char *label) {
+IRNode *ir_for_set(EastType *type, const char *var, IRNode *set, IRNode *body, const char *label)
+{
     IRNode *n = ir_alloc(IR_FOR_SET, type);
     if (!n) return NULL;
     n->data.for_set.var.name = var ? strdup(var) : NULL;
@@ -192,8 +208,9 @@ IRNode *ir_for_set(EastType *type, const char *var, IRNode *set,
     return n;
 }
 
-IRNode *ir_for_dict(EastType *type, const char *key, const char *val,
-                    IRNode *dict, IRNode *body, const char *label) {
+IRNode *ir_for_dict(EastType *type, const char *key, const char *val, IRNode *dict, IRNode *body,
+                    const char *label)
+{
     IRNode *n = ir_alloc(IR_FOR_DICT, type);
     if (!n) return NULL;
     n->data.for_dict.key.name = key ? strdup(key) : NULL;
@@ -206,10 +223,10 @@ IRNode *ir_for_dict(EastType *type, const char *key, const char *val,
     return n;
 }
 
-static IRNode *ir_function_impl(IRNodeKind kind, EastType *type,
-                                IRVariable *captures, size_t num_captures,
-                                IRVariable *params, size_t num_params,
-                                IRNode *body) {
+static IRNode *ir_function_impl(IRNodeKind kind, EastType *type, IRVariable *captures,
+                                size_t num_captures, IRVariable *params, size_t num_params,
+                                IRNode *body)
+{
     IRNode *n = ir_alloc(kind, type);
     if (!n) return NULL;
     n->data.function.captures = ir_variables_dup(captures, num_captures);
@@ -221,20 +238,22 @@ static IRNode *ir_function_impl(IRNodeKind kind, EastType *type,
     return n;
 }
 
-IRNode *ir_function(EastType *type, IRVariable *captures, size_t num_captures,
-                    IRVariable *params, size_t num_params, IRNode *body) {
-    return ir_function_impl(IR_FUNCTION, type, captures, num_captures,
-                            params, num_params, body);
+IRNode *ir_function(EastType *type, IRVariable *captures, size_t num_captures, IRVariable *params,
+                    size_t num_params, IRNode *body)
+{
+    return ir_function_impl(IR_FUNCTION, type, captures, num_captures, params, num_params, body);
 }
 
 IRNode *ir_async_function(EastType *type, IRVariable *captures, size_t num_captures,
-                          IRVariable *params, size_t num_params, IRNode *body) {
-    return ir_function_impl(IR_ASYNC_FUNCTION, type, captures, num_captures,
-                            params, num_params, body);
+                          IRVariable *params, size_t num_params, IRNode *body)
+{
+    return ir_function_impl(IR_ASYNC_FUNCTION, type, captures, num_captures, params, num_params,
+                            body);
 }
 
-static IRNode *ir_call_impl(IRNodeKind kind, EastType *type, IRNode *func,
-                            IRNode **args, size_t num_args) {
+static IRNode *ir_call_impl(IRNodeKind kind, EastType *type, IRNode *func, IRNode **args,
+                            size_t num_args)
+{
     IRNode *n = ir_alloc(kind, type);
     if (!n) return NULL;
     n->data.call.func = func;
@@ -244,18 +263,19 @@ static IRNode *ir_call_impl(IRNodeKind kind, EastType *type, IRNode *func,
     return n;
 }
 
-IRNode *ir_call(EastType *type, IRNode *func, IRNode **args, size_t num_args) {
+IRNode *ir_call(EastType *type, IRNode *func, IRNode **args, size_t num_args)
+{
     return ir_call_impl(IR_CALL, type, func, args, num_args);
 }
 
-IRNode *ir_call_async(EastType *type, IRNode *func, IRNode **args, size_t num_args) {
+IRNode *ir_call_async(EastType *type, IRNode *func, IRNode **args, size_t num_args)
+{
     return ir_call_impl(IR_CALL_ASYNC, type, func, args, num_args);
 }
 
-IRNode *ir_platform(EastType *type, const char *name,
-                    EastType **type_params, size_t num_tp,
-                    IRNode **args, size_t num_args, bool is_async,
-                    bool optional) {
+IRNode *ir_platform(EastType *type, const char *name, EastType **type_params, size_t num_tp,
+                    IRNode **args, size_t num_args, bool is_async, bool optional)
+{
     IRNode *n = ir_alloc(IR_PLATFORM, type);
     if (!n) return NULL;
     n->data.platform.name = name ? strdup(name) : NULL;
@@ -268,9 +288,9 @@ IRNode *ir_platform(EastType *type, const char *name,
     return n;
 }
 
-IRNode *ir_builtin(EastType *type, const char *name,
-                   EastType **type_params, size_t num_tp,
-                   IRNode **args, size_t num_args) {
+IRNode *ir_builtin(EastType *type, const char *name, EastType **type_params, size_t num_tp,
+                   IRNode **args, size_t num_args)
+{
     IRNode *n = ir_alloc(IR_BUILTIN, type);
     if (!n) return NULL;
     n->data.builtin.name = name ? strdup(name) : NULL;
@@ -281,7 +301,8 @@ IRNode *ir_builtin(EastType *type, const char *name,
     return n;
 }
 
-IRNode *ir_return(EastType *type, IRNode *value) {
+IRNode *ir_return(EastType *type, IRNode *value)
+{
     IRNode *n = ir_alloc(IR_RETURN, type);
     if (!n) return NULL;
     n->data.return_.value = value;
@@ -289,21 +310,24 @@ IRNode *ir_return(EastType *type, IRNode *value) {
     return n;
 }
 
-IRNode *ir_break(const char *label) {
+IRNode *ir_break(const char *label)
+{
     IRNode *n = ir_alloc(IR_BREAK, NULL);
     if (!n) return NULL;
     n->data.loop_ctrl.label.name = label ? strdup(label) : NULL;
     return n;
 }
 
-IRNode *ir_continue(const char *label) {
+IRNode *ir_continue(const char *label)
+{
     IRNode *n = ir_alloc(IR_CONTINUE, NULL);
     if (!n) return NULL;
     n->data.loop_ctrl.label.name = label ? strdup(label) : NULL;
     return n;
 }
 
-IRNode *ir_error(EastType *type, IRNode *message) {
+IRNode *ir_error(EastType *type, IRNode *message)
+{
     IRNode *n = ir_alloc(IR_ERROR, type);
     if (!n) return NULL;
     n->data.error.message = message;
@@ -311,9 +335,9 @@ IRNode *ir_error(EastType *type, IRNode *message) {
     return n;
 }
 
-IRNode *ir_try_catch(EastType *type, IRNode *try_body,
-                     const char *message_var, const char *stack_var,
-                     IRNode *catch_body, IRNode *finally_body) {
+IRNode *ir_try_catch(EastType *type, IRNode *try_body, const char *message_var,
+                     const char *stack_var, IRNode *catch_body, IRNode *finally_body)
+{
     IRNode *n = ir_alloc(IR_TRY_CATCH, type);
     if (!n) return NULL;
     n->data.try_catch.try_body = try_body;
@@ -327,8 +351,9 @@ IRNode *ir_try_catch(EastType *type, IRNode *try_body,
     return n;
 }
 
-static IRNode *ir_new_collection_impl(IRNodeKind kind, EastType *type,
-                                      IRNode **items, size_t num_items) {
+static IRNode *ir_new_collection_impl(IRNodeKind kind, EastType *type, IRNode **items,
+                                      size_t num_items)
+{
     IRNode *n = ir_alloc(kind, type);
     if (!n) return NULL;
     n->data.new_collection.items = ir_nodes_dup(items, num_items);
@@ -336,16 +361,18 @@ static IRNode *ir_new_collection_impl(IRNodeKind kind, EastType *type,
     return n;
 }
 
-IRNode *ir_new_array(EastType *type, IRNode **items, size_t num_items) {
+IRNode *ir_new_array(EastType *type, IRNode **items, size_t num_items)
+{
     return ir_new_collection_impl(IR_NEW_ARRAY, type, items, num_items);
 }
 
-IRNode *ir_new_set(EastType *type, IRNode **items, size_t num_items) {
+IRNode *ir_new_set(EastType *type, IRNode **items, size_t num_items)
+{
     return ir_new_collection_impl(IR_NEW_SET, type, items, num_items);
 }
 
-IRNode *ir_new_dict(EastType *type, IRNode **keys, IRNode **values,
-                    size_t num_pairs) {
+IRNode *ir_new_dict(EastType *type, IRNode **keys, IRNode **values, size_t num_pairs)
+{
     IRNode *n = ir_alloc(IR_NEW_DICT, type);
     if (!n) return NULL;
     n->data.new_dict.keys = ir_nodes_dup(keys, num_pairs);
@@ -354,7 +381,8 @@ IRNode *ir_new_dict(EastType *type, IRNode **keys, IRNode **values,
     return n;
 }
 
-IRNode *ir_new_ref(EastType *type, IRNode *value) {
+IRNode *ir_new_ref(EastType *type, IRNode *value)
+{
     IRNode *n = ir_alloc(IR_NEW_REF, type);
     if (!n) return NULL;
     n->data.new_ref.value = value;
@@ -362,7 +390,8 @@ IRNode *ir_new_ref(EastType *type, IRNode *value) {
     return n;
 }
 
-IRNode *ir_new_vector(EastType *type, IRNode **items, size_t num_items) {
+IRNode *ir_new_vector(EastType *type, IRNode **items, size_t num_items)
+{
     IRNode *n = ir_alloc(IR_NEW_VECTOR, type);
     if (!n) return NULL;
     n->data.new_vector.items = ir_nodes_dup(items, num_items);
@@ -370,8 +399,8 @@ IRNode *ir_new_vector(EastType *type, IRNode **items, size_t num_items) {
     return n;
 }
 
-IRNode *ir_new_matrix(EastType *type, IRNode **items, size_t num_items,
-                      size_t rows, size_t cols) {
+IRNode *ir_new_matrix(EastType *type, IRNode **items, size_t num_items, size_t rows, size_t cols)
+{
     IRNode *n = ir_alloc(IR_NEW_MATRIX, type);
     if (!n) return NULL;
     n->data.new_matrix.items = ir_nodes_dup(items, num_items);
@@ -381,16 +410,15 @@ IRNode *ir_new_matrix(EastType *type, IRNode **items, size_t num_items,
     return n;
 }
 
-IRNode *ir_struct(EastType *type, char **field_names, IRNode **field_values,
-                  size_t num_fields) {
+IRNode *ir_struct(EastType *type, char **field_names, IRNode **field_values, size_t num_fields)
+{
     IRNode *n = ir_alloc(IR_STRUCT, type);
     if (!n) return NULL;
     n->data.struct_.num_fields = num_fields;
     if (num_fields > 0) {
         n->data.struct_.field_names = malloc(num_fields * sizeof(char *));
         for (size_t i = 0; i < num_fields; i++) {
-            n->data.struct_.field_names[i] =
-                field_names[i] ? strdup(field_names[i]) : NULL;
+            n->data.struct_.field_names[i] = field_names[i] ? strdup(field_names[i]) : NULL;
         }
         n->data.struct_.field_values = ir_nodes_dup(field_values, num_fields);
     } else {
@@ -400,7 +428,8 @@ IRNode *ir_struct(EastType *type, char **field_names, IRNode **field_values,
     return n;
 }
 
-IRNode *ir_get_field(EastType *type, IRNode *expr, const char *field_name) {
+IRNode *ir_get_field(EastType *type, IRNode *expr, const char *field_name)
+{
     IRNode *n = ir_alloc(IR_GET_FIELD, type);
     if (!n) return NULL;
     n->data.get_field.expr = expr;
@@ -409,7 +438,8 @@ IRNode *ir_get_field(EastType *type, IRNode *expr, const char *field_name) {
     return n;
 }
 
-IRNode *ir_variant(EastType *type, const char *case_name, IRNode *value) {
+IRNode *ir_variant(EastType *type, const char *case_name, IRNode *value)
+{
     IRNode *n = ir_alloc(IR_VARIANT, type);
     if (!n) return NULL;
     n->data.variant.case_name = case_name ? strdup(case_name) : NULL;
@@ -418,7 +448,8 @@ IRNode *ir_variant(EastType *type, const char *case_name, IRNode *value) {
     return n;
 }
 
-IRNode *ir_wrap_recursive(EastType *type, IRNode *value) {
+IRNode *ir_wrap_recursive(EastType *type, IRNode *value)
+{
     IRNode *n = ir_alloc(IR_WRAP_RECURSIVE, type);
     if (!n) return NULL;
     n->data.recursive.value = value;
@@ -426,7 +457,8 @@ IRNode *ir_wrap_recursive(EastType *type, IRNode *value) {
     return n;
 }
 
-IRNode *ir_unwrap_recursive(EastType *type, IRNode *value) {
+IRNode *ir_unwrap_recursive(EastType *type, IRNode *value)
+{
     IRNode *n = ir_alloc(IR_UNWRAP_RECURSIVE, type);
     if (!n) return NULL;
     n->data.recursive.value = value;
@@ -442,11 +474,13 @@ IRNode *ir_unwrap_recursive(EastType *type, IRNode *value) {
 /*  Ref counting                                                        */
 /* ------------------------------------------------------------------ */
 
-void ir_node_retain(IRNode *node) {
+void ir_node_retain(IRNode *node)
+{
     if (node) __atomic_add_fetch(&node->ref_count, 1, __ATOMIC_RELAXED);
 }
 
-void ir_node_release(IRNode *node) {
+void ir_node_release(IRNode *node)
+{
     if (!node) return;
     if (__atomic_sub_fetch(&node->ref_count, 1, __ATOMIC_ACQ_REL) > 0) return;
 
@@ -458,8 +492,7 @@ void ir_node_release(IRNode *node) {
     /* Release kind-specific data. */
     switch (node->kind) {
     case IR_VALUE:
-        if (node->data.value.value)
-            east_value_release(node->data.value.value);
+        if (node->data.value.value) east_value_release(node->data.value.value);
         break;
 
     case IR_VARIABLE:

@@ -9,7 +9,7 @@
     "e3-fuzz": "dist/index.js"
   },
   "scripts": {
-    "build": "tsc --build",
+    "build": "tsc",
     "test": "npm run fuzz -- -n 1 -v",
     "fuzz": "npm run build && node --enable-source-maps dist/index.js",
     "fuzz:quick": "npm run fuzz -- -n 1 -v",

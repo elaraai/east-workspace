@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Splitter, Style, Text } from "../../src/index.js";
+import { Splitter, Style, Text } from "@elaraai/east-ui";
 import * as ex from "./splitter.examples.js";
 
 describeEast("Splitter", (test) => {
@@ -16,6 +16,7 @@ describeEast("Splitter", (test) => {
         splitterAsymmetric: ex.splitterAsymmetric,
         splitterEditor: ex.splitterEditor,
         splitterInteractive: ex.splitterInteractive,
+        splitterOnResizeStartEnd: ex.splitterOnResizeStartEnd,
     });
 
     // Helper to create a simple text component (already returns UIComponentType)

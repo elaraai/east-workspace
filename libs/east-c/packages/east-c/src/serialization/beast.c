@@ -39,9 +39,7 @@
 /*  Magic header                                                       */
 /* ================================================================== */
 
-static const uint8_t BEAST_MAGIC[8] = {
-    0x45, 0x61, 0x73, 0x74, 0x00, 0xEA, 0x57, 0xFF
-};
+static const uint8_t BEAST_MAGIC[8] = {0x45, 0x61, 0x73, 0x74, 0x00, 0xEA, 0x57, 0xFF};
 
 /* ================================================================== */
 /*  Beast v1 Type Schema Encoding                                      */
@@ -53,20 +51,20 @@ static const uint8_t BEAST_MAGIC[8] = {
  *   8:Null  9:Set  10:String  11:Struct  13:Variant
  */
 
-#define BEAST_TYPE_ARRAY    0
-#define BEAST_TYPE_BLOB     1
-#define BEAST_TYPE_BOOLEAN  2
+#define BEAST_TYPE_ARRAY 0
+#define BEAST_TYPE_BLOB 1
+#define BEAST_TYPE_BOOLEAN 2
 #define BEAST_TYPE_DATETIME 3
-#define BEAST_TYPE_DICT     4
-#define BEAST_TYPE_FLOAT    5
-#define BEAST_TYPE_INTEGER  6
+#define BEAST_TYPE_DICT 4
+#define BEAST_TYPE_FLOAT 5
+#define BEAST_TYPE_INTEGER 6
 /* 7 is reserved */
-#define BEAST_TYPE_NULL     8
-#define BEAST_TYPE_SET      9
-#define BEAST_TYPE_STRING   10
-#define BEAST_TYPE_STRUCT   11
+#define BEAST_TYPE_NULL 8
+#define BEAST_TYPE_SET 9
+#define BEAST_TYPE_STRING 10
+#define BEAST_TYPE_STRUCT 11
 /* 12 is reserved */
-#define BEAST_TYPE_VARIANT  13
+#define BEAST_TYPE_VARIANT 13
 
 static void beast_encode_type(ByteBuffer *buf, EastType *type)
 {
@@ -164,8 +162,7 @@ static void beast_encode_type(ByteBuffer *buf, EastType *type)
     }
 }
 
-static EastType *beast_decode_type(const uint8_t *data, size_t len,
-                                   size_t *offset)
+static EastType *beast_decode_type(const uint8_t *data, size_t len, size_t *offset)
 {
     if (*offset >= len) return NULL;
 
@@ -220,7 +217,10 @@ static EastType *beast_decode_type(const uint8_t *data, size_t len,
         EastType *key = beast_decode_type(data, len, offset);
         if (!key) return NULL;
         EastType *val = beast_decode_type(data, len, offset);
-        if (!val) { east_type_release(key); return NULL; }
+        if (!val) {
+            east_type_release(key);
+            return NULL;
+        }
         EastType *t = east_dict_type(key, val);
         east_type_release(key);
         east_type_release(val);
@@ -290,16 +290,28 @@ static EastType *beast_decode_type(const uint8_t *data, size_t len,
             if (count >= cap) {
                 cap *= 2;
                 const char **new_names = realloc(names, cap * sizeof(char *));
-                EastType **new_types = realloc(types, cap * sizeof(EastType *));
-                if (!new_names || !new_types) {
+                if (!new_names) {
                     free(name);
                     east_type_release(ftype);
                     for (size_t i = 0; i < count; i++) {
                         free((char *)names[i]);
                         east_type_release(types[i]);
                     }
-                    if (new_names) free(new_names); else free(names);
-                    if (new_types) free(new_types); else free(types);
+                    free(names);
+                    free(types);
+                    return NULL;
+                }
+                names = new_names;
+                EastType **new_types = realloc(types, cap * sizeof(EastType *));
+                if (!new_types) {
+                    free(name);
+                    east_type_release(ftype);
+                    for (size_t i = 0; i < count; i++) {
+                        free((char *)names[i]);
+                        east_type_release(types[i]);
+                    }
+                    free(names);
+                    free(types);
                     return NULL;
                 }
                 names = new_names;
@@ -388,19 +400,30 @@ static EastType *beast_decode_type(const uint8_t *data, size_t len,
             if (count >= cap) {
                 cap *= 2;
                 const char **new_names = realloc(names, cap * sizeof(char *));
-                EastType **new_types = realloc(types, cap * sizeof(EastType *));
-                if (!new_names || !new_types) {
+                if (!new_names) {
                     free(name);
                     east_type_release(ctype);
                     for (size_t i = 0; i < count; i++) {
                         free((char *)names[i]);
                         east_type_release(types[i]);
                     }
-                    if (new_names) free(new_names); else free(names);
-                    if (new_types) free(new_types); else free(types);
+                    free(names);
+                    free(types);
                     return NULL;
                 }
                 names = new_names;
+                EastType **new_types = realloc(types, cap * sizeof(EastType *));
+                if (!new_types) {
+                    free(name);
+                    east_type_release(ctype);
+                    for (size_t i = 0; i < count; i++) {
+                        free((char *)names[i]);
+                        east_type_release(types[i]);
+                    }
+                    free(names);
+                    free(types);
+                    return NULL;
+                }
                 types = new_types;
             }
 
@@ -577,8 +600,7 @@ static uint64_t read_be_uint64(const uint8_t *data, size_t *offset)
 /*  Beast v1 Value Encoding                                            */
 /* ================================================================== */
 
-static void beast_encode_value(ByteBuffer *buf, EastValue *value,
-                               EastType *type)
+static void beast_encode_value(ByteBuffer *buf, EastValue *value, EastType *type)
 {
     if (!type) return;
 
@@ -602,8 +624,7 @@ static void beast_encode_value(ByteBuffer *buf, EastValue *value,
     case EAST_TYPE_STRING: {
         /* UTF-8 bytes followed by null terminator */
         size_t slen = value->data.string.len;
-        byte_buffer_write_bytes(buf, (const uint8_t *)value->data.string.data,
-                                slen);
+        byte_buffer_write_bytes(buf, (const uint8_t *)value->data.string.data, slen);
         byte_buffer_write_u8(buf, 0x00);
         break;
     }
@@ -666,7 +687,8 @@ static void beast_encode_value(ByteBuffer *buf, EastValue *value,
         for (size_t i = 0; i < nf; i++) {
             EastType *ftype = type->data.struct_.fields[i].type;
             EastValue *fval = (value->kind == EAST_VAL_STRUCT && i < value->data.struct_.num_fields)
-                            ? value->data.struct_.field_values[i] : NULL;
+                                  ? value->data.struct_.field_values[i]
+                                  : NULL;
             if (fval) {
                 beast_encode_value(buf, fval, ftype);
             } else {
@@ -684,8 +706,7 @@ static void beast_encode_value(ByteBuffer *buf, EastValue *value,
         size_t ci = value->data.variant.case_idx;
         byte_buffer_write_u8(buf, (uint8_t)ci);
         if (ci < type->data.variant.num_cases)
-            beast_encode_value(buf, value->data.variant.value,
-                               type->data.variant.cases[ci].type);
+            beast_encode_value(buf, value->data.variant.value, type->data.variant.cases[ci].type);
         break;
     }
 
@@ -705,8 +726,8 @@ static void beast_encode_value(ByteBuffer *buf, EastValue *value,
 /*  Beast v1 Value Decoding                                            */
 /* ================================================================== */
 
-static EastValue *beast_decode_value(const uint8_t *data, size_t len,
-                                     size_t *offset, EastType *type)
+static EastValue *beast_decode_value(const uint8_t *data, size_t len, size_t *offset,
+                                     EastType *type)
 {
     if (!type) return NULL;
 
@@ -769,7 +790,10 @@ static EastValue *beast_decode_value(const uint8_t *data, size_t len,
         while (*offset < len && data[*offset] == 0x01) {
             (*offset)++; /* consume 0x01 continuation byte */
             EastValue *elem = beast_decode_value(data, len, offset, elem_type);
-            if (!elem) { east_value_release(arr); return NULL; }
+            if (!elem) {
+                east_value_release(arr);
+                return NULL;
+            }
             east_array_push(arr, elem);
             east_value_release(elem);
         }
@@ -789,7 +813,10 @@ static EastValue *beast_decode_value(const uint8_t *data, size_t len,
         while (*offset < len && data[*offset] == 0x01) {
             (*offset)++; /* consume 0x01 continuation byte */
             EastValue *elem = beast_decode_value(data, len, offset, elem_type);
-            if (!elem) { east_value_release(set); return NULL; }
+            if (!elem) {
+                east_value_release(set);
+                return NULL;
+            }
             east_set_insert(set, elem);
             east_value_release(elem);
         }
@@ -810,7 +837,10 @@ static EastValue *beast_decode_value(const uint8_t *data, size_t len,
         while (*offset < len && data[*offset] == 0x01) {
             (*offset)++; /* consume 0x01 continuation byte */
             EastValue *k = beast_decode_value(data, len, offset, key_type);
-            if (!k) { east_value_release(dict); return NULL; }
+            if (!k) {
+                east_value_release(dict);
+                return NULL;
+            }
             EastValue *v = beast_decode_value(data, len, offset, val_type);
             if (!v) {
                 east_value_release(k);
@@ -871,8 +901,7 @@ static EastValue *beast_decode_value(const uint8_t *data, size_t len,
         /* case_idx already numeric from the byte */
         EastType *case_type = type->data.variant.cases[case_idx].type;
 
-        EastValue *case_value = beast_decode_value(data, len, offset,
-                                                   case_type);
+        EastValue *case_value = beast_decode_value(data, len, offset, case_type);
         if (!case_value) return NULL;
 
         EastValue *result = east_variant_new_idx(case_idx, case_value, type);

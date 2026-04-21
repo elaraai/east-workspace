@@ -1,9 +1,9 @@
 /**
  * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under AGPL-3.0. See LICENSE file for details.
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, example } from "@elaraai/east";
-import { Link, Stack, Text, UIComponentType } from "../../src/index.js";
+import { East, IntegerType, NullType, example } from "@elaraai/east";
+import { Button, Link, Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const linkBasic = example({
     keywords: ["Link", "Root", "basic", "hyperlink"],
@@ -77,6 +77,27 @@ export const linkCombined = example({
             variant: "underline",
             colorPalette: "blue",
         });
+    }),
+    inputs: [],
+});
+
+export const linkInteractive = example({
+    keywords: ["Link", "Reactive", "State", "interactive", "counter"],
+    description: "Reactive link whose label updates from a counter",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const counter = $.let(State.bind([IntegerType], "link_counter", 0n));
+            const value = $.let(counter.read());
+            const increment = $.const(East.function([], NullType, $ => {
+                const cur = $.let(counter.read());
+                $(counter.write(cur.add(1n)));
+            }));
+            return Stack.VStack([
+                Text.Root("Click the button to relabel the link:"),
+                Link.Root(East.str`Visited ${East.print(value)} times — click here`, "https://example.com", { external: true }),
+                Button.Root("Bump label", { onClick: increment }),
+            ], { gap: "3", align: "stretch" });
+        }));
     }),
     inputs: [],
 });

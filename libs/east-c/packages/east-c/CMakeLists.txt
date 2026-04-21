@@ -39,7 +39,6 @@ add_library(east-c
     src/serialization/csv.c
     src/serialization/east_parser.c
     src/serialization/east_printer.c
-    src/serialization/east_tokenizer.c
     src/serialization/binary_utils.c
     src/type_of_type.c
 )
@@ -53,6 +52,9 @@ if(EAST_USE_MIMALLOC AND NOT EMSCRIPTEN AND TARGET mimalloc-static)
     target_compile_definitions(east-c PUBLIC EAST_USE_MIMALLOC=1)
 endif()
 
-# Compliance test runner (run via: make test-east-c)
-add_executable(test_compliance tests/test_compliance.c)
-target_link_libraries(test_compliance east-c)
+# Compliance test runner (run via: make test-east-c).
+# Not built in WASM configurations — the WASM target has its own test runner.
+if(NOT EMSCRIPTEN)
+    add_executable(test_compliance tests/test_compliance.c)
+    target_link_libraries(test_compliance east-c)
+endif()

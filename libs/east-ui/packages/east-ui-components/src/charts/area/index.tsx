@@ -5,7 +5,6 @@
 
 import { memo, useMemo } from "react";
 import { Chart, useChart } from "@chakra-ui/charts";
-import { Box } from "@chakra-ui/react";
 import { Area, AreaChart, CartesianGrid, Legend, Tooltip, XAxis, YAxis, Brush, ReferenceLine, ReferenceDot, ReferenceArea, ResponsiveContainer, type AreaProps } from "recharts";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Chart as EastChart } from "@elaraai/east-ui";

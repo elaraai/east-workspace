@@ -3,8 +3,8 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { East, example } from "@elaraai/east";
-import { Chart, Box, UIComponentType } from "../../src/index.js";
+import { East, IntegerType, NullType, example } from "@elaraai/east";
+import { Box, Button, Chart, Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const radarBasic = example({
     keywords: ["Chart", "Radar", "single series", "basic"],
@@ -111,6 +111,38 @@ export const radarHighOpacity = example({
                 }
             ),
         ], { height: "250px", width: "100%" });
+    }),
+    inputs: [],
+});
+
+export const radarInteractive = example({
+    keywords: ["Chart", "Radar", "Reactive", "State", "interactive", "counter"],
+    description: "Radar chart whose Power axis is driven by a reactive counter",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const counter = $.let(State.bind([IntegerType], "radar_counter", 0n));
+            const value = $.let(counter.read());
+            const inc = $.const(East.function([], NullType, $ => {
+                const cur = $.let(counter.read());
+                $(counter.write(cur.add(1n)));
+            }));
+            return Stack.VStack([
+                Box.Root([
+                    Chart.Radar(
+                        [
+                            { axis: "Speed", score: 80 },
+                            { axis: "Power", score: value.multiply(10).add(65) },
+                            { axis: "Range", score: 90 },
+                            { axis: "Comfort", score: 75 },
+                            { axis: "Style", score: 85 },
+                        ],
+                        { score: { color: "purple.solid" } },
+                        { dataKey: "axis", grid: { show: true }, fillOpacity: 0.4 },
+                    ),
+                ], { height: "260px", width: "100%" }),
+                Button.Root("Bump Power", { onClick: inc }),
+            ], { gap: "3", align: "stretch" });
+        }));
     }),
     inputs: [],
 });

@@ -5,7 +5,7 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { some } from "@elaraai/east";
-import { Chart } from "../../src/index.js";
+import { Chart } from "@elaraai/east-ui";
 import * as ex from "./bar-segment.examples.js";
 
 describeEast("Chart.BarSegment", (test) => {

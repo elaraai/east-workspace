@@ -1,19 +1,30 @@
 {
   "name": "@elaraai/e3-ui",
-  "version": "0.0.1",
+  "version": "1.0.0-beta.0",
   "description": "e3 + UI bridge — Data bindings, ui() task, manifest",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./ui": {
+      "types": "./dist/src/ui.d.ts",
+      "default": "./dist/src/ui.js"
+    },
+    "./examples/data": {
+      "types": "./dist/test/data.examples.d.ts",
+      "default": "./dist/test/data.examples.js"
     }
   },
   "files": [
-    "dist",
-    "!dist/src/**/*.spec.*",
+    "dist/src",
+    "dist/test/**/*.examples.*",
+    "!dist/**/*.spec.*",
     "README.md",
+    "CONTRIBUTING.md",
+    "CLA.md",
     "LICENSE.md"
   ],
   "scripts": {
@@ -26,11 +37,21 @@
     "url": "https://github.com/elaraai/east-ui.git",
     "directory": "packages/e3-ui"
   },
-  "keywords": ["east", "elara", "e3", "ui", "data", "bindings"],
+  "keywords": [
+    "east",
+    "elara",
+    "e3",
+    "ui",
+    "data",
+    "bindings"
+  ],
   "author": "Elara AI Pty Ltd",
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",
-  "engines": { "node": ">=22.0.0" },
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "dependencies": {
     "@elaraai/e3-types": "workspace:*"
   },
@@ -41,6 +62,7 @@
   },
   "devDependencies": {
     "@elaraai/e3": "workspace:*",
+    "@elaraai/east-node-std": "workspace:*",
     "@types/node": "^22",
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",

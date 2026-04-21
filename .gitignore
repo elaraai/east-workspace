@@ -8,9 +8,6 @@ pnpm-debug.log*
 .yarn/
 package-lock.json
 
-# Turbo
-.turbo/
-
 # Build output
 dist/
 build/
@@ -73,14 +70,13 @@ tools/emsdk/
 *.avro
 .e3/
 .package/
-east-py/
+/east-py/
 
 # Data files (in test dirs)
 *.csv
 *.json
 !package.json
 !tsconfig.json
-!turbo.json
 !pnpm-workspace.yaml
 
 # IDEs

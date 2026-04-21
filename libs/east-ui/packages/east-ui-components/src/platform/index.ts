@@ -19,14 +19,6 @@ export {
     createPersistentUIStore,
 } from "./state-store.js";
 
-// WASM backend (optional)
-export {
-    EastWasmProvider,
-    getWasm,
-    getWasmSync,
-    decodeBeast2Value,
-} from "./wasm.js";
-
 // State runtime implementations
 export {
     StateImpl,

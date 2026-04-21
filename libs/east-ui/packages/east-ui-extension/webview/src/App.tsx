@@ -5,7 +5,7 @@
 
 import { ChakraProvider, defaultSystem, Box, Flex } from '@chakra-ui/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { OverlayManagerProvider, EastWasmProvider } from '@elaraai/east-ui-components';
+import { OverlayManagerProvider } from '@elaraai/east-ui-components';
 import { E3Provider, useE3Context } from './context/E3Context';
 import { Toolbar } from './components/Toolbar';
 import { WorkspaceTree } from './components/WorkspaceTree';
@@ -74,13 +74,11 @@ export function App() {
     return (
         <QueryClientProvider client={queryClient}>
             <ChakraProvider value={defaultSystem}>
-                <EastWasmProvider>
-                    <OverlayManagerProvider>
-                        <E3Provider apiUrl={apiUrl} repoPath={repoPath}>
-                            <AppContent />
-                        </E3Provider>
-                    </OverlayManagerProvider>
-                </EastWasmProvider>
+                <OverlayManagerProvider>
+                    <E3Provider apiUrl={apiUrl} repoPath={repoPath}>
+                        <AppContent />
+                    </E3Provider>
+                </OverlayManagerProvider>
             </ChakraProvider>
         </QueryClientProvider>
     );

@@ -1,9 +1,9 @@
 /**
  * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under AGPL-3.0. See LICENSE file for details.
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { East, FloatType, NullType, StringType, variant, example } from "@elaraai/east";
-import { Badge, Planner, Stack, Table, Text, UIComponentType } from "../../src/index.js";
+import { Badge, Planner, Stack, Table, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const plannerBasic = example({
     keywords: ["Planner", "Root", "Event", "basic", "resource", "allocation"],

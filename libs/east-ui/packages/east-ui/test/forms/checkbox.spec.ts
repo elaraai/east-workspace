@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Checkbox, Style } from "../../src/index.js";
+import { Checkbox, Style } from "@elaraai/east-ui";
 import * as ex from "./checkbox.examples.js";
 
 describeEast("Checkbox", (test) => {

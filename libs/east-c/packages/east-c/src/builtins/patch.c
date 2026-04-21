@@ -28,7 +28,8 @@ static _Thread_local EastType *s_patch_type = NULL;
 static _Thread_local EastType *rec_stack[MAX_REC_DEPTH];
 static _Thread_local int rec_depth = 0;
 
-static bool in_rec_stack(EastType *t) {
+static bool in_rec_stack(EastType *t)
+{
     for (int i = 0; i < rec_depth; i++)
         if (rec_stack[i] == t) return true;
     return false;
@@ -37,23 +38,26 @@ static bool in_rec_stack(EastType *t) {
 /* Resolve type, unwrapping one level of recursion if not yet seen.
  * Returns the effective type to dispatch on.
  * Sets *replace_only = true if this is a recursive self-reference. */
-static EastType *resolve_type(EastType *t, bool *replace_only) {
+static EastType *resolve_type(EastType *t, bool *replace_only)
+{
     *replace_only = false;
-    if (!t) { *replace_only = true; return t; }
+    if (!t) {
+        *replace_only = true;
+        return t;
+    }
     if (t->kind != EAST_TYPE_RECURSIVE) return t;
     if (in_rec_stack(t)) {
         *replace_only = true;
         return t;
     }
     /* First encounter of this recursive wrapper — unwrap */
-    if (rec_depth < MAX_REC_DEPTH)
-        rec_stack[rec_depth++] = t;
+    if (rec_depth < MAX_REC_DEPTH) rec_stack[rec_depth++] = t;
     return t->data.recursive.node ? t->data.recursive.node : t;
 }
 
-static void pop_rec_if_pushed(EastType *t) {
-    if (t && t->kind == EAST_TYPE_RECURSIVE &&
-        rec_depth > 0 && rec_stack[rec_depth - 1] == t)
+static void pop_rec_if_pushed(EastType *t)
+{
+    if (t && t->kind == EAST_TYPE_RECURSIVE && rec_depth > 0 && rec_stack[rec_depth - 1] == t)
         rec_depth--;
 }
 
@@ -61,11 +65,13 @@ static void pop_rec_if_pushed(EastType *t) {
 /*  Variant helpers                                                    */
 /* ================================================================== */
 
-static EastValue *mk_unchanged(void) {
+static EastValue *mk_unchanged(void)
+{
     return east_variant_new("unchanged", east_null(), NULL);
 }
 
-static EastValue *mk_replace(EastValue *before, EastValue *after) {
+static EastValue *mk_replace(EastValue *before, EastValue *after)
+{
     const char *fn[] = {"after", "before"};
     EastValue *fv[] = {after, before};
     EastValue *s = east_struct_new(fn, fv, 2, NULL);
@@ -74,26 +80,30 @@ static EastValue *mk_replace(EastValue *before, EastValue *after) {
     return v;
 }
 
-static EastValue *mk_patch_v(EastValue *inner) {
+static EastValue *mk_patch_v(EastValue *inner)
+{
     EastValue *v = east_variant_new("patch", inner, NULL);
     east_value_release(inner);
     return v;
 }
 
-static bool is_tag(EastValue *v, const char *tag) {
-    return v && v->kind == EAST_VAL_VARIANT &&
-           strcmp(east_variant_case_name(v), tag) == 0;
+static bool is_tag(EastValue *v, const char *tag)
+{
+    return v && v->kind == EAST_VAL_VARIANT && strcmp(east_variant_case_name(v), tag) == 0;
 }
 
-static EastValue *patch_payload(EastValue *v) {
+static EastValue *patch_payload(EastValue *v)
+{
     return v->data.variant.value;
 }
 
-static EastValue *replace_before(EastValue *v) {
+static EastValue *replace_before(EastValue *v)
+{
     return east_struct_get_field(patch_payload(v), "before");
 }
 
-static EastValue *replace_after(EastValue *v) {
+static EastValue *replace_after(EastValue *v)
+{
     return east_struct_get_field(patch_payload(v), "after");
 }
 
@@ -112,23 +122,28 @@ static EastValue *do_invert(EastValue *patch, EastType *type);
 
 /* Simple LCS for element indices. Returns length of LCS and fills
  * lcs_a[0..ret-1] with indices from a, lcs_b[0..ret-1] from b. */
-static size_t compute_lcs(EastValue **a, size_t na, EastValue **b, size_t nb,
-                           size_t **out_a, size_t **out_b)
+static size_t compute_lcs(EastValue **a, size_t na, EastValue **b, size_t nb, size_t **out_a,
+                          size_t **out_b)
 {
     /* DP table */
     int *dp = calloc((na + 1) * (nb + 1), sizeof(int));
-    if (!dp) { *out_a = NULL; *out_b = NULL; return 0; }
+    if (!dp) {
+        *out_a = NULL;
+        *out_b = NULL;
+        return 0;
+    }
 
     for (size_t i = 1; i <= na; i++)
         for (size_t j = 1; j <= nb; j++) {
-            if (east_value_equal(a[i-1], b[j-1]))
-                dp[i * (nb+1) + j] = dp[(i-1) * (nb+1) + (j-1)] + 1;
+            if (east_value_equal(a[i - 1], b[j - 1]))
+                dp[i * (nb + 1) + j] = dp[(i - 1) * (nb + 1) + (j - 1)] + 1;
             else
-                dp[i * (nb+1) + j] = dp[(i-1) * (nb+1) + j] > dp[i * (nb+1) + (j-1)]
-                    ? dp[(i-1) * (nb+1) + j] : dp[i * (nb+1) + (j-1)];
+                dp[i * (nb + 1) + j] = dp[(i - 1) * (nb + 1) + j] > dp[i * (nb + 1) + (j - 1)]
+                                           ? dp[(i - 1) * (nb + 1) + j]
+                                           : dp[i * (nb + 1) + (j - 1)];
         }
 
-    size_t lcs_len = (size_t)dp[na * (nb+1) + nb];
+    size_t lcs_len = (size_t)dp[na * (nb + 1) + nb];
     size_t *la = lcs_len > 0 ? malloc(lcs_len * sizeof(size_t)) : NULL;
     size_t *lb = lcs_len > 0 ? malloc(lcs_len * sizeof(size_t)) : NULL;
 
@@ -136,12 +151,13 @@ static size_t compute_lcs(EastValue **a, size_t na, EastValue **b, size_t nb,
     size_t pos = lcs_len;
     size_t i = na, j = nb;
     while (i > 0 && j > 0 && pos > 0) {
-        if (east_value_equal(a[i-1], b[j-1])) {
+        if (east_value_equal(a[i - 1], b[j - 1])) {
             pos--;
             la[pos] = i - 1;
             lb[pos] = j - 1;
-            i--; j--;
-        } else if (dp[(i-1) * (nb+1) + j] > dp[i * (nb+1) + (j-1)]) {
+            i--;
+            j--;
+        } else if (dp[(i - 1) * (nb + 1) + j] > dp[i * (nb + 1) + (j - 1)]) {
             i--;
         } else {
             j--;
@@ -154,10 +170,11 @@ static size_t compute_lcs(EastValue **a, size_t na, EastValue **b, size_t nb,
     return lcs_len;
 }
 
-static EastValue *diff_array(EastValue *before, EastValue *after, EastType *type) {
+static EastValue *diff_array(EastValue *before, EastValue *after, EastType *type)
+{
+    (void)type;
     if (east_value_equal(before, after)) return mk_unchanged();
 
-    EastType *elem_type = type->data.element;
     size_t na = before->data.array.len;
     size_t nb = after->data.array.len;
     EastValue **a = before->data.array.items;
@@ -178,10 +195,8 @@ static EastValue *diff_array(EastValue *before, EastValue *after, EastType *type
         /* Deletes before this match */
         while (ai < match_a) {
             int64_t key = (int64_t)ai - delete_count + insert_count;
-            const char *op_names[] = {"delete", "insert", "update"};
             EastValue *del_val = a[ai];
             east_value_retain(del_val);
-            EastValue *op_vals[] = {del_val, east_null(), east_null()};
             EastValue *op = east_variant_new("delete", del_val, NULL);
             east_value_release(del_val);
 
@@ -218,7 +233,10 @@ static EastValue *diff_array(EastValue *before, EastValue *after, EastType *type
         }
 
         /* Skip the matching element */
-        if (li < lcs_len) { ai++; bi++; }
+        if (li < lcs_len) {
+            ai++;
+            bi++;
+        }
     }
 
     free(lcs_a);
@@ -236,7 +254,8 @@ static EastValue *diff_array(EastValue *before, EastValue *after, EastType *type
 /*  DIFF: Set                                                          */
 /* ================================================================== */
 
-static EastValue *diff_set(EastValue *before, EastValue *after, EastType *type) {
+static EastValue *diff_set(EastValue *before, EastValue *after, EastType *type)
+{
     if (east_value_equal(before, after)) return mk_unchanged();
 
     EastType *elem_type = type->data.element;
@@ -268,8 +287,8 @@ static EastValue *diff_set(EastValue *before, EastValue *after, EastType *type) 
     }
 
     /* Optimization: if everything replaced, use replace instead */
-    if (del_count == before->data.set.len && ins_count == after->data.set.len &&
-        del_count > 0 && ins_count > 0) {
+    if (del_count == before->data.set.len && ins_count == after->data.set.len && del_count > 0 &&
+        ins_count > 0) {
         east_value_release(ops);
         return mk_replace(before, after);
     }
@@ -286,7 +305,8 @@ static EastValue *diff_set(EastValue *before, EastValue *after, EastType *type) 
 /*  DIFF: Dict                                                         */
 /* ================================================================== */
 
-static EastValue *diff_dict(EastValue *before, EastValue *after, EastType *type) {
+static EastValue *diff_dict(EastValue *before, EastValue *after, EastType *type)
+{
     if (east_value_equal(before, after)) return mk_unchanged();
 
     EastType *key_type = type->data.dict.key;
@@ -329,9 +349,8 @@ static EastValue *diff_dict(EastValue *before, EastValue *after, EastType *type)
     }
 
     /* Optimization: if all deleted and all inserted, use replace */
-    if (del_count == before->data.dict.len && ins_count == after->data.dict.len &&
-        del_count > 0 && ins_count > 0 &&
-        east_dict_len(ops) == del_count + ins_count) {
+    if (del_count == before->data.dict.len && ins_count == after->data.dict.len && del_count > 0 &&
+        ins_count > 0 && east_dict_len(ops) == del_count + ins_count) {
         east_value_release(ops);
         return mk_replace(before, after);
     }
@@ -348,7 +367,8 @@ static EastValue *diff_dict(EastValue *before, EastValue *after, EastType *type)
 /*  DIFF: Struct                                                       */
 /* ================================================================== */
 
-static EastValue *diff_struct(EastValue *before, EastValue *after, EastType *type) {
+static EastValue *diff_struct(EastValue *before, EastValue *after, EastType *type)
+{
     if (east_value_equal(before, after)) return mk_unchanged();
 
     size_t nf = type->data.struct_.num_fields;
@@ -362,19 +382,22 @@ static EastValue *diff_struct(EastValue *before, EastValue *after, EastType *typ
         EastValue *bval = before->data.struct_.field_values[i];
         EastValue *aval = after->data.struct_.field_values[i];
         patches[i] = do_diff(bval, aval, ft);
-        if (!is_tag(patches[i], "unchanged"))
-            all_unchanged = false;
+        if (!is_tag(patches[i], "unchanged")) all_unchanged = false;
     }
 
     if (all_unchanged) {
-        for (size_t i = 0; i < nf; i++) east_value_release(patches[i]);
-        free(names); free(patches);
+        for (size_t i = 0; i < nf; i++)
+            east_value_release(patches[i]);
+        free(names);
+        free(patches);
         return mk_unchanged();
     }
 
     EastValue *s = east_struct_new(names, patches, nf, NULL);
-    for (size_t i = 0; i < nf; i++) east_value_release(patches[i]);
-    free(names); free(patches);
+    for (size_t i = 0; i < nf; i++)
+        east_value_release(patches[i]);
+    free(names);
+    free(patches);
     return mk_patch_v(s);
 }
 
@@ -382,14 +405,14 @@ static EastValue *diff_struct(EastValue *before, EastValue *after, EastType *typ
 /*  DIFF: Variant                                                      */
 /* ================================================================== */
 
-static EastValue *diff_variant(EastValue *before, EastValue *after, EastType *type) {
+static EastValue *diff_variant(EastValue *before, EastValue *after, EastType *type)
+{
     if (east_value_equal(before, after)) return mk_unchanged();
 
     const char *btag = east_variant_case_name(before);
     const char *atag = east_variant_case_name(after);
 
-    if (strcmp(btag, atag) != 0)
-        return mk_replace(before, after);
+    if (strcmp(btag, atag) != 0) return mk_replace(before, after);
 
     /* Same case — find the case type and diff values */
     EastType *case_type = NULL;
@@ -400,8 +423,7 @@ static EastValue *diff_variant(EastValue *before, EastValue *after, EastType *ty
         }
     }
 
-    EastValue *vp = do_diff(before->data.variant.value,
-                             after->data.variant.value, case_type);
+    EastValue *vp = do_diff(before->data.variant.value, after->data.variant.value, case_type);
     if (is_tag(vp, "unchanged")) {
         east_value_release(vp);
         return mk_unchanged();
@@ -416,7 +438,8 @@ static EastValue *diff_variant(EastValue *before, EastValue *after, EastType *ty
 /*  DIFF: Ref                                                          */
 /* ================================================================== */
 
-static EastValue *diff_ref(EastValue *before, EastValue *after, EastType *type) {
+static EastValue *diff_ref(EastValue *before, EastValue *after, EastType *type)
+{
     if (before == after) return mk_unchanged();
     EastValue *bv = before->data.ref.value;
     EastValue *av = after->data.ref.value;
@@ -435,34 +458,40 @@ static EastValue *diff_ref(EastValue *before, EastValue *after, EastType *type) 
 /*  DIFF: Main dispatch                                                */
 /* ================================================================== */
 
-static EastValue *do_diff(EastValue *before, EastValue *after, EastType *type) {
+static EastValue *do_diff(EastValue *before, EastValue *after, EastType *type)
+{
     bool replace_only;
     EastType *rt = resolve_type(type, &replace_only);
 
     if (replace_only || !rt) {
-        EastValue *result = east_value_equal(before, after)
-            ? mk_unchanged() : mk_replace(before, after);
+        EastValue *result =
+            east_value_equal(before, after) ? mk_unchanged() : mk_replace(before, after);
         return result;
     }
 
     EastValue *result;
     switch (rt->kind) {
     case EAST_TYPE_ARRAY:
-        result = diff_array(before, after, rt); break;
+        result = diff_array(before, after, rt);
+        break;
     case EAST_TYPE_SET:
-        result = diff_set(before, after, rt); break;
+        result = diff_set(before, after, rt);
+        break;
     case EAST_TYPE_DICT:
-        result = diff_dict(before, after, rt); break;
+        result = diff_dict(before, after, rt);
+        break;
     case EAST_TYPE_STRUCT:
-        result = diff_struct(before, after, rt); break;
+        result = diff_struct(before, after, rt);
+        break;
     case EAST_TYPE_VARIANT:
-        result = diff_variant(before, after, rt); break;
+        result = diff_variant(before, after, rt);
+        break;
     case EAST_TYPE_REF:
-        result = diff_ref(before, after, rt); break;
+        result = diff_ref(before, after, rt);
+        break;
     default:
         /* Primitives, functions, vectors, matrices — replace only */
-        result = east_value_equal(before, after)
-            ? mk_unchanged() : mk_replace(before, after);
+        result = east_value_equal(before, after) ? mk_unchanged() : mk_replace(before, after);
         break;
     }
 
@@ -474,7 +503,8 @@ static EastValue *do_diff(EastValue *before, EastValue *after, EastType *type) {
 /*  APPLY: Array                                                       */
 /* ================================================================== */
 
-static EastValue *apply_array(EastValue *base, EastValue *patch_val, EastType *type) {
+static EastValue *apply_array(EastValue *base, EastValue *patch_val, EastType *type)
+{
     /* patch_val is an array of {key, offset, operation} structs */
     EastType *elem_type = type->data.element;
 
@@ -498,8 +528,7 @@ static EastValue *apply_array(EastValue *base, EastValue *patch_val, EastType *t
             if (pos >= 0 && (size_t)pos < result->data.array.len) {
                 /* Remove element at pos */
                 east_value_release(result->data.array.items[pos]);
-                memmove(&result->data.array.items[pos],
-                        &result->data.array.items[pos + 1],
+                memmove(&result->data.array.items[pos], &result->data.array.items[pos + 1],
                         (result->data.array.len - pos - 1) * sizeof(EastValue *));
                 result->data.array.len--;
             }
@@ -508,14 +537,13 @@ static EastValue *apply_array(EastValue *base, EastValue *patch_val, EastType *t
             /* Insert at pos */
             if (result->data.array.len >= result->data.array.cap) {
                 size_t new_cap = result->data.array.cap ? result->data.array.cap * 2 : 4;
-                result->data.array.items = realloc(result->data.array.items,
-                    new_cap * sizeof(EastValue *));
+                result->data.array.items =
+                    realloc(result->data.array.items, new_cap * sizeof(EastValue *));
                 result->data.array.cap = new_cap;
             }
             size_t p = (size_t)pos;
             if (p > result->data.array.len) p = result->data.array.len;
-            memmove(&result->data.array.items[p + 1],
-                    &result->data.array.items[p],
+            memmove(&result->data.array.items[p + 1], &result->data.array.items[p],
                     (result->data.array.len - p) * sizeof(EastValue *));
             result->data.array.items[p] = val;
             east_value_retain(val);
@@ -539,7 +567,8 @@ static EastValue *apply_array(EastValue *base, EastValue *patch_val, EastType *t
 /*  APPLY: Set                                                         */
 /* ================================================================== */
 
-static EastValue *apply_set(EastValue *base, EastValue *patch_val, EastType *type) {
+static EastValue *apply_set(EastValue *base, EastValue *patch_val, EastType *type)
+{
     /* patch_val is a dict: key -> Variant{delete, insert} */
     EastValue *result = east_set_new(base->data.set.elem_type);
 
@@ -557,8 +586,7 @@ static EastValue *apply_set(EastValue *base, EastValue *patch_val, EastType *typ
             for (size_t j = 0; j < result->data.set.len; j++) {
                 if (east_value_equal(result->data.set.items[j], key)) {
                     east_value_release(result->data.set.items[j]);
-                    memmove(&result->data.set.items[j],
-                            &result->data.set.items[j + 1],
+                    memmove(&result->data.set.items[j], &result->data.set.items[j + 1],
                             (result->data.set.len - j - 1) * sizeof(EastValue *));
                     result->data.set.len--;
                     break;
@@ -575,12 +603,12 @@ static EastValue *apply_set(EastValue *base, EastValue *patch_val, EastType *typ
 /*  APPLY: Dict                                                        */
 /* ================================================================== */
 
-static EastValue *apply_dict(EastValue *base, EastValue *patch_val, EastType *type) {
+static EastValue *apply_dict(EastValue *base, EastValue *patch_val, EastType *type)
+{
     EastType *val_type = type->data.dict.value;
 
     /* Deep copy base */
-    EastValue *result = east_dict_new(base->data.dict.key_type,
-                                       base->data.dict.val_type);
+    EastValue *result = east_dict_new(base->data.dict.key_type, base->data.dict.val_type);
     for (size_t i = 0; i < base->data.dict.len; i++)
         east_dict_set(result, base->data.dict.keys[i], base->data.dict.values[i]);
 
@@ -592,8 +620,8 @@ static EastValue *apply_dict(EastValue *base, EastValue *patch_val, EastType *ty
 
         if (strcmp(tag, "delete") == 0) {
             /* Remove key — rebuild without it */
-            EastValue *new_result = east_dict_new(result->data.dict.key_type,
-                                                   result->data.dict.val_type);
+            EastValue *new_result =
+                east_dict_new(result->data.dict.key_type, result->data.dict.val_type);
             for (size_t j = 0; j < result->data.dict.len; j++) {
                 if (!east_value_equal(result->data.dict.keys[j], key))
                     east_dict_set(new_result, result->data.dict.keys[j],
@@ -621,7 +649,8 @@ static EastValue *apply_dict(EastValue *base, EastValue *patch_val, EastType *ty
 /*  APPLY: Struct                                                      */
 /* ================================================================== */
 
-static EastValue *apply_struct(EastValue *base, EastValue *patch_val, EastType *type) {
+static EastValue *apply_struct(EastValue *base, EastValue *patch_val, EastType *type)
+{
     size_t nf = type->data.struct_.num_fields;
     const char **names = malloc(nf * sizeof(char *));
     EastValue **vals = malloc(nf * sizeof(EastValue *));
@@ -635,8 +664,10 @@ static EastValue *apply_struct(EastValue *base, EastValue *patch_val, EastType *
     }
 
     EastValue *result = east_struct_new(names, vals, nf, NULL);
-    for (size_t i = 0; i < nf; i++) east_value_release(vals[i]);
-    free(names); free(vals);
+    for (size_t i = 0; i < nf; i++)
+        east_value_release(vals[i]);
+    free(names);
+    free(vals);
     return result;
 }
 
@@ -644,7 +675,8 @@ static EastValue *apply_struct(EastValue *base, EastValue *patch_val, EastType *
 /*  APPLY: Variant                                                     */
 /* ================================================================== */
 
-static EastValue *apply_variant(EastValue *base, EastValue *patch_val, EastType *type) {
+static EastValue *apply_variant(EastValue *base, EastValue *patch_val, EastType *type)
+{
     /* patch_val is a variant(caseName, casePatch) */
     const char *case_name = east_variant_case_name(patch_val);
     EastValue *case_patch = patch_val->data.variant.value;
@@ -668,7 +700,8 @@ static EastValue *apply_variant(EastValue *base, EastValue *patch_val, EastType 
 /*  APPLY: Ref                                                         */
 /* ================================================================== */
 
-static EastValue *apply_ref(EastValue *base, EastValue *patch_val, EastType *type) {
+static EastValue *apply_ref(EastValue *base, EastValue *patch_val, EastType *type)
+{
     EastType *inner_type = type->data.element;
     EastValue *old = base->data.ref.value;
     EastValue *updated = do_apply(old, patch_val, inner_type);
@@ -681,7 +714,8 @@ static EastValue *apply_ref(EastValue *base, EastValue *patch_val, EastType *typ
 /*  APPLY: Main dispatch                                               */
 /* ================================================================== */
 
-static EastValue *do_apply(EastValue *base, EastValue *patch, EastType *type) {
+static EastValue *do_apply(EastValue *base, EastValue *patch, EastType *type)
+{
     if (!patch || !base) {
         east_value_retain(base);
         return base;
@@ -714,17 +748,23 @@ static EastValue *do_apply(EastValue *base, EastValue *patch, EastType *type) {
     } else {
         switch (rt->kind) {
         case EAST_TYPE_ARRAY:
-            result = apply_array(base, patch_val, rt); break;
+            result = apply_array(base, patch_val, rt);
+            break;
         case EAST_TYPE_SET:
-            result = apply_set(base, patch_val, rt); break;
+            result = apply_set(base, patch_val, rt);
+            break;
         case EAST_TYPE_DICT:
-            result = apply_dict(base, patch_val, rt); break;
+            result = apply_dict(base, patch_val, rt);
+            break;
         case EAST_TYPE_STRUCT:
-            result = apply_struct(base, patch_val, rt); break;
+            result = apply_struct(base, patch_val, rt);
+            break;
         case EAST_TYPE_VARIANT:
-            result = apply_variant(base, patch_val, rt); break;
+            result = apply_variant(base, patch_val, rt);
+            break;
         case EAST_TYPE_REF:
-            result = apply_ref(base, patch_val, rt); break;
+            result = apply_ref(base, patch_val, rt);
+            break;
         default:
             east_value_retain(base);
             result = base;
@@ -740,7 +780,8 @@ static EastValue *do_apply(EastValue *base, EastValue *patch, EastType *type) {
 /*  COMPOSE helpers                                                    */
 /* ================================================================== */
 
-static EastValue *compose_struct(EastValue *first, EastValue *second, EastType *type) {
+static EastValue *compose_struct(EastValue *first, EastValue *second, EastType *type)
+{
     size_t nf = type->data.struct_.num_fields;
     const char **names = malloc(nf * sizeof(char *));
     EastValue **vals = malloc(nf * sizeof(EastValue *));
@@ -756,18 +797,23 @@ static EastValue *compose_struct(EastValue *first, EastValue *second, EastType *
     }
 
     if (all_unchanged) {
-        for (size_t i = 0; i < nf; i++) east_value_release(vals[i]);
-        free(names); free(vals);
+        for (size_t i = 0; i < nf; i++)
+            east_value_release(vals[i]);
+        free(names);
+        free(vals);
         return mk_unchanged();
     }
 
     EastValue *s = east_struct_new(names, vals, nf, NULL);
-    for (size_t i = 0; i < nf; i++) east_value_release(vals[i]);
-    free(names); free(vals);
+    for (size_t i = 0; i < nf; i++)
+        east_value_release(vals[i]);
+    free(names);
+    free(vals);
     return mk_patch_v(s);
 }
 
-static EastValue *compose_variant(EastValue *first, EastValue *second, EastType *type) {
+static EastValue *compose_variant(EastValue *first, EastValue *second, EastType *type)
+{
     const char *c1 = east_variant_case_name(first);
     const char *c2 = east_variant_case_name(second);
     if (strcmp(c1, c2) != 0) {
@@ -784,8 +830,8 @@ static EastValue *compose_variant(EastValue *first, EastValue *second, EastType 
         }
     }
 
-    EastValue *composed = do_compose(first->data.variant.value,
-                                      second->data.variant.value, case_type);
+    EastValue *composed =
+        do_compose(first->data.variant.value, second->data.variant.value, case_type);
     if (is_tag(composed, "unchanged")) {
         east_value_release(composed);
         return mk_unchanged();
@@ -796,7 +842,8 @@ static EastValue *compose_variant(EastValue *first, EastValue *second, EastType 
     return mk_patch_v(inner);
 }
 
-static EastValue *compose_ref(EastValue *first, EastValue *second, EastType *type) {
+static EastValue *compose_ref(EastValue *first, EastValue *second, EastType *type)
+{
     EastType *inner_type = type->data.element;
     EastValue *composed = do_compose(first, second, inner_type);
     if (is_tag(composed, "unchanged")) {
@@ -806,7 +853,8 @@ static EastValue *compose_ref(EastValue *first, EastValue *second, EastType *typ
     return mk_patch_v(composed);
 }
 
-static EastValue *compose_set(EastValue *first, EastValue *second, EastType *type) {
+static EastValue *compose_set(EastValue *first, EastValue *second, EastType *type)
+{
     /* Merge operations by key */
     EastType *elem_type = type->data.element;
     EastValue *result = east_dict_new(elem_type, NULL);
@@ -827,8 +875,7 @@ static EastValue *compose_set(EastValue *first, EastValue *second, EastType *typ
     /* Add from second that aren't in first */
     for (size_t i = 0; i < second->data.dict.len; i++) {
         EastValue *key = second->data.dict.keys[i];
-        if (!east_dict_has(first, key))
-            east_dict_set(result, key, second->data.dict.values[i]);
+        if (!east_dict_has(first, key)) east_dict_set(result, key, second->data.dict.values[i]);
     }
 
     if (east_dict_len(result) == 0) {
@@ -838,7 +885,8 @@ static EastValue *compose_set(EastValue *first, EastValue *second, EastType *typ
     return mk_patch_v(result);
 }
 
-static EastValue *compose_dict(EastValue *first, EastValue *second, EastType *type) {
+static EastValue *compose_dict(EastValue *first, EastValue *second, EastType *type)
+{
     EastType *key_type = type->data.dict.key;
     EastType *val_type = type->data.dict.value;
     EastValue *result = east_dict_new(key_type, NULL);
@@ -860,24 +908,23 @@ static EastValue *compose_dict(EastValue *first, EastValue *second, EastType *ty
             /* Cancel out — don't add */
         } else if (strcmp(t1, "insert") == 0 && strcmp(t2, "update") == 0) {
             /* Apply update to inserted value */
-            EastValue *new_val = do_apply(op1->data.variant.value,
-                                           op2->data.variant.value, val_type);
+            EastValue *new_val =
+                do_apply(op1->data.variant.value, op2->data.variant.value, val_type);
             EastValue *new_op = east_variant_new("insert", new_val, NULL);
             east_dict_set(result, key, new_op);
             east_value_release(new_op);
             east_value_release(new_val);
         } else if (strcmp(t1, "delete") == 0 && strcmp(t2, "insert") == 0) {
             /* Delete then insert = update(replace(old, new)) */
-            EastValue *rp = mk_replace(op1->data.variant.value,
-                                        op2->data.variant.value);
+            EastValue *rp = mk_replace(op1->data.variant.value, op2->data.variant.value);
             EastValue *new_op = east_variant_new("update", rp, NULL);
             east_dict_set(result, key, new_op);
             east_value_release(new_op);
             east_value_release(rp);
         } else if (strcmp(t1, "update") == 0 && strcmp(t2, "update") == 0) {
             /* Compose the updates */
-            EastValue *composed = do_compose(op1->data.variant.value,
-                                              op2->data.variant.value, val_type);
+            EastValue *composed =
+                do_compose(op1->data.variant.value, op2->data.variant.value, val_type);
             EastValue *new_op = east_variant_new("update", composed, NULL);
             east_dict_set(result, key, new_op);
             east_value_release(new_op);
@@ -890,8 +937,7 @@ static EastValue *compose_dict(EastValue *first, EastValue *second, EastType *ty
     /* Add from second that aren't in first */
     for (size_t i = 0; i < second->data.dict.len; i++) {
         EastValue *key = second->data.dict.keys[i];
-        if (!east_dict_has(first, key))
-            east_dict_set(result, key, second->data.dict.values[i]);
+        if (!east_dict_has(first, key)) east_dict_set(result, key, second->data.dict.values[i]);
     }
 
     if (east_dict_len(result) == 0) {
@@ -901,7 +947,8 @@ static EastValue *compose_dict(EastValue *first, EastValue *second, EastType *ty
     return mk_patch_v(result);
 }
 
-static EastValue *compose_array(EastValue *first, EastValue *second, EastType *type) {
+static EastValue *compose_array(EastValue *first, EastValue *second, EastType *type)
+{
     /* Concatenate operations */
     EastValue *result = east_array_new(NULL);
     for (size_t i = 0; i < first->data.array.len; i++)
@@ -920,7 +967,8 @@ static EastValue *compose_array(EastValue *first, EastValue *second, EastType *t
 /*  COMPOSE: Main dispatch                                             */
 /* ================================================================== */
 
-static EastValue *do_compose(EastValue *first, EastValue *second, EastType *type) {
+static EastValue *do_compose(EastValue *first, EastValue *second, EastType *type)
+{
     if (!first || !second) return mk_unchanged();
 
     /* unchanged + X = X, X + unchanged = X */
@@ -971,19 +1019,26 @@ static EastValue *do_compose(EastValue *first, EastValue *second, EastType *type
             EastValue *p2 = patch_payload(second);
             switch (rt->kind) {
             case EAST_TYPE_ARRAY:
-                result = compose_array(p1, p2, rt); break;
+                result = compose_array(p1, p2, rt);
+                break;
             case EAST_TYPE_SET:
-                result = compose_set(p1, p2, rt); break;
+                result = compose_set(p1, p2, rt);
+                break;
             case EAST_TYPE_DICT:
-                result = compose_dict(p1, p2, rt); break;
+                result = compose_dict(p1, p2, rt);
+                break;
             case EAST_TYPE_STRUCT:
-                result = compose_struct(p1, p2, rt); break;
+                result = compose_struct(p1, p2, rt);
+                break;
             case EAST_TYPE_VARIANT:
-                result = compose_variant(p1, p2, rt); break;
+                result = compose_variant(p1, p2, rt);
+                break;
             case EAST_TYPE_REF:
-                result = compose_ref(p1, p2, rt); break;
+                result = compose_ref(p1, p2, rt);
+                break;
             default:
-                result = mk_unchanged(); break;
+                result = mk_unchanged();
+                break;
             }
         }
         pop_rec_if_pushed(type);
@@ -997,7 +1052,8 @@ static EastValue *do_compose(EastValue *first, EastValue *second, EastType *type
 /*  INVERT helpers                                                     */
 /* ================================================================== */
 
-static EastValue *invert_array(EastValue *patch_val, EastType *type) {
+static EastValue *invert_array(EastValue *patch_val, EastType *type)
+{
     EastType *elem_type = type->data.element;
     size_t n = patch_val->data.array.len;
     EastValue *result = east_array_new(NULL);
@@ -1033,7 +1089,8 @@ static EastValue *invert_array(EastValue *patch_val, EastType *type) {
     return mk_patch_v(result);
 }
 
-static EastValue *invert_set(EastValue *patch_val, EastType *type) {
+static EastValue *invert_set(EastValue *patch_val, EastType *type)
+{
     EastType *elem_type = type->data.element;
     EastValue *result = east_dict_new(elem_type, NULL);
 
@@ -1060,7 +1117,8 @@ static EastValue *invert_set(EastValue *patch_val, EastType *type) {
     return mk_patch_v(result);
 }
 
-static EastValue *invert_dict(EastValue *patch_val, EastType *type) {
+static EastValue *invert_dict(EastValue *patch_val, EastType *type)
+{
     EastType *key_type = type->data.dict.key;
     EastType *val_type = type->data.dict.value;
     EastValue *result = east_dict_new(key_type, NULL);
@@ -1092,7 +1150,8 @@ static EastValue *invert_dict(EastValue *patch_val, EastType *type) {
     return mk_patch_v(result);
 }
 
-static EastValue *invert_struct(EastValue *patch_val, EastType *type) {
+static EastValue *invert_struct(EastValue *patch_val, EastType *type)
+{
     size_t nf = type->data.struct_.num_fields;
     const char **names = malloc(nf * sizeof(char *));
     EastValue **vals = malloc(nf * sizeof(EastValue *));
@@ -1107,18 +1166,23 @@ static EastValue *invert_struct(EastValue *patch_val, EastType *type) {
     }
 
     if (all_unchanged) {
-        for (size_t i = 0; i < nf; i++) east_value_release(vals[i]);
-        free(names); free(vals);
+        for (size_t i = 0; i < nf; i++)
+            east_value_release(vals[i]);
+        free(names);
+        free(vals);
         return mk_unchanged();
     }
 
     EastValue *s = east_struct_new(names, vals, nf, NULL);
-    for (size_t i = 0; i < nf; i++) east_value_release(vals[i]);
-    free(names); free(vals);
+    for (size_t i = 0; i < nf; i++)
+        east_value_release(vals[i]);
+    free(names);
+    free(vals);
     return mk_patch_v(s);
 }
 
-static EastValue *invert_variant(EastValue *patch_val, EastType *type) {
+static EastValue *invert_variant(EastValue *patch_val, EastType *type)
+{
     const char *case_name = east_variant_case_name(patch_val);
     EastType *case_type = NULL;
     for (size_t i = 0; i < type->data.variant.num_cases; i++) {
@@ -1139,7 +1203,8 @@ static EastValue *invert_variant(EastValue *patch_val, EastType *type) {
     return mk_patch_v(inner);
 }
 
-static EastValue *invert_ref(EastValue *patch_val, EastType *type) {
+static EastValue *invert_ref(EastValue *patch_val, EastType *type)
+{
     EastType *inner_type = type->data.element;
     EastValue *inv = do_invert(patch_val, inner_type);
     if (is_tag(inv, "unchanged")) {
@@ -1153,17 +1218,15 @@ static EastValue *invert_ref(EastValue *patch_val, EastType *type) {
 /*  INVERT: Main dispatch                                              */
 /* ================================================================== */
 
-static EastValue *do_invert(EastValue *patch, EastType *type) {
+static EastValue *do_invert(EastValue *patch, EastType *type)
+{
     if (!patch) return mk_unchanged();
 
-    if (is_tag(patch, "unchanged"))
-        return mk_unchanged();
+    if (is_tag(patch, "unchanged")) return mk_unchanged();
 
-    if (is_tag(patch, "replace"))
-        return mk_replace(replace_after(patch), replace_before(patch));
+    if (is_tag(patch, "replace")) return mk_replace(replace_after(patch), replace_before(patch));
 
-    if (!is_tag(patch, "patch"))
-        return mk_unchanged();
+    if (!is_tag(patch, "patch")) return mk_unchanged();
 
     EastValue *patch_val = patch_payload(patch);
     bool replace_only;
@@ -1175,19 +1238,26 @@ static EastValue *do_invert(EastValue *patch, EastType *type) {
     } else {
         switch (rt->kind) {
         case EAST_TYPE_ARRAY:
-            result = invert_array(patch_val, rt); break;
+            result = invert_array(patch_val, rt);
+            break;
         case EAST_TYPE_SET:
-            result = invert_set(patch_val, rt); break;
+            result = invert_set(patch_val, rt);
+            break;
         case EAST_TYPE_DICT:
-            result = invert_dict(patch_val, rt); break;
+            result = invert_dict(patch_val, rt);
+            break;
         case EAST_TYPE_STRUCT:
-            result = invert_struct(patch_val, rt); break;
+            result = invert_struct(patch_val, rt);
+            break;
         case EAST_TYPE_VARIANT:
-            result = invert_variant(patch_val, rt); break;
+            result = invert_variant(patch_val, rt);
+            break;
         case EAST_TYPE_REF:
-            result = invert_ref(patch_val, rt); break;
+            result = invert_ref(patch_val, rt);
+            break;
         default:
-            result = mk_unchanged(); break;
+            result = mk_unchanged();
+            break;
         }
     }
 
@@ -1199,25 +1269,29 @@ static EastValue *do_invert(EastValue *patch, EastType *type) {
 /*  Top-level implementations                                          */
 /* ================================================================== */
 
-static EastValue *patch_diff_impl(EastValue **args, size_t n) {
+static EastValue *patch_diff_impl(EastValue **args, size_t n)
+{
     (void)n;
     rec_depth = 0;
     return do_diff(args[0], args[1], s_patch_type);
 }
 
-static EastValue *patch_apply_impl(EastValue **args, size_t n) {
+static EastValue *patch_apply_impl(EastValue **args, size_t n)
+{
     (void)n;
     rec_depth = 0;
     return do_apply(args[0], args[1], s_patch_type);
 }
 
-static EastValue *patch_compose_impl(EastValue **args, size_t n) {
+static EastValue *patch_compose_impl(EastValue **args, size_t n)
+{
     (void)n;
     rec_depth = 0;
     return do_compose(args[0], args[1], s_patch_type);
 }
 
-static EastValue *patch_invert_impl(EastValue **args, size_t n) {
+static EastValue *patch_invert_impl(EastValue **args, size_t n)
+{
     (void)n;
     rec_depth = 0;
     return do_invert(args[0], s_patch_type);
@@ -1227,22 +1301,26 @@ static EastValue *patch_invert_impl(EastValue **args, size_t n) {
 /*  Factory functions                                                  */
 /* ================================================================== */
 
-static BuiltinImpl diff_factory(EastType **tp, size_t ntp) {
+static BuiltinImpl diff_factory(EastType **tp, size_t ntp)
+{
     s_patch_type = (ntp > 0) ? tp[0] : NULL;
     return patch_diff_impl;
 }
 
-static BuiltinImpl apply_patch_factory(EastType **tp, size_t ntp) {
+static BuiltinImpl apply_patch_factory(EastType **tp, size_t ntp)
+{
     s_patch_type = (ntp > 0) ? tp[0] : NULL;
     return patch_apply_impl;
 }
 
-static BuiltinImpl compose_patch_factory(EastType **tp, size_t ntp) {
+static BuiltinImpl compose_patch_factory(EastType **tp, size_t ntp)
+{
     s_patch_type = (ntp > 0) ? tp[0] : NULL;
     return patch_compose_impl;
 }
 
-static BuiltinImpl invert_patch_factory(EastType **tp, size_t ntp) {
+static BuiltinImpl invert_patch_factory(EastType **tp, size_t ntp)
+{
     s_patch_type = (ntp > 0) ? tp[0] : NULL;
     return patch_invert_impl;
 }
@@ -1251,7 +1329,8 @@ static BuiltinImpl invert_patch_factory(EastType **tp, size_t ntp) {
 /*  Registration                                                       */
 /* ================================================================== */
 
-void east_register_patch_builtins(BuiltinRegistry *reg) {
+void east_register_patch_builtins(BuiltinRegistry *reg)
+{
     builtin_registry_register(reg, "Diff", diff_factory);
     builtin_registry_register(reg, "ApplyPatch", apply_patch_factory);
     builtin_registry_register(reg, "ComposePatch", compose_patch_factory);

@@ -59,12 +59,10 @@ static void eval_result_add_loc_id(EvalResult *r, int64_t loc_id)
     if (!locs || count == 0) return;
     size_t old = r->num_locations;
     size_t total = old + count;
-    EastLocation *combined = realloc(r->locations,
-                                      total * sizeof(EastLocation));
+    EastLocation *combined = realloc(r->locations, total * sizeof(EastLocation));
     if (!combined) return;
     for (size_t i = 0; i < count; i++) {
-        combined[old + i].filename = locs[i].filename
-                                     ? strdup(locs[i].filename) : NULL;
+        combined[old + i].filename = locs[i].filename ? strdup(locs[i].filename) : NULL;
         combined[old + i].line = locs[i].line;
         combined[old + i].column = locs[i].column;
     }
@@ -131,13 +129,12 @@ static bool is_truthy(EastValue *v)
 /*  Main eval dispatch                                                 */
 /* ------------------------------------------------------------------ */
 
-EvalResult eval_ir(IRNode *node, Environment *env,
-                   PlatformRegistry *platform, BuiltinRegistry *builtins)
+EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
+                   BuiltinRegistry *builtins)
 {
     if (!node) return eval_ok(east_null());
 
     switch (node->kind) {
-
     /* ----- IR_VALUE ------------------------------------------------ */
     case IR_VALUE: {
         EastValue *v = node->data.value.value;
@@ -150,8 +147,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
         EastValue *v = env_get(env, node->data.variable.name);
         if (!v) {
             char buf[256];
-            snprintf(buf, sizeof(buf), "Undefined variable: %s",
-                     node->data.variable.name);
+            snprintf(buf, sizeof(buf), "Undefined variable: %s", node->data.variable.name);
             return eval_error(buf);
         }
         east_value_retain(v);
@@ -160,8 +156,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
 
     /* ----- IR_LET -------------------------------------------------- */
     case IR_LET: {
-        EvalResult val_res = eval_ir(node->data.let.value, env,
-                                     platform, builtins);
+        EvalResult val_res = eval_ir(node->data.let.value, env, platform, builtins);
         if (val_res.status != EVAL_OK) return val_res;
 
         env_set(env, node->data.let.var.name, val_res.value);
@@ -171,8 +166,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
 
     /* ----- IR_ASSIGN ----------------------------------------------- */
     case IR_ASSIGN: {
-        EvalResult val_res = eval_ir(node->data.assign.value, env,
-                                     platform, builtins);
+        EvalResult val_res = eval_ir(node->data.assign.value, env, platform, builtins);
         if (val_res.status != EVAL_OK) return val_res;
 
         env_update(env, node->data.assign.var.name, val_res.value);
@@ -187,8 +181,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
 
         for (size_t i = 0; i < node->data.block.num_stmts; i++) {
             east_value_release(last);
-            EvalResult r = eval_ir(node->data.block.stmts[i], env,
-                                   platform, builtins);
+            EvalResult r = eval_ir(node->data.block.stmts[i], env, platform, builtins);
             if (r.status != EVAL_OK) return r;
             last = r.value;
         }
@@ -198,19 +191,16 @@ EvalResult eval_ir(IRNode *node, Environment *env,
 
     /* ----- IR_IF_ELSE ---------------------------------------------- */
     case IR_IF_ELSE: {
-        EvalResult cond_res = eval_ir(node->data.if_else.cond, env,
-                                      platform, builtins);
+        EvalResult cond_res = eval_ir(node->data.if_else.cond, env, platform, builtins);
         if (cond_res.status != EVAL_OK) return cond_res;
 
         bool cond = is_truthy(cond_res.value);
         east_value_release(cond_res.value);
 
         if (cond) {
-            return eval_ir(node->data.if_else.then_branch, env,
-                           platform, builtins);
+            return eval_ir(node->data.if_else.then_branch, env, platform, builtins);
         } else if (node->data.if_else.else_branch) {
-            return eval_ir(node->data.if_else.else_branch, env,
-                           platform, builtins);
+            return eval_ir(node->data.if_else.else_branch, env, platform, builtins);
         } else {
             return eval_ok(east_null());
         }
@@ -218,8 +208,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
 
     /* ----- IR_MATCH ------------------------------------------------ */
     case IR_MATCH: {
-        EvalResult expr_res = eval_ir(node->data.match.expr, env,
-                                      platform, builtins);
+        EvalResult expr_res = eval_ir(node->data.match.expr, env, platform, builtins);
         if (expr_res.status != EVAL_OK) return expr_res;
 
         EastValue *val = expr_res.value;
@@ -238,8 +227,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
                 if (mc->bind.name && inner) {
                     env_set(match_env, mc->bind.name, inner);
                 }
-                EvalResult body_res = eval_ir(mc->body, match_env,
-                                              platform, builtins);
+                EvalResult body_res = eval_ir(mc->body, match_env, platform, builtins);
                 env_release(match_env);
                 east_value_release(val);
                 return body_res;
@@ -255,16 +243,14 @@ EvalResult eval_ir(IRNode *node, Environment *env,
         const char *loop_label = node->data.while_.label.name;
 
         for (;;) {
-            EvalResult cond_res = eval_ir(node->data.while_.cond, env,
-                                          platform, builtins);
+            EvalResult cond_res = eval_ir(node->data.while_.cond, env, platform, builtins);
             if (cond_res.status != EVAL_OK) return cond_res;
 
             bool cond = is_truthy(cond_res.value);
             east_value_release(cond_res.value);
             if (!cond) break;
 
-            EvalResult body_res = eval_ir(node->data.while_.body, env,
-                                          platform, builtins);
+            EvalResult body_res = eval_ir(node->data.while_.body, env, platform, builtins);
 
             if (body_res.status == EVAL_BREAK) {
                 if (labels_match(body_res.label, loop_label)) {
@@ -292,8 +278,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
 
     /* ----- IR_FOR_ARRAY -------------------------------------------- */
     case IR_FOR_ARRAY: {
-        EvalResult arr_res = eval_ir(node->data.for_array.array, env,
-                                     platform, builtins);
+        EvalResult arr_res = eval_ir(node->data.for_array.array, env, platform, builtins);
         if (arr_res.status != EVAL_OK) return arr_res;
 
         EastValue *arr = arr_res.value;
@@ -320,8 +305,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
                 east_value_release(idx);
             }
 
-            EvalResult body_res = eval_ir(node->data.for_array.body,
-                                          iter_env, platform, builtins);
+            EvalResult body_res = eval_ir(node->data.for_array.body, iter_env, platform, builtins);
             env_release(iter_env);
 
             if (body_res.status == EVAL_BREAK) {
@@ -360,8 +344,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
 
     /* ----- IR_FOR_SET ---------------------------------------------- */
     case IR_FOR_SET: {
-        EvalResult set_res = eval_ir(node->data.for_set.set, env,
-                                     platform, builtins);
+        EvalResult set_res = eval_ir(node->data.for_set.set, env, platform, builtins);
         if (set_res.status != EVAL_OK) return set_res;
 
         EastValue *set = set_res.value;
@@ -382,8 +365,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
             /* env_set retains internally, no extra retain needed */
             env_set(iter_env, node->data.for_set.var.name, elem);
 
-            EvalResult body_res = eval_ir(node->data.for_set.body,
-                                          iter_env, platform, builtins);
+            EvalResult body_res = eval_ir(node->data.for_set.body, iter_env, platform, builtins);
             env_release(iter_env);
 
             if (body_res.status == EVAL_BREAK) {
@@ -422,8 +404,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
 
     /* ----- IR_FOR_DICT --------------------------------------------- */
     case IR_FOR_DICT: {
-        EvalResult dict_res = eval_ir(node->data.for_dict.dict, env,
-                                      platform, builtins);
+        EvalResult dict_res = eval_ir(node->data.for_dict.dict, env, platform, builtins);
         if (dict_res.status != EVAL_OK) return dict_res;
 
         EastValue *dict = dict_res.value;
@@ -446,8 +427,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
             env_set(iter_env, node->data.for_dict.key.name, key);
             env_set(iter_env, node->data.for_dict.val.name, val);
 
-            EvalResult body_res = eval_ir(node->data.for_dict.body,
-                                          iter_env, platform, builtins);
+            EvalResult body_res = eval_ir(node->data.for_dict.body, iter_env, platform, builtins);
             env_release(iter_env);
 
             if (body_res.status == EVAL_BREAK) {
@@ -505,8 +485,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
                 return eval_error("out of memory");
             }
             for (size_t i = 0; i < fn->num_params; i++) {
-                fn->param_names[i] = east_strdup(
-                    node->data.function.params[i].name);
+                fn->param_names[i] = east_strdup(node->data.function.params[i].name);
             }
         } else {
             fn->param_names = NULL;
@@ -517,6 +496,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
         fn->ir = node->data.function.body;
 
         fn->platform = platform;
+        if (platform) platform_registry_retain(platform);
         fn->builtins = builtins;
 
         /* Store source IR for serialization */
@@ -533,8 +513,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
     /* ----- IR_CALL / IR_CALL_ASYNC --------------------------------- */
     case IR_CALL:
     case IR_CALL_ASYNC: {
-        EvalResult func_res = eval_ir(node->data.call.func, env,
-                                      platform, builtins);
+        EvalResult func_res = eval_ir(node->data.call.func, env, platform, builtins);
         if (func_res.status != EVAL_OK) return func_res;
 
         EastValue *func_val = func_res.value;
@@ -544,6 +523,41 @@ EvalResult eval_ir(IRNode *node, Environment *env,
         }
 
         EastCompiledFn *cfn = func_val->data.function.compiled;
+
+        /* Foreign-runtime dispatch: skip IR eval and route to custom invoke */
+        if (cfn->invoke) {
+            size_t nargs = node->data.call.num_args;
+            EastValue **args = NULL;
+            if (nargs > 0) {
+                args = calloc(nargs, sizeof(EastValue *));
+                if (!args) {
+                    east_value_release(func_val);
+                    return eval_error("out of memory");
+                }
+                for (size_t i = 0; i < nargs; i++) {
+                    EvalResult arg_res = eval_ir(node->data.call.args[i], env, platform, builtins);
+                    if (arg_res.status != EVAL_OK) {
+                        for (size_t j = 0; j < i; j++)
+                            east_value_release(args[j]);
+                        free(args);
+                        east_value_release(func_val);
+                        return arg_res;
+                    }
+                    args[i] = arg_res.value;
+                }
+            }
+            EvalResult body_res = cfn->invoke(cfn, args, nargs);
+            for (size_t i = 0; i < nargs; i++)
+                east_value_release(args[i]);
+            free(args);
+            east_value_release(func_val);
+            if (body_res.status == EVAL_RETURN) {
+                EastValue *ret_val = body_res.value;
+                eval_result_free(&body_res);
+                body_res = eval_ok(ret_val);
+            }
+            return body_res;
+        }
 
         /* Lazy IR conversion for beast2-decoded functions */
         if (!cfn->ir && cfn->source_ir) east_compile_lazy(cfn);
@@ -562,8 +576,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
                 return eval_error("out of memory");
             }
             for (size_t i = 0; i < nargs; i++) {
-                EvalResult arg_res = eval_ir(node->data.call.args[i],
-                                             env, platform, builtins);
+                EvalResult arg_res = eval_ir(node->data.call.args[i], env, platform, builtins);
                 if (arg_res.status != EVAL_OK) {
                     for (size_t j = 0; j < i; j++)
                         east_value_release(args[j]);
@@ -582,8 +595,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
         }
 
         /* Evaluate body */
-        EvalResult body_res = eval_ir(cfn->ir, call_env,
-                                      cfn->platform, cfn->builtins);
+        EvalResult body_res = eval_ir(cfn->ir, call_env, cfn->platform, cfn->builtins);
 
         env_release(call_env);
 
@@ -610,23 +622,18 @@ EvalResult eval_ir(IRNode *node, Environment *env,
 
     /* ----- IR_PLATFORM --------------------------------------------- */
     case IR_PLATFORM: {
-        PlatformFn pfn = platform_registry_get(
-            platform,
-            node->data.platform.name,
-            node->data.platform.type_params,
-            node->data.platform.num_type_params);
+        PlatformFn pfn = platform_registry_get(platform, node->data.platform.name,
+                                               node->data.platform.type_params,
+                                               node->data.platform.num_type_params);
         if (!pfn) {
             if (node->data.platform.optional) {
                 char buf[256];
-                snprintf(buf, sizeof(buf),
-                         "Platform function '%s' is not available",
+                snprintf(buf, sizeof(buf), "Platform function '%s' is not available",
                          node->data.platform.name);
                 return eval_error_at_owned(strdup(buf), node);
             }
             char buf[256];
-            snprintf(buf, sizeof(buf),
-                     "Unknown platform function: %s",
-                     node->data.platform.name);
+            snprintf(buf, sizeof(buf), "Unknown platform function: %s", node->data.platform.name);
             return eval_error_at_owned(strdup(buf), node);
         }
 
@@ -636,8 +643,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
             args = calloc(nargs, sizeof(EastValue *));
             if (!args) return eval_error("out of memory");
             for (size_t i = 0; i < nargs; i++) {
-                EvalResult arg_res = eval_ir(node->data.platform.args[i],
-                                             env, platform, builtins);
+                EvalResult arg_res = eval_ir(node->data.platform.args[i], env, platform, builtins);
                 if (arg_res.status != EVAL_OK) {
                     for (size_t j = 0; j < i; j++)
                         east_value_release(args[j]);
@@ -649,8 +655,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
         }
 
         if (platform->pre_call) {
-            platform->pre_call(node->data.platform.name,
-                               node->data.platform.type_params,
+            platform->pre_call(node->data.platform.name, node->data.platform.type_params,
                                node->data.platform.num_type_params);
         }
 
@@ -688,8 +693,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
             args = calloc(nargs, sizeof(EastValue *));
             if (!args) return eval_error("out of memory");
             for (size_t i = 0; i < nargs; i++) {
-                EvalResult arg_res = eval_ir(node->data.builtin.args[i],
-                                             env, platform, builtins);
+                EvalResult arg_res = eval_ir(node->data.builtin.args[i], env, platform, builtins);
                 if (arg_res.status != EVAL_OK) {
                     for (size_t j = 0; j < i; j++)
                         east_value_release(args[j]);
@@ -701,19 +705,15 @@ EvalResult eval_ir(IRNode *node, Environment *env,
         }
 
         /* Now call factory + impl back-to-back (no IR eval in between) */
-        BuiltinImpl bfn = builtin_registry_get(
-            builtins,
-            node->data.builtin.name,
-            node->data.builtin.type_params,
-            node->data.builtin.num_type_params);
+        BuiltinImpl bfn =
+            builtin_registry_get(builtins, node->data.builtin.name, node->data.builtin.type_params,
+                                 node->data.builtin.num_type_params);
         if (!bfn) {
             for (size_t i = 0; i < nargs; i++)
                 east_value_release(args[i]);
             free(args);
             char buf[256];
-            snprintf(buf, sizeof(buf),
-                     "Unknown builtin function: %s",
-                     node->data.builtin.name);
+            snprintf(buf, sizeof(buf), "Unknown builtin function: %s", node->data.builtin.name);
             return eval_error_at_owned(strdup(buf), node);
         }
 
@@ -735,8 +735,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
 
     /* ----- IR_RETURN ----------------------------------------------- */
     case IR_RETURN: {
-        EvalResult val_res = eval_ir(node->data.return_.value, env,
-                                     platform, builtins);
+        EvalResult val_res = eval_ir(node->data.return_.value, env, platform, builtins);
         if (val_res.status != EVAL_OK) return val_res;
 
         return (EvalResult){
@@ -752,8 +751,8 @@ EvalResult eval_ir(IRNode *node, Environment *env,
         return (EvalResult){
             .status = EVAL_BREAK,
             .value = NULL,
-            .label = node->data.loop_ctrl.label.name
-                     ? strdup(node->data.loop_ctrl.label.name) : NULL,
+            .label =
+                node->data.loop_ctrl.label.name ? strdup(node->data.loop_ctrl.label.name) : NULL,
             .error_message = NULL,
         };
     }
@@ -763,16 +762,15 @@ EvalResult eval_ir(IRNode *node, Environment *env,
         return (EvalResult){
             .status = EVAL_CONTINUE,
             .value = NULL,
-            .label = node->data.loop_ctrl.label.name
-                     ? strdup(node->data.loop_ctrl.label.name) : NULL,
+            .label =
+                node->data.loop_ctrl.label.name ? strdup(node->data.loop_ctrl.label.name) : NULL,
             .error_message = NULL,
         };
     }
 
     /* ----- IR_ERROR ------------------------------------------------ */
     case IR_ERROR: {
-        EvalResult msg_res = eval_ir(node->data.error.message, env,
-                                     platform, builtins);
+        EvalResult msg_res = eval_ir(node->data.error.message, env, platform, builtins);
         if (msg_res.status != EVAL_OK) return msg_res;
 
         char *msg = NULL;
@@ -790,29 +788,23 @@ EvalResult eval_ir(IRNode *node, Environment *env,
     case IR_TRY_CATCH: {
         EvalResult result;
 
-        EvalResult try_res = eval_ir(node->data.try_catch.try_body, env,
-                                     platform, builtins);
+        EvalResult try_res = eval_ir(node->data.try_catch.try_body, env, platform, builtins);
         if (try_res.status == EVAL_ERROR) {
             Environment *catch_env = env_new(env);
 
             /* Bind the error message as a string value */
-            if (node->data.try_catch.message_var.name &&
-                node->data.try_catch.message_var.name[0]) {
-                EastValue *err_val = east_string(
-                    try_res.error_message ? try_res.error_message : "");
-                env_set(catch_env, node->data.try_catch.message_var.name,
-                        err_val);
+            if (node->data.try_catch.message_var.name && node->data.try_catch.message_var.name[0]) {
+                EastValue *err_val =
+                    east_string(try_res.error_message ? try_res.error_message : "");
+                env_set(catch_env, node->data.try_catch.message_var.name, err_val);
                 east_value_release(err_val);
             }
 
             /* Bind the location stack as an array of structs */
-            if (node->data.try_catch.stack_var.name &&
-                node->data.try_catch.stack_var.name[0]) {
+            if (node->data.try_catch.stack_var.name && node->data.try_catch.stack_var.name[0]) {
                 EastType *loc_struct_type = east_struct_type(
                     (const char *[]){"column", "filename", "line"},
-                    (EastType *[]){&east_integer_type, &east_string_type,
-                                   &east_integer_type},
-                    3);
+                    (EastType *[]){&east_integer_type, &east_string_type, &east_integer_type}, 3);
                 EastType *loc_arr_type = east_array_type(loc_struct_type);
                 EastValue *stack_arr = east_array_new(loc_struct_type);
 
@@ -824,16 +816,14 @@ EvalResult eval_ir(IRNode *node, Environment *env,
                         east_string(loc->filename ? loc->filename : ""),
                         east_integer(loc->line),
                     };
-                    EastValue *loc_s = east_struct_new(
-                        names, vals, 3, loc_struct_type);
+                    EastValue *loc_s = east_struct_new(names, vals, 3, loc_struct_type);
                     east_array_push(stack_arr, loc_s);
                     east_value_release(loc_s);
                     for (int j = 0; j < 3; j++)
                         east_value_release(vals[j]);
                 }
 
-                env_set(catch_env, node->data.try_catch.stack_var.name,
-                        stack_arr);
+                env_set(catch_env, node->data.try_catch.stack_var.name, stack_arr);
                 east_value_release(stack_arr);
                 east_type_release(loc_arr_type);
                 east_type_release(loc_struct_type);
@@ -841,8 +831,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
 
             eval_result_free(&try_res);
 
-            result = eval_ir(node->data.try_catch.catch_body, catch_env,
-                             platform, builtins);
+            result = eval_ir(node->data.try_catch.catch_body, catch_env, platform, builtins);
             env_release(catch_env);
         } else {
             result = try_res;
@@ -851,12 +840,10 @@ EvalResult eval_ir(IRNode *node, Environment *env,
         /* Execute finally block if present */
         if (node->data.try_catch.finally_body) {
             /* Skip no-op finally (Value nodes with null type) */
-            bool is_noop = (node->data.try_catch.finally_body->kind ==
-                            IR_VALUE);
+            bool is_noop = (node->data.try_catch.finally_body->kind == IR_VALUE);
             if (!is_noop) {
-                EvalResult fin_res = eval_ir(
-                    node->data.try_catch.finally_body, env,
-                    platform, builtins);
+                EvalResult fin_res =
+                    eval_ir(node->data.try_catch.finally_body, env, platform, builtins);
                 if (fin_res.status == EVAL_ERROR) {
                     /* Finally error overrides the result */
                     if (result.value) east_value_release(result.value);
@@ -883,9 +870,8 @@ EvalResult eval_ir(IRNode *node, Environment *env,
         size_t n = node->data.new_collection.num_items;
 
         for (size_t i = 0; i < n; i++) {
-            EvalResult item_res = eval_ir(
-                node->data.new_collection.items[i], env,
-                platform, builtins);
+            EvalResult item_res =
+                eval_ir(node->data.new_collection.items[i], env, platform, builtins);
             if (item_res.status != EVAL_OK) {
                 east_value_release(arr);
                 return item_res;
@@ -908,9 +894,8 @@ EvalResult eval_ir(IRNode *node, Environment *env,
         size_t n = node->data.new_collection.num_items;
 
         for (size_t i = 0; i < n; i++) {
-            EvalResult item_res = eval_ir(
-                node->data.new_collection.items[i], env,
-                platform, builtins);
+            EvalResult item_res =
+                eval_ir(node->data.new_collection.items[i], env, platform, builtins);
             if (item_res.status != EVAL_OK) {
                 east_value_release(set);
                 return item_res;
@@ -935,14 +920,12 @@ EvalResult eval_ir(IRNode *node, Environment *env,
         size_t n = node->data.new_dict.num_pairs;
 
         for (size_t i = 0; i < n; i++) {
-            EvalResult k_res = eval_ir(node->data.new_dict.keys[i],
-                                       env, platform, builtins);
+            EvalResult k_res = eval_ir(node->data.new_dict.keys[i], env, platform, builtins);
             if (k_res.status != EVAL_OK) {
                 east_value_release(dict);
                 return k_res;
             }
-            EvalResult v_res = eval_ir(node->data.new_dict.values[i],
-                                       env, platform, builtins);
+            EvalResult v_res = eval_ir(node->data.new_dict.values[i], env, platform, builtins);
             if (v_res.status != EVAL_OK) {
                 east_value_release(k_res.value);
                 east_value_release(dict);
@@ -958,8 +941,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
 
     /* ----- IR_NEW_REF ---------------------------------------------- */
     case IR_NEW_REF: {
-        EvalResult val_res = eval_ir(node->data.new_ref.value, env,
-                                     platform, builtins);
+        EvalResult val_res = eval_ir(node->data.new_ref.value, env, platform, builtins);
         if (val_res.status != EVAL_OK) return val_res;
 
         EastValue *ref = east_ref_new(val_res.value);
@@ -980,9 +962,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
         EastValue *vec = east_vector_new(elem_type, n);
 
         for (size_t i = 0; i < n; i++) {
-            EvalResult item_res = eval_ir(
-                node->data.new_vector.items[i], env,
-                platform, builtins);
+            EvalResult item_res = eval_ir(node->data.new_vector.items[i], env, platform, builtins);
             if (item_res.status != EVAL_OK) {
                 east_value_release(vec);
                 return item_res;
@@ -991,18 +971,12 @@ EvalResult eval_ir(IRNode *node, Environment *env,
             /* Copy scalar value into vector data */
             EastValue *item = item_res.value;
             if (elem_type) {
-                if (elem_type->kind == EAST_TYPE_FLOAT &&
-                    item->kind == EAST_VAL_FLOAT) {
-                    ((double *)vec->data.vector.data)[i] =
-                        item->data.float64;
-                } else if (elem_type->kind == EAST_TYPE_INTEGER &&
-                           item->kind == EAST_VAL_INTEGER) {
-                    ((int64_t *)vec->data.vector.data)[i] =
-                        item->data.integer;
-                } else if (elem_type->kind == EAST_TYPE_BOOLEAN &&
-                           item->kind == EAST_VAL_BOOLEAN) {
-                    ((bool *)vec->data.vector.data)[i] =
-                        item->data.boolean;
+                if (elem_type->kind == EAST_TYPE_FLOAT && item->kind == EAST_VAL_FLOAT) {
+                    ((double *)vec->data.vector.data)[i] = item->data.float64;
+                } else if (elem_type->kind == EAST_TYPE_INTEGER && item->kind == EAST_VAL_INTEGER) {
+                    ((int64_t *)vec->data.vector.data)[i] = item->data.integer;
+                } else if (elem_type->kind == EAST_TYPE_BOOLEAN && item->kind == EAST_VAL_BOOLEAN) {
+                    ((bool *)vec->data.vector.data)[i] = item->data.boolean;
                 }
             }
             east_value_release(item);
@@ -1025,9 +999,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
         EastValue *mat = east_matrix_new(elem_type, rows, cols);
 
         for (size_t i = 0; i < n; i++) {
-            EvalResult item_res = eval_ir(
-                node->data.new_matrix.items[i], env,
-                platform, builtins);
+            EvalResult item_res = eval_ir(node->data.new_matrix.items[i], env, platform, builtins);
             if (item_res.status != EVAL_OK) {
                 east_value_release(mat);
                 return item_res;
@@ -1035,18 +1007,12 @@ EvalResult eval_ir(IRNode *node, Environment *env,
 
             EastValue *item = item_res.value;
             if (elem_type) {
-                if (elem_type->kind == EAST_TYPE_FLOAT &&
-                    item->kind == EAST_VAL_FLOAT) {
-                    ((double *)mat->data.matrix.data)[i] =
-                        item->data.float64;
-                } else if (elem_type->kind == EAST_TYPE_INTEGER &&
-                           item->kind == EAST_VAL_INTEGER) {
-                    ((int64_t *)mat->data.matrix.data)[i] =
-                        item->data.integer;
-                } else if (elem_type->kind == EAST_TYPE_BOOLEAN &&
-                           item->kind == EAST_VAL_BOOLEAN) {
-                    ((bool *)mat->data.matrix.data)[i] =
-                        item->data.boolean;
+                if (elem_type->kind == EAST_TYPE_FLOAT && item->kind == EAST_VAL_FLOAT) {
+                    ((double *)mat->data.matrix.data)[i] = item->data.float64;
+                } else if (elem_type->kind == EAST_TYPE_INTEGER && item->kind == EAST_VAL_INTEGER) {
+                    ((int64_t *)mat->data.matrix.data)[i] = item->data.integer;
+                } else if (elem_type->kind == EAST_TYPE_BOOLEAN && item->kind == EAST_VAL_BOOLEAN) {
+                    ((bool *)mat->data.matrix.data)[i] = item->data.boolean;
                 }
             }
             east_value_release(item);
@@ -1073,9 +1039,8 @@ EvalResult eval_ir(IRNode *node, Environment *env,
 
         for (size_t i = 0; i < n; i++) {
             names[i] = node->data.struct_.field_names[i];
-            EvalResult fv_res = eval_ir(
-                node->data.struct_.field_values[i], env,
-                platform, builtins);
+            EvalResult fv_res =
+                eval_ir(node->data.struct_.field_values[i], env, platform, builtins);
             if (fv_res.status != EVAL_OK) {
                 for (size_t j = 0; j < i; j++)
                     east_value_release(vals[j]);
@@ -1098,8 +1063,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
 
     /* ----- IR_GET_FIELD -------------------------------------------- */
     case IR_GET_FIELD: {
-        EvalResult expr_res = eval_ir(node->data.get_field.expr, env,
-                                      platform, builtins);
+        EvalResult expr_res = eval_ir(node->data.get_field.expr, env, platform, builtins);
         if (expr_res.status != EVAL_OK) return expr_res;
 
         EastValue *s = expr_res.value;
@@ -1108,12 +1072,10 @@ EvalResult eval_ir(IRNode *node, Environment *env,
             return eval_error("get_field: value is not a struct");
         }
 
-        EastValue *field = east_struct_get_field(
-            s, node->data.get_field.field_name);
+        EastValue *field = east_struct_get_field(s, node->data.get_field.field_name);
         if (!field) {
             char buf[256];
-            snprintf(buf, sizeof(buf), "no field named '%s'",
-                     node->data.get_field.field_name);
+            snprintf(buf, sizeof(buf), "no field named '%s'", node->data.get_field.field_name);
             east_value_release(s);
             return eval_error(buf);
         }
@@ -1125,14 +1087,10 @@ EvalResult eval_ir(IRNode *node, Environment *env,
 
     /* ----- IR_VARIANT ---------------------------------------------- */
     case IR_VARIANT: {
-        EvalResult val_res = eval_ir(node->data.variant.value, env,
-                                     platform, builtins);
+        EvalResult val_res = eval_ir(node->data.variant.value, env, platform, builtins);
         if (val_res.status != EVAL_OK) return val_res;
 
-        EastValue *v = east_variant_new(
-            node->data.variant.case_name,
-            val_res.value,
-            node->type);
+        EastValue *v = east_variant_new(node->data.variant.case_name, val_res.value, node->type);
         east_value_release(val_res.value);
         return eval_ok(v);
     }
@@ -1140,8 +1098,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
     /* ----- IR_WRAP_RECURSIVE / IR_UNWRAP_RECURSIVE ----------------- */
     case IR_WRAP_RECURSIVE:
     case IR_UNWRAP_RECURSIVE: {
-        return eval_ir(node->data.recursive.value, env,
-                       platform, builtins);
+        return eval_ir(node->data.recursive.value, env, platform, builtins);
     }
 
     } /* end switch */
@@ -1153,8 +1110,7 @@ EvalResult eval_ir(IRNode *node, Environment *env,
 /*  Top-level API                                                      */
 /* ------------------------------------------------------------------ */
 
-EastCompiledFn *east_compile(IRNode *ir, PlatformRegistry *platform,
-                             BuiltinRegistry *builtins)
+EastCompiledFn *east_compile(IRNode *ir, PlatformRegistry *platform, BuiltinRegistry *builtins)
 {
     EastCompiledFn *fn = calloc(1, sizeof(EastCompiledFn));
     if (!fn) return NULL;
@@ -1165,8 +1121,9 @@ EastCompiledFn *east_compile(IRNode *ir, PlatformRegistry *platform,
     fn->param_names = NULL;
     fn->num_params = 0;
     fn->platform = platform;
+    if (platform) platform_registry_retain(platform);
     fn->builtins = builtins;
-    fn->fn_type = ir->type;  /* function type for WASM type marshalling */
+    fn->fn_type = ir->type; /* function type for WASM type marshalling */
 
     return fn;
 }
@@ -1179,22 +1136,58 @@ static _Thread_local int east_call_depth = 0;
 static _Thread_local PlatformRegistry *current_platform = NULL;
 static _Thread_local BuiltinRegistry *current_builtins = NULL;
 
-PlatformRegistry *east_current_platform(void) { return current_platform; }
-BuiltinRegistry *east_current_builtins(void) { return current_builtins; }
+PlatformRegistry *east_current_platform(void)
+{
+    return current_platform;
+}
+BuiltinRegistry *east_current_builtins(void)
+{
+    return current_builtins;
+}
 
-void east_set_thread_context(PlatformRegistry *p, BuiltinRegistry *b) {
+void east_set_thread_context(PlatformRegistry *p, BuiltinRegistry *b)
+{
     current_platform = p;
     current_builtins = b;
 }
 
-void east_set_source_map(const EastSourceMap *sm) {
+void east_get_thread_context(PlatformRegistry **out_p, BuiltinRegistry **out_b)
+{
+    if (out_p) *out_p = current_platform;
+    if (out_b) *out_b = current_builtins;
+}
+
+void east_set_source_map(const EastSourceMap *sm)
+{
     g_current_source_map = sm;
 }
 
-EvalResult east_call(EastCompiledFn *fn, EastValue **args,
-                     size_t num_args)
+EvalResult east_call(EastCompiledFn *fn, EastValue **args, size_t num_args)
 {
     if (!fn) return eval_error("null function");
+
+    /* Foreign-runtime dispatch: if the function provides a custom invoke
+     * hook (e.g. JS-callback bridge in WASM), delegate to it.  Skips the
+     * IR-eval path entirely.  Set thread-locals so any nested east_call /
+     * platform call from within the foreign callback can resolve them. */
+    if (fn->invoke) {
+        PlatformRegistry *saved_platform = current_platform;
+        BuiltinRegistry *saved_builtins = current_builtins;
+        const EastSourceMap *saved_source_map = g_current_source_map;
+        current_platform = fn->platform;
+        current_builtins = fn->builtins;
+        if (fn->source_map) g_current_source_map = fn->source_map;
+        east_call_depth++;
+        EvalResult r = fn->invoke(fn, args, num_args);
+        east_call_depth--;
+        if (east_call_depth == 0 && east_gc_should_collect()) {
+            east_gc_collect();
+        }
+        current_platform = saved_platform;
+        current_builtins = saved_builtins;
+        g_current_source_map = saved_source_map;
+        return r;
+    }
 
     /* Lazy IR conversion: beast2-decoded functions defer convert_ir to first call */
     if (!fn->ir && fn->source_ir) east_compile_lazy(fn);
@@ -1218,8 +1211,7 @@ EvalResult east_call(EastCompiledFn *fn, EastValue **args,
         env_set(call_env, fn->param_names[i], args[i]);
     }
 
-    EvalResult result = eval_ir(fn->ir, call_env,
-                                fn->platform, fn->builtins);
+    EvalResult result = eval_ir(fn->ir, call_env, fn->platform, fn->builtins);
     env_release(call_env);
 
     /* If body returned via IR_RETURN, unwrap to EVAL_OK */
@@ -1249,6 +1241,16 @@ void east_compiled_fn_free(EastCompiledFn *fn)
 {
     if (!fn) return;
 
+    /* Foreign-runtime cleanup (e.g. release JS handle in WASM bridge).
+     * Must run before releasing IR/captures so user data can still reference
+     * them if needed. */
+    if (fn->invoke_release) {
+        fn->invoke_release(fn->invoke_userdata);
+        fn->invoke_release = NULL;
+        fn->invoke_userdata = NULL;
+        fn->invoke = NULL;
+    }
+
     if (fn->ir) {
         ir_node_release(fn->ir);
         fn->ir = NULL;
@@ -1270,6 +1272,11 @@ void east_compiled_fn_free(EastCompiledFn *fn)
     if (fn->source_ir) {
         east_value_release(fn->source_ir);
         fn->source_ir = NULL;
+    }
+
+    if (fn->platform) {
+        platform_registry_release(fn->platform);
+        fn->platform = NULL;
     }
 
     east_free(fn);

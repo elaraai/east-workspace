@@ -47,7 +47,7 @@ jobs:
         run: pnpm install
 
       - name: Build e3 packages
-        run: pnpm turbo run build --filter=@elaraai/e3-types --filter=@elaraai/e3 --filter=@elaraai/e3-core --filter=@elaraai/e3-api-client --filter=@elaraai/e3-cli --filter=@elaraai/e3-api-server --filter=@elaraai/e3-api-tests
+        run: pnpm --filter='@elaraai/e3-types...' --filter='@elaraai/e3...' --filter='@elaraai/e3-core...' --filter='@elaraai/e3-api-client...' --filter='@elaraai/e3-cli...' --filter='@elaraai/e3-api-server...' --filter='@elaraai/e3-api-tests...' run build
 
       - name: Link e3 CLI
         working-directory: libs/e3
@@ -59,7 +59,7 @@ jobs:
           cd libs/east-py && make install-cli
 
       - name: Lint
-        run: pnpm turbo run lint --filter=@elaraai/e3-types --filter=@elaraai/e3 --filter=@elaraai/e3-core --filter=@elaraai/e3-api-client --filter=@elaraai/e3-cli --filter=@elaraai/e3-api-server --filter=@elaraai/e3-api-tests
+        run: pnpm --filter=@elaraai/e3-types --filter=@elaraai/e3 --filter=@elaraai/e3-core --filter=@elaraai/e3-api-client --filter=@elaraai/e3-cli --filter=@elaraai/e3-api-server --filter=@elaraai/e3-api-tests run lint
 
       - name: Run tests
-        run: pnpm turbo run test --filter=@elaraai/e3-types --filter=@elaraai/e3 --filter=@elaraai/e3-core --filter=@elaraai/e3-api-client --filter=@elaraai/e3-cli --filter=@elaraai/e3-api-server --filter=@elaraai/e3-api-tests
+        run: pnpm --filter=@elaraai/e3-types --filter=@elaraai/e3 --filter=@elaraai/e3-core --filter=@elaraai/e3-api-client --filter=@elaraai/e3-cli --filter=@elaraai/e3-api-server --filter=@elaraai/e3-api-tests run test

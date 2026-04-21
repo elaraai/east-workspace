@@ -159,7 +159,7 @@ def save_value(file_path: Path, value: Any, value_type: EastType) -> None:
     elif fmt == "east":
         from east.serialization.east_printer import print_east
 
-        text = print_east(value_type, value)
+        text = print_east(value, value_type)
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(text)
 

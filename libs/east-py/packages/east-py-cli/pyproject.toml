@@ -1,6 +1,6 @@
 [project]
 name = "east-py-cli"
-version = "0.1.0"
+version = "1.0.0b0"
 description = "Command-line interface for running East IR programs with Python"
 readme = "README.md"
 requires-python = ">=3.11"

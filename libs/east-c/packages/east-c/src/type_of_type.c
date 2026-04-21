@@ -24,41 +24,41 @@
  */
 
 /* Common IR struct fields */
-#define IR_TYPE      0   /* EastTypeType */
-#define IR_LOC_ID    1   /* Integer (source map index) */
+#define IR_TYPE 0   /* EastTypeType */
+#define IR_LOC_ID 1 /* Integer (source map index) */
 
 /* IRLabel struct: { name, loc_id } */
-#define LABEL_NAME   0
+#define LABEL_NAME 0
 
 /* Struct/Variant field entry in EastTypeType: { name, type } */
-#define FE_NAME  0
-#define FE_TYPE  1
+#define FE_NAME 0
+#define FE_TYPE 1
 
 /* Dict payload in EastTypeType / key-value entries: { key, value } */
-#define KV_KEY   0
+#define KV_KEY 0
 #define KV_VALUE 1
 
 /* Struct field entry in IR: { name, value } */
-#define SF_NAME  0
+#define SF_NAME 0
 #define SF_VALUE 1
 
 /* IfElse branch: { predicate, body } */
-#define IF_PRED  0
-#define IF_BODY  1
+#define IF_PRED 0
+#define IF_BODY 1
 
 /* Match case: { case, variable, body } */
-#define MC_CASE  0
-#define MC_VAR   1
-#define MC_BODY  2
+#define MC_CASE 0
+#define MC_VAR 1
+#define MC_BODY 2
 
 /* Function payload in EastTypeType: { inputs, output } */
-#define FN_INPUTS  0
-#define FN_OUTPUT  1
+#define FN_INPUTS 0
+#define FN_OUTPUT 1
 
 /* Variable struct: { type, loc_id, name, mutable, captured } */
-#define VAR_NAME      2
-#define VAR_MUTABLE   3
-#define VAR_CAPTURED  4
+#define VAR_NAME 2
+#define VAR_MUTABLE 3
+#define VAR_CAPTURED 4
 
 /* ================================================================== */
 /*  Global type descriptors                                            */
@@ -71,26 +71,36 @@ EastType *east_ir_type_with_refs = NULL;
 
 void east_type_of_type_free(void)
 {
-    if (east_type_type) { east_type_release(east_type_type); east_type_type = NULL; }
-    if (east_literal_value_type) { east_type_release(east_literal_value_type); east_literal_value_type = NULL; }
-    if (east_ir_type) { east_type_release(east_ir_type); east_ir_type = NULL; }
-    if (east_ir_type_with_refs) { east_type_release(east_ir_type_with_refs); east_ir_type_with_refs = NULL; }
+    if (east_type_type) {
+        east_type_release(east_type_type);
+        east_type_type = NULL;
+    }
+    if (east_literal_value_type) {
+        east_type_release(east_literal_value_type);
+        east_literal_value_type = NULL;
+    }
+    if (east_ir_type) {
+        east_type_release(east_ir_type);
+        east_ir_type = NULL;
+    }
+    if (east_ir_type_with_refs) {
+        east_type_release(east_ir_type_with_refs);
+        east_ir_type_with_refs = NULL;
+    }
 }
 
 /* ================================================================== */
 /*  Helper: build struct type with sorted fields                       */
 /* ================================================================== */
 
-static EastType *make_struct2(const char *n1, EastType *t1,
-                              const char *n2, EastType *t2)
+static EastType *make_struct2(const char *n1, EastType *t1, const char *n2, EastType *t2)
 {
     const char *names[] = {n1, n2};
     EastType *types[] = {t1, t2};
     return east_struct_type(names, types, 2);
 }
 
-static EastType *make_struct3(const char *n1, EastType *t1,
-                              const char *n2, EastType *t2,
+static EastType *make_struct3(const char *n1, EastType *t1, const char *n2, EastType *t2,
                               const char *n3, EastType *t3)
 {
     const char *names[] = {n1, n2, n3};
@@ -102,55 +112,61 @@ static EastType *make_struct3(const char *n1, EastType *t1,
 /*  transform_type_tree: clone a type tree with substitutions          */
 /* ================================================================== */
 
-static EastType *transform_type_tree(EastType *type,
-                                      EastType *from, EastType *to,
-                                      EastType *rec_from, EastType *rec_to)
+static EastType *transform_type_tree(EastType *type, EastType *from, EastType *to,
+                                     EastType *rec_from, EastType *rec_to)
 {
-    if (type == from) { east_type_retain(to); return to; }
-    if (rec_from && type == rec_from) { east_type_retain(rec_to); return rec_to; }
+    if (type == from) {
+        east_type_retain(to);
+        return to;
+    }
+    if (rec_from && type == rec_from) {
+        east_type_retain(rec_to);
+        return rec_to;
+    }
 
     switch (type->kind) {
     case EAST_TYPE_STRUCT: {
         size_t nf = type->data.struct_.num_fields;
-        const char **names = malloc(nf * sizeof(char*));
-        EastType **types = malloc(nf * sizeof(EastType*));
+        const char **names = malloc(nf * sizeof(char *));
+        EastType **types = malloc(nf * sizeof(EastType *));
         for (size_t i = 0; i < nf; i++) {
             names[i] = type->data.struct_.fields[i].name;
-            types[i] = transform_type_tree(type->data.struct_.fields[i].type,
-                                            from, to, rec_from, rec_to);
+            types[i] =
+                transform_type_tree(type->data.struct_.fields[i].type, from, to, rec_from, rec_to);
         }
         EastType *result = east_struct_type(names, types, nf);
-        for (size_t i = 0; i < nf; i++) east_type_release(types[i]);
+        for (size_t i = 0; i < nf; i++)
+            east_type_release(types[i]);
         free(names);
         free(types);
         return result;
     }
     case EAST_TYPE_VARIANT: {
         size_t nc = type->data.variant.num_cases;
-        const char **names = malloc(nc * sizeof(char*));
-        EastType **types = malloc(nc * sizeof(EastType*));
+        const char **names = malloc(nc * sizeof(char *));
+        EastType **types = malloc(nc * sizeof(EastType *));
         for (size_t i = 0; i < nc; i++) {
             names[i] = type->data.variant.cases[i].name;
-            types[i] = transform_type_tree(type->data.variant.cases[i].type,
-                                            from, to, rec_from, rec_to);
+            types[i] =
+                transform_type_tree(type->data.variant.cases[i].type, from, to, rec_from, rec_to);
         }
         EastType *result = east_variant_type(names, types, nc);
-        for (size_t i = 0; i < nc; i++) east_type_release(types[i]);
+        for (size_t i = 0; i < nc; i++)
+            east_type_release(types[i]);
         free(names);
         free(types);
         return result;
     }
     case EAST_TYPE_ARRAY: {
-        EastType *elem = transform_type_tree(type->data.element,
-                                              from, to, rec_from, rec_to);
+        EastType *elem = transform_type_tree(type->data.element, from, to, rec_from, rec_to);
         EastType *result = east_array_type(elem);
         east_type_release(elem);
         return result;
     }
     case EAST_TYPE_RECURSIVE: {
         EastType *new_rec = east_recursive_type_new();
-        EastType *new_node = transform_type_tree(type->data.recursive.node,
-                                                  from, to, type, new_rec);
+        EastType *new_node =
+            transform_type_tree(type->data.recursive.node, from, to, type, new_rec);
         east_recursive_type_set(new_rec, new_node);
         east_recursive_type_finalize(new_rec);
         /* NOTE: east_recursive_type_set does NOT retain new_node (to avoid
@@ -179,15 +195,10 @@ void east_type_of_type_init(void)
     {
         /* Case order must match TypeScript declaration order exactly,
          * because beast2 encodes variant case indices numerically. */
-        const char *names[] = {
-            "Null", "Boolean", "Integer", "Float",
-            "String", "DateTime", "Blob"
-        };
-        EastType *types[] = {
-            &east_null_type, &east_boolean_type, &east_integer_type,
-            &east_float_type, &east_string_type, &east_datetime_type,
-            &east_blob_type
-        };
+        const char *names[] = {"Null", "Boolean", "Integer", "Float", "String", "DateTime", "Blob"};
+        EastType *types[] = {&east_null_type,  &east_boolean_type, &east_integer_type,
+                             &east_float_type, &east_string_type,  &east_datetime_type,
+                             &east_blob_type};
         east_literal_value_type = east_variant_type(names, types, 7);
     }
 
@@ -205,40 +216,40 @@ void east_type_of_type_init(void)
         EastType *rec_arr = east_array_type(rec);
         EastType *func_struct = make_struct2("inputs", rec_arr, "output", rec);
 
-        /* Recursive -> VariantType({ref: IntegerType, wrapper: StructType({id: IntegerType, inner: self})}) */
+        /* Recursive -> VariantType({ref: IntegerType, wrapper: StructType({id: IntegerType, inner:
+         * self})}) */
         EastType *rec_wrapper_struct = make_struct2("id", &east_integer_type, "inner", rec);
-        const char *rec_case_names[] = { "ref", "wrapper" };
-        EastType *rec_case_types[] = { &east_integer_type, rec_wrapper_struct };
+        const char *rec_case_names[] = {"ref", "wrapper"};
+        EastType *rec_case_types[] = {&east_integer_type, rec_wrapper_struct};
         EastType *rec_variant = east_variant_type(rec_case_names, rec_case_types, 2);
 
         /* Case order must match TypeScript declaration order exactly,
          * because beast2 encodes variant case indices numerically. */
-        const char *names[] = {
-            "Never", "Null", "Boolean", "Integer", "Float",
-            "String", "DateTime", "Blob", "Ref", "Array",
-            "Set", "Dict", "Struct", "Variant", "Recursive",
-            "Function", "AsyncFunction", "Vector", "Matrix"
-        };
+        const char *names[] = {"Never",    "Null",          "Boolean", "Integer", "Float",
+                               "String",   "DateTime",      "Blob",    "Ref",     "Array",
+                               "Set",      "Dict",          "Struct",  "Variant", "Recursive",
+                               "Function", "AsyncFunction", "Vector",  "Matrix"};
         EastType *types[] = {
-            &east_null_type,/* Never -> Null */
-            &east_null_type,/* Null -> Null */
-            &east_null_type,/* Boolean -> Null */
-            &east_null_type,/* Integer -> Null */
-            &east_null_type,/* Float -> Null */
-            &east_null_type,/* String -> Null */
-            &east_null_type,/* DateTime -> Null */
-            &east_null_type,/* Blob -> Null */
-            rec,            /* Ref -> self (inner type) */
-            rec,            /* Array -> self (element type) */
-            rec,            /* Set -> self (element type) */
-            dict_payload,   /* Dict -> {key: self, value: self} */
-            field_array,    /* Struct -> [{name: String, type: self}] */
-            field_array,    /* Variant -> [{name: String, type: self}] */
-            rec_variant,    /* Recursive -> Variant({ref: Integer, wrapper: Struct({id: Integer, inner: self})}) */
-            func_struct,    /* Function -> {inputs: [self], output: self} */
-            func_struct,    /* AsyncFunction -> {inputs: [self], output: self} */
-            rec,            /* Vector -> self (element type) */
-            rec,            /* Matrix -> self (element type) */
+            &east_null_type, /* Never -> Null */
+            &east_null_type, /* Null -> Null */
+            &east_null_type, /* Boolean -> Null */
+            &east_null_type, /* Integer -> Null */
+            &east_null_type, /* Float -> Null */
+            &east_null_type, /* String -> Null */
+            &east_null_type, /* DateTime -> Null */
+            &east_null_type, /* Blob -> Null */
+            rec,             /* Ref -> self (inner type) */
+            rec,             /* Array -> self (element type) */
+            rec,             /* Set -> self (element type) */
+            dict_payload,    /* Dict -> {key: self, value: self} */
+            field_array,     /* Struct -> [{name: String, type: self}] */
+            field_array,     /* Variant -> [{name: String, type: self}] */
+            rec_variant, /* Recursive -> Variant({ref: Integer, wrapper: Struct({id: Integer, inner:
+                            self})}) */
+            func_struct, /* Function -> {inputs: [self], output: self} */
+            func_struct, /* AsyncFunction -> {inputs: [self], output: self} */
+            rec,         /* Vector -> self (element type) */
+            rec,         /* Matrix -> self (element type) */
         };
 
         EastType *inner = east_variant_type(names, types, 19);
@@ -290,87 +301,100 @@ void east_type_of_type_init(void)
         EastType *match_case = make_struct3("case", &east_string_type, "variable", ir, "body", ir);
         EastType *match_arr = east_array_type(match_case);
 
-        /* Now build each IR case struct.
-         * All cases have: type (EastTypeType), location ([Location])
-         * plus case-specific fields.
-         *
-         * Helper for building struct types with 4+ fields. */
-        #define S4(n1,t1,n2,t2,n3,t3,n4,t4) \
-            east_struct_type((const char*[]){n1,n2,n3,n4}, (EastType*[]){t1,t2,t3,t4}, 4)
-        #define S5(n1,t1,n2,t2,n3,t3,n4,t4,n5,t5) \
-            east_struct_type((const char*[]){n1,n2,n3,n4,n5}, (EastType*[]){t1,t2,t3,t4,t5}, 5)
-        #define S6(n1,t1,n2,t2,n3,t3,n4,t4,n5,t5,n6,t6) \
-            east_struct_type((const char*[]){n1,n2,n3,n4,n5,n6}, (EastType*[]){t1,t2,t3,t4,t5,t6}, 6)
-        #define S7(n1,t1,n2,t2,n3,t3,n4,t4,n5,t5,n6,t6,n7,t7) \
-            east_struct_type((const char*[]){n1,n2,n3,n4,n5,n6,n7}, (EastType*[]){t1,t2,t3,t4,t5,t6,t7}, 7)
+/* Now build each IR case struct.
+ * All cases have: type (EastTypeType), location ([Location])
+ * plus case-specific fields.
+ *
+ * Helper for building struct types with 4+ fields. */
+#define S4(n1, t1, n2, t2, n3, t3, n4, t4)                                                         \
+    east_struct_type((const char *[]){n1, n2, n3, n4}, (EastType *[]){t1, t2, t3, t4}, 4)
+#define S5(n1, t1, n2, t2, n3, t3, n4, t4, n5, t5)                                                 \
+    east_struct_type((const char *[]){n1, n2, n3, n4, n5}, (EastType *[]){t1, t2, t3, t4, t5}, 5)
+#define S6(n1, t1, n2, t2, n3, t3, n4, t4, n5, t5, n6, t6)                                         \
+    east_struct_type((const char *[]){n1, n2, n3, n4, n5, n6},                                     \
+                     (EastType *[]){t1, t2, t3, t4, t5, t6}, 6)
+#define S7(n1, t1, n2, t2, n3, t3, n4, t4, n5, t5, n6, t6, n7, t7)                                 \
+    east_struct_type((const char *[]){n1, n2, n3, n4, n5, n6, n7},                                 \
+                     (EastType *[]){t1, t2, t3, t4, t5, t6, t7}, 7)
 
         /* All field orderings must match TypeScript declaration order exactly.
          * v4: location → loc_id (Integer, index into source map). */
-        EastType *li = &east_integer_type;  /* loc_id type shorthand */
-        EastType *c_error         = make_struct3("type",tt, "loc_id",li, "message",ir);
-        EastType *c_try_catch     = S7("type",tt, "loc_id",li, "try_body",ir, "catch_body",ir, "message",ir, "stack",ir, "finally_body",ir);
-        EastType *c_value         = make_struct3("type",tt, "loc_id",li, "value",lv);
-        EastType *c_variable      = S5("type",tt, "loc_id",li, "name",&east_string_type, "mutable",&east_boolean_type, "captured",&east_boolean_type);
-        EastType *c_let           = S4("type",tt, "loc_id",li, "variable",ir, "value",ir);
-        EastType *c_assign        = S4("type",tt, "loc_id",li, "variable",ir, "value",ir);
-        EastType *c_as            = make_struct3("type",tt, "loc_id",li, "value",ir);
-        EastType *c_function      = S5("type",tt, "loc_id",li, "captures",ir_arr, "parameters",ir_arr, "body",ir);
-        EastType *c_async_fn      = c_function; east_type_retain(c_async_fn);
-        EastType *c_call          = S4("type",tt, "loc_id",li, "function",ir, "arguments",ir_arr);
-        EastType *c_call_async    = c_call; east_type_retain(c_call_async);
-        EastType *c_new_ref       = make_struct3("type",tt, "loc_id",li, "value",ir);
-        EastType *c_new_array     = make_struct3("type",tt, "loc_id",li, "values",ir_arr);
-        EastType *c_new_set       = make_struct3("type",tt, "loc_id",li, "values",ir_arr);
-        EastType *c_new_dict      = make_struct3("type",tt, "loc_id",li, "values",kv_arr);
-        EastType *c_new_vector    = make_struct3("type",tt, "loc_id",li, "values",ir_arr);
-        EastType *c_new_matrix    = S5("type",tt, "loc_id",li, "values",ir_arr, "rows",&east_integer_type, "cols",&east_integer_type);
-        EastType *c_struct        = make_struct3("type",tt, "loc_id",li, "fields",sf_arr);
-        EastType *c_get_field     = S4("type",tt, "loc_id",li, "field",&east_string_type, "struct",ir);
-        EastType *c_variant       = S4("type",tt, "loc_id",li, "case",&east_string_type, "value",ir);
-        EastType *c_block         = make_struct3("type",tt, "loc_id",li, "statements",ir_arr);
-        EastType *c_if_else       = S4("type",tt, "loc_id",li, "ifs",if_arr, "else_body",ir);
-        EastType *c_match         = S4("type",tt, "loc_id",li, "variant",ir, "cases",match_arr);
-        EastType *c_unwrap        = make_struct3("type",tt, "loc_id",li, "value",ir);
-        EastType *c_wrap          = make_struct3("type",tt, "loc_id",li, "value",ir);
-        EastType *c_while         = S5("type",tt, "loc_id",li, "predicate",ir, "label",ir_label, "body",ir);
-        EastType *c_for_array     = S7("type",tt, "loc_id",li, "array",ir, "label",ir_label, "key",ir, "value",ir, "body",ir);
-        EastType *c_for_set       = S6("type",tt, "loc_id",li, "set",ir, "label",ir_label, "key",ir, "body",ir);
-        EastType *c_for_dict      = S7("type",tt, "loc_id",li, "dict",ir, "label",ir_label, "key",ir, "value",ir, "body",ir);
-        EastType *c_return        = make_struct3("type",tt, "loc_id",li, "value",ir);
-        EastType *c_continue      = make_struct3("type",tt, "loc_id",li, "label",ir_label);
-        EastType *c_break         = make_struct3("type",tt, "loc_id",li, "label",ir_label);
-        EastType *c_builtin       = S5("type",tt, "loc_id",li, "builtin",&east_string_type, "type_parameters",tt_arr, "arguments",ir_arr);
-        EastType *c_platform      = S7("type",tt, "loc_id",li, "name",&east_string_type, "type_parameters",tt_arr, "arguments",ir_arr, "async",&east_boolean_type, "optional",&east_boolean_type);
+        EastType *li = &east_integer_type; /* loc_id type shorthand */
+        EastType *c_error = make_struct3("type", tt, "loc_id", li, "message", ir);
+        EastType *c_try_catch = S7("type", tt, "loc_id", li, "try_body", ir, "catch_body", ir,
+                                   "message", ir, "stack", ir, "finally_body", ir);
+        EastType *c_value = make_struct3("type", tt, "loc_id", li, "value", lv);
+        EastType *c_variable = S5("type", tt, "loc_id", li, "name", &east_string_type, "mutable",
+                                  &east_boolean_type, "captured", &east_boolean_type);
+        EastType *c_let = S4("type", tt, "loc_id", li, "variable", ir, "value", ir);
+        EastType *c_assign = S4("type", tt, "loc_id", li, "variable", ir, "value", ir);
+        EastType *c_as = make_struct3("type", tt, "loc_id", li, "value", ir);
+        EastType *c_function =
+            S5("type", tt, "loc_id", li, "captures", ir_arr, "parameters", ir_arr, "body", ir);
+        EastType *c_async_fn = c_function;
+        east_type_retain(c_async_fn);
+        EastType *c_call = S4("type", tt, "loc_id", li, "function", ir, "arguments", ir_arr);
+        EastType *c_call_async = c_call;
+        east_type_retain(c_call_async);
+        EastType *c_new_ref = make_struct3("type", tt, "loc_id", li, "value", ir);
+        EastType *c_new_array = make_struct3("type", tt, "loc_id", li, "values", ir_arr);
+        EastType *c_new_set = make_struct3("type", tt, "loc_id", li, "values", ir_arr);
+        EastType *c_new_dict = make_struct3("type", tt, "loc_id", li, "values", kv_arr);
+        EastType *c_new_vector = make_struct3("type", tt, "loc_id", li, "values", ir_arr);
+        EastType *c_new_matrix = S5("type", tt, "loc_id", li, "values", ir_arr, "rows",
+                                    &east_integer_type, "cols", &east_integer_type);
+        EastType *c_struct = make_struct3("type", tt, "loc_id", li, "fields", sf_arr);
+        EastType *c_get_field =
+            S4("type", tt, "loc_id", li, "field", &east_string_type, "struct", ir);
+        EastType *c_variant = S4("type", tt, "loc_id", li, "case", &east_string_type, "value", ir);
+        EastType *c_block = make_struct3("type", tt, "loc_id", li, "statements", ir_arr);
+        EastType *c_if_else = S4("type", tt, "loc_id", li, "ifs", if_arr, "else_body", ir);
+        EastType *c_match = S4("type", tt, "loc_id", li, "variant", ir, "cases", match_arr);
+        EastType *c_unwrap = make_struct3("type", tt, "loc_id", li, "value", ir);
+        EastType *c_wrap = make_struct3("type", tt, "loc_id", li, "value", ir);
+        EastType *c_while =
+            S5("type", tt, "loc_id", li, "predicate", ir, "label", ir_label, "body", ir);
+        EastType *c_for_array = S7("type", tt, "loc_id", li, "array", ir, "label", ir_label, "key",
+                                   ir, "value", ir, "body", ir);
+        EastType *c_for_set =
+            S6("type", tt, "loc_id", li, "set", ir, "label", ir_label, "key", ir, "body", ir);
+        EastType *c_for_dict = S7("type", tt, "loc_id", li, "dict", ir, "label", ir_label, "key",
+                                  ir, "value", ir, "body", ir);
+        EastType *c_return = make_struct3("type", tt, "loc_id", li, "value", ir);
+        EastType *c_continue = make_struct3("type", tt, "loc_id", li, "label", ir_label);
+        EastType *c_break = make_struct3("type", tt, "loc_id", li, "label", ir_label);
+        EastType *c_builtin = S5("type", tt, "loc_id", li, "builtin", &east_string_type,
+                                 "type_parameters", tt_arr, "arguments", ir_arr);
+        EastType *c_platform =
+            S7("type", tt, "loc_id", li, "name", &east_string_type, "type_parameters", tt_arr,
+               "arguments", ir_arr, "async", &east_boolean_type, "optional", &east_boolean_type);
 
         /* Case order must match TypeScript declaration order exactly,
          * because beast2 encodes variant case indices numerically. */
         const char *ir_names[] = {
-            "Error", "TryCatch", "Value", "Variable", "Let",
-            "Assign", "As", "Function", "AsyncFunction", "Call",
-            "CallAsync", "NewRef", "NewArray", "NewSet", "NewDict",
-            "NewVector", "NewMatrix", "Struct", "GetField", "Variant",
-            "Block", "IfElse", "Match", "UnwrapRecursive", "WrapRecursive",
-            "While", "ForArray", "ForSet", "ForDict", "Return",
-            "Continue", "Break", "Builtin", "Platform"
-        };
-        EastType *ir_types[] = {
-            c_error, c_try_catch, c_value, c_variable, c_let,
-            c_assign, c_as, c_function, c_async_fn, c_call,
-            c_call_async, c_new_ref, c_new_array, c_new_set, c_new_dict,
-            c_new_vector, c_new_matrix, c_struct, c_get_field, c_variant,
-            c_block, c_if_else, c_match, c_unwrap, c_wrap,
-            c_while, c_for_array, c_for_set, c_for_dict, c_return,
-            c_continue, c_break, c_builtin, c_platform
-        };
+            "Error",     "TryCatch",  "Value",    "Variable",        "Let",
+            "Assign",    "As",        "Function", "AsyncFunction",   "Call",
+            "CallAsync", "NewRef",    "NewArray", "NewSet",          "NewDict",
+            "NewVector", "NewMatrix", "Struct",   "GetField",        "Variant",
+            "Block",     "IfElse",    "Match",    "UnwrapRecursive", "WrapRecursive",
+            "While",     "ForArray",  "ForSet",   "ForDict",         "Return",
+            "Continue",  "Break",     "Builtin",  "Platform"};
+        EastType *ir_types[] = {c_error,      c_try_catch,  c_value,     c_variable,  c_let,
+                                c_assign,     c_as,         c_function,  c_async_fn,  c_call,
+                                c_call_async, c_new_ref,    c_new_array, c_new_set,   c_new_dict,
+                                c_new_vector, c_new_matrix, c_struct,    c_get_field, c_variant,
+                                c_block,      c_if_else,    c_match,     c_unwrap,    c_wrap,
+                                c_while,      c_for_array,  c_for_set,   c_for_dict,  c_return,
+                                c_continue,   c_break,      c_builtin,   c_platform};
 
         EastType *ir_inner = east_variant_type(ir_names, ir_types, 34);
         east_recursive_type_set(ir, ir_inner);
         east_ir_type = ir;
 
-        #undef S4
-        #undef S5
-        #undef S6
-        #undef S7
+#undef S4
+#undef S5
+#undef S6
+#undef S7
 
         /* Release shared sub-types */
         east_type_release(ir_arr);
@@ -423,8 +447,8 @@ void east_type_of_type_init(void)
         east_type_release(c_variant);
         /* Build IRTypeWithTableRefs BEFORE releasing intermediates,
          * since transform_type_tree walks the inner type tree. */
-        east_ir_type_with_refs = transform_type_tree(
-            east_ir_type, east_type_type, &east_integer_type, NULL, NULL);
+        east_ir_type_with_refs =
+            transform_type_tree(east_ir_type, east_type_type, &east_integer_type, NULL, NULL);
 
         /* (no debug) */
 
@@ -451,21 +475,26 @@ void east_type_of_type_init(void)
 /* ================================================================== */
 
 typedef struct {
-    EastType **wrappers;  /* Speculative recursive wrappers indexed by depth */
-    int depth;            /* Current compound type nesting depth */
-    int cap;              /* Capacity of wrappers array */
+    EastType **wrappers; /* Speculative recursive wrappers indexed by depth */
+    int depth;           /* Current compound type nesting depth */
+    int cap;             /* Capacity of wrappers array */
     /* id → wrapper map for Recursive(ref(id)) resolution */
-    struct { int64_t id; EastType *wrapper; } *id_map;
+    struct {
+        int64_t id;
+        EastType *wrapper;
+    } *id_map;
     int id_map_len;
     int id_map_cap;
 } RecCtx;
 
-static void rec_ctx_push(RecCtx *ctx) {
+static void rec_ctx_push(RecCtx *ctx)
+{
     if (ctx->depth >= ctx->cap) {
         int new_cap = ctx->cap ? ctx->cap * 2 : 16;
         EastType **nw = realloc(ctx->wrappers, (size_t)new_cap * sizeof(EastType *));
         if (!nw) return;
-        for (int i = ctx->cap; i < new_cap; i++) nw[i] = NULL;
+        for (int i = ctx->cap; i < new_cap; i++)
+            nw[i] = NULL;
         ctx->wrappers = nw;
         ctx->cap = new_cap;
     }
@@ -476,7 +505,8 @@ static void rec_ctx_push(RecCtx *ctx) {
 /* Pop depth and check if the wrapper at this position was referenced.
  * If yes, wire it up as a recursive type wrapping `inner`.
  * If no, discard the unused wrapper and return `inner` directly. */
-static EastType *rec_ctx_pop(RecCtx *ctx, EastType *inner) {
+static EastType *rec_ctx_pop(RecCtx *ctx, EastType *inner)
+{
     ctx->depth--;
     EastType *wrapper = ctx->wrappers[ctx->depth];
     ctx->wrappers[ctx->depth] = NULL;
@@ -500,24 +530,63 @@ static EastType *rec_ctx_pop(RecCtx *ctx, EastType *inner) {
 
 /* EastTypeType case indices (alphabetical — east_variant_type sorts cases) */
 enum {
-    TT_ARRAY = 0, TT_ASYNC_FUNCTION = 1, TT_BLOB = 2, TT_BOOLEAN = 3,
-    TT_DATETIME = 4, TT_DICT = 5, TT_FLOAT = 6, TT_FUNCTION = 7,
-    TT_INTEGER = 8, TT_MATRIX = 9, TT_NEVER = 10, TT_NULL = 11,
-    TT_RECURSIVE = 12, TT_REF = 13, TT_SET = 14, TT_STRING = 15,
-    TT_STRUCT = 16, TT_VARIANT = 17, TT_VECTOR = 18
+    TT_ARRAY = 0,
+    TT_ASYNC_FUNCTION = 1,
+    TT_BLOB = 2,
+    TT_BOOLEAN = 3,
+    TT_DATETIME = 4,
+    TT_DICT = 5,
+    TT_FLOAT = 6,
+    TT_FUNCTION = 7,
+    TT_INTEGER = 8,
+    TT_MATRIX = 9,
+    TT_NEVER = 10,
+    TT_NULL = 11,
+    TT_RECURSIVE = 12,
+    TT_REF = 13,
+    TT_SET = 14,
+    TT_STRING = 15,
+    TT_STRUCT = 16,
+    TT_VARIANT = 17,
+    TT_VECTOR = 18
 };
 
 /* IRType case indices (alphabetical — east_variant_type sorts cases) */
 enum {
-    IR_As = 0, IR_Assign = 1, IR_AsyncFunction = 2, IR_Block = 3,
-    IR_Break = 4, IR_Builtin = 5, IR_Call = 6, IR_CallAsync = 7,
-    IR_Continue = 8, IR_Error = 9, IR_ForArray = 10, IR_ForDict = 11,
-    IR_ForSet = 12, IR_Function = 13, IR_GetField = 14, IR_IfElse = 15,
-    IR_Let = 16, IR_Match = 17, IR_NewArray = 18, IR_NewDict = 19,
-    IR_NewMatrix = 20, IR_NewRef = 21, IR_NewSet = 22, IR_NewVector = 23,
-    IR_Platform = 24, IR_Return = 25, IR_Struct = 26, IR_TryCatch = 27,
-    IR_UnwrapRecursive = 28, IR_Value = 29, IR_Variable = 30, IR_Variant = 31,
-    IR_While = 32, IR_WrapRecursive = 33
+    IR_As = 0,
+    IR_Assign = 1,
+    IR_AsyncFunction = 2,
+    IR_Block = 3,
+    IR_Break = 4,
+    IR_Builtin = 5,
+    IR_Call = 6,
+    IR_CallAsync = 7,
+    IR_Continue = 8,
+    IR_Error = 9,
+    IR_ForArray = 10,
+    IR_ForDict = 11,
+    IR_ForSet = 12,
+    IR_Function = 13,
+    IR_GetField = 14,
+    IR_IfElse = 15,
+    IR_Let = 16,
+    IR_Match = 17,
+    IR_NewArray = 18,
+    IR_NewDict = 19,
+    IR_NewMatrix = 20,
+    IR_NewRef = 21,
+    IR_NewSet = 22,
+    IR_NewVector = 23,
+    IR_Platform = 24,
+    IR_Return = 25,
+    IR_Struct = 26,
+    IR_TryCatch = 27,
+    IR_UnwrapRecursive = 28,
+    IR_Value = 29,
+    IR_Variable = 30,
+    IR_Variant = 31,
+    IR_While = 32,
+    IR_WrapRecursive = 33
 };
 
 static EastType *east_type_from_value_ctx(EastValue *v, RecCtx *ctx)
@@ -529,15 +598,24 @@ static EastType *east_type_from_value_ctx(EastValue *v, RecCtx *ctx)
 
     /* Primitive types (payload is null) */
     switch (ci) {
-    case TT_NEVER:    return &east_never_type;
-    case TT_NULL:     return &east_null_type;
-    case TT_BOOLEAN:  return &east_boolean_type;
-    case TT_INTEGER:  return &east_integer_type;
-    case TT_FLOAT:    return &east_float_type;
-    case TT_STRING:   return &east_string_type;
-    case TT_DATETIME: return &east_datetime_type;
-    case TT_BLOB:     return &east_blob_type;
-    default: break;
+    case TT_NEVER:
+        return &east_never_type;
+    case TT_NULL:
+        return &east_null_type;
+    case TT_BOOLEAN:
+        return &east_boolean_type;
+    case TT_INTEGER:
+        return &east_integer_type;
+    case TT_FLOAT:
+        return &east_float_type;
+    case TT_STRING:
+        return &east_string_type;
+    case TT_DATETIME:
+        return &east_datetime_type;
+    case TT_BLOB:
+        return &east_blob_type;
+    default:
+        break;
     }
 
     /* Container types with element: payload is the element type (variant) */
@@ -693,13 +771,17 @@ static EastType *east_type_from_value_ctx(EastValue *v, RecCtx *ctx)
             if (rc == 1 && rv && rv->kind == EAST_VAL_STRUCT) {
                 /* wrapper({id, inner}): create recursive type, register, decode inner */
                 int64_t wid = (rv->data.struct_.field_values[0]->kind == EAST_VAL_INTEGER)
-                    ? rv->data.struct_.field_values[0]->data.integer : 0;
+                                  ? rv->data.struct_.field_values[0]->data.integer
+                                  : 0;
                 EastType *wrapper = east_recursive_type_new();
 
                 if (ctx->id_map_len >= ctx->id_map_cap) {
                     int nc = ctx->id_map_cap ? ctx->id_map_cap * 2 : 4;
                     void *tmp = realloc(ctx->id_map, (size_t)nc * sizeof(ctx->id_map[0]));
-                    if (tmp) { ctx->id_map = tmp; ctx->id_map_cap = nc; }
+                    if (tmp) {
+                        ctx->id_map = tmp;
+                        ctx->id_map_cap = nc;
+                    }
                 }
                 ctx->id_map[ctx->id_map_len].id = wid;
                 ctx->id_map[ctx->id_map_len].wrapper = wrapper;
@@ -742,14 +824,13 @@ static EastType *east_type_from_value_ctx(EastValue *v, RecCtx *ctx)
 
 EastType *east_type_from_value(EastValue *v)
 {
-    RecCtx ctx = { .wrappers = NULL, .depth = 0, .cap = 0,
-                   .id_map = NULL, .id_map_len = 0, .id_map_cap = 0 };
+    RecCtx ctx = {
+        .wrappers = NULL, .depth = 0, .cap = 0, .id_map = NULL, .id_map_len = 0, .id_map_cap = 0};
     EastType *result = east_type_from_value_ctx(v, &ctx);
     free(ctx.wrappers);
     free(ctx.id_map);
     /* Intern recursive types — returns canonical pointer for pointer-based dedup */
-    if (result && result->kind == EAST_TYPE_RECURSIVE)
-        result = east_recursive_type_intern(result);
+    if (result && result->kind == EAST_TYPE_RECURSIVE) result = east_recursive_type_intern(result);
     return result;
 }
 
@@ -770,20 +851,26 @@ typedef struct {
     int len;
     int cap;
     /* Recursive wrapper tracking: wrapper pointer + its stack index */
-    struct { EastType *wrapper; int stack_index; } *recs;
+    struct {
+        EastType *wrapper;
+        int stack_index;
+    } *recs;
     int num_recs;
     int recs_cap;
 } TVCtx;
 
-static void tv_ctx_push(TVCtx *ctx) {
+static void tv_ctx_push(TVCtx *ctx)
+{
     ctx->len++;
 }
 
-static void tv_ctx_pop(TVCtx *ctx) {
+static void tv_ctx_pop(TVCtx *ctx)
+{
     ctx->len--;
 }
 
-static void tv_ctx_add_rec(TVCtx *ctx, EastType *wrapper) {
+static void tv_ctx_add_rec(TVCtx *ctx, EastType *wrapper)
+{
     if (ctx->num_recs >= ctx->recs_cap) {
         int new_cap = ctx->recs_cap ? ctx->recs_cap * 2 : 4;
         void *tmp = realloc(ctx->recs, (size_t)new_cap * sizeof(ctx->recs[0]));
@@ -792,13 +879,13 @@ static void tv_ctx_add_rec(TVCtx *ctx, EastType *wrapper) {
         ctx->recs_cap = new_cap;
     }
     ctx->recs[ctx->num_recs].wrapper = wrapper;
-    ctx->recs[ctx->num_recs].stack_index = ctx->len;  /* where inner will be pushed */
+    ctx->recs[ctx->num_recs].stack_index = ctx->len; /* where inner will be pushed */
     ctx->num_recs++;
 }
 
 static EastValue *make_field_value(const char *name, EastValue *type_val)
 {
-    EastType *field_type = east_type_type->data.recursive.node;  /* inner variant */
+    EastType *field_type = east_type_type->data.recursive.node; /* inner variant */
     EastType *field_struct_type = NULL;
 
     /* Find the Struct case to get the field struct type: {name: String, type: self} */
@@ -844,7 +931,8 @@ static EastValue *type_to_value_ctx(EastType *type, TVCtx *ctx)
         int64_t ptr_id = type->type_id;
         EastType *vtype = east_type_type->data.recursive.node;
         EastType *rec_case_type = vtype->data.variant.cases[TT_RECURSIVE].type;
-        EastType *wrapper_struct_type = rec_case_type->data.variant.cases[1].type; /* "wrapper" case */
+        EastType *wrapper_struct_type =
+            rec_case_type->data.variant.cases[1].type; /* "wrapper" case */
         const char *w_names[] = {"id", "inner"};
         EastValue *w_vals[] = {east_integer(ptr_id), inner};
         EastValue *ws = east_struct_new(w_names, w_vals, 2, wrapper_struct_type);
@@ -855,7 +943,7 @@ static EastValue *type_to_value_ctx(EastType *type, TVCtx *ctx)
         return east_variant_new("Recursive", wv, vtype);
     }
 
-    EastType *vtype = east_type_type->data.recursive.node;  /* inner variant */
+    EastType *vtype = east_type_type->data.recursive.node; /* inner variant */
 
     switch (type->kind) {
     case EAST_TYPE_NEVER:
@@ -930,10 +1018,8 @@ static EastValue *type_to_value_ctx(EastType *type, TVCtx *ctx)
     case EAST_TYPE_STRUCT:
     case EAST_TYPE_VARIANT: {
         bool is_struct = (type->kind == EAST_TYPE_STRUCT);
-        size_t n = is_struct ? type->data.struct_.num_fields
-                             : type->data.variant.num_cases;
-        EastTypeField *fields = is_struct ? type->data.struct_.fields
-                                          : type->data.variant.cases;
+        size_t n = is_struct ? type->data.struct_.num_fields : type->data.variant.num_cases;
+        EastTypeField *fields = is_struct ? type->data.struct_.fields : type->data.variant.cases;
 
         /* Build array of {name: String, type: EastTypeType} */
         const char *case_name = is_struct ? "Struct" : "Variant";
@@ -947,8 +1033,8 @@ static EastValue *type_to_value_ctx(EastType *type, TVCtx *ctx)
         tv_ctx_push(ctx);
         EastValue *arr = east_array_new(arr_type ? arr_type->data.element : NULL);
         for (size_t i = 0; i < n; i++) {
-            EastValue *field = make_field_value(fields[i].name,
-                type_to_value_ctx(fields[i].type, ctx));
+            EastValue *field =
+                make_field_value(fields[i].name, type_to_value_ctx(fields[i].type, ctx));
             east_array_push(arr, field);
             east_value_release(field);
         }
@@ -1001,7 +1087,7 @@ EastValue *east_type_to_value(EastType *type)
 {
     if (!type) return NULL;
     if (!east_type_type) east_type_of_type_init();
-    TVCtx ctx = { .len = 0, .cap = 0, .recs = NULL, .num_recs = 0, .recs_cap = 0 };
+    TVCtx ctx = {.len = 0, .cap = 0, .recs = NULL, .num_recs = 0, .recs_cap = 0};
     EastValue *result = type_to_value_ctx(type, &ctx);
     free(ctx.recs);
     return result;
@@ -1029,26 +1115,6 @@ static inline bool get_bool_idx(EastValue *s, size_t idx)
 static inline EastValue *get_field_idx(EastValue *s, size_t idx)
 {
     return east_struct_get_field_idx(s, idx);
-}
-
-/* Legacy name-based accessors — still used in non-hot paths */
-static const char *get_str(EastValue *s, const char *field)
-{
-    EastValue *v = east_struct_get_field(s, field);
-    if (!v || v->kind != EAST_VAL_STRING) return "";
-    return v->data.string.data;
-}
-
-static bool get_bool(EastValue *s, const char *field)
-{
-    EastValue *v = east_struct_get_field(s, field);
-    if (!v || v->kind != EAST_VAL_BOOLEAN) return false;
-    return v->data.boolean;
-}
-
-static EastValue *get_field(EastValue *s, const char *field)
-{
-    return east_struct_get_field(s, field);
 }
 
 /* Convert a label struct to a string (just the name field) */
@@ -1098,16 +1164,16 @@ static const char *label_from_value(EastValue *label_v)
 typedef struct {
     /* Pre-built type table (not owned — caller manages lifetime) */
     EastValue **table_values;
-    EastType  **table_types;
+    EastType **table_types;
     size_t table_len;
     /* Overflow cache for types not in the table */
-    EastValue **values;  /* type descriptor values (NOT retained — just pointers for comparison) */
-    EastType  **types;   /* corresponding EastType* (retained) */
+    EastValue **values; /* type descriptor values (NOT retained — just pointers for comparison) */
+    EastType **types;   /* corresponding EastType* (retained) */
     size_t len;
     size_t cap;
 } TypeCache;
 
-static TypeCache ir_type_cache = { NULL, NULL, 0, NULL, NULL, 0, 0 };
+static TypeCache ir_type_cache = {NULL, NULL, 0, NULL, NULL, 0, 0};
 
 static void type_cache_init(void)
 {
@@ -1120,15 +1186,6 @@ static void type_cache_init(void)
     ir_type_cache.types = calloc(ir_type_cache.cap, sizeof(EastType *));
 }
 
-static void type_cache_init_with_table(EastValue **table_values,
-                                       EastType **table_types,
-                                       size_t table_len)
-{
-    type_cache_init();
-    ir_type_cache.table_values = table_values;
-    ir_type_cache.table_types = table_types;
-    ir_type_cache.table_len = table_len;
-}
 
 static void type_cache_free(void)
 {
@@ -1193,10 +1250,9 @@ static EastType *type_cache_get(EastValue *tv)
 
     if (ir_type_cache.len >= ir_type_cache.cap) {
         ir_type_cache.cap *= 2;
-        ir_type_cache.values = realloc(ir_type_cache.values,
-                                       ir_type_cache.cap * sizeof(EastValue *));
-        ir_type_cache.types = realloc(ir_type_cache.types,
-                                      ir_type_cache.cap * sizeof(EastType *));
+        ir_type_cache.values =
+            realloc(ir_type_cache.values, ir_type_cache.cap * sizeof(EastValue *));
+        ir_type_cache.types = realloc(ir_type_cache.types, ir_type_cache.cap * sizeof(EastType *));
     }
     ir_type_cache.values[ir_type_cache.len] = tv;
     east_type_retain(type);
@@ -1220,15 +1276,14 @@ static EastValue *literal_from_value(EastValue *v)
     const char *tag = east_variant_case_name(v);
     EastValue *payload = v->data.variant.value;
 
-    if (strcmp(tag, "Null") == 0)     return east_null();
-    if (strcmp(tag, "Boolean") == 0)  return east_boolean(payload->data.boolean);
-    if (strcmp(tag, "Integer") == 0)  return east_integer(payload->data.integer);
-    if (strcmp(tag, "Float") == 0)    return east_float(payload->data.float64);
+    if (strcmp(tag, "Null") == 0) return east_null();
+    if (strcmp(tag, "Boolean") == 0) return east_boolean(payload->data.boolean);
+    if (strcmp(tag, "Integer") == 0) return east_integer(payload->data.integer);
+    if (strcmp(tag, "Float") == 0) return east_float(payload->data.float64);
     if (strcmp(tag, "String") == 0)
         return east_string_len(payload->data.string.data, payload->data.string.len);
     if (strcmp(tag, "DateTime") == 0) return east_datetime(payload->data.datetime);
-    if (strcmp(tag, "Blob") == 0)
-        return east_blob(payload->data.blob.data, payload->data.blob.len);
+    if (strcmp(tag, "Blob") == 0) return east_blob(payload->data.blob.data, payload->data.blob.len);
 
     return east_null();
 }
@@ -1238,7 +1293,8 @@ static IRNode *convert_ir(EastValue *v);
 
 /* Release a temporary array of IRNode* after passing to an ir_* constructor
  * (which retains via ir_nodes_dup).  Releases each element and frees array. */
-static void free_temp_nodes(IRNode **nodes, size_t n) {
+static void free_temp_nodes(IRNode **nodes, size_t n)
+{
     if (!nodes) return;
     for (size_t i = 0; i < n; i++) {
         if (nodes[i]) ir_node_release(nodes[i]);
@@ -1248,7 +1304,8 @@ static void free_temp_nodes(IRNode **nodes, size_t n) {
 
 /* Release a temporary array of EastType* after passing to an ir_* constructor
  * (which retains via ir_types_dup).  Releases each element and frees array. */
-static void free_temp_types(EastType **types, size_t n) {
+static void free_temp_types(EastType **types, size_t n)
+{
     if (!types) return;
     for (size_t i = 0; i < n; i++) {
         if (types[i]) east_type_release(types[i]);
@@ -1300,8 +1357,7 @@ static IRVariable var_from_ir_value(EastValue *v)
     var.mutable = get_bool_idx(s, VAR_MUTABLE);
     var.captured = get_bool_idx(s, VAR_CAPTURED);
     EastValue *loc_id_v = get_field_idx(s, IR_LOC_ID);
-    if (loc_id_v && loc_id_v->kind == EAST_VAL_INTEGER)
-        var.loc_id = loc_id_v->data.integer;
+    if (loc_id_v && loc_id_v->kind == EAST_VAL_INTEGER) var.loc_id = loc_id_v->data.integer;
     return var;
 }
 
@@ -1330,8 +1386,8 @@ static IRNode *convert_ir(EastValue *v)
     if (!v || v->kind != EAST_VAL_VARIANT) return NULL;
 
     size_t ci = v->data.variant.case_idx;
-    const char *tag = east_variant_case_name(v);  /* kept for AsyncFunction strcmp */
-    EastValue *s = v->data.variant.value; /* struct payload */
+    const char *tag = east_variant_case_name(v); /* kept for AsyncFunction strcmp */
+    EastValue *s = v->data.variant.value;        /* struct payload */
     EastType *type = type_field(s);
     IRNode *result = NULL;
 
@@ -1347,8 +1403,9 @@ static IRNode *convert_ir(EastValue *v)
     /* ----- Variable ----- */
     /* Variable: { type, location, name, mutable, captured } */
     if (ci == IR_Variable) {
-        result = with_loc(ir_variable(type, get_str_idx(s, VAR_NAME),
-                           get_bool_idx(s, VAR_MUTABLE), get_bool_idx(s, VAR_CAPTURED)), s);
+        result = with_loc(ir_variable(type, get_str_idx(s, VAR_NAME), get_bool_idx(s, VAR_MUTABLE),
+                                      get_bool_idx(s, VAR_CAPTURED)),
+                          s);
         goto cleanup;
     }
 
@@ -1467,7 +1524,8 @@ static IRNode *convert_ir(EastValue *v)
     }
 
     /* ----- ForArray ----- */
-    /* ForArray: { type, location, array, label, key, value, body } — 2=array, 3=label, 4=key, 5=value, 6=body */
+    /* ForArray: { type, location, array, label, key, value, body } — 2=array, 3=label, 4=key,
+     * 5=value, 6=body */
     if (ci == IR_ForArray) {
         IRNode *arr = convert_ir(get_field_idx(s, 2));
         IRNode *body = convert_ir(get_field_idx(s, 6));
@@ -1506,7 +1564,8 @@ static IRNode *convert_ir(EastValue *v)
     }
 
     /* ----- ForDict ----- */
-    /* ForDict: { type, location, dict, label, key, value, body } — 2=dict, 3=label, 4=key, 5=value, 6=body */
+    /* ForDict: { type, location, dict, label, key, value, body } — 2=dict, 3=label, 4=key, 5=value,
+     * 6=body */
     if (ci == IR_ForDict) {
         IRNode *dict = convert_ir(get_field_idx(s, 2));
         IRNode *body = convert_ir(get_field_idx(s, 6));
@@ -1528,7 +1587,8 @@ static IRNode *convert_ir(EastValue *v)
     }
 
     /* ----- Function / AsyncFunction ----- */
-    /* Function: { type, location, captures, parameters, body } — 2=captures, 3=parameters, 4=body */
+    /* Function: { type, location, captures, parameters, body } — 2=captures, 3=parameters, 4=body
+     */
     if (ci == IR_Function || ci == IR_AsyncFunction) {
         EastValue *caps_v = get_field_idx(s, 2);
         EastValue *params_v = get_field_idx(s, 3);
@@ -1560,9 +1620,11 @@ static IRNode *convert_ir(EastValue *v)
             east_value_retain(v);
         }
         ir_node_release(body);
-        for (size_t i = 0; i < nc; i++) free(captures[i].name);
+        for (size_t i = 0; i < nc; i++)
+            free(captures[i].name);
         free(captures);
-        for (size_t i = 0; i < np; i++) free(params[i].name);
+        for (size_t i = 0; i < np; i++)
+            free(params[i].name);
         free(params);
         goto cleanup;
     }
@@ -1584,7 +1646,8 @@ static IRNode *convert_ir(EastValue *v)
     }
 
     /* ----- Platform ----- */
-    /* Platform: { type, location, name, type_parameters, arguments, async, optional } — 2=name, 3=tp, 4=args, 5=async, 6=optional */
+    /* Platform: { type, location, name, type_parameters, arguments, async, optional } — 2=name,
+     * 3=tp, 4=args, 5=async, 6=optional */
     if (ci == IR_Platform) {
         const char *name = get_str_idx(s, 2);
         bool is_async = get_bool_idx(s, 5);
@@ -1646,7 +1709,8 @@ static IRNode *convert_ir(EastValue *v)
     }
 
     /* ----- TryCatch ----- */
-    /* TryCatch: { type, location, try_body, catch_body, message, stack, finally_body } — 2=try, 3=catch, 4=msg, 5=stack, 6=finally */
+    /* TryCatch: { type, location, try_body, catch_body, message, stack, finally_body } — 2=try,
+     * 3=catch, 4=msg, 5=stack, 6=finally */
     if (ci == IR_TryCatch) {
         IRNode *try_body = convert_ir(get_field_idx(s, 2));
         IRNode *catch_body = convert_ir(get_field_idx(s, 3));
@@ -1661,8 +1725,8 @@ static IRNode *convert_ir(EastValue *v)
             stack_var = get_str_idx(stack_v->data.variant.value, VAR_NAME);
         }
         IRNode *finally_body = convert_ir(get_field_idx(s, 6));
-        result = with_loc(ir_try_catch(type, try_body, message_var, stack_var,
-                            catch_body, finally_body), s);
+        result = with_loc(
+            ir_try_catch(type, try_body, message_var, stack_var, catch_body, finally_body), s);
         ir_node_release(try_body);
         ir_node_release(catch_body);
         ir_node_release(finally_body);
@@ -1740,7 +1804,8 @@ static IRNode *convert_ir(EastValue *v)
         }
         result = with_loc(ir_struct(type, names, values, n), s);
         free_temp_nodes(values, n);
-        for (size_t i = 0; i < n; i++) free(names[i]);
+        for (size_t i = 0; i < n; i++)
+            free(names[i]);
         free(names);
         goto cleanup;
     }
@@ -1790,8 +1855,10 @@ static IRNode *convert_ir(EastValue *v)
         IRNode **items = convert_ir_array(get_field_idx(s, 2), &n);
         EastValue *rows_val = get_field_idx(s, 3);
         EastValue *cols_val = get_field_idx(s, 4);
-        size_t rows = (rows_val && rows_val->kind == EAST_VAL_INTEGER) ? (size_t)rows_val->data.integer : 0;
-        size_t cols = (cols_val && cols_val->kind == EAST_VAL_INTEGER) ? (size_t)cols_val->data.integer : 0;
+        size_t rows =
+            (rows_val && rows_val->kind == EAST_VAL_INTEGER) ? (size_t)rows_val->data.integer : 0;
+        size_t cols =
+            (cols_val && cols_val->kind == EAST_VAL_INTEGER) ? (size_t)cols_val->data.integer : 0;
         result = with_loc(ir_new_matrix(type, items, n, rows, cols), s);
         free_temp_nodes(items, n);
         goto cleanup;
@@ -1814,9 +1881,8 @@ IRNode *east_ir_from_value(EastValue *value)
     return result;
 }
 
-const EastLocation *east_source_map_resolve(const EastSourceMap *sm,
-                                             int64_t loc_id,
-                                             size_t *out_count)
+const EastLocation *east_source_map_resolve(const EastSourceMap *sm, int64_t loc_id,
+                                            size_t *out_count)
 {
     if (!sm || loc_id <= 0 || (size_t)loc_id >= sm->num_stacks) {
         if (out_count) *out_count = 0;

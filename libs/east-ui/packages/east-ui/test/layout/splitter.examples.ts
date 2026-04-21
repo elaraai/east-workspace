@@ -1,9 +1,9 @@
 /**
  * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under AGPL-3.0. See LICENSE file for details.
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, FloatType, NullType, example } from "@elaraai/east";
-import { Badge, Box, Reactive, Splitter, Stack, State, Text, UIComponentType } from "../../src/index.js";
+import { East, FloatType, IntegerType, NullType, example } from "@elaraai/east";
+import { Badge, Box, Reactive, Splitter, Stack, State, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const splitterHorizontal = example({
     keywords: ["Splitter", "Root", "Panel", "orientation", "horizontal"],
@@ -125,6 +125,46 @@ export const splitterEditor = example({
                 ),
             ], [70, 30], { orientation: "vertical" }),
         ], { height: "200px" });
+    }),
+    inputs: [],
+});
+
+export const splitterOnResizeStartEnd = example({
+    keywords: ["Splitter", "Panel", "onResizeStart", "onResizeEnd", "Reactive", "State", "interactive"],
+    description: "Drag handle — counts onResizeStart and onResizeEnd transitions",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const startBind = $.let(State.bind([IntegerType], "splitter_start_count", 0n));
+            const endBind = $.let(State.bind([IntegerType], "splitter_end_count", 0n));
+            const startCount = $.let(startBind.read());
+            const endCount = $.let(endBind.read());
+            const onResizeStart = $.const(East.function([], NullType, $ => {
+                const cur = $.let(startBind.read());
+                $(startBind.write(cur.add(1n)));
+            }));
+            const onResizeEnd = $.const(East.function([Splitter.Types.ResizeDetails], NullType, ($, _details) => {
+                const cur = $.let(endBind.read());
+                $(endBind.write(cur.add(1n)));
+            }));
+            return Stack.VStack([
+                Box.Root([
+                    Splitter.Root([
+                        Splitter.Panel(
+                            Box.Root([Text.Root("Drag the divider")], { padding: "4", background: "purple.100" }),
+                            { id: "a" }
+                        ),
+                        Splitter.Panel(
+                            Box.Root([Text.Root("Right side")], { padding: "4", background: "pink.100" }),
+                            { id: "b" }
+                        ),
+                    ], [50, 50], { orientation: "horizontal", onResizeStart, onResizeEnd }),
+                ], { height: "150px" }),
+                Stack.HStack([
+                    Badge.Root(East.str`Start: ${East.print(startCount)}`, { colorPalette: "purple" }),
+                    Badge.Root(East.str`End: ${East.print(endCount)}`, { colorPalette: "pink" }),
+                ], { gap: "2" }),
+            ], { gap: "3", align: "stretch" });
+        }));
     }),
     inputs: [],
 });

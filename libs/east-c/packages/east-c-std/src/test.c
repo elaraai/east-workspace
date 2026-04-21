@@ -12,20 +12,23 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-static EvalResult test_pass(EastValue **args, size_t num_args) {
+static EvalResult test_pass(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+{
     (void)args;
     (void)num_args;
     /* No-op: test assertion passed, execution continues normally */
     return eval_ok(east_null());
 }
 
-static EvalResult test_fail(EastValue **args, size_t num_args) {
+static EvalResult test_fail(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+{
     (void)num_args;
     const char *message = args[0]->data.string.data;
     return eval_error(message);
 }
 
-static EvalResult test_impl(EastValue **args, size_t num_args) {
+static EvalResult test_impl(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+{
     (void)num_args;
     EastValue *name = args[0];
     EastValue *body = args[1];
@@ -46,7 +49,8 @@ static EvalResult test_impl(EastValue **args, size_t num_args) {
     return eval_ok(east_null());
 }
 
-static EvalResult describe_impl(EastValue **args, size_t num_args) {
+static EvalResult describe_impl(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+{
     (void)num_args;
     EastValue *name = args[0];
     EastValue *body = args[1];
@@ -61,7 +65,8 @@ static EvalResult describe_impl(EastValue **args, size_t num_args) {
     return eval_ok(east_null());
 }
 
-void east_std_register_test(PlatformRegistry *reg) {
+void east_std_register_test(PlatformRegistry *reg)
+{
     platform_registry_add(reg, "testPass", test_pass, false);
     platform_registry_add(reg, "testFail", test_fail, false);
     platform_registry_add(reg, "test", test_impl, false);

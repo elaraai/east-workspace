@@ -35,18 +35,24 @@ struct EastValue {
     /* GC cycle-collector tracking (used only for container types) */
     struct EastValue *gc_next;
     struct EastValue *gc_prev;
-    int gc_refs;           /* temporary refcount during collection */
-    bool gc_tracked;       /* true if in GC tracking list */
-    uint8_t gc_gen;        /* GC generation: 0=young, 1=old */
-    int iter_lock;         /* iteration lock count (>0 = locked, mutation forbidden) */
+    int gc_refs;     /* temporary refcount during collection */
+    bool gc_tracked; /* true if in GC tracking list */
+    uint8_t gc_gen;  /* GC generation: 0=young, 1=old */
+    int iter_lock;   /* iteration lock count (>0 = locked, mutation forbidden) */
 
     union {
         bool boolean;
         int64_t integer;
         double float64;
-        struct { char *data; size_t len; } string;
-        int64_t datetime;  // epoch millis
-        struct { uint8_t *data; size_t len; } blob;
+        struct {
+            char *data;
+            size_t len;
+        } string;
+        int64_t datetime; // epoch millis
+        struct {
+            uint8_t *data;
+            size_t len;
+        } blob;
         struct {
             EastValue **items;
             size_t len;
@@ -76,19 +82,19 @@ struct EastValue {
         struct {
             EastValue *value;
             EastType *type;
-            size_t case_idx;        /* index into type->data.variant.cases[] (SIZE_MAX if unknown) */
-            const char *case_tag;   /* NOT owned — points into type's cases or string literal */
+            size_t case_idx;      /* index into type->data.variant.cases[] (SIZE_MAX if unknown) */
+            const char *case_tag; /* NOT owned — points into type's cases or string literal */
         } variant;
         struct {
             EastValue *value;
         } ref;
         struct {
-            void *data;   // float64*, int64_t*, or bool*
+            void *data; // float64*, int64_t*, or bool*
             size_t len;
             EastType *elem_type;
         } vector;
         struct {
-            void *data;   // float64*, int64_t*, or bool*
+            void *data; // float64*, int64_t*, or bool*
             size_t rows;
             size_t cols;
             EastType *elem_type;
@@ -127,8 +133,7 @@ bool east_set_delete(EastValue *set, EastValue *val);
 size_t east_set_len(EastValue *set);
 
 EastValue *east_dict_new(EastType *key_type, EastType *val_type);
-EastValue *east_dict_new_with_capacity(EastType *key_type, EastType *val_type,
-                                       size_t capacity);
+EastValue *east_dict_new_with_capacity(EastType *key_type, EastType *val_type, size_t capacity);
 void east_dict_set(EastValue *dict, EastValue *key, EastValue *val);
 EastValue *east_dict_get(EastValue *dict, EastValue *key);
 bool east_dict_has(EastValue *dict, EastValue *key);
@@ -138,17 +143,19 @@ size_t east_dict_len(EastValue *dict);
 
 EastValue *east_struct_new(const char **names, EastValue **values, size_t count, EastType *type);
 EastValue *east_struct_get_field(EastValue *s, const char *name);
-static inline EastValue *east_struct_get_field_idx(EastValue *s, size_t idx) {
+static inline EastValue *east_struct_get_field_idx(EastValue *s, size_t idx)
+{
     return (s && s->kind == EAST_VAL_STRUCT && idx < s->data.struct_.num_fields)
-        ? s->data.struct_.field_values[idx]
-        : NULL;
+               ? s->data.struct_.field_values[idx]
+               : NULL;
 }
 
 EastValue *east_variant_new(const char *case_name, EastValue *value, EastType *type);
 EastValue *east_variant_new_idx(size_t case_idx, EastValue *value, EastType *type);
 
 /* Get the case name. Returns "" if not set. */
-static inline const char *east_variant_case_name(EastValue *v) {
+static inline const char *east_variant_case_name(EastValue *v)
+{
     if (v && v->kind == EAST_VAL_VARIANT && v->data.variant.case_tag)
         return v->data.variant.case_tag;
     return "";

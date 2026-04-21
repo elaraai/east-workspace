@@ -1,9 +1,9 @@
 /**
  * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under AGPL-3.0. See LICENSE file for details.
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, example } from "@elaraai/east";
-import { Mark, Stack, Text, UIComponentType } from "../../src/index.js";
+import { East, IntegerType, NullType, example } from "@elaraai/east";
+import { Button, Mark, Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const markBasic = example({
     keywords: ["Mark", "Root", "basic"],
@@ -88,6 +88,27 @@ export const markInContext = example({
             Mark.Root("deprecated", { variant: "subtle", colorPalette: "orange" }),
             Text.Root(" and will be removed."),
         ], { gap: "1" });
+    }),
+    inputs: [],
+});
+
+export const markInteractive = example({
+    keywords: ["Mark", "Reactive", "State", "interactive", "counter"],
+    description: "Reactive marked text whose label updates from a counter",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const counter = $.let(State.bind([IntegerType], "mark_counter", 0n));
+            const value = $.let(counter.read());
+            const increment = $.const(East.function([], NullType, $ => {
+                const cur = $.let(counter.read());
+                $(counter.write(cur.add(1n)));
+            }));
+            return Stack.VStack([
+                Text.Root("Marked content updates as you click:"),
+                Mark.Root(East.str`Mark #${East.print(value)}`, { variant: "subtle", colorPalette: "yellow" }),
+                Button.Root("Bump", { onClick: increment }),
+            ], { gap: "3", align: "stretch" });
+        }));
     }),
     inputs: [],
 });

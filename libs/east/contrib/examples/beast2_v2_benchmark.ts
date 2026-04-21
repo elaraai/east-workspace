@@ -216,6 +216,48 @@ function generateSettingsPanel(prefix: string, numGroups: number, fieldsPerGroup
   });
 }
 
+/** Wrap a component in N levels of nested Box+Stack to stress tree depth. */
+function nestDeep(depth: number, inner: any): any {
+  let node = inner;
+  for (let i = 0; i < depth; i++) {
+    // Alternate Box / Stack / Card wrappers so the type tree is heterogeneous.
+    if (i % 3 === 0) {
+      node = box([node]);
+    } else if (i % 3 === 1) {
+      node = stack([node, spacer()], "column");
+    } else {
+      node = variant("Card", { header: none, body: [node], footer: none });
+    }
+  }
+  return node;
+}
+
+/** Recursive accordion: each level contains a stack with a deeper accordion. */
+function deepAccordion(depth: number, breadth: number, prefix: string): any {
+  if (depth === 0) {
+    return generateForm(`${prefix}-leaf`, 4);
+  }
+  return variant("Accordion", {
+    items: Array.from({ length: breadth }, (_, i) => ({
+      title: `${prefix} L${depth} #${i}`,
+      content: stack([
+        text(`Section ${prefix}-${depth}-${i}`),
+        // Computed inside the recursion adds a closure at every level.
+        computed($ =>
+          $.const(variant("Box", {
+            children: [
+              $.const(variant("Text", { content: `Computed at L${depth}-${i}`, style: none }), UIType),
+              $.const(variant("Badge", { content: `${depth}.${i}`, style: none }), UIType),
+            ],
+            style: none,
+          }), UIType)
+        ),
+        deepAccordion(depth - 1, breadth, `${prefix}.${i}`),
+      ], "column"),
+    })),
+  });
+}
+
 /** Generate a full dashboard page — tabs with nested panels */
 function generateDashboard(id: number): any {
   return variant("Card", {
@@ -258,6 +300,8 @@ function generateDashboard(id: number): any {
             content: stack([
               generateForm(`d${id}-advanced`, 6),
               generateDataPanel(`d${id}-adv-data`, 5),
+              // Recursive accordion — depth 2 with breadth 2 (= 7 nested levels per dashboard)
+              deepAccordion(2, 2, `d${id}-tree`),
               // Deeply nested dialog with more closures
               dialog(
                 button(`Deep Action ${id}`, ($, _e) =>
@@ -281,9 +325,10 @@ function generateDashboard(id: number): any {
 console.log("Building component tree...");
 const t0 = performance.now();
 
-const NUM_DASHBOARDS = 20;
+const NUM_DASHBOARDS = 40;
+const NEST_DEPTH = 4;   // wraps each dashboard in N nested layout layers
 const page = variant("Grid", {
-  children: Array.from({ length: NUM_DASHBOARDS }, (_, i) => generateDashboard(i)),
+  children: Array.from({ length: NUM_DASHBOARDS }, (_, i) => nestDeep(NEST_DEPTH, generateDashboard(i))),
   columns: 3n,
 });
 

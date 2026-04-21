@@ -3,8 +3,8 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { East, example } from "@elaraai/east";
-import { Sparkline, Stack, Text, UIComponentType } from "../../src/index.js";
+import { East, IntegerType, NullType, example } from "@elaraai/east";
+import { Button, Reactive, Sparkline, Stack, State, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const sparklineLine = example({
     keywords: ["Sparkline", "line", "basic"],
@@ -170,6 +170,29 @@ export const sparklineDowntrend = example({
                 height: "48px",
             }
         );
+    }),
+    inputs: [],
+});
+
+export const sparklineInteractive = example({
+    keywords: ["Sparkline", "Reactive", "State", "interactive", "counter"],
+    description: "Sparkline whose last point is driven by a reactive counter",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const counter = $.let(State.bind([IntegerType], "sparkline_counter", 0n));
+            const value = $.let(counter.read());
+            const inc = $.const(East.function([], NullType, $ => {
+                const cur = $.let(counter.read());
+                $(counter.write(cur.add(1n)));
+            }));
+            return Stack.VStack([
+                Sparkline.Root(
+                    [10.0, 12.0, 8.0, 15.0, 18.0, 14.0, 22.0, value.toFloat().multiply(2.0).add(19.0)],
+                    { color: "blue.solid", height: "40px", width: "200px", type: "area" },
+                ),
+                Button.Root("Bump last point", { onClick: inc }),
+            ], { gap: "3", align: "stretch" });
+        }));
     }),
     inputs: [],
 });

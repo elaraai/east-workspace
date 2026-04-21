@@ -9,7 +9,7 @@ typedef struct Environment {
     Hashmap *locals;
     struct Environment *parent;
     int ref_count;
-    unsigned gc_gen;  /* generation stamp for GC dedup */
+    unsigned gc_gen; /* generation stamp for GC dedup */
 } Environment;
 
 Environment *env_new(Environment *parent);

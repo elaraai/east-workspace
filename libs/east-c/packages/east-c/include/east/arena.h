@@ -16,6 +16,6 @@ void *east_calloc(size_t count, size_t size);
 void *east_realloc(void *ptr, size_t old_size, size_t new_size);
 char *east_strdup(const char *s);
 char *east_strndup(const char *s, size_t n);
-void  east_free(void *ptr);
+void east_free(void *ptr);
 
 #endif

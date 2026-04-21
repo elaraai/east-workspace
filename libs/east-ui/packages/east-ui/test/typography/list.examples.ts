@@ -1,9 +1,9 @@
 /**
  * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under AGPL-3.0. See LICENSE file for details.
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, example } from "@elaraai/east";
-import { List, UIComponentType } from "../../src/index.js";
+import { East, IntegerType, NullType, example } from "@elaraai/east";
+import { Button, List, Reactive, Stack, State, UIComponentType } from "@elaraai/east-ui";
 
 export const listUnordered = example({
     keywords: ["List", "Root", "unordered", "bulleted"],
@@ -103,6 +103,30 @@ export const listEmpty = example({
     description: "List with no items",
     fn: East.function([], UIComponentType, (_$) => {
         return List.Root([]);
+    }),
+    inputs: [],
+});
+
+export const listInteractive = example({
+    keywords: ["List", "Reactive", "State", "interactive", "counter"],
+    description: "Reactive list whose item labels update from a counter",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const counter = $.let(State.bind([IntegerType], "list_counter", 0n));
+            const value = $.let(counter.read());
+            const increment = $.const(East.function([], NullType, $ => {
+                const cur = $.let(counter.read());
+                $(counter.write(cur.add(1n)));
+            }));
+            return Stack.VStack([
+                List.Root([
+                    East.str`First — bump ${East.print(value)}`,
+                    East.str`Second — bump ${East.print(value)}`,
+                    East.str`Third — bump ${East.print(value)}`,
+                ], { variant: "ordered" }),
+                Button.Root("Bump", { onClick: increment }),
+            ], { gap: "3", align: "stretch" });
+        }));
     }),
     inputs: [],
 });

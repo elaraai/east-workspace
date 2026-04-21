@@ -24,7 +24,8 @@
 /* ------------------------------------------------------------------ */
 
 /* Return the byte length of a UTF-8 character starting at *p. */
-static inline size_t utf8_char_len(const unsigned char *p) {
+static inline size_t utf8_char_len(const unsigned char *p)
+{
     if (*p < 0x80) return 1;
     if ((*p & 0xE0) == 0xC0) return 2;
     if ((*p & 0xF0) == 0xE0) return 3;
@@ -33,7 +34,8 @@ static inline size_t utf8_char_len(const unsigned char *p) {
 }
 
 /* Count the number of Unicode codepoints in a UTF-8 string. */
-static size_t utf8_codepoint_count(const char *s, size_t byte_len) {
+static size_t utf8_codepoint_count(const char *s, size_t byte_len)
+{
     size_t count = 0;
     const unsigned char *p = (const unsigned char *)s;
     const unsigned char *end = p + byte_len;
@@ -46,7 +48,8 @@ static size_t utf8_codepoint_count(const char *s, size_t byte_len) {
 
 /* Convert a codepoint index to a byte offset.
  * Returns byte_len if cp_index >= total codepoints. */
-static size_t utf8_cp_to_byte(const char *s, size_t byte_len, size_t cp_index) {
+static size_t utf8_cp_to_byte(const char *s, size_t byte_len, size_t cp_index)
+{
     const unsigned char *p = (const unsigned char *)s;
     const unsigned char *end = p + byte_len;
     size_t cp = 0;
@@ -58,7 +61,8 @@ static size_t utf8_cp_to_byte(const char *s, size_t byte_len, size_t cp_index) {
 }
 
 /* Convert a byte offset to a codepoint index. */
-static size_t utf8_byte_to_cp(const char *s, size_t byte_offset) {
+static size_t utf8_byte_to_cp(const char *s, size_t byte_offset)
+{
     const unsigned char *p = (const unsigned char *)s;
     const unsigned char *target = p + byte_offset;
     size_t cp = 0;
@@ -73,7 +77,8 @@ static size_t utf8_byte_to_cp(const char *s, size_t byte_offset) {
 /*  Basic string operations                                            */
 /* ------------------------------------------------------------------ */
 
-static EastValue *string_concat(EastValue **args, size_t n) {
+static EastValue *string_concat(EastValue **args, size_t n)
+{
     (void)n;
     const char *a = args[0]->data.string.data;
     size_t alen = args[0]->data.string.len;
@@ -90,7 +95,8 @@ static EastValue *string_concat(EastValue **args, size_t n) {
     return result;
 }
 
-static EastValue *string_repeat(EastValue **args, size_t n) {
+static EastValue *string_repeat(EastValue **args, size_t n)
+{
     (void)n;
     const char *s = args[0]->data.string.data;
     size_t slen = args[0]->data.string.len;
@@ -109,15 +115,16 @@ static EastValue *string_repeat(EastValue **args, size_t n) {
 }
 
 /* StringLength — returns Unicode codepoint count (like JS for...of) */
-static EastValue *string_length(EastValue **args, size_t n) {
+static EastValue *string_length(EastValue **args, size_t n)
+{
     (void)n;
-    size_t cp_count = utf8_codepoint_count(args[0]->data.string.data,
-                                            args[0]->data.string.len);
+    size_t cp_count = utf8_codepoint_count(args[0]->data.string.data, args[0]->data.string.len);
     return east_integer((int64_t)cp_count);
 }
 
 /* StringSubstring — takes codepoint indices (like JS) */
-static EastValue *string_substring(EastValue **args, size_t n) {
+static EastValue *string_substring(EastValue **args, size_t n)
+{
     (void)n;
     const char *s = args[0]->data.string.data;
     size_t byte_len = args[0]->data.string.len;
@@ -139,7 +146,8 @@ static EastValue *string_substring(EastValue **args, size_t n) {
 }
 
 /* StringIndexOf — returns codepoint index (like JS) */
-static EastValue *string_index_of(EastValue **args, size_t n) {
+static EastValue *string_index_of(EastValue **args, size_t n)
+{
     (void)n;
     const char *s = args[0]->data.string.data;
     const char *sub = args[1]->data.string.data;
@@ -152,7 +160,8 @@ static EastValue *string_index_of(EastValue **args, size_t n) {
 }
 
 /* StringSplit — splits into codepoints when delimiter is empty */
-static EastValue *string_split(EastValue **args, size_t n) {
+static EastValue *string_split(EastValue **args, size_t n)
+{
     (void)n;
     const char *s = args[0]->data.string.data;
     size_t slen = args[0]->data.string.len;
@@ -198,53 +207,93 @@ static EastValue *string_split(EastValue **args, size_t n) {
     return arr;
 }
 
-static EastValue *string_trim(EastValue **args, size_t n) {
+static EastValue *string_trim(EastValue **args, size_t n)
+{
     (void)n;
     const char *s = args[0]->data.string.data;
     size_t len = args[0]->data.string.len;
     size_t start = 0;
-    while (start < len && isspace((unsigned char)s[start])) start++;
+    while (start < len && isspace((unsigned char)s[start]))
+        start++;
     size_t end = len;
-    while (end > start && isspace((unsigned char)s[end - 1])) end--;
+    while (end > start && isspace((unsigned char)s[end - 1]))
+        end--;
     return east_string_len(s + start, end - start);
 }
 
-static EastValue *string_trim_start(EastValue **args, size_t n) {
+static EastValue *string_trim_start(EastValue **args, size_t n)
+{
     (void)n;
     const char *s = args[0]->data.string.data;
     size_t len = args[0]->data.string.len;
     size_t start = 0;
-    while (start < len && isspace((unsigned char)s[start])) start++;
+    while (start < len && isspace((unsigned char)s[start]))
+        start++;
     return east_string_len(s + start, len - start);
 }
 
-static EastValue *string_trim_end(EastValue **args, size_t n) {
+static EastValue *string_trim_end(EastValue **args, size_t n)
+{
     (void)n;
     const char *s = args[0]->data.string.data;
     size_t len = args[0]->data.string.len;
-    while (len > 0 && isspace((unsigned char)s[len - 1])) len--;
+    while (len > 0 && isspace((unsigned char)s[len - 1]))
+        len--;
     return east_string_len(s, len);
 }
 
 /* Decode one UTF-8 codepoint, returning the codepoint and advancing *advance. */
-static uint32_t utf8_decode_cp(const unsigned char *p, size_t *advance) {
-    if (*p < 0x80)         { *advance = 1; return *p; }
-    if ((*p & 0xE0) == 0xC0) { *advance = 2; return ((uint32_t)(p[0] & 0x1F) << 6) | (p[1] & 0x3F); }
-    if ((*p & 0xF0) == 0xE0) { *advance = 3; return ((uint32_t)(p[0] & 0x0F) << 12) | ((uint32_t)(p[1] & 0x3F) << 6) | (p[2] & 0x3F); }
-    if ((*p & 0xF8) == 0xF0) { *advance = 4; return ((uint32_t)(p[0] & 0x07) << 18) | ((uint32_t)(p[1] & 0x3F) << 12) | ((uint32_t)(p[2] & 0x3F) << 6) | (p[3] & 0x3F); }
-    *advance = 1; return 0xFFFD;
+static uint32_t utf8_decode_cp(const unsigned char *p, size_t *advance)
+{
+    if (*p < 0x80) {
+        *advance = 1;
+        return *p;
+    }
+    if ((*p & 0xE0) == 0xC0) {
+        *advance = 2;
+        return ((uint32_t)(p[0] & 0x1F) << 6) | (p[1] & 0x3F);
+    }
+    if ((*p & 0xF0) == 0xE0) {
+        *advance = 3;
+        return ((uint32_t)(p[0] & 0x0F) << 12) | ((uint32_t)(p[1] & 0x3F) << 6) | (p[2] & 0x3F);
+    }
+    if ((*p & 0xF8) == 0xF0) {
+        *advance = 4;
+        return ((uint32_t)(p[0] & 0x07) << 18) | ((uint32_t)(p[1] & 0x3F) << 12) |
+               ((uint32_t)(p[2] & 0x3F) << 6) | (p[3] & 0x3F);
+    }
+    *advance = 1;
+    return 0xFFFD;
 }
 
 /* Encode one codepoint as UTF-8, return bytes written. */
-static size_t utf8_encode_cp(uint32_t cp, char *buf) {
-    if (cp < 0x80)    { buf[0] = (char)cp; return 1; }
-    if (cp < 0x800)   { buf[0] = (char)(0xC0 | (cp >> 6)); buf[1] = (char)(0x80 | (cp & 0x3F)); return 2; }
-    if (cp < 0x10000) { buf[0] = (char)(0xE0 | (cp >> 12)); buf[1] = (char)(0x80 | ((cp >> 6) & 0x3F)); buf[2] = (char)(0x80 | (cp & 0x3F)); return 3; }
-    buf[0] = (char)(0xF0 | (cp >> 18)); buf[1] = (char)(0x80 | ((cp >> 12) & 0x3F)); buf[2] = (char)(0x80 | ((cp >> 6) & 0x3F)); buf[3] = (char)(0x80 | (cp & 0x3F)); return 4;
+static size_t utf8_encode_cp(uint32_t cp, char *buf)
+{
+    if (cp < 0x80) {
+        buf[0] = (char)cp;
+        return 1;
+    }
+    if (cp < 0x800) {
+        buf[0] = (char)(0xC0 | (cp >> 6));
+        buf[1] = (char)(0x80 | (cp & 0x3F));
+        return 2;
+    }
+    if (cp < 0x10000) {
+        buf[0] = (char)(0xE0 | (cp >> 12));
+        buf[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
+        buf[2] = (char)(0x80 | (cp & 0x3F));
+        return 3;
+    }
+    buf[0] = (char)(0xF0 | (cp >> 18));
+    buf[1] = (char)(0x80 | ((cp >> 12) & 0x3F));
+    buf[2] = (char)(0x80 | ((cp >> 6) & 0x3F));
+    buf[3] = (char)(0x80 | (cp & 0x3F));
+    return 4;
 }
 
 static int locale_init_done = 0;
-static void ensure_utf8_locale(void) {
+static void ensure_utf8_locale(void)
+{
     if (!locale_init_done) {
         setlocale(LC_CTYPE, "C.UTF-8");
         locale_init_done = 1;
@@ -252,7 +301,8 @@ static void ensure_utf8_locale(void) {
 }
 
 /* StringLowerCase / StringUpperCase — full Unicode case mapping via towlower/towupper. */
-static EastValue *string_lower_case(EastValue **args, size_t n) {
+static EastValue *string_lower_case(EastValue **args, size_t n)
+{
     (void)n;
     ensure_utf8_locale();
     const unsigned char *s = (const unsigned char *)args[0]->data.string.data;
@@ -274,7 +324,8 @@ static EastValue *string_lower_case(EastValue **args, size_t n) {
     return result;
 }
 
-static EastValue *string_upper_case(EastValue **args, size_t n) {
+static EastValue *string_upper_case(EastValue **args, size_t n)
+{
     (void)n;
     ensure_utf8_locale();
     const unsigned char *s = (const unsigned char *)args[0]->data.string.data;
@@ -297,7 +348,8 @@ static EastValue *string_upper_case(EastValue **args, size_t n) {
 }
 
 /* StringReplace — replaces all occurrences (like JS replaceAll with string) */
-static EastValue *string_replace(EastValue **args, size_t n) {
+static EastValue *string_replace(EastValue **args, size_t n)
+{
     (void)n;
     const char *s = args[0]->data.string.data;
     size_t slen = args[0]->data.string.len;
@@ -366,7 +418,8 @@ static EastValue *string_replace(EastValue **args, size_t n) {
     return result;
 }
 
-static EastValue *string_starts_with(EastValue **args, size_t n) {
+static EastValue *string_starts_with(EastValue **args, size_t n)
+{
     (void)n;
     const char *s = args[0]->data.string.data;
     size_t slen = args[0]->data.string.len;
@@ -376,7 +429,8 @@ static EastValue *string_starts_with(EastValue **args, size_t n) {
     return east_boolean(memcmp(s, prefix, plen) == 0);
 }
 
-static EastValue *string_ends_with(EastValue **args, size_t n) {
+static EastValue *string_ends_with(EastValue **args, size_t n)
+{
     (void)n;
     const char *s = args[0]->data.string.data;
     size_t slen = args[0]->data.string.len;
@@ -386,7 +440,8 @@ static EastValue *string_ends_with(EastValue **args, size_t n) {
     return east_boolean(memcmp(s + slen - sflen, suffix, sflen) == 0);
 }
 
-static EastValue *string_contains(EastValue **args, size_t n) {
+static EastValue *string_contains(EastValue **args, size_t n)
+{
     (void)n;
     const char *s = args[0]->data.string.data;
     const char *sub = args[1]->data.string.data;
@@ -398,29 +453,38 @@ static EastValue *string_contains(EastValue **args, size_t n) {
 /* ------------------------------------------------------------------ */
 
 /* Convert JS flags string to PCRE2 options */
-static uint32_t js_flags_to_pcre2(const char *flags) {
+static uint32_t js_flags_to_pcre2(const char *flags)
+{
     uint32_t options = PCRE2_UTF | PCRE2_UCP;
     for (const char *p = flags; *p; p++) {
         switch (*p) {
-            case 'i': options |= PCRE2_CASELESS; break;
-            case 'm': options |= PCRE2_MULTILINE; break;
-            case 's': options |= PCRE2_DOTALL; break;
-            case 'g': break; /* handled separately */
-            default: break;
+        case 'i':
+            options |= PCRE2_CASELESS;
+            break;
+        case 'm':
+            options |= PCRE2_MULTILINE;
+            break;
+        case 's':
+            options |= PCRE2_DOTALL;
+            break;
+        case 'g':
+            break; /* handled separately */
+        default:
+            break;
         }
     }
     return options;
 }
 
 /* Compile a PCRE2 regex from pattern and flags. Returns NULL on error. */
-static pcre2_code *compile_regex(const char *pattern, const char *flags) {
+static pcre2_code *compile_regex(const char *pattern, const char *flags)
+{
     int errorcode;
     PCRE2_SIZE erroroffset;
     uint32_t options = js_flags_to_pcre2(flags);
 
-    pcre2_code *re = pcre2_compile(
-        (PCRE2_SPTR)pattern, PCRE2_ZERO_TERMINATED,
-        options, &errorcode, &erroroffset, NULL);
+    pcre2_code *re = pcre2_compile((PCRE2_SPTR)pattern, PCRE2_ZERO_TERMINATED, options, &errorcode,
+                                   &erroroffset, NULL);
 
     if (!re) {
         PCRE2_UCHAR errbuf[256];
@@ -433,7 +497,8 @@ static pcre2_code *compile_regex(const char *pattern, const char *flags) {
 }
 
 /* RegexContains — like JS regex.test(text) */
-static EastValue *regex_contains(EastValue **args, size_t n) {
+static EastValue *regex_contains(EastValue **args, size_t n)
+{
     (void)n;
     const char *text = args[0]->data.string.data;
     size_t text_len = args[0]->data.string.len;
@@ -452,7 +517,8 @@ static EastValue *regex_contains(EastValue **args, size_t n) {
 }
 
 /* RegexIndexOf — returns codepoint index of first match, -1 if none */
-static EastValue *regex_index_of(EastValue **args, size_t n) {
+static EastValue *regex_index_of(EastValue **args, size_t n)
+{
     (void)n;
     const char *text = args[0]->data.string.data;
     size_t text_len = args[0]->data.string.len;
@@ -485,12 +551,19 @@ typedef struct {
     size_t cap;
 } DynBuf;
 
-static void dynbuf_init(DynBuf *b) { b->data = NULL; b->len = 0; b->cap = 0; }
+static void dynbuf_init(DynBuf *b)
+{
+    b->data = NULL;
+    b->len = 0;
+    b->cap = 0;
+}
 
-static void dynbuf_append(DynBuf *b, const char *s, size_t n) {
+static void dynbuf_append(DynBuf *b, const char *s, size_t n)
+{
     if (b->len + n >= b->cap) {
         size_t new_cap = (b->cap == 0) ? 256 : b->cap * 2;
-        while (new_cap < b->len + n + 1) new_cap *= 2;
+        while (new_cap < b->len + n + 1)
+            new_cap *= 2;
         b->data = realloc(b->data, new_cap);
         b->cap = new_cap;
     }
@@ -501,9 +574,9 @@ static void dynbuf_append(DynBuf *b, const char *s, size_t n) {
 
 /* Process replacement string with $-substitutions (JS semantics).
  * md is the match data, text is the subject string. */
-static void apply_replacement(DynBuf *buf, const char *replacement, size_t rlen,
-                               const char *text, pcre2_match_data *md,
-                               pcre2_code *re) {
+static void apply_replacement(DynBuf *buf, const char *replacement, size_t rlen, const char *text,
+                              pcre2_match_data *md, pcre2_code *re)
+{
     PCRE2_SIZE *ovector = pcre2_get_ovector_pointer(md);
     uint32_t capture_count;
     pcre2_pattern_info(re, PCRE2_INFO_CAPTURECOUNT, &capture_count);
@@ -541,7 +614,8 @@ static void apply_replacement(DynBuf *buf, const char *replacement, size_t rlen,
                 /* $<name> - named capture group */
                 i += 2; /* skip $< */
                 const char *name_start = replacement + i;
-                while (i < rlen && replacement[i] != '>') i++;
+                while (i < rlen && replacement[i] != '>')
+                    i++;
                 if (i < rlen) {
                     size_t name_len = (size_t)(replacement + i - name_start);
                     char *name = malloc(name_len + 1);
@@ -571,7 +645,8 @@ static void apply_replacement(DynBuf *buf, const char *replacement, size_t rlen,
 }
 
 /* RegexReplace — replaces all matches (like JS replaceAll with regex) */
-static EastValue *regex_replace(EastValue **args, size_t n) {
+static EastValue *regex_replace(EastValue **args, size_t n)
+{
     (void)n;
     const char *text = args[0]->data.string.data;
     size_t text_len = args[0]->data.string.len;
@@ -585,7 +660,8 @@ static EastValue *regex_replace(EastValue **args, size_t n) {
         if (replacement[i] == '$') {
             i++;
             if (i >= rlen) {
-                east_builtin_error("invalid regex replacement string: unescaped $ at end of string");
+                east_builtin_error(
+                    "invalid regex replacement string: unescaped $ at end of string");
                 return NULL;
             }
             char c = replacement[i];
@@ -593,7 +669,8 @@ static EastValue *regex_replace(EastValue **args, size_t n) {
                 /* OK - escaped dollar */
             } else if (c >= '1' && c <= '9') {
                 /* OK - consume additional digits */
-                while (i + 1 < rlen && replacement[i + 1] >= '0' && replacement[i + 1] <= '9') i++;
+                while (i + 1 < rlen && replacement[i + 1] >= '0' && replacement[i + 1] <= '9')
+                    i++;
             } else if (c == '<') {
                 /* Scan for closing > */
                 i++;
@@ -604,14 +681,17 @@ static EastValue *regex_replace(EastValue **args, size_t n) {
                           (ch >= 'A' && ch <= 'Z') || ch == '_')) {
                         char msg[256];
                         snprintf(msg, sizeof(msg),
-                                 "invalid regex replacement string: invalid character \"%c\" in group name in $<...>", ch);
+                                 "invalid regex replacement string: invalid character \"%c\" in "
+                                 "group name in $<...>",
+                                 ch);
                         east_builtin_error(msg);
                         return NULL;
                     }
                     i++;
                 }
                 if (i >= rlen) {
-                    east_builtin_error("invalid regex replacement string: unterminated group name in $<...>");
+                    east_builtin_error(
+                        "invalid regex replacement string: unterminated group name in $<...>");
                     return NULL;
                 }
                 if (i == name_start) {
@@ -620,8 +700,8 @@ static EastValue *regex_replace(EastValue **args, size_t n) {
                 }
             } else {
                 char msg[256];
-                snprintf(msg, sizeof(msg),
-                         "invalid regex replacement string: unescaped $ at $%c", c);
+                snprintf(msg, sizeof(msg), "invalid regex replacement string: unescaped $ at $%c",
+                         c);
                 east_builtin_error(msg);
                 return NULL;
             }
@@ -691,7 +771,8 @@ static EastValue *regex_replace(EastValue **args, size_t n) {
 
 /* Print: value -> East text format string (type-parameterized) */
 static _Thread_local EastType *s_print_east_type = NULL;
-static EastValue *string_print_east_impl(EastValue **args, size_t n) {
+static EastValue *string_print_east_impl(EastValue **args, size_t n)
+{
     (void)n;
     char *text = east_print_value(args[0], s_print_east_type);
     if (!text) return east_string("");
@@ -702,7 +783,8 @@ static EastValue *string_print_east_impl(EastValue **args, size_t n) {
 
 /* Parse: East text format string -> value (type-parameterized) */
 static _Thread_local EastType *s_parse_east_type = NULL;
-static EastValue *string_parse_east_impl(EastValue **args, size_t n) {
+static EastValue *string_parse_east_impl(EastValue **args, size_t n)
+{
     (void)n;
     const char *text = args[0]->data.string.data;
     char *error_msg = NULL;
@@ -723,7 +805,8 @@ static EastValue *string_parse_east_impl(EastValue **args, size_t n) {
 
 /* StringPrintJSON: value -> JSON string */
 static _Thread_local EastType *s_print_json_type = NULL;
-static EastValue *string_print_json_impl(EastValue **args, size_t n) {
+static EastValue *string_print_json_impl(EastValue **args, size_t n)
+{
     (void)n;
     char *json = east_json_encode(args[0], s_print_json_type);
     if (!json) return east_string("null");
@@ -734,7 +817,8 @@ static EastValue *string_print_json_impl(EastValue **args, size_t n) {
 
 /* StringParseJSON: JSON string -> value */
 static _Thread_local EastType *s_parse_json_type = NULL;
-static EastValue *string_parse_json_impl(EastValue **args, size_t n) {
+static EastValue *string_parse_json_impl(EastValue **args, size_t n)
+{
     (void)n;
     const char *json_str = args[0]->data.string.data;
     char *error_msg = NULL;
@@ -747,7 +831,8 @@ static EastValue *string_parse_json_impl(EastValue **args, size_t n) {
     return result;
 }
 
-static EastValue *string_print_error(EastValue **args, size_t n) {
+static EastValue *string_print_error(EastValue **args, size_t n)
+{
     (void)n;
     /* args: message (string), stack (array of structs) */
     const char *message = args[0]->data.string.data;
@@ -770,47 +855,147 @@ static EastValue *string_print_error(EastValue **args, size_t n) {
 /*  Factory functions                                                  */
 /* ------------------------------------------------------------------ */
 
-static BuiltinImpl string_concat_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return string_concat; }
-static BuiltinImpl string_repeat_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return string_repeat; }
-static BuiltinImpl string_length_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return string_length; }
-static BuiltinImpl string_substring_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return string_substring; }
-static BuiltinImpl string_index_of_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return string_index_of; }
-static BuiltinImpl string_split_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return string_split; }
-static BuiltinImpl string_trim_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return string_trim; }
-static BuiltinImpl string_trim_start_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return string_trim_start; }
-static BuiltinImpl string_trim_end_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return string_trim_end; }
-static BuiltinImpl string_lower_case_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return string_lower_case; }
-static BuiltinImpl string_upper_case_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return string_upper_case; }
-static BuiltinImpl string_replace_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return string_replace; }
-static BuiltinImpl regex_contains_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return regex_contains; }
-static BuiltinImpl regex_index_of_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return regex_index_of; }
-static BuiltinImpl regex_replace_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return regex_replace; }
-static BuiltinImpl string_starts_with_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return string_starts_with; }
-static BuiltinImpl string_ends_with_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return string_ends_with; }
-static BuiltinImpl string_contains_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return string_contains; }
-static BuiltinImpl print_factory(EastType **tp, size_t ntp) {
+static BuiltinImpl string_concat_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return string_concat;
+}
+static BuiltinImpl string_repeat_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return string_repeat;
+}
+static BuiltinImpl string_length_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return string_length;
+}
+static BuiltinImpl string_substring_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return string_substring;
+}
+static BuiltinImpl string_index_of_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return string_index_of;
+}
+static BuiltinImpl string_split_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return string_split;
+}
+static BuiltinImpl string_trim_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return string_trim;
+}
+static BuiltinImpl string_trim_start_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return string_trim_start;
+}
+static BuiltinImpl string_trim_end_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return string_trim_end;
+}
+static BuiltinImpl string_lower_case_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return string_lower_case;
+}
+static BuiltinImpl string_upper_case_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return string_upper_case;
+}
+static BuiltinImpl string_replace_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return string_replace;
+}
+static BuiltinImpl regex_contains_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return regex_contains;
+}
+static BuiltinImpl regex_index_of_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return regex_index_of;
+}
+static BuiltinImpl regex_replace_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return regex_replace;
+}
+static BuiltinImpl string_starts_with_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return string_starts_with;
+}
+static BuiltinImpl string_ends_with_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return string_ends_with;
+}
+static BuiltinImpl string_contains_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return string_contains;
+}
+static BuiltinImpl print_factory(EastType **tp, size_t ntp)
+{
     if (ntp > 0 && tp[0]) s_print_east_type = tp[0];
     return string_print_east_impl;
 }
-static BuiltinImpl parse_factory(EastType **tp, size_t ntp) {
+static BuiltinImpl parse_factory(EastType **tp, size_t ntp)
+{
     if (ntp > 0 && tp[0]) s_parse_east_type = tp[0];
     return string_parse_east_impl;
 }
-static BuiltinImpl string_print_json_factory(EastType **tp, size_t ntp) {
+static BuiltinImpl string_print_json_factory(EastType **tp, size_t ntp)
+{
     if (ntp > 0 && tp[0]) s_print_json_type = tp[0];
     return string_print_json_impl;
 }
-static BuiltinImpl string_parse_json_factory(EastType **tp, size_t ntp) {
+static BuiltinImpl string_parse_json_factory(EastType **tp, size_t ntp)
+{
     if (ntp > 0 && tp[0]) s_parse_json_type = tp[0];
     return string_parse_json_impl;
 }
-static BuiltinImpl string_print_error_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return string_print_error; }
+static BuiltinImpl string_print_error_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return string_print_error;
+}
 
 /* ------------------------------------------------------------------ */
 /*  Registration                                                       */
 /* ------------------------------------------------------------------ */
 
-void east_register_string_builtins(BuiltinRegistry *reg) {
+void east_register_string_builtins(BuiltinRegistry *reg)
+{
     builtin_registry_register(reg, "StringConcat", string_concat_factory);
     builtin_registry_register(reg, "StringRepeat", string_repeat_factory);
     builtin_registry_register(reg, "StringLength", string_length_factory);

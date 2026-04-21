@@ -762,6 +762,19 @@ export function decodeBeast2For(type: EastTypeValue | EastType, options?: Beast2
       throw new Error(`${data.length - reader.offset} trailing bytes at offset ${reader.offset}`);
     }
 
+    // Attach source map when the root is a Function / AsyncFunction IR variant.
+    // Runtime Function values get this inside the Function decoder (line ~401);
+    // the IR case is the CLI's serialized form and needs it here so loadIR +
+    // EastIR.compile can resolve loc_ids back to source locations.
+    if (sourceMap && (value?.type === 'Function' || value?.type === 'AsyncFunction')) {
+      Object.defineProperty(value, EAST_SOURCE_MAP_SYMBOL, {
+        value: sourceMap,
+        writable: false,
+        enumerable: false,
+        configurable: false,
+      });
+    }
+
     return value;
   };
 }

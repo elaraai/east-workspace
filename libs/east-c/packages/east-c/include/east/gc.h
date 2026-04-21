@@ -16,8 +16,8 @@ typedef struct EastValue EastValue;
  */
 
 /* Scheduling thresholds */
-#define GC_YOUNG_THRESHOLD  500   /* collect young after this many net new tracked allocs */
-#define GC_FULL_INTERVAL     20   /* full collection every N young collections */
+#define GC_YOUNG_THRESHOLD 500 /* collect young after this many net new tracked allocs */
+#define GC_FULL_INTERVAL 20    /* full collection every N young collections */
 
 /* Add a value to the young generation tracking list.  Called automatically by
  * alloc_value() for cycle-capable types (array, set, dict, struct,
@@ -47,7 +47,8 @@ void east_gc_collect_full(void);
 size_t east_gc_tracked_count(void);
 
 /* Inline safe-point check — young only. Use at loop back-edges. */
-static inline void east_gc_maybe_collect_young(void) {
+static inline void east_gc_maybe_collect_young(void)
+{
     if (east_gc_should_collect()) {
         east_gc_collect_young();
     }

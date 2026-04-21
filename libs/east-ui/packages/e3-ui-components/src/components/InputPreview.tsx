@@ -6,7 +6,7 @@
 import { memo } from 'react';
 import { Box, Text, Flex } from '@chakra-ui/react';
 import type { RequestOptions } from '@elaraai/e3-api-client';
-import { DatasetRenderer } from './DatasetRenderer.js';
+import { DatasetPreview } from './DatasetPreview.js';
 
 export interface InputPreviewProps {
     apiUrl: string;
@@ -27,25 +27,15 @@ export const InputPreview = memo(function InputPreview({
 
     return (
         <Box flex={1} display="flex" flexDirection="column" overflow="hidden">
-            <Flex
-                px={4}
-                py={2}
-                borderBottom="1px solid"
-                borderColor="gray.200"
-                bg="white"
-                align="center"
-                justify="space-between"
-            >
-                <Text fontSize="sm" fontWeight="medium" color="gray.700">
-                    {displayName}
-                </Text>
+            <Flex px={4} py={2} borderBottom="1px solid" borderColor="gray.200" bg="white" align="center" justify="space-between">
+                <Text fontSize="sm" fontWeight="medium" color="gray.700">{displayName}</Text>
             </Flex>
             <Box flex={1} overflow="hidden" minHeight={0}>
-                <DatasetRenderer
+                <DatasetPreview
                     apiUrl={apiUrl}
                     repo={repo}
                     workspace={workspace}
-                    datasetPath={path}
+                    path={path}
                     {...(requestOptions != null && { requestOptions })}
                 />
             </Box>

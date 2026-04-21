@@ -7,8 +7,9 @@
     "lib": ["esnext", "es2024"],
     "types": ["node"],
     "sourceMap": true,
-    "declaration": true,
-    "declarationMap": true,
+    "declaration": false,
+    "declarationMap": false,
+    "resolveJsonModule": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "strict": true,
@@ -18,7 +19,6 @@
     "noUncheckedSideEffectImports": true,
     "moduleDetection": "force",
     "skipLibCheck": true,
-    "noErrorTruncation": true,
-    "incremental": true
+    "noErrorTruncation": true
   }
 }

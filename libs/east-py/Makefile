@@ -1,22 +1,59 @@
 # east-py — Python monorepo for the East language
 # Python deps managed by uv. TS sub-package (east-py-datascience) uses pnpm from monorepo root.
-
-# In the monorepo, east-c is always the sibling directory.
-# Override with: make <target> EAST_C_SOURCE_DIR=/other/path
-EAST_C_SOURCE_DIR ?= $(CURDIR)/../east-c
+#
+# Native code is built by scikit-build-core when each package is installed.
+# Each package's CMakeLists.txt locates the monorepo root via pnpm-workspace.yaml
+# and add_subdirectory's east-c directly — no EAST_C_SOURCE_DIR env var needed.
 
 .PHONY: install install-cli test test-east-py test-east-py-std test-east-py-io test-east-py-datascience \
+        reinstall-east-py reinstall-east-py-std reinstall-east-py-io reinstall-east-py-datascience build-deps \
         test-export lint lint-headers lint-headers-fix format typecheck check \
-        clean build build-cython build-cython-inplace build-eastc clean-cython clean-eastc help
+        clean build help
 
 # ── Setup ─────────────────────────────────────────────────────────────
 
-## Install Python dependencies (force-reinstalls east-py to rebuild C extensions)
-## Uses sibling east-c by default for native extensions.
-install:
-	EAST_C_SOURCE_DIR=$(EAST_C_SOURCE_DIR) uv sync --all-extras --all-packages
-	uv pip install hatchling
-	EAST_C_SOURCE_DIR=$(EAST_C_SOURCE_DIR) uv sync --all-extras --all-packages --reinstall-package east-py --reinstall-package east-py-std --reinstall-package east-py-io --reinstall-package east-py-datascience --no-build-isolation
+## Install Python dependencies. Two-step:
+##   1. build-deps installs scikit-build-core/cython/numpy into .venv so the
+##      no-build-isolation sync below can find them (uv sync would otherwise
+##      remove them between steps because they're not in any dep list).
+##   2. uv sync with --no-build-isolation + --reinstall-package forces every
+##      native workspace package to actually run its build backend (uv treats
+##      workspace members as up-to-date by default and skips rebuilds).
+install: build-deps
+	uv sync --all-extras --all-packages --no-build-isolation \
+		--reinstall-package east-py --refresh-package east-py \
+		--reinstall-package east-py-std --refresh-package east-py-std \
+		--reinstall-package east-py-io --refresh-package east-py-io \
+		--reinstall-package east-py-datascience --refresh-package east-py-datascience
+
+## Build deps for the no-build-isolation flow. scikit-build-core is the build
+## backend; cython + numpy are needed at build time by the CMakeLists.
+## setuptools is for sloppy 3rd-party packages (e.g. access-parser) that need
+## it at build time but don't declare it in their pyproject.toml.
+BUILD_DEPS = scikit-build-core cython numpy setuptools
+
+build-deps:
+	@test -d .venv || uv venv
+	uv pip install $(BUILD_DEPS)
+
+## Force-rebuild a single workspace package.
+## Useful during native-build iteration. Equivalent to `install` but reinstalls
+## only the named package (still runs the full workspace sync because uv won't
+## install workspace members without --all-packages).
+##
+## --refresh-package: bust uv's source-tree fingerprint cache so a pyproject.toml
+##   or CMakeLists.txt change actually triggers a rebuild.
+reinstall-east-py: build-deps
+	uv sync --all-extras --all-packages --reinstall-package east-py --refresh-package east-py --no-build-isolation
+
+reinstall-east-py-std: build-deps
+	uv sync --all-extras --all-packages --reinstall-package east-py-std --refresh-package east-py-std --no-build-isolation
+
+reinstall-east-py-io: build-deps
+	uv sync --all-extras --all-packages --reinstall-package east-py-io --refresh-package east-py-io --no-build-isolation
+
+reinstall-east-py-datascience: build-deps
+	uv sync --all-extras --all-packages --reinstall-package east-py-datascience --refresh-package east-py-datascience --no-build-isolation
 
 ## Install east-py command globally (also syncs local .venv)
 install-cli:
@@ -101,39 +138,22 @@ build:
 	cd packages/east-py-datascience && pnpm run build
 	uv build --package east-py-datascience
 
-## Build Cython acceleration modules
-build-cython:
-	uv run --package east-py python packages/east-py/scripts/build_cython.py
-
-## Build Cython extensions in-place (for development -- avoids full reinstall)
-build-cython-inplace:
-	EAST_C_SOURCE_DIR=$(EAST_C_SOURCE_DIR) cd packages/east-py && uv run python setup.py build_ext --inplace
-
-## Build east-c via CMake (called automatically by setup.py, but can be run standalone)
-## Uses sibling east-c by default. Override: make build-eastc EAST_C_SOURCE_DIR=/other/path
-build-eastc:
-	cd packages/east-py && cmake -B build/eastc -S cmake/ -DEAST_USE_MIMALLOC=OFF -DBUILD_TESTING=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DEAST_C_SOURCE_DIR=$(EAST_C_SOURCE_DIR) $(if $(EAST_C_GIT_TAG),-DEAST_C_GIT_TAG=$(EAST_C_GIT_TAG),)
-	cd packages/east-py && cmake --build build/eastc --parallel
+# Native Cython extensions are built automatically by scikit-build-core when
+# packages are installed (see each package's pyproject.toml +
+# CMakeLists.txt). The standalone `build-cython*` and `build-eastc` targets
+# from the setuptools era are no longer needed — `make install` or
+# `make reinstall-east-py` handles everything via the build backend.
 
 # ── Clean ─────────────────────────────────────────────────────────────
 
-## Clean build artifacts
+## Clean build artifacts (everything scikit-build-core or pytest generated)
 clean:
-	rm -rf .venv uv.lock build/ dist/ packages/east-py/build/eastc
+	rm -rf .venv uv.lock dist/
+	find packages -name "build" -type d -not -path "*/node_modules/*" -exec rm -rf {} + 2>/dev/null || true
 	find packages -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
 	find packages -name "*.egg-info" -type d -exec rm -rf {} + 2>/dev/null || true
 	find packages -name ".pytest_cache" -type d -exec rm -rf {} + 2>/dev/null || true
 	find packages -name ".mypy_cache" -type d -exec rm -rf {} + 2>/dev/null || true
-
-## Clean Cython build artifacts (generated .c and .so files)
-clean-cython:
-	find packages/east-py/east -name "*.so" -delete
-	find packages/east-py/east -name "*.c" -not -name "__pycache__" -delete
-	rm -rf packages/east-py/build/temp.* packages/east-py/build/lib.*
-
-## Clean east-c build artifacts
-clean-eastc:
-	rm -rf packages/east-py/build/eastc
 
 # ── Help ─────────────────────────────────────────────────────────────
 
@@ -157,11 +177,10 @@ help:
 	@echo "  typecheck         - Type check"
 	@echo "  check             - Run lint + typecheck + test"
 	@echo ""
-	@echo "  build             - Build packages"
-	@echo "  build-cython      - Build Cython acceleration modules"
-	@echo "  build-cython-inplace - Build Cython extensions in-place"
-	@echo "  build-eastc       - Build east-c native library via CMake"
+	@echo "  build             - Build wheels for all packages"
+	@echo "  reinstall-east-py - Force-rebuild east-py via scikit-build-core"
+	@echo "  reinstall-east-py-std - Force-rebuild east-py-std"
+	@echo "  reinstall-east-py-io - Force-rebuild east-py-io"
+	@echo "  reinstall-east-py-datascience - Force-rebuild east-py-datascience"
 	@echo ""
-	@echo "  clean             - Clean build artifacts"
-	@echo "  clean-cython      - Clean Cython build artifacts"
-	@echo "  clean-eastc       - Clean east-c build artifacts"
+	@echo "  clean             - Clean build artifacts (.venv, build/, caches)"

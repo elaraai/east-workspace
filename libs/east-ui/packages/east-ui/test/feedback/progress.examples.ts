@@ -1,9 +1,9 @@
 /**
  * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under AGPL-3.0. See LICENSE file for details.
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, example } from "@elaraai/east";
-import { Progress, Stack, UIComponentType } from "../../src/index.js";
+import { East, FloatType, NullType, example } from "@elaraai/east";
+import { Progress, Reactive, Slider, Stack, State, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const progressBasic = example({
     keywords: ["Progress", "Root", "basic"],
@@ -77,6 +77,26 @@ export const progressRange = example({
             valueText: "7.5 / 10",
             colorPalette: "purple",
         });
+    }),
+    inputs: [],
+});
+
+export const progressInteractive = example({
+    keywords: ["Progress", "Reactive", "State", "Slider", "interactive"],
+    description: "Progress driven by a Slider — slider's onChange updates the bar",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const bind = $.let(State.bind([FloatType], "progress_value", 50.0));
+            const value = $.let(bind.read());
+            const onChange = $.const(East.function([FloatType], NullType, ($, next) => {
+                $(bind.write(next));
+            }));
+            return Stack.VStack([
+                Progress.Root(value, { min: 0, max: 100, colorPalette: "blue", striped: true }),
+                Slider.Root(value, { min: 0, max: 100, colorPalette: "blue", onChange }),
+                Text.Root(East.str`Progress: ${East.print(value)}%`),
+            ], { gap: "3", align: "stretch" });
+        }));
     }),
     inputs: [],
 });

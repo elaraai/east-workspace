@@ -1,9 +1,9 @@
 /**
  * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under AGPL-3.0. See LICENSE file for details.
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, example } from "@elaraai/east";
-import { Badge, Highlight, HoverCard, Stack, Stat, Text, UIComponentType } from "../../src/index.js";
+import { East, IntegerType, NullType, example } from "@elaraai/east";
+import { Badge, Button, Highlight, HoverCard, Reactive, Stack, State, Stat, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const statBasic = example({
     keywords: ["Stat", "Root", "basic", "metrics"],
@@ -59,6 +59,26 @@ export const statRichValues = example({
             )),
             Stat.Root("Query", Highlight.Root("SELECT * FROM users", ["SELECT", "FROM"])),
         ], { gap: "8" });
+    }),
+    inputs: [],
+});
+
+export const statInteractive = example({
+    keywords: ["Stat", "Reactive", "State", "interactive", "counter"],
+    description: "Stat whose value increments from a counter",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const counter = $.let(State.bind([IntegerType], "stat_counter", 0n));
+            const value = $.let(counter.read());
+            const inc = $.const(East.function([], NullType, $ => {
+                const cur = $.let(counter.read());
+                $(counter.write(cur.add(1n)));
+            }));
+            return Stack.VStack([
+                Stat.Root("Clicks", Text.Root(East.print(value))),
+                Button.Root("Click me", { onClick: inc }),
+            ], { gap: "3", align: "stretch" });
+        }));
     }),
     inputs: [],
 });

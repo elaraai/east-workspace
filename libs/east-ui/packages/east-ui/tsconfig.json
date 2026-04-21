@@ -3,7 +3,7 @@
   "exclude": ["examples", "dist"],
   "compilerOptions": {
     // File Layout
-    // "rootDir": "./src",
+    "rootDir": ".",
     "outDir": "./dist",
 
     // Environment Settings
@@ -44,6 +44,5 @@
 
     // Custom options
     "noErrorTruncation": true,
-    "incremental": true,
   }
 }

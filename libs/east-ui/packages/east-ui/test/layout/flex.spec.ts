@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Flex, Text, Style } from "../../src/index.js";
+import { Flex, Text, Style } from "@elaraai/east-ui";
 import * as ex from "./flex.examples.js";
 
 describeEast("Flex", (test) => {

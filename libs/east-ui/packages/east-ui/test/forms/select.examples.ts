@@ -1,9 +1,9 @@
 /**
  * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under AGPL-3.0. See LICENSE file for details.
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, NullType, StringType, example } from "@elaraai/east";
-import { Reactive, Select, Stack, State, Text, UIComponentType } from "../../src/index.js";
+import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, example } from "@elaraai/east";
+import { Reactive, Select, Stack, State, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const selectBasic = example({
     keywords: ["Select", "Root", "Item", "dropdown", "placeholder"],
@@ -41,6 +41,56 @@ export const selectInteractive = example({
                     _$ => selected,
                     _$ => "(none)"
                 )}`),
+            ], { gap: "3", align: "stretch" });
+        }));
+    }),
+    inputs: [],
+});
+
+export const selectInteractiveMulti = example({
+    keywords: ["Select", "Root", "Reactive", "State", "onChangeMultiple", "multi"],
+    description: "Multi-select drives an Array<String> state via onChangeMultiple",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const bind = $.let(State.bind([ArrayType(StringType)], "form_select_multi", []));
+            const selected = $.let(bind.read());
+            const onChangeMultiple = $.const(East.function([ArrayType(StringType)], NullType, ($, next) => {
+                $(bind.write(next));
+            }));
+            return Stack.VStack([
+                Select.Root("", [
+                    Select.Item("react", "React"),
+                    Select.Item("vue", "Vue"),
+                    Select.Item("angular", "Angular"),
+                    Select.Item("svelte", "Svelte"),
+                ], { placeholder: "Pick frameworks", multiple: true, onChangeMultiple }),
+                Text.Root(East.str`Selected: ${East.greater(selected.length(), 0n).ifElse(
+                    _$ => selected.stringJoin(", "),
+                    _$ => "(none)",
+                )}`),
+            ], { gap: "3", align: "stretch" });
+        }));
+    }),
+    inputs: [],
+});
+
+export const selectOnOpenChange = example({
+    keywords: ["Select", "Root", "Reactive", "State", "onOpenChange", "interactive"],
+    description: "Select whose onOpenChange counts dropdown open/close transitions",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const bind = $.let(State.bind([IntegerType], "form_select_toggles", 0n));
+            const value = $.let(bind.read());
+            const onOpenChange = $.const(East.function([BooleanType], NullType, ($, _open) => {
+                const cur = $.let(bind.read());
+                $(bind.write(cur.add(1n)));
+            }));
+            return Stack.VStack([
+                Select.Root("", [
+                    Select.Item("a", "Apple"),
+                    Select.Item("b", "Banana"),
+                ], { placeholder: "Open me…", onOpenChange }),
+                Text.Root(East.str`Toggled ${East.print(value)} times`),
             ], { gap: "3", align: "stretch" });
         }));
     }),

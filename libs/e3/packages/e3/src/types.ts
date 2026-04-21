@@ -106,13 +106,23 @@ export type DatasetAtPath<Path extends TreePath, T extends EastType, FullPath ex
       : never
   : DatasetDef<T, FullPath>
 
-/** Merge all Datasets from the listed package items */
-export type MergeDatasets<TItems extends (PackageItem | PackageDef<any>)[]> = 
-  TItems extends [infer First extends PackageItem | PackageDef<any>, ...infer Rest extends PackageItem[]]
-      ? Rest["length"] extends 0
-        ? DatasetsOf<First>
-        : DatasetsOf<First> & MergeDatasets<Rest>
-    : object;
+/** Convert a union of types to their intersection (distributed conditional trick). */
+type UnionToIntersection<U> =
+  (U extends any ? (x: U) => void : never) extends (x: infer I) => void ? I : never;
+
+/** Merge all Datasets from the listed package items.
+ *
+ * Uses `TItems[number]` to derive the union of element types in O(1) recursion,
+ * then intersects via `UnionToIntersection`. Avoids deep recursive intersections
+ * that hit TS2589 at large item counts (e.g. 100+ tasks in one package).
+ *
+ * For non-tuple arrays (e.g. `TaskDef[]` from a spread), `TItems[number]` is the
+ * element type and `DatasetsOf` falls through to its non-tuple-path branch.
+ * The empty-tuple case widens to `Record<string, unknown>`.
+ */
+export type MergeDatasets<TItems extends (PackageItem | PackageDef<any>)[]> =
+  TItems extends readonly [] ? Record<string, unknown>
+  : UnionToIntersection<DatasetsOf<TItems[number]>>;
 
 
 /**

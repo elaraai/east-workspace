@@ -1,9 +1,9 @@
 /**
  * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under AGPL-3.0. See LICENSE file for details.
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, example } from "@elaraai/east";
-import { Stack, Style, Text, UIComponentType } from "../../src/index.js";
+import { East, IntegerType, NullType, example } from "@elaraai/east";
+import { Button, Reactive, Stack, State, Style, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const stackBasicVStack = example({
     keywords: ["Stack", "VStack", "vertical", "gap"],
@@ -144,6 +144,32 @@ export const stackNavbar = example({
             background: "white",
             width: "100%",
         });
+    }),
+    inputs: [],
+});
+
+export const stackInteractive = example({
+    keywords: ["Stack", "Reactive", "State", "interactive", "gap", "toggle"],
+    description: "Stack gap toggles between tight and wide on each click",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const counter = $.let(State.bind([IntegerType], "stack_counter", 0n));
+            const value = $.let(counter.read());
+            const isTight = $.let(value.remainder(2n).equal(0n));
+            const gap = $.let(isTight.ifElse(() => East.value("1"), () => East.value("8")));
+            const inc = $.const(East.function([], NullType, $ => {
+                const cur = $.let(counter.read());
+                $(counter.write(cur.add(1n)));
+            }));
+            return Stack.VStack([
+                Stack.VStack([
+                    Text.Root("First"),
+                    Text.Root("Second"),
+                    Text.Root("Third"),
+                ], { gap, align: "stretch" }),
+                Button.Root("Toggle gap", { onClick: inc }),
+            ], { gap: "3", align: "stretch" });
+        }));
     }),
     inputs: [],
 });

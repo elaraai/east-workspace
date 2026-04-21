@@ -40,27 +40,34 @@ jobs:
         run: pnpm install
 
       - name: Build east (for IR export)
-        run: pnpm turbo run build --filter=@elaraai/east
+        run: pnpm --filter='@elaraai/east...' run build
 
       - name: Export test IR from east
-        run: pnpm turbo run test:export --filter=@elaraai/east
+        run: pnpm --filter=@elaraai/east run test:export
         env:
           EXPORT_TEST_IR: /tmp/east-test-ir
 
       - name: Build east-node (for std IR export)
-        run: pnpm turbo run build --filter=@elaraai/east-node-std
+        run: pnpm --filter='@elaraai/east-node-std...' run build
 
       - name: Export test IR from east-node-std
-        run: pnpm turbo run test:export --filter=@elaraai/east-node-std
+        run: pnpm --filter=@elaraai/east-node-std run test:export
         env:
           EXPORT_TEST_IR: /tmp/east-node-std
 
       - name: Install C build dependencies
         run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
 
+      - name: Install uv (for clang-format via uv tool — used by `make lint`)
+        uses: astral-sh/setup-uv@v3
+
       - name: Build east-c
         working-directory: libs/east-c
         run: make build
+
+      - name: Lint east-c (clang-format)
+        working-directory: libs/east-c
+        run: make lint
 
       - name: Run east-c compliance tests
         working-directory: libs/east-c
@@ -76,32 +83,3 @@ jobs:
       - name: Stop test services
         if: always()
         run: docker compose --profile services down -v
-
-  test-east-c-wasm:
-    name: Test east-c-wasm
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-
-      - name: Use Node.js 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: "pnpm"
-
-      - name: Setup Emscripten
-        uses: mymindstorm/setup-emsdk@v14
-
-      - name: Install dependencies
-        run: pnpm install
-
-      - name: Build WASM
-        working-directory: libs/east-c
-        run: make wasm
-
-      - name: Build and test east-c-wasm
-        working-directory: libs/east-c
-        run: make test-east-c-wasm

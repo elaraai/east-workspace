@@ -61,6 +61,16 @@ except ImportError:
 EAST_IR_ATTR = "_east_ir"
 EAST_CAPTURES_ATTR = "_east_captures"
 
+# Set on Python wrappers around C-side East functions (by _c_function_to_py).
+# When _py_function_to_c sees this attribute it round-trips the wrapper to
+# the original C EastValue* directly, preserving captures + any other
+# internal state. Without this short-circuit, encoding a previously-decoded
+# function loses its capture environment because the wrapper exposes
+# captures only via the EAST_CAPTURES_ATTR dict — which _c_function_to_py
+# leaves empty (the live captures are inside the C-side EastCompiledFn,
+# not the Python wrapper).
+EAST_C_HANDLE_ATTR = "_east_c_handle"
+
 
 # ─── Type cache ───────────────────────────────────────────────────────────
 # Keyed by id(py_type). Each entry is (py_type_ref, EastType* as uintptr_t).
@@ -663,6 +673,14 @@ cdef object _c_function_to_py(_eastc.EastValue *val, _eastc.EastType *c_type, di
         object.__setattr__(call_eastc_function, EAST_IR_ATTR, py_ir)
         object.__setattr__(call_eastc_function, EAST_CAPTURES_ATTR, {})
 
+    # Attach the C-side EastValue* handle so that _py_function_to_c can
+    # round-trip this wrapper back to its original C value (preserving
+    # capture environment and any other internal state) instead of
+    # rebuilding from IR + the empty EAST_CAPTURES_ATTR. The wrapper holds
+    # one retain on the value (acquired above); the encoder will retain
+    # again when re-using the pointer.
+    object.__setattr__(call_eastc_function, EAST_C_HANDLE_ATTR, val_ptr)
+
     return call_eastc_function
 
 
@@ -1082,9 +1100,26 @@ cdef _eastc.EastValue* _py_matrix_to_c(object val, _eastc.EastType *c_type) exce
 cdef _eastc.EastValue* _py_function_to_c(object val, _eastc.EastType *c_type, dict identity_map) except NULL:
     """Convert a Python function to a C function value for serialization.
 
-    Creates a minimal EastCompiledFn with source_ir set from the function's
-    __east_ir__ attribute. east-c's beast2 encoder uses source_ir for serialization.
+    Fast path: if `val` is a Python wrapper around an existing C EastValue*
+    (created by `_c_function_to_py` and tagged with EAST_C_HANDLE_ATTR),
+    return that handle directly with an extra retain. This preserves the
+    function's full state — including its captures Environment — which the
+    Python wrapper does not surface via attributes.
+
+    Fallback: rebuild a minimal EastCompiledFn from the function's
+    EAST_IR_ATTR (and any captures in EAST_CAPTURES_ATTR). Used for
+    Python-built functions that don't wrap a C value.
     """
+    cdef uintptr_t handle_int
+    cdef _eastc.EastValue* existing
+    handle = getattr(val, EAST_C_HANDLE_ATTR, None)
+    if handle is not None:
+        handle_int = <uintptr_t>handle
+        existing = <_eastc.EastValue*>handle_int
+        if existing != NULL and existing.kind == _eastc.EAST_VAL_FUNCTION:
+            _eastc.east_value_retain(existing)
+            return existing
+
     py_ir = getattr(val, EAST_IR_ATTR, None)
     if py_ir is None:
         raise RuntimeError(

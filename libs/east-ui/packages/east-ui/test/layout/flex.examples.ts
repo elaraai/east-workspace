@@ -1,9 +1,9 @@
 /**
  * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under AGPL-3.0. See LICENSE file for details.
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, example } from "@elaraai/east";
-import { Flex, Text, UIComponentType } from "../../src/index.js";
+import { East, IntegerType, NullType, example, variant } from "@elaraai/east";
+import { Button, Flex, Reactive, Stack, State, Style, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const flexBasic = example({
     keywords: ["Flex", "Root", "basic", "row", "gap"],
@@ -185,6 +185,32 @@ export const flexReverse = example({
             background: "cyan.50",
             borderRadius: "md",
         });
+    }),
+    inputs: [],
+});
+
+export const flexInteractive = example({
+    keywords: ["Flex", "Reactive", "State", "interactive", "direction", "toggle"],
+    description: "Flex direction toggles between row and column on each click",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const counter = $.let(State.bind([IntegerType], "flex_counter", 0n));
+            const value = $.let(counter.read());
+            const isRow = $.let(value.remainder(2n).equal(0n));
+            const direction = $.let(isRow.ifElse(() => Style.FlexDirection("row"), () => Style.FlexDirection("column")));
+            const inc = $.const(East.function([], NullType, $ => {
+                const cur = $.let(counter.read());
+                $(counter.write(cur.add(1n)));
+            }));
+            return Stack.VStack([
+                Flex.Root([
+                    Text.Root("A"),
+                    Text.Root("B"),
+                    Text.Root("C"),
+                ], { direction, gap: "4", padding: "4", background: "gray.100", borderRadius: "md" }),
+                Button.Root("Toggle direction", { onClick: inc }),
+            ], { gap: "3", align: "stretch" });
+        }));
     }),
     inputs: [],
 });

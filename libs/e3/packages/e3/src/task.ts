@@ -168,13 +168,10 @@ function collectDeps(
 export function task<Name extends string, Inputs extends readonly DatasetDef[], Output extends EastType>(
   name: Name,
   inputs: [...Inputs],
-  fn: FunctionExpr<ExtractDatasetTypes<Inputs>, Output> | CallableFunctionExpr<ExtractDatasetTypes<Inputs>, Output>,
-  config?: { runner?: string[], kind?: string, metadata?: Uint8Array },
-): TaskDef<Output, [variant<'field', 'tasks'>, variant<'field', Name>, variant<'field', 'output'>]>;
-export function task<Name extends string, Inputs extends readonly DatasetDef[], Output extends EastType>(
-  name: Name,
-  inputs: [...Inputs],
-  fn: AsyncFunctionExpr<ExtractDatasetTypes<Inputs>, Output> | CallableAsyncFunctionExpr<ExtractDatasetTypes<Inputs>, Output>,
+  fn: FunctionExpr<ExtractDatasetTypes<Inputs>, Output>
+    | CallableFunctionExpr<ExtractDatasetTypes<Inputs>, Output>
+    | AsyncFunctionExpr<ExtractDatasetTypes<Inputs>, Output>
+    | CallableAsyncFunctionExpr<ExtractDatasetTypes<Inputs>, Output>,
   config?: { runner?: string[], kind?: string, metadata?: Uint8Array },
 ): TaskDef<Output, [variant<'field', 'tasks'>, variant<'field', Name>, variant<'field', 'output'>]>;
 export function task(

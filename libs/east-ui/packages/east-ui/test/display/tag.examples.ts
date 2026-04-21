@@ -1,9 +1,9 @@
 /**
  * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under AGPL-3.0. See LICENSE file for details.
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, variant, example } from "@elaraai/east";
-import { Stack, Style, Tag, UIComponentType } from "../../src/index.js";
+import { East, IntegerType, NullType, variant, example } from "@elaraai/east";
+import { Button, Reactive, Stack, State, Style, Tag, UIComponentType } from "@elaraai/east-ui";
 
 export const tagBasic = example({
     keywords: ["Tag", "Root", "basic", "categorization"],
@@ -153,6 +153,26 @@ export const tagBoxModel = example({
                 color: "white",
             }),
         ], { gap: "2" });
+    }),
+    inputs: [],
+});
+
+export const tagOnCloseInteractive = example({
+    keywords: ["Tag", "Reactive", "State", "interactive", "onClose", "closable"],
+    description: "Closable Tag whose onClose increments a reactive counter",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const bind = $.let(State.bind([IntegerType], "tag_close_count", 0n));
+            const value = $.let(bind.read());
+            const onClose = $.const(East.function([], NullType, $ => {
+                const cur = $.let(bind.read());
+                $(bind.write(cur.add(1n)));
+            }));
+            return Stack.HStack([
+                Tag.Root("Click X to close", { closable: true, colorPalette: "red", variant: "solid", onClose }),
+                Tag.Root(East.str`Closed ${East.print(value)} times`, { colorPalette: "gray" }),
+            ], { gap: "3", align: "center" });
+        }));
     }),
     inputs: [],
 });

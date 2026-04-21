@@ -1,9 +1,9 @@
 /**
  * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under AGPL-3.0. See LICENSE file for details.
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { East, DateTimeType, NullType, StringType, variant, example } from "@elaraai/east";
-import { Badge, Gantt, Reactive, Stack, State, Table, Text, UIComponentType } from "../../src/index.js";
+import { Badge, Gantt, Reactive, Stack, State, Table, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const ganttBasic = example({
     keywords: ["Gantt", "Root", "Task", "basic", "timeline"],

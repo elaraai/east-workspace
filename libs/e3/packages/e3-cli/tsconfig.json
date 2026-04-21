@@ -12,9 +12,7 @@
     "forceConsistentCasingInFileNames": true,
     "declaration": true,
     "declarationMap": true,
-    "sourceMap": true,
-    "composite": true,
-    "incremental": true
+    "sourceMap": true
   },
   "include": [
     "src/**/*"
@@ -22,8 +20,5 @@
   "exclude": [
     "node_modules",
     "dist"
-  ],
-  "references": [
-    { "path": "../e3-core" }
   ]
 }

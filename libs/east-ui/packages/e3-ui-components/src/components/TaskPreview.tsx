@@ -3,36 +3,30 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useEffect, useRef } from 'react';
-import { usePersistedState } from '@elaraai/east-ui-components';
-import {
-    Box,
-    Text,
-    Flex,
-    SegmentGroup,
-} from '@chakra-ui/react';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faCode, faTerminal } from '@fortawesome/free-solid-svg-icons';
-import { TaskLogs } from './TaskLogs.js';
-import { DatasetContent } from './DatasetRenderer.js';
-import { useDatasetPreview, useDatasetDownload } from '../hooks/useDatasetPreview.js';
+/**
+ * `<TaskPreview>` — router for previewing an e3 task.
+ *
+ * Branches by task `kind`:
+ *   - `kind === 'ui'`   → `<UITaskPreview>`
+ *   - otherwise          → `<DataTaskPreview>` (output preview tabs + logs)
+ *
+ * @packageDocumentation
+ */
+
+import { memo } from 'react';
+import { Box, Flex, Text } from '@chakra-ui/react';
 import type { RequestOptions } from '@elaraai/e3-api-client';
-
-type ViewMode = 'output' | 'logs';
-
-interface TaskPreviewPersistedState {
-    viewMode: ViewMode;
-}
+import { UITaskPreview } from './UITaskPreview.js';
+import { DataTaskPreview } from './DataTaskPreview.js';
+import { useTaskDetails, getTaskKind } from '../hooks/useTaskDetails.js';
+import { StatusDisplay } from './StatusDisplay.js';
 
 export interface TaskPreviewProps {
     apiUrl: string;
     repo: string;
     workspace: string;
     task: string;
-    output: string;
     requestOptions?: RequestOptions;
-    /** Storage key for persisting view mode in localStorage. Defaults to task name. */
-    storageKey?: string;
 }
 
 export const TaskPreview = memo(function TaskPreview({
@@ -40,117 +34,37 @@ export const TaskPreview = memo(function TaskPreview({
     repo,
     workspace,
     task,
-    output,
     requestOptions,
-    storageKey,
 }: TaskPreviewProps) {
-    const preview = useDatasetPreview(apiUrl, repo, workspace, output, {
+    const detailsQuery = useTaskDetails(apiUrl, repo, workspace, task, {
         ...(requestOptions != null && { requestOptions }),
     });
-    const download = useDatasetDownload(apiUrl, repo, workspace, output, requestOptions);
-
-    const { state: persistedState, setState: setPersistedState } = usePersistedState<TaskPreviewPersistedState>(
-        storageKey ?? task,
-        { viewMode: 'output' },
-    );
-    const viewMode = persistedState.viewMode;
-    const setViewMode = (mode: ViewMode) => setPersistedState(prev => ({ ...prev, viewMode: mode }));
-
-    const isUI = preview.state === 'ui';
-
-    // Auto-select tab on first data load: UI → output, non-UI → logs
-    const hasAutoSelected = useRef(false);
-    useEffect(() => {
-        if (hasAutoSelected.current) return;
-        if (isUI) {
-            hasAutoSelected.current = true;
-            setViewMode('output');
-        } else if (preview.state === 'value' || preview.state === 'oversized' || preview.state === 'error') {
-            hasAutoSelected.current = true;
-            setViewMode('logs');
-        }
-    }, [preview.state]); // eslint-disable-line react-hooks/exhaustive-deps
-
-    // Non-UI tasks: just show logs, no output tab
-    if (!isUI) {
-        return (
-            <Box height="100%" display="flex" flexDirection="column" overflow="hidden">
-                <Flex
-                    px={4}
-                    py={2}
-                    borderBottom="1px solid"
-                    borderColor="gray.200"
-                    bg="white"
-                    align="center"
-                    flexShrink={0}
-                >
-                    <Text fontSize="sm" fontWeight="medium" color="gray.700">
-                        {task}
-                    </Text>
-                </Flex>
-                <Box flex={1} overflow="hidden" minHeight={0}>
-                    <TaskLogs
-                        apiUrl={apiUrl}
-                        repo={repo}
-                        workspace={workspace}
-                        task={task}
-                        {...(requestOptions != null && { requestOptions })}
-                    />
-                </Box>
-            </Box>
-        );
-    }
+    const kind = detailsQuery.data ? getTaskKind(detailsQuery.data) : null;
 
     return (
         <Box height="100%" display="flex" flexDirection="column" overflow="hidden">
-            <Flex
-                px={4}
-                py={2}
-                borderBottom="1px solid"
-                borderColor="gray.200"
-                bg="white"
-                align="center"
-                justify="space-between"
-                flexShrink={0}
-            >
-                <Text fontSize="sm" fontWeight="medium" color="gray.700">
-                    {task}
-                </Text>
-                <SegmentGroup.Root
-                    size="xs"
-                    value={viewMode}
-                    onValueChange={(details) => setViewMode(details.value as ViewMode)}
-                >
-                    <SegmentGroup.Indicator />
-                    <SegmentGroup.Item value="output" title="Output">
-                        <SegmentGroup.ItemText>
-                            <FontAwesomeIcon icon={faCode} />
-                        </SegmentGroup.ItemText>
-                        <SegmentGroup.ItemHiddenInput />
-                    </SegmentGroup.Item>
-                    <SegmentGroup.Item value="logs" title="Logs">
-                        <SegmentGroup.ItemText>
-                            <FontAwesomeIcon icon={faTerminal} />
-                        </SegmentGroup.ItemText>
-                        <SegmentGroup.ItemHiddenInput />
-                    </SegmentGroup.Item>
-                </SegmentGroup.Root>
+            <Flex px={4} py={2} borderBottom="1px solid" borderColor="gray.200" bg="white" align="center" flexShrink={0}>
+                <Text fontSize="sm" fontWeight="medium" color="gray.700">{task}</Text>
             </Flex>
             <Box flex={1} overflow="hidden" minHeight={0}>
-                {viewMode === 'output' ? (
-                    <Box height="100%" overflow="hidden" minHeight={0}>
-                        <DatasetContent preview={preview} download={download} datasetPath={output} />
-                    </Box>
-                ) : (
-                    <TaskLogs
-                        apiUrl={apiUrl}
-                        repo={repo}
-                        workspace={workspace}
-                        task={task}
-                        {...(requestOptions != null && { requestOptions })}
-                    />
-                )}
+                {detailsQuery.isLoading
+                    ? <StatusDisplay variant="loading" title="Loading task..." />
+                    : detailsQuery.error
+                        ? <StatusDisplay variant="error" title="Error" message={detailsQuery.error.message} />
+                        : kind === 'ui'
+                            ? <UITaskPreview
+                                task={task}
+                                config={{ apiUrl, repo, workspace, token: requestOptions?.token ?? null }}
+                            />
+                            : <DataTaskPreview
+                                apiUrl={apiUrl}
+                                repo={repo}
+                                workspace={workspace}
+                                task={task}
+                                {...(requestOptions != null && { requestOptions })}
+                            />
+                }
             </Box>
         </Box>
     );
-}, (prev, next) => prev.task === next.task && prev.repo === next.repo && prev.workspace === next.workspace && prev.output === next.output && prev.storageKey === next.storageKey);
+}, (prev, next) => prev.task === next.task && prev.repo === next.repo && prev.workspace === next.workspace);

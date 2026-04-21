@@ -1,9 +1,9 @@
 /**
  * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under AGPL-3.0. See LICENSE file for details.
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, ArrayType, NullType, StringType, example } from "@elaraai/east";
-import { Badge, Reactive, Stack, State, Text, TreeView, UIComponentType } from "../../src/index.js";
+import { East, ArrayType, NullType, OptionType, StringType, example, none } from "@elaraai/east";
+import { Badge, Reactive, Stack, State, Text, TreeView, UIComponentType } from "@elaraai/east-ui";
 
 export const treeViewFile = example({
     keywords: ["TreeView", "Root", "Branch", "Item", "file", "tree"],
@@ -210,6 +210,34 @@ export const treeViewInteractiveExpand = example({
                     { colorPalette: "green", variant: "solid" }
                 ),
                 Text.Root(East.str`Nodes expanded: ${expanded.size()}`),
+            ], { gap: "3", align: "stretch" });
+        }));
+    }),
+    inputs: [],
+});
+
+export const treeViewOnFocusChange = example({
+    keywords: ["TreeView", "Reactive", "State", "onFocusChange", "interactive"],
+    description: "TreeView whose onFocusChange records the currently focused id",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const focusBind = $.let(State.bind([OptionType(StringType)], "tree_focus", none));
+            const focused = $.let(focusBind.read());
+            const onFocusChange = $.const(East.function([OptionType(StringType)], NullType, ($, val) => {
+                $(focusBind.write(val));
+            }));
+            return Stack.VStack([
+                TreeView.Root([
+                    TreeView.Branch("group", "Group", [
+                        TreeView.Item("a", "Item A"),
+                        TreeView.Item("b", "Item B"),
+                        TreeView.Item("c", "Item C"),
+                    ]),
+                ], { onFocusChange }),
+                Text.Root(East.str`Focused: ${focused.match({
+                    none: _$ => "(none)",
+                    some: ($, v) => v,
+                })}`),
             ], { gap: "3", align: "stretch" });
         }));
     }),

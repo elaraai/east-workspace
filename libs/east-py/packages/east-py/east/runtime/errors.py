@@ -27,21 +27,14 @@ class EastError(Exception):
         super().__init__(message)
 
     def __str__(self) -> str:
-        """Format error with location and stack trace."""
-        if len(self.location) == 0:
-            return self.message
+        """Format error with location stack (matches east-c / east-node format).
 
-        loc = self.location[0]
-        header = f"{loc['filename']}:{loc['line']}:{loc['column']}: {self.message}"
-
-        if len(self.location) <= 1:
-            return header
-
-        # Build stack trace (skip first since it's in the header)
-        lines = [header, "Stack trace:"]
-        for frame in self.location[1:]:
+        Produces one message line followed by innermost-first `  at <loc>`
+        frames. Callers typically prefix with `Error: ` when printing.
+        """
+        lines = [self.message]
+        for frame in self.location:
             lines.append(f"  at {frame['filename']}:{frame['line']}:{frame['column']}")
-
         return "\n".join(lines)
 
 

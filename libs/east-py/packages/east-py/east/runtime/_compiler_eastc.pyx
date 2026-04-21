@@ -152,19 +152,44 @@ cpdef object compile_eastc_from_beast2(bytes beast2_data, list platform_list, bi
     """Compile East IR from BEAST2 bytes with header — no Python IR round-trip.
 
     Uses east_beast2_decode_ir for combined decode+convert with O(1) type
-    resolution via the beast2 type table.
+    resolution via the beast2 type table. Extracts source map from the blob
+    and attaches it to the compiled function (mirrors compile_eastc_from_json).
     """
     _ensure_runtime()
 
     cdef _eastc.EastValue* c_ir_val = NULL
+    cdef _eastc.EastSourceMap* source_map = NULL
     cdef _eastc.IRNode* ir_node = _eastc.east_beast2_decode_ir(
-        <const uint8_t*><char*>beast2_data, len(beast2_data), &c_ir_val)
+        <const uint8_t*><char*>beast2_data, len(beast2_data), &c_ir_val, &source_map)
     if ir_node == NULL:
         if c_ir_val != NULL:
             _eastc.east_value_release(c_ir_val)
+        if source_map != NULL:
+            _eastc.east_source_map_free(source_map)
+            free(source_map)
         raise RuntimeError("east_beast2_decode_ir failed for IR")
 
-    return _compile_from_ir_node(ir_node, c_ir_val, platform_list, is_async)
+    cdef object result = _compile_from_ir_node(ir_node, c_ir_val, platform_list, is_async)
+
+    # Attach source map to the compiled function if present
+    cdef uintptr_t sm_compiled_ptr
+    cdef _eastc.EastCompiledFn* sm_cfn
+    if source_map != NULL:
+        try:
+            handle = result._eastc_handle
+            sm_compiled_ptr = handle._compiled
+            sm_cfn = <_eastc.EastCompiledFn*>sm_compiled_ptr
+            if sm_cfn != NULL:
+                sm_cfn.source_map = source_map
+                _eastc.east_set_source_map(source_map)
+            else:
+                _eastc.east_source_map_free(source_map)
+                free(source_map)
+        except Exception:
+            _eastc.east_source_map_free(source_map)
+            free(source_map)
+
+    return result
 
 
 # ─── Compile from East text (fast path — no Python round-trip) ───────────

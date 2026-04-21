@@ -1,9 +1,9 @@
 /**
  * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under AGPL-3.0. See LICENSE file for details.
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, example } from "@elaraai/east";
-import { Heading, Stack, Style, UIComponentType } from "../../src/index.js";
+import { East, IntegerType, NullType, example } from "@elaraai/east";
+import { Button, Heading, Reactive, Stack, State, Style, UIComponentType } from "@elaraai/east-ui";
 
 export const headingBasic = example({
     keywords: ["Heading", "Root", "basic"],
@@ -92,6 +92,26 @@ export const headingCombined = example({
             color: "gray.800",
             textAlign: Style.TextAlign("center"),
         });
+    }),
+    inputs: [],
+});
+
+export const headingInteractive = example({
+    keywords: ["Heading", "Reactive", "State", "interactive", "counter"],
+    description: "Reactive heading whose text updates from a counter",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const counter = $.let(State.bind([IntegerType], "heading_counter", 0n));
+            const value = $.let(counter.read());
+            const increment = $.const(East.function([], NullType, $ => {
+                const cur = $.let(counter.read());
+                $(counter.write(cur.add(1n)));
+            }));
+            return Stack.VStack([
+                Heading.Root(East.str`Click count: ${East.print(value)}`, { size: "lg" }),
+                Button.Root("Click me", { onClick: increment }),
+            ], { gap: "3", align: "stretch" });
+        }));
     }),
     inputs: [],
 });

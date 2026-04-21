@@ -3,8 +3,8 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { East, example, some } from "@elaraai/east";
-import { Chart, Box, UIComponentType } from "../../src/index.js";
+import { East, IntegerType, NullType, example, some } from "@elaraai/east";
+import { Box, Button, Chart, Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const pieBasic = example({
     keywords: ["Chart", "Pie", "basic", "colors"],
@@ -128,6 +128,32 @@ export const pieWithLabels = example({
                 }
             ),
         ], { height: "220px", width: "100%" });
+    }),
+    inputs: [],
+});
+
+export const pieInteractive = example({
+    keywords: ["Chart", "Pie", "Reactive", "State", "interactive", "counter"],
+    description: "Pie chart whose Mobile slice grows with a reactive counter",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const counter = $.let(State.bind([IntegerType], "pie_counter", 0n));
+            const value = $.let(counter.read());
+            const inc = $.const(East.function([], NullType, $ => {
+                const cur = $.let(counter.read());
+                $(counter.write(cur.add(1n)));
+            }));
+            return Stack.VStack([
+                Box.Root([
+                    Chart.Pie([
+                        { name: "Mobile", value: value.toFloat().multiply(10.0).add(60.0), color: some("blue.solid") },
+                        { name: "Desktop", value: 30, color: some("teal.solid") },
+                        { name: "Tablet", value: 10, color: some("orange.solid") },
+                    ]),
+                ], { height: "200px", width: "100%" }),
+                Button.Root("Grow Mobile slice", { onClick: inc }),
+            ], { gap: "3", align: "stretch" });
+        }));
     }),
     inputs: [],
 });

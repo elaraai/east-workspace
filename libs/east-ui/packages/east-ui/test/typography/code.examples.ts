@@ -1,9 +1,9 @@
 /**
  * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under AGPL-3.0. See LICENSE file for details.
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, example } from "@elaraai/east";
-import { Code, Stack, UIComponentType } from "../../src/index.js";
+import { East, IntegerType, NullType, example } from "@elaraai/east";
+import { Button, Code, Reactive, State, Stack, UIComponentType } from "@elaraai/east-ui";
 
 export const codeBasic = example({
     keywords: ["Code", "Root", "basic", "inline"],
@@ -78,6 +78,26 @@ export const codeCombined = example({
             colorPalette: "purple",
             size: "md",
         });
+    }),
+    inputs: [],
+});
+
+export const codeInteractive = example({
+    keywords: ["Code", "Reactive", "State", "interactive", "counter"],
+    description: "Reactive code snippet whose value updates from a counter",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const counter = $.let(State.bind([IntegerType], "code_counter", 0n));
+            const value = $.let(counter.read());
+            const increment = $.const(East.function([], NullType, $ => {
+                const cur = $.let(counter.read());
+                $(counter.write(cur.add(1n)));
+            }));
+            return Stack.VStack([
+                Code.Root(East.str`const count = ${East.print(value)};`),
+                Button.Root("Increment", { onClick: increment }),
+            ], { gap: "3", align: "stretch" });
+        }));
     }),
     inputs: [],
 });

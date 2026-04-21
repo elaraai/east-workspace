@@ -15,13 +15,14 @@
 /*  Global null singleton                                              */
 /* ------------------------------------------------------------------ */
 
-EastValue east_null_value = { .kind = EAST_VAL_NULL, .ref_count = -1 };
+EastValue east_null_value = {.kind = EAST_VAL_NULL, .ref_count = -1};
 
 /* ------------------------------------------------------------------ */
 /*  Internal helpers                                                    */
 /* ------------------------------------------------------------------ */
 
-static bool is_gc_type(EastValueKind kind) {
+static bool is_gc_type(EastValueKind kind)
+{
     switch (kind) {
     case EAST_VAL_ARRAY:
     case EAST_VAL_SET:
@@ -36,7 +37,8 @@ static bool is_gc_type(EastValueKind kind) {
     }
 }
 
-static EastValue *alloc_value(EastValueKind kind) {
+static EastValue *alloc_value(EastValueKind kind)
+{
     EastValue *v = east_value_slab_alloc();
     if (!v) return NULL;
     v->kind = kind;
@@ -60,13 +62,17 @@ static EastValue *alloc_value(EastValueKind kind) {
  *   4. Infinity → "Infinity"
  *   5. Find minimal k significant digits, then format per spec rules.
  */
-int east_fmt_double(char *out, size_t out_size, double val) {
+int east_fmt_double(char *out, size_t out_size, double val)
+{
     if (isnan(val)) return snprintf(out, out_size, "NaN");
     if (val == 0.0) return snprintf(out, out_size, "0"); /* both +0 and -0 */
     if (isinf(val)) return snprintf(out, out_size, val > 0 ? "Infinity" : "-Infinity");
 
     int pos = 0;
-    if (val < 0) { out[pos++] = '-'; val = -val; }
+    if (val < 0) {
+        out[pos++] = '-';
+        val = -val;
+    }
 
     /* Find shortest %e representation that round-trips */
     char ebuf[32];
@@ -89,30 +95,41 @@ int east_fmt_double(char *out, size_t out_size, double val) {
     digits[k] = '\0';
 
     /* Strip trailing zeros from digit string */
-    while (k > 1 && digits[k - 1] == '0') k--;
+    while (k > 1 && digits[k - 1] == '0')
+        k--;
     digits[k] = '\0';
 
     int exp_val = 0;
-    if (*p == 'e' || *p == 'E') { p++; exp_val = atoi(p); }
+    if (*p == 'e' || *p == 'E') {
+        p++;
+        exp_val = atoi(p);
+    }
     int n = exp_val + 1; /* ECMAScript "n" */
 
     /* ECMAScript formatting rules (steps 6-10 of 9.8.1) */
     if (k <= n && n <= 21) {
         /* digits followed by (n-k) zeros */
-        for (int i = 0; i < k; i++) out[pos++] = digits[i];
-        for (int i = 0; i < n - k; i++) out[pos++] = '0';
+        for (int i = 0; i < k; i++)
+            out[pos++] = digits[i];
+        for (int i = 0; i < n - k; i++)
+            out[pos++] = '0';
         out[pos] = '\0';
     } else if (0 < n && n <= 21) {
         /* first n digits, '.', remaining digits */
-        for (int i = 0; i < n; i++) out[pos++] = digits[i];
+        for (int i = 0; i < n; i++)
+            out[pos++] = digits[i];
         out[pos++] = '.';
-        for (int i = n; i < k; i++) out[pos++] = digits[i];
+        for (int i = n; i < k; i++)
+            out[pos++] = digits[i];
         out[pos] = '\0';
     } else if (-6 < n && n <= 0) {
         /* "0.", (-n) zeros, then digits */
-        out[pos++] = '0'; out[pos++] = '.';
-        for (int i = 0; i < -n; i++) out[pos++] = '0';
-        for (int i = 0; i < k; i++) out[pos++] = digits[i];
+        out[pos++] = '0';
+        out[pos++] = '.';
+        for (int i = 0; i < -n; i++)
+            out[pos++] = '0';
+        for (int i = 0; i < k; i++)
+            out[pos++] = digits[i];
         out[pos] = '\0';
     } else {
         /* Scientific notation */
@@ -120,22 +137,27 @@ int east_fmt_double(char *out, size_t out_size, double val) {
         out[pos++] = digits[0];
         if (k > 1) {
             out[pos++] = '.';
-            for (int i = 1; i < k; i++) out[pos++] = digits[i];
+            for (int i = 1; i < k; i++)
+                out[pos++] = digits[i];
         }
-        pos += snprintf(out + pos, out_size - pos, "e%c%d",
-                        e >= 0 ? '+' : '-', e >= 0 ? e : -e);
+        pos += snprintf(out + pos, out_size - pos, "e%c%d", e >= 0 ? '+' : '-', e >= 0 ? e : -e);
     }
     return pos;
 }
 
 /* Return the byte size of a single element for vector/matrix storage. */
-static size_t elem_size_for_type(EastType *elem_type) {
+static size_t elem_size_for_type(EastType *elem_type)
+{
     if (!elem_type) return sizeof(double);
     switch (elem_type->kind) {
-    case EAST_TYPE_FLOAT:   return sizeof(double);
-    case EAST_TYPE_INTEGER: return sizeof(int64_t);
-    case EAST_TYPE_BOOLEAN: return sizeof(bool);
-    default:                return sizeof(double);
+    case EAST_TYPE_FLOAT:
+        return sizeof(double);
+    case EAST_TYPE_INTEGER:
+        return sizeof(int64_t);
+    case EAST_TYPE_BOOLEAN:
+        return sizeof(bool);
+    default:
+        return sizeof(double);
     }
 }
 
@@ -143,32 +165,37 @@ static size_t elem_size_for_type(EastType *elem_type) {
 /*  Constructors: primitives                                           */
 /* ------------------------------------------------------------------ */
 
-EastValue *east_null(void) {
+EastValue *east_null(void)
+{
     return &east_null_value;
 }
 
-EastValue *east_boolean(bool val) {
+EastValue *east_boolean(bool val)
+{
     EastValue *v = alloc_value(EAST_VAL_BOOLEAN);
     if (!v) return NULL;
     v->data.boolean = val;
     return v;
 }
 
-EastValue *east_integer(int64_t val) {
+EastValue *east_integer(int64_t val)
+{
     EastValue *v = alloc_value(EAST_VAL_INTEGER);
     if (!v) return NULL;
     v->data.integer = val;
     return v;
 }
 
-EastValue *east_float(double val) {
+EastValue *east_float(double val)
+{
     EastValue *v = alloc_value(EAST_VAL_FLOAT);
     if (!v) return NULL;
     v->data.float64 = val;
     return v;
 }
 
-EastValue *east_string(const char *str) {
+EastValue *east_string(const char *str)
+{
     if (!str) str = "";
     EastValue *v = alloc_value(EAST_VAL_STRING);
     if (!v) return NULL;
@@ -181,7 +208,8 @@ EastValue *east_string(const char *str) {
     return v;
 }
 
-EastValue *east_string_len(const char *str, size_t len) {
+EastValue *east_string_len(const char *str, size_t len)
+{
     EastValue *v = alloc_value(EAST_VAL_STRING);
     if (!v) return NULL;
     v->data.string.len = len;
@@ -197,14 +225,16 @@ EastValue *east_string_len(const char *str, size_t len) {
     return v;
 }
 
-EastValue *east_datetime(int64_t millis) {
+EastValue *east_datetime(int64_t millis)
+{
     EastValue *v = alloc_value(EAST_VAL_DATETIME);
     if (!v) return NULL;
     v->data.datetime = millis;
     return v;
 }
 
-EastValue *east_blob(const uint8_t *data, size_t len) {
+EastValue *east_blob(const uint8_t *data, size_t len)
+{
     EastValue *v = alloc_value(EAST_VAL_BLOB);
     if (!v) return NULL;
     v->data.blob.len = len;
@@ -225,7 +255,8 @@ EastValue *east_blob(const uint8_t *data, size_t len) {
 /*  Constructors: collections                                          */
 /* ------------------------------------------------------------------ */
 
-EastValue *east_array_new(EastType *elem_type) {
+EastValue *east_array_new(EastType *elem_type)
+{
     EastValue *v = alloc_value(EAST_VAL_ARRAY);
     if (!v) return NULL;
     v->data.array.len = 0;
@@ -240,7 +271,8 @@ EastValue *east_array_new(EastType *elem_type) {
     return v;
 }
 
-EastValue *east_array_new_with_capacity(EastType *elem_type, size_t capacity) {
+EastValue *east_array_new_with_capacity(EastType *elem_type, size_t capacity)
+{
     EastValue *v = alloc_value(EAST_VAL_ARRAY);
     if (!v) return NULL;
     v->data.array.len = 0;
@@ -259,13 +291,13 @@ EastValue *east_array_new_with_capacity(EastType *elem_type, size_t capacity) {
     return v;
 }
 
-void east_array_push(EastValue *arr, EastValue *val) {
+void east_array_push(EastValue *arr, EastValue *val)
+{
     if (!arr || arr->kind != EAST_VAL_ARRAY) return;
     if (arr->data.array.len >= arr->data.array.cap) {
         size_t old_cap = arr->data.array.cap;
         size_t new_cap = old_cap * 2;
-        EastValue **new_items = east_realloc(arr->data.array.items,
-                                             old_cap * sizeof(EastValue *),
+        EastValue **new_items = east_realloc(arr->data.array.items, old_cap * sizeof(EastValue *),
                                              new_cap * sizeof(EastValue *));
         if (!new_items) return;
         arr->data.array.items = new_items;
@@ -275,13 +307,15 @@ void east_array_push(EastValue *arr, EastValue *val) {
     arr->data.array.items[arr->data.array.len++] = val;
 }
 
-EastValue *east_array_get(EastValue *arr, size_t index) {
+EastValue *east_array_get(EastValue *arr, size_t index)
+{
     if (!arr || arr->kind != EAST_VAL_ARRAY) return NULL;
     if (index >= arr->data.array.len) return NULL;
     return arr->data.array.items[index];
 }
 
-size_t east_array_len(EastValue *arr) {
+size_t east_array_len(EastValue *arr)
+{
     if (!arr || arr->kind != EAST_VAL_ARRAY) return 0;
     return arr->data.array.len;
 }
@@ -290,7 +324,8 @@ size_t east_array_len(EastValue *arr) {
 /*  Sorted set                                                         */
 /* ------------------------------------------------------------------ */
 
-EastValue *east_set_new(EastType *elem_type) {
+EastValue *east_set_new(EastType *elem_type)
+{
     EastValue *v = alloc_value(EAST_VAL_SET);
     if (!v) return NULL;
     v->data.set.len = 0;
@@ -305,7 +340,8 @@ EastValue *east_set_new(EastType *elem_type) {
     return v;
 }
 
-EastValue *east_set_new_with_capacity(EastType *elem_type, size_t capacity) {
+EastValue *east_set_new_with_capacity(EastType *elem_type, size_t capacity)
+{
     EastValue *v = alloc_value(EAST_VAL_SET);
     if (!v) return NULL;
     v->data.set.len = 0;
@@ -329,8 +365,8 @@ EastValue *east_set_new_with_capacity(EastType *elem_type, size_t capacity) {
  * Returns the index where `val` was found, or the insertion point if not found.
  * Sets *found to true if the value is already present.
  */
-static size_t sorted_search(EastValue **items, size_t len, EastValue *val,
-                            bool *found) {
+static size_t sorted_search(EastValue **items, size_t len, EastValue *val, bool *found)
+{
     size_t lo = 0;
     size_t hi = len;
     while (lo < hi) {
@@ -349,20 +385,19 @@ static size_t sorted_search(EastValue **items, size_t len, EastValue *val,
     return lo;
 }
 
-void east_set_insert(EastValue *set, EastValue *val) {
+void east_set_insert(EastValue *set, EastValue *val)
+{
     if (!set || set->kind != EAST_VAL_SET) return;
 
     bool found = false;
-    size_t pos = sorted_search(set->data.set.items, set->data.set.len, val,
-                               &found);
+    size_t pos = sorted_search(set->data.set.items, set->data.set.len, val, &found);
     if (found) return; /* already present */
 
     /* Grow if needed. */
     if (set->data.set.len >= set->data.set.cap) {
         size_t old_cap = set->data.set.cap;
         size_t new_cap = old_cap * 2;
-        EastValue **new_items = east_realloc(set->data.set.items,
-                                             old_cap * sizeof(EastValue *),
+        EastValue **new_items = east_realloc(set->data.set.items, old_cap * sizeof(EastValue *),
                                              new_cap * sizeof(EastValue *));
         if (!new_items) return;
         set->data.set.items = new_items;
@@ -371,8 +406,7 @@ void east_set_insert(EastValue *set, EastValue *val) {
 
     /* Shift elements right to make room. */
     if (pos < set->data.set.len) {
-        memmove(&set->data.set.items[pos + 1],
-                &set->data.set.items[pos],
+        memmove(&set->data.set.items[pos + 1], &set->data.set.items[pos],
                 (set->data.set.len - pos) * sizeof(EastValue *));
     }
 
@@ -381,14 +415,16 @@ void east_set_insert(EastValue *set, EastValue *val) {
     set->data.set.len++;
 }
 
-bool east_set_has(EastValue *set, EastValue *val) {
+bool east_set_has(EastValue *set, EastValue *val)
+{
     if (!set || set->kind != EAST_VAL_SET) return false;
     bool found = false;
     sorted_search(set->data.set.items, set->data.set.len, val, &found);
     return found;
 }
 
-bool east_set_delete(EastValue *set, EastValue *val) {
+bool east_set_delete(EastValue *set, EastValue *val)
+{
     if (!set || set->kind != EAST_VAL_SET) return false;
     bool found = false;
     size_t pos = sorted_search(set->data.set.items, set->data.set.len, val, &found);
@@ -403,7 +439,8 @@ bool east_set_delete(EastValue *set, EastValue *val) {
     return true;
 }
 
-size_t east_set_len(EastValue *set) {
+size_t east_set_len(EastValue *set)
+{
     if (!set || set->kind != EAST_VAL_SET) return 0;
     return set->data.set.len;
 }
@@ -412,7 +449,8 @@ size_t east_set_len(EastValue *set) {
 /*  Sorted dict (parallel arrays)                                      */
 /* ------------------------------------------------------------------ */
 
-EastValue *east_dict_new(EastType *key_type, EastType *val_type) {
+EastValue *east_dict_new(EastType *key_type, EastType *val_type)
+{
     EastValue *v = alloc_value(EAST_VAL_DICT);
     if (!v) return NULL;
     v->data.dict.len = 0;
@@ -432,8 +470,8 @@ EastValue *east_dict_new(EastType *key_type, EastType *val_type) {
     return v;
 }
 
-EastValue *east_dict_new_with_capacity(EastType *key_type, EastType *val_type,
-                                       size_t capacity) {
+EastValue *east_dict_new_with_capacity(EastType *key_type, EastType *val_type, size_t capacity)
+{
     EastValue *v = alloc_value(EAST_VAL_DICT);
     if (!v) return NULL;
     v->data.dict.len = 0;
@@ -458,12 +496,12 @@ EastValue *east_dict_new_with_capacity(EastType *key_type, EastType *val_type,
     return v;
 }
 
-void east_dict_set(EastValue *dict, EastValue *key, EastValue *val) {
+void east_dict_set(EastValue *dict, EastValue *key, EastValue *val)
+{
     if (!dict || dict->kind != EAST_VAL_DICT) return;
 
     bool found = false;
-    size_t pos = sorted_search(dict->data.dict.keys, dict->data.dict.len, key,
-                               &found);
+    size_t pos = sorted_search(dict->data.dict.keys, dict->data.dict.len, key, &found);
 
     if (found) {
         /* Update existing entry. */
@@ -477,11 +515,9 @@ void east_dict_set(EastValue *dict, EastValue *key, EastValue *val) {
     if (dict->data.dict.len >= dict->data.dict.cap) {
         size_t old_cap = dict->data.dict.cap;
         size_t new_cap = old_cap * 2;
-        EastValue **new_keys = east_realloc(dict->data.dict.keys,
-                                            old_cap * sizeof(EastValue *),
+        EastValue **new_keys = east_realloc(dict->data.dict.keys, old_cap * sizeof(EastValue *),
                                             new_cap * sizeof(EastValue *));
-        EastValue **new_vals = east_realloc(dict->data.dict.values,
-                                            old_cap * sizeof(EastValue *),
+        EastValue **new_vals = east_realloc(dict->data.dict.values, old_cap * sizeof(EastValue *),
                                             new_cap * sizeof(EastValue *));
         if (!new_keys || !new_vals) {
             /* On partial realloc failure, restore what we can. */
@@ -496,11 +532,9 @@ void east_dict_set(EastValue *dict, EastValue *key, EastValue *val) {
 
     /* Shift elements right. */
     if (pos < dict->data.dict.len) {
-        memmove(&dict->data.dict.keys[pos + 1],
-                &dict->data.dict.keys[pos],
+        memmove(&dict->data.dict.keys[pos + 1], &dict->data.dict.keys[pos],
                 (dict->data.dict.len - pos) * sizeof(EastValue *));
-        memmove(&dict->data.dict.values[pos + 1],
-                &dict->data.dict.values[pos],
+        memmove(&dict->data.dict.values[pos + 1], &dict->data.dict.values[pos],
                 (dict->data.dict.len - pos) * sizeof(EastValue *));
     }
 
@@ -511,23 +545,25 @@ void east_dict_set(EastValue *dict, EastValue *key, EastValue *val) {
     dict->data.dict.len++;
 }
 
-EastValue *east_dict_get(EastValue *dict, EastValue *key) {
+EastValue *east_dict_get(EastValue *dict, EastValue *key)
+{
     if (!dict || dict->kind != EAST_VAL_DICT) return NULL;
     bool found = false;
-    size_t pos = sorted_search(dict->data.dict.keys, dict->data.dict.len, key,
-                               &found);
+    size_t pos = sorted_search(dict->data.dict.keys, dict->data.dict.len, key, &found);
     if (!found) return NULL;
     return dict->data.dict.values[pos];
 }
 
-bool east_dict_has(EastValue *dict, EastValue *key) {
+bool east_dict_has(EastValue *dict, EastValue *key)
+{
     if (!dict || dict->kind != EAST_VAL_DICT) return false;
     bool found = false;
     sorted_search(dict->data.dict.keys, dict->data.dict.len, key, &found);
     return found;
 }
 
-bool east_dict_delete(EastValue *dict, EastValue *key) {
+bool east_dict_delete(EastValue *dict, EastValue *key)
+{
     if (!dict || dict->kind != EAST_VAL_DICT) return false;
     bool found = false;
     size_t pos = sorted_search(dict->data.dict.keys, dict->data.dict.len, key, &found);
@@ -545,12 +581,13 @@ bool east_dict_delete(EastValue *dict, EastValue *key) {
     return true;
 }
 
-EastValue *east_dict_pop(EastValue *dict, EastValue *key) {
+EastValue *east_dict_pop(EastValue *dict, EastValue *key)
+{
     if (!dict || dict->kind != EAST_VAL_DICT) return NULL;
     bool found = false;
     size_t pos = sorted_search(dict->data.dict.keys, dict->data.dict.len, key, &found);
     if (!found) return NULL;
-    EastValue *val = dict->data.dict.values[pos];  /* transfer ownership */
+    EastValue *val = dict->data.dict.values[pos]; /* transfer ownership */
     east_value_release(dict->data.dict.keys[pos]);
     size_t remaining = dict->data.dict.len - pos - 1;
     if (remaining > 0) {
@@ -563,7 +600,8 @@ EastValue *east_dict_pop(EastValue *dict, EastValue *key) {
     return val;
 }
 
-size_t east_dict_len(EastValue *dict) {
+size_t east_dict_len(EastValue *dict)
+{
     if (!dict || dict->kind != EAST_VAL_DICT) return 0;
     return dict->data.dict.len;
 }
@@ -572,8 +610,8 @@ size_t east_dict_len(EastValue *dict) {
 /*  Struct / Variant / Ref                                             */
 /* ------------------------------------------------------------------ */
 
-EastValue *east_struct_new(const char **names, EastValue **values,
-                           size_t count, EastType *type) {
+EastValue *east_struct_new(const char **names, EastValue **values, size_t count, EastType *type)
+{
     EastValue *v = alloc_value(EAST_VAL_STRUCT);
     if (!v) return NULL;
     v->data.struct_.num_fields = count;
@@ -601,7 +639,8 @@ EastValue *east_struct_new(const char **names, EastValue **values,
     return v;
 }
 
-EastValue *east_struct_get_field(EastValue *s, const char *name) {
+EastValue *east_struct_get_field(EastValue *s, const char *name)
+{
     if (!s || s->kind != EAST_VAL_STRUCT || !name) return NULL;
     for (size_t i = 0; i < s->data.struct_.num_fields; i++) {
         if (strcmp(s->data.struct_.field_names[i], name) == 0) {
@@ -611,13 +650,14 @@ EastValue *east_struct_get_field(EastValue *s, const char *name) {
     return NULL;
 }
 
-EastValue *east_variant_new(const char *case_name, EastValue *value,
-                            EastType *type) {
+EastValue *east_variant_new(const char *case_name, EastValue *value, EastType *type)
+{
     /* Look up case index by name (unwrap Recursive if needed) */
     size_t idx = SIZE_MAX;
     const char *tag = case_name; /* default: caller's string (not owned) */
     EastType *vt = type;
-    while (vt && vt->kind == EAST_TYPE_RECURSIVE) vt = vt->data.recursive.node;
+    while (vt && vt->kind == EAST_TYPE_RECURSIVE)
+        vt = vt->data.recursive.node;
     if (case_name && vt && vt->kind == EAST_TYPE_VARIANT) {
         for (size_t i = 0; i < vt->data.variant.num_cases; i++) {
             if (strcmp(vt->data.variant.cases[i].name, case_name) == 0) {
@@ -638,17 +678,19 @@ EastValue *east_variant_new(const char *case_name, EastValue *value,
     return v;
 }
 
-EastValue *east_variant_new_idx(size_t case_idx, EastValue *value,
-                                EastType *type) {
+EastValue *east_variant_new_idx(size_t case_idx, EastValue *value, EastType *type)
+{
     EastValue *v = alloc_value(EAST_VAL_VARIANT);
     if (!v) return NULL;
     v->data.variant.case_idx = case_idx;
     /* Look up tag from type */
     EastType *vt = type;
-    while (vt && vt->kind == EAST_TYPE_RECURSIVE) vt = vt->data.recursive.node;
-    v->data.variant.case_tag = (vt && vt->kind == EAST_TYPE_VARIANT &&
-                                 case_idx < vt->data.variant.num_cases)
-        ? vt->data.variant.cases[case_idx].name : "";
+    while (vt && vt->kind == EAST_TYPE_RECURSIVE)
+        vt = vt->data.recursive.node;
+    v->data.variant.case_tag =
+        (vt && vt->kind == EAST_TYPE_VARIANT && case_idx < vt->data.variant.num_cases)
+            ? vt->data.variant.cases[case_idx].name
+            : "";
     v->data.variant.value = value;
     if (value) east_value_retain(value);
     v->data.variant.type = type;
@@ -656,7 +698,8 @@ EastValue *east_variant_new_idx(size_t case_idx, EastValue *value,
     return v;
 }
 
-EastValue *east_ref_new(EastValue *value) {
+EastValue *east_ref_new(EastValue *value)
+{
     EastValue *v = alloc_value(EAST_VAL_REF);
     if (!v) return NULL;
     v->data.ref.value = value;
@@ -664,12 +707,14 @@ EastValue *east_ref_new(EastValue *value) {
     return v;
 }
 
-EastValue *east_ref_get(EastValue *ref) {
+EastValue *east_ref_get(EastValue *ref)
+{
     if (!ref || ref->kind != EAST_VAL_REF) return NULL;
     return ref->data.ref.value;
 }
 
-void east_ref_set(EastValue *ref, EastValue *value) {
+void east_ref_set(EastValue *ref, EastValue *value)
+{
     if (!ref || ref->kind != EAST_VAL_REF) return;
     if (value) east_value_retain(value);
     east_value_release(ref->data.ref.value);
@@ -680,7 +725,8 @@ void east_ref_set(EastValue *ref, EastValue *value) {
 /*  Vector / Matrix                                                    */
 /* ------------------------------------------------------------------ */
 
-EastValue *east_vector_new(EastType *elem_type, size_t len) {
+EastValue *east_vector_new(EastType *elem_type, size_t len)
+{
     EastValue *v = alloc_value(EAST_VAL_VECTOR);
     if (!v) return NULL;
     v->data.vector.len = len;
@@ -700,7 +746,8 @@ EastValue *east_vector_new(EastType *elem_type, size_t len) {
     return v;
 }
 
-EastValue *east_matrix_new(EastType *elem_type, size_t rows, size_t cols) {
+EastValue *east_matrix_new(EastType *elem_type, size_t rows, size_t cols)
+{
     EastValue *v = alloc_value(EAST_VAL_MATRIX);
     if (!v) return NULL;
     v->data.matrix.rows = rows;
@@ -726,7 +773,8 @@ EastValue *east_matrix_new(EastType *elem_type, size_t rows, size_t cols) {
 /*  Function                                                           */
 /* ------------------------------------------------------------------ */
 
-EastValue *east_function_value(EastCompiledFn *fn) {
+EastValue *east_function_value(EastCompiledFn *fn)
+{
     EastValue *v = alloc_value(EAST_VAL_FUNCTION);
     if (!v) return NULL;
     v->data.function.compiled = fn;
@@ -737,17 +785,20 @@ EastValue *east_function_value(EastCompiledFn *fn) {
 /*  Ref counting                                                       */
 /* ------------------------------------------------------------------ */
 
-void east_value_dealloc(EastValue *v) {
+void east_value_dealloc(EastValue *v)
+{
     east_value_slab_free(v);
 }
 
-void east_value_retain(EastValue *v) {
+void east_value_retain(EastValue *v)
+{
     if (!v) return;
     if (v->ref_count < 0) return; /* singleton (null) */
     __atomic_add_fetch(&v->ref_count, 1, __ATOMIC_RELAXED);
 }
 
-void east_value_release(EastValue *v) {
+void east_value_release(EastValue *v)
+{
     if (!v) return;
     if (v->ref_count < 0) return; /* singleton (null) */
     if (__atomic_sub_fetch(&v->ref_count, 1, __ATOMIC_ACQ_REL) > 0) return;
@@ -778,8 +829,7 @@ void east_value_release(EastValue *v) {
             east_value_release(v->data.array.items[i]);
         }
         east_free(v->data.array.items);
-        if (v->data.array.elem_type)
-            east_type_release(v->data.array.elem_type);
+        if (v->data.array.elem_type) east_type_release(v->data.array.elem_type);
         break;
 
     case EAST_VAL_SET:
@@ -787,8 +837,7 @@ void east_value_release(EastValue *v) {
             east_value_release(v->data.set.items[i]);
         }
         east_free(v->data.set.items);
-        if (v->data.set.elem_type)
-            east_type_release(v->data.set.elem_type);
+        if (v->data.set.elem_type) east_type_release(v->data.set.elem_type);
         break;
 
     case EAST_VAL_DICT:
@@ -798,10 +847,8 @@ void east_value_release(EastValue *v) {
         }
         east_free(v->data.dict.keys);
         east_free(v->data.dict.values);
-        if (v->data.dict.key_type)
-            east_type_release(v->data.dict.key_type);
-        if (v->data.dict.val_type)
-            east_type_release(v->data.dict.val_type);
+        if (v->data.dict.key_type) east_type_release(v->data.dict.key_type);
+        if (v->data.dict.val_type) east_type_release(v->data.dict.val_type);
         break;
 
     case EAST_VAL_STRUCT:
@@ -811,14 +858,12 @@ void east_value_release(EastValue *v) {
         }
         east_free(v->data.struct_.field_names);
         east_free(v->data.struct_.field_values);
-        if (v->data.struct_.type)
-            east_type_release(v->data.struct_.type);
+        if (v->data.struct_.type) east_type_release(v->data.struct_.type);
         break;
 
     case EAST_VAL_VARIANT:
         east_value_release(v->data.variant.value);
-        if (v->data.variant.type)
-            east_type_release(v->data.variant.type);
+        if (v->data.variant.type) east_type_release(v->data.variant.type);
         break;
 
     case EAST_VAL_REF:
@@ -827,14 +872,12 @@ void east_value_release(EastValue *v) {
 
     case EAST_VAL_VECTOR:
         east_free(v->data.vector.data);
-        if (v->data.vector.elem_type)
-            east_type_release(v->data.vector.elem_type);
+        if (v->data.vector.elem_type) east_type_release(v->data.vector.elem_type);
         break;
 
     case EAST_VAL_MATRIX:
         east_free(v->data.matrix.data);
-        if (v->data.matrix.elem_type)
-            east_type_release(v->data.matrix.elem_type);
+        if (v->data.matrix.elem_type) east_type_release(v->data.matrix.elem_type);
         break;
 
     case EAST_VAL_FUNCTION:
@@ -851,7 +894,8 @@ void east_value_release(EastValue *v) {
 /*  Structural equality                                                */
 /* ------------------------------------------------------------------ */
 
-bool east_value_equal(EastValue *a, EastValue *b) {
+bool east_value_equal(EastValue *a, EastValue *b)
+{
     if (a == b) return true;
     if (!a || !b) return false;
     if (a->kind != b->kind) return false;
@@ -876,8 +920,7 @@ bool east_value_equal(EastValue *a, EastValue *b) {
 
     case EAST_VAL_STRING:
         if (a->data.string.len != b->data.string.len) return false;
-        return memcmp(a->data.string.data, b->data.string.data,
-                      a->data.string.len) == 0;
+        return memcmp(a->data.string.data, b->data.string.data, a->data.string.len) == 0;
 
     case EAST_VAL_DATETIME:
         return a->data.datetime == b->data.datetime;
@@ -885,55 +928,42 @@ bool east_value_equal(EastValue *a, EastValue *b) {
     case EAST_VAL_BLOB:
         if (a->data.blob.len != b->data.blob.len) return false;
         if (a->data.blob.len == 0) return true;
-        return memcmp(a->data.blob.data, b->data.blob.data,
-                      a->data.blob.len) == 0;
+        return memcmp(a->data.blob.data, b->data.blob.data, a->data.blob.len) == 0;
 
     case EAST_VAL_ARRAY:
         if (a->data.array.len != b->data.array.len) return false;
         for (size_t i = 0; i < a->data.array.len; i++) {
-            if (!east_value_equal(a->data.array.items[i],
-                                  b->data.array.items[i]))
-                return false;
+            if (!east_value_equal(a->data.array.items[i], b->data.array.items[i])) return false;
         }
         return true;
 
     case EAST_VAL_SET:
         if (a->data.set.len != b->data.set.len) return false;
         for (size_t i = 0; i < a->data.set.len; i++) {
-            if (!east_value_equal(a->data.set.items[i],
-                                  b->data.set.items[i]))
-                return false;
+            if (!east_value_equal(a->data.set.items[i], b->data.set.items[i])) return false;
         }
         return true;
 
     case EAST_VAL_DICT:
         if (a->data.dict.len != b->data.dict.len) return false;
         for (size_t i = 0; i < a->data.dict.len; i++) {
-            if (!east_value_equal(a->data.dict.keys[i],
-                                  b->data.dict.keys[i]))
-                return false;
-            if (!east_value_equal(a->data.dict.values[i],
-                                  b->data.dict.values[i]))
-                return false;
+            if (!east_value_equal(a->data.dict.keys[i], b->data.dict.keys[i])) return false;
+            if (!east_value_equal(a->data.dict.values[i], b->data.dict.values[i])) return false;
         }
         return true;
 
     case EAST_VAL_STRUCT:
-        if (a->data.struct_.num_fields != b->data.struct_.num_fields)
-            return false;
+        if (a->data.struct_.num_fields != b->data.struct_.num_fields) return false;
         for (size_t i = 0; i < a->data.struct_.num_fields; i++) {
-            if (strcmp(a->data.struct_.field_names[i],
-                       b->data.struct_.field_names[i]) != 0)
+            if (strcmp(a->data.struct_.field_names[i], b->data.struct_.field_names[i]) != 0)
                 return false;
-            if (!east_value_equal(a->data.struct_.field_values[i],
-                                  b->data.struct_.field_values[i]))
+            if (!east_value_equal(a->data.struct_.field_values[i], b->data.struct_.field_values[i]))
                 return false;
         }
         return true;
 
     case EAST_VAL_VARIANT:
-        if (strcmp(east_variant_case_name(a), east_variant_case_name(b)) != 0)
-            return false;
+        if (strcmp(east_variant_case_name(a), east_variant_case_name(b)) != 0) return false;
         return east_value_equal(a->data.variant.value, b->data.variant.value);
 
     case EAST_VAL_REF:
@@ -944,8 +974,7 @@ bool east_value_equal(EastValue *a, EastValue *b) {
         size_t n = a->data.vector.len;
         size_t esize = elem_size_for_type(a->data.vector.elem_type);
         if (n == 0) return true;
-        return memcmp(a->data.vector.data, b->data.vector.data,
-                      n * esize) == 0;
+        return memcmp(a->data.vector.data, b->data.vector.data, n * esize) == 0;
     }
 
     case EAST_VAL_MATRIX: {
@@ -954,8 +983,7 @@ bool east_value_equal(EastValue *a, EastValue *b) {
         size_t n = a->data.matrix.rows * a->data.matrix.cols;
         size_t esize = elem_size_for_type(a->data.matrix.elem_type);
         if (n == 0) return true;
-        return memcmp(a->data.matrix.data, b->data.matrix.data,
-                      n * esize) == 0;
+        return memcmp(a->data.matrix.data, b->data.matrix.data, n * esize) == 0;
     }
 
     case EAST_VAL_FUNCTION:
@@ -975,35 +1003,54 @@ bool east_value_equal(EastValue *a, EastValue *b) {
  *   < ARRAY < SET < DICT < STRUCT < VARIANT
  * (remaining kinds are placed after VARIANT in enum order)
  */
-static int kind_rank(EastValueKind k) {
+static int kind_rank(EastValueKind k)
+{
     switch (k) {
-    case EAST_VAL_NULL:     return 0;
-    case EAST_VAL_BOOLEAN:  return 1;
-    case EAST_VAL_INTEGER:  return 2;
-    case EAST_VAL_FLOAT:    return 3;
-    case EAST_VAL_STRING:   return 4;
-    case EAST_VAL_DATETIME: return 5;
-    case EAST_VAL_BLOB:     return 6;
-    case EAST_VAL_ARRAY:    return 7;
-    case EAST_VAL_SET:      return 8;
-    case EAST_VAL_DICT:     return 9;
-    case EAST_VAL_STRUCT:   return 10;
-    case EAST_VAL_VARIANT:  return 11;
-    case EAST_VAL_REF:      return 12;
-    case EAST_VAL_VECTOR:   return 13;
-    case EAST_VAL_MATRIX:   return 14;
-    case EAST_VAL_FUNCTION: return 15;
+    case EAST_VAL_NULL:
+        return 0;
+    case EAST_VAL_BOOLEAN:
+        return 1;
+    case EAST_VAL_INTEGER:
+        return 2;
+    case EAST_VAL_FLOAT:
+        return 3;
+    case EAST_VAL_STRING:
+        return 4;
+    case EAST_VAL_DATETIME:
+        return 5;
+    case EAST_VAL_BLOB:
+        return 6;
+    case EAST_VAL_ARRAY:
+        return 7;
+    case EAST_VAL_SET:
+        return 8;
+    case EAST_VAL_DICT:
+        return 9;
+    case EAST_VAL_STRUCT:
+        return 10;
+    case EAST_VAL_VARIANT:
+        return 11;
+    case EAST_VAL_REF:
+        return 12;
+    case EAST_VAL_VECTOR:
+        return 13;
+    case EAST_VAL_MATRIX:
+        return 14;
+    case EAST_VAL_FUNCTION:
+        return 15;
     }
     return (int)k;
 }
 
-static int cmp_int64(int64_t a, int64_t b) {
+static int cmp_int64(int64_t a, int64_t b)
+{
     if (a < b) return -1;
     if (a > b) return 1;
     return 0;
 }
 
-static int cmp_double(double a, double b) {
+static int cmp_double(double a, double b)
+{
     /* NaN is greatest */
     if (isnan(a)) return isnan(b) ? 0 : 1;
     if (isnan(b)) return -1;
@@ -1020,13 +1067,15 @@ static int cmp_double(double a, double b) {
     return 0;
 }
 
-static int cmp_size(size_t a, size_t b) {
+static int cmp_size(size_t a, size_t b)
+{
     if (a < b) return -1;
     if (a > b) return 1;
     return 0;
 }
 
-int east_value_compare(EastValue *a, EastValue *b) {
+int east_value_compare(EastValue *a, EastValue *b)
+{
     if (a == b) return 0;
 
     /* Handle NULLs (C pointer null, not EAST_VAL_NULL). */
@@ -1053,9 +1102,8 @@ int east_value_compare(EastValue *a, EastValue *b) {
         return cmp_double(a->data.float64, b->data.float64);
 
     case EAST_VAL_STRING: {
-        size_t min_len = a->data.string.len < b->data.string.len
-                             ? a->data.string.len
-                             : b->data.string.len;
+        size_t min_len =
+            a->data.string.len < b->data.string.len ? a->data.string.len : b->data.string.len;
         int c = memcmp(a->data.string.data, b->data.string.data, min_len);
         if (c != 0) return (c < 0) ? -1 : 1;
         return cmp_size(a->data.string.len, b->data.string.len);
@@ -1065,9 +1113,7 @@ int east_value_compare(EastValue *a, EastValue *b) {
         return cmp_int64(a->data.datetime, b->data.datetime);
 
     case EAST_VAL_BLOB: {
-        size_t min_len = a->data.blob.len < b->data.blob.len
-                             ? a->data.blob.len
-                             : b->data.blob.len;
+        size_t min_len = a->data.blob.len < b->data.blob.len ? a->data.blob.len : b->data.blob.len;
         if (min_len > 0) {
             int c = memcmp(a->data.blob.data, b->data.blob.data, min_len);
             if (c != 0) return (c < 0) ? -1 : 1;
@@ -1076,51 +1122,40 @@ int east_value_compare(EastValue *a, EastValue *b) {
     }
 
     case EAST_VAL_ARRAY: {
-        size_t min_len = a->data.array.len < b->data.array.len
-                             ? a->data.array.len
-                             : b->data.array.len;
+        size_t min_len =
+            a->data.array.len < b->data.array.len ? a->data.array.len : b->data.array.len;
         for (size_t i = 0; i < min_len; i++) {
-            int c = east_value_compare(a->data.array.items[i],
-                                       b->data.array.items[i]);
+            int c = east_value_compare(a->data.array.items[i], b->data.array.items[i]);
             if (c != 0) return c;
         }
         return cmp_size(a->data.array.len, b->data.array.len);
     }
 
     case EAST_VAL_SET: {
-        size_t min_len = a->data.set.len < b->data.set.len
-                             ? a->data.set.len
-                             : b->data.set.len;
+        size_t min_len = a->data.set.len < b->data.set.len ? a->data.set.len : b->data.set.len;
         for (size_t i = 0; i < min_len; i++) {
-            int c = east_value_compare(a->data.set.items[i],
-                                       b->data.set.items[i]);
+            int c = east_value_compare(a->data.set.items[i], b->data.set.items[i]);
             if (c != 0) return c;
         }
         return cmp_size(a->data.set.len, b->data.set.len);
     }
 
     case EAST_VAL_DICT: {
-        size_t min_len = a->data.dict.len < b->data.dict.len
-                             ? a->data.dict.len
-                             : b->data.dict.len;
+        size_t min_len = a->data.dict.len < b->data.dict.len ? a->data.dict.len : b->data.dict.len;
         for (size_t i = 0; i < min_len; i++) {
-            int c = east_value_compare(a->data.dict.keys[i],
-                                       b->data.dict.keys[i]);
+            int c = east_value_compare(a->data.dict.keys[i], b->data.dict.keys[i]);
             if (c != 0) return c;
-            c = east_value_compare(a->data.dict.values[i],
-                                   b->data.dict.values[i]);
+            c = east_value_compare(a->data.dict.values[i], b->data.dict.values[i]);
             if (c != 0) return c;
         }
         return cmp_size(a->data.dict.len, b->data.dict.len);
     }
 
     case EAST_VAL_STRUCT: {
-        int c = cmp_size(a->data.struct_.num_fields,
-                         b->data.struct_.num_fields);
+        int c = cmp_size(a->data.struct_.num_fields, b->data.struct_.num_fields);
         if (c != 0) return c;
         for (size_t i = 0; i < a->data.struct_.num_fields; i++) {
-            c = strcmp(a->data.struct_.field_names[i],
-                       b->data.struct_.field_names[i]);
+            c = strcmp(a->data.struct_.field_names[i], b->data.struct_.field_names[i]);
             if (c != 0) return (c < 0) ? -1 : 1;
             c = east_value_compare(a->data.struct_.field_values[i],
                                    b->data.struct_.field_values[i]);
@@ -1132,8 +1167,7 @@ int east_value_compare(EastValue *a, EastValue *b) {
     case EAST_VAL_VARIANT: {
         int c = strcmp(east_variant_case_name(a), east_variant_case_name(b));
         if (c != 0) return (c < 0) ? -1 : 1;
-        return east_value_compare(a->data.variant.value,
-                                  b->data.variant.value);
+        return east_value_compare(a->data.variant.value, b->data.variant.value);
     }
 
     case EAST_VAL_REF:
@@ -1183,10 +1217,10 @@ int east_value_compare(EastValue *a, EastValue *b) {
  * *would* have been written (like snprintf). `pos` is the current write
  * position, `buf_size` is total capacity.
  */
-static int buf_append(char *buf, size_t buf_size, int pos, const char *fmt,
-                      ...) __attribute__((format(printf, 4, 5)));
-static int buf_append(char *buf, size_t buf_size, int pos, const char *fmt,
-                      ...) {
+static int buf_append(char *buf, size_t buf_size, int pos, const char *fmt, ...)
+    __attribute__((format(printf, 4, 5)));
+static int buf_append(char *buf, size_t buf_size, int pos, const char *fmt, ...)
+{
     va_list ap;
     va_start(ap, fmt);
     int remaining = (int)buf_size - pos;
@@ -1201,7 +1235,8 @@ static int buf_append(char *buf, size_t buf_size, int pos, const char *fmt,
     return (n > 0) ? n : 0;
 }
 
-static int print_value(EastValue *v, char *buf, size_t buf_size, int pos) {
+static int print_value(EastValue *v, char *buf, size_t buf_size, int pos)
+{
     if (!v) {
         return pos + buf_append(buf, buf_size, pos, "null");
     }
@@ -1211,12 +1246,10 @@ static int print_value(EastValue *v, char *buf, size_t buf_size, int pos) {
         return pos + buf_append(buf, buf_size, pos, "null");
 
     case EAST_VAL_BOOLEAN:
-        return pos + buf_append(buf, buf_size, pos, "%s",
-                                v->data.boolean ? "true" : "false");
+        return pos + buf_append(buf, buf_size, pos, "%s", v->data.boolean ? "true" : "false");
 
     case EAST_VAL_INTEGER:
-        return pos + buf_append(buf, buf_size, pos, "%" PRId64,
-                                v->data.integer);
+        return pos + buf_append(buf, buf_size, pos, "%" PRId64, v->data.integer);
 
     case EAST_VAL_FLOAT: {
         char numbuf[64];
@@ -1229,15 +1262,24 @@ static int print_value(EastValue *v, char *buf, size_t buf_size, int pos) {
         for (size_t i = 0; i < v->data.string.len; i++) {
             char c = v->data.string.data[i];
             switch (c) {
-            case '"':  pos += buf_append(buf, buf_size, pos, "\\\""); break;
-            case '\\': pos += buf_append(buf, buf_size, pos, "\\\\"); break;
-            case '\n': pos += buf_append(buf, buf_size, pos, "\\n");  break;
-            case '\r': pos += buf_append(buf, buf_size, pos, "\\r");  break;
-            case '\t': pos += buf_append(buf, buf_size, pos, "\\t");  break;
+            case '"':
+                pos += buf_append(buf, buf_size, pos, "\\\"");
+                break;
+            case '\\':
+                pos += buf_append(buf, buf_size, pos, "\\\\");
+                break;
+            case '\n':
+                pos += buf_append(buf, buf_size, pos, "\\n");
+                break;
+            case '\r':
+                pos += buf_append(buf, buf_size, pos, "\\r");
+                break;
+            case '\t':
+                pos += buf_append(buf, buf_size, pos, "\\t");
+                break;
             default:
                 if ((unsigned char)c < 0x20) {
-                    pos += buf_append(buf, buf_size, pos, "\\u%04x",
-                                      (unsigned char)c);
+                    pos += buf_append(buf, buf_size, pos, "\\u%04x", (unsigned char)c);
                 } else {
                     pos += buf_append(buf, buf_size, pos, "%c", c);
                 }
@@ -1249,14 +1291,12 @@ static int print_value(EastValue *v, char *buf, size_t buf_size, int pos) {
     }
 
     case EAST_VAL_DATETIME:
-        return pos + buf_append(buf, buf_size, pos, "%" PRId64,
-                                v->data.datetime);
+        return pos + buf_append(buf, buf_size, pos, "%" PRId64, v->data.datetime);
 
     case EAST_VAL_BLOB: {
         pos += buf_append(buf, buf_size, pos, "0x");
         for (size_t i = 0; i < v->data.blob.len; i++) {
-            pos += buf_append(buf, buf_size, pos, "%02x",
-                              v->data.blob.data[i]);
+            pos += buf_append(buf, buf_size, pos, "%02x", v->data.blob.data[i]);
         }
         return pos;
     }
@@ -1297,10 +1337,8 @@ static int print_value(EastValue *v, char *buf, size_t buf_size, int pos) {
         pos += buf_append(buf, buf_size, pos, "{");
         for (size_t i = 0; i < v->data.struct_.num_fields; i++) {
             if (i > 0) pos += buf_append(buf, buf_size, pos, ", ");
-            pos += buf_append(buf, buf_size, pos, "%s: ",
-                              v->data.struct_.field_names[i]);
-            pos = print_value(v->data.struct_.field_values[i], buf, buf_size,
-                              pos);
+            pos += buf_append(buf, buf_size, pos, "%s: ", v->data.struct_.field_names[i]);
+            pos = print_value(v->data.struct_.field_values[i], buf, buf_size, pos);
         }
         pos += buf_append(buf, buf_size, pos, "}");
         return pos;
@@ -1310,8 +1348,7 @@ static int print_value(EastValue *v, char *buf, size_t buf_size, int pos) {
         const char *cn = east_variant_case_name(v);
         pos += buf_append(buf, buf_size, pos, ".%s", cn);
         /* (debug removed) */
-        if (v->data.variant.value &&
-            v->data.variant.value->kind != EAST_VAL_NULL) {
+        if (v->data.variant.value && v->data.variant.value->kind != EAST_VAL_NULL) {
             pos += buf_append(buf, buf_size, pos, " ");
             pos = print_value(v->data.variant.value, buf, buf_size, pos);
         }
@@ -1336,12 +1373,14 @@ static int print_value(EastValue *v, char *buf, size_t buf_size, int pos) {
                 pos += buf_append(buf, buf_size, pos, "%" PRId64, arr[i]);
             } else if (et && et->kind == EAST_TYPE_BOOLEAN) {
                 bool *arr = (bool *)v->data.vector.data;
-                pos += buf_append(buf, buf_size, pos, "%s",
-                                  arr[i] ? "true" : "false");
+                pos += buf_append(buf, buf_size, pos, "%s", arr[i] ? "true" : "false");
             } else {
                 double *arr = (double *)v->data.vector.data;
-                { char nb[64]; east_fmt_double(nb, sizeof(nb), arr[i]);
-                pos += buf_append(buf, buf_size, pos, "%s", nb); }
+                {
+                    char nb[64];
+                    east_fmt_double(nb, sizeof(nb), arr[i]);
+                    pos += buf_append(buf, buf_size, pos, "%s", nb);
+                }
             }
         }
         pos += buf_append(buf, buf_size, pos, "]");
@@ -1361,16 +1400,17 @@ static int print_value(EastValue *v, char *buf, size_t buf_size, int pos) {
                 size_t idx = r * cols + c;
                 if (et && et->kind == EAST_TYPE_INTEGER) {
                     int64_t *arr = (int64_t *)v->data.matrix.data;
-                    pos += buf_append(buf, buf_size, pos, "%" PRId64,
-                                      arr[idx]);
+                    pos += buf_append(buf, buf_size, pos, "%" PRId64, arr[idx]);
                 } else if (et && et->kind == EAST_TYPE_BOOLEAN) {
                     bool *arr = (bool *)v->data.matrix.data;
-                    pos += buf_append(buf, buf_size, pos, "%s",
-                                      arr[idx] ? "true" : "false");
+                    pos += buf_append(buf, buf_size, pos, "%s", arr[idx] ? "true" : "false");
                 } else {
                     double *arr = (double *)v->data.matrix.data;
-                    { char nb[64]; east_fmt_double(nb, sizeof(nb), arr[idx]);
-                    pos += buf_append(buf, buf_size, pos, "%s", nb); }
+                    {
+                        char nb[64];
+                        east_fmt_double(nb, sizeof(nb), arr[idx]);
+                        pos += buf_append(buf, buf_size, pos, "%s", nb);
+                    }
                 }
             }
             pos += buf_append(buf, buf_size, pos, "]");
@@ -1386,7 +1426,8 @@ static int print_value(EastValue *v, char *buf, size_t buf_size, int pos) {
     return pos;
 }
 
-int east_value_print(EastValue *v, char *buf, size_t buf_size) {
+int east_value_print(EastValue *v, char *buf, size_t buf_size)
+{
     int written = print_value(v, buf, buf_size, 0);
     /* Ensure null termination. */
     if (buf && buf_size > 0) {
@@ -1401,24 +1442,41 @@ int east_value_print(EastValue *v, char *buf, size_t buf_size) {
 /*  Kind name helper                                                   */
 /* ------------------------------------------------------------------ */
 
-const char *east_value_kind_name(EastValueKind kind) {
+const char *east_value_kind_name(EastValueKind kind)
+{
     switch (kind) {
-    case EAST_VAL_NULL:     return "Null";
-    case EAST_VAL_BOOLEAN:  return "Boolean";
-    case EAST_VAL_INTEGER:  return "Integer";
-    case EAST_VAL_FLOAT:    return "Float";
-    case EAST_VAL_STRING:   return "String";
-    case EAST_VAL_DATETIME: return "DateTime";
-    case EAST_VAL_BLOB:     return "Blob";
-    case EAST_VAL_ARRAY:    return "Array";
-    case EAST_VAL_SET:      return "Set";
-    case EAST_VAL_DICT:     return "Dict";
-    case EAST_VAL_STRUCT:   return "Struct";
-    case EAST_VAL_VARIANT:  return "Variant";
-    case EAST_VAL_REF:      return "Ref";
-    case EAST_VAL_VECTOR:   return "Vector";
-    case EAST_VAL_MATRIX:   return "Matrix";
-    case EAST_VAL_FUNCTION: return "Function";
+    case EAST_VAL_NULL:
+        return "Null";
+    case EAST_VAL_BOOLEAN:
+        return "Boolean";
+    case EAST_VAL_INTEGER:
+        return "Integer";
+    case EAST_VAL_FLOAT:
+        return "Float";
+    case EAST_VAL_STRING:
+        return "String";
+    case EAST_VAL_DATETIME:
+        return "DateTime";
+    case EAST_VAL_BLOB:
+        return "Blob";
+    case EAST_VAL_ARRAY:
+        return "Array";
+    case EAST_VAL_SET:
+        return "Set";
+    case EAST_VAL_DICT:
+        return "Dict";
+    case EAST_VAL_STRUCT:
+        return "Struct";
+    case EAST_VAL_VARIANT:
+        return "Variant";
+    case EAST_VAL_REF:
+        return "Ref";
+    case EAST_VAL_VECTOR:
+        return "Vector";
+    case EAST_VAL_MATRIX:
+        return "Matrix";
+    case EAST_VAL_FUNCTION:
+        return "Function";
     }
     return "Unknown";
 }

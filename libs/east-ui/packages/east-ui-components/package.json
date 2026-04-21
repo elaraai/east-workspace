@@ -1,6 +1,6 @@
 {
   "name": "@elaraai/east-ui-components",
-  "version": "0.0.1-beta.45",
+  "version": "1.0.0-beta.0",
   "description": "React components for rendering East UI types with Chakra UI",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -19,7 +19,10 @@
     "CONTRIBUTING.md",
     "CLA.md"
   ],
-  "sideEffects": false,
+  "sideEffects": [
+    "./dist/platform/state-runtime.js",
+    "./src/platform/state-runtime.ts"
+  ],
   "scripts": {
     "build": "tsc --noEmit && vite build",
     "lint": "eslint .",
@@ -29,15 +32,9 @@
   },
   "peerDependencies": {
     "@elaraai/east": "workspace:*",
-    "@elaraai/east-c-wasm": "workspace:*",
     "@elaraai/east-ui": "workspace:*",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
-  },
-  "peerDependenciesMeta": {
-    "@elaraai/east-c-wasm": {
-      "optional": true
-    }
   },
   "dependencies": {
     "@chakra-ui/charts": "^3.30.0",

@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
-import { Button, Text, Stack, Stat, Reactive, State, UIComponentType } from "../../src/index.js";
+import { Button, Text, Stack, Stat, Reactive, State, UIComponentType } from "@elaraai/east-ui";
 
 export const buttonBasic = example({
     keywords: ["Button", "Root", "label", "basic", "create"],

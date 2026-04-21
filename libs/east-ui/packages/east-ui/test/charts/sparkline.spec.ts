@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Sparkline } from "../../src/index.js";
+import { Sparkline } from "@elaraai/east-ui";
 import * as ex from "./sparkline.examples.js";
 
 describeEast("Sparkline", (test) => {

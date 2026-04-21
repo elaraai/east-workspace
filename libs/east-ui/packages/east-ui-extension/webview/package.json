@@ -15,7 +15,6 @@
         "@elaraai/e3-ui-components": "workspace:*",
         "@elaraai/east": "workspace:*",
         "@elaraai/east-ui": "workspace:*",
-        "@elaraai/east-c-wasm": "workspace:*",
         "@elaraai/east-ui-components": "workspace:*",
         "@emotion/react": "^11.14.0",
         "@fortawesome/fontawesome-svg-core": "^7.1.0",

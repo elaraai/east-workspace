@@ -15,7 +15,8 @@ static char TOMBSTONE_SENTINEL;
 #define TOMBSTONE_KEY (&TOMBSTONE_SENTINEL)
 
 /* FNV-1a hash for null-terminated strings. */
-static size_t fnv1a(const char *key) {
+static size_t fnv1a(const char *key)
+{
     size_t hash = 14695981039346656037ULL;
     for (const char *p = key; *p; p++) {
         hash ^= (unsigned char)*p;
@@ -28,8 +29,8 @@ static size_t fnv1a(const char *key) {
  * slot or the first available slot (empty or tombstone) where the key could be
  * inserted. When `for_insert` is true the search stops at tombstones so they
  * can be reused; when false it skips tombstones to find a true match. */
-static size_t find_index(HashmapEntry *entries, size_t capacity,
-                         const char *key, bool for_insert) {
+static size_t find_index(HashmapEntry *entries, size_t capacity, const char *key, bool for_insert)
+{
     size_t idx = fnv1a(key) & (capacity - 1);
     size_t tombstone_idx = capacity; /* capacity = "none found" */
 
@@ -38,9 +39,7 @@ static size_t find_index(HashmapEntry *entries, size_t capacity,
 
         if (!e->occupied && e->key != TOMBSTONE_KEY) {
             /* Empty slot -- key is not in the table. */
-            return (for_insert && tombstone_idx != capacity)
-                       ? tombstone_idx
-                       : idx;
+            return (for_insert && tombstone_idx != capacity) ? tombstone_idx : idx;
         }
 
         if (e->key == TOMBSTONE_KEY) {
@@ -58,7 +57,8 @@ static size_t find_index(HashmapEntry *entries, size_t capacity,
 }
 
 /* Resize the table to `new_capacity` and re-insert all live entries. */
-static void hashmap_resize(Hashmap *map, size_t new_capacity) {
+static void hashmap_resize(Hashmap *map, size_t new_capacity)
+{
     HashmapEntry *old_entries = map->entries;
     size_t old_capacity = map->capacity;
 
@@ -70,7 +70,7 @@ static void hashmap_resize(Hashmap *map, size_t new_capacity) {
         HashmapEntry *e = &old_entries[i];
         if (e->occupied && e->key != TOMBSTONE_KEY) {
             size_t idx = find_index(map->entries, new_capacity, e->key, true);
-            map->entries[idx].key = e->key;      /* transfer ownership */
+            map->entries[idx].key = e->key; /* transfer ownership */
             map->entries[idx].value = e->value;
             map->entries[idx].occupied = true;
             map->count++;
@@ -84,7 +84,8 @@ static void hashmap_resize(Hashmap *map, size_t new_capacity) {
 /*  Public API                                                         */
 /* ------------------------------------------------------------------ */
 
-Hashmap *hashmap_new(void) {
+Hashmap *hashmap_new(void)
+{
     Hashmap *map = east_alloc(sizeof(Hashmap));
     if (!map) return NULL;
 
@@ -99,7 +100,8 @@ Hashmap *hashmap_new(void) {
     return map;
 }
 
-void hashmap_free(Hashmap *map, void (*free_value)(void *)) {
+void hashmap_free(Hashmap *map, void (*free_value)(void *))
+{
     if (!map) return;
 
     for (size_t i = 0; i < map->capacity; i++) {
@@ -116,7 +118,8 @@ void hashmap_free(Hashmap *map, void (*free_value)(void *)) {
     east_free(map);
 }
 
-void *hashmap_get(Hashmap *map, const char *key) {
+void *hashmap_get(Hashmap *map, const char *key)
+{
     if (!map || !key) return NULL;
 
     size_t idx = find_index(map->entries, map->capacity, key, false);
@@ -128,7 +131,8 @@ void *hashmap_get(Hashmap *map, const char *key) {
     return NULL;
 }
 
-void hashmap_set(Hashmap *map, const char *key, void *value) {
+void hashmap_set(Hashmap *map, const char *key, void *value)
+{
     if (!map || !key) return;
 
     /* Grow if load factor would be exceeded. */
@@ -152,7 +156,8 @@ void hashmap_set(Hashmap *map, const char *key, void *value) {
     map->count++;
 }
 
-bool hashmap_has(Hashmap *map, const char *key) {
+bool hashmap_has(Hashmap *map, const char *key)
+{
     if (!map || !key) return false;
 
     size_t idx = find_index(map->entries, map->capacity, key, false);
@@ -161,8 +166,8 @@ bool hashmap_has(Hashmap *map, const char *key) {
     return e->occupied && e->key != TOMBSTONE_KEY;
 }
 
-void hashmap_delete(Hashmap *map, const char *key,
-                    void (*free_value)(void *)) {
+void hashmap_delete(Hashmap *map, const char *key, void (*free_value)(void *))
+{
     if (!map || !key) return;
 
     size_t idx = find_index(map->entries, map->capacity, key, false);
@@ -185,12 +190,14 @@ void hashmap_delete(Hashmap *map, const char *key,
     map->count--;
 }
 
-size_t hashmap_count(Hashmap *map) {
+size_t hashmap_count(Hashmap *map)
+{
     if (!map) return 0;
     return map->count;
 }
 
-void hashmap_iter(Hashmap *map, HashmapIterFn fn, void *ctx) {
+void hashmap_iter(Hashmap *map, HashmapIterFn fn, void *ctx)
+{
     if (!map || !fn) return;
 
     for (size_t i = 0; i < map->capacity; i++) {
@@ -201,7 +208,8 @@ void hashmap_iter(Hashmap *map, HashmapIterFn fn, void *ctx) {
     }
 }
 
-char **hashmap_keys(Hashmap *map, size_t *out_count) {
+char **hashmap_keys(Hashmap *map, size_t *out_count)
+{
     if (!map) {
         if (out_count) *out_count = 0;
         return NULL;

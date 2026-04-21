@@ -3,8 +3,8 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useMemo, useCallback } from "react";
-import { Switch as ChakraSwitch, type SwitchRootProps } from "@chakra-ui/react";
+import { memo, useMemo, useCallback, useState, useEffect } from "react";
+import { Switch as ChakraSwitch, type SwitchCheckedChangeDetails, type SwitchRootProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Switch } from "@elaraai/east-ui";
 import { getSomeorUndefined } from "../../utils";
@@ -36,11 +36,16 @@ export interface EastChakraSwitchProps {
  * Renders an East UI Switch value using Chakra UI Switch component.
  */
 export const EastChakraSwitch = memo(function EastChakraSwitch({ value }: EastChakraSwitchProps) {
-    const props = useMemo(() => toChakraSwitch(value), [value]);
+    const [props, setProps] = useState(toChakraSwitch(value));
     const label = useMemo(() => getSomeorUndefined(value.label), [value.label]);
     const onChangeFn = useMemo(() => getSomeorUndefined(value.onChange), [value.onChange]);
 
-    const handleCheckedChange = useCallback((e: { checked: boolean }) => {
+    useEffect(() => {
+        setProps(() => toChakraSwitch(value));
+    }, [value]);
+
+    const handleCheckedChange = useCallback((e: SwitchCheckedChangeDetails) => {
+        setProps(prev => ({ ...prev, checked: e.checked }));
         if (onChangeFn) {
             queueMicrotask(() => onChangeFn(e.checked));
         }
@@ -49,7 +54,7 @@ export const EastChakraSwitch = memo(function EastChakraSwitch({ value }: EastCh
     return (
         <ChakraSwitch.Root
             {...props}
-            onCheckedChange={onChangeFn ? handleCheckedChange : undefined}
+            onCheckedChange={handleCheckedChange}
         >
             <ChakraSwitch.HiddenInput />
             <ChakraSwitch.Control />

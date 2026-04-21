@@ -1,9 +1,9 @@
 /**
  * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under AGPL-3.0. See LICENSE file for details.
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { East, DateTimeType, FloatType, IntegerType, NullType, StringType, example } from "@elaraai/east";
-import { Badge, Input, Reactive, Stack, State, Text, UIComponentType } from "../../src/index.js";
+import { Badge, Input, Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const inputString = example({
     keywords: ["Input", "String", "placeholder", "variant", "outline"],

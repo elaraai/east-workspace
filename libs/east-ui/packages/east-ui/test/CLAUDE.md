@@ -11,16 +11,16 @@ This acts as a compliance suite we can use to help implement East runtimes in ot
 **Tests import from the published package name, not relative paths.** This ensures tests exercise the same public API that external consumers use.
 
 ```ts
-// ✅ CORRECT: Import from package names
+// ✅ CORRECT: Import from package names (including self-reference to @elaraai/east-ui)
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { East, IntegerType, NullType, example } from "@elaraai/east";
-import { Button, Text, Stack, Reactive, State, UIComponentType } from "../../src/index.js";
+import { Button, Text, Stack, Reactive, State, UIComponentType } from "@elaraai/east-ui";
 
-// ❌ WRONG: Never use relative imports to ../src for east-node-std or east
-import { describeEast, Assert } from "../src/test.js";
+// ❌ WRONG: Never use relative imports to ../src — tests should exercise the public API
+import { Button } from "../../src/index.js";
 ```
 
-**Note:** East UI components are imported from `../../src/index.js` (relative) because `@elaraai/east-ui` package imports are not configured in tsconfig for the test directory.
+East UI uses Node/TypeScript "package self-reference": `@elaraai/east-ui` resolves through this package's own `exports` map in `package.json`. `npm run build` must have produced `dist/src/index.js` at least once for the resolver to find it.
 
 Tests are run with `tsx` directly from TypeScript (not compiled to JS first). The `@elaraai/east-node-std` import resolves through the package's `dist/` output, so `npm run build` must be run before tests.
 

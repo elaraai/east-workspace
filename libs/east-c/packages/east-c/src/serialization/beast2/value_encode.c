@@ -4,8 +4,7 @@
 /* ================================================================== */
 
 
-void beast2_encode_value(ByteBuffer *buf, EastValue *value,
-                                EastType *type, Beast2EncodeCtx *ctx)
+void beast2_encode_value(ByteBuffer *buf, EastValue *value, EastType *type, Beast2EncodeCtx *ctx)
 {
     if (!type) return;
 
@@ -30,8 +29,8 @@ void beast2_encode_value(ByteBuffer *buf, EastValue *value,
 
     case EAST_TYPE_STRING: {
         if (ctx->string_table) {
-            size_t idx = string_table_enc_add(ctx->string_table,
-                value->data.string.data, value->data.string.len);
+            size_t idx = string_table_enc_add(ctx->string_table, value->data.string.data,
+                                              value->data.string.len);
             write_varint(buf, (uint64_t)idx);
         } else {
             size_t slen = value->data.string.len;
@@ -48,8 +47,7 @@ void beast2_encode_value(ByteBuffer *buf, EastValue *value,
     case EAST_TYPE_BLOB: {
         size_t blen = value->data.blob.len;
         write_varint(buf, (uint64_t)blen);
-        if (blen > 0)
-            byte_buffer_write_bytes(buf, value->data.blob.data, blen);
+        if (blen > 0) byte_buffer_write_bytes(buf, value->data.blob.data, blen);
         break;
     }
 
@@ -70,7 +68,8 @@ void beast2_encode_value(ByteBuffer *buf, EastValue *value,
         for (size_t i = 0; i < nf; i++) {
             EastType *ftype = type->data.struct_.fields[i].type;
             EastValue *fval = (value->kind == EAST_VAL_STRUCT && i < value->data.struct_.num_fields)
-                            ? value->data.struct_.field_values[i] : NULL;
+                                  ? value->data.struct_.field_values[i]
+                                  : NULL;
             if (fval) {
                 beast2_encode_value(buf, fval, ftype, ctx);
             } else {
@@ -84,10 +83,32 @@ void beast2_encode_value(ByteBuffer *buf, EastValue *value,
 
     case EAST_TYPE_VARIANT: {
         size_t ci = value->data.variant.case_idx;
+        /* Recover a valid case_idx if the value was built without a type (ci == SIZE_MAX).
+         * Writing SIZE_MAX as a varint would produce a UINT64_MAX-tagged stream that no
+         * decoder can parse. */
+        if (ci >= type->data.variant.num_cases) {
+            const char *tag = value->data.variant.case_tag;
+            size_t found = SIZE_MAX;
+            if (tag) {
+                for (size_t i = 0; i < type->data.variant.num_cases; i++) {
+                    if (strcmp(type->data.variant.cases[i].name, tag) == 0) {
+                        found = i;
+                        break;
+                    }
+                }
+            }
+            if (found == SIZE_MAX) {
+                fprintf(stderr,
+                        "beast2 encode: variant value has no resolvable case "
+                        "(case_idx=%zu, case_tag=%s) for type with %zu cases\n",
+                        ci, tag ? tag : "(null)", type->data.variant.num_cases);
+                abort();
+            }
+            ci = found;
+        }
         write_varint(buf, (uint64_t)ci);
-        if (ci < type->data.variant.num_cases)
-            beast2_encode_value(buf, value->data.variant.value,
-                                type->data.variant.cases[ci].type, ctx);
+        beast2_encode_value(buf, value->data.variant.value, type->data.variant.cases[ci].type,
+                            ctx);
         break;
     }
 
@@ -106,17 +127,14 @@ void beast2_encode_value(ByteBuffer *buf, EastValue *value,
         write_varint(buf, (uint64_t)vlen);
 
         if (elem_type->kind == EAST_TYPE_FLOAT) {
-            byte_buffer_write_bytes(buf,
-                (const uint8_t *)value->data.vector.data,
-                vlen * sizeof(double));
+            byte_buffer_write_bytes(buf, (const uint8_t *)value->data.vector.data,
+                                    vlen * sizeof(double));
         } else if (elem_type->kind == EAST_TYPE_INTEGER) {
-            byte_buffer_write_bytes(buf,
-                (const uint8_t *)value->data.vector.data,
-                vlen * sizeof(int64_t));
+            byte_buffer_write_bytes(buf, (const uint8_t *)value->data.vector.data,
+                                    vlen * sizeof(int64_t));
         } else if (elem_type->kind == EAST_TYPE_BOOLEAN) {
-            byte_buffer_write_bytes(buf,
-                (const uint8_t *)value->data.vector.data,
-                vlen * sizeof(bool));
+            byte_buffer_write_bytes(buf, (const uint8_t *)value->data.vector.data,
+                                    vlen * sizeof(bool));
         }
         break;
     }
@@ -130,17 +148,14 @@ void beast2_encode_value(ByteBuffer *buf, EastValue *value,
 
         size_t count = rows * cols;
         if (elem_type->kind == EAST_TYPE_FLOAT) {
-            byte_buffer_write_bytes(buf,
-                (const uint8_t *)value->data.matrix.data,
-                count * sizeof(double));
+            byte_buffer_write_bytes(buf, (const uint8_t *)value->data.matrix.data,
+                                    count * sizeof(double));
         } else if (elem_type->kind == EAST_TYPE_INTEGER) {
-            byte_buffer_write_bytes(buf,
-                (const uint8_t *)value->data.matrix.data,
-                count * sizeof(int64_t));
+            byte_buffer_write_bytes(buf, (const uint8_t *)value->data.matrix.data,
+                                    count * sizeof(int64_t));
         } else if (elem_type->kind == EAST_TYPE_BOOLEAN) {
-            byte_buffer_write_bytes(buf,
-                (const uint8_t *)value->data.matrix.data,
-                count * sizeof(bool));
+            byte_buffer_write_bytes(buf, (const uint8_t *)value->data.matrix.data,
+                                    count * sizeof(bool));
         }
         break;
     }
@@ -168,8 +183,7 @@ void beast2_encode_value(ByteBuffer *buf, EastValue *value,
         if (!east_ir_type) east_type_of_type_init();
 
         /* Auto-extract source map from function (like TS EAST_SOURCE_MAP_SYMBOL) */
-        if (fn->source_map && !ctx->source_map)
-            ctx->source_map = fn->source_map;
+        if (fn->source_map && !ctx->source_map) ctx->source_map = fn->source_map;
 
         /* 1. Encode the source IR variant tree (with fresh backref ctx for IR) */
         if (ctx->flat_type_table) {
@@ -187,7 +201,8 @@ void beast2_encode_value(ByteBuffer *buf, EastValue *value,
         /* 2. Extract captures array from source_ir */
         EastValue *fn_struct = fn->source_ir->data.variant.value;
         EastValue *caps_arr = east_struct_get_field_idx(fn_struct, 2); /* captures */
-        size_t ncaps = (caps_arr && caps_arr->kind == EAST_VAL_ARRAY) ? caps_arr->data.array.len : 0;
+        size_t ncaps =
+            (caps_arr && caps_arr->kind == EAST_VAL_ARRAY) ? caps_arr->data.array.len : 0;
 
         /* 3. Write capture count */
         write_varint(buf, (uint64_t)ncaps);
@@ -231,4 +246,3 @@ ByteBuffer *east_beast2_encode(EastValue *value, EastType *type)
     beast2_enc_ctx_free(&ctx);
     return buf;
 }
-

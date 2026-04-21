@@ -29,20 +29,23 @@ typedef struct {
     size_t cap;
 } WriteBuffer;
 
-static void write_buffer_init(WriteBuffer *wb) {
+static void write_buffer_init(WriteBuffer *wb)
+{
     wb->data = malloc(1024);
     wb->len = 0;
     wb->cap = wb->data ? 1024 : 0;
 }
 
-static void write_buffer_free(WriteBuffer *wb) {
+static void write_buffer_free(WriteBuffer *wb)
+{
     free(wb->data);
     wb->data = NULL;
     wb->len = 0;
     wb->cap = 0;
 }
 
-static size_t east_curl_write_cb(void *ptr, size_t size, size_t nmemb, void *userdata) {
+static size_t east_curl_write_cb(void *ptr, size_t size, size_t nmemb, void *userdata)
+{
     WriteBuffer *wb = (WriteBuffer *)userdata;
     size_t total = size * nmemb;
 
@@ -63,7 +66,8 @@ static size_t east_curl_write_cb(void *ptr, size_t size, size_t nmemb, void *use
  * fetch_get: HTTP GET, return response body as string
  * ======================================================================== */
 
-static EvalResult fetch_get(EastValue **args, size_t num_args) {
+static EvalResult fetch_get(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+{
     (void)num_args;
     const char *url = args[0]->data.string.data;
 
@@ -97,7 +101,8 @@ static EvalResult fetch_get(EastValue **args, size_t num_args) {
  * fetch_get_bytes: HTTP GET, return response body as blob
  * ======================================================================== */
 
-static EvalResult fetch_get_bytes(EastValue **args, size_t num_args) {
+static EvalResult fetch_get_bytes(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+{
     (void)num_args;
     const char *url = args[0]->data.string.data;
 
@@ -131,7 +136,8 @@ static EvalResult fetch_get_bytes(EastValue **args, size_t num_args) {
  * fetch_post: HTTP POST, return response body as string
  * ======================================================================== */
 
-static EvalResult fetch_post(EastValue **args, size_t num_args) {
+static EvalResult fetch_post(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+{
     (void)num_args;
     const char *url = args[0]->data.string.data;
     const char *body = args[1]->data.string.data;
@@ -176,8 +182,8 @@ static EvalResult fetch_post(EastValue **args, size_t num_args) {
  * ======================================================================== */
 
 /* Callback to capture response headers into a Dict<String, String> */
-static size_t east_curl_header_cb(char *buffer, size_t size, size_t nitems,
-                                  void *userdata) {
+static size_t east_curl_header_cb(char *buffer, size_t size, size_t nitems, void *userdata)
+{
     EastValue *dict = (EastValue *)userdata;
     size_t total = size * nitems;
 
@@ -190,17 +196,20 @@ static size_t east_curl_header_cb(char *buffer, size_t size, size_t nitems,
     size_t val_len = total - key_len - 1;
 
     /* Trim leading whitespace from value */
-    while (val_len > 0 && *val_start == ' ') { val_start++; val_len--; }
+    while (val_len > 0 && *val_start == ' ') {
+        val_start++;
+        val_len--;
+    }
     /* Trim trailing \r\n */
-    while (val_len > 0 && (val_start[val_len - 1] == '\r' ||
-                           val_start[val_len - 1] == '\n')) { val_len--; }
+    while (val_len > 0 && (val_start[val_len - 1] == '\r' || val_start[val_len - 1] == '\n')) {
+        val_len--;
+    }
 
     /* Lowercase the key (HTTP headers are case-insensitive) */
     char *lkey = malloc(key_len + 1);
     if (!lkey) return total;
     for (size_t i = 0; i < key_len; i++)
-        lkey[i] = (buffer[i] >= 'A' && buffer[i] <= 'Z')
-                  ? buffer[i] + 32 : buffer[i];
+        lkey[i] = (buffer[i] >= 'A' && buffer[i] <= 'Z') ? buffer[i] + 32 : buffer[i];
     lkey[key_len] = '\0';
 
     EastValue *k = east_string_len(lkey, key_len);
@@ -212,7 +221,8 @@ static size_t east_curl_header_cb(char *buffer, size_t size, size_t nitems,
     return total;
 }
 
-static EvalResult fetch_request(EastValue **args, size_t num_args) {
+static EvalResult fetch_request(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+{
     (void)num_args;
     EastValue *config = args[0];
 
@@ -227,7 +237,7 @@ static EvalResult fetch_request(EastValue **args, size_t num_args) {
 
     CURL *curl = curl_easy_init();
     if (!curl) {
-        const char *field_names[] = { "status", "statusText", "headers", "body", "ok" };
+        const char *field_names[] = {"status", "statusText", "headers", "body", "ok"};
         EastValue *field_values[5];
         field_values[0] = east_integer(0);
         field_values[1] = east_string("curl init failed");
@@ -299,14 +309,13 @@ static EvalResult fetch_request(EastValue **args, size_t num_args) {
     curl_easy_cleanup(curl);
 
     /* Build response struct */
-    const char *field_names[] = { "status", "statusText", "headers", "body", "ok" };
+    const char *field_names[] = {"status", "statusText", "headers", "body", "ok"};
     EastValue *field_values[5];
     field_values[0] = east_integer((int64_t)status_code);
     field_values[1] = east_string(res == CURLE_OK ? "OK" : curl_easy_strerror(res));
     field_values[2] = resp_headers;
-    field_values[3] = (wb.data && res == CURLE_OK)
-                          ? east_string_len(wb.data, wb.len)
-                          : east_string("");
+    field_values[3] =
+        (wb.data && res == CURLE_OK) ? east_string_len(wb.data, wb.len) : east_string("");
     field_values[4] = east_boolean(status_code >= 200 && status_code < 300);
 
     write_buffer_free(&wb);
@@ -319,29 +328,33 @@ static EvalResult fetch_request(EastValue **args, size_t num_args) {
  * Stub implementations when cURL is not available
  * ======================================================================== */
 
-static EvalResult fetch_get(EastValue **args, size_t num_args) {
+static EvalResult fetch_get(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+{
     (void)args;
     (void)num_args;
     return eval_ok(east_string(""));
 }
 
-static EvalResult fetch_get_bytes(EastValue **args, size_t num_args) {
+static EvalResult fetch_get_bytes(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+{
     (void)args;
     (void)num_args;
     return eval_ok(east_blob(NULL, 0));
 }
 
-static EvalResult fetch_post(EastValue **args, size_t num_args) {
+static EvalResult fetch_post(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+{
     (void)args;
     (void)num_args;
     return eval_ok(east_string(""));
 }
 
-static EvalResult fetch_request(EastValue **args, size_t num_args) {
+static EvalResult fetch_request(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+{
     (void)args;
     (void)num_args;
 
-    const char *field_names[] = { "status", "statusText", "headers", "body", "ok" };
+    const char *field_names[] = {"status", "statusText", "headers", "body", "ok"};
     EastValue *field_values[5];
     field_values[0] = east_integer(0);
     field_values[1] = east_string("curl not available");
@@ -353,7 +366,8 @@ static EvalResult fetch_request(EastValue **args, size_t num_args) {
 
 #endif /* EAST_HAS_CURL */
 
-void east_std_register_fetch(PlatformRegistry *reg) {
+void east_std_register_fetch(PlatformRegistry *reg)
+{
     platform_registry_add(reg, "fetch_get", fetch_get, false);
     platform_registry_add(reg, "fetch_get_bytes", fetch_get_bytes, false);
     platform_registry_add(reg, "fetch_post", fetch_post, false);

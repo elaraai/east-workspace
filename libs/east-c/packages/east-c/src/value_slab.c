@@ -13,9 +13,9 @@
 /*  memory with a next pointer.                                        */
 /* ------------------------------------------------------------------ */
 
-#define SLAB_PAGE_SIZE       (64 * 1024)
-#define SLAB_SLOT_SIZE       sizeof(EastValue)
-#define SLAB_SLOTS_PER_PAGE  (SLAB_PAGE_SIZE / SLAB_SLOT_SIZE)
+#define SLAB_PAGE_SIZE (64 * 1024)
+#define SLAB_SLOT_SIZE sizeof(EastValue)
+#define SLAB_SLOTS_PER_PAGE (SLAB_PAGE_SIZE / SLAB_SLOT_SIZE)
 
 /* Free slot overlay — reuses the EastValue memory for the free-list link.
  * We store the next pointer at the start of the slot (offset 0). */
@@ -25,9 +25,9 @@ typedef struct FreeSlot {
 
 typedef struct SlabPage {
     struct SlabPage *next;
-    uint32_t num_live;     /* live (allocated) slots in this page */
-    uint32_t num_slots;    /* total slots */
-    uint8_t *base;         /* start of slot array (for range checks) */
+    uint32_t num_live;  /* live (allocated) slots in this page */
+    uint32_t num_slots; /* total slots */
+    uint8_t *base;      /* start of slot array (for range checks) */
     /* Slot data follows via separate allocation for alignment */
 } SlabPage;
 
@@ -46,7 +46,10 @@ static void slab_grow(void)
     if (!page) return;
 
     uint8_t *data = malloc(data_size);
-    if (!data) { free(page); return; }
+    if (!data) {
+        free(page);
+        return;
+    }
 
     page->next = g_pages;
     page->num_live = 0;
@@ -67,7 +70,7 @@ void *east_value_slab_alloc(void)
 {
     if (!g_free_list) {
         slab_grow();
-        if (!g_free_list) return NULL;  /* OOM */
+        if (!g_free_list) return NULL; /* OOM */
     }
 
     FreeSlot *slot = g_free_list;
@@ -91,7 +94,8 @@ void east_value_slab_free(void *ptr)
 EastValueSlabStats east_value_slab_stats(void)
 {
     size_t free_len = 0;
-    for (FreeSlot *s = g_free_list; s; s = s->next) free_len++;
+    for (FreeSlot *s = g_free_list; s; s = s->next)
+        free_len++;
 
     return (EastValueSlabStats){
         .live = g_live,

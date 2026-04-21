@@ -4,11 +4,13 @@
 #include <stdlib.h>
 
 /* Callback passed to hashmap_free to release each stored EastValue. */
-static void release_value_cb(void *v) {
+static void release_value_cb(void *v)
+{
     if (v) east_value_release((EastValue *)v);
 }
 
-Environment *env_new(Environment *parent) {
+Environment *env_new(Environment *parent)
+{
     Environment *env = east_alloc(sizeof(Environment));
     if (!env) return NULL;
     env->locals = hashmap_new();
@@ -23,7 +25,8 @@ Environment *env_new(Environment *parent) {
     return env;
 }
 
-void env_set(Environment *env, const char *name, EastValue *value) {
+void env_set(Environment *env, const char *name, EastValue *value)
+{
     if (!env || !name) return;
 
     /* If the key already exists, release the old value before overwriting. */
@@ -36,7 +39,8 @@ void env_set(Environment *env, const char *name, EastValue *value) {
     hashmap_set(env->locals, name, value);
 }
 
-void env_update(Environment *env, const char *name, EastValue *value) {
+void env_update(Environment *env, const char *name, EastValue *value)
+{
     if (!env || !name) return;
 
     /* Walk scope chain to find existing binding and update it. */
@@ -55,7 +59,8 @@ void env_update(Environment *env, const char *name, EastValue *value) {
     hashmap_set(env->locals, name, value);
 }
 
-EastValue *env_get(Environment *env, const char *name) {
+EastValue *env_get(Environment *env, const char *name)
+{
     if (!env || !name) return NULL;
 
     for (Environment *cur = env; cur != NULL; cur = cur->parent) {
@@ -65,7 +70,8 @@ EastValue *env_get(Environment *env, const char *name) {
     return NULL;
 }
 
-bool env_has(Environment *env, const char *name) {
+bool env_has(Environment *env, const char *name)
+{
     if (!env || !name) return false;
 
     for (Environment *cur = env; cur != NULL; cur = cur->parent) {
@@ -74,11 +80,13 @@ bool env_has(Environment *env, const char *name) {
     return false;
 }
 
-void env_retain(Environment *env) {
+void env_retain(Environment *env)
+{
     if (env) __atomic_add_fetch(&env->ref_count, 1, __ATOMIC_RELAXED);
 }
 
-void env_release(Environment *env) {
+void env_release(Environment *env)
+{
     if (!env) return;
     if (__atomic_sub_fetch(&env->ref_count, 1, __ATOMIC_ACQ_REL) > 0) return;
 

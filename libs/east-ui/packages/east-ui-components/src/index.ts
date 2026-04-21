@@ -276,16 +276,9 @@ export {
 
 // Hooks
 export { usePersistedState, type PersistedStateResult } from "./hooks/usePersistedState.js";
-export { useWasm } from "./hooks/useWasm.js";
 
 // Platform (State Management)
 export {
-    // WASM backend (optional)
-    EastWasmProvider,
-    getWasm,
-    getWasmSync,
-    decodeBeast2Value,
-
     // State implementation (for compilation)
     StateImpl,
     StateRuntime,

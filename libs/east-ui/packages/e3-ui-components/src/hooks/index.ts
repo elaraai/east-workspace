@@ -10,4 +10,6 @@ export * from './workspaces.js';
 export * from './datasets.js';
 export * from './tasks.js';
 export * from './executions.js';
-export { useDatasetPreview, useDatasetDownload, type DatasetPreviewState, type DatasetStatus, type UseDatasetPreviewOptions } from './useDatasetPreview.js';
+export { useDatasetStatus, type DatasetStatus, type UseDatasetStatusOptions } from './useDatasetStatus.js';
+export { useDatasetValue, useDatasetDownload, type DatasetValueResult, type UseDatasetValueOptions } from './useDatasetValue.js';
+export { useTaskDetails, getTaskKind, getTaskMetadata, type UseTaskDetailsOptions } from './useTaskDetails.js';

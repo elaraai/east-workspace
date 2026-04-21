@@ -1,7 +1,9 @@
 {
-  "exclude": ["dist"],
+  "include": ["src/**/*", "test/**/*"],
+  "exclude": ["dist", "node_modules"],
   "compilerOptions": {
     "outDir": "./dist",
+    "rootDir": "./",
     "module": "nodenext",
     "target": "esnext",
     "lib": ["esnext", "es2024"],
@@ -17,7 +19,6 @@
     "noUncheckedSideEffectImports": true,
     "moduleDetection": "force",
     "skipLibCheck": true,
-    "noErrorTruncation": true,
-    "incremental": true
+    "noErrorTruncation": true
   }
 }

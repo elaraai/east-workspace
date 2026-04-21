@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Chart } from "../../src/index.js";
+import { Chart } from "@elaraai/east-ui";
 import * as ex from "./scatter.examples.js";
 
 describeEast("Chart.Scatter", (test) => {

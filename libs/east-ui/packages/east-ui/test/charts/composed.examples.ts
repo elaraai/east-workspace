@@ -3,8 +3,8 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { East, example } from "@elaraai/east";
-import { Chart, Box, UIComponentType } from "../../src/index.js";
+import { East, IntegerType, NullType, example } from "@elaraai/east";
+import { Box, Button, Chart, Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const composedBasic = example({
     keywords: ["Chart", "Composed", "bar", "line", "combo"],
@@ -655,6 +655,42 @@ export const composedAxisFormatting = example({
                 }
             ),
         ], { height: "250px", width: "100%" });
+    }),
+    inputs: [],
+});
+
+export const composedInteractive = example({
+    keywords: ["Chart", "Composed", "Reactive", "State", "interactive", "counter"],
+    description: "Composed chart whose March profit is driven by a reactive counter",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const counter = $.let(State.bind([IntegerType], "composed_counter", 0n));
+            const value = $.let(counter.read());
+            const inc = $.const(East.function([], NullType, $ => {
+                const cur = $.let(counter.read());
+                $(counter.write(cur.add(1n)));
+            }));
+            return Stack.VStack([
+                Box.Root([
+                    Chart.Composed(
+                        [
+                            { month: "Jan", revenue: 186n, profit: 80n },
+                            { month: "Feb", revenue: 305n, profit: 120n },
+                            { month: "Mar", revenue: 237n, profit: value.multiply(15n).add(95n) },
+                        ],
+                        {
+                            xAxis: { dataKey: "month" },
+                            series: {
+                                revenue: { type: "bar", color: "teal.solid" },
+                                profit: { type: "line", color: "purple.solid", showDots: true },
+                            },
+                            grid: { show: true },
+                        },
+                    ),
+                ], { height: "250px", width: "100%" }),
+                Button.Root("Bump March profit", { onClick: inc }),
+            ], { gap: "3", align: "stretch" });
+        }));
     }),
     inputs: [],
 });

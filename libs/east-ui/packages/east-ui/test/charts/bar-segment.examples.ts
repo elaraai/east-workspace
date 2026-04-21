@@ -3,8 +3,8 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { East, example, some } from "@elaraai/east";
-import { Chart, Box, UIComponentType } from "../../src/index.js";
+import { East, IntegerType, NullType, example, some } from "@elaraai/east";
+import { Box, Button, Chart, Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const barSegmentBasic = example({
     keywords: ["Chart", "BarSegment", "distribution", "showLabel"],
@@ -120,6 +120,32 @@ export const barSegmentAscending = example({
                 showValue: true,
             }),
         ], { width: "100%" });
+    }),
+    inputs: [],
+});
+
+export const barSegmentInteractive = example({
+    keywords: ["Chart", "BarSegment", "Reactive", "State", "interactive", "counter"],
+    description: "BarSegment whose Active segment grows with a reactive counter",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const counter = $.let(State.bind([IntegerType], "barseg_counter", 0n));
+            const value = $.let(counter.read());
+            const inc = $.const(East.function([], NullType, $ => {
+                const cur = $.let(counter.read());
+                $(counter.write(cur.add(1n)));
+            }));
+            return Stack.VStack([
+                Box.Root([
+                    Chart.BarSegment([
+                        { name: "Active", value: value.toFloat().multiply(5.0).add(60.0), color: some("green.solid") },
+                        { name: "Idle", value: 25, color: some("yellow.solid") },
+                        { name: "Offline", value: 15, color: some("red.solid") },
+                    ], { showValue: true, showLabel: true }),
+                ], { width: "100%" }),
+                Button.Root("Grow Active", { onClick: inc }),
+            ], { gap: "3", align: "stretch" });
+        }));
     }),
     inputs: [],
 });

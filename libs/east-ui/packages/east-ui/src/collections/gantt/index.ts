@@ -258,9 +258,11 @@ type ColumnSpec<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
     | (keyof DataFields<NoInfer<T>>)[]
     | { [K in keyof DataFields<NoInfer<T>>]?: TableColumnConfig<DataFields<NoInfer<T>>[K], DataRowType<NoInfer<T>>> };
 
-// Extract column key strings from a ColumnSpec value
-type ColumnKeys<T extends SubtypeExprOrValue<ArrayType<StructType>>, C extends ColumnSpec<T>> =
-    C extends (infer K)[] ? K & string : C extends object ? Extract<keyof C, string> : string;
+// Every key in the data struct is a valid column key. Deriving from T (rather
+// than the columns object) keeps inference reliable when the column configs
+// contain render functions or complex field types.
+type DataFieldKeys<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
+    Extract<keyof DataFields<NoInfer<T>>, string>;
 
 // ============================================================================
 // Main Gantt Factory
@@ -301,7 +303,7 @@ function createGantt<
     data: T,
     columns: C,
     events: (row: ExprType<TypeOf<T> extends ArrayType<infer E> ? E : never>) => SubtypeExprOrValue<ArrayType<GanttEventType>>,
-    style?: GanttStyle<ColumnKeys<T, NoInfer<C>>>
+    style?: GanttStyle<DataFieldKeys<T>>
 ): ExprType<UIComponentType> {
     const data_expr = East.value(data) as ExprType<ArrayType<StructType>>;
     const field_types = Expr.type(data_expr).value.fields;

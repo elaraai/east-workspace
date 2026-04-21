@@ -1,9 +1,9 @@
 /**
  * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under AGPL-3.0. See LICENSE file for details.
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, example } from "@elaraai/east";
-import { CodeBlock, UIComponentType } from "../../src/index.js";
+import { East, IntegerType, NullType, example } from "@elaraai/east";
+import { Button, CodeBlock, Reactive, Stack, State, UIComponentType } from "@elaraai/east-ui";
 
 export const codeBlockBasic = example({
     keywords: ["CodeBlock", "Root", "basic", "multi-line"],
@@ -91,6 +91,29 @@ export const codeBlockBash = example({
         return CodeBlock.Root("$ npm install @elaraai/east-ui\n$ npm run build\n$ npm test", {
             language: "bash",
         });
+    }),
+    inputs: [],
+});
+
+export const codeBlockInteractive = example({
+    keywords: ["CodeBlock", "Reactive", "State", "interactive", "counter"],
+    description: "Reactive code block whose contents update from a counter",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const counter = $.let(State.bind([IntegerType], "code_block_counter", 0n));
+            const value = $.let(counter.read());
+            const increment = $.const(East.function([], NullType, $ => {
+                const cur = $.let(counter.read());
+                $(counter.write(cur.add(1n)));
+            }));
+            return Stack.VStack([
+                CodeBlock.Root(East.str`function f() {\n  return ${East.print(value)};\n}`, {
+                    language: "typescript",
+                    showLineNumbers: true,
+                }),
+                Button.Root("Increment", { onClick: increment }),
+            ], { gap: "3", align: "stretch" });
+        }));
     }),
     inputs: [],
 });

@@ -5,7 +5,7 @@
 
 import { East, FloatType, StringType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Planner, Text, Badge, Table, UIComponentType } from "../../src/index.js";
+import { Planner, Text, Badge, Table, UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./planner.examples.js";
 
 describeEast("Planner", (test) => {

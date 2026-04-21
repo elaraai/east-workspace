@@ -14,7 +14,8 @@
 #include <string.h>
 #include <stdio.h>
 
-static EvalResult time_now(EastValue **args, size_t num_args) {
+static EvalResult time_now(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+{
     (void)args;
     (void)num_args;
 
@@ -24,7 +25,8 @@ static EvalResult time_now(EastValue **args, size_t num_args) {
     return eval_ok(east_integer(millis));
 }
 
-static EvalResult time_sleep(EastValue **args, size_t num_args) {
+static EvalResult time_sleep(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+{
     (void)num_args;
     int64_t millis = args[0]->data.integer;
 
@@ -34,7 +36,8 @@ static EvalResult time_sleep(EastValue **args, size_t num_args) {
     return eval_ok(east_null());
 }
 
-static EvalResult time_get_timezone_offset(EastValue **args, size_t num_args) {
+static EvalResult time_get_timezone_offset(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+{
     (void)num_args;
     int64_t epoch_ms = args[0]->data.datetime;
     const char *zone_name = args[1]->data.string.data;
@@ -83,7 +86,8 @@ static EvalResult time_get_timezone_offset(EastValue **args, size_t num_args) {
     return eval_ok(east_integer(offset_minutes));
 }
 
-void east_std_register_time(PlatformRegistry *reg) {
+void east_std_register_time(PlatformRegistry *reg)
+{
     platform_registry_add(reg, "time_now", time_now, false);
     platform_registry_add(reg, "time_sleep", time_sleep, false);
     platform_registry_add(reg, "time_get_timezone_offset", time_get_timezone_offset, false);

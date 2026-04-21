@@ -6,7 +6,9 @@
 export { InputPreview, type InputPreviewProps } from './InputPreview.js';
 export { TaskPreview, type TaskPreviewProps } from './TaskPreview.js';
 export { TaskLogs, type TaskLogsProps } from './TaskLogs.js';
-export { DatasetRenderer, type DatasetRendererProps, DatasetContent, type DatasetContentProps } from './DatasetRenderer.js';
+export { UITaskPreview, type UITaskPreviewProps, type UITaskPreviewConfig } from './UITaskPreview.js';
+export { DataTaskPreview, type DataTaskPreviewProps } from './DataTaskPreview.js';
+export { DatasetPreview, type DatasetPreviewProps } from './DatasetPreview.js';
 export { StatusDisplay, type StatusDisplayProps } from './StatusDisplay.js';
 export { EastValueViewer, type EastValueViewerProps } from './EastValueViewer.js';
 export { VirtualizedLogViewer, type VirtualizedLogViewerProps } from './VirtualizedLogViewer.js';

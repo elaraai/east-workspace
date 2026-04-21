@@ -162,6 +162,15 @@ export function useReactiveDatasetCache(): ReactiveDatasetCacheInterface {
 }
 
 /**
+ * Like {@link useReactiveDatasetCache} but returns `null` instead of throwing
+ * when used outside a `<ReactiveDatasetProvider>`. Use this when a component
+ * has a graceful fallback (e.g. accepts an explicit config prop too).
+ */
+export function useReactiveDatasetCacheOptional(): ReactiveDatasetCacheInterface | null {
+    return useContext(ReactiveDatasetCacheContext);
+}
+
+/**
  * Hook to subscribe to reactive dataset cache changes using React 18's useSyncExternalStore.
  *
  * @returns The current snapshot version
@@ -241,8 +250,8 @@ export interface PreloadReactiveDatasetsResult {
  * ```
  */
 export function usePreloadReactiveDatasets(datasets: ReactiveDatasetToPreload[]): PreloadReactiveDatasetsResult {
-    const cache = useReactiveDatasetCache();
-    const [loading, setLoading] = useState(true);
+    const cache = useReactiveDatasetCacheOptional();
+    const [loading, setLoading] = useState(!!cache && datasets.length > 0);
     const [error, setError] = useState<Error | null>(null);
     const [reloadTrigger, setReloadTrigger] = useState(0);
 
@@ -253,6 +262,13 @@ export function usePreloadReactiveDatasets(datasets: ReactiveDatasetToPreload[])
     );
 
     useEffect(() => {
+        if (!cache) {
+            // No provider — nothing to preload. Component renders without
+            // populating the cache; downstream Data.bind reads will throw.
+            setLoading(false);
+            setError(null);
+            return;
+        }
         let cancelled = false;
         setLoading(true);
         setError(null);

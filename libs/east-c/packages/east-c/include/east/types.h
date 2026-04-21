@@ -37,7 +37,7 @@ typedef struct {
 struct EastType {
     EastTypeKind kind;
     int ref_count;
-    int64_t type_id;    // stable interned ID (-1 = not interned)
+    int64_t type_id; // stable interned ID (-1 = not interned)
     union {
         // Array, Set, Ref, Vector, Matrix: element type
         EastType *element;
@@ -67,7 +67,7 @@ struct EastType {
         // Matches TypeScript RecursiveType({ type: "Recursive", node: ... })
         struct {
             EastType *node;
-            int internal_refs;  // number of back-references from inner tree
+            int internal_refs; // number of back-references from inner tree
         } recursive;
     } data;
 };

@@ -263,9 +263,12 @@ type ColumnSpec<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
     | PrimitiveFieldKeys<DataFields<NoInfer<T>>>[]
     | { [K in keyof DataFields<NoInfer<T>>]?: TableColumnConfig<DataFields<NoInfer<T>>[K], DataRowType<NoInfer<T>>> };
 
-// Extract column key strings from a ColumnSpec value
-type ColumnKeys<T extends SubtypeExprOrValue<ArrayType<StructType>>, C extends ColumnSpec<T>> =
-    C extends (infer K)[] ? K & string : C extends object ? Extract<keyof C, string> : string;
+// Every key in the data struct is a valid column key. Deriving from T (rather
+// than the columns object C) keeps inference reliable when C contains render
+// functions or complex field types that would otherwise cause C to widen to
+// the constraint union — which collapses `keyof C` to `never`.
+type DataFieldKeys<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
+    Extract<keyof DataFields<NoInfer<T>>, string>;
 
 export function createTable<
     T extends SubtypeExprOrValue<ArrayType<StructType>>,
@@ -273,7 +276,7 @@ export function createTable<
 >(
     data: T,
     columns: C,
-    style?: TableStyle<ColumnKeys<T, NoInfer<C>>>
+    style?: TableStyle<DataFieldKeys<T>>
 ): ExprType<UIComponentType> {
     const data_expr = East.value(data) as ExprType<ArrayType<StructType>>;
     const field_types = Expr.type(data_expr).value.fields;

@@ -1,9 +1,9 @@
 /**
  * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under AGPL-3.0. See LICENSE file for details.
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, example } from "@elaraai/east";
-import { Alert, Stack, UIComponentType } from "../../src/index.js";
+import { East, IntegerType, NullType, example } from "@elaraai/east";
+import { Alert, Button, Reactive, Stack, State, UIComponentType } from "@elaraai/east-ui";
 
 export const alertInfo = example({
     keywords: ["Alert", "Root", "info", "title", "description"],
@@ -74,6 +74,29 @@ export const alertTitleOnly = example({
             Alert.Root("success", { title: "File uploaded successfully" }),
             Alert.Root("error", { title: "Invalid email address" }),
         ], { gap: "3", align: "stretch", width: "100%" });
+    }),
+    inputs: [],
+});
+
+export const alertInteractive = example({
+    keywords: ["Alert", "Reactive", "State", "interactive", "title"],
+    description: "Alert whose title increments from a reactive counter",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const counter = $.let(State.bind([IntegerType], "alert_counter", 0n));
+            const value = $.let(counter.read());
+            const inc = $.const(East.function([], NullType, $ => {
+                const cur = $.let(counter.read());
+                $(counter.write(cur.add(1n)));
+            }));
+            return Stack.VStack([
+                Alert.Root("info", {
+                    title: East.str`Notification ${East.print(value)}`,
+                    description: "Click the button to bump the alert title",
+                }),
+                Button.Root("Bump", { onClick: inc }),
+            ], { gap: "3", align: "stretch" });
+        }));
     }),
     inputs: [],
 });

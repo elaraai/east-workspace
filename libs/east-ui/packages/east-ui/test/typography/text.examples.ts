@@ -1,9 +1,9 @@
 /**
  * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under AGPL-3.0. See LICENSE file for details.
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, example } from "@elaraai/east";
-import { Text, Stack, Style, UIComponentType } from "../../src/index.js";
+import { East, IntegerType, NullType, example } from "@elaraai/east";
+import { Button, Reactive, State, Text, Stack, Style, UIComponentType } from "@elaraai/east-ui";
 
 export const textBasic = example({
     keywords: ["Text", "Root", "basic"],
@@ -211,6 +211,26 @@ export const textOverflow = example({
                 overflow: "hidden",
             }),
         ], { gap: "2", align: "flex-start" });
+    }),
+    inputs: [],
+});
+
+export const textInteractive = example({
+    keywords: ["Text", "Reactive", "State", "interactive", "counter"],
+    description: "Reactive text whose content updates from a counter",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const counter = $.let(State.bind([IntegerType], "text_counter", 0n));
+            const value = $.let(counter.read());
+            const increment = $.const(East.function([], NullType, $ => {
+                const cur = $.let(counter.read());
+                $(counter.write(cur.add(1n)));
+            }));
+            return Stack.VStack([
+                Text.Root(East.str`Clicked ${East.print(value)} times`),
+                Button.Root("Click me", { onClick: increment }),
+            ], { gap: "3", align: "stretch" });
+        }));
     }),
     inputs: [],
 });

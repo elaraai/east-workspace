@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useState, useMemo, useCallback } from "react";
+import { memo, useState, useMemo, useCallback, useEffect } from "react";
 import { Portal } from "@chakra-ui/react";
 import { Combobox as ChakraCombobox, createListCollection } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
@@ -27,7 +27,7 @@ export function toChakraCombobox(value: ComboboxRootValue) {
     const selectedValue = getSomeorUndefined(value.value);
 
     return {
-        defaultValue: selectedValue ? [selectedValue] : [],
+        value: selectedValue ? [selectedValue] : [],
         multiple: getSomeorUndefined(value.multiple),
         disabled: getSomeorUndefined(value.disabled),
         size: getSomeorUndefined(value.size)?.type,
@@ -43,7 +43,7 @@ export interface EastChakraComboboxProps {
  * Renders an East UI Combobox value using Chakra UI Combobox component.
  */
 export const EastChakraCombobox = memo(function EastChakraCombobox({ value }: EastChakraComboboxProps) {
-    const props = useMemo(() => toChakraCombobox(value), [value]);
+    const [props, setProps] = useState(toChakraCombobox(value));
     const placeholder = useMemo(() => getSomeorUndefined(value.placeholder), [value.placeholder]);
     const onChangeFn = useMemo(() => getSomeorUndefined(value.onChange), [value.onChange]);
     const onChangeMultipleFn = useMemo(() => getSomeorUndefined(value.onChangeMultiple), [value.onChangeMultiple]);
@@ -52,6 +52,10 @@ export const EastChakraCombobox = memo(function EastChakraCombobox({ value }: Ea
     const isMultiple = useMemo(() => getSomeorUndefined(value.multiple), [value.multiple]);
 
     const [inputValue, setInputValue] = useState("");
+
+    useEffect(() => {
+        setProps(() => toChakraCombobox(value));
+    }, [value]);
 
     const allItems = useMemo(() => {
         return value.items.map(item => ({
@@ -69,6 +73,7 @@ export const EastChakraCombobox = memo(function EastChakraCombobox({ value }: Ea
     }, [allItems, inputValue]);
 
     const handleValueChange = useCallback((details: { value: string[] }) => {
+        setProps(prev => ({ ...prev, value: details.value }));
         if (isMultiple && onChangeMultipleFn) {
             queueMicrotask(() => onChangeMultipleFn(details.value));
         } else if (!isMultiple && onChangeFn && details.value.length > 0) {
@@ -91,16 +96,12 @@ export const EastChakraCombobox = memo(function EastChakraCombobox({ value }: Ea
 
     return (
         <ChakraCombobox.Root
+            {...props}
             collection={collection}
-            defaultValue={props.defaultValue}
-            multiple={props.multiple}
-            disabled={props.disabled}
-            size={props.size}
-            allowCustomValue={props.allowCustomValue}
             inputValue={inputValue}
-            onValueChange={(onChangeFn || onChangeMultipleFn) ? handleValueChange : undefined}
+            onValueChange={handleValueChange}
             onInputValueChange={handleInputValueChange}
-            onOpenChange={onOpenChangeFn ? handleOpenChange : undefined}
+            onOpenChange={handleOpenChange}
         >
             <ChakraCombobox.Control>
                 <ChakraCombobox.Input placeholder={placeholder ?? "Search..."} />

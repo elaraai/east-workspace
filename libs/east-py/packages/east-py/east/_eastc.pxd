@@ -350,7 +350,8 @@ cdef extern from "east/serialization.h":
     ByteBuffer *east_beast2_encode_full(EastValue *value, EastType *type)
     EastValue *east_beast2_decode_full(const uint8_t *data, size_t length, EastType *type)
     # BEAST2 IR decode+convert in one shot (keeps type table alive for O(1) resolution)
-    IRNode *east_beast2_decode_ir(const uint8_t *data, size_t length, EastValue **ir_value_out)
+    IRNode *east_beast2_decode_ir(const uint8_t *data, size_t length, EastValue **ir_value_out,
+                                  EastSourceMap **source_map_out)
 
     # JSON serialization
     char *east_json_encode(EastValue *value, EastType *type)

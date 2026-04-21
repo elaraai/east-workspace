@@ -3,8 +3,8 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { East, example } from "@elaraai/east";
-import { Chart, Box, UIComponentType } from "../../src/index.js";
+import { East, IntegerType, NullType, example } from "@elaraai/east";
+import { Box, Button, Chart, Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const scatterBasic = example({
     keywords: ["Chart", "Scatter", "basic", "correlation"],
@@ -506,6 +506,38 @@ export const scatterMultiPivotWithoutColors = example({
                 }
             ),
         ], { height: "220px", width: "100%" });
+    }),
+    inputs: [],
+});
+
+export const scatterInteractive = example({
+    keywords: ["Chart", "Scatter", "Reactive", "State", "interactive", "counter"],
+    description: "Scatter chart whose last point's y is driven by a reactive counter",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const counter = $.let(State.bind([IntegerType], "scatter_counter", 0n));
+            const value = $.let(counter.read());
+            const inc = $.const(East.function([], NullType, $ => {
+                const cur = $.let(counter.read());
+                $(counter.write(cur.add(1n)));
+            }));
+            return Stack.VStack([
+                Box.Root([
+                    Chart.Scatter(
+                        [
+                            { x: 5, y: 12 },
+                            { x: 10, y: 25 },
+                            { x: 15, y: 18 },
+                            { x: 20, y: 35 },
+                            { x: 25, y: value.multiply(5).add(28) },
+                        ],
+                        { x: { color: "blue.solid" } },
+                        { xAxis: { dataKey: "x" }, yAxis: { dataKey: "y" }, grid: { show: true } },
+                    ),
+                ], { height: "200px", width: "100%" }),
+                Button.Root("Bump last point", { onClick: inc }),
+            ], { gap: "3", align: "stretch" });
+        }));
     }),
     inputs: [],
 });

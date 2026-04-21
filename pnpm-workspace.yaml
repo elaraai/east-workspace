@@ -5,9 +5,6 @@ packages:
   # east-node — Node.js platform
   - "libs/east-node/packages/*"
 
-  # east-c — C runtime (WASM npm package only)
-  - "libs/east-c/packages/east-c-wasm"
-
   # east-py — Python runtime (TypeScript types package only)
   - "libs/east-py/packages/east-py-datascience"
 

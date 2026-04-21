@@ -1,9 +1,9 @@
 /**
  * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under AGPL-3.0. See LICENSE file for details.
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { East, FloatType, NullType, example } from "@elaraai/east";
-import { Badge, Reactive, Slider, Stack, State, Text, UIComponentType } from "../../src/index.js";
+import { Badge, Reactive, Slider, Stack, State, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const sliderBasic = example({
     keywords: ["Slider", "Root", "min", "max", "step", "colorPalette"],
@@ -41,6 +41,30 @@ export const sliderInteractive = example({
                     East.str`${East.print(value)}%`,
                     { colorPalette: "blue", variant: "solid" }
                 ),
+            ], { gap: "3", align: "stretch" });
+        }));
+    }),
+    inputs: [],
+});
+
+export const sliderOnChangeEnd = example({
+    keywords: ["Slider", "Reactive", "State", "onChangeEnd", "commit", "interactive"],
+    description: "Slider that only commits on release via onChangeEnd",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const bind = $.let(State.bind([FloatType], "form_slider_commit", 50.0));
+            const value = $.let(bind.read());
+            const onChangeEnd = $.const(East.function([FloatType], NullType, ($, next) => {
+                $(bind.write(next));
+            }));
+            return Stack.VStack([
+                Slider.Root(value, {
+                    min: 0,
+                    max: 100,
+                    colorPalette: "purple",
+                    onChangeEnd,
+                }),
+                Text.Root(East.str`Committed value: ${East.print(value)}`),
             ], { gap: "3", align: "stretch" });
         }));
     }),

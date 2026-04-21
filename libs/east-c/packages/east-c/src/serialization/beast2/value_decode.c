@@ -3,13 +3,11 @@
 /*  BEAST2 v4 Decoder                                                  */
 /* ================================================================== */
 
-EastValue *beast2_decode_value(const uint8_t *data, size_t len,
-                                      size_t *offset, EastType *type,
-                                      Beast2DecodeCtx *ctx);
+EastValue *beast2_decode_value(const uint8_t *data, size_t len, size_t *offset, EastType *type,
+                               Beast2DecodeCtx *ctx);
 
-EastValue *beast2_decode_value(const uint8_t *data, size_t len,
-                                      size_t *offset, EastType *type,
-                                      Beast2DecodeCtx *ctx)
+EastValue *beast2_decode_value(const uint8_t *data, size_t len, size_t *offset, EastType *type,
+                               Beast2DecodeCtx *ctx)
 {
     if (!type) return NULL;
 
@@ -41,7 +39,8 @@ EastValue *beast2_decode_value(const uint8_t *data, size_t len,
         if (ctx->string_table) {
             uint64_t idx = read_varint(data, offset);
             if (idx >= ctx->string_table->count) {
-                fprintf(stderr, "beast2: string table index %llu out of bounds (table has %zu entries)\n",
+                fprintf(stderr,
+                        "beast2: string table index %llu out of bounds (table has %zu entries)\n",
                         (unsigned long long)idx, ctx->string_table->count);
                 return NULL;
             }
@@ -115,7 +114,8 @@ EastValue *beast2_decode_value(const uint8_t *data, size_t len,
         uint64_t dedup_hash = hash_byte_range(data + dedup_start, dedup_len, (uintptr_t)type);
         ctx->dedup_bytes_hashed += dedup_len;
         {
-            EastValue *cached = beast2_dedup_find(ctx, dedup_hash, data, dedup_start, dedup_len, type);
+            EastValue *cached =
+                beast2_dedup_find(ctx, dedup_hash, data, dedup_start, dedup_len, type);
             if (cached) {
                 ctx->dedup_hits++;
                 for (size_t i = 0; i < nf; i++)
@@ -157,7 +157,8 @@ EastValue *beast2_decode_value(const uint8_t *data, size_t len,
         uint64_t dedup_hash = hash_byte_range(data + dedup_start, dedup_len, (uintptr_t)type);
         ctx->dedup_bytes_hashed += dedup_len;
         {
-            EastValue *cached = beast2_dedup_find(ctx, dedup_hash, data, dedup_start, dedup_len, type);
+            EastValue *cached =
+                beast2_dedup_find(ctx, dedup_hash, data, dedup_start, dedup_len, type);
             if (cached) {
                 ctx->dedup_hits++;
                 east_value_release(case_value);
@@ -263,10 +264,10 @@ EastValue *beast2_decode_value(const uint8_t *data, size_t len,
         EastValue *caps_arr = east_struct_get_field_idx(fn_struct, 2);
         EastValue *params_arr = east_struct_get_field_idx(fn_struct, 3);
 
-        size_t ncaps_ir = (caps_arr && caps_arr->kind == EAST_VAL_ARRAY)
-            ? caps_arr->data.array.len : 0;
-        size_t nparams = (params_arr && params_arr->kind == EAST_VAL_ARRAY)
-            ? params_arr->data.array.len : 0;
+        size_t ncaps_ir =
+            (caps_arr && caps_arr->kind == EAST_VAL_ARRAY) ? caps_arr->data.array.len : 0;
+        size_t nparams =
+            (params_arr && params_arr->kind == EAST_VAL_ARRAY) ? params_arr->data.array.len : 0;
 
         /* 3. Read capture count and validate */
         uint64_t ncaps = read_varint(data, offset);
@@ -313,16 +314,18 @@ EastValue *beast2_decode_value(const uint8_t *data, size_t len,
         if (!fn) {
             env_release(captures_env);
             east_value_release(ir_value);
-            for (size_t i = 0; i < nparams; i++) free(param_names[i]);
+            for (size_t i = 0; i < nparams; i++)
+                free(param_names[i]);
             free(param_names);
             return NULL;
         }
 
-        fn->ir = NULL;  /* lazy — converted from source_ir on first call */
+        fn->ir = NULL; /* lazy — converted from source_ir on first call */
         fn->captures = captures_env;
         fn->param_names = param_names;
         fn->num_params = nparams;
         fn->platform = east_current_platform();
+        if (fn->platform) platform_registry_retain(fn->platform);
         fn->builtins = east_current_builtins();
         fn->source_ir = ir_value;
 

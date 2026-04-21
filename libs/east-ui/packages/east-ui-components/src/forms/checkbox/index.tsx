@@ -3,8 +3,8 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useMemo, useCallback } from "react";
-import { Checkbox as ChakraCheckbox, type CheckboxRootProps } from "@chakra-ui/react";
+import { memo, useMemo, useCallback, useState, useEffect } from "react";
+import { Checkbox as ChakraCheckbox, type CheckboxCheckedChangeDetails, type CheckboxRootProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Checkbox } from "@elaraai/east-ui";
 import { getSomeorUndefined } from "../../utils";
@@ -38,11 +38,16 @@ export interface EastChakraCheckboxProps {
  * Renders an East UI Checkbox value using Chakra UI Checkbox component.
  */
 export const EastChakraCheckbox = memo(function EastChakraCheckbox({ value }: EastChakraCheckboxProps) {
-    const props = useMemo(() => toChakraCheckbox(value), [value]);
+    const [props, setProps] = useState(toChakraCheckbox(value));
     const label = useMemo(() => getSomeorUndefined(value.label), [value.label]);
     const onChangeFn = useMemo(() => getSomeorUndefined(value.onChange), [value.onChange]);
 
-    const handleCheckedChange = useCallback((e: { checked: boolean | "indeterminate" }) => {
+    useEffect(() => {
+        setProps(() => toChakraCheckbox(value));
+    }, [value]);
+
+    const handleCheckedChange = useCallback((e: CheckboxCheckedChangeDetails) => {
+        setProps(prev => ({ ...prev, checked: e.checked }));
         if (onChangeFn) {
             queueMicrotask(() => onChangeFn(e.checked === true));
         }
@@ -51,7 +56,7 @@ export const EastChakraCheckbox = memo(function EastChakraCheckbox({ value }: Ea
     return (
         <ChakraCheckbox.Root
             {...props}
-            onCheckedChange={onChangeFn ? handleCheckedChange : undefined}
+            onCheckedChange={handleCheckedChange}
         >
             <ChakraCheckbox.HiddenInput />
             <ChakraCheckbox.Control />

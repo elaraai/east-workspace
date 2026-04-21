@@ -1,30 +1,9 @@
-import { defineConfig, type Plugin } from 'vite';
+import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { resolve } from 'path';
-import { copyFileSync } from 'fs';
-import { createRequire } from 'module';
-
-/** Copy east-c-wasm assets to dist if the package is available. */
-function copyWasmAssets(): Plugin {
-    return {
-        name: 'copy-wasm-assets',
-        closeBundle() {
-            try {
-                const require = createRequire(import.meta.url);
-                const wasmPath = require.resolve('@elaraai/east-c-wasm/east-c.wasm');
-                const gluePath = require.resolve('@elaraai/east-c-wasm/glue');
-                const out = resolve(__dirname, '../dist/webview');
-                copyFileSync(wasmPath, resolve(out, 'east-c.wasm'));
-                copyFileSync(gluePath, resolve(out, 'east-c.js'));
-            } catch {
-                // east-c-wasm not available — WASM decode will gracefully fall back to TS
-            }
-        },
-    };
-}
 
 export default defineConfig({
-    plugins: [react(), copyWasmAssets()],
+    plugins: [react()],
     define: {
         // Replace process.env and process.argv for East compatibility
         'process.env': {},
@@ -39,8 +18,7 @@ export default defineConfig({
         minify: false,
         rollupOptions: {
             external: (id: string) =>
-                id.startsWith('node:') ||
-                id === '@elaraai/east-c-wasm/browser',
+                id.startsWith('node:'),
             input: resolve(__dirname, 'src/main.tsx'),
             output: {
                 entryFileNames: 'index.js',

@@ -1,9 +1,9 @@
 /**
  * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under AGPL-3.0. See LICENSE file for details.
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { East, NullType, StringType, example } from "@elaraai/east";
-import { Badge, Box, Reactive, Stack, State, Table, Tag, Text, UIComponentType } from "../../src/index.js";
+import { Badge, Box, Reactive, Stack, State, Table, Tag, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const tableBasic = example({
     keywords: ["Table", "Root", "basic", "header"],

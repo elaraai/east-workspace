@@ -21,20 +21,20 @@ static _Thread_local EastType *csv_struct_type_ctx = NULL;
 
 /* --- static implementations --- */
 
-static EastValue *blob_size(EastValue **args, size_t n) {
+static EastValue *blob_size(EastValue **args, size_t n)
+{
     (void)n;
     return east_integer((int64_t)args[0]->data.blob.len);
 }
 
-static EastValue *blob_get_uint8(EastValue **args, size_t n) {
+static EastValue *blob_get_uint8(EastValue **args, size_t n)
+{
     (void)n;
     int64_t index = args[1]->data.integer;
     size_t len = args[0]->data.blob.len;
     if (index < 0 || (size_t)index >= len) {
         char msg[128];
-        snprintf(msg, sizeof(msg),
-                 "Blob index %lld out of bounds",
-                 (long long)index);
+        snprintf(msg, sizeof(msg), "Blob index %lld out of bounds", (long long)index);
         east_builtin_error(msg);
         return NULL;
     }
@@ -42,23 +42,29 @@ static EastValue *blob_get_uint8(EastValue **args, size_t n) {
 }
 
 /* Validate that data is valid UTF-8. Returns true if valid. */
-static bool is_valid_utf8(const uint8_t *data, size_t len) {
+static bool is_valid_utf8(const uint8_t *data, size_t len)
+{
     size_t i = 0;
     while (i < len) {
         if (data[i] < 0x80) {
             i++;
         } else if ((data[i] & 0xE0) == 0xC0) {
-            if (i + 1 >= len || (data[i+1] & 0xC0) != 0x80) return false;
+            if (i + 1 >= len || (data[i + 1] & 0xC0) != 0x80) return false;
             if (data[i] < 0xC2) return false; /* overlong */
             i += 2;
         } else if ((data[i] & 0xF0) == 0xE0) {
-            if (i + 2 >= len || (data[i+1] & 0xC0) != 0x80 || (data[i+2] & 0xC0) != 0x80) return false;
-            uint32_t cp = ((data[i] & 0x0F) << 12) | ((data[i+1] & 0x3F) << 6) | (data[i+2] & 0x3F);
+            if (i + 2 >= len || (data[i + 1] & 0xC0) != 0x80 || (data[i + 2] & 0xC0) != 0x80)
+                return false;
+            uint32_t cp =
+                ((data[i] & 0x0F) << 12) | ((data[i + 1] & 0x3F) << 6) | (data[i + 2] & 0x3F);
             if (cp < 0x800 || (cp >= 0xD800 && cp <= 0xDFFF)) return false;
             i += 3;
         } else if ((data[i] & 0xF8) == 0xF0) {
-            if (i + 3 >= len || (data[i+1] & 0xC0) != 0x80 || (data[i+2] & 0xC0) != 0x80 || (data[i+3] & 0xC0) != 0x80) return false;
-            uint32_t cp = ((data[i] & 0x07) << 18) | ((data[i+1] & 0x3F) << 12) | ((data[i+2] & 0x3F) << 6) | (data[i+3] & 0x3F);
+            if (i + 3 >= len || (data[i + 1] & 0xC0) != 0x80 || (data[i + 2] & 0xC0) != 0x80 ||
+                (data[i + 3] & 0xC0) != 0x80)
+                return false;
+            uint32_t cp = ((data[i] & 0x07) << 18) | ((data[i + 1] & 0x3F) << 12) |
+                          ((data[i + 2] & 0x3F) << 6) | (data[i + 3] & 0x3F);
             if (cp < 0x10000 || cp > 0x10FFFF) return false;
             i += 4;
         } else {
@@ -68,7 +74,8 @@ static bool is_valid_utf8(const uint8_t *data, size_t len) {
     return true;
 }
 
-static EastValue *blob_decode_utf8(EastValue **args, size_t n) {
+static EastValue *blob_decode_utf8(EastValue **args, size_t n)
+{
     (void)n;
     const uint8_t *data = args[0]->data.blob.data;
     size_t len = args[0]->data.blob.len;
@@ -79,7 +86,8 @@ static EastValue *blob_decode_utf8(EastValue **args, size_t n) {
     return east_string_len((const char *)data, len);
 }
 
-static EastValue *blob_decode_utf16(EastValue **args, size_t n) {
+static EastValue *blob_decode_utf16(EastValue **args, size_t n)
+{
     (void)n;
     const uint8_t *data = args[0]->data.blob.data;
     size_t len = args[0]->data.blob.len;
@@ -103,18 +111,18 @@ static EastValue *blob_decode_utf16(EastValue **args, size_t n) {
     for (size_t i = start; i + 1 < len; i += 2) {
         uint16_t cp;
         if (big_endian) {
-            cp = (uint16_t)((data[i] << 8) | data[i+1]);
+            cp = (uint16_t)((data[i] << 8) | data[i + 1]);
         } else {
-            cp = (uint16_t)(data[i] | (data[i+1] << 8));
+            cp = (uint16_t)(data[i] | (data[i + 1] << 8));
         }
 
         /* Handle surrogate pairs */
         if (cp >= 0xD800 && cp <= 0xDBFF && i + 3 < len) {
             uint16_t lo;
             if (big_endian) {
-                lo = (uint16_t)((data[i+2] << 8) | data[i+3]);
+                lo = (uint16_t)((data[i + 2] << 8) | data[i + 3]);
             } else {
-                lo = (uint16_t)(data[i+2] | (data[i+3] << 8));
+                lo = (uint16_t)(data[i + 2] | (data[i + 3] << 8));
             }
             if (lo >= 0xDC00 && lo <= 0xDFFF) {
                 uint32_t full = 0x10000 + ((uint32_t)(cp - 0xD800) << 10) + (lo - 0xDC00);
@@ -145,12 +153,14 @@ static EastValue *blob_decode_utf16(EastValue **args, size_t n) {
     return result;
 }
 
-static EastValue *string_encode_utf8(EastValue **args, size_t n) {
+static EastValue *string_encode_utf8(EastValue **args, size_t n)
+{
     (void)n;
     return east_blob((const uint8_t *)args[0]->data.string.data, args[0]->data.string.len);
 }
 
-static EastValue *string_encode_utf16(EastValue **args, size_t n) {
+static EastValue *string_encode_utf16(EastValue **args, size_t n)
+{
     (void)n;
     /*
      * UTF-16LE encode from UTF-8 string, with BOM prefix (0xFF 0xFE).
@@ -178,18 +188,18 @@ static EastValue *string_encode_utf16(EastValue **args, size_t n) {
             i += 1;
         } else if ((b & 0xE0) == 0xC0) {
             cp = (b & 0x1F) << 6;
-            if (i + 1 < len) cp |= (s[i+1] & 0x3F);
+            if (i + 1 < len) cp |= (s[i + 1] & 0x3F);
             i += 2;
         } else if ((b & 0xF0) == 0xE0) {
             cp = (b & 0x0F) << 12;
-            if (i + 1 < len) cp |= (uint32_t)(s[i+1] & 0x3F) << 6;
-            if (i + 2 < len) cp |= (s[i+2] & 0x3F);
+            if (i + 1 < len) cp |= (uint32_t)(s[i + 1] & 0x3F) << 6;
+            if (i + 2 < len) cp |= (s[i + 2] & 0x3F);
             i += 3;
         } else if ((b & 0xF8) == 0xF0) {
             cp = (b & 0x07) << 18;
-            if (i + 1 < len) cp |= (uint32_t)(s[i+1] & 0x3F) << 12;
-            if (i + 2 < len) cp |= (uint32_t)(s[i+2] & 0x3F) << 6;
-            if (i + 3 < len) cp |= (s[i+3] & 0x3F);
+            if (i + 1 < len) cp |= (uint32_t)(s[i + 1] & 0x3F) << 12;
+            if (i + 2 < len) cp |= (uint32_t)(s[i + 2] & 0x3F) << 6;
+            if (i + 3 < len) cp |= (s[i + 3] & 0x3F);
             i += 4;
         } else {
             cp = 0xFFFD; /* replacement character */
@@ -218,7 +228,8 @@ static EastValue *string_encode_utf16(EastValue **args, size_t n) {
 
 /* --- Beast v1 encode/decode --- */
 
-static EastValue *blob_encode_beast(EastValue **args, size_t n) {
+static EastValue *blob_encode_beast(EastValue **args, size_t n)
+{
     (void)n;
     EastType *type = beast_type_ctx;
     if (!type) {
@@ -232,15 +243,15 @@ static EastValue *blob_encode_beast(EastValue **args, size_t n) {
     return result;
 }
 
-static EastValue *blob_decode_beast(EastValue **args, size_t n) {
+static EastValue *blob_decode_beast(EastValue **args, size_t n)
+{
     (void)n;
     EastType *type = beast_type_ctx;
     if (!type) {
         east_builtin_error("Beast decode: no type context");
         return NULL;
     }
-    EastValue *result = east_beast_decode(
-        args[0]->data.blob.data, args[0]->data.blob.len, type);
+    EastValue *result = east_beast_decode(args[0]->data.blob.data, args[0]->data.blob.len, type);
     if (!result) {
         east_builtin_error("Failed to decode Beast data");
         return NULL;
@@ -250,7 +261,8 @@ static EastValue *blob_decode_beast(EastValue **args, size_t n) {
 
 /* --- Beast2 encode/decode --- */
 
-static EastValue *blob_encode_beast2(EastValue **args, size_t n) {
+static EastValue *blob_encode_beast2(EastValue **args, size_t n)
+{
     (void)n;
     EastType *type = beast2_type_ctx;
     if (!type) {
@@ -264,15 +276,16 @@ static EastValue *blob_encode_beast2(EastValue **args, size_t n) {
     return result;
 }
 
-static EastValue *blob_decode_beast2(EastValue **args, size_t n) {
+static EastValue *blob_decode_beast2(EastValue **args, size_t n)
+{
     (void)n;
     EastType *type = beast2_type_ctx;
     if (!type) {
         east_builtin_error("Beast2 decode: no type context");
         return NULL;
     }
-    EastValue *result = east_beast2_decode_full(
-        args[0]->data.blob.data, args[0]->data.blob.len, type);
+    EastValue *result =
+        east_beast2_decode_full(args[0]->data.blob.data, args[0]->data.blob.len, type);
     if (!result) {
         east_builtin_error("Failed to decode Beast2 data");
         return NULL;
@@ -282,7 +295,8 @@ static EastValue *blob_decode_beast2(EastValue **args, size_t n) {
 
 /* --- CSV decode --- */
 
-static EastValue *blob_decode_csv(EastValue **args, size_t n) {
+static EastValue *blob_decode_csv(EastValue **args, size_t n)
+{
     EastType *struct_type = csv_struct_type_ctx;
     if (!struct_type) {
         east_builtin_error("CSV decode: no type context");
@@ -322,38 +336,74 @@ static EastValue *blob_decode_csv(EastValue **args, size_t n) {
 
 /* --- factory functions --- */
 
-static BuiltinImpl blob_size_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return blob_size; }
-static BuiltinImpl blob_get_uint8_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return blob_get_uint8; }
-static BuiltinImpl blob_decode_utf8_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return blob_decode_utf8; }
-static BuiltinImpl blob_decode_utf16_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return blob_decode_utf16; }
+static BuiltinImpl blob_size_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return blob_size;
+}
+static BuiltinImpl blob_get_uint8_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return blob_get_uint8;
+}
+static BuiltinImpl blob_decode_utf8_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return blob_decode_utf8;
+}
+static BuiltinImpl blob_decode_utf16_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return blob_decode_utf16;
+}
 
-static BuiltinImpl blob_encode_beast_factory(EastType **tp, size_t ntp) {
+static BuiltinImpl blob_encode_beast_factory(EastType **tp, size_t ntp)
+{
     beast_type_ctx = (ntp > 0) ? tp[0] : NULL;
     return blob_encode_beast;
 }
-static BuiltinImpl blob_decode_beast_factory(EastType **tp, size_t ntp) {
+static BuiltinImpl blob_decode_beast_factory(EastType **tp, size_t ntp)
+{
     beast_type_ctx = (ntp > 0) ? tp[0] : NULL;
     return blob_decode_beast;
 }
-static BuiltinImpl blob_encode_beast2_factory(EastType **tp, size_t ntp) {
+static BuiltinImpl blob_encode_beast2_factory(EastType **tp, size_t ntp)
+{
     beast2_type_ctx = (ntp > 0) ? tp[0] : NULL;
     return blob_encode_beast2;
 }
-static BuiltinImpl blob_decode_beast2_factory(EastType **tp, size_t ntp) {
+static BuiltinImpl blob_decode_beast2_factory(EastType **tp, size_t ntp)
+{
     beast2_type_ctx = (ntp > 0) ? tp[0] : NULL;
     return blob_decode_beast2;
 }
-static BuiltinImpl blob_decode_csv_factory(EastType **tp, size_t ntp) {
+static BuiltinImpl blob_decode_csv_factory(EastType **tp, size_t ntp)
+{
     csv_struct_type_ctx = (ntp > 0) ? tp[0] : NULL;
     return blob_decode_csv;
 }
 
-static BuiltinImpl string_encode_utf8_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return string_encode_utf8; }
-static BuiltinImpl string_encode_utf16_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return string_encode_utf16; }
+static BuiltinImpl string_encode_utf8_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return string_encode_utf8;
+}
+static BuiltinImpl string_encode_utf16_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return string_encode_utf16;
+}
 
 /* --- registration --- */
 
-void east_register_blob_builtins(BuiltinRegistry *reg) {
+void east_register_blob_builtins(BuiltinRegistry *reg)
+{
     builtin_registry_register(reg, "BlobSize", blob_size_factory);
     builtin_registry_register(reg, "BlobGetUint8", blob_get_uint8_factory);
     builtin_registry_register(reg, "BlobDecodeUtf8", blob_decode_utf8_factory);

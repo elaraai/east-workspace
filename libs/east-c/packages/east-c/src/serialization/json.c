@@ -91,93 +91,6 @@ static char *strbuf_finish(StrBuf *sb)
 }
 
 /* ================================================================== */
-/*  Base64 encoder (for Blob encoding)                                 */
-/* ================================================================== */
-
-static const char b64_table[] =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-static void strbuf_append_base64(StrBuf *sb, const uint8_t *data, size_t len)
-{
-    size_t i;
-    for (i = 0; i + 2 < len; i += 3) {
-        uint32_t v = ((uint32_t)data[i] << 16) |
-                     ((uint32_t)data[i+1] << 8) |
-                     (uint32_t)data[i+2];
-        strbuf_append_char(sb, b64_table[(v >> 18) & 0x3F]);
-        strbuf_append_char(sb, b64_table[(v >> 12) & 0x3F]);
-        strbuf_append_char(sb, b64_table[(v >>  6) & 0x3F]);
-        strbuf_append_char(sb, b64_table[v & 0x3F]);
-    }
-    if (i < len) {
-        uint32_t v = (uint32_t)data[i] << 16;
-        if (i + 1 < len) v |= (uint32_t)data[i+1] << 8;
-        strbuf_append_char(sb, b64_table[(v >> 18) & 0x3F]);
-        strbuf_append_char(sb, b64_table[(v >> 12) & 0x3F]);
-        if (i + 1 < len) {
-            strbuf_append_char(sb, b64_table[(v >> 6) & 0x3F]);
-        } else {
-            strbuf_append_char(sb, '=');
-        }
-        strbuf_append_char(sb, '=');
-    }
-}
-
-/* ================================================================== */
-/*  Base64 decoder                                                     */
-/* ================================================================== */
-
-static int b64_decode_char(char c)
-{
-    if (c >= 'A' && c <= 'Z') return c - 'A';
-    if (c >= 'a' && c <= 'z') return c - 'a' + 26;
-    if (c >= '0' && c <= '9') return c - '0' + 52;
-    if (c == '+') return 62;
-    if (c == '/') return 63;
-    return -1;
-}
-
-static uint8_t *base64_decode(const char *input, size_t input_len, size_t *out_len)
-{
-    if (input_len == 0) {
-        *out_len = 0;
-        uint8_t *r = malloc(1);
-        if (r) r[0] = 0;
-        return r;
-    }
-
-    /* Remove padding for length calculation */
-    size_t padding = 0;
-    if (input_len >= 1 && input[input_len - 1] == '=') padding++;
-    if (input_len >= 2 && input[input_len - 2] == '=') padding++;
-
-    size_t decoded_len = (input_len / 4) * 3 - padding;
-    uint8_t *output = malloc(decoded_len + 1);
-    if (!output) { *out_len = 0; return NULL; }
-
-    size_t j = 0;
-    for (size_t i = 0; i < input_len; i += 4) {
-        int a = (i < input_len) ? b64_decode_char(input[i]) : 0;
-        int b = (i + 1 < input_len) ? b64_decode_char(input[i+1]) : 0;
-        int c = (i + 2 < input_len && input[i+2] != '=') ? b64_decode_char(input[i+2]) : 0;
-        int d = (i + 3 < input_len && input[i+3] != '=') ? b64_decode_char(input[i+3]) : 0;
-
-        if (a < 0) a = 0;
-        if (b < 0) b = 0;
-
-        uint32_t triple = ((uint32_t)a << 18) | ((uint32_t)b << 12) |
-                          ((uint32_t)c << 6) | (uint32_t)d;
-
-        if (j < decoded_len) output[j++] = (uint8_t)((triple >> 16) & 0xFF);
-        if (j < decoded_len) output[j++] = (uint8_t)((triple >> 8) & 0xFF);
-        if (j < decoded_len) output[j++] = (uint8_t)(triple & 0xFF);
-    }
-
-    *out_len = decoded_len;
-    return output;
-}
-
-/* ================================================================== */
 /*  JSON string escaping                                               */
 /* ================================================================== */
 
@@ -187,13 +100,27 @@ static void strbuf_append_json_string(StrBuf *sb, const char *str, size_t len)
     for (size_t i = 0; i < len; i++) {
         unsigned char c = (unsigned char)str[i];
         switch (c) {
-        case '"':  strbuf_append_str(sb, "\\\""); break;
-        case '\\': strbuf_append_str(sb, "\\\\"); break;
-        case '\b': strbuf_append_str(sb, "\\b");  break;
-        case '\f': strbuf_append_str(sb, "\\f");  break;
-        case '\n': strbuf_append_str(sb, "\\n");  break;
-        case '\r': strbuf_append_str(sb, "\\r");  break;
-        case '\t': strbuf_append_str(sb, "\\t");  break;
+        case '"':
+            strbuf_append_str(sb, "\\\"");
+            break;
+        case '\\':
+            strbuf_append_str(sb, "\\\\");
+            break;
+        case '\b':
+            strbuf_append_str(sb, "\\b");
+            break;
+        case '\f':
+            strbuf_append_str(sb, "\\f");
+            break;
+        case '\n':
+            strbuf_append_str(sb, "\\n");
+            break;
+        case '\r':
+            strbuf_append_str(sb, "\\r");
+            break;
+        case '\t':
+            strbuf_append_str(sb, "\\t");
+            break;
         default:
             if (c < 0x20) {
                 char esc[8];
@@ -237,8 +164,7 @@ static void json_encode_value(StrBuf *sb, EastValue *value, EastType *type)
     case EAST_TYPE_INTEGER: {
         /* Encode integer as JSON string to preserve 64-bit precision */
         char numbuf[32];
-        snprintf(numbuf, sizeof(numbuf), "\"%lld\"",
-                 (long long)value->data.integer);
+        snprintf(numbuf, sizeof(numbuf), "\"%lld\"", (long long)value->data.integer);
         strbuf_append_str(sb, numbuf);
         break;
     }
@@ -255,8 +181,7 @@ static void json_encode_value(StrBuf *sb, EastValue *value, EastType *type)
         } else {
             char numbuf[64];
             /* If the float is an exact integer in safe range, emit as integer */
-            if (f == (double)(long long)f &&
-                f >= -9007199254740992.0 && f <= 9007199254740992.0) {
+            if (f == (double)(long long)f && f >= -9007199254740992.0 && f <= 9007199254740992.0) {
                 snprintf(numbuf, sizeof(numbuf), "%lld", (long long)f);
             } else {
                 east_fmt_double(numbuf, sizeof(numbuf), f);
@@ -267,8 +192,7 @@ static void json_encode_value(StrBuf *sb, EastValue *value, EastType *type)
     }
 
     case EAST_TYPE_STRING:
-        strbuf_append_json_string(sb, value->data.string.data,
-                                  value->data.string.len);
+        strbuf_append_json_string(sb, value->data.string.data, value->data.string.len);
         break;
 
     case EAST_TYPE_DATETIME: {
@@ -276,7 +200,10 @@ static void json_encode_value(StrBuf *sb, EastValue *value, EastType *type)
         int64_t millis = value->data.datetime;
         int64_t secs = millis / 1000;
         int64_t ms = millis % 1000;
-        if (ms < 0) { ms += 1000; secs--; }
+        if (ms < 0) {
+            ms += 1000;
+            secs--;
+        }
 
         /* Convert epoch seconds to date components */
         /* Using a simple gmtime-style calculation */
@@ -286,8 +213,11 @@ static void json_encode_value(StrBuf *sb, EastValue *value, EastType *type)
 
         /* Days from epoch */
         int64_t days = secs / 86400;
-        int64_t rem  = secs % 86400;
-        if (rem < 0) { rem += 86400; days--; }
+        int64_t rem = secs % 86400;
+        if (rem < 0) {
+            rem += 86400;
+            days--;
+        }
 
         dt.hour = (int)(rem / 3600);
         rem %= 3600;
@@ -299,11 +229,11 @@ static void json_encode_value(StrBuf *sb, EastValue *value, EastType *type)
         int64_t z = days + 719468;
         int64_t era = (z >= 0 ? z : z - 146096) / 146097;
         int64_t doe = z - era * 146097;
-        int64_t yoe = (doe - doe/1460 + doe/36524 - doe/146096) / 365;
+        int64_t yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
         int64_t y = yoe + era * 400;
-        int64_t doy = doe - (365*yoe + yoe/4 - yoe/100);
-        int64_t mp = (5*doy + 2) / 153;
-        int64_t d = doy - (153*mp + 2)/5 + 1;
+        int64_t doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        int64_t mp = (5 * doy + 2) / 153;
+        int64_t d = doy - (153 * mp + 2) / 5 + 1;
         int64_t m = mp + (mp < 10 ? 3 : -9);
         y += (m <= 2) ? 1 : 0;
 
@@ -312,10 +242,8 @@ static void json_encode_value(StrBuf *sb, EastValue *value, EastType *type)
         dt.day = (int)d;
 
         char datebuf[64];
-        snprintf(datebuf, sizeof(datebuf),
-                 "\"%04d-%02d-%02dT%02d:%02d:%02d.%03d+00:00\"",
-                 dt.year, dt.month, dt.day,
-                 dt.hour, dt.min, dt.sec, (int)ms);
+        snprintf(datebuf, sizeof(datebuf), "\"%04d-%02d-%02dT%02d:%02d:%02d.%03d+00:00\"", dt.year,
+                 dt.month, dt.day, dt.hour, dt.min, dt.sec, (int)ms);
         strbuf_append_str(sb, datebuf);
         break;
     }
@@ -381,7 +309,8 @@ static void json_encode_value(StrBuf *sb, EastValue *value, EastType *type)
             strbuf_append_json_string(sb, fname, strlen(fname));
             strbuf_append_char(sb, ':');
             EastValue *fval = (value->kind == EAST_VAL_STRUCT && i < value->data.struct_.num_fields)
-                            ? value->data.struct_.field_values[i] : NULL;
+                                  ? value->data.struct_.field_values[i]
+                                  : NULL;
             json_encode_value(sb, fval, ftype);
         }
         strbuf_append_char(sb, '}');
@@ -391,8 +320,8 @@ static void json_encode_value(StrBuf *sb, EastValue *value, EastType *type)
     case EAST_TYPE_VARIANT: {
         size_t ci = value->data.variant.case_idx;
         const char *case_name = east_variant_case_name(value);
-        EastType *case_type = (ci < type->data.variant.num_cases)
-            ? type->data.variant.cases[ci].type : NULL;
+        EastType *case_type =
+            (ci < type->data.variant.num_cases) ? type->data.variant.cases[ci].type : NULL;
         strbuf_append_str(sb, "{\"type\":");
         strbuf_append_json_string(sb, case_name, strlen(case_name));
         strbuf_append_str(sb, ",\"value\":");
@@ -544,8 +473,7 @@ static bool jp_match_str(JsonParser *p, const char *s)
 {
     jp_skip_ws(p);
     size_t slen = strlen(s);
-    if (p->pos + slen <= p->len &&
-        memcmp(p->input + p->pos, s, slen) == 0) {
+    if (p->pos + slen <= p->len && memcmp(p->input + p->pos, s, slen) == 0) {
         p->pos += slen;
         return true;
     }
@@ -564,8 +492,10 @@ static void jp_skip_json_value(JsonParser *p)
         p->pos++; /* skip opening quote */
         while (p->pos < p->len) {
             char sc = p->input[p->pos++];
-            if (sc == '\\' && p->pos < p->len) p->pos++; /* skip escaped char */
-            else if (sc == '"') break;
+            if (sc == '\\' && p->pos < p->len)
+                p->pos++; /* skip escaped char */
+            else if (sc == '"')
+                break;
         }
     } else if (c == '{') {
         /* Skip object */
@@ -575,12 +505,17 @@ static void jp_skip_json_value(JsonParser *p)
         while (p->pos < p->len && depth > 0) {
             char oc = p->input[p->pos++];
             if (in_str) {
-                if (oc == '\\' && p->pos < p->len) p->pos++;
-                else if (oc == '"') in_str = false;
+                if (oc == '\\' && p->pos < p->len)
+                    p->pos++;
+                else if (oc == '"')
+                    in_str = false;
             } else {
-                if (oc == '"') in_str = true;
-                else if (oc == '{') depth++;
-                else if (oc == '}') depth--;
+                if (oc == '"')
+                    in_str = true;
+                else if (oc == '{')
+                    depth++;
+                else if (oc == '}')
+                    depth--;
             }
         }
     } else if (c == '[') {
@@ -591,12 +526,17 @@ static void jp_skip_json_value(JsonParser *p)
         while (p->pos < p->len && depth > 0) {
             char ac = p->input[p->pos++];
             if (in_str) {
-                if (ac == '\\' && p->pos < p->len) p->pos++;
-                else if (ac == '"') in_str = false;
+                if (ac == '\\' && p->pos < p->len)
+                    p->pos++;
+                else if (ac == '"')
+                    in_str = false;
             } else {
-                if (ac == '"') in_str = true;
-                else if (ac == '[') depth++;
-                else if (ac == ']') depth--;
+                if (ac == '"')
+                    in_str = true;
+                else if (ac == '[')
+                    depth++;
+                else if (ac == ']')
+                    depth--;
             }
         }
     } else if (c == 't') {
@@ -608,10 +548,10 @@ static void jp_skip_json_value(JsonParser *p)
     } else {
         /* Skip number */
         if (c == '-') p->pos++;
-        while (p->pos < p->len && (isdigit((unsigned char)p->input[p->pos]) ||
-               p->input[p->pos] == '.' || p->input[p->pos] == 'e' ||
-               p->input[p->pos] == 'E' || p->input[p->pos] == '+' ||
-               p->input[p->pos] == '-')) {
+        while (p->pos < p->len &&
+               (isdigit((unsigned char)p->input[p->pos]) || p->input[p->pos] == '.' ||
+                p->input[p->pos] == 'e' || p->input[p->pos] == 'E' || p->input[p->pos] == '+' ||
+                p->input[p->pos] == '-')) {
             p->pos++;
         }
     }
@@ -635,20 +575,42 @@ static char *jp_parse_string(JsonParser *p, size_t *out_len)
         }
         if (c == '\\') {
             p->pos++;
-            if (p->pos >= p->len) { free(sb.data); return NULL; }
+            if (p->pos >= p->len) {
+                free(sb.data);
+                return NULL;
+            }
             char esc = p->input[p->pos++];
             switch (esc) {
-            case '"':  strbuf_append_char(&sb, '"');  break;
-            case '\\': strbuf_append_char(&sb, '\\'); break;
-            case '/':  strbuf_append_char(&sb, '/');  break;
-            case 'b':  strbuf_append_char(&sb, '\b'); break;
-            case 'f':  strbuf_append_char(&sb, '\f'); break;
-            case 'n':  strbuf_append_char(&sb, '\n'); break;
-            case 'r':  strbuf_append_char(&sb, '\r'); break;
-            case 't':  strbuf_append_char(&sb, '\t'); break;
+            case '"':
+                strbuf_append_char(&sb, '"');
+                break;
+            case '\\':
+                strbuf_append_char(&sb, '\\');
+                break;
+            case '/':
+                strbuf_append_char(&sb, '/');
+                break;
+            case 'b':
+                strbuf_append_char(&sb, '\b');
+                break;
+            case 'f':
+                strbuf_append_char(&sb, '\f');
+                break;
+            case 'n':
+                strbuf_append_char(&sb, '\n');
+                break;
+            case 'r':
+                strbuf_append_char(&sb, '\r');
+                break;
+            case 't':
+                strbuf_append_char(&sb, '\t');
+                break;
             case 'u': {
                 /* Parse 4-digit hex */
-                if (p->pos + 4 > p->len) { free(sb.data); return NULL; }
+                if (p->pos + 4 > p->len) {
+                    free(sb.data);
+                    return NULL;
+                }
                 char hex[5];
                 memcpy(hex, p->input + p->pos, 4);
                 hex[4] = '\0';
@@ -688,16 +650,18 @@ static double jp_parse_number(JsonParser *p, char *raw_buf, size_t raw_cap)
     jp_skip_ws(p);
     size_t start = p->pos;
     if (p->pos < p->len && p->input[p->pos] == '-') p->pos++;
-    while (p->pos < p->len && isdigit((unsigned char)p->input[p->pos])) p->pos++;
+    while (p->pos < p->len && isdigit((unsigned char)p->input[p->pos]))
+        p->pos++;
     if (p->pos < p->len && p->input[p->pos] == '.') {
         p->pos++;
-        while (p->pos < p->len && isdigit((unsigned char)p->input[p->pos])) p->pos++;
+        while (p->pos < p->len && isdigit((unsigned char)p->input[p->pos]))
+            p->pos++;
     }
     if (p->pos < p->len && (p->input[p->pos] == 'e' || p->input[p->pos] == 'E')) {
         p->pos++;
-        if (p->pos < p->len && (p->input[p->pos] == '+' || p->input[p->pos] == '-'))
+        if (p->pos < p->len && (p->input[p->pos] == '+' || p->input[p->pos] == '-')) p->pos++;
+        while (p->pos < p->len && isdigit((unsigned char)p->input[p->pos]))
             p->pos++;
-        while (p->pos < p->len && isdigit((unsigned char)p->input[p->pos])) p->pos++;
     }
     size_t numlen = p->pos - start;
     if (raw_buf && numlen < raw_cap) {
@@ -718,10 +682,10 @@ static double jp_parse_number(JsonParser *p, char *raw_buf, size_t raw_cap)
 #include "east/hashmap.h"
 
 typedef struct {
-    char **segments;    /* path segment stack */
+    char **segments; /* path segment stack */
     size_t len;
     size_t cap;
-    Hashmap *cache;     /* path_key -> EastValue* (retained) */
+    Hashmap *cache; /* path_key -> EastValue* (retained) */
 } JRefCtx;
 
 static JRefCtx *jref_ctx_new(void)
@@ -737,9 +701,10 @@ static JRefCtx *jref_ctx_new(void)
 static void jref_ctx_free(JRefCtx *ctx)
 {
     if (!ctx) return;
-    for (size_t i = 0; i < ctx->len; i++) free(ctx->segments[i]);
+    for (size_t i = 0; i < ctx->len; i++)
+        free(ctx->segments[i]);
     free(ctx->segments);
-    hashmap_free(ctx->cache, (void(*)(void*))east_value_release);
+    hashmap_free(ctx->cache, (void (*)(void *))east_value_release);
     free(ctx);
 }
 
@@ -768,9 +733,12 @@ static char *jref_path_key(JRefCtx *ctx)
         /* RFC 6901 escaping: ~ -> ~0, / -> ~1 */
         const char *s = ctx->segments[i];
         for (; *s; s++) {
-            if (*s == '~')      strbuf_append_str(&sb, "~0");
-            else if (*s == '/') strbuf_append_str(&sb, "~1");
-            else                strbuf_append_char(&sb, *s);
+            if (*s == '~')
+                strbuf_append_str(&sb, "~0");
+            else if (*s == '/')
+                strbuf_append_str(&sb, "~1");
+            else
+                strbuf_append_char(&sb, *s);
         }
     }
     return strbuf_finish(&sb);
@@ -805,9 +773,12 @@ static EastValue *jref_resolve(JRefCtx *ctx, const char *ref_str)
         strbuf_append_char(&sb, '/');
         const char *s = ctx->segments[i];
         for (; *s; s++) {
-            if (*s == '~')      strbuf_append_str(&sb, "~0");
-            else if (*s == '/') strbuf_append_str(&sb, "~1");
-            else                strbuf_append_char(&sb, *s);
+            if (*s == '~')
+                strbuf_append_str(&sb, "~0");
+            else if (*s == '/')
+                strbuf_append_str(&sb, "~1");
+            else
+                strbuf_append_char(&sb, *s);
         }
     }
 
@@ -831,13 +802,18 @@ static EastValue *jref_resolve(JRefCtx *ctx, const char *ref_str)
 /* ================================================================== */
 
 typedef struct {
-    char *message;   /* e.g. "expected null, got 123" */
-    char *path;      /* e.g. "[1].value" or "" */
+    char *message; /* e.g. "expected null, got 123" */
+    char *path;    /* e.g. "[1].value" or "" */
 } JDecodeErr;
 
-static void jde_init(JDecodeErr *e) { e->message = NULL; e->path = NULL; }
+static void jde_init(JDecodeErr *e)
+{
+    e->message = NULL;
+    e->path = NULL;
+}
 
-static void jde_free(JDecodeErr *e) {
+static void jde_free(JDecodeErr *e)
+{
     free(e->message);
     free(e->path);
     e->message = NULL;
@@ -845,7 +821,8 @@ static void jde_free(JDecodeErr *e) {
 }
 
 /* Set error message (takes ownership of msg) */
-static void jde_set_msg(JDecodeErr *e, char *msg) {
+static void jde_set_msg(JDecodeErr *e, char *msg)
+{
     free(e->message);
     e->message = msg;
     free(e->path);
@@ -853,7 +830,8 @@ static void jde_set_msg(JDecodeErr *e, char *msg) {
 }
 
 /* Set error with path */
-static void jde_set_msg_path(JDecodeErr *e, char *msg, char *path) {
+static void jde_set_msg_path(JDecodeErr *e, char *msg, char *path)
+{
     free(e->message);
     e->message = msg;
     free(e->path);
@@ -862,7 +840,8 @@ static void jde_set_msg_path(JDecodeErr *e, char *msg, char *path) {
 
 /* Prepend a path segment to existing error path.
  * segment is like "[0]", ".fieldname", ".casename" */
-static void jde_prepend_path(JDecodeErr *e, const char *segment) {
+static void jde_prepend_path(JDecodeErr *e, const char *segment)
+{
     if (!e->message) return;
     if (!e->path || e->path[0] == '\0') {
         free(e->path);
@@ -880,7 +859,8 @@ static void jde_prepend_path(JDecodeErr *e, const char *segment) {
 
 /* Extract the raw JSON text for the value at current position.
  * Advances p->pos past the value. Returns allocated string. */
-static char *jp_extract_raw_value(JsonParser *p) {
+static char *jp_extract_raw_value(JsonParser *p)
+{
     jp_skip_ws(p);
     size_t start = p->pos;
     jp_skip_json_value(p);
@@ -893,7 +873,8 @@ static char *jp_extract_raw_value(JsonParser *p) {
 }
 
 /* Format: "expected X, got Y" — Y is the raw JSON at current position */
-static char *jp_fmt_error(JsonParser *p, const char *reason) {
+static char *jp_fmt_error(JsonParser *p, const char *reason)
+{
     char *raw = jp_extract_raw_value(p);
     size_t rlen = strlen(reason);
     size_t rawlen = strlen(raw);
@@ -904,12 +885,14 @@ static char *jp_fmt_error(JsonParser *p, const char *reason) {
 }
 
 /* Format error without "got" part */
-static char *jp_fmt_error_no_got(const char *reason) {
+static char *jp_fmt_error_no_got(const char *reason)
+{
     return strdup(reason);
 }
 
 /* Format: "reason, got RAW" where RAW is already a string */
-static char *jp_fmt_error_raw(const char *reason, const char *raw) {
+static char *jp_fmt_error_raw(const char *reason, const char *raw)
+{
     size_t rlen = strlen(reason);
     size_t rawlen = strlen(raw);
     char *msg = malloc(rlen + rawlen + 8);
@@ -985,7 +968,10 @@ static EastValue *jp_decode_array(JsonParser *p, EastType *type, JRefCtx *ctx)
     /* Register in cache BEFORE parsing elements (for forward refs) */
     if (ctx) jref_register(ctx, arr);
 
-    if (!jp_match(p, '[')) { east_value_release(arr); return NULL; }
+    if (!jp_match(p, '[')) {
+        east_value_release(arr);
+        return NULL;
+    }
 
     if (jp_peek(p) != ']') {
         size_t idx = 0;
@@ -998,7 +984,10 @@ static EastValue *jp_decode_array(JsonParser *p, EastType *type, JRefCtx *ctx)
 
             if (ctx) jref_pop(ctx);
 
-            if (!elem) { east_value_release(arr); return NULL; }
+            if (!elem) {
+                east_value_release(arr);
+                return NULL;
+            }
             if (type->kind == EAST_TYPE_SET) {
                 east_set_insert(arr, elem);
             } else {
@@ -1010,7 +999,10 @@ static EastValue *jp_decode_array(JsonParser *p, EastType *type, JRefCtx *ctx)
         }
     }
 
-    if (!jp_match(p, ']')) { east_value_release(arr); return NULL; }
+    if (!jp_match(p, ']')) {
+        east_value_release(arr);
+        return NULL;
+    }
     return arr;
 }
 
@@ -1026,7 +1018,7 @@ static EastValue *jp_decode(JsonParser *p, EastType *type, JRefCtx *ctx)
     }
 
     case EAST_TYPE_BOOLEAN: {
-        if (jp_match_str(p, "true"))  return east_boolean(true);
+        if (jp_match_str(p, "true")) return east_boolean(true);
         if (jp_match_str(p, "false")) return east_boolean(false);
         return NULL;
     }
@@ -1049,11 +1041,16 @@ static EastValue *jp_decode(JsonParser *p, EastType *type, JRefCtx *ctx)
             char *s = jp_parse_string(p, &slen);
             if (!s) return NULL;
             double v = 0.0;
-            if (strcmp(s, "NaN") == 0) v = NAN;
-            else if (strcmp(s, "Infinity") == 0) v = INFINITY;
-            else if (strcmp(s, "-Infinity") == 0) v = -INFINITY;
-            else if (strcmp(s, "-0.0") == 0) v = -0.0;
-            else v = strtod(s, NULL);
+            if (strcmp(s, "NaN") == 0)
+                v = NAN;
+            else if (strcmp(s, "Infinity") == 0)
+                v = INFINITY;
+            else if (strcmp(s, "-Infinity") == 0)
+                v = -INFINITY;
+            else if (strcmp(s, "-0.0") == 0)
+                v = -0.0;
+            else
+                v = strtod(s, NULL);
             free(s);
             return east_float(v);
         }
@@ -1080,8 +1077,7 @@ static EastValue *jp_decode(JsonParser *p, EastType *type, JRefCtx *ctx)
         int tz_sign = 1;
 
         if (slen >= 23) {
-            sscanf(s, "%d-%d-%dT%d:%d:%d.%d",
-                   &year, &month, &day, &hour, &min, &sec, &ms);
+            sscanf(s, "%d-%d-%dT%d:%d:%d.%d", &year, &month, &day, &hour, &min, &sec, &ms);
             const char *tz = s + 23;
             if (*tz == 'Z' || *tz == 'z') {
                 /* UTC */
@@ -1093,12 +1089,17 @@ static EastValue *jp_decode(JsonParser *p, EastType *type, JRefCtx *ctx)
 
         int64_t y = year;
         int64_t m_adj = month;
-        if (m_adj <= 2) { y--; m_adj += 9; } else { m_adj -= 3; }
+        if (m_adj <= 2) {
+            y--;
+            m_adj += 9;
+        } else {
+            m_adj -= 3;
+        }
 
         int64_t era = (y >= 0 ? y : y - 399) / 400;
         int64_t yoe = y - era * 400;
         int64_t doy = (153 * m_adj + 2) / 5 + day - 1;
-        int64_t doe = yoe * 365 + yoe/4 - yoe/100 + doy;
+        int64_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
         int64_t days = era * 146097 + doe - 719468;
 
         int64_t epoch_secs = days * 86400 + hour * 3600 + min * 60 + sec;
@@ -1123,10 +1124,13 @@ static EastValue *jp_decode(JsonParser *p, EastType *type, JRefCtx *ctx)
         }
         size_t blob_len = hex_len / 2;
         uint8_t *decoded = malloc(blob_len > 0 ? blob_len : 1);
-        if (!decoded) { free(s); return NULL; }
+        if (!decoded) {
+            free(s);
+            return NULL;
+        }
         for (size_t i = 0; i < blob_len; i++) {
             unsigned int byte_val = 0;
-            char byte_hex[3] = { hex[i * 2], hex[i * 2 + 1], '\0' };
+            char byte_hex[3] = {hex[i * 2], hex[i * 2 + 1], '\0'};
             sscanf(byte_hex, "%02x", &byte_val);
             decoded[i] = (uint8_t)byte_val;
         }
@@ -1151,12 +1155,18 @@ static EastValue *jp_decode(JsonParser *p, EastType *type, JRefCtx *ctx)
 
         if (ctx) jref_register(ctx, dict);
 
-        if (!jp_match(p, '[')) { east_value_release(dict); return NULL; }
+        if (!jp_match(p, '[')) {
+            east_value_release(dict);
+            return NULL;
+        }
 
         if (jp_peek(p) != ']') {
             size_t idx = 0;
             for (;;) {
-                if (!jp_match(p, '{')) { east_value_release(dict); return NULL; }
+                if (!jp_match(p, '{')) {
+                    east_value_release(dict);
+                    return NULL;
+                }
 
                 EastValue *k = NULL;
                 EastValue *v = NULL;
@@ -1164,20 +1174,35 @@ static EastValue *jp_decode(JsonParser *p, EastType *type, JRefCtx *ctx)
                 for (int fi = 0; fi < 2; fi++) {
                     size_t fname_len;
                     char *fname = jp_parse_string(p, &fname_len);
-                    if (!fname) { east_value_release(dict); return NULL; }
+                    if (!fname) {
+                        east_value_release(dict);
+                        return NULL;
+                    }
                     jp_match(p, ':');
                     if (strcmp(fname, "key") == 0) {
                         char seg[32];
                         snprintf(seg, sizeof(seg), "%zu", idx);
-                        if (ctx) { jref_push(ctx, seg); jref_push(ctx, "key"); }
+                        if (ctx) {
+                            jref_push(ctx, seg);
+                            jref_push(ctx, "key");
+                        }
                         k = jp_decode(p, key_type, ctx);
-                        if (ctx) { jref_pop(ctx); jref_pop(ctx); }
+                        if (ctx) {
+                            jref_pop(ctx);
+                            jref_pop(ctx);
+                        }
                     } else if (strcmp(fname, "value") == 0) {
                         char seg[32];
                         snprintf(seg, sizeof(seg), "%zu", idx);
-                        if (ctx) { jref_push(ctx, seg); jref_push(ctx, "value"); }
+                        if (ctx) {
+                            jref_push(ctx, seg);
+                            jref_push(ctx, "value");
+                        }
                         v = jp_decode(p, val_type, ctx);
-                        if (ctx) { jref_pop(ctx); jref_pop(ctx); }
+                        if (ctx) {
+                            jref_pop(ctx);
+                            jref_pop(ctx);
+                        }
                     }
                     free(fname);
                     if (fi == 0) jp_match(p, ',');
@@ -1199,7 +1224,10 @@ static EastValue *jp_decode(JsonParser *p, EastType *type, JRefCtx *ctx)
             }
         }
 
-        if (!jp_match(p, ']')) { east_value_release(dict); return NULL; }
+        if (!jp_match(p, ']')) {
+            east_value_release(dict);
+            return NULL;
+        }
         return dict;
     }
 
@@ -1268,7 +1296,7 @@ static EastValue *jp_decode(JsonParser *p, EastType *type, JRefCtx *ctx)
         free(values);
         return result;
 
-struct_fail:
+    struct_fail:
         for (size_t i = 0; i < nf; i++) {
             if (values[i]) east_value_release(values[i]);
         }
@@ -1289,7 +1317,10 @@ struct_fail:
         for (int fi = 0; fi < 2; fi++) {
             size_t fname_len;
             char *fname = jp_parse_string(p, &fname_len);
-            if (!fname) { free(case_name); return NULL; }
+            if (!fname) {
+                free(case_name);
+                return NULL;
+            }
             jp_match(p, ':');
 
             if (strcmp(fname, "type") == 0) {
@@ -1323,7 +1354,10 @@ struct_fail:
             return NULL;
         }
 
-        if (!case_name) { if (case_value) east_value_release(case_value); return NULL; }
+        if (!case_name) {
+            if (case_value) east_value_release(case_value);
+            return NULL;
+        }
         if (!case_value) case_value = east_null();
 
         EastValue *result = east_variant_new(case_name, case_value, type);
@@ -1340,7 +1374,10 @@ struct_fail:
         if (!jp_match(p, '[')) return NULL;
         EastValue *inner = jp_decode(p, type->data.element, ctx);
         if (!inner) return NULL;
-        if (!jp_match(p, ']')) { east_value_release(inner); return NULL; }
+        if (!jp_match(p, ']')) {
+            east_value_release(inner);
+            return NULL;
+        }
 
         if (ctx) jref_register(ctx, inner);
 
@@ -1373,12 +1410,18 @@ struct_fail:
                 if (len >= cap) {
                     cap *= 2;
                     void *nd = realloc(tmp_data, cap * elem_size);
-                    if (!nd) { free(tmp_data); return NULL; }
+                    if (!nd) {
+                        free(tmp_data);
+                        return NULL;
+                    }
                     tmp_data = nd;
                 }
 
                 EastValue *elem = jp_decode(p, elem_type, ctx);
-                if (!elem) { free(tmp_data); return NULL; }
+                if (!elem) {
+                    free(tmp_data);
+                    return NULL;
+                }
 
                 if (elem_type->kind == EAST_TYPE_FLOAT) {
                     ((double *)tmp_data)[len] = elem->data.float64;
@@ -1394,7 +1437,10 @@ struct_fail:
             }
         }
 
-        if (!jp_match(p, ']')) { free(tmp_data); return NULL; }
+        if (!jp_match(p, ']')) {
+            free(tmp_data);
+            return NULL;
+        }
 
         EastValue *vec = east_vector_new(elem_type, len);
         if (vec && len > 0) {
@@ -1426,7 +1472,10 @@ struct_fail:
 
         if (jp_peek(p) != ']') {
             for (;;) {
-                if (!jp_match(p, '[')) { free(flat_data); return NULL; }
+                if (!jp_match(p, '[')) {
+                    free(flat_data);
+                    return NULL;
+                }
 
                 size_t row_cols = 0;
                 if (jp_peek(p) != ']') {
@@ -1434,12 +1483,18 @@ struct_fail:
                         if (flat_len >= cap_flat) {
                             cap_flat *= 2;
                             void *nd = realloc(flat_data, cap_flat * elem_size);
-                            if (!nd) { free(flat_data); return NULL; }
+                            if (!nd) {
+                                free(flat_data);
+                                return NULL;
+                            }
                             flat_data = nd;
                         }
 
                         EastValue *elem = jp_decode(p, elem_type, ctx);
-                        if (!elem) { free(flat_data); return NULL; }
+                        if (!elem) {
+                            free(flat_data);
+                            return NULL;
+                        }
 
                         if (elem_type->kind == EAST_TYPE_FLOAT) {
                             ((double *)flat_data)[flat_len] = elem->data.float64;
@@ -1456,7 +1511,10 @@ struct_fail:
                     }
                 }
 
-                if (!jp_match(p, ']')) { free(flat_data); return NULL; }
+                if (!jp_match(p, ']')) {
+                    free(flat_data);
+                    return NULL;
+                }
 
                 if (rows == 0) cols = row_cols;
                 rows++;
@@ -1465,7 +1523,10 @@ struct_fail:
             }
         }
 
-        if (!jp_match(p, ']')) { free(flat_data); return NULL; }
+        if (!jp_match(p, ']')) {
+            free(flat_data);
+            return NULL;
+        }
 
         EastValue *mat = east_matrix_new(elem_type, rows, cols);
         if (mat && flat_len > 0) {
@@ -1529,7 +1590,7 @@ static EastValue *jp_decode_err(JsonParser *p, EastType *type, JRefCtx *ctx, JDe
     }
 
     case EAST_TYPE_BOOLEAN: {
-        if (jp_match_str(p, "true"))  return east_boolean(true);
+        if (jp_match_str(p, "true")) return east_boolean(true);
         if (jp_match_str(p, "false")) return east_boolean(false);
         if (err) jde_set_msg(err, jp_fmt_error(p, "expected boolean"));
         return NULL;
@@ -1542,13 +1603,19 @@ static EastValue *jp_decode_err(JsonParser *p, EastType *type, JRefCtx *ctx, JDe
             size_t slen;
             char *s = jp_parse_string(p, &slen);
             if (!s) {
-                if (err) { p->pos = save; jde_set_msg(err, jp_fmt_error(p, "expected string representing integer")); }
+                if (err) {
+                    p->pos = save;
+                    jde_set_msg(err, jp_fmt_error(p, "expected string representing integer"));
+                }
                 return NULL;
             }
             /* Check empty string */
             if (slen == 0) {
                 free(s);
-                if (err) { p->pos = save; jde_set_msg(err, jp_fmt_error(p, "expected string representing integer")); }
+                if (err) {
+                    p->pos = save;
+                    jde_set_msg(err, jp_fmt_error(p, "expected string representing integer"));
+                }
                 return NULL;
             }
             /* Try to parse as integer */
@@ -1557,7 +1624,10 @@ static EastValue *jp_decode_err(JsonParser *p, EastType *type, JRefCtx *ctx, JDe
             if (*end != '\0') {
                 /* Non-numeric string */
                 free(s);
-                if (err) { p->pos = save; jde_set_msg(err, jp_fmt_error(p, "expected string representing integer")); }
+                if (err) {
+                    p->pos = save;
+                    jde_set_msg(err, jp_fmt_error(p, "expected string representing integer"));
+                }
                 return NULL;
             }
             /* Check for overflow: strtoll saturates at LLONG_MAX/LLONG_MIN
@@ -1568,7 +1638,11 @@ static EastValue *jp_decode_err(JsonParser *p, EastType *type, JRefCtx *ctx, JDe
             if (strcmp(check, s) != 0) {
                 /* Overflow */
                 free(s);
-                if (err) { p->pos = save; jde_set_msg(err, jp_fmt_error(p, "integer out of range (must be 64-bit signed)")); }
+                if (err) {
+                    p->pos = save;
+                    jde_set_msg(err,
+                                jp_fmt_error(p, "integer out of range (must be 64-bit signed)"));
+                }
                 return NULL;
             }
             free(s);
@@ -1587,18 +1661,32 @@ static EastValue *jp_decode_err(JsonParser *p, EastType *type, JRefCtx *ctx, JDe
             size_t slen;
             char *s = jp_parse_string(p, &slen);
             if (!s) {
-                if (err) { p->pos = save; jde_set_msg(err, jp_fmt_error(p, "expected number or string representing special float value")); }
+                if (err) {
+                    p->pos = save;
+                    jde_set_msg(
+                        err, jp_fmt_error(
+                                 p, "expected number or string representing special float value"));
+                }
                 return NULL;
             }
             double v = 0.0;
-            if (strcmp(s, "NaN") == 0) v = NAN;
-            else if (strcmp(s, "Infinity") == 0) v = INFINITY;
-            else if (strcmp(s, "-Infinity") == 0) v = -INFINITY;
-            else if (strcmp(s, "-0.0") == 0) v = -0.0;
+            if (strcmp(s, "NaN") == 0)
+                v = NAN;
+            else if (strcmp(s, "Infinity") == 0)
+                v = INFINITY;
+            else if (strcmp(s, "-Infinity") == 0)
+                v = -INFINITY;
+            else if (strcmp(s, "-0.0") == 0)
+                v = -0.0;
             else {
                 /* Unknown string value for float */
                 free(s);
-                if (err) { p->pos = save; jde_set_msg(err, jp_fmt_error(p, "expected number or string representing special float value")); }
+                if (err) {
+                    p->pos = save;
+                    jde_set_msg(
+                        err, jp_fmt_error(
+                                 p, "expected number or string representing special float value"));
+                }
                 return NULL;
             }
             free(s);
@@ -1608,7 +1696,9 @@ static EastValue *jp_decode_err(JsonParser *p, EastType *type, JRefCtx *ctx, JDe
             double v = jp_parse_number(p, NULL, 0);
             return east_float(v);
         }
-        if (err) jde_set_msg(err, jp_fmt_error(p, "expected number or string representing special float value"));
+        if (err)
+            jde_set_msg(
+                err, jp_fmt_error(p, "expected number or string representing special float value"));
         return NULL;
     }
 
@@ -1617,7 +1707,10 @@ static EastValue *jp_decode_err(JsonParser *p, EastType *type, JRefCtx *ctx, JDe
         if (p->pos < p->len && p->input[p->pos] == '"') {
             size_t slen;
             char *s = jp_parse_string(p, &slen);
-            if (!s) { if (err) jde_set_msg(err, jp_fmt_error_no_got("expected string")); return NULL; }
+            if (!s) {
+                if (err) jde_set_msg(err, jp_fmt_error_no_got("expected string"));
+                return NULL;
+            }
             EastValue *val = east_string_len(s, slen);
             free(s);
             return val;
@@ -1633,7 +1726,10 @@ static EastValue *jp_decode_err(JsonParser *p, EastType *type, JRefCtx *ctx, JDe
             size_t slen;
             char *s = jp_parse_string(p, &slen);
             if (!s) {
-                if (err) { p->pos = save; jde_set_msg(err, jp_fmt_error(p, "expected string for DateTime")); }
+                if (err) {
+                    p->pos = save;
+                    jde_set_msg(err, jp_fmt_error(p, "expected string for DateTime"));
+                }
                 return NULL;
             }
             /* Validate ISO 8601 format with timezone */
@@ -1642,14 +1738,21 @@ static EastValue *jp_decode_err(JsonParser *p, EastType *type, JRefCtx *ctx, JDe
             if (slen >= 24) {
                 /* Check basic structure */
                 bool has_tz = false;
-                if (s[slen-1] == 'Z' || s[slen-1] == 'z') has_tz = true;
-                if (slen >= 29 && (s[slen-6] == '+' || s[slen-6] == '-')) has_tz = true;
+                if (s[slen - 1] == 'Z' || s[slen - 1] == 'z') has_tz = true;
+                if (slen >= 29 && (s[slen - 6] == '+' || s[slen - 6] == '-')) has_tz = true;
                 valid_format = has_tz;
             }
             if (!valid_format) {
                 free(s);
-                if (err) { p->pos = save; jde_set_msg(err, jp_fmt_error(p,
-                    "expected ISO 8601 date string with timezone (e.g. \"2022-06-29T13:43:00.123Z\" or \"2022-06-29T13:43:00.123+05:00\")")); }
+                if (err) {
+                    p->pos = save;
+                    jde_set_msg(
+                        err,
+                        jp_fmt_error(
+                            p,
+                            "expected ISO 8601 date string with timezone (e.g. "
+                            "\"2022-06-29T13:43:00.123Z\" or \"2022-06-29T13:43:00.123+05:00\")"));
+                }
                 return NULL;
             }
 
@@ -1657,8 +1760,7 @@ static EastValue *jp_decode_err(JsonParser *p, EastType *type, JRefCtx *ctx, JDe
             int tz_hour = 0, tz_min = 0;
             int tz_sign = 1;
 
-            sscanf(s, "%d-%d-%dT%d:%d:%d.%d",
-                   &year, &month, &day, &hour, &min, &sec, &ms);
+            sscanf(s, "%d-%d-%dT%d:%d:%d.%d", &year, &month, &day, &hour, &min, &sec, &ms);
             const char *tz = s + 23;
             if (*tz == 'Z' || *tz == 'z') {
                 /* UTC */
@@ -1668,17 +1770,22 @@ static EastValue *jp_decode_err(JsonParser *p, EastType *type, JRefCtx *ctx, JDe
             }
 
             /* Validate date values */
-            if (month < 1 || month > 12 || day < 1 || day > 31 ||
-                hour > 23 || min > 59 || sec > 59) {
+            if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || min > 59 ||
+                sec > 59) {
                 /* Check if Date would be invalid */
                 /* Simple check: very out-of-range values */
                 int64_t y = year;
                 int64_t m_adj = month;
-                if (m_adj <= 2) { y--; m_adj += 9; } else { m_adj -= 3; }
+                if (m_adj <= 2) {
+                    y--;
+                    m_adj += 9;
+                } else {
+                    m_adj -= 3;
+                }
                 int64_t era = (y >= 0 ? y : y - 399) / 400;
                 int64_t yoe = y - era * 400;
                 int64_t doy = (153 * m_adj + 2) / 5 + day - 1;
-                int64_t doe = yoe * 365 + yoe/4 - yoe/100 + doy;
+                int64_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
                 int64_t days = era * 146097 + doe - 719468;
                 int64_t epoch_secs = days * 86400 + hour * 3600 + min * 60 + sec;
                 epoch_secs -= tz_sign * (tz_hour * 3600 + tz_min * 60);
@@ -1687,7 +1794,10 @@ static EastValue *jp_decode_err(JsonParser *p, EastType *type, JRefCtx *ctx, JDe
                 /* For extreme values like month 13 or hour 25, TS new Date() gives invalid */
                 if (month > 12 || hour > 23 || min > 59 || sec > 59) {
                     free(s);
-                    if (err) { p->pos = save; jde_set_msg(err, jp_fmt_error(p, "invalid date string")); }
+                    if (err) {
+                        p->pos = save;
+                        jde_set_msg(err, jp_fmt_error(p, "invalid date string"));
+                    }
                     return NULL;
                 }
                 free(s);
@@ -1696,11 +1806,16 @@ static EastValue *jp_decode_err(JsonParser *p, EastType *type, JRefCtx *ctx, JDe
 
             int64_t y = year;
             int64_t m_adj = month;
-            if (m_adj <= 2) { y--; m_adj += 9; } else { m_adj -= 3; }
+            if (m_adj <= 2) {
+                y--;
+                m_adj += 9;
+            } else {
+                m_adj -= 3;
+            }
             int64_t era = (y >= 0 ? y : y - 399) / 400;
             int64_t yoe = y - era * 400;
             int64_t doy = (153 * m_adj + 2) / 5 + day - 1;
-            int64_t doe = yoe * 365 + yoe/4 - yoe/100 + doy;
+            int64_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
             int64_t days = era * 146097 + doe - 719468;
             int64_t epoch_secs = days * 86400 + hour * 3600 + min * 60 + sec;
             epoch_secs -= tz_sign * (tz_hour * 3600 + tz_min * 60);
@@ -1719,12 +1834,18 @@ static EastValue *jp_decode_err(JsonParser *p, EastType *type, JRefCtx *ctx, JDe
             size_t slen;
             char *s = jp_parse_string(p, &slen);
             if (!s) {
-                if (err) { p->pos = save; jde_set_msg(err, jp_fmt_error(p, "expected hex string starting with 0x")); }
+                if (err) {
+                    p->pos = save;
+                    jde_set_msg(err, jp_fmt_error(p, "expected hex string starting with 0x"));
+                }
                 return NULL;
             }
             if (slen < 2 || s[0] != '0' || s[1] != 'x') {
                 free(s);
-                if (err) { p->pos = save; jde_set_msg(err, jp_fmt_error(p, "expected hex string starting with 0x")); }
+                if (err) {
+                    p->pos = save;
+                    jde_set_msg(err, jp_fmt_error(p, "expected hex string starting with 0x"));
+                }
                 return NULL;
             }
             const char *hex = s + 2;
@@ -1740,15 +1861,21 @@ static EastValue *jp_decode_err(JsonParser *p, EastType *type, JRefCtx *ctx, JDe
             }
             if (!valid_hex || hex_len % 2 != 0) {
                 free(s);
-                if (err) { p->pos = save; jde_set_msg(err, jp_fmt_error(p, "invalid hex string")); }
+                if (err) {
+                    p->pos = save;
+                    jde_set_msg(err, jp_fmt_error(p, "invalid hex string"));
+                }
                 return NULL;
             }
             size_t blob_len = hex_len / 2;
             uint8_t *decoded = malloc(blob_len > 0 ? blob_len : 1);
-            if (!decoded) { free(s); return NULL; }
+            if (!decoded) {
+                free(s);
+                return NULL;
+            }
             for (size_t i = 0; i < blob_len; i++) {
                 unsigned int byte_val = 0;
-                char byte_hex[3] = { hex[i * 2], hex[i * 2 + 1], '\0' };
+                char byte_hex[3] = {hex[i * 2], hex[i * 2 + 1], '\0'};
                 sscanf(byte_hex, "%02x", &byte_val);
                 decoded[i] = (uint8_t)byte_val;
             }
@@ -1770,9 +1897,9 @@ static EastValue *jp_decode_err(JsonParser *p, EastType *type, JRefCtx *ctx, JDe
         if (ref) return ref;
 
         jp_skip_ws(p);
-        size_t save = p->pos;
         if (p->pos >= p->len || p->input[p->pos] != '[') {
-            const char *ename = (type->kind == EAST_TYPE_DICT) ? "expected array for Dict" : "expected array";
+            const char *ename =
+                (type->kind == EAST_TYPE_DICT) ? "expected array for Dict" : "expected array";
             if (err) jde_set_msg(err, jp_fmt_error(p, ename));
             return NULL;
         }
@@ -1784,20 +1911,23 @@ static EastValue *jp_decode_err(JsonParser *p, EastType *type, JRefCtx *ctx, JDe
 
         if (ctx) jref_register(ctx, dict);
 
-        if (!jp_match(p, '[')) { east_value_release(dict); return NULL; }
+        if (!jp_match(p, '[')) {
+            east_value_release(dict);
+            return NULL;
+        }
 
         if (jp_peek(p) != ']') {
             size_t idx = 0;
             for (;;) {
                 /* Each dict entry must be an object with "key" and "value" */
                 jp_skip_ws(p);
-                size_t entry_save = p->pos;
                 if (p->pos >= p->len || p->input[p->pos] != '{') {
                     /* Not an object */
                     if (err) {
                         char *raw = jp_extract_raw_value(p);
                         char reason[128];
-                        snprintf(reason, sizeof(reason), "expected object with key and value for Dict entry");
+                        snprintf(reason, sizeof(reason),
+                                 "expected object with key and value for Dict entry");
                         jde_set_msg(err, jp_fmt_error_raw(reason, raw));
                         char pathbuf[32];
                         snprintf(pathbuf, sizeof(pathbuf), "[%zu]", idx);
@@ -1810,7 +1940,10 @@ static EastValue *jp_decode_err(JsonParser *p, EastType *type, JRefCtx *ctx, JDe
 
                 /* Parse entry: save raw for error messages */
                 size_t obj_start = p->pos;
-                if (!jp_match(p, '{')) { east_value_release(dict); return NULL; }
+                if (!jp_match(p, '{')) {
+                    east_value_release(dict);
+                    return NULL;
+                }
 
                 EastValue *k = NULL;
                 EastValue *v = NULL;
@@ -1823,21 +1956,31 @@ static EastValue *jp_decode_err(JsonParser *p, EastType *type, JRefCtx *ctx, JDe
                     for (;;) {
                         size_t fname_len;
                         char *fname = jp_parse_string(p, &fname_len);
-                        if (!fname) { east_value_release(dict); return NULL; }
+                        if (!fname) {
+                            east_value_release(dict);
+                            return NULL;
+                        }
                         jp_match(p, ':');
                         if (strcmp(fname, "key") == 0) {
                             char seg[32];
                             snprintf(seg, sizeof(seg), "%zu", idx);
-                            if (ctx) { jref_push(ctx, seg); jref_push(ctx, "key"); }
+                            if (ctx) {
+                                jref_push(ctx, seg);
+                                jref_push(ctx, "key");
+                            }
                             JDecodeErr inner_err;
                             jde_init(&inner_err);
                             k = jp_decode_err(p, key_type, ctx, err ? &inner_err : NULL);
-                            if (ctx) { jref_pop(ctx); jref_pop(ctx); }
+                            if (ctx) {
+                                jref_pop(ctx);
+                                jref_pop(ctx);
+                            }
                             if (!k && err && inner_err.message) {
                                 char pathbuf[64];
                                 snprintf(pathbuf, sizeof(pathbuf), "[%zu].key", idx);
                                 jde_set_msg_path(err, inner_err.message, inner_err.path);
-                                inner_err.message = NULL; inner_err.path = NULL;
+                                inner_err.message = NULL;
+                                inner_err.path = NULL;
                                 jde_prepend_path(err, pathbuf);
                                 jde_free(&inner_err);
                                 free(fname);
@@ -1851,16 +1994,23 @@ static EastValue *jp_decode_err(JsonParser *p, EastType *type, JRefCtx *ctx, JDe
                         } else if (strcmp(fname, "value") == 0) {
                             char seg[32];
                             snprintf(seg, sizeof(seg), "%zu", idx);
-                            if (ctx) { jref_push(ctx, seg); jref_push(ctx, "value"); }
+                            if (ctx) {
+                                jref_push(ctx, seg);
+                                jref_push(ctx, "value");
+                            }
                             JDecodeErr inner_err;
                             jde_init(&inner_err);
                             v = jp_decode_err(p, val_type, ctx, err ? &inner_err : NULL);
-                            if (ctx) { jref_pop(ctx); jref_pop(ctx); }
+                            if (ctx) {
+                                jref_pop(ctx);
+                                jref_pop(ctx);
+                            }
                             if (!v && err && inner_err.message) {
                                 char pathbuf[64];
                                 snprintf(pathbuf, sizeof(pathbuf), "[%zu].value", idx);
                                 jde_set_msg_path(err, inner_err.message, inner_err.path);
-                                inner_err.message = NULL; inner_err.path = NULL;
+                                inner_err.message = NULL;
+                                inner_err.path = NULL;
                                 jde_prepend_path(err, pathbuf);
                                 jde_free(&inner_err);
                                 free(fname);
@@ -1898,7 +2048,8 @@ static EastValue *jp_decode_err(JsonParser *p, EastType *type, JRefCtx *ctx, JDe
                     memcpy(raw, p->input + obj_start, raw_len);
                     raw[raw_len] = '\0';
                     char *reason = malloc(128 + strlen(extra_name));
-                    sprintf(reason, "unexpected field \"%s\" in Dict entry, got %s", extra_name, raw);
+                    sprintf(reason, "unexpected field \"%s\" in Dict entry, got %s", extra_name,
+                            raw);
                     free(raw);
                     char pathbuf[32];
                     snprintf(pathbuf, sizeof(pathbuf), "[%zu]", idx);
@@ -1917,7 +2068,8 @@ static EastValue *jp_decode_err(JsonParser *p, EastType *type, JRefCtx *ctx, JDe
                     memcpy(raw, p->input + obj_start, raw_len);
                     raw[raw_len] = '\0';
                     char *reason = malloc(128 + raw_len);
-                    sprintf(reason, "expected object with key and value for Dict entry, got %s", raw);
+                    sprintf(reason, "expected object with key and value for Dict entry, got %s",
+                            raw);
                     free(raw);
                     char pathbuf[32];
                     snprintf(pathbuf, sizeof(pathbuf), "[%zu]", idx);
@@ -1937,7 +2089,10 @@ static EastValue *jp_decode_err(JsonParser *p, EastType *type, JRefCtx *ctx, JDe
             }
         }
 
-        if (!jp_match(p, ']')) { east_value_release(dict); return NULL; }
+        if (!jp_match(p, ']')) {
+            east_value_release(dict);
+            return NULL;
+        }
         return dict;
     }
 
@@ -2008,7 +2163,8 @@ static EastValue *jp_decode_err(JsonParser *p, EastType *type, JRefCtx *ctx, JDe
                         char pathbuf[256];
                         snprintf(pathbuf, sizeof(pathbuf), ".%s", fname);
                         jde_set_msg_path(err, inner_err.message, inner_err.path);
-                        inner_err.message = NULL; inner_err.path = NULL;
+                        inner_err.message = NULL;
+                        inner_err.path = NULL;
                         jde_prepend_path(err, pathbuf);
                         jde_free(&inner_err);
                         free(fname);
@@ -2078,7 +2234,7 @@ static EastValue *jp_decode_err(JsonParser *p, EastType *type, JRefCtx *ctx, JDe
             return result;
         }
 
-struct_err_fail:
+    struct_err_fail:
         for (size_t i = 0; i < nf; i++) {
             if (values[i]) east_value_release(values[i]);
         }
@@ -2094,7 +2250,9 @@ struct_err_fail:
         jp_skip_ws(p);
         size_t obj_start = p->pos;
         if (p->pos >= p->len || p->input[p->pos] != '{') {
-            if (err) jde_set_msg(err, jp_fmt_error(p, "expected object with type and value for Variant"));
+            if (err)
+                jde_set_msg(err,
+                            jp_fmt_error(p, "expected object with type and value for Variant"));
             return NULL;
         }
 
@@ -2106,10 +2264,13 @@ struct_err_fail:
 
         for (int fi = 0; fi < 2; fi++) {
             jp_skip_ws(p);
-            if (p->pos < p->len && p->input[p->pos] == '}') break;  /* fewer than 2 fields */
+            if (p->pos < p->len && p->input[p->pos] == '}') break; /* fewer than 2 fields */
             size_t fname_len;
             char *fname = jp_parse_string(p, &fname_len);
-            if (!fname) { free(case_name); return NULL; }
+            if (!fname) {
+                free(case_name);
+                return NULL;
+            }
             jp_match(p, ':');
 
             if (strcmp(fname, "type") == 0) {
@@ -2135,7 +2296,8 @@ struct_err_fail:
                             char pathbuf[256];
                             snprintf(pathbuf, sizeof(pathbuf), ".%s", case_name);
                             jde_set_msg_path(err, inner_err.message, inner_err.path);
-                            inner_err.message = NULL; inner_err.path = NULL;
+                            inner_err.message = NULL;
+                            inner_err.path = NULL;
                             jde_prepend_path(err, pathbuf);
                             jde_free(&inner_err);
                             free(fname);
@@ -2172,7 +2334,8 @@ struct_err_fail:
                 char *raw = malloc(raw_len + 1);
                 memcpy(raw, p->input + obj_start, raw_len);
                 raw[raw_len] = '\0';
-                jde_set_msg(err, jp_fmt_error_raw("expected object with type and value for Variant", raw));
+                jde_set_msg(
+                    err, jp_fmt_error_raw("expected object with type and value for Variant", raw));
                 free(raw);
             }
             free(case_name);
@@ -2180,7 +2343,10 @@ struct_err_fail:
             return NULL;
         }
 
-        if (!case_name) { if (case_value) east_value_release(case_value); return NULL; }
+        if (!case_name) {
+            if (case_value) east_value_release(case_value);
+            return NULL;
+        }
 
         /* Check if case name is known */
         bool known_case = false;
@@ -2219,7 +2385,6 @@ struct_err_fail:
         if (ref) return ref;
 
         jp_skip_ws(p);
-        size_t save = p->pos;
         if (p->pos >= p->len || p->input[p->pos] != '[') {
             if (err) jde_set_msg(err, jp_fmt_error(p, "expected array with 1 entry"));
             return NULL;
@@ -2231,13 +2396,17 @@ struct_err_fail:
         if (!inner) {
             if (err && inner_err.message) {
                 jde_set_msg_path(err, inner_err.message, inner_err.path);
-                inner_err.message = NULL; inner_err.path = NULL;
+                inner_err.message = NULL;
+                inner_err.path = NULL;
             }
             jde_free(&inner_err);
             return NULL;
         }
         jde_free(&inner_err);
-        if (!jp_match(p, ']')) { east_value_release(inner); return NULL; }
+        if (!jp_match(p, ']')) {
+            east_value_release(inner);
+            return NULL;
+        }
         if (ctx) jref_register(ctx, inner);
         EastValue *result = east_ref_new(inner);
         east_value_release(inner);
@@ -2256,9 +2425,12 @@ struct_err_fail:
         void *tmp_data = NULL;
         size_t elem_size = 0;
 
-        if (elem_type->kind == EAST_TYPE_FLOAT) elem_size = sizeof(double);
-        else if (elem_type->kind == EAST_TYPE_INTEGER) elem_size = sizeof(int64_t);
-        else if (elem_type->kind == EAST_TYPE_BOOLEAN) elem_size = sizeof(bool);
+        if (elem_type->kind == EAST_TYPE_FLOAT)
+            elem_size = sizeof(double);
+        else if (elem_type->kind == EAST_TYPE_INTEGER)
+            elem_size = sizeof(int64_t);
+        else if (elem_type->kind == EAST_TYPE_BOOLEAN)
+            elem_size = sizeof(bool);
 
         tmp_data = malloc(cap * elem_size);
         if (!tmp_data) return NULL;
@@ -2268,7 +2440,10 @@ struct_err_fail:
                 if (len >= cap) {
                     cap *= 2;
                     void *nd = realloc(tmp_data, cap * elem_size);
-                    if (!nd) { free(tmp_data); return NULL; }
+                    if (!nd) {
+                        free(tmp_data);
+                        return NULL;
+                    }
                     tmp_data = nd;
                 }
                 JDecodeErr inner_err;
@@ -2279,7 +2454,8 @@ struct_err_fail:
                         char pathbuf[32];
                         snprintf(pathbuf, sizeof(pathbuf), "[%zu]", len);
                         jde_set_msg_path(err, inner_err.message, inner_err.path);
-                        inner_err.message = NULL; inner_err.path = NULL;
+                        inner_err.message = NULL;
+                        inner_err.path = NULL;
                         jde_prepend_path(err, pathbuf);
                     }
                     jde_free(&inner_err);
@@ -2288,16 +2464,22 @@ struct_err_fail:
                 }
                 jde_free(&inner_err);
 
-                if (elem_type->kind == EAST_TYPE_FLOAT) ((double *)tmp_data)[len] = elem->data.float64;
-                else if (elem_type->kind == EAST_TYPE_INTEGER) ((int64_t *)tmp_data)[len] = elem->data.integer;
-                else if (elem_type->kind == EAST_TYPE_BOOLEAN) ((bool *)tmp_data)[len] = elem->data.boolean;
+                if (elem_type->kind == EAST_TYPE_FLOAT)
+                    ((double *)tmp_data)[len] = elem->data.float64;
+                else if (elem_type->kind == EAST_TYPE_INTEGER)
+                    ((int64_t *)tmp_data)[len] = elem->data.integer;
+                else if (elem_type->kind == EAST_TYPE_BOOLEAN)
+                    ((bool *)tmp_data)[len] = elem->data.boolean;
                 east_value_release(elem);
                 len++;
                 if (!jp_match(p, ',')) break;
             }
         }
 
-        if (!jp_match(p, ']')) { free(tmp_data); return NULL; }
+        if (!jp_match(p, ']')) {
+            free(tmp_data);
+            return NULL;
+        }
         EastValue *vec = east_vector_new(elem_type, len);
         if (vec && len > 0) memcpy(vec->data.vector.data, tmp_data, len * elem_size);
         free(tmp_data);
@@ -2313,9 +2495,12 @@ struct_err_fail:
         /* Reuse non-error path for matrix since test coverage is minimal */
         size_t rows = 0, cols = 0;
         size_t cap_flat = 64, elem_size = 0;
-        if (elem_type->kind == EAST_TYPE_FLOAT) elem_size = sizeof(double);
-        else if (elem_type->kind == EAST_TYPE_INTEGER) elem_size = sizeof(int64_t);
-        else if (elem_type->kind == EAST_TYPE_BOOLEAN) elem_size = sizeof(bool);
+        if (elem_type->kind == EAST_TYPE_FLOAT)
+            elem_size = sizeof(double);
+        else if (elem_type->kind == EAST_TYPE_INTEGER)
+            elem_size = sizeof(int64_t);
+        else if (elem_type->kind == EAST_TYPE_BOOLEAN)
+            elem_size = sizeof(bool);
 
         void *flat_data = malloc(cap_flat * elem_size);
         if (!flat_data) return NULL;
@@ -2323,34 +2508,52 @@ struct_err_fail:
 
         if (jp_peek(p) != ']') {
             for (;;) {
-                if (!jp_match(p, '[')) { free(flat_data); return NULL; }
+                if (!jp_match(p, '[')) {
+                    free(flat_data);
+                    return NULL;
+                }
                 size_t row_cols = 0;
                 if (jp_peek(p) != ']') {
                     for (;;) {
                         if (flat_len >= cap_flat) {
                             cap_flat *= 2;
                             void *nd = realloc(flat_data, cap_flat * elem_size);
-                            if (!nd) { free(flat_data); return NULL; }
+                            if (!nd) {
+                                free(flat_data);
+                                return NULL;
+                            }
                             flat_data = nd;
                         }
                         EastValue *elem = jp_decode_err(p, elem_type, ctx, err);
-                        if (!elem) { free(flat_data); return NULL; }
-                        if (elem_type->kind == EAST_TYPE_FLOAT) ((double *)flat_data)[flat_len] = elem->data.float64;
-                        else if (elem_type->kind == EAST_TYPE_INTEGER) ((int64_t *)flat_data)[flat_len] = elem->data.integer;
-                        else if (elem_type->kind == EAST_TYPE_BOOLEAN) ((bool *)flat_data)[flat_len] = elem->data.boolean;
+                        if (!elem) {
+                            free(flat_data);
+                            return NULL;
+                        }
+                        if (elem_type->kind == EAST_TYPE_FLOAT)
+                            ((double *)flat_data)[flat_len] = elem->data.float64;
+                        else if (elem_type->kind == EAST_TYPE_INTEGER)
+                            ((int64_t *)flat_data)[flat_len] = elem->data.integer;
+                        else if (elem_type->kind == EAST_TYPE_BOOLEAN)
+                            ((bool *)flat_data)[flat_len] = elem->data.boolean;
                         east_value_release(elem);
                         flat_len++;
                         row_cols++;
                         if (!jp_match(p, ',')) break;
                     }
                 }
-                if (!jp_match(p, ']')) { free(flat_data); return NULL; }
+                if (!jp_match(p, ']')) {
+                    free(flat_data);
+                    return NULL;
+                }
                 if (rows == 0) cols = row_cols;
                 rows++;
                 if (!jp_match(p, ',')) break;
             }
         }
-        if (!jp_match(p, ']')) { free(flat_data); return NULL; }
+        if (!jp_match(p, ']')) {
+            free(flat_data);
+            return NULL;
+        }
         EastValue *mat = east_matrix_new(elem_type, rows, cols);
         if (mat && flat_len > 0) memcpy(mat->data.matrix.data, flat_data, flat_len * elem_size);
         free(flat_data);
@@ -2380,7 +2583,8 @@ static EastValue *jp_decode_array_err(JsonParser *p, EastType *type, JRefCtx *ct
 
     jp_skip_ws(p);
     if (p->pos >= p->len || p->input[p->pos] != '[') {
-        const char *ename = (type->kind == EAST_TYPE_SET) ? "expected array for Set" : "expected array";
+        const char *ename =
+            (type->kind == EAST_TYPE_SET) ? "expected array for Set" : "expected array";
         if (err) jde_set_msg(err, jp_fmt_error(p, ename));
         return NULL;
     }
@@ -2396,7 +2600,10 @@ static EastValue *jp_decode_array_err(JsonParser *p, EastType *type, JRefCtx *ct
 
     if (ctx) jref_register(ctx, arr);
 
-    if (!jp_match(p, '[')) { east_value_release(arr); return NULL; }
+    if (!jp_match(p, '[')) {
+        east_value_release(arr);
+        return NULL;
+    }
 
     if (jp_peek(p) != ']') {
         size_t idx = 0;
@@ -2416,7 +2623,8 @@ static EastValue *jp_decode_array_err(JsonParser *p, EastType *type, JRefCtx *ct
                     char pathbuf[32];
                     snprintf(pathbuf, sizeof(pathbuf), "[%zu]", idx);
                     jde_set_msg_path(err, inner_err.message, inner_err.path);
-                    inner_err.message = NULL; inner_err.path = NULL;
+                    inner_err.message = NULL;
+                    inner_err.path = NULL;
                     jde_prepend_path(err, pathbuf);
                 }
                 jde_free(&inner_err);
@@ -2436,7 +2644,10 @@ static EastValue *jp_decode_array_err(JsonParser *p, EastType *type, JRefCtx *ct
         }
     }
 
-    if (!jp_match(p, ']')) { east_value_release(arr); return NULL; }
+    if (!jp_match(p, ']')) {
+        east_value_release(arr);
+        return NULL;
+    }
     return arr;
 }
 
@@ -2468,12 +2679,13 @@ EastValue *east_json_decode_with_error(const char *json, EastType *type, char **
         char *full_msg = malloc(total);
         if (path_str) {
             snprintf(full_msg, total,
-                "Error occurred because %s at %s (line 1, col 1) while parsing value of type \"%s\"",
-                err.message, path_str, type_str ? type_str : "?");
+                     "Error occurred because %s at %s (line 1, col 1) while parsing value of type "
+                     "\"%s\"",
+                     err.message, path_str, type_str ? type_str : "?");
         } else {
             snprintf(full_msg, total,
-                "Error occurred because %s (line 1, col 1) while parsing value of type \"%s\"",
-                err.message, type_str ? type_str : "?");
+                     "Error occurred because %s (line 1, col 1) while parsing value of type \"%s\"",
+                     err.message, type_str ? type_str : "?");
         }
         free(type_str);
         *error_out = full_msg;
@@ -2495,7 +2707,8 @@ EastValue *east_json_decode_with_error(const char *json, EastType *type, char **
 /* Build source map from decoded wrapper value.
  * sm_val is a Struct({stacks: Array(Array(Struct({column,filename,line})))}).
  * Returns heap-allocated EastSourceMap or NULL. */
-static EastSourceMap *build_source_map_from_value(EastValue *sm_val) {
+static EastSourceMap *build_source_map_from_value(EastValue *sm_val)
+{
     if (!sm_val || sm_val->kind != EAST_VAL_STRUCT) return NULL;
     EastValue *stacks_val = east_struct_get_field_idx(sm_val, 0);
     if (!stacks_val || stacks_val->kind != EAST_VAL_ARRAY) return NULL;
@@ -2524,8 +2737,7 @@ static EastSourceMap *build_source_map_from_value(EastValue *sm_val) {
             EastValue *col_v = east_struct_get_field_idx(frame, 2);
             if (fn_v && fn_v->kind == EAST_VAL_STRING)
                 sm->stacks[i][j].filename = strdup(fn_v->data.string.data);
-            if (ln_v && ln_v->kind == EAST_VAL_INTEGER)
-                sm->stacks[i][j].line = ln_v->data.integer;
+            if (ln_v && ln_v->kind == EAST_VAL_INTEGER) sm->stacks[i][j].line = ln_v->data.integer;
             if (col_v && col_v->kind == EAST_VAL_INTEGER)
                 sm->stacks[i][j].column = col_v->data.integer;
         }
@@ -2534,7 +2746,7 @@ static EastSourceMap *build_source_map_from_value(EastValue *sm_val) {
 }
 
 IRNode *east_json_decode_ir(const char *json, EastValue **ir_value_out,
-                             EastSourceMap **source_map_out)
+                            EastSourceMap **source_map_out)
 {
     if (ir_value_out) *ir_value_out = NULL;
     if (source_map_out) *source_map_out = NULL;
@@ -2543,15 +2755,13 @@ IRNode *east_json_decode_ir(const char *json, EastValue **ir_value_out,
 
     /* Build wrapper type: Struct({ir: IRType, source_map: SourceMapType}) */
     EastType *loc_struct = east_struct_type(
-        (const char*[]){"filename", "line", "column"},
-        (EastType*[]){&east_string_type, &east_integer_type, &east_integer_type}, 3);
+        (const char *[]){"filename", "line", "column"},
+        (EastType *[]){&east_string_type, &east_integer_type, &east_integer_type}, 3);
     EastType *loc_arr = east_array_type(loc_struct);
     EastType *stacks_arr = east_array_type(loc_arr);
-    EastType *sm_type = east_struct_type(
-        (const char*[]){"stacks"}, (EastType*[]){stacks_arr}, 1);
-    EastType *wrapper_type = east_struct_type(
-        (const char*[]){"ir", "source_map"},
-        (EastType*[]){east_ir_type, sm_type}, 2);
+    EastType *sm_type = east_struct_type((const char *[]){"stacks"}, (EastType *[]){stacks_arr}, 1);
+    EastType *wrapper_type = east_struct_type((const char *[]){"ir", "source_map"},
+                                              (EastType *[]){east_ir_type, sm_type}, 2);
 
     EastValue *wrapper_val = east_json_decode(json, wrapper_type);
 
@@ -2577,14 +2787,20 @@ IRNode *east_json_decode_ir(const char *json, EastValue **ir_value_out,
     }
 
     if (!ir_val) {
-        if (source_map) { east_source_map_free(source_map); free(source_map); }
+        if (source_map) {
+            east_source_map_free(source_map);
+            free(source_map);
+        }
         return NULL;
     }
 
     IRNode *ir = east_ir_from_value(ir_val);
     if (!ir) {
         east_value_release(ir_val);
-        if (source_map) { east_source_map_free(source_map); free(source_map); }
+        if (source_map) {
+            east_source_map_free(source_map);
+            free(source_map);
+        }
         return NULL;
     }
 

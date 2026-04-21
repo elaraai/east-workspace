@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useMemo, useCallback } from "react";
+import { memo, useMemo, useCallback, useState, useEffect } from "react";
 import { Textarea as ChakraTextarea, type TextareaProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Textarea } from "@elaraai/east-ui";
@@ -24,7 +24,7 @@ export function toChakraTextarea(value: TextareaValue): TextareaProps {
     const maxLength = getSomeorUndefined(value.maxLength);
 
     return {
-        defaultValue: value.value,
+        value: value.value,
         placeholder: getSomeorUndefined(value.placeholder),
         variant: getSomeorUndefined(value.variant)?.type,
         size: getSomeorUndefined(value.size)?.type,
@@ -46,16 +46,22 @@ export interface EastChakraTextareaProps {
  * Renders an East UI Textarea value using Chakra UI Textarea component.
  */
 export const EastChakraTextarea = memo(function EastChakraTextarea({ value }: EastChakraTextareaProps) {
-    const props = useMemo(() => toChakraTextarea(value), [value]);
+    const [props, setProps] = useState(toChakraTextarea(value));
 
     // Extract callbacks
     const onChangeFn = useMemo(() => getSomeorUndefined(value.onChange), [value.onChange]);
     const onBlurFn = useMemo(() => getSomeorUndefined(value.onBlur), [value.onBlur]);
     const onFocusFn = useMemo(() => getSomeorUndefined(value.onFocus), [value.onFocus]);
 
+    useEffect(() => {
+        setProps(() => toChakraTextarea(value));
+    }, [value]);
+
     const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        const next = e.target.value;
+        setProps(prev => ({ ...prev, value: next }));
         if (onChangeFn) {
-            queueMicrotask(() => onChangeFn(e.target.value));
+            queueMicrotask(() => onChangeFn(next));
         }
     }, [onChangeFn]);
 
@@ -74,9 +80,9 @@ export const EastChakraTextarea = memo(function EastChakraTextarea({ value }: Ea
     return (
         <ChakraTextarea
             {...props}
-            onChange={onChangeFn ? handleChange : undefined}
-            onBlur={onBlurFn ? handleBlur : undefined}
-            onFocus={onFocusFn ? handleFocus : undefined}
+            onChange={handleChange}
+            onBlur={handleBlur}
+            onFocus={handleFocus}
         />
     );
 }, (prev, next) => textareaEqual(prev.value, next.value));

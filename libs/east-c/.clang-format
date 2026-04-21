@@ -1,0 +1,52 @@
+# clang-format config matching the existing east-c style.
+#
+# Key conventions (derived from grepping the codebase):
+# - 4-space indent, no tabs
+# - Functions: opening brace on the next line (Linux/GNU-style)
+# - Control flow (if/for/while): opening brace on the same line
+# - Pointers attached to identifier (`PlatformRegistry *reg`)
+# - Block comments: /* ... */ — // is fine but block style dominates
+# - Single-line `if (...) return foo;` allowed (no required brace)
+# - Column limit 100 — long enough for readable arg lists, short enough
+#   to keep diffs reviewable
+
+BasedOnStyle: LLVM
+Language: Cpp
+Standard: c++03   # closest to C11 — clang-format has no "C" mode
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 100
+
+# Brace placement
+BreakBeforeBraces: Linux
+# (Linux: functions on next line; control structures same line; namespaces same line)
+
+# Pointer alignment
+PointerAlignment: Right
+ReferenceAlignment: Pointer
+
+# Function declarations / calls
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Empty
+AlwaysBreakAfterReturnType: None
+BinPackArguments: true
+BinPackParameters: true
+AlignAfterOpenBracket: Align
+
+# Includes
+SortIncludes: false   # explicit ordering matters for east-c platform headers
+
+# Comments / spacing
+SpaceBeforeParens: ControlStatements
+SpacesInParens: Never
+SpacesInSquareBrackets: false
+SpaceAfterCStyleCast: false
+SpacesBeforeTrailingComments: 1
+
+# Misc
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 2
+ContinuationIndentWidth: 4

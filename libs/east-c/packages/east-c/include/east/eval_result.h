@@ -15,9 +15,9 @@ typedef enum {
 typedef struct {
     EvalStatus status;
     EastValue *value;
-    char *label;               // for break/continue
-    char *error_message;       // for errors
-    EastLocation *locations;   // error location stack trace (owned)
+    char *label;             // for break/continue
+    char *error_message;     // for errors
+    EastLocation *locations; // error location stack trace (owned)
     size_t num_locations;
 } EvalResult;
 

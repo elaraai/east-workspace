@@ -20,12 +20,13 @@ char *east_builtin_get_error(void);
 typedef BuiltinImpl (*BuiltinFactory)(EastType **type_params, size_t num_type_params);
 
 typedef struct {
-    Hashmap *factories;  // name -> BuiltinFactory (cast via void*)
+    Hashmap *factories; // name -> BuiltinFactory (cast via void*)
 } BuiltinRegistry;
 
 BuiltinRegistry *builtin_registry_new(void);
 void builtin_registry_register(BuiltinRegistry *reg, const char *name, BuiltinFactory factory);
-BuiltinImpl builtin_registry_get(BuiltinRegistry *reg, const char *name, EastType **type_params, size_t num_tp);
+BuiltinImpl builtin_registry_get(BuiltinRegistry *reg, const char *name, EastType **type_params,
+                                 size_t num_tp);
 void builtin_registry_free(BuiltinRegistry *reg);
 
 // Register all builtins

@@ -1,6 +1,6 @@
 {
   "name": "@elaraai/e3-ui-components",
-  "version": "0.0.1-beta.18",
+  "version": "1.0.0-beta.0",
   "description": "React Query hooks and preview components for the e3 API",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -19,7 +19,10 @@
     "CONTRIBUTING.md",
     "CLA.md"
   ],
-  "sideEffects": false,
+  "sideEffects": [
+    "./dist/platform/dataset-runtime.js",
+    "./src/platform/dataset-runtime.ts"
+  ],
   "scripts": {
     "build": "tsc --noEmit && vite build",
     "lint": "eslint .",
@@ -31,17 +34,11 @@
     "@elaraai/e3-types": "workspace:*",
     "@elaraai/e3-ui": "workspace:*",
     "@elaraai/east": "workspace:*",
-    "@elaraai/east-c-wasm": "workspace:*",
     "@elaraai/east-ui": "workspace:*",
     "@elaraai/east-ui-components": "workspace:*",
     "@tanstack/react-query": "^5.62.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
-  },
-  "peerDependenciesMeta": {
-    "@elaraai/east-c-wasm": {
-      "optional": true
-    }
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",

@@ -31,6 +31,7 @@ import {
     faWindowMaximize,
     faTableList,
     faChartLine,
+    faPuzzlePiece,
     type IconDefinition,
 } from "@fortawesome/free-solid-svg-icons";
 import { UIStoreProvider, UIStore, OverlayManagerProvider } from "@elaraai/east-ui-components";
@@ -99,6 +100,7 @@ import * as pieExamples from "@elaraai/east-ui/examples/charts/pie";
 import * as radarExamples from "@elaraai/east-ui/examples/charts/radar";
 import * as scatterExamples from "@elaraai/east-ui/examples/charts/scatter";
 import * as sparklineExamples from "@elaraai/east-ui/examples/charts/sparkline";
+import * as integrationExamples from "@elaraai/east-ui/examples/integration";
 
 interface CatalogEntry {
     name: string;
@@ -109,13 +111,19 @@ interface CatalogEntry {
     inputs: any[];
     /** Target column width in the showcase grid — 1 = full-width, 2 = half, 3 = third. */
     columns: number;
+    /** Pixel height for the rendered example body (default 280). */
+    bodyHeight: number;
 }
 
 /**
- * Each row: [sub-component display name, sidebar category, example module, grid column count].
- * Columns = 3 for narrow components (lists, badges), 2 for medium, 1 for wide (tables, charts).
+ * Each row: [sub-component display name, sidebar category, example module, grid column count,
+ * optional body pixel height]. Entries sharing both columns and bodyHeight are grouped into
+ * the same virtualized row.
+ *   Columns = 3 for narrow components (lists, badges), 2 for medium, 1 for wide (tables, charts).
+ *   bodyHeight defaults to 280 — override when a demo needs more vertical room.
  */
-const SOURCES: [string, string, Record<string, unknown>, number][] = [
+const SOURCES: [string, string, Record<string, unknown>, number, number?][] = [
+    ["SalesDashboard", "Integration", integrationExamples, 1, 680],
     ["Button",      "Buttons",     buttonExamples,      3],
     ["Text",        "Typography",  textExamples,        3],
     ["Code",        "Typography",  codeExamples,        3],
@@ -179,7 +187,7 @@ const SOURCES: [string, string, Record<string, unknown>, number][] = [
 
 function buildCatalog(): CatalogEntry[] {
     const entries: CatalogEntry[] = [];
-    for (const [, category, mod, columns] of SOURCES) {
+    for (const [, category, mod, columns, bodyHeight] of SOURCES) {
         for (const [name, ex] of Object.entries(mod)) {
             const e = ex as any;
             entries.push({
@@ -190,6 +198,7 @@ function buildCatalog(): CatalogEntry[] {
                 fn: e.fn,
                 inputs: e.inputs,
                 columns,
+                bodyHeight: bodyHeight ?? 280,
             });
         }
     }
@@ -201,6 +210,7 @@ const categories = [...new Set(catalog.map(e => e.category))];
 const store = new UIStore();
 
 const CATEGORY_ICONS: Record<string, IconDefinition> = {
+    Integration: faPuzzlePiece,
     Buttons: faHandPointer,
     Typography: faFont,
     Layout: faTableCells,
@@ -214,8 +224,8 @@ const CATEGORY_ICONS: Record<string, IconDefinition> = {
     Collections: faTableList,
     Charts: faChartLine,
 };
-// All ExampleCards have a fixed-height body (280px) + ~110px chrome — see ExampleCard.tsx
-const ROW_HEIGHT = 390;
+// Card chrome (description + keyword tags + padding) adds ~110px on top of the body.
+const CARD_CHROME = 110;
 const GAP = 16;
 
 function useViewportWidth(): number {
@@ -235,28 +245,32 @@ function columnsForEntry(e: CatalogEntry, viewportW: number): number {
     return e.columns;
 }
 
-interface Row { entries: CatalogEntry[]; cols: number }
+interface Row { entries: CatalogEntry[]; cols: number; bodyHeight: number; rowHeight: number }
 
 /**
- * Group consecutive entries with the same column count into rows. Lets the
- * virtualizer render mixed-width sections (narrow DataLists followed by wide
- * Tables) in a single scroll container.
+ * Group consecutive entries that share both column count and body height into
+ * rows. Mixed-width sections (narrow DataLists followed by wide Tables) and
+ * mixed-height sections (short cards followed by the tall dashboard) render in
+ * a single virtualized scroll container.
  */
 function buildRows(entries: CatalogEntry[], viewportW: number): Row[] {
     const out: Row[] = [];
     let buf: CatalogEntry[] = [];
     let bufCols: number | null = null;
+    let bufHeight: number | null = null;
     const flush = () => {
-        if (buf.length === 0 || bufCols === null) return;
+        if (buf.length === 0 || bufCols === null || bufHeight === null) return;
+        const rowHeight = bufHeight + CARD_CHROME;
         for (let i = 0; i < buf.length; i += bufCols) {
-            out.push({ entries: buf.slice(i, i + bufCols), cols: bufCols });
+            out.push({ entries: buf.slice(i, i + bufCols), cols: bufCols, bodyHeight: bufHeight, rowHeight });
         }
         buf = [];
     };
     for (const e of entries) {
         const cols = columnsForEntry(e, viewportW);
-        if (bufCols !== null && cols !== bufCols) flush();
+        if ((bufCols !== null && cols !== bufCols) || (bufHeight !== null && e.bodyHeight !== bufHeight)) flush();
         bufCols = cols;
+        bufHeight = e.bodyHeight;
         buf.push(e);
     }
     flush();
@@ -328,8 +342,8 @@ export function App() {
                         </Stack>
                     </Box>
 
-                    <Box flex="1" p="6" minW={0}>
-                        <Container maxW="container.xl">
+                    <Box flex="1" p="2" minW={0}>
+                        <Container maxW="full" w="full">
                             <Flex align="center" justify="space-between" mb="6">
                                 <Heading size="lg">{selectedCategory}</Heading>
                                 <InputGroup
@@ -371,7 +385,7 @@ function VirtualizedGrid({ entries }: { entries: CatalogEntry[] }) {
     const virtualizer = useVirtualizer({
         count: rows.length,
         getScrollElement: () => parentRef.current,
-        estimateSize: () => ROW_HEIGHT,
+        estimateSize: (i) => rows[i].rowHeight,
         overscan: 2,
         gap: GAP,
     });
@@ -394,14 +408,19 @@ function VirtualizedGrid({ entries }: { entries: CatalogEntry[] }) {
                             top="0"
                             left="0"
                             w="full"
-                            h={`${ROW_HEIGHT}px`}
+                            h={`${row.rowHeight}px`}
                             transform={`translateY(${virtualRow.start}px)`}
                             display="grid"
                             gridTemplateColumns={`repeat(${row.cols}, minmax(0, 1fr))`}
                             gap={`${GAP}px`}
                         >
                             {row.entries.map(entry => (
-                                <ExampleCard key={entry.name} name={entry.name} example={entry} />
+                                <ExampleCard
+                                    key={entry.name}
+                                    name={entry.name}
+                                    example={entry}
+                                    bodyHeight={`${row.bodyHeight}px`}
+                                />
                             ))}
                         </Box>
                     );

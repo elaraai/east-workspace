@@ -238,57 +238,54 @@ Notably, these tests are hosted in East and allow one to validate the correctnes
 
 ### Release Process
 
-East uses automated releases via GitHub Actions. The process differs for stable and beta releases:
+The entire monorepo ships under one unified version (root `/package.json`) via the `Release` GitHub Actions workflow (`.github/workflows/release.yml`). One `workflow_dispatch` produces:
 
-#### Stable Releases
+- **18 npm packages** (`@elaraai/*`) — published with provenance, `workspace:*` deps rewritten to the exact version
+- **5 PyPI packages** (`east-py`, `east-py-std`, `east-py-io`, `east-py-cli`, `east-py-datascience`) — version translated to PEP 440 (`1.0.0-beta.5` → `1.0.0b5`); pure-Python packages get a wheel + sdist via `uv build`, the Cython core uses `cibuildwheel` (linux + macos + windows × cp311/312/313); uploaded via PyPI trusted publishing (OIDC, no token)
+- **1 VSCode extension** (`east-ui-preview`) — `vsce publish` to VS Marketplace; on stable releases the VSIX version equals the npm version, on beta releases it's patch-bumped on its own track and published with `--pre-release` (marketplace doesn't accept semver pre-release labels)
+- **2 native C binaries** — `east-c` CLI + libs + headers tarballed for `linux-x64` and `linux-arm64`, attached to the GitHub Release
+- **1 git tag + 1 GitHub Release** (`vX.Y.Z`) — VSIX and C tarballs attached as release assets
 
-For stable releases (published to npm with `latest` tag):
+`release_type` is one of `prerelease | prepatch | preminor | premajor | patch | minor | major`. `pre*` types go to the npm `beta` dist-tag, others to `latest`.
 
-```bash
-npm run release:patch    # 0.0.1 → 0.0.2
-npm run release:minor    # 0.0.1 → 0.1.0
-npm run release:major    # 0.0.1 → 1.0.0
-```
+`dry_run` defaults to `true` — runs the full build, dry-run npm publish, packaged-but-not-published VSIX, built-but-not-uploaded PyPI wheels, built-but-not-attached C tarballs. No commit, no tag, no upload.
 
-These commands will:
-1. Bump the version in `package.json`
-2. Create a git commit with message `chore: bump version to X.Y.Z`
-3. Create a git tag `vX.Y.Z`
-4. Push the commit and tag to GitHub
-5. GitHub Actions automatically builds, tests, and publishes to npm with `latest` tag
+#### Preflight checks
 
-#### Beta Releases
+Before any publish runs, `prepare` verifies:
+- `VSCE_PAT` is present and validates against the ElaraAI publisher (via `vsce verify-pat`)
+- npm and PyPI registries are reachable
+- `force_version` (if provided) is valid semver
+- `skip_*` inputs are only set when `force_version` is also set
 
-For beta/prerelease versions (published to npm with `beta` tag):
+This catches the "expired PAT 10 minutes into a release" failure mode before anything ships.
 
-```bash
-npm run release:prepatch      # 0.0.1 → 0.0.2-beta.0
-npm run release:preminor      # 0.0.1 → 0.1.0-beta.0
-npm run release:premajor      # 0.0.1 → 1.0.0-beta.0
-npm run release:prerelease    # 0.0.1-beta.0 → 0.0.1-beta.1
-```
+#### Retry-after-failure pattern
 
-Beta releases follow the same automated process but are published to npm with the `beta` tag.
+If a release trigger partially succeeds (e.g. npm published, VSIX failed), use the retry inputs:
 
-#### Manual Version Bumping (Dry Run)
+1. Identify which channels succeeded from the Actions logs.
+2. Re-trigger with `force_version=<same version as the failed run>` and `skip_<channel>=true` for every channel that already succeeded.
+3. Validation enforces this: any `skip_*` input requires `force_version` to be set.
 
-To update the version without committing or tagging:
+Idempotency by channel:
+- **npm** — `scripts/publish-npm.mjs` queries each package's registry version and skips already-published packages. Partial-failure retry works even without `skip_npm`.
+- **PyPI** — `pypa/gh-action-pypi-publish@release/v1` is configured with `skip-existing: true`.
+- **VSIX** — marketplace rejects duplicate versions; user must set `skip_vsix=true` if it already succeeded.
+- **C native** — always rebuilds and attaches (no external registry state).
+- **`finalize`** — commits manifests, creates tag, creates release only once. On retry, the commit is a no-op if files match; the tag creation will fail if it already exists (re-run means it didn't).
 
-```bash
-npm run version:patch:dry
-npm run version:minor:dry
-npm run version:major:dry
-npm run version:prepatch:dry
-npm run version:preminor:dry
-npm run version:premajor:dry
-npm run version:prerelease:dry
-```
+#### Per-PR validation vs. release
 
-#### Requirements
+- **`test-*.yml`** (one per library area) — path-filtered PR validation gates. Run on every PR that touches a given lib's source. Cheap, parallelizable, no publish involvement.
+- **`version-drift.yml`** — runs on every PR that touches any `package.json` or `pyproject.toml`. Asserts all manifests match root `/package.json` (with PEP 440 translation for Python; VSIX is allowed to drift on betas).
+- **`release.yml`** — manual `workflow_dispatch` only. Produces all release artifacts in one go.
 
-- **Automated Publishing**: Requires `NPM_TOKEN` secret configured in GitHub repository settings
-- **Pre-publish Checks**: All tests and linting must pass before publishing (enforced by `prepublishOnly` hook)
-- **Node Version**: Requires Node.js ≥22.0.0
+#### One-time setup before the first real release
+
+- `VSCE_PAT` GitHub secret (Azure DevOps PAT with Marketplace > Manage scope; carried over from the legacy `elaraai/east-ui` repo if still valid)
+- PyPI trusted publishing configured for all 5 packages (`east-py`, `east-py-std`, `east-py-io`, `east-py-cli`, `east-py-datascience`) on pypi.org → repo `elaraai/east-workspace`, workflow `release.yml`. First publish must be done manually to claim each package name.
+- Confirm `ubuntu-24.04-arm` runner is available on the org plan (used for `linux-arm64` C binaries).
 
 ## License
 

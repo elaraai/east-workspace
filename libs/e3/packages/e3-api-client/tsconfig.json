@@ -10,8 +10,5 @@
   "exclude": [
     "node_modules",
     "dist"
-  ],
-  "references": [
-    { "path": "../e3-types" }
   ]
 }

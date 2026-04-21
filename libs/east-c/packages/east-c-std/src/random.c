@@ -25,17 +25,19 @@ typedef struct {
     bool seeded; /* true if explicitly seeded (use PRNG), false = use urandom */
 } RNGState;
 
-static RNGState rng_global = { 0, 0, false };
+static RNGState rng_global = {0, 0, false};
 
 /* SplitMix64 for state initialization from seed */
-static uint64_t splitmix64(uint64_t x) {
+static uint64_t splitmix64(uint64_t x)
+{
     x += 0x9E3779B97F4A7C15ULL;
     x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ULL;
     x = (x ^ (x >> 27)) * 0x94D049BB133111EBULL;
     return x ^ (x >> 31);
 }
 
-static void rng_seed(RNGState *rng, uint64_t seed) {
+static void rng_seed(RNGState *rng, uint64_t seed)
+{
     rng->state0 = splitmix64(seed);
     rng->state1 = splitmix64(rng->state0);
     if (rng->state0 == 0 && rng->state1 == 0) {
@@ -44,7 +46,8 @@ static void rng_seed(RNGState *rng, uint64_t seed) {
     rng->seeded = true;
 }
 
-static double rng_next_xorshift(RNGState *rng) {
+static double rng_next_xorshift(RNGState *rng)
+{
     uint64_t s1 = rng->state0;
     uint64_t s0 = rng->state1;
     uint64_t result = s0 + s1;
@@ -58,7 +61,8 @@ static double rng_next_xorshift(RNGState *rng) {
     return (double)upper53 / (double)(1ULL << 53);
 }
 
-static double rng_next_urandom(void) {
+static double rng_next_urandom(void)
+{
     uint64_t val;
     FILE *f = fopen("/dev/urandom", "rb");
     if (!f) return 0.0;
@@ -70,7 +74,8 @@ static double rng_next_urandom(void) {
     return (double)upper53 / (double)(1ULL << 53);
 }
 
-static double rng_next(void) {
+static double rng_next(void)
+{
     if (rng_global.seeded) {
         return rng_next_xorshift(&rng_global);
     }
@@ -78,7 +83,8 @@ static double rng_next(void) {
 }
 
 /* Seed the global state from /dev/urandom (lazy initialization for xorshift if needed) */
-static void rng_ensure_init(void) {
+static void rng_ensure_init(void)
+{
     /* Nothing to do for urandom mode */
     (void)0;
 }
@@ -87,21 +93,24 @@ static void rng_ensure_init(void) {
  * Platform Functions
  * ======================================================================== */
 
-static EvalResult random_seed(EastValue **args, size_t num_args) {
+static EvalResult random_seed(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+{
     (void)num_args;
     int64_t seed = args[0]->data.integer;
     rng_seed(&rng_global, (uint64_t)seed);
     return eval_ok(east_null());
 }
 
-static EvalResult random_uniform(EastValue **args, size_t num_args) {
+static EvalResult random_uniform(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+{
     (void)args;
     (void)num_args;
     rng_ensure_init();
     return eval_ok(east_float(rng_next()));
 }
 
-static EvalResult random_normal(EastValue **args, size_t num_args) {
+static EvalResult random_normal(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+{
     (void)args;
     (void)num_args;
     rng_ensure_init();
@@ -117,7 +126,8 @@ static EvalResult random_normal(EastValue **args, size_t num_args) {
     return eval_ok(east_float(u * sqrt(-2.0 * log(s) / s)));
 }
 
-static EvalResult random_range(EastValue **args, size_t num_args) {
+static EvalResult random_range(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+{
     (void)num_args;
     rng_ensure_init();
 
@@ -133,7 +143,8 @@ static EvalResult random_range(EastValue **args, size_t num_args) {
     return eval_ok(east_integer(result));
 }
 
-static EvalResult random_exponential(EastValue **args, size_t num_args) {
+static EvalResult random_exponential(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+{
     (void)num_args;
     rng_ensure_init();
 
@@ -146,7 +157,8 @@ static EvalResult random_exponential(EastValue **args, size_t num_args) {
     return eval_ok(east_float(-log(1.0 - u) / lambda_rate));
 }
 
-static EvalResult random_weibull(EastValue **args, size_t num_args) {
+static EvalResult random_weibull(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+{
     (void)num_args;
     rng_ensure_init();
 
@@ -159,7 +171,8 @@ static EvalResult random_weibull(EastValue **args, size_t num_args) {
     return eval_ok(east_float(pow(-log(1.0 - u), 1.0 / shape_k)));
 }
 
-static EvalResult random_pareto(EastValue **args, size_t num_args) {
+static EvalResult random_pareto(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+{
     (void)num_args;
     rng_ensure_init();
 
@@ -172,7 +185,8 @@ static EvalResult random_pareto(EastValue **args, size_t num_args) {
     return eval_ok(east_float(pow(1.0 - u, -1.0 / alpha)));
 }
 
-static EvalResult random_log_normal(EastValue **args, size_t num_args) {
+static EvalResult random_log_normal(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+{
     (void)num_args;
     rng_ensure_init();
 
@@ -195,7 +209,8 @@ static EvalResult random_log_normal(EastValue **args, size_t num_args) {
     return eval_ok(east_float(exp(mu + sigma * z)));
 }
 
-static EvalResult random_irwin_hall(EastValue **args, size_t num_args) {
+static EvalResult random_irwin_hall(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+{
     (void)num_args;
     rng_ensure_init();
 
@@ -211,7 +226,8 @@ static EvalResult random_irwin_hall(EastValue **args, size_t num_args) {
     return eval_ok(east_float(sum));
 }
 
-static EvalResult random_bates(EastValue **args, size_t num_args) {
+static EvalResult random_bates(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+{
     (void)num_args;
     rng_ensure_init();
 
@@ -227,7 +243,8 @@ static EvalResult random_bates(EastValue **args, size_t num_args) {
     return eval_ok(east_float(sum / (double)n));
 }
 
-static EvalResult random_bernoulli(EastValue **args, size_t num_args) {
+static EvalResult random_bernoulli(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+{
     (void)num_args;
     rng_ensure_init();
 
@@ -235,7 +252,8 @@ static EvalResult random_bernoulli(EastValue **args, size_t num_args) {
     return eval_ok(east_integer(rng_next() < p ? 1 : 0));
 }
 
-static EvalResult random_binomial(EastValue **args, size_t num_args) {
+static EvalResult random_binomial(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+{
     (void)num_args;
     rng_ensure_init();
 
@@ -253,7 +271,8 @@ static EvalResult random_binomial(EastValue **args, size_t num_args) {
     return eval_ok(east_integer(count));
 }
 
-static EvalResult random_geometric(EastValue **args, size_t num_args) {
+static EvalResult random_geometric(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+{
     (void)num_args;
     rng_ensure_init();
 
@@ -266,7 +285,8 @@ static EvalResult random_geometric(EastValue **args, size_t num_args) {
     return eval_ok(east_integer((int64_t)ceil(log(1.0 - u) / log(1.0 - p))));
 }
 
-static EvalResult random_poisson(EastValue **args, size_t num_args) {
+static EvalResult random_poisson(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+{
     (void)num_args;
     rng_ensure_init();
 
@@ -300,7 +320,8 @@ static EvalResult random_poisson(EastValue **args, size_t num_args) {
     }
 }
 
-void east_std_register_random(PlatformRegistry *reg) {
+void east_std_register_random(PlatformRegistry *reg)
+{
     platform_registry_add(reg, "random_seed", random_seed, false);
     platform_registry_add(reg, "random_uniform", random_uniform, false);
     platform_registry_add(reg, "random_normal", random_normal, false);

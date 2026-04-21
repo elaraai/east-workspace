@@ -19,8 +19,18 @@ static inline uint64_t wymix(uint64_t a, uint64_t b)
     return (uint64_t)(r >> 64) ^ (uint64_t)r;
 }
 
-static inline uint64_t wyread8(const uint8_t *p) { uint64_t v; memcpy(&v, p, 8); return v; }
-static inline uint64_t wyread4(const uint8_t *p) { uint32_t v; memcpy(&v, p, 4); return v; }
+static inline uint64_t wyread8(const uint8_t *p)
+{
+    uint64_t v;
+    memcpy(&v, p, 8);
+    return v;
+}
+static inline uint64_t wyread4(const uint8_t *p)
+{
+    uint32_t v;
+    memcpy(&v, p, 4);
+    return v;
+}
 
 uint64_t hash_byte_range(const uint8_t *data, size_t len, uintptr_t type_ptr)
 {
@@ -91,16 +101,15 @@ static void beast2_dedup_grow(Beast2DecodeCtx *ctx)
     ctx->dedup_mask = new_mask;
 }
 
-EastValue *beast2_dedup_find(Beast2DecodeCtx *ctx, uint64_t hash,
-                              const uint8_t *data, size_t byte_start,
-                              size_t byte_len, EastType *type)
+EastValue *beast2_dedup_find(Beast2DecodeCtx *ctx, uint64_t hash, const uint8_t *data,
+                             size_t byte_start, size_t byte_len, EastType *type)
 {
-    (void)data; (void)byte_start; /* no longer needed — full-content hash is sufficient */
+    (void)data;
+    (void)byte_start; /* no longer needed — full-content hash is sufficient */
     uint32_t h = (uint32_t)(hash) & (uint32_t)ctx->dedup_mask;
     for (;;) {
         if (ctx->dedup_slots[h].hash == 0) return NULL;
-        if (ctx->dedup_slots[h].hash == hash &&
-            ctx->dedup_slots[h].byte_len == byte_len &&
+        if (ctx->dedup_slots[h].hash == hash && ctx->dedup_slots[h].byte_len == byte_len &&
             ctx->dedup_slots[h].type == type) {
             return ctx->dedup_slots[h].value;
         }
@@ -108,12 +117,10 @@ EastValue *beast2_dedup_find(Beast2DecodeCtx *ctx, uint64_t hash,
     }
 }
 
-void beast2_dedup_add(Beast2DecodeCtx *ctx, uint64_t hash,
-                       size_t byte_start, size_t byte_len,
-                       EastType *type, EastValue *value)
+void beast2_dedup_add(Beast2DecodeCtx *ctx, uint64_t hash, size_t byte_start, size_t byte_len,
+                      EastType *type, EastValue *value)
 {
-    if (ctx->dedup_count * 10 >= (ctx->dedup_mask + 1) * 7)
-        beast2_dedup_grow(ctx);
+    if (ctx->dedup_count * 10 >= (ctx->dedup_mask + 1) * 7) beast2_dedup_grow(ctx);
 
     uint32_t h = (uint32_t)(hash) & (uint32_t)ctx->dedup_mask;
     while (ctx->dedup_slots[h].hash != 0)
@@ -122,26 +129,26 @@ void beast2_dedup_add(Beast2DecodeCtx *ctx, uint64_t hash,
     ctx->dedup_slots[h].byte_start = byte_start;
     ctx->dedup_slots[h].byte_len = byte_len;
     ctx->dedup_slots[h].type = type;
-    east_value_retain(value);  /* dedup table owns a reference */
+    east_value_retain(value); /* dedup table owns a reference */
     ctx->dedup_slots[h].value = value;
     ctx->dedup_count++;
 }
 
 #ifdef BEAST2_PROFILE_DEDUP
-double beast2_clock_us(void) {
+double beast2_clock_us(void)
+{
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return ts.tv_sec * 1e6 + ts.tv_nsec / 1e3;
 }
 
 /* Find or create a per-type stats entry. Returns pointer to the stats slot. */
-static inline typeof(((Beast2DecodeCtx*)0)->type_stats[0]) *
+static inline typeof(((Beast2DecodeCtx *)0)->type_stats[0]) *
 beast2_type_stats_get(Beast2DecodeCtx *ctx, EastType *type)
 {
     uint32_t h = (uint32_t)((uintptr_t)type * 0x45d9f3bU) & (uint32_t)ctx->type_stats_mask;
     for (;;) {
-        if (ctx->type_stats[h].type == type)
-            return &ctx->type_stats[h];
+        if (ctx->type_stats[h].type == type) return &ctx->type_stats[h];
         if (ctx->type_stats[h].type == NULL) {
             /* New entry */
             ctx->type_stats[h].type = type;
@@ -154,8 +161,10 @@ beast2_type_stats_get(Beast2DecodeCtx *ctx, EastType *type)
                 typeof(ctx->type_stats) new_table = calloc(new_cap, sizeof(ctx->type_stats[0]));
                 for (int i = 0; i < old_cap; i++) {
                     if (ctx->type_stats[i].type) {
-                        uint32_t nh = (uint32_t)((uintptr_t)ctx->type_stats[i].type * 0x45d9f3bU) & (uint32_t)new_mask;
-                        while (new_table[nh].type) nh = (nh + 1) & (uint32_t)new_mask;
+                        uint32_t nh = (uint32_t)((uintptr_t)ctx->type_stats[i].type * 0x45d9f3bU) &
+                                      (uint32_t)new_mask;
+                        while (new_table[nh].type)
+                            nh = (nh + 1) & (uint32_t)new_mask;
                         new_table[nh] = ctx->type_stats[i];
                     }
                 }
@@ -176,8 +185,8 @@ beast2_type_stats_get(Beast2DecodeCtx *ctx, EastType *type)
 void beast2_dedup_print_stats(Beast2DecodeCtx *ctx)
 {
     fprintf(stderr, "\n=== Beast2 Dedup Stats ===\n");
-    fprintf(stderr, "Total: hits=%d misses=%d bytes_hashed=%zu\n",
-            ctx->dedup_hits, ctx->dedup_misses, ctx->dedup_bytes_hashed);
+    fprintf(stderr, "Total: hits=%d misses=%d bytes_hashed=%zu\n", ctx->dedup_hits,
+            ctx->dedup_misses, ctx->dedup_bytes_hashed);
 
     /* Collect and sort per-type stats by time descending */
     int n = 0;
@@ -187,7 +196,13 @@ void beast2_dedup_print_stats(Beast2DecodeCtx *ctx)
     if (n == 0) return;
 
     /* Flatten into array for sorting */
-    typedef struct { EastType *type; int hits; int misses; size_t bytes; double time_us; } Entry;
+    typedef struct {
+        EastType *type;
+        int hits;
+        int misses;
+        size_t bytes;
+        double time_us;
+    } Entry;
     Entry *entries = malloc(n * sizeof(Entry));
     int ei = 0;
     for (int i = 0; i <= ctx->type_stats_mask; i++) {
@@ -212,27 +227,27 @@ void beast2_dedup_print_stats(Beast2DecodeCtx *ctx)
     }
 
     fprintf(stderr, "\nPer-type dedup breakdown (sorted by time):\n");
-    fprintf(stderr, "%-12s %8s %8s %12s %10s  %s\n",
-            "TYPE_KIND", "HITS", "MISSES", "BYTES", "TIME_MS", "TYPE_PTR");
+    fprintf(stderr, "%-12s %8s %8s %12s %10s  %s\n", "TYPE_KIND", "HITS", "MISSES", "BYTES",
+            "TIME_MS", "TYPE_PTR");
     double total_time = 0;
-    for (int i = 0; i < n; i++) total_time += entries[i].time_us;
+    for (int i = 0; i < n; i++)
+        total_time += entries[i].time_us;
     for (int i = 0; i < n; i++) {
         const char *kind_name = east_type_kind_name(entries[i].type->kind);
-        fprintf(stderr, "%-12s %8d %8d %12zu %10.1f  %p",
-                kind_name,
-                entries[i].hits, entries[i].misses,
-                entries[i].bytes,
-                entries[i].time_us / 1000.0,
-                (void*)entries[i].type);
+        fprintf(stderr, "%-12s %8d %8d %12zu %10.1f  %p", kind_name, entries[i].hits,
+                entries[i].misses, entries[i].bytes, entries[i].time_us / 1000.0,
+                (void *)entries[i].type);
         /* For struct/variant, print brief type info */
-        if (entries[i].type->kind == EAST_TYPE_STRUCT && entries[i].type->data.struct_.num_fields > 0) {
+        if (entries[i].type->kind == EAST_TYPE_STRUCT &&
+            entries[i].type->data.struct_.num_fields > 0) {
             fprintf(stderr, "  {%s", entries[i].type->data.struct_.fields[0].name);
             if (entries[i].type->data.struct_.num_fields > 1)
                 fprintf(stderr, ", %s", entries[i].type->data.struct_.fields[1].name);
             if (entries[i].type->data.struct_.num_fields > 2)
                 fprintf(stderr, ", ...[%zu fields]", entries[i].type->data.struct_.num_fields);
             fprintf(stderr, "}");
-        } else if (entries[i].type->kind == EAST_TYPE_VARIANT && entries[i].type->data.variant.num_cases > 0) {
+        } else if (entries[i].type->kind == EAST_TYPE_VARIANT &&
+                   entries[i].type->data.variant.num_cases > 0) {
             fprintf(stderr, "  |%s", entries[i].type->data.variant.cases[0].name);
             if (entries[i].type->data.variant.num_cases > 1)
                 fprintf(stderr, "|%s", entries[i].type->data.variant.cases[1].name);

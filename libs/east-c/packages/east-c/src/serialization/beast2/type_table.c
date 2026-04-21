@@ -13,7 +13,8 @@
 /*  Beast2 v2 Flat Type Table                                          */
 /* ================================================================== */
 
-void flat_tt_init(Beast2FlatTypeTable *t) {
+void flat_tt_init(Beast2FlatTypeTable *t)
+{
     t->count = 0;
     t->capacity = 32;
     t->entries = calloc(32, sizeof(Beast2FlatEntry));
@@ -25,7 +26,8 @@ void flat_tt_init(Beast2FlatTypeTable *t) {
     t->etv_map = calloc(64, sizeof(Beast2PtrSlot));
 }
 
-void flat_tt_free(Beast2FlatTypeTable *t) {
+void flat_tt_free(Beast2FlatTypeTable *t)
+{
     for (size_t i = 0; i < t->count; i++) {
         free(t->entries[i].params);
     }
@@ -34,7 +36,8 @@ void flat_tt_free(Beast2FlatTypeTable *t) {
     free(t->etv_map);
 }
 
-static size_t flat_tt_allocate(Beast2FlatTypeTable *t) {
+static size_t flat_tt_allocate(Beast2FlatTypeTable *t)
+{
     if (t->count >= t->capacity) {
         size_t old_cap = t->capacity;
         t->capacity *= 2;
@@ -47,7 +50,8 @@ static size_t flat_tt_allocate(Beast2FlatTypeTable *t) {
 }
 
 /* Helper: write a varint to a temp buffer, return the bytes */
-static uint8_t *varint_bytes(uint64_t val, size_t *out_len) {
+static uint8_t *varint_bytes(uint64_t val, size_t *out_len)
+{
     uint8_t tmp[10];
     size_t n = 0;
     do {
@@ -63,7 +67,8 @@ static uint8_t *varint_bytes(uint64_t val, size_t *out_len) {
 }
 
 /* Helper: concatenate params into a single buffer */
-static uint8_t *concat_params(ByteBuffer *b) {
+static uint8_t *concat_params(ByteBuffer *b)
+{
     uint8_t *result = malloc(b->len);
     memcpy(result, b->data, b->len);
     return result;
@@ -71,7 +76,8 @@ static uint8_t *concat_params(ByteBuffer *b) {
 
 /* ---- EastType* pointer hash map ---- */
 
-static void flat_tt_et_grow(Beast2FlatTypeTable *t) {
+static void flat_tt_et_grow(Beast2FlatTypeTable *t)
+{
     int old_cap = t->et_map_mask + 1;
     int new_cap = old_cap * 2;
     int new_mask = new_cap - 1;
@@ -79,7 +85,8 @@ static void flat_tt_et_grow(Beast2FlatTypeTable *t) {
     for (int i = 0; i < old_cap; i++) {
         if (t->et_map[i].key != 0) {
             uint32_t h = b2_hash_ptr(t->et_map[i].key) & (uint32_t)new_mask;
-            while (new_map[h].key != 0) h = (h + 1) & (uint32_t)new_mask;
+            while (new_map[h].key != 0)
+                h = (h + 1) & (uint32_t)new_mask;
             new_map[h] = t->et_map[i];
         }
     }
@@ -88,7 +95,8 @@ static void flat_tt_et_grow(Beast2FlatTypeTable *t) {
     t->et_map_mask = new_mask;
 }
 
-int flat_tt_et_find(Beast2FlatTypeTable *t, EastType *type) {
+int flat_tt_et_find(Beast2FlatTypeTable *t, EastType *type)
+{
     uintptr_t key = (uintptr_t)type;
     uint32_t h = b2_hash_ptr(key) & (uint32_t)t->et_map_mask;
     for (;;) {
@@ -98,12 +106,13 @@ int flat_tt_et_find(Beast2FlatTypeTable *t, EastType *type) {
     }
 }
 
-static void flat_tt_et_add(Beast2FlatTypeTable *t, EastType *type, size_t idx) {
-    if (t->et_map_count * 10 >= (t->et_map_mask + 1) * 7)
-        flat_tt_et_grow(t);
+static void flat_tt_et_add(Beast2FlatTypeTable *t, EastType *type, size_t idx)
+{
+    if (t->et_map_count * 10 >= (t->et_map_mask + 1) * 7) flat_tt_et_grow(t);
     uintptr_t key = (uintptr_t)type;
     uint32_t h = b2_hash_ptr(key) & (uint32_t)t->et_map_mask;
-    while (t->et_map[h].key != 0) h = (h + 1) & (uint32_t)t->et_map_mask;
+    while (t->et_map[h].key != 0)
+        h = (h + 1) & (uint32_t)t->et_map_mask;
     t->et_map[h].key = key;
     t->et_map[h].idx = idx;
     t->et_map_count++;
@@ -111,7 +120,8 @@ static void flat_tt_et_add(Beast2FlatTypeTable *t, EastType *type, size_t idx) {
 
 /* ---- EastValue* pointer hash map ---- */
 
-static void flat_tt_etv_grow(Beast2FlatTypeTable *t) {
+static void flat_tt_etv_grow(Beast2FlatTypeTable *t)
+{
     int old_cap = t->etv_map_mask + 1;
     int new_cap = old_cap * 2;
     int new_mask = new_cap - 1;
@@ -119,7 +129,8 @@ static void flat_tt_etv_grow(Beast2FlatTypeTable *t) {
     for (int i = 0; i < old_cap; i++) {
         if (t->etv_map[i].key != 0) {
             uint32_t h = b2_hash_ptr(t->etv_map[i].key) & (uint32_t)new_mask;
-            while (new_map[h].key != 0) h = (h + 1) & (uint32_t)new_mask;
+            while (new_map[h].key != 0)
+                h = (h + 1) & (uint32_t)new_mask;
             new_map[h] = t->etv_map[i];
         }
     }
@@ -128,7 +139,8 @@ static void flat_tt_etv_grow(Beast2FlatTypeTable *t) {
     t->etv_map_mask = new_mask;
 }
 
-int flat_tt_etv_find(Beast2FlatTypeTable *t, EastValue *val) {
+int flat_tt_etv_find(Beast2FlatTypeTable *t, EastValue *val)
+{
     uintptr_t key = (uintptr_t)val;
     uint32_t h = b2_hash_ptr(key) & (uint32_t)t->etv_map_mask;
     for (;;) {
@@ -138,25 +150,25 @@ int flat_tt_etv_find(Beast2FlatTypeTable *t, EastValue *val) {
     }
 }
 
-static void flat_tt_etv_add(Beast2FlatTypeTable *t, EastValue *val, size_t idx) {
-    if (t->etv_map_count * 10 >= (t->etv_map_mask + 1) * 7)
-        flat_tt_etv_grow(t);
+static void flat_tt_etv_add(Beast2FlatTypeTable *t, EastValue *val, size_t idx)
+{
+    if (t->etv_map_count * 10 >= (t->etv_map_mask + 1) * 7) flat_tt_etv_grow(t);
     uintptr_t key = (uintptr_t)val;
     uint32_t h = b2_hash_ptr(key) & (uint32_t)t->etv_map_mask;
-    while (t->etv_map[h].key != 0) h = (h + 1) & (uint32_t)t->etv_map_mask;
+    while (t->etv_map[h].key != 0)
+        h = (h + 1) & (uint32_t)t->etv_map_mask;
     t->etv_map[h].key = key;
     t->etv_map[h].idx = idx;
     t->etv_map_count++;
 }
 
 
-
 /* ---- DFS encoder: EastType* → flat table ---- */
 
 /* Commit a new type table entry. Takes ownership of pb (frees it).
  * Generates a canonical ETV for value-equality dedup by the ETV path. */
-static size_t flat_tt_commit(Beast2FlatTypeTable *t, EastType *type,
-                              uint8_t tag, ByteBuffer *pb) {
+static size_t flat_tt_commit(Beast2FlatTypeTable *t, EastType *type, uint8_t tag, ByteBuffer *pb)
+{
     size_t idx = flat_tt_allocate(t);
     flat_tt_et_add(t, type, idx);
     t->entries[idx].tag = tag;
@@ -172,7 +184,8 @@ static size_t flat_tt_commit(Beast2FlatTypeTable *t, EastType *type,
 }
 
 
-size_t flat_tt_add_et(Beast2FlatTypeTable *t, EastType *type) {
+size_t flat_tt_add_et(Beast2FlatTypeTable *t, EastType *type)
+{
     /* Check pointer dedup */
     int existing = flat_tt_et_find(t, type);
     if (existing >= 0) return (size_t)existing;
@@ -274,7 +287,8 @@ size_t flat_tt_add_et(Beast2FlatTypeTable *t, EastType *type) {
 
 /* ---- Type table decoder ---- */
 
-void type_table_result_free(TypeTableResult *r) {
+void type_table_result_free(TypeTableResult *r)
+{
     for (size_t i = 0; i < r->count; i++) {
         if (r->types && r->types[i]) east_type_release(r->types[i]);
         if (r->type_values && r->type_values[i]) east_value_release(r->type_values[i]);
@@ -288,17 +302,21 @@ typedef struct {
     uint8_t tag;
     size_t *child_indices;
     size_t num_children;
-    char **names;   /* for Struct/Variant */
+    char **names; /* for Struct/Variant */
 } ParsedEntry;
 
-TypeTableResult read_type_table_section(const uint8_t *data, size_t len, size_t *offset) {
+TypeTableResult read_type_table_section(const uint8_t *data, size_t len, size_t *offset)
+{
     TypeTableResult result = {NULL, NULL, NULL, 0};
     uint64_t header_byte_length = read_varint(data, offset);
     size_t header_end = *offset + (size_t)header_byte_length;
     uint64_t root_idx = read_varint(data, offset);
     uint64_t entry_count = read_varint(data, offset);
 
-    if (entry_count == 0) { *offset = header_end; return result; }
+    if (entry_count == 0) {
+        *offset = header_end;
+        return result;
+    }
 
     /* Phase 1: Parse raw entries */
     ParsedEntry *parsed = calloc((size_t)entry_count, sizeof(ParsedEntry));
@@ -308,9 +326,9 @@ TypeTableResult read_type_table_section(const uint8_t *data, size_t len, size_t 
 
         if (tag <= BEAST2_TAG_NEVER) {
             /* Primitives: no params */
-        } else if (tag == BEAST2_TAG_ARRAY || tag == BEAST2_TAG_SET ||
-                   tag == BEAST2_TAG_REF || tag == BEAST2_TAG_VECTOR ||
-                   tag == BEAST2_TAG_MATRIX || tag == BEAST2_TAG_RECURSIVE) {
+        } else if (tag == BEAST2_TAG_ARRAY || tag == BEAST2_TAG_SET || tag == BEAST2_TAG_REF ||
+                   tag == BEAST2_TAG_VECTOR || tag == BEAST2_TAG_MATRIX ||
+                   tag == BEAST2_TAG_RECURSIVE) {
             /* Single child index */
             parsed[i].num_children = 1;
             parsed[i].child_indices = malloc(sizeof(size_t));
@@ -324,7 +342,7 @@ TypeTableResult read_type_table_section(const uint8_t *data, size_t len, size_t 
             uint64_t n = read_varint(data, offset);
             parsed[i].num_children = (size_t)n;
             parsed[i].child_indices = malloc(n * sizeof(size_t));
-            parsed[i].names = malloc(n * sizeof(char*));
+            parsed[i].names = malloc(n * sizeof(char *));
             for (uint64_t j = 0; j < n; j++) {
                 size_t name_len;
                 parsed[i].names[j] = b2_read_string_varint(data, len, offset, &name_len);
@@ -341,12 +359,13 @@ TypeTableResult read_type_table_section(const uint8_t *data, size_t len, size_t 
     }
 
     if (*offset != header_end) {
-        fprintf(stderr, "beast2: type table size mismatch: expected %zu, got %zu\n", header_end, *offset);
+        fprintf(stderr, "beast2: type table size mismatch: expected %zu, got %zu\n", header_end,
+                *offset);
     }
     *offset = header_end;
 
     /* Phase 2: Reconstruct EastType* array */
-    EastType **types = calloc((size_t)entry_count, sizeof(EastType*));
+    EastType **types = calloc((size_t)entry_count, sizeof(EastType *));
 
     /* First pass: allocate Recursive wrappers and primitive singletons */
     for (size_t i = 0; i < (size_t)entry_count; i++) {
@@ -357,14 +376,14 @@ TypeTableResult read_type_table_section(const uint8_t *data, size_t len, size_t 
             static EastType *primitives[8];
             static int prim_init = 0;
             if (!prim_init) {
-                primitives[BEAST2_TAG_NULL]     = &east_null_type;
-                primitives[BEAST2_TAG_STRING]   = &east_string_type;
-                primitives[BEAST2_TAG_INTEGER]  = &east_integer_type;
-                primitives[BEAST2_TAG_FLOAT]    = &east_float_type;
-                primitives[BEAST2_TAG_BOOLEAN]  = &east_boolean_type;
+                primitives[BEAST2_TAG_NULL] = &east_null_type;
+                primitives[BEAST2_TAG_STRING] = &east_string_type;
+                primitives[BEAST2_TAG_INTEGER] = &east_integer_type;
+                primitives[BEAST2_TAG_FLOAT] = &east_float_type;
+                primitives[BEAST2_TAG_BOOLEAN] = &east_boolean_type;
                 primitives[BEAST2_TAG_DATETIME] = &east_datetime_type;
-                primitives[BEAST2_TAG_BLOB]     = &east_blob_type;
-                primitives[BEAST2_TAG_NEVER]    = &east_never_type;
+                primitives[BEAST2_TAG_BLOB] = &east_blob_type;
+                primitives[BEAST2_TAG_NEVER] = &east_never_type;
                 prim_init = 1;
             }
             types[i] = primitives[parsed[i].tag];
@@ -389,11 +408,11 @@ TypeTableResult read_type_table_section(const uint8_t *data, size_t len, size_t 
             types[i] = east_matrix_type(types[parsed[i].child_indices[0]]);
         } else if (tag == BEAST2_TAG_DICT) {
             types[i] = east_dict_type(types[parsed[i].child_indices[0]],
-                                       types[parsed[i].child_indices[1]]);
+                                      types[parsed[i].child_indices[1]]);
         } else if (tag == BEAST2_TAG_STRUCT) {
             size_t nf = parsed[i].num_children;
-            const char **names = malloc(nf * sizeof(char*));
-            EastType **field_types = malloc(nf * sizeof(EastType*));
+            const char **names = malloc(nf * sizeof(char *));
+            EastType **field_types = malloc(nf * sizeof(EastType *));
             for (size_t j = 0; j < nf; j++) {
                 names[j] = parsed[i].names[j];
                 field_types[j] = types[parsed[i].child_indices[j]];
@@ -403,8 +422,8 @@ TypeTableResult read_type_table_section(const uint8_t *data, size_t len, size_t 
             free(field_types);
         } else if (tag == BEAST2_TAG_VARIANT) {
             size_t nc = parsed[i].num_children;
-            const char **names = malloc(nc * sizeof(char*));
-            EastType **case_types = malloc(nc * sizeof(EastType*));
+            const char **names = malloc(nc * sizeof(char *));
+            EastType **case_types = malloc(nc * sizeof(EastType *));
             for (size_t j = 0; j < nc; j++) {
                 names[j] = parsed[i].names[j];
                 case_types[j] = types[parsed[i].child_indices[j]];
@@ -414,7 +433,7 @@ TypeTableResult read_type_table_section(const uint8_t *data, size_t len, size_t 
             free(case_types);
         } else if (tag == BEAST2_TAG_FUNCTION) {
             size_t ni = parsed[i].num_children - 1;
-            EastType **inputs = malloc(ni * sizeof(EastType*));
+            EastType **inputs = malloc(ni * sizeof(EastType *));
             for (size_t j = 0; j < ni; j++) {
                 inputs[j] = types[parsed[i].child_indices[j]];
                 east_type_retain(inputs[j]);
@@ -425,7 +444,7 @@ TypeTableResult read_type_table_section(const uint8_t *data, size_t len, size_t 
             free(inputs);
         } else if (tag == BEAST2_TAG_ASYNC_FN) {
             size_t ni = parsed[i].num_children - 1;
-            EastType **inputs = malloc(ni * sizeof(EastType*));
+            EastType **inputs = malloc(ni * sizeof(EastType *));
             for (size_t j = 0; j < ni; j++) {
                 inputs[j] = types[parsed[i].child_indices[j]];
                 east_type_retain(inputs[j]);
@@ -455,7 +474,8 @@ TypeTableResult read_type_table_section(const uint8_t *data, size_t len, size_t 
                 continue;
             }
             if (!types[inner_idx]) {
-                fprintf(stderr, "beast2: ERROR: Recursive entry %zu inner %zu is NULL!\n", i, inner_idx);
+                fprintf(stderr, "beast2: ERROR: Recursive entry %zu inner %zu is NULL!\n", i,
+                        inner_idx);
                 continue;
             }
             east_recursive_type_set(types[i], types[inner_idx]);
@@ -494,7 +514,7 @@ TypeTableResult read_type_table_section(const uint8_t *data, size_t len, size_t 
         for (size_t i = 0; i < (size_t)entry_count; i++) {
             uint8_t tag = parsed[i].tag;
             if (tag == BEAST2_TAG_RECURSIVE || tag <= BEAST2_TAG_NEVER)
-                continue;  /* primitives and recursives are canonical */
+                continue; /* primitives and recursives are canonical */
 
             EastType *old = types[i];
             EastType *rebuilt = NULL;
@@ -511,11 +531,11 @@ TypeTableResult read_type_table_section(const uint8_t *data, size_t len, size_t 
                 rebuilt = east_matrix_type(types[parsed[i].child_indices[0]]);
             } else if (tag == BEAST2_TAG_DICT) {
                 rebuilt = east_dict_type(types[parsed[i].child_indices[0]],
-                                          types[parsed[i].child_indices[1]]);
+                                         types[parsed[i].child_indices[1]]);
             } else if (tag == BEAST2_TAG_STRUCT) {
                 size_t nf = parsed[i].num_children;
-                const char **names = malloc(nf * sizeof(char*));
-                EastType **field_types = malloc(nf * sizeof(EastType*));
+                const char **names = malloc(nf * sizeof(char *));
+                EastType **field_types = malloc(nf * sizeof(EastType *));
                 for (size_t j = 0; j < nf; j++) {
                     names[j] = parsed[i].names[j];
                     field_types[j] = types[parsed[i].child_indices[j]];
@@ -525,8 +545,8 @@ TypeTableResult read_type_table_section(const uint8_t *data, size_t len, size_t 
                 free(field_types);
             } else if (tag == BEAST2_TAG_VARIANT) {
                 size_t nc = parsed[i].num_children;
-                const char **names = malloc(nc * sizeof(char*));
-                EastType **case_types = malloc(nc * sizeof(EastType*));
+                const char **names = malloc(nc * sizeof(char *));
+                EastType **case_types = malloc(nc * sizeof(EastType *));
                 for (size_t j = 0; j < nc; j++) {
                     names[j] = parsed[i].names[j];
                     case_types[j] = types[parsed[i].child_indices[j]];
@@ -536,7 +556,7 @@ TypeTableResult read_type_table_section(const uint8_t *data, size_t len, size_t 
                 free(case_types);
             } else if (tag == BEAST2_TAG_FUNCTION) {
                 size_t ni = parsed[i].num_children - 1;
-                EastType **inputs = malloc(ni * sizeof(EastType*));
+                EastType **inputs = malloc(ni * sizeof(EastType *));
                 for (size_t j = 0; j < ni; j++) {
                     inputs[j] = types[parsed[i].child_indices[j]];
                     east_type_retain(inputs[j]);
@@ -547,7 +567,7 @@ TypeTableResult read_type_table_section(const uint8_t *data, size_t len, size_t 
                 free(inputs);
             } else if (tag == BEAST2_TAG_ASYNC_FN) {
                 size_t ni = parsed[i].num_children - 1;
-                EastType **inputs = malloc(ni * sizeof(EastType*));
+                EastType **inputs = malloc(ni * sizeof(EastType *));
                 for (size_t j = 0; j < ni; j++) {
                     inputs[j] = types[parsed[i].child_indices[j]];
                     east_type_retain(inputs[j]);
@@ -597,7 +617,8 @@ TypeTableResult read_type_table_section(const uint8_t *data, size_t len, size_t 
 
 /* ---- DFS encoder: EastValue* (EastTypeValue) → flat table ---- */
 
-size_t flat_tt_add_etv(Beast2FlatTypeTable *t, EastValue *etv) {
+size_t flat_tt_add_etv(Beast2FlatTypeTable *t, EastValue *etv)
+{
     if (!etv || etv->kind != EAST_VAL_VARIANT) return 0;
 
     /* Fast path: pointer-identity dedup on ETV */
@@ -617,7 +638,8 @@ size_t flat_tt_add_etv(Beast2FlatTypeTable *t, EastValue *etv) {
 }
 
 /* Write type table section: [varint header_len] [varint root_idx] [varint count] [entries...] */
-void write_type_table_section(size_t root_idx, Beast2FlatTypeTable *t, ByteBuffer *buf) {
+void write_type_table_section(size_t root_idx, Beast2FlatTypeTable *t, ByteBuffer *buf)
+{
     ByteBuffer *hdr = byte_buffer_new(256);
     write_varint(hdr, root_idx);
     write_varint(hdr, t->count);

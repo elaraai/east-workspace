@@ -15,13 +15,14 @@ PlatformRegistry *platform_registry_new(void)
     if (!reg) return NULL;
     reg->functions = hashmap_new();
     reg->generic_functions = hashmap_new();
+    reg->ref_count = 1;
     return reg;
 }
 
-void platform_registry_add(PlatformRegistry *reg, const char *name,
-                           PlatformFn fn, bool is_async)
+void platform_registry_add(PlatformRegistry *reg, const char *name, PlatformFn fn, bool is_async)
 {
     if (!reg || !name) return;
+    free(hashmap_get(reg->functions, name));
     PlatformFunction *pf = calloc(1, sizeof(PlatformFunction));
     if (!pf) return;
     pf->name = name;
@@ -34,6 +35,7 @@ void platform_registry_add_generic(PlatformRegistry *reg, const char *name,
                                    GenericPlatformFactory factory, bool is_async)
 {
     if (!reg || !name) return;
+    free(hashmap_get(reg->generic_functions, name));
     GenericPlatformFunction *gf = calloc(1, sizeof(GenericPlatformFunction));
     if (!gf) return;
     gf->name = name;
@@ -42,8 +44,8 @@ void platform_registry_add_generic(PlatformRegistry *reg, const char *name,
     hashmap_set(reg->generic_functions, name, gf);
 }
 
-PlatformFn platform_registry_get(PlatformRegistry *reg, const char *name,
-                                 EastType **type_params, size_t num_tp)
+PlatformFn platform_registry_get(PlatformRegistry *reg, const char *name, EastType **type_params,
+                                 size_t num_tp)
 {
     if (!reg || !name) return NULL;
 
@@ -58,7 +60,10 @@ PlatformFn platform_registry_get(PlatformRegistry *reg, const char *name,
     return NULL;
 }
 
-static void free_pf(void *v) { free(v); }
+static void free_pf(void *v)
+{
+    free(v);
+}
 
 void platform_registry_free(PlatformRegistry *reg)
 {
@@ -66,4 +71,17 @@ void platform_registry_free(PlatformRegistry *reg)
     hashmap_free(reg->functions, free_pf);
     hashmap_free(reg->generic_functions, free_pf);
     free(reg);
+}
+
+void platform_registry_retain(PlatformRegistry *reg)
+{
+    if (!reg) return;
+    reg->ref_count++;
+}
+
+void platform_registry_release(PlatformRegistry *reg)
+{
+    if (!reg) return;
+    if (--reg->ref_count > 0) return;
+    platform_registry_free(reg);
 }

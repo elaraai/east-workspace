@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Progress, Style } from "../../src/index.js";
+import { Progress, Style } from "@elaraai/east-ui";
 import * as ex from "./progress.examples.js";
 
 describeEast("Progress", (test) => {

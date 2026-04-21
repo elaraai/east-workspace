@@ -56,7 +56,7 @@ void write_source_map_section(EastSourceMap *sm, Beast2StringTableEnc *st, ByteB
 /* ================================================================== */
 
 EastSourceMap read_source_map_section(const uint8_t *data, size_t len, size_t *offset,
-                                         Beast2StringTableDec *st)
+                                      Beast2StringTableDec *st)
 {
     EastSourceMap sm = {0};
 
@@ -114,4 +114,3 @@ void beast2_source_map_free(EastSourceMap *sm)
     sm->stack_counts = NULL;
     sm->num_stacks = 0;
 }
-

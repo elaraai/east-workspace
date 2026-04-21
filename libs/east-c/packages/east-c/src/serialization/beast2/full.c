@@ -64,7 +64,7 @@ ByteBuffer *east_beast2_encode_full(EastValue *value, EastType *type)
 }
 
 ByteBuffer *east_beast2_encode_full_with_handles(EastValue *value, EastType *type,
-                                                  Beast2HandleAllocFn alloc_fn, void *user_data)
+                                                 Beast2HandleAllocFn alloc_fn, void *user_data)
 {
     if (!value || !type || !alloc_fn) return NULL;
 
@@ -98,8 +98,7 @@ ByteBuffer *east_beast2_encode_full_with_handles(EastValue *value, EastType *typ
     return buf;
 }
 
-EastValue *east_beast2_decode_full(const uint8_t *data, size_t len,
-                                   EastType *type)
+EastValue *east_beast2_decode_full(const uint8_t *data, size_t len, EastType *type)
 {
     if (!data || !type) return NULL;
     if (len < 8) return NULL;
@@ -122,8 +121,7 @@ EastValue *east_beast2_decode_full(const uint8_t *data, size_t len,
     EastSourceMap sm = read_source_map_section(data, len, &offset, &st);
 
     /* 5. Read value table section (two-pass) */
-    Beast2MutableValues mv = read_value_table_section(data, len, &offset,
-                                                        tt.types, tt.count, &st);
+    Beast2MutableValues mv = read_value_table_section(data, len, &offset, tt.types, tt.count, &st);
 
     /* 6. Decode value stream */
     Beast2DecodeCtx dctx;
@@ -182,8 +180,7 @@ EastValue *east_beast2_decode_auto(const uint8_t *data, size_t len)
     EastSourceMap sm = read_source_map_section(data, len, &offset, &st);
 
     /* 4. Read value table section */
-    Beast2MutableValues mv = read_value_table_section(data, len, &offset,
-                                                        tt.types, tt.count, &st);
+    Beast2MutableValues mv = read_value_table_section(data, len, &offset, tt.types, tt.count, &st);
 
     /* 5. Decode value stream using root type */
     Beast2DecodeCtx dctx;
@@ -203,13 +200,18 @@ EastValue *east_beast2_decode_auto(const uint8_t *data, size_t len)
     free(mv.values);
 
     if (!result) return NULL;
-    if (offset != len) { east_value_release(result); return NULL; }
+    if (offset != len) {
+        east_value_release(result);
+        return NULL;
+    }
     return result;
 }
 
-IRNode *east_beast2_decode_ir(const uint8_t *data, size_t len, EastValue **ir_value_out)
+IRNode *east_beast2_decode_ir(const uint8_t *data, size_t len, EastValue **ir_value_out,
+                              EastSourceMap **source_map_out)
 {
     if (ir_value_out) *ir_value_out = NULL;
+    if (source_map_out) *source_map_out = NULL;
     if (!data || len < 8) return NULL;
     if (memcmp(data, BEAST2_MAGIC, 8) != 0) return NULL;
     if (!east_type_type) east_type_of_type_init();
@@ -220,8 +222,7 @@ IRNode *east_beast2_decode_ir(const uint8_t *data, size_t len, EastValue **ir_va
     EastSourceMap sm = read_source_map_section(data, len, &offset, &st);
 
     /* Read value table section (IR arrays are mutable containers) */
-    Beast2MutableValues mv = read_value_table_section(data, len, &offset,
-                                                        tt.types, tt.count, &st);
+    Beast2MutableValues mv = read_value_table_section(data, len, &offset, tt.types, tt.count, &st);
 
     /* Decode IR as EastValue variant tree */
     Beast2DecodeCtx dctx;
@@ -251,9 +252,23 @@ IRNode *east_beast2_decode_ir(const uint8_t *data, size_t len, EastValue **ir_va
         east_value_release(ir_value);
     }
 
+    /* Hand ownership of source map to caller if requested; otherwise free it.
+     * Move the internal pointers to a heap-allocated struct so the caller can
+     * hold it across the stack unwind. */
+    if (source_map_out && sm.num_stacks > 0) {
+        EastSourceMap *heap_sm = calloc(1, sizeof(EastSourceMap));
+        if (heap_sm) {
+            *heap_sm = sm;
+            *source_map_out = heap_sm;
+        } else {
+            beast2_source_map_free(&sm);
+        }
+    } else {
+        beast2_source_map_free(&sm);
+    }
+
     type_table_result_free(&tt);
     string_table_dec_free(&st);
-    beast2_source_map_free(&sm);
     free(mv.values);
     return ir;
 }

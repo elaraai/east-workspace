@@ -41,10 +41,10 @@ jobs:
         run: pnpm install
 
       - name: Build east-ui packages
-        run: pnpm turbo run build --filter=@elaraai/east-ui --filter=@elaraai/east-ui-components --filter=@elaraai/e3-ui-components
+        run: pnpm --filter='@elaraai/east-ui...' --filter='@elaraai/east-ui-components...' --filter='@elaraai/e3-ui-components...' run build
 
       - name: Lint
-        run: pnpm turbo run lint --filter=@elaraai/east-ui --filter=@elaraai/east-ui-components --filter=@elaraai/e3-ui-components
+        run: pnpm --filter=@elaraai/east-ui --filter=@elaraai/east-ui-components --filter=@elaraai/e3-ui-components run lint
 
       - name: Run tests
-        run: pnpm turbo run test --filter=@elaraai/east-ui --filter=@elaraai/east-ui-components --filter=@elaraai/e3-ui-components
+        run: pnpm --filter=@elaraai/east-ui --filter=@elaraai/east-ui-components --filter=@elaraai/e3-ui-components run test

@@ -1,9 +1,9 @@
 /**
  * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under AGPL-3.0. See LICENSE file for details.
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, example } from "@elaraai/east";
-import { Box, Grid, Style, Text, UIComponentType } from "../../src/index.js";
+import { East, IntegerType, NullType, example } from "@elaraai/east";
+import { Box, Button, Grid, Reactive, Stack, State, Style, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const gridBasic3Col = example({
     keywords: ["Grid", "Root", "Item", "templateColumns", "repeat"],
@@ -144,6 +144,30 @@ export const gridFullWidth = example({
             templateColumns: "repeat(3, 1fr)",
             gap: "3",
         });
+    }),
+    inputs: [],
+});
+
+export const gridInteractive = example({
+    keywords: ["Grid", "Reactive", "State", "interactive", "counter"],
+    description: "Grid whose cells label updates from a counter",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const counter = $.let(State.bind([IntegerType], "grid_counter", 0n));
+            const value = $.let(counter.read());
+            const inc = $.const(East.function([], NullType, $ => {
+                const cur = $.let(counter.read());
+                $(counter.write(cur.add(1n)));
+            }));
+            return Stack.VStack([
+                Grid.Root([
+                    Grid.Item(Box.Root([Text.Root(East.str`Cell A — ${East.print(value)}`)], { padding: "2", background: "blue.100", borderRadius: "sm" })),
+                    Grid.Item(Box.Root([Text.Root(East.str`Cell B — ${East.print(value)}`)], { padding: "2", background: "green.100", borderRadius: "sm" })),
+                    Grid.Item(Box.Root([Text.Root(East.str`Cell C — ${East.print(value)}`)], { padding: "2", background: "purple.100", borderRadius: "sm" })),
+                ], { templateColumns: "repeat(3, 1fr)", gap: "3" }),
+                Button.Root("Bump", { onClick: inc }),
+            ], { gap: "3", align: "stretch" });
+        }));
     }),
     inputs: [],
 });

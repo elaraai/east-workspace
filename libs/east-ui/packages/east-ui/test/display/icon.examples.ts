@@ -1,9 +1,9 @@
 /**
  * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under AGPL-3.0. See LICENSE file for details.
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, example } from "@elaraai/east";
-import { Icon, Stack, UIComponentType } from "../../src/index.js";
+import { East, IntegerType, NullType, example } from "@elaraai/east";
+import { Button, Icon, Reactive, Stack, State, UIComponentType } from "@elaraai/east-ui";
 
 export const iconBasic = example({
     keywords: ["Icon", "Root", "fas", "FontAwesome"],
@@ -32,6 +32,31 @@ export const iconStyles = example({
             Icon.Root("fab", "twitter"),
             Icon.Root("fab", "react"),
         ], { gap: "4" });
+    }),
+    inputs: [],
+});
+
+export const iconInteractive = example({
+    keywords: ["Icon", "Reactive", "State", "interactive", "toggle"],
+    description: "Toggle between a star and heart icon on each click",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const counter = $.let(State.bind([IntegerType], "icon_counter", 0n));
+            const value = $.let(counter.read());
+            const isStar = $.let(value.remainder(2n).equal(0n));
+            const display = $.let(isStar.ifElse(
+                () => Icon.Root("fas", "star", { size: "2xl", colorPalette: "yellow" }),
+                () => Icon.Root("fas", "heart", { size: "2xl", colorPalette: "red" }),
+            ));
+            const inc = $.const(East.function([], NullType, $ => {
+                const cur = $.let(counter.read());
+                $(counter.write(cur.add(1n)));
+            }));
+            return Stack.HStack([
+                display,
+                Button.Root("Toggle icon", { onClick: inc }),
+            ], { gap: "3", align: "center" });
+        }));
     }),
     inputs: [],
 });

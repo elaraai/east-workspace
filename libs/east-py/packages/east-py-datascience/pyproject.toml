@@ -1,6 +1,6 @@
 [project]
 name = "east-py-datascience"
-version = "0.1.0"
+version = "1.0.0b0"
 description = "East Data Science - ML/optimization platform functions for East Python runtime"
 readme = "README.md"
 license = { file = "LICENSE.md" }
@@ -98,12 +98,23 @@ dev = [
 ]
 
 [build-system]
-requires = ["setuptools>=69.0.0", "cython>=3.0.0", "east-py"]
-build-backend = "setuptools.build_meta"
+requires = ["scikit-build-core>=0.10", "cython>=3.0.0"]
+build-backend = "scikit_build_core.build"
 
-[tool.setuptools.packages.find]
-where = ["src"]
-include = ["east_py_datascience*"]
+# scikit-build-core drives the build via CMakeLists.txt at this package's
+# root. The 2 .pyx files under src/east_py_datascience link against east-c
+# (built fresh by this package's CMakeLists). east-py must be installed
+# before this package builds — Cython resolves `cimport east._eastc` via
+# sys.path.
+[tool.scikit-build]
+cmake.version = ">=3.18"
+cmake.build-type = "Release"
+wheel.packages = ["src/east_py_datascience"]
+editable.rebuild = true
+editable.verbose = false
+build-dir = "build/{wheel_tag}"
+sdist.include = ["src/east_py_datascience/**/*.pxd", "src/east_py_datascience/**/*.pyx"]
+wheel.exclude = ["src/east_py_datascience/**/*.c"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

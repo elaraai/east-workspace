@@ -38,7 +38,7 @@ import type { PackageDef, PackageItem } from './types.js';
  * ```
  */
 // Named export_ to avoid conflict with reserved word
-export async function export_(pkg: PackageDef<Record<string, unknown>>, outputPath: string): Promise<void> {
+export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>, outputPath: string): Promise<void> {
   const partialPath = `${outputPath}.partial`;
 
   // Create zip file

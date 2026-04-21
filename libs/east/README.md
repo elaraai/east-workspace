@@ -238,57 +238,7 @@ Notably, these tests are hosted in East and allow one to validate the correctnes
 
 ### Release Process
 
-East uses automated releases via GitHub Actions. The process differs for stable and beta releases:
-
-#### Stable Releases
-
-For stable releases (published to npm with `latest` tag):
-
-```bash
-npm run release:patch    # 0.0.1 → 0.0.2
-npm run release:minor    # 0.0.1 → 0.1.0
-npm run release:major    # 0.0.1 → 1.0.0
-```
-
-These commands will:
-1. Bump the version in `package.json`
-2. Create a git commit with message `chore: bump version to X.Y.Z`
-3. Create a git tag `vX.Y.Z`
-4. Push the commit and tag to GitHub
-5. GitHub Actions automatically builds, tests, and publishes to npm with `latest` tag
-
-#### Beta Releases
-
-For beta/prerelease versions (published to npm with `beta` tag):
-
-```bash
-npm run release:prepatch      # 0.0.1 → 0.0.2-beta.0
-npm run release:preminor      # 0.0.1 → 0.1.0-beta.0
-npm run release:premajor      # 0.0.1 → 1.0.0-beta.0
-npm run release:prerelease    # 0.0.1-beta.0 → 0.0.1-beta.1
-```
-
-Beta releases follow the same automated process but are published to npm with the `beta` tag.
-
-#### Manual Version Bumping (Dry Run)
-
-To update the version without committing or tagging:
-
-```bash
-npm run version:patch:dry
-npm run version:minor:dry
-npm run version:major:dry
-npm run version:prepatch:dry
-npm run version:preminor:dry
-npm run version:premajor:dry
-npm run version:prerelease:dry
-```
-
-#### Requirements
-
-- **Automated Publishing**: Requires `NPM_TOKEN` secret configured in GitHub repository settings
-- **Pre-publish Checks**: All tests and linting must pass before publishing (enforced by `prepublishOnly` hook)
-- **Node Version**: Requires Node.js ≥22.0.0
+`@elaraai/east` is published together with every other `@elaraai/*` npm package in the east-workspace monorepo under a single unified version. Releases are triggered manually via the `NPM Publish` GitHub Actions workflow at the repo root (`.github/workflows/npm-publish.yml`). There is no per-package release command — see the root [README.md](../../README.md#release-process) for details.
 
 ## License
 

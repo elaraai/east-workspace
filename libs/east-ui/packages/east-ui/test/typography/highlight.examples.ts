@@ -1,9 +1,9 @@
 /**
  * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under AGPL-3.0. See LICENSE file for details.
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, example } from "@elaraai/east";
-import { Highlight, UIComponentType } from "../../src/index.js";
+import { East, NullType, StringType, example } from "@elaraai/east";
+import { Highlight, Input, Reactive, Stack, State, UIComponentType } from "@elaraai/east-ui";
 
 export const highlightSingleTerm = example({
     keywords: ["Highlight", "Root", "single", "term", "search"],
@@ -68,6 +68,29 @@ export const highlightNoMatches = example({
     description: "When query doesn't match",
     fn: East.function([], UIComponentType, (_$) => {
         return Highlight.Root("This text has no highlighted words", ["xyz"]);
+    }),
+    inputs: [],
+});
+
+export const highlightInteractive = example({
+    keywords: ["Highlight", "Reactive", "State", "interactive", "search"],
+    description: "Type a query to live-highlight matching words",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const search = $.let(State.bind([StringType], "highlight_query", "fox"));
+            const term = $.let(search.read());
+            const onChange = $.const(East.function([StringType], NullType, ($, next) => {
+                $(search.write(next));
+            }));
+            return Stack.VStack([
+                Input.String(term, { onChange, placeholder: "Type a word to highlight" }),
+                Highlight.Root(
+                    "The quick brown fox jumps over the lazy dog",
+                    [term],
+                    { color: "yellow.300" },
+                ),
+            ], { gap: "3", align: "stretch" });
+        }));
     }),
     inputs: [],
 });

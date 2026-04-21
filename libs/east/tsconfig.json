@@ -43,6 +43,5 @@
 
     // Custom options
     "noErrorTruncation": true,
-    "incremental": true,
   }
 }

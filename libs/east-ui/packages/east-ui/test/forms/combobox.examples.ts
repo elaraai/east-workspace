@@ -1,9 +1,9 @@
 /**
  * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under AGPL-3.0. See LICENSE file for details.
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, ArrayType, NullType, StringType, example } from "@elaraai/east";
-import { Combobox, Reactive, Stack, State, Text, UIComponentType } from "../../src/index.js";
+import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, example } from "@elaraai/east";
+import { Combobox, Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const comboboxBasic = example({
     keywords: ["Combobox", "Root", "Item", "searchable", "dropdown"],
@@ -165,6 +165,52 @@ export const comboboxInteractiveMulti = example({
                     _$ => selected.stringJoin(", "),
                     _$ => "(none)"
                 )}`),
+            ], { gap: "3", align: "stretch" });
+        }));
+    }),
+    inputs: [],
+});
+
+export const comboboxOnInputValueChange = example({
+    keywords: ["Combobox", "Root", "Reactive", "State", "onInputValueChange", "interactive"],
+    description: "Combobox whose onInputValueChange records every keystroke",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const inputBind = $.let(State.bind([StringType], "form_combobox_inputvalue", ""));
+            const last = $.let(inputBind.read());
+            const onInputValueChange = $.const(East.function([StringType], NullType, ($, next) => {
+                $(inputBind.write(next));
+            }));
+            return Stack.VStack([
+                Combobox.Root("", [
+                    Combobox.Item("a", "Apple"),
+                    Combobox.Item("b", "Banana"),
+                    Combobox.Item("c", "Cherry"),
+                ], { placeholder: "Type anything…", onInputValueChange }),
+                Text.Root(East.str`Last typed: ${last}`),
+            ], { gap: "3", align: "stretch" });
+        }));
+    }),
+    inputs: [],
+});
+
+export const comboboxOnOpenChange = example({
+    keywords: ["Combobox", "Root", "Reactive", "State", "onOpenChange", "interactive"],
+    description: "Combobox whose onOpenChange counts dropdown open/close transitions",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const bind = $.let(State.bind([IntegerType], "form_combobox_toggles", 0n));
+            const value = $.let(bind.read());
+            const onOpenChange = $.const(East.function([BooleanType], NullType, ($, _open) => {
+                const cur = $.let(bind.read());
+                $(bind.write(cur.add(1n)));
+            }));
+            return Stack.VStack([
+                Combobox.Root("", [
+                    Combobox.Item("a", "Apple"),
+                    Combobox.Item("b", "Banana"),
+                ], { placeholder: "Open me…", onOpenChange }),
+                Text.Root(East.str`Toggled ${East.print(value)} times`),
             ], { gap: "3", align: "stretch" });
         }));
     }),

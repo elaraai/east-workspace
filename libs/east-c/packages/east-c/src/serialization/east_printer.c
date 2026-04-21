@@ -105,15 +105,15 @@ static void pbuf_append_identifier(PBuf *sb, const char *id)
 /* ================================================================== */
 
 typedef struct {
-    EastValue *ptr;          /* Container pointer identity */
-    char **path;             /* Path components (owned copies) */
+    EastValue *ptr; /* Container pointer identity */
+    char **path;    /* Path components (owned copies) */
     size_t path_len;
     size_t path_cap;
 } RefEntry;
 
 /* Hash map for O(1) container lookup: pointer -> index in refs array */
 typedef struct {
-    uintptr_t key;   /* 0 = empty */
+    uintptr_t key; /* 0 = empty */
     size_t index;
 } PrintRefSlot;
 
@@ -121,14 +121,15 @@ typedef struct {
     RefEntry *refs;
     size_t ref_count;
     size_t ref_cap;
-    PrintRefSlot *map;   /* hash map slots */
-    int map_mask;        /* capacity - 1 */
-    char **path;             /* Current path stack (owned copies) */
+    PrintRefSlot *map; /* hash map slots */
+    int map_mask;      /* capacity - 1 */
+    char **path;       /* Current path stack (owned copies) */
     size_t path_depth;
     size_t path_cap;
 } PrintContext;
 
-static void ctx_push_path(PrintContext *ctx, const char *component) {
+static void ctx_push_path(PrintContext *ctx, const char *component)
+{
     if (!ctx) return;
     if (ctx->path_depth >= ctx->path_cap) {
         size_t new_cap = ctx->path_cap ? ctx->path_cap * 2 : 8;
@@ -140,20 +141,23 @@ static void ctx_push_path(PrintContext *ctx, const char *component) {
     ctx->path[ctx->path_depth++] = strdup(component);
 }
 
-static void ctx_pop_path(PrintContext *ctx) {
+static void ctx_pop_path(PrintContext *ctx)
+{
     if (ctx && ctx->path_depth > 0) {
         free(ctx->path[--ctx->path_depth]);
     }
 }
 
-static inline uint32_t print_hash_ptr(uintptr_t p) {
+static inline uint32_t print_hash_ptr(uintptr_t p)
+{
     p ^= p >> 16;
     p *= 0x45d9f3b;
     p ^= p >> 16;
     return (uint32_t)p;
 }
 
-static void ctx_map_grow(PrintContext *ctx) {
+static void ctx_map_grow(PrintContext *ctx)
+{
     int old_cap = ctx->map_mask + 1;
     int new_cap = old_cap * 2;
     int new_mask = new_cap - 1;
@@ -162,7 +166,8 @@ static void ctx_map_grow(PrintContext *ctx) {
     for (int i = 0; i < old_cap; i++) {
         if (ctx->map[i].key != 0) {
             uint32_t h = print_hash_ptr(ctx->map[i].key) & (uint32_t)new_mask;
-            while (new_map[h].key != 0) h = (h + 1) & (uint32_t)new_mask;
+            while (new_map[h].key != 0)
+                h = (h + 1) & (uint32_t)new_mask;
             new_map[h] = ctx->map[i];
         }
     }
@@ -171,7 +176,8 @@ static void ctx_map_grow(PrintContext *ctx) {
     ctx->map_mask = new_mask;
 }
 
-static void ctx_register(PrintContext *ctx, EastValue *ptr) {
+static void ctx_register(PrintContext *ctx, EastValue *ptr)
+{
     if (!ctx) return;
     if (ctx->ref_count >= ctx->ref_cap) {
         size_t new_cap = ctx->ref_cap ? ctx->ref_cap * 2 : 8;
@@ -187,7 +193,11 @@ static void ctx_register(PrintContext *ctx, EastValue *ptr) {
     e->path_cap = ctx->path_depth;
     if (ctx->path_depth > 0) {
         e->path = malloc(ctx->path_depth * sizeof(char *));
-        if (!e->path) { e->path_len = 0; e->path_cap = 0; return; }
+        if (!e->path) {
+            e->path_len = 0;
+            e->path_cap = 0;
+            return;
+        }
         for (size_t i = 0; i < ctx->path_depth; i++) {
             e->path[i] = strdup(ctx->path[i]);
         }
@@ -199,17 +209,18 @@ static void ctx_register(PrintContext *ctx, EastValue *ptr) {
         ctx->map_mask = 31;
         ctx->map = calloc(32, sizeof(PrintRefSlot));
     }
-    if ((int)ctx->ref_count * 10 >= (ctx->map_mask + 1) * 7)
-        ctx_map_grow(ctx);
+    if ((int)ctx->ref_count * 10 >= (ctx->map_mask + 1) * 7) ctx_map_grow(ctx);
     uintptr_t key = (uintptr_t)ptr;
     uint32_t h = print_hash_ptr(key) & (uint32_t)ctx->map_mask;
-    while (ctx->map[h].key != 0) h = (h + 1) & (uint32_t)ctx->map_mask;
+    while (ctx->map[h].key != 0)
+        h = (h + 1) & (uint32_t)ctx->map_mask;
     ctx->map[h].key = key;
     ctx->map[h].index = idx;
 }
 
 /* Check if a container was already seen. Returns the entry or NULL. */
-static RefEntry *ctx_find(PrintContext *ctx, EastValue *ptr) {
+static RefEntry *ctx_find(PrintContext *ctx, EastValue *ptr)
+{
     if (!ctx || !ctx->map) return NULL;
     uintptr_t key = (uintptr_t)ptr;
     uint32_t h = print_hash_ptr(key) & (uint32_t)ctx->map_mask;
@@ -221,7 +232,8 @@ static RefEntry *ctx_find(PrintContext *ctx, EastValue *ptr) {
 }
 
 /* Emit a relative backreference: upLevels#remainingPath */
-static void emit_backref(PBuf *sb, PrintContext *ctx, RefEntry *target) {
+static void emit_backref(PBuf *sb, PrintContext *ctx, RefEntry *target)
+{
     /* Find common prefix length between current path and target path */
     size_t common = 0;
     size_t cur_len = ctx->path_depth;
@@ -240,7 +252,8 @@ static void emit_backref(PBuf *sb, PrintContext *ctx, RefEntry *target) {
     }
 }
 
-static void ctx_free(PrintContext *ctx) {
+static void ctx_free(PrintContext *ctx)
+{
     if (!ctx) return;
     for (size_t i = 0; i < ctx->ref_count; i++) {
         for (size_t j = 0; j < ctx->refs[i].path_len; j++) {
@@ -301,8 +314,8 @@ static void print_val(PBuf *sb, EastValue *value, EastType *type, PrintContext *
             if (!strchr(numbuf, '.') && !strchr(numbuf, 'e') && !strchr(numbuf, 'E')) {
                 size_t nlen = strlen(numbuf);
                 numbuf[nlen] = '.';
-                numbuf[nlen+1] = '0';
-                numbuf[nlen+2] = '\0';
+                numbuf[nlen + 1] = '0';
+                numbuf[nlen + 2] = '\0';
             }
             pbuf_append_str(sb, numbuf);
         }
@@ -332,11 +345,17 @@ static void print_val(PBuf *sb, EastValue *value, EastType *type, PrintContext *
         int64_t millis = value->data.datetime;
         int64_t secs = millis / 1000;
         int64_t ms = millis % 1000;
-        if (ms < 0) { ms += 1000; secs--; }
+        if (ms < 0) {
+            ms += 1000;
+            secs--;
+        }
 
         int64_t days = secs / 86400;
         int64_t rem = secs % 86400;
-        if (rem < 0) { rem += 86400; days--; }
+        if (rem < 0) {
+            rem += 86400;
+            days--;
+        }
 
         int hour = (int)(rem / 3600);
         rem %= 3600;
@@ -347,18 +366,17 @@ static void print_val(PBuf *sb, EastValue *value, EastType *type, PrintContext *
         int64_t z = days + 719468;
         int64_t era = (z >= 0 ? z : z - 146096) / 146097;
         int64_t doe = z - era * 146097;
-        int64_t yoe = (doe - doe/1460 + doe/36524 - doe/146096) / 365;
+        int64_t yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
         int64_t y = yoe + era * 400;
-        int64_t doy = doe - (365*yoe + yoe/4 - yoe/100);
-        int64_t mp = (5*doy + 2) / 153;
-        int64_t d = doy - (153*mp + 2)/5 + 1;
+        int64_t doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        int64_t mp = (5 * doy + 2) / 153;
+        int64_t d = doy - (153 * mp + 2) / 5 + 1;
         int64_t m = mp + (mp < 10 ? 3 : -9);
         y += (m <= 2) ? 1 : 0;
 
         char datebuf[32];
-        snprintf(datebuf, sizeof(datebuf),
-                 "%04d-%02d-%02dT%02d:%02d:%02d.%03d",
-                 (int)y, (int)m, (int)d, hour, min, sec, (int)ms);
+        snprintf(datebuf, sizeof(datebuf), "%04d-%02d-%02dT%02d:%02d:%02d.%03d", (int)y, (int)m,
+                 (int)d, hour, min, sec, (int)ms);
         pbuf_append_str(sb, datebuf);
         break;
     }
@@ -470,8 +488,10 @@ static void print_val(PBuf *sb, EastValue *value, EastType *type, PrintContext *
                 pbuf_append_char(sb, '=');
 
                 /* Struct values always have fields in type schema order */
-                EastValue *fval = (value->kind == EAST_VAL_STRUCT && i < value->data.struct_.num_fields)
-                                ? value->data.struct_.field_values[i] : NULL;
+                EastValue *fval =
+                    (value->kind == EAST_VAL_STRUCT && i < value->data.struct_.num_fields)
+                        ? value->data.struct_.field_values[i]
+                        : NULL;
                 /* Push field path component: ".fieldname" */
                 char path_buf[256];
                 snprintf(path_buf, sizeof(path_buf), ".%s", fname);
@@ -495,16 +515,15 @@ static void print_val(PBuf *sb, EastValue *value, EastType *type, PrintContext *
             pbuf_append_str(sb, "null");
             break;
         }
-        EastType *case_type = (ci < type->data.variant.num_cases)
-            ? type->data.variant.cases[ci].type : NULL;
+        EastType *case_type =
+            (ci < type->data.variant.num_cases) ? type->data.variant.cases[ci].type : NULL;
         /* (debug removed) */
 
         pbuf_append_char(sb, '.');
         pbuf_append_str(sb, case_name);
 
         /* Print value if not null */
-        if (case_type && case_type->kind != EAST_TYPE_NULL &&
-            value->data.variant.value &&
+        if (case_type && case_type->kind != EAST_TYPE_NULL && value->data.variant.value &&
             value->data.variant.value->kind != EAST_VAL_NULL) {
             pbuf_append_char(sb, ' ');
             print_val(sb, value->data.variant.value, case_type, ctx);
@@ -547,7 +566,9 @@ static void print_val(PBuf *sb, EastValue *value, EastType *type, PrintContext *
                         east_fmt_double(numbuf, sizeof(numbuf), v);
                         if (!strchr(numbuf, '.') && !strchr(numbuf, 'e')) {
                             size_t nlen = strlen(numbuf);
-                            numbuf[nlen] = '.'; numbuf[nlen+1] = '0'; numbuf[nlen+2] = '\0';
+                            numbuf[nlen] = '.';
+                            numbuf[nlen + 1] = '0';
+                            numbuf[nlen + 2] = '\0';
                         }
                         pbuf_append_str(sb, numbuf);
                     }
@@ -591,7 +612,9 @@ static void print_val(PBuf *sb, EastValue *value, EastType *type, PrintContext *
                             east_fmt_double(numbuf, sizeof(numbuf), v);
                             if (!strchr(numbuf, '.') && !strchr(numbuf, 'e')) {
                                 size_t nlen = strlen(numbuf);
-                                numbuf[nlen] = '.'; numbuf[nlen+1] = '0'; numbuf[nlen+2] = '\0';
+                                numbuf[nlen] = '.';
+                                numbuf[nlen + 1] = '0';
+                                numbuf[nlen + 2] = '\0';
                             }
                             pbuf_append_str(sb, numbuf);
                         }
@@ -651,14 +674,30 @@ static void print_type_internal(PBuf *sb, EastType *type)
     }
 
     switch (type->kind) {
-    case EAST_TYPE_NEVER:    pbuf_append_str(sb, ".Never"); break;
-    case EAST_TYPE_NULL:     pbuf_append_str(sb, ".Null"); break;
-    case EAST_TYPE_BOOLEAN:  pbuf_append_str(sb, ".Boolean"); break;
-    case EAST_TYPE_INTEGER:  pbuf_append_str(sb, ".Integer"); break;
-    case EAST_TYPE_FLOAT:    pbuf_append_str(sb, ".Float"); break;
-    case EAST_TYPE_STRING:   pbuf_append_str(sb, ".String"); break;
-    case EAST_TYPE_DATETIME: pbuf_append_str(sb, ".DateTime"); break;
-    case EAST_TYPE_BLOB:     pbuf_append_str(sb, ".Blob"); break;
+    case EAST_TYPE_NEVER:
+        pbuf_append_str(sb, ".Never");
+        break;
+    case EAST_TYPE_NULL:
+        pbuf_append_str(sb, ".Null");
+        break;
+    case EAST_TYPE_BOOLEAN:
+        pbuf_append_str(sb, ".Boolean");
+        break;
+    case EAST_TYPE_INTEGER:
+        pbuf_append_str(sb, ".Integer");
+        break;
+    case EAST_TYPE_FLOAT:
+        pbuf_append_str(sb, ".Float");
+        break;
+    case EAST_TYPE_STRING:
+        pbuf_append_str(sb, ".String");
+        break;
+    case EAST_TYPE_DATETIME:
+        pbuf_append_str(sb, ".DateTime");
+        break;
+    case EAST_TYPE_BLOB:
+        pbuf_append_str(sb, ".Blob");
+        break;
 
     case EAST_TYPE_ARRAY:
         pbuf_append_str(sb, ".Array ");
@@ -702,9 +741,12 @@ static void print_type_internal(PBuf *sb, EastType *type)
             pbuf_append_char(sb, '"');
             const char *name = type->data.struct_.fields[i].name;
             for (size_t j = 0; name[j]; j++) {
-                if (name[j] == '"') pbuf_append_str(sb, "\\\"");
-                else if (name[j] == '\\') pbuf_append_str(sb, "\\\\");
-                else pbuf_append_char(sb, name[j]);
+                if (name[j] == '"')
+                    pbuf_append_str(sb, "\\\"");
+                else if (name[j] == '\\')
+                    pbuf_append_str(sb, "\\\\");
+                else
+                    pbuf_append_char(sb, name[j]);
             }
             pbuf_append_char(sb, '"');
             pbuf_append_str(sb, ", type=");
@@ -723,9 +765,12 @@ static void print_type_internal(PBuf *sb, EastType *type)
             pbuf_append_char(sb, '"');
             const char *name = type->data.variant.cases[i].name;
             for (size_t j = 0; name[j]; j++) {
-                if (name[j] == '"') pbuf_append_str(sb, "\\\"");
-                else if (name[j] == '\\') pbuf_append_str(sb, "\\\\");
-                else pbuf_append_char(sb, name[j]);
+                if (name[j] == '"')
+                    pbuf_append_str(sb, "\\\"");
+                else if (name[j] == '\\')
+                    pbuf_append_str(sb, "\\\\");
+                else
+                    pbuf_append_char(sb, name[j]);
             }
             pbuf_append_char(sb, '"');
             pbuf_append_str(sb, ", type=");
@@ -738,8 +783,8 @@ static void print_type_internal(PBuf *sb, EastType *type)
 
     case EAST_TYPE_FUNCTION:
     case EAST_TYPE_ASYNC_FUNCTION: {
-        const char *prefix = (type->kind == EAST_TYPE_ASYNC_FUNCTION)
-                             ? ".AsyncFunction" : ".Function";
+        const char *prefix =
+            (type->kind == EAST_TYPE_ASYNC_FUNCTION) ? ".AsyncFunction" : ".Function";
         pbuf_append_str(sb, prefix);
         pbuf_append_str(sb, " (inputs=[");
         for (size_t i = 0; i < type->data.function.num_inputs; i++) {

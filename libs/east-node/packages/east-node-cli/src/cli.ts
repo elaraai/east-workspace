@@ -33,29 +33,16 @@ async function cmdRun(irFile: string, options: RunOptions): Promise<void> {
     }
 
     try {
-        if (options.verbose) {
-            console.error(`Loading ${packages.length} platform package(s)...`);
-        }
-
         const platformFns = await loadPlatforms(packages);
 
-        if (options.verbose) {
-            console.error(`Loaded ${platformFns.length} platform function(s)`);
-            console.error(`Running: ${irFile}`);
-        }
-
-        const result = await runProgram(
+        await runProgram(
             irFile,
             platformFns,
+            packages,
             options.input ?? [],
             options.output,
             options.verbose ?? false
         );
-
-        // If no output file specified, print result to stdout
-        if (!options.output && result !== undefined && result !== null) {
-            console.log(JSON.stringify(result, null, 2));
-        }
     } catch (err) {
         if (err instanceof EastError) {
             console.error(`Error: ${err.toString()}`);

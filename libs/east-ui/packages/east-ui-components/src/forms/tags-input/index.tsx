@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useMemo, useCallback } from "react";
+import { memo, useMemo, useCallback, useState, useEffect } from "react";
 import { TagsInput as ChakraTagsInput, type TagsInputRootProps } from "@chakra-ui/react";
 import { equalFor, some, none, type ValueTypeOf } from "@elaraai/east";
 import { TagsInput } from "@elaraai/east-ui";
@@ -50,7 +50,7 @@ export interface EastChakraTagsInputProps {
  * Renders an East UI TagsInput value using Chakra UI TagsInput component.
  */
 export const EastChakraTagsInput = memo(function EastChakraTagsInput({ value }: EastChakraTagsInputProps) {
-    const props = useMemo(() => toChakraTagsInput(value), [value]);
+    const [props, setProps] = useState(toChakraTagsInput(value));
     const label = useMemo(() => getSomeorUndefined(value.label), [value.label]);
     const placeholder = useMemo(() => getSomeorUndefined(value.placeholder), [value.placeholder]);
 
@@ -59,7 +59,12 @@ export const EastChakraTagsInput = memo(function EastChakraTagsInput({ value }: 
     const onInputChangeFn = useMemo(() => getSomeorUndefined(value.onInputChange), [value.onInputChange]);
     const onHighlightChangeFn = useMemo(() => getSomeorUndefined(value.onHighlightChange), [value.onHighlightChange]);
 
+    useEffect(() => {
+        setProps(() => toChakraTagsInput(value));
+    }, [value]);
+
     const handleValueChange = useCallback((details: { value: string[] }) => {
+        setProps(prev => ({ ...prev, value: details.value }));
         if (onChangeFn) {
             queueMicrotask(() => onChangeFn(details.value));
         }
@@ -83,9 +88,9 @@ export const EastChakraTagsInput = memo(function EastChakraTagsInput({ value }: 
     return (
         <ChakraTagsInput.Root
             {...props}
-            onValueChange={onChangeFn ? handleValueChange : undefined}
-            onInputValueChange={onInputChangeFn ? handleInputValueChange : undefined}
-            onHighlightChange={onHighlightChangeFn ? handleHighlightChange : undefined}
+            onValueChange={handleValueChange}
+            onInputValueChange={handleInputValueChange}
+            onHighlightChange={handleHighlightChange}
         >
             {label && <ChakraTagsInput.Label>{label}</ChakraTagsInput.Label>}
             <ChakraTagsInput.Control>

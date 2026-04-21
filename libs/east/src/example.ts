@@ -49,8 +49,15 @@ export interface ExampleDef<I extends EastType[] = EastType[], O = any> {
     keywords: string[];
     /** Human-readable description of what this example demonstrates */
     description: string;
-    /** The East function expression — an East.function() or East.asyncFunction() call */
-    fn: CallableFunctionExpr<I, O> | CallableAsyncFunctionExpr<I, O>;
+    /**
+     * The East function expression — an East.function() or East.asyncFunction() call.
+     *
+     * The return type is erased to `EastType` here (not `O`) so that downstream
+     * consumers' `.d.ts` files do not inline the full structure of large recursive
+     * return types (e.g. `UIComponentType`). The tests still validate `O` via the
+     * `returns` field; runtime call paths only need the IR.
+     */
+    fn: CallableFunctionExpr<I, EastType> | CallableAsyncFunctionExpr<I, EastType>;
     /** Default input values for testing */
     inputs: { [K in keyof I]: SubtypeExprOrValue<I[K]> };
     /** Expected return value when called with inputs */
@@ -58,11 +65,28 @@ export interface ExampleDef<I extends EastType[] = EastType[], O = any> {
 }
 
 /**
- * Creates an example definition. Identity function that provides
- * type checking and marks the export for index generation.
+ * Strict shape of the input to `example()` — preserves `O` so TS can infer
+ * and check `returns` against `fn`'s output type. Internal to this helper.
+ */
+interface ExampleInput<I extends EastType[], O> {
+    keywords: string[];
+    description: string;
+    fn: CallableFunctionExpr<I, O> | CallableAsyncFunctionExpr<I, O>;
+    inputs: { [K in keyof I]: SubtypeExprOrValue<I[K]> };
+    returns?: SubtypeExprOrValue<O>;
+}
+
+/**
+ * Creates an example definition. Identity function that provides type checking
+ * (`returns` matches `fn`'s output type) and marks the export for index
+ * generation. The returned `ExampleDef` erases `O` on `fn` to keep downstream
+ * `.d.ts` files compact when `O` is a large recursive type like `UIComponentType`.
  */
 export function example<const I extends any[], O>(
-    def: ExampleDef<I, O>
-): ExampleDef<I, O> {
-    return def;
+    def: ExampleInput<I, O>
+): ExampleDef<I> {
+    // Return type drops `O` so the emitted `.d.ts` (in downstream packages)
+    // doesn't inline large recursive output types like `UIComponentType`.
+    // `O` is still enforced at the call site via `ExampleInput<I, O>`.
+    return def as ExampleDef<I>;
 }

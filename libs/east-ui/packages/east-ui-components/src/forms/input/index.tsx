@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useMemo, useCallback, type ChangeEvent, type FocusEvent, type KeyboardEvent } from "react";
+import { memo, useMemo, useCallback, useState, useEffect, useRef, type ChangeEvent, type FocusEvent, type KeyboardEvent } from "react";
 import { Input as ChakraInput, type InputProps, Box } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Input } from "@elaraai/east-ui";
@@ -28,7 +28,7 @@ export type StringInputValue = ValueTypeOf<typeof Input.Types.String>;
  */
 export function toChakraStringInput(value: StringInputValue): InputProps {
     return {
-        defaultValue: value.value,
+        value: value.value,
         placeholder: getSomeorUndefined(value.placeholder),
         variant: getSomeorUndefined(value.variant)?.type,
         size: getSomeorUndefined(value.size)?.type,
@@ -47,14 +47,20 @@ export interface EastChakraStringInputProps {
  * Renders an East UI StringInput value using Chakra UI Input component.
  */
 export const EastChakraStringInput = memo(function EastChakraStringInput({ value }: EastChakraStringInputProps) {
-    const props = useMemo(() => toChakraStringInput(value), [value]);
+    const [props, setProps] = useState(toChakraStringInput(value));
     const onChangeFn = useMemo(() => getSomeorUndefined(value.onChange), [value.onChange]);
     const onBlurFn = useMemo(() => getSomeorUndefined(value.onBlur), [value.onBlur]);
     const onFocusFn = useMemo(() => getSomeorUndefined(value.onFocus), [value.onFocus]);
 
+    useEffect(() => {
+        setProps(() => toChakraStringInput(value));
+    }, [value]);
+
     const handleChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
+        const next = e.target.value;
+        setProps(prev => ({ ...prev, value: next }));
         if (onChangeFn) {
-            queueMicrotask(() => onChangeFn(e.target.value));
+            queueMicrotask(() => onChangeFn(next));
         }
     }, [onChangeFn]);
 
@@ -91,7 +97,7 @@ export type IntegerInputValue = ValueTypeOf<typeof Input.Types.Integer>;
 export function toChakraIntegerInput(value: IntegerInputValue): InputProps {
     return {
         type: "number",
-        defaultValue: value.value.toString(),
+        value: value.value.toString(),
         min: getSomeorUndefined(value.min) !== undefined ? Number(getSomeorUndefined(value.min)) : undefined,
         max: getSomeorUndefined(value.max) !== undefined ? Number(getSomeorUndefined(value.max)) : undefined,
         step: getSomeorUndefined(value.step) !== undefined ? Number(getSomeorUndefined(value.step)) : 1,
@@ -110,10 +116,14 @@ export interface EastChakraIntegerInputProps {
  * Renders an East UI IntegerInput value using Chakra UI Input component.
  */
 export const EastChakraIntegerInput = memo(function EastChakraIntegerInput({ value }: EastChakraIntegerInputProps) {
-    const props = useMemo(() => toChakraIntegerInput(value), [value]);
+    const [props, setProps] = useState(toChakraIntegerInput(value));
     const onChangeFn = useMemo(() => getSomeorUndefined(value.onChange), [value.onChange]);
     const onBlurFn = useMemo(() => getSomeorUndefined(value.onBlur), [value.onBlur]);
     const onFocusFn = useMemo(() => getSomeorUndefined(value.onFocus), [value.onFocus]);
+
+    useEffect(() => {
+        setProps(() => toChakraIntegerInput(value));
+    }, [value]);
 
     // Prevent invalid characters for integers (only digits, minus, and control keys)
     const handleKeyDown = useCallback((e: KeyboardEvent<HTMLInputElement>) => {
@@ -138,9 +148,11 @@ export const EastChakraIntegerInput = memo(function EastChakraIntegerInput({ val
     }, []);
 
     const handleChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
+        const raw = e.target.value;
+        // Always update local state so partial inputs ("-", "") render while typing
+        setProps(prev => ({ ...prev, value: raw }));
         if (onChangeFn) {
-            const raw = e.target.value;
-            // Only call onChange for valid integers (handles "-" while typing)
+            // Only fire East callback for fully-parsed integers
             if (raw === "" || raw === "-") return;
             try {
                 const parsed = BigInt(raw);
@@ -192,7 +204,7 @@ export function toChakraFloatInput(value: FloatInputValue): InputProps {
 
     return {
         type: "number",
-        defaultValue: displayValue,
+        value: displayValue,
         min: getSomeorUndefined(value.min),
         max: getSomeorUndefined(value.max),
         step: getSomeorUndefined(value.step) ?? "any",
@@ -211,15 +223,21 @@ export interface EastChakraFloatInputProps {
  * Renders an East UI FloatInput value using Chakra UI Input component.
  */
 export const EastChakraFloatInput = memo(function EastChakraFloatInput({ value }: EastChakraFloatInputProps) {
-    const props = useMemo(() => toChakraFloatInput(value), [value]);
+    const [props, setProps] = useState(toChakraFloatInput(value));
     const onChangeFn = useMemo(() => getSomeorUndefined(value.onChange), [value.onChange]);
     const onBlurFn = useMemo(() => getSomeorUndefined(value.onBlur), [value.onBlur]);
     const onFocusFn = useMemo(() => getSomeorUndefined(value.onFocus), [value.onFocus]);
 
+    useEffect(() => {
+        setProps(() => toChakraFloatInput(value));
+    }, [value]);
+
     const handleChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
+        const raw = e.target.value;
+        // Always update local state so partial inputs ("-", ".", "-.") render while typing
+        setProps(prev => ({ ...prev, value: raw }));
         if (onChangeFn) {
-            const raw = e.target.value;
-            // Only call onChange for valid floats (handles "-" or "." while typing)
+            // Only fire East callback for fully-parsed floats
             if (raw === "" || raw === "-" || raw === "." || raw === "-.") return;
             const parsed = parseFloat(raw);
             if (!Number.isNaN(parsed)) {
@@ -327,23 +345,42 @@ export interface EastChakraDateTimeInputProps {
  * Supports date-only, time-only, and datetime modes based on the precision property.
  */
 export const EastChakraDateTimeInput = memo(function EastChakraDateTimeInput({ value }: EastChakraDateTimeInputProps) {
-    const props = useMemo(() => toChakraDateTimeInput(value), [value]);
+    const [props, setProps] = useState(toChakraDateTimeInput(value));
     const onChangeFn = useMemo(() => getSomeorUndefined(value.onChange), [value.onChange]);
+
+    // Mirror the latest local props so handlers can read the cross-field
+    // component (date for time-handler, time for date-handler) without
+    // a stale closure on the handler's render-time props.
+    const propsRef = useRef(props);
+    propsRef.current = props;
+
+    useEffect(() => {
+        setProps(() => toChakraDateTimeInput(value));
+    }, [value]);
 
     // Handle date change
     const handleDateChange = useCallback((newDate: DateValue | null) => {
-        if (onChangeFn && newDate) {
-            const currentTime = props.precision === "date" ? undefined : props.timeValue;
-            queueMicrotask(() => onChangeFn(dateValueToDate(newDate, currentTime)));
+        if (!newDate) return;
+        const current = propsRef.current;
+        const nextCalendar = newDate as CalendarDate;
+        const currentTime = current.precision === "date" ? undefined : current.timeValue;
+        const out = dateValueToDate(newDate, currentTime);
+        setProps(prev => ({ ...prev, calendarDate: nextCalendar }));
+        if (onChangeFn) {
+            queueMicrotask(() => onChangeFn(out));
         }
-    }, [onChangeFn, props.timeValue, props.precision]);
+    }, [onChangeFn]);
 
     // Handle time change
     const handleTimeChange = useCallback((newTime: Time | null) => {
-        if (onChangeFn && newTime) {
-            queueMicrotask(() => onChangeFn(dateValueToDate(props.calendarDate, newTime)));
+        if (!newTime) return;
+        const current = propsRef.current;
+        const out = dateValueToDate(current.calendarDate, newTime);
+        setProps(prev => ({ ...prev, timeValue: newTime }));
+        if (onChangeFn) {
+            queueMicrotask(() => onChangeFn(out));
         }
-    }, [onChangeFn, props.calendarDate]);
+    }, [onChangeFn]);
 
     // Render based on precision
     if (props.precision === "time") {

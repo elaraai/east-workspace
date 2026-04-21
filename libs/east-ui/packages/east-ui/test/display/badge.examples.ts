@@ -1,9 +1,9 @@
 /**
  * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under AGPL-3.0. See LICENSE file for details.
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, example } from "@elaraai/east";
-import { Badge, Stack, UIComponentType } from "../../src/index.js";
+import { East, IntegerType, NullType, example } from "@elaraai/east";
+import { Badge, Button, Reactive, Stack, State, UIComponentType } from "@elaraai/east-ui";
 
 export const badgeBasic = example({
     keywords: ["Badge", "Root", "basic", "label"],
@@ -145,6 +145,26 @@ export const badgeBoxModel = example({
                 color: "white",
             }),
         ], { gap: "2" });
+    }),
+    inputs: [],
+});
+
+export const badgeInteractive = example({
+    keywords: ["Badge", "Reactive", "State", "interactive", "counter"],
+    description: "Badge whose value increments from a counter",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const counter = $.let(State.bind([IntegerType], "badge_counter", 0n));
+            const value = $.let(counter.read());
+            const inc = $.const(East.function([], NullType, $ => {
+                const cur = $.let(counter.read());
+                $(counter.write(cur.add(1n)));
+            }));
+            return Stack.VStack([
+                Badge.Root(East.str`${East.print(value)}`, { colorPalette: "blue", variant: "solid" }),
+                Button.Root("Increment", { onClick: inc }),
+            ], { gap: "3", align: "center" });
+        }));
     }),
     inputs: [],
 });

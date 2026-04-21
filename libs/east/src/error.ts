@@ -26,22 +26,13 @@ export class EastError extends Error {
   }
 
   override toString(): string {
-    if (this.location.length === 0) {
-      return `<unknown>: ${this.eastMessage}`;
-    }
-    const loc = this.location[0]!;
-    const header = `${loc.filename}:${loc.line}:${loc.column}: ${this.eastMessage}`;
-
-    if (this.location.length <= 1) {
-      return header;
-    }
-
-    const lines = [header, "Stack trace:"];
-    for (let i = this.location.length - 1; i >= 1; i--) {
-      const frame = this.location[i]!;
+    // Format matches east-c / east-py: message on one line, innermost-first
+    // `  at <file>:<line>:<col>` frames below. Caller typically prefixes the
+    // whole thing with `Error: ` when printing to stderr.
+    const lines = [this.eastMessage];
+    for (const frame of this.location) {
       lines.push(`  at ${frame.filename}:${frame.line}:${frame.column}`);
     }
-
     return lines.join("\n");
   }
 

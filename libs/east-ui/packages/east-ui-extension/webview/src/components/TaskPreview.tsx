@@ -3,37 +3,29 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { useMemo } from 'react';
 import { useE3Context } from '../context/E3Context';
-import { TaskPreview as TaskPreviewInner, StatusDisplay, useTaskGet } from '@elaraai/e3-ui-components';
+import {
+    TaskPreview as TaskPreviewInner,
+    StatusDisplay,
+    ReactiveDatasetProvider,
+} from '@elaraai/e3-ui-components';
 import { InputPreview } from './InputPreview';
 
 /**
- * Outer component that handles context and passes props to the reusable TaskPreview.
- * Forces clean re-render when task changes via the key prop.
+ * Outer component that handles context. Wraps the renderer in
+ * ReactiveDatasetProvider so Data.bind reads/writes inside UI tasks have a
+ * cache to dispatch to. The key on the provider rebuilds the cache when
+ * workspace changes, so per-workspace pollers don't leak across selections.
  */
 export function TaskPreview() {
     const { apiUrl, selection } = useE3Context();
     const selectedWorkspace = selection.type !== 'none' ? selection.workspace : null;
     const selectedTask = selection.type === 'task' ? selection.task : null;
 
-    const { data: taskDetails } = useTaskGet(apiUrl, 'default', selectedWorkspace, selectedTask, undefined, {
-        staleTime: 0,
-        gcTime: 0,
-    });
-
-    // Convert TreePath to dot-path string
-    const outputPath = useMemo(() => {
-        if (!taskDetails) return null;
-        return taskDetails.output.map(s => '.' + s.value).join('');
-    }, [taskDetails]);
-
-    // Input selected - render InputPreview
     if (selection.type === 'input') {
         return <InputPreview />;
     }
 
-    // No task selected
     if (!selectedWorkspace || !selectedTask) {
         return (
             <StatusDisplay
@@ -44,24 +36,18 @@ export function TaskPreview() {
         );
     }
 
-    // Task details not loaded yet
-    if (!outputPath) {
-        return (
-            <StatusDisplay
-                variant="loading"
-                title="Loading task..."
-            />
-        );
-    }
-
     return (
-        <TaskPreviewInner
-            key={`${selectedWorkspace}:${selectedTask}`}
-            apiUrl={apiUrl}
-            repo="default"
-            workspace={selectedWorkspace}
-            task={selectedTask}
-            output={outputPath}
-        />
+        <ReactiveDatasetProvider
+            key={selectedWorkspace}
+            config={{ apiUrl, repo: 'default', workspace: selectedWorkspace }}
+        >
+            <TaskPreviewInner
+                key={`${selectedWorkspace}:${selectedTask}`}
+                apiUrl={apiUrl}
+                repo="default"
+                workspace={selectedWorkspace}
+                task={selectedTask}
+            />
+        </ReactiveDatasetProvider>
     );
 }

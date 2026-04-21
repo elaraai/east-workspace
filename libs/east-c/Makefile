@@ -1,10 +1,10 @@
 # east-c — C port of the East language runtime
-# Native build via CMake. WASM sub-package uses pnpm for TS deps.
+# Native build via CMake.
 
 .PHONY: build rebuild clean install-cli \
-        test test-east-c test-east-c-std test-east-c-wasm test-all \
+        test test-east-c test-east-c-std test-all \
         leak-check leak-check-std leak-check-all \
-        setup-wasm wasm wasm-ts wasm-clean help
+        help lint format ensure-clang-format
 
 ## Build native C libraries and tests
 build:
@@ -31,14 +31,11 @@ test-east-c: build
 test-east-c-std: build
 	@./packages/east-c-std/scripts/test_compliance.sh
 
-test-east-c-wasm: wasm-ts
-	@cd packages/east-c-wasm && pnpm run test:compliance
-
 ## Run native tests (east-c + east-c-std)
 test: test-east-c test-east-c-std
 
-## Run all tests including WASM (requires emscripten — run make wasm first)
-test-all: test-east-c test-east-c-std test-east-c-wasm
+## Run all tests
+test-all: test-east-c test-east-c-std
 
 # ── Memory leak checks ──────────────────────────────────────────────
 
@@ -50,56 +47,37 @@ leak-check-std:
 
 leak-check-all: leak-check leak-check-std
 
-# ── WebAssembly (east-c-wasm) ───────────────────────────────────────
+# ── Lint / Format (C) ───────────────────────────────────────────────
+#
+# Uses the LLVM clang-format binary, installed via `uv tool install
+# clang-format` (a PyPI wrapper that ships the binary). Lives in uv's
+# tool dir (~/.local/share/uv/tools/clang-format), separate from any
+# project venv.
+#
+# CLANG_FORMAT_VERSION pins the binary across devs + CI. Bump to refresh.
 
-EMSDK_DIR := tools/emsdk
-EMSDK_VERSION := latest
+CLANG_FORMAT_VERSION := 18.1.8
 
-setup-wasm:
-	@if [ ! -d "$(EMSDK_DIR)" ]; then \
-		echo "Cloning emsdk..."; \
-		mkdir -p tools; \
-		git clone https://github.com/emscripten-core/emsdk.git $(EMSDK_DIR); \
+# Files to lint/format — all .c and .h under packages/, excluding build dirs
+# and FetchContent-vendored deps.
+C_SOURCES := $(shell find packages -type f \( -name '*.c' -o -name '*.h' \) \
+	-not -path '*/build*/*' \
+	-not -path '*/_deps/*' \
+	-not -path '*/node_modules/*' 2>/dev/null)
+
+ensure-clang-format:
+	@if ! uv tool list 2>/dev/null | grep -q "^clang-format "; then \
+		echo "Installing clang-format $(CLANG_FORMAT_VERSION) via uv tool..."; \
+		uv tool install clang-format==$(CLANG_FORMAT_VERSION); \
 	fi
-	@echo "Installing Emscripten $(EMSDK_VERSION)..."
-	@cd $(EMSDK_DIR) && ./emsdk install $(EMSDK_VERSION)
-	@cd $(EMSDK_DIR) && ./emsdk activate $(EMSDK_VERSION)
-	@echo ""
-	@echo "Emscripten installed. Run 'make wasm' to build."
 
-EMCMAKE ?= $(EMSDK_DIR)/upstream/emscripten/emcmake
+## Lint C sources (non-modifying — fails if any file would be reformatted).
+lint: ensure-clang-format
+	@uv tool run clang-format --dry-run --Werror $(C_SOURCES)
 
-wasm:
-	@if ! command -v emcmake >/dev/null 2>&1 && [ ! -f "$(EMCMAKE)" ]; then \
-		echo "Error: emcmake not found. Run 'make setup-wasm' or install emsdk."; \
-		exit 1; \
-	fi
-	@if command -v emcmake >/dev/null 2>&1; then \
-		_EMCMAKE=emcmake; \
-	else \
-		export EMSDK=$(CURDIR)/$(EMSDK_DIR) && \
-		export EM_CONFIG=$(CURDIR)/$(EMSDK_DIR)/.emscripten && \
-		export PATH=$(CURDIR)/$(EMSDK_DIR)/upstream/emscripten:$(CURDIR)/$(EMSDK_DIR)/upstream/bin:$(CURDIR)/$(EMSDK_DIR)/node/22.16.0_64bit/bin:$$PATH; \
-		_EMCMAKE=$(CURDIR)/$(EMCMAKE); \
-	fi && \
-	mkdir -p build-wasm && \
-	cd build-wasm && \
-	$$_EMCMAKE cmake .. -DCMAKE_BUILD_TYPE=Release && \
-	cmake --build . -j$$(nproc)
-	@mkdir -p packages/east-c-wasm/dist/wasm
-	@cp build-wasm/packages/east-c-wasm/east-c.js packages/east-c-wasm/dist/wasm/
-	@cp build-wasm/packages/east-c-wasm/east-c.wasm packages/east-c-wasm/dist/wasm/
-	@echo '{ "type": "module" }' > packages/east-c-wasm/dist/wasm/package.json
-	@echo ""
-	@wasm_size=$$(wc -c < packages/east-c-wasm/dist/wasm/east-c.wasm); \
-		echo "Built east-c.wasm ($$(( wasm_size / 1024 )) KB)"
-
-wasm-ts:
-	@cd packages/east-c-wasm && pnpm run build
-
-wasm-clean:
-	@rm -rf build-wasm
-	@rm -rf packages/east-c-wasm/dist/wasm
+## Apply clang-format in place to all C sources.
+format: ensure-clang-format
+	@uv tool run clang-format -i $(C_SOURCES)
 
 ## Show available targets
 help:
@@ -112,14 +90,11 @@ help:
 	@echo ""
 	@echo "  test-east-c    - Run east-c compliance tests"
 	@echo "  test-east-c-std - Run east-c-std compliance tests"
-	@echo "  test-east-c-wasm - Run east-c-wasm compliance tests"
 	@echo "  test-all       - Run all compliance tests"
 	@echo ""
-	@echo "  leak-check     - Run memory leak checks"
+	@echo "  leak-check     - Run memory leak checks (east-c core)"
 	@echo "  leak-check-std - Run std memory leak checks"
 	@echo "  leak-check-all - Run all memory leak checks"
 	@echo ""
-	@echo "  setup-wasm     - Install Emscripten SDK"
-	@echo "  wasm           - Build WASM binary"
-	@echo "  wasm-ts        - Build WASM TypeScript wrapper"
-	@echo "  wasm-clean     - Clean WASM build artifacts"
+	@echo "  lint           - clang-format --dry-run on all .c/.h sources"
+	@echo "  format         - clang-format -i (modifies files in place)"

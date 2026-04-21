@@ -8,27 +8,32 @@
 
 /* --- static implementations --- */
 
-static EastValue *float_add(EastValue **args, size_t n) {
+static EastValue *float_add(EastValue **args, size_t n)
+{
     (void)n;
     return east_float(args[0]->data.float64 + args[1]->data.float64);
 }
 
-static EastValue *float_subtract(EastValue **args, size_t n) {
+static EastValue *float_subtract(EastValue **args, size_t n)
+{
     (void)n;
     return east_float(args[0]->data.float64 - args[1]->data.float64);
 }
 
-static EastValue *float_multiply(EastValue **args, size_t n) {
+static EastValue *float_multiply(EastValue **args, size_t n)
+{
     (void)n;
     return east_float(args[0]->data.float64 * args[1]->data.float64);
 }
 
-static EastValue *float_divide(EastValue **args, size_t n) {
+static EastValue *float_divide(EastValue **args, size_t n)
+{
     (void)n;
     return east_float(args[0]->data.float64 / args[1]->data.float64);
 }
 
-static EastValue *float_remainder(EastValue **args, size_t n) {
+static EastValue *float_remainder(EastValue **args, size_t n)
+{
     (void)n;
     double a = args[0]->data.float64;
     double b = args[1]->data.float64;
@@ -40,22 +45,26 @@ static EastValue *float_remainder(EastValue **args, size_t n) {
     return east_float(result);
 }
 
-static EastValue *float_power(EastValue **args, size_t n) {
+static EastValue *float_power(EastValue **args, size_t n)
+{
     (void)n;
     return east_float(pow(args[0]->data.float64, args[1]->data.float64));
 }
 
-static EastValue *float_negate(EastValue **args, size_t n) {
+static EastValue *float_negate(EastValue **args, size_t n)
+{
     (void)n;
     return east_float(-args[0]->data.float64);
 }
 
-static EastValue *float_abs_impl(EastValue **args, size_t n) {
+static EastValue *float_abs_impl(EastValue **args, size_t n)
+{
     (void)n;
     return east_float(fabs(args[0]->data.float64));
 }
 
-static EastValue *float_sign(EastValue **args, size_t n) {
+static EastValue *float_sign(EastValue **args, size_t n)
+{
     (void)n;
     double a = args[0]->data.float64;
     if (isnan(a)) return east_float(0.0);
@@ -64,37 +73,44 @@ static EastValue *float_sign(EastValue **args, size_t n) {
     return east_float(0.0);
 }
 
-static EastValue *float_sqrt_impl(EastValue **args, size_t n) {
+static EastValue *float_sqrt_impl(EastValue **args, size_t n)
+{
     (void)n;
     return east_float(sqrt(args[0]->data.float64));
 }
 
-static EastValue *float_log_impl(EastValue **args, size_t n) {
+static EastValue *float_log_impl(EastValue **args, size_t n)
+{
     (void)n;
     return east_float(log(args[0]->data.float64));
 }
 
-static EastValue *float_exp_impl(EastValue **args, size_t n) {
+static EastValue *float_exp_impl(EastValue **args, size_t n)
+{
     (void)n;
     return east_float(exp(args[0]->data.float64));
 }
 
-static EastValue *float_sin_impl(EastValue **args, size_t n) {
+static EastValue *float_sin_impl(EastValue **args, size_t n)
+{
     (void)n;
     return east_float(sin(args[0]->data.float64));
 }
 
-static EastValue *float_cos_impl(EastValue **args, size_t n) {
+static EastValue *float_cos_impl(EastValue **args, size_t n)
+{
     (void)n;
     return east_float(cos(args[0]->data.float64));
 }
 
-static EastValue *float_tan_impl(EastValue **args, size_t n) {
+static EastValue *float_tan_impl(EastValue **args, size_t n)
+{
     (void)n;
     return east_float(tan(args[0]->data.float64));
 }
 
-static EastValue *float_to_integer(EastValue **args, size_t n) {
+static EastValue *float_to_integer(EastValue **args, size_t n)
+{
     (void)n;
     double val = args[0]->data.float64;
     if (isnan(val)) {
@@ -120,26 +136,107 @@ static EastValue *float_to_integer(EastValue **args, size_t n) {
 
 /* --- factory functions --- */
 
-static BuiltinImpl float_add_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return float_add; }
-static BuiltinImpl float_subtract_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return float_subtract; }
-static BuiltinImpl float_multiply_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return float_multiply; }
-static BuiltinImpl float_divide_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return float_divide; }
-static BuiltinImpl float_remainder_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return float_remainder; }
-static BuiltinImpl float_power_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return float_power; }
-static BuiltinImpl float_negate_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return float_negate; }
-static BuiltinImpl float_abs_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return float_abs_impl; }
-static BuiltinImpl float_sign_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return float_sign; }
-static BuiltinImpl float_sqrt_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return float_sqrt_impl; }
-static BuiltinImpl float_log_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return float_log_impl; }
-static BuiltinImpl float_exp_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return float_exp_impl; }
-static BuiltinImpl float_sin_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return float_sin_impl; }
-static BuiltinImpl float_cos_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return float_cos_impl; }
-static BuiltinImpl float_tan_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return float_tan_impl; }
-static BuiltinImpl float_to_integer_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return float_to_integer; }
+static BuiltinImpl float_add_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return float_add;
+}
+static BuiltinImpl float_subtract_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return float_subtract;
+}
+static BuiltinImpl float_multiply_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return float_multiply;
+}
+static BuiltinImpl float_divide_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return float_divide;
+}
+static BuiltinImpl float_remainder_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return float_remainder;
+}
+static BuiltinImpl float_power_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return float_power;
+}
+static BuiltinImpl float_negate_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return float_negate;
+}
+static BuiltinImpl float_abs_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return float_abs_impl;
+}
+static BuiltinImpl float_sign_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return float_sign;
+}
+static BuiltinImpl float_sqrt_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return float_sqrt_impl;
+}
+static BuiltinImpl float_log_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return float_log_impl;
+}
+static BuiltinImpl float_exp_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return float_exp_impl;
+}
+static BuiltinImpl float_sin_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return float_sin_impl;
+}
+static BuiltinImpl float_cos_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return float_cos_impl;
+}
+static BuiltinImpl float_tan_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return float_tan_impl;
+}
+static BuiltinImpl float_to_integer_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return float_to_integer;
+}
 
 /* --- registration --- */
 
-void east_register_float_builtins(BuiltinRegistry *reg) {
+void east_register_float_builtins(BuiltinRegistry *reg)
+{
     builtin_registry_register(reg, "FloatAdd", float_add_factory);
     builtin_registry_register(reg, "FloatSubtract", float_subtract_factory);
     builtin_registry_register(reg, "FloatMultiply", float_multiply_factory);

@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import type { ValueTypeOf } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
 import {
@@ -14,10 +14,7 @@ import {
 } from "@elaraai/east/internal";
 import { EastComponent } from "./state-hooks.js";
 import { getRegisteredPlatformImplementations } from "./registry.js";
-import { useWasm } from "../hooks/useWasm.js";
 import { EastErrorDisplay, toEastErrorInfo } from "../reactive/error-display.js";
-
-type CompiledFunction = import("@elaraai/east-c-wasm/common").CompiledFunction;
 
 /**
  * Props for the {@link EncodedEastFunction} component.
@@ -38,15 +35,11 @@ export interface EncodedEastFunctionProps {
  * Canonical primitive for rendering a pre-encoded East UI function.
  *
  * @remarks
- * Takes Beast2-encoded IR bytes and renders the resulting UI component.
- * Uses the WASM backend ({@link useWasm}) for compilation when available,
- * falling back to the JS closure-compiler otherwise.
+ * Takes Beast2-encoded IR bytes and renders the resulting UI component using
+ * the TypeScript closure compiler.
  *
  * {@link EastFunction} is a thin wrapper around this component — it encodes
  * its {@link EastIR} input and delegates rendering here.
- *
- * Owns the full compile + render + cleanup lifecycle, including releasing
- * WASM handles on unmount or input change.
  *
  * @example
  * ```tsx
@@ -55,39 +48,22 @@ export interface EncodedEastFunctionProps {
  * ```
  */
 export function EncodedEastFunction({ bytes, storageKey }: EncodedEastFunctionProps) {
-    const wasm = useWasm();
-
     const result = useMemo((): CompileResult => {
-        const backend = wasm ? "wasm" : "ts";
         const t0 = performance.now();
         try {
             const platform = getRegisteredPlatformImplementations();
-            if (wasm) {
-                const wasmFn = wasm.compileFromBeast2(bytes, platform);
-                // eslint-disable-next-line no-console
-                console.log(`[east-compile] ${backend} ${(bytes.length / 1024).toFixed(1)}KB in ${(performance.now() - t0).toFixed(1)}ms`);
-                return {
-                    compiled: () => wasmFn() as ValueTypeOf<UIComponentType>,
-                    wasmFn,
-                    error: null,
-                };
-            }
-            // JS fallback: decode bytes → IR → closure-compile
             const ir = decodeBeast2For(IRType)(bytes) as FunctionIR;
+            const tDecode = performance.now();
             const compiled = compileFunctionIR<[], ValueTypeOf<UIComponentType>>(ir, platform);
-            // eslint-disable-next-line no-console
-            console.log(`[east-compile] ${backend} ${(bytes.length / 1024).toFixed(1)}KB in ${(performance.now() - t0).toFixed(1)}ms`);
-            return { compiled, wasmFn: null, error: null };
+            const tCompile = performance.now();
+            console.log(
+                `[east-fn] decode ${(bytes.length / 1024).toFixed(1)}KB in ${(tDecode - t0).toFixed(1)}ms, compile in ${(tCompile - tDecode).toFixed(1)}ms`,
+            );
+            return { compiled, error: null };
         } catch (err) {
-            return { compiled: null, wasmFn: null, error: err };
+            return { compiled: null, error: err };
         }
-    }, [bytes, wasm]);
-
-    // Release WASM handle on unmount or recompile
-    useEffect(() => {
-        const fn = result.wasmFn;
-        return () => { fn?.free(); };
-    }, [result]);
+    }, [bytes]);
 
     if (result.error) {
         const info = toEastErrorInfo(result.error);
@@ -100,11 +76,9 @@ export function EncodedEastFunction({ bytes, storageKey }: EncodedEastFunctionPr
 type CompileResult =
     | {
         compiled: () => ValueTypeOf<UIComponentType>;
-        wasmFn: CompiledFunction | null;
         error: null;
     }
     | {
         compiled: null;
-        wasmFn: null;
         error: unknown;
     };

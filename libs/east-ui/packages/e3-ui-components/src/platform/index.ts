@@ -22,6 +22,7 @@ export {
 // Runtime
 export {
     ReactiveDatasetPlatform,
+    createScopedDataPlatform,
     getReactiveDatasetCache,
     initializeReactiveDatasetCache,
     clearReactiveDatasetCache,

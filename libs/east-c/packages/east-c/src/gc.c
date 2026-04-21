@@ -50,7 +50,8 @@ static _Thread_local unsigned gc_generation = 0;
 static _Thread_local int gc_young_net_allocs = 0;
 static _Thread_local int gc_young_collections = 0;
 
-static inline void gc_ensure_init(void) {
+static inline void gc_ensure_init(void)
+{
     if (!gc_young_sentinel.gc_next) {
         gc_young_sentinel.gc_next = &gc_young_sentinel;
         gc_young_sentinel.gc_prev = &gc_young_sentinel;
@@ -61,7 +62,8 @@ static inline void gc_ensure_init(void) {
     }
 }
 
-void east_gc_track(EastValue *v) {
+void east_gc_track(EastValue *v)
+{
     if (!v || v->gc_tracked) return;
     gc_ensure_init();
     /* Insert into young generation list */
@@ -75,7 +77,8 @@ void east_gc_track(EastValue *v) {
     gc_young_net_allocs++;
 }
 
-void east_gc_untrack(EastValue *v) {
+void east_gc_untrack(EastValue *v)
+{
     if (!v || !v->gc_tracked) return;
     /* Unlink from whichever list it's in */
     v->gc_prev->gc_next = v->gc_next;
@@ -91,11 +94,13 @@ void east_gc_untrack(EastValue *v) {
     }
 }
 
-size_t east_gc_tracked_count(void) {
+size_t east_gc_tracked_count(void)
+{
     return gc_young_count + gc_old_count;
 }
 
-bool east_gc_should_collect(void) {
+bool east_gc_should_collect(void)
+{
     return gc_young_net_allocs >= GC_YOUNG_THRESHOLD;
 }
 
@@ -110,7 +115,8 @@ typedef struct {
     void *ctx;
 } EnvVisitCtx;
 
-static void env_visit_cb(const char *key, void *value, void *ctx) {
+static void env_visit_cb(const char *key, void *value, void *ctx)
+{
     (void)key;
     EnvVisitCtx *ectx = (EnvVisitCtx *)ctx;
     if (value) ectx->visit((EastValue *)value, ectx->ctx);
@@ -121,58 +127,50 @@ static void env_visit_cb(const char *key, void *value, void *ctx) {
  * gc_generation — the generation stamp is only used to avoid re-traversing
  * shared environment chains (parent envs reachable from multiple function
  * values). The callback decides what to do with each child. */
-static void gc_traverse(EastValue *v, gc_visit_fn visit, void *ctx) {
+static void gc_traverse(EastValue *v, gc_visit_fn visit, void *ctx)
+{
     switch (v->kind) {
     case EAST_VAL_ARRAY:
         for (size_t i = 0; i < v->data.array.len; i++) {
-            if (v->data.array.items[i])
-                visit(v->data.array.items[i], ctx);
+            if (v->data.array.items[i]) visit(v->data.array.items[i], ctx);
         }
         break;
 
     case EAST_VAL_SET:
         for (size_t i = 0; i < v->data.set.len; i++) {
-            if (v->data.set.items[i])
-                visit(v->data.set.items[i], ctx);
+            if (v->data.set.items[i]) visit(v->data.set.items[i], ctx);
         }
         break;
 
     case EAST_VAL_DICT:
         for (size_t i = 0; i < v->data.dict.len; i++) {
-            if (v->data.dict.keys[i])
-                visit(v->data.dict.keys[i], ctx);
-            if (v->data.dict.values[i])
-                visit(v->data.dict.values[i], ctx);
+            if (v->data.dict.keys[i]) visit(v->data.dict.keys[i], ctx);
+            if (v->data.dict.values[i]) visit(v->data.dict.values[i], ctx);
         }
         break;
 
     case EAST_VAL_STRUCT:
         for (size_t i = 0; i < v->data.struct_.num_fields; i++) {
-            if (v->data.struct_.field_values[i])
-                visit(v->data.struct_.field_values[i], ctx);
+            if (v->data.struct_.field_values[i]) visit(v->data.struct_.field_values[i], ctx);
         }
         break;
 
     case EAST_VAL_VARIANT:
-        if (v->data.variant.value)
-            visit(v->data.variant.value, ctx);
+        if (v->data.variant.value) visit(v->data.variant.value, ctx);
         break;
 
     case EAST_VAL_REF:
-        if (v->data.ref.value)
-            visit(v->data.ref.value, ctx);
+        if (v->data.ref.value) visit(v->data.ref.value, ctx);
         break;
 
     case EAST_VAL_FUNCTION:
-        if (v->data.function.compiled &&
-            v->data.function.compiled->captures) {
-            EnvVisitCtx ectx = { .visit = visit, .ctx = ctx };
-            for (Environment *env = v->data.function.compiled->captures;
-                 env != NULL; env = env->parent) {
+        if (v->data.function.compiled && v->data.function.compiled->captures) {
+            EnvVisitCtx ectx = {.visit = visit, .ctx = ctx};
+            for (Environment *env = v->data.function.compiled->captures; env != NULL;
+                 env = env->parent) {
                 if (env->gc_gen == gc_generation) break;
                 env->gc_gen = gc_generation;
-                if (env->locals)
-                    hashmap_iter(env->locals, env_visit_cb, &ectx);
+                if (env->locals) hashmap_iter(env->locals, env_visit_cb, &ectx);
             }
         }
         break;
@@ -186,14 +184,14 @@ static void gc_traverse(EastValue *v, gc_visit_fn visit, void *ctx) {
 /*  Phase 4 helper: destroy contents of a garbage value                */
 /* ------------------------------------------------------------------ */
 
-static void gc_destroy_contents(EastValue *v) {
+static void gc_destroy_contents(EastValue *v)
+{
     switch (v->kind) {
     case EAST_VAL_ARRAY:
         for (size_t i = 0; i < v->data.array.len; i++)
             east_value_release(v->data.array.items[i]);
         east_free(v->data.array.items);
-        if (v->data.array.elem_type)
-            east_type_release(v->data.array.elem_type);
+        if (v->data.array.elem_type) east_type_release(v->data.array.elem_type);
         v->data.array.items = NULL;
         v->data.array.len = 0;
         break;
@@ -202,8 +200,7 @@ static void gc_destroy_contents(EastValue *v) {
         for (size_t i = 0; i < v->data.set.len; i++)
             east_value_release(v->data.set.items[i]);
         east_free(v->data.set.items);
-        if (v->data.set.elem_type)
-            east_type_release(v->data.set.elem_type);
+        if (v->data.set.elem_type) east_type_release(v->data.set.elem_type);
         v->data.set.items = NULL;
         v->data.set.len = 0;
         break;
@@ -215,10 +212,8 @@ static void gc_destroy_contents(EastValue *v) {
         }
         east_free(v->data.dict.keys);
         east_free(v->data.dict.values);
-        if (v->data.dict.key_type)
-            east_type_release(v->data.dict.key_type);
-        if (v->data.dict.val_type)
-            east_type_release(v->data.dict.val_type);
+        if (v->data.dict.key_type) east_type_release(v->data.dict.key_type);
+        if (v->data.dict.val_type) east_type_release(v->data.dict.val_type);
         v->data.dict.keys = NULL;
         v->data.dict.values = NULL;
         v->data.dict.len = 0;
@@ -231,8 +226,7 @@ static void gc_destroy_contents(EastValue *v) {
         }
         east_free(v->data.struct_.field_names);
         east_free(v->data.struct_.field_values);
-        if (v->data.struct_.type)
-            east_type_release(v->data.struct_.type);
+        if (v->data.struct_.type) east_type_release(v->data.struct_.type);
         v->data.struct_.field_names = NULL;
         v->data.struct_.field_values = NULL;
         v->data.struct_.num_fields = 0;
@@ -240,8 +234,7 @@ static void gc_destroy_contents(EastValue *v) {
 
     case EAST_VAL_VARIANT:
         east_value_release(v->data.variant.value);
-        if (v->data.variant.type)
-            east_type_release(v->data.variant.type);
+        if (v->data.variant.type) east_type_release(v->data.variant.type);
         v->data.variant.value = NULL;
         break;
 
@@ -268,7 +261,8 @@ static void gc_destroy_contents(EastValue *v) {
 
 /* Direct list splice — NOT via east_gc_untrack/east_gc_track, which
  * would corrupt the gc_young_net_allocs counter. */
-static void gc_promote(EastValue *v) {
+static void gc_promote(EastValue *v)
+{
     /* Unlink from young list */
     v->gc_prev->gc_next = v->gc_next;
     v->gc_next->gc_prev = v->gc_prev;
@@ -289,7 +283,8 @@ static void gc_promote(EastValue *v) {
 
 /* Phase 2 visitor: decrement gc_refs of young tracked children only.
  * Old objects are treated as external references. */
-static void subtract_ref_young(EastValue *child, void *ctx) {
+static void subtract_ref_young(EastValue *child, void *ctx)
+{
     (void)ctx;
     if (child && child->gc_tracked && child->gc_gen == 0) {
         child->gc_refs--;
@@ -297,35 +292,33 @@ static void subtract_ref_young(EastValue *child, void *ctx) {
 }
 
 /* Phase 3 visitor: rescue tentatively unreachable young objects */
-static void rescue_visit_young(EastValue *child, void *ctx) {
+static void rescue_visit_young(EastValue *child, void *ctx)
+{
     (void)ctx;
-    if (child && child->gc_tracked && child->gc_gen == 0 &&
-        child->gc_refs == 0) {
+    if (child && child->gc_tracked && child->gc_gen == 0 && child->gc_refs == 0) {
         child->gc_refs = 1;
         gc_traverse(child, rescue_visit_young, NULL);
     }
 }
 
-static void gc_collect_young_impl(void) {
+static void gc_collect_young_impl(void)
+{
     if (gc_young_count == 0) return;
 
     /* Phase 1: copy refcounts for young objects */
-    for (EastValue *v = gc_young_sentinel.gc_next;
-         v != &gc_young_sentinel; v = v->gc_next) {
+    for (EastValue *v = gc_young_sentinel.gc_next; v != &gc_young_sentinel; v = v->gc_next) {
         v->gc_refs = v->ref_count;
     }
 
     /* Phase 2: trial deletion — only subtract refs between young objects */
     gc_generation++;
-    for (EastValue *v = gc_young_sentinel.gc_next;
-         v != &gc_young_sentinel; v = v->gc_next) {
+    for (EastValue *v = gc_young_sentinel.gc_next; v != &gc_young_sentinel; v = v->gc_next) {
         gc_traverse(v, subtract_ref_young, NULL);
     }
 
     /* Phase 3: rescue young objects reachable from young roots */
     gc_generation++;
-    for (EastValue *v = gc_young_sentinel.gc_next;
-         v != &gc_young_sentinel; v = v->gc_next) {
+    for (EastValue *v = gc_young_sentinel.gc_next; v != &gc_young_sentinel; v = v->gc_next) {
         if (v->gc_refs > 0) {
             gc_traverse(v, rescue_visit_young, NULL);
         }
@@ -378,7 +371,8 @@ static void gc_collect_young_impl(void) {
 /* ------------------------------------------------------------------ */
 
 /* Phase 2 visitor: decrement gc_refs of all tracked children */
-static void subtract_ref(EastValue *child, void *ctx) {
+static void subtract_ref(EastValue *child, void *ctx)
+{
     (void)ctx;
     if (child && child->gc_tracked) {
         child->gc_refs--;
@@ -386,7 +380,8 @@ static void subtract_ref(EastValue *child, void *ctx) {
 }
 
 /* Phase 3 visitor: rescue tentatively unreachable objects */
-static void rescue_visit(EastValue *child, void *ctx) {
+static void rescue_visit(EastValue *child, void *ctx)
+{
     (void)ctx;
     if (child && child->gc_tracked && child->gc_refs == 0) {
         child->gc_refs = 1;
@@ -394,7 +389,8 @@ static void rescue_visit(EastValue *child, void *ctx) {
     }
 }
 
-static void gc_collect_full_impl(void) {
+static void gc_collect_full_impl(void)
+{
     gc_ensure_init();
 
     /* Merge young into old */
@@ -410,22 +406,19 @@ static void gc_collect_full_impl(void) {
     if (gc_old_count == 0) return;
 
     /* Phase 1: copy refcounts */
-    for (EastValue *v = gc_old_sentinel.gc_next;
-         v != &gc_old_sentinel; v = v->gc_next) {
+    for (EastValue *v = gc_old_sentinel.gc_next; v != &gc_old_sentinel; v = v->gc_next) {
         v->gc_refs = v->ref_count;
     }
 
     /* Phase 2: trial deletion */
     gc_generation++;
-    for (EastValue *v = gc_old_sentinel.gc_next;
-         v != &gc_old_sentinel; v = v->gc_next) {
+    for (EastValue *v = gc_old_sentinel.gc_next; v != &gc_old_sentinel; v = v->gc_next) {
         gc_traverse(v, subtract_ref, NULL);
     }
 
     /* Phase 3: rescue from roots */
     gc_generation++;
-    for (EastValue *v = gc_old_sentinel.gc_next;
-         v != &gc_old_sentinel; v = v->gc_next) {
+    for (EastValue *v = gc_old_sentinel.gc_next; v != &gc_old_sentinel; v = v->gc_next) {
         if (v->gc_refs > 0) {
             gc_traverse(v, rescue_visit, NULL);
         }
@@ -451,9 +444,11 @@ static void gc_collect_full_impl(void) {
 
             if (garbage_len >= garbage_cap) {
                 garbage_cap *= 2;
-                EastValue **ng = realloc(garbage,
-                                         garbage_cap * sizeof(EastValue *));
-                if (!ng) { free(garbage); return; }
+                EastValue **ng = realloc(garbage, garbage_cap * sizeof(EastValue *));
+                if (!ng) {
+                    free(garbage);
+                    return;
+                }
                 garbage = ng;
             }
             garbage[garbage_len++] = v;
@@ -476,13 +471,15 @@ static void gc_collect_full_impl(void) {
 /*  Public API                                                          */
 /* ------------------------------------------------------------------ */
 
-void east_gc_collect_young(void) {
+void east_gc_collect_young(void)
+{
     gc_ensure_init();
     gc_collect_young_impl();
     gc_young_net_allocs = 0;
 }
 
-void east_gc_collect(void) {
+void east_gc_collect(void)
+{
     gc_ensure_init();
     if (gc_young_count == 0 && gc_old_count == 0) return;
 
@@ -498,7 +495,8 @@ void east_gc_collect(void) {
     gc_young_net_allocs = 0;
 }
 
-void east_gc_collect_full(void) {
+void east_gc_collect_full(void)
+{
     gc_ensure_init();
     gc_collect_full_impl();
     gc_young_net_allocs = 0;

@@ -42,14 +42,17 @@ EastType *east_beast2_extract_type(const uint8_t *data, size_t len);
 // Keeps the type table alive across decode + IR conversion for O(1) type resolution.
 // Returns NULL on failure. Caller must call ir_node_release on the result.
 // ir_value_out (optional): if non-NULL, receives the retained IR EastValue* (for re-serialization).
-IRNode *east_beast2_decode_ir(const uint8_t *data, size_t len, EastValue **ir_value_out);
+// source_map_out (optional): if non-NULL, receives heap-allocated EastSourceMap* (caller owns;
+//   free with east_source_map_free + free). When NULL, the decoded source map is discarded.
+IRNode *east_beast2_decode_ir(const uint8_t *data, size_t len, EastValue **ir_value_out,
+                              EastSourceMap **source_map_out);
 
 // Decode JSON IR in wrapper format {ir, source_map} and convert to IRNode.
 // Tries wrapper format first (TS test suite export), falls back to raw IR.
 // ir_value_out (optional): if non-NULL, receives the retained IR EastValue*.
 // source_map_out (optional): if non-NULL, receives heap-allocated EastSourceMap* (caller owns).
 IRNode *east_json_decode_ir(const char *json, EastValue **ir_value_out,
-                             EastSourceMap **source_map_out);
+                            EastSourceMap **source_map_out);
 
 // Beast v1 binary serialization (magic + type schema + twiddled values)
 ByteBuffer *east_beast_encode(EastValue *value, EastType *type);
@@ -60,8 +63,8 @@ EastValue *east_beast_decode(const uint8_t *data, size_t len, EastType *type);
 char *east_csv_encode(EastValue *array, EastType *type, EastValue *config);
 EastValue *east_csv_decode(const char *csv, EastType *type, EastValue *config);
 // CSV decode with detailed error message (caller frees *error_out on failure)
-EastValue *east_csv_decode_with_error(const char *csv, EastType *type,
-                                       EastValue *config, char **error_out);
+EastValue *east_csv_decode_with_error(const char *csv, EastType *type, EastValue *config,
+                                      char **error_out);
 
 // East text format
 char *east_print_value(EastValue *value, EastType *type);
@@ -75,7 +78,7 @@ EastType *east_parse_type(const char *text);
 // alloc_fn is called for each function value; returns handle ID (>0) or 0 on error.
 typedef int (*Beast2HandleAllocFn)(EastValue *fn_value, void *user_data);
 ByteBuffer *east_beast2_encode_full_with_handles(EastValue *value, EastType *type,
-                                                  Beast2HandleAllocFn alloc_fn, void *user_data);
+                                                 Beast2HandleAllocFn alloc_fn, void *user_data);
 
 // Binary utilities
 void write_varint(ByteBuffer *buf, uint64_t val);

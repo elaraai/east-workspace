@@ -8,22 +8,26 @@
 
 /* --- static implementations --- */
 
-static EastValue *integer_add(EastValue **args, size_t n) {
+static EastValue *integer_add(EastValue **args, size_t n)
+{
     (void)n;
     return east_integer(args[0]->data.integer + args[1]->data.integer);
 }
 
-static EastValue *integer_subtract(EastValue **args, size_t n) {
+static EastValue *integer_subtract(EastValue **args, size_t n)
+{
     (void)n;
     return east_integer(args[0]->data.integer - args[1]->data.integer);
 }
 
-static EastValue *integer_multiply(EastValue **args, size_t n) {
+static EastValue *integer_multiply(EastValue **args, size_t n)
+{
     (void)n;
     return east_integer(args[0]->data.integer * args[1]->data.integer);
 }
 
-static EastValue *integer_divide(EastValue **args, size_t n) {
+static EastValue *integer_divide(EastValue **args, size_t n)
+{
     (void)n;
     int64_t a = args[0]->data.integer;
     int64_t b = args[1]->data.integer;
@@ -37,7 +41,8 @@ static EastValue *integer_divide(EastValue **args, size_t n) {
     return east_integer(q);
 }
 
-static EastValue *integer_remainder(EastValue **args, size_t n) {
+static EastValue *integer_remainder(EastValue **args, size_t n)
+{
     (void)n;
     int64_t a = args[0]->data.integer;
     int64_t b = args[1]->data.integer;
@@ -47,7 +52,8 @@ static EastValue *integer_remainder(EastValue **args, size_t n) {
     return east_integer(r);
 }
 
-static EastValue *integer_power(EastValue **args, size_t n) {
+static EastValue *integer_power(EastValue **args, size_t n)
+{
     (void)n;
     int64_t base = args[0]->data.integer;
     int64_t exp = args[1]->data.integer;
@@ -61,18 +67,21 @@ static EastValue *integer_power(EastValue **args, size_t n) {
     return east_integer(result);
 }
 
-static EastValue *integer_negate(EastValue **args, size_t n) {
+static EastValue *integer_negate(EastValue **args, size_t n)
+{
     (void)n;
     return east_integer(-args[0]->data.integer);
 }
 
-static EastValue *integer_abs(EastValue **args, size_t n) {
+static EastValue *integer_abs(EastValue **args, size_t n)
+{
     (void)n;
     int64_t a = args[0]->data.integer;
     return east_integer(a < 0 ? -a : a);
 }
 
-static EastValue *integer_sign(EastValue **args, size_t n) {
+static EastValue *integer_sign(EastValue **args, size_t n)
+{
     (void)n;
     int64_t a = args[0]->data.integer;
     if (a < 0) return east_integer(-1);
@@ -80,7 +89,8 @@ static EastValue *integer_sign(EastValue **args, size_t n) {
     return east_integer(0);
 }
 
-static EastValue *integer_log(EastValue **args, size_t n) {
+static EastValue *integer_log(EastValue **args, size_t n)
+{
     (void)n;
     int64_t a = args[0]->data.integer;
     int64_t base = args[1]->data.integer;
@@ -94,28 +104,85 @@ static EastValue *integer_log(EastValue **args, size_t n) {
     return east_integer(result);
 }
 
-static EastValue *integer_to_float(EastValue **args, size_t n) {
+static EastValue *integer_to_float(EastValue **args, size_t n)
+{
     (void)n;
     return east_float((double)args[0]->data.integer);
 }
 
 /* --- factory functions (no type params needed) --- */
 
-static BuiltinImpl integer_add_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return integer_add; }
-static BuiltinImpl integer_subtract_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return integer_subtract; }
-static BuiltinImpl integer_multiply_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return integer_multiply; }
-static BuiltinImpl integer_divide_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return integer_divide; }
-static BuiltinImpl integer_remainder_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return integer_remainder; }
-static BuiltinImpl integer_power_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return integer_power; }
-static BuiltinImpl integer_negate_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return integer_negate; }
-static BuiltinImpl integer_abs_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return integer_abs; }
-static BuiltinImpl integer_sign_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return integer_sign; }
-static BuiltinImpl integer_log_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return integer_log; }
-static BuiltinImpl integer_to_float_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return integer_to_float; }
+static BuiltinImpl integer_add_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return integer_add;
+}
+static BuiltinImpl integer_subtract_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return integer_subtract;
+}
+static BuiltinImpl integer_multiply_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return integer_multiply;
+}
+static BuiltinImpl integer_divide_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return integer_divide;
+}
+static BuiltinImpl integer_remainder_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return integer_remainder;
+}
+static BuiltinImpl integer_power_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return integer_power;
+}
+static BuiltinImpl integer_negate_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return integer_negate;
+}
+static BuiltinImpl integer_abs_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return integer_abs;
+}
+static BuiltinImpl integer_sign_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return integer_sign;
+}
+static BuiltinImpl integer_log_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return integer_log;
+}
+static BuiltinImpl integer_to_float_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return integer_to_float;
+}
 
 /* --- registration --- */
 
-void east_register_integer_builtins(BuiltinRegistry *reg) {
+void east_register_integer_builtins(BuiltinRegistry *reg)
+{
     builtin_registry_register(reg, "IntegerAdd", integer_add_factory);
     builtin_registry_register(reg, "IntegerSubtract", integer_subtract_factory);
     builtin_registry_register(reg, "IntegerMultiply", integer_multiply_factory);

@@ -1,9 +1,9 @@
 /**
  * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under AGPL-3.0. See LICENSE file for details.
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, example } from "@elaraai/east";
-import { Avatar, Badge, Button, HoverCard, Stack, Text, UIComponentType } from "../../src/index.js";
+import { East, BooleanType, IntegerType, NullType, example } from "@elaraai/east";
+import { Avatar, Badge, Button, HoverCard, Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const hoverCardProfile = example({
     keywords: ["HoverCard", "Root", "Avatar", "Badge", "profile"],
@@ -44,6 +44,30 @@ export const hoverCardLink = example({
             ],
             { hasArrow: true }
         );
+    }),
+    inputs: [],
+});
+
+export const hoverCardInteractive = example({
+    keywords: ["HoverCard", "Reactive", "State", "interactive", "onOpenChange"],
+    description: "HoverCard whose onOpenChange counts hover-open transitions",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const bind = $.let(State.bind([IntegerType], "hovercard_toggles", 0n));
+            const value = $.let(bind.read());
+            const onOpenChange = $.const(East.function([BooleanType], NullType, ($, _open) => {
+                const cur = $.let(bind.read());
+                $(bind.write(cur.add(1n)));
+            }));
+            return Stack.VStack([
+                HoverCard.Root(
+                    Button.Root("Hover me"),
+                    [Text.Root("HoverCard content shown on hover")],
+                    { onOpenChange },
+                ),
+                Text.Root(East.str`Toggled ${East.print(value)} times`),
+            ], { gap: "3", align: "stretch" });
+        }));
     }),
     inputs: [],
 });

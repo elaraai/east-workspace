@@ -23,12 +23,13 @@ import { variant } from "@elaraai/east";
 import {
     datasetGet,
     datasetSet,
+    dataflowExecuteLaunch,
     datasetList as e3DatasetList,
     datasetListAt,
     workspaceStatus,
     type DatasetStatusInfo,
 } from "@elaraai/e3-api-client";
-import type { TreePath } from "@elaraai/e3-types";
+import type { TreePath, DatasetStatus as PlatformDatasetStatus } from "@elaraai/e3-types";
 
 /**
  * Configuration for the ReactiveDatasetCache.
@@ -54,8 +55,23 @@ export interface ReactiveDatasetCacheInterface {
     read(workspace: string, path: TreePath): Uint8Array | undefined;
     /** Check if a dataset is cached */
     has(workspace: string, path: TreePath): boolean;
+    /**
+     * Get the platform status of a dataset — `unset` | `stale` | `up-to-date`.
+     * Returns `unset` if we don't know yet (status hasn't been polled).
+     * `write()` flips the local entry to `stale` immediately (optimistic).
+     * The next poll updates from the server's authoritative status.
+     */
+    getStatus(workspace: string, path: TreePath): PlatformDatasetStatus;
     /** Write a dataset value (async - mutates remotely) */
     write(workspace: string, path: TreePath, value: Uint8Array): Promise<void>;
+    /**
+     * Write a dataset value AND launch a dataflow execution to propagate the
+     * change to downstream tasks. Use when a single user action both mutates
+     * input data and should trigger downstream recomputation (e.g. a Slider's
+     * `onChangeEnd`). Use plain `write` for high-frequency optimistic updates
+     * that you don't want to drive the dataflow on every tick.
+     */
+    writeAndStart(workspace: string, path: TreePath, value: Uint8Array): Promise<void>;
     /** Preload a dataset into cache */
     preload(workspace: string, path: TreePath): Promise<void>;
     /** List fields at a path */
@@ -129,6 +145,11 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
     // Hash tracking for efficient change detection
     // Maps cache key -> last known e3 content hash
     private knownHashes: Map<string, string | null> = new Map();
+
+    // Per-key platform status (unset | stale | up-to-date). Defaults to
+    // unset until either a poll returns a server status or a local write
+    // optimistically marks it stale.
+    private statuses: Map<string, PlatformDatasetStatus> = new Map();
 
     // Subscription management
     private keySubscribers: Map<string, Set<() => void>> = new Map();
@@ -217,17 +238,35 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
     }
 
     /**
+     * Get the platform status of a dataset. Defaults to `unset` until the
+     * first poll returns a server status.
+     */
+    getStatus(workspace: string, path: TreePath): PlatformDatasetStatus {
+        const key = datasetCacheKey(workspace, path);
+        return this.statuses.get(key) ?? variant('unset', null);
+    }
+
+    /**
      * Write a dataset value (async - mutates remotely).
      */
     async write(workspace: string, path: TreePath, value: Uint8Array): Promise<void> {
         const key = datasetCacheKey(workspace, path);
 
+        // eslint-disable-next-line no-console
+        console.log('[cache.write] key=', key, 'bytes=', value.length, 'previousStatus=', this.statuses.get(key));
+
         // Optimistic update
         const previous = this.cache.get(key);
         const previousHash = this.knownHashes.get(key);
+        const previousStatus = this.statuses.get(key);
         this.cache.set(key, value);
         // Mark hash as unknown until we get confirmation
         this.knownHashes.delete(key);
+        // Optimistically mark stale — server hasn't confirmed yet, and any
+        // downstream task outputs WILL be stale until they re-run.
+        this.statuses.set(key, variant('stale', null));
+        // eslint-disable-next-line no-console
+        console.log('[cache.status] key=', key, 'status:', previousStatus?.type ?? 'unset', '→ stale (optimistic write)');
         this.notifyChange(key);
 
         try {
@@ -246,12 +285,15 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
                 queryKey: this.queryKey(workspace, path),
             });
 
-            // Trigger a poll to get the new hash
+            // Trigger a poll to get the new hash + authoritative status.
+            // pollWorkspaceStatus updates this.statuses from server-side info.
             const poller = this.workspacePollers.get(workspace);
             if (poller) {
                 this.pollWorkspaceStatus(workspace);
             }
         } catch (error) {
+            // eslint-disable-next-line no-console
+            console.warn('[cache.write] rollback key=', key, 'reason=', (error as Error)?.message ?? error);
             // Rollback on failure
             if (previous !== undefined) {
                 this.cache.set(key, previous);
@@ -262,9 +304,31 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
                 this.cache.delete(key);
                 this.knownHashes.delete(key);
             }
+            if (previousStatus !== undefined) {
+                this.statuses.set(key, previousStatus);
+            } else {
+                this.statuses.delete(key);
+            }
             this.notifyChange(key);
             throw error;
         }
+    }
+
+    /**
+     * Write a dataset value AND launch a workspace dataflow run so downstream
+     * tasks pick up the change. The launch is fire-and-await: it returns once
+     * the server has accepted the request (not when the dataflow finishes).
+     * Polling continues to surface live status as tasks complete.
+     */
+    async writeAndStart(workspace: string, path: TreePath, value: Uint8Array): Promise<void> {
+        await this.write(workspace, path, value);
+        await dataflowExecuteLaunch(
+            this.config.apiUrl,
+            this.config.repo,
+            workspace,
+            {},
+            this.getRequestOptions(),
+        );
     }
 
     /**
@@ -415,6 +479,21 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
                     : null;
                 const knownHash = this.knownHashes.get(key);
 
+                // Sync the platform status from the server response. This
+                // covers both our own writes (server eventually flips back
+                // to up-to-date once recomputation settles) and downstream
+                // outputs of OTHER inputs we touched (server marks them
+                // stale until their producing tasks rerun).
+                if (datasetInfo?.status) {
+                    const previousStatus = this.statuses.get(key);
+                    this.statuses.set(key, datasetInfo.status);
+                    if (!previousStatus || previousStatus.type !== datasetInfo.status.type) {
+                        // eslint-disable-next-line no-console
+                        console.log('[cache.status] key=', key, 'status:', previousStatus?.type ?? 'unset', '→', datasetInfo.status.type);
+                        this.notifyChange(key);
+                    }
+                }
+
                 // Check if hash changed (or if we don't have data yet)
                 if (currentHash !== knownHash || !this.cache.has(key)) {
                     // Hash changed - fetch the new data
@@ -423,6 +502,8 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
                         const path = this.stringToPath(pathStr);
                         try {
                             const data = await this.fetchDataset(workspace, path);
+                            // eslint-disable-next-line no-console
+                            console.log('[cache.value] key=', key, 'fetched bytes=', data.length, 'hash:', knownHash ?? '(none)', '→', currentHash);
                             this.cache.set(key, data);
                             this.knownHashes.set(key, currentHash);
                             this.notifyChange(key);
@@ -432,6 +513,8 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
                     } else {
                         // Dataset is unset - clear from cache
                         if (this.cache.has(key)) {
+                            // eslint-disable-next-line no-console
+                            console.log('[cache.value] key=', key, 'cleared (server reports unset)');
                             this.cache.delete(key);
                             this.knownHashes.set(key, null);
                             this.notifyChange(key);

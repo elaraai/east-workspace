@@ -53,7 +53,8 @@ static void vt_map_grow(Beast2ValueTable *vt)
     for (int i = 0; i < old_cap; i++) {
         if (vt->map[i].key != 0) {
             uint32_t h = b2_hash_ptr(vt->map[i].key) & (uint32_t)new_mask;
-            while (new_map[h].key != 0) h = (h + 1) & (uint32_t)new_mask;
+            while (new_map[h].key != 0)
+                h = (h + 1) & (uint32_t)new_mask;
             new_map[h] = vt->map[i];
         }
     }
@@ -75,11 +76,11 @@ int beast2_vt_find(Beast2ValueTable *vt, EastValue *value)
 
 static void vt_map_add(Beast2ValueTable *vt, EastValue *value, size_t idx)
 {
-    if (vt->map_count * 10 >= (vt->map_mask + 1) * 7)
-        vt_map_grow(vt);
+    if (vt->map_count * 10 >= (vt->map_mask + 1) * 7) vt_map_grow(vt);
     uintptr_t key = (uintptr_t)value;
     uint32_t h = b2_hash_ptr(key) & (uint32_t)vt->map_mask;
-    while (vt->map[h].key != 0) h = (h + 1) & (uint32_t)vt->map_mask;
+    while (vt->map[h].key != 0)
+        h = (h + 1) & (uint32_t)vt->map_mask;
     vt->map[h].key = key;
     vt->map[h].idx = idx;
     vt->map_count++;
@@ -105,8 +106,7 @@ static void vt_add_entry(Beast2ValueTable *vt, uint8_t kind, EastType *type, Eas
 static void vt_walk(Beast2ValueTable *vt, EastValue *value, EastType *type,
                     Beast2FlatTypeTable *tt);
 
-static void vt_walk(Beast2ValueTable *vt, EastValue *value, EastType *type,
-                    Beast2FlatTypeTable *tt)
+static void vt_walk(Beast2ValueTable *vt, EastValue *value, EastType *type, Beast2FlatTypeTable *tt)
 {
     if (!value || !type) return;
 
@@ -148,7 +148,8 @@ static void vt_walk(Beast2ValueTable *vt, EastValue *value, EastType *type,
         size_t nf = type->data.struct_.num_fields;
         for (size_t i = 0; i < nf; i++) {
             EastValue *fval = (value->kind == EAST_VAL_STRUCT && i < value->data.struct_.num_fields)
-                ? value->data.struct_.field_values[i] : NULL;
+                                  ? value->data.struct_.field_values[i]
+                                  : NULL;
             if (fval) vt_walk(vt, fval, type->data.struct_.fields[i].type, tt);
         }
         return;
@@ -179,7 +180,8 @@ static void vt_walk(Beast2ValueTable *vt, EastValue *value, EastType *type,
             /* Walk capture values */
             EastValue *fn_struct = fn->source_ir->data.variant.value;
             EastValue *caps_arr = east_struct_get_field_idx(fn_struct, 2); /* captures */
-            size_t ncaps = (caps_arr && caps_arr->kind == EAST_VAL_ARRAY) ? caps_arr->data.array.len : 0;
+            size_t ncaps =
+                (caps_arr && caps_arr->kind == EAST_VAL_ARRAY) ? caps_arr->data.array.len : 0;
             for (size_t i = 0; i < ncaps; i++) {
                 EastValue *cap_var = caps_arr->data.array.items[i];
                 EastValue *cap_s = cap_var->data.variant.value;
@@ -205,12 +207,11 @@ static void vt_walk(Beast2ValueTable *vt, EastValue *value, EastType *type,
         return;
     }
     default:
-        return;  /* primitives, Vector, Matrix — not mutable containers */
+        return; /* primitives, Vector, Matrix — not mutable containers */
     }
 }
 
-void beast2_vt_walk(Beast2ValueTable *vt, EastValue *value, EastType *type,
-                     Beast2FlatTypeTable *tt)
+void beast2_vt_walk(Beast2ValueTable *vt, EastValue *value, EastType *type, Beast2FlatTypeTable *tt)
 {
     vt_walk(vt, value, type, tt);
 }
@@ -220,8 +221,7 @@ void beast2_vt_walk(Beast2ValueTable *vt, EastValue *value, EastType *type,
 /* ================================================================== */
 
 /* Encode a single element (inline for non-mutable, varint index for mutable) */
-static void vt_encode_elem(ByteBuffer *buf, EastValue *value, EastType *type,
-                            Beast2EncodeCtx *ctx)
+static void vt_encode_elem(ByteBuffer *buf, EastValue *value, EastType *type, Beast2EncodeCtx *ctx)
 {
     if (!type || !value) return;
 
@@ -314,8 +314,8 @@ void write_value_table_section(Beast2ValueTable *vt, Beast2EncodeCtx *ctx, ByteB
 /* ================================================================== */
 
 Beast2MutableValues read_value_table_section(const uint8_t *data, size_t len, size_t *offset,
-                                              EastType **types, size_t type_count,
-                                              Beast2StringTableDec *st)
+                                             EastType **types, size_t type_count,
+                                             Beast2StringTableDec *st)
 {
     Beast2MutableValues mv = {0};
 
@@ -366,7 +366,7 @@ Beast2MutableValues read_value_table_section(const uint8_t *data, size_t len, si
             break;
         }
         case VT_TAG_REF: {
-            read_varint(data, offset);  /* inner type idx - skip */
+            read_varint(data, offset); /* inner type idx - skip */
             mv.values[i] = east_ref_new(east_null());
             break;
         }
@@ -398,8 +398,9 @@ Beast2MutableValues read_value_table_section(const uint8_t *data, size_t len, si
             EastValue *arr = mv.values[i];
             for (uint64_t j = 0; j < count; j++) {
                 EastValue *elem;
-                if (elem_type && (elem_type->kind == EAST_TYPE_ARRAY || elem_type->kind == EAST_TYPE_SET ||
-                    elem_type->kind == EAST_TYPE_DICT || elem_type->kind == EAST_TYPE_REF)) {
+                if (elem_type &&
+                    (elem_type->kind == EAST_TYPE_ARRAY || elem_type->kind == EAST_TYPE_SET ||
+                     elem_type->kind == EAST_TYPE_DICT || elem_type->kind == EAST_TYPE_REF)) {
                     uint64_t idx = read_varint(data, &off);
                     elem = (idx < mv.count) ? mv.values[idx] : east_null();
                     east_value_retain(elem);
@@ -420,8 +421,9 @@ Beast2MutableValues read_value_table_section(const uint8_t *data, size_t len, si
             EastValue *set = mv.values[i];
             for (uint64_t j = 0; j < count; j++) {
                 EastValue *elem;
-                if (elem_type && (elem_type->kind == EAST_TYPE_ARRAY || elem_type->kind == EAST_TYPE_SET ||
-                    elem_type->kind == EAST_TYPE_DICT || elem_type->kind == EAST_TYPE_REF)) {
+                if (elem_type &&
+                    (elem_type->kind == EAST_TYPE_ARRAY || elem_type->kind == EAST_TYPE_SET ||
+                     elem_type->kind == EAST_TYPE_DICT || elem_type->kind == EAST_TYPE_REF)) {
                     uint64_t idx = read_varint(data, &off);
                     elem = (idx < mv.count) ? mv.values[idx] : east_null();
                     east_value_retain(elem);
@@ -444,16 +446,18 @@ Beast2MutableValues read_value_table_section(const uint8_t *data, size_t len, si
             EastValue *dict = mv.values[i];
             for (uint64_t j = 0; j < count; j++) {
                 EastValue *k, *v;
-                if (key_type && (key_type->kind == EAST_TYPE_ARRAY || key_type->kind == EAST_TYPE_SET ||
-                    key_type->kind == EAST_TYPE_DICT || key_type->kind == EAST_TYPE_REF)) {
+                if (key_type &&
+                    (key_type->kind == EAST_TYPE_ARRAY || key_type->kind == EAST_TYPE_SET ||
+                     key_type->kind == EAST_TYPE_DICT || key_type->kind == EAST_TYPE_REF)) {
                     uint64_t idx = read_varint(data, &off);
                     k = (idx < mv.count) ? mv.values[idx] : east_null();
                     east_value_retain(k);
                 } else {
                     k = beast2_decode_value(data, len, &off, key_type, &dctx);
                 }
-                if (val_type && (val_type->kind == EAST_TYPE_ARRAY || val_type->kind == EAST_TYPE_SET ||
-                    val_type->kind == EAST_TYPE_DICT || val_type->kind == EAST_TYPE_REF)) {
+                if (val_type &&
+                    (val_type->kind == EAST_TYPE_ARRAY || val_type->kind == EAST_TYPE_SET ||
+                     val_type->kind == EAST_TYPE_DICT || val_type->kind == EAST_TYPE_REF)) {
                     uint64_t idx = read_varint(data, &off);
                     v = (idx < mv.count) ? mv.values[idx] : east_null();
                     east_value_retain(v);
@@ -473,8 +477,9 @@ Beast2MutableValues read_value_table_section(const uint8_t *data, size_t len, si
             EastType *inner_type = (inner_type_idx < type_count) ? types[inner_type_idx] : NULL;
             EastValue *ref = mv.values[i];
             EastValue *inner;
-            if (inner_type && (inner_type->kind == EAST_TYPE_ARRAY || inner_type->kind == EAST_TYPE_SET ||
-                inner_type->kind == EAST_TYPE_DICT || inner_type->kind == EAST_TYPE_REF)) {
+            if (inner_type &&
+                (inner_type->kind == EAST_TYPE_ARRAY || inner_type->kind == EAST_TYPE_SET ||
+                 inner_type->kind == EAST_TYPE_DICT || inner_type->kind == EAST_TYPE_REF)) {
                 uint64_t idx = read_varint(data, &off);
                 inner = (idx < mv.count) ? mv.values[idx] : east_null();
                 east_value_retain(inner);

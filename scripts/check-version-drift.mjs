@@ -1,0 +1,83 @@
+#!/usr/bin/env node
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { semverToPep440 } from './set-python-version.mjs';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(__dirname, '..');
+
+const NPM_PKGS = [
+  'libs/east/package.json',
+  'libs/east-node/packages/east-node-std/package.json',
+  'libs/east-node/packages/east-node-io/package.json',
+  'libs/east-node/packages/east-node-cli/package.json',
+  'libs/east-py/packages/east-py-datascience/package.json',
+  'libs/e3/packages/e3-types/package.json',
+  'libs/e3/packages/e3/package.json',
+  'libs/e3/packages/e3-api-client/package.json',
+  'libs/e3/packages/e3-core/package.json',
+  'libs/e3/packages/e3-cli/package.json',
+  'libs/e3/packages/e3-api-server/package.json',
+  'libs/e3/packages/e3-api-tests/package.json',
+  'libs/east-ui/packages/east-ui/package.json',
+  'libs/east-ui/packages/east-ui-components/package.json',
+  'libs/east-ui/packages/e3-ui/package.json',
+  'libs/east-ui/packages/e3-ui-components/package.json',
+  'libs/east-ui/packages/e3-ui-showcase/package.json',
+];
+
+const PYPROJECTS = [
+  'libs/east-py/packages/east-py/pyproject.toml',
+  'libs/east-py/packages/east-py-std/pyproject.toml',
+  'libs/east-py/packages/east-py-io/pyproject.toml',
+  'libs/east-py/packages/east-py-cli/pyproject.toml',
+  'libs/east-py/packages/east-py-datascience/pyproject.toml',
+];
+
+const VSIX_PKG = 'libs/east-ui/packages/east-ui-extension/package.json';
+
+function readJsonVersion(rel) {
+  return JSON.parse(fs.readFileSync(path.join(repoRoot, rel), 'utf8')).version;
+}
+
+function readPyprojectVersion(rel) {
+  const raw = fs.readFileSync(path.join(repoRoot, rel), 'utf8');
+  const m = raw.match(/\[project\][\s\S]*?\nversion\s*=\s*"([^"]+)"/m);
+  if (!m) throw new Error(`No [project].version in ${rel}`);
+  return m[1];
+}
+
+const canonical = readJsonVersion('package.json');
+const isPrerelease = canonical.includes('-');
+const expectedPep440 = semverToPep440(canonical);
+
+const errors = [];
+
+for (const rel of NPM_PKGS) {
+  const v = readJsonVersion(rel);
+  if (v !== canonical) errors.push(`${rel}: ${v} ≠ ${canonical}`);
+}
+
+for (const rel of PYPROJECTS) {
+  const v = readPyprojectVersion(rel);
+  if (v !== expectedPep440) errors.push(`${rel}: ${v} ≠ ${expectedPep440} (PEP 440 of ${canonical})`);
+}
+
+const vsixVersion = readJsonVersion(VSIX_PKG);
+if (!isPrerelease && vsixVersion !== canonical) {
+  errors.push(`${VSIX_PKG}: ${vsixVersion} ≠ ${canonical} (must match on stable canonical)`);
+}
+
+if (errors.length > 0) {
+  console.error(`Version drift detected against canonical /package.json = ${canonical}:`);
+  for (const e of errors) console.error(`  - ${e}`);
+  console.error(`\nFix by running:`);
+  console.error(`  node scripts/set-npm-version.mjs ${canonical}`);
+  console.error(`  node scripts/set-python-version.mjs ${canonical}`);
+  console.error(`  node scripts/set-vsix-version.mjs ${canonical}`);
+  process.exit(1);
+}
+
+console.log(`OK — all manifests aligned to ${canonical}`);
+console.log(`     (PEP 440: ${expectedPep440}; VSIX: ${vsixVersion}${isPrerelease ? ' [drift allowed: pre-release]' : ''})`);

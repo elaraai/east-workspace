@@ -1,6 +1,6 @@
 {
   "name": "east-monorepo",
-  "version": "0.0.0",
+  "version": "1.0.0-beta.0",
   "private": true,
   "description": "East language monorepo",
   "packageManager": "pnpm@10.8.1",
@@ -8,13 +8,10 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "build": "turbo run build",
-    "test": "turbo run test",
-    "lint": "turbo run lint",
-    "test:export": "turbo run test:export"
-  },
-  "devDependencies": {
-    "turbo": "^2.5.0"
+    "build": "pnpm -r run build",
+    "test": "pnpm -r run test",
+    "lint": "pnpm -r run lint",
+    "test:export": "pnpm -r run test:export"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

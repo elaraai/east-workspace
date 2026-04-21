@@ -11,24 +11,28 @@
 /*  Beast2 v2 String Table                                             */
 /* ================================================================== */
 
-void string_table_enc_init(Beast2StringTableEnc *t) {
+void string_table_enc_init(Beast2StringTableEnc *t)
+{
     t->mask = 255;
     t->count = 0;
     t->slots = calloc(256, sizeof(Beast2StrEncSlot));
     t->ordered_count = 0;
     t->ordered_cap = 64;
-    t->strings = malloc(64 * sizeof(char*));
+    t->strings = malloc(64 * sizeof(char *));
     t->lens = malloc(64 * sizeof(size_t));
 }
 
-void string_table_enc_free(Beast2StringTableEnc *t) {
+void string_table_enc_free(Beast2StringTableEnc *t)
+{
     free(t->slots);
-    for (size_t i = 0; i < t->ordered_count; i++) free(t->strings[i]);
+    for (size_t i = 0; i < t->ordered_count; i++)
+        free(t->strings[i]);
     free(t->strings);
     free(t->lens);
 }
 
-static uint32_t hash_string_bytes(const char *str, size_t len) {
+static uint32_t hash_string_bytes(const char *str, size_t len)
+{
     uint32_t h = 0x811c9dc5;
     for (size_t i = 0; i < len; i++) {
         h ^= (uint8_t)str[i];
@@ -37,7 +41,8 @@ static uint32_t hash_string_bytes(const char *str, size_t len) {
     return h ? h : 1; /* 0 reserved for empty slot */
 }
 
-static void string_table_enc_grow(Beast2StringTableEnc *t) {
+static void string_table_enc_grow(Beast2StringTableEnc *t)
+{
     int old_cap = t->mask + 1;
     int new_cap = old_cap * 2;
     int new_mask = new_cap - 1;
@@ -45,7 +50,8 @@ static void string_table_enc_grow(Beast2StringTableEnc *t) {
     for (int i = 0; i < old_cap; i++) {
         if (t->slots[i].hash != 0) {
             uint32_t h = t->slots[i].hash & (uint32_t)new_mask;
-            while (new_slots[h].hash != 0) h = (h + 1) & (uint32_t)new_mask;
+            while (new_slots[h].hash != 0)
+                h = (h + 1) & (uint32_t)new_mask;
             new_slots[h] = t->slots[i];
         }
     }
@@ -55,7 +61,8 @@ static void string_table_enc_grow(Beast2StringTableEnc *t) {
 }
 
 /* Add a string, returns its index. Deduplicates by content. */
-size_t string_table_enc_add(Beast2StringTableEnc *t, const char *str, size_t len) {
+size_t string_table_enc_add(Beast2StringTableEnc *t, const char *str, size_t len)
+{
     uint32_t hash = hash_string_bytes(str, len);
     uint32_t h = hash & (uint32_t)t->mask;
     for (;;) {
@@ -72,12 +79,13 @@ size_t string_table_enc_add(Beast2StringTableEnc *t, const char *str, size_t len
         string_table_enc_grow(t);
         /* Re-find empty slot after grow */
         h = hash & (uint32_t)t->mask;
-        while (t->slots[h].hash != 0) h = (h + 1) & (uint32_t)t->mask;
+        while (t->slots[h].hash != 0)
+            h = (h + 1) & (uint32_t)t->mask;
     }
     size_t idx = t->ordered_count;
     if (idx >= t->ordered_cap) {
         t->ordered_cap *= 2;
-        t->strings = realloc(t->strings, t->ordered_cap * sizeof(char*));
+        t->strings = realloc(t->strings, t->ordered_cap * sizeof(char *));
         t->lens = realloc(t->lens, t->ordered_cap * sizeof(size_t));
     }
     t->strings[idx] = malloc(len + 1);
@@ -92,7 +100,8 @@ size_t string_table_enc_add(Beast2StringTableEnc *t, const char *str, size_t len
 }
 
 /* Write string table section: [varint header_len] [varint count] [entries...] */
-void write_string_table_section(Beast2StringTableEnc *t, ByteBuffer *buf) {
+void write_string_table_section(Beast2StringTableEnc *t, ByteBuffer *buf)
+{
     ByteBuffer *hdr = byte_buffer_new(256);
     write_varint(hdr, t->ordered_count);
     for (size_t i = 0; i < t->ordered_count; i++) {
@@ -105,13 +114,14 @@ void write_string_table_section(Beast2StringTableEnc *t, ByteBuffer *buf) {
 }
 
 /* Read string table section from data. Caller must call string_table_dec_free. */
-Beast2StringTableDec read_string_table_section(const uint8_t *data, size_t len, size_t *offset) {
+Beast2StringTableDec read_string_table_section(const uint8_t *data, size_t len, size_t *offset)
+{
     Beast2StringTableDec t = {NULL, NULL, 0};
     uint64_t header_byte_length = read_varint(data, offset);
     size_t header_end = *offset + (size_t)header_byte_length;
     uint64_t count = read_varint(data, offset);
     if (count > 0) {
-        t.strings = malloc((size_t)count * sizeof(char*));
+        t.strings = malloc((size_t)count * sizeof(char *));
         t.lens = malloc((size_t)count * sizeof(size_t));
         t.count = (size_t)count;
         for (size_t i = 0; i < t.count; i++) {
@@ -124,8 +134,10 @@ Beast2StringTableDec read_string_table_section(const uint8_t *data, size_t len, 
     return t;
 }
 
-void string_table_dec_free(Beast2StringTableDec *t) {
-    for (size_t i = 0; i < t->count; i++) free(t->strings[i]);
+void string_table_dec_free(Beast2StringTableDec *t)
+{
+    for (size_t i = 0; i < t->count; i++)
+        free(t->strings[i]);
     free(t->strings);
     free(t->lens);
 }

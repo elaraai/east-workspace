@@ -16,11 +16,47 @@
 #include <string.h>
 #include <time.h>
 #include <sys/resource.h>
+#include <sys/stat.h>
+#include <east/hashmap.h>
 
 static double elapsed_ms(struct timespec *start, struct timespec *end)
 {
-    return (double)(end->tv_sec - start->tv_sec) * 1000.0
-         + (double)(end->tv_nsec - start->tv_nsec) / 1e6;
+    return (double)(end->tv_sec - start->tv_sec) * 1000.0 +
+           (double)(end->tv_nsec - start->tv_nsec) / 1e6;
+}
+
+/* Format an EastType as east-text (matches TS printType / Python print_type).
+ * Caller must free the returned string. Returns NULL on allocation failure. */
+static char *format_type(EastType *t)
+{
+    EastValue *tv = east_type_to_value(t);
+    if (!tv) return NULL;
+    char *s = east_print_value(tv, east_type_type);
+    east_value_release(tv);
+    return s;
+}
+
+/* Write a file-size string into buf. Uses B / KB / MB depending on size. */
+static void format_size(off_t bytes, char *buf, size_t buflen)
+{
+    if (bytes < 1024) {
+        snprintf(buf, buflen, "%lld B", (long long)bytes);
+    } else if (bytes < 1024L * 1024L) {
+        snprintf(buf, buflen, "%.1f KB", (double)bytes / 1024.0);
+    } else {
+        snprintf(buf, buflen, "%.1f MB", (double)bytes / (1024.0 * 1024.0));
+    }
+}
+
+/* Stat a file and format its size; returns "?" on failure. */
+static void format_file_size(const char *path, char *buf, size_t buflen)
+{
+    struct stat st;
+    if (stat(path, &st) == 0) {
+        format_size(st.st_size, buf, buflen);
+    } else {
+        snprintf(buf, buflen, "?");
+    }
 }
 
 /* Version is set by CMake from the VERSION file */
@@ -48,11 +84,16 @@ typedef enum {
 static const char *format_name(FileFormat fmt)
 {
     switch (fmt) {
-    case FMT_JSON:   return "json";
-    case FMT_BEAST2: return "beast2";
-    case FMT_BEAST:  return "beast";
-    case FMT_EAST:   return "east";
-    default:         return "unknown";
+    case FMT_JSON:
+        return "json";
+    case FMT_BEAST2:
+        return "beast2";
+    case FMT_BEAST:
+        return "beast";
+    case FMT_EAST:
+        return "east";
+    default:
+        return "unknown";
     }
 }
 
@@ -82,7 +123,10 @@ static char *read_file_text(const char *path, size_t *out_len)
     long len = ftell(f);
     fseek(f, 0, SEEK_SET);
     char *buf = malloc((size_t)len + 1);
-    if (!buf) { fclose(f); return NULL; }
+    if (!buf) {
+        fclose(f);
+        return NULL;
+    }
     size_t rd = fread(buf, 1, (size_t)len, f);
     buf[rd] = '\0';
     fclose(f);
@@ -101,7 +145,10 @@ static uint8_t *read_file_binary(const char *path, size_t *out_len)
     long len = ftell(f);
     fseek(f, 0, SEEK_SET);
     uint8_t *buf = malloc((size_t)len);
-    if (!buf) { fclose(f); return NULL; }
+    if (!buf) {
+        fclose(f);
+        return NULL;
+    }
     size_t rd = fread(buf, 1, (size_t)len, f);
     fclose(f);
     if (out_len) *out_len = rd;
@@ -140,8 +187,10 @@ static EastValue *load_ir(const char *path, bool verbose)
 {
     FileFormat fmt = detect_format(path);
     if (fmt == FMT_UNKNOWN) {
-        fprintf(stderr, "Error: Unknown file extension for: %s\n"
-                "Supported: .beast2, .beast, .east, .json\n", path);
+        fprintf(stderr,
+                "Error: Unknown file extension for: %s\n"
+                "Supported: .beast2, .beast, .east, .json\n",
+                path);
         return NULL;
     }
 
@@ -243,28 +292,40 @@ static int save_value(const char *path, EastValue *value, EastType *type)
 
     if (fmt == FMT_JSON) {
         char *text = east_json_encode(value, type);
-        if (!text) { fprintf(stderr, "Error: JSON encode failed\n"); return -1; }
+        if (!text) {
+            fprintf(stderr, "Error: JSON encode failed\n");
+            return -1;
+        }
         int rc = write_file_text(path, text);
         free(text);
         return rc;
     }
     if (fmt == FMT_BEAST2) {
         ByteBuffer *buf = east_beast2_encode_full(value, type);
-        if (!buf) { fprintf(stderr, "Error: Beast2 encode failed\n"); return -1; }
+        if (!buf) {
+            fprintf(stderr, "Error: Beast2 encode failed\n");
+            return -1;
+        }
         int rc = write_file_binary(path, buf->data, buf->len);
         byte_buffer_free(buf);
         return rc;
     }
     if (fmt == FMT_BEAST) {
         ByteBuffer *buf = east_beast_encode(value, type);
-        if (!buf) { fprintf(stderr, "Error: Beast encode failed\n"); return -1; }
+        if (!buf) {
+            fprintf(stderr, "Error: Beast encode failed\n");
+            return -1;
+        }
         int rc = write_file_binary(path, buf->data, buf->len);
         byte_buffer_free(buf);
         return rc;
     }
     if (fmt == FMT_EAST) {
         char *text = east_print_value(value, type);
-        if (!text) { fprintf(stderr, "Error: East print failed\n"); return -1; }
+        if (!text) {
+            fprintf(stderr, "Error: East print failed\n");
+            return -1;
+        }
         int rc = write_file_text(path, text);
         free(text);
         return rc;
@@ -278,19 +339,15 @@ static int save_value(const char *path, EastValue *value, EastType *type)
 
 static bool is_std_package(const char *name)
 {
-    return strcmp(name, "east-c-std") == 0
-        || strcmp(name, "std") == 0;
+    return strcmp(name, "east-c-std") == 0 || strcmp(name, "std") == 0;
 }
 
 /* ------------------------------------------------------------------ */
 /*  Commands                                                           */
 /* ------------------------------------------------------------------ */
 
-static int cmd_run(const char *ir_path,
-                   const char **packages, int num_packages,
-                   const char **input_files, int num_inputs,
-                   const char *output_file,
-                   bool verbose)
+static int cmd_run(const char *ir_path, const char **packages, int num_packages,
+                   const char **input_files, int num_inputs, const char *output_file, bool verbose)
 {
     /* Init type system */
     east_type_of_type_init();
@@ -304,15 +361,31 @@ static int cmd_run(const char *ir_path,
     /* Register platform packages */
     for (int i = 0; i < num_packages; i++) {
         if (is_std_package(packages[i])) {
-            if (verbose) fprintf(stderr, "Loading platform: %s\n", packages[i]);
             east_std_register_all(platform);
         } else {
-            fprintf(stderr, "Error: Unknown platform package: %s\n"
+            fprintf(stderr,
+                    "Error: Unknown platform package: %s\n"
                     "Available: east-c-std (or shorthand: std)\n",
                     packages[i]);
             platform_registry_free(platform);
             builtin_registry_free(builtins);
             return 1;
+        }
+    }
+
+    /* Verbose header: Running + Platform sections */
+    if (verbose) {
+        char sz[32];
+        format_file_size(ir_path, sz, sizeof(sz));
+        fprintf(stderr, "Running: %s  (%s)\n", ir_path, sz);
+        if (num_packages > 0) {
+            size_t total_fns = hashmap_count(platform->functions) +
+                               hashmap_count(platform->generic_functions);
+            fprintf(stderr, "Platform: %d package(s), %zu function(s)\n",
+                    num_packages, total_fns);
+            for (int i = 0; i < num_packages; i++) {
+                fprintf(stderr, "  - %s\n", packages[i]);
+            }
         }
     }
 
@@ -324,7 +397,7 @@ static int cmd_run(const char *ir_path,
 
     IRNode *ir = NULL;
     EastValue *ir_val = NULL;
-    EastSourceMap *json_source_map = NULL;
+    EastSourceMap *decoded_source_map = NULL;
     FileFormat ir_fmt = detect_format(ir_path);
 
     if (ir_fmt == FMT_BEAST2) {
@@ -337,7 +410,7 @@ static int cmd_run(const char *ir_path,
             return 1;
         }
         clock_gettime(CLOCK_MONOTONIC, &t_decode);
-        ir = east_beast2_decode_ir(fdata, flen, &ir_val);
+        ir = east_beast2_decode_ir(fdata, flen, &ir_val, &decoded_source_map);
         free(fdata);
         clock_gettime(CLOCK_MONOTONIC, &t_convert);
     } else if (ir_fmt == FMT_JSON) {
@@ -350,7 +423,7 @@ static int cmd_run(const char *ir_path,
             return 1;
         }
         clock_gettime(CLOCK_MONOTONIC, &t_decode);
-        ir = east_json_decode_ir(text, &ir_val, &json_source_map);
+        ir = east_json_decode_ir(text, &ir_val, &decoded_source_map);
         free(text);
         clock_gettime(CLOCK_MONOTONIC, &t_convert);
     } else {
@@ -379,7 +452,8 @@ static int cmd_run(const char *ir_path,
 
     /* Validate IR is a function */
     if (ir->kind != IR_FUNCTION && ir->kind != IR_ASYNC_FUNCTION) {
-        fprintf(stderr, "Error: IR must be a Function or AsyncFunction node, got kind %d\n"
+        fprintf(stderr,
+                "Error: IR must be a Function or AsyncFunction node, got kind %d\n"
                 "The IR file should contain compiled function IR.\n",
                 ir->kind);
         ir_node_release(ir);
@@ -390,7 +464,8 @@ static int cmd_run(const char *ir_path,
 
     /* Extract function signature */
     EastType *fn_type = ir->type;
-    if (!fn_type || (fn_type->kind != EAST_TYPE_FUNCTION && fn_type->kind != EAST_TYPE_ASYNC_FUNCTION)) {
+    if (!fn_type ||
+        (fn_type->kind != EAST_TYPE_FUNCTION && fn_type->kind != EAST_TYPE_ASYNC_FUNCTION)) {
         fprintf(stderr, "Error: IR function node has invalid type\n");
         ir_node_release(ir);
         platform_registry_free(platform);
@@ -403,55 +478,62 @@ static int cmd_run(const char *ir_path,
     EastType *return_type = fn_type->data.function.output;
 
     if (verbose) {
-        fprintf(stderr, "Function: %zu inputs, %s\n",
-                num_params,
+        fprintf(stderr, "Function: %zu inputs, %s\n", num_params,
                 ir->kind == IR_ASYNC_FUNCTION ? "async" : "sync");
-        char tbuf[256];
         for (size_t i = 0; i < num_params; i++) {
-            east_type_print(param_types[i], tbuf, sizeof(tbuf));
-            fprintf(stderr, "  param %zu: %s\n", i, tbuf);
+            char *ts = format_type(param_types[i]);
+            if (i < (size_t)num_inputs && input_files[i]) {
+                char sz[32];
+                format_file_size(input_files[i], sz, sizeof(sz));
+                fprintf(stderr, "  input %zu: %s  (%s)\n", i, input_files[i], sz);
+                fprintf(stderr, "    %s\n", ts ? ts : "?");
+            } else {
+                fprintf(stderr, "  input %zu:\n    %s\n", i, ts ? ts : "?");
+            }
+            free(ts);
         }
-        east_type_print(return_type, tbuf, sizeof(tbuf));
-        fprintf(stderr, "  return: %s\n", tbuf);
+        char *rs = format_type(return_type);
+        fprintf(stderr, "  return:\n    %s\n", rs ? rs : "?");
+        free(rs);
     }
 
     /* Validate input count */
     if ((size_t)num_inputs != num_params) {
         char sig_buf[1024];
-        int off = 0;
-        off += snprintf(sig_buf + off, sizeof(sig_buf) - (size_t)off, "(");
+        int off = snprintf(sig_buf, sizeof(sig_buf), "(");
         for (size_t i = 0; i < num_params; i++) {
             if (i > 0) off += snprintf(sig_buf + off, sizeof(sig_buf) - (size_t)off, ", ");
-            off += east_type_print(param_types[i], sig_buf + off, sizeof(sig_buf) - (size_t)off);
+            char *ts = format_type(param_types[i]);
+            off += snprintf(sig_buf + off, sizeof(sig_buf) - (size_t)off, "%s", ts ? ts : "?");
+            free(ts);
         }
         off += snprintf(sig_buf + off, sizeof(sig_buf) - (size_t)off, ") -> ");
-        east_type_print(return_type, sig_buf + off, sizeof(sig_buf) - (size_t)off);
+        char *rs = format_type(return_type);
+        snprintf(sig_buf + off, sizeof(sig_buf) - (size_t)off, "%s", rs ? rs : "?");
+        free(rs);
 
-        fprintf(stderr, "Error: Function expects %zu inputs, got %d\nSignature: %s\n",
-                num_params, num_inputs, sig_buf);
+        fprintf(stderr, "Error: Function expects %zu inputs, got %d\nSignature: %s\n", num_params,
+                num_inputs, sig_buf);
         ir_node_release(ir);
         platform_registry_free(platform);
         builtin_registry_free(builtins);
         return 1;
     }
 
-    /* Load inputs with type-directed parsing */
+    /* Load inputs with type-directed parsing (paths already listed in the
+     * Function section above). */
     EastValue **args = NULL;
     if (num_inputs > 0) {
         args = calloc((size_t)num_inputs, sizeof(EastValue *));
         for (int i = 0; i < num_inputs; i++) {
-            if (verbose) {
-                char tbuf[256];
-                east_type_print(param_types[i], tbuf, sizeof(tbuf));
-                fprintf(stderr, "Loading input %d: %s as %s\n", i, input_files[i], tbuf);
-            }
             args[i] = load_value(input_files[i], param_types[i]);
             if (!args[i]) {
-                char tbuf[256];
-                east_type_print(param_types[i], tbuf, sizeof(tbuf));
-                fprintf(stderr, "Error: Failed to parse input %d (%s) as %s\n",
-                        i, input_files[i], tbuf);
-                for (int j = 0; j < i; j++) east_value_release(args[j]);
+                char *ts = format_type(param_types[i]);
+                fprintf(stderr, "Error: Failed to parse input %d (%s) as %s\n", i, input_files[i],
+                        ts ? ts : "?");
+                free(ts);
+                for (int j = 0; j < i; j++)
+                    east_value_release(args[j]);
                 free(args);
                 ir_node_release(ir);
                 platform_registry_free(platform);
@@ -463,13 +545,13 @@ static int cmd_run(const char *ir_path,
 
     /* Compile */
     clock_gettime(CLOCK_MONOTONIC, &t1);
-    if (verbose) fprintf(stderr, "Compiling...\n");
 
     IRNode *body = ir->data.function.body;
     EastCompiledFn *fn = east_compile(body, platform, builtins);
     if (!fn) {
         fprintf(stderr, "Error: Failed to compile IR\n");
-        for (int i = 0; i < num_inputs; i++) east_value_release(args[i]);
+        for (int i = 0; i < num_inputs; i++)
+            east_value_release(args[i]);
         free(args);
         ir_node_release(ir);
         platform_registry_free(platform);
@@ -478,8 +560,8 @@ static int cmd_run(const char *ir_path,
     }
 
     /* Attach source map (from JSON wrapper or beast2 decode) */
-    if (json_source_map) {
-        fn->source_map = json_source_map;
+    if (decoded_source_map) {
+        fn->source_map = decoded_source_map;
         east_set_source_map(fn->source_map);
     }
 
@@ -494,7 +576,6 @@ static int cmd_run(const char *ir_path,
 
     /* Execute */
     clock_gettime(CLOCK_MONOTONIC, &t2);
-    if (verbose) fprintf(stderr, "Executing...\n");
 
     EvalResult result = east_call(fn, args, (size_t)num_inputs);
     clock_gettime(CLOCK_MONOTONIC, &t3);
@@ -507,20 +588,20 @@ static int cmd_run(const char *ir_path,
         for (size_t i = 0; i < result.num_locations; i++) {
             fprintf(stderr, "  at %s:%ld:%ld\n",
                     result.locations[i].filename ? result.locations[i].filename : "?",
-                    (long)result.locations[i].line,
-                    (long)result.locations[i].column);
+                    (long)result.locations[i].line, (long)result.locations[i].column);
         }
         exit_code = 1;
     } else {
         /* Save or print result */
         if (output_file) {
-            if (verbose) {
-                char tbuf[256];
-                east_type_print(return_type, tbuf, sizeof(tbuf));
-                fprintf(stderr, "Saving output to %s as %s\n", output_file, tbuf);
-            }
             if (save_value(output_file, result.value, return_type) != 0) {
                 exit_code = 1;
+            } else if (verbose) {
+                char *ts = format_type(return_type);
+                char sz[32];
+                format_file_size(output_file, sz, sizeof(sz));
+                fprintf(stderr, "Output: %s  (%s)\n  %s\n", output_file, sz, ts ? ts : "?");
+                free(ts);
             }
         } else {
             /* Print as .east format to stdout */
@@ -538,7 +619,8 @@ static int cmd_run(const char *ir_path,
     if (result.value) east_value_release(result.value);
     eval_result_free(&result);
     east_compiled_fn_free(fn);
-    for (int i = 0; i < num_inputs; i++) east_value_release(args[i]);
+    for (int i = 0; i < num_inputs; i++)
+        east_value_release(args[i]);
     free(args);
     ir_node_release(ir);
     platform_registry_free(platform);
@@ -552,18 +634,16 @@ static int cmd_run(const char *ir_path,
         long peak_kb = usage.ru_maxrss;
 
         fprintf(stderr, "\nTiming:\n");
-        fprintf(stderr, "  Load IR:    %8.1f ms  (decode: %.1f ms, ir_from_value: %.1f ms, release: %.1f ms)\n",
-                elapsed_ms(&t0, &t1), elapsed_ms(&t0, &t_decode), elapsed_ms(&t_decode, &t_convert), elapsed_ms(&t_convert, &t1));
-        fprintf(stderr, "  Compile:    %8.1f ms\n", elapsed_ms(&t1, &t2));
-        fprintf(stderr, "  Execute:    %8.1f ms\n", elapsed_ms(&t2, &t3));
-        fprintf(stderr, "  Output:     %8.1f ms\n", elapsed_ms(&t3, &t4));
-        fprintf(stderr, "  Cleanup:    %8.1f ms\n", elapsed_ms(&t4, &t5));
-        fprintf(stderr, "  Total:      %8.1f ms\n", elapsed_ms(&t0, &t5));
+        fprintf(stderr, "  Load:      %8.1f ms\n", elapsed_ms(&t0, &t1));
+        fprintf(stderr, "  Compile:   %8.1f ms\n", elapsed_ms(&t1, &t2));
+        fprintf(stderr, "  Execute:   %8.1f ms\n", elapsed_ms(&t2, &t3));
+        fprintf(stderr, "  Output:    %8.1f ms\n", elapsed_ms(&t3, &t4));
+        fprintf(stderr, "  Total:     %8.1f ms\n", elapsed_ms(&t0, &t5));
         fprintf(stderr, "\nMemory:\n");
         if (peak_kb >= 1024)
-            fprintf(stderr, "  Peak RSS:   %8.1f MB\n", (double)peak_kb / 1024.0);
+            fprintf(stderr, "  Peak RSS:  %8.1f MB\n", (double)peak_kb / 1024.0);
         else
-            fprintf(stderr, "  Peak RSS:   %8ld KB\n", peak_kb);
+            fprintf(stderr, "  Peak RSS:  %8ld KB\n", peak_kb);
     }
 
     return exit_code;
@@ -581,9 +661,10 @@ static int cmd_version(const char **packages, int num_packages)
                 /* Count functions by registering into a temp registry */
                 PlatformRegistry *tmp = platform_registry_new();
                 east_std_register_all(tmp);
-                size_t fn_count = hashmap_count(tmp->functions)
-                                + hashmap_count(tmp->generic_functions);
-                printf("  east-c-std %s (%zu platform functions)\n", EAST_RUNTIME_VERSION, fn_count);
+                size_t fn_count =
+                    hashmap_count(tmp->functions) + hashmap_count(tmp->generic_functions);
+                printf("  east-c-std %s (%zu platform functions)\n", EAST_RUNTIME_VERSION,
+                       fn_count);
                 platform_registry_free(tmp);
             } else {
                 printf("  %s: not available\n", packages[i]);
@@ -601,22 +682,22 @@ static int cmd_version(const char **packages, int num_packages)
 static void print_usage(const char *prog)
 {
     fprintf(stderr,
-        "Usage:\n"
-        "  %s run <ir_file> [-p PACKAGE...] [-i FILE...] [-o FILE] [-v]\n"
-        "  %s version [-p PACKAGE...]\n"
-        "\n"
-        "Commands:\n"
-        "  run      Run an East IR program\n"
-        "  version  Show version information\n"
-        "\n"
-        "Options:\n"
-        "  -p, --package PACKAGE   Platform package (e.g., std or east-c-std)\n"
-        "  -i, --input FILE        Input data file (repeatable, order matches params)\n"
-        "  -o, --output FILE       Output file for result\n"
-        "  -v, --verbose           Enable verbose output\n"
-        "\n"
-        "Supported formats: .json, .beast2, .beast, .east\n",
-        prog, prog);
+            "Usage:\n"
+            "  %s run <ir_file> [-p PACKAGE...] [-i FILE...] [-o FILE] [-v]\n"
+            "  %s version [-p PACKAGE...]\n"
+            "\n"
+            "Commands:\n"
+            "  run      Run an East IR program\n"
+            "  version  Show version information\n"
+            "\n"
+            "Options:\n"
+            "  -p, --package PACKAGE   Platform package (e.g., std or east-c-std)\n"
+            "  -i, --input FILE        Input data file (repeatable, order matches params)\n"
+            "  -o, --output FILE       Output file for result\n"
+            "  -v, --verbose           Enable verbose output\n"
+            "\n"
+            "Supported formats: .json, .beast2, .beast, .east\n",
+            prog, prog);
 }
 
 /* ------------------------------------------------------------------ */
@@ -660,14 +741,16 @@ int main(int argc, char **argv)
                 }
                 packages[num_packages++] = argv[i + 1];
                 i += 2;
-            } else if ((strcmp(argv[i], "-i") == 0 || strcmp(argv[i], "--input") == 0) && i + 1 < argc) {
+            } else if ((strcmp(argv[i], "-i") == 0 || strcmp(argv[i], "--input") == 0) &&
+                       i + 1 < argc) {
                 if (num_inputs >= MAX_INPUTS) {
                     fprintf(stderr, "Error: Too many inputs (max %d)\n", MAX_INPUTS);
                     return 1;
                 }
                 input_files[num_inputs++] = argv[i + 1];
                 i += 2;
-            } else if ((strcmp(argv[i], "-o") == 0 || strcmp(argv[i], "--output") == 0) && i + 1 < argc) {
+            } else if ((strcmp(argv[i], "-o") == 0 || strcmp(argv[i], "--output") == 0) &&
+                       i + 1 < argc) {
                 output_file = argv[i + 1];
                 i += 2;
             } else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) {
@@ -695,14 +778,16 @@ int main(int argc, char **argv)
                 }
                 packages[num_packages++] = argv[i + 1];
                 i += 2;
-            } else if ((strcmp(argv[i], "-i") == 0 || strcmp(argv[i], "--input") == 0) && i + 1 < argc) {
+            } else if ((strcmp(argv[i], "-i") == 0 || strcmp(argv[i], "--input") == 0) &&
+                       i + 1 < argc) {
                 if (num_inputs >= MAX_INPUTS) {
                     fprintf(stderr, "Error: Too many inputs (max %d)\n", MAX_INPUTS);
                     return 1;
                 }
                 input_files[num_inputs++] = argv[i + 1];
                 i += 2;
-            } else if ((strcmp(argv[i], "-o") == 0 || strcmp(argv[i], "--output") == 0) && i + 1 < argc) {
+            } else if ((strcmp(argv[i], "-o") == 0 || strcmp(argv[i], "--output") == 0) &&
+                       i + 1 < argc) {
                 output_file = argv[i + 1];
                 i += 2;
             } else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) {
@@ -715,7 +800,8 @@ int main(int argc, char **argv)
             }
         }
 
-        return cmd_run(ir_path, packages, num_packages, input_files, num_inputs, output_file, verbose);
+        return cmd_run(ir_path, packages, num_packages, input_files, num_inputs, output_file,
+                       verbose);
 
     } else if (strcmp(command, "version") == 0) {
         /* Parse version arguments */

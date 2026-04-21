@@ -20,23 +20,32 @@
 #include <string.h>
 #include <time.h>
 
-static double elapsed_ms(struct timespec *a, struct timespec *b) {
+static double elapsed_ms(struct timespec *a, struct timespec *b)
+{
     return (b->tv_sec - a->tv_sec) * 1000.0 + (b->tv_nsec - a->tv_nsec) / 1e6;
 }
 
-static int profile_ir(const uint8_t *data, long fsize, int iters) {
+static int profile_ir(const uint8_t *data, long fsize, int iters)
+{
     struct timespec t0, t1;
 
     /* Warmup */
-    IRNode *ir = east_beast2_decode_ir(data, fsize, NULL);
-    if (!ir) { fprintf(stderr, "IR decode failed!\n"); return 1; }
+    IRNode *ir = east_beast2_decode_ir(data, fsize, NULL, NULL);
+    if (!ir) {
+        fprintf(stderr, "IR decode failed!\n");
+        return 1;
+    }
     ir_node_release(ir);
 
     /* Timed decode iterations */
     clock_gettime(CLOCK_MONOTONIC, &t0);
     for (int i = 0; i < iters; i++) {
-        ir = east_beast2_decode_ir(data, fsize, NULL);
-        if (i < iters - 1) { ir_node_release(ir); east_type_registry_clear(); east_type_of_type_init(); }
+        ir = east_beast2_decode_ir(data, fsize, NULL, NULL);
+        if (i < iters - 1) {
+            ir_node_release(ir);
+            east_type_registry_clear();
+            east_type_of_type_init();
+        }
     }
     clock_gettime(CLOCK_MONOTONIC, &t1);
     double decode_ms = elapsed_ms(&t0, &t1) / iters;
@@ -48,7 +57,12 @@ static int profile_ir(const uint8_t *data, long fsize, int iters) {
     /* Compile */
     BuiltinRegistry *builtins = builtin_registry_new();
     EastCompiledFn *fn = east_compile(ir, NULL, builtins);
-    if (!fn) { fprintf(stderr, "Compile failed!\n"); ir_node_release(ir); builtin_registry_free(builtins); return 1; }
+    if (!fn) {
+        fprintf(stderr, "Compile failed!\n");
+        ir_node_release(ir);
+        builtin_registry_free(builtins);
+        return 1;
+    }
 
     /* Execute — if the result is a function (closure), call it to get the actual value */
     EvalResult result = east_call(fn, NULL, 0);
@@ -57,7 +71,8 @@ static int profile_ir(const uint8_t *data, long fsize, int iters) {
     } else {
         /* Check if result is a closure that needs calling */
         EastCompiledFn *inner_fn = NULL;
-        if (result.value && result.value->kind == EAST_VAL_FUNCTION && result.value->data.function.compiled) {
+        if (result.value && result.value->kind == EAST_VAL_FUNCTION &&
+            result.value->data.function.compiled) {
             inner_fn = result.value->data.function.compiled;
             fprintf(stderr, "  (outer function returns closure — calling it)\n");
         }
@@ -98,13 +113,17 @@ static int profile_ir(const uint8_t *data, long fsize, int iters) {
     return 0;
 }
 
-static int profile_value(const uint8_t *data, long fsize, int iters) {
+static int profile_value(const uint8_t *data, long fsize, int iters)
+{
     struct timespec t0, t1;
     EastValue *val = NULL;
 
     /* Warmup */
     val = east_beast2_decode_auto(data, fsize);
-    if (!val) { fprintf(stderr, "Decode failed!\n"); return 1; }
+    if (!val) {
+        fprintf(stderr, "Decode failed!\n");
+        return 1;
+    }
 
     /* Get the type from the blob header for re-encoding */
     EastType *decoded_type = east_beast2_extract_type(data, fsize);
@@ -131,7 +150,8 @@ static int profile_value(const uint8_t *data, long fsize, int iters) {
         blob = east_beast2_encode_full(val, decoded_type);
         if (blob) {
             fprintf(stderr, "=== Encode ===\n");
-            fprintf(stderr, "  re-encoded size: %zu bytes (%.2f MB)\n", blob->len, blob->len / 1048576.0);
+            fprintf(stderr, "  re-encoded size: %zu bytes (%.2f MB)\n", blob->len,
+                    blob->len / 1048576.0);
             byte_buffer_free(blob);
 
             /* Write re-encoded blob for cross-decoder testing */
@@ -171,22 +191,31 @@ static int profile_value(const uint8_t *data, long fsize, int iters) {
     return 0;
 }
 
-int main(int argc, char **argv) {
+int main(int argc, char **argv)
+{
     if (argc < 2) {
         fprintf(stderr, "Usage: %s [--ir] <file.beast2> [iterations]\n", argv[0]);
         return 1;
     }
 
     int ir_mode = 0;
-    const char *phase = NULL;  /* NULL=all, "decode", "compile", "execute" */
+    const char *phase = NULL; /* NULL=all, "decode", "compile", "execute" */
     int arg_idx = 1;
     while (arg_idx < argc && argv[arg_idx][0] == '-') {
-        if (strcmp(argv[arg_idx], "--ir") == 0) { ir_mode = 1; arg_idx++; }
-        else if (strcmp(argv[arg_idx], "--phase") == 0 && arg_idx + 1 < argc) { phase = argv[++arg_idx]; arg_idx++; }
-        else { arg_idx++; }
+        if (strcmp(argv[arg_idx], "--ir") == 0) {
+            ir_mode = 1;
+            arg_idx++;
+        } else if (strcmp(argv[arg_idx], "--phase") == 0 && arg_idx + 1 < argc) {
+            phase = argv[++arg_idx];
+            arg_idx++;
+        } else {
+            arg_idx++;
+        }
     }
     if (arg_idx >= argc) {
-        fprintf(stderr, "Usage: %s [--ir] [--phase decode|compile|execute] <file.beast2> [iterations]\n", argv[0]);
+        fprintf(stderr,
+                "Usage: %s [--ir] [--phase decode|compile|execute] <file.beast2> [iterations]\n",
+                argv[0]);
         return 1;
     }
 
@@ -195,7 +224,10 @@ int main(int argc, char **argv) {
 
     /* Read file */
     FILE *f = fopen(path, "rb");
-    if (!f) { perror("fopen"); return 1; }
+    if (!f) {
+        perror("fopen");
+        return 1;
+    }
     fseek(f, 0, SEEK_END);
     long fsize = ftell(f);
     fseek(f, 0, SEEK_SET);
@@ -208,9 +240,7 @@ int main(int argc, char **argv) {
     /* Init type system */
     east_type_of_type_init();
 
-    int ret = ir_mode
-        ? profile_ir(data, fsize, iters)
-        : profile_value(data, fsize, iters);
+    int ret = ir_mode ? profile_ir(data, fsize, iters) : profile_value(data, fsize, iters);
 
     free(data);
     east_type_registry_clear();

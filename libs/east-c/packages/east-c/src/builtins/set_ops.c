@@ -10,11 +10,6 @@
 #include <string.h>
 
 static _Thread_local EastType *_option_ctx = NULL;
-static EastType *_make_option_type(EastType *inner) {
-    const char *names[] = {"none", "some"};
-    EastType *types[] = {&east_null_type, inner};
-    return east_variant_type(names, types, 2);
-}
 
 /* Element type for error messages, set by factories from type_params[0] (K) */
 static _Thread_local EastType *s_set_elem_type = NULL;
@@ -22,7 +17,8 @@ static _Thread_local EastType *s_set_elem_type = NULL;
 /* ------------------------------------------------------------------ */
 /* Helper: call a function value                                      */
 /* ------------------------------------------------------------------ */
-static EastValue *call_fn(EastValue *fn, EastValue **call_args, size_t nargs) {
+static EastValue *call_fn(EastValue *fn, EastValue **call_args, size_t nargs)
+{
     EvalResult r = east_call(fn->data.function.compiled, call_args, nargs);
     if (r.status == EVAL_OK || r.status == EVAL_RETURN) return r.value;
     /* Propagate error from callback */
@@ -33,33 +29,36 @@ static EastValue *call_fn(EastValue *fn, EastValue **call_args, size_t nargs) {
     return NULL;
 }
 
-#define ITER_GUARD_SET(s) do { \
-    if ((s)->iter_lock > 0) { \
-        east_builtin_error("Cannot modify Set during iteration"); \
-        return NULL; \
-    } \
-} while(0)
+#define ITER_GUARD_SET(s)                                                                          \
+    do {                                                                                           \
+        if ((s)->iter_lock > 0) {                                                                  \
+            east_builtin_error("Cannot modify Set during iteration");                              \
+            return NULL;                                                                           \
+        }                                                                                          \
+    } while (0)
 
 /* --- implementations --- */
 
-static EastValue *set_size_impl(EastValue **args, size_t n) {
+static EastValue *set_size_impl(EastValue **args, size_t n)
+{
     (void)n;
     return east_integer((int64_t)east_set_len(args[0]));
 }
 
-static EastValue *set_has_impl(EastValue **args, size_t n) {
+static EastValue *set_has_impl(EastValue **args, size_t n)
+{
     (void)n;
     return east_boolean(east_set_has(args[0], args[1]));
 }
 
-static EastValue *set_insert_impl(EastValue **args, size_t n) {
+static EastValue *set_insert_impl(EastValue **args, size_t n)
+{
     (void)n;
     ITER_GUARD_SET(args[0]);
     if (east_set_has(args[0], args[1])) {
         char *printed = east_print_value(args[1], s_set_elem_type);
         char msg[512];
-        snprintf(msg, sizeof(msg), "Set already contains key %s",
-                 printed ? printed : "?");
+        snprintf(msg, sizeof(msg), "Set already contains key %s", printed ? printed : "?");
         free(printed);
         east_builtin_error(msg);
         return NULL;
@@ -68,7 +67,8 @@ static EastValue *set_insert_impl(EastValue **args, size_t n) {
     return east_null();
 }
 
-static EastValue *set_try_insert_impl(EastValue **args, size_t n) {
+static EastValue *set_try_insert_impl(EastValue **args, size_t n)
+{
     (void)n;
     ITER_GUARD_SET(args[0]);
     bool was_new = !east_set_has(args[0], args[1]);
@@ -76,29 +76,30 @@ static EastValue *set_try_insert_impl(EastValue **args, size_t n) {
     return east_boolean(was_new);
 }
 
-static EastValue *set_delete_impl(EastValue **args, size_t n) {
+static EastValue *set_delete_impl(EastValue **args, size_t n)
+{
     (void)n;
     ITER_GUARD_SET(args[0]);
     EastValue *s = args[0];
     EastValue *val = args[1];
-    if (east_set_delete(s, val))
-        return east_null();
+    if (east_set_delete(s, val)) return east_null();
     char *printed = east_print_value(val, s_set_elem_type);
     char msg[512];
-    snprintf(msg, sizeof(msg), "Set does not contain key %s",
-             printed ? printed : "?");
+    snprintf(msg, sizeof(msg), "Set does not contain key %s", printed ? printed : "?");
     free(printed);
     east_builtin_error(msg);
     return NULL;
 }
 
-static EastValue *set_try_delete_impl(EastValue **args, size_t n) {
+static EastValue *set_try_delete_impl(EastValue **args, size_t n)
+{
     (void)n;
     ITER_GUARD_SET(args[0]);
     return east_boolean(east_set_delete(args[0], args[1]));
 }
 
-static EastValue *set_clear_impl(EastValue **args, size_t n) {
+static EastValue *set_clear_impl(EastValue **args, size_t n)
+{
     (void)n;
     ITER_GUARD_SET(args[0]);
     EastValue *s = args[0];
@@ -108,7 +109,8 @@ static EastValue *set_clear_impl(EastValue **args, size_t n) {
     return east_null();
 }
 
-static EastValue *set_union_in_place_impl(EastValue **args, size_t n) {
+static EastValue *set_union_in_place_impl(EastValue **args, size_t n)
+{
     (void)n;
     ITER_GUARD_SET(args[0]);
     EastValue *a = args[0];
@@ -118,7 +120,8 @@ static EastValue *set_union_in_place_impl(EastValue **args, size_t n) {
     return east_null();
 }
 
-static EastValue *set_union_impl(EastValue **args, size_t n) {
+static EastValue *set_union_impl(EastValue **args, size_t n)
+{
     (void)n;
     EastValue *a = args[0];
     EastValue *b = args[1];
@@ -130,69 +133,69 @@ static EastValue *set_union_impl(EastValue **args, size_t n) {
     return result;
 }
 
-static EastValue *set_intersect_impl(EastValue **args, size_t n) {
+static EastValue *set_intersect_impl(EastValue **args, size_t n)
+{
     (void)n;
     EastValue *a = args[0];
     EastValue *b = args[1];
     EastValue *result = east_set_new(a->data.set.elem_type);
     for (size_t i = 0; i < a->data.set.len; i++) {
-        if (east_set_has(b, a->data.set.items[i]))
-            east_set_insert(result, a->data.set.items[i]);
+        if (east_set_has(b, a->data.set.items[i])) east_set_insert(result, a->data.set.items[i]);
     }
     return result;
 }
 
-static EastValue *set_diff_impl(EastValue **args, size_t n) {
+static EastValue *set_diff_impl(EastValue **args, size_t n)
+{
     (void)n;
     EastValue *a = args[0];
     EastValue *b = args[1];
     EastValue *result = east_set_new(a->data.set.elem_type);
     for (size_t i = 0; i < a->data.set.len; i++) {
-        if (!east_set_has(b, a->data.set.items[i]))
-            east_set_insert(result, a->data.set.items[i]);
+        if (!east_set_has(b, a->data.set.items[i])) east_set_insert(result, a->data.set.items[i]);
     }
     return result;
 }
 
-static EastValue *set_sym_diff_impl(EastValue **args, size_t n) {
+static EastValue *set_sym_diff_impl(EastValue **args, size_t n)
+{
     (void)n;
     EastValue *a = args[0];
     EastValue *b = args[1];
     EastValue *result = east_set_new(a->data.set.elem_type);
     for (size_t i = 0; i < a->data.set.len; i++) {
-        if (!east_set_has(b, a->data.set.items[i]))
-            east_set_insert(result, a->data.set.items[i]);
+        if (!east_set_has(b, a->data.set.items[i])) east_set_insert(result, a->data.set.items[i]);
     }
     for (size_t i = 0; i < b->data.set.len; i++) {
-        if (!east_set_has(a, b->data.set.items[i]))
-            east_set_insert(result, b->data.set.items[i]);
+        if (!east_set_has(a, b->data.set.items[i])) east_set_insert(result, b->data.set.items[i]);
     }
     return result;
 }
 
-static EastValue *set_is_subset_impl(EastValue **args, size_t n) {
+static EastValue *set_is_subset_impl(EastValue **args, size_t n)
+{
     (void)n;
     EastValue *a = args[0];
     EastValue *b = args[1];
     for (size_t i = 0; i < a->data.set.len; i++) {
-        if (!east_set_has(b, a->data.set.items[i]))
-            return east_boolean(false);
+        if (!east_set_has(b, a->data.set.items[i])) return east_boolean(false);
     }
     return east_boolean(true);
 }
 
-static EastValue *set_is_disjoint_impl(EastValue **args, size_t n) {
+static EastValue *set_is_disjoint_impl(EastValue **args, size_t n)
+{
     (void)n;
     EastValue *a = args[0];
     EastValue *b = args[1];
     for (size_t i = 0; i < a->data.set.len; i++) {
-        if (east_set_has(b, a->data.set.items[i]))
-            return east_boolean(false);
+        if (east_set_has(b, a->data.set.items[i])) return east_boolean(false);
     }
     return east_boolean(true);
 }
 
-static EastValue *set_copy_impl(EastValue **args, size_t n) {
+static EastValue *set_copy_impl(EastValue **args, size_t n)
+{
     (void)n;
     EastValue *s = args[0];
     EastValue *result = east_set_new(s->data.set.elem_type);
@@ -201,7 +204,8 @@ static EastValue *set_copy_impl(EastValue **args, size_t n) {
     return result;
 }
 
-static EastValue *set_generate_impl(EastValue **args, size_t n) {
+static EastValue *set_generate_impl(EastValue **args, size_t n)
+{
     (void)n;
     int64_t count = args[0]->data.integer;
     EastValue *gen_fn = args[1];
@@ -209,13 +213,22 @@ static EastValue *set_generate_impl(EastValue **args, size_t n) {
     EastValue *result = east_set_new(&east_null_type);
     for (int64_t i = 0; i < count; i++) {
         EastValue *idx = east_integer(i);
-        EastValue *call_args[] = { idx };
+        EastValue *call_args[] = {idx};
         EastValue *elem = call_fn(gen_fn, call_args, 1);
-        if (!elem) { east_value_release(idx); east_value_release(result); return NULL; }
+        if (!elem) {
+            east_value_release(idx);
+            east_value_release(result);
+            return NULL;
+        }
         if (east_set_has(result, elem)) {
-            EastValue *vargs[] = { elem };
+            EastValue *vargs[] = {elem};
             EastValue *vr = call_fn(validate_fn, vargs, 1);
-            if (!vr) { east_value_release(elem); east_value_release(idx); east_value_release(result); return NULL; }
+            if (!vr) {
+                east_value_release(elem);
+                east_value_release(idx);
+                east_value_release(result);
+                return NULL;
+            }
             east_value_release(vr);
         }
         east_set_insert(result, elem);
@@ -225,13 +238,14 @@ static EastValue *set_generate_impl(EastValue **args, size_t n) {
     return result;
 }
 
-static EastValue *set_for_each_impl(EastValue **args, size_t n) {
+static EastValue *set_for_each_impl(EastValue **args, size_t n)
+{
     (void)n;
     EastValue *s = args[0];
     EastValue *fn = args[1];
     s->iter_lock++;
     for (size_t i = 0; i < s->data.set.len; i++) {
-        EastValue *call_args[] = { s->data.set.items[i] };
+        EastValue *call_args[] = {s->data.set.items[i]};
         EvalResult r = east_call(fn->data.function.compiled, call_args, 1);
         if (r.status != EVAL_OK && r.status != EVAL_RETURN) {
             s->iter_lock--;
@@ -245,46 +259,57 @@ static EastValue *set_for_each_impl(EastValue **args, size_t n) {
     return east_null();
 }
 
-static EastValue *set_map_impl(EastValue **args, size_t n) {
+static EastValue *set_map_impl(EastValue **args, size_t n)
+{
     (void)n;
     EastValue *s = args[0];
     EastValue *fn = args[1];
     EastValue *result = east_dict_new(s->data.set.elem_type, &east_null_type);
     for (size_t i = 0; i < s->data.set.len; i++) {
-        EastValue *call_args[] = { s->data.set.items[i] };
+        EastValue *call_args[] = {s->data.set.items[i]};
         EastValue *val = call_fn(fn, call_args, 1);
-        if (!val) { east_value_release(result); return NULL; }
+        if (!val) {
+            east_value_release(result);
+            return NULL;
+        }
         east_dict_set(result, s->data.set.items[i], val);
         east_value_release(val);
     }
     return result;
 }
 
-static EastValue *set_filter_impl(EastValue **args, size_t n) {
+static EastValue *set_filter_impl(EastValue **args, size_t n)
+{
     (void)n;
     EastValue *s = args[0];
     EastValue *fn = args[1];
     EastValue *result = east_set_new(s->data.set.elem_type);
     for (size_t i = 0; i < s->data.set.len; i++) {
-        EastValue *call_args[] = { s->data.set.items[i] };
+        EastValue *call_args[] = {s->data.set.items[i]};
         EastValue *pred = call_fn(fn, call_args, 1);
-        if (!pred) { east_value_release(result); return NULL; }
-        if (pred->data.boolean)
-            east_set_insert(result, s->data.set.items[i]);
+        if (!pred) {
+            east_value_release(result);
+            return NULL;
+        }
+        if (pred->data.boolean) east_set_insert(result, s->data.set.items[i]);
         east_value_release(pred);
     }
     return result;
 }
 
-static EastValue *set_filter_map_impl(EastValue **args, size_t n) {
+static EastValue *set_filter_map_impl(EastValue **args, size_t n)
+{
     (void)n;
     EastValue *s = args[0];
     EastValue *fn = args[1];
     EastValue *result = east_dict_new(s->data.set.elem_type, &east_null_type);
     for (size_t i = 0; i < s->data.set.len; i++) {
-        EastValue *call_args[] = { s->data.set.items[i] };
+        EastValue *call_args[] = {s->data.set.items[i]};
         EastValue *opt = call_fn(fn, call_args, 1);
-        if (!opt) { east_value_release(result); return NULL; }
+        if (!opt) {
+            east_value_release(result);
+            return NULL;
+        }
         if (opt->kind == EAST_VAL_VARIANT && strcmp(east_variant_case_name(opt), "some") == 0)
             east_dict_set(result, s->data.set.items[i], opt->data.variant.value);
         east_value_release(opt);
@@ -292,12 +317,13 @@ static EastValue *set_filter_map_impl(EastValue **args, size_t n) {
     return result;
 }
 
-static EastValue *set_first_map_impl(EastValue **args, size_t n) {
+static EastValue *set_first_map_impl(EastValue **args, size_t n)
+{
     (void)n;
     EastValue *s = args[0];
     EastValue *fn = args[1];
     for (size_t i = 0; i < s->data.set.len; i++) {
-        EastValue *call_args[] = { s->data.set.items[i] };
+        EastValue *call_args[] = {s->data.set.items[i]};
         EastValue *opt = call_fn(fn, call_args, 1);
         if (!opt) return NULL;
         if (opt->kind == EAST_VAL_VARIANT && strcmp(east_variant_case_name(opt), "some") == 0)
@@ -307,7 +333,8 @@ static EastValue *set_first_map_impl(EastValue **args, size_t n) {
     return east_variant_new("none", east_null(), _option_ctx);
 }
 
-static EastValue *set_map_reduce_impl(EastValue **args, size_t n) {
+static EastValue *set_map_reduce_impl(EastValue **args, size_t n)
+{
     (void)n;
     EastValue *s = args[0];
     EastValue *map_fn = args[1];
@@ -316,14 +343,17 @@ static EastValue *set_map_reduce_impl(EastValue **args, size_t n) {
         east_builtin_error("Cannot reduce empty set with no initial value");
         return NULL;
     }
-    EastValue *margs0[] = { s->data.set.items[0] };
+    EastValue *margs0[] = {s->data.set.items[0]};
     EastValue *acc = call_fn(map_fn, margs0, 1);
     if (!acc) return NULL;
     for (size_t i = 1; i < s->data.set.len; i++) {
-        EastValue *margs[] = { s->data.set.items[i] };
+        EastValue *margs[] = {s->data.set.items[i]};
         EastValue *mapped = call_fn(map_fn, margs, 1);
-        if (!mapped) { east_value_release(acc); return NULL; }
-        EastValue *rargs[] = { acc, mapped };
+        if (!mapped) {
+            east_value_release(acc);
+            return NULL;
+        }
+        EastValue *rargs[] = {acc, mapped};
         EastValue *new_acc = call_fn(reduce_fn, rargs, 2);
         east_value_release(acc);
         east_value_release(mapped);
@@ -333,7 +363,8 @@ static EastValue *set_map_reduce_impl(EastValue **args, size_t n) {
     return acc;
 }
 
-static EastValue *set_reduce_impl(EastValue **args, size_t n) {
+static EastValue *set_reduce_impl(EastValue **args, size_t n)
+{
     (void)n;
     EastValue *s = args[0];
     EastValue *fn = args[1];
@@ -341,7 +372,7 @@ static EastValue *set_reduce_impl(EastValue **args, size_t n) {
     east_value_retain(initial);
     EastValue *acc = initial;
     for (size_t i = 0; i < s->data.set.len; i++) {
-        EastValue *call_args[] = { acc, s->data.set.items[i] };
+        EastValue *call_args[] = {acc, s->data.set.items[i]};
         EastValue *new_acc = call_fn(fn, call_args, 2);
         east_value_release(acc);
         if (!new_acc) return NULL;
@@ -350,37 +381,46 @@ static EastValue *set_reduce_impl(EastValue **args, size_t n) {
     return acc;
 }
 
-static EastValue *set_to_array_impl(EastValue **args, size_t n) {
+static EastValue *set_to_array_impl(EastValue **args, size_t n)
+{
     (void)n;
     EastValue *s = args[0];
     EastValue *fn = args[1];
     EastValue *result = east_array_new(s->data.set.elem_type);
     for (size_t i = 0; i < s->data.set.len; i++) {
-        EastValue *call_args[] = { s->data.set.items[i] };
+        EastValue *call_args[] = {s->data.set.items[i]};
         EastValue *mapped = call_fn(fn, call_args, 1);
-        if (!mapped) { east_value_release(result); return NULL; }
+        if (!mapped) {
+            east_value_release(result);
+            return NULL;
+        }
         east_array_push(result, mapped);
         east_value_release(mapped);
     }
     return result;
 }
 
-static EastValue *set_to_set_impl(EastValue **args, size_t n) {
+static EastValue *set_to_set_impl(EastValue **args, size_t n)
+{
     (void)n;
     EastValue *s = args[0];
     EastValue *fn = args[1];
     EastValue *result = east_set_new(&east_null_type);
     for (size_t i = 0; i < s->data.set.len; i++) {
-        EastValue *call_args[] = { s->data.set.items[i] };
+        EastValue *call_args[] = {s->data.set.items[i]};
         EastValue *mapped = call_fn(fn, call_args, 1);
-        if (!mapped) { east_value_release(result); return NULL; }
+        if (!mapped) {
+            east_value_release(result);
+            return NULL;
+        }
         east_set_insert(result, mapped);
         east_value_release(mapped);
     }
     return result;
 }
 
-static EastValue *set_to_dict_impl(EastValue **args, size_t n) {
+static EastValue *set_to_dict_impl(EastValue **args, size_t n)
+{
     (void)n;
     EastValue *s = args[0];
     EastValue *key_fn = args[1];
@@ -389,17 +429,29 @@ static EastValue *set_to_dict_impl(EastValue **args, size_t n) {
     EastValue *result = east_dict_new(&east_null_type, &east_null_type);
     for (size_t i = 0; i < s->data.set.len; i++) {
         EastValue *elem = s->data.set.items[i];
-        EastValue *kargs[] = { elem };
+        EastValue *kargs[] = {elem};
         EastValue *key = call_fn(key_fn, kargs, 1);
-        if (!key) { east_value_release(result); return NULL; }
-        EastValue *vargs[] = { elem };
+        if (!key) {
+            east_value_release(result);
+            return NULL;
+        }
+        EastValue *vargs[] = {elem};
         EastValue *val = call_fn(value_fn, vargs, 1);
-        if (!val) { east_value_release(key); east_value_release(result); return NULL; }
+        if (!val) {
+            east_value_release(key);
+            east_value_release(result);
+            return NULL;
+        }
         if (east_dict_has(result, key)) {
             EastValue *existing = east_dict_get(result, key);
-            EastValue *margs[] = { existing, val, key };
+            EastValue *margs[] = {existing, val, key};
             EastValue *merged = call_fn(merge_fn, margs, 3);
-            if (!merged) { east_value_release(key); east_value_release(val); east_value_release(result); return NULL; }
+            if (!merged) {
+                east_value_release(key);
+                east_value_release(val);
+                east_value_release(result);
+                return NULL;
+            }
             east_dict_set(result, key, merged);
             east_value_release(merged);
         } else {
@@ -411,15 +463,19 @@ static EastValue *set_to_dict_impl(EastValue **args, size_t n) {
     return result;
 }
 
-static EastValue *set_flatten_to_array_impl(EastValue **args, size_t n) {
+static EastValue *set_flatten_to_array_impl(EastValue **args, size_t n)
+{
     (void)n;
     EastValue *s = args[0];
     EastValue *fn = args[1];
     EastValue *result = east_array_new(&east_null_type);
     for (size_t i = 0; i < s->data.set.len; i++) {
-        EastValue *call_args[] = { s->data.set.items[i] };
+        EastValue *call_args[] = {s->data.set.items[i]};
         EastValue *mapped = call_fn(fn, call_args, 1);
-        if (!mapped) { east_value_release(result); return NULL; }
+        if (!mapped) {
+            east_value_release(result);
+            return NULL;
+        }
         if (mapped->kind == EAST_VAL_ARRAY) {
             for (size_t j = 0; j < east_array_len(mapped); j++)
                 east_array_push(result, east_array_get(mapped, j));
@@ -429,15 +485,19 @@ static EastValue *set_flatten_to_array_impl(EastValue **args, size_t n) {
     return result;
 }
 
-static EastValue *set_flatten_to_set_impl(EastValue **args, size_t n) {
+static EastValue *set_flatten_to_set_impl(EastValue **args, size_t n)
+{
     (void)n;
     EastValue *s = args[0];
     EastValue *fn = args[1];
     EastValue *result = east_set_new(&east_null_type);
     for (size_t i = 0; i < s->data.set.len; i++) {
-        EastValue *call_args[] = { s->data.set.items[i] };
+        EastValue *call_args[] = {s->data.set.items[i]};
         EastValue *mapped = call_fn(fn, call_args, 1);
-        if (!mapped) { east_value_release(result); return NULL; }
+        if (!mapped) {
+            east_value_release(result);
+            return NULL;
+        }
         if (mapped->kind == EAST_VAL_SET) {
             for (size_t j = 0; j < mapped->data.set.len; j++)
                 east_set_insert(result, mapped->data.set.items[j]);
@@ -447,25 +507,33 @@ static EastValue *set_flatten_to_set_impl(EastValue **args, size_t n) {
     return result;
 }
 
-static EastValue *set_flatten_to_dict_impl(EastValue **args, size_t n) {
+static EastValue *set_flatten_to_dict_impl(EastValue **args, size_t n)
+{
     (void)n;
     EastValue *s = args[0];
     EastValue *fn = args[1];
     EastValue *merge_fn = args[2];
     EastValue *result = east_dict_new(&east_null_type, &east_null_type);
     for (size_t i = 0; i < s->data.set.len; i++) {
-        EastValue *call_args[] = { s->data.set.items[i] };
+        EastValue *call_args[] = {s->data.set.items[i]};
         EastValue *mapped = call_fn(fn, call_args, 1);
-        if (!mapped) { east_value_release(result); return NULL; }
+        if (!mapped) {
+            east_value_release(result);
+            return NULL;
+        }
         if (mapped->kind == EAST_VAL_DICT) {
             for (size_t j = 0; j < mapped->data.dict.len; j++) {
                 EastValue *k = mapped->data.dict.keys[j];
                 EastValue *v = mapped->data.dict.values[j];
                 if (east_dict_has(result, k)) {
                     EastValue *existing = east_dict_get(result, k);
-                    EastValue *margs[] = { existing, v, k };
+                    EastValue *margs[] = {existing, v, k};
                     EastValue *merged = call_fn(merge_fn, margs, 3);
-                    if (!merged) { east_value_release(mapped); east_value_release(result); return NULL; }
+                    if (!merged) {
+                        east_value_release(mapped);
+                        east_value_release(result);
+                        return NULL;
+                    }
                     east_dict_set(result, k, merged);
                     east_value_release(merged);
                 } else {
@@ -478,7 +546,8 @@ static EastValue *set_flatten_to_dict_impl(EastValue **args, size_t n) {
     return result;
 }
 
-static EastValue *set_group_fold_impl(EastValue **args, size_t n) {
+static EastValue *set_group_fold_impl(EastValue **args, size_t n)
+{
     (void)n;
     EastValue *s = args[0];
     EastValue *key_fn = args[1];
@@ -487,20 +556,31 @@ static EastValue *set_group_fold_impl(EastValue **args, size_t n) {
     EastValue *result = east_dict_new(&east_null_type, &east_null_type);
     for (size_t i = 0; i < s->data.set.len; i++) {
         EastValue *elem = s->data.set.items[i];
-        EastValue *kargs[] = { elem };
+        EastValue *kargs[] = {elem};
         EastValue *key = call_fn(key_fn, kargs, 1);
-        if (!key) { east_value_release(result); return NULL; }
+        if (!key) {
+            east_value_release(result);
+            return NULL;
+        }
         if (!east_dict_has(result, key)) {
-            EastValue *iargs[] = { key };
+            EastValue *iargs[] = {key};
             EastValue *init = call_fn(init_fn, iargs, 1);
-            if (!init) { east_value_release(key); east_value_release(result); return NULL; }
+            if (!init) {
+                east_value_release(key);
+                east_value_release(result);
+                return NULL;
+            }
             east_dict_set(result, key, init);
             east_value_release(init);
         }
         EastValue *acc = east_dict_get(result, key);
-        EastValue *fargs[] = { acc, elem };
+        EastValue *fargs[] = {acc, elem};
         EastValue *new_acc = call_fn(fold_fn, fargs, 2);
-        if (!new_acc) { east_value_release(key); east_value_release(result); return NULL; }
+        if (!new_acc) {
+            east_value_release(key);
+            east_value_release(result);
+            return NULL;
+        }
         east_dict_set(result, key, new_acc);
         east_value_release(new_acc);
         east_value_release(key);
@@ -510,51 +590,191 @@ static EastValue *set_group_fold_impl(EastValue **args, size_t n) {
 
 /* --- factory functions --- */
 
-static BuiltinImpl set_generate_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return set_generate_impl; }
-static BuiltinImpl set_size_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return set_size_impl; }
-static BuiltinImpl set_has_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return set_has_impl; }
+static BuiltinImpl set_generate_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return set_generate_impl;
+}
+static BuiltinImpl set_size_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return set_size_impl;
+}
+static BuiltinImpl set_has_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return set_has_impl;
+}
 /* Factories that need elem type for error messages capture tp[0] (K) */
-#define SET_ELEM_FACTORY(name, impl) \
-    static BuiltinImpl name(EastType **tp, size_t ntp) { \
-        if (ntp > 0 && tp[0]) s_set_elem_type = tp[0]; \
-        return impl; \
+#define SET_ELEM_FACTORY(name, impl)                                                               \
+    static BuiltinImpl name(EastType **tp, size_t ntp)                                             \
+    {                                                                                              \
+        if (ntp > 0 && tp[0]) s_set_elem_type = tp[0];                                             \
+        return impl;                                                                               \
     }
 SET_ELEM_FACTORY(set_insert_factory, set_insert_impl)
 SET_ELEM_FACTORY(set_delete_factory, set_delete_impl)
 #undef SET_ELEM_FACTORY
-static BuiltinImpl set_try_insert_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return set_try_insert_impl; }
-static BuiltinImpl set_try_delete_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return set_try_delete_impl; }
-static BuiltinImpl set_clear_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return set_clear_impl; }
-static BuiltinImpl set_union_in_place_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return set_union_in_place_impl; }
-static BuiltinImpl set_union_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return set_union_impl; }
-static BuiltinImpl set_intersect_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return set_intersect_impl; }
-static BuiltinImpl set_diff_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return set_diff_impl; }
-static BuiltinImpl set_sym_diff_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return set_sym_diff_impl; }
-static BuiltinImpl set_is_subset_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return set_is_subset_impl; }
-static BuiltinImpl set_is_disjoint_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return set_is_disjoint_impl; }
-static BuiltinImpl set_copy_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return set_copy_impl; }
-static BuiltinImpl set_for_each_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return set_for_each_impl; }
-static BuiltinImpl set_map_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return set_map_impl; }
-static BuiltinImpl set_filter_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return set_filter_impl; }
-static BuiltinImpl set_filter_map_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return set_filter_map_impl; }
-static BuiltinImpl set_first_map_factory(EastType **tp, size_t ntp) {
-    (void)tp; (void)ntp;
-    /* Return type is Option<V> — we don't have V here, leave _option_ctx as-is from prior factory */
+static BuiltinImpl set_try_insert_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return set_try_insert_impl;
+}
+static BuiltinImpl set_try_delete_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return set_try_delete_impl;
+}
+static BuiltinImpl set_clear_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return set_clear_impl;
+}
+static BuiltinImpl set_union_in_place_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return set_union_in_place_impl;
+}
+static BuiltinImpl set_union_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return set_union_impl;
+}
+static BuiltinImpl set_intersect_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return set_intersect_impl;
+}
+static BuiltinImpl set_diff_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return set_diff_impl;
+}
+static BuiltinImpl set_sym_diff_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return set_sym_diff_impl;
+}
+static BuiltinImpl set_is_subset_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return set_is_subset_impl;
+}
+static BuiltinImpl set_is_disjoint_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return set_is_disjoint_impl;
+}
+static BuiltinImpl set_copy_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return set_copy_impl;
+}
+static BuiltinImpl set_for_each_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return set_for_each_impl;
+}
+static BuiltinImpl set_map_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return set_map_impl;
+}
+static BuiltinImpl set_filter_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return set_filter_impl;
+}
+static BuiltinImpl set_filter_map_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return set_filter_map_impl;
+}
+static BuiltinImpl set_first_map_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    /* Return type is Option<V> — we don't have V here, leave _option_ctx as-is from prior factory
+     */
     return set_first_map_impl;
 }
-static BuiltinImpl set_map_reduce_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return set_map_reduce_impl; }
-static BuiltinImpl set_reduce_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return set_reduce_impl; }
-static BuiltinImpl set_to_array_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return set_to_array_impl; }
-static BuiltinImpl set_to_set_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return set_to_set_impl; }
-static BuiltinImpl set_to_dict_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return set_to_dict_impl; }
-static BuiltinImpl set_flatten_to_array_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return set_flatten_to_array_impl; }
-static BuiltinImpl set_flatten_to_set_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return set_flatten_to_set_impl; }
-static BuiltinImpl set_flatten_to_dict_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return set_flatten_to_dict_impl; }
-static BuiltinImpl set_group_fold_factory(EastType **tp, size_t ntp) { (void)tp; (void)ntp; return set_group_fold_impl; }
+static BuiltinImpl set_map_reduce_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return set_map_reduce_impl;
+}
+static BuiltinImpl set_reduce_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return set_reduce_impl;
+}
+static BuiltinImpl set_to_array_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return set_to_array_impl;
+}
+static BuiltinImpl set_to_set_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return set_to_set_impl;
+}
+static BuiltinImpl set_to_dict_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return set_to_dict_impl;
+}
+static BuiltinImpl set_flatten_to_array_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return set_flatten_to_array_impl;
+}
+static BuiltinImpl set_flatten_to_set_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return set_flatten_to_set_impl;
+}
+static BuiltinImpl set_flatten_to_dict_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return set_flatten_to_dict_impl;
+}
+static BuiltinImpl set_group_fold_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return set_group_fold_impl;
+}
 
 /* --- registration --- */
 
-void east_register_set_builtins(BuiltinRegistry *reg) {
+void east_register_set_builtins(BuiltinRegistry *reg)
+{
     builtin_registry_register(reg, "SetGenerate", set_generate_factory);
     builtin_registry_register(reg, "SetSize", set_size_factory);
     builtin_registry_register(reg, "SetHas", set_has_factory);

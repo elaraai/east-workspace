@@ -3,8 +3,8 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { East, example } from "@elaraai/east";
-import { Chart, Box, UIComponentType } from "../../src/index.js";
+import { East, IntegerType, NullType, example } from "@elaraai/east";
+import { Box, Button, Chart, Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const lineBasic = example({
     keywords: ["Chart", "Line", "basic", "single series"],
@@ -737,6 +737,38 @@ export const lineStringXAxis = example({
                 }
             ),
         ], { height: "220px", width: "100%" });
+    }),
+    inputs: [],
+});
+
+export const lineInteractive = example({
+    keywords: ["Chart", "Line", "Reactive", "State", "interactive", "counter"],
+    description: "Line chart whose Friday value is driven by a reactive counter",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const counter = $.let(State.bind([IntegerType], "line_counter", 0n));
+            const value = $.let(counter.read());
+            const inc = $.const(East.function([], NullType, $ => {
+                const cur = $.let(counter.read());
+                $(counter.write(cur.add(1n)));
+            }));
+            return Stack.VStack([
+                Box.Root([
+                    Chart.Line(
+                        [
+                            { day: "Mon", users: 120 },
+                            { day: "Tue", users: 200 },
+                            { day: "Wed", users: 150 },
+                            { day: "Thu", users: 180 },
+                            { day: "Fri", users: value.multiply(15).add(240) },
+                        ],
+                        { users: { color: "blue.solid" } },
+                        { xAxis: { dataKey: "day" }, grid: { show: true } },
+                    ),
+                ], { height: "200px", width: "100%" }),
+                Button.Root("Bump Friday", { onClick: inc }),
+            ], { gap: "3", align: "stretch" });
+        }));
     }),
     inputs: [],
 });

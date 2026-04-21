@@ -12,9 +12,9 @@
 import {
     type EastTypeValue,
     encodeBeast2For,
+    decodeBeast2For,
 } from "@elaraai/east";
 import { type PlatformFunction } from "@elaraai/east/internal";
-import { getWasmSync, decodeBeast2Value } from "./wasm.js";
 import { State } from "@elaraai/east-ui";
 import { UIStore, type UIStoreInterface } from "./state-store.js";
 import { registerReactiveTracker } from "../reactive/tracker.js";
@@ -94,7 +94,7 @@ export const StateImpl: PlatformFunction[] = [
                 if (ret === undefined) {
                     return defaultValue;
                 }
-                return decodeBeast2Value(getWasmSync(), ret, type);
+                return decodeBeast2For(type)(ret);
             },
             write: (value: unknown) => {
                 getStore().write(k, encode(value));

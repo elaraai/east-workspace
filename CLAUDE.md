@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Repo Is
 
-This is the **East monorepo** — a pnpm + turborepo workspace containing all open-source East language packages. It replaces the previous multi-repo setup.
+This is the **East monorepo** — a pnpm workspace containing all open-source East language packages. It replaces the previous multi-repo setup.
 
 ## Repo Layout
 
@@ -14,7 +14,7 @@ All libraries live under `libs/`:
 libs/
 ├── east/          # Core language — @elaraai/east
 ├── east-node/     # Node.js platform — east-node-std, east-node-io, east-node-cli
-├── east-c/        # C runtime + WASM — east-c-wasm (CMake)
+├── east-c/        # C runtime (CMake)
 ├── east-py/       # Python runtime + datascience types (uv workspace)
 ├── e3/            # Execution engine — e3-types, e3, e3-core, e3-api-client, e3-cli, e3-api-server
 ├── east-ui/       # UI components — east-ui, east-ui-components, e3-ui-components
@@ -23,8 +23,7 @@ libs/
 
 Root config files:
 - `pnpm-workspace.yaml` — defines all workspace packages
-- `turbo.json` — build/test/lint task orchestration
-- `package.json` — root scripts (pnpm build/test/lint via turbo)
+- `package.json` — root scripts (pnpm -r build/test/lint across workspaces)
 - `.npmrc` — pnpm config (auto-install-peers, public-hoist-pattern)
 - `docker-compose.yml` — test services (Postgres, MySQL, MongoDB, Redis, MinIO, FTP, SFTP, httpbin)
 - `Makefile` — top-level orchestration
@@ -34,13 +33,13 @@ Root config files:
 
 ## Commands
 
-All operations use `make` from the root, or `pnpm`/`turbo` directly.
+All operations use `make` from the root, or `pnpm` directly.
 
 ```bash
 # Setup
 make install            # pnpm install + uv sync (east-py) + cmake (east-c)
 
-# Build / Test / Lint (turbo handles dependency order)
+# Build / Test / Lint (pnpm runs workspace scripts in topological order)
 make build              # Build all TS packages
 make test               # Run all TS tests
 make lint               # Lint all packages
@@ -78,11 +77,11 @@ When publishing to npm, pnpm automatically replaces `workspace:*` with the actua
 
 ## Dependency Order
 
-Turbo handles this automatically via `"^build"`, but for reference:
+pnpm's `-r run <script>` runs workspace packages in topological order (deps before dependents) automatically, but for reference:
 
 1. **east** — core language, no `@elaraai` deps
 2. **east-node** — depends on east
-3. **east-c** — east-c-wasm depends on east
+3. **east-c** — no `@elaraai` deps
 4. **east-py** — east-py-datascience depends on east, east-node-std
 5. **e3** — depends on east, east-node-std
 6. **east-ui** — depends on east, east-node-std, e3-*

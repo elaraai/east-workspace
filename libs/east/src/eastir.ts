@@ -7,7 +7,7 @@ import type { AsyncFunctionIR, FunctionIR } from "./ir.js";
 import { compile_internal, ReturnException, EAST_IR_SYMBOL, EAST_SOURCE_MAP_SYMBOL } from "./compile.js";
 import type { PlatformFunction } from "./platform.js";
 import { analyzeIR } from "./analyze.js";
-import type { SourceMap } from "./location.js";
+import { with_source_map, type SourceMap } from "./location.js";
 
 /** A helper class wrapping East's "intermediate representation" (IR) for a free function.
  * The IR can be serialized and saved, or compiled so that the function can be executed.
@@ -36,7 +36,13 @@ export class EastIR<Inputs extends any[], Output extends any> {
     const platformFns = Object.fromEntries(platform.map(fn => [fn.name, fn.fn]));
     const asyncPlatformFns = new Set<string>();
 
-    const compiled_expr = compile_internal(analyzed_ir, {}, platformFns, asyncPlatformFns, platform);
+    // compile_internal reads the active SourceMap via get_current_source_map.
+    // Activate the map stored on this IR so loc_ids resolve against the map
+    // that was populated during East.function() body execution.
+    const compile_fn = () => compile_internal(analyzed_ir, {}, platformFns, asyncPlatformFns, platform);
+    const compiled_expr = this.source_map
+      ? with_source_map(this.source_map, compile_fn)
+      : compile_fn();
 
     // instantiate the function (with no environment)
     const instantiated_function = compiled_expr({});
@@ -104,7 +110,10 @@ export class AsyncEastIR<Inputs extends any[], Output extends any> {
       platform.filter(fn => fn.type === 'async').map(fn => fn.name)
     );
 
-    const compiled_expr = compile_internal(analyzed_ir, {}, platformFns, asyncPlatformFns, platform);
+    const compile_fn = () => compile_internal(analyzed_ir, {}, platformFns, asyncPlatformFns, platform);
+    const compiled_expr = this.source_map
+      ? with_source_map(this.source_map, compile_fn)
+      : compile_fn();
 
     // instantiate the function (with no environment)
     const instantiated_function = compiled_expr({});

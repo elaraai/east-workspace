@@ -1,9 +1,9 @@
 /**
  * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under AGPL-3.0. See LICENSE file for details.
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
-import { Badge, Box, Carousel, Reactive, Stack, State, Text, UIComponentType } from "../../src/index.js";
+import { Badge, Box, Carousel, Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const carouselBasic = example({
     keywords: ["Carousel", "Root", "showControls", "showIndicators", "basic"],

@@ -31,8 +31,7 @@
     "skipLibCheck": true,
 
     // Custom options
-    "noErrorTruncation": true,
-    "incremental": true
+    "noErrorTruncation": true
   },
   "include": ["src"],
   "exclude": ["node_modules", "dist", "dev", "**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx"]

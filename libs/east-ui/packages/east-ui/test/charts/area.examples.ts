@@ -3,8 +3,8 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { East, example } from "@elaraai/east";
-import { Chart, Box, UIComponentType } from "../../src/index.js";
+import { East, IntegerType, NullType, example } from "@elaraai/east";
+import { Box, Button, Chart, Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const areaBasic = example({
     keywords: ["Chart", "Area", "basic", "single series"],
@@ -780,6 +780,38 @@ export const areaAxisFormatting = example({
                 }
             ),
         ], { height: "220px", width: "100%" });
+    }),
+    inputs: [],
+});
+
+export const areaInteractive = example({
+    keywords: ["Chart", "Area", "Reactive", "State", "interactive", "counter"],
+    description: "Area chart whose last data point is driven by a reactive counter",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const counter = $.let(State.bind([IntegerType], "area_counter", 0n));
+            const value = $.let(counter.read());
+            const inc = $.const(East.function([], NullType, $ => {
+                const cur = $.let(counter.read());
+                $(counter.write(cur.add(1n)));
+            }));
+            return Stack.VStack([
+                Box.Root([
+                    Chart.Area(
+                        [
+                            { month: "Jan", revenue: 186 },
+                            { month: "Feb", revenue: 305 },
+                            { month: "Mar", revenue: 237 },
+                            { month: "Apr", revenue: 273 },
+                            { month: "May", revenue: value.multiply(20).add(209) },
+                        ],
+                        { revenue: { color: "teal.solid" } },
+                        { xAxis: { dataKey: "month" }, grid: { show: true } },
+                    ),
+                ], { height: "200px", width: "100%" }),
+                Button.Root("Bump May value", { onClick: inc }),
+            ], { gap: "3", align: "stretch" });
+        }));
     }),
     inputs: [],
 });

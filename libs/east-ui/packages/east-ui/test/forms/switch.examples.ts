@@ -1,9 +1,9 @@
 /**
  * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under AGPL-3.0. See LICENSE file for details.
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { East, BooleanType, NullType, variant, example } from "@elaraai/east";
-import { Badge, Reactive, Stack, State, Switch, UIComponentType } from "../../src/index.js";
+import { Badge, Reactive, Stack, State, Switch, UIComponentType } from "@elaraai/east-ui";
 
 export const switchBasic = example({
     keywords: ["Switch", "Root", "label", "toggle", "disabled"],

@@ -1,9 +1,9 @@
 /**
  * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under AGPL-3.0. See LICENSE file for details.
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, example } from "@elaraai/east";
-import { Box, Text, Style, UIComponentType } from "../../src/index.js";
+import { East, IntegerType, NullType, example } from "@elaraai/east";
+import { Box, Button, Reactive, Stack, State, Text, Style, UIComponentType } from "@elaraai/east-ui";
 
 export const boxBasic = example({
     keywords: ["Box", "Root", "basic", "container"],
@@ -187,6 +187,30 @@ export const boxJustify = example({
             flexDirection: Style.FlexDirection("column"),
             gap: "2",
         });
+    }),
+    inputs: [],
+});
+
+export const boxInteractive = example({
+    keywords: ["Box", "Reactive", "State", "interactive", "background", "toggle"],
+    description: "Box whose background colour alternates each click",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const counter = $.let(State.bind([IntegerType], "box_counter", 0n));
+            const value = $.let(counter.read());
+            const isEven = $.let(value.remainder(2n).equal(0n));
+            const bg = $.let(isEven.ifElse(() => East.value("blue.100"), () => East.value("green.100")));
+            const inc = $.const(East.function([], NullType, $ => {
+                const cur = $.let(counter.read());
+                $(counter.write(cur.add(1n)));
+            }));
+            return Stack.VStack([
+                Box.Root([
+                    Text.Root("Box background toggles between blue and green"),
+                ], { padding: "4", background: bg, borderRadius: "md" }),
+                Button.Root("Toggle background", { onClick: inc }),
+            ], { gap: "3", align: "stretch" });
+        }));
     }),
     inputs: [],
 });
