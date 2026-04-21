@@ -13,6 +13,7 @@
 #include "east/values.h"
 
 #include <ctype.h>
+#include <errno.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1475,11 +1476,13 @@ static EastValue *parse_val_err(TokStream2 *ts, EastType *type, ParseContext *ct
 
     case EAST_TYPE_INTEGER:
         if (tok->type == TOK_INTEGER) {
-            /* Check overflow via round-trip */
+            /* Check overflow by re-parsing with errno; this tolerates leading zeros
+             * (e.g. "01") which a round-trip check would reject. */
             if (tok->text) {
-                char check[32];
-                snprintf(check, sizeof(check), "%lld", (long long)tok->int_val);
-                if (strcmp(check, tok->text) != 0) {
+                errno = 0;
+                char *endptr = NULL;
+                (void)strtoll(tok->text, &endptr, 10);
+                if (errno == ERANGE) {
                     if (err) {
                         size_t len = 80 + strlen(tok->text);
                         char *msg = malloc(len);
