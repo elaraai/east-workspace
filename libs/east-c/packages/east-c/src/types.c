@@ -164,6 +164,7 @@ static void type_free_children(EastType *t)
         for (size_t i = 0; i < t->data.variant.num_cases; i++)
             free(t->data.variant.cases[i].name);
         free(t->data.variant.cases);
+        free(t->data.variant.tag_slots);
         break;
     case EAST_TYPE_FUNCTION:
     case EAST_TYPE_ASYNC_FUNCTION:
@@ -396,10 +397,53 @@ EastType *east_variant_type(const char **names, EastType **types, size_t count)
     }
     t->data.variant.cases = cases;
     t->data.variant.num_cases = count;
+
+    // Build tag→idx hash side-table. Open addressing, linear probe, load
+    // factor ≤ 0.5. Capacity is the next power of two ≥ 2*count (min 2).
+    // The slots alias cases[i].name (not owned) so no extra allocation per
+    // case-name. Cleaned up in the type destructor alongside `cases`.
+    if (count > 0) {
+        size_t cap = 2;
+        while (cap < count * 2) cap <<= 1;
+        struct EastVariantCaseSlot *slots =
+            calloc(cap, sizeof(struct EastVariantCaseSlot));
+        for (size_t i = 0; i < count; i++) {
+            uint32_t nh = hash_string(cases[i].name);
+            size_t probe = (size_t)nh & (cap - 1);
+            while (slots[probe].name != NULL) probe = (probe + 1) & (cap - 1);
+            slots[probe].name = cases[i].name;
+            slots[probe].name_hash = nh;
+            slots[probe].idx = i;
+        }
+        t->data.variant.tag_slots = slots;
+        t->data.variant.tag_slots_mask = cap - 1;
+    } else {
+        t->data.variant.tag_slots = NULL;
+        t->data.variant.tag_slots_mask = 0;
+    }
+
     intern_put(h, t);
     free(sorted_names);
     free(sorted_types);
     return t;
+}
+
+size_t east_variant_type_case_idx(const EastType *type, const char *tag)
+{
+    if (!type || type->kind != EAST_TYPE_VARIANT || !tag) return SIZE_MAX;
+    const struct EastVariantCaseSlot *slots = type->data.variant.tag_slots;
+    if (!slots) return SIZE_MAX;
+    size_t mask = type->data.variant.tag_slots_mask;
+    uint32_t nh = hash_string(tag);
+    size_t probe = (size_t)nh & mask;
+    // Linear probe over a slot table sized to load ≤ 0.5, so this terminates
+    // in O(1) expected and always in O(capacity) worst case.
+    for (size_t step = 0; step <= mask; step++) {
+        const struct EastVariantCaseSlot *s = &slots[(probe + step) & mask];
+        if (s->name == NULL) return SIZE_MAX;
+        if (s->name_hash == nh && strcmp(s->name, tag) == 0) return s->idx;
+    }
+    return SIZE_MAX;
 }
 
 EastType *east_ref_type(EastType *inner)
@@ -662,6 +706,7 @@ void east_type_release(EastType *t)
             east_type_release(t->data.variant.cases[i].type);
         }
         free(t->data.variant.cases);
+        free(t->data.variant.tag_slots);
         break;
 
     case EAST_TYPE_FUNCTION:

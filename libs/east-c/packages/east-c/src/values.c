@@ -652,19 +652,19 @@ EastValue *east_struct_get_field(EastValue *s, const char *name)
 
 EastValue *east_variant_new(const char *case_name, EastValue *value, EastType *type)
 {
-    /* Look up case index by name (unwrap Recursive if needed) */
+    /* Resolve case index via the VariantType's tag→idx hash. O(1) amortised.
+     * Unwrap Recursive if needed (tag hash lives on the inner variant). */
     size_t idx = SIZE_MAX;
     const char *tag = case_name; /* default: caller's string (not owned) */
     EastType *vt = type;
     while (vt && vt->kind == EAST_TYPE_RECURSIVE)
         vt = vt->data.recursive.node;
     if (case_name && vt && vt->kind == EAST_TYPE_VARIANT) {
-        for (size_t i = 0; i < vt->data.variant.num_cases; i++) {
-            if (strcmp(vt->data.variant.cases[i].name, case_name) == 0) {
-                idx = i;
-                tag = vt->data.variant.cases[i].name; /* point into type's storage */
-                break;
-            }
+        idx = east_variant_type_case_idx(vt, case_name);
+        if (idx != SIZE_MAX) {
+            /* Point tag into the type's storage so it outlives the caller's
+             * string buffer (matches prior behaviour). */
+            tag = vt->data.variant.cases[idx].name;
         }
     }
     EastValue *v = alloc_value(EAST_VAL_VARIANT);

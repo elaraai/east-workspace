@@ -34,6 +34,14 @@ typedef struct {
     EastType *type;
 } EastTypeField;
 
+// One slot of the VariantType tag_slots hash side-table. `name` aliases the
+// corresponding cases[i].name (NOT owned); NULL means the slot is empty.
+struct EastVariantCaseSlot {
+    const char *name;
+    uint32_t name_hash;
+    size_t idx;
+};
+
 struct EastType {
     EastTypeKind kind;
     int ref_count;
@@ -51,10 +59,19 @@ struct EastType {
             EastTypeField *fields;
             size_t num_fields;
         } struct_;
-        // Variant: named cases
+        // Variant: named cases. Cases are sorted alphabetically by name (see
+        // east_variant_type in types.c). `tag_slots` is an open-addressing
+        // hash table keyed by case name, mapping name → index into `cases[]`.
+        // Built once at intern time; callers look up via
+        // east_variant_type_case_idx() for O(1) tag→idx resolution.
         struct {
             EastTypeField *cases;
             size_t num_cases;
+            // Hash side-table for O(1) case-by-name lookup. Size is always a
+            // power of two; tag_slots_mask = size - 1 for `& mask` indexing.
+            // An empty slot has name == NULL. NULL when num_cases == 0.
+            struct EastVariantCaseSlot *tag_slots;
+            size_t tag_slots_mask;
         } variant;
         // Function, AsyncFunction: inputs and output
         struct {
@@ -88,6 +105,11 @@ EastType *east_set_type(EastType *elem);
 EastType *east_dict_type(EastType *key, EastType *val);
 EastType *east_struct_type(const char **names, EastType **types, size_t count);
 EastType *east_variant_type(const char **names, EastType **types, size_t count);
+
+// Look up the index of `tag` in a VariantType's sorted case list.
+// Returns SIZE_MAX if `type` is not a VariantType, `tag` is NULL, or `tag`
+// is not a case of `type`. O(1) amortised via the type's internal hash.
+size_t east_variant_type_case_idx(const EastType *type, const char *tag);
 EastType *east_ref_type(EastType *inner);
 EastType *east_vector_type(EastType *elem);
 EastType *east_matrix_type(EastType *elem);

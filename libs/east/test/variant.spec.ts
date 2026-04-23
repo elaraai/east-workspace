@@ -296,6 +296,79 @@ await describe("Variant", (test) => {
         $(assert.equal(v.unwrap("some", () => none).unwrap("some", () => 0n), 42n));
     });
 
+    test("Deep-As: $.let-bound narrow struct widens correctly when used in wider context (beast2 round-trip)", $ => {
+        // The gap not covered by TS-side deep-As: the struct literal is bound
+        // to a variable FIRST, then flowed into a wider-keyed dict. At the
+        // $.let binding both sides are narrow (inferred), so TS can't rewrite
+        // the inner Variant IR to wide. At the call site `coerce_to` sees a
+        // Variable IR — not a Struct literal — and falls back to a single
+        // outer As. The inner Variant value is therefore constructed under
+        // the narrow VariantType({some: String}) with case_idx=0 against the
+        // narrow sorted list [some]. If the beast2 encoder trusts that stored
+        // case_idx against the wider OptionType sorted list [none, some], it
+        // writes `.none` — silent tag swap. Fix: encoder looks up case_idx
+        // by tag against the target type at encode time.
+        const KeyType = StructType({ tag: OptionType(StringType) });
+        const DT = DictType(KeyType, IntegerType);
+        const d = $.let(new Map(), DT);
+        // Bind via $.let FIRST, then pass as a variable — production pattern.
+        const key_a = $.let({ tag: some("a") });
+        const key_b = $.let({ tag: some("b") });
+        const key_none = $.let({ tag: none });
+        $(d.insertOrUpdate(key_a, 1n));
+        $(d.insertOrUpdate(key_b, 1n));
+        $(d.insertOrUpdate(key_none, 1n));
+
+        // In-memory tags must be preserved even before serialisation.
+        const inmem_some = $.let(0n);
+        $.for(d, ($, _v, k) => $.matchTag(k.tag, "some", ($) =>
+            $.assign(inmem_some, inmem_some.add(1n))
+        ));
+        $(assert.equal(inmem_some, 2n));
+
+        // Beast2 round-trip must preserve the same tag counts. Before the
+        // tag-first encoder fix, this encoded 0 .some / 3 .none.
+        const blob = $.let(East.Blob.encodeBeast(d, 'v2'));
+        const restored = $.let(blob.decodeBeast(DT, 'v2'));
+        $(assert.equal(restored.size(), 3n));
+        const roundtrip_some = $.let(0n);
+        const roundtrip_none = $.let(0n);
+        $.for(restored, ($, _v, k) => $.match(k.tag, {
+            some: ($, _label) => $.assign(roundtrip_some, roundtrip_some.add(1n)),
+            none: ($) => $.assign(roundtrip_none, roundtrip_none.add(1n)),
+        }));
+        $(assert.equal(roundtrip_some, 2n));
+        $(assert.equal(roundtrip_none, 1n));
+    });
+
+    test("Deep-As: $.let-bound narrow variant field inside struct-key with volume (stress tag→idx hash)", $ => {
+        // Heavier stress for the tag-lookup path: hundreds of keys all with
+        // the same narrow-typed variant field, all `.some`. If encode misreads
+        // any one of them as `.none`, the roundtrip some-count will mismatch.
+        const KeyType = StructType({ day: IntegerType, tag: OptionType(StringType) });
+        const DT = DictType(KeyType, IntegerType);
+        const d = $.let(new Map(), DT);
+
+        // 200 keys, all `.some`.
+        $.for(East.Array.range(0n, 200n), ($, i) => {
+            const key = $.let({ day: i, tag: some("X") });  // narrow struct via $.let
+            $(d.insertOrUpdate(key, 1n));
+        });
+        $(assert.equal(d.size(), 200n));
+
+        // Round-trip and count tags.
+        const blob = $.let(East.Blob.encodeBeast(d, 'v2'));
+        const restored = $.let(blob.decodeBeast(DT, 'v2'));
+        const some_count = $.let(0n);
+        const none_count = $.let(0n);
+        $.for(restored, ($, _v, k) => $.match(k.tag, {
+            some: ($, _l) => $.assign(some_count, some_count.add(1n)),
+            none: ($) => $.assign(none_count, none_count.add(1n)),
+        }));
+        $(assert.equal(some_count, 200n));
+        $(assert.equal(none_count, 0n));
+    });
+
     test("Deep-As: set with narrow struct-variant key coerces correctly", $ => {
         const KeyType = StructType({ tag: OptionType(StringType) });
         const s = $.let(new Set([{ tag: some("a") }, { tag: none }]), SetType(KeyType));
