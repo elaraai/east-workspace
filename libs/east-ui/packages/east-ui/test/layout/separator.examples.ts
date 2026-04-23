@@ -140,11 +140,47 @@ export const separatorInteractive = example({
             }));
             return Stack.VStack([
                 Text.Root("Above"),
-                Separator.Root({ label: East.str`STEP ${East.print(value)}` }),
+                // Separator.label is `string | ExprType<UIComp>`; dynamic strings
+                // need an explicit Text.Root wrap so the coercion is unambiguous.
+                // Plain string labels still auto-coerce.
+                Separator.Root({ label: Text.Root(East.str`STEP ${East.print(value)}`) }),
                 Text.Root("Below"),
                 Button.Root("Next step", { onClick: inc }),
             ], { gap: "3", align: "stretch" });
         }));
+    }),
+    inputs: [],
+});
+
+// -----------------------------------------------------------------------------
+// Rich-UIComp label + align
+// -----------------------------------------------------------------------------
+
+export const separatorWithEyebrow = example({
+    keywords: ["Separator", "Root", "label", "align", "eyebrow", "chain-divider"],
+    description: "Horizontal separator with an uppercase muted caption label centred between hairlines",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Stack.VStack([
+            Text.Root("Phase 1 — Triage"),
+            Separator.Root({
+                label: "Cross-phase decisions",
+                align: "center",
+                variant: "solid",
+            }),
+            Text.Root("Phase 2 — Deliver"),
+        ], { gap: "3", align: "stretch" });
+    }),
+    inputs: [],
+});
+
+export const separatorAlignedStart = example({
+    keywords: ["Separator", "Root", "label", "align", "start"],
+    description: "Separator with the label biased toward the leading edge",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Separator.Root({
+            label: "Notes",
+            align: "start",
+        });
     }),
     inputs: [],
 });

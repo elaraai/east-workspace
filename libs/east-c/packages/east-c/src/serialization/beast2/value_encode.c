@@ -83,9 +83,9 @@ void beast2_encode_value(ByteBuffer *buf, EastValue *value, EastType *type, Beas
 
     case EAST_TYPE_VARIANT: {
         size_t ci = value->data.variant.case_idx;
-        /* Recover a valid case_idx if the value was built without a type (ci == SIZE_MAX).
-         * Writing SIZE_MAX as a varint would produce a UINT64_MAX-tagged stream that no
-         * decoder can parse. */
+        /* Recover a valid case_idx if the value was built without a type
+         * (ci == SIZE_MAX). Writing SIZE_MAX as a varint would produce a
+         * UINT64_MAX-tagged stream that no decoder can parse. */
         if (ci >= type->data.variant.num_cases) {
             const char *tag = value->data.variant.case_tag;
             size_t found = SIZE_MAX;
@@ -98,11 +98,13 @@ void beast2_encode_value(ByteBuffer *buf, EastValue *value, EastType *type, Beas
                 }
             }
             if (found == SIZE_MAX) {
-                fprintf(stderr,
-                        "beast2 encode: variant value has no resolvable case "
-                        "(case_idx=%zu, case_tag=%s) for type with %zu cases\n",
-                        ci, tag ? tag : "(null)", type->data.variant.num_cases);
-                abort();
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                         "beast2 encode: variant value has no resolvable case "
+                         "(case_idx=%zu, case_tag=%s) for type with %zu cases",
+                         ci, tag ? tag : "(null)", type->data.variant.num_cases);
+                east_builtin_error(msg);
+                return;
             }
             ci = found;
         }

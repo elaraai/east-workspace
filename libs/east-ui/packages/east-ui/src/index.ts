@@ -29,7 +29,10 @@ export { Style } from "./style.js";
 export { Text, Code, Heading, Link, Highlight, Mark, List, CodeBlock } from "./typography/index.js";
 
 // Layout
-export { Box, Flex, Stack, Separator, Grid, Splitter } from "./layout/index.js";
+export {
+    Box, Flex, Stack, Separator, Grid, Splitter,
+    Sticky, ScrollArea, ChipRail,
+} from "./layout/index.js";
 
 // Buttons
 export { Button, IconButton, CopyButton } from "./buttons/index.js";

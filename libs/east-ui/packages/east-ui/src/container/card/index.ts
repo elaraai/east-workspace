@@ -8,6 +8,7 @@ import {
     type SubtypeExprOrValue,
     East,
     OptionType,
+    StringType,
     StructType,
     ArrayType,
     variant,
@@ -130,7 +131,7 @@ function createCard(
             : options.overflow)
         : undefined;
 
-    const toStringOption = (val: SubtypeExprOrValue<typeof import("@elaraai/east").StringType> | undefined) => {
+    const toStringOption = (val: SubtypeExprOrValue<StringType> | undefined) => {
         if (val === undefined) return variant("none", null);
         return variant("some", val);
     };

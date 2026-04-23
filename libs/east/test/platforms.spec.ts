@@ -9,6 +9,7 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { join, basename } from "node:path";
 import { ArrayType, AsyncFunctionType, East, Expr, get_location, IntegerType, printLocations, IRType, NullType, StringType, StructType, toJSONFor, type SubtypeExprOrValue } from "../src/index.js";
 import { valueOrExprToAstTyped } from "../src/expr/ast.js";
+import { SourceMap, with_source_map } from "../src/location.js";
 import type { TypeSymbol } from "../src/expr/expr.js";
 import type { BlockBuilder } from "../src/expr/block.js";
 import type { ExampleDef } from "../src/example.js";
@@ -139,12 +140,23 @@ export function describeEast(
         tests.push({ name, body });
     });
 
-    // Create a single East function that uses describe/test platform functions
+    // Create a single East function that uses describe/test platform functions.
+    //
+    // Per-test SourceMap isolation: each test body's East.asyncFunction is
+    // built under a fresh SourceMap so its loc_ids start at 0. Without this,
+    // one shared suite-level SourceMap accumulates thousands of stack-frame
+    // entries across the whole suite's AST construction, and EVERY function
+    // value in that suite ends up carrying the full accumulated map. For
+    // beast2-encode snapshot tests this means a simple function's serialised
+    // blob balloons from ~200 bytes to ~400KB.
     const suiteFunction = East.asyncFunction([], NullType, $ => {
         $(describe.call($, suiteName, East.asyncFunction([], NullType, $ => {
             for (const { name, body } of tests) {
                 currentTestName = name;
-                $(test.call($, name, East.asyncFunction([], NullType, body)));
+                const testBody = with_source_map(new SourceMap(), () =>
+                    East.asyncFunction([], NullType, body)
+                );
+                $(test.call($, name, testBody));
             }
         })));
     });

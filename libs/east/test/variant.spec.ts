@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, Expr, IntegerType, NullType, OptionType, variant, VariantType } from "../src/index.js";
+import { ArrayType, DictType, East, Expr, IntegerType, NullType, OptionType, SetType, some, none, StringType, StructType, variant, VariantType } from "../src/index.js";
 import { describeEast as describe, assertEast as assert } from "./platforms.spec.js";
 import * as ex from "./variant.examples.js";
 
@@ -172,5 +172,143 @@ await describe("Variant", (test) => {
         // Test medium aliases (equal, notEqual)
         $(assert.equal(East.value(variant("some", 42n)).equal(variant("some", 42n)), true));
         $(assert.equal(East.value(variant("some", 42n)).notEqual(variant("some", 43n)), true));
+    });
+
+    // ─── Deep-As narrow → wide variant coercion ───────────────────────────
+    //
+    // These regress the failure mode where an unannotated `{some(x)}` literal
+    // flows into a wider container — e.g. a dict whose key type has an
+    // OptionType field, or an array with OptionType elements. Before deep-As,
+    // the inner Variant IR kept its narrow declared type, so at runtime
+    // east-c (and JS, via the same IR path) computed `case_idx` relative to
+    // the narrow sorted case list. When that value was later read against the
+    // wider container type, the tag flipped silently (`some`→`none`).
+
+    test("Deep-As: narrow variant coerces in dict struct key", $ => {
+        const KeyType = StructType({
+            tag: OptionType(StringType),
+        });
+        const d = $.let(new Map(), DictType(KeyType, IntegerType));
+        $(d.insertOrUpdate({ tag: some("a") }, 1n));
+        $(d.insertOrUpdate({ tag: some("b") }, 1n));
+        $(d.insertOrUpdate({ tag: none }, 1n));
+        $(assert.equal(d.size(), 3n));
+        // Count `some`-tagged entries via matchTag. Before deep-As the tag is
+        // silently read as `none` and this assertion fails.
+        const some_count = $.let(0n);
+        $.for(d, ($, _v, k) => $.matchTag(k.tag, "some", ($) =>
+            $.assign(some_count, some_count.add(1n))
+        ));
+        $(assert.equal(some_count, 2n));
+    });
+
+    test("Deep-As: narrow variant coerces in array element (unannotated literal)", $ => {
+        const a = $.let([some(1n), some(2n), none], ArrayType(OptionType(IntegerType)));
+        $(assert.equal(a.length(), 3n));
+        $(assert.equal(a.get(0n).unwrap("some", () => 0n), 1n));
+        $(assert.equal(a.get(1n).unwrap("some", () => 0n), 2n));
+        $(assert.equal(a.get(2n).unwrap("some", () => 99n), 99n));
+    });
+
+    test("Deep-As: narrow variant coerces in dict value", $ => {
+        const d = $.let(new Map(), DictType(StringType, OptionType(IntegerType)));
+        $(d.insert("x", some(1n)));
+        $(d.insert("y", none));
+        $(assert.equal(d.get("x").unwrap("some", () => 0n), 1n));
+        $(assert.equal(d.get("y").unwrap("some", () => 99n), 99n));
+    });
+
+    test("Deep-As: nested struct{tag: some(x)} inside an array", $ => {
+        const Row = StructType({ tag: OptionType(StringType) });
+        const a = $.let([{ tag: some("A") }, { tag: none }, { tag: some("B") }], ArrayType(Row));
+        $(assert.equal(a.length(), 3n));
+        $(assert.equal(a.get(0n).tag.unwrap("some", () => ""), "A"));
+        $(assert.equal(a.get(1n).tag.unwrap("some", () => "default"), "default"));
+        $(assert.equal(a.get(2n).tag.unwrap("some", () => ""), "B"));
+    });
+
+    test("Deep-As: struct with narrow variant field coerces through multiple insertions", $ => {
+        // Mirrors the aggregation-pattern: build a struct key with a
+        // narrow-typed variant field from a conditional, flow it into a
+        // wider-typed dict, repeat.
+        const KeyType = StructType({
+            day: IntegerType,
+            tag: OptionType(StringType),
+        });
+        const d = $.let(new Map(), DictType(KeyType, IntegerType));
+        // Loop over varying day + tag combinations; some with a tag, some none.
+        const labels = $.const(["a", "b", "c"]);
+        const day_count = $.const(4n);
+        $.for(East.Array.range(0n, day_count), ($, day) => {
+            $.for(labels, ($, label) => {
+                $(d.insertOrUpdate({ day: day, tag: some(label) }, 1n,
+                    ($, existing, incoming) => existing.add(incoming)));
+            });
+            // A `none`-keyed entry per day.
+            $(d.insertOrUpdate({ day: day, tag: none }, 10n,
+                ($, existing, incoming) => existing.add(incoming)));
+        });
+        // Total entries: days * (labels + 1 none) = 4 * (3 + 1) = 16
+        $(assert.equal(d.size(), 16n));
+
+        // Sum of `some` entries should be days*labels*1 = 12
+        // Sum of `none` entries should be days*10 = 40
+        const some_sum = $.let(0n);
+        const none_sum = $.let(0n);
+        $.for(d, ($, v, k) => $.match(k.tag, {
+            some: ($, _label) => $.assign(some_sum, some_sum.add(v)),
+            none: ($) => $.assign(none_sum, none_sum.add(v)),
+        }));
+        $(assert.equal(some_sum, 12n));
+        $(assert.equal(none_sum, 40n));
+    });
+
+    test("Deep-As: beast2 round-trip preserves narrow→wide coerced tags", $ => {
+        // Build a small dict whose key has a narrow→wide coerced Option field,
+        // serialize to beast2 (headerless), round-trip, verify tags.
+        const KeyType = StructType({ tag: OptionType(StringType) });
+        const DT = DictType(KeyType, IntegerType);
+        const d = $.let(new Map(), DT);
+        $(d.insertOrUpdate({ tag: some("a") }, 1n));
+        $(d.insertOrUpdate({ tag: none }, 2n));
+        $(d.insertOrUpdate({ tag: some("b") }, 3n));
+
+        // Round-trip via beast2 v2.
+        const blob = $.let(East.Blob.encodeBeast(d, 'v2'));
+        const restored = $.let(blob.decodeBeast(DT, 'v2'));
+        $(assert.equal(restored.size(), 3n));
+        // Tag counts must match post-decode.
+        const some_count = $.let(0n);
+        const none_count = $.let(0n);
+        $.for(restored, ($, _v, k) => $.match(k.tag, {
+            some: ($, _label) => $.assign(some_count, some_count.add(1n)),
+            none: ($) => $.assign(none_count, none_count.add(1n)),
+        }));
+        $(assert.equal(some_count, 2n));
+        $(assert.equal(none_count, 1n));
+    });
+
+    test("Deep-As: narrow Variant inside variant (recursive widening stops at leaf)", $ => {
+        // Construct a variant wrapping another variant, narrow in both
+        // positions — widened to Option<Option<T>> on $.let.
+        const v = $.let(some(some(42n)), OptionType(OptionType(IntegerType)));
+        // Outer is `some(some(42))`
+        $(assert.equal(v.unwrap("some", () => none).unwrap("some", () => 0n), 42n));
+    });
+
+    test("Deep-As: set with narrow struct-variant key coerces correctly", $ => {
+        const KeyType = StructType({ tag: OptionType(StringType) });
+        const s = $.let(new Set([{ tag: some("a") }, { tag: none }]), SetType(KeyType));
+        $(s.insert({ tag: some("b") }));
+        // Re-inserting an equal key must be a no-op (verified via tryInsert
+        // returning false), confirming narrow→wide coerced keys compare
+        // equal to the stored ones.
+        $(assert.equal(s.tryInsert({ tag: some("a") }), false));
+        $(assert.equal(s.size(), 3n));
+        const some_count = $.let(0n);
+        $.for(s, ($, k) => $.matchTag(k.tag, "some", ($) =>
+            $.assign(some_count, some_count.add(1n))
+        ));
+        $(assert.equal(some_count, 2n));
     });
 });

@@ -16,6 +16,7 @@
 #include "east/type_of_type.h"
 #include "east/env.h"
 #include "east/ir.h"
+#include "east/builtins.h"
 
 #include <stdio.h>
 #include <stdlib.h>

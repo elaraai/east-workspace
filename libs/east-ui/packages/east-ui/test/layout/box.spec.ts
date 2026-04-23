@@ -17,6 +17,10 @@ describeEast("Box", (test) => {
         boxNested: ex.boxNested,
         boxBorders: ex.boxBorders,
         boxJustify: ex.boxJustify,
+        boxSticky: ex.boxSticky,
+        boxElevated: ex.boxElevated,
+        boxAnimated: ex.boxAnimated,
+        boxTabularNumeric: ex.boxTabularNumeric,
     });
 
     // =========================================================================
@@ -334,5 +338,70 @@ describeEast("Box", (test) => {
         $(Assert.equal(outerBox.unwrap().unwrap("Box").children.size(), 1n));
         $(Assert.equal(outerBox.unwrap().unwrap("Box").style.unwrap("some").padding.unwrap("some").top.unwrap("some"), "4"));
         $(Assert.equal(outerBox.unwrap().unwrap("Box").style.unwrap("some").background.unwrap("some"), "gray.100"));
+    });
+
+    // =========================================================================
+    // Token-based style fields: position / z-index / shadow / transition / etc.
+    // =========================================================================
+
+    test("creates box with position sticky + offsets + zIndex", $ => {
+        const box = $.let(Box.Root([Text.Root("Header")], {
+            position: "sticky",
+            top: "0",
+            left: "0",
+            zIndex: "sticky",
+        }));
+
+        $(Assert.equal(box.unwrap().unwrap("Box").style.unwrap("some").position.unwrap("some").hasTag("sticky"), true));
+        $(Assert.equal(box.unwrap().unwrap("Box").style.unwrap("some").top.unwrap("some"), "0"));
+        $(Assert.equal(box.unwrap().unwrap("Box").style.unwrap("some").left.unwrap("some"), "0"));
+        $(Assert.equal(box.unwrap().unwrap("Box").style.unwrap("some").zIndex.unwrap("some").hasTag("sticky"), true));
+    });
+
+    test("creates box with box shadow", $ => {
+        const box = $.let(Box.Root([Text.Root("Card")], {
+            boxShadow: "md",
+            background: "white",
+        }));
+
+        $(Assert.equal(box.unwrap().unwrap("Box").style.unwrap("some").boxShadow.unwrap("some").hasTag("md"), true));
+    });
+
+    test("creates box with transform + transition", $ => {
+        const box = $.let(Box.Root([Text.Root("Lift")], {
+            transform: "translateY(-2px)",
+            transition: "transform",
+        }));
+
+        $(Assert.equal(box.unwrap().unwrap("Box").style.unwrap("some").transform.unwrap("some"), "translateY(-2px)"));
+        $(Assert.equal(box.unwrap().unwrap("Box").style.unwrap("some").transition.unwrap("some").hasTag("transform"), true));
+    });
+
+    test("creates box with cursor + opacity", $ => {
+        const box = $.let(Box.Root([Text.Root("?")], {
+            cursor: "help",
+            opacity: 0.8,
+        }));
+
+        $(Assert.equal(box.unwrap().unwrap("Box").style.unwrap("some").cursor.unwrap("some").hasTag("help"), true));
+        $(Assert.equal(box.unwrap().unwrap("Box").style.unwrap("some").opacity.unwrap("some"), 0.8));
+    });
+
+    test("creates box with fontFamily + fontVariantNumeric (tabular-nums for KPIs)", $ => {
+        const box = $.let(Box.Root([Text.Root("1,234,567")], {
+            fontFamily: "mono",
+            fontVariantNumeric: "tabular-nums",
+        }));
+
+        $(Assert.equal(box.unwrap().unwrap("Box").style.unwrap("some").fontFamily.unwrap("some").hasTag("mono"), true));
+        $(Assert.equal(box.unwrap().unwrap("Box").style.unwrap("some").fontVariantNumeric.unwrap("some").hasTag("tabular-nums"), true));
+    });
+
+    test("creates box with animation pulse", $ => {
+        const box = $.let(Box.Root([Text.Root("●")], {
+            animation: "pulse",
+        }));
+
+        $(Assert.equal(box.unwrap().unwrap("Box").style.unwrap("some").animation.unwrap("some").hasTag("pulse"), true));
     });
 }, {   platformFns: TestImpl,});

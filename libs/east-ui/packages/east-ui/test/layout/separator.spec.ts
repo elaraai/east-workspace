@@ -18,6 +18,8 @@ describeEast("Separator", (test) => {
         separatorLabeled: ex.separatorLabeled,
         separatorColored: ex.separatorColored,
         separatorFormDivider: ex.separatorFormDivider,
+        separatorWithEyebrow: ex.separatorWithEyebrow,
+        separatorAlignedStart: ex.separatorAlignedStart,
     });
 
     // =========================================================================
@@ -149,8 +151,10 @@ describeEast("Separator", (test) => {
             label: "OR",
         }));
 
+        // String labels coerce to Text.Root at the factory — the `label` field
+        // is a UIComponentType, so unwrap the Text inside.
         $(Assert.equal(separator.unwrap().unwrap("Separator").label.hasTag("some"), true));
-        $(Assert.equal(separator.unwrap().unwrap("Separator").label.unwrap("some"), "OR"));
+        $(Assert.equal(separator.unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "OR"));
     });
 
     test("creates separator with long label", $ => {
@@ -159,7 +163,7 @@ describeEast("Separator", (test) => {
         }));
 
         $(Assert.equal(separator.unwrap().unwrap("Separator").label.hasTag("some"), true));
-        $(Assert.equal(separator.unwrap().unwrap("Separator").label.unwrap("some"), "Continue with"));
+        $(Assert.equal(separator.unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "Continue with"));
     });
 
     // =========================================================================
@@ -179,7 +183,8 @@ describeEast("Separator", (test) => {
         $(Assert.equal(separator.unwrap().unwrap("Separator").variant.unwrap("some").hasTag("dashed"), true));
         $(Assert.equal(separator.unwrap().unwrap("Separator").size.unwrap("some").hasTag("md"), true));
         $(Assert.equal(separator.unwrap().unwrap("Separator").color.unwrap("some"), "gray.400"));
-        $(Assert.equal(separator.unwrap().unwrap("Separator").label.unwrap("some"), "Section Break"));
+        // String label coerces to Text.Root; unwrap the Text value.
+        $(Assert.equal(separator.unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "Section Break"));
     });
 
     // =========================================================================
@@ -200,7 +205,8 @@ describeEast("Separator", (test) => {
             color: "gray.400",
         }));
 
-        $(Assert.equal(orSeparator.unwrap().unwrap("Separator").label.unwrap("some"), "OR"));
+        // String label coerces to Text.Root; unwrap the Text value.
+        $(Assert.equal(orSeparator.unwrap().unwrap("Separator").label.unwrap("some").unwrap().unwrap("Text").value, "OR"));
         $(Assert.equal(orSeparator.unwrap().unwrap("Separator").color.unwrap("some"), "gray.400"));
     });
 
@@ -224,5 +230,29 @@ describeEast("Separator", (test) => {
         $(Assert.equal(sectionDivider.unwrap().unwrap("Separator").variant.unwrap("some").hasTag("dotted"), true));
         $(Assert.equal(sectionDivider.unwrap().unwrap("Separator").color.unwrap("some"), "blue.300"));
         $(Assert.equal(sectionDivider.unwrap().unwrap("Separator").size.unwrap("some").hasTag("sm"), true));
+    });
+
+    // =========================================================================
+    // Label alignment (start | center | end)
+    // =========================================================================
+
+    test("creates separator with align: start", $ => {
+        const sep = $.let(Separator.Root({ label: "Phase 1", align: "start" }));
+        $(Assert.equal(sep.unwrap().unwrap("Separator").align.unwrap("some").hasTag("start"), true));
+    });
+
+    test("creates separator with align: center", $ => {
+        const sep = $.let(Separator.Root({ label: "Cross-phase decisions", align: "center" }));
+        $(Assert.equal(sep.unwrap().unwrap("Separator").align.unwrap("some").hasTag("center"), true));
+    });
+
+    test("creates separator with align: end", $ => {
+        const sep = $.let(Separator.Root({ label: "Notes", align: "end" }));
+        $(Assert.equal(sep.unwrap().unwrap("Separator").align.unwrap("some").hasTag("end"), true));
+    });
+
+    test("align defaults to none when unset", $ => {
+        const sep = $.let(Separator.Root({ label: "OR" }));
+        $(Assert.equal(sep.unwrap().unwrap("Separator").align.hasTag("none"), true));
     });
 }, {   platformFns: TestImpl,});

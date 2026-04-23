@@ -171,3 +171,34 @@ export const gridInteractive = example({
     }),
     inputs: [],
 });
+
+// -----------------------------------------------------------------------------
+// Grid.Item.area (named grid areas)
+// -----------------------------------------------------------------------------
+
+export const gridNamedAreas = example({
+    keywords: ["Grid", "Item", "area", "templateAreas", "named-areas", "layout"],
+    description: "Grid with templateAreas + per-item area names — classic Head/Nav/Main layout",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Grid.Root([
+            Grid.Item(
+                Box.Root([Text.Root("Head")], { padding: "2", background: "blue.100", borderRadius: "sm" }),
+                { area: "head" },
+            ),
+            Grid.Item(
+                Box.Root([Text.Root("Nav")], { padding: "2", background: "green.100", borderRadius: "sm" }),
+                { area: "nav" },
+            ),
+            Grid.Item(
+                Box.Root([Text.Root("Main")], { padding: "2", background: "purple.100", borderRadius: "sm" }),
+                { area: "main" },
+            ),
+        ], {
+            templateAreas: '"head head" "nav main"',
+            templateColumns: "120px 1fr",
+            templateRows: "auto 1fr",
+            gap: "3",
+        });
+    }),
+    inputs: [],
+});

@@ -11,6 +11,8 @@
 #include <east/type_of_type.h>
 #include <east_std/east_std.h>
 
+#include "snapshot.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -347,10 +349,23 @@ static bool is_std_package(const char *name)
 /* ------------------------------------------------------------------ */
 
 static int cmd_run(const char *ir_path, const char **packages, int num_packages,
-                   const char **input_files, int num_inputs, const char *output_file, bool verbose)
+                   const char **input_files, int num_inputs, const char *output_file, bool verbose,
+                   const char *snapshot_out_path)
 {
     /* Init type system */
     east_type_of_type_init();
+
+    /* Write snapshot BEFORE execution so crashes still leave the bundle. */
+    if (snapshot_out_path) {
+        char cli_ver[128];
+        snprintf(cli_ver, sizeof(cli_ver), "east-c-cli %s", EAST_CLI_VERSION);
+        if (snapshot_write(snapshot_out_path, ir_path, input_files, (size_t)num_inputs,
+                           packages, (size_t)num_packages, cli_ver) != 0) {
+            fprintf(stderr, "Error: failed to write snapshot to %s\n", snapshot_out_path);
+            return 1;
+        }
+        if (verbose) fprintf(stderr, "Snapshot: %s\n", snapshot_out_path);
+    }
 
     /* Create registries */
     BuiltinRegistry *builtins = builtin_registry_new();
@@ -649,6 +664,91 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
     return exit_code;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Convert: decode a value file and re-encode in another format       */
+/* ------------------------------------------------------------------ */
+
+static int cmd_convert(const char *in_path, const char *out_path, const char *type_text,
+                       bool verbose)
+{
+    east_type_of_type_init();
+
+    FileFormat in_fmt = detect_format(in_path);
+    if (in_fmt == FMT_UNKNOWN) {
+        fprintf(stderr,
+                "Error: Unknown input file extension: %s\n"
+                "Supported: .beast2, .beast, .east, .json\n",
+                in_path);
+        return 1;
+    }
+
+    /* Determine the value type: either from user's --type (east-text form),
+     * or extracted from beast2-full's embedded type table. Other formats
+     * (.beast v1, .east, .json) don't self-describe, so --type is required. */
+    EastType *type = NULL;
+    EastValue *value = NULL;
+
+    if (type_text) {
+        type = east_parse_type(type_text);
+        if (!type) {
+            fprintf(stderr, "Error: Failed to parse --type: %s\n", type_text);
+            return 1;
+        }
+        value = load_value(in_path, type);
+    } else if (in_fmt == FMT_BEAST2) {
+        size_t len = 0;
+        uint8_t *data = read_file_binary(in_path, &len);
+        if (!data) return 1;
+        /* Auto-decode: reads type from embedded header. */
+        value = east_beast2_decode_auto(data, len);
+        if (!value) {
+            fprintf(stderr, "Error: Failed to auto-decode beast2: %s\n", in_path);
+            free(data);
+            return 1;
+        }
+        type = east_beast2_extract_type(data, len);
+        free(data);
+    } else {
+        fprintf(stderr,
+                "Error: --type is required for .%s input (only .beast2 self-describes)\n",
+                format_name(in_fmt));
+        return 1;
+    }
+
+    if (!value || !type) {
+        fprintf(stderr, "Error: Failed to load value\n");
+        if (type) east_type_release(type);
+        if (value) east_value_release(value);
+        return 1;
+    }
+
+    int rc;
+    if (out_path) {
+        rc = save_value(out_path, value, type);
+        if (verbose && rc == 0) {
+            char sz[32];
+            format_file_size(out_path, sz, sizeof(sz));
+            fprintf(stderr, "Wrote %s  (%s)\n", out_path, sz);
+        }
+    } else {
+        /* Default: print east-text to stdout. */
+        char *text = east_print_value(value, type);
+        if (!text) {
+            fprintf(stderr, "Error: east-text print failed\n");
+            rc = 1;
+        } else {
+            fputs(text, stdout);
+            fputc('\n', stdout);
+            free(text);
+            rc = 0;
+        }
+    }
+
+    east_value_release(value);
+    east_type_release(type);
+    return rc;
+}
+
 static int cmd_version(const char **packages, int num_packages)
 {
     printf("east-c-cli %s\n", EAST_CLI_VERSION);
@@ -683,11 +783,17 @@ static void print_usage(const char *prog)
 {
     fprintf(stderr,
             "Usage:\n"
-            "  %s run <ir_file> [-p PACKAGE...] [-i FILE...] [-o FILE] [-v]\n"
+            "  %s run <ir_file> [-p PACKAGE...] [-i FILE...] [-o FILE] [-v] [--snapshot PATH]\n"
+            "  %s run --from-snapshot PATH [-o FILE] [-v]\n"
+            "  %s convert <in_file> [-o FILE] [--type TYPE] [-v]\n"
             "  %s version [-p PACKAGE...]\n"
             "\n"
             "Commands:\n"
             "  run      Run an East IR program\n"
+            "  convert  Decode a value file and re-encode in another format.\n"
+            "           Output format is determined by -o's extension; omit -o to\n"
+            "           print east-text to stdout. Auto-extracts the type from\n"
+            "           .beast2 input; --type (east-text) required for other formats.\n"
             "  version  Show version information\n"
             "\n"
             "Options:\n"
@@ -695,9 +801,12 @@ static void print_usage(const char *prog)
             "  -i, --input FILE        Input data file (repeatable, order matches params)\n"
             "  -o, --output FILE       Output file for result\n"
             "  -v, --verbose           Enable verbose output\n"
+            "      --snapshot PATH     Write a .east-snapshot bundle (IR + inputs + manifest)\n"
+            "      --from-snapshot PATH  Replay from a .east-snapshot bundle (exclusive\n"
+            "                            with <ir_file>, -i, -p)\n"
             "\n"
             "Supported formats: .json, .beast2, .beast, .east\n",
-            prog, prog);
+            prog, prog, prog, prog);
 }
 
 /* ------------------------------------------------------------------ */
@@ -721,46 +830,64 @@ int main(int argc, char **argv)
     const char *output_file = NULL;
     bool verbose = false;
     const char *ir_path = NULL;
+    const char *snapshot_out_path = NULL;
+    const char *from_snapshot_path = NULL;
 
     if (strcmp(command, "run") == 0) {
-        /* Parse run arguments */
+        /* Single-pass parse — --from-snapshot makes <ir_file> optional, so we
+         * can't treat the first non-flag arg as positional until we know. */
         int i = 2;
-
-        /* First non-flag argument is the IR file */
         while (i < argc) {
-            if (argv[i][0] != '-') {
-                ir_path = argv[i];
-                i++;
-                break;
-            }
-            /* Handle flags before ir_file */
-            if ((strcmp(argv[i], "-p") == 0 || strcmp(argv[i], "--package") == 0) && i + 1 < argc) {
+            const char *a = argv[i];
+            if ((strcmp(a, "-p") == 0 || strcmp(a, "--package") == 0) && i + 1 < argc) {
                 if (num_packages >= MAX_PACKAGES) {
                     fprintf(stderr, "Error: Too many packages (max %d)\n", MAX_PACKAGES);
                     return 1;
                 }
                 packages[num_packages++] = argv[i + 1];
                 i += 2;
-            } else if ((strcmp(argv[i], "-i") == 0 || strcmp(argv[i], "--input") == 0) &&
-                       i + 1 < argc) {
+            } else if ((strcmp(a, "-i") == 0 || strcmp(a, "--input") == 0) && i + 1 < argc) {
                 if (num_inputs >= MAX_INPUTS) {
                     fprintf(stderr, "Error: Too many inputs (max %d)\n", MAX_INPUTS);
                     return 1;
                 }
                 input_files[num_inputs++] = argv[i + 1];
                 i += 2;
-            } else if ((strcmp(argv[i], "-o") == 0 || strcmp(argv[i], "--output") == 0) &&
-                       i + 1 < argc) {
+            } else if ((strcmp(a, "-o") == 0 || strcmp(a, "--output") == 0) && i + 1 < argc) {
                 output_file = argv[i + 1];
                 i += 2;
-            } else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) {
+            } else if (strcmp(a, "-v") == 0 || strcmp(a, "--verbose") == 0) {
                 verbose = true;
                 i++;
+            } else if (strcmp(a, "--snapshot") == 0 && i + 1 < argc) {
+                snapshot_out_path = argv[i + 1];
+                i += 2;
+            } else if (strcmp(a, "--from-snapshot") == 0 && i + 1 < argc) {
+                from_snapshot_path = argv[i + 1];
+                i += 2;
+            } else if (a[0] != '-' && !ir_path) {
+                ir_path = a;
+                i++;
             } else {
-                fprintf(stderr, "Error: Unknown option: %s\n", argv[i]);
+                fprintf(stderr, "Error: Unknown option: %s\n", a);
                 print_usage(argv[0]);
                 return 1;
             }
+        }
+
+        if (from_snapshot_path) {
+            if (ir_path || num_inputs > 0 || num_packages > 0) {
+                fprintf(stderr,
+                        "Error: --from-snapshot cannot be combined with <ir_file>, -i, or -p\n");
+                return 1;
+            }
+            SnapshotExtract ex;
+            if (snapshot_read(from_snapshot_path, &ex) != 0) return 1;
+            int rc = cmd_run(ex.ir_path, (const char **)ex.packages, (int)ex.num_packages,
+                             (const char **)ex.input_paths, (int)ex.num_inputs, output_file,
+                             verbose, NULL);
+            snapshot_extract_free(&ex);
+            return rc;
         }
 
         if (!ir_path) {
@@ -769,29 +896,25 @@ int main(int argc, char **argv)
             return 1;
         }
 
-        /* Parse remaining flags after ir_file */
+        return cmd_run(ir_path, packages, num_packages, input_files, num_inputs, output_file,
+                       verbose, snapshot_out_path);
+
+    } else if (strcmp(command, "convert") == 0) {
+        const char *in_path = NULL;
+        const char *type_text = NULL;
+        int i = 2;
         while (i < argc) {
-            if ((strcmp(argv[i], "-p") == 0 || strcmp(argv[i], "--package") == 0) && i + 1 < argc) {
-                if (num_packages >= MAX_PACKAGES) {
-                    fprintf(stderr, "Error: Too many packages (max %d)\n", MAX_PACKAGES);
-                    return 1;
-                }
-                packages[num_packages++] = argv[i + 1];
-                i += 2;
-            } else if ((strcmp(argv[i], "-i") == 0 || strcmp(argv[i], "--input") == 0) &&
-                       i + 1 < argc) {
-                if (num_inputs >= MAX_INPUTS) {
-                    fprintf(stderr, "Error: Too many inputs (max %d)\n", MAX_INPUTS);
-                    return 1;
-                }
-                input_files[num_inputs++] = argv[i + 1];
-                i += 2;
-            } else if ((strcmp(argv[i], "-o") == 0 || strcmp(argv[i], "--output") == 0) &&
-                       i + 1 < argc) {
+            if ((strcmp(argv[i], "-o") == 0 || strcmp(argv[i], "--output") == 0) && i + 1 < argc) {
                 output_file = argv[i + 1];
+                i += 2;
+            } else if (strcmp(argv[i], "--type") == 0 && i + 1 < argc) {
+                type_text = argv[i + 1];
                 i += 2;
             } else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) {
                 verbose = true;
+                i++;
+            } else if (argv[i][0] != '-' && !in_path) {
+                in_path = argv[i];
                 i++;
             } else {
                 fprintf(stderr, "Error: Unknown option: %s\n", argv[i]);
@@ -799,9 +922,12 @@ int main(int argc, char **argv)
                 return 1;
             }
         }
-
-        return cmd_run(ir_path, packages, num_packages, input_files, num_inputs, output_file,
-                       verbose);
+        if (!in_path) {
+            fprintf(stderr, "Error: convert requires <in_file>\n");
+            print_usage(argv[0]);
+            return 1;
+        }
+        return cmd_convert(in_path, output_file, type_text, verbose);
 
     } else if (strcmp(command, "version") == 0) {
         /* Parse version arguments */

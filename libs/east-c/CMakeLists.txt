@@ -41,6 +41,35 @@ if(TARGET pcre2-posix-static)
     target_compile_options(pcre2-posix-static PRIVATE -w)
 endif()
 
+# Fetch microtar for snapshot bundles in the CLI (ustar, no compression).
+# microtar ships with a Makefile but no CMake project, so we fetch the source
+# and build it ourselves rather than letting FetchContent invoke its build.
+FetchContent_Declare(
+    microtar
+    GIT_REPOSITORY https://github.com/rxi/microtar.git
+    GIT_TAG 27076e1b9290e9c7842bb7890a54fcf172406c84
+)
+FetchContent_GetProperties(microtar)
+if(NOT microtar_POPULATED)
+    FetchContent_Populate(microtar)
+endif()
+# Patch microtar to emit the POSIX ustar magic, so its archives interoperate
+# with stricter ustar-only readers (e.g. tar-stream). Idempotent.
+execute_process(
+    COMMAND ${CMAKE_COMMAND}
+        -DMICROTAR_SRC=${microtar_SOURCE_DIR}
+        -P ${CMAKE_CURRENT_LIST_DIR}/packages/east-c-cli/cmake/patch_microtar.cmake
+    RESULT_VARIABLE _patch_rc
+)
+if(NOT _patch_rc EQUAL 0)
+    message(FATAL_ERROR "Failed to patch microtar (rc=${_patch_rc})")
+endif()
+add_library(microtar STATIC ${microtar_SOURCE_DIR}/src/microtar.c)
+target_include_directories(microtar PUBLIC ${microtar_SOURCE_DIR}/src)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(microtar PRIVATE -w)
+endif()
+
 # Optional: mimalloc for faster small allocations
 option(EAST_USE_MIMALLOC "Use mimalloc allocator" OFF)
 if(EAST_USE_MIMALLOC)

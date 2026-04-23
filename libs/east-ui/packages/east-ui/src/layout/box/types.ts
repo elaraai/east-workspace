@@ -5,6 +5,7 @@
 
 import {
     type SubtypeExprOrValue,
+    FloatType,
     OptionType,
     StringType,
     StructType,
@@ -16,6 +17,14 @@ import {
     JustifyContentType,
     AlignItemsType,
     OverflowType,
+    PositionType,
+    CursorType,
+    BoxShadowType,
+    TransitionType,
+    AnimationPresetType,
+    ZIndexTokenType,
+    FontFamilyType,
+    FontVariantNumericType,
 } from "../../style.js";
 import type {
     DisplayLiteral,
@@ -23,6 +32,14 @@ import type {
     JustifyContentLiteral,
     AlignItemsLiteral,
     OverflowLiteral,
+    PositionLiteral,
+    CursorLiteral,
+    BoxShadowLiteral,
+    TransitionLiteral,
+    AnimationPresetLiteral,
+    ZIndexTokenLiteral,
+    FontFamilyLiteral,
+    FontVariantNumericLiteral,
 } from "../../style.js";
 import { PaddingType, MarginType } from "../style.js";
 
@@ -56,6 +73,20 @@ import { PaddingType, MarginType } from "../style.js";
  * @property justifyContent - Justify content for flex/grid containers
  * @property alignItems - Align items for flex/grid containers
  * @property gap - Gap between children (Chakra UI spacing token or CSS value)
+ * @property position - CSS `position` (from PositionType: static | relative | absolute | fixed | sticky)
+ * @property top - Offset from top (CSS length)
+ * @property right - Offset from right (CSS length)
+ * @property bottom - Offset from bottom (CSS length)
+ * @property left - Offset from left (CSS length)
+ * @property zIndex - Named stacking layer (ZIndexTokenType — prefer ElevationType when intent is an overlay / modal / popover)
+ * @property boxShadow - Named shadow token (prefer ElevationType for card / overlay / modal surfaces)
+ * @property transform - Raw CSS transform value (e.g. `translateY(-2px)`)
+ * @property transition - Named transition preset (TransitionType)
+ * @property cursor - Named cursor token (CursorType) — pair `help` / `not-allowed` with appropriate ARIA
+ * @property opacity - Opacity in `[0, 1]`
+ * @property fontFamily - Named font family (FontFamilyType) — inherits to children
+ * @property fontVariantNumeric - Named numeric variant (FontVariantNumericType); `tabular-nums` aligns digit columns
+ * @property animation - Named animation preset (AnimationPresetType); renderer degrades to `none` under `prefers-reduced-motion`
  */
 export type BoxStyle = {
     /** CSS display property */
@@ -102,6 +133,52 @@ export type BoxStyle = {
     alignItems?: SubtypeExprOrValue<AlignItemsType> | AlignItemsLiteral;
     /** Gap between children (Chakra UI spacing token or CSS value) */
     gap?: SubtypeExprOrValue<StringType>;
+    /** CSS `position` (from PositionType: static | relative | absolute | fixed | sticky) */
+    position?: SubtypeExprOrValue<PositionType> | PositionLiteral;
+    /** Offset from top (CSS length) */
+    top?: SubtypeExprOrValue<StringType>;
+    /** Offset from right (CSS length) */
+    right?: SubtypeExprOrValue<StringType>;
+    /** Offset from bottom (CSS length) */
+    bottom?: SubtypeExprOrValue<StringType>;
+    /** Offset from left (CSS length) */
+    left?: SubtypeExprOrValue<StringType>;
+    /**
+     * Named stacking layer.
+     *
+     * Prefer `ElevationType` (Card.elevation) when the intent is an overlay /
+     * modal / popover rather than "this is at z-index 1400".
+     */
+    zIndex?: SubtypeExprOrValue<ZIndexTokenType> | ZIndexTokenLiteral;
+    /**
+     * Named shadow token.
+     *
+     * Prefer `ElevationType` for card / overlay / modal surfaces; use
+     * `BoxShadowType` directly only when pixel-level control is needed.
+     */
+    boxShadow?: SubtypeExprOrValue<BoxShadowType> | BoxShadowLiteral;
+    /** Raw CSS `transform` value (e.g. `"translateY(-2px)"`). */
+    transform?: SubtypeExprOrValue<StringType>;
+    /** Named CSS transition preset (paired with theme-owned duration + easing). */
+    transition?: SubtypeExprOrValue<TransitionType> | TransitionLiteral;
+    /** Named cursor. Pair `help` / `not-allowed` with appropriate ARIA per §0.2. */
+    cursor?: SubtypeExprOrValue<CursorType> | CursorLiteral;
+    /** Opacity in `[0, 1]`. */
+    opacity?: SubtypeExprOrValue<FloatType>;
+    /** Named font family. Inherits to children. */
+    fontFamily?: SubtypeExprOrValue<FontFamilyType> | FontFamilyLiteral;
+    /**
+     * Named numeric-glyph variant. `tabular-nums` aligns digit columns across
+     * rows — essential for KPI tiles and financial tables.
+     */
+    fontVariantNumeric?: SubtypeExprOrValue<FontVariantNumericType> | FontVariantNumericLiteral;
+    /**
+     * Named animation preset (pulse / spin / bounce / fade-in / shimmer).
+     *
+     * The renderer consults `prefers-reduced-motion` and degrades to `none`
+     * when the user has requested reduced motion (§0.2 contract).
+     */
+    animation?: SubtypeExprOrValue<AnimationPresetType> | AnimationPresetLiteral;
 };
 
 /**
@@ -129,6 +206,20 @@ export type BoxStyle = {
  * @property justifyContent - Justify content for flex/grid containers
  * @property alignItems - Align items for flex/grid containers
  * @property gap - Gap between children (Chakra UI spacing token or CSS value)
+ * @property position - CSS `position` token
+ * @property top - Offset from top (CSS length)
+ * @property right - Offset from right (CSS length)
+ * @property bottom - Offset from bottom (CSS length)
+ * @property left - Offset from left (CSS length)
+ * @property zIndex - Named stacking layer token
+ * @property boxShadow - Named shadow token
+ * @property transform - Raw CSS transform value
+ * @property transition - Named transition preset
+ * @property cursor - Named cursor token
+ * @property opacity - Opacity in `[0, 1]`
+ * @property fontFamily - Named font family token (inherits to children)
+ * @property fontVariantNumeric - Named numeric-glyph variant token
+ * @property animation - Named animation preset (renderer degrades under `prefers-reduced-motion`)
  */
 export const BoxStyleType = StructType({
     display: OptionType(DisplayType),
@@ -153,6 +244,20 @@ export const BoxStyleType = StructType({
     justifyContent: OptionType(JustifyContentType),
     alignItems: OptionType(AlignItemsType),
     gap: OptionType(StringType),
+    position: OptionType(PositionType),
+    top: OptionType(StringType),
+    right: OptionType(StringType),
+    bottom: OptionType(StringType),
+    left: OptionType(StringType),
+    zIndex: OptionType(ZIndexTokenType),
+    boxShadow: OptionType(BoxShadowType),
+    transform: OptionType(StringType),
+    transition: OptionType(TransitionType),
+    cursor: OptionType(CursorType),
+    opacity: OptionType(FloatType),
+    fontFamily: OptionType(FontFamilyType),
+    fontVariantNumeric: OptionType(FontVariantNumericType),
+    animation: OptionType(AnimationPresetType),
 });
 
 /**

@@ -36,6 +36,25 @@ ByteBuffer *east_beast2_encode_full(EastValue *value, EastType *type)
     ByteBuffer *value_buf = byte_buffer_new(256);
     beast2_encode_value(value_buf, value, type, &ctx);
 
+    /* If encode raised an east error (e.g. malformed variant), bail out early
+     * so the caller sees NULL and can read the message via east_builtin_get_error.
+     * get_error() consumes the message, so re-post it after cleanup so the
+     * Python/CLI caller can still read it. */
+    {
+        char *saved_err = east_builtin_get_error();
+        if (saved_err) {
+            beast2_enc_ctx_free(&ctx);
+            byte_buffer_free(value_buf);
+            flat_tt_free(&flat_tt);
+            beast2_vt_free(&vtable);
+            string_table_enc_free(&string_table);
+            byte_buffer_free(vt_buf);
+            east_builtin_error(saved_err); /* strdups internally */
+            free(saved_err);
+            return NULL;
+        }
+    }
+
     /* 4. Write source map section (discovered from function values, or empty) */
     EastSourceMap empty_sm = {0};
     EastSourceMap *sm = ctx.source_map ? ctx.source_map : &empty_sm;

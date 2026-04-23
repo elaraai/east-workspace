@@ -1,6 +1,9 @@
 /**
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ *
+ * Enforcement:
+ *   - Rich label + align (§1.2): this renderer
  */
 
 import { memo, useMemo } from "react";
@@ -8,6 +11,7 @@ import { Separator as ChakraSeparator, type SeparatorProps } from "@chakra-ui/re
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Separator } from "@elaraai/east-ui";
 import { getSomeorUndefined } from "../../utils";
+import { EastChakraComponent } from "../../component";
 
 // Pre-define the equality function at module level
 const separatorEqual = equalFor(Separator.Types.Separator);
@@ -15,13 +19,11 @@ const separatorEqual = equalFor(Separator.Types.Separator);
 /** East Separator value type */
 export type SeparatorValue = ValueTypeOf<typeof Separator.Types.Separator>;
 
-
 /**
- * Converts an East UI Separator value to Chakra UI Separator props.
- * Pure function - easy to test independently.
- *
- * @param value - The East Separator value
- * @returns Chakra Separator props
+ * Converts the non-child portion of a Separator value to Chakra Separator
+ * props. `label` (rich UIComp) and `align` are handled in the component
+ * body — the label is rendered via `EastChakraComponent` dispatch so any
+ * UIComponent shape works.
  */
 export function toChakraSeparator(value: SeparatorValue): SeparatorProps {
     return {
@@ -34,18 +36,33 @@ export function toChakraSeparator(value: SeparatorValue): SeparatorProps {
 
 export interface EastChakraSeparatorProps {
     value: SeparatorValue;
+    storageKey: string;
 }
 
 /**
  * Renders an East UI Separator value using Chakra UI Separator component.
+ *
+ * `label` is a `UIComponentType` expression rendered inline via
+ * `EastChakraComponent` dispatch. `align` biases the label position when set.
  */
-export const EastChakraSeparator = memo(function EastChakraSeparator({ value }: EastChakraSeparatorProps) {
+export const EastChakraSeparator = memo(function EastChakraSeparator({ value, storageKey }: EastChakraSeparatorProps) {
     const props = useMemo(() => toChakraSeparator(value), [value]);
     const label = getSomeorUndefined(value.label);
+    const alignTag = getSomeorUndefined(value.align)?.type;
+
+    // `align` maps to flex-alignment on the separator label slot.
+    // `start` biases leading-edge, `end` trailing, `center` centres.
+    const justifyContent = alignTag === "start"
+        ? "flex-start"
+        : alignTag === "end"
+            ? "flex-end"
+            : alignTag === "center"
+                ? "center"
+                : undefined;
 
     return (
-        <ChakraSeparator {...props}>
-            {label}
+        <ChakraSeparator {...props} css={justifyContent ? { justifyContent } : undefined}>
+            {label ? <EastChakraComponent value={label} storageKey={`${storageKey}.label`} /> : null}
         </ChakraSeparator>
     );
-}, (prev, next) => separatorEqual(prev.value, next.value));
+}, (prev, next) => separatorEqual(prev.value, next.value) && prev.storageKey === next.storageKey);

@@ -24,10 +24,13 @@ from east cimport _eastc
 cdef extern from *:
     """
     #include <pthread.h>
+    #include <stdio.h>
     #include <stdlib.h>
     #include <string.h>
     #include "east/compiler.h"
     #include "east/values.h"
+    #include "east/types.h"
+    #include "east/builtins.h"
 
     /* ── Min-heap ──────────────────────────────────────────────────── */
 

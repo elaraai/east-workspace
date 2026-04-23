@@ -122,12 +122,21 @@ static void env_visit_cb(const char *key, void *value, void *ctx)
     if (value) ectx->visit((EastValue *)value, ectx->ctx);
 }
 
-/* gc_traverse visits v's children unconditionally and calls the callback
- * on each child. It does NOT deduplicate or skip children based on
- * gc_generation — the generation stamp is only used to avoid re-traversing
- * shared environment chains (parent envs reachable from multiple function
- * values). The callback decides what to do with each child. */
-static void gc_traverse(EastValue *v, gc_visit_fn visit, void *ctx)
+/* gc_traverse visits v's children and calls the callback on each.
+ *
+ * `include_closures` controls whether EAST_VAL_FUNCTION walks its captured
+ * environment chain. The env chain represents *reachability* (through the
+ * closure) but NOT ref-counted ownership — a function holds a raw
+ * `Environment*`, not per-value refs to each env local. So:
+ *
+ *   - Phase 2 (subtract): MUST NOT include closures, or `gc_refs` of
+ *     env-owned values would be double-counted once per traversing function
+ *     and wrongly reach zero.
+ *   - Phase 3 (rescue): MUST include closures, or live values reachable only
+ *     through a surviving function's closure would not be rescued.
+ *
+ * The generation stamp is used to avoid re-traversing shared env chains. */
+static void gc_traverse(EastValue *v, gc_visit_fn visit, void *ctx, bool include_closures)
 {
     switch (v->kind) {
     case EAST_VAL_ARRAY:
@@ -164,7 +173,8 @@ static void gc_traverse(EastValue *v, gc_visit_fn visit, void *ctx)
         break;
 
     case EAST_VAL_FUNCTION:
-        if (v->data.function.compiled && v->data.function.compiled->captures) {
+        if (include_closures && v->data.function.compiled &&
+            v->data.function.compiled->captures) {
             EnvVisitCtx ectx = {.visit = visit, .ctx = ctx};
             for (Environment *env = v->data.function.compiled->captures; env != NULL;
                  env = env->parent) {
@@ -297,7 +307,7 @@ static void rescue_visit_young(EastValue *child, void *ctx)
     (void)ctx;
     if (child && child->gc_tracked && child->gc_gen == 0 && child->gc_refs == 0) {
         child->gc_refs = 1;
-        gc_traverse(child, rescue_visit_young, NULL);
+        gc_traverse(child, rescue_visit_young, NULL, true);
     }
 }
 
@@ -310,17 +320,22 @@ static void gc_collect_young_impl(void)
         v->gc_refs = v->ref_count;
     }
 
-    /* Phase 2: trial deletion — only subtract refs between young objects */
+    /* Phase 2: trial deletion — only subtract refs between young objects.
+     * Closures are NOT followed: a function holds a raw Environment*, not
+     * per-value refs to env locals, so walking them here would wrongly
+     * decrement the gc_refs of env-owned values. */
     gc_generation++;
     for (EastValue *v = gc_young_sentinel.gc_next; v != &gc_young_sentinel; v = v->gc_next) {
-        gc_traverse(v, subtract_ref_young, NULL);
+        gc_traverse(v, subtract_ref_young, NULL, false);
     }
 
-    /* Phase 3: rescue young objects reachable from young roots */
+    /* Phase 3: rescue young objects reachable from young roots. Closures ARE
+     * followed here so values reachable only through a surviving function's
+     * captured env get rescued. */
     gc_generation++;
     for (EastValue *v = gc_young_sentinel.gc_next; v != &gc_young_sentinel; v = v->gc_next) {
         if (v->gc_refs > 0) {
-            gc_traverse(v, rescue_visit_young, NULL);
+            gc_traverse(v, rescue_visit_young, NULL, true);
         }
     }
 
@@ -385,7 +400,7 @@ static void rescue_visit(EastValue *child, void *ctx)
     (void)ctx;
     if (child && child->gc_tracked && child->gc_refs == 0) {
         child->gc_refs = 1;
-        gc_traverse(child, rescue_visit, NULL);
+        gc_traverse(child, rescue_visit, NULL, true);
     }
 }
 
@@ -410,17 +425,18 @@ static void gc_collect_full_impl(void)
         v->gc_refs = v->ref_count;
     }
 
-    /* Phase 2: trial deletion */
+    /* Phase 2: trial deletion — direct ref-counted edges only, no closures.
+     * See note on young collection's phase 2. */
     gc_generation++;
     for (EastValue *v = gc_old_sentinel.gc_next; v != &gc_old_sentinel; v = v->gc_next) {
-        gc_traverse(v, subtract_ref, NULL);
+        gc_traverse(v, subtract_ref, NULL, false);
     }
 
-    /* Phase 3: rescue from roots */
+    /* Phase 3: rescue from roots — follow closures. */
     gc_generation++;
     for (EastValue *v = gc_old_sentinel.gc_next; v != &gc_old_sentinel; v = v->gc_next) {
         if (v->gc_refs > 0) {
-            gc_traverse(v, rescue_visit, NULL);
+            gc_traverse(v, rescue_visit, NULL, true);
         }
     }
 

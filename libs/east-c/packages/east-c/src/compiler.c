@@ -514,6 +514,12 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         /* Store function type (not owned — points to IR node's type) */
         fn->fn_type = node->type;
 
+        /* Snapshot the thread-local source map so this function value can be
+         * beast2-encoded with its own source_map section (matches JS's
+         * SourceMapSymbol attach at East.function/asyncFunction construction).
+         * Borrowed, not owned — same ownership as value_decode.c:333. */
+        fn->source_map = (EastSourceMap *)g_current_source_map;
+
         EastValue *fv = east_function_value(fn);
         return eval_ok(fv);
     }

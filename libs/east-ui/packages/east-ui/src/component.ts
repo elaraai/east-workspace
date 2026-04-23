@@ -30,13 +30,24 @@ import { ListType } from "./typography/list/types.js";
 import { CodeBlockType } from "./typography/code-block/types.js";
 
 // Layout
-import { OrientationType } from "./style.js";
+import { OrientationType, SizeType, DensityType } from "./style.js";
 import { BoxStyleType } from "./layout/box/types.js";
 import { FlexStyleType } from "./layout/flex/types.js";
 import { StackStyleType } from "./layout/stack/types.js";
-import { SeparatorStyleType } from "./layout/separator/types.js";
+import { SeparatorVariantType, SeparatorAlignType } from "./layout/separator/types.js";
 import { GridStyleType } from "./layout/grid/types.js";
 import { SplitterStyleType } from "./layout/splitter/types.js";
+import { StickyBoundaryType, StickyStyleType } from "./layout/sticky/types.js";
+import {
+    ScrollAreaOrientationType,
+    ScrollbarStyleType,
+    ScrollAreaStyleType,
+} from "./layout/scroll-area/types.js";
+import {
+    ChipRailSeparatorType,
+    ChipRailOverflowType,
+    ChipRailStyleType,
+} from "./layout/chip-rail/types.js";
 
 // Buttons
 import { ButtonType } from "./buttons/button/types.js";
@@ -181,7 +192,16 @@ export const UIComponentType = RecursiveType(node => VariantType({
         style: OptionType(StackStyleType),
     }),
 
-    Separator: SeparatorStyleType,
+    Separator: StructType({
+        orientation: OptionType(OrientationType),
+        variant: OptionType(SeparatorVariantType),
+        size: OptionType(SizeType),
+        color: OptionType(StringType),
+        /** Rich label inside the separator. String callers coerce to `Text.Root` at the factory. */
+        label: OptionType(node),
+        /** Label alignment (start | center | end); defaults to center. */
+        align: OptionType(SeparatorAlignType),
+    }),
 
     Grid: StructType({
         items: ArrayType(StructType({
@@ -192,6 +212,8 @@ export const UIComponentType = RecursiveType(node => VariantType({
             colEnd: OptionType(StringType),
             rowStart: OptionType(StringType),
             rowEnd: OptionType(StringType),
+            /** Named grid area — references a name from `templateAreas`. */
+            area: OptionType(StringType),
         })),
         style: OptionType(GridStyleType),
     }),
@@ -207,6 +229,41 @@ export const UIComponentType = RecursiveType(node => VariantType({
         })),
         defaultSize: ArrayType(FloatType),
         style: OptionType(SplitterStyleType),
+    }),
+
+    /**
+     * Sticky — semantic wrapper over `position: sticky` with `offset` +
+     * `boundary: "parent" | "viewport"`. See `layout/sticky/`.
+     */
+    Sticky: StructType({
+        content: node,
+        offset: OptionType(StringType),
+        boundary: OptionType(StickyBoundaryType),
+        style: OptionType(StickyStyleType),
+    }),
+
+    /**
+     * ScrollArea — cross-browser consistent scrollbar styling via Radix.
+     * See `layout/scroll-area/`.
+     */
+    ScrollArea: StructType({
+        content: node,
+        orientation: OptionType(ScrollAreaOrientationType),
+        scrollbarStyle: OptionType(ScrollbarStyleType),
+        style: OptionType(ScrollAreaStyleType),
+    }),
+
+    /**
+     * ChipRail — horizontal chip row with density + separator + overflow
+     * control. Shared primitive under `MetricRail`, `AssumptionsBar`,
+     * `FilterBar`, `LegendRail`. See `layout/chip-rail/`.
+     */
+    ChipRail: StructType({
+        chips: ArrayType(node),
+        density: OptionType(DensityType),
+        separator: OptionType(ChipRailSeparatorType),
+        overflow: OptionType(ChipRailOverflowType),
+        style: OptionType(ChipRailStyleType),
     }),
 
 

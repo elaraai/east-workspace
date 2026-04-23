@@ -5,6 +5,7 @@
 
 import {
     type SubtypeExprOrValue,
+    FloatType,
     OptionType,
     StringType,
     StructType,
@@ -16,6 +17,14 @@ import {
     AlignItemsType,
     FlexWrapType,
     OverflowType,
+    PositionType,
+    CursorType,
+    BoxShadowType,
+    TransitionType,
+    AnimationPresetType,
+    ZIndexTokenType,
+    FontFamilyType,
+    FontVariantNumericType,
 } from "../../style.js";
 import type {
     FlexDirectionLiteral,
@@ -23,6 +32,14 @@ import type {
     AlignItemsLiteral,
     FlexWrapLiteral,
     OverflowLiteral,
+    PositionLiteral,
+    CursorLiteral,
+    BoxShadowLiteral,
+    TransitionLiteral,
+    AnimationPresetLiteral,
+    ZIndexTokenLiteral,
+    FontFamilyLiteral,
+    FontVariantNumericLiteral,
 } from "../../style.js";
 import { PaddingType, MarginType } from "../style.js";
 
@@ -109,6 +126,34 @@ export type FlexStyle = {
     flexGrow?: SubtypeExprOrValue<StringType>;
     /** Flex shrink factor (CSS value, e.g., "0", "1") */
     flexShrink?: SubtypeExprOrValue<StringType>;
+    /** CSS `position` token (PositionType). */
+    position?: SubtypeExprOrValue<PositionType> | PositionLiteral;
+    /** Offset from top (CSS length). */
+    top?: SubtypeExprOrValue<StringType>;
+    /** Offset from right (CSS length). */
+    right?: SubtypeExprOrValue<StringType>;
+    /** Offset from bottom (CSS length). */
+    bottom?: SubtypeExprOrValue<StringType>;
+    /** Offset from left (CSS length). */
+    left?: SubtypeExprOrValue<StringType>;
+    /** Named stacking layer (ZIndexTokenType — prefer ElevationType for overlay / modal / popover intent). */
+    zIndex?: SubtypeExprOrValue<ZIndexTokenType> | ZIndexTokenLiteral;
+    /** Named shadow token (prefer ElevationType for card / overlay / modal surfaces). */
+    boxShadow?: SubtypeExprOrValue<BoxShadowType> | BoxShadowLiteral;
+    /** Raw CSS `transform` value. */
+    transform?: SubtypeExprOrValue<StringType>;
+    /** Named CSS transition preset. */
+    transition?: SubtypeExprOrValue<TransitionType> | TransitionLiteral;
+    /** Named cursor token; pair `help` / `not-allowed` with appropriate ARIA per §0.2. */
+    cursor?: SubtypeExprOrValue<CursorType> | CursorLiteral;
+    /** Opacity in `[0, 1]`. */
+    opacity?: SubtypeExprOrValue<FloatType>;
+    /** Named font family (inherits to children). */
+    fontFamily?: SubtypeExprOrValue<FontFamilyType> | FontFamilyLiteral;
+    /** Named numeric-glyph variant (`tabular-nums` aligns digit columns). */
+    fontVariantNumeric?: SubtypeExprOrValue<FontVariantNumericType> | FontVariantNumericLiteral;
+    /** Named animation preset; renderer degrades under `prefers-reduced-motion` per §0.2. */
+    animation?: SubtypeExprOrValue<AnimationPresetType> | AnimationPresetLiteral;
 };
 
 /**
@@ -164,6 +209,20 @@ export const FlexStyleType = StructType({
     flex: OptionType(StringType),
     flexGrow: OptionType(StringType),
     flexShrink: OptionType(StringType),
+    position: OptionType(PositionType),
+    top: OptionType(StringType),
+    right: OptionType(StringType),
+    bottom: OptionType(StringType),
+    left: OptionType(StringType),
+    zIndex: OptionType(ZIndexTokenType),
+    boxShadow: OptionType(BoxShadowType),
+    transform: OptionType(StringType),
+    transition: OptionType(TransitionType),
+    cursor: OptionType(CursorType),
+    opacity: OptionType(FloatType),
+    fontFamily: OptionType(FontFamilyType),
+    fontVariantNumeric: OptionType(FontVariantNumericType),
+    animation: OptionType(AnimationPresetType),
 });
 
 /**

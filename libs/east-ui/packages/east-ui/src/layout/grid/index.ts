@@ -55,6 +55,7 @@ export { GridAutoFlow } from "./types.js";
  * @property colEnd - Ending column line
  * @property rowStart - Starting row line
  * @property rowEnd - Ending row line
+ * @property area - Named grid area (references a name from `templateAreas`)
  */
 export const GridItemType: StructType<{
     content: UIComponentType,
@@ -64,6 +65,7 @@ export const GridItemType: StructType<{
     colEnd: OptionType<StringType>,
     rowStart: OptionType<StringType>,
     rowEnd: OptionType<StringType>,
+    area: OptionType<StringType>,
 }> = StructType({
     content: UIComponentType,
     colSpan: OptionType(StringType),
@@ -72,6 +74,7 @@ export const GridItemType: StructType<{
     colEnd: OptionType(StringType),
     rowStart: OptionType(StringType),
     rowEnd: OptionType(StringType),
+    area: OptionType(StringType),
 });
 
 export interface GridItemStyle {
@@ -81,6 +84,13 @@ export interface GridItemStyle {
     colEnd?: SubtypeExprOrValue<StringType>;
     rowStart?: SubtypeExprOrValue<StringType>;
     rowEnd?: SubtypeExprOrValue<StringType>;
+    /**
+     * Named grid area — references a name defined in `GridStyle.templateAreas`.
+     *
+     * When `area` is set, `colSpan` / `rowSpan` / `colStart` / etc. are
+     * typically omitted; the named area determines the placement.
+     */
+    area?: SubtypeExprOrValue<StringType>;
 }
 
 /**
@@ -101,6 +111,7 @@ export function GridItem(
         colEnd: style?.colEnd ? some(style.colEnd) : none,
         rowStart: style?.rowStart ? some(style.rowStart) : none,
         rowEnd: style?.rowEnd ? some(style.rowEnd) : none,
+        area: style?.area ? some(style.area) : none,
     }, GridItemType);
 }
 

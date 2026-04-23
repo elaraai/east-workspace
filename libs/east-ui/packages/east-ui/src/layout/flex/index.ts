@@ -22,6 +22,14 @@ import {
     AlignItemsType,
     FlexWrapType,
     OverflowType,
+    PositionType,
+    CursorType,
+    BoxShadowType,
+    TransitionType,
+    AnimationPresetType,
+    ZIndexTokenType,
+    FontFamilyType,
+    FontVariantNumericType,
 } from "../../style.js";
 import { Padding, PaddingType, Margin, MarginType } from "../style.js";
 
@@ -148,6 +156,54 @@ function createFlex(
             : style.overflowY)
         : undefined;
 
+    const positionValue = style?.position
+        ? (typeof style.position === "string"
+            ? East.value(variant(style.position, null), PositionType)
+            : style.position)
+        : undefined;
+
+    const zIndexValue = style?.zIndex
+        ? (typeof style.zIndex === "string"
+            ? East.value(variant(style.zIndex, null), ZIndexTokenType)
+            : style.zIndex)
+        : undefined;
+
+    const boxShadowValue = style?.boxShadow
+        ? (typeof style.boxShadow === "string"
+            ? East.value(variant(style.boxShadow, null), BoxShadowType)
+            : style.boxShadow)
+        : undefined;
+
+    const transitionValue = style?.transition
+        ? (typeof style.transition === "string"
+            ? East.value(variant(style.transition, null), TransitionType)
+            : style.transition)
+        : undefined;
+
+    const cursorValue = style?.cursor
+        ? (typeof style.cursor === "string"
+            ? East.value(variant(style.cursor, null), CursorType)
+            : style.cursor)
+        : undefined;
+
+    const fontFamilyValue = style?.fontFamily
+        ? (typeof style.fontFamily === "string"
+            ? East.value(variant(style.fontFamily, null), FontFamilyType)
+            : style.fontFamily)
+        : undefined;
+
+    const fontVariantNumericValue = style?.fontVariantNumeric
+        ? (typeof style.fontVariantNumeric === "string"
+            ? East.value(variant(style.fontVariantNumeric, null), FontVariantNumericType)
+            : style.fontVariantNumeric)
+        : undefined;
+
+    const animationValue = style?.animation
+        ? (typeof style.animation === "string"
+            ? East.value(variant(style.animation, null), AnimationPresetType)
+            : style.animation)
+        : undefined;
+
     return East.value(variant("Flex", {
         children: children,
         style: style ? variant("some", East.value({
@@ -176,6 +232,20 @@ function createFlex(
             flex: style.flex ? variant("some", style.flex) : variant("none", null),
             flexGrow: style.flexGrow ? variant("some", style.flexGrow) : variant("none", null),
             flexShrink: style.flexShrink ? variant("some", style.flexShrink) : variant("none", null),
+            position: positionValue ? variant("some", positionValue) : variant("none", null),
+            top: style.top ? variant("some", style.top) : variant("none", null),
+            right: style.right ? variant("some", style.right) : variant("none", null),
+            bottom: style.bottom ? variant("some", style.bottom) : variant("none", null),
+            left: style.left ? variant("some", style.left) : variant("none", null),
+            zIndex: zIndexValue ? variant("some", zIndexValue) : variant("none", null),
+            boxShadow: boxShadowValue ? variant("some", boxShadowValue) : variant("none", null),
+            transform: style.transform ? variant("some", style.transform) : variant("none", null),
+            transition: transitionValue ? variant("some", transitionValue) : variant("none", null),
+            cursor: cursorValue ? variant("some", cursorValue) : variant("none", null),
+            opacity: style.opacity !== undefined ? variant("some", style.opacity) : variant("none", null),
+            fontFamily: fontFamilyValue ? variant("some", fontFamilyValue) : variant("none", null),
+            fontVariantNumeric: fontVariantNumericValue ? variant("some", fontVariantNumericValue) : variant("none", null),
+            animation: animationValue ? variant("some", animationValue) : variant("none", null),
         }, FlexStyleType)) : variant("none", null),
     }), UIComponentType);
 }

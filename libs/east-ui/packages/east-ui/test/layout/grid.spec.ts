@@ -17,6 +17,7 @@ describeEast("Grid", (test) => {
         gridResponsive: ex.gridResponsive,
         gridDense: ex.gridDense,
         gridFullWidth: ex.gridFullWidth,
+        gridNamedAreas: ex.gridNamedAreas,
     });
 
     // Helper to create a simple text component (already returns UIComponentType)
@@ -215,5 +216,34 @@ describeEast("Grid", (test) => {
         $(Assert.equal(grid.unwrap().unwrap("Grid").style.unwrap("some").justifyItems.unwrap("some").hasTag("center"), true));
         $(Assert.equal(grid.unwrap().unwrap("Grid").style.unwrap("some").alignItems.unwrap("some").hasTag("stretch"), true));
         $(Assert.equal(grid.unwrap().unwrap("Grid").style.unwrap("some").autoFlow.unwrap("some").hasTag("row dense"), true));
+    });
+
+    // =========================================================================
+    // Grid.Item.area (named grid areas)
+    // =========================================================================
+
+    test("Grid.Item defaults — area is none", $ => {
+        const grid = $.let(Grid.Root([
+            Grid.Item(Text.Root("A")),
+        ]));
+
+        $(Assert.equal(grid.unwrap().unwrap("Grid").items.get(0n).area.hasTag("none"), true));
+    });
+
+    test("Grid.Item accepts a named area that references templateAreas", $ => {
+        const grid = $.let(Grid.Root([
+            Grid.Item(Text.Root("Head"), { area: "head" }),
+            Grid.Item(Text.Root("Nav"), { area: "nav" }),
+            Grid.Item(Text.Root("Main"), { area: "main" }),
+        ], {
+            templateAreas: '"head head" "nav main"',
+            templateColumns: "120px 1fr",
+            gap: "3",
+        }));
+
+        $(Assert.equal(grid.unwrap().unwrap("Grid").items.get(0n).area.unwrap("some"), "head"));
+        $(Assert.equal(grid.unwrap().unwrap("Grid").items.get(1n).area.unwrap("some"), "nav"));
+        $(Assert.equal(grid.unwrap().unwrap("Grid").items.get(2n).area.unwrap("some"), "main"));
+        $(Assert.equal(grid.unwrap().unwrap("Grid").style.unwrap("some").templateAreas.unwrap("some"), '"head head" "nav main"'));
     });
 }, {   platformFns: TestImpl,});

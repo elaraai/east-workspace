@@ -191,7 +191,7 @@ await describe("String", (test) => {
         // Integer - error cases
         $(assert.throws(East.value("one").parse(IntegerType)));
         $(assert.throws(East.value("1.0").parse(IntegerType)));
-        $(assert.throws(East.value("+1").parse(IntegerType)));
+        $(assert.equal(East.value("+1").parse(IntegerType), 1n));
         $(assert.throws(East.value("1-").parse(IntegerType)));
         $(assert.throws(East.value("").parse(IntegerType)));
 

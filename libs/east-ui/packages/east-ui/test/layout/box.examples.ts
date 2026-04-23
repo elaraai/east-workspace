@@ -214,3 +214,85 @@ export const boxInteractive = example({
     }),
     inputs: [],
 });
+
+// -----------------------------------------------------------------------------
+// Tokenised style fields: position / shadow / animation / fontVariantNumeric
+// -----------------------------------------------------------------------------
+
+export const boxSticky = example({
+    keywords: ["Box", "position", "sticky", "scroll", "header"],
+    description: "Box with position=\"sticky\" — a header row that stays pinned while its parent scrolls",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Box.Root([
+            Box.Root([Text.Root("Sticky header")], {
+                position: "sticky",
+                top: "0",
+                zIndex: "sticky",
+                padding: "3",
+                background: "white",
+                borderColor: "gray.200",
+                borderWidth: "thin",
+            }),
+            Stack.VStack(
+                Array.from({ length: 10 }, (_, i) => Text.Root(`Row ${i + 1}`)),
+                { gap: "2", padding: "3" },
+            ),
+        ], { overflowY: "auto", height: "240px", borderColor: "gray.300", borderWidth: "thin" });
+    }),
+    inputs: [],
+});
+
+export const boxElevated = example({
+    keywords: ["Box", "boxShadow", "borderRadius", "elevated", "card"],
+    description: "Box with boxShadow=\"md\" + borderRadius=\"md\" to produce a card surface",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Box.Root([
+            Text.Root("Elevated card — BoxShadow.md"),
+        ], {
+            padding: "4",
+            background: "white",
+            borderRadius: "md",
+            boxShadow: "md",
+        });
+    }),
+    inputs: [],
+});
+
+export const boxAnimated = example({
+    keywords: ["Box", "animation", "pulse", "status", "live", "recomputing"],
+    description: "Box with animation=\"pulse\" — a \"recomputing\" status dot inside a chip",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Stack.HStack([
+            Box.Root([], {
+                width: "10px",
+                height: "10px",
+                borderRadius: "full",
+                background: "orange.500",
+                animation: "pulse",
+            }),
+            Text.Root("Recomputing…"),
+        ], { gap: "2", align: "center" });
+    }),
+    inputs: [],
+});
+
+export const boxTabularNumeric = example({
+    keywords: ["Box", "fontFamily", "mono", "fontVariantNumeric", "tabular-nums", "KPI"],
+    description: "Box with fontFamily=\"mono\" + fontVariantNumeric=\"tabular-nums\" — KPI digits align across rows",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Box.Root([
+            Stack.VStack([
+                Text.Root("  1,234.56"),
+                Text.Root("    56.07"),
+                Text.Root("789,012.30"),
+            ], { gap: "1", align: "flex-end" }),
+        ], {
+            fontFamily: "mono",
+            fontVariantNumeric: "tabular-nums",
+            padding: "3",
+            background: "gray.50",
+            borderRadius: "md",
+        });
+    }),
+    inputs: [],
+});

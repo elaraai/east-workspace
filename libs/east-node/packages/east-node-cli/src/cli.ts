@@ -8,6 +8,7 @@ import { createRequire } from 'module';
 import { EastError } from '@elaraai/east/internal';
 import { loadPlatforms, loadPlatformWithMetadata } from './loader.js';
 import { runProgram } from './runner.js';
+import { writeSnapshot, readSnapshot } from './snapshot.js';
 
 const require = createRequire(import.meta.url);
 const pkg = require('../package.json') as { version: string; name: string };
@@ -17,22 +18,66 @@ interface RunOptions {
     input?: string[];
     output?: string;
     verbose?: boolean;
+    snapshot?: string;
+    fromSnapshot?: string;
 }
 
 interface VersionOptions {
     package?: string[];
 }
 
-async function cmdRun(irFile: string, options: RunOptions): Promise<void> {
-    const packages = options.package ?? [];
-
-    if (packages.length === 0) {
-        console.error('Error: At least one platform package is required.');
-        console.error('Example: east-node run program.beast2 -p @elaraai/east-node-std');
-        process.exit(1);
-    }
-
+async function cmdRun(irFile: string | undefined, options: RunOptions): Promise<void> {
     try {
+        // --from-snapshot is exclusive with <ir_file>, -i, -p
+        if (options.fromSnapshot) {
+            if (irFile || (options.input && options.input.length > 0) ||
+                (options.package && options.package.length > 0)) {
+                console.error(
+                    'Error: --from-snapshot cannot be combined with <ir_file>, -i, or -p',
+                );
+                process.exit(1);
+            }
+            const ex = await readSnapshot(options.fromSnapshot);
+            try {
+                const platformFns = await loadPlatforms(ex.packages);
+                await runProgram(
+                    ex.irPath,
+                    platformFns,
+                    ex.packages,
+                    ex.inputPaths,
+                    options.output,
+                    options.verbose ?? false,
+                );
+            } finally {
+                ex.cleanup();
+            }
+            return;
+        }
+
+        if (!irFile) {
+            console.error('Error: Missing <ir_file> argument (or use --from-snapshot PATH)');
+            process.exit(1);
+        }
+
+        const packages = options.package ?? [];
+        if (packages.length === 0) {
+            console.error('Error: At least one platform package is required.');
+            console.error('Example: east-node run program.beast2 -p @elaraai/east-node-std');
+            process.exit(1);
+        }
+
+        // Write the snapshot BEFORE execution so crashes still leave the bundle behind.
+        if (options.snapshot) {
+            await writeSnapshot({
+                outPath:    options.snapshot,
+                irPath:     irFile,
+                inputPaths: options.input ?? [],
+                packages,
+                cliVersion: `${pkg.name} ${pkg.version}`,
+            });
+            if (options.verbose) console.error(`Snapshot: ${options.snapshot}`);
+        }
+
         const platformFns = await loadPlatforms(packages);
 
         await runProgram(
@@ -91,11 +136,14 @@ export function main(): void {
     program
         .command('run')
         .description('Run an East IR program')
-        .argument('<ir_file>', 'Path to IR file (.beast2, .beast, .east, or .json)')
+        .argument('[ir_file]', 'Path to IR file (.beast2, .beast, .east, or .json)')
         .option('-p, --package <package...>', 'Platform packages to load (can be repeated)')
         .option('-i, --input <file...>', 'Input data files (order matches function parameters)')
         .option('-o, --output <file>', 'Output file path for result')
         .option('-v, --verbose', 'Enable verbose output')
+        .option('--snapshot <path>', 'Write a .east-snapshot bundle (IR + inputs + manifest)')
+        .option('--from-snapshot <path>',
+            'Replay from a .east-snapshot bundle (exclusive with <ir_file>, -i, -p)')
         .action(cmdRun);
 
     program

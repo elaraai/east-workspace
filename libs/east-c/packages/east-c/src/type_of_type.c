@@ -1436,10 +1436,29 @@ static IRNode *convert_ir(EastValue *v)
         goto cleanup;
     }
 
-    /* ----- As (type cast - pass through) ----- */
-    /* As: { type, location, value } — 2=value */
+    /* ----- As (type cast) ----- */
+    /* As: { type, location, value } — 0=type, 2=value
+     *
+     * Propagate the As target type onto the inner IR node. Without this
+     * the inner node retains its narrow literal type (e.g. `some(x)` with
+     * inferred `VariantType({some: T})`) and IR_VARIANT at eval time
+     * builds `east_variant_new(case_name, v, narrow_type)`, storing a
+     * case_idx that's relative to the narrow type's sorted case list.
+     * When such a value is later stored in a widened container
+     * (e.g. `OptionType(T) = VariantType({none, some})`), the case_idx
+     * from the narrow type points at the wrong case of the wider type —
+     * producing silent corruption at encode/print time.
+     *
+     * Honouring the As annotation here means the inner node sees the
+     * widened type at construction, so case_idx is correct from day one. */
     if (ci == IR_As) {
-        result = convert_ir(get_field_idx(s, 2));
+        IRNode *inner = convert_ir(get_field_idx(s, 2));
+        if (inner && type) {
+            if (inner->type) east_type_release(inner->type);
+            inner->type = type;
+            east_type_retain(type);
+        }
+        result = inner;
         goto cleanup;
     }
 

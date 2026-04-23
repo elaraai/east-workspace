@@ -253,9 +253,9 @@ export interface TabsStyle {
     /** Color scheme for the tabs */
     colorPalette?: SubtypeExprOrValue<ColorSchemeType> | ColorSchemeLiteral;
     /** Initial selected tab value */
-    defaultValue?: SubtypeExprOrValue<typeof import("@elaraai/east").StringType>;
+    defaultValue?: SubtypeExprOrValue<StringType>;
     /** Controlled selected tab value */
-    value?: SubtypeExprOrValue<typeof import("@elaraai/east").StringType>;
+    value?: SubtypeExprOrValue<StringType>;
     /** Callback triggered when selected tab changes */
     onValueChange?: SubtypeExprOrValue<FunctionType<[typeof StringType], NullType>>;
 }

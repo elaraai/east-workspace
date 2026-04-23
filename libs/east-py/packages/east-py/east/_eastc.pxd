@@ -332,6 +332,10 @@ cdef extern from "east/values.h":
 
 # ─── serialization.h ──────────────────────────────────────────────────────
 
+cdef extern from "east/serialization.h" nogil:
+    EastValue *east_beast2_decode_auto(const uint8_t *data, size_t len)
+    EastType *east_beast2_extract_type(const uint8_t *data, size_t len)
+
 cdef extern from "east/serialization.h":
 
     ctypedef struct ByteBuffer:
@@ -387,6 +391,8 @@ cdef extern from "east/builtins.h":
     BuiltinRegistry *builtin_registry_new()
     void east_register_all_builtins(BuiltinRegistry *reg)
     void builtin_registry_free(BuiltinRegistry *reg)
+    void east_builtin_error(const char *msg)
+    char *east_builtin_get_error()
 
 
 # ─── eval_result.h ───────────────────────────────────────────────────────

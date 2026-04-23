@@ -4,10 +4,9 @@
  */
 
 import {
+    type ExprType,
     type SubtypeExprOrValue,
-    OptionType,
     StringType,
-    StructType,
     VariantType,
     NullType,
 } from "@elaraai/east";
@@ -20,6 +19,7 @@ import type {
     OrientationLiteral,
     SizeLiteral,
 } from "../../style.js";
+import type { UIComponentType } from "../../component.js";
 
 /**
  * Separator variant type for line style.
@@ -48,16 +48,49 @@ export type SeparatorVariantType = typeof SeparatorVariantType;
 export type SeparatorVariantLiteral = "solid" | "dashed" | "dotted";
 
 /**
+ * Separator label alignment.
+ *
+ * @remarks
+ * When `label` is set, `align` biases the label position. `start` places the
+ * label at the leading edge with the trailing hairline filling the rest;
+ * `end` mirrors; `center` (default) centers the label between two hairlines.
+ *
+ * @property start - Label biased toward the leading edge
+ * @property center - Label centered (default)
+ * @property end - Label biased toward the trailing edge
+ */
+export const SeparatorAlignType = VariantType({
+    start: NullType,
+    center: NullType,
+    end: NullType,
+});
+
+/**
+ * Type representing separator alignment values.
+ */
+export type SeparatorAlignType = typeof SeparatorAlignType;
+
+/**
+ * String literal type for separator alignment values.
+ */
+export type SeparatorAlignLiteral = "start" | "center" | "end";
+
+/**
  * Style configuration for Separator components.
  *
  * @remarks
- * Separator is a visual divider between content sections.
+ * Separator is a visual divider between content sections. `label` may be a
+ * plain string (coerced at the factory to `Text.Root(s, { textStyle:
+ * "caption", color: "fg.muted", textTransform: "uppercase" })`) or an
+ * explicit `UIComponentType` expression for full control.
  *
  * @property orientation - Orientation (horizontal or vertical)
  * @property variant - Line style variant (solid, dashed, dotted)
  * @property size - Thickness size
  * @property color - Color (Chakra UI color token or CSS color)
- * @property label - Optional label text in the middle of the separator
+ * @property label - Optional label inside the separator line. `string` is
+ *     coerced to `Text.Root`; pass a UIComponent expression for control.
+ * @property align - Label alignment (start | center | end); defaults to center.
  */
 export type SeparatorStyle = {
     /** Orientation (horizontal or vertical) */
@@ -68,31 +101,13 @@ export type SeparatorStyle = {
     size?: SubtypeExprOrValue<SizeType> | SizeLiteral;
     /** Color (Chakra UI color token or CSS color) */
     color?: SubtypeExprOrValue<StringType>;
-    /** Optional label text in the middle of the separator */
-    label?: SubtypeExprOrValue<StringType>;
+    /**
+     * Optional label. A plain string is coerced at the factory to a muted
+     * uppercase caption `Text`. For dynamic strings (`East.str\`...\``) or
+     * any other rich content, wrap with an explicit `Text.Root(...)` or
+     * another UIComponent before passing.
+     */
+    label?: string | ExprType<UIComponentType>;
+    /** Label alignment (start | center | end); defaults to center. */
+    align?: SubtypeExprOrValue<SeparatorAlignType> | SeparatorAlignLiteral;
 };
-
-/**
- * The concrete East type for Separator component style data.
- *
- * @remarks
- * All properties are optional and wrapped in {@link OptionType}.
- *
- * @property orientation - Orientation (horizontal or vertical)
- * @property variant - Line style variant (solid, dashed, dotted)
- * @property size - Thickness size
- * @property color - Color (Chakra UI color token or CSS color)
- * @property label - Optional label text in the middle of the separator
- */
-export const SeparatorStyleType = StructType({
-    orientation: OptionType(OrientationType),
-    variant: OptionType(SeparatorVariantType),
-    size: OptionType(SizeType),
-    color: OptionType(StringType),
-    label: OptionType(StringType),
-});
-
-/**
- * Type representing Separator style structure.
- */
-export type SeparatorStyleType = typeof SeparatorStyleType;

@@ -5,7 +5,7 @@
 import type { AST, Label, VariableAST } from "./ast.js";
 import type { IR, IRLabel, VariableIR } from "./ir.js";
 import { toEastTypeValue, type LiteralValue } from "./type_of_type.js";
-import { ArrayType, DictType, type EastType, FunctionType, isSubtype, isTypeEqual, NeverType, NullType, printType, RefType, SetType, StructType, VariantType, VectorType, MatrixType } from "./types.js";
+import { ArrayType, DictType, type EastType, FunctionType, getTypeId, isSubtype, isTypeEqual, NeverType, NullType, printType, RefType, SetType, StructType, VariantType, VectorType, MatrixType } from "./types.js";
 import { variant } from "./containers/variant.js";
 import { applyTypeParameters, Builtins } from "./builtins.js";
 
@@ -31,8 +31,96 @@ type Ctx = {
 }
 
 
+/**
+ * Coerce an IR value from `source_type` to `target_type`. When both are
+ * `StructType` or both are `VariantType` AND `value_ir` is the matching
+ * literal shape (a `Struct` / `Variant` IR node), recursively rewrite each
+ * child and rebuild the outer IR with the wider declared type — no outer
+ * `As` wrapper. Otherwise (primitives, variable references, invariant
+ * containers), emit a single outer `As`, matching legacy behaviour.
+ *
+ * Narrow→wide compound widening is only possible for Struct (covariant fields)
+ * and Variant (subset + covariant cases). All mutable-container parameters
+ * (Array/Set/Dict/Vector/Matrix/Ref) are invariant per isSubtypeImpl.
+ *
+ * @internal
+ */
+export function coerce_to(
+  value_ir: IR,
+  source_type: EastType,
+  target_type: EastType,
+  loc_id: bigint,
+  visited?: Set<string>,
+): IR {
+  if (isTypeEqual(source_type, target_type)) return value_ir;
+
+  if (!isSubtype(source_type, target_type)) {
+    throw new Error(
+      `Cannot coerce value of type ${printType(source_type)} to ${printType(target_type)} at loc_id ${loc_id}`
+    );
+  }
+
+  const sid = getTypeId(source_type);
+  const tid = getTypeId(target_type);
+  const pair_key = `${sid ?? "?"}:${tid ?? "?"}`;
+  if (visited !== undefined && visited.has(pair_key)) {
+    return variant("As", {
+      type: toEastTypeValue(target_type),
+      value: value_ir,
+      loc_id,
+    });
+  }
+  const visited2 = visited ?? new Set<string>();
+  visited2.add(pair_key);
+
+  let s = source_type;
+  let t = target_type;
+  if (s.type === "Recursive") s = s.node;
+  if (t.type === "Recursive") t = t.node;
+
+  if (value_ir.type === "Struct" && s.type === "Struct" && t.type === "Struct") {
+    const s_fields = s.fields;
+    const t_fields = t.fields;
+    const new_fields = value_ir.value.fields.map(({ name, value: field_ir }) => {
+      const s_field = s_fields[name] as EastType | undefined;
+      const t_field = t_fields[name] as EastType | undefined;
+      if (s_field === undefined || t_field === undefined) {
+        return { name, value: field_ir };
+      }
+      return { name, value: coerce_to(field_ir, s_field, t_field, loc_id, visited2) };
+    });
+    return variant("Struct", {
+      type: toEastTypeValue(target_type),
+      loc_id: value_ir.value.loc_id,
+      fields: new_fields,
+    });
+  }
+
+  if (value_ir.type === "Variant" && s.type === "Variant" && t.type === "Variant") {
+    const case_name = value_ir.value.case;
+    const s_case = s.cases[case_name] as EastType | undefined;
+    const t_case = t.cases[case_name] as EastType | undefined;
+    const inner = (s_case !== undefined && t_case !== undefined)
+      ? coerce_to(value_ir.value.value, s_case, t_case, loc_id, visited2)
+      : value_ir.value.value;
+    return variant("Variant", {
+      type: toEastTypeValue(target_type),
+      loc_id: value_ir.value.loc_id,
+      case: case_name,
+      value: inner,
+    });
+  }
+
+  return variant("As", {
+    type: toEastTypeValue(target_type),
+    value: value_ir,
+    loc_id,
+  });
+}
+
+
 /** Perform scope resolution and type checking on `AST`, produce `IR` ready for serialization, compilation or evaluation.
-* 
+*
 * @internal */
 export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ctx: new Map(), captures: new Set(), loop_ctx: new Map(), n_vars: 0, n_loops: 0, inputs: [], output: NeverType, async: false }): IR {
   try {
@@ -61,23 +149,14 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
         captured: false,
       });
 
-      // Insert As node if value type doesn't exactly match variable type
-      // This ensures the IR has exact types everywhere
       if (!isTypeEqual(ast.value.type, ast.variable.type)) {
-        // Validate subtype relationship before inserting As node
-        // This catches type errors early at AST level
         if (!isSubtype(ast.value.type, ast.variable.type)) {
           throw new Error(
             `Cannot initialize variable of type ${printType(ast.variable.type)} ` +
             `with value of type ${printType(ast.value.type)} at loc_id ${ast.loc_id}`
           );
         }
-
-        value = variant("As", {
-          type: toEastTypeValue(ast.variable.type),
-          value,
-          loc_id: ast.loc_id,
-        });
+        value = coerce_to(value, ast.value.type, ast.variable.type, ast.loc_id);
       }
 
       ctx.n_vars += 1;
@@ -99,25 +178,14 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
 
       let value = ast_to_ir(ast.value, ctx);
 
-      // Get the variable's type from the IR node
-      const variableType = variable.value.type;
-
-      // Insert As node if value type doesn't exactly match variable type
-      // This ensures the IR has exact types everywhere
       if (!isTypeEqual(ast.value.type, ast.variable.type)) {
-        // Validate subtype relationship before inserting As node
         if (!isSubtype(ast.value.type, ast.variable.type)) {
           throw new Error(
             `Cannot assign value of type ${printType(ast.value.type)} ` +
             `to variable of type ${printType(ast.variable.type)} at loc_id ${ast.loc_id}`
           );
         }
-
-        value = variant("As", {
-          type: variableType,
-          value,
-          loc_id: ast.loc_id,
-        });
+        value = coerce_to(value, ast.value.type, ast.variable.type, ast.loc_id);
       }
 
       return variant("Assign", {
@@ -164,18 +232,13 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
           let arg_ir = ast_to_ir(arg, ctx);
           const expectedType = applyTypeParameters(builtin_def.inputs[i]!, type_map, [], []);
 
-          // Now check type compatibility
           if (arg.type.type !== "Never" && !isTypeEqual(arg.type, expectedType)) {
             if (!isSubtype(arg.type, expectedType)) {
               throw new Error(
                 `Builtin ${builtin_name} with type parameters [${ast.type_parameters.map(tp => printType(tp)).join(", ")}] argument ${i} of type ${printType(arg.type)} is not compatible with expected type ${printType(expectedType)} at loc_id ${ast.loc_id}`
               );
             }
-            arg_ir = variant("As", {
-              type: toEastTypeValue(expectedType),
-              value: arg_ir,
-              loc_id: ast.loc_id,
-            });
+            arg_ir = coerce_to(arg_ir, arg.type, expectedType, ast.loc_id);
           }
 
           return arg_ir;
@@ -207,11 +270,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
           }
           if (!isTypeEqual(fieldAst.type, expectedType)) {
             if (isSubtype(fieldAst.type, expectedType)) {
-              value = variant("As", {
-                type: toEastTypeValue(expectedType),
-                value,
-                loc_id: ast.loc_id,
-              })
+              value = coerce_to(value, fieldAst.type, expectedType, ast.loc_id);
             } else {
               throw new Error(
                 `Cannot assign field '${name}' of type ${printType((ast.type as StructType).fields[name]!)} ` +
@@ -234,11 +293,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       let value = ast_to_ir(ast.value, ctx);
       if (!isTypeEqual(ast.value.type, expectedType)) {
         if (isSubtype(ast.value.type, expectedType)) {
-          value = variant("As", {
-            type: toEastTypeValue(expectedType),
-            value,
-            loc_id: ast.loc_id,
-          })
+          value = coerce_to(value, ast.value.type, expectedType, ast.loc_id);
         } else {
           throw new Error(
             `Cannot assign case '${ast.case}' of type ${printType(expectedType)} ` +
@@ -355,11 +410,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
                 `Argument ${i} of type ${printType(argument.type)} is not compatible with expected type ${printType(expectedType)} at loc_id ${ast.loc_id}`
               );
             }
-            arg = variant("As", {
-              type: toEastTypeValue(expectedType),
-              value: arg,
-              loc_id: ast.loc_id,
-            });
+            arg = coerce_to(arg, argument.type, expectedType, ast.loc_id);
           }
 
           return arg;
@@ -386,11 +437,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
                 `Argument ${i} of type ${printType(argument.type)} is not compatible with expected type ${printType(expectedType)} at loc_id ${ast.loc_id}`
               );
             }
-            arg = variant("As", {
-              type: toEastTypeValue(expectedType),
-              value: arg,
-              loc_id: ast.loc_id,
-            });
+            arg = coerce_to(arg, argument.type, expectedType, ast.loc_id);
           }
 
           return arg;
@@ -405,11 +452,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
             `Ref value of type ${printType(ast.value.type)} is not compatible with expected type ${printType(valueType)} at loc_id ${ast.loc_id}`
           );
         }
-        value = variant("As", {
-          type: toEastTypeValue(valueType),
-          value,
-          loc_id: ast.loc_id,
-        });
+        value = coerce_to(value, ast.value.type, valueType, ast.loc_id);
       }
 
       return variant("NewRef", {
@@ -430,11 +473,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
                 `Array value at entry ${i} of type ${printType(v.type)} is not compatible with expected type ${printType(valueType)} at loc_id ${ast.loc_id}`
               );
             }
-            value = variant("As", {
-              type: toEastTypeValue(valueType),
-              value,
-              loc_id: ast.loc_id,
-            });
+            value = coerce_to(value, v.type, valueType, ast.loc_id);
           }
 
           return value;
@@ -453,11 +492,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
                 `Set key at entry ${i} of type ${printType(k.type)} is not compatible with expected type ${printType(keyType)} at loc_id ${ast.loc_id}`
               );
             }
-            key = variant("As", {
-              type: toEastTypeValue(keyType),
-              value: key,
-              loc_id: ast.loc_id,
-            });
+            key = coerce_to(key, k.type, keyType, ast.loc_id);
           }
 
           return key;
@@ -477,11 +512,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
                 `Dict key at entry ${i} of type ${printType(k.type)} is not compatible with expected type ${printType(keyType)} at loc_id ${ast.loc_id}`
               );
             }
-            key = variant("As", {
-              type: toEastTypeValue(keyType),
-              value: key,
-              loc_id: ast.loc_id,
-            });
+            key = coerce_to(key, k.type, keyType, ast.loc_id);
           }
 
           let value = ast_to_ir(v, ctx);
@@ -491,11 +522,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
                 `Dict value at entry ${i} of type ${printType(v.type)} is not compatible with expected type ${printType(valueType)} at loc_id ${ast.loc_id}`
               );
             }
-            value = variant("As", {
-              type: toEastTypeValue(valueType),
-              value,
-              loc_id: ast.loc_id,
-            });
+            value = coerce_to(value, v.type, valueType, ast.loc_id);
           };
 
           return { key, value };
@@ -526,12 +553,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
               `If branch body of type ${printType(branch.body.type)} is not compatible with expected type ${printType(ast.type)} at loc_id ${ast.loc_id}`
             );
           }
-
-          branch_body = variant("As", {
-            type: toEastTypeValue(ast.type),
-            value: branch_body,
-            loc_id: ast.loc_id,
-          });
+          branch_body = coerce_to(branch_body, branch.body.type, ast.type, ast.loc_id);
         }
 
         return { predicate, body: branch_body };
@@ -558,12 +580,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
             `Else branch body of type ${printType(ast.else_body.type)} is not compatible with expected type ${printType(ast.type)} at loc_id ${ast.loc_id}`
           );
         }
-
-        else_body = variant("As", {
-          type: toEastTypeValue(ast.type),
-          value: else_body,
-          loc_id: ast.loc_id,
-        });
+        else_body = coerce_to(else_body, ast.else_body.type, ast.type, ast.loc_id);
       }
 
       return variant("IfElse", {
@@ -692,11 +709,9 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
         value,
       });
     } else if (ast.ast_type === "As") {
-      return variant("As", {
-        type: toEastTypeValue(ast.type),
-        loc_id: ast.loc_id,
-        value: ast_to_ir(ast.value, ctx),
-      });
+      // Explicit $.as: use coerce_to so nested narrow variants in a literal
+      // struct/variant get deep-rewritten just like implicit widening.
+      return coerce_to(ast_to_ir(ast.value, ctx), ast.value.type, ast.type, ast.loc_id);
     } else if (ast.ast_type === "While") {
       const predicate = ast_to_ir(ast.predicate, ctx);
       const label: IRLabel = {
@@ -902,12 +917,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
               `Match case '${k}' body of type ${printType(v.body.type)} is not compatible with expected type ${printType(ast.type)} at loc_id ${ast.loc_id}`
             );
           }
-
-          body = variant("As", {
-            type: toEastTypeValue(ast.type),
-            value: body,
-            loc_id: ast.loc_id,
-          });
+          body = coerce_to(body, v.body.type, ast.type, ast.loc_id);
         }
 
         cases.push({ case: k, variable, body });
@@ -994,11 +1004,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
                 `Vector value at entry ${i} of type ${printType(v.type)} is not compatible with expected type ${printType(elementType)} at loc_id ${ast.loc_id}`
               );
             }
-            value = variant("As", {
-              type: toEastTypeValue(elementType),
-              value,
-              loc_id: ast.loc_id,
-            });
+            value = coerce_to(value, v.type, elementType, ast.loc_id);
           }
           return value;
         }),
@@ -1018,11 +1024,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
                 `Matrix value at entry ${i} of type ${printType(v.type)} is not compatible with expected type ${printType(elementType)} at loc_id ${ast.loc_id}`
               );
             }
-            value = variant("As", {
-              type: toEastTypeValue(elementType),
-              value,
-              loc_id: ast.loc_id,
-            });
+            value = coerce_to(value, v.type, elementType, ast.loc_id);
           }
           return value;
         }),

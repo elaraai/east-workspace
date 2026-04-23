@@ -12,6 +12,7 @@ All beast2 serialization goes through east-c. No Python fallback.
 
 from libc.stdint cimport uint8_t
 from libc.stddef cimport size_t
+from libc.stdlib cimport free
 
 from east cimport _eastc
 from east._eastc_bridge cimport py_type_to_c, c_value_to_py, py_value_to_c
@@ -91,6 +92,7 @@ cpdef bytes _encode_beast2_full(object py_type, object value):
     cdef _eastc.EastType* c_type = py_type_to_c(py_type)
     cdef _eastc.EastValue* c_val
     cdef _eastc.ByteBuffer* buf
+    cdef char *err
 
     try:
         c_val = py_value_to_c(value, c_type)
@@ -103,6 +105,11 @@ cpdef bytes _encode_beast2_full(object py_type, object value):
 
     if buf == NULL:
         _eastc.east_type_release(c_type)
+        err = _eastc.east_builtin_get_error()
+        if err != NULL:
+            msg = (<bytes>err).decode("utf-8", errors="replace")
+            free(err)
+            raise RuntimeError(msg)
         raise RuntimeError("east-c beast2 encode_full returned NULL")
 
     cdef bytes result = buf.data[:buf.len]
@@ -159,3 +166,32 @@ def decode_beast2_with_header_for(type_val, options=None):
     def decode(data):
         return _decode_beast2_full(type_val, data)
     return decode
+
+
+cpdef str beast2_auto_to_east_text(bytes data):
+    """Decode a beast2-full blob using its embedded type and return the value
+    rendered as east-text. Useful for CLI tools that want to inspect a value
+    file without knowing the type in advance.
+    """
+    _ensure_eastc_runtime()
+    cdef const uint8_t* data_ptr = <const uint8_t*>data
+    cdef size_t data_len = len(data)
+
+    cdef _eastc.EastType *c_type = _eastc.east_beast2_extract_type(data_ptr, data_len)
+    if c_type == NULL:
+        raise ValueError("beast2 auto-decode: input is not a beast2-full blob")
+    cdef _eastc.EastValue *c_val = _eastc.east_beast2_decode_auto(data_ptr, data_len)
+    if c_val == NULL:
+        _eastc.east_type_release(c_type)
+        raise ValueError("beast2 auto-decode failed")
+
+    cdef char *text = _eastc.east_print_value(c_val, c_type)
+    _eastc.east_value_release(c_val)
+    _eastc.east_type_release(c_type)
+    if text == NULL:
+        raise ValueError("east-text print failed")
+    try:
+        result = (<bytes>text).decode("utf-8", errors="replace")
+    finally:
+        free(text)
+    return result
