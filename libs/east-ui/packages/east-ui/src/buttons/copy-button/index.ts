@@ -5,12 +5,12 @@
 
 import {
     type ExprType,
+    type SubtypeExprOrValue,
     East,
     StringType,
     variant,
     some,
     none,
-    type SubtypeExprOrValue
 } from "@elaraai/east";
 
 import { SizeType, ColorSchemeType } from "../../style.js";
@@ -20,6 +20,8 @@ import {
     CopyButtonStyleType,
     CopyButtonVariantType,
     type CopyButtonStyle,
+    type CopyButtonOptions,
+    type CopyButtonVariantLiteral,
 } from "./types.js";
 
 // Re-export types
@@ -28,117 +30,175 @@ export {
     CopyButtonStyleType,
     CopyButtonVariantType,
     type CopyButtonStyle,
+    type CopyButtonOptions,
     type CopyButtonVariantLiteral,
 } from "./types.js";
 
 // ============================================================================
-// CopyButton Function
+// CopyButton Factory
 // ============================================================================
 
 /**
- * Creates a CopyButton component that copies a value to the clipboard.
+ * Creates a CopyButton component that copies `value` to the clipboard.
  *
- * @param value - The text value to copy to clipboard (required)
- * @param style - Optional styling configuration
- * @returns An East expression representing the copy button component
+ * @param value - The text value to copy
+ * @param options - Main-level fields plus optional `style` sub-struct
+ * @returns An East expression representing the CopyButton component
  *
  * @remarks
- * CopyButton is an interactive component for copying text to the clipboard.
- * It shows a copy icon by default and changes to a checkmark when copied.
+ * When `label` is supplied the renderer emits a text-plus-icon button; when
+ * absent it emits an icon-only affordance (aria-label "Copy to clipboard").
+ * `timeout` controls how long the "Copied!" confirmation state persists
+ * (milliseconds, stringified). The confirmation glyph can be tinted via
+ * `style.successColor`.
+ *
+ * Per the Type-shape convention: content + state + config are top-level
+ * options; visual presentation lives inside `options.style`.
  *
  * @example
  * ```ts
- * import { CopyButton } from "@elaraai/east-ui";
+ * import { East } from "@elaraai/east";
+ * import { CopyButton, UIComponentType } from "@elaraai/east-ui";
  *
- * // Simple copy button
- * const copyBtn = CopyButton.Root("text to copy");
+ * // Icon-only copy affordance
+ * const copySecret = East.function([], UIComponentType, _$ =>
+ *     CopyButton.Root("super-secret-api-key"),
+ * );
  *
- * // Copy button with label
- * const labeledCopyBtn = CopyButton.Root("secret-key-123", { label: "Copy API Key" });
- *
- * // Copy button with styling
- * const styledCopyBtn = CopyButton.Root("https://example.com", {
- *   variant: "outline",
- *   colorPalette: "blue",
- *   size: "sm",
- * });
+ * // With label + branded colour escape hatches + custom success tint
+ * const copyLink = East.function([], UIComponentType, _$ =>
+ *     CopyButton.Root("https://elara.ai/share/abc123", {
+ *         label: "Copy link",
+ *         timeout: "1500",
+ *         style: {
+ *             variant: "outline",
+ *             colorPalette: "blue",
+ *             successColor: "#2e7d32",
+ *         },
+ *     }),
+ * );
  * ```
  */
 function createCopyButton(
     value: SubtypeExprOrValue<StringType>,
-    style?: CopyButtonStyle & { label?: SubtypeExprOrValue<StringType> }
+    options?: CopyButtonOptions,
 ): ExprType<UIComponentType> {
-    const variantValue = style?.variant
+    const styleValue = options?.style ? buildCopyButtonStyle(options.style) : undefined;
+
+    return East.value(variant("CopyButton", {
+        value,
+        label: options?.label !== undefined ? some(options.label) : none,
+        timeout: options?.timeout !== undefined ? some(options.timeout) : none,
+        disabled: options?.disabled !== undefined ? some(options.disabled) : none,
+        style: styleValue ? some(styleValue) : none,
+    }), UIComponentType);
+}
+
+function buildCopyButtonStyle(style: CopyButtonStyle): ExprType<CopyButtonStyleType> {
+    const variantValue = style.variant
         ? (typeof style.variant === "string"
-            ? East.value(variant(style.variant, null), CopyButtonVariantType)
+            ? East.value(variant(style.variant as CopyButtonVariantLiteral, null), CopyButtonVariantType)
             : style.variant)
         : undefined;
 
-    const colorPaletteValue = style?.colorPalette
+    const colorPaletteValue = style.colorPalette
         ? (typeof style.colorPalette === "string"
             ? East.value(variant(style.colorPalette, null), ColorSchemeType)
             : style.colorPalette)
         : undefined;
 
-    const sizeValue = style?.size
+    const sizeValue = style.size
         ? (typeof style.size === "string"
             ? East.value(variant(style.size, null), SizeType)
             : style.size)
         : undefined;
 
-    return East.value(variant("CopyButton", {
-        value: value,
-        label: style?.label ? some(style.label) : none,
-        style: style ? some(East.value({
-            variant: variantValue ? some(variantValue) : none,
-            colorPalette: colorPaletteValue ? some(colorPaletteValue) : none,
-            size: sizeValue ? some(sizeValue) : none,
-            disabled: style.disabled !== undefined ? some(style.disabled) : none,
-            timeout: style.timeout !== undefined ? some(style.timeout) : none,
-        }, CopyButtonStyleType)) : none,
-    }), UIComponentType);
+    return East.value({
+        variant: variantValue ? some(variantValue) : none,
+        colorPalette: colorPaletteValue ? some(colorPaletteValue) : none,
+        size: sizeValue ? some(sizeValue) : none,
+        color: style.color !== undefined ? some(style.color) : none,
+        background: style.background !== undefined ? some(style.background) : none,
+        borderColor: style.borderColor !== undefined ? some(style.borderColor) : none,
+        hoverBackground: style.hoverBackground !== undefined ? some(style.hoverBackground) : none,
+        successColor: style.successColor !== undefined ? some(style.successColor) : none,
+    }, CopyButtonStyleType);
 }
 
 /**
- * CopyButton component for copying text to the clipboard.
+ * CopyButton primitive — interactive copy-to-clipboard affordance.
  *
  * @remarks
- * Use `CopyButton.Root(value, style)` to create a copy button, or access `CopyButton.Types.CopyButton` for the East type.
- *
- * @example
- * ```ts
- * import { CopyButton } from "@elaraai/east-ui";
- *
- * // Create a copy button
- * const btn = CopyButton.Root("text to copy", { variant: "outline", colorPalette: "gray" });
- *
- * // With a label
- * const labeledBtn = CopyButton.Root("secret-value", { label: "Copy Secret" });
- *
- * // Access the type
- * const copyButtonType = CopyButton.Types.CopyButton;
- * ```
+ * Use `CopyButton.Root(value, options)` to create a copy button, or access
+ * `CopyButton.Types.CopyButton` for the East type. Per the Type-shape
+ * convention: content + state + config are top-level options; visual
+ * presentation lives inside `options.style`.
  */
 export const CopyButton = {
     /**
-     * Creates a CopyButton component that copies a value to the clipboard.
+     * Creates a CopyButton component that copies `value` to the clipboard.
      *
-     * @param value - The text value to copy to clipboard (required)
-     * @param style - Optional styling configuration (including optional label)
-     * @returns An East expression representing the copy button component
+     * @param value - The text to copy
+     * @param options - Main-level fields plus optional `style` sub-struct
+     * @returns An East expression representing the CopyButton component
+     *
+     * @remarks
+     * When `label` is supplied the renderer emits a text-plus-icon button;
+     * when absent it emits an icon-only affordance with aria-label
+     * "Copy to clipboard". `timeout` controls the "Copied!" duration (ms,
+     * stringified). Success-glyph tint via `style.successColor`.
+     *
+     * @example
+     * ```ts
+     * import { East } from "@elaraai/east";
+     * import { CopyButton, UIComponentType } from "@elaraai/east-ui";
+     *
+     * // Icon-only copy
+     * const copySecret = East.function([], UIComponentType, _$ =>
+     *     CopyButton.Root("super-secret-api-key"),
+     * );
+     *
+     * // Labelled + branded
+     * const copyLink = East.function([], UIComponentType, _$ =>
+     *     CopyButton.Root("https://elara.ai/share/abc123", {
+     *         label: "Copy link",
+     *         timeout: "1500",
+     *         style: {
+     *             variant: "outline",
+     *             colorPalette: "blue",
+     *             successColor: "#2e7d32",
+     *         },
+     *     }),
+     * );
+     * ```
      */
     Root: createCopyButton,
     Types: {
         /**
          * The concrete East type for CopyButton component data.
+         *
+         * @remarks
+         * `value` + `label` are content; `timeout` is config; `disabled` is
+         * state. Visual presentation is isolated inside `style`.
+         *
+         * @property value - Text to copy (required)
+         * @property label - Optional label next to the copy icon
+         * @property timeout - "Copied!" duration in ms (stringified)
+         * @property disabled - Disabled state
+         * @property style - Visual-presentation sub-struct
          */
         CopyButton: CopyButtonType,
         /**
-         * Style type for CopyButton component configuration.
+         * Visual-only style struct for CopyButton. See {@link CopyButtonStyleType}.
          */
         Style: CopyButtonStyleType,
         /**
-         * Variant type for CopyButton appearance styles.
+         * Variant enum for CopyButton visual presets.
+         *
+         * @property solid - Solid filled button
+         * @property subtle - Subtle/light background button
+         * @property outline - Outlined button with border
+         * @property ghost - Transparent button, visible on hover
          */
         Variant: CopyButtonVariantType,
     },

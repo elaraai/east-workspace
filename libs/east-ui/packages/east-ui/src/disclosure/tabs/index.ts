@@ -12,11 +12,16 @@ import {
     StringType,
     BooleanType,
     ArrayType,
+    FunctionType,
+    NullType,
     variant,
+    some,
+    none,
 } from "@elaraai/east";
 
 import { ColorSchemeType, OrientationType } from "../../style.js";
 import { UIComponentType } from "../../component.js";
+import { Text } from "../../typography/text/index.js";
 import {
     TabsVariantType,
     TabsVariant,
@@ -25,7 +30,9 @@ import {
     TabsSizeType,
     TabsStyleType,
     type TabsStyle,
-    type TabsItemStyle,
+    type TabsOptions,
+    type TabsItemOptions,
+    type TabsVariantLiteral,
 } from "./types.js";
 
 // Re-export types
@@ -41,33 +48,32 @@ export {
     type TabsActivationModeLiteral,
     type TabsSizeLiteral,
     type TabsStyle,
-    type TabsItemStyle,
+    type TabsOptions,
+    type TabsItemOptions,
 } from "./types.js";
 
 // ============================================================================
-// Tabs Item Type
+// TabsItemType — standalone mirror of the inline item sub-struct
 // ============================================================================
 
 /**
- * Type for Tabs item data.
- *
- * @remarks
- * Each tab has a value (identifier), trigger (label text),
- * content (child components), and optional disabled state.
+ * Concrete struct mirroring the inline item sub-struct used by the `Tabs`
+ * variant in `component.ts`. Renderers reference this for `equalFor` /
+ * `ValueTypeOf`.
  *
  * @property value - Unique identifier for this tab
- * @property trigger - The tab label text
+ * @property trigger - Rich trigger (UIComp)
  * @property content - Array of child UI components for the tab panel
  * @property disabled - Whether this tab is disabled
  */
 export const TabsItemType: StructType<{
     value: StringType,
-    trigger: StringType,
+    trigger: UIComponentType,
     content: ArrayType<UIComponentType>,
     disabled: OptionType<BooleanType>,
 }> = StructType({
     value: StringType,
-    trigger: StringType,
+    trigger: UIComponentType,
     content: ArrayType(UIComponentType),
     disabled: OptionType(BooleanType),
 });
@@ -78,377 +84,308 @@ export const TabsItemType: StructType<{
 export type TabsItemType = typeof TabsItemType;
 
 // ============================================================================
-// Tabs Root Type
+// TabsType — standalone mirror of the inline `Tabs` variant in component.ts
 // ============================================================================
 
 /**
- * Type for Tabs component data.
- *
- * @remarks
- * Tabs display content in separate panels, with only one panel visible at a time.
+ * Concrete struct mirroring the inline `Tabs` variant in `component.ts`.
  *
  * @property items - Array of tab items
  * @property value - Controlled selected tab value
- * @property defaultValue - Initial selected tab value
- * @property style - Optional styling configuration
+ * @property defaultValue - Initial selected tab value (uncontrolled)
+ * @property onValueChange - Callback invoked with the new selected tab value
+ * @property style - Visual-presentation sub-struct
  */
-export const TabsRootType = StructType({
+export const TabsType: StructType<{
+    items: ArrayType<TabsItemType>,
+    value: OptionType<StringType>,
+    defaultValue: OptionType<StringType>,
+    onValueChange: OptionType<FunctionType<[StringType], NullType>>,
+    style: OptionType<TabsStyleType>,
+}> = StructType({
     items: ArrayType(TabsItemType),
     value: OptionType(StringType),
     defaultValue: OptionType(StringType),
+    onValueChange: OptionType(FunctionType([StringType], NullType)),
     style: OptionType(TabsStyleType),
 });
 
-/**
- * Type representing the Tabs structure.
- */
-export type TabsRootType = typeof TabsRootType;
+export type TabsType = typeof TabsType;
 
 // ============================================================================
-// Tabs Item Function
+// Tabs Item Factory
 // ============================================================================
 
+type TabsTriggerInput =
+    | string
+    | ExprType<UIComponentType>
+    | SubtypeExprOrValue<UIComponentType>;
+
 /**
- * Creates a Tabs item with trigger and content children.
+ * Creates a Tabs item with a rich trigger and content children.
  *
  * @param value - Unique identifier for this tab
- * @param trigger - The tab label text
+ * @param trigger - String (coerced to `Text.Root(s)`) or any UIComponentType
  * @param content - Array of child UI components for the tab panel
- * @param style - Optional item configuration
+ * @param options - Optional per-item configuration (`disabled`)
  * @returns An East expression representing the tabs item
+ *
+ * @remarks
+ * `trigger` is a UIComp per the Type-shape convention — strings coerce to
+ * `Text.Root(s)` so the common case stays ergonomic. Rich triggers let
+ * callers embed count badges, icons, or two-line labels inline.
  *
  * @example
  * ```ts
  * import { East } from "@elaraai/east";
- * import { Tabs, Text, UIComponentType } from "@elaraai/east-ui";
+ * import { Tabs, Stack, Text, Badge, UIComponentType } from "@elaraai/east-ui";
  *
- * const example = East.function([], UIComponentType, $ => {
- *     return Tabs.Root([
- *         Tabs.Item("overview", "Overview", [Text.Root("Overview content")]),
- *         Tabs.Item("disabled", "Disabled Tab", [Text.Root("Disabled")], { disabled: true }),
- *     ]);
- * });
+ * const tabsWithBadge = East.function([], UIComponentType, _$ =>
+ *     Tabs.Root([
+ *         Tabs.Item("inputs", "Inputs", [Text.Root("Three inputs defined.")]),
+ *         Tabs.Item(
+ *             "results",
+ *             Stack.HStack([Text.Root("Results"), Badge.Root("5", { colorPalette: "blue" })], { gap: "2" }),
+ *             [Text.Root("Five results computed.")],
+ *         ),
+ *     ], { defaultValue: "inputs", style: { variant: "line" } }),
+ * );
  * ```
  */
 function createTabsItem(
     value: SubtypeExprOrValue<StringType>,
-    trigger: SubtypeExprOrValue<StringType>,
+    trigger: TabsTriggerInput,
     content: SubtypeExprOrValue<ArrayType<UIComponentType>>,
-    style?: TabsItemStyle
+    options?: TabsItemOptions,
 ): ExprType<TabsItemType> {
-    const toBoolOption = (val: SubtypeExprOrValue<BooleanType> | undefined) => {
-        if (val === undefined) return variant("none", null);
-        return variant("some", val);
-    };
+    const triggerExpr: ExprType<UIComponentType> = typeof trigger === "string"
+        ? Text.Root(trigger)
+        : trigger as ExprType<UIComponentType>;
 
     return East.value({
-        value: value,
-        trigger: trigger,
-        content: content,
-        disabled: toBoolOption(style?.disabled),
+        value,
+        trigger: triggerExpr,
+        content,
+        disabled: options?.disabled !== undefined ? some(options.disabled) : none,
     }, TabsItemType);
 }
 
 // ============================================================================
-// Tabs Root Function
+// Tabs Root Factory
 // ============================================================================
 
 /**
- * Creates a Tabs component with items and optional styling.
+ * Creates a Tabs component.
  *
- * @param items - Array of Tabs items
- * @param style - Optional styling configuration
- * @returns An East expression representing the tabs component
+ * @param items - Array of tab items (created with `Tabs.Item`)
+ * @param options - State + behaviour + optional `style`
+ * @returns An East expression representing the Tabs component
  *
  * @remarks
- * Tabs are used to organize content into separate views where only one
- * view is visible at a time.
+ * Per the Type-shape convention: `value` / `defaultValue` (state) and
+ * `onValueChange` (behaviour) are top-level options; visual presentation
+ * lives inside `options.style`.
  *
  * @example
  * ```ts
- * import { East } from "@elaraai/east";
- * import { Tabs, Text, UIComponentType } from "@elaraai/east-ui";
+ * import { East, NullType, StringType } from "@elaraai/east";
+ * import { Reactive, State, Tabs, Text, UIComponentType } from "@elaraai/east-ui";
  *
- * const example = East.function([], UIComponentType, $ => {
- *     return Tabs.Root([
- *         Tabs.Item("overview", "Overview", [Text.Root("Overview content")]),
- *         Tabs.Item("settings", "Settings", [Text.Root("Settings content")]),
- *     ], {
- *         defaultValue: "overview",
- *         variant: "line",
- *     });
- * });
+ * // Static tabs
+ * const tabs = East.function([], UIComponentType, _$ =>
+ *     Tabs.Root([
+ *         Tabs.Item("overview", "Overview", [Text.Root("Overview.")]),
+ *         Tabs.Item("settings", "Settings", [Text.Root("Settings.")]),
+ *     ], { defaultValue: "overview", style: { variant: "line" } }),
+ * );
+ *
+ * // Reactive tabs via State.bind
+ * const reactiveTabs = East.function([], UIComponentType, _$ =>
+ *     Reactive.Root(East.function([], UIComponentType, $ => {
+ *         const bind = $.let(State.bind([StringType], "active_tab", "a"));
+ *         const active = $.let(bind.read());
+ *         const onValueChange = $.const(East.function([StringType], NullType, ($, next) => {
+ *             $(bind.write(next));
+ *         }));
+ *         return Tabs.Root([
+ *             Tabs.Item("a", "Tab A", [Text.Root("A")]),
+ *             Tabs.Item("b", "Tab B", [Text.Root("B")]),
+ *         ], { value: active, onValueChange });
+ *     })),
+ * );
  * ```
  */
 function createTabsRoot(
     items: SubtypeExprOrValue<ArrayType<TabsItemType>>,
-    style?: TabsStyle
+    options?: TabsOptions,
 ): ExprType<UIComponentType> {
-    const toBoolOption = (val: SubtypeExprOrValue<BooleanType> | undefined) => {
-        if (val === undefined) return variant("none", null);
-        return variant("some", val);
-    };
+    const styleValue = options?.style ? buildTabsStyle(options.style) : undefined;
 
-    const toStringOption = (val: SubtypeExprOrValue<StringType> | undefined) => {
-        if (val === undefined) return variant("none", null);
-        return variant("some", val);
-    };
+    // Cast at variant boundary — inline `Tabs` variant in component.ts uses
+    // the recursive `node` for item.trigger, structurally identical to
+    // `UIComponentType` after unfolding but not provably equal to TS.
+    return East.value(variant("Tabs", {
+        items: items as never,
+        value: options?.value !== undefined ? some(options.value) : none,
+        defaultValue: options?.defaultValue !== undefined ? some(options.defaultValue) : none,
+        onValueChange: options?.onValueChange ? some(options.onValueChange) : none,
+        style: styleValue ? some(styleValue) : none,
+    }), UIComponentType);
+}
 
-    const variantValue = style?.variant
+function buildTabsStyle(style: TabsStyle): ExprType<TabsStyleType> {
+    const variantValue = style.variant
         ? (typeof style.variant === "string"
-            ? East.value(variant(style.variant, null), TabsVariantType)
+            ? East.value(variant(style.variant as TabsVariantLiteral, null), TabsVariantType)
             : style.variant)
         : undefined;
 
-    const sizeValue = style?.size
+    const sizeValue = style.size
         ? (typeof style.size === "string"
             ? East.value(variant(style.size, null), TabsSizeType)
             : style.size)
         : undefined;
 
-    const orientationValue = style?.orientation
+    const orientationValue = style.orientation
         ? (typeof style.orientation === "string"
             ? East.value(variant(style.orientation, null), OrientationType)
             : style.orientation)
         : undefined;
 
-    const activationModeValue = style?.activationMode
+    const activationModeValue = style.activationMode
         ? (typeof style.activationMode === "string"
             ? East.value(variant(style.activationMode, null), TabsActivationModeType)
             : style.activationMode)
         : undefined;
 
-    const justifyValue = style?.justify
+    const justifyValue = style.justify
         ? (typeof style.justify === "string"
             ? East.value(variant(style.justify, null), TabsJustifyType)
             : style.justify)
         : undefined;
 
-    const colorPaletteValue = style?.colorPalette
+    const colorPaletteValue = style.colorPalette
         ? (typeof style.colorPalette === "string"
             ? East.value(variant(style.colorPalette, null), ColorSchemeType)
             : style.colorPalette)
         : undefined;
 
-    return East.value(variant("Tabs", {
-        items: items,
-        value: toStringOption(style?.value),
-        defaultValue: toStringOption(style?.defaultValue),
-        style: style ? variant("some", East.value({
-            variant: variantValue ? variant("some", variantValue) : variant("none", null),
-            size: sizeValue ? variant("some", sizeValue) : variant("none", null),
-            orientation: orientationValue ? variant("some", orientationValue) : variant("none", null),
-            activationMode: activationModeValue ? variant("some", activationModeValue) : variant("none", null),
-            fitted: toBoolOption(style.fitted),
-            justify: justifyValue ? variant("some", justifyValue) : variant("none", null),
-            lazyMount: toBoolOption(style.lazyMount),
-            unmountOnExit: toBoolOption(style.unmountOnExit),
-            colorPalette: colorPaletteValue ? variant("some", colorPaletteValue) : variant("none", null),
-            onValueChange: style?.onValueChange !== undefined ? variant("some", style.onValueChange) : variant("none", null),
-        }, TabsStyleType)) : variant("none", null),
-    }), UIComponentType);
+    return East.value({
+        variant: variantValue ? some(variantValue) : none,
+        size: sizeValue ? some(sizeValue) : none,
+        orientation: orientationValue ? some(orientationValue) : none,
+        activationMode: activationModeValue ? some(activationModeValue) : none,
+        fitted: style.fitted !== undefined ? some(style.fitted) : none,
+        justify: justifyValue ? some(justifyValue) : none,
+        lazyMount: style.lazyMount !== undefined ? some(style.lazyMount) : none,
+        unmountOnExit: style.unmountOnExit !== undefined ? some(style.unmountOnExit) : none,
+        colorPalette: colorPaletteValue ? some(colorPaletteValue) : none,
+        listBackground: style.listBackground !== undefined ? some(style.listBackground) : none,
+        indicatorColor: style.indicatorColor !== undefined ? some(style.indicatorColor) : none,
+        activeTriggerColor: style.activeTriggerColor !== undefined ? some(style.activeTriggerColor) : none,
+        inactiveTriggerColor: style.inactiveTriggerColor !== undefined ? some(style.inactiveTriggerColor) : none,
+        contentBackground: style.contentBackground !== undefined ? some(style.contentBackground) : none,
+    }, TabsStyleType);
 }
 
 // ============================================================================
-// Tabs Compound Component
+// Tabs Compound Namespace
 // ============================================================================
 
 /**
- * Tabs compound component for tabbed content panels.
+ * Tabs compound primitive for tabbed content panels.
  *
  * @remarks
- * Use `Tabs.Root` to create the container and `Tabs.Item` for each
- * tab panel. Tab content supports child UI components.
+ * Use `Tabs.Root(items, options)` for the container and
+ * `Tabs.Item(value, trigger, content, options)` for each tab. The
+ * `trigger` accepts any UIComponentType — strings coerce to `Text.Root(s)`.
  */
 export const Tabs = {
     /**
-     * Creates a Tabs container with items and optional styling.
+     * Creates a Tabs container.
      *
-     * @param items - Array of tab items created with Tabs.Item
-     * @param style - Optional styling configuration
-     * @returns An East expression representing the tabs component
+     * @param items - Array of tab items
+     * @param options - State + behaviour + optional `style`
+     * @returns An East expression representing the Tabs component
      *
      * @remarks
-     * Tabs organize content into separate panels where only one panel
-     * is visible at a time. Supports various visual variants, sizes,
-     * orientations, and activation modes.
+     * See {@link createTabsRoot} for full semantics. Per the Type-shape
+     * convention: `value` / `defaultValue` / `onValueChange` are top-level
+     * options; `style` holds visual presets + colour slots.
      *
      * @example
      * ```ts
      * import { East } from "@elaraai/east";
      * import { Tabs, Text, UIComponentType } from "@elaraai/east-ui";
      *
-     * const example = East.function([], UIComponentType, $ => {
-     *     return Tabs.Root([
-     *         Tabs.Item("tab1", "Overview", [Text.Root("Overview content")]),
-     *         Tabs.Item("tab2", "Details", [Text.Root("Details content")]),
-     *     ], {
-     *         variant: "line",
-     *         fitted: true,
-     *     });
-     * });
+     * const ex = East.function([], UIComponentType, _$ =>
+     *     Tabs.Root([
+     *         Tabs.Item("a", "Tab A", [Text.Root("A")]),
+     *         Tabs.Item("b", "Tab B", [Text.Root("B")]),
+     *     ], { defaultValue: "a", style: { variant: "line" } }),
+     * );
      * ```
      */
     Root: createTabsRoot,
     /**
-     * Creates a Tabs item with trigger label and content.
+     * Creates a Tabs item.
      *
-     * @param value - Unique identifier for this tab
-     * @param trigger - The tab label text displayed in the tab list
+     * @param value - Unique identifier for the tab
+     * @param trigger - String (coerced to `Text.Root(s)`) or UIComponentType
      * @param content - Array of child UI components for the tab panel
-     * @param style - Optional item configuration
-     * @returns An East expression representing the tabs item
-     *
-     * @remarks
-     * Each tab item has a unique value for identification, a trigger
-     * text displayed in the tab list, and content shown when selected.
-     * Items can be individually disabled.
+     * @param options - Per-item options (`disabled`)
+     * @returns An East expression representing the Tabs item
      *
      * @example
      * ```ts
      * import { East } from "@elaraai/east";
-     * import { Tabs, Text, UIComponentType } from "@elaraai/east-ui";
+     * import { Tabs, Stack, Text, Badge, UIComponentType } from "@elaraai/east-ui";
      *
-     * const example = East.function([], UIComponentType, $ => {
-     *     return Tabs.Root([
-     *         Tabs.Item("overview", "Overview", [
-     *             Text.Root("Overview content here"),
-     *         ]),
-     *         Tabs.Item("disabled", "Disabled Tab", [
-     *             Text.Root("This tab is disabled"),
-     *         ], {
-     *             disabled: true,
-     *         }),
-     *     ], {
-     *         defaultValue: "overview",
-     *     });
-     * });
+     * const ex = East.function([], UIComponentType, _$ =>
+     *     Tabs.Item(
+     *         "results",
+     *         Stack.HStack([Text.Root("Results"), Badge.Root("5")]),
+     *         [Text.Root("Five results computed.")],
+     *     ),
+     * );
      * ```
      */
     Item: createTabsItem,
     /**
-     * Helper function to create tabs variant values.
+     * Helper for creating tabs variant values.
      *
-     * @param v - The variant string ("line", "subtle", "enclosed", "outline", "plain")
-     * @returns An East expression representing the tabs variant
-     *
-     * @remarks
-     * Use this helper to create variant values programmatically. In most cases,
-     * you can pass string literals directly to the style property.
-     *
-     * @example
-     * ```ts
-     * import { East } from "@elaraai/east";
-     * import { Tabs, Text, UIComponentType } from "@elaraai/east-ui";
-     *
-     * const example = East.function([], UIComponentType, $ => {
-     *     return Tabs.Root([
-     *         Tabs.Item("tab1", "Tab 1", [Text.Root("Content")]),
-     *     ], {
-     *         variant: Tabs.Variant("enclosed"),
-     *     });
-     * });
-     * ```
+     * @param v - The variant string
+     * @returns An East expression representing the variant
      */
     Variant: TabsVariant,
     Types: {
         /**
-         * The concrete East type for Tabs container data.
-         *
-         * @remarks
-         * This struct type represents the serializable data structure for a Tabs
-         * component. Tabs display content in separate panels, with only one panel
-         * visible at a time. The container holds an array of tab items and
-         * optional controlled/uncontrolled selection state.
-         *
-         * @property items - Array of tab items (TabsItemType)
-         * @property value - Controlled selected tab value (OptionType<StringType>)
-         * @property defaultValue - Initial selected tab value (OptionType<StringType>)
-         * @property style - Optional styling configuration (OptionType<TabsStyleType>)
+         * The concrete East type for the Tabs container — mirrors the
+         * inline `Tabs` variant in `component.ts`.
          */
-        Root: TabsRootType,
+        Tabs: TabsType,
         /**
-         * The concrete East type for Tabs item data.
-         *
-         * @remarks
-         * This struct type represents a single tab within the Tabs component.
-         * Each item has a unique identifier, trigger text displayed in the tab
-         * list, and content components shown when the tab is selected.
-         *
-         * @property value - Unique identifier for this tab (StringType)
-         * @property trigger - The tab label text displayed in the tab list (StringType)
-         * @property content - Array of child UI components for the panel (ArrayType<UIComponentType>)
-         * @property disabled - Whether this tab is disabled (OptionType<BooleanType>)
+         * The concrete East type for a Tabs item.
          */
         Item: TabsItemType,
         /**
-         * The concrete East type for Tabs style configuration.
-         *
-         * @remarks
-         * This struct type defines the styling configuration for a Tabs component.
-         * It controls visual appearance, layout, keyboard behavior, and
-         * performance optimizations for tab content mounting.
-         *
-         * @property variant - Visual variant: line, subtle, enclosed, outline, plain (OptionType<TabsVariantType>)
-         * @property size - Size of the tabs: sm, md, lg (OptionType<TabsSizeType>)
-         * @property orientation - Layout direction: horizontal or vertical (OptionType<OrientationType>)
-         * @property activationMode - Keyboard navigation: automatic or manual (OptionType<TabsActivationModeType>)
-         * @property fitted - Whether tabs take equal width (OptionType<BooleanType>)
-         * @property justify - Tab list alignment: start, center, end (OptionType<TabsJustifyType>)
-         * @property lazyMount - Mount content only when tab is selected (OptionType<BooleanType>)
-         * @property unmountOnExit - Unmount content when tab is deselected (OptionType<BooleanType>)
-         * @property colorPalette - Color scheme for the tabs (OptionType<ColorSchemeType>)
+         * Visual-only style struct for Tabs. See {@link TabsStyleType}.
          */
         Style: TabsStyleType,
         /**
-         * Variant type for Tabs visual appearance styles.
-         *
-         * @remarks
-         * This variant type provides type-safe visual style options for tabs.
-         * Each variant affects how the tab list and selected indicator appear.
-         *
-         * @property line - Tabs with an underline indicator on the selected tab
-         * @property subtle - Light background highlighting on the selected tab
-         * @property enclosed - Tabs with a bordered container around the selected tab
-         * @property outline - Outlined tabs with border around each tab
-         * @property plain - No visible styling or indicator
+         * Variant enum for Tabs appearance styles.
          */
         Variant: TabsVariantType,
         /**
-         * Size type for Tabs component dimensions.
-         *
-         * @remarks
-         * This variant type provides type-safe size options for tabs.
-         * Affects the padding, font size, and overall dimensions of the tab list.
-         * Note: Chakra UI Tabs only supports sm, md, lg (not xs or xl).
-         *
-         * @property sm - Small tabs with compact padding
-         * @property md - Medium tabs with standard padding (default)
-         * @property lg - Large tabs with generous padding
+         * Size enum for Tabs (sm / md / lg).
          */
         Size: TabsSizeType,
         /**
-         * Justify type for tab list alignment.
-         *
-         * @remarks
-         * This variant type controls how tabs are aligned within the tab list
-         * container. Useful when tabs don't fill the entire available width.
-         *
-         * @property start - Align tabs to the start (left in LTR, right in RTL)
-         * @property center - Center the tabs horizontally
-         * @property end - Align tabs to the end (right in LTR, left in RTL)
+         * Justify enum for tab list alignment.
          */
         Justify: TabsJustifyType,
         /**
-         * Activation mode type for keyboard navigation behavior.
-         *
-         * @remarks
-         * This variant type controls how tabs respond to keyboard navigation.
-         * Affects accessibility and user experience when navigating with
-         * arrow keys.
-         *
-         * @property automatic - Tab content activates immediately when focused via keyboard
-         * @property manual - Tab requires Enter/Space key press to activate after focus
+         * Activation mode enum for keyboard navigation.
          */
         ActivationMode: TabsActivationModeType,
     },

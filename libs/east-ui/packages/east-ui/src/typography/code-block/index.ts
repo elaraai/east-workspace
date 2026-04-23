@@ -10,15 +10,28 @@ import {
     StringType,
     variant,
     some,
+    none,
 } from "@elaraai/east";
 
 import { OverflowType } from "../../style.js";
 import { UIComponentType } from "../../component.js";
 import { PaddingType, MarginType } from "../../layout/style.js";
-import { CodeBlockType, CodeLanguageType, type CodeBlockStyle, type CodeLanguage } from "./types.js";
+import {
+    CodeBlockType,
+    CodeBlockVisualStyleType,
+    CodeLanguageType,
+    type CodeBlockStyle,
+    type CodeLanguage,
+} from "./types.js";
 
 // Re-export types
-export { CodeBlockType, CodeLanguageType, type CodeBlockStyle, type CodeLanguage } from "./types.js";
+export {
+    CodeBlockType,
+    CodeBlockVisualStyleType,
+    CodeLanguageType,
+    type CodeBlockStyle,
+    type CodeLanguage,
+} from "./types.js";
 
 // ============================================================================
 // CodeBlock Component
@@ -28,93 +41,100 @@ export { CodeBlockType, CodeLanguageType, type CodeBlockStyle, type CodeLanguage
  * Creates a CodeBlock component for displaying code with syntax highlighting.
  *
  * @param code - The code content to display
- * @param style - Optional styling configuration
+ * @param style - Optional configuration: language / showLineNumbers /
+ *                highlightLines / showCopyButton / wordWrap / title land on
+ *                the main struct; every visual field wraps into `style`.
  * @returns An East expression representing the code block component
  */
 function createCodeBlock(
     code: SubtypeExprOrValue<StringType>,
     style?: CodeBlockStyle
 ): ExprType<UIComponentType> {
-    const showLineNumbersValue = style?.showLineNumbers !== undefined
-        ? (typeof style.showLineNumbers === "boolean"
-            ? style.showLineNumbers
-            : style.showLineNumbers)
-        : undefined;
-
-    const showCopyButtonValue = style?.showCopyButton !== undefined
-        ? (typeof style.showCopyButton === "boolean"
-            ? style.showCopyButton
-            : style.showCopyButton)
-        : undefined;
-
-    // Convert string language to variant
     const languageValue = style?.language !== undefined
         ? (typeof style.language === "string"
             ? East.value(variant(style.language as CodeLanguage, null), CodeLanguageType)
             : style.language)
         : undefined;
 
-    const overflowValue = style?.overflow
-        ? (typeof style.overflow === "string"
-            ? East.value(variant(style.overflow, null), OverflowType)
-            : style.overflow)
-        : undefined;
+    const showLineNumbersValue = style?.showLineNumbers !== undefined ? style.showLineNumbers : undefined;
+    const showCopyButtonValue = style?.showCopyButton !== undefined ? style.showCopyButton : undefined;
 
-    const overflowXValue = style?.overflowX
-        ? (typeof style.overflowX === "string"
-            ? East.value(variant(style.overflowX, null), OverflowType)
-            : style.overflowX)
-        : undefined;
-
-    const overflowYValue = style?.overflowY
-        ? (typeof style.overflowY === "string"
-            ? East.value(variant(style.overflowY, null), OverflowType)
-            : style.overflowY)
-        : undefined;
-
-    const paddingValue = style?.padding
-        ? (typeof style.padding === "string"
-            ? East.value({
-                top: some(style.padding),
-                right: some(style.padding),
-                bottom: some(style.padding),
-                left: some(style.padding)
-            }, PaddingType)
-            : style.padding)
-        : undefined;
-
-    const marginValue = style?.margin
-        ? (typeof style.margin === "string"
-            ? East.value({
-                top: some(style.margin),
-                right: some(style.margin),
-                bottom: some(style.margin),
-                left: some(style.margin)
-            }, MarginType)
-            : style.margin)
-        : undefined;
+    const styleValue = style ? buildCodeBlockVisualStyle(style) : undefined;
 
     return East.value(variant("CodeBlock", {
         code: code,
         language: languageValue !== undefined ? variant("some", languageValue) : variant("none", null),
         showLineNumbers: showLineNumbersValue !== undefined ? variant("some", showLineNumbersValue) : variant("none", null),
         highlightLines: style?.highlightLines ? variant("some", style.highlightLines) : variant("none", null),
-        maxHeight: style?.maxHeight ? variant("some", style.maxHeight) : variant("none", null),
         showCopyButton: showCopyButtonValue !== undefined ? variant("some", showCopyButtonValue) : variant("none", null),
         wordWrap: style?.wordWrap !== undefined ? variant("some", style.wordWrap) : variant("none", null),
         title: style?.title ? variant("some", style.title) : variant("none", null),
-        overflow: overflowValue ? variant("some", overflowValue) : variant("none", null),
-        overflowX: overflowXValue ? variant("some", overflowXValue) : variant("none", null),
-        overflowY: overflowYValue ? variant("some", overflowYValue) : variant("none", null),
-        width: style?.width ? variant("some", style.width) : variant("none", null),
-        height: style?.height ? variant("some", style.height) : variant("none", null),
-        minWidth: style?.minWidth ? variant("some", style.minWidth) : variant("none", null),
-        minHeight: style?.minHeight ? variant("some", style.minHeight) : variant("none", null),
-        maxWidth: style?.maxWidth ? variant("some", style.maxWidth) : variant("none", null),
-        padding: paddingValue ? variant("some", paddingValue) : variant("none", null),
-        margin: marginValue ? variant("some", marginValue) : variant("none", null),
-        opacity: style?.opacity !== undefined ? variant("some", style.opacity) : variant("none", null),
+        style: styleValue ? variant("some", styleValue) : variant("none", null),
     }), UIComponentType);
+}
+
+function buildCodeBlockVisualStyle(
+    style: CodeBlockStyle,
+): ExprType<CodeBlockVisualStyleType> {
+    const overflowValue = style.overflow
+        ? (typeof style.overflow === "string"
+            ? East.value(variant(style.overflow, null), OverflowType)
+            : style.overflow)
+        : undefined;
+
+    const overflowXValue = style.overflowX
+        ? (typeof style.overflowX === "string"
+            ? East.value(variant(style.overflowX, null), OverflowType)
+            : style.overflowX)
+        : undefined;
+
+    const overflowYValue = style.overflowY
+        ? (typeof style.overflowY === "string"
+            ? East.value(variant(style.overflowY, null), OverflowType)
+            : style.overflowY)
+        : undefined;
+
+    const paddingValue = style.padding
+        ? (typeof style.padding === "string"
+            ? East.value({
+                top: some(style.padding),
+                right: some(style.padding),
+                bottom: some(style.padding),
+                left: some(style.padding),
+            }, PaddingType)
+            : style.padding)
+        : undefined;
+
+    const marginValue = style.margin
+        ? (typeof style.margin === "string"
+            ? East.value({
+                top: some(style.margin),
+                right: some(style.margin),
+                bottom: some(style.margin),
+                left: some(style.margin),
+            }, MarginType)
+            : style.margin)
+        : undefined;
+
+    return East.value({
+        background: style.background ? some(style.background) : none,
+        borderColor: style.borderColor ? some(style.borderColor) : none,
+        headerBackground: style.headerBackground ? some(style.headerBackground) : none,
+        lineNumberColor: style.lineNumberColor ? some(style.lineNumberColor) : none,
+        highlightBackground: style.highlightBackground ? some(style.highlightBackground) : none,
+        maxHeight: style.maxHeight ? some(style.maxHeight) : none,
+        overflow: overflowValue ? some(overflowValue) : none,
+        overflowX: overflowXValue ? some(overflowXValue) : none,
+        overflowY: overflowYValue ? some(overflowYValue) : none,
+        width: style.width ? some(style.width) : none,
+        height: style.height ? some(style.height) : none,
+        minWidth: style.minWidth ? some(style.minWidth) : none,
+        minHeight: style.minHeight ? some(style.minHeight) : none,
+        maxWidth: style.maxWidth ? some(style.maxWidth) : none,
+        padding: paddingValue ? some(paddingValue) : none,
+        margin: marginValue ? some(marginValue) : none,
+        opacity: style.opacity !== undefined ? some(style.opacity) : none,
+    }, CodeBlockVisualStyleType);
 }
 
 /**
@@ -122,7 +142,11 @@ function createCodeBlock(
  *
  * @remarks
  * Use `CodeBlock.Root(code, style)` to create code blocks with optional
- * syntax highlighting, line numbers, and line highlighting.
+ * syntax highlighting, line numbers, and line highlighting. `language`,
+ * `showLineNumbers`, `highlightLines`, `showCopyButton`, `wordWrap`, and
+ * `title` live on the main struct (content + wiring flags); every visual
+ * field (dimensions, overflow, colour slots, padding, margin, opacity)
+ * wraps into the `style` sub-struct per the type-shape convention.
  *
  * @example
  * ```ts
@@ -146,5 +170,6 @@ export const CodeBlock = {
     Types: {
         CodeBlock: CodeBlockType,
         Language: CodeLanguageType,
+        Style: CodeBlockVisualStyleType,
     },
 } as const;

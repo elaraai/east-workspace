@@ -17,6 +17,10 @@
       "types": "./dist/test/buttons/button.examples.d.ts",
       "default": "./dist/test/buttons/button.examples.js"
     },
+    "./examples/buttons/*": {
+      "types": "./dist/test/buttons/*.examples.d.ts",
+      "default": "./dist/test/buttons/*.examples.js"
+    },
     "./examples/typography": {
       "types": "./dist/test/typography/index.d.ts",
       "default": "./dist/test/typography/index.js"

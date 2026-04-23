@@ -28,13 +28,13 @@ export const drawerLeft = example({
     description: "Slide-in panel from left",
     fn: East.function([], UIComponentType, (_$) => {
         return Drawer.Root(
-            Button.Root("Open Navigation", { variant: "outline" }),
+            Button.Root("Open Navigation", { style: { variant: "outline" } }),
             [
                 Stack.VStack([
-                    Button.Root("Dashboard", { variant: "ghost", size: "sm" }),
-                    Button.Root("Projects", { variant: "ghost", size: "sm" }),
-                    Button.Root("Team", { variant: "ghost", size: "sm" }),
-                    Button.Root("Settings", { variant: "ghost", size: "sm" }),
+                    Button.Root("Dashboard", { style: { variant: "ghost", size: "sm" } }),
+                    Button.Root("Projects", { style: { variant: "ghost", size: "sm" } }),
+                    Button.Root("Team", { style: { variant: "ghost", size: "sm" } }),
+                    Button.Root("Settings", { style: { variant: "ghost", size: "sm" } }),
                 ], { gap: "1", align: "stretch" }),
             ],
             { title: "Navigation", placement: "start" }
@@ -86,8 +86,7 @@ export const drawerProgrammatic = example({
     description: "Drawer.open() without trigger",
     fn: East.function([], UIComponentType, (_$) => {
         return Button.Root("Open Drawer Programmatically", {
-            variant: "solid",
-            colorPalette: "purple",
+            style: { variant: "solid", colorPalette: "purple" },
             onClick: East.function([], NullType, $ => {
                 $(Drawer.open(East.value({
                     body: [

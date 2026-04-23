@@ -6,3 +6,6 @@
 export { Button } from "./button/index.js";
 export { IconButton } from "./icon-button/index.js";
 export { CopyButton } from "./copy-button/index.js";
+export { CloseButton } from "./close-button/index.js";
+export { Toggle } from "./toggle/index.js";
+export { ButtonGroup } from "./button-group/index.js";

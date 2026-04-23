@@ -69,7 +69,7 @@ export const dataBindStringReset = example({
             }));
             return Stack.VStack([
                 Stat.Root("Name", Text.Root(value)),
-                Button.Root("Reset", { variant: "outline", onClick: reset }),
+                Button.Root("Reset", { style: { variant: "outline" }, onClick: reset }),
             ], { gap: "3", align: "stretch" });
         }));
     }),

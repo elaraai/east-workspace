@@ -17,21 +17,24 @@ import type { OverflowLiteral, TextDecorationLiteral } from "../../style.js";
 import { PaddingType, MarginType } from "../../layout/style.js";
 
 // ============================================================================
-// Highlight Type
+// Highlight Visual Style Struct
 // ============================================================================
 
 /**
- * The concrete East type for Highlight component data.
+ * Visual-presentation struct for the Highlight component.
  *
- * @property value - The text containing content to highlight
- * @property query - String or array of strings to highlight within the text
- * @property color - Background color for highlighted portions
+ * Holds every visual field: colour escape hatches, typography,
+ * layout / sizing, and opacity. Consumed via `HighlightType.style`.
  */
-export const HighlightType = StructType({
-    value: StringType,
-    query: ArrayType(StringType),
+export const HighlightVisualStyleType = StructType({
+    // Colour
     color: OptionType(StringType),
+    background: OptionType(StringType),
+    // Typography
     textDecoration: OptionType(TextDecorationType),
+    lineHeight: OptionType(StringType),
+    letterSpacing: OptionType(StringType),
+    // Layout / sizing
     overflow: OptionType(OverflowType),
     overflowX: OptionType(OverflowType),
     overflowY: OptionType(OverflowType),
@@ -43,26 +46,53 @@ export const HighlightType = StructType({
     maxHeight: OptionType(StringType),
     padding: OptionType(PaddingType),
     margin: OptionType(MarginType),
-    lineHeight: OptionType(StringType),
-    letterSpacing: OptionType(StringType),
+    // Opacity
     opacity: OptionType(FloatType),
+});
+
+export type HighlightVisualStyleType = typeof HighlightVisualStyleType;
+
+// ============================================================================
+// Highlight Type
+// ============================================================================
+
+/**
+ * The concrete East type for Highlight component data.
+ *
+ * @property value - The text containing content to highlight
+ * @property query - Array of strings to highlight within the text
+ * @property style - Visual-presentation sub-struct
+ */
+export const HighlightType = StructType({
+    value: StringType,
+    query: ArrayType(StringType),
+    style: OptionType(HighlightVisualStyleType),
 });
 
 export type HighlightType = typeof HighlightType;
 
 // ============================================================================
-// Highlight Style
+// Highlight Style (TS interface)
 // ============================================================================
 
 /**
  * Style configuration for Highlight components.
+ *
+ * Flat at the factory boundary for ergonomics; the IR wraps these fields
+ * inside `HighlightType.style` (see `HighlightVisualStyleType`).
  */
 export type HighlightStyle = {
-    /** Background color for highlighted text */
+    /** Foreground text colour for the highlighted portions */
     color?: SubtypeExprOrValue<StringType>;
+    /** Background colour for highlighted portions (the highlight fill) */
+    background?: SubtypeExprOrValue<StringType>;
     /** Text decoration */
     textDecoration?: SubtypeExprOrValue<TextDecorationType> | TextDecorationLiteral;
-    /** Overflow behavior */
+    /** Line height */
+    lineHeight?: SubtypeExprOrValue<StringType>;
+    /** Letter spacing */
+    letterSpacing?: SubtypeExprOrValue<StringType>;
+    /** Overflow behaviour */
     overflow?: SubtypeExprOrValue<OverflowType> | OverflowLiteral;
     /** Horizontal overflow */
     overflowX?: SubtypeExprOrValue<OverflowType> | OverflowLiteral;
@@ -84,10 +114,6 @@ export type HighlightStyle = {
     padding?: SubtypeExprOrValue<PaddingType> | string;
     /** Margin configuration */
     margin?: SubtypeExprOrValue<MarginType> | string;
-    /** Line height */
-    lineHeight?: SubtypeExprOrValue<StringType>;
-    /** Letter spacing */
-    letterSpacing?: SubtypeExprOrValue<StringType>;
     /** CSS opacity (0-1) */
     opacity?: SubtypeExprOrValue<FloatType>;
 };

@@ -13,46 +13,28 @@ import {
     NullType,
 } from "@elaraai/east";
 
-import { OverflowType, TextAlignType, TextDecorationType } from "../../style.js";
-import type { OverflowLiteral, TextAlignLiteral, TextDecorationLiteral } from "../../style.js";
+import {
+    FontFamilyType,
+    FontStyleType,
+    FontWeightType,
+    OverflowType,
+    TextAlignType,
+    TextDecorationType,
+    TextStyleType,
+} from "../../style.js";
+import type {
+    FontFamilyLiteral,
+    FontStyleLiteral,
+    FontWeightLiteral,
+    OverflowLiteral,
+    TextAlignLiteral,
+    TextDecorationLiteral,
+    TextStyleLiteral,
+} from "../../style.js";
 import { PaddingType, MarginType } from "../../layout/style.js";
 
 // ============================================================================
-// Heading Size Type
-// ============================================================================
-
-/**
- * Heading size type for typography scaling.
- *
- * @property xs - Extra small heading
- * @property sm - Small heading
- * @property md - Medium heading
- * @property lg - Large heading
- * @property xl - Extra large heading
- * @property 2xl - 2x large heading
- * @property 3xl - 3x large heading
- * @property 4xl - 4x large heading
- * @property 5xl - 5x large heading
- * @property 6xl - 6x large heading
- */
-export const HeadingSizeType = VariantType({
-    xs: NullType,
-    sm: NullType,
-    md: NullType,
-    lg: NullType,
-    xl: NullType,
-    "2xl": NullType,
-    "3xl": NullType,
-    "4xl": NullType,
-    "5xl": NullType,
-    "6xl": NullType,
-});
-
-export type HeadingSizeType = typeof HeadingSizeType;
-export type HeadingSizeLiteral = "xs" | "sm" | "md" | "lg" | "xl" | "2xl" | "3xl" | "4xl" | "5xl" | "6xl";
-
-// ============================================================================
-// Heading As Type
+// Heading As Type (semantic HTML level)
 // ============================================================================
 
 /**
@@ -78,25 +60,31 @@ export type HeadingAsType = typeof HeadingAsType;
 export type HeadingAsLiteral = "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
 
 // ============================================================================
-// Heading Type
+// Heading Visual Style Struct
 // ============================================================================
 
 /**
- * The concrete East type for Heading component data.
+ * Visual-presentation struct for the Heading component.
  *
- * @property value - The heading text
- * @property size - Visual size of the heading
- * @property as - Semantic HTML element (h1-h6)
- * @property color - Text color
- * @property textAlign - Text alignment
+ * Holds the semantic typography scale (`textStyle` — restricted by JSDoc to
+ * `display-*` / `heading-*` tokens), font controls, alignment / decoration,
+ * colour (incl. background for hero-heading bands), layout / sizing and
+ * opacity. Consumed via `HeadingType.style`.
  */
-export const HeadingType = StructType({
-    value: StringType,
-    size: OptionType(HeadingSizeType),
-    as: OptionType(HeadingAsType),
-    color: OptionType(StringType),
+export const HeadingVisualStyleType = StructType({
+    // Typography — semantic scale first; fallback font controls below
+    textStyle: OptionType(TextStyleType),
+    fontWeight: OptionType(FontWeightType),
+    fontStyle: OptionType(FontStyleType),
+    fontFamily: OptionType(FontFamilyType),
     textAlign: OptionType(TextAlignType),
     textDecoration: OptionType(TextDecorationType),
+    lineHeight: OptionType(StringType),
+    letterSpacing: OptionType(StringType),
+    // Colour
+    color: OptionType(StringType),
+    background: OptionType(StringType),
+    // Layout / sizing
     overflow: OptionType(OverflowType),
     overflowX: OptionType(OverflowType),
     overflowY: OptionType(OverflowType),
@@ -108,31 +96,77 @@ export const HeadingType = StructType({
     maxHeight: OptionType(StringType),
     padding: OptionType(PaddingType),
     margin: OptionType(MarginType),
-    lineHeight: OptionType(StringType),
-    letterSpacing: OptionType(StringType),
+    // Opacity
     opacity: OptionType(FloatType),
+});
+
+export type HeadingVisualStyleType = typeof HeadingVisualStyleType;
+
+// ============================================================================
+// Heading Type
+// ============================================================================
+
+/**
+ * The concrete East type for Heading component data.
+ *
+ * @property value - The heading text
+ * @property as - Semantic HTML element (h1–h6)
+ * @property style - Visual-presentation sub-struct
+ */
+export const HeadingType = StructType({
+    value: StringType,
+    as: OptionType(HeadingAsType),
+    style: OptionType(HeadingVisualStyleType),
 });
 
 export type HeadingType = typeof HeadingType;
 
 // ============================================================================
-// Heading Style
+// Heading Style (TS interface)
 // ============================================================================
 
 /**
  * Style configuration for Heading components.
+ *
+ * `size` has been removed in favour of the semantic `textStyle` token.
+ * Authors use `textStyle: "heading-lg"` / `"display-md"` etc. Migration map:
+ *
+ * | Old `size`  | New `textStyle`     |
+ * |-------------|---------------------|
+ * | `xs`        | `heading-xs`        |
+ * | `sm`        | `heading-sm`        |
+ * | `md`        | `heading-md`        |
+ * | `lg`        | `heading-lg`        |
+ * | `xl` / `2xl`| `heading-xl` → consolidated (prefer `heading-lg` or `display-sm`) |
+ * | `3xl` / `4xl`| `display-sm` / `display-md` |
+ * | `5xl` / `6xl`| `display-md` / `display-lg` |
+ *
+ * Flat at the factory boundary for ergonomics; the IR wraps every visual
+ * field inside `HeadingType.style` (see `HeadingVisualStyleType`).
  */
 export type HeadingStyle = {
-    /** Visual size of the heading */
-    size?: SubtypeExprOrValue<HeadingSizeType> | HeadingSizeLiteral;
-    /** Semantic HTML element (h1-h6) */
+    /** Semantic HTML element (h1–h6). Stays on the main struct — identity. */
     as?: SubtypeExprOrValue<HeadingAsType> | HeadingAsLiteral;
-    /** Text color */
+    /** Semantic typography scale. Restrict to display-* / heading-* tokens. */
+    textStyle?: SubtypeExprOrValue<TextStyleType> | TextStyleLiteral;
+    /** Font weight override */
+    fontWeight?: SubtypeExprOrValue<FontWeightType> | FontWeightLiteral;
+    /** Font style override */
+    fontStyle?: SubtypeExprOrValue<FontStyleType> | FontStyleLiteral;
+    /** Font family (sans / serif / mono) */
+    fontFamily?: SubtypeExprOrValue<FontFamilyType> | FontFamilyLiteral;
+    /** Text colour */
     color?: SubtypeExprOrValue<StringType>;
+    /** Background colour (for hero-heading coloured bands) */
+    background?: SubtypeExprOrValue<StringType>;
     /** Text alignment */
     textAlign?: SubtypeExprOrValue<TextAlignType> | TextAlignLiteral;
     /** Text decoration (none, underline, line-through, overline) */
     textDecoration?: SubtypeExprOrValue<TextDecorationType> | TextDecorationLiteral;
+    /** Line height */
+    lineHeight?: SubtypeExprOrValue<StringType>;
+    /** Letter spacing */
+    letterSpacing?: SubtypeExprOrValue<StringType>;
     /** Overflow behavior */
     overflow?: SubtypeExprOrValue<OverflowType> | OverflowLiteral;
     /** Horizontal overflow behavior */
@@ -155,10 +189,6 @@ export type HeadingStyle = {
     padding?: SubtypeExprOrValue<PaddingType> | string;
     /** Margin configuration */
     margin?: SubtypeExprOrValue<MarginType> | string;
-    /** Line height */
-    lineHeight?: SubtypeExprOrValue<StringType>;
-    /** Letter spacing */
-    letterSpacing?: SubtypeExprOrValue<StringType>;
     /** CSS opacity (0-1) */
     opacity?: SubtypeExprOrValue<FloatType>;
 };

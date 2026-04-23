@@ -27,7 +27,7 @@ export const menuDisabled = example({
     description: "Some items are disabled",
     fn: East.function([], UIComponentType, (_$) => {
         return Menu.Root(
-            Button.Root("Options", { variant: "outline" }),
+            Button.Root("Options", { style: { variant: "outline" } }),
             [
                 Menu.Item("new", "New File"),
                 Menu.Item("save", "Save", true),

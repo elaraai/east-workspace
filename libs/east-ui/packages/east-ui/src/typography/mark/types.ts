@@ -40,21 +40,27 @@ export type MarkVariantType = typeof MarkVariantType;
 export type MarkVariantLiteral = "subtle" | "solid" | "text" | "plain";
 
 // ============================================================================
-// Mark Type
+// Mark Visual Style Struct
 // ============================================================================
 
 /**
- * The concrete East type for Mark component data.
+ * Visual-presentation struct for the Mark component.
  *
- * @property value - The text to mark/highlight
- * @property variant - Visual style variant
- * @property colorPalette - Color scheme for the mark
+ * Holds visual presets (variant / colorPalette), typography, colour escape
+ * hatches, layout / sizing, and opacity. Consumed via `MarkType.style`.
  */
-export const MarkType = StructType({
-    value: StringType,
+export const MarkVisualStyleType = StructType({
+    // Visual presets
     variant: OptionType(MarkVariantType),
     colorPalette: OptionType(StringType),
+    // Colour
+    color: OptionType(StringType),
+    background: OptionType(StringType),
+    // Typography
     textDecoration: OptionType(TextDecorationType),
+    lineHeight: OptionType(StringType),
+    letterSpacing: OptionType(StringType),
+    // Layout / sizing
     overflow: OptionType(OverflowType),
     overflowX: OptionType(OverflowType),
     overflowY: OptionType(OverflowType),
@@ -66,27 +72,54 @@ export const MarkType = StructType({
     maxHeight: OptionType(StringType),
     padding: OptionType(PaddingType),
     margin: OptionType(MarginType),
-    lineHeight: OptionType(StringType),
-    letterSpacing: OptionType(StringType),
+    // Opacity
     opacity: OptionType(FloatType),
+});
+
+export type MarkVisualStyleType = typeof MarkVisualStyleType;
+
+// ============================================================================
+// Mark Type
+// ============================================================================
+
+/**
+ * The concrete East type for Mark component data.
+ *
+ * @property value - The text to mark/highlight
+ * @property style - Visual-presentation sub-struct
+ */
+export const MarkType = StructType({
+    value: StringType,
+    style: OptionType(MarkVisualStyleType),
 });
 
 export type MarkType = typeof MarkType;
 
 // ============================================================================
-// Mark Style
+// Mark Style (TS interface)
 // ============================================================================
 
 /**
  * Style configuration for Mark components.
+ *
+ * Flat at the factory boundary for ergonomics; the IR wraps these fields
+ * inside `MarkType.style` (see `MarkVisualStyleType`).
  */
 export type MarkStyle = {
     /** Visual style variant */
     variant?: SubtypeExprOrValue<MarkVariantType> | MarkVariantLiteral;
     /** Color palette (e.g., "yellow", "green") */
     colorPalette?: SubtypeExprOrValue<StringType>;
+    /** Foreground text colour. Overrides `colorPalette`. */
+    color?: SubtypeExprOrValue<StringType>;
+    /** Background fill colour. Overrides `colorPalette`. */
+    background?: SubtypeExprOrValue<StringType>;
     /** Text decoration */
     textDecoration?: SubtypeExprOrValue<TextDecorationType> | TextDecorationLiteral;
+    /** Line height */
+    lineHeight?: SubtypeExprOrValue<StringType>;
+    /** Letter spacing */
+    letterSpacing?: SubtypeExprOrValue<StringType>;
     /** Overflow behavior */
     overflow?: SubtypeExprOrValue<OverflowType> | OverflowLiteral;
     /** Horizontal overflow */
@@ -109,10 +142,6 @@ export type MarkStyle = {
     padding?: SubtypeExprOrValue<PaddingType> | string;
     /** Margin configuration */
     margin?: SubtypeExprOrValue<MarginType> | string;
-    /** Line height */
-    lineHeight?: SubtypeExprOrValue<StringType>;
-    /** Letter spacing */
-    letterSpacing?: SubtypeExprOrValue<StringType>;
     /** CSS opacity (0-1) */
     opacity?: SubtypeExprOrValue<FloatType>;
 };

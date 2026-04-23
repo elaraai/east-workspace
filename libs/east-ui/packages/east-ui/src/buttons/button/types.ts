@@ -9,13 +9,12 @@ import {
     OptionType,
     StructType,
     StringType,
-    BooleanType,
     NullType,
-    FunctionType,
 } from "@elaraai/east";
 
 import { SizeType, ColorSchemeType } from "../../style.js";
 import type { SizeLiteral, ColorSchemeLiteral } from "../../style.js";
+import { IconType } from "../../display/icon/types.js";
 
 // ============================================================================
 // Button Variant Type
@@ -27,16 +26,18 @@ import type { SizeLiteral, ColorSchemeLiteral } from "../../style.js";
  * @remarks
  * Create instances using string literals like "solid", "outline", etc.
  *
- * @property solid - Solid filled button (default)
+ * @property solid - Solid filled button (default primary action)
  * @property subtle - Subtle/light background button
  * @property outline - Outlined button with border
  * @property ghost - Transparent button, visible on hover
+ * @property plain - Unadorned pressable text — no background, no border
  */
 export const ButtonVariantType = VariantType({
     solid: NullType,
     subtle: NullType,
     outline: NullType,
     ghost: NullType,
+    plain: NullType,
 });
 
 /**
@@ -45,88 +46,104 @@ export const ButtonVariantType = VariantType({
 export type ButtonVariantType = typeof ButtonVariantType;
 
 /**
- * String literal type for button variant values.
+ * String literal union of valid button variant tags.
  */
-export type ButtonVariantLiteral = "solid" | "subtle" | "outline" | "ghost";
+export type ButtonVariantLiteral = "solid" | "subtle" | "outline" | "ghost" | "plain";
 
 // ============================================================================
-// Button Style Type
+// Button Style Type — visual presentation only (§0.10)
 // ============================================================================
 
 /**
- * Style type for Button component configuration.
+ * Visual-only style struct for Button. Content, state, and behaviour live on
+ * the main `ButtonType` struct — NOT in this sub-struct — per the repo-wide
+ * Type-shape convention (§0.10).
  *
  * @remarks
- * This struct type defines the styling configuration for a Button component.
+ * Anything visual goes here: the Chakra preset triplet (`variant`,
+ * `colorPalette`, `size`) plus per-instance colour escape hatches that
+ * override the theme.
  *
- * @property variant - Button appearance variant (solid, subtle, outline, ghost)
- * @property colorPalette - Color scheme for the button
- * @property size - Size of the button (xs, sm, md, lg)
- * @property loading - Whether the button shows a loading state
- * @property disabled - Whether the button is disabled
- * @property onClick - Callback triggered when the button is clicked
+ * @property variant - Button appearance variant (solid / subtle / outline / ghost / plain)
+ * @property colorPalette - Colour scheme token (blue / red / green / teal / ...)
+ * @property size - Size token (xs / sm / md / lg)
+ * @property color - Label + icon tint — overrides palette-derived text colour
+ * @property background - Button background — overrides palette-derived fill
+ * @property borderColor - Border tint — overrides palette-derived border
+ * @property hoverBackground - Background applied on hover (`_hover={{ bg: ... }}`)
  */
 export const ButtonStyleType = StructType({
     variant: OptionType(ButtonVariantType),
     colorPalette: OptionType(ColorSchemeType),
     size: OptionType(SizeType),
-    loading: OptionType(BooleanType),
-    disabled: OptionType(BooleanType),
-    onClick: OptionType(FunctionType([], NullType)),
+    color: OptionType(StringType),
+    background: OptionType(StringType),
+    borderColor: OptionType(StringType),
+    hoverBackground: OptionType(StringType),
 });
 
 /**
- * Type representing the Button style structure.
+ * Type representing the Button visual-style structure.
  */
 export type ButtonStyleType = typeof ButtonStyleType;
 
 /**
- * TypeScript interface for Button style options.
+ * TypeScript options bag for Button's `style` sub-struct — visual props only.
  *
  * @remarks
- * Use this interface when creating Button components.
+ * State (`loading` / `disabled`) and behaviour (`onClick`) live on the main
+ * options object passed to `Button.Root`, not here.
  *
  * @property variant - Button appearance variant
- * @property colorPalette - Color scheme for theming
+ * @property colorPalette - Colour scheme for theming
  * @property size - Size of the button
- * @property loading - Shows loading spinner when true
- * @property disabled - Disables button interaction when true
- * @property onClick - Callback triggered when the button is clicked
+ * @property color - Label + icon tint escape hatch
+ * @property background - Background colour escape hatch
+ * @property borderColor - Border colour escape hatch
+ * @property hoverBackground - Hover-state background colour
  */
 export interface ButtonStyle {
-    /** Button appearance variant (solid, subtle, outline, ghost) */
+    /** Button appearance variant (solid, subtle, outline, ghost, plain) */
     variant?: SubtypeExprOrValue<ButtonVariantType> | ButtonVariantLiteral;
     /** Color scheme for theming */
     colorPalette?: SubtypeExprOrValue<ColorSchemeType> | ColorSchemeLiteral;
     /** Size of the button */
     size?: SubtypeExprOrValue<SizeType> | SizeLiteral;
-    /** Shows loading spinner when true */
-    loading?: SubtypeExprOrValue<BooleanType>;
-    /** Disables button interaction when true */
-    disabled?: SubtypeExprOrValue<BooleanType>;
-    /** Callback triggered when the button is clicked */
-    onClick?: SubtypeExprOrValue<FunctionType<[], NullType>>;
+    /** Label + icon tint — overrides palette-derived default */
+    color?: SubtypeExprOrValue<StringType>;
+    /** Button background — overrides palette-derived default */
+    background?: SubtypeExprOrValue<StringType>;
+    /** Border colour — overrides palette-derived default */
+    borderColor?: SubtypeExprOrValue<StringType>;
+    /** Background applied on hover */
+    hoverBackground?: SubtypeExprOrValue<StringType>;
 }
 
 // ============================================================================
-// Button Type
+// IconPayload — shorthand for factory icon slots
 // ============================================================================
 
 /**
- * The concrete East type for Button component data.
+ * Minimal icon input accepted by button icon slots (`startIcon`, `endIcon`,
+ * `loadingIcon`).
  *
  * @remarks
- * This struct type represents the serializable data structure for a Button component.
+ * The factory wraps this into a full `IconType` value with an empty inner
+ * style, so callers only need to supply the Font Awesome `prefix` + `name`.
+ * Callers that want to tint / resize the icon independently can pass a
+ * pre-built `Icon.Root(...)` expression instead — the factory accepts either
+ * shape.
  *
- * @property label - The text displayed on the button
- * @property style - Optional styling configuration wrapped in OptionType
+ * @property prefix - Font Awesome prefix (`fas` / `far` / `fab`)
+ * @property name - Font Awesome icon name (`save` / `spinner` / `arrow-right` / ...)
  */
-export const ButtonType = StructType({
-    label: StringType,
-    style: OptionType(ButtonStyleType),
-});
+export interface IconPayload {
+    prefix: string;
+    name: string;
+}
 
-/**
- * Type representing the Button component structure.
- */
-export type ButtonType = typeof ButtonType;
+// ============================================================================
+// Re-export IconType — used as the IR-level slot type for icon fields
+// ============================================================================
+
+export { IconType };

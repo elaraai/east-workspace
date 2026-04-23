@@ -26,7 +26,7 @@ export const toggleTipInfo = example({
     description: "Help button with toggle tip",
     fn: East.function([], UIComponentType, (_$) => {
         return ToggleTip.Root(
-            Button.Root("?", { variant: "outline", size: "sm" }),
+            Button.Root("?", { style: { variant: "outline", size: "sm" } }),
             "Click the info button for help. This is useful for touch and keyboard users.",
             { placement: "bottom" }
         );

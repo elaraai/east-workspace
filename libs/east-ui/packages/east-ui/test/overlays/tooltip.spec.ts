@@ -187,7 +187,7 @@ describeEast("Tooltip", (test) => {
             { placement: "top" }
         ));
 
-        $(Assert.equal(tooltip.unwrap().unwrap("Tooltip").trigger.unwrap().unwrap("Button").label, "Submit"));
+        $(Assert.equal(tooltip.unwrap().unwrap("Tooltip").trigger.unwrap().unwrap("Button").label.unwrap().unwrap("Text").value, "Submit"));
     });
 
     test("creates info tooltip", $ => {

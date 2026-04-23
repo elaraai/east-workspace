@@ -16,10 +16,11 @@ describeEast("Heading", (test) => {
         headingColored: ex.headingColored,
         headingAlignment: ex.headingAlignment,
         headingCombined: ex.headingCombined,
+        headingBackground: ex.headingBackground,
     });
 
     // =========================================================================
-    // Basic Creation
+    // Basic Creation — { value, as, style } shape
     // =========================================================================
 
     test("creates heading with string value", $ => {
@@ -28,87 +29,56 @@ describeEast("Heading", (test) => {
         $(Assert.equal(heading.unwrap().unwrap("Heading").value, "Hello World"));
     });
 
-    test("creates heading with no style - all options are none", $ => {
+    test("creates heading with no style — style is none", $ => {
         const heading = $.let(Heading.Root("Title"));
 
         $(Assert.equal(heading.unwrap().unwrap("Heading").value, "Title"));
-        $(Assert.equal(heading.unwrap().unwrap("Heading").size.hasTag("none"), true));
         $(Assert.equal(heading.unwrap().unwrap("Heading").as.hasTag("none"), true));
-        $(Assert.equal(heading.unwrap().unwrap("Heading").color.hasTag("none"), true));
-        $(Assert.equal(heading.unwrap().unwrap("Heading").textAlign.hasTag("none"), true));
+        $(Assert.equal(heading.unwrap().unwrap("Heading").style.hasTag("none"), true));
     });
 
     // =========================================================================
-    // Size - Standard
+    // textStyle (inside style) — replaces the old `size` prop
     // =========================================================================
 
-    test("creates extra small heading", $ => {
-        const heading = $.let(Heading.Root("XS", { size: "xs" }));
-
-        $(Assert.equal(heading.unwrap().unwrap("Heading").size.hasTag("some"), true));
-        $(Assert.equal(heading.unwrap().unwrap("Heading").size.unwrap("some").hasTag("xs"), true));
+    test("creates heading with heading-xs textStyle", $ => {
+        const heading = $.let(Heading.Root("XS", { textStyle: "heading-xs" }));
+        const style = heading.unwrap().unwrap("Heading").style.unwrap("some");
+        $(Assert.equal(style.textStyle.unwrap("some").hasTag("heading-xs"), true));
     });
 
-    test("creates small heading", $ => {
-        const heading = $.let(Heading.Root("SM", { size: "sm" }));
-
-        $(Assert.equal(heading.unwrap().unwrap("Heading").size.unwrap("some").hasTag("sm"), true));
+    test("creates heading with heading-sm textStyle", $ => {
+        const heading = $.let(Heading.Root("SM", { textStyle: "heading-sm" }));
+        const style = heading.unwrap().unwrap("Heading").style.unwrap("some");
+        $(Assert.equal(style.textStyle.unwrap("some").hasTag("heading-sm"), true));
     });
 
-    test("creates medium heading", $ => {
-        const heading = $.let(Heading.Root("MD", { size: "md" }));
-
-        $(Assert.equal(heading.unwrap().unwrap("Heading").size.unwrap("some").hasTag("md"), true));
+    test("creates heading with heading-md textStyle", $ => {
+        const heading = $.let(Heading.Root("MD", { textStyle: "heading-md" }));
+        const style = heading.unwrap().unwrap("Heading").style.unwrap("some");
+        $(Assert.equal(style.textStyle.unwrap("some").hasTag("heading-md"), true));
     });
 
-    test("creates large heading", $ => {
-        const heading = $.let(Heading.Root("LG", { size: "lg" }));
-
-        $(Assert.equal(heading.unwrap().unwrap("Heading").size.unwrap("some").hasTag("lg"), true));
+    test("creates heading with heading-lg textStyle", $ => {
+        const heading = $.let(Heading.Root("LG", { textStyle: "heading-lg" }));
+        const style = heading.unwrap().unwrap("Heading").style.unwrap("some");
+        $(Assert.equal(style.textStyle.unwrap("some").hasTag("heading-lg"), true));
     });
 
-    test("creates extra large heading", $ => {
-        const heading = $.let(Heading.Root("XL", { size: "xl" }));
-
-        $(Assert.equal(heading.unwrap().unwrap("Heading").size.unwrap("some").hasTag("xl"), true));
+    test("creates heading with display-sm textStyle", $ => {
+        const heading = $.let(Heading.Root("DisplaySM", { textStyle: "display-sm" }));
+        const style = heading.unwrap().unwrap("Heading").style.unwrap("some");
+        $(Assert.equal(style.textStyle.unwrap("some").hasTag("display-sm"), true));
     });
 
-    // =========================================================================
-    // Size - Extended (Typography-specific)
-    // =========================================================================
-
-    test("creates 2xl heading", $ => {
-        const heading = $.let(Heading.Root("2XL", { size: "2xl" }));
-
-        $(Assert.equal(heading.unwrap().unwrap("Heading").size.unwrap("some").hasTag("2xl"), true));
-    });
-
-    test("creates 3xl heading", $ => {
-        const heading = $.let(Heading.Root("3XL", { size: "3xl" }));
-
-        $(Assert.equal(heading.unwrap().unwrap("Heading").size.unwrap("some").hasTag("3xl"), true));
-    });
-
-    test("creates 4xl heading", $ => {
-        const heading = $.let(Heading.Root("4XL", { size: "4xl" }));
-
-        $(Assert.equal(heading.unwrap().unwrap("Heading").size.unwrap("some").hasTag("4xl"), true));
-    });
-
-    test("creates 5xl heading", $ => {
-        const heading = $.let(Heading.Root("5XL", { size: "5xl" }));
-
-        $(Assert.equal(heading.unwrap().unwrap("Heading").size.unwrap("some").hasTag("5xl"), true));
-    });
-
-    test("creates 6xl heading", $ => {
-        const heading = $.let(Heading.Root("6XL", { size: "6xl" }));
-
-        $(Assert.equal(heading.unwrap().unwrap("Heading").size.unwrap("some").hasTag("6xl"), true));
+    test("creates heading with display-lg textStyle", $ => {
+        const heading = $.let(Heading.Root("Hero", { textStyle: "display-lg" }));
+        const style = heading.unwrap().unwrap("Heading").style.unwrap("some");
+        $(Assert.equal(style.textStyle.unwrap("some").hasTag("display-lg"), true));
     });
 
     // =========================================================================
-    // Semantic Level (as)
+    // Semantic Level (as — on main)
     // =========================================================================
 
     test("creates h1 heading", $ => {
@@ -120,74 +90,99 @@ describeEast("Heading", (test) => {
 
     test("creates h2 heading", $ => {
         const heading = $.let(Heading.Root("Section", { as: "h2" }));
-
         $(Assert.equal(heading.unwrap().unwrap("Heading").as.unwrap("some").hasTag("h2"), true));
     });
 
     test("creates h3 heading", $ => {
         const heading = $.let(Heading.Root("Subsection", { as: "h3" }));
-
         $(Assert.equal(heading.unwrap().unwrap("Heading").as.unwrap("some").hasTag("h3"), true));
     });
 
     test("creates h4 heading", $ => {
         const heading = $.let(Heading.Root("Minor", { as: "h4" }));
-
         $(Assert.equal(heading.unwrap().unwrap("Heading").as.unwrap("some").hasTag("h4"), true));
     });
 
     test("creates h5 heading", $ => {
         const heading = $.let(Heading.Root("Small", { as: "h5" }));
-
         $(Assert.equal(heading.unwrap().unwrap("Heading").as.unwrap("some").hasTag("h5"), true));
     });
 
     test("creates h6 heading", $ => {
         const heading = $.let(Heading.Root("Smallest", { as: "h6" }));
-
         $(Assert.equal(heading.unwrap().unwrap("Heading").as.unwrap("some").hasTag("h6"), true));
     });
 
     // =========================================================================
-    // Color
+    // Color (inside style)
     // =========================================================================
 
     test("creates heading with color", $ => {
-        const heading = $.let(Heading.Root("Colored", {
-            color: "blue.500",
-        }));
+        const heading = $.let(Heading.Root("Colored", { color: "blue.500" }));
+        const style = heading.unwrap().unwrap("Heading").style.unwrap("some");
+        $(Assert.equal(style.color.unwrap("some"), "blue.500"));
+    });
 
-        $(Assert.equal(heading.unwrap().unwrap("Heading").color.hasTag("some"), true));
-        $(Assert.equal(heading.unwrap().unwrap("Heading").color.unwrap("some"), "blue.500"));
+    test("creates heading with background (hero band)", $ => {
+        const heading = $.let(Heading.Root("Hero", {
+            background: "blue.50",
+            color: "blue.900",
+        }));
+        const style = heading.unwrap().unwrap("Heading").style.unwrap("some");
+        $(Assert.equal(style.background.unwrap("some"), "blue.50"));
+        $(Assert.equal(style.color.unwrap("some"), "blue.900"));
     });
 
     // =========================================================================
-    // Text Alignment
+    // fontWeight / fontStyle / fontFamily (inside style)
+    // =========================================================================
+
+    test("creates heading with fontWeight override", $ => {
+        const heading = $.let(Heading.Root("Bold", {
+            fontWeight: Style.FontWeight("semibold"),
+        }));
+        const style = heading.unwrap().unwrap("Heading").style.unwrap("some");
+        $(Assert.equal(style.fontWeight.unwrap("some").hasTag("semibold"), true));
+    });
+
+    test("creates heading with fontStyle italic", $ => {
+        const heading = $.let(Heading.Root("Italic", { fontStyle: "italic" }));
+        const style = heading.unwrap().unwrap("Heading").style.unwrap("some");
+        $(Assert.equal(style.fontStyle.unwrap("some").hasTag("italic"), true));
+    });
+
+    test("creates heading with serif fontFamily", $ => {
+        const heading = $.let(Heading.Root("Display", { fontFamily: "serif" }));
+        const style = heading.unwrap().unwrap("Heading").style.unwrap("some");
+        $(Assert.equal(style.fontFamily.unwrap("some").hasTag("serif"), true));
+    });
+
+    // =========================================================================
+    // Text Alignment (inside style)
     // =========================================================================
 
     test("creates left aligned heading", $ => {
         const heading = $.let(Heading.Root("Left", {
             textAlign: Style.TextAlign("left"),
         }));
-
-        $(Assert.equal(heading.unwrap().unwrap("Heading").textAlign.hasTag("some"), true));
-        $(Assert.equal(heading.unwrap().unwrap("Heading").textAlign.unwrap("some").hasTag("left"), true));
+        const style = heading.unwrap().unwrap("Heading").style.unwrap("some");
+        $(Assert.equal(style.textAlign.unwrap("some").hasTag("left"), true));
     });
 
     test("creates center aligned heading", $ => {
         const heading = $.let(Heading.Root("Center", {
             textAlign: Style.TextAlign("center"),
         }));
-
-        $(Assert.equal(heading.unwrap().unwrap("Heading").textAlign.unwrap("some").hasTag("center"), true));
+        const style = heading.unwrap().unwrap("Heading").style.unwrap("some");
+        $(Assert.equal(style.textAlign.unwrap("some").hasTag("center"), true));
     });
 
     test("creates right aligned heading", $ => {
         const heading = $.let(Heading.Root("Right", {
             textAlign: Style.TextAlign("right"),
         }));
-
-        $(Assert.equal(heading.unwrap().unwrap("Heading").textAlign.unwrap("some").hasTag("right"), true));
+        const style = heading.unwrap().unwrap("Heading").style.unwrap("some");
+        $(Assert.equal(style.textAlign.unwrap("some").hasTag("right"), true));
     });
 
     // =========================================================================
@@ -196,27 +191,31 @@ describeEast("Heading", (test) => {
 
     test("creates heading with all options", $ => {
         const heading = $.let(Heading.Root("Page Title", {
-            size: "4xl",
             as: "h1",
+            textStyle: "display-md",
             color: "gray.900",
             textAlign: Style.TextAlign("center"),
         }));
+        const main = heading.unwrap().unwrap("Heading");
+        const style = main.style.unwrap("some");
 
-        $(Assert.equal(heading.unwrap().unwrap("Heading").value, "Page Title"));
-        $(Assert.equal(heading.unwrap().unwrap("Heading").size.unwrap("some").hasTag("4xl"), true));
-        $(Assert.equal(heading.unwrap().unwrap("Heading").as.unwrap("some").hasTag("h1"), true));
-        $(Assert.equal(heading.unwrap().unwrap("Heading").color.unwrap("some"), "gray.900"));
-        $(Assert.equal(heading.unwrap().unwrap("Heading").textAlign.unwrap("some").hasTag("center"), true));
+        $(Assert.equal(main.value, "Page Title"));
+        $(Assert.equal(main.as.unwrap("some").hasTag("h1"), true));
+        $(Assert.equal(style.textStyle.unwrap("some").hasTag("display-md"), true));
+        $(Assert.equal(style.color.unwrap("some"), "gray.900"));
+        $(Assert.equal(style.textAlign.unwrap("some").hasTag("center"), true));
     });
 
     test("creates section heading", $ => {
         const heading = $.let(Heading.Root("Features", {
-            size: "2xl",
             as: "h2",
+            textStyle: "heading-lg",
         }));
+        const main = heading.unwrap().unwrap("Heading");
+        const style = main.style.unwrap("some");
 
-        $(Assert.equal(heading.unwrap().unwrap("Heading").value, "Features"));
-        $(Assert.equal(heading.unwrap().unwrap("Heading").size.unwrap("some").hasTag("2xl"), true));
-        $(Assert.equal(heading.unwrap().unwrap("Heading").as.unwrap("some").hasTag("h2"), true));
+        $(Assert.equal(main.value, "Features"));
+        $(Assert.equal(main.as.unwrap("some").hasTag("h2"), true));
+        $(Assert.equal(style.textStyle.unwrap("some").hasTag("heading-lg"), true));
     });
-}, {   platformFns: TestImpl,});
+}, { platformFns: TestImpl });

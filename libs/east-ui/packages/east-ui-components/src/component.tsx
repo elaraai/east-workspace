@@ -16,9 +16,14 @@ import { EastChakraHighlight } from "./typography/highlight";
 import { EastChakraMark } from "./typography/mark";
 import { EastChakraList } from "./typography/list";
 import { EastChakraCodeBlock } from "./typography/code-block";
+import { EastChakraNumeric } from "./typography/numeric";
+import { EastChakraNote } from "./typography/note";
 import { EastChakraButton } from "./buttons/button";
 import { EastChakraIconButton } from "./buttons/icon-button";
 import { EastChakraCopyButton } from "./buttons/copy-button";
+import { EastChakraCloseButton } from "./buttons/close-button";
+import { EastChakraToggle } from "./buttons/toggle";
+import { EastChakraButtonGroup } from "./buttons/button-group";
 import { EastChakraSparkline } from "./charts/sparkline";
 import { EastChakraAreaChart, EastChakraAreaRangeChart } from "./charts/area";
 import { EastChakraBarChart } from "./charts/bar";
@@ -41,6 +46,12 @@ import { EastChakraChipRail } from "./layout/chip-rail";
 import { EastChakraAccordion } from "./disclosure/accordion";
 import { EastChakraCarousel } from "./disclosure/carousel";
 import { EastChakraTabs } from "./disclosure/tabs";
+import { EastChakraSegmentGroup } from "./disclosure/segment-group";
+import { EastChakraCollapsible } from "./disclosure/collapsible";
+import { EastChakraDisclosure } from "./disclosure/show-more";
+import { EastChakraSteps } from "./disclosure/steps";
+import { EastChakraTimeline } from "./disclosure/timeline";
+import { EastChakraOptionList } from "./disclosure/option-list";
 import { EastChakraDataList } from "./collections/data-list";
 import { EastChakraTable } from "./collections/table";
 import { EastChakraTreeView } from "./collections/tree-view";
@@ -109,13 +120,18 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             Link: (v) => <EastChakraLink value={v} />,
             Highlight: (v) => <EastChakraHighlight value={v} />,
             Mark: (v) => <EastChakraMark value={v} />,
-            List: (v) => <EastChakraList value={v} />,
+            List: (v) => <EastChakraList value={v} storageKey={childKey(storageKey, "List")} />,
             CodeBlock: (v) => <EastChakraCodeBlock value={v} />,
+            Numeric: (v) => <EastChakraNumeric value={v} />,
+            Note: (v) => <EastChakraNote value={v} storageKey={childKey(storageKey, "Note")} />,
 
             // Buttons
-            Button: (v) => <EastChakraButton value={v} />,
+            Button: (v) => <EastChakraButton value={v} storageKey={childKey(storageKey, "Button")} />,
             IconButton: (v) => <EastChakraIconButton value={v} />,
             CopyButton: (v) => <EastChakraCopyButton value={v} />,
+            CloseButton: (v) => <EastChakraCloseButton value={v} />,
+            Toggle: (v) => <EastChakraToggle value={v} storageKey={childKey(storageKey, "Toggle")} />,
+            ButtonGroup: (v) => <EastChakraButtonGroup value={v} storageKey={childKey(storageKey, "ButtonGroup")} />,
 
             // Layout
             Box: (v) => <EastChakraBox value={v} storageKey={storageKey} />,
@@ -185,6 +201,12 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             Accordion: (v) => <EastChakraAccordion value={v} storageKey={childKey(storageKey, "Accordion")} />,
             Carousel: (v) => <EastChakraCarousel value={v} storageKey={childKey(storageKey, "Carousel")} />,
             Tabs: (v) => <EastChakraTabs value={v} storageKey={childKey(storageKey, "Tabs")} />,
+            SegmentGroup: (v) => <EastChakraSegmentGroup value={v} storageKey={childKey(storageKey, "SegmentGroup")} />,
+            Collapsible: (v) => <EastChakraCollapsible value={v} storageKey={childKey(storageKey, "Collapsible")} />,
+            Disclosure: (v) => <EastChakraDisclosure value={v} storageKey={childKey(storageKey, "Disclosure")} />,
+            Steps: (v) => <EastChakraSteps value={v} storageKey={childKey(storageKey, "Steps")} />,
+            Timeline: (v) => <EastChakraTimeline value={v} storageKey={childKey(storageKey, "Timeline")} />,
+            OptionList: (v) => <EastChakraOptionList value={v} storageKey={childKey(storageKey, "OptionList")} />,
 
             // Overlays
             Tooltip: (v) => <EastChakraTooltip value={v} storageKey={childKey(storageKey, "Tooltip")} />,

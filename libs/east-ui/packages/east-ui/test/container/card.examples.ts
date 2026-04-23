@@ -37,7 +37,7 @@ export const cardHeaderDesc = example({
             Text.Root("The main content area of the card."),
         ], {
             header: Stack.VStack([
-                Heading.Root("Featured Article", { size: "md" }),
+                Heading.Root("Featured Article", { textStyle: "heading-md" }),
                 Text.Root("A brief summary of what this card contains", { color: "fg.muted" }),
             ], { gap: "1", align: "flex-start" }),
         });
@@ -54,8 +54,8 @@ export const cardFooter = example({
         ], {
             header: Heading.Root("Actions Card"),
             footer: Stack.HStack([
-                Button.Root("Cancel", { variant: "outline", size: "sm" }),
-                Button.Root("Save", { variant: "solid", colorPalette: "blue", size: "sm" }),
+                Button.Root("Cancel", { style: { variant: "outline", size: "sm" } }),
+                Button.Root("Save", { style: { variant: "solid", colorPalette: "blue", size: "sm" } }),
             ], { gap: "2" }),
         });
     }),
@@ -70,7 +70,7 @@ export const cardElevated = example({
             Text.Root("This card has a shadow effect for visual depth."),
         ], {
             header: Heading.Root("Elevated Style"),
-            footer: Button.Root("Learn More", { variant: "solid", colorPalette: "blue", size: "sm" }),
+            footer: Button.Root("Learn More", { style: { variant: "solid", colorPalette: "blue", size: "sm" } }),
             variant: "elevated",
         });
     }),
@@ -158,12 +158,12 @@ export const cardMultiple = example({
             Text.Root("This card demonstrates how multiple components can be nested inside a card body."),
         ], {
             header: Stack.VStack([
-                Heading.Root("Action Required", { size: "md" }),
+                Heading.Root("Action Required", { textStyle: "heading-md" }),
                 Text.Root("Please review and respond", { color: "fg.muted" }),
             ], { gap: "1", align: "flex-start" }),
             footer: Stack.HStack([
-                Button.Root("Accept", { variant: "solid", colorPalette: "green", size: "sm" }),
-                Button.Root("Decline", { variant: "outline", colorPalette: "red", size: "sm" }),
+                Button.Root("Accept", { style: { variant: "solid", colorPalette: "green", size: "sm" } }),
+                Button.Root("Decline", { style: { variant: "outline", colorPalette: "red", size: "sm" } }),
             ], { gap: "2" }),
             variant: "elevated",
         });
@@ -176,9 +176,9 @@ export const cardSizes = example({
     description: "Available sizes: sm, md, lg",
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.VStack([
-            Card.Root([Text.Root("Small card")], { header: Heading.Root("Small", { size: "sm" }), size: "sm", variant: "outline" }),
-            Card.Root([Text.Root("Medium card")], { header: Heading.Root("Medium", { size: "md" }), size: "md", variant: "outline" }),
-            Card.Root([Text.Root("Large card")], { header: Heading.Root("Large", { size: "lg" }), size: "lg", variant: "outline" }),
+            Card.Root([Text.Root("Small card")], { header: Heading.Root("Small", { textStyle: "heading-sm" }), size: "sm", variant: "outline" }),
+            Card.Root([Text.Root("Medium card")], { header: Heading.Root("Medium", { textStyle: "heading-md" }), size: "md", variant: "outline" }),
+            Card.Root([Text.Root("Large card")], { header: Heading.Root("Large", { textStyle: "heading-lg" }), size: "lg", variant: "outline" }),
         ], { gap: "4", align: "stretch", width: "100%" });
     }),
     inputs: [],

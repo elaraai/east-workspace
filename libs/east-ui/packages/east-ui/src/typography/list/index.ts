@@ -7,102 +7,190 @@ import {
     type SubtypeExprOrValue,
     type ExprType,
     East,
-    StringType,
-    variant,
     ArrayType,
+    OptionType,
+    StructType,
+    variant,
     some,
+    none,
 } from "@elaraai/east";
 
 import { OverflowType } from "../../style.js";
 import { UIComponentType } from "../../component.js";
 import { PaddingType, MarginType } from "../../layout/style.js";
-import { ListType, ListVariantType, type ListStyle } from "./types.js";
+import { IconType } from "../../display/icon/types.js";
+import {
+    ListVariantType,
+    ListMarkerType,
+    ListVisualStyleType,
+    type ListStyle,
+    type ListMarkerLiteral,
+} from "./types.js";
+import { Text } from "../text/index.js";
 
 // Re-export types
-export { ListType, ListVariantType, type ListStyle } from "./types.js";
+export {
+    ListVariantType,
+    ListMarkerType,
+    ListVisualStyleType,
+    type ListStyle,
+} from "./types.js";
 
 /**
- * Creates a List component.
+ * Concrete struct type mirroring the inline `List` variant arm in
+ * `component.ts`. Renderers use this for `equalFor` / `ValueTypeOf`.
+ */
+export const ListType: StructType<{
+    items: ArrayType<UIComponentType>,
+    style: OptionType<ListVisualStyleType>,
+}> = StructType({
+    items: ArrayType(UIComponentType),
+    style: OptionType(ListVisualStyleType),
+});
+
+export type ListType = typeof ListType;
+
+// ============================================================================
+// List Component
+// ============================================================================
+
+type ListItemInput =
+    | string
+    | ExprType<UIComponentType>
+    | SubtypeExprOrValue<UIComponentType>;
+
+/**
+ * Creates a List component with rich item children.
  *
- * @param items - Array of list items (strings or config objects)
- * @param style - Optional styling configuration
- * @returns An East expression representing the list component
+ * @param items - Array of items. Plain strings are coerced to `Text.Root(s)`
+ *                at the factory boundary; any `UIComponentType` expression
+ *                is forwarded as-is.
+ * @param style - Optional visual-style configuration.
+ * @returns An East expression representing the list component.
  */
 function createList(
-    items: SubtypeExprOrValue<ArrayType<StringType>>,
-    style?: ListStyle
+    items:
+        | ListItemInput[]
+        | SubtypeExprOrValue<ArrayType<UIComponentType>>,
+    style?: ListStyle,
 ): ExprType<UIComponentType> {
-    const variantValue = style?.variant
+    const itemsValue = Array.isArray(items)
+        ? items.map(coerceItem)
+        : items;
+
+    const styleValue = style ? buildListVisualStyle(style) : undefined;
+
+    return East.value(variant("List", {
+        items: itemsValue,
+        style: styleValue ? variant("some", styleValue) : variant("none", null),
+    }), UIComponentType);
+}
+
+function coerceItem(item: ListItemInput): ExprType<UIComponentType> {
+    if (typeof item === "string") {
+        return Text.Root(item);
+    }
+    return item as ExprType<UIComponentType>;
+}
+
+function buildListVisualStyle(style: ListStyle): ExprType<ListVisualStyleType> {
+    const variantValue = style.variant
         ? (typeof style.variant === "string"
             ? East.value(variant(style.variant, null), ListVariantType)
             : style.variant)
         : undefined;
 
-    const overflowValue = style?.overflow
+    const markerValue = (() => {
+        if (style.markerIcon !== undefined) {
+            return East.value(
+                variant("icon", style.markerIcon as SubtypeExprOrValue<IconType>),
+                ListMarkerType,
+            );
+        }
+        if (style.marker !== undefined) {
+            if (typeof style.marker === "string") {
+                const literal = style.marker as ListMarkerLiteral;
+                return East.value(variant(literal, null), ListMarkerType);
+            }
+            return style.marker;
+        }
+        return undefined;
+    })();
+
+    const overflowValue = style.overflow
         ? (typeof style.overflow === "string"
             ? East.value(variant(style.overflow, null), OverflowType)
             : style.overflow)
         : undefined;
 
-    const overflowXValue = style?.overflowX
+    const overflowXValue = style.overflowX
         ? (typeof style.overflowX === "string"
             ? East.value(variant(style.overflowX, null), OverflowType)
             : style.overflowX)
         : undefined;
 
-    const overflowYValue = style?.overflowY
+    const overflowYValue = style.overflowY
         ? (typeof style.overflowY === "string"
             ? East.value(variant(style.overflowY, null), OverflowType)
             : style.overflowY)
         : undefined;
 
-    const paddingValue = style?.padding
+    const paddingValue = style.padding
         ? (typeof style.padding === "string"
             ? East.value({
                 top: some(style.padding),
                 right: some(style.padding),
                 bottom: some(style.padding),
-                left: some(style.padding)
+                left: some(style.padding),
             }, PaddingType)
             : style.padding)
         : undefined;
 
-    const marginValue = style?.margin
+    const marginValue = style.margin
         ? (typeof style.margin === "string"
             ? East.value({
                 top: some(style.margin),
                 right: some(style.margin),
                 bottom: some(style.margin),
-                left: some(style.margin)
+                left: some(style.margin),
             }, MarginType)
             : style.margin)
         : undefined;
 
-    return East.value(variant("List", {
-        items,
-        variant: variantValue ? variant("some", variantValue) : variant("none", null),
-        gap: style?.gap ? variant("some", style.gap) : variant("none", null),
-        colorPalette: style?.colorPalette ? variant("some", style.colorPalette) : variant("none", null),
-        overflow: overflowValue ? variant("some", overflowValue) : variant("none", null),
-        overflowX: overflowXValue ? variant("some", overflowXValue) : variant("none", null),
-        overflowY: overflowYValue ? variant("some", overflowYValue) : variant("none", null),
-        width: style?.width ? variant("some", style.width) : variant("none", null),
-        height: style?.height ? variant("some", style.height) : variant("none", null),
-        minWidth: style?.minWidth ? variant("some", style.minWidth) : variant("none", null),
-        minHeight: style?.minHeight ? variant("some", style.minHeight) : variant("none", null),
-        maxWidth: style?.maxWidth ? variant("some", style.maxWidth) : variant("none", null),
-        maxHeight: style?.maxHeight ? variant("some", style.maxHeight) : variant("none", null),
-        padding: paddingValue ? variant("some", paddingValue) : variant("none", null),
-        margin: marginValue ? variant("some", marginValue) : variant("none", null),
-        opacity: style?.opacity !== undefined ? variant("some", style.opacity) : variant("none", null),
-    }), UIComponentType);
+    return East.value({
+        variant: variantValue ? some(variantValue) : none,
+        marker: markerValue ? some(markerValue) : none,
+        colorPalette: style.colorPalette ? some(style.colorPalette) : none,
+        gap: style.gap ? some(style.gap) : none,
+        overflow: overflowValue ? some(overflowValue) : none,
+        overflowX: overflowXValue ? some(overflowXValue) : none,
+        overflowY: overflowYValue ? some(overflowYValue) : none,
+        width: style.width ? some(style.width) : none,
+        height: style.height ? some(style.height) : none,
+        minWidth: style.minWidth ? some(style.minWidth) : none,
+        minHeight: style.minHeight ? some(style.minHeight) : none,
+        maxWidth: style.maxWidth ? some(style.maxWidth) : none,
+        maxHeight: style.maxHeight ? some(style.maxHeight) : none,
+        padding: paddingValue ? some(paddingValue) : none,
+        margin: marginValue ? some(marginValue) : none,
+        opacity: style.opacity !== undefined ? some(style.opacity) : none,
+        color: style.color ? some(style.color) : none,
+        markerColor: style.markerColor ? some(style.markerColor) : none,
+    }, ListVisualStyleType);
 }
 
 /**
- * List component for ordered and unordered lists.
+ * List component for rendering ordered / unordered lists with rich items.
  *
  * @remarks
- * Use `List.Root(items, style)` to create lists with an array of string items.
+ * `items` is `ArrayType(UIComponentType)` — each item can be any east-ui
+ * primitive (text, icons, HStacks…). Strings passed at the factory boundary
+ * are coerced to `Text.Root(s)` for ergonomics. All visual fields live inside
+ * the `style` sub-struct per the `{ content, style }` type-shape convention.
+ *
+ * `marker: "check"` and `marker: "dash"` render real SVG glyphs with
+ * `role="img"` + `aria-label` so screen readers announce them — never
+ * CSS-only `::before` characters (§0.2 a11y contract).
  *
  * @example
  * ```ts
@@ -111,13 +199,10 @@ function createList(
  *
  * const example = East.function([], UIComponentType, $ => {
  *     return List.Root([
- *         "First item",
- *         "Second item",
- *         "Third item",
- *     ], {
- *         variant: "unordered",
- *         gap: "2",
- *     });
+ *         "Max 5 consecutive shifts — 412 staff, clear",
+ *         "SLA: 92% on-time (27 misses)",
+ *         "Stale data: 3 feeds > 24h old",
+ *     ], { marker: "check", markerColor: "fg.success" });
  * });
  * ```
  */
@@ -126,5 +211,7 @@ export const List = {
     Types: {
         List: ListType,
         Variant: ListVariantType,
+        Marker: ListMarkerType,
+        Style: ListVisualStyleType,
     },
 } as const;

@@ -23,7 +23,7 @@ export const popoverChart = example({
     description: "Rich content with area chart",
     fn: East.function([], UIComponentType, (_$) => {
         return Popover.Root(
-            Button.Root("View Stats", { variant: "solid", colorPalette: "blue" }),
+            Button.Root("View Stats", { style: { variant: "solid", colorPalette: "blue" } }),
             [
                 Chart.Area(
                     [

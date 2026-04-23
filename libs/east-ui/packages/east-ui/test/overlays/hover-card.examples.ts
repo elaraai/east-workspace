@@ -16,7 +16,7 @@ export const hoverCardProfile = example({
                     Avatar.Root({ name: "John Doe", size: "lg" }),
                     Stack.VStack([
                         Text.Root("John Doe", { fontWeight: "semibold" }),
-                        Text.Root("Software Engineer", { fontSize: "sm", color: "gray.500" }),
+                        Text.Root("Software Engineer", { textStyle: "body-sm", color: "gray.500" }),
                         Stack.HStack([
                             Badge.Root("Pro", { colorPalette: "purple", variant: "solid" }),
                             Badge.Root("Verified", { colorPalette: "green", variant: "subtle" }),
@@ -35,11 +35,11 @@ export const hoverCardLink = example({
     description: "Preview content on hover",
     fn: East.function([], UIComponentType, (_$) => {
         return HoverCard.Root(
-            Button.Root("View Documentation", { variant: "ghost", colorPalette: "blue" }),
+            Button.Root("View Documentation", { style: { variant: "ghost", colorPalette: "blue" } }),
             [
                 Stack.VStack([
                     Text.Root("East UI Documentation", { fontWeight: "semibold" }),
-                    Text.Root("Complete guide to building UIs with East UI components. Learn about layout, forms, charts, and more.", { fontSize: "sm", color: "gray.600" }),
+                    Text.Root("Complete guide to building UIs with East UI components. Learn about layout, forms, charts, and more.", { textStyle: "body-sm", color: "gray.600" }),
                 ], { gap: "2", padding: "2" }),
             ],
             { hasArrow: true }

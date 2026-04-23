@@ -5,184 +5,374 @@
 
 import {
     type ExprType,
+    type SubtypeExprOrValue,
     East,
-    StringType, variant,
+    OptionType,
+    StructType,
+    StringType,
+    BooleanType,
+    NullType,
+    FunctionType,
+    variant,
     some,
     none,
-    type SubtypeExprOrValue
 } from "@elaraai/east";
 
-import { SizeType, ColorSchemeType } from "../../style.js";
 import { UIComponentType } from "../../component.js";
+import { SizeType, ColorSchemeType } from "../../style.js";
+import { IconType } from "../../display/icon/types.js";
+import { Text } from "../../typography/text/index.js";
 import {
-    ButtonType,
-    ButtonStyleType,
-    ButtonVariantType,
-    type ButtonStyle,
-} from "./types.js";
-
-// Re-export types
-export {
-    ButtonType,
     ButtonStyleType,
     ButtonVariantType,
     type ButtonStyle,
     type ButtonVariantLiteral,
+    type IconPayload,
+} from "./types.js";
+
+// Re-export types
+export {
+    ButtonStyleType,
+    ButtonVariantType,
+    type ButtonStyle,
+    type ButtonVariantLiteral,
+    type IconPayload,
 } from "./types.js";
 
 // ============================================================================
-// Button Function
+// ButtonType — standalone mirror of the inline `Button` variant in component.ts
 // ============================================================================
 
 /**
- * Creates a Button component with a label and optional styling.
- *
- * @param label - The text to display on the button
- * @param style - Optional styling configuration
- * @returns An East expression representing the styled button component
+ * Concrete struct type mirroring the inline `Button` variant defined in
+ * `component.ts`. Renderers reference this for `equalFor` / `ValueTypeOf`
+ * because `Button`'s recursive `label: UIComp` field forces its main variant
+ * to be defined inline in the recursive `UIComponentType` — this mirror
+ * exposes the same shape as a standalone type for tooling.
  *
  * @remarks
- * Button is an interactive component for triggering actions.
- * It supports multiple variants, color schemes, and sizes.
+ * Same pattern as `List.Types.List` and `Note.Types.Note` introduced in
+ * Plan 1.3.
+ *
+ * @property label - Rich label (UIComponentType). Strings passed at the factory boundary are coerced to `Text.Root(s)`
+ * @property startIcon - Optional leading icon (rendered before the label)
+ * @property endIcon - Optional trailing icon (rendered after the label)
+ * @property loadingText - Label text shown when `loading` is true (falls back to `label` when absent)
+ * @property loadingIcon - Icon swapped in for the `startIcon` slot when `loading` is true (e.g. a spinner)
+ * @property loading - Loading state — renderer adds a spinner + disables interaction
+ * @property disabled - Disabled state — renderer greys out + blocks interaction
+ * @property onClick - Click-handler callback (pure East function)
+ * @property style - Optional visual-presentation sub-struct (presets + colour escape hatches)
+ */
+export const ButtonType: StructType<{
+    label: UIComponentType,
+    startIcon: OptionType<IconType>,
+    endIcon: OptionType<IconType>,
+    loadingText: OptionType<StringType>,
+    loadingIcon: OptionType<IconType>,
+    loading: OptionType<BooleanType>,
+    disabled: OptionType<BooleanType>,
+    onClick: OptionType<FunctionType<[], NullType>>,
+    style: OptionType<ButtonStyleType>,
+}> = StructType({
+    label: UIComponentType,
+    startIcon: OptionType(IconType),
+    endIcon: OptionType(IconType),
+    loadingText: OptionType(StringType),
+    loadingIcon: OptionType(IconType),
+    loading: OptionType(BooleanType),
+    disabled: OptionType(BooleanType),
+    onClick: OptionType(FunctionType([], NullType)),
+    style: OptionType(ButtonStyleType),
+});
+
+/**
+ * Type representing the Button component structure.
+ */
+export type ButtonType = typeof ButtonType;
+
+// ============================================================================
+// Button Factory
+// ============================================================================
+
+/**
+ * Accepted input types for Button's `label` argument.
+ *
+ * @remarks
+ * Plain `string` is coerced to `Text.Root(s)` at the factory boundary for
+ * ergonomics — callers wanting rich content can pass any UIComponentType
+ * expression (e.g. `Stack.HStack([...])`).
+ */
+type ButtonLabelInput =
+    | string
+    | ExprType<UIComponentType>
+    | SubtypeExprOrValue<UIComponentType>;
+
+/**
+ * TypeScript options bag for `Button.Root`.
+ *
+ * @remarks
+ * Content (`startIcon`, `endIcon`, `loadingText`, `loadingIcon`), state
+ * (`loading`, `disabled`) and behaviour (`onClick`) live at the top level
+ * of this bag. Visual presentation lives inside the nested `style` object.
+ *
+ * @property startIcon - Leading icon slot (rendered before the label)
+ * @property endIcon - Trailing icon slot (rendered after the label)
+ * @property loadingText - Label text shown when `loading` is true
+ * @property loadingIcon - Icon shown in place of `startIcon` when `loading` is true
+ * @property loading - Loading state — renderer shows a spinner and blocks clicks
+ * @property disabled - Disabled state — renderer greys out and blocks clicks
+ * @property onClick - Click-handler callback
+ * @property style - Visual-presentation sub-struct
+ */
+export interface ButtonOptions {
+    /** Leading icon slot (rendered before the label) */
+    startIcon?: IconPayload | SubtypeExprOrValue<IconType>;
+    /** Trailing icon slot (rendered after the label) */
+    endIcon?: IconPayload | SubtypeExprOrValue<IconType>;
+    /** Label text shown when `loading` is true (falls back to `label` when absent) */
+    loadingText?: SubtypeExprOrValue<StringType>;
+    /** Icon swapped in for the `startIcon` slot when `loading` is true */
+    loadingIcon?: IconPayload | SubtypeExprOrValue<IconType>;
+    /** Loading state — renderer shows a spinner and blocks interaction */
+    loading?: SubtypeExprOrValue<BooleanType>;
+    /** Disabled state — renderer greys out and blocks interaction */
+    disabled?: SubtypeExprOrValue<BooleanType>;
+    /** Click-handler callback (zero-arg East function) */
+    onClick?: SubtypeExprOrValue<FunctionType<[], NullType>>;
+    /** Visual-presentation sub-struct (presets + colour escape hatches) */
+    style?: ButtonStyle;
+}
+
+/**
+ * Creates a Button component.
+ *
+ * @param label - String (coerced to `Text.Root(s)`) or any UIComponentType expression
+ * @param options - Main-level fields plus optional `style` sub-struct
+ * @returns An East expression representing the Button component
+ *
+ * @remarks
+ * Button is an interactive component for triggering actions. It supports
+ * rich labels, leading/trailing icons, a distinct loading state with
+ * optional custom loading text + loading icon, colour escape hatches, and
+ * five visual variants.
+ *
+ * Per the Type-shape convention: content + state + behaviour are top-level
+ * options; visual-presentation lives inside `options.style`.
  *
  * @example
  * ```ts
- * import { Button } from "@elaraai/east-ui";
+ * import { East } from "@elaraai/east";
+ * import { Button, Stack, Text, UIComponentType } from "@elaraai/east-ui";
  *
- * // Simple button
- * const submitButton = Button.Root("Submit");
+ * // Simple primary action button
+ * const save = East.function([], UIComponentType, _$ =>
+ *     Button.Root("Save Changes", { style: { variant: "solid", colorPalette: "blue" } }),
+ * );
  *
- * // Button with styling
- * const primaryButton = Button.Root("Save", {
- *   variant: "solid",
- *   colorPalette: "blue",
- *   size: "md",
- * });
+ * // Start + end icons + ghost variant with escape-hatch hover colour
+ * const cta = East.function([], UIComponentType, _$ =>
+ *     Button.Root("Continue", {
+ *         startIcon: { prefix: "fas", name: "check" },
+ *         endIcon: { prefix: "fas", name: "arrow-right" },
+ *         style: { variant: "ghost", hoverBackground: "#eef2ff" },
+ *     }),
+ * );
  *
- * // Loading button
- * const loadingButton = Button.Root("Processing...", {
- *   variant: "solid",
- *   colorPalette: "blue",
- *   loading: true,
- * });
+ * // Loading state with custom spinner icon + loading text
+ * const submit = East.function([], UIComponentType, _$ =>
+ *     Button.Root("Submit", {
+ *         loading: true,
+ *         loadingText: "Submitting…",
+ *         loadingIcon: { prefix: "fas", name: "spinner" },
+ *     }),
+ * );
  *
- * // Access the type
- * const buttonType = Button.Types.Button;
+ * // Rich label — HStack of Text children
+ * const accept = East.function([], UIComponentType, _$ =>
+ *     Button.Root(
+ *         Stack.HStack([
+ *             Text.Root("Accept"),
+ *             Text.Root("→ log to MES", { color: "fg.muted" }),
+ *         ]),
+ *         { style: { variant: "solid", colorPalette: "green" } },
+ *     ),
+ * );
  * ```
  */
 function createButton(
-    label: SubtypeExprOrValue<StringType>,
-    style?: ButtonStyle
+    label: ButtonLabelInput,
+    options?: ButtonOptions,
 ): ExprType<UIComponentType> {
-    const variantValue = style?.variant
+    const labelExpr: ExprType<UIComponentType> = typeof label === "string"
+        ? Text.Root(label)
+        : label as ExprType<UIComponentType>;
+
+    const styleValue = options?.style ? buildButtonStyle(options.style) : undefined;
+
+    return East.value(variant("Button", {
+        label: labelExpr,
+        startIcon: options?.startIcon ? some(toIconValue(options.startIcon)) : none,
+        endIcon: options?.endIcon ? some(toIconValue(options.endIcon)) : none,
+        loadingText: options?.loadingText !== undefined ? some(options.loadingText) : none,
+        loadingIcon: options?.loadingIcon ? some(toIconValue(options.loadingIcon)) : none,
+        loading: options?.loading !== undefined ? some(options.loading) : none,
+        disabled: options?.disabled !== undefined ? some(options.disabled) : none,
+        onClick: options?.onClick ? some(options.onClick) : none,
+        style: styleValue ? some(styleValue) : none,
+    }), UIComponentType);
+}
+
+function buildButtonStyle(style: ButtonStyle): ExprType<ButtonStyleType> {
+    const variantValue = style.variant
         ? (typeof style.variant === "string"
-            ? East.value(variant(style.variant, null), ButtonVariantType)
+            ? East.value(variant(style.variant as ButtonVariantLiteral, null), ButtonVariantType)
             : style.variant)
         : undefined;
 
-    const colorPaletteValue = style?.colorPalette
+    const colorPaletteValue = style.colorPalette
         ? (typeof style.colorPalette === "string"
             ? East.value(variant(style.colorPalette, null), ColorSchemeType)
             : style.colorPalette)
         : undefined;
 
-    const sizeValue = style?.size
+    const sizeValue = style.size
         ? (typeof style.size === "string"
             ? East.value(variant(style.size, null), SizeType)
             : style.size)
         : undefined;
 
-    return East.value(variant("Button", {
-        label: label,
-        style: style ? some(East.value({
-            variant: variantValue ? some(variantValue) : none,
-            colorPalette: colorPaletteValue ? some(colorPaletteValue) : none,
-            size: sizeValue ? some(sizeValue) : none,
-            loading: style.loading !== undefined ? some(style.loading) : none,
-            disabled: style.disabled !== undefined ? some(style.disabled) : none,
-            onClick: style.onClick ? some(style.onClick) : none,
-        }, ButtonStyleType)) : none,
-    }), UIComponentType);
+    return East.value({
+        variant: variantValue ? some(variantValue) : none,
+        colorPalette: colorPaletteValue ? some(colorPaletteValue) : none,
+        size: sizeValue ? some(sizeValue) : none,
+        color: style.color !== undefined ? some(style.color) : none,
+        background: style.background !== undefined ? some(style.background) : none,
+        borderColor: style.borderColor !== undefined ? some(style.borderColor) : none,
+        hoverBackground: style.hoverBackground !== undefined ? some(style.hoverBackground) : none,
+    }, ButtonStyleType);
+}
+
+function toIconValue(
+    input: IconPayload | SubtypeExprOrValue<IconType>,
+): ExprType<IconType> {
+    if (isIconPayload(input)) {
+        return East.value({
+            name: input.name,
+            prefix: input.prefix,
+            style: none,
+        }, IconType) as ExprType<IconType>;
+    }
+    return input as ExprType<IconType>;
+}
+
+function isIconPayload(x: unknown): x is IconPayload {
+    return typeof x === "object"
+        && x !== null
+        && typeof (x as { prefix?: unknown }).prefix === "string"
+        && typeof (x as { name?: unknown }).name === "string"
+        && !("toIR" in (x as Record<string, unknown>));
 }
 
 /**
- * Button component for triggering actions.
+ * Button primitive — interactive trigger for actions.
  *
  * @remarks
- * Use `Button.Root(label, style)` to create a button, or access `Button.Types.Button` for the East type.
+ * Use `Button.Root(label, options)` to create a button, or access
+ * `Button.Types.Button` for the East type.
  *
- * @example
- * ```ts
- * import { Button } from "@elaraai/east-ui";
- *
- * // Create a button
- * const btn = Button.Root("Click me", { variant: "solid", colorPalette: "blue" });
- *
- * // Access the type
- * const buttonType = Button.Types.Button;
- * ```
+ * Per the Type-shape convention: content + state + behaviour are on the main
+ * struct; visual presentation lives inside `style: ButtonStyleType`.
  */
 export const Button = {
     /**
-     * Creates a Button component with a label and optional styling.
+     * Creates a Button component.
      *
-     * @param label - The text to display on the button
-     * @param style - Optional styling configuration
-     * @returns An East expression representing the styled button component
+     * @param label - String (coerced to `Text.Root(s)`) or any UIComponentType expression
+     * @param options - Main-level fields plus optional `style` sub-struct
+     * @returns An East expression representing the Button component
      *
      * @remarks
-     * Button is an interactive component for triggering actions.
-     * It supports multiple variants, color schemes, and sizes.
+     * Button is an interactive component for triggering actions. It supports
+     * rich labels, leading/trailing icons, a distinct loading state with
+     * optional custom loading text + loading icon, colour escape hatches, and
+     * five visual variants (solid / subtle / outline / ghost / plain).
+     *
+     * Per the Type-shape convention: content + state + behaviour are top-level
+     * options; visual-presentation lives inside `options.style`.
      *
      * @example
      * ```ts
      * import { East } from "@elaraai/east";
-     * import { Button, UIComponentType } from "@elaraai/east-ui";
+     * import { Button, Stack, Text, UIComponentType } from "@elaraai/east-ui";
      *
-     * const example = East.function([], UIComponentType, $ => {
-     *     return Button.Root("Save", {
-     *         variant: "solid",
-     *         colorPalette: "blue",
-     *         size: "md",
-     *     });
-     * });
+     * // Primary action button
+     * const save = East.function([], UIComponentType, _$ =>
+     *     Button.Root("Save Changes", { style: { variant: "solid", colorPalette: "blue" } }),
+     * );
+     *
+     * // Start + end icons + ghost variant with hover escape-hatch
+     * const cta = East.function([], UIComponentType, _$ =>
+     *     Button.Root("Continue", {
+     *         startIcon: { prefix: "fas", name: "check" },
+     *         endIcon: { prefix: "fas", name: "arrow-right" },
+     *         style: { variant: "ghost", hoverBackground: "#eef2ff" },
+     *     }),
+     * );
+     *
+     * // Loading state with custom spinner icon + loading text
+     * const submit = East.function([], UIComponentType, _$ =>
+     *     Button.Root("Submit", {
+     *         loading: true,
+     *         loadingText: "Submitting…",
+     *         loadingIcon: { prefix: "fas", name: "spinner" },
+     *     }),
+     * );
+     *
+     * // Rich UIComp label — HStack of Text children
+     * const accept = East.function([], UIComponentType, _$ =>
+     *     Button.Root(
+     *         Stack.HStack([
+     *             Text.Root("Accept"),
+     *             Text.Root("→ log to MES", { color: "fg.muted" }),
+     *         ]),
+     *         { style: { variant: "solid", colorPalette: "green" } },
+     *     ),
+     * );
      * ```
      */
     Root: createButton,
     Types: {
         /**
-         * The concrete East type for Button component data.
+         * The concrete East type for Button component data — mirrors the inline
+         * `Button` variant in `component.ts`.
          *
          * @remarks
-         * This struct type represents the serializable data structure for a Button component.
+         * Use this for `equalFor` + `ValueTypeOf` in renderers.
          *
-         * @property label - The text displayed on the button
-         * @property style - Optional styling configuration wrapped in OptionType
+         * @property label - Rich label (UIComponentType)
+         * @property startIcon - Optional leading icon slot
+         * @property endIcon - Optional trailing icon slot
+         * @property loadingText - Label text shown when `loading` is true
+         * @property loadingIcon - Icon swapped in for `startIcon` when `loading` is true
+         * @property loading - Loading state
+         * @property disabled - Disabled state
+         * @property onClick - Click handler
+         * @property style - Visual-presentation sub-struct
          */
         Button: ButtonType,
         /**
-         * Style type for Button component configuration.
-         *
-         * @remarks
-         * This struct type defines the styling configuration for a Button component.
-         *
-         * @property variant - Button appearance variant (solid, subtle, outline, ghost)
-         * @property colorPalette - Color scheme for the button
-         * @property size - Size of the button (xs, sm, md, lg)
-         * @property loading - Whether the button shows a loading state
-         * @property disabled - Whether the button is disabled
+         * Visual-only style struct for Button. See {@link ButtonStyleType}.
          */
         Style: ButtonStyleType,
         /**
-         * Variant type for Button appearance styles.
+         * Variant enum for Button visual presets.
          *
-         * @remarks
-         * Create instances using string literals like "solid", "outline", etc.
-         *
-         * @property solid - Solid filled button (default)
+         * @property solid - Solid filled button (default primary action)
          * @property subtle - Subtle/light background button
          * @property outline - Outlined button with border
          * @property ghost - Transparent button, visible on hover
+         * @property plain - Unadorned pressable text
          */
         Variant: ButtonVariantType,
     },

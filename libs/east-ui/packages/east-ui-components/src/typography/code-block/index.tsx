@@ -21,9 +21,9 @@ export interface CodeBlockProps {
     language?: string | undefined;
     showLineNumbers?: boolean | undefined;
     highlightLines?: number[] | undefined;
-    maxHeight?: string | undefined;
     showCopyButton?: boolean | undefined;
     title?: string | undefined;
+    maxHeight?: string | undefined;
     overflow?: string | undefined;
     overflowX?: string | undefined;
     overflowY?: string | undefined;
@@ -41,37 +41,47 @@ export interface CodeBlockProps {
     mb?: string | undefined;
     ml?: string | undefined;
     opacity?: number | undefined;
+    // Colour slots
+    background?: string | undefined;
+    borderColor?: string | undefined;
+    headerBackground?: string | undefined;
+    lineNumberColor?: string | undefined;
+    highlightBackground?: string | undefined;
 }
 
 /**
  * Converts an East UI CodeBlock value to component props.
- * Pure function - easy to test independently.
+ * Pure function — reads content / config from the main struct and visual
+ * fields from the nested `style` sub-struct.
  */
 export function toCodeBlockProps(value: CodeBlockValue): CodeBlockProps {
+    const style = getSomeorUndefined(value.style);
+    const padding = style ? getSomeorUndefined(style.padding) : undefined;
+    const margin = style ? getSomeorUndefined(style.margin) : undefined;
+
     const languageVariant = getSomeorUndefined(value.language);
     const language = languageVariant?.type;
 
     const highlightLinesBigint = getSomeorUndefined(value.highlightLines);
     const highlightLines = highlightLinesBigint?.map(n => Number(n));
 
-    const padding = getSomeorUndefined(value.padding);
-    const margin = getSomeorUndefined(value.margin);
-
     return {
+        // Content / config (main)
         language,
         showLineNumbers: getSomeorUndefined(value.showLineNumbers),
         highlightLines,
-        maxHeight: getSomeorUndefined(value.maxHeight),
         showCopyButton: getSomeorUndefined(value.showCopyButton),
         title: getSomeorUndefined(value.title),
-        overflow: getSomeorUndefined(value.overflow)?.type,
-        overflowX: getSomeorUndefined(value.overflowX)?.type,
-        overflowY: getSomeorUndefined(value.overflowY)?.type,
-        width: getSomeorUndefined(value.width),
-        height: getSomeorUndefined(value.height),
-        minWidth: getSomeorUndefined(value.minWidth),
-        minHeight: getSomeorUndefined(value.minHeight),
-        maxWidth: getSomeorUndefined(value.maxWidth),
+        // Visual (style)
+        maxHeight: style ? getSomeorUndefined(style.maxHeight) : undefined,
+        overflow: style ? getSomeorUndefined(style.overflow)?.type : undefined,
+        overflowX: style ? getSomeorUndefined(style.overflowX)?.type : undefined,
+        overflowY: style ? getSomeorUndefined(style.overflowY)?.type : undefined,
+        width: style ? getSomeorUndefined(style.width) : undefined,
+        height: style ? getSomeorUndefined(style.height) : undefined,
+        minWidth: style ? getSomeorUndefined(style.minWidth) : undefined,
+        minHeight: style ? getSomeorUndefined(style.minHeight) : undefined,
+        maxWidth: style ? getSomeorUndefined(style.maxWidth) : undefined,
         pt: padding ? getSomeorUndefined(padding.top) : undefined,
         pr: padding ? getSomeorUndefined(padding.right) : undefined,
         pb: padding ? getSomeorUndefined(padding.bottom) : undefined,
@@ -80,7 +90,12 @@ export function toCodeBlockProps(value: CodeBlockValue): CodeBlockProps {
         mr: margin ? getSomeorUndefined(margin.right) : undefined,
         mb: margin ? getSomeorUndefined(margin.bottom) : undefined,
         ml: margin ? getSomeorUndefined(margin.left) : undefined,
-        opacity: getSomeorUndefined(value.opacity),
+        opacity: style ? getSomeorUndefined(style.opacity) : undefined,
+        background: style ? getSomeorUndefined(style.background) : undefined,
+        borderColor: style ? getSomeorUndefined(style.borderColor) : undefined,
+        headerBackground: style ? getSomeorUndefined(style.headerBackground) : undefined,
+        lineNumberColor: style ? getSomeorUndefined(style.lineNumberColor) : undefined,
+        highlightBackground: style ? getSomeorUndefined(style.highlightBackground) : undefined,
     };
 }
 
@@ -92,11 +107,13 @@ export interface EastChakraCodeBlockProps {
  * Renders an East UI CodeBlock value as a plain `<pre><code>` block.
  *
  * @remarks
- * Syntax highlighting has intentionally been removed — the previous Shiki
+ * Syntax highlighting has intentionally been left to CSS — the previous Shiki
  * integration via Chakra's `CodeBlock.AdapterProvider` caused "Shiki instance
  * has been disposed" errors under virtualized mounts, and the singleton
- * highlighter lifecycle was fragile. This renderer is now a thin styled
- * `<pre>` with optional line numbers, line highlights, title and copy button.
+ * highlighter lifecycle was fragile. This renderer is a thin styled
+ * `<pre>` with optional line numbers, line highlights, title, copy button,
+ * and `diff` line-kind accenting (`+` → success, `-` → danger) driven off the
+ * `data-language="diff"` attribute.
  */
 export const EastChakraCodeBlock = memo(function EastChakraCodeBlock({ value }: EastChakraCodeBlockProps) {
     const props = useMemo(() => toCodeBlockProps(value), [value]);
@@ -106,10 +123,15 @@ export const EastChakraCodeBlock = memo(function EastChakraCodeBlock({ value }: 
         [props.highlightLines],
     );
     const lines = useMemo(() => value.code.split("\n"), [value.code]);
+    const isDiff = props.language === "diff";
 
     const copy = () => {
         void navigator.clipboard.writeText(value.code);
     };
+
+    const defaultHighlightProps = props.highlightBackground
+        ? { bg: props.highlightBackground, mx: "-3", px: "3" }
+        : { bg: "yellow.100", _dark: { bg: "yellow.900" }, mx: "-3", px: "3" };
 
     return (
         <Box
@@ -133,8 +155,12 @@ export const EastChakraCodeBlock = memo(function EastChakraCodeBlock({ value }: 
             opacity={props.opacity}
             borderWidth="1px"
             borderRadius="md"
-            bg="gray.50"
-            _dark={{ bg: "gray.900", borderColor: "gray.700" }}
+            bg={props.background ?? "gray.50"}
+            borderColor={props.borderColor}
+            _dark={{
+                bg: props.background ?? "gray.900",
+                borderColor: props.borderColor ?? "gray.700",
+            }}
         >
             {showHeader && (
                 <Flex
@@ -144,6 +170,7 @@ export const EastChakraCodeBlock = memo(function EastChakraCodeBlock({ value }: 
                     py="2"
                     borderBottomWidth="1px"
                     borderColor="inherit"
+                    bg={props.headerBackground}
                 >
                     {props.title
                         ? <Text fontSize="sm" fontWeight="medium">{props.title}</Text>
@@ -174,15 +201,28 @@ export const EastChakraCodeBlock = memo(function EastChakraCodeBlock({ value }: 
                     {lines.map((line, i) => {
                         const n = i + 1;
                         const highlighted = highlightSet?.has(n);
-                        const highlightProps = highlighted
-                            ? { bg: "yellow.100", _dark: { bg: "yellow.900" }, mx: "-3", px: "3" }
-                            : {};
+                        const diffKind = isDiff
+                            ? (line.startsWith("+") && !line.startsWith("+++")
+                                ? "added"
+                                : line.startsWith("-") && !line.startsWith("---")
+                                    ? "removed"
+                                    : undefined)
+                            : undefined;
+
+                        const diffProps = diffKind === "added"
+                            ? { bg: "green.50", _dark: { bg: "green.900" }, color: "green.700" }
+                            : diffKind === "removed"
+                                ? { bg: "red.50", _dark: { bg: "red.900" }, color: "red.700" }
+                                : {};
+                        const highlightProps = highlighted ? defaultHighlightProps : {};
+                        const lineProps = { ...diffProps, ...highlightProps };
+
                         return (
-                            <Flex key={i} {...highlightProps}>
+                            <Flex key={i} {...lineProps}>
                                 {props.showLineNumbers && (
                                     <Box
                                         as="span"
-                                        color="gray.500"
+                                        color={props.lineNumberColor ?? "gray.500"}
                                         textAlign="right"
                                         pr="3"
                                         userSelect="none"

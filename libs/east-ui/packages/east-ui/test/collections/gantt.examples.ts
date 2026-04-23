@@ -422,7 +422,7 @@ export const ganttReactiveDrag = example({
                         durationStep: variant("days", 1),
                     }
                 ),
-                Text.Root(East.str`Start: ${taskStart}`, { fontSize: "sm", color: "fg.muted" }),
+                Text.Root(East.str`Start: ${taskStart}`, { textStyle: "body-sm", color: "fg.muted" }),
             ], { gap: "3", align: "stretch" });
         }));
     }),

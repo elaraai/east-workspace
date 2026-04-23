@@ -37,25 +37,29 @@ export type LinkVariantType = typeof LinkVariantType;
 export type LinkVariantLiteral = "underline" | "plain";
 
 // ============================================================================
-// Link Type
+// Link Visual Style Struct
 // ============================================================================
 
 /**
- * The concrete East type for Link component data.
+ * Visual-presentation struct for the Link component.
  *
- * @property value - The link text to display
- * @property href - URL the link points to
- * @property external - Whether to open in new tab
- * @property variant - Visual style variant
- * @property colorPalette - Color scheme for the link
+ * Holds visual presets (variant / colorPalette), typography, colour escape
+ * hatches (including hover / visited states), layout / sizing, and opacity.
+ * Consumed via `LinkType.style`.
  */
-export const LinkType = StructType({
-    value: StringType,
-    href: StringType,
-    external: OptionType(BooleanType),
+export const LinkVisualStyleType = StructType({
+    // Visual presets
     variant: OptionType(LinkVariantType),
     colorPalette: OptionType(StringType),
+    // Colour escape hatches
+    color: OptionType(StringType),
+    hoverColor: OptionType(StringType),
+    visitedColor: OptionType(StringType),
+    // Typography
     textDecoration: OptionType(TextDecorationType),
+    lineHeight: OptionType(StringType),
+    letterSpacing: OptionType(StringType),
+    // Layout / sizing
     overflow: OptionType(OverflowType),
     overflowX: OptionType(OverflowType),
     overflowY: OptionType(OverflowType),
@@ -67,29 +71,63 @@ export const LinkType = StructType({
     maxHeight: OptionType(StringType),
     padding: OptionType(PaddingType),
     margin: OptionType(MarginType),
-    lineHeight: OptionType(StringType),
-    letterSpacing: OptionType(StringType),
+    // Opacity
     opacity: OptionType(FloatType),
+});
+
+export type LinkVisualStyleType = typeof LinkVisualStyleType;
+
+// ============================================================================
+// Link Type
+// ============================================================================
+
+/**
+ * The concrete East type for Link component data.
+ *
+ * @property value - The link text to display
+ * @property href - URL the link points to
+ * @property external - Whether to open in new tab (state)
+ * @property style - Visual-presentation sub-struct
+ */
+export const LinkType = StructType({
+    value: StringType,
+    href: StringType,
+    external: OptionType(BooleanType),
+    style: OptionType(LinkVisualStyleType),
 });
 
 export type LinkType = typeof LinkType;
 
 // ============================================================================
-// Link Style
+// Link Style (TS interface)
 // ============================================================================
 
 /**
  * Style configuration for Link components.
+ *
+ * Flat at the factory boundary for ergonomics; the IR wraps visual fields
+ * inside `LinkType.style` (see `LinkVisualStyleType`). `external` is state,
+ * accepted at the factory and forwarded to the main struct.
  */
 export type LinkStyle = {
-    /** Whether to open in new tab */
+    /** Whether to open in new tab (state — not visual) */
     external?: SubtypeExprOrValue<BooleanType> | boolean;
     /** Visual style variant */
     variant?: SubtypeExprOrValue<LinkVariantType> | LinkVariantLiteral;
     /** Color palette (e.g., "blue", "teal") */
     colorPalette?: SubtypeExprOrValue<StringType>;
+    /** Link text colour. Overrides `colorPalette`. */
+    color?: SubtypeExprOrValue<StringType>;
+    /** Hover-state text colour. */
+    hoverColor?: SubtypeExprOrValue<StringType>;
+    /** Visited-state text colour. */
+    visitedColor?: SubtypeExprOrValue<StringType>;
     /** Text decoration */
     textDecoration?: SubtypeExprOrValue<TextDecorationType> | TextDecorationLiteral;
+    /** Line height */
+    lineHeight?: SubtypeExprOrValue<StringType>;
+    /** Letter spacing */
+    letterSpacing?: SubtypeExprOrValue<StringType>;
     /** Overflow behavior */
     overflow?: SubtypeExprOrValue<OverflowType> | OverflowLiteral;
     /** Horizontal overflow behavior */
@@ -112,10 +150,6 @@ export type LinkStyle = {
     padding?: SubtypeExprOrValue<PaddingType> | string;
     /** Margin configuration */
     margin?: SubtypeExprOrValue<MarginType> | string;
-    /** Line height */
-    lineHeight?: SubtypeExprOrValue<StringType>;
-    /** Letter spacing */
-    letterSpacing?: SubtypeExprOrValue<StringType>;
     /** CSS opacity (0-1) */
     opacity?: SubtypeExprOrValue<FloatType>;
 };

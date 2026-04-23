@@ -22,7 +22,7 @@ export const tooltipArrow = example({
     description: "Tooltip with pointing arrow",
     fn: East.function([], UIComponentType, (_$) => {
         return Tooltip.Root(
-            Button.Root("With Arrow", { variant: "solid", colorPalette: "blue" }),
+            Button.Root("With Arrow", { style: { variant: "solid", colorPalette: "blue" } }),
             "This tooltip has an arrow",
             { hasArrow: true }
         );

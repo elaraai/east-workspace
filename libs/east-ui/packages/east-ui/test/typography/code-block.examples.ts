@@ -95,6 +95,31 @@ export const codeBlockBash = example({
     inputs: [],
 });
 
+export const codeBlockDiff = example({
+    keywords: ["CodeBlock", "Root", "language", "diff", "patch"],
+    description: "Unified-diff highlighting for scenario edits",
+    fn: East.function([], UIComponentType, (_$) => {
+        const patch = [
+            "--- a/scenario.yaml",
+            "+++ b/scenario.yaml",
+            "@@ -1,5 +1,5 @@",
+            " name: Q2 plan",
+            "-target: 1.80M",
+            "+target: 1.84M",
+            " horizon: 2026-06-30",
+            " assumptions:",
+            "-  service_level: 0.85",
+            "+  service_level: 0.92",
+        ].join("\n");
+        return CodeBlock.Root(patch, {
+            language: "diff",
+            showLineNumbers: true,
+            title: "scenario.yaml",
+        });
+    }),
+    inputs: [],
+});
+
 export const codeBlockInteractive = example({
     keywords: ["CodeBlock", "Reactive", "State", "interactive", "counter"],
     description: "Reactive code block whose contents update from a counter",

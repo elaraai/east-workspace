@@ -24,10 +24,13 @@ describeEast("Text", (test) => {
         textOpacity: ex.textOpacity,
         textPaddingMargin: ex.textPaddingMargin,
         textOverflow: ex.textOverflow,
+        textStyleScale: ex.textStyleScale,
+        textMonoKpi: ex.textMonoKpi,
+        textTabularNums: ex.textTabularNums,
     });
 
     // =========================================================================
-    // Basic Creation
+    // Basic Creation — { value, style } shape
     // =========================================================================
 
     test("creates text with string value", $ => {
@@ -36,117 +39,108 @@ describeEast("Text", (test) => {
         $(Assert.equal(text.unwrap().unwrap("Text").value, "Hello"));
     });
 
+    test("creates text with no style — style is none", $ => {
+        const text = $.let(Text.Root("Plain"));
+
+        $(Assert.equal(text.unwrap().unwrap("Text").value, "Plain"));
+        $(Assert.equal(text.unwrap().unwrap("Text").style.hasTag("none"), true));
+    });
+
     // =========================================================================
-    // Style Properties - Individual
+    // Style Properties — Individual (inside style)
     // =========================================================================
+
+    test("creates text with textStyle", $ => {
+        const text = $.let(Text.Root("Body md", { textStyle: "body-md" }));
+        const style = text.unwrap().unwrap("Text").style.unwrap("some");
+        $(Assert.equal(style.textStyle.hasTag("some"), true));
+        $(Assert.equal(style.textStyle.unwrap("some").hasTag("body-md"), true));
+    });
+
+    test("creates text with mono-kpi textStyle", $ => {
+        const text = $.let(Text.Root("$1.84M", { textStyle: "mono-kpi" }));
+        const style = text.unwrap().unwrap("Text").style.unwrap("some");
+        $(Assert.equal(style.textStyle.unwrap("some").hasTag("mono-kpi"), true));
+    });
+
+    test("creates text with fontFamily", $ => {
+        const text = $.let(Text.Root("Mono", { fontFamily: "mono" }));
+        const style = text.unwrap().unwrap("Text").style.unwrap("some");
+        $(Assert.equal(style.fontFamily.unwrap("some").hasTag("mono"), true));
+    });
+
+    test("creates text with fontVariantNumeric", $ => {
+        const text = $.let(Text.Root("42", { fontVariantNumeric: "tabular-nums" }));
+        const style = text.unwrap().unwrap("Text").style.unwrap("some");
+        $(Assert.equal(style.fontVariantNumeric.unwrap("some").hasTag("tabular-nums"), true));
+    });
 
     test("creates text with color", $ => {
-        const text = $.let(Text.Root("Colored", {
-            color: "blue.500",
-        }));
-
+        const text = $.let(Text.Root("Colored", { color: "blue.500" }));
+        const style = text.unwrap().unwrap("Text").style.unwrap("some");
         $(Assert.equal(text.unwrap().unwrap("Text").value, "Colored"));
-        $(Assert.equal(text.unwrap().unwrap("Text").color.hasTag("some"), true));
-        $(Assert.equal(text.unwrap().unwrap("Text").color.unwrap("some"), "blue.500"));
+        $(Assert.equal(style.color.hasTag("some"), true));
+        $(Assert.equal(style.color.unwrap("some"), "blue.500"));
     });
 
     test("creates text with background", $ => {
-        const text = $.let(Text.Root("Background", {
-            background: "gray.100",
-        }));
-
-        $(Assert.equal(text.unwrap().unwrap("Text").value, "Background"));
-        $(Assert.equal(text.unwrap().unwrap("Text").background.hasTag("some"), true));
-        $(Assert.equal(text.unwrap().unwrap("Text").background.unwrap("some"), "gray.100"));
+        const text = $.let(Text.Root("Background", { background: "gray.100" }));
+        const style = text.unwrap().unwrap("Text").style.unwrap("some");
+        $(Assert.equal(style.background.unwrap("some"), "gray.100"));
     });
 
     test("creates text with fontWeight", $ => {
         const text = $.let(Text.Root("Bold", {
             fontWeight: Style.FontWeight("bold"),
         }));
-
-        $(Assert.equal(text.unwrap().unwrap("Text").value, "Bold"));
-        $(Assert.equal(text.unwrap().unwrap("Text").fontWeight.hasTag("some"), true));
-        $(Assert.equal(text.unwrap().unwrap("Text").fontWeight.unwrap("some").hasTag("bold"), true));
+        const style = text.unwrap().unwrap("Text").style.unwrap("some");
+        $(Assert.equal(style.fontWeight.unwrap("some").hasTag("bold"), true));
     });
 
     test("creates text with fontStyle", $ => {
         const text = $.let(Text.Root("Italic", {
             fontStyle: Style.FontStyle("italic"),
         }));
-
-        $(Assert.equal(text.unwrap().unwrap("Text").value, "Italic"));
-        $(Assert.equal(text.unwrap().unwrap("Text").fontStyle.hasTag("some"), true));
-        $(Assert.equal(text.unwrap().unwrap("Text").fontStyle.unwrap("some").hasTag("italic"), true));
+        const style = text.unwrap().unwrap("Text").style.unwrap("some");
+        $(Assert.equal(style.fontStyle.unwrap("some").hasTag("italic"), true));
     });
 
     test("creates text with textTransform", $ => {
         const text = $.let(Text.Root("uppercase", {
             textTransform: Style.TextTransform("uppercase"),
         }));
-
-        $(Assert.equal(text.unwrap().unwrap("Text").value, "uppercase"));
-        $(Assert.equal(text.unwrap().unwrap("Text").textTransform.hasTag("some"), true));
-        $(Assert.equal(text.unwrap().unwrap("Text").textTransform.unwrap("some").hasTag("uppercase"), true));
+        const style = text.unwrap().unwrap("Text").style.unwrap("some");
+        $(Assert.equal(style.textTransform.unwrap("some").hasTag("uppercase"), true));
     });
 
     test("creates text with textAlign", $ => {
         const text = $.let(Text.Root("Centered", {
             textAlign: Style.TextAlign("center"),
         }));
-
-        $(Assert.equal(text.unwrap().unwrap("Text").value, "Centered"));
-        $(Assert.equal(text.unwrap().unwrap("Text").textAlign.hasTag("some"), true));
-        $(Assert.equal(text.unwrap().unwrap("Text").textAlign.unwrap("some").hasTag("center"), true));
+        const style = text.unwrap().unwrap("Text").style.unwrap("some");
+        $(Assert.equal(style.textAlign.unwrap("some").hasTag("center"), true));
     });
 
     test("creates text with borderWidth", $ => {
         const text = $.let(Text.Root("Bordered", {
             borderWidth: Style.BorderWidth("thin"),
         }));
-
-        $(Assert.equal(text.unwrap().unwrap("Text").value, "Bordered"));
-        $(Assert.equal(text.unwrap().unwrap("Text").borderWidth.hasTag("some"), true));
-        $(Assert.equal(text.unwrap().unwrap("Text").borderWidth.unwrap("some").hasTag("thin"), true));
+        const style = text.unwrap().unwrap("Text").style.unwrap("some");
+        $(Assert.equal(style.borderWidth.unwrap("some").hasTag("thin"), true));
     });
 
     test("creates text with borderStyle", $ => {
         const text = $.let(Text.Root("Bordered", {
             borderStyle: Style.BorderStyle("solid"),
         }));
-
-        $(Assert.equal(text.unwrap().unwrap("Text").value, "Bordered"));
-        $(Assert.equal(text.unwrap().unwrap("Text").borderStyle.hasTag("some"), true));
-        $(Assert.equal(text.unwrap().unwrap("Text").borderStyle.unwrap("some").hasTag("solid"), true));
+        const style = text.unwrap().unwrap("Text").style.unwrap("some");
+        $(Assert.equal(style.borderStyle.unwrap("some").hasTag("solid"), true));
     });
 
     test("creates text with borderColor", $ => {
-        const text = $.let(Text.Root("Bordered", {
-            borderColor: "red.500",
-        }));
-
-        $(Assert.equal(text.unwrap().unwrap("Text").value, "Bordered"));
-        $(Assert.equal(text.unwrap().unwrap("Text").borderColor.hasTag("some"), true));
-        $(Assert.equal(text.unwrap().unwrap("Text").borderColor.unwrap("some"), "red.500"));
-    });
-
-    // =========================================================================
-    // No Style - Defaults to None
-    // =========================================================================
-
-    test("creates text with no style - all options are none", $ => {
-        const text = $.let(Text.Root("Plain"));
-
-        $(Assert.equal(text.unwrap().unwrap("Text").value, "Plain"));
-        $(Assert.equal(text.unwrap().unwrap("Text").color.hasTag("none"), true));
-        $(Assert.equal(text.unwrap().unwrap("Text").background.hasTag("none"), true));
-        $(Assert.equal(text.unwrap().unwrap("Text").fontWeight.hasTag("none"), true));
-        $(Assert.equal(text.unwrap().unwrap("Text").fontStyle.hasTag("none"), true));
-        $(Assert.equal(text.unwrap().unwrap("Text").textTransform.hasTag("none"), true));
-        $(Assert.equal(text.unwrap().unwrap("Text").textAlign.hasTag("none"), true));
-        $(Assert.equal(text.unwrap().unwrap("Text").borderWidth.hasTag("none"), true));
-        $(Assert.equal(text.unwrap().unwrap("Text").borderStyle.hasTag("none"), true));
-        $(Assert.equal(text.unwrap().unwrap("Text").borderColor.hasTag("none"), true));
+        const text = $.let(Text.Root("Bordered", { borderColor: "red.500" }));
+        const style = text.unwrap().unwrap("Text").style.unwrap("some");
+        $(Assert.equal(style.borderColor.unwrap("some"), "red.500"));
     });
 
     // =========================================================================
@@ -160,15 +154,16 @@ describeEast("Text", (test) => {
             textAlign: Style.TextAlign("center"),
             background: "yellow.100",
         }));
+        const style = text.unwrap().unwrap("Text").style.unwrap("some");
 
         $(Assert.equal(text.unwrap().unwrap("Text").value, "Styled"));
-        $(Assert.equal(text.unwrap().unwrap("Text").color.unwrap("some"), "blue.500"));
-        $(Assert.equal(text.unwrap().unwrap("Text").fontWeight.unwrap("some").hasTag("bold"), true));
-        $(Assert.equal(text.unwrap().unwrap("Text").textAlign.unwrap("some").hasTag("center"), true));
-        $(Assert.equal(text.unwrap().unwrap("Text").background.unwrap("some"), "yellow.100"));
+        $(Assert.equal(style.color.unwrap("some"), "blue.500"));
+        $(Assert.equal(style.fontWeight.unwrap("some").hasTag("bold"), true));
+        $(Assert.equal(style.textAlign.unwrap("some").hasTag("center"), true));
+        $(Assert.equal(style.background.unwrap("some"), "yellow.100"));
         // Other styles should be none
-        $(Assert.equal(text.unwrap().unwrap("Text").fontStyle.hasTag("none"), true));
-        $(Assert.equal(text.unwrap().unwrap("Text").borderWidth.hasTag("none"), true));
+        $(Assert.equal(style.fontStyle.hasTag("none"), true));
+        $(Assert.equal(style.borderWidth.hasTag("none"), true));
     });
 
     // =========================================================================
@@ -182,11 +177,11 @@ describeEast("Text", (test) => {
         const medium = $.let(Text.Root("medium", { fontWeight: Style.FontWeight("medium") }));
         const light = $.let(Text.Root("light", { fontWeight: Style.FontWeight("light") }));
 
-        $(Assert.equal(normal.unwrap().unwrap("Text").fontWeight.unwrap("some").hasTag("normal"), true));
-        $(Assert.equal(bold.unwrap().unwrap("Text").fontWeight.unwrap("some").hasTag("bold"), true));
-        $(Assert.equal(semibold.unwrap().unwrap("Text").fontWeight.unwrap("some").hasTag("semibold"), true));
-        $(Assert.equal(medium.unwrap().unwrap("Text").fontWeight.unwrap("some").hasTag("medium"), true));
-        $(Assert.equal(light.unwrap().unwrap("Text").fontWeight.unwrap("some").hasTag("light"), true));
+        $(Assert.equal(normal.unwrap().unwrap("Text").style.unwrap("some").fontWeight.unwrap("some").hasTag("normal"), true));
+        $(Assert.equal(bold.unwrap().unwrap("Text").style.unwrap("some").fontWeight.unwrap("some").hasTag("bold"), true));
+        $(Assert.equal(semibold.unwrap().unwrap("Text").style.unwrap("some").fontWeight.unwrap("some").hasTag("semibold"), true));
+        $(Assert.equal(medium.unwrap().unwrap("Text").style.unwrap("some").fontWeight.unwrap("some").hasTag("medium"), true));
+        $(Assert.equal(light.unwrap().unwrap("Text").style.unwrap("some").fontWeight.unwrap("some").hasTag("light"), true));
     });
 
     // =========================================================================
@@ -199,10 +194,10 @@ describeEast("Text", (test) => {
         const right = $.let(Text.Root("right", { textAlign: Style.TextAlign("right") }));
         const justify = $.let(Text.Root("justify", { textAlign: Style.TextAlign("justify") }));
 
-        $(Assert.equal(left.unwrap().unwrap("Text").textAlign.unwrap("some").hasTag("left"), true));
-        $(Assert.equal(center.unwrap().unwrap("Text").textAlign.unwrap("some").hasTag("center"), true));
-        $(Assert.equal(right.unwrap().unwrap("Text").textAlign.unwrap("some").hasTag("right"), true));
-        $(Assert.equal(justify.unwrap().unwrap("Text").textAlign.unwrap("some").hasTag("justify"), true));
+        $(Assert.equal(left.unwrap().unwrap("Text").style.unwrap("some").textAlign.unwrap("some").hasTag("left"), true));
+        $(Assert.equal(center.unwrap().unwrap("Text").style.unwrap("some").textAlign.unwrap("some").hasTag("center"), true));
+        $(Assert.equal(right.unwrap().unwrap("Text").style.unwrap("some").textAlign.unwrap("some").hasTag("right"), true));
+        $(Assert.equal(justify.unwrap().unwrap("Text").style.unwrap("some").textAlign.unwrap("some").hasTag("justify"), true));
     });
 
     // =========================================================================
@@ -215,10 +210,10 @@ describeEast("Text", (test) => {
         const capitalize = $.let(Text.Root("hello", { textTransform: Style.TextTransform("capitalize") }));
         const none = $.let(Text.Root("Hello", { textTransform: Style.TextTransform("none") }));
 
-        $(Assert.equal(uppercase.unwrap().unwrap("Text").textTransform.unwrap("some").hasTag("uppercase"), true));
-        $(Assert.equal(lowercase.unwrap().unwrap("Text").textTransform.unwrap("some").hasTag("lowercase"), true));
-        $(Assert.equal(capitalize.unwrap().unwrap("Text").textTransform.unwrap("some").hasTag("capitalize"), true));
-        $(Assert.equal(none.unwrap().unwrap("Text").textTransform.unwrap("some").hasTag("none"), true));
+        $(Assert.equal(uppercase.unwrap().unwrap("Text").style.unwrap("some").textTransform.unwrap("some").hasTag("uppercase"), true));
+        $(Assert.equal(lowercase.unwrap().unwrap("Text").style.unwrap("some").textTransform.unwrap("some").hasTag("lowercase"), true));
+        $(Assert.equal(capitalize.unwrap().unwrap("Text").style.unwrap("some").textTransform.unwrap("some").hasTag("capitalize"), true));
+        $(Assert.equal(none.unwrap().unwrap("Text").style.unwrap("some").textTransform.unwrap("some").hasTag("none"), true));
     });
 
     // =========================================================================
@@ -231,10 +226,10 @@ describeEast("Text", (test) => {
         const medium = $.let(Text.Root("medium", { borderWidth: Style.BorderWidth("medium") }));
         const thick = $.let(Text.Root("thick", { borderWidth: Style.BorderWidth("thick") }));
 
-        $(Assert.equal(noBorder.unwrap().unwrap("Text").borderWidth.unwrap("some").hasTag("none"), true));
-        $(Assert.equal(thin.unwrap().unwrap("Text").borderWidth.unwrap("some").hasTag("thin"), true));
-        $(Assert.equal(medium.unwrap().unwrap("Text").borderWidth.unwrap("some").hasTag("medium"), true));
-        $(Assert.equal(thick.unwrap().unwrap("Text").borderWidth.unwrap("some").hasTag("thick"), true));
+        $(Assert.equal(noBorder.unwrap().unwrap("Text").style.unwrap("some").borderWidth.unwrap("some").hasTag("none"), true));
+        $(Assert.equal(thin.unwrap().unwrap("Text").style.unwrap("some").borderWidth.unwrap("some").hasTag("thin"), true));
+        $(Assert.equal(medium.unwrap().unwrap("Text").style.unwrap("some").borderWidth.unwrap("some").hasTag("medium"), true));
+        $(Assert.equal(thick.unwrap().unwrap("Text").style.unwrap("some").borderWidth.unwrap("some").hasTag("thick"), true));
     });
 
     // =========================================================================
@@ -248,11 +243,11 @@ describeEast("Text", (test) => {
         const double_ = $.let(Text.Root("double", { borderStyle: Style.BorderStyle("double") }));
         const noBorder = $.let(Text.Root("none", { borderStyle: Style.BorderStyle("none") }));
 
-        $(Assert.equal(solid.unwrap().unwrap("Text").borderStyle.unwrap("some").hasTag("solid"), true));
-        $(Assert.equal(dashed.unwrap().unwrap("Text").borderStyle.unwrap("some").hasTag("dashed"), true));
-        $(Assert.equal(dotted.unwrap().unwrap("Text").borderStyle.unwrap("some").hasTag("dotted"), true));
-        $(Assert.equal(double_.unwrap().unwrap("Text").borderStyle.unwrap("some").hasTag("double"), true));
-        $(Assert.equal(noBorder.unwrap().unwrap("Text").borderStyle.unwrap("some").hasTag("none"), true));
+        $(Assert.equal(solid.unwrap().unwrap("Text").style.unwrap("some").borderStyle.unwrap("some").hasTag("solid"), true));
+        $(Assert.equal(dashed.unwrap().unwrap("Text").style.unwrap("some").borderStyle.unwrap("some").hasTag("dashed"), true));
+        $(Assert.equal(dotted.unwrap().unwrap("Text").style.unwrap("some").borderStyle.unwrap("some").hasTag("dotted"), true));
+        $(Assert.equal(double_.unwrap().unwrap("Text").style.unwrap("some").borderStyle.unwrap("some").hasTag("double"), true));
+        $(Assert.equal(noBorder.unwrap().unwrap("Text").style.unwrap("some").borderStyle.unwrap("some").hasTag("none"), true));
     });
 
     // =========================================================================
@@ -265,9 +260,10 @@ describeEast("Text", (test) => {
             borderStyle: Style.BorderStyle("solid"),
             borderColor: "gray.300",
         }));
+        const style = text.unwrap().unwrap("Text").style.unwrap("some");
 
-        $(Assert.equal(text.unwrap().unwrap("Text").borderWidth.unwrap("some").hasTag("medium"), true));
-        $(Assert.equal(text.unwrap().unwrap("Text").borderStyle.unwrap("some").hasTag("solid"), true));
-        $(Assert.equal(text.unwrap().unwrap("Text").borderColor.unwrap("some"), "gray.300"));
+        $(Assert.equal(style.borderWidth.unwrap("some").hasTag("medium"), true));
+        $(Assert.equal(style.borderStyle.unwrap("some").hasTag("solid"), true));
+        $(Assert.equal(style.borderColor.unwrap("some"), "gray.300"));
     });
-}, {   platformFns: TestImpl,});
+}, { platformFns: TestImpl });

@@ -17,15 +17,18 @@ import { Carousel } from "@elaraai/east-ui";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 
-// Pre-define equality function at module level
-const carouselRootEqual = equalFor(Carousel.Types.Root);
+const carouselEqual = equalFor(Carousel.Types.Carousel);
 
 /** East Carousel value type */
-export type CarouselValue = ValueTypeOf<typeof Carousel.Types.Root>;
+export type CarouselValue = ValueTypeOf<typeof Carousel.Types.Carousel>;
 
 /**
  * Converts an East UI Carousel value to Chakra UI CarouselRoot props.
- * Pure function - easy to test independently.
+ *
+ * @remarks
+ * `spacing` / `padding` come from main (moved out of `style` in Plan 1.9).
+ * Only `orientation` comes from `style` — colour slots are applied via
+ * CSS on sub-components in the renderer body.
  */
 export function toChakraCarousel(value: CarouselValue): CarouselRootProps {
     const style = getSomeorUndefined(value.style);
@@ -37,8 +40,8 @@ export function toChakraCarousel(value: CarouselValue): CarouselRootProps {
     return {
         slideCount: value.items.length,
         orientation: style ? getSomeorUndefined(style.orientation)?.type : undefined,
-        gap: style ? getSomeorUndefined(style.spacing) : undefined,
-        padding: style ? getSomeorUndefined(style.padding) : undefined,
+        gap: getSomeorUndefined(value.spacing),
+        padding: getSomeorUndefined(value.padding),
         loop: getSomeorUndefined(value.loop),
         autoplay: getSomeorUndefined(value.autoplay),
         allowMouseDrag: getSomeorUndefined(value.allowMouseDrag),
@@ -66,10 +69,16 @@ export const EastChakraCarousel = memo(function EastChakraCarousel({ value, stor
     const props = useMemo(() => toChakraCarousel(value), [value]);
     const showControls = getSomeorUndefined(value.showControls) ?? true;
     const showIndicators = getSomeorUndefined(value.showIndicators) ?? true;
-    const onIndexChangeFn = useMemo(() => {
-        const style = getSomeorUndefined(value.style);
-        return style ? getSomeorUndefined(style.onIndexChange) : undefined;
-    }, [value.style]);
+    const onIndexChangeFn = useMemo(
+        () => getSomeorUndefined(value.onIndexChange),
+        [value.onIndexChange],
+    );
+
+    const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
+    const indicatorColor = style ? getSomeorUndefined(style.indicatorColor) : undefined;
+    const activeIndicatorColor = style ? getSomeorUndefined(style.activeIndicatorColor) : undefined;
+    const controlColor = style ? getSomeorUndefined(style.controlColor) : undefined;
+    const controlBackground = style ? getSomeorUndefined(style.controlBackground) : undefined;
 
     const defaultPage = useMemo(() => {
         const idx = getSomeorUndefined(value.defaultIndex);
@@ -110,6 +119,8 @@ export const EastChakraCarousel = memo(function EastChakraCarousel({ value, stor
                             variant="outline"
                             size="sm"
                             rounded="full"
+                            {...(controlColor !== undefined ? { color: controlColor } : {})}
+                            {...(controlBackground !== undefined ? { bg: controlBackground } : {})}
                         >
                             <FontAwesomeIcon icon={faChevronLeft} />
                         </IconButton>
@@ -120,6 +131,8 @@ export const EastChakraCarousel = memo(function EastChakraCarousel({ value, stor
                             variant="outline"
                             size="sm"
                             rounded="full"
+                            {...(controlColor !== undefined ? { color: controlColor } : {})}
+                            {...(controlBackground !== undefined ? { bg: controlBackground } : {})}
                         >
                             <FontAwesomeIcon icon={faChevronRight} />
                         </IconButton>
@@ -129,10 +142,17 @@ export const EastChakraCarousel = memo(function EastChakraCarousel({ value, stor
             {showIndicators && (
                 <ChakraCarousel.IndicatorGroup>
                     {value.items.map((_, index) => (
-                        <ChakraCarousel.Indicator key={index} index={index} />
+                        <ChakraCarousel.Indicator
+                            key={index}
+                            index={index}
+                            {...(indicatorColor !== undefined ? { bg: indicatorColor } : {})}
+                            {...(activeIndicatorColor !== undefined
+                                ? { _selected: { bg: activeIndicatorColor } }
+                                : {})}
+                        />
                     ))}
                 </ChakraCarousel.IndicatorGroup>
             )}
         </ChakraCarousel.Root>
     );
-}, (prev, next) => carouselRootEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
+}, (prev, next) => carouselEqual(prev.value, next.value) && prev.storageKey === next.storageKey);

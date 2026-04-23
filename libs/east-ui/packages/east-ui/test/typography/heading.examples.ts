@@ -15,28 +15,27 @@ export const headingBasic = example({
 });
 
 export const headingStandardSizes = example({
-    keywords: ["Heading", "Root", "size", "xs", "sm", "md", "lg", "xl"],
-    description: "xs through xl",
+    keywords: ["Heading", "Root", "textStyle", "heading-xs", "heading-sm", "heading-md", "heading-lg"],
+    description: "Heading textStyles xs through lg",
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.VStack([
-            Heading.Root("Extra Small (xs)", { size: "xs" }),
-            Heading.Root("Small (sm)", { size: "sm" }),
-            Heading.Root("Medium (md)", { size: "md" }),
-            Heading.Root("Large (lg)", { size: "lg" }),
-            Heading.Root("Extra Large (xl)", { size: "xl" }),
+            Heading.Root("Extra Small (heading-xs)", { textStyle: "heading-xs" }),
+            Heading.Root("Small (heading-sm)", { textStyle: "heading-sm" }),
+            Heading.Root("Medium (heading-md)", { textStyle: "heading-md" }),
+            Heading.Root("Large (heading-lg)", { textStyle: "heading-lg" }),
         ], { gap: "2", align: "flex-start" });
     }),
     inputs: [],
 });
 
 export const headingExtendedSizes = example({
-    keywords: ["Heading", "Root", "size", "2xl", "3xl", "4xl"],
-    description: "2xl through 6xl for typography",
+    keywords: ["Heading", "Root", "textStyle", "display-sm", "display-md", "display-lg"],
+    description: "Display textStyles for large page titles",
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.VStack([
-            Heading.Root("2XL Heading", { size: "2xl" }),
-            Heading.Root("3XL Heading", { size: "3xl" }),
-            Heading.Root("4XL Heading", { size: "4xl" }),
+            Heading.Root("Display Small", { textStyle: "display-sm" }),
+            Heading.Root("Display Medium", { textStyle: "display-md" }),
+            Heading.Root("Display Large", { textStyle: "display-lg" }),
         ], { gap: "2", align: "flex-start" });
     }),
     inputs: [],
@@ -47,10 +46,10 @@ export const headingSemanticLevels = example({
     description: "HTML heading elements h1-h6",
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.VStack([
-            Heading.Root("H1 - Main Title", { as: "h1", size: "2xl" }),
-            Heading.Root("H2 - Section", { as: "h2", size: "xl" }),
-            Heading.Root("H3 - Subsection", { as: "h3", size: "lg" }),
-            Heading.Root("H4 - Minor", { as: "h4", size: "md" }),
+            Heading.Root("H1 - Main Title", { as: "h1", textStyle: "display-sm" }),
+            Heading.Root("H2 - Section", { as: "h2", textStyle: "heading-lg" }),
+            Heading.Root("H3 - Subsection", { as: "h3", textStyle: "heading-md" }),
+            Heading.Root("H4 - Minor", { as: "h4", textStyle: "heading-sm" }),
         ], { gap: "2", align: "flex-start" });
     }),
     inputs: [],
@@ -61,9 +60,9 @@ export const headingColored = example({
     description: "Headings with different colors",
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.VStack([
-            Heading.Root("Blue Heading", { size: "lg", color: "blue.600" }),
-            Heading.Root("Green Heading", { size: "lg", color: "green.600" }),
-            Heading.Root("Purple Heading", { size: "lg", color: "purple.600" }),
+            Heading.Root("Blue Heading", { textStyle: "heading-lg", color: "blue.600" }),
+            Heading.Root("Green Heading", { textStyle: "heading-lg", color: "green.600" }),
+            Heading.Root("Purple Heading", { textStyle: "heading-lg", color: "purple.600" }),
         ], { gap: "2", align: "flex-start" });
     }),
     inputs: [],
@@ -74,23 +73,39 @@ export const headingAlignment = example({
     description: "Left, center, and right aligned",
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.VStack([
-            Heading.Root("Left Aligned", { size: "md", textAlign: Style.TextAlign("left") }),
-            Heading.Root("Center Aligned", { size: "md", textAlign: Style.TextAlign("center") }),
-            Heading.Root("Right Aligned", { size: "md", textAlign: Style.TextAlign("right") }),
+            Heading.Root("Left Aligned", { textStyle: "heading-md", textAlign: Style.TextAlign("left") }),
+            Heading.Root("Center Aligned", { textStyle: "heading-md", textAlign: Style.TextAlign("center") }),
+            Heading.Root("Right Aligned", { textStyle: "heading-md", textAlign: Style.TextAlign("right") }),
         ], { gap: "2", align: "stretch" });
     }),
     inputs: [],
 });
 
 export const headingCombined = example({
-    keywords: ["Heading", "Root", "combined", "size", "as", "color", "textAlign"],
+    keywords: ["Heading", "Root", "combined", "textStyle", "as", "color", "textAlign"],
     description: "Page title with all options",
     fn: East.function([], UIComponentType, (_$) => {
         return Heading.Root("Welcome to East UI", {
-            size: "3xl",
             as: "h1",
+            textStyle: "display-md",
             color: "gray.800",
             textAlign: Style.TextAlign("center"),
+        });
+    }),
+    inputs: [],
+});
+
+export const headingBackground = example({
+    keywords: ["Heading", "Root", "background", "hero", "coloured-band"],
+    description: "Hero heading with a coloured background band",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Heading.Root("Platform Overview", {
+            as: "h2",
+            textStyle: "display-sm",
+            color: "blue.900",
+            background: "blue.50",
+            textAlign: Style.TextAlign("center"),
+            padding: "4",
         });
     }),
     inputs: [],
@@ -108,7 +123,7 @@ export const headingInteractive = example({
                 $(counter.write(cur.add(1n)));
             }));
             return Stack.VStack([
-                Heading.Root(East.str`Click count: ${East.print(value)}`, { size: "lg" }),
+                Heading.Root(East.str`Click count: ${East.print(value)}`, { textStyle: "heading-lg" }),
                 Button.Root("Click me", { onClick: increment }),
             ], { gap: "3", align: "stretch" });
         }));

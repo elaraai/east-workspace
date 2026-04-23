@@ -31,13 +31,6 @@ import {
 /**
  * Variant types for Tabs visual style.
  *
- * @remarks
- * - line: Tabs with an underline indicator
- * - subtle: Light background on selected tab
- * - enclosed: Tabs with bordered container
- * - outline: Outlined tabs
- * - plain: No visible styling
- *
  * @property line - Tabs with an underline indicator
  * @property subtle - Light background on selected tab
  * @property enclosed - Tabs with bordered container
@@ -45,15 +38,10 @@ import {
  * @property plain - No visible styling
  */
 export const TabsVariantType = VariantType({
-    /** Tabs with an underline indicator */
     line: NullType,
-    /** Light background on selected tab */
     subtle: NullType,
-    /** Tabs with bordered container */
     enclosed: NullType,
-    /** Outlined tabs */
     outline: NullType,
-    /** No visible styling */
     plain: NullType,
 });
 
@@ -89,11 +77,8 @@ export function TabsVariant(v: TabsVariantLiteral): ExprType<TabsVariantType> {
  * @property end - Align tabs to the end
  */
 export const TabsJustifyType = VariantType({
-    /** Align tabs to the start */
     start: NullType,
-    /** Center the tabs */
     center: NullType,
-    /** Align tabs to the end */
     end: NullType,
 });
 
@@ -118,9 +103,7 @@ export type TabsJustifyLiteral = "start" | "center" | "end";
  * @property manual - Tab requires explicit activation
  */
 export const TabsActivationModeType = VariantType({
-    /** Tab activates on focus */
     automatic: NullType,
-    /** Tab requires explicit activation */
     manual: NullType,
 });
 
@@ -149,11 +132,8 @@ export type TabsActivationModeLiteral = "automatic" | "manual";
  * @property lg - Large tabs
  */
 export const TabsSizeType = VariantType({
-    /** Small tabs */
     sm: NullType,
-    /** Medium tabs (default) */
     md: NullType,
-    /** Large tabs */
     lg: NullType,
 });
 
@@ -168,22 +148,34 @@ export type TabsSizeType = typeof TabsSizeType;
 export type TabsSizeLiteral = "sm" | "md" | "lg";
 
 // ============================================================================
-// Tabs Style Type
+// Tabs Style Type — visual presentation only (§0.10)
 // ============================================================================
 
 /**
- * Type for Tabs style properties.
+ * Visual-only style struct for Tabs. Content (`items`), state (`value`,
+ * `defaultValue`), and behaviour (`onValueChange`) live on the main `Tabs`
+ * variant (inline in `component.ts` because of the item `trigger: node`
+ * field) per the Type-shape convention (§0.10).
  *
- * @property variant - Visual variant (line, subtle, enclosed, outline, plain)
- * @property size - Size of the tabs (sm, md, lg)
- * @property orientation - Layout direction (horizontal, vertical)
- * @property activationMode - Keyboard navigation behavior
- * @property fitted - Whether tabs take equal width
- * @property justify - Tab list alignment
+ * @remarks
+ * Holds visual + geometric presets plus per-slot colour escape hatches for
+ * the tab list background, active-tab indicator, active / inactive trigger
+ * colour, and content background.
+ *
+ * @property variant - Visual variant (line / subtle / enclosed / outline / plain)
+ * @property size - Size token (sm / md / lg)
+ * @property orientation - Layout direction (horizontal / vertical)
+ * @property activationMode - Keyboard activation behaviour (automatic / manual)
+ * @property fitted - Whether triggers expand to equal width
+ * @property justify - Tab list alignment (start / center / end)
  * @property lazyMount - Mount content only when selected
- * @property unmountOnExit - Unmount when deselected
- * @property colorPalette - Color scheme for the tabs
- * @property onValueChange - Callback triggered when selected tab changes
+ * @property unmountOnExit - Unmount content when deselected
+ * @property colorPalette - Colour scheme for theming
+ * @property listBackground - Tab list background colour
+ * @property indicatorColor - Active-tab indicator colour
+ * @property activeTriggerColor - Active trigger text colour
+ * @property inactiveTriggerColor - Inactive trigger text colour
+ * @property contentBackground - Selected-panel content background
  */
 export const TabsStyleType = StructType({
     variant: OptionType(TabsVariantType),
@@ -195,11 +187,15 @@ export const TabsStyleType = StructType({
     lazyMount: OptionType(BooleanType),
     unmountOnExit: OptionType(BooleanType),
     colorPalette: OptionType(ColorSchemeType),
-    onValueChange: OptionType(FunctionType([StringType], NullType)),
+    listBackground: OptionType(StringType),
+    indicatorColor: OptionType(StringType),
+    activeTriggerColor: OptionType(StringType),
+    inactiveTriggerColor: OptionType(StringType),
+    contentBackground: OptionType(StringType),
 });
 
 /**
- * Type representing the TabsStyle structure.
+ * Type representing the Tabs visual-style structure.
  */
 export type TabsStyleType = typeof TabsStyleType;
 
@@ -208,54 +204,72 @@ export type TabsStyleType = typeof TabsStyleType;
 // ============================================================================
 
 /**
- * TypeScript interface for Tabs item options.
+ * TypeScript options bag for Tabs's `style` sub-struct — visual props only.
  *
- * @property disabled - Whether this tab is disabled
- */
-export interface TabsItemStyle {
-    /** Whether this tab is disabled */
-    disabled?: SubtypeExprOrValue<BooleanType>;
-}
-
-/**
- * TypeScript interface for Tabs style options.
- *
- * @property variant - Visual variant (line, subtle, enclosed, outline, plain)
- * @property size - Size of the tabs (sm, md, lg)
- * @property orientation - Layout direction (horizontal, vertical)
- * @property activationMode - Keyboard navigation behavior
- * @property fitted - Whether tabs take equal width
- * @property justify - Tab list alignment
- * @property lazyMount - Mount content only when selected
- * @property unmountOnExit - Unmount when deselected
- * @property colorPalette - Color scheme for the tabs
- * @property defaultValue - Initial selected tab value
- * @property value - Controlled selected tab value
- * @property onValueChange - Callback triggered when selected tab changes
+ * @remarks
+ * State (`value` / `defaultValue`) and behaviour (`onValueChange`) live on
+ * the main options object passed to `Tabs.Root`, not here.
  */
 export interface TabsStyle {
-    /** Visual variant (line, subtle, enclosed, outline, plain) */
+    /** Visual variant (line / subtle / enclosed / outline / plain) */
     variant?: SubtypeExprOrValue<TabsVariantType> | TabsVariantLiteral;
-    /** Size of the tabs (sm, md, lg) */
+    /** Size of the tabs (sm / md / lg) */
     size?: SubtypeExprOrValue<TabsSizeType> | TabsSizeLiteral;
-    /** Layout direction (horizontal, vertical) */
+    /** Layout direction */
     orientation?: SubtypeExprOrValue<OrientationType> | OrientationLiteral;
-    /** Keyboard navigation behavior */
+    /** Keyboard activation behaviour */
     activationMode?: SubtypeExprOrValue<TabsActivationModeType> | TabsActivationModeLiteral;
-    /** Whether tabs take equal width */
+    /** Whether triggers expand to equal width */
     fitted?: SubtypeExprOrValue<BooleanType>;
     /** Tab list alignment */
     justify?: SubtypeExprOrValue<TabsJustifyType> | TabsJustifyLiteral;
     /** Mount content only when selected */
     lazyMount?: SubtypeExprOrValue<BooleanType>;
-    /** Unmount when deselected */
+    /** Unmount content when deselected */
     unmountOnExit?: SubtypeExprOrValue<BooleanType>;
-    /** Color scheme for the tabs */
+    /** Colour scheme for theming */
     colorPalette?: SubtypeExprOrValue<ColorSchemeType> | ColorSchemeLiteral;
-    /** Initial selected tab value */
-    defaultValue?: SubtypeExprOrValue<StringType>;
+    /** Tab list background */
+    listBackground?: SubtypeExprOrValue<StringType>;
+    /** Active-tab indicator colour */
+    indicatorColor?: SubtypeExprOrValue<StringType>;
+    /** Active trigger text colour */
+    activeTriggerColor?: SubtypeExprOrValue<StringType>;
+    /** Inactive trigger text colour */
+    inactiveTriggerColor?: SubtypeExprOrValue<StringType>;
+    /** Selected-panel content background */
+    contentBackground?: SubtypeExprOrValue<StringType>;
+}
+
+/**
+ * TypeScript options bag for `Tabs.Item`.
+ *
+ * @property disabled - Whether this tab is disabled
+ */
+export interface TabsItemOptions {
+    /** Whether this tab is disabled — renderer blocks interaction */
+    disabled?: SubtypeExprOrValue<BooleanType>;
+}
+
+/**
+ * TypeScript options bag for `Tabs.Root`.
+ *
+ * @remarks
+ * State (`value` / `defaultValue`) and behaviour (`onValueChange`) live at
+ * the top level. Visual presentation lives inside the nested `style` object.
+ *
+ * @property value - Controlled selected tab value
+ * @property defaultValue - Initial selected tab value (uncontrolled)
+ * @property onValueChange - Callback invoked with the new selected tab value
+ * @property style - Visual-presentation sub-struct
+ */
+export interface TabsOptions {
     /** Controlled selected tab value */
     value?: SubtypeExprOrValue<StringType>;
-    /** Callback triggered when selected tab changes */
-    onValueChange?: SubtypeExprOrValue<FunctionType<[typeof StringType], NullType>>;
+    /** Initial selected tab value (uncontrolled) */
+    defaultValue?: SubtypeExprOrValue<StringType>;
+    /** Callback invoked with the new selected tab value */
+    onValueChange?: SubtypeExprOrValue<FunctionType<[StringType], NullType>>;
+    /** Visual-presentation sub-struct */
+    style?: TabsStyle;
 }

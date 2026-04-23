@@ -11,8 +11,13 @@ import {
     ArrayType,
     OptionType,
     StructType,
+    StringType,
     IntegerType,
     BooleanType,
+    FunctionType,
+    NullType,
+    some,
+    none,
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
@@ -20,6 +25,7 @@ import { OrientationType } from "../../style.js";
 import {
     CarouselStyleType,
     type CarouselStyle,
+    type CarouselOptions,
 } from "./types.js";
 
 // Re-export types
@@ -27,32 +33,34 @@ export {
     CarouselStyleType,
     OrientationType,
     type CarouselStyle,
+    type CarouselOptions,
     type OrientationLiteral,
 } from "./types.js";
 
 // ============================================================================
-// Carousel Root Type
+// CarouselType — standalone mirror of the inline `Carousel` variant
 // ============================================================================
 
 /**
- * Type for Carousel component data.
+ * Concrete struct mirroring the inline `Carousel` variant in `component.ts`.
+ * Renderers reference this for `equalFor` / `ValueTypeOf`.
  *
- * @remarks
- * Carousel displays a slideshow of content items.
- *
- * @property items - Array of carousel slide items
+ * @property items - Array of carousel slide items (UIComp)
  * @property index - Controlled current slide index
- * @property defaultIndex - Initial slide index
+ * @property defaultIndex - Initial slide index (uncontrolled)
  * @property slidesPerView - Number of visible slides
  * @property slidesPerMove - Number of slides to advance per step
- * @property loop - Whether to enable infinite scrolling
- * @property autoplay - Whether to enable automatic advancement
- * @property allowMouseDrag - Whether to allow mouse drag navigation
- * @property showIndicators - Whether to show dot indicators
- * @property showControls - Whether to show prev/next controls
- * @property style - Optional styling configuration
+ * @property loop - Enable infinite scrolling
+ * @property autoplay - Enable automatic advancement
+ * @property allowMouseDrag - Allow mouse drag navigation
+ * @property showIndicators - Show dot indicators
+ * @property showControls - Show prev/next controls
+ * @property spacing - Gap between slides (Chakra spacing token)
+ * @property padding - Viewport padding
+ * @property onIndexChange - Callback invoked when the active slide changes
+ * @property style - Visual-presentation sub-struct
  */
-export const CarouselRootType: StructType<{
+export const CarouselType: StructType<{
     items: ArrayType<UIComponentType>,
     index: OptionType<IntegerType>,
     defaultIndex: OptionType<IntegerType>,
@@ -63,6 +71,9 @@ export const CarouselRootType: StructType<{
     allowMouseDrag: OptionType<BooleanType>,
     showIndicators: OptionType<BooleanType>,
     showControls: OptionType<BooleanType>,
+    spacing: OptionType<StringType>,
+    padding: OptionType<StringType>,
+    onIndexChange: OptionType<FunctionType<[IntegerType], NullType>>,
     style: OptionType<CarouselStyleType>,
 }> = StructType({
     items: ArrayType(UIComponentType),
@@ -75,13 +86,13 @@ export const CarouselRootType: StructType<{
     allowMouseDrag: OptionType(BooleanType),
     showIndicators: OptionType(BooleanType),
     showControls: OptionType(BooleanType),
+    spacing: OptionType(StringType),
+    padding: OptionType(StringType),
+    onIndexChange: OptionType(FunctionType([IntegerType], NullType)),
     style: OptionType(CarouselStyleType),
 });
 
-/**
- * Type representing the Carousel structure.
- */
-export type CarouselRootType = typeof CarouselRootType;
+export type CarouselType = typeof CarouselType;
 
 // ============================================================================
 // Carousel Factory
@@ -90,138 +101,123 @@ export type CarouselRootType = typeof CarouselRootType;
 /**
  * Creates a Carousel component.
  *
- * @param items - Array of carousel items/slides
- * @param style - Optional style and configuration options
+ * @param items - Array of UIComp slides (one UIComp per slide)
+ * @param options - State + config + behaviour + optional `style`
  * @returns An East expression representing the Carousel component
+ *
+ * @remarks
+ * Per the Type-shape convention: state (`index` / `defaultIndex`), config
+ * (`loop` / `autoplay` / `slidesPerView` / `slidesPerMove` /
+ * `allowMouseDrag` / `showIndicators` / `showControls` / `spacing` /
+ * `padding`), and behaviour (`onIndexChange`) are top-level options —
+ * visual presentation (`orientation` + indicator/control colour slots)
+ * lives inside `options.style`.
  *
  * @example
  * ```ts
  * import { East } from "@elaraai/east";
- * import { Carousel, Box, Text, UIComponentType } from "@elaraai/east-ui";
+ * import { Carousel, Text, UIComponentType } from "@elaraai/east-ui";
  *
- * const example = East.function([], UIComponentType, $ => {
- *     return Carousel.Root([
- *         Box.Root([Text.Root("Slide 1")]),
- *         Box.Root([Text.Root("Slide 2")]),
- *         Box.Root([Text.Root("Slide 3")]),
- *     ], {
- *         loop: true,
- *         showIndicators: true,
- *         showControls: true,
- *     });
- * });
+ * const example = East.function([], UIComponentType, _$ =>
+ *     Carousel.Root(
+ *         [Text.Root("Slide 1"), Text.Root("Slide 2"), Text.Root("Slide 3")],
+ *         {
+ *             defaultIndex: 0n,
+ *             slidesPerView: 1n,
+ *             loop: true,
+ *             showIndicators: true,
+ *             showControls: true,
+ *             spacing: "4",
+ *             padding: "2",
+ *             style: { orientation: "horizontal", activeIndicatorColor: "#3d5cff" },
+ *         },
+ *     ),
+ * );
  * ```
  */
 function createCarousel(
     items: SubtypeExprOrValue<ArrayType<UIComponentType>>,
-    style?: CarouselStyle
+    options?: CarouselOptions,
 ): ExprType<UIComponentType> {
-    // Convert string literal orientation to East value
-    const orientationValue = style?.orientation
+    const styleValue = options?.style ? buildCarouselStyle(options.style) : undefined;
+
+    return East.value(variant("Carousel", {
+        items,
+        index: options?.index !== undefined ? some(options.index) : none,
+        defaultIndex: options?.defaultIndex !== undefined ? some(options.defaultIndex) : none,
+        slidesPerView: options?.slidesPerView !== undefined ? some(options.slidesPerView) : none,
+        slidesPerMove: options?.slidesPerMove !== undefined ? some(options.slidesPerMove) : none,
+        loop: options?.loop !== undefined ? some(options.loop) : none,
+        autoplay: options?.autoplay !== undefined ? some(options.autoplay) : none,
+        allowMouseDrag: options?.allowMouseDrag !== undefined ? some(options.allowMouseDrag) : none,
+        showIndicators: options?.showIndicators !== undefined ? some(options.showIndicators) : none,
+        showControls: options?.showControls !== undefined ? some(options.showControls) : none,
+        spacing: options?.spacing !== undefined ? some(options.spacing) : none,
+        padding: options?.padding !== undefined ? some(options.padding) : none,
+        onIndexChange: options?.onIndexChange ? some(options.onIndexChange) : none,
+        style: styleValue ? some(styleValue) : none,
+    }), UIComponentType);
+}
+
+function buildCarouselStyle(style: CarouselStyle): ExprType<CarouselStyleType> {
+    const orientationValue = style.orientation
         ? (typeof style.orientation === "string"
             ? East.value(variant(style.orientation, null), OrientationType)
             : style.orientation)
         : undefined;
 
-    // Build style object if any style properties are provided
-    const hasStyleProps = orientationValue || style?.spacing || style?.padding || style?.onIndexChange !== undefined;
-    const styleValue = hasStyleProps
-        ? variant("some", East.value({
-            orientation: orientationValue ? variant("some", orientationValue) : variant("none", null),
-            spacing: style?.spacing !== undefined ? variant("some", style.spacing) : variant("none", null),
-            padding: style?.padding !== undefined ? variant("some", style.padding) : variant("none", null),
-            onIndexChange: style?.onIndexChange !== undefined ? variant("some", style.onIndexChange) : variant("none", null),
-        }, CarouselStyleType))
-        : variant("none", null);
-
-    return East.value(variant("Carousel", {
-        items: items,
-        index: style?.index !== undefined ? variant("some", style.index) : variant("none", null),
-        defaultIndex: style?.defaultIndex !== undefined ? variant("some", style.defaultIndex) : variant("none", null),
-        slidesPerView: style?.slidesPerView !== undefined ? variant("some", style.slidesPerView) : variant("none", null),
-        slidesPerMove: style?.slidesPerMove !== undefined ? variant("some", style.slidesPerMove) : variant("none", null),
-        loop: style?.loop !== undefined ? variant("some", style.loop) : variant("none", null),
-        autoplay: style?.autoplay !== undefined ? variant("some", style.autoplay) : variant("none", null),
-        allowMouseDrag: style?.allowMouseDrag !== undefined ? variant("some", style.allowMouseDrag) : variant("none", null),
-        showIndicators: style?.showIndicators !== undefined ? variant("some", style.showIndicators) : variant("none", null),
-        showControls: style?.showControls !== undefined ? variant("some", style.showControls) : variant("none", null),
-        style: styleValue,
-    }), UIComponentType);
+    return East.value({
+        orientation: orientationValue ? some(orientationValue) : none,
+        indicatorColor: style.indicatorColor !== undefined ? some(style.indicatorColor) : none,
+        activeIndicatorColor: style.activeIndicatorColor !== undefined ? some(style.activeIndicatorColor) : none,
+        controlColor: style.controlColor !== undefined ? some(style.controlColor) : none,
+        controlBackground: style.controlBackground !== undefined ? some(style.controlBackground) : none,
+    }, CarouselStyleType);
 }
 
 // ============================================================================
-// Carousel Namespace Export
+// Carousel Namespace
 // ============================================================================
 
 /**
- * Carousel component namespace.
+ * Carousel primitive — horizontal (or vertical) slideshow of UIComp slides.
  *
  * @remarks
- * Carousel provides a slideshow component for cycling through content.
+ * Use `Carousel.Root(items, options)` to create a carousel, or access
+ * `Carousel.Types.Carousel` for the East type. Per the Type-shape
+ * convention: state + config + behaviour at top level; `style` holds the
+ * `orientation` preset and colour escape hatches.
  */
 export const Carousel = {
     /**
-     * Creates a Carousel component for sliding content.
+     * Creates a Carousel component.
      *
-     * @param items - Array of UI components to display as slides
-     * @param style - Optional styling and behavior configuration
-     * @returns An East expression representing the carousel component
-     *
-     * @remarks
-     * Carousel displays a slideshow of content items with optional navigation
-     * controls, indicators, autoplay, and infinite loop support. Supports
-     * multiple slides per view for gallery layouts.
+     * @param items - Array of UIComp slides
+     * @param options - State + config + behaviour + optional `style`
+     * @returns An East expression representing the Carousel component
      *
      * @example
      * ```ts
      * import { East } from "@elaraai/east";
-     * import { Carousel, Box, Text, UIComponentType } from "@elaraai/east-ui";
+     * import { Carousel, Text, UIComponentType } from "@elaraai/east-ui";
      *
-     * const example = East.function([], UIComponentType, $ => {
-     *     return Carousel.Root([
-     *         Box.Root([Text.Root("Slide 1")]),
-     *         Box.Root([Text.Root("Slide 2")]),
-     *     ], {
-     *         showControls: true,
-     *         showIndicators: true,
-     *     });
-     * });
+     * const ex = East.function([], UIComponentType, _$ =>
+     *     Carousel.Root(
+     *         [Text.Root("A"), Text.Root("B"), Text.Root("C")],
+     *         { defaultIndex: 0n, loop: true, showIndicators: true, spacing: "4" },
+     *     ),
+     * );
      * ```
      */
     Root: createCarousel,
     Types: {
         /**
-         * The concrete East type for Carousel container data.
-         *
-         * @remarks
-         * This struct type represents the serializable data structure for a Carousel
-         * component. Contains the array of slides and all configuration options for
-         * navigation, display, and behavior.
-         *
-         * @property items - Array of UI components to display as slides (ArrayType<UIComponentType>)
-         * @property index - Controlled current slide index (OptionType<IntegerType>)
-         * @property defaultIndex - Initial slide index (OptionType<IntegerType>)
-         * @property slidesPerView - Number of visible slides at once (OptionType<IntegerType>)
-         * @property slidesPerMove - Number of slides to advance per navigation step (OptionType<IntegerType>)
-         * @property loop - Whether to enable infinite scrolling (OptionType<BooleanType>)
-         * @property autoplay - Whether to enable automatic slide advancement (OptionType<BooleanType>)
-         * @property allowMouseDrag - Whether to allow mouse drag navigation (OptionType<BooleanType>)
-         * @property showIndicators - Whether to show dot indicators (OptionType<BooleanType>)
-         * @property showControls - Whether to show prev/next controls (OptionType<BooleanType>)
-         * @property style - Optional styling configuration (OptionType<CarouselStyleType>)
+         * The concrete East type for the Carousel — mirrors the inline
+         * `Carousel` variant in `component.ts`.
          */
-        Root: CarouselRootType,
+        Carousel: CarouselType,
         /**
-         * The concrete East type for Carousel style configuration.
-         *
-         * @remarks
-         * This struct type defines the visual styling configuration for a Carousel
-         * component. Controls the slide direction, spacing between slides, and
-         * viewport padding.
-         *
-         * @property orientation - Slide direction: horizontal or vertical (OptionType<OrientationType>)
-         * @property spacing - Gap between slides as Chakra spacing token (OptionType<StringType>)
-         * @property padding - Padding around the carousel viewport (OptionType<StringType>)
+         * Visual-only style struct for Carousel. See {@link CarouselStyleType}.
          */
         Style: CarouselStyleType,
     },

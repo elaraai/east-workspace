@@ -37,13 +37,13 @@ Chart functional sub-configs (`xAxis` / `yAxis` / `tooltip` / `legend` / `margin
 | 0 | `0-conventions.md` | §0 Conventions | draft |
 | 1.1 | `1.1-global-style-system.md` | §1.1 Global style system (tokens + semantic layer) | draft |
 | 1.2 | `1.2-layout.md` | §1.2 Layout (Box, Flex, Stack, Grid, Splitter, Separator, Sticky, ScrollArea) | draft |
-| 1.3 | `1.3-typography.md` | §1.3 Typography (Text, Heading, Numeric, Note, Code, CodeBlock, Link, Highlight, Mark, List) | draft |
-| 1.4 | `1.4-buttons.md` | §1.4 Buttons (Button, IconButton, CopyButton, CloseButton, Toggle, ButtonGroup) | draft |
+| 1.3 | `1.3-typography.md` | §1.3 Typography (Text, Heading, Numeric, Note, Code, CodeBlock, Link, Highlight, Mark, List) | done |
+| 1.4 | `1.4-buttons.md` | §1.4 Buttons (Button, IconButton, CopyButton, CloseButton, Toggle, ButtonGroup) | done |
 | 1.5 | `1.5-forms.md` | §1.5 Forms (Input suite, Slider, Field, FileUpload, Textarea, TagsInput, Radio*, Date/TimeRange, TimeScaleControl) | draft |
 | 1.6 | `1.6-feedback.md` | §1.6 Feedback (Alert, Banner, Progress, ProgressCircle, Skeleton, Spinner, Status, Toast, EmptyState) | draft |
 | 1.7 | `1.7-display.md` | §1.7 Display (Badge, Tag, Avatar, Stat, Icon, MetricChip, Kbd, Meter, SegmentedMeter, BarStrip, AvatarGroup) | draft |
 | 1.8 | `1.8-container.md` | §1.8 Container (Card compound + state contract) | draft |
-| 1.9 | `1.9-disclosure.md` | §1.9 Disclosure (Accordion, Tabs, Carousel, SegmentGroup, Collapsible, Disclosure, Steps, Timeline) | draft |
+| 1.9 | `1.9-disclosure.md` | §1.9 Disclosure (Accordion, Tabs, Carousel, SegmentGroup, Collapsible, Disclosure, Steps, Timeline, OptionList) | done |
 | 1.10 | `1.10-collections.md` | §1.10 Collections (Table, DataList, TreeView, Gantt, Planner, Matrix, Pagination) | draft |
 | 1.11 | `1.11-charts.md` | §1.11 Charts (cross-cutting upgrades; retire bar-segment/bar-list) | draft |
 | 1.12 | `1.12-overlays.md` | §1.12 Overlays (Tooltip, ToggleTip, Menu, Dialog, Drawer, Popover, HoverCard, ActionBar, CommandPalette, InfoAffordance, Tour, CoachMark) | draft |
@@ -150,3 +150,10 @@ Things the plan deliberately punts to the implementer or to a future doc.
 - Every pattern plan must cite the `Mode` / `Question` from the gaps doc in its §3 heading so reviewers can trace intent.
 - Every example must be reproducible by a developer in < 20 lines of East code.
 - Tests and examples must not share source — tests import examples, not the other way round (per existing `badge.spec.ts` pattern).
+- **Every public export carries TypeDoc to the gold-standard level codified in [`STANDARDS.md`](../../STANDARDS.md#typedoc-documentation-standards) — no exceptions, no shortcuts when migrating existing code:**
+    - **Namespace object** (e.g. `Button`, `IconButton`, `Toggle`): front-matter `@remarks` describing purpose + usage pointer to `Xxx.Root(...)`.
+    - **`Xxx.Root` (factory) property**: full block with `@param`, `@returns`, `@remarks`, **and** `@example` using `East.function()`. The example lives verbatim in the property JSDoc — not behind a `@see` reference — so it shows on hover and is picked up by TypeDoc's HTML output.
+    - **`Xxx.Types.*` properties** (`Button`, `Style`, `Variant`, etc.): front-matter summary + `@remarks` + `@property` tag for every field / variant tag. TypeDoc cannot see inline comments inside `StructType({ ... })` arguments, so the `@property` tags on the exported const are load-bearing.
+    - **Private factory function** (e.g. `createButton`): full block matching the `Xxx.Root` property — STANDARDS.md §Factory Functions. When a plan migrates an existing component, preserve the existing TypeDoc (`@param` / `@returns` / `@remarks` / `@example` / `@property`) and update bodies for the new shape — do not delete the doc blocks.
+    - **TypeScript interfaces** (`XxxStyle`, `XxxOptions`): front-matter summary + per-property inline JSDoc on each field so editor hover descriptions are available at call sites.
+    - **East types** (`StructType` / `VariantType`): front-matter summary + `@remarks` + `@property` for every field/variant tag (load-bearing — TypeDoc can't read inline struct comments).

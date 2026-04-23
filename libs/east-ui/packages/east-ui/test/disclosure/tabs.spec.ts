@@ -18,385 +18,190 @@ describeEast("Tabs", (test) => {
         tabsSizes: ex.tabsSizes,
         tabsWithDisabled: ex.tabsWithDisabled,
         tabsInteractive: ex.tabsInteractive,
+        tabsWithCountBadges: ex.tabsWithCountBadges,
+        tabsTwoLine: ex.tabsTwoLine,
+        tabsReactive: ex.tabsReactive,
     });
 
     // =========================================================================
-    // Tabs.Item
+    // Tabs.Item — string trigger coerced to Text.Root
     // =========================================================================
 
-    test("creates item with string values", $ => {
+    test("creates item with string trigger (coerced to Text.Root)", $ => {
         const item = $.let(Tabs.Item("tab-1", "Tab 1", [
             Text.Root("Content for tab 1"),
         ]));
-
         $(Assert.equal(item.value, "tab-1"));
-        $(Assert.equal(item.trigger, "Tab 1"));
+        $(Assert.equal(item.trigger.unwrap().unwrap("Text").value, "Tab 1"));
         $(Assert.equal(item.disabled.hasTag("none"), true));
     });
 
-    test("creates item with multiple children", $ => {
+    test("creates item with rich UIComp trigger", $ => {
         const item = $.let(Tabs.Item(
-            "tab-2",
-            "Tab 2",
-            [
-                Text.Root("First line"),
-                Text.Root("Second line"),
-            ]
+            "rich",
+            Text.Root("Rich Label", { fontWeight: "bold" }),
+            [Text.Root("Body")],
         ));
-
-        $(Assert.equal(item.value, "tab-2"));
-        $(Assert.equal(item.trigger, "Tab 2"));
+        $(Assert.equal(item.trigger.unwrap().unwrap("Text").value, "Rich Label"));
     });
 
     test("creates disabled item", $ => {
-        const item = $.let(Tabs.Item("disabled-tab", "Disabled Tab", [
-            Text.Root("Cannot select"),
-        ], {
-            disabled: true,
-        }));
-
-        $(Assert.equal(item.disabled.hasTag("some"), true));
+        const item = $.let(Tabs.Item("disabled-item", "Disabled Tab", [
+            Text.Root("Cannot click"),
+        ], { disabled: true }));
         $(Assert.equal(item.disabled.unwrap("some"), true));
     });
 
-    test("creates enabled item explicitly", $ => {
-        const item = $.let(Tabs.Item("enabled-tab", "Enabled Tab", [
-            Text.Root("Can select"),
-        ], {
-            disabled: false,
-        }));
-
-        $(Assert.equal(item.disabled.unwrap("some"), false));
-    });
-
     // =========================================================================
-    // Tabs.Root - Basic Creation
+    // Tabs.Root — defaults
     // =========================================================================
 
-    test("creates tabs with items", $ => {
+    test("creates tabs without options — everything none", $ => {
         const tabs = $.let(Tabs.Root([
-            Tabs.Item("a", "Tab A", [Text.Root("Content A")]),
-            Tabs.Item("b", "Tab B", [Text.Root("Content B")]),
+            Tabs.Item("a", "A", [Text.Root("A content")]),
+            Tabs.Item("b", "B", [Text.Root("B content")]),
         ]));
-
-        $(Assert.equal(tabs.unwrap().getTag(), "Tabs"));
-        $(Assert.equal(tabs.unwrap().unwrap("Tabs").style.hasTag("none"), true));
-    });
-
-    test("creates tabs with single item", $ => {
-        const tabs = $.let(Tabs.Root([
-            Tabs.Item("single", "Only Tab", [Text.Root("Content")]),
-        ]));
-
-        $(Assert.equal(tabs.unwrap().getTag(), "Tabs"));
-    });
-
-    test("creates empty tabs", $ => {
-        const tabs = $.let(Tabs.Root([]));
-
-        $(Assert.equal(tabs.unwrap().getTag(), "Tabs"));
+        const t = tabs.unwrap().unwrap("Tabs");
+        $(Assert.equal(t.value.hasTag("none"), true));
+        $(Assert.equal(t.defaultValue.hasTag("none"), true));
+        $(Assert.equal(t.onValueChange.hasTag("none"), true));
+        $(Assert.equal(t.style.hasTag("none"), true));
     });
 
     // =========================================================================
-    // Tabs.Root - Default Value
+    // State on main — value / defaultValue
     // =========================================================================
 
-    test("creates tabs with defaultValue", $ => {
+    test("creates tabs with defaultValue (main)", $ => {
         const tabs = $.let(Tabs.Root([
-            Tabs.Item("a", "A", [Text.Root("Content A")]),
-            Tabs.Item("b", "B", [Text.Root("Content B")]),
-        ], {
-            defaultValue: "a",
-        }));
-
-        $(Assert.equal(tabs.unwrap().unwrap("Tabs").defaultValue.hasTag("some"), true));
+            Tabs.Item("a", "A", [Text.Root("A")]),
+            Tabs.Item("b", "B", [Text.Root("B")]),
+        ], { defaultValue: "a" }));
         $(Assert.equal(tabs.unwrap().unwrap("Tabs").defaultValue.unwrap("some"), "a"));
     });
 
-    test("creates tabs with controlled value", $ => {
+    test("creates tabs with controlled value (main)", $ => {
         const tabs = $.let(Tabs.Root([
-            Tabs.Item("a", "A", [Text.Root("Content A")]),
-            Tabs.Item("b", "B", [Text.Root("Content B")]),
-        ], {
-            value: "b",
-        }));
-
-        $(Assert.equal(tabs.unwrap().unwrap("Tabs").value.hasTag("some"), true));
-        $(Assert.equal(tabs.unwrap().unwrap("Tabs").value.unwrap("some"), "b"));
+            Tabs.Item("a", "A", [Text.Root("A")]),
+        ], { value: "a" }));
+        $(Assert.equal(tabs.unwrap().unwrap("Tabs").value.unwrap("some"), "a"));
     });
 
     // =========================================================================
-    // Tabs.Root - Variants
+    // Visual presets — inside style
     // =========================================================================
 
-    test("creates tabs with line variant", $ => {
+    test("creates line variant tabs (inside style)", $ => {
         const tabs = $.let(Tabs.Root([
-            Tabs.Item("a", "A", [Text.Root("Content")]),
-        ], {
-            variant: "line",
-        }));
-
-        $(Assert.equal(tabs.unwrap().unwrap("Tabs").style.hasTag("some"), true));
-        $(Assert.equal(tabs.unwrap().unwrap("Tabs").style.unwrap("some").variant.hasTag("some"), true));
-        $(Assert.equal(tabs.unwrap().unwrap("Tabs").style.unwrap("some").variant.unwrap("some").hasTag("line"), true));
+            Tabs.Item("a", "A", [Text.Root("A")]),
+        ], { style: { variant: "line" } }));
+        $(Assert.equal(
+            tabs.unwrap().unwrap("Tabs").style.unwrap("some").variant.unwrap("some").hasTag("line"),
+            true,
+        ));
     });
 
-    test("creates tabs with subtle variant", $ => {
+    test("creates tabs with size + orientation + fitted + colorPalette", $ => {
         const tabs = $.let(Tabs.Root([
-            Tabs.Item("a", "A", [Text.Root("Content")]),
+            Tabs.Item("a", "A", [Text.Root("A")]),
         ], {
-            variant: "subtle",
+            style: {
+                size: "lg",
+                orientation: "vertical",
+                fitted: true,
+                colorPalette: "blue",
+            },
         }));
-
-        $(Assert.equal(tabs.unwrap().unwrap("Tabs").style.unwrap("some").variant.unwrap("some").hasTag("subtle"), true));
+        const s = tabs.unwrap().unwrap("Tabs").style.unwrap("some");
+        $(Assert.equal(s.size.unwrap("some").hasTag("lg"), true));
+        $(Assert.equal(s.orientation.unwrap("some").hasTag("vertical"), true));
+        $(Assert.equal(s.fitted.unwrap("some"), true));
+        $(Assert.equal(s.colorPalette.unwrap("some").hasTag("blue"), true));
     });
 
-    test("creates tabs with enclosed variant", $ => {
+    test("creates tabs with activationMode manual + justify", $ => {
         const tabs = $.let(Tabs.Root([
-            Tabs.Item("a", "A", [Text.Root("Content")]),
+            Tabs.Item("a", "A", [Text.Root("A")]),
         ], {
-            variant: "enclosed",
+            style: { activationMode: "manual", justify: "center" },
         }));
-
-        $(Assert.equal(tabs.unwrap().unwrap("Tabs").style.unwrap("some").variant.unwrap("some").hasTag("enclosed"), true));
+        const s = tabs.unwrap().unwrap("Tabs").style.unwrap("some");
+        $(Assert.equal(s.activationMode.unwrap("some").hasTag("manual"), true));
+        $(Assert.equal(s.justify.unwrap("some").hasTag("center"), true));
     });
 
-    test("creates tabs with outline variant", $ => {
+    test("creates tabs with lazyMount + unmountOnExit", $ => {
         const tabs = $.let(Tabs.Root([
-            Tabs.Item("a", "A", [Text.Root("Content")]),
+            Tabs.Item("a", "A", [Text.Root("A")]),
         ], {
-            variant: "outline",
+            style: { lazyMount: true, unmountOnExit: true },
         }));
-
-        $(Assert.equal(tabs.unwrap().unwrap("Tabs").style.unwrap("some").variant.unwrap("some").hasTag("outline"), true));
-    });
-
-    test("creates tabs with plain variant", $ => {
-        const tabs = $.let(Tabs.Root([
-            Tabs.Item("a", "A", [Text.Root("Content")]),
-        ], {
-            variant: "plain",
-        }));
-
-        $(Assert.equal(tabs.unwrap().unwrap("Tabs").style.unwrap("some").variant.unwrap("some").hasTag("plain"), true));
+        const s = tabs.unwrap().unwrap("Tabs").style.unwrap("some");
+        $(Assert.equal(s.lazyMount.unwrap("some"), true));
+        $(Assert.equal(s.unmountOnExit.unwrap("some"), true));
     });
 
     // =========================================================================
-    // Tabs.Root - Size
+    // Colour slots
     // =========================================================================
 
-    test("creates tabs with sm size", $ => {
+    test("creates tabs with full colour escape hatches", $ => {
         const tabs = $.let(Tabs.Root([
-            Tabs.Item("a", "A", [Text.Root("Content")]),
+            Tabs.Item("a", "A", [Text.Root("A")]),
         ], {
-            size: "sm",
+            style: {
+                listBackground: "#f9fafb",
+                indicatorColor: "#3d5cff",
+                activeTriggerColor: "#1a2234",
+                inactiveTriggerColor: "#6b7280",
+                contentBackground: "#ffffff",
+            },
         }));
-
-        $(Assert.equal(tabs.unwrap().unwrap("Tabs").style.unwrap("some").size.unwrap("some").hasTag("sm"), true));
-    });
-
-    test("creates tabs with md size", $ => {
-        const tabs = $.let(Tabs.Root([
-            Tabs.Item("a", "A", [Text.Root("Content")]),
-        ], {
-            size: "md",
-        }));
-
-        $(Assert.equal(tabs.unwrap().unwrap("Tabs").style.unwrap("some").size.unwrap("some").hasTag("md"), true));
-    });
-
-    test("creates tabs with lg size", $ => {
-        const tabs = $.let(Tabs.Root([
-            Tabs.Item("a", "A", [Text.Root("Content")]),
-        ], {
-            size: "lg",
-        }));
-
-        $(Assert.equal(tabs.unwrap().unwrap("Tabs").style.unwrap("some").size.unwrap("some").hasTag("lg"), true));
+        const s = tabs.unwrap().unwrap("Tabs").style.unwrap("some");
+        $(Assert.equal(s.listBackground.unwrap("some"), "#f9fafb"));
+        $(Assert.equal(s.indicatorColor.unwrap("some"), "#3d5cff"));
+        $(Assert.equal(s.activeTriggerColor.unwrap("some"), "#1a2234"));
+        $(Assert.equal(s.inactiveTriggerColor.unwrap("some"), "#6b7280"));
+        $(Assert.equal(s.contentBackground.unwrap("some"), "#ffffff"));
     });
 
     // =========================================================================
-    // Tabs.Root - Orientation
+    // TabsVariant helper
     // =========================================================================
 
-    test("creates horizontal tabs", $ => {
+    test("creates tabs with TabsVariant helper", $ => {
         const tabs = $.let(Tabs.Root([
-            Tabs.Item("a", "A", [Text.Root("Content")]),
-        ], {
-            orientation: "horizontal",
-        }));
-
-        $(Assert.equal(tabs.unwrap().unwrap("Tabs").style.unwrap("some").orientation.unwrap("some").hasTag("horizontal"), true));
-    });
-
-    test("creates vertical tabs", $ => {
-        const tabs = $.let(Tabs.Root([
-            Tabs.Item("a", "A", [Text.Root("Content")]),
-        ], {
-            orientation: "vertical",
-        }));
-
-        $(Assert.equal(tabs.unwrap().unwrap("Tabs").style.unwrap("some").orientation.unwrap("some").hasTag("vertical"), true));
+            Tabs.Item("a", "A", [Text.Root("A")]),
+        ], { style: { variant: Tabs.Variant("enclosed") } }));
+        $(Assert.equal(
+            tabs.unwrap().unwrap("Tabs").style.unwrap("some").variant.unwrap("some").hasTag("enclosed"),
+            true,
+        ));
     });
 
     // =========================================================================
-    // Tabs.Root - Fitted
+    // Combined
     // =========================================================================
 
-    test("creates fitted tabs", $ => {
+    test("creates fully-configured tabs", $ => {
         const tabs = $.let(Tabs.Root([
-            Tabs.Item("a", "A", [Text.Root("Content")]),
-        ], {
-            fitted: true,
-        }));
-
-        $(Assert.equal(tabs.unwrap().unwrap("Tabs").style.unwrap("some").fitted.unwrap("some"), true));
-    });
-
-    // =========================================================================
-    // Tabs.Root - Justify
-    // =========================================================================
-
-    test("creates tabs with start justify", $ => {
-        const tabs = $.let(Tabs.Root([
-            Tabs.Item("a", "A", [Text.Root("Content")]),
-        ], {
-            justify: "start",
-        }));
-
-        $(Assert.equal(tabs.unwrap().unwrap("Tabs").style.unwrap("some").justify.unwrap("some").hasTag("start"), true));
-    });
-
-    test("creates tabs with center justify", $ => {
-        const tabs = $.let(Tabs.Root([
-            Tabs.Item("a", "A", [Text.Root("Content")]),
-        ], {
-            justify: "center",
-        }));
-
-        $(Assert.equal(tabs.unwrap().unwrap("Tabs").style.unwrap("some").justify.unwrap("some").hasTag("center"), true));
-    });
-
-    test("creates tabs with end justify", $ => {
-        const tabs = $.let(Tabs.Root([
-            Tabs.Item("a", "A", [Text.Root("Content")]),
-        ], {
-            justify: "end",
-        }));
-
-        $(Assert.equal(tabs.unwrap().unwrap("Tabs").style.unwrap("some").justify.unwrap("some").hasTag("end"), true));
-    });
-
-    // =========================================================================
-    // Tabs.Root - Lazy Mount
-    // =========================================================================
-
-    test("creates tabs with lazy mount", $ => {
-        const tabs = $.let(Tabs.Root([
-            Tabs.Item("a", "A", [Text.Root("Content")]),
-        ], {
-            lazyMount: true,
-        }));
-
-        $(Assert.equal(tabs.unwrap().unwrap("Tabs").style.unwrap("some").lazyMount.unwrap("some"), true));
-    });
-
-    test("creates tabs with unmount on exit", $ => {
-        const tabs = $.let(Tabs.Root([
-            Tabs.Item("a", "A", [Text.Root("Content")]),
-        ], {
-            unmountOnExit: true,
-        }));
-
-        $(Assert.equal(tabs.unwrap().unwrap("Tabs").style.unwrap("some").unmountOnExit.unwrap("some"), true));
-    });
-
-    // =========================================================================
-    // Tabs.Root - Activation Mode
-    // =========================================================================
-
-    test("creates tabs with automatic activation", $ => {
-        const tabs = $.let(Tabs.Root([
-            Tabs.Item("a", "A", [Text.Root("Content")]),
-        ], {
-            activationMode: "automatic",
-        }));
-
-        $(Assert.equal(tabs.unwrap().unwrap("Tabs").style.unwrap("some").activationMode.unwrap("some").hasTag("automatic"), true));
-    });
-
-    test("creates tabs with manual activation", $ => {
-        const tabs = $.let(Tabs.Root([
-            Tabs.Item("a", "A", [Text.Root("Content")]),
-        ], {
-            activationMode: "manual",
-        }));
-
-        $(Assert.equal(tabs.unwrap().unwrap("Tabs").style.unwrap("some").activationMode.unwrap("some").hasTag("manual"), true));
-    });
-
-    // =========================================================================
-    // Tabs.Root - Color Palette
-    // =========================================================================
-
-    test("creates tabs with blue color palette", $ => {
-        const tabs = $.let(Tabs.Root([
-            Tabs.Item("a", "A", [Text.Root("Content")]),
-        ], {
-            colorPalette: "blue",
-        }));
-
-        $(Assert.equal(tabs.unwrap().unwrap("Tabs").style.unwrap("some").colorPalette.unwrap("some").hasTag("blue"), true));
-    });
-
-    test("creates tabs with green color palette", $ => {
-        const tabs = $.let(Tabs.Root([
-            Tabs.Item("a", "A", [Text.Root("Content")]),
-        ], {
-            colorPalette: "green",
-        }));
-
-        $(Assert.equal(tabs.unwrap().unwrap("Tabs").style.unwrap("some").colorPalette.unwrap("some").hasTag("green"), true));
-    });
-
-    // =========================================================================
-    // Tabs.Root - Complete Example
-    // =========================================================================
-
-    test("creates complete tabs with all options", $ => {
-        const tabs = $.let(Tabs.Root([
-            Tabs.Item("overview", "Overview", [Text.Root("Overview content")]),
-            Tabs.Item("settings", "Settings", [Text.Root("Settings content")]),
-            Tabs.Item("billing", "Billing", [Text.Root("Billing content")], { disabled: true }),
+            Tabs.Item("overview", "Overview", [Text.Root("Overview")]),
+            Tabs.Item("details", "Details", [Text.Root("Details")]),
         ], {
             defaultValue: "overview",
-            variant: "enclosed",
-            size: "md",
-            fitted: true,
-            colorPalette: "blue",
+            style: {
+                variant: "line",
+                size: "md",
+                colorPalette: "blue",
+                fitted: true,
+            },
         }));
-
-        $(Assert.equal(tabs.unwrap().getTag(), "Tabs"));
-        $(Assert.equal(tabs.unwrap().unwrap("Tabs").defaultValue.unwrap("some"), "overview"));
-        $(Assert.equal(tabs.unwrap().unwrap("Tabs").style.unwrap("some").variant.unwrap("some").hasTag("enclosed"), true));
-        $(Assert.equal(tabs.unwrap().unwrap("Tabs").style.unwrap("some").size.unwrap("some").hasTag("md"), true));
-        $(Assert.equal(tabs.unwrap().unwrap("Tabs").style.unwrap("some").fitted.unwrap("some"), true));
+        const t = tabs.unwrap().unwrap("Tabs");
+        $(Assert.equal(t.defaultValue.unwrap("some"), "overview"));
+        const s = t.style.unwrap("some");
+        $(Assert.equal(s.variant.unwrap("some").hasTag("line"), true));
+        $(Assert.equal(s.size.unwrap("some").hasTag("md"), true));
+        $(Assert.equal(s.colorPalette.unwrap("some").hasTag("blue"), true));
+        $(Assert.equal(s.fitted.unwrap("some"), true));
     });
-
-    test("creates vertical tabs with lazy loading", $ => {
-        const tabs = $.let(Tabs.Root([
-            Tabs.Item("profile", "Profile", [Text.Root("Profile content")]),
-            Tabs.Item("security", "Security", [Text.Root("Security content")]),
-        ], {
-            orientation: "vertical",
-            variant: "subtle",
-            lazyMount: true,
-            unmountOnExit: true,
-        }));
-
-        $(Assert.equal(tabs.unwrap().unwrap("Tabs").style.unwrap("some").orientation.unwrap("some").hasTag("vertical"), true));
-        $(Assert.equal(tabs.unwrap().unwrap("Tabs").style.unwrap("some").variant.unwrap("some").hasTag("subtle"), true));
-        $(Assert.equal(tabs.unwrap().unwrap("Tabs").style.unwrap("some").lazyMount.unwrap("some"), true));
-        $(Assert.equal(tabs.unwrap().unwrap("Tabs").style.unwrap("some").unmountOnExit.unwrap("some"), true));
-    });
-}, {   platformFns: TestImpl,});
+}, { platformFns: TestImpl });

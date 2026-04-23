@@ -44,8 +44,8 @@ export const tabsLine = example({
                     Box.Root([Text.Root("View billing history and update payment methods.")], { padding: "4" }),
                 ]),
             ], {
-                variant: "line",
                 defaultValue: "tab1",
+                style: { variant: "line" },
             }),
         ], { width: "100%" });
     }),
@@ -65,8 +65,8 @@ export const tabsEnclosed = example({
                     Box.Root([Text.Root("Advanced configuration options.")], { padding: "4" }),
                 ]),
             ], {
-                variant: "enclosed",
                 defaultValue: "general",
+                style: { variant: "enclosed" },
             }),
         ], { width: "100%" });
     }),
@@ -89,8 +89,8 @@ export const tabsOutline = example({
                     Box.Root([Text.Root("Showing archived items.")], { padding: "4" }),
                 ]),
             ], {
-                variant: "outline",
                 defaultValue: "all",
+                style: { variant: "outline" },
             }),
         ], { width: "100%" });
     }),
@@ -113,8 +113,8 @@ export const tabsSubtle = example({
                     Box.Root([Text.Root("Application settings.")], { padding: "4" }),
                 ]),
             ], {
-                variant: "subtle",
                 defaultValue: "home",
+                style: { variant: "subtle" },
             }),
         ], { width: "100%" });
     }),
@@ -137,9 +137,8 @@ export const tabsFitted = example({
                     Box.Root([Text.Root("Monthly view of your calendar.")], { padding: "4" }),
                 ]),
             ], {
-                variant: "line",
-                fitted: true,
                 defaultValue: "week",
+                style: { variant: "line", fitted: true },
             }),
         ], { width: "100%" });
     }),
@@ -154,15 +153,15 @@ export const tabsSizes = example({
             Tabs.Root([
                 Tabs.Item("sm1", "Small", [Box.Root([Text.Root("Small size tabs")], { padding: "4" })]),
                 Tabs.Item("sm2", "Tabs", [Box.Root([Text.Root("Content")], { padding: "4" })]),
-            ], { size: "sm", defaultValue: "sm1", variant: "line" }),
+            ], { defaultValue: "sm1", style: { size: "sm", variant: "line" } }),
             Tabs.Root([
                 Tabs.Item("md1", "Medium", [Box.Root([Text.Root("Medium size tabs")], { padding: "4" })]),
                 Tabs.Item("md2", "Tabs", [Box.Root([Text.Root("Content")], { padding: "4" })]),
-            ], { size: "md", defaultValue: "md1", variant: "line" }),
+            ], { defaultValue: "md1", style: { size: "md", variant: "line" } }),
             Tabs.Root([
                 Tabs.Item("lg1", "Large", [Box.Root([Text.Root("Large size tabs")], { padding: "4" })]),
                 Tabs.Item("lg2", "Tabs", [Box.Root([Text.Root("Content")], { padding: "4" })]),
-            ], { size: "lg", defaultValue: "lg1", variant: "line" }),
+            ], { defaultValue: "lg1", style: { size: "lg", variant: "line" } }),
         ], { gap: "4", align: "stretch", width: "100%" });
     }),
     inputs: [],
@@ -184,8 +183,8 @@ export const tabsWithDisabled = example({
                     Box.Root([Text.Root("This tab is also enabled.")], { padding: "4" }),
                 ]),
             ], {
-                variant: "line",
                 defaultValue: "enabled1",
+                style: { variant: "line" },
             }),
         ], { width: "100%" });
     }),
@@ -221,15 +220,99 @@ export const tabsInteractive = example({
                             Box.Root([Text.Root("Settings content - configure your preferences.")], { padding: "4" }),
                         ]),
                     ], {
-                        variant: "line",
                         defaultValue: "tab1",
                         onValueChange,
+                        style: { variant: "line" },
                     }),
                 ], { width: "100%" }),
                 Badge.Root(
                     East.str`Selected tab: ${selected}`,
                     { colorPalette: "blue", variant: "solid" }
                 ),
+            ], { gap: "3", align: "stretch" });
+        }));
+    }),
+    inputs: [],
+});
+
+// -----------------------------------------------------------------------------
+// Plan 1.9 new examples
+// -----------------------------------------------------------------------------
+
+export const tabsWithCountBadges = example({
+    keywords: ["Tabs", "Root", "Item", "trigger", "Badge", "count", "rich"],
+    description: "Rich trigger with an inline count badge (Results · 5)",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Tabs.Root([
+            Tabs.Item("inputs", "Inputs", [
+                Box.Root([Text.Root("Three inputs are defined.")], { padding: "4" }),
+            ]),
+            Tabs.Item(
+                "results",
+                Stack.HStack([
+                    Text.Root("Results"),
+                    Badge.Root("5", { colorPalette: "blue", variant: "subtle" }),
+                ], { gap: "2", align: "center" }),
+                [Box.Root([Text.Root("Five results computed.")], { padding: "4" })],
+            ),
+        ], {
+            defaultValue: "inputs",
+            style: { variant: "line" },
+        });
+    }),
+    inputs: [],
+});
+
+export const tabsTwoLine = example({
+    keywords: ["Tabs", "Root", "Item", "trigger", "two-line", "rich"],
+    description: "Rich two-line trigger mirroring the shift-optimiser Week / Vintage header",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Tabs.Root([
+            Tabs.Item(
+                "week-06",
+                Stack.VStack([
+                    Text.Root("Week 06", { fontWeight: "semibold" }),
+                    Text.Root("Vintage · 3–9 Feb", { color: "fg.muted" }),
+                ], { gap: "0", align: "flex-start" }),
+                [Box.Root([Text.Root("Week 06 detail.")], { padding: "4" })],
+            ),
+            Tabs.Item(
+                "week-12",
+                Stack.VStack([
+                    Text.Root("Week 12", { fontWeight: "semibold" }),
+                    Text.Root("Vintage · 17–23 Mar", { color: "fg.muted" }),
+                ], { gap: "0", align: "flex-start" }),
+                [Box.Root([Text.Root("Week 12 detail.")], { padding: "4" })],
+            ),
+        ], {
+            defaultValue: "week-06",
+            style: { variant: "enclosed" },
+        });
+    }),
+    inputs: [],
+});
+
+export const tabsReactive = example({
+    keywords: ["Tabs", "Root", "Reactive", "State", "controlled", "onValueChange"],
+    description: "Reactive controlled Tabs with a live active-tab indicator",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const bind = $.let(State.bind([StringType], "tabs_reactive_active", "a"));
+            const active = $.let(bind.read());
+            const onValueChange = $.const(East.function([StringType], NullType, ($, next) => {
+                $(bind.write(next));
+            }));
+            return Stack.VStack([
+                Tabs.Root([
+                    Tabs.Item("a", "Tab A", [Box.Root([Text.Root("A content")], { padding: "4" })]),
+                    Tabs.Item("b", "Tab B", [Box.Root([Text.Root("B content")], { padding: "4" })]),
+                    Tabs.Item("c", "Tab C", [Box.Root([Text.Root("C content")], { padding: "4" })]),
+                ], {
+                    value: active,
+                    onValueChange,
+                    style: { variant: "line" },
+                }),
+                Text.Root(East.str`Active: ${active}`, { color: "fg.muted" }),
             ], { gap: "3", align: "stretch" });
         }));
     }),

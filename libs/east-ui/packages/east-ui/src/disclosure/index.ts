@@ -5,28 +5,68 @@
 
 export {
     Accordion,
-    AccordionRootType,
+    AccordionType,
     AccordionItemType,
     AccordionVariantType,
     AccordionVariant,
     AccordionStyleType,
-    AccordionItemStyleType,
     type AccordionVariantLiteral,
     type AccordionStyle,
-    type AccordionItemStyle,
+    type AccordionOptions,
+    type AccordionItemOptions,
 } from "./accordion/index.js";
 
 export {
     Carousel,
-    CarouselRootType,
+    CarouselType,
     CarouselStyleType,
     type CarouselStyle,
+    type CarouselOptions,
     type OrientationLiteral,
 } from "./carousel/index.js";
 
 export {
+    SegmentGroup,
+    SegmentGroupType,
+    SegmentGroupItemType,
+    SegmentGroupStyleType,
+    type SegmentGroupStyle,
+    type SegmentGroupOptions,
+    type SegmentGroupItemOptions,
+} from "./segment-group/index.js";
+
+export {
+    Collapsible,
+    CollapsibleType,
+    CollapsibleStyleType,
+    type CollapsibleStyle,
+    type CollapsibleOptions,
+} from "./collapsible/index.js";
+
+export {
+    Disclosure,
+    DisclosureType,
+    DisclosureStyleType,
+    type DisclosureStyle,
+    type DisclosureOptions,
+} from "./show-more/index.js";
+
+export {
+    Steps,
+    StepsType,
+    StepItemType,
+    StepsStyleType,
+    StepStatusType,
+    StepStatus,
+    type StepsStyle,
+    type StepsOptions,
+    type StepItemOptions,
+    type StepStatusLiteral,
+} from "./steps/index.js";
+
+export {
     Tabs,
-    TabsRootType,
+    TabsType,
     TabsItemType,
     TabsVariantType,
     TabsVariant,
@@ -39,5 +79,26 @@ export {
     type TabsJustifyLiteral,
     type TabsActivationModeLiteral,
     type TabsStyle,
-    type TabsItemStyle,
+    type TabsOptions,
+    type TabsItemOptions,
 } from "./tabs/index.js";
+
+export {
+    Timeline,
+    TimelineType,
+    TimelineItemType,
+    TimelineStyleType,
+    type TimelineStyle,
+    type TimelineOptions,
+    type TimelineItemOptions,
+} from "./timeline/index.js";
+
+export {
+    OptionList,
+    OptionListType,
+    OptionListItemType,
+    OptionListStyleType,
+    type OptionListStyle,
+    type OptionListOptions,
+    type OptionListOptionOptions,
+} from "./option-list/index.js";

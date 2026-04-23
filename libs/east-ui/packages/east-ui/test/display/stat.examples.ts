@@ -53,7 +53,7 @@ export const statRichValues = example({
                 [
                     Stack.VStack([
                         Text.Root("Jane Smith", { fontWeight: "bold" }),
-                        Text.Root("Senior Engineer — Platform Team", { fontSize: "sm" }),
+                        Text.Root("Senior Engineer — Platform Team", { textStyle: "body-sm" }),
                     ], { gap: "1" }),
                 ],
             )),

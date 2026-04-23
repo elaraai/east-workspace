@@ -10,15 +10,34 @@ import {
     StringType,
     variant,
     some,
+    none,
 } from "@elaraai/east";
 
-import { OverflowType, TextAlignType, TextDecorationType } from "../../style.js";
+import {
+    FontFamilyType,
+    FontStyleType,
+    FontWeightType,
+    OverflowType,
+    TextAlignType,
+    TextDecorationType,
+    TextStyleType as TypographyTextStyleType,
+} from "../../style.js";
 import { UIComponentType } from "../../component.js";
 import { PaddingType, MarginType } from "../../layout/style.js";
-import { HeadingType, HeadingSizeType, HeadingAsType, type HeadingStyle } from "./types.js";
+import {
+    HeadingType,
+    HeadingAsType,
+    HeadingVisualStyleType,
+    type HeadingStyle,
+} from "./types.js";
 
 // Re-export types
-export { HeadingType, HeadingSizeType, HeadingAsType, type HeadingStyle } from "./types.js";
+export {
+    HeadingType,
+    HeadingAsType,
+    HeadingVisualStyleType,
+    type HeadingStyle,
+} from "./types.js";
 
 // ============================================================================
 // Heading Component
@@ -28,106 +47,144 @@ export { HeadingType, HeadingSizeType, HeadingAsType, type HeadingStyle } from "
  * Creates a Heading component for semantic headings.
  *
  * @param value - The heading text
- * @param style - Optional styling configuration
+ * @param style - Optional styling configuration (`as` is semantic and lands
+ *                on the main struct; all visual fields land in `style`).
  * @returns An East expression representing the heading component
  */
 function createHeading(
     value: SubtypeExprOrValue<StringType>,
     style?: HeadingStyle
 ): ExprType<UIComponentType> {
-    const sizeValue = style?.size
-        ? (typeof style.size === "string"
-            ? East.value(variant(style.size, null), HeadingSizeType)
-            : style.size)
-        : undefined;
-
     const asValue = style?.as
         ? (typeof style.as === "string"
             ? East.value(variant(style.as, null), HeadingAsType)
             : style.as)
         : undefined;
 
-    const textAlignValue = style?.textAlign
+    const styleValue = style ? buildHeadingVisualStyle(style) : undefined;
+
+    return East.value(variant("Heading", {
+        value: value,
+        as: asValue ? variant("some", asValue) : variant("none", null),
+        style: styleValue ? variant("some", styleValue) : variant("none", null),
+    }), UIComponentType);
+}
+
+function buildHeadingVisualStyle(
+    style: HeadingStyle,
+): ExprType<HeadingVisualStyleType> {
+    const textStyleValue = style.textStyle
+        ? (typeof style.textStyle === "string"
+            ? East.value(variant(style.textStyle, null), TypographyTextStyleType)
+            : style.textStyle)
+        : undefined;
+
+    const fontWeightValue = style.fontWeight
+        ? (typeof style.fontWeight === "string"
+            ? East.value(variant(style.fontWeight, null), FontWeightType)
+            : style.fontWeight)
+        : undefined;
+
+    const fontStyleValue = style.fontStyle
+        ? (typeof style.fontStyle === "string"
+            ? East.value(variant(style.fontStyle, null), FontStyleType)
+            : style.fontStyle)
+        : undefined;
+
+    const fontFamilyValue = style.fontFamily
+        ? (typeof style.fontFamily === "string"
+            ? East.value(variant(style.fontFamily, null), FontFamilyType)
+            : style.fontFamily)
+        : undefined;
+
+    const textAlignValue = style.textAlign
         ? (typeof style.textAlign === "string"
             ? East.value(variant(style.textAlign, null), TextAlignType)
             : style.textAlign)
         : undefined;
 
-    const textDecorationValue = style?.textDecoration
+    const textDecorationValue = style.textDecoration
         ? (typeof style.textDecoration === "string"
             ? East.value(variant(style.textDecoration, null), TextDecorationType)
             : style.textDecoration)
         : undefined;
 
-    const overflowValue = style?.overflow
+    const overflowValue = style.overflow
         ? (typeof style.overflow === "string"
             ? East.value(variant(style.overflow, null), OverflowType)
             : style.overflow)
         : undefined;
 
-    const overflowXValue = style?.overflowX
+    const overflowXValue = style.overflowX
         ? (typeof style.overflowX === "string"
             ? East.value(variant(style.overflowX, null), OverflowType)
             : style.overflowX)
         : undefined;
 
-    const overflowYValue = style?.overflowY
+    const overflowYValue = style.overflowY
         ? (typeof style.overflowY === "string"
             ? East.value(variant(style.overflowY, null), OverflowType)
             : style.overflowY)
         : undefined;
 
-    const paddingValue = style?.padding
+    const paddingValue = style.padding
         ? (typeof style.padding === "string"
             ? East.value({
                 top: some(style.padding),
                 right: some(style.padding),
                 bottom: some(style.padding),
-                left: some(style.padding)
+                left: some(style.padding),
             }, PaddingType)
             : style.padding)
         : undefined;
 
-    const marginValue = style?.margin
+    const marginValue = style.margin
         ? (typeof style.margin === "string"
             ? East.value({
                 top: some(style.margin),
                 right: some(style.margin),
                 bottom: some(style.margin),
-                left: some(style.margin)
+                left: some(style.margin),
             }, MarginType)
             : style.margin)
         : undefined;
 
-    return East.value(variant("Heading", {
-        value: value,
-        size: sizeValue ? variant("some", sizeValue) : variant("none", null),
-        as: asValue ? variant("some", asValue) : variant("none", null),
-        color: style?.color ? variant("some", style.color) : variant("none", null),
-        textAlign: textAlignValue ? variant("some", textAlignValue) : variant("none", null),
-        textDecoration: textDecorationValue ? variant("some", textDecorationValue) : variant("none", null),
-        overflow: overflowValue ? variant("some", overflowValue) : variant("none", null),
-        overflowX: overflowXValue ? variant("some", overflowXValue) : variant("none", null),
-        overflowY: overflowYValue ? variant("some", overflowYValue) : variant("none", null),
-        width: style?.width ? variant("some", style.width) : variant("none", null),
-        height: style?.height ? variant("some", style.height) : variant("none", null),
-        minWidth: style?.minWidth ? variant("some", style.minWidth) : variant("none", null),
-        minHeight: style?.minHeight ? variant("some", style.minHeight) : variant("none", null),
-        maxWidth: style?.maxWidth ? variant("some", style.maxWidth) : variant("none", null),
-        maxHeight: style?.maxHeight ? variant("some", style.maxHeight) : variant("none", null),
-        padding: paddingValue ? variant("some", paddingValue) : variant("none", null),
-        margin: marginValue ? variant("some", marginValue) : variant("none", null),
-        lineHeight: style?.lineHeight ? variant("some", style.lineHeight) : variant("none", null),
-        letterSpacing: style?.letterSpacing ? variant("some", style.letterSpacing) : variant("none", null),
-        opacity: style?.opacity !== undefined ? variant("some", style.opacity) : variant("none", null),
-    }), UIComponentType);
+    return East.value({
+        textStyle: textStyleValue ? some(textStyleValue) : none,
+        fontWeight: fontWeightValue ? some(fontWeightValue) : none,
+        fontStyle: fontStyleValue ? some(fontStyleValue) : none,
+        fontFamily: fontFamilyValue ? some(fontFamilyValue) : none,
+        textAlign: textAlignValue ? some(textAlignValue) : none,
+        textDecoration: textDecorationValue ? some(textDecorationValue) : none,
+        lineHeight: style.lineHeight ? some(style.lineHeight) : none,
+        letterSpacing: style.letterSpacing ? some(style.letterSpacing) : none,
+        color: style.color ? some(style.color) : none,
+        background: style.background ? some(style.background) : none,
+        overflow: overflowValue ? some(overflowValue) : none,
+        overflowX: overflowXValue ? some(overflowXValue) : none,
+        overflowY: overflowYValue ? some(overflowYValue) : none,
+        width: style.width ? some(style.width) : none,
+        height: style.height ? some(style.height) : none,
+        minWidth: style.minWidth ? some(style.minWidth) : none,
+        minHeight: style.minHeight ? some(style.minHeight) : none,
+        maxWidth: style.maxWidth ? some(style.maxWidth) : none,
+        maxHeight: style.maxHeight ? some(style.maxHeight) : none,
+        padding: paddingValue ? some(paddingValue) : none,
+        margin: marginValue ? some(marginValue) : none,
+        opacity: style.opacity !== undefined ? some(style.opacity) : none,
+    }, HeadingVisualStyleType);
 }
 
 /**
  * Heading component for semantic HTML headings.
  *
  * @remarks
- * Use `Heading.Root(value, style)` to create headings with semantic HTML elements.
+ * Use `Heading.Root(value, style)` to create headings with semantic HTML
+ * elements. `as` (h1–h6) stays on the main struct; every visual field lives
+ * inside `style` per the `{ content, style }` type-shape convention.
+ *
+ * Raw `size` has been removed — use `textStyle: "heading-lg"` / `"display-md"`
+ * etc. instead. Migration table lives on `HeadingStyle`'s JSDoc.
  *
  * @example
  * ```ts
@@ -136,8 +193,8 @@ function createHeading(
  *
  * const example = East.function([], UIComponentType, $ => {
  *     return Heading.Root("Welcome", {
- *         size: "2xl",
  *         as: "h1",
+ *         textStyle: "display-md",
  *         color: "blue.600",
  *     });
  * });
@@ -147,7 +204,7 @@ export const Heading = {
     Root: createHeading,
     Types: {
         Heading: HeadingType,
-        Size: HeadingSizeType,
         As: HeadingAsType,
+        Style: HeadingVisualStyleType,
     },
 } as const;

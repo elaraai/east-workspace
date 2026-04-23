@@ -215,6 +215,78 @@ export const textOverflow = example({
     inputs: [],
 });
 
+export const textStyleScale = example({
+    keywords: ["Text", "Root", "textStyle", "scale", "typography"],
+    description: "Every textStyle token rendered as a row of its own",
+    fn: East.function([], UIComponentType, (_$) => {
+        const row = (label: string, scale:
+            | "display-lg" | "display-md" | "display-sm"
+            | "heading-lg" | "heading-md" | "heading-sm" | "heading-xs"
+            | "body-lg" | "body-md" | "body-sm"
+            | "label-md" | "label-sm"
+            | "caption" | "overline"
+            | "code-sm" | "code-md"
+            | "mono-kpi") =>
+            Stack.HStack([
+                Text.Root(label, { textStyle: scale }),
+                Text.Root(scale, { textStyle: "caption", color: "fg.muted" }),
+            ], { gap: "3", align: "baseline" });
+        return Stack.VStack([
+            row("Display LG", "display-lg"),
+            row("Display MD", "display-md"),
+            row("Display SM", "display-sm"),
+            row("Heading LG", "heading-lg"),
+            row("Heading MD", "heading-md"),
+            row("Heading SM", "heading-sm"),
+            row("Heading XS", "heading-xs"),
+            row("Body LG", "body-lg"),
+            row("Body MD", "body-md"),
+            row("Body SM", "body-sm"),
+            row("Label MD", "label-md"),
+            row("Label SM", "label-sm"),
+            row("Caption", "caption"),
+            row("Overline", "overline"),
+            row("Code SM", "code-sm"),
+            row("Code MD", "code-md"),
+            row("$1,234,567.89", "mono-kpi"),
+        ], { gap: "2", align: "stretch" });
+    }),
+    inputs: [],
+});
+
+export const textMonoKpi = example({
+    keywords: ["Text", "Root", "textStyle", "mono-kpi", "KPI"],
+    description: "Mono-KPI textStyle — big mono number with tabular-nums",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Text.Root("$1,842,500", { textStyle: "mono-kpi" });
+    }),
+    inputs: [],
+});
+
+export const textTabularNums = example({
+    keywords: ["Text", "Root", "fontVariantNumeric", "tabular-nums", "align"],
+    description: "Column of right-aligned numbers with tabular-nums keeps digits aligned",
+    fn: East.function([], UIComponentType, (_$) => {
+        const row = (label: string, amount: string) =>
+            Stack.HStack([
+                Text.Root(label, { textStyle: "body-sm", color: "fg.muted" }),
+                Text.Root(amount, {
+                    fontFamily: "mono",
+                    fontVariantNumeric: "tabular-nums",
+                    textAlign: "right",
+                    width: "6rem",
+                }),
+            ], { gap: "4", align: "baseline" });
+        return Stack.VStack([
+            row("Q1", "  1,234.56"),
+            row("Q2", " 98,765.43"),
+            row("Q3", "456,789.01"),
+            row("Q4", "  7,890.12"),
+        ], { gap: "1", align: "stretch" });
+    }),
+    inputs: [],
+});
+
 export const textInteractive = example({
     keywords: ["Text", "Reactive", "State", "interactive", "counter"],
     description: "Reactive text whose content updates from a counter",

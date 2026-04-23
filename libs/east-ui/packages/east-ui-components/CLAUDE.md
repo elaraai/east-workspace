@@ -168,6 +168,46 @@ When adding persistence to Chakra components that support both `defaultValue` an
 )}
 ```
 
+### Interactive-state renderer pattern (MANDATORY)
+
+Any renderer that exposes **interactive state** (selection, value, open/closed, active index, pressed, current page, expanded rows, etc.) MUST follow this pattern — canonical reference is `src/forms/input/index.tsx`. This is enforced by design-doc §3.9 in `libs/east-ui/packages/east-ui/docs/design-plans/0-conventions.md`.
+
+```tsx
+export const EastChakraFoo = memo(function EastChakraFoo({ value }: EastChakraFooProps) {
+    // 1. Local state, initialised from the East value prop.
+    const [state, setState] = useState(toInitial(value));
+
+    // 2. External prop changes push into local state (e.g. Reactive.Root re-render
+    //    with updated value.value / value.selectedId / value.pressed).
+    useEffect(() => { setState(toInitial(value)); }, [value]);
+
+    // 3. Callbacks extracted + memoised.
+    const onChangeFn = useMemo(() => getSomeorUndefined(value.onChange), [value.onChange]);
+
+    // 4. Event handler: compute next OUTSIDE any updater,
+    //    setState THEN queueMicrotask as two top-level statements.
+    const handleChange = useCallback((next: T) => {
+        setState(next);                                          // UI updates immediately
+        if (onChangeFn) queueMicrotask(() => onChangeFn(next));  // side effect OUTSIDE any updater
+    }, [onChangeFn]);
+
+    return <ChakraFoo value={state} onChange={handleChange} />;
+}, (prev, next) => fooEqual(prev.value, next.value));
+```
+
+**The six renderer-bug violations (PRs MUST NOT land with any of these):**
+
+1. `onXxx` callback exists but no local `useState` for the state it drives.
+2. `useState` exists but no `useEffect([value])` sync — stale when parent prop changes.
+3. Callback fired synchronously (no `queueMicrotask`).
+4. `queueMicrotask` (or any side effect) placed **inside** a `setState(prev => ...)` updater — React invokes updaters twice in StrictMode to catch impurity, which fires the callback twice. Always compute `next` outside the updater; `setState(next)` and `queueMicrotask(...)` are two separate statements.
+5. Handler bypasses `setState` and relies solely on `callback → State.write → Reactive.Root → new prop → UI update` (widget is inert without a bound callback).
+6. `onXxx` used bare from `value.onXxx` instead of `useMemo(() => getSomeorUndefined(value.onXxx), [value.onXxx])`.
+
+**For `next = !prev` (Toggle-style):** read `prev` from the closure over the state variable and add it to the `useCallback` deps. Do not read prior state inside the updater.
+
+**Applies to:** `Toggle`, `Accordion`, `Tabs`, `Carousel`, `SegmentGroup`, `Collapsible`, `Disclosure` (show-more), `Steps`, `OptionList`, every `forms/*` renderer (`Input`, `Select`, `Combobox`, `Slider`, `Switch`, `Checkbox`, `TagsInput`, `TextArea`, date/time), `TreeView` (expand/select), `DataList` (selection). Any future interactive primitive.
+
 ### Virtualization (Table, Gantt, Planner)
 
 These components use `@tanstack/react-virtual` for row virtualization:

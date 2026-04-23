@@ -26,7 +26,11 @@ export { variant } from "@elaraai/east";
 export { Style } from "./style.js";
 
 // Typography
-export { Text, Code, Heading, Link, Highlight, Mark, List, CodeBlock } from "./typography/index.js";
+export {
+    Text, Code, Heading, Link, Highlight, Mark, List, CodeBlock,
+    Numeric, Note,
+    NumericFormatType,
+} from "./typography/index.js";
 
 // Layout
 export {
@@ -35,7 +39,7 @@ export {
 } from "./layout/index.js";
 
 // Buttons
-export { Button, IconButton, CopyButton } from "./buttons/index.js";
+export { Button, IconButton, CopyButton, CloseButton, Toggle, ButtonGroup } from "./buttons/index.js";
 
 // Forms
 export { Input, Checkbox, Switch, Select, Combobox, Slider, Field, FileUpload, Textarea, TagsInput } from "./forms/index.js";
@@ -59,7 +63,7 @@ export { DataList, Table, TreeView, Gantt, Planner } from "./collections/index.j
 export { Chart, Sparkline } from "./charts/index.js";
 
 // Disclosure
-export { Accordion, Carousel, Tabs } from "./disclosure/index.js";
+export { Accordion, Carousel, Collapsible, Disclosure, OptionList, SegmentGroup, Steps, Tabs, Timeline } from "./disclosure/index.js";
 
 // Overlays
 export { Tooltip, Menu, Dialog, dialog_open, Drawer, drawer_open, Popover, HoverCard, ActionBar, ToggleTip } from "./overlays/index.js";

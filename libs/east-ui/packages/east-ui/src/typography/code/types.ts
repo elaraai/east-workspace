@@ -38,23 +38,30 @@ export type CodeVariantType = typeof CodeVariantType;
 export type CodeVariantLiteral = "subtle" | "surface" | "outline";
 
 // ============================================================================
-// Code Type
+// Code Visual Style Struct
 // ============================================================================
 
 /**
- * The concrete East type for Code component data.
+ * Visual-presentation struct for the Code component.
  *
- * @property value - The code text to display
- * @property variant - Visual style variant
- * @property colorPalette - Color scheme for the code
- * @property size - Size of the code text
+ * Holds visual presets (variant / colorPalette / size), typography,
+ * colour escape hatches, layout / sizing, and opacity. Consumed via
+ * `CodeType.style`.
  */
-export const CodeType = StructType({
-    value: StringType,
+export const CodeVisualStyleType = StructType({
+    // Visual presets
     variant: OptionType(CodeVariantType),
     colorPalette: OptionType(StringType),
     size: OptionType(SizeType),
+    // Colour escape hatches
+    color: OptionType(StringType),
+    background: OptionType(StringType),
+    borderColor: OptionType(StringType),
+    // Typography
     textDecoration: OptionType(TextDecorationType),
+    lineHeight: OptionType(StringType),
+    letterSpacing: OptionType(StringType),
+    // Layout / sizing
     overflow: OptionType(OverflowType),
     overflowX: OptionType(OverflowType),
     overflowY: OptionType(OverflowType),
@@ -66,19 +73,38 @@ export const CodeType = StructType({
     maxHeight: OptionType(StringType),
     padding: OptionType(PaddingType),
     margin: OptionType(MarginType),
-    lineHeight: OptionType(StringType),
-    letterSpacing: OptionType(StringType),
+    // Opacity
     opacity: OptionType(FloatType),
+});
+
+export type CodeVisualStyleType = typeof CodeVisualStyleType;
+
+// ============================================================================
+// Code Type
+// ============================================================================
+
+/**
+ * The concrete East type for Code component data.
+ *
+ * @property value - The code text to display
+ * @property style - Visual-presentation sub-struct
+ */
+export const CodeType = StructType({
+    value: StringType,
+    style: OptionType(CodeVisualStyleType),
 });
 
 export type CodeType = typeof CodeType;
 
 // ============================================================================
-// Code Style
+// Code Style (TS interface)
 // ============================================================================
 
 /**
  * Style configuration for Code components.
+ *
+ * Flat at the factory boundary for ergonomics; the IR wraps these fields
+ * inside `CodeType.style` (see `CodeVisualStyleType`).
  */
 export type CodeStyle = {
     /** Visual style variant */
@@ -87,8 +113,18 @@ export type CodeStyle = {
     colorPalette?: SubtypeExprOrValue<StringType>;
     /** Size of the code text */
     size?: SubtypeExprOrValue<SizeType> | SizeLiteral;
+    /** Foreground text colour. Overrides `colorPalette`. */
+    color?: SubtypeExprOrValue<StringType>;
+    /** Background colour. Overrides `colorPalette`. */
+    background?: SubtypeExprOrValue<StringType>;
+    /** Border colour (used with `variant: "outline"`). */
+    borderColor?: SubtypeExprOrValue<StringType>;
     /** Text decoration */
     textDecoration?: SubtypeExprOrValue<TextDecorationType> | TextDecorationLiteral;
+    /** Line height */
+    lineHeight?: SubtypeExprOrValue<StringType>;
+    /** Letter spacing */
+    letterSpacing?: SubtypeExprOrValue<StringType>;
     /** Overflow behavior */
     overflow?: SubtypeExprOrValue<OverflowType> | OverflowLiteral;
     /** Horizontal overflow behavior */
@@ -111,10 +147,6 @@ export type CodeStyle = {
     padding?: SubtypeExprOrValue<PaddingType> | string;
     /** Margin configuration */
     margin?: SubtypeExprOrValue<MarginType> | string;
-    /** Line height */
-    lineHeight?: SubtypeExprOrValue<StringType>;
-    /** Letter spacing */
-    letterSpacing?: SubtypeExprOrValue<StringType>;
     /** CSS opacity (0-1) */
     opacity?: SubtypeExprOrValue<FloatType>;
 };

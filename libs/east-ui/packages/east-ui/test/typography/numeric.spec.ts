@@ -1,0 +1,138 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ */
+
+import { East, variant } from "@elaraai/east";
+import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
+import { Numeric, NumericFormatType } from "@elaraai/east-ui";
+import * as ex from "./numeric.examples.js";
+
+describeEast("Numeric", (test) => {
+    Assert.examples(test, {
+        numericKpi: ex.numericKpi,
+        numericPercent: ex.numericPercent,
+        numericCompact: ex.numericCompact,
+        numericUnit: ex.numericUnit,
+    });
+
+    // =========================================================================
+    // Basic Creation
+    // =========================================================================
+
+    test("creates numeric with a float value", $ => {
+        const n = $.let(Numeric.Root(1234.56));
+        $(Assert.equal(n.unwrap().unwrap("Numeric").value, 1234.56));
+    });
+
+    test("creates numeric with no options — all options are none", $ => {
+        const n = $.let(Numeric.Root(42));
+        const main = n.unwrap().unwrap("Numeric");
+        $(Assert.equal(main.format.hasTag("none"), true));
+        $(Assert.equal(main.sentiment.hasTag("none"), true));
+        $(Assert.equal(main.showSign.hasTag("none"), true));
+        $(Assert.equal(main.style.hasTag("none"), true));
+    });
+
+    // =========================================================================
+    // Format (on main)
+    // =========================================================================
+
+    test("creates numeric with Currency format", $ => {
+        const n = $.let(Numeric.Root(1842500, {
+            format: East.value(variant("Currency", {
+                currency: variant("USD", null),
+                display: variant("none", null),
+                compact: variant("some", variant("short", null)),
+                minimumFractionDigits: variant("none", null),
+                maximumFractionDigits: variant("none", null),
+            }), NumericFormatType),
+        }));
+        $(Assert.equal(n.unwrap().unwrap("Numeric").format.unwrap("some").hasTag("Currency"), true));
+    });
+
+    test("creates numeric with Percent format", $ => {
+        const n = $.let(Numeric.Root(0.98, {
+            format: East.value(variant("Percent", {
+                minimumFractionDigits: variant("none", null),
+                maximumFractionDigits: variant("some", 0n),
+                signDisplay: variant("none", null),
+            }), NumericFormatType),
+        }));
+        $(Assert.equal(n.unwrap().unwrap("Numeric").format.unwrap("some").hasTag("Percent"), true));
+    });
+
+    test("creates numeric with Compact format", $ => {
+        const n = $.let(Numeric.Root(1240000, {
+            format: East.value(variant("Compact", {
+                display: variant("some", variant("short", null)),
+            }), NumericFormatType),
+        }));
+        $(Assert.equal(n.unwrap().unwrap("Numeric").format.unwrap("some").hasTag("Compact"), true));
+    });
+
+    test("creates numeric with Unit format", $ => {
+        const n = $.let(Numeric.Root(12, {
+            format: East.value(variant("Unit", {
+                unit: variant("kilogram", null),
+                display: variant("some", variant("short", null)),
+            }), NumericFormatType),
+        }));
+        $(Assert.equal(n.unwrap().unwrap("Numeric").format.unwrap("some").hasTag("Unit"), true));
+    });
+
+    // =========================================================================
+    // Sentiment (on main — drives colour at the renderer)
+    // =========================================================================
+
+    test("creates numeric with positive sentiment", $ => {
+        const n = $.let(Numeric.Root(0.98, { sentiment: "positive" }));
+        $(Assert.equal(n.unwrap().unwrap("Numeric").sentiment.unwrap("some").hasTag("positive"), true));
+    });
+
+    test("creates numeric with negative sentiment", $ => {
+        const n = $.let(Numeric.Root(-0.12, { sentiment: "negative" }));
+        $(Assert.equal(n.unwrap().unwrap("Numeric").sentiment.unwrap("some").hasTag("negative"), true));
+    });
+
+    test("creates numeric with neutral sentiment", $ => {
+        const n = $.let(Numeric.Root(0, { sentiment: "neutral" }));
+        $(Assert.equal(n.unwrap().unwrap("Numeric").sentiment.unwrap("some").hasTag("neutral"), true));
+    });
+
+    // =========================================================================
+    // Show sign (on main)
+    // =========================================================================
+
+    test("creates numeric with showSign: true", $ => {
+        const n = $.let(Numeric.Root(42, { showSign: true }));
+        $(Assert.equal(n.unwrap().unwrap("Numeric").showSign.unwrap("some"), true));
+    });
+
+    test("creates numeric with showSign: false", $ => {
+        const n = $.let(Numeric.Root(42, { showSign: false }));
+        $(Assert.equal(n.unwrap().unwrap("Numeric").showSign.unwrap("some"), false));
+    });
+
+    // =========================================================================
+    // Style — textStyle, color, signColor (inside style)
+    // =========================================================================
+
+    test("creates numeric with explicit textStyle", $ => {
+        const n = $.let(Numeric.Root(42, { textStyle: "mono-kpi" }));
+        const style = n.unwrap().unwrap("Numeric").style.unwrap("some");
+        $(Assert.equal(style.textStyle.unwrap("some").hasTag("mono-kpi"), true));
+    });
+
+    test("creates numeric with explicit color override", $ => {
+        const n = $.let(Numeric.Root(42, { color: "#7a3b2e", sentiment: "neutral" }));
+        const style = n.unwrap().unwrap("Numeric").style.unwrap("some");
+        $(Assert.equal(style.color.unwrap("some"), "#7a3b2e"));
+    });
+
+    test("creates numeric with signColor for the leading +/−", $ => {
+        const n = $.let(Numeric.Root(42, { showSign: true, signColor: "fg.success" }));
+        const style = n.unwrap().unwrap("Numeric").style.unwrap("some");
+        $(Assert.equal(style.signColor.unwrap("some"), "fg.success"));
+    });
+}, { platformFns: TestImpl });

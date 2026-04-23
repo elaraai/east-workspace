@@ -208,6 +208,61 @@ export const XxxStyleType = StructType({
 - Similarly the checker walks `XxxStyleType` structs and fails if a field name matches the state/behaviour block-list: `onClick`, `onChange`, `onBlur`, `onFocus`, `onValueChange`, `onOpenChange`, `onInputValueChange`, `onFileAccept`, `onFileReject`, `onValidate`, `onRespond`, `onApply`, `onPublish`, `onDiscard`, `onRetry`, `onRevert`, `onAllApproved`, `onRescind`, `onAcknowledge`, `onSelect`, `onSearch`, `onHighlightChange`, `onOpen`, `onComplete`, `onSkip`, `onClaim`, `onApplyBulk`, `loading`, `disabled`, `readOnly`, `required`, `checked`, `indeterminate`, `closable`, `multiple`, `collapsible`, `autoresize`, `loop`, `autoplay`, `allowCustomValue`, `timeout`, `allowDrop`, `addOnPaste`, `allowOverflow`, `editable`, `allowMouseDrag`, `defaultValue`, `defaultChecked`, `defaultIndex`, `defaultExpandedValue`, `defaultSelectedValue`.
 - Style structs today that violate this (`ButtonStyleType` — `loading` / `disabled` / `onClick`; `CopyButtonStyleType` — `disabled` / `timeout`; `AccordionStyleType` — `multiple` / `collapsible` / `onValueChange`) are flagged in the migration allowlist until their plan-chapter lands.
 
+### 3.9 Controlled component renderer pattern (east-ui-components)
+
+Every renderer in `east-ui-components` that exposes **interactive state** (selection, value, open/closed, active index, pressed, current slide, expanded rows, etc.) **must** follow the pattern established by `src/forms/input/index.tsx`. This is mandatory — the renderer must be usable even when no callback is bound (uncontrolled mode) and must stay in sync when the East `value` prop updates (controlled-via-`Reactive.Root` mode).
+
+**Canonical pattern (abbreviated from `forms/input/index.tsx`):**
+
+```tsx
+export const EastChakraFoo = memo(function EastChakraFoo({ value }: EastChakraFooProps) {
+    // 1. Local state, initialised from the East value prop
+    const [state, setState] = useState(toInitial(value));
+
+    // 2. Callbacks extracted + memoised
+    const onChangeFn = useMemo(() => getSomeorUndefined(value.onChange), [value.onChange]);
+
+    // 3. External prop changes push into local state (e.g. Reactive.Root re-renders
+    //    with a new `value.value` / `value.selectedId` / `value.defaultOpen`)
+    useEffect(() => { setState(toInitial(value)); }, [value]);
+
+    // 4. Event handlers: compute `next` OUTSIDE any updater, setState FIRST,
+    //    queueMicrotask AFTER. Both the setState call AND the queueMicrotask
+    //    must sit at the top level of the event handler — never inside a
+    //    `setState(prev => ...)` updater.
+    const handleChange = useCallback((next: T) => {
+        setState(next);                                          // updater-free setState call
+        if (onChangeFn) queueMicrotask(() => onChangeFn(next));  // side effect OUTSIDE any updater
+    }, [onChangeFn]);
+
+    return <ChakraFoo value={state} onChange={handleChange} />;
+}, (prev, next) => fooEqual(prev.value, next.value));
+```
+
+**Why each step matters:**
+
+- **Local state first** — the UI must respond to user input even when no `onChange` / `onSelect` / `onValueChange` callback is bound (e.g. in a static demo, or when the author hasn't wired a `State.bind` yet). Relying on `callback → State.write → Reactive.Root re-render → new value prop → UI update` as the sole state loop means the widget is inert without a callback.
+- **`useEffect` sync from prop** — when the East `value` changes externally (e.g. controlled by `Reactive.Root` or by another widget writing the same state key), the local state must follow.
+- **`queueMicrotask` around the callback** — defers the East function call until React finishes the current render. Firing callbacks synchronously inside an event handler can trigger re-entrant state updates and "Cannot update during render" warnings when the callback writes to state that feeds back into this component.
+- **`setState` BEFORE `queueMicrotask`** — React batches them anyway, but setting local state first is the correct mental model: "I'm updating myself immediately; I'm telling my parent async."
+- **Never place `queueMicrotask` (or any side effect) inside a `setState(prev => ...)` updater** — React requires updaters to be pure functions. StrictMode deliberately invokes them twice to catch impurity; a microtask scheduled inside fires twice, causing double `State.write` / double-triggered animation / double re-render. Always compute `next` outside the updater (from the DOM event, a closure + useCallback dep on the relevant state, or a ref), then call `setState(next)` and `queueMicrotask(...)` as two separate top-level statements.
+
+**Violations to watch for (each is a renderer bug — PRs must not land with any of these):**
+
+1. Component has an `onXxx` callback but no local `useState` for the state it drives.
+2. Component has `useState` but no `useEffect([value])` sync — stale when parent changes the prop.
+3. Callback fired synchronously (no `queueMicrotask`).
+4. Handler bypasses `setState` and relies on the callback → prop round-trip to update the UI.
+5. `onXxx` callback used bare from `value.onXxx` instead of extracted via `useMemo(() => getSomeorUndefined(value.onXxx), [value.onXxx])`.
+
+**Canonical renderers to study:**
+
+- `src/forms/input/index.tsx` — full pattern (value + onChange + onBlur + onFocus).
+- `src/disclosure/tabs/index.tsx` — `value` / `defaultValue` / `onValueChange` variant.
+- `src/disclosure/segment-group/index.tsx` — `value` / `onChange` variant.
+
+**Applies to (non-exhaustive):** `Toggle`, `Accordion`, `Tabs`, `Carousel`, `SegmentGroup`, `Collapsible`, `Disclosure` (show-more), `Steps`, `OptionList`, all `forms/*`, `Select`, `Combobox`, `Slider`, `Switch`, `Checkbox`, `TagsInput`, `TextArea`, date / time inputs, `TreeView` (expand/select), `DataList` (selection). Any future interactive primitive must follow the same pattern.
+
 ---
 
 ## 4. Contract compliance

@@ -30,7 +30,7 @@ export const reactiveCounter = example({
             }));
             return Stack.VStack([
                 Stat.Root("Count", Text.Root(East.print(count))),
-                Button.Root("Increment", { onClick: increment, variant: "solid", colorPalette: "blue" }),
+                Button.Root("Increment", { onClick: increment, style: { variant: "solid", colorPalette: "blue" } }),
             ], { gap: "3", align: "center" });
         }));
     }),
@@ -51,7 +51,7 @@ export const reactiveNested = example({
                 }));
                 return Stack.HStack([
                     Stat.Root("A", Text.Root(East.print(va))),
-                    Button.Root("A++", { onClick: inc, size: "sm" }),
+                    Button.Root("A++", { onClick: inc, style: { size: "sm" } }),
                 ], { gap: "2" });
             })),
             Reactive.Root(East.function([], UIComponentType, $ => {
@@ -63,7 +63,7 @@ export const reactiveNested = example({
                 }));
                 return Stack.HStack([
                     Stat.Root("B", Text.Root(East.print(vb))),
-                    Button.Root("B++", { onClick: inc, size: "sm" }),
+                    Button.Root("B++", { onClick: inc, style: { size: "sm" } }),
                 ], { gap: "2" });
             })),
         ], { gap: "4", align: "stretch" });
@@ -86,7 +86,7 @@ export const reactiveDerived = example({
             return Stack.VStack([
                 Stat.Root("Count", Text.Root(East.print(count))),
                 Stat.Root("Doubled", Text.Root(East.print(doubled))),
-                Button.Root("Increment", { onClick: inc, variant: "solid", colorPalette: "purple" }),
+                Button.Root("Increment", { onClick: inc, style: { variant: "solid", colorPalette: "purple" } }),
             ], { gap: "3", align: "center" });
         }));
     }),

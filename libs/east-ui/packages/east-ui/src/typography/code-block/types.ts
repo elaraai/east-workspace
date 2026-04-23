@@ -44,6 +44,7 @@ import { PaddingType, MarginType } from "../../layout/style.js";
  * @property markdown - Markdown text
  * @property yaml - YAML configuration
  * @property xml - XML markup
+ * @property diff - Unified-diff (patch) syntax highlighting
  * @property plaintext - Plain text (no highlighting)
  */
 export const CodeLanguageType = VariantType({
@@ -60,6 +61,7 @@ export const CodeLanguageType = VariantType({
     markdown: NullType,
     yaml: NullType,
     xml: NullType,
+    diff: NullType,
     plaintext: NullType,
 });
 
@@ -80,33 +82,29 @@ export type CodeLanguage =
     | "markdown"
     | "yaml"
     | "xml"
+    | "diff"
     | "plaintext";
 
 // ============================================================================
-// CodeBlock Type
+// CodeBlock Visual Style Struct
 // ============================================================================
 
 /**
- * The concrete East type for CodeBlock component data.
+ * Visual-presentation struct for the CodeBlock component.
  *
- * @property code - The code content to display
- * @property language - Programming language for syntax highlighting
- * @property showLineNumbers - Whether to show line numbers
- * @property highlightLines - Line numbers to highlight
- * @property maxHeight - Maximum height with scroll
- * @property showCopyButton - Whether to show copy-to-clipboard button
- * @property wordWrap - Whether to enable word wrapping
- * @property title - Optional title displayed in the header (e.g., filename)
+ * Holds colour slots (background / borderColor / headerBackground /
+ * lineNumberColor / highlightBackground) and layout / sizing / opacity.
+ * Consumed via `CodeBlockType.style`.
  */
-export const CodeBlockType = StructType({
-    code: StringType,
-    language: OptionType(CodeLanguageType),
-    showLineNumbers: OptionType(BooleanType),
-    highlightLines: OptionType(ArrayType(IntegerType)),
+export const CodeBlockVisualStyleType = StructType({
+    // Colour slots
+    background: OptionType(StringType),
+    borderColor: OptionType(StringType),
+    headerBackground: OptionType(StringType),
+    lineNumberColor: OptionType(StringType),
+    highlightBackground: OptionType(StringType),
+    // Layout / sizing
     maxHeight: OptionType(StringType),
-    showCopyButton: OptionType(BooleanType),
-    wordWrap: OptionType(BooleanType),
-    title: OptionType(StringType),
     overflow: OptionType(OverflowType),
     overflowX: OptionType(OverflowType),
     overflowY: OptionType(OverflowType),
@@ -117,17 +115,53 @@ export const CodeBlockType = StructType({
     maxWidth: OptionType(StringType),
     padding: OptionType(PaddingType),
     margin: OptionType(MarginType),
+    // Opacity
     opacity: OptionType(FloatType),
+});
+
+export type CodeBlockVisualStyleType = typeof CodeBlockVisualStyleType;
+
+// ============================================================================
+// CodeBlock Type
+// ============================================================================
+
+/**
+ * The concrete East type for CodeBlock component data.
+ *
+ * @property code - The code content to display
+ * @property language - Programming language for syntax highlighting
+ * @property showLineNumbers - Whether to show line numbers (wiring flag)
+ * @property highlightLines - Line numbers to highlight
+ * @property showCopyButton - Whether to show copy-to-clipboard button (wiring flag)
+ * @property wordWrap - Whether to enable word wrapping (wiring flag)
+ * @property title - Optional title displayed in the header (e.g., filename)
+ * @property style - Visual-presentation sub-struct
+ */
+export const CodeBlockType = StructType({
+    code: StringType,
+    language: OptionType(CodeLanguageType),
+    showLineNumbers: OptionType(BooleanType),
+    highlightLines: OptionType(ArrayType(IntegerType)),
+    showCopyButton: OptionType(BooleanType),
+    wordWrap: OptionType(BooleanType),
+    title: OptionType(StringType),
+    style: OptionType(CodeBlockVisualStyleType),
 });
 
 export type CodeBlockType = typeof CodeBlockType;
 
 // ============================================================================
-// CodeBlock Style
+// CodeBlock Style (TS interface)
 // ============================================================================
 
 /**
- * Style configuration for CodeBlock components.
+ * Style / configuration for CodeBlock components.
+ *
+ * Flat at the factory boundary for ergonomics; the IR separates
+ * content / config (language, showLineNumbers, highlightLines, showCopyButton,
+ * wordWrap, title) from visual-presentation fields (maxHeight, dimensions,
+ * overflow, colour slots, padding, margin, opacity) — the visual fields wrap
+ * into `CodeBlockType.style`.
  */
 export type CodeBlockStyle = {
     /** Programming language for syntax highlighting */
@@ -136,14 +170,24 @@ export type CodeBlockStyle = {
     showLineNumbers?: SubtypeExprOrValue<BooleanType> | boolean;
     /** Line numbers to highlight */
     highlightLines?: SubtypeExprOrValue<ArrayType<IntegerType>>;
-    /** Maximum height with scroll (e.g., "400px") */
-    maxHeight?: SubtypeExprOrValue<StringType>;
     /** Whether to show copy-to-clipboard button */
     showCopyButton?: SubtypeExprOrValue<BooleanType> | boolean;
     /** Whether to enable word wrapping */
     wordWrap?: SubtypeExprOrValue<BooleanType> | boolean;
     /** Optional title displayed in the header (e.g., filename) */
     title?: SubtypeExprOrValue<StringType>;
+    /** Surface background colour */
+    background?: SubtypeExprOrValue<StringType>;
+    /** Border colour */
+    borderColor?: SubtypeExprOrValue<StringType>;
+    /** Header-row background colour */
+    headerBackground?: SubtypeExprOrValue<StringType>;
+    /** Line-number gutter colour */
+    lineNumberColor?: SubtypeExprOrValue<StringType>;
+    /** Highlight-row background colour */
+    highlightBackground?: SubtypeExprOrValue<StringType>;
+    /** Maximum height with scroll (e.g., "400px") */
+    maxHeight?: SubtypeExprOrValue<StringType>;
     /** Overflow behavior */
     overflow?: SubtypeExprOrValue<OverflowType> | OverflowLiteral;
     /** Horizontal overflow */

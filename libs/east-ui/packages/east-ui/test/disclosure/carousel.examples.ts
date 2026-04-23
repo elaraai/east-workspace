@@ -120,6 +120,31 @@ export const carouselMinimal = example({
     inputs: [],
 });
 
+export const carouselColourSlots = example({
+    keywords: ["Carousel", "Root", "style", "colour", "indicatorColor", "controlColor", "branded"],
+    description: "Carousel with branded indicator + control colour escape hatches",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Box.Root([
+            Carousel.Root([
+                Box.Root([Text.Root("Branded 1")], { padding: "8", background: "blue.100", borderRadius: "md" }),
+                Box.Root([Text.Root("Branded 2")], { padding: "8", background: "blue.200", borderRadius: "md" }),
+                Box.Root([Text.Root("Branded 3")], { padding: "8", background: "blue.300", borderRadius: "md" }),
+            ], {
+                showControls: true,
+                showIndicators: true,
+                spacing: "3",
+                style: {
+                    indicatorColor: "#cbd5e1",
+                    activeIndicatorColor: "#3d5cff",
+                    controlColor: "#ffffff",
+                    controlBackground: "#1a2234",
+                },
+            }),
+        ], { width: "100%" });
+    }),
+    inputs: [],
+});
+
 export const carouselInteractive = example({
     keywords: ["Carousel", "Root", "Reactive", "State", "onIndexChange", "interactive"],
     description: "Navigate to see onIndexChange callback",

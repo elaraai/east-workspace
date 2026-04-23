@@ -60,7 +60,7 @@ describeEast("Card", (test) => {
 
         $(Assert.equal(card.unwrap().unwrap("Card").header.unwrap("some").unwrap().unwrap("Heading").value, "Product Name"));
         $(Assert.equal(card.unwrap().unwrap("Card").footer.hasTag("some"), true));
-        $(Assert.equal(card.unwrap().unwrap("Card").footer.unwrap("some").unwrap().unwrap("Button").label, "Buy Now"));
+        $(Assert.equal(card.unwrap().unwrap("Card").footer.unwrap("some").unwrap().unwrap("Button").label.unwrap().unwrap("Text").value, "Buy Now"));
     });
 
     // =========================================================================
@@ -86,7 +86,7 @@ describeEast("Card", (test) => {
             Text.Root("Body content"),
         ], {
             footer: Stack.HStack([
-                Button.Root("Cancel", { variant: "outline" }),
+                Button.Root("Cancel", { style: { variant: "outline" } }),
                 Button.Root("Save"),
             ]),
         }));
@@ -251,7 +251,7 @@ describeEast("Card", (test) => {
         }));
 
         $(Assert.equal(card.unwrap().unwrap("Card").header.unwrap("some").unwrap().unwrap("Heading").value, "Full Card"));
-        $(Assert.equal(card.unwrap().unwrap("Card").footer.unwrap("some").unwrap().unwrap("Button").label, "Action"));
+        $(Assert.equal(card.unwrap().unwrap("Card").footer.unwrap("some").unwrap().unwrap("Button").label.unwrap().unwrap("Text").value, "Action"));
         $(Assert.equal(card.unwrap().unwrap("Card").style.unwrap("some").variant.unwrap("some").hasTag("elevated"), true));
         $(Assert.equal(card.unwrap().unwrap("Card").style.unwrap("some").size.unwrap("some").hasTag("md"), true));
         $(Assert.equal(card.unwrap().unwrap("Card").style.unwrap("some").height.unwrap("some"), "400px"));

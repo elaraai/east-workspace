@@ -14,8 +14,8 @@ export const dialogBasic = example({
             [
                 Text.Root("This is a dialog. It appears as a modal overlay and captures focus."),
                 Stack.HStack([
-                    Button.Root("Cancel", { variant: "outline" }),
-                    Button.Root("Confirm", { variant: "solid", colorPalette: "blue" }),
+                    Button.Root("Cancel", { style: { variant: "outline" } }),
+                    Button.Root("Confirm", { style: { variant: "solid", colorPalette: "blue" } }),
                 ], { gap: "2", justify: "flex-end" }),
             ],
             { title: "Confirm Action", description: "Are you sure you want to proceed?" }
@@ -29,7 +29,7 @@ export const dialogLarge = example({
     description: "Dialog with more content",
     fn: East.function([], UIComponentType, (_$) => {
         return Dialog.Root(
-            Button.Root("Open Settings", { variant: "outline" }),
+            Button.Root("Open Settings", { style: { variant: "outline" } }),
             [
                 Stack.VStack([
                     Text.Root("Configure your preferences below. Changes will be saved automatically."),
@@ -75,7 +75,7 @@ export const dialogInteractive = example({
                     [
                         Text.Root("This dialog tracks when it's opened and closed."),
                         Stack.HStack([
-                            Button.Root("Got it!", { variant: "solid", colorPalette: "blue" }),
+                            Button.Root("Got it!", { style: { variant: "solid", colorPalette: "blue" } }),
                         ], { gap: "2", justify: "flex-end" }),
                     ],
                     { title: "Interactive Dialog", onOpenChange }
@@ -95,14 +95,13 @@ export const dialogProgrammatic = example({
     description: "Dialog.open() without trigger",
     fn: East.function([], UIComponentType, (_$) => {
         return Button.Root("Open Dialog Programmatically", {
-            variant: "solid",
-            colorPalette: "teal",
+            style: { variant: "solid", colorPalette: "teal" },
             onClick: East.function([], NullType, $ => {
                 $(Dialog.open(East.value({
                     body: [
                         Text.Root("This dialog was opened programmatically using Dialog.open()!"),
                         Stack.HStack([
-                            Button.Root("Cool!", { variant: "solid", colorPalette: "teal" }),
+                            Button.Root("Cool!", { style: { variant: "solid", colorPalette: "teal" } }),
                         ], { gap: "2", justify: "flex-end" }),
                     ],
                     title: variant("some", "Programmatic Dialog"),

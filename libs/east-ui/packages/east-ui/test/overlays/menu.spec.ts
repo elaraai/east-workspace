@@ -194,7 +194,7 @@ describeEast("Menu", (test) => {
         ));
 
         $(Assert.equal(menu.unwrap().unwrap("Menu").items.size(), 8n));
-        $(Assert.equal(menu.unwrap().unwrap("Menu").trigger.unwrap().unwrap("Button").label, "File"));
+        $(Assert.equal(menu.unwrap().unwrap("Menu").trigger.unwrap().unwrap("Button").label.unwrap().unwrap("Text").value, "File"));
     });
 
     test("creates context menu", $ => {

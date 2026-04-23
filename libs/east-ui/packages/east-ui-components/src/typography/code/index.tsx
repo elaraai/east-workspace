@@ -17,26 +17,30 @@ export type CodeValue = ValueTypeOf<typeof Code.Types.Code>;
 
 /**
  * Converts an East UI Code value to Chakra UI Code props.
- * Pure function - easy to test independently.
+ * Pure function — reads from the nested `style` sub-struct.
  */
 export function toChakraCode(value: CodeValue): CodeProps {
-    const padding = getSomeorUndefined(value.padding);
-    const margin = getSomeorUndefined(value.margin);
+    const style = getSomeorUndefined(value.style);
+    const padding = style ? getSomeorUndefined(style.padding) : undefined;
+    const margin = style ? getSomeorUndefined(style.margin) : undefined;
 
     return {
-        variant: getSomeorUndefined(value.variant)?.type,
-        colorPalette: getSomeorUndefined(value.colorPalette),
-        size: getSomeorUndefined(value.size)?.type,
-        textDecoration: getSomeorUndefined(value.textDecoration)?.type,
-        overflow: getSomeorUndefined(value.overflow)?.type,
-        overflowX: getSomeorUndefined(value.overflowX)?.type,
-        overflowY: getSomeorUndefined(value.overflowY)?.type,
-        width: getSomeorUndefined(value.width),
-        height: getSomeorUndefined(value.height),
-        minWidth: getSomeorUndefined(value.minWidth),
-        minHeight: getSomeorUndefined(value.minHeight),
-        maxWidth: getSomeorUndefined(value.maxWidth),
-        maxHeight: getSomeorUndefined(value.maxHeight),
+        variant: style ? getSomeorUndefined(style.variant)?.type : undefined,
+        colorPalette: style ? getSomeorUndefined(style.colorPalette) : undefined,
+        size: style ? getSomeorUndefined(style.size)?.type : undefined,
+        color: style ? getSomeorUndefined(style.color) : undefined,
+        bg: style ? getSomeorUndefined(style.background) : undefined,
+        borderColor: style ? getSomeorUndefined(style.borderColor) : undefined,
+        textDecoration: style ? getSomeorUndefined(style.textDecoration)?.type : undefined,
+        overflow: style ? getSomeorUndefined(style.overflow)?.type : undefined,
+        overflowX: style ? getSomeorUndefined(style.overflowX)?.type : undefined,
+        overflowY: style ? getSomeorUndefined(style.overflowY)?.type : undefined,
+        width: style ? getSomeorUndefined(style.width) : undefined,
+        height: style ? getSomeorUndefined(style.height) : undefined,
+        minWidth: style ? getSomeorUndefined(style.minWidth) : undefined,
+        minHeight: style ? getSomeorUndefined(style.minHeight) : undefined,
+        maxWidth: style ? getSomeorUndefined(style.maxWidth) : undefined,
+        maxHeight: style ? getSomeorUndefined(style.maxHeight) : undefined,
         pt: padding ? getSomeorUndefined(padding.top) : undefined,
         pr: padding ? getSomeorUndefined(padding.right) : undefined,
         pb: padding ? getSomeorUndefined(padding.bottom) : undefined,
@@ -45,9 +49,9 @@ export function toChakraCode(value: CodeValue): CodeProps {
         mr: margin ? getSomeorUndefined(margin.right) : undefined,
         mb: margin ? getSomeorUndefined(margin.bottom) : undefined,
         ml: margin ? getSomeorUndefined(margin.left) : undefined,
-        lineHeight: getSomeorUndefined(value.lineHeight),
-        letterSpacing: getSomeorUndefined(value.letterSpacing),
-        opacity: getSomeorUndefined(value.opacity),
+        lineHeight: style ? getSomeorUndefined(style.lineHeight) : undefined,
+        letterSpacing: style ? getSomeorUndefined(style.letterSpacing) : undefined,
+        opacity: style ? getSomeorUndefined(style.opacity) : undefined,
     };
 }
 

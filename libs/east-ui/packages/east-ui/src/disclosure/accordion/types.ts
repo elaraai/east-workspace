@@ -18,6 +18,9 @@ import {
     variant,
 } from "@elaraai/east";
 
+import { SizeType } from "../../style.js";
+import type { SizeLiteral } from "../../style.js";
+
 // ============================================================================
 // Accordion Variant Type
 // ============================================================================
@@ -26,9 +29,7 @@ import {
  * Variant types for Accordion visual style.
  *
  * @remarks
- * - enclosed: Bordered accordion with distinct boundaries
- * - plain: No visible borders or background
- * - subtle: Light background styling
+ * Create instances using string literals like `"enclosed"`, `"plain"`, `"subtle"`.
  *
  * @property enclosed - Bordered accordion with distinct boundaries
  * @property plain - No visible borders or background
@@ -64,76 +65,112 @@ export function AccordionVariant(v: AccordionVariantLiteral): ExprType<Accordion
 }
 
 // ============================================================================
-// Accordion Style Type
+// Accordion Style Type — visual presentation only (§0.10)
 // ============================================================================
 
 /**
- * Type for Accordion style properties.
+ * Visual-only style struct for Accordion. Content (`items`), state (`value`,
+ * `defaultValue`), config (`multiple`, `collapsible`), and behaviour
+ * (`onValueChange`) live on the main `Accordion` variant (inline in
+ * `component.ts` because of the recursive item `trigger: node` field) per
+ * the Type-shape convention (§0.10).
  *
- * @property multiple - Whether multiple items can be open at once
- * @property collapsible - Whether all items can be collapsed
- * @property variant - Visual variant (enclosed, plain, subtle)
- * @property onValueChange - Callback triggered when expanded items change
+ * @remarks
+ * Holds the appearance variant + size plus per-slot colour escape hatches
+ * for the container background, item border, trigger / trigger-hover,
+ * and content panel backgrounds.
+ *
+ * @property variant - Appearance variant (enclosed / plain / subtle)
+ * @property size - Size token (xs / sm / md / lg)
+ * @property background - Root container background colour
+ * @property borderColor - Item border colour (used in `enclosed` variant)
+ * @property triggerBackground - Trigger background colour (unpressed)
+ * @property triggerHoverBackground - Trigger background on hover
+ * @property contentBackground - Expanded content panel background
  */
 export const AccordionStyleType = StructType({
-    multiple: OptionType(BooleanType),
-    collapsible: OptionType(BooleanType),
     variant: OptionType(AccordionVariantType),
-    onValueChange: OptionType(FunctionType([ArrayType(StringType)], NullType)),
+    size: OptionType(SizeType),
+    background: OptionType(StringType),
+    borderColor: OptionType(StringType),
+    triggerBackground: OptionType(StringType),
+    triggerHoverBackground: OptionType(StringType),
+    contentBackground: OptionType(StringType),
 });
 
 /**
- * Type representing the AccordionStyle structure.
+ * Type representing the Accordion visual-style structure.
  */
 export type AccordionStyleType = typeof AccordionStyleType;
-
-// ============================================================================
-// Accordion Item Style Type
-// ============================================================================
-
-/**
- * Type for Accordion item style properties.
- *
- * @property disabled - Whether this item is disabled
- */
-export const AccordionItemStyleType = StructType({
-    disabled: OptionType(BooleanType),
-});
-
-/**
- * Type representing the AccordionItemStyle structure.
- */
-export type AccordionItemStyleType = typeof AccordionItemStyleType;
 
 // ============================================================================
 // Style Interfaces
 // ============================================================================
 
 /**
- * TypeScript interface for Accordion item options.
+ * TypeScript options bag for Accordion's `style` sub-struct — visual props only.
+ *
+ * @property variant - Appearance variant
+ * @property size - Size token
+ * @property background - Root container background
+ * @property borderColor - Item border (enclosed variant)
+ * @property triggerBackground - Trigger background (unpressed)
+ * @property triggerHoverBackground - Trigger background on hover
+ * @property contentBackground - Expanded panel background
+ */
+export interface AccordionStyle {
+    /** Visual variant (enclosed, plain, subtle) */
+    variant?: SubtypeExprOrValue<AccordionVariantType> | AccordionVariantLiteral;
+    /** Size token (xs / sm / md / lg) */
+    size?: SubtypeExprOrValue<SizeType> | SizeLiteral;
+    /** Root container background */
+    background?: SubtypeExprOrValue<StringType>;
+    /** Item border (used by `enclosed`) */
+    borderColor?: SubtypeExprOrValue<StringType>;
+    /** Trigger background (unpressed) */
+    triggerBackground?: SubtypeExprOrValue<StringType>;
+    /** Trigger background on hover */
+    triggerHoverBackground?: SubtypeExprOrValue<StringType>;
+    /** Expanded content panel background */
+    contentBackground?: SubtypeExprOrValue<StringType>;
+}
+
+/**
+ * TypeScript options bag for `Accordion.Item`.
  *
  * @property disabled - Whether this item is disabled
  */
-export interface AccordionItemStyle {
-    /** Whether this item is disabled */
+export interface AccordionItemOptions {
+    /** Whether this item is disabled — renderer blocks interaction */
     disabled?: SubtypeExprOrValue<BooleanType>;
 }
 
 /**
- * TypeScript interface for Accordion style options.
+ * TypeScript options bag for `Accordion.Root`.
  *
- * @property multiple - Whether multiple items can be open at once
- * @property collapsible - Whether all items can be collapsed
- * @property variant - Visual variant (enclosed, plain, or subtle)
- * @property onValueChange - Callback triggered when expanded items change
+ * @remarks
+ * Config (`multiple`, `collapsible`), state (`value`, `defaultValue`), and
+ * behaviour (`onValueChange`) live at the top level. Visual presentation
+ * lives inside the nested `style` object.
+ *
+ * @property multiple - Allow multiple items open simultaneously
+ * @property collapsible - Allow every item to be closed
+ * @property value - Controlled expanded-value list
+ * @property defaultValue - Initial expanded-value list (uncontrolled)
+ * @property onValueChange - Callback invoked with the new expanded-value list
+ * @property style - Visual-presentation sub-struct
  */
-export interface AccordionStyle {
-    /** Whether multiple items can be open at once */
+export interface AccordionOptions {
+    /** Allow multiple items open simultaneously */
     multiple?: SubtypeExprOrValue<BooleanType>;
-    /** Whether all items can be collapsed */
+    /** Allow every item to be closed */
     collapsible?: SubtypeExprOrValue<BooleanType>;
-    /** Visual variant (enclosed, plain, or subtle) */
-    variant?: SubtypeExprOrValue<AccordionVariantType> | AccordionVariantLiteral;
-    /** Callback triggered when expanded items change (receives array of expanded item values) */
+    /** Controlled expanded-value list */
+    value?: SubtypeExprOrValue<ArrayType<StringType>>;
+    /** Initial expanded-value list (uncontrolled) */
+    defaultValue?: SubtypeExprOrValue<ArrayType<StringType>>;
+    /** Callback invoked with the new expanded-value list */
     onValueChange?: SubtypeExprOrValue<FunctionType<[ArrayType<StringType>], NullType>>;
+    /** Visual-presentation sub-struct (variant / size / colour escape hatches) */
+    style?: AccordionStyle;
 }

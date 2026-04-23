@@ -13,6 +13,8 @@ import {
     IntegerType,
     FloatType,
     BooleanType,
+    NullType,
+    DateTimeType,
     DictType,
     FunctionType,
     LiteralValueType,
@@ -26,7 +28,9 @@ import { HeadingType } from "./typography/heading/types.js";
 import { LinkType } from "./typography/link/types.js";
 import { HighlightType } from "./typography/highlight/types.js";
 import { MarkType } from "./typography/mark/types.js";
-import { ListType } from "./typography/list/types.js";
+import { ListVisualStyleType } from "./typography/list/types.js";
+import { NumericType } from "./typography/numeric/types.js";
+import { NoteVariantType, NoteVisualStyleType } from "./typography/note/types.js";
 import { CodeBlockType } from "./typography/code-block/types.js";
 
 // Layout
@@ -50,9 +54,12 @@ import {
 } from "./layout/chip-rail/types.js";
 
 // Buttons
-import { ButtonType } from "./buttons/button/types.js";
+import { ButtonStyleType } from "./buttons/button/types.js";
 import { IconButtonType } from "./buttons/icon-button/types.js";
 import { CopyButtonType } from "./buttons/copy-button/types.js";
+import { CloseButtonType } from "./buttons/close-button/types.js";
+import { ToggleStyleType } from "./buttons/toggle/types.js";
+import { ButtonGroupStyleType } from "./buttons/button-group/types.js";
 
 // Forms
 import { StringInputType, IntegerInputType, FloatInputType, DateTimeInputType } from "./forms/input/types.js";
@@ -104,6 +111,12 @@ import { ComposedChartType } from "./charts/composed/types.js";
 import { AccordionStyleType } from "./disclosure/accordion/types.js";
 import { CarouselStyleType } from "./disclosure/carousel/types.js";
 import { TabsStyleType } from "./disclosure/tabs/types.js";
+import { SegmentGroupStyleType } from "./disclosure/segment-group/types.js";
+import { CollapsibleStyleType } from "./disclosure/collapsible/types.js";
+import { DisclosureStyleType } from "./disclosure/show-more/types.js";
+import { StepsStyleType, StepStatusType } from "./disclosure/steps/types.js";
+import { TimelineStyleType } from "./disclosure/timeline/types.js";
+import { OptionListStyleType } from "./disclosure/option-list/types.js";
 
 // Overlays
 import { PlacementType } from "./overlays/tooltip/types.js";
@@ -168,13 +181,70 @@ export const UIComponentType = RecursiveType(node => VariantType({
     Link: LinkType,
     Highlight: HighlightType,
     Mark: MarkType,
-    List: ListType,
+    /**
+     * List — container with rich `items`. Each item is a `UIComponentType`,
+     * so the factory can hold `Text`, `HStack`, icons, or any other primitive.
+     * String items are coerced to `Text.Root(s)` at the factory boundary.
+     */
+    List: StructType({
+        items: ArrayType(node),
+        style: OptionType(ListVisualStyleType),
+    }),
     CodeBlock: CodeBlockType,
+    Numeric: NumericType,
+    /**
+     * Note — narrative / callout / quote prose block. `body` is a
+     * UIComponentType child (coerced from strings at the factory).
+     */
+    Note: StructType({
+        body: node,
+        variant: NoteVariantType,
+        style: OptionType(NoteVisualStyleType),
+    }),
 
     // Buttons
-    Button: ButtonType,
+    /**
+     * Button — content (`label`) + icon slots + state (`loading`/`disabled`)
+     * + behaviour (`onClick`) on main; visual presets + colour escape hatches
+     * inside `style`. `label` is a UIComponentType child (strings coerce to
+     * `Text.Root` at the factory boundary).
+     */
+    Button: StructType({
+        label: node,
+        startIcon: OptionType(IconType),
+        endIcon: OptionType(IconType),
+        loadingText: OptionType(StringType),
+        loadingIcon: OptionType(IconType),
+        loading: OptionType(BooleanType),
+        disabled: OptionType(BooleanType),
+        onClick: OptionType(FunctionType([], NullType)),
+        style: OptionType(ButtonStyleType),
+    }),
     IconButton: IconButtonType,
     CopyButton: CopyButtonType,
+    /** CloseButton — dismiss affordance with optional aria-label (renderer default "Close"). */
+    CloseButton: CloseButtonType,
+    /**
+     * Toggle — two-state pressable affordance. `label` is a UIComponentType
+     * child (coerced from strings at the factory boundary); `pressed` lives
+     * on the main struct as primary state.
+     */
+    Toggle: StructType({
+        label: node,
+        icon: OptionType(IconType),
+        pressed: BooleanType,
+        disabled: OptionType(BooleanType),
+        onChange: OptionType(FunctionType([BooleanType], NullType)),
+        style: OptionType(ToggleStyleType),
+    }),
+    /**
+     * ButtonGroup — visual grouping of button-like children. Chakra v3's
+     * `<Group>` propagates size / variant / colorPalette via React context.
+     */
+    ButtonGroup: StructType({
+        buttons: ArrayType(node),
+        style: OptionType(ButtonGroupStyleType),
+    }),
 
     // Layout - Containers
     Box: StructType({
@@ -417,16 +487,35 @@ export const UIComponentType = RecursiveType(node => VariantType({
     }),
 
     // Disclosure
+    /**
+     * Accordion — collapsible content panels. `trigger` on each item is a
+     * UIComponentType (strings coerce to `Text.Root` at the factory).
+     * Config (`multiple` / `collapsible`), state (`value` / `defaultValue`)
+     * and behaviour (`onValueChange`) live on main; visual presets + colour
+     * slots live inside `style`.
+     */
     Accordion: StructType({
         items: ArrayType(StructType({
             value: StringType,
-            trigger: StringType,
+            trigger: node,
             content: ArrayType(node),
             disabled: OptionType(BooleanType),
         })),
+        multiple: OptionType(BooleanType),
+        collapsible: OptionType(BooleanType),
+        value: OptionType(ArrayType(StringType)),
+        defaultValue: OptionType(ArrayType(StringType)),
+        onValueChange: OptionType(FunctionType([ArrayType(StringType)], NullType)),
         style: OptionType(AccordionStyleType),
     }),
 
+    /**
+     * Carousel — slideshow of UIComp slides. State (`index` / `defaultIndex`),
+     * config (`loop` / `autoplay` / `slidesPerView` / `slidesPerMove` /
+     * `allowMouseDrag` / `showIndicators` / `showControls` / `spacing` /
+     * `padding`), and behaviour (`onIndexChange`) live on main; visual
+     * presets (`orientation`) + colour slots live inside `style`.
+     */
     Carousel: StructType({
         items: ArrayType(node),
         index: OptionType(IntegerType),
@@ -438,19 +527,118 @@ export const UIComponentType = RecursiveType(node => VariantType({
         allowMouseDrag: OptionType(BooleanType),
         showIndicators: OptionType(BooleanType),
         showControls: OptionType(BooleanType),
+        spacing: OptionType(StringType),
+        padding: OptionType(StringType),
+        onIndexChange: OptionType(FunctionType([IntegerType], NullType)),
         style: OptionType(CarouselStyleType),
     }),
 
+    /**
+     * Tabs — tabbed content panels. `trigger` on each item is a
+     * UIComponentType (strings coerce to `Text.Root` at the factory).
+     * State (`value` / `defaultValue`) + behaviour (`onValueChange`) live
+     * on main; visual presets + colour slots live inside `style`.
+     */
     Tabs: StructType({
         items: ArrayType(StructType({
             value: StringType,
-            trigger: StringType,
+            trigger: node,
             content: ArrayType(node),
             disabled: OptionType(BooleanType),
         })),
         value: OptionType(StringType),
         defaultValue: OptionType(StringType),
+        onValueChange: OptionType(FunctionType([StringType], NullType)),
         style: OptionType(TabsStyleType),
+    }),
+
+    /**
+     * SegmentGroup — two-or-more-state toolbar toggle. `label` on each item
+     * is a UIComponentType (strings coerce to `Text.Root` at the factory).
+     * State (`value`) + behaviour (`onChange`) live on main; visual presets
+     * + colour slots live inside `style`.
+     */
+    SegmentGroup: StructType({
+        value: StringType,
+        items: ArrayType(StructType({
+            value: StringType,
+            label: node,
+            disabled: OptionType(BooleanType),
+        })),
+        onChange: OptionType(FunctionType([StringType], NullType)),
+        style: OptionType(SegmentGroupStyleType),
+    }),
+
+    /**
+     * Collapsible — single open/close region with a rich trigger and
+     * arbitrary UIComp content. Distinct from Accordion (multiple sections)
+     * and Disclosure (text truncation).
+     */
+    Collapsible: StructType({
+        trigger: node,
+        content: node,
+        defaultOpen: OptionType(BooleanType),
+        onOpenChange: OptionType(FunctionType([BooleanType], NullType)),
+        style: OptionType(CollapsibleStyleType),
+    }),
+
+    /**
+     * Disclosure — text-truncation "show more / show less" primitive.
+     * Distinct from Collapsible (open/close arbitrary region).
+     */
+    Disclosure: StructType({
+        text: node,
+        lines: OptionType(IntegerType),
+        moreLabel: OptionType(StringType),
+        lessLabel: OptionType(StringType),
+        style: OptionType(DisclosureStyleType),
+    }),
+
+    /**
+     * Steps — ordered process indicator with per-step status. `title` /
+     * `description` on items are UIComp. Reuses `StepStatusType` with
+     * Timeline.
+     */
+    Steps: StructType({
+        items: ArrayType(StructType({
+            title: node,
+            description: OptionType(node),
+            icon: OptionType(IconType),
+            status: StepStatusType,
+        })),
+        activeIndex: OptionType(IntegerType),
+        style: OptionType(StepsStyleType),
+    }),
+
+    /**
+     * Timeline — ordered list of time-stamped events. Reuses StepStatusType.
+     */
+    Timeline: StructType({
+        items: ArrayType(StructType({
+            title: node,
+            timestamp: OptionType(DateTimeType),
+            description: OptionType(node),
+            indicator: OptionType(IconType),
+            badgeLabel: OptionType(StringType),
+            status: StepStatusType,
+        })),
+        style: OptionType(TimelineStyleType),
+    }),
+
+    /**
+     * OptionList — keyboard-navigable list of selectable options.
+     */
+    OptionList: StructType({
+        options: ArrayType(StructType({
+            id: StringType,
+            label: node,
+            description: OptionType(node),
+            trailing: OptionType(node),
+            disabled: OptionType(BooleanType),
+        })),
+        selectedId: OptionType(StringType),
+        onSelect: OptionType(FunctionType([StringType], NullType)),
+        style: OptionType(OptionListStyleType),
     }),
 
     // Overlays

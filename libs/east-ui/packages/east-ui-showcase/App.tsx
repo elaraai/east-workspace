@@ -41,7 +41,12 @@ import { ExampleCard } from "./components/ExampleCard";
 
 // Per-component example module imports. Each entry in SOURCES below pairs a
 // module with its preferred column count in the showcase grid.
-import * as buttonExamples from "@elaraai/east-ui/examples/buttons";
+import * as buttonExamples from "@elaraai/east-ui/examples/buttons/button";
+import * as iconButtonExamples from "@elaraai/east-ui/examples/buttons/icon-button";
+import * as copyButtonExamples from "@elaraai/east-ui/examples/buttons/copy-button";
+import * as closeButtonExamples from "@elaraai/east-ui/examples/buttons/close-button";
+import * as toggleExamples from "@elaraai/east-ui/examples/buttons/toggle";
+import * as buttonGroupExamples from "@elaraai/east-ui/examples/buttons/button-group";
 import * as textExamples from "@elaraai/east-ui/examples/typography/text";
 import * as codeExamples from "@elaraai/east-ui/examples/typography/code";
 import * as codeBlockExamples from "@elaraai/east-ui/examples/typography/code-block";
@@ -50,12 +55,17 @@ import * as linkExamples from "@elaraai/east-ui/examples/typography/link";
 import * as highlightExamples from "@elaraai/east-ui/examples/typography/highlight";
 import * as markExamples from "@elaraai/east-ui/examples/typography/mark";
 import * as listExamples from "@elaraai/east-ui/examples/typography/list";
+import * as numericExamples from "@elaraai/east-ui/examples/typography/numeric";
+import * as noteExamples from "@elaraai/east-ui/examples/typography/note";
 import * as boxExamples from "@elaraai/east-ui/examples/layout/box";
 import * as flexExamples from "@elaraai/east-ui/examples/layout/flex";
 import * as gridExamples from "@elaraai/east-ui/examples/layout/grid";
 import * as separatorExamples from "@elaraai/east-ui/examples/layout/separator";
 import * as splitterExamples from "@elaraai/east-ui/examples/layout/splitter";
 import * as stackExamples from "@elaraai/east-ui/examples/layout/stack";
+import * as chipRailExamples from "@elaraai/east-ui/examples/layout/chip-rail";
+import * as scrollAreaExamples from "@elaraai/east-ui/examples/layout/scroll-area";
+import * as stickyExamples from "@elaraai/east-ui/examples/layout/sticky";
 import * as cardExamples from "@elaraai/east-ui/examples/container";
 import * as badgeExamples from "@elaraai/east-ui/examples/display/badge";
 import * as tagExamples from "@elaraai/east-ui/examples/display/tag";
@@ -78,6 +88,12 @@ import * as breadcrumbExamples from "@elaraai/east-ui/examples/navigation";
 import * as accordionExamples from "@elaraai/east-ui/examples/disclosure/accordion";
 import * as carouselExamples from "@elaraai/east-ui/examples/disclosure/carousel";
 import * as tabsExamples from "@elaraai/east-ui/examples/disclosure/tabs";
+import * as segmentGroupExamples from "@elaraai/east-ui/examples/disclosure/segment-group";
+import * as collapsibleExamples from "@elaraai/east-ui/examples/disclosure/collapsible";
+import * as showMoreExamples from "@elaraai/east-ui/examples/disclosure/show-more";
+import * as stepsExamples from "@elaraai/east-ui/examples/disclosure/steps";
+import * as timelineExamples from "@elaraai/east-ui/examples/disclosure/timeline";
+import * as optionListExamples from "@elaraai/east-ui/examples/disclosure/option-list";
 import * as tooltipExamples from "@elaraai/east-ui/examples/overlays/tooltip";
 import * as menuExamples from "@elaraai/east-ui/examples/overlays/menu";
 import * as popoverExamples from "@elaraai/east-ui/examples/overlays/popover";
@@ -124,7 +140,12 @@ interface CatalogEntry {
  */
 const SOURCES: [string, string, Record<string, unknown>, number, number?][] = [
     ["SalesDashboard", "Integration", integrationExamples, 1, 680],
-    ["Button",      "Buttons",     buttonExamples,      3],
+    ["Button",       "Buttons",     buttonExamples,       3],
+    ["IconButton",   "Buttons",     iconButtonExamples,   3],
+    ["CopyButton",   "Buttons",     copyButtonExamples,   3],
+    ["CloseButton",  "Buttons",     closeButtonExamples,  3],
+    ["Toggle",       "Buttons",     toggleExamples,       3],
+    ["ButtonGroup",  "Buttons",     buttonGroupExamples,  2],
     ["Text",        "Typography",  textExamples,        3],
     ["Code",        "Typography",  codeExamples,        3],
     ["CodeBlock",   "Typography",  codeBlockExamples,   2],
@@ -133,12 +154,17 @@ const SOURCES: [string, string, Record<string, unknown>, number, number?][] = [
     ["Highlight",   "Typography",  highlightExamples,   3],
     ["Mark",        "Typography",  markExamples,        3],
     ["List",        "Typography",  listExamples,        3],
+    ["Numeric",     "Typography",  numericExamples,     3],
+    ["Note",        "Typography",  noteExamples,        2],
     ["Box",         "Layout",      boxExamples,         3],
     ["Flex",        "Layout",      flexExamples,        2],
     ["Grid",        "Layout",      gridExamples,        2],
     ["Separator",   "Layout",      separatorExamples,   3],
     ["Splitter",    "Layout",      splitterExamples,    1],
     ["Stack",       "Layout",      stackExamples,       2],
+    ["ChipRail",    "Layout",      chipRailExamples,    2],
+    ["ScrollArea",  "Layout",      scrollAreaExamples,  2],
+    ["Sticky",      "Layout",      stickyExamples,      2],
     ["Card",        "Container",   cardExamples,        2],
     ["Badge",       "Display",     badgeExamples,       3],
     ["Tag",         "Display",     tagExamples,         3],
@@ -161,6 +187,12 @@ const SOURCES: [string, string, Record<string, unknown>, number, number?][] = [
     ["Accordion",   "Disclosure",  accordionExamples,   2],
     ["Carousel",    "Disclosure",  carouselExamples,    1],
     ["Tabs",        "Disclosure",  tabsExamples,        2],
+    ["SegmentGroup","Disclosure",  segmentGroupExamples,2],
+    ["Collapsible", "Disclosure",  collapsibleExamples, 2],
+    ["Disclosure",  "Disclosure",  showMoreExamples,    2],
+    ["Steps",       "Disclosure",  stepsExamples,       1],
+    ["Timeline",    "Disclosure",  timelineExamples,    1],
+    ["OptionList",  "Disclosure",  optionListExamples,  2],
     ["Tooltip",     "Overlays",    tooltipExamples,     3],
     ["Menu",        "Overlays",    menuExamples,        3],
     ["Popover",     "Overlays",    popoverExamples,     3],

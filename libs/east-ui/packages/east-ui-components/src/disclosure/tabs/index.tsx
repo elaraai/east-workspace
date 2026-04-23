@@ -16,23 +16,21 @@ import { Tabs } from "@elaraai/east-ui";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 
-// Pre-define equality functions at module level
-const tabsRootEqual = equalFor(Tabs.Types.Root);
+const tabsEqual = equalFor(Tabs.Types.Tabs);
 const tabsItemEqual = equalFor(Tabs.Types.Item);
 
-/** East Tabs Root value type */
-export type TabsRootValue = ValueTypeOf<typeof Tabs.Types.Root>;
+/** East Tabs value type. */
+export type TabsValue = ValueTypeOf<typeof Tabs.Types.Tabs>;
 
-/** East Tabs Item value type */
+/** East Tabs Item value type. */
 export type TabsItemValue = ValueTypeOf<typeof Tabs.Types.Item>;
 
 /**
- * Converts an East UI Tabs Root value to Chakra UI TabsRoot props.
- * Pure function - easy to test independently.
+ * Derive visual Chakra props from the `style` sub-struct. State (`value` /
+ * `defaultValue`) comes from main elsewhere.
  */
-export function toChakraTabsRoot(value: TabsRootValue): TabsRootProps {
+export function toChakraTabsRoot(value: TabsValue): TabsRootProps {
     const style = getSomeorUndefined(value.style);
-
     return {
         defaultValue: getSomeorUndefined(value.defaultValue),
         value: getSomeorUndefined(value.value),
@@ -48,10 +46,6 @@ export function toChakraTabsRoot(value: TabsRootValue): TabsRootProps {
     };
 }
 
-/**
- * Converts an East UI Tabs Item value to Chakra UI TabsTrigger props.
- * Pure function - easy to test independently.
- */
 export function toChakraTabsTrigger(value: TabsItemValue): TabsTriggerProps {
     return {
         value: value.value,
@@ -59,68 +53,93 @@ export function toChakraTabsTrigger(value: TabsItemValue): TabsTriggerProps {
     };
 }
 
-/**
- * Converts an East UI Tabs Item value to Chakra UI TabsContent props.
- * Pure function - easy to test independently.
- */
 export function toChakraTabsContent(value: TabsItemValue): TabsContentProps {
-    return {
-        value: value.value,
-    };
+    return { value: value.value };
 }
 
 export interface EastChakraTabsItemProps {
     value: TabsItemValue;
     storageKey: string;
+    activeTriggerColor?: string | undefined;
+    inactiveTriggerColor?: string | undefined;
+    contentBackground?: string | undefined;
 }
 
 /**
- * Renders an East UI Tabs Item trigger using Chakra UI Tabs components.
+ * Renders an East UI Tabs trigger. The rich `trigger` (UIComponentType) is
+ * dispatched through `EastChakraComponent`.
  */
-export const EastChakraTabsTrigger = memo(function EastChakraTabsTrigger({ value }: EastChakraTabsItemProps) {
+export const EastChakraTabsTrigger = memo(function EastChakraTabsTrigger({
+    value,
+    storageKey,
+    activeTriggerColor,
+    inactiveTriggerColor,
+}: EastChakraTabsItemProps) {
     const props = useMemo(() => toChakraTabsTrigger(value), [value]);
-
     return (
-        <ChakraTabs.Trigger {...props}>
-            {value.trigger}
+        <ChakraTabs.Trigger
+            {...props}
+            {...(inactiveTriggerColor !== undefined ? { color: inactiveTriggerColor } : {})}
+            {...(activeTriggerColor !== undefined ? { _selected: { color: activeTriggerColor } } : {})}
+        >
+            <EastChakraComponent
+                value={value.trigger}
+                storageKey={`${storageKey}.trigger`}
+            />
         </ChakraTabs.Trigger>
     );
-}, (prev, next) => tabsItemEqual(prev.value, next.value));
+}, (prev, next) => tabsItemEqual(prev.value, next.value)
+    && prev.storageKey === next.storageKey
+    && prev.activeTriggerColor === next.activeTriggerColor
+    && prev.inactiveTriggerColor === next.inactiveTriggerColor,
+);
 
 /**
- * Renders an East UI Tabs Item content using Chakra UI Tabs components.
+ * Renders an East UI Tabs content.
  */
-export const EastChakraTabsContent = memo(function EastChakraTabsContent({ value, storageKey }: EastChakraTabsItemProps) {
+export const EastChakraTabsContent = memo(function EastChakraTabsContent({
+    value,
+    storageKey,
+    contentBackground,
+}: EastChakraTabsItemProps) {
     const props = useMemo(() => toChakraTabsContent(value), [value]);
-
     return (
-        <ChakraTabs.Content {...props}>
+        <ChakraTabs.Content
+            {...props}
+            {...(contentBackground !== undefined ? { bg: contentBackground } : {})}
+        >
             {value.content.map((child, index) => (
                 <EastChakraComponent key={index} value={child} storageKey={`${storageKey}.${index}`} />
             ))}
         </ChakraTabs.Content>
     );
-}, (prev, next) => tabsItemEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
+}, (prev, next) => tabsItemEqual(prev.value, next.value)
+    && prev.storageKey === next.storageKey
+    && prev.contentBackground === next.contentBackground,
+);
 
 interface TabsPersistedState {
     selectedValue: string | undefined;
 }
 
 export interface EastChakraTabsProps {
-    value: TabsRootValue;
-    /** Storage key for persisting selected tab in localStorage. Omit for ephemeral state. */
+    value: TabsValue;
     storageKey: string;
 }
 
 /**
- * Renders an East UI Tabs value using Chakra UI Tabs components.
+ * Renders an East UI Tabs. `value` / `defaultValue` (state) and
+ * `onValueChange` (behaviour) come from main; visual presets + colour
+ * slots come from `value.style`.
  */
 export const EastChakraTabs = memo(function EastChakraTabs({ value, storageKey }: EastChakraTabsProps) {
-    const props = useMemo(() => toChakraTabsRoot(value), [value]);
-    const onValueChangeFn = useMemo(() => {
-        const style = getSomeorUndefined(value.style);
-        return style ? getSomeorUndefined(style.onValueChange) : undefined;
-    }, [value.style]);
+    const rootProps = useMemo(() => toChakraTabsRoot(value), [value]);
+    const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
+
+    const onValueChangeFn = useMemo(
+        () => getSomeorUndefined(value.onValueChange),
+        [value.onValueChange],
+    );
 
     const defaultValue = useMemo(() => getSomeorUndefined(value.defaultValue), [value.defaultValue]);
     const controlledValue = useMemo(() => getSomeorUndefined(value.value), [value.value]);
@@ -137,26 +156,44 @@ export const EastChakraTabs = memo(function EastChakraTabs({ value, storageKey }
         }
     }, [onValueChangeFn, setPersistedState]);
 
-    // Persisted value takes priority, then controlled prop
-    const effectiveValue = useMemo(
-        () => persistedState.selectedValue ?? controlledValue,
-        [persistedState.selectedValue, controlledValue],
-    );
+    const effectiveValue = controlledValue ?? persistedState.selectedValue;
+
+    const listBackground = style ? getSomeorUndefined(style.listBackground) : undefined;
+    const indicatorColor = style ? getSomeorUndefined(style.indicatorColor) : undefined;
+    const activeTriggerColor = style ? getSomeorUndefined(style.activeTriggerColor) : undefined;
+    const inactiveTriggerColor = style ? getSomeorUndefined(style.inactiveTriggerColor) : undefined;
+    const contentBackground = style ? getSomeorUndefined(style.contentBackground) : undefined;
 
     return (
         <ChakraTabs.Root
-            {...props}
+            {...rootProps}
             value={effectiveValue}
             onValueChange={handleValueChange}
         >
-            <ChakraTabs.List>
+            <ChakraTabs.List
+                {...(listBackground !== undefined ? { bg: listBackground } : {})}
+            >
                 {value.items.map((item, index) => (
-                    <EastChakraTabsTrigger key={item.value} value={item} storageKey={`${storageKey}.${index}`} />
+                    <EastChakraTabsTrigger
+                        key={item.value}
+                        value={item}
+                        storageKey={`${storageKey}.${index}`}
+                        activeTriggerColor={activeTriggerColor}
+                        inactiveTriggerColor={inactiveTriggerColor}
+                    />
                 ))}
+                {indicatorColor !== undefined && (
+                    <ChakraTabs.Indicator bg={indicatorColor} />
+                )}
             </ChakraTabs.List>
             {value.items.map((item, index) => (
-                <EastChakraTabsContent key={item.value} value={item} storageKey={`${storageKey}.${index}`} />
+                <EastChakraTabsContent
+                    key={item.value}
+                    value={item}
+                    storageKey={`${storageKey}.${index}`}
+                    contentBackground={contentBackground}
+                />
             ))}
         </ChakraTabs.Root>
     );
-}, (prev, next) => tabsRootEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
+}, (prev, next) => tabsEqual(prev.value, next.value) && prev.storageKey === next.storageKey);

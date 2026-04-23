@@ -12,7 +12,7 @@
  */
 
 import { memo, Fragment, useMemo } from "react";
-import { Flex as ChakraFlex, Separator as ChakraSeparator } from "@chakra-ui/react";
+import { Flex as ChakraFlex, Separator as ChakraSeparator, Box as ChakraBox } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { ChipRail } from "@elaraai/east-ui";
 import { getSomeorUndefined } from "../../utils";
@@ -59,10 +59,23 @@ export const EastChakraChipRail = memo(function EastChakraChipRail({ value, stor
             <Fragment key={key}>
                 {needSep && (
                     separatorTag === "line"
-                        ? <ChakraSeparator orientation="vertical" borderColor={separatorColor} />
-                        : <span style={{ color: separatorColor ?? "inherit", userSelect: "none" }}>·</span>
+                        ? <ChakraSeparator
+                              orientation="vertical"
+                              borderColor={separatorColor}
+                              height="1em"
+                              alignSelf="center"
+                              flexShrink={0}
+                          />
+                        : <ChakraBox
+                              as="span"
+                              color={separatorColor ?? "inherit"}
+                              userSelect="none"
+                              flexShrink={0}
+                          >·</ChakraBox>
                 )}
-                <EastChakraComponent value={chip} storageKey={key} />
+                <ChakraBox flexShrink={0}>
+                    <EastChakraComponent value={chip} storageKey={key} />
+                </ChakraBox>
             </Fragment>
         );
     });

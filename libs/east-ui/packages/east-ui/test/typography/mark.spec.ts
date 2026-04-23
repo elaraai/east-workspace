@@ -20,7 +20,7 @@ describeEast("Mark", (test) => {
     });
 
     // =========================================================================
-    // Basic Creation
+    // Basic Creation — { value, style } shape
     // =========================================================================
 
     test("creates mark with string value", $ => {
@@ -29,93 +29,93 @@ describeEast("Mark", (test) => {
         $(Assert.equal(mark.unwrap().unwrap("Mark").value, "Important"));
     });
 
-    test("creates mark with no style - all options are none", $ => {
+    test("creates mark with no style — style is none", $ => {
         const mark = $.let(Mark.Root("Text"));
 
         $(Assert.equal(mark.unwrap().unwrap("Mark").value, "Text"));
-        $(Assert.equal(mark.unwrap().unwrap("Mark").variant.hasTag("none"), true));
-        $(Assert.equal(mark.unwrap().unwrap("Mark").colorPalette.hasTag("none"), true));
+        $(Assert.equal(mark.unwrap().unwrap("Mark").style.hasTag("none"), true));
     });
 
     // =========================================================================
-    // Variants
+    // Variants (inside style)
     // =========================================================================
 
     test("creates subtle variant mark", $ => {
-        const mark = $.let(Mark.Root("Subtle", {
-            variant: "subtle",
-        }));
-
-        $(Assert.equal(mark.unwrap().unwrap("Mark").variant.hasTag("some"), true));
-        $(Assert.equal(mark.unwrap().unwrap("Mark").variant.unwrap("some").hasTag("subtle"), true));
+        const mark = $.let(Mark.Root("Subtle", { variant: "subtle" }));
+        const style = mark.unwrap().unwrap("Mark").style.unwrap("some");
+        $(Assert.equal(style.variant.hasTag("some"), true));
+        $(Assert.equal(style.variant.unwrap("some").hasTag("subtle"), true));
     });
 
     test("creates solid variant mark", $ => {
-        const mark = $.let(Mark.Root("Solid", {
-            variant: "solid",
-        }));
-
-        $(Assert.equal(mark.unwrap().unwrap("Mark").variant.unwrap("some").hasTag("solid"), true));
+        const mark = $.let(Mark.Root("Solid", { variant: "solid" }));
+        const style = mark.unwrap().unwrap("Mark").style.unwrap("some");
+        $(Assert.equal(style.variant.unwrap("some").hasTag("solid"), true));
     });
 
     test("creates text variant mark", $ => {
-        const mark = $.let(Mark.Root("Text", {
-            variant: "text",
-        }));
-
-        $(Assert.equal(mark.unwrap().unwrap("Mark").variant.unwrap("some").hasTag("text"), true));
+        const mark = $.let(Mark.Root("Text", { variant: "text" }));
+        const style = mark.unwrap().unwrap("Mark").style.unwrap("some");
+        $(Assert.equal(style.variant.unwrap("some").hasTag("text"), true));
     });
 
     test("creates plain variant mark", $ => {
-        const mark = $.let(Mark.Root("Plain", {
-            variant: "plain",
-        }));
-
-        $(Assert.equal(mark.unwrap().unwrap("Mark").variant.unwrap("some").hasTag("plain"), true));
+        const mark = $.let(Mark.Root("Plain", { variant: "plain" }));
+        const style = mark.unwrap().unwrap("Mark").style.unwrap("some");
+        $(Assert.equal(style.variant.unwrap("some").hasTag("plain"), true));
     });
 
     // =========================================================================
-    // Color Palette
+    // Color Palette (inside style)
     // =========================================================================
 
     test("creates mark with yellow colorPalette", $ => {
-        const mark = $.let(Mark.Root("Highlighted", {
-            colorPalette: "yellow",
-        }));
-
-        $(Assert.equal(mark.unwrap().unwrap("Mark").colorPalette.hasTag("some"), true));
-        $(Assert.equal(mark.unwrap().unwrap("Mark").colorPalette.unwrap("some"), "yellow"));
+        const mark = $.let(Mark.Root("Highlighted", { colorPalette: "yellow" }));
+        const style = mark.unwrap().unwrap("Mark").style.unwrap("some");
+        $(Assert.equal(style.colorPalette.hasTag("some"), true));
+        $(Assert.equal(style.colorPalette.unwrap("some"), "yellow"));
     });
 
     test("creates mark with green colorPalette", $ => {
-        const mark = $.let(Mark.Root("Success", {
-            colorPalette: "green",
-        }));
-
-        $(Assert.equal(mark.unwrap().unwrap("Mark").colorPalette.unwrap("some"), "green"));
+        const mark = $.let(Mark.Root("Success", { colorPalette: "green" }));
+        const style = mark.unwrap().unwrap("Mark").style.unwrap("some");
+        $(Assert.equal(style.colorPalette.unwrap("some"), "green"));
     });
 
     test("creates mark with red colorPalette", $ => {
-        const mark = $.let(Mark.Root("Error", {
-            colorPalette: "red",
-        }));
+        const mark = $.let(Mark.Root("Error", { colorPalette: "red" }));
+        const style = mark.unwrap().unwrap("Mark").style.unwrap("some");
+        $(Assert.equal(style.colorPalette.unwrap("some"), "red"));
+    });
 
-        $(Assert.equal(mark.unwrap().unwrap("Mark").colorPalette.unwrap("some"), "red"));
+    // =========================================================================
+    // Colour escape hatches (inside style)
+    // =========================================================================
+
+    test("creates mark with explicit color + background", $ => {
+        const mark = $.let(Mark.Root("Branded", {
+            color: "#7a3b2e",
+            background: "#fde3c6",
+        }));
+        const style = mark.unwrap().unwrap("Mark").style.unwrap("some");
+        $(Assert.equal(style.color.unwrap("some"), "#7a3b2e"));
+        $(Assert.equal(style.background.unwrap("some"), "#fde3c6"));
     });
 
     // =========================================================================
     // Combined Options
     // =========================================================================
 
-    test("creates mark with all options", $ => {
+    test("creates mark with variant + palette", $ => {
         const mark = $.let(Mark.Root("Featured", {
             variant: "solid",
             colorPalette: "blue",
         }));
+        const style = mark.unwrap().unwrap("Mark").style.unwrap("some");
 
         $(Assert.equal(mark.unwrap().unwrap("Mark").value, "Featured"));
-        $(Assert.equal(mark.unwrap().unwrap("Mark").variant.unwrap("some").hasTag("solid"), true));
-        $(Assert.equal(mark.unwrap().unwrap("Mark").colorPalette.unwrap("some"), "blue"));
+        $(Assert.equal(style.variant.unwrap("some").hasTag("solid"), true));
+        $(Assert.equal(style.colorPalette.unwrap("some"), "blue"));
     });
 
     test("creates warning mark", $ => {
@@ -123,10 +123,11 @@ describeEast("Mark", (test) => {
             variant: "subtle",
             colorPalette: "orange",
         }));
+        const style = mark.unwrap().unwrap("Mark").style.unwrap("some");
 
         $(Assert.equal(mark.unwrap().unwrap("Mark").value, "Warning"));
-        $(Assert.equal(mark.unwrap().unwrap("Mark").variant.unwrap("some").hasTag("subtle"), true));
-        $(Assert.equal(mark.unwrap().unwrap("Mark").colorPalette.unwrap("some"), "orange"));
+        $(Assert.equal(style.variant.unwrap("some").hasTag("subtle"), true));
+        $(Assert.equal(style.colorPalette.unwrap("some"), "orange"));
     });
 
     test("creates info mark", $ => {
@@ -134,8 +135,9 @@ describeEast("Mark", (test) => {
             variant: "text",
             colorPalette: "cyan",
         }));
+        const style = mark.unwrap().unwrap("Mark").style.unwrap("some");
 
         $(Assert.equal(mark.unwrap().unwrap("Mark").value, "Note"));
-        $(Assert.equal(mark.unwrap().unwrap("Mark").variant.unwrap("some").hasTag("text"), true));
+        $(Assert.equal(style.variant.unwrap("some").hasTag("text"), true));
     });
-}, {   platformFns: TestImpl,});
+}, { platformFns: TestImpl });

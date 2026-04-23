@@ -10,59 +10,98 @@ import { library } from "@fortawesome/fontawesome-svg-core";
 import { fas } from "@fortawesome/free-solid-svg-icons";
 import { far } from "@fortawesome/free-regular-svg-icons";
 import { fab } from "@fortawesome/free-brands-svg-icons";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { IconButton } from "@elaraai/east-ui";
-import { getSomeorUndefined } from "../../utils";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-common-types";
+import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { IconButton, Icon } from "@elaraai/east-ui";
+import { getSomeorUndefined } from "../../utils";
 
-// Add icon libraries
 library.add(fas, far, fab);
 
-// Pre-define the equality function at module level
 const iconButtonEqual = equalFor(IconButton.Types.IconButton);
 
-/** East IconButton value type */
+/** East IconButton value type — label required on main; state + behaviour on main. */
 export type IconButtonValue = ValueTypeOf<typeof IconButton.Types.IconButton>;
 
-/**
- * Converts an East UI IconButton value to Chakra UI IconButton props (excluding callbacks).
- * Pure function - easy to test independently.
- */
-export function toChakraIconButton(value: IconButtonValue): Omit<IconButtonProps, "children" | "aria-label" | "onClick"> {
-    const style = getSomeorUndefined(value.style);
+type IconValue = ValueTypeOf<typeof Icon.Types.Icon>;
 
+interface ChakraVisualProps {
+    variant?: IconButtonProps["variant"] | undefined;
+    colorPalette?: IconButtonProps["colorPalette"] | undefined;
+    size?: IconButtonProps["size"] | undefined;
+    color?: string | undefined;
+    bg?: string | undefined;
+    borderColor?: string | undefined;
+    hoverBackground?: string | undefined;
+}
+
+/**
+ * Derive visual Chakra props from the `style` sub-struct. State
+ * (`loading` / `disabled`) and behaviour (`onClick`) are read from main.
+ */
+export function toChakraIconButton(value: IconButtonValue): ChakraVisualProps {
+    const style = getSomeorUndefined(value.style);
+    if (!style) return {};
     return {
-        variant: style ? getSomeorUndefined(style.variant)?.type : undefined,
-        colorPalette: style ? getSomeorUndefined(style.colorPalette)?.type : undefined,
-        size: style ? getSomeorUndefined(style.size)?.type : undefined,
-        loading: style ? getSomeorUndefined(style.loading) : undefined,
-        disabled: style ? getSomeorUndefined(style.disabled) : undefined,
+        variant: getSomeorUndefined(style.variant)?.type as IconButtonProps["variant"] | undefined,
+        colorPalette: getSomeorUndefined(style.colorPalette)?.type as IconButtonProps["colorPalette"] | undefined,
+        size: getSomeorUndefined(style.size)?.type as IconButtonProps["size"] | undefined,
+        color: getSomeorUndefined(style.color),
+        bg: getSomeorUndefined(style.background),
+        borderColor: getSomeorUndefined(style.borderColor),
+        hoverBackground: getSomeorUndefined(style.hoverBackground),
     };
 }
 
-export interface EastChakraIconButtonProps {
+/**
+ * Props for `EastChakraIconButton`. Accepts any extra Chakra `<IconButton>`
+ * props so containers like `<ButtonGroup>` can forward attributes injected
+ * via `cloneElement` (notably `data-first` / `data-last` / `data-between`).
+ */
+export type EastChakraIconButtonProps = {
     value: IconButtonValue;
-}
+} & Omit<IconButtonProps, "onClick" | "children" | "aria-label" | "value">;
 
 /**
- * Renders an East UI IconButton value using Chakra UI IconButton component.
+ * Renders an East UI IconButton. `value.label` becomes `aria-label` on the
+ * rendered button (required by §0.2). When `loading` is true and a
+ * `loadingIcon` is present, the renderer swaps in the spinner icon instead
+ * of the main one.
  */
-export const EastChakraIconButton = memo(function EastChakraIconButton({ value }: EastChakraIconButtonProps) {
-    const props = useMemo(() => toChakraIconButton(value), [value]);
-    const onClickFn = useMemo(() => {
-        const style = getSomeorUndefined(value.style);
-        return style ? getSomeorUndefined(style.onClick) : undefined;
-    }, [value.style]);
+export const EastChakraIconButton = memo(function EastChakraIconButton({ value, ...rest }: EastChakraIconButtonProps) {
+    const visual = useMemo(() => toChakraIconButton(value), [value]);
 
+    const loading = getSomeorUndefined(value.loading);
+    const disabled = getSomeorUndefined(value.disabled);
+    const loadingIcon = getSomeorUndefined(value.loadingIcon) as IconValue | undefined;
+
+    const onClickFn = useMemo(() => getSomeorUndefined(value.onClick), [value.onClick]);
     const handleClick = useCallback(() => {
-        if (onClickFn) {
-            queueMicrotask(() => onClickFn());
-        }
+        if (onClickFn) queueMicrotask(() => onClickFn());
     }, [onClickFn]);
 
+    const hoverCss = visual.hoverBackground
+        ? { _hover: { bg: visual.hoverBackground } }
+        : {};
+
+    const activePrefix = loading && loadingIcon ? loadingIcon.prefix : value.prefix;
+    const activeName = loading && loadingIcon ? loadingIcon.name : value.name;
+
     return (
-        <ChakraIconButton {...props} aria-label={value.name} onClick={onClickFn ? handleClick : undefined}>
-            <FontAwesomeIcon icon={[value.prefix as IconPrefix, value.name as IconName]} />
+        <ChakraIconButton
+            {...rest}
+            variant={visual.variant}
+            colorPalette={visual.colorPalette}
+            size={visual.size}
+            color={visual.color}
+            bg={visual.bg}
+            borderColor={visual.borderColor}
+            loading={loading}
+            disabled={disabled}
+            aria-label={value.label}
+            onClick={onClickFn ? handleClick : undefined}
+            {...hoverCss}
+        >
+            <FontAwesomeIcon icon={[activePrefix as IconPrefix, activeName as IconName]} />
         </ChakraIconButton>
     );
 }, (prev, next) => iconButtonEqual(prev.value, next.value));

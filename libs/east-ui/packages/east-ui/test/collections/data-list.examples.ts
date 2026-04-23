@@ -96,7 +96,7 @@ export const dataListRichValues = example({
                 [
                     Stack.VStack([
                         Text.Root("Alice Johnson", { fontWeight: "bold" }),
-                        Text.Root("Lead Designer — UX Team", { fontSize: "sm" }),
+                        Text.Root("Lead Designer — UX Team", { textStyle: "body-sm" }),
                     ], { gap: "1" }),
                 ],
             ) },

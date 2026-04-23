@@ -481,6 +481,182 @@ function createGantt<
 // Namespace Export
 // ============================================================================
 
+interface GanttTypesShape {
+    Root: GanttRootType;
+    Row: GanttRowType;
+    Event: GanttEventType;
+    Task: GanttTaskType;
+    Milestone: GanttMilestoneType;
+    Style: GanttStyleType;
+    Column: TableColumnType;
+    Cell: typeof TableCellType;
+    TaskClickEvent: GanttTaskClickEventType;
+    TaskDragEvent: GanttTaskDragEventType;
+    TaskProgressChangeEvent: GanttTaskProgressChangeEventType;
+    TaskDurationChangeEvent: GanttTaskDurationChangeEventType;
+    MilestoneClickEvent: GanttMilestoneClickEventType;
+    MilestoneDragEvent: GanttMilestoneDragEventType;
+}
+
+const GanttTypes: GanttTypesShape = {
+    /**
+     * Type for Gantt component data.
+     *
+     * @remarks
+     * Gantt displays rows with time-based events (tasks and milestones).
+     * The time range is derived from the events' domain.
+     *
+     * @property rows - Array of Gantt rows
+     * @property columns - Array of column definitions (same as Table)
+     * @property style - Optional styling configuration
+     */
+    Root: GanttRootType,
+    /**
+     * East type for a Gantt row.
+     *
+     * @remarks
+     * Each row has table cells (displayed on the left) and events (displayed on the right as a timeline).
+     *
+     * @property cells - Dict of column key to cell content (same as Table)
+     * @property events - Array of events (Task or Milestone variants)
+     */
+    Row: GanttRowType,
+    /**
+     * Gantt event variant type.
+     *
+     * @remarks
+     * Events can be either tasks (with duration) or milestones (single point).
+     *
+     * @property Task - A task spanning from start to end date
+     * @property Milestone - A milestone at a specific date
+     */
+    Event: GanttEventType,
+    /**
+     * Task event data for Gantt charts.
+     *
+     * @remarks
+     * Represents a task bar spanning from start to end date.
+     *
+     * @property start - Start date/time of the task
+     * @property end - End date/time of the task
+     * @property label - Optional label to display on the task bar
+     * @property progress - Optional progress percentage (0-100)
+     * @property colorPalette - Optional color scheme for the task bar
+     */
+    Task: GanttTaskType,
+    /**
+     * Milestone event data for Gantt charts.
+     *
+     * @remarks
+     * Represents a single point in time milestone.
+     *
+     * @property date - The date/time of the milestone
+     * @property label - Optional label to display near the milestone
+     * @property colorPalette - Optional color scheme for the milestone marker
+     */
+    Milestone: GanttMilestoneType,
+    /**
+     * Style type for the Gantt component.
+     *
+     * @remarks
+     * All properties are optional and wrapped in {@link OptionType}.
+     * Reuses table styling properties where applicable.
+     *
+     * @property variant - Table variant (line or outline)
+     * @property size - Table size (sm, md, lg)
+     * @property striped - Whether to show zebra stripes on rows
+     * @property interactive - Whether to highlight rows on hover
+     * @property stickyHeader - Whether the header sticks when scrolling
+     * @property showColumnBorder - Whether to show borders between columns
+     * @property colorPalette - Default color scheme for events
+     * @property showToday - Whether to show a today marker line
+     */
+    Style: GanttStyleType,
+    /**
+     * East type for a table column definition.
+     *
+     * @remarks
+     * Defines the header text and key for a column.
+     *
+     * @property key - The column key (field name)
+     * @property type - The column value type
+     * @property header - Optional header text for the column
+     */
+    Column: TableColumnType,
+    /**
+     * East type for a table cell.
+     *
+     * @remarks
+     * Defines the type for a table cell.
+     *
+     * @property value - The cell value as a literal
+     * @property content - Optional UI component content for the cell
+     */
+    Cell: TableCellType,
+    /**
+     * Event data for task click events.
+     *
+     * @property rowIndex - Row index (0-based)
+     * @property taskIndex - Task index within the row (0-based)
+     * @property taskStart - Start date/time of the task
+     * @property taskEnd - End date/time of the task
+     */
+    TaskClickEvent: GanttTaskClickEventType,
+    /**
+     * Event data for task drag/resize events.
+     *
+     * @property rowIndex - Row index (0-based)
+     * @property taskIndex - Task index within the row (0-based)
+     * @property previousStart - Previous start date/time
+     * @property previousEnd - Previous end date/time
+     * @property newStart - New start date/time
+     * @property newEnd - New end date/time
+     */
+    TaskDragEvent: GanttTaskDragEventType,
+    /**
+     * Event data for task progress change events.
+     *
+     * @property rowIndex - Row index (0-based)
+     * @property taskIndex - Task index within the row (0-based)
+     * @property previousProgress - Previous progress value (0-100)
+     * @property newProgress - New progress value (0-100)
+     */
+    TaskProgressChangeEvent: GanttTaskProgressChangeEventType,
+    /**
+     * Event data for task duration change events.
+     *
+     * @property rowIndex - Row index (0-based)
+     * @property taskIndex - Task index within the row (0-based)
+     * @property previousEnd - Previous end date/time
+     * @property newEnd - New end date/time
+     */
+    TaskDurationChangeEvent: GanttTaskDurationChangeEventType,
+    /**
+     * Event data for milestone click events.
+     *
+     * @property rowIndex - Row index (0-based)
+     * @property milestoneIndex - Milestone index within the row (0-based)
+     * @property milestoneDate - Date/time of the milestone
+     */
+    MilestoneClickEvent: GanttMilestoneClickEventType,
+    /**
+     * Event data for milestone drag events.
+     *
+     * @property rowIndex - Row index (0-based)
+     * @property milestoneIndex - Milestone index within the row (0-based)
+     * @property previousDate - Previous date/time of the milestone
+     * @property newDate - New date/time of the milestone
+     */
+    MilestoneDragEvent: GanttMilestoneDragEventType,
+};
+
+interface GanttNamespace {
+    Root: typeof createGantt;
+    Task: typeof createTask;
+    Milestone: typeof createMilestone;
+    Types: typeof GanttTypes;
+}
+
 /**
  * Gantt namespace for creating Gantt chart components.
  *
@@ -489,7 +665,7 @@ function createGantt<
  * Each row has table columns on the left and a timeline with events on the right.
  * The API follows the Table pattern for column configuration.
  */
-export const Gantt = {
+const GanttImpl: GanttNamespace = {
     /**
      * Creates a Gantt component following the Table pattern.
      *
@@ -584,155 +760,7 @@ export const Gantt = {
      * ```
      */
     Milestone: createMilestone,
-    Types: {
-        /**
-         * Type for Gantt component data.
-         *
-         * @remarks
-         * Gantt displays rows with time-based events (tasks and milestones).
-         * The time range is derived from the events' domain.
-         *
-         * @property rows - Array of Gantt rows
-         * @property columns - Array of column definitions (same as Table)
-         * @property style - Optional styling configuration
-         */
-        Root: GanttRootType,
-        /**
-         * East type for a Gantt row.
-         *
-         * @remarks
-         * Each row has table cells (displayed on the left) and events (displayed on the right as a timeline).
-         *
-         * @property cells - Dict of column key to cell content (same as Table)
-         * @property events - Array of events (Task or Milestone variants)
-         */
-        Row: GanttRowType,
-        /**
-         * Gantt event variant type.
-         *
-         * @remarks
-         * Events can be either tasks (with duration) or milestones (single point).
-         *
-         * @property Task - A task spanning from start to end date
-         * @property Milestone - A milestone at a specific date
-         */
-        Event: GanttEventType,
-        /**
-         * Task event data for Gantt charts.
-         *
-         * @remarks
-         * Represents a task bar spanning from start to end date.
-         *
-         * @property start - Start date/time of the task
-         * @property end - End date/time of the task
-         * @property label - Optional label to display on the task bar
-         * @property progress - Optional progress percentage (0-100)
-         * @property colorPalette - Optional color scheme for the task bar
-         */
-        Task: GanttTaskType,
-        /**
-         * Milestone event data for Gantt charts.
-         *
-         * @remarks
-         * Represents a single point in time milestone.
-         *
-         * @property date - The date/time of the milestone
-         * @property label - Optional label to display near the milestone
-         * @property colorPalette - Optional color scheme for the milestone marker
-         */
-        Milestone: GanttMilestoneType,
-        /**
-         * Style type for the Gantt component.
-         *
-         * @remarks
-         * All properties are optional and wrapped in {@link OptionType}.
-         * Reuses table styling properties where applicable.
-         *
-         * @property variant - Table variant (line or outline)
-         * @property size - Table size (sm, md, lg)
-         * @property striped - Whether to show zebra stripes on rows
-         * @property interactive - Whether to highlight rows on hover
-         * @property stickyHeader - Whether the header sticks when scrolling
-         * @property showColumnBorder - Whether to show borders between columns
-         * @property colorPalette - Default color scheme for events
-         * @property showToday - Whether to show a today marker line
-         */
-        Style: GanttStyleType,
-        /**
-         * East type for a table column definition.
-         *
-         * @remarks
-         * Defines the header text and key for a column.
-         *
-         * @property key - The column key (field name)
-         * @property type - The column value type
-         * @property header - Optional header text for the column
-         */
-        Column: TableColumnType,
-        /**
-         * East type for a table cell.
-         *
-         * @remarks
-         * Defines the type for a table cell.
-         *
-         * @property value - The cell value as a literal
-         * @property content - Optional UI component content for the cell
-         */
-        Cell: TableCellType,
-        /**
-         * Event data for task click events.
-         *
-         * @property rowIndex - Row index (0-based)
-         * @property taskIndex - Task index within the row (0-based)
-         * @property taskStart - Start date/time of the task
-         * @property taskEnd - End date/time of the task
-         */
-        TaskClickEvent: GanttTaskClickEventType,
-        /**
-         * Event data for task drag/resize events.
-         *
-         * @property rowIndex - Row index (0-based)
-         * @property taskIndex - Task index within the row (0-based)
-         * @property previousStart - Previous start date/time
-         * @property previousEnd - Previous end date/time
-         * @property newStart - New start date/time
-         * @property newEnd - New end date/time
-         */
-        TaskDragEvent: GanttTaskDragEventType,
-        /**
-         * Event data for task progress change events.
-         *
-         * @property rowIndex - Row index (0-based)
-         * @property taskIndex - Task index within the row (0-based)
-         * @property previousProgress - Previous progress value (0-100)
-         * @property newProgress - New progress value (0-100)
-         */
-        TaskProgressChangeEvent: GanttTaskProgressChangeEventType,
-        /**
-         * Event data for task duration change events.
-         *
-         * @property rowIndex - Row index (0-based)
-         * @property taskIndex - Task index within the row (0-based)
-         * @property previousEnd - Previous end date/time
-         * @property newEnd - New end date/time
-         */
-        TaskDurationChangeEvent: GanttTaskDurationChangeEventType,
-        /**
-         * Event data for milestone click events.
-         *
-         * @property rowIndex - Row index (0-based)
-         * @property milestoneIndex - Milestone index within the row (0-based)
-         * @property milestoneDate - Date/time of the milestone
-         */
-        MilestoneClickEvent: GanttMilestoneClickEventType,
-        /**
-         * Event data for milestone drag events.
-         *
-         * @property rowIndex - Row index (0-based)
-         * @property milestoneIndex - Milestone index within the row (0-based)
-         * @property previousDate - Previous date/time of the milestone
-         * @property newDate - New date/time of the milestone
-         */
-        MilestoneDragEvent: GanttMilestoneDragEventType,
-    },
-} as const;
+    Types: GanttTypes,
+};
+
+export const Gantt: typeof GanttImpl = GanttImpl;

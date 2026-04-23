@@ -42,6 +42,20 @@ describeEast("Button", (test) => {
 
 Each spec file should have a companion `*.examples.ts` file (e.g. `button.spec.ts` → `button.examples.ts`). Examples serve two purposes: they are tested as part of the test suite, and they are extracted into a search index for AI agent context.
 
+### Examples ↔ TypeDoc `@example` parity
+
+Every `@example` block shown in TypeDoc (factory functions like `Button.Root`, and the `Xxx.Root` property JSDoc inside the exported namespace object) MUST have a matching entry in the corresponding `test/<cat>/<comp>.examples.ts` file. This is **the same rule codified in [`../STANDARDS.md`](../STANDARDS.md#typedoc-documentation-standards)** — repeated here so it is visible from the test suite perspective:
+
+- If you add an `@example` in `src/.../index.ts`, you MUST add the same construction as an `example()` export in `test/.../.examples.ts` (so it compiles + runs as part of the suite and the example-search index).
+- If you rename / remove / migrate the API and that changes the `@example` body, update both places in lockstep. The test suite is the enforcement mechanism — a stale `@example` that would no longer type-check is a bug.
+- The TypeDoc-required level of coverage on public exports is load-bearing:
+    - Factory functions (`Xxx.Root`) carry `@param` / `@returns` / `@remarks` / `@example` (the `@example` shows inline with `East.function(...)`, not a `@see` reference).
+    - East types (`XxxType`, `XxxStyleType`, `XxxVariantType`) carry `@property` tags for every field / variant tag — TypeDoc cannot see inline `StructType({ ... })` comments.
+    - TS interfaces (`XxxStyle`, `XxxOptions`) carry per-field JSDoc for editor hover at call-sites.
+    - The `Xxx.Types.*` properties on the namespace object carry their own JSDoc block (TypeDoc treats them as distinct exports).
+
+When adding a new example to the `.examples.ts` file, always check whether it should also appear in the corresponding `Xxx.Root` JSDoc so the TypeDoc output is not thinner than what the test suite covers.
+
 ### Writing UI examples
 
 **Imports**: Use `@elaraai/east` for East primitives and `../../src/index.js` for UI components:

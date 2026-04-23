@@ -24,28 +24,36 @@ export const highlightMultipleTerms = example({
 });
 
 export const highlightCustomColor = example({
-    keywords: ["Highlight", "Root", "color", "yellow"],
+    keywords: ["Highlight", "Root", "background", "yellow", "fill"],
     description: "Yellow highlight background",
     fn: East.function([], UIComponentType, (_$) => {
-        return Highlight.Root("Important information here", ["Important"], { color: "yellow.200" });
+        return Highlight.Root("Important information here", ["Important"], { background: "yellow.200" });
     }),
     inputs: [],
 });
 
 export const highlightGreen = example({
-    keywords: ["Highlight", "Root", "color", "green", "success"],
+    keywords: ["Highlight", "Root", "background", "green", "success"],
     description: "Success-themed highlight",
     fn: East.function([], UIComponentType, (_$) => {
-        return Highlight.Root("Your changes have been saved successfully", ["saved", "successfully"], { color: "green.100" });
+        return Highlight.Root(
+            "Your changes have been saved successfully",
+            ["saved", "successfully"],
+            { background: "green.100", color: "green.900" },
+        );
     }),
     inputs: [],
 });
 
 export const highlightBlue = example({
-    keywords: ["Highlight", "Root", "color", "blue", "info"],
+    keywords: ["Highlight", "Root", "background", "blue", "info"],
     description: "Info-themed highlight",
     fn: East.function([], UIComponentType, (_$) => {
-        return Highlight.Root("Click the submit button to proceed", ["submit", "button"], { color: "blue.100" });
+        return Highlight.Root(
+            "Click the submit button to proceed",
+            ["submit", "button"],
+            { background: "blue.100", color: "blue.900" },
+        );
     }),
     inputs: [],
 });
@@ -57,7 +65,7 @@ export const highlightSearchResult = example({
         return Highlight.Root(
             "TypeScript is a typed superset of JavaScript that compiles to plain JavaScript",
             ["TypeScript", "JavaScript"],
-            { color: "yellow.200" }
+            { background: "yellow.200" }
         );
     }),
     inputs: [],
@@ -87,7 +95,7 @@ export const highlightInteractive = example({
                 Highlight.Root(
                     "The quick brown fox jumps over the lazy dog",
                     [term],
-                    { color: "yellow.300" },
+                    { background: "yellow.300" },
                 ),
             ], { gap: "3", align: "stretch" });
         }));

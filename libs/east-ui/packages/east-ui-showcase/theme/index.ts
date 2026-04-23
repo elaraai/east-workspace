@@ -1,6 +1,43 @@
 import { createSystem, defaultConfig } from "@chakra-ui/react"
 
 export const system = createSystem(defaultConfig, {
+  globalCss: {
+    ":root": {
+      "--motion-duration-fast": "120ms",
+      "--motion-duration-normal": "240ms",
+      "--motion-duration-slow": "1400ms",
+      "--motion-easing-standard": "cubic-bezier(0.2, 0, 0, 1)",
+      "--motion-easing-emphasized": "cubic-bezier(0.3, 0, 0, 1)",
+      "--motion-easing-decelerated": "cubic-bezier(0, 0, 0, 1)",
+    },
+    "@keyframes east-pulse": {
+      "0%, 100%": { opacity: 1 },
+      "50%": { opacity: 0.35 },
+    },
+    "@keyframes east-spin": {
+      "0%": { transform: "rotate(0deg)" },
+      "100%": { transform: "rotate(360deg)" },
+    },
+    "@keyframes east-bounce": {
+      "0%, 100%": { transform: "translateY(0)" },
+      "50%": { transform: "translateY(-25%)" },
+    },
+    "@keyframes east-fade-in": {
+      "0%": { opacity: 0 },
+      "100%": { opacity: 1 },
+    },
+    "@keyframes east-shimmer": {
+      "0%": { backgroundPosition: "-200% 0" },
+      "100%": { backgroundPosition: "200% 0" },
+    },
+    "@media (prefers-reduced-motion: reduce)": {
+      "*, *::before, *::after": {
+        animationDuration: "0.001ms !important",
+        animationIterationCount: "1 !important",
+        transitionDuration: "0.001ms !important",
+      },
+    },
+  },
   theme: {
     tokens: {
       fonts: {
