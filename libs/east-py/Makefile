@@ -154,6 +154,11 @@ clean:
 	find packages -name "*.egg-info" -type d -exec rm -rf {} + 2>/dev/null || true
 	find packages -name ".pytest_cache" -type d -exec rm -rf {} + 2>/dev/null || true
 	find packages -name ".mypy_cache" -type d -exec rm -rf {} + 2>/dev/null || true
+	# In-tree Cython artefacts alongside .pyx sources. Compiled .so files are
+	# always safe to remove; .c files are only deleted when a matching .pyx
+	# exists in the same directory so hand-written C is never touched.
+	find packages -name "*.so" -delete 2>/dev/null || true
+	find packages -name "*.pyx" -print0 2>/dev/null | xargs -0 -I{} sh -c 'rm -f "$${1%.pyx}.c"' _ {} 2>/dev/null || true
 
 # ── Help ─────────────────────────────────────────────────────────────
 
