@@ -12,3 +12,4 @@ export { MetricChip } from "./metric-chip/index.js";
 export { EditableChip } from "./editable-chip/index.js";
 export { Kbd } from "./kbd/index.js";
 export { Meter } from "./meter/index.js";
+export { SegmentedMeter } from "./segmented-meter/index.js";

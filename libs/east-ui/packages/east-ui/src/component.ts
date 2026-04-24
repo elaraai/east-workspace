@@ -94,6 +94,7 @@ import { MetricChipToneType, MetricChipStyleType } from "./display/metric-chip/t
 import { EditableChipStyleType } from "./display/editable-chip/types.js";
 import { KbdType } from "./display/kbd/types.js";
 import { MeterStyleType } from "./display/meter/types.js";
+import { SegmentedMeterSegmentType, SegmentedMeterStyleType } from "./display/segmented-meter/types.js";
 import { StatusTokenType } from "./style/interaction.js";
 import { CardStyleType } from "./container/card/types.js";
 import { StateValueType } from "./contracts/states.js";
@@ -464,6 +465,12 @@ export const UIComponentType = RecursiveType(node => VariantType({
         label: OptionType(node),
         tone: OptionType(StatusTokenType),
         style: OptionType(MeterStyleType),
+    }),
+    SegmentedMeter: StructType({
+        segments: ArrayType(SegmentedMeterSegmentType),
+        caption: OptionType(node),
+        max: OptionType(FloatType),
+        style: OptionType(SegmentedMeterStyleType),
     }),
 
     // Container

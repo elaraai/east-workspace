@@ -60,3 +60,9 @@ export {
     type MeterValue,
     type EastChakraMeterProps,
 } from "./meter/index.js";
+
+export {
+    EastChakraSegmentedMeter,
+    type SegmentedMeterValue,
+    type EastChakraSegmentedMeterProps,
+} from "./segmented-meter/index.js";
