@@ -289,7 +289,8 @@ export function CardTitle(
 ): ExprType<UIComponentType> {
     if (typeof value === "string") {
         return Heading.Root(value, {
-            textStyle: options?.textStyle ?? "heading-sm",
+            textStyle: options?.textStyle ?? "heading-xs",
+            fontWeight: "semibold",
             ...(options?.color !== undefined ? { color: options.color } : {}),
         });
     }
@@ -416,7 +417,7 @@ export function CardHeader(options: CardHeaderOptions): ExprType<UIComponentType
     }
     const left = leftChildren.length === 1
         ? leftChildren[0]!
-        : Stack.VStack(leftChildren, { gap: "1", align: "stretch" });
+        : Stack.VStack(leftChildren, { gap: "0.5", align: "stretch" });
 
     if (options.actions !== undefined) {
         return Stack.HStack([left, options.actions], {

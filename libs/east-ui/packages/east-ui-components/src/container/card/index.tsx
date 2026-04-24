@@ -170,19 +170,30 @@ export const EastChakraCard = memo(function EastChakraCard({ value, storageKey }
     const hasFallbackBody = stateTag === "loading" || stateTag === "empty"
         || stateTag === "error" || stateTag === "permission-denied";
 
+    // Modern-enterprise defaults: always a subtle 1px border, subtle xs shadow
+    // by default when no explicit elevation, snug header/body padding, hairline
+    // separator between header and body.
+    const defaultShadow = elevationShadow ?? "0 1px 2px rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.06)";
+    const defaultBorderColor = borderColor ?? "border.muted";
+
     return (
         <ChakraCard.Root
             {...props}
+            borderColor={defaultBorderColor}
+            borderWidth="1px"
             {...(background !== undefined ? { bg: background } : {})}
-            {...(borderColor !== undefined ? { borderColor } : {})}
-            {...(elevationShadow !== undefined ? { boxShadow: elevationShadow } : {})}
-            {...(accentColor !== undefined ? { borderLeftWidth: "4px", borderLeftColor: accentColor } : {})}
+            boxShadow={defaultShadow}
+            {...(accentColor !== undefined ? { borderLeftWidth: "3px", borderLeftColor: accentColor } : {})}
             aria-disabled={isDisabled || undefined}
             opacity={isDisabled ? 0.5 : undefined}
             position={isStale ? "relative" : undefined}
         >
             {header && (
                 <ChakraCard.Header
+                    py="2.5"
+                    px="4"
+                    borderBottomWidth="1px"
+                    borderBottomColor={defaultBorderColor}
                     {...(headerBackground !== undefined ? { bg: headerBackground } : {})}
                 >
                     <EastChakraComponent value={header} storageKey={`${storageKey}.header`} />
@@ -198,7 +209,7 @@ export const EastChakraCard = memo(function EastChakraCard({ value, storageKey }
                     </ChakraAlert.Content>
                 </ChakraAlert.Root>
             )}
-            <ChakraCard.Body opacity={isStale ? 0.6 : undefined}>
+            <ChakraCard.Body py="3" px="4" opacity={isStale ? 0.6 : undefined}>
                 {hasFallbackBody ? (
                     renderStateFallback(stateTag)
                 ) : (
@@ -209,6 +220,10 @@ export const EastChakraCard = memo(function EastChakraCard({ value, storageKey }
             </ChakraCard.Body>
             {footer && (
                 <ChakraCard.Footer
+                    py="3"
+                    px="4"
+                    borderTopWidth="1px"
+                    borderTopColor={defaultBorderColor}
                     {...(footerBackground !== undefined ? { bg: footerBackground } : {})}
                 >
                     <EastChakraComponent value={footer} storageKey={`${storageKey}.footer`} />
