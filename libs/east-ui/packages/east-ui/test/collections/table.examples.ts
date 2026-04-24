@@ -2,8 +2,8 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, NullType, StringType, example } from "@elaraai/east";
-import { Badge, Box, Reactive, Stack, State, Table, Tag, Text, UIComponentType } from "@elaraai/east-ui";
+import { East, ArrayType, IntegerType, LiteralValueType, NullType, StringType, variant, example } from "@elaraai/east";
+import { Badge, Box, Reactive, Stack, State, Style, Table, Tag, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const tableBasic = example({
     keywords: ["Table", "Root", "basic", "header"],
@@ -422,6 +422,221 @@ export const tableFrozenColumns = example({
                 height: "400px",
             }
         )], { width: "600px", overflow: "hidden" });
+    }),
+    inputs: [],
+});
+
+// ============================================================================
+// Plan 1.10 — new main-struct fields (rowStatus / pagination / selection /
+// expandedContent / columnGroups / footer / density) + new visual colour slots
+// ============================================================================
+
+export const tableRowStatus = example({
+    keywords: ["Table", "Root", "rowStatus", "StatusToken", "tint", "theme-agnostic"],
+    description: "Row-status tint — `rowStatus: (rowIndex) => StatusToken` paints each row with a semantic background tint",
+    fn: East.function([], UIComponentType, ($) => {
+        const rowStatus = $.const(East.function([IntegerType], Style.Types.StatusToken, ($, rowIndex) => {
+            const bucket = $.let(rowIndex.modulo(3n), IntegerType);
+            return bucket.equals(0n).ifElse(
+                $ => Style.StatusToken("success"),
+                $ => bucket.equals(1n).ifElse(
+                    $ => Style.StatusToken("warning"),
+                    $ => Style.StatusToken("danger"),
+                ),
+            );
+        }));
+
+        return Table.Root(
+            East.Array.range(0n, 9n).map((_$, i) => ({
+                name: East.str`Row ${i}`,
+                score: i.multiply(11n),
+            })),
+            { name: { header: "Name" }, score: { header: "Score" } },
+            { rowStatus, variant: "line" },
+        );
+    }),
+    inputs: [],
+});
+
+export const tableWithFooter = example({
+    keywords: ["Table", "Root", "footer", "totals", "colSpan", "aggregate"],
+    description: "Footer row with a totals aggregation, using colSpan to merge the label cell across columns",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Table.Root(
+            [
+                { product: "Widget A", qty: 5n, total: 125.0 },
+                { product: "Widget B", qty: 12n, total: 360.0 },
+                { product: "Widget C", qty: 3n, total: 75.0 },
+            ],
+            {
+                product: { header: "Product" },
+                qty: { header: "Qty" },
+                total: { header: "Total ($)" },
+            },
+            {
+                variant: "line",
+                footer: {
+                    product: { content: Text.Root("Total", { fontWeight: "bold" }), colSpan: 2n },
+                    qty: { content: Text.Root("20") },
+                    total: { content: Text.Root("$560.00", { fontWeight: "bold" }) },
+                },
+                footerBackground: "gray.50",
+            },
+        );
+    }),
+    inputs: [],
+});
+
+export const tableColumnGroups = example({
+    keywords: ["Table", "Root", "columnGroups", "grouped header", "category"],
+    description: "Two-level header — `columnGroups` renders a grouping row above the column headers",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Table.Root(
+            [
+                { sku: "SKU-001", price: 19.99, stock: 120n, reordered: 50n, delivered: 50n },
+                { sku: "SKU-002", price: 29.99, stock: 45n, reordered: 25n, delivered: 0n },
+            ],
+            {
+                sku: { header: "SKU" },
+                price: { header: "Price" },
+                stock: { header: "On hand" },
+                reordered: { header: "Reordered" },
+                delivered: { header: "Delivered" },
+            },
+            {
+                variant: "outline",
+                columnGroups: [
+                    { label: "Identity", columnKeys: ["sku"] },
+                    { label: "Pricing", columnKeys: ["price"] },
+                    { label: "Inventory", columnKeys: ["stock", "reordered", "delivered"] },
+                ],
+            },
+        );
+    }),
+    inputs: [],
+});
+
+export const tableReactivePagination = example({
+    keywords: ["Table", "Root", "pagination", "page", "Reactive", "State"],
+    description: "Embedded pagination — Table holds `pagination: { pageSize, page, onPageChange }` on its main struct; the renderer draws the Pagination primitive beneath",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const pageBind = $.let(State.bind([IntegerType], "table_page", 0n));
+            const page = $.let(pageBind.read(), IntegerType);
+            const onPageChange = $.const(East.function([IntegerType], NullType, ($, next) => {
+                $(pageBind.write(next));
+            }));
+            return Table.Root(
+                East.Array.range(0n, 120n).map((_$, i) => ({
+                    id: East.str`#${i}`,
+                    name: East.str`Row ${i}`,
+                    value: i.multiply(3n),
+                })),
+                { id: { header: "ID" }, name: { header: "Name" }, value: { header: "Value" } },
+                {
+                    variant: "line",
+                    pagination: { pageSize: 20n, page, onPageChange },
+                },
+            );
+        }));
+    }),
+    inputs: [],
+});
+
+export const tableReactiveSelection = example({
+    keywords: ["Table", "Root", "selection", "single", "Reactive", "State"],
+    description: "Single-row selection — `selection: { mode: single, selected, onChange }` tracks which rows are selected and emits changes to a State binding",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const selectedBind = $.let(State.bind([ArrayType(IntegerType)], "table_selected_indices", []));
+            const selected = $.let(selectedBind.read(), ArrayType(IntegerType));
+            const onChange = $.const(East.function([ArrayType(IntegerType)], NullType, ($, next) => {
+                $(selectedBind.write(next));
+            }));
+            return Table.Root(
+                [
+                    { name: "Alice", role: "Admin" },
+                    { name: "Bob", role: "User" },
+                    { name: "Charlie", role: "User" },
+                ],
+                { name: { header: "Name" }, role: { header: "Role" } },
+                {
+                    variant: "line",
+                    selection: { mode: "single", selected, onChange },
+                    selectedBackground: "blue.50",
+                    selectedBorderColor: "blue.200",
+                },
+            );
+        }));
+    }),
+    inputs: [],
+});
+
+export const tableExpandedContent = example({
+    keywords: ["Table", "Root", "expandedContent", "expandable", "detail row"],
+    description: "Expandable rows — `expandedContent: (rowIndex) => UIComponent` renders a detail panel beneath each row when expanded",
+    fn: East.function([], UIComponentType, (_$) => {
+        const rows = [
+            { name: "Alice", email: "alice@example.com", role: "Admin" },
+            { name: "Bob", email: "bob@example.com", role: "User" },
+        ];
+        const rowsExpr = East.value(rows);
+        return Table.Root(
+            rows,
+            { name: { header: "Name" }, role: { header: "Role" } },
+            {
+                variant: "line",
+                expandedContent: East.function([IntegerType], UIComponentType, ($, rowIndex) => {
+                    const row = $.let(rowsExpr.get(rowIndex));
+                    return Box.Root([
+                        Stack.VStack([
+                            Text.Root("Email", { fontWeight: "bold" }),
+                            Text.Root(row.email),
+                        ], { gap: "1" }),
+                    ], { padding: "4", background: "gray.50" });
+                }),
+            },
+        );
+    }),
+    inputs: [],
+});
+
+export const tableDensityCompact = example({
+    keywords: ["Table", "Root", "density", "compact", "minimal"],
+    description: "Compact density — the `density: 'compact'` token tightens row height for dense enterprise tables",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Table.Root(
+            East.Array.range(0n, 6n).map((_$, i) => ({
+                name: East.str`Row ${i}`,
+                status: "Active",
+            })),
+            { name: { header: "Name" }, status: { header: "Status" } },
+            { variant: "line", density: "compact" },
+        );
+    }),
+    inputs: [],
+});
+
+export const tableColourOverrides = example({
+    keywords: ["Table", "Root", "colour", "override", "headerBackground", "hoverBackground"],
+    description: "Explicit colour overrides for header / zebra / hover / footer — theme escape hatches for enterprise brand alignment",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Table.Root(
+            [
+                { product: "Widget A", qty: 5n },
+                { product: "Widget B", qty: 12n },
+            ],
+            { product: { header: "Product" }, qty: { header: "Qty" } },
+            {
+                variant: "line",
+                striped: true,
+                headerBackground: "blue.600",
+                headerColor: "white",
+                borderColor: "blue.200",
+                zebraBackground: "blue.50",
+                hoverBackground: "blue.100",
+            },
+        );
     }),
     inputs: [],
 });

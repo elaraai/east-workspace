@@ -106,3 +106,22 @@ export const dataListRichValues = example({
     }),
     inputs: [],
 });
+
+export const dataListColourOverrides = example({
+    keywords: ["DataList", "Root", "colour", "override", "background", "labelColor", "valueColor"],
+    description: "Colour escape hatches — explicit background / border / label / value colours for brand alignment",
+    fn: East.function([], UIComponentType, (_$) => {
+        return DataList.Root([
+            { label: "Username", value: Text.Root("alice_smith") },
+            { label: "Email", value: Text.Root("alice@example.com") },
+            { label: "Status", value: Text.Root("Active") },
+        ], {
+            orientation: "horizontal",
+            background: "blue.50",
+            borderColor: "blue.200",
+            labelColor: "blue.700",
+            valueColor: "blue.900",
+        });
+    }),
+    inputs: [],
+});

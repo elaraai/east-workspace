@@ -18,6 +18,7 @@ describe("TreeView", (test) => {
         treeViewInteractiveSelection: ex.treeViewInteractiveSelection,
         treeViewInteractiveExpand: ex.treeViewInteractiveExpand,
         treeViewOnFocusChange: ex.treeViewOnFocusChange,
+        treeViewColourOverrides: ex.treeViewColourOverrides,
     });
 
     // =========================================================================

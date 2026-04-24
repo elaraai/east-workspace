@@ -22,6 +22,9 @@ describeEast("Gantt", (test) => {
         ganttReactiveDrag: ex.ganttReactiveDrag,
         ganttCustomHeight: ex.ganttCustomHeight,
         ganttFrozenColumns: ex.ganttFrozenColumns,
+        ganttRowStatus: ex.ganttRowStatus,
+        ganttPerEventColours: ex.ganttPerEventColours,
+        ganttChromeColours: ex.ganttChromeColours,
     });
 
     // =========================================================================

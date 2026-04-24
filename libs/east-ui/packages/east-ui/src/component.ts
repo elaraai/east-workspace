@@ -594,14 +594,12 @@ export const UIComponentType = RecursiveType(node => VariantType({
         frozen: ArrayType(StringType),
         columnGroups: OptionType(ArrayType(TableColumnGroupType)),
         footer: OptionType(DictType(StringType, StructType({
-            value: LiteralValueType,
-            content: OptionType(node),
+            content: node,
             colSpan: OptionType(IntegerType),
             rowSpan: OptionType(IntegerType),
         }))),
         footerRows: OptionType(ArrayType(DictType(StringType, StructType({
-            value: LiteralValueType,
-            content: OptionType(node),
+            content: node,
             colSpan: OptionType(IntegerType),
             rowSpan: OptionType(IntegerType),
         })))),

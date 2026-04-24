@@ -22,6 +22,14 @@ describeEast("Table", (test) => {
         tableInteractiveCallbacks: ex.tableInteractiveCallbacks,
         tableCustomHeight: ex.tableCustomHeight,
         tableFrozenColumns: ex.tableFrozenColumns,
+        tableRowStatus: ex.tableRowStatus,
+        tableWithFooter: ex.tableWithFooter,
+        tableColumnGroups: ex.tableColumnGroups,
+        tableReactivePagination: ex.tableReactivePagination,
+        tableReactiveSelection: ex.tableReactiveSelection,
+        tableExpandedContent: ex.tableExpandedContent,
+        tableDensityCompact: ex.tableDensityCompact,
+        tableColourOverrides: ex.tableColourOverrides,
     });
 
     // =========================================================================

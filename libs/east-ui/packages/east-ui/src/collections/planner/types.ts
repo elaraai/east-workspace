@@ -28,6 +28,7 @@ import {
     SizeType,
     type SizeLiteral,
 } from "../../style.js";
+import { StatusTokenType } from "../../style/interaction.js";
 
 import {
     IconSizeType,
@@ -584,4 +585,14 @@ export interface PlannerStyle<ColumnKeys extends string = string> {
     onEventEdit?: SubtypeExprOrValue<FunctionType<[EventClickEventType], NullType>>;
     /** Callback triggered when deleting an event (via context menu) */
     onEventDelete?: SubtypeExprOrValue<FunctionType<[EventDeleteEventType], NullType>>;
+    /** Explicit colour for the timeline grid lines. */
+    gridColor?: SubtypeExprOrValue<StringType>;
+    /** Explicit colour for the now-marker line. */
+    nowMarkerColor?: SubtypeExprOrValue<StringType>;
+    /** Explicit background for the header row. */
+    headerBackground?: SubtypeExprOrValue<StringType>;
+    /** Explicit text colour for the header row. */
+    headerColor?: SubtypeExprOrValue<StringType>;
+    /** Row-status callback: `(rowIndex) => StatusToken`; renderer tints the row. */
+    rowStatus?: SubtypeExprOrValue<FunctionType<[IntegerType], StatusTokenType>>;
 }

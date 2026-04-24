@@ -52,6 +52,7 @@ import {
     TablePaginationType,
     TableSelectionType,
     TableSelectionModeType,
+    type TableSelectionModeLiteral,
 } from "./types.js";
 import { UIComponentType } from "../../component.js";
 import { Text } from "../../typography/index.js";
@@ -66,21 +67,22 @@ import { StatusTokenType } from "../../style/interaction.js";
  * East StructType for a footer cell.
  *
  * @remarks
- * Defined in `index.ts` (not `types.ts`) because it references
- * `UIComponentType` for its `content` field, and `types.ts` must stay
- * free of component-recursion to avoid a circular import with
- * `component.ts`. The inline `Table` variant in `component.ts` defines
- * the same shape using `node`; values built against this type are
- * structurally compatible.
+ * Footer cells are display-only — they don't participate in sorting
+ * or filtering, so they don't need the `value: LiteralValueType`
+ * field that body cells carry. Callers render totals / labels via
+ * `content` (a full UIComponent — `Text.Root("$560.00", {
+ * fontWeight: "bold" })` for a typical totals row).
  *
- * @property value - Primitive cell value (e.g. a total)
- * @property content - Optional rich content (UIComponent)
- * @property colSpan - Optional column span (1-based)
+ * Defined in `index.ts` (not `types.ts`) because it references
+ * `UIComponentType`, which would create a circular import from
+ * `types.ts`.
+ *
+ * @property content - Rich cell content (UIComponent)
+ * @property colSpan - Optional column span (1-based) for merging cells
  * @property rowSpan - Optional row span (1-based)
  */
 export const TableFooterCellType = StructType({
-    value: LiteralValueType,
-    content: OptionType(UIComponentType),
+    content: UIComponentType,
     colSpan: OptionType(IntegerType),
     rowSpan: OptionType(IntegerType),
 });
@@ -90,16 +92,13 @@ export type TableFooterCellType = typeof TableFooterCellType;
 /**
  * TypeScript input interface for a footer cell.
  *
- * @property value - Primitive cell value
- * @property content - Optional rich content (UIComponent)
+ * @property content - Rich cell content (UIComponent)
  * @property colSpan - Optional column span (1-based)
  * @property rowSpan - Optional row span (1-based)
  */
 export interface TableFooterCellInput {
-    /** Primitive cell value. */
-    value: SubtypeExprOrValue<LiteralValueType>;
-    /** Optional rich content (UIComponent). */
-    content?: SubtypeExprOrValue<UIComponentType>;
+    /** Rich cell content (UIComponent). */
+    content: SubtypeExprOrValue<UIComponentType>;
     /** Optional column span (1-based). */
     colSpan?: SubtypeExprOrValue<IntegerType>;
     /** Optional row span (1-based). */
@@ -115,13 +114,63 @@ export interface TableFooterCellInput {
  * @property footerRows - Multiple footer rows
  * @property expandedContent - `(rowIndex) => UIComponent` — expandable-row detail content
  */
+/**
+ * Plain TS shape for a column-group header row entry — the factory
+ * wraps these into `TableColumnGroupType` values internally.
+ *
+ * @typeParam ColumnKeys - String-literal union of this Table's column keys
+ *
+ * @property label - Heading text for the grouped cell
+ * @property columnKeys - Columns the group spans (must match data fields)
+ */
+export interface TableColumnGroupInput<ColumnKeys extends string = string> {
+    /** Heading text shown in the grouped cell. */
+    label: SubtypeExprOrValue<StringType>;
+    /** Column keys this group spans (type-checked against the row shape). */
+    columnKeys: ColumnKeys[];
+}
+
+/**
+ * Plain TS shape for embedded pagination — the factory wraps this
+ * into `TablePaginationType` internally.
+ *
+ * @property pageSize - Items per page
+ * @property page - Current 0-based page index
+ * @property onPageChange - Callback fired with the new page index
+ */
+export interface TablePaginationInput {
+    pageSize: SubtypeExprOrValue<IntegerType>;
+    page: SubtypeExprOrValue<IntegerType>;
+    onPageChange: SubtypeExprOrValue<FunctionType<[IntegerType], NullType>>;
+}
+
+/**
+ * Plain TS shape for embedded row-selection — the factory wraps this
+ * into `TableSelectionType` internally.
+ *
+ * @property mode - Selection mode (string literal `"single"` / `"multiple"` / `"range"` or East variant expr)
+ * @property selected - Currently-selected row indices
+ * @property onChange - Callback fired with the new selected row indices
+ */
+export interface TableSelectionInput {
+    mode: SubtypeExprOrValue<TableSelectionModeType> | TableSelectionModeLiteral;
+    selected: SubtypeExprOrValue<ArrayType<IntegerType>>;
+    onChange: SubtypeExprOrValue<FunctionType<[ArrayType<IntegerType>], NullType>>;
+}
+
 export interface TableOptions<ColumnKeys extends string = string> extends TableStyle<ColumnKeys> {
-    /** Single footer row. */
-    footer?: Record<string, TableFooterCellInput>;
+    /** Column-group heading row (type-checked `columnKeys`). */
+    columnGroups?: TableColumnGroupInput<ColumnKeys>[];
+    /** Single footer row — keys narrowed to the Table's columns. */
+    footer?: { [K in ColumnKeys]?: TableFooterCellInput };
     /** Multiple footer rows. */
-    footerRows?: Array<Record<string, TableFooterCellInput>>;
+    footerRows?: Array<{ [K in ColumnKeys]?: TableFooterCellInput }>;
     /** Expandable-row detail callback. */
     expandedContent?: SubtypeExprOrValue<FunctionType<[IntegerType], UIComponentType>>;
+    /** Embedded pagination state. */
+    pagination?: TablePaginationInput;
+    /** Embedded row-selection state. */
+    selection?: TableSelectionInput;
 }
 
 // Re-export style types
@@ -594,11 +643,11 @@ export function createTable<
         : undefined;
 
     const footerValue = style?.footer
-        ? buildFooterDict(style.footer)
+        ? buildFooterDict(style.footer as Record<string, TableFooterCellInput>)
         : undefined;
 
     const footerRowsValue = style?.footerRows
-        ? style.footerRows.map(buildFooterDict)
+        ? style.footerRows.map(r => buildFooterDict(r as Record<string, TableFooterCellInput>))
         : undefined;
 
     const expandedContentValue = style?.expandedContent !== undefined
@@ -609,11 +658,39 @@ export function createTable<
         ? East.value(style.rowStatus, FunctionType([IntegerType], StatusTokenType))
         : undefined;
 
+    const columnGroupsValue = style?.columnGroups !== undefined
+        ? East.value(
+            style.columnGroups.map(g => East.value({
+                label: g.label,
+                columnKeys: g.columnKeys as string[],
+            }, TableColumnGroupType)),
+            ArrayType(TableColumnGroupType),
+        )
+        : undefined;
+
+    const paginationValue = style?.pagination !== undefined
+        ? East.value({
+            pageSize: style.pagination.pageSize,
+            page: style.pagination.page,
+            onPageChange: style.pagination.onPageChange,
+        }, TablePaginationType)
+        : undefined;
+
+    const selectionValue = style?.selection !== undefined
+        ? East.value({
+            mode: typeof style.selection.mode === "string"
+                ? East.value(variant(style.selection.mode as TableSelectionModeLiteral, null), TableSelectionModeType)
+                : style.selection.mode,
+            selected: style.selection.selected,
+            onChange: style.selection.onChange,
+        }, TableSelectionType)
+        : undefined;
+
     return East.value(variant("Table", {
         rows: rows_mapped,
         columns: columns_expr,
         frozen: frozen_expr,
-        columnGroups: style?.columnGroups !== undefined ? some(style.columnGroups) : none,
+        columnGroups: columnGroupsValue ? some(columnGroupsValue) : none,
         footer: footerValue ? some(footerValue) : none,
         footerRows: footerRowsValue ? some(footerRowsValue) : none,
         expandedContent: expandedContentValue ? some(expandedContentValue) : none,
@@ -622,8 +699,8 @@ export function createTable<
         virtualization: style?.virtualization !== undefined ? some(style.virtualization) : none,
         density: densityValue ? some(densityValue) : none,
         rowStatus: rowStatusValue ? some(rowStatusValue) : none,
-        pagination: style?.pagination !== undefined ? some(style.pagination) : none,
-        selection: style?.selection !== undefined ? some(style.selection) : none,
+        pagination: paginationValue ? some(paginationValue) : none,
+        selection: selectionValue ? some(selectionValue) : none,
         onCellClick: style?.onCellClick ? some(style.onCellClick) : none,
         onCellDoubleClick: style?.onCellDoubleClick ? some(style.onCellDoubleClick) : none,
         onRowClick: style?.onRowClick ? some(style.onRowClick) : none,
@@ -638,8 +715,7 @@ function buildFooterDict(row: Record<string, TableFooterCellInput>): ExprType<Di
     const entries = new Map<string, ExprType<TableFooterCellType>>();
     for (const [key, cell] of Object.entries(row)) {
         entries.set(key, East.value({
-            value: cell.value,
-            content: cell.content !== undefined ? some(cell.content) : none,
+            content: cell.content,
             colSpan: cell.colSpan !== undefined ? some(cell.colSpan) : none,
             rowSpan: cell.rowSpan !== undefined ? some(cell.rowSpan) : none,
         }, TableFooterCellType));

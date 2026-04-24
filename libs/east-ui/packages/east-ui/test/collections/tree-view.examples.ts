@@ -243,3 +243,28 @@ export const treeViewOnFocusChange = example({
     }),
     inputs: [],
 });
+
+export const treeViewColourOverrides = example({
+    keywords: ["TreeView", "colour", "override", "itemColor", "selectedBackground", "caretColor"],
+    description: "Colour escape hatches — item / hover / selection / caret / connector colour overrides for brand alignment",
+    fn: East.function([], UIComponentType, (_$) => {
+        return TreeView.Root([
+            TreeView.Branch("src", "src", [
+                TreeView.Item("index", "index.ts"),
+                TreeView.Item("utils", "utils.ts"),
+            ]),
+            TreeView.Item("package", "package.json"),
+        ], {
+            variant: "subtle",
+            size: "sm",
+            itemColor: "gray.800",
+            itemHoverBackground: "blue.50",
+            selectedBackground: "blue.100",
+            selectedColor: "blue.900",
+            caretColor: "blue.500",
+            connectorColor: "gray.300",
+            defaultExpandedValue: ["src"],
+        });
+    }),
+    inputs: [],
+});

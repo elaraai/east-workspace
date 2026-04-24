@@ -17,6 +17,7 @@ describeEast("DataList", (test) => {
         dataListLarge: ex.dataListLarge,
         dataListProfile: ex.dataListProfile,
         dataListRichValues: ex.dataListRichValues,
+        dataListColourOverrides: ex.dataListColourOverrides,
     });
 
     // =========================================================================

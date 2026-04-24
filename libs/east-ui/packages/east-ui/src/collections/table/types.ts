@@ -394,14 +394,8 @@ export interface TableStyle<ColumnKeys extends string = string> {
     onRowSelectionChange?: SubtypeExprOrValue<FunctionType<[TableRowSelectionEventType], NullType>>;
     /** Callback triggered when sort column/direction changes */
     onSortChange?: SubtypeExprOrValue<FunctionType<[TableSortEventType], NullType>>;
-    /** Column-group heading rows — array of `{ label, columnKeys }`. */
-    columnGroups?: SubtypeExprOrValue<ArrayType<TableColumnGroupType>>;
     /** `(rowIndex) => StatusToken` — row-status tint callback. */
     rowStatus?: SubtypeExprOrValue<FunctionType<[IntegerType], StatusTokenType>>;
-    /** Embedded pagination state. */
-    pagination?: SubtypeExprOrValue<TablePaginationType>;
-    /** Embedded row-selection state. */
-    selection?: SubtypeExprOrValue<TableSelectionType>;
     /** Density preset. */
     density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
 }

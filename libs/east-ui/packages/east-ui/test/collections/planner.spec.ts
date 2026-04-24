@@ -31,6 +31,8 @@ describeEast("Planner", (test) => {
         plannerLabelAlignment: ex.plannerLabelAlignment,
         plannerCustomHeight: ex.plannerCustomHeight,
         plannerFrozenColumns: ex.plannerFrozenColumns,
+        plannerRowStatus: ex.plannerRowStatus,
+        plannerChromeColours: ex.plannerChromeColours,
     });
 
     // =========================================================================

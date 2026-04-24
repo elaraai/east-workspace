@@ -2,8 +2,8 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, FloatType, NullType, StringType, variant, example } from "@elaraai/east";
-import { Badge, Planner, Stack, Table, Text, UIComponentType } from "@elaraai/east-ui";
+import { East, FloatType, IntegerType, NullType, StringType, variant, example } from "@elaraai/east";
+import { Badge, Planner, Stack, Style, Table, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const plannerBasic = example({
     keywords: ["Planner", "Root", "Event", "basic", "resource", "allocation"],
@@ -598,6 +598,58 @@ export const plannerFrozenColumns = example({
                 striped: true,
                 height: "300px",
             }
+        );
+    }),
+    inputs: [],
+});
+
+// ============================================================================
+// Plan 1.10 — rowStatus + root chrome colour slots
+// ============================================================================
+
+export const plannerRowStatus = example({
+    keywords: ["Planner", "rowStatus", "StatusToken", "tint", "theme-agnostic"],
+    description: "Row-status tint — `rowStatus` paints each row background with a semantic token",
+    fn: East.function([], UIComponentType, ($) => {
+        const rowStatus = $.const(East.function([IntegerType], Style.Types.StatusToken, ($, rowIndex) => {
+            const bucket = $.let(rowIndex.modulo(3n), IntegerType);
+            return bucket.equals(0n).ifElse(
+                $ => Style.StatusToken("success"),
+                $ => bucket.equals(1n).ifElse(
+                    $ => Style.StatusToken("warning"),
+                    $ => Style.StatusToken("danger"),
+                ),
+            );
+        }));
+        return Planner.Root(
+            [
+                { name: "Alice", slot: 1.0 },
+                { name: "Bob", slot: 3.0 },
+                { name: "Charlie", slot: 5.0 },
+            ],
+            { name: { header: "Name" } },
+            row => [Planner.Event({ start: row.slot })],
+            { rowStatus, slotMode: "single" },
+        );
+    }),
+    inputs: [],
+});
+
+export const plannerChromeColours = example({
+    keywords: ["Planner", "gridColor", "nowMarkerColor", "headerBackground", "headerColor", "chrome"],
+    description: "Root chrome colour overrides — explicit grid / now-marker / header colours",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Planner.Root(
+            [{ name: "Alice", slot: 1.0 }, { name: "Bob", slot: 3.0 }],
+            { name: { header: "Name" } },
+            row => [Planner.Event({ start: row.slot })],
+            {
+                slotMode: "single",
+                gridColor: "blue.100",
+                nowMarkerColor: "red.500",
+                headerBackground: "blue.50",
+                headerColor: "blue.900",
+            },
         );
     }),
     inputs: [],

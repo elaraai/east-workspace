@@ -2,8 +2,8 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, DateTimeType, NullType, StringType, variant, example } from "@elaraai/east";
-import { Badge, Gantt, Reactive, Stack, State, Table, Text, UIComponentType } from "@elaraai/east-ui";
+import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from "@elaraai/east";
+import { Badge, Gantt, Reactive, Stack, State, Style, Table, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const ganttBasic = example({
     keywords: ["Gantt", "Root", "Task", "basic", "timeline"],
@@ -475,6 +475,89 @@ export const ganttFrozenColumns = example({
                 striped: true,
                 height: "300px",
             }
+        );
+    }),
+    inputs: [],
+});
+
+// ============================================================================
+// Plan 1.10 — rowStatus + per-event colour hatches + root chrome colours
+// ============================================================================
+
+export const ganttRowStatus = example({
+    keywords: ["Gantt", "rowStatus", "StatusToken", "tint", "theme-agnostic"],
+    description: "Row-status tint — `rowStatus` paints each row background with a semantic token (success / warning / danger / info / neutral)",
+    fn: East.function([], UIComponentType, ($) => {
+        const rowStatus = $.const(East.function([IntegerType], Style.Types.StatusToken, ($, rowIndex) => {
+            const bucket = $.let(rowIndex.modulo(3n), IntegerType);
+            return bucket.equals(0n).ifElse(
+                $ => Style.StatusToken("success"),
+                $ => bucket.equals(1n).ifElse(
+                    $ => Style.StatusToken("warning"),
+                    $ => Style.StatusToken("danger"),
+                ),
+            );
+        }));
+
+        return Gantt.Root(
+            [
+                { task: "Planning", start: new Date("2024-01-01"), end: new Date("2024-01-15") },
+                { task: "Design", start: new Date("2024-01-10"), end: new Date("2024-02-01") },
+                { task: "Development", start: new Date("2024-01-20"), end: new Date("2024-03-15") },
+            ],
+            { task: { header: "Task" } },
+            row => [Gantt.Task({ start: row.start, end: row.end })],
+            { rowStatus, variant: "line" },
+        );
+    }),
+    inputs: [],
+});
+
+export const ganttPerEventColours = example({
+    keywords: ["Gantt", "Task", "background", "stroke", "labelColor", "progressFill", "per-event"],
+    description: "Per-task colour escape hatches — `background` / `stroke` / `labelColor` / `progressFill` override the default palette",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Gantt.Root(
+            [
+                { task: "Critical path", start: new Date("2024-01-01"), end: new Date("2024-01-20"), progress: 75 },
+                { task: "Standard work", start: new Date("2024-01-15"), end: new Date("2024-02-10"), progress: 40 },
+            ],
+            { task: { header: "Task" } },
+            row => [Gantt.Task({
+                start: row.start,
+                end: row.end,
+                label: row.task,
+                progress: row.progress,
+                background: "#C53030",
+                stroke: "#742A2A",
+                labelColor: "white",
+                progressFill: "#822727",
+            })],
+            { variant: "line" },
+        );
+    }),
+    inputs: [],
+});
+
+export const ganttChromeColours = example({
+    keywords: ["Gantt", "gridColor", "todayMarkerColor", "headerBackground", "headerColor", "chrome"],
+    description: "Root chrome colour overrides — explicit grid / today-marker / header colours for brand alignment",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Gantt.Root(
+            [
+                { task: "Planning", start: new Date("2024-01-01"), end: new Date("2024-01-15") },
+                { task: "Design", start: new Date("2024-01-10"), end: new Date("2024-02-01") },
+            ],
+            { task: { header: "Task" } },
+            row => [Gantt.Task({ start: row.start, end: row.end, colorPalette: "blue" })],
+            {
+                variant: "line",
+                gridColor: "blue.100",
+                todayMarkerColor: "red.500",
+                headerBackground: "blue.50",
+                headerColor: "blue.900",
+                showToday: true,
+            },
         );
     }),
     inputs: [],

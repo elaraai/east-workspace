@@ -23,6 +23,7 @@ import {
     ColorSchemeType,
     type ColorSchemeLiteral,
 } from "../../style.js";
+import { StatusTokenType } from "../../style/interaction.js";
 
 // Import shared types from table
 import {
@@ -374,7 +375,7 @@ export interface GanttStyle<ColumnKeys extends string = string> {
     /** Optional time step for duration change snapping. */
     durationStep?: SubtypeExprOrValue<TimeStepType>;
     /** Row-status callback: `(rowIndex) => StatusToken`; renderer tints the row. */
-    rowStatus?: unknown;
+    rowStatus?: SubtypeExprOrValue<FunctionType<[IntegerType], StatusTokenType>>;
     /** Callback triggered when a cell is clicked. */
     onCellClick?: SubtypeExprOrValue<FunctionType<[TableCellClickEventType], NullType>>;
     /** Callback triggered when a cell is double-clicked. */

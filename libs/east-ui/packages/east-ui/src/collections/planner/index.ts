@@ -581,10 +581,10 @@ function createPlanner<
         style.slotLineWidth !== undefined ||
         style.slotLineDash !== undefined ||
         style.slotLineOpacity !== undefined ||
-        (style as any).gridColor !== undefined ||
-        (style as any).nowMarkerColor !== undefined ||
-        (style as any).headerBackground !== undefined ||
-        (style as any).headerColor !== undefined
+        style.gridColor !== undefined ||
+        style.nowMarkerColor !== undefined ||
+        style.headerBackground !== undefined ||
+        style.headerColor !== undefined
     );
 
     const styleValue = hasVisualStyle ? East.value({
@@ -600,10 +600,10 @@ function createPlanner<
         slotLineWidth: style!.slotLineWidth !== undefined ? some(style!.slotLineWidth) : none,
         slotLineDash: style!.slotLineDash ? some(style!.slotLineDash) : none,
         slotLineOpacity: style!.slotLineOpacity !== undefined ? some(style!.slotLineOpacity) : none,
-        gridColor: (style as any)?.gridColor !== undefined ? some((style as any).gridColor) : none,
-        nowMarkerColor: (style as any)?.nowMarkerColor !== undefined ? some((style as any).nowMarkerColor) : none,
-        headerBackground: (style as any)?.headerBackground !== undefined ? some((style as any).headerBackground) : none,
-        headerColor: (style as any)?.headerColor !== undefined ? some((style as any).headerColor) : none,
+        gridColor: style!.gridColor !== undefined ? some(style!.gridColor) : none,
+        nowMarkerColor: style!.nowMarkerColor !== undefined ? some(style!.nowMarkerColor) : none,
+        headerBackground: style!.headerBackground !== undefined ? some(style!.headerBackground) : none,
+        headerColor: style!.headerColor !== undefined ? some(style!.headerColor) : none,
     }, PlannerStyleType) : undefined;
 
     const eventPopoverExpr = eventPopover
@@ -633,7 +633,9 @@ function createPlanner<
         readOnly: style?.readOnly !== undefined ? some(style.readOnly) : none,
         eventPopoverTrigger: eventPopoverTriggerValue ? some(eventPopoverTriggerValue) : none,
         boundaries: boundariesValue,
-        rowStatus: (style as any)?.rowStatus !== undefined ? some((style as any).rowStatus) : none,
+        rowStatus: style?.rowStatus !== undefined
+            ? some(East.value(style.rowStatus, FunctionType([IntegerType], StatusTokenType)))
+            : none,
         onCellClick: style?.onCellClick ? some(style.onCellClick) : none,
         onCellDoubleClick: style?.onCellDoubleClick ? some(style.onCellDoubleClick) : none,
         onRowClick: style?.onRowClick ? some(style.onRowClick) : none,

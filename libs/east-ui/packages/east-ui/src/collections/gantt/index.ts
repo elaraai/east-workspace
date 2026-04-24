@@ -520,10 +520,10 @@ function createGantt<
         style.showColumnBorder !== undefined ||
         style.colorPalette !== undefined ||
         style.showToday !== undefined ||
-        (style as any).gridColor !== undefined ||
-        (style as any).todayMarkerColor !== undefined ||
-        (style as any).headerBackground !== undefined ||
-        (style as any).headerColor !== undefined
+        style.gridColor !== undefined ||
+        style.todayMarkerColor !== undefined ||
+        style.headerBackground !== undefined ||
+        style.headerColor !== undefined
     );
 
     const styleValue = hasStyle ? East.value({
@@ -535,10 +535,10 @@ function createGantt<
         showColumnBorder: style!.showColumnBorder !== undefined ? some(style!.showColumnBorder) : none,
         colorPalette: colorPaletteValue ? some(colorPaletteValue) : none,
         showToday: style!.showToday !== undefined ? some(style!.showToday) : none,
-        gridColor: (style as any)?.gridColor !== undefined ? some((style as any).gridColor) : none,
-        todayMarkerColor: (style as any)?.todayMarkerColor !== undefined ? some((style as any).todayMarkerColor) : none,
-        headerBackground: (style as any)?.headerBackground !== undefined ? some((style as any).headerBackground) : none,
-        headerColor: (style as any)?.headerColor !== undefined ? some((style as any).headerColor) : none,
+        gridColor: style!.gridColor !== undefined ? some(style!.gridColor) : none,
+        todayMarkerColor: style!.todayMarkerColor !== undefined ? some(style!.todayMarkerColor) : none,
+        headerBackground: style!.headerBackground !== undefined ? some(style!.headerBackground) : none,
+        headerColor: style!.headerColor !== undefined ? some(style!.headerColor) : none,
     }, GanttStyleType) : undefined;
 
     return East.value(variant("Gantt", {
@@ -548,8 +548,8 @@ function createGantt<
         interactive: style?.interactive !== undefined ? some(style.interactive) : none,
         dragStep: style?.dragStep ? some(style.dragStep) : none,
         durationStep: style?.durationStep ? some(style.durationStep) : none,
-        rowStatus: (style as any)?.rowStatus !== undefined
-            ? some((style as any).rowStatus as SubtypeExprOrValue<FunctionType<[typeof import("@elaraai/east").IntegerType], typeof StatusTokenType>>)
+        rowStatus: style?.rowStatus !== undefined
+            ? some(East.value(style.rowStatus, FunctionType([IntegerType], StatusTokenType)))
             : none,
         onCellClick: style?.onCellClick ? some(style.onCellClick) : none,
         onCellDoubleClick: style?.onCellDoubleClick ? some(style.onCellDoubleClick) : none,
