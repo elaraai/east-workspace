@@ -38,7 +38,8 @@ import { UIStoreProvider, UIStore, OverlayManagerProvider, Toaster } from "@elar
 import { exampleSources } from "virtual:example-sources";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ElaraLogo } from "./components/ElaraLogo";
-import { ExampleCard } from "./components/ExampleCard";
+import { ExampleCard, codeBlockAdapter } from "./components/ExampleCard";
+import { CodeBlock } from "@chakra-ui/react";
 
 // Per-component example module imports. Each entry in SOURCES below pairs a
 // module with its preferred column count in the showcase grid.
@@ -347,6 +348,7 @@ export function App() {
     return (
         <UIStoreProvider store={store}>
             <OverlayManagerProvider>
+                <CodeBlock.AdapterProvider value={codeBlockAdapter}>
                 <Toaster />
                 <Flex minH="100vh" bg="gray.50" _dark={{ bg: "gray.900" }}>
                     <Box
@@ -418,6 +420,7 @@ export function App() {
                         </Container>
                     </Box>
                 </Flex>
+                </CodeBlock.AdapterProvider>
             </OverlayManagerProvider>
         </UIStoreProvider>
     );

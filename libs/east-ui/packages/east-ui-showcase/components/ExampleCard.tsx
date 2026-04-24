@@ -3,15 +3,48 @@
  * Licensed under AGPL-3.0. See LICENSE file for details.
  */
 
-import { useMemo, useState, useCallback } from "react";
-import { Box, Card, Heading, HStack, IconButton, Tag } from "@chakra-ui/react";
+import { useMemo, useState } from "react";
+import {
+    Box,
+    Card,
+    CodeBlock,
+    Heading,
+    HStack,
+    IconButton,
+    Tag,
+    createHighlightJsAdapter,
+} from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faCode, faCopy, faCheck } from "@fortawesome/free-solid-svg-icons";
+import { faCode } from "@fortawesome/free-solid-svg-icons";
 import { EastFunction } from "@elaraai/east-ui-components";
 import type { EastIR } from "@elaraai/east/internal";
 import type { UIComponentType } from "@elaraai/east-ui";
 
+import hljs from "highlight.js/lib/core";
+import typescriptLang from "highlight.js/lib/languages/typescript";
 import "highlight.js/styles/atom-one-dark.css";
+
+/**
+ * Ensure the `typescript` language is registered on the shared hljs instance.
+ * Chakra's adapter `unloadContext` unregisters all languages on teardown, so
+ * we must re-register every time `load` / `loadSync` is invoked.
+ */
+function ensureHljs(): typeof hljs {
+    if (!hljs.listLanguages().includes("typescript")) {
+        hljs.registerLanguage("typescript", typescriptLang);
+    }
+    return hljs;
+}
+
+/**
+ * Chakra v3 CodeBlock adapter backed by highlight.js — synchronous, no WASM,
+ * no async load.
+ */
+export const codeBlockAdapter = createHighlightJsAdapter({
+    load: async () => ensureHljs(),
+    loadSync: () => ensureHljs(),
+    highlightOptions: { language: "typescript", ignoreIllegals: true },
+});
 
 interface Example {
     keywords: string[];
@@ -34,20 +67,9 @@ export function ExampleCard({
 }) {
     const ir = useMemo(() => example.fn.toIR() as EastIR<[], typeof UIComponentType>, [example.fn]);
     const [view, setView] = useState<View>("output");
-    const [copied, setCopied] = useState(false);
 
     const hasSource = !!example.source;
     const pressed = view === "source";
-
-    const handleCopy = useCallback(() => {
-        if (!example.source) return;
-        navigator.clipboard.writeText(example.source.raw).then(() => {
-            setCopied(true);
-            window.setTimeout(() => setCopied(false), 1500);
-        }).catch(() => {
-            // Clipboard API denied / unavailable — no-op.
-        });
-    }, [example.source]);
 
     return (
         <Card.Root size="sm" variant="outline">
@@ -76,62 +98,51 @@ export function ExampleCard({
                 </HStack>
             </Card.Header>
             <Card.Body pt="0">
-                <Box
-                    borderWidth="1px"
-                    borderRadius="md"
-                    p={view === "output" ? "3" : "0"}
-                    bg={view === "output" ? "white" : "#282c34"}
-                    _dark={{ bg: view === "output" ? "gray.800" : "#282c34" }}
-                    h={bodyHeight}
-                    overflow="hidden"
-                    position="relative"
-                >
-                    {view === "output" ? (
+                {view === "output" ? (
+                    <Box
+                        borderWidth="1px"
+                        borderRadius="md"
+                        p="3"
+                        bg="white"
+                        _dark={{ bg: "gray.800" }}
+                        h={bodyHeight}
+                        overflow="hidden"
+                    >
                         <EastFunction ir={ir} storageKey={`example-${name}`} />
-                    ) : (
-                        <>
-                            <IconButton
-                                aria-label={copied ? "Copied" : "Copy source"}
-                                size="xs"
-                                variant="subtle"
-                                colorPalette={copied ? "green" : "gray"}
-                                onClick={handleCopy}
-                                position="absolute"
-                                top="2"
-                                right="2"
-                                zIndex="1"
-                                opacity="0.85"
-                                _hover={{ opacity: 1 }}
-                            >
-                                <FontAwesomeIcon icon={copied ? faCheck : faCopy} />
-                            </IconButton>
-                            <Box
-                                as="pre"
-                                fontSize="xs"
-                                fontFamily="mono"
-                                margin="0"
-                                padding="3"
-                                h="full"
-                                overflow="auto"
-                                whiteSpace="pre"
-                                lineHeight="1.5"
-                                css={{
-                                    "& .hljs": { background: "transparent", padding: 0 },
-                                    "&::-webkit-scrollbar": { width: "8px", height: "8px" },
-                                    "&::-webkit-scrollbar-thumb": {
-                                        background: "rgba(255,255,255,0.2)",
-                                        borderRadius: "4px",
-                                    },
-                                }}
-                            >
-                                <code
-                                    className="hljs language-typescript"
-                                    dangerouslySetInnerHTML={{ __html: example.source!.html }}
-                                />
-                            </Box>
-                        </>
-                    )}
-                </Box>
+                    </Box>
+                ) : (
+                    <CodeBlock.Root
+                        code={example.source!.raw}
+                        language="typescript"
+                        meta={{ colorScheme: "dark", showLineNumbers: true }}
+                        size="sm"
+                        h={bodyHeight}
+                        borderWidth="1px"
+                        borderRadius="md"
+                        overflow="hidden"
+                        position="relative"
+                        style={{ "--code-block-max-height": bodyHeight } as React.CSSProperties}
+                    >
+                        <CodeBlock.Content h="full" maxH="full">
+                            <CodeBlock.Code h="full" overflow="auto">
+                                <CodeBlock.CodeText />
+                            </CodeBlock.Code>
+                        </CodeBlock.Content>
+                        <CodeBlock.CopyTrigger
+                            position="absolute"
+                            top="2"
+                            right="3"
+                            zIndex="1"
+                            bg="whiteAlpha.100"
+                            _hover={{ bg: "whiteAlpha.200" }}
+                            rounded="md"
+                            p="1"
+                            backdropFilter="blur(4px)"
+                        >
+                            <CodeBlock.CopyIndicator />
+                        </CodeBlock.CopyTrigger>
+                    </CodeBlock.Root>
+                )}
             </Card.Body>
         </Card.Root>
     );
