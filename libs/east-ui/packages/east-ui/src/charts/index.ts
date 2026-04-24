@@ -82,22 +82,6 @@ export { PieChartType, PieSliceType, type PieChartStyle } from "./pie/index.js";
 import { createRadarChart } from "./radar/index.js";
 export { RadarChartType, type RadarChartStyle } from "./radar/index.js";
 
-// Bar list
-import { createBarList } from "./bar-list/index.js";
-export {
-    BarListType,
-    BarListItemType,
-    type BarListStyle,
-} from "./bar-list/index.js";
-
-// Bar segment
-import { createBarSegment } from "./bar-segment/index.js";
-export {
-    BarSegmentType,
-    BarSegmentItemType,
-    type BarSegmentStyle,
-} from "./bar-segment/index.js";
-
 // Sparkline (already implemented)
 import { Sparkline } from "./sparkline/index.js";
 export {
@@ -133,8 +117,6 @@ import { LineChartType } from "./line/index.js";
 import { ScatterChartType } from "./scatter/index.js";
 import { PieChartType, PieSliceType } from "./pie/index.js";
 import { RadarChartType } from "./radar/index.js";
-import { BarListType, BarListItemType } from "./bar-list/index.js";
-import { BarSegmentType, BarSegmentItemType } from "./bar-segment/index.js";
 import { ComposedChartType, ComposedSeriesType } from "./composed/index.js";
 
 // ============================================================================
@@ -575,62 +557,6 @@ export const Chart = {
      * ```
      */
     Radar: createRadarChart,
-    /**
-     * Creates a BarList component (Chakra-native horizontal bars).
-     *
-     * @param data - Array of bar items with name, value, and optional color/href
-     * @param style - Optional styling configuration
-     * @returns An East expression representing the bar list component
-     *
-     * @remarks
-     * BarList displays horizontal comparison bars with labels and values.
-     * Native Chakra component, not Recharts-based.
-     *
-     * @example
-     * ```ts
-     * import { East } from "@elaraai/east";
-     * import { Chart, UIComponentType } from "@elaraai/east-ui";
-     *
-     * const example = East.function([], UIComponentType, $ => {
-     *     return Chart.BarList(
-     *         [
-     *             { name: "Chrome", value: 275n },
-     *             { name: "Safari", value: 200n },
-     *         ],
-     *         { colorPalette: "blue", showValue: true }
-     *     );
-     * });
-     * ```
-     */
-    BarList: createBarList,
-    /**
-     * Creates a BarSegment component (proportional horizontal segments).
-     *
-     * @param data - Array of segment items with name, value, and optional color
-     * @param style - Optional styling configuration
-     * @returns An East expression representing the bar segment component
-     *
-     * @remarks
-     * BarSegment displays proportional segments in a single horizontal bar.
-     * Native Chakra component for showing percentage breakdowns.
-     *
-     * @example
-     * ```ts
-     * import { East } from "@elaraai/east";
-     * import { Chart, UIComponentType } from "@elaraai/east-ui";
-     *
-     * const example = East.function([], UIComponentType, $ => {
-     *     return Chart.BarSegment(
-     *         [
-     *             { name: "Completed", value: 75n, color: "green.solid" },
-     *             { name: "Remaining", value: 25n, color: "gray.solid" },
-     *         ],
-     *         { showLegend: true }
-     *     );
-     * });
-     * ```
-     */
-    BarSegment: createBarSegment,
     /**
      * Creates a Composed chart component combining multiple chart types.
      *
@@ -1074,54 +1000,6 @@ export const Chart = {
          * @property legend - Legend configuration (OptionType<ChartLegendType>)
          */
         RadarChart: RadarChartType,
-        /**
-         * The concrete East type for BarList data.
-         *
-         * @remarks
-         * BarList displays horizontal comparison bars with labels and values.
-         * Native Chakra component, not Recharts-based.
-         *
-         * @property data - Array of bar items (ArrayType<BarListItemType>)
-         * @property colorPalette - Default color scheme (OptionType<ColorSchemeType>)
-         * @property showValue - Show values next to bars (OptionType<BooleanType>)
-         * @property sort - Sort configuration (OptionType<ChartSortType>)
-         */
-        BarList: BarListType,
-        /**
-         * The concrete East type for BarList item data.
-         *
-         * @remarks
-         * Each item represents a bar in the BarList chart.
-         *
-         * @property name - Item label (StringType)
-         * @property value - Item value (IntegerType or FloatType)
-         * @property color - Item color (OptionType<StringType>)
-         * @property href - Optional link URL (OptionType<StringType>)
-         */
-        BarListItem: BarListItemType,
-        /**
-         * The concrete East type for BarSegment data.
-         *
-         * @remarks
-         * BarSegment displays proportional segments in a single horizontal bar.
-         * Native Chakra component for showing percentage breakdowns.
-         *
-         * @property data - Array of segment items (ArrayType<BarSegmentItemType>)
-         * @property showLegend - Show legend (OptionType<BooleanType>)
-         * @property showValue - Show values on segments (OptionType<BooleanType>)
-         */
-        BarSegment: BarSegmentType,
-        /**
-         * The concrete East type for BarSegment item data.
-         *
-         * @remarks
-         * Each item represents a segment in the BarSegment chart.
-         *
-         * @property name - Segment label (StringType)
-         * @property value - Segment value (IntegerType or FloatType)
-         * @property color - Segment color (OptionType<StringType>)
-         */
-        BarSegmentItem: BarSegmentItemType,
         /**
          * The concrete East type for Composed chart data.
          *

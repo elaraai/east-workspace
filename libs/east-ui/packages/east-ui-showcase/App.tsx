@@ -74,6 +74,13 @@ import * as tagExamples from "@elaraai/east-ui/examples/display/tag";
 import * as avatarExamples from "@elaraai/east-ui/examples/display/avatar";
 import * as statExamples from "@elaraai/east-ui/examples/display/stat";
 import * as iconExamples from "@elaraai/east-ui/examples/display/icon";
+import * as metricChipExamples from "@elaraai/east-ui/examples/display/metric-chip";
+import * as editableChipExamples from "@elaraai/east-ui/examples/display/editable-chip";
+import * as kbdExamples from "@elaraai/east-ui/examples/display/kbd";
+import * as meterExamples from "@elaraai/east-ui/examples/display/meter";
+import * as segmentedMeterExamples from "@elaraai/east-ui/examples/display/segmented-meter";
+import * as barStripExamples from "@elaraai/east-ui/examples/display/bar-strip";
+import * as avatarGroupExamples from "@elaraai/east-ui/examples/display/avatar-group";
 import * as alertExamples from "@elaraai/east-ui/examples/feedback/alert";
 import * as progressExamples from "@elaraai/east-ui/examples/feedback/progress";
 import * as emptyStateExamples from "@elaraai/east-ui/examples/feedback/empty-state";
@@ -117,8 +124,6 @@ import * as ganttExamples from "@elaraai/east-ui/examples/collections/gantt";
 import * as plannerExamples from "@elaraai/east-ui/examples/collections/planner";
 import * as areaExamples from "@elaraai/east-ui/examples/charts/area";
 import * as barExamples from "@elaraai/east-ui/examples/charts/bar";
-import * as barListExamples from "@elaraai/east-ui/examples/charts/bar-list";
-import * as barSegmentExamples from "@elaraai/east-ui/examples/charts/bar-segment";
 import * as composedExamples from "@elaraai/east-ui/examples/charts/composed";
 import * as lineExamples from "@elaraai/east-ui/examples/charts/line";
 import * as pieExamples from "@elaraai/east-ui/examples/charts/pie";
@@ -182,6 +187,13 @@ const SOURCES: [string, string, Record<string, unknown>, string, number, number?
     ["Avatar",       "Display",     avatarExamples,       "display/avatar",               3],
     ["Stat",         "Display",     statExamples,         "display/stat",                 3],
     ["Icon",         "Display",     iconExamples,         "display/icon",                 3],
+    ["MetricChip",   "Display",     metricChipExamples,   "display/metric-chip",          3],
+    ["EditableChip", "Display",     editableChipExamples, "display/editable-chip",        3],
+    ["Kbd",          "Display",     kbdExamples,          "display/kbd",                  3],
+    ["Meter",        "Display",     meterExamples,        "display/meter",                3],
+    ["SegmentedMeter","Display",    segmentedMeterExamples,"display/segmented-meter",     2],
+    ["BarStrip",    "Display",      barStripExamples,     "display/bar-strip",            2],
+    ["AvatarGroup",  "Display",     avatarGroupExamples,  "display/avatar-group",         3],
     ["Alert",        "Feedback",    alertExamples,        "feedback/alert",               2],
     ["Progress",     "Feedback",    progressExamples,     "feedback/progress",            2],
     ["EmptyState",   "Feedback",    emptyStateExamples,   "feedback/empty-state",         2],
@@ -225,8 +237,6 @@ const SOURCES: [string, string, Record<string, unknown>, string, number, number?
     ["Planner",      "Collections", plannerExamples,      "collections/planner",          1],
     ["Area",         "Charts",      areaExamples,         "charts/area",                  1],
     ["Bar",          "Charts",      barExamples,          "charts/bar",                   1],
-    ["BarList",      "Charts",      barListExamples,      "charts/bar-list",              2],
-    ["BarSegment",   "Charts",      barSegmentExamples,   "charts/bar-segment",           2],
     ["Composed",     "Charts",      composedExamples,     "charts/composed",              1],
     ["Line",         "Charts",      lineExamples,         "charts/line",                  1],
     ["Pie",          "Charts",      pieExamples,          "charts/pie",                   2],

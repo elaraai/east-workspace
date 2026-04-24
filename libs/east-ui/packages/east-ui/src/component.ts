@@ -118,8 +118,6 @@ import { LineChartType } from "./charts/line/types.js";
 import { ScatterChartType } from "./charts/scatter/types.js";
 import { PieChartType } from "./charts/pie/types.js";
 import { RadarChartType } from "./charts/radar/types.js";
-import { BarListType } from "./charts/bar-list/types.js";
-import { BarSegmentType } from "./charts/bar-segment/types.js";
 import { ComposedChartType } from "./charts/composed/types.js";
 
 // Disclosure
@@ -516,8 +514,6 @@ export const UIComponentType = RecursiveType(node => VariantType({
     ScatterChart: ScatterChartType,
     PieChart: PieChartType,
     RadarChart: RadarChartType,
-    BarList: BarListType,
-    BarSegment: BarSegmentType,
     ComposedChart: ComposedChartType,
 
     TreeView: StructType({

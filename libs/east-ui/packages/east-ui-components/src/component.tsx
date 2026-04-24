@@ -31,8 +31,6 @@ import { EastChakraLineChart } from "./charts/line";
 import { EastChakraScatterChart } from "./charts/scatter";
 import { EastChakraPieChart } from "./charts/pie";
 import { EastChakraRadarChart } from "./charts/radar";
-import { EastChakraBarList } from "./charts/bar-list";
-import { EastChakraBarSegment } from "./charts/bar-segment";
 import { EastChakraComposedChart } from "./charts/composed";
 import { EastChakraBox } from "./layout/box";
 import { EastChakraFlex } from "./layout/flex";
@@ -211,8 +209,6 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             ScatterChart: (v) => <EastChakraScatterChart value={v} />,
             PieChart: (v) => <EastChakraPieChart value={v} />,
             RadarChart: (v) => <EastChakraRadarChart value={v} />,
-            BarList: (v) => <EastChakraBarList value={v} />,
-            BarSegment: (v) => <EastChakraBarSegment value={v} />,
             ComposedChart: (v) => <EastChakraComposedChart value={v} />,
 
             TreeView: (v) => <EastChakraTreeView value={v} storageKey={childKey(storageKey, "TreeView")} />,

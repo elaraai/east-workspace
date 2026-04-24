@@ -14,6 +14,7 @@ describeEast("EditableChip", (test) => {
         editableChipWithCallback: ex.editableChipWithCallback,
         editableChipDisabled: ex.editableChipDisabled,
         editableChipStyled: ex.editableChipStyled,
+        editableChipReactive: ex.editableChipReactive,
     });
 
     test("creates an EditableChip with a label", $ => {

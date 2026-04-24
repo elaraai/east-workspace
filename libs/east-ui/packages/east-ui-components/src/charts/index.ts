@@ -13,5 +13,3 @@ export { EastChakraLineChart, type EastChakraLineChartProps } from "./line/index
 export { EastChakraScatterChart, type EastChakraScatterChartProps } from "./scatter/index.js";
 export { EastChakraPieChart, type EastChakraPieChartProps } from "./pie/index.js";
 export { EastChakraRadarChart, type EastChakraRadarChartProps } from "./radar/index.js";
-export { EastChakraBarList, type EastChakraBarListProps } from "./bar-list/index.js";
-export { EastChakraBarSegment, type EastChakraBarSegmentProps } from "./bar-segment/index.js";

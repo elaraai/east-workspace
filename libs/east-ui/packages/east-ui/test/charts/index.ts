@@ -4,8 +4,6 @@
  */
 export * from "./area.examples.js";
 export * from "./bar.examples.js";
-export * from "./bar-list.examples.js";
-export * from "./bar-segment.examples.js";
 export * from "./composed.examples.js";
 export * from "./line.examples.js";
 export * from "./pie.examples.js";

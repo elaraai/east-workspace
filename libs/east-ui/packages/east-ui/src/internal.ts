@@ -76,8 +76,6 @@ export * from "./charts/line/types.js";
 export * from "./charts/scatter/types.js";
 export * from "./charts/pie/types.js";
 export * from "./charts/radar/types.js";
-export * from "./charts/bar-list/types.js";
-export * from "./charts/bar-segment/types.js";
 
 // Disclosure
 export * from "./disclosure/index.js";

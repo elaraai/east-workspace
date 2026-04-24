@@ -3,8 +3,8 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { East, NullType, example } from "@elaraai/east";
-import { EditableChip, Text, UIComponentType } from "../../src/index.js";
+import { East, IntegerType, NullType, example } from "@elaraai/east";
+import { EditableChip, Reactive, State, Stack, Text, UIComponentType } from "../../src/index.js";
 
 export const editableChipBasic = example({
     keywords: ["EditableChip", "Root", "label"],
@@ -44,6 +44,28 @@ export const editableChipStyled = example({
             borderColor: "blue.200",
             triggerIconColor: "blue.500",
         });
+    }),
+    inputs: [],
+});
+
+export const editableChipReactive = example({
+    keywords: ["EditableChip", "Reactive", "State", "onClick", "interactive"],
+    description: "Reactive editable chip that cycles through three scenarios on click",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const scenarioIndex = $.let(State.bind([IntegerType], "scenarioIndex", 0n));
+            const index = $.let(scenarioIndex.read());
+            const scenarios = $.let(East.value(["Baseline", "Optimistic", "Stress"]));
+            const currentLabel = $.let(scenarios.get(index.remainder(3n)));
+            const cycle = $.const(East.function([], NullType, $ => {
+                const current = $.let(scenarioIndex.read());
+                $(scenarioIndex.write(current.add(1n)));
+            }));
+            return Stack.HStack([
+                Text.Root("Scenario: "),
+                EditableChip.Root(Text.Root(currentLabel), { onClick: cycle }),
+            ], { gap: "2", align: "center" });
+        }));
     }),
     inputs: [],
 });
