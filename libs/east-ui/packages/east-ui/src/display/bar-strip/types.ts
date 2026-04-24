@@ -84,6 +84,7 @@ export type BarStripThicknessLiteral = "xs" | "sm" | "md";
 export const BarStripStyleType = StructType({
     orientation: OptionType(OrientationType),
     thickness: OptionType(BarStripThicknessType),
+    borderRadius: OptionType(StringType),
     trackColor: OptionType(StringType),
     labelColor: OptionType(StringType),
     valueColor: OptionType(StringType),
@@ -124,6 +125,8 @@ export interface BarStripOptions {
     orientation?: SubtypeExprOrValue<OrientationType> | OrientationLiteral;
     /** Row thickness preset (xs / sm / md). */
     thickness?: SubtypeExprOrValue<BarStripThicknessType> | BarStripThicknessLiteral;
+    /** Corner radius (Chakra token or explicit px). Default `"sm"`. */
+    borderRadius?: SubtypeExprOrValue<StringType>;
     /** Explicit track colour override. */
     trackColor?: SubtypeExprOrValue<StringType>;
     /** Explicit label text colour override. */

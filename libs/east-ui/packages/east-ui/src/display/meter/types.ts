@@ -63,6 +63,7 @@ export type MeterThicknessLiteral = "xs" | "sm" | "md" | "lg";
  */
 export const MeterStyleType = StructType({
     thickness: OptionType(MeterThicknessType),
+    borderRadius: OptionType(StringType),
     fillColor: OptionType(StringType),
     trackColor: OptionType(StringType),
     labelColor: OptionType(StringType),
@@ -100,6 +101,8 @@ export interface MeterOptions {
     tone?: SubtypeExprOrValue<StatusTokenType> | StatusTokenLiteral;
     /** Visual thickness preset (xs / sm / md / lg). */
     thickness?: SubtypeExprOrValue<MeterThicknessType> | MeterThicknessLiteral;
+    /** Corner radius (Chakra token or explicit px). Default `"sm"`. */
+    borderRadius?: SubtypeExprOrValue<StringType>;
     /** Explicit fill colour override. */
     fillColor?: SubtypeExprOrValue<StringType>;
     /** Explicit track colour override. */

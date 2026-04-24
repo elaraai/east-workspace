@@ -51,6 +51,7 @@ export const EastChakraBarStrip = memo(function EastChakraBarStrip({ value, stor
 
     const thicknessTag = style ? getSomeorUndefined(style.thickness)?.type ?? "sm" : "sm";
     const height = THICKNESS_PX[thicknessTag] ?? "6px";
+    const borderRadius = (style && getSomeorUndefined(style.borderRadius)) ?? "sm";
     const trackColor = (style && getSomeorUndefined(style.trackColor)) ?? "gray.100";
     const labelColor = style ? getSomeorUndefined(style.labelColor) : undefined;
     const valueColor = style ? getSomeorUndefined(style.valueColor) : undefined;
@@ -86,7 +87,7 @@ export const EastChakraBarStrip = memo(function EastChakraBarStrip({ value, stor
                         <Box color={labelColor} minWidth="6rem" flexShrink={0}>
                             <EastChakraComponent value={item.label} storageKey={`${storageKey}.${i}.label`} />
                         </Box>
-                        <Box flex="1" position="relative" height={height} bg={trackColor} borderRadius="full" overflow="hidden">
+                        <Box flex="1" position="relative" height={height} bg={trackColor} borderRadius={borderRadius} overflow="hidden">
                             <Box
                                 position="absolute"
                                 top="0"
@@ -94,7 +95,7 @@ export const EastChakraBarStrip = memo(function EastChakraBarStrip({ value, stor
                                 bottom="0"
                                 width={percent}
                                 bg={fillColor}
-                                borderRadius="full"
+                                borderRadius={borderRadius}
                             />
                         </Box>
                         {showValues && (

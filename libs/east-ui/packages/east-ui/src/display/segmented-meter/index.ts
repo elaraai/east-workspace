@@ -93,6 +93,7 @@ function buildSegmentedMeterStyle(options: SegmentedMeterOptions | undefined): E
     if (options === undefined) return undefined;
     const hasAny = options.thickness !== undefined
         || options.labels !== undefined
+        || options.borderRadius !== undefined
         || options.trackColor !== undefined
         || options.captionColor !== undefined
         || options.labelColor !== undefined;
@@ -112,6 +113,7 @@ function buildSegmentedMeterStyle(options: SegmentedMeterOptions | undefined): E
     return East.value({
         thickness: thicknessValue ? some(thicknessValue) : none,
         labels: labelsValue ? some(labelsValue) : none,
+        borderRadius: options.borderRadius !== undefined ? some(options.borderRadius) : none,
         trackColor: options.trackColor !== undefined ? some(options.trackColor) : none,
         captionColor: options.captionColor !== undefined ? some(options.captionColor) : none,
         labelColor: options.labelColor !== undefined ? some(options.labelColor) : none,

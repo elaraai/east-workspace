@@ -119,6 +119,7 @@ export type SegmentedMeterLabelsLiteral = "inside" | "outside" | "none";
 export const SegmentedMeterStyleType = StructType({
     thickness: OptionType(SegmentedMeterThicknessType),
     labels: OptionType(SegmentedMeterLabelsType),
+    borderRadius: OptionType(StringType),
     trackColor: OptionType(StringType),
     captionColor: OptionType(StringType),
     labelColor: OptionType(StringType),
@@ -155,6 +156,8 @@ export interface SegmentedMeterOptions {
     thickness?: SubtypeExprOrValue<SegmentedMeterThicknessType> | SegmentedMeterThicknessLiteral;
     /** Label position preset (inside / outside / none). */
     labels?: SubtypeExprOrValue<SegmentedMeterLabelsType> | SegmentedMeterLabelsLiteral;
+    /** Corner radius (Chakra token or explicit px). Default `"sm"`. */
+    borderRadius?: SubtypeExprOrValue<StringType>;
     /** Explicit track colour override. */
     trackColor?: SubtypeExprOrValue<StringType>;
     /** Explicit caption text colour override. */

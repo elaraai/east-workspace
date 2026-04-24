@@ -123,6 +123,7 @@ function buildBarStripStyle(options: BarStripOptions | undefined): ExprType<BarS
     if (options === undefined) return undefined;
     const hasAny = options.orientation !== undefined
         || options.thickness !== undefined
+        || options.borderRadius !== undefined
         || options.trackColor !== undefined
         || options.labelColor !== undefined
         || options.valueColor !== undefined;
@@ -142,6 +143,7 @@ function buildBarStripStyle(options: BarStripOptions | undefined): ExprType<BarS
     return East.value({
         orientation: orientationValue ? some(orientationValue) : none,
         thickness: thicknessValue ? some(thicknessValue) : none,
+        borderRadius: options.borderRadius !== undefined ? some(options.borderRadius) : none,
         trackColor: options.trackColor !== undefined ? some(options.trackColor) : none,
         labelColor: options.labelColor !== undefined ? some(options.labelColor) : none,
         valueColor: options.valueColor !== undefined ? some(options.valueColor) : none,

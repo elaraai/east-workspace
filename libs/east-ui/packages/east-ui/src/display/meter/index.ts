@@ -73,6 +73,7 @@ export type MeterType = typeof MeterType;
 function buildMeterStyle(options: MeterOptions | undefined): ExprType<MeterStyleType> | undefined {
     if (options === undefined) return undefined;
     const hasAny = options.thickness !== undefined
+        || options.borderRadius !== undefined
         || options.fillColor !== undefined
         || options.trackColor !== undefined
         || options.labelColor !== undefined;
@@ -86,6 +87,7 @@ function buildMeterStyle(options: MeterOptions | undefined): ExprType<MeterStyle
 
     return East.value({
         thickness: thicknessValue ? some(thicknessValue) : none,
+        borderRadius: options.borderRadius !== undefined ? some(options.borderRadius) : none,
         fillColor: options.fillColor !== undefined ? some(options.fillColor) : none,
         trackColor: options.trackColor !== undefined ? some(options.trackColor) : none,
         labelColor: options.labelColor !== undefined ? some(options.labelColor) : none,

@@ -51,6 +51,7 @@ export const EastChakraMeter = memo(function EastChakraMeter({ value, storageKey
 
     const thicknessTag = style ? getSomeorUndefined(style.thickness)?.type ?? "sm" : "sm";
     const height = THICKNESS_PX[thicknessTag] ?? "4px";
+    const borderRadius = (style && getSomeorUndefined(style.borderRadius)) ?? "sm";
     const fillColor = (style && getSomeorUndefined(style.fillColor))
         ?? (tone ? TONE_FILL[tone] : "blue.500");
     const trackColor = (style && getSomeorUndefined(style.trackColor)) ?? "gray.100";
@@ -65,7 +66,7 @@ export const EastChakraMeter = memo(function EastChakraMeter({ value, storageKey
             width="full"
             height={height}
             bg={trackColor}
-            borderRadius="full"
+            borderRadius={borderRadius}
             overflow="hidden"
         >
             <Box
@@ -75,7 +76,7 @@ export const EastChakraMeter = memo(function EastChakraMeter({ value, storageKey
                 bottom="0"
                 width={percent}
                 bg={fillColor}
-                borderRadius="full"
+                borderRadius={borderRadius}
             />
         </Box>
     );

@@ -54,6 +54,7 @@ export const EastChakraSegmentedMeter = memo(function EastChakraSegmentedMeter({
     const thicknessTag = style ? getSomeorUndefined(style.thickness)?.type ?? "sm" : "sm";
     const height = THICKNESS_PX[thicknessTag] ?? "6px";
     const labelsPos = style ? getSomeorUndefined(style.labels)?.type ?? "none" : "none";
+    const borderRadius = (style && getSomeorUndefined(style.borderRadius)) ?? "sm";
     const trackColor = (style && getSomeorUndefined(style.trackColor)) ?? "gray.100";
     const captionColor = style ? getSomeorUndefined(style.captionColor) : undefined;
     const labelColor = (style && getSomeorUndefined(style.labelColor)) ?? "white";
@@ -65,7 +66,7 @@ export const EastChakraSegmentedMeter = memo(function EastChakraSegmentedMeter({
     const residual = max - total;
 
     const bar = (
-        <Flex width="full" height={height} borderRadius="full" overflow="hidden">
+        <Flex width="full" height={height} borderRadius={borderRadius} overflow="hidden">
             {segments.map((seg: typeof segments[number], i: number) => {
                 const toneTag = getSomeorUndefined(seg.tone)?.type;
                 const color = getSomeorUndefined(seg.color)
