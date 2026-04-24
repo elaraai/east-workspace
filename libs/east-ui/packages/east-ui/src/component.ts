@@ -96,6 +96,7 @@ import { KbdType } from "./display/kbd/types.js";
 import { MeterStyleType } from "./display/meter/types.js";
 import { SegmentedMeterSegmentType, SegmentedMeterStyleType } from "./display/segmented-meter/types.js";
 import { BarStripStyleType, BarStripSortType } from "./display/bar-strip/types.js";
+import { AvatarGroupType } from "./display/avatar-group/types.js";
 import { StatusTokenType } from "./style/interaction.js";
 import { CardStyleType } from "./container/card/types.js";
 import { StateValueType } from "./contracts/states.js";
@@ -486,6 +487,7 @@ export const UIComponentType = RecursiveType(node => VariantType({
         maxItems: OptionType(IntegerType),
         style: OptionType(BarStripStyleType),
     }),
+    AvatarGroup: AvatarGroupType,
 
     // Container
     Card: StructType({

@@ -72,3 +72,9 @@ export {
     type BarStripValue,
     type EastChakraBarStripProps,
 } from "./bar-strip/index.js";
+
+export {
+    EastChakraAvatarGroup,
+    type AvatarGroupValue,
+    type EastChakraAvatarGroupProps,
+} from "./avatar-group/index.js";

@@ -14,3 +14,4 @@ export { Kbd } from "./kbd/index.js";
 export { Meter } from "./meter/index.js";
 export { SegmentedMeter } from "./segmented-meter/index.js";
 export { BarStrip } from "./bar-strip/index.js";
+export { AvatarGroup } from "./avatar-group/index.js";
