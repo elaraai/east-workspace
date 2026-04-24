@@ -179,7 +179,7 @@ describe("TreeView", (test) => {
             selectionMode: "single",
         }));
 
-        $(Assert.equal(tree.unwrap().unwrap("TreeView").style.unwrap("some").selectionMode.unwrap("some").hasTag("single"), true));
+        $(Assert.equal(tree.unwrap().unwrap("TreeView").selectionMode.unwrap("some").hasTag("single"), true));
     });
 
     test("creates tree view with multiple selection mode", $ => {
@@ -189,7 +189,32 @@ describe("TreeView", (test) => {
             selectionMode: "multiple",
         }));
 
-        $(Assert.equal(tree.unwrap().unwrap("TreeView").style.unwrap("some").selectionMode.unwrap("some").hasTag("multiple"), true));
+        $(Assert.equal(tree.unwrap().unwrap("TreeView").selectionMode.unwrap("some").hasTag("multiple"), true));
+    });
+
+    // =========================================================================
+    // TreeView.Root - Colour escape hatches
+    // =========================================================================
+
+    test("creates tree view with colour escape hatches", $ => {
+        const tree = $.let(TreeView.Root([
+            TreeView.Item("file1", "index.ts"),
+        ], {
+            itemColor: "gray.800",
+            itemHoverBackground: "gray.100",
+            selectedBackground: "blue.50",
+            selectedColor: "blue.900",
+            caretColor: "gray.500",
+            connectorColor: "gray.300",
+        }));
+
+        const style = tree.unwrap().unwrap("TreeView").style.unwrap("some");
+        $(Assert.equal(style.itemColor.unwrap("some"), "gray.800"));
+        $(Assert.equal(style.itemHoverBackground.unwrap("some"), "gray.100"));
+        $(Assert.equal(style.selectedBackground.unwrap("some"), "blue.50"));
+        $(Assert.equal(style.selectedColor.unwrap("some"), "blue.900"));
+        $(Assert.equal(style.caretColor.unwrap("some"), "gray.500"));
+        $(Assert.equal(style.connectorColor.unwrap("some"), "gray.300"));
     });
 
     // =========================================================================

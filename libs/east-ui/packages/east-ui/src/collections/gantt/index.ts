@@ -11,11 +11,14 @@ import {
     StructType,
     ArrayType,
     DictType,
-    StringType, OptionType,
+    StringType,
+    OptionType,
     DateTimeType,
     FloatType,
     variant,
-
+    BooleanType,
+    IntegerType,
+    NullType,
     type TypeOf,
     some,
     none,
@@ -26,6 +29,12 @@ import {
     FunctionType,
     isTypeValueEqual,
 } from "@elaraai/east";
+import {
+    TableCellClickEventType,
+    TableRowClickEventType,
+    TableSortEventType,
+} from "../table/types.js";
+import { TimeStepType } from "./types.js";
 
 import { ColorSchemeType } from "../../style.js";
 import { UIComponentType } from "../../component.js";
@@ -52,6 +61,7 @@ import {
     GanttMilestoneClickEventType,
     GanttMilestoneDragEventType,
 } from "./types.js";
+import { StatusTokenType } from "../../style/interaction.js";
 
 // Re-export types
 export {
@@ -91,20 +101,58 @@ export type GanttRowType = typeof GanttRowType;
 // ============================================================================
 
 /**
- * Type for Gantt component data.
+ * Standalone East StructType mirror of the inline `Gantt` variant in
+ * `component.ts`.
  *
  * @remarks
- * Gantt displays rows with time-based events (tasks and milestones).
- * The time range is derived from the events' domain.
+ * Per §0.10, main carries content (`rows` / `columns` / `frozen`),
+ * config (`interactive` / `dragStep` / `durationStep`), structured
+ * state (`rowStatus`), and behaviour (callbacks); `style` carries
+ * visual fields only.
  *
  * @property rows - Array of Gantt rows
  * @property columns - Array of column definitions (same as Table)
- * @property style - Optional styling configuration
+ * @property frozen - Column keys to freeze (pin left)
+ * @property interactive - Row hover highlight toggle
+ * @property dragStep - Drag-snap time step
+ * @property durationStep - Duration-change snap step
+ * @property rowStatus - Row-status callback: `(rowIndex) => StatusToken`
+ * @property onCellClick - Cell click callback
+ * @property onCellDoubleClick - Cell double-click callback
+ * @property onRowClick - Row click callback
+ * @property onRowDoubleClick - Row double-click callback
+ * @property onSortChange - Sort change callback
+ * @property onTaskClick - Task click callback
+ * @property onTaskDoubleClick - Task double-click callback
+ * @property onTaskDrag - Task drag callback
+ * @property onTaskDurationChange - Task duration change callback
+ * @property onTaskProgressChange - Task progress change callback
+ * @property onMilestoneClick - Milestone click callback
+ * @property onMilestoneDoubleClick - Milestone double-click callback
+ * @property onMilestoneDrag - Milestone drag callback
+ * @property style - Optional visual style sub-struct
  */
 export const GanttRootType = StructType({
     rows: ArrayType(GanttRowType),
     columns: ArrayType(TableColumnType),
     frozen: ArrayType(StringType),
+    interactive: OptionType(BooleanType),
+    dragStep: OptionType(TimeStepType),
+    durationStep: OptionType(TimeStepType),
+    rowStatus: OptionType(FunctionType([IntegerType], StatusTokenType)),
+    onCellClick: OptionType(FunctionType([TableCellClickEventType], NullType)),
+    onCellDoubleClick: OptionType(FunctionType([TableCellClickEventType], NullType)),
+    onRowClick: OptionType(FunctionType([TableRowClickEventType], NullType)),
+    onRowDoubleClick: OptionType(FunctionType([TableRowClickEventType], NullType)),
+    onSortChange: OptionType(FunctionType([TableSortEventType], NullType)),
+    onTaskClick: OptionType(FunctionType([GanttTaskClickEventType], NullType)),
+    onTaskDoubleClick: OptionType(FunctionType([GanttTaskClickEventType], NullType)),
+    onTaskDrag: OptionType(FunctionType([GanttTaskDragEventType], NullType)),
+    onTaskDurationChange: OptionType(FunctionType([GanttTaskDurationChangeEventType], NullType)),
+    onTaskProgressChange: OptionType(FunctionType([GanttTaskProgressChangeEventType], NullType)),
+    onMilestoneClick: OptionType(FunctionType([GanttMilestoneClickEventType], NullType)),
+    onMilestoneDoubleClick: OptionType(FunctionType([GanttMilestoneClickEventType], NullType)),
+    onMilestoneDrag: OptionType(FunctionType([GanttMilestoneDragEventType], NullType)),
     style: OptionType(GanttStyleType),
 });
 
@@ -132,6 +180,14 @@ export interface TaskInput {
     label?: SubtypeExprOrValue<StringType>;
     progress?: SubtypeExprOrValue<FloatType>;
     colorPalette?: SubtypeExprOrValue<ColorSchemeType> | string;
+    /** Explicit fill colour for the task bar. */
+    background?: SubtypeExprOrValue<StringType>;
+    /** Explicit stroke/border colour. */
+    stroke?: SubtypeExprOrValue<StringType>;
+    /** Explicit colour for the task label. */
+    labelColor?: SubtypeExprOrValue<StringType>;
+    /** Explicit fill colour for the progress segment. */
+    progressFill?: SubtypeExprOrValue<StringType>;
 }
 
 /**
@@ -145,6 +201,12 @@ export interface MilestoneInput {
     date: SubtypeExprOrValue<DateTimeType>;
     label?: SubtypeExprOrValue<StringType>;
     colorPalette?: SubtypeExprOrValue<ColorSchemeType> | string;
+    /** Explicit fill colour for the milestone marker. */
+    fill?: SubtypeExprOrValue<StringType>;
+    /** Explicit stroke colour for the milestone marker. */
+    stroke?: SubtypeExprOrValue<StringType>;
+    /** Explicit colour for the milestone label. */
+    labelColor?: SubtypeExprOrValue<StringType>;
 }
 
 // ============================================================================
@@ -190,6 +252,10 @@ function createTask(input: TaskInput): ExprType<GanttEventType> {
         label: input.label ? variant("some", input.label) : variant("none", null),
         progress: input.progress ? variant("some", input.progress) : variant("none", null),
         colorPalette: colorPaletteValue ? variant("some", colorPaletteValue) : variant("none", null),
+        background: input.background !== undefined ? some(input.background) : none,
+        stroke: input.stroke !== undefined ? some(input.stroke) : none,
+        labelColor: input.labelColor !== undefined ? some(input.labelColor) : none,
+        progressFill: input.progressFill !== undefined ? some(input.progressFill) : none,
     }), GanttEventType);
 }
 
@@ -228,6 +294,9 @@ function createMilestone(input: MilestoneInput): ExprType<GanttEventType> {
         date: input.date,
         label: input.label ? variant("some", input.label) : variant("none", null),
         colorPalette: colorPaletteValue ? variant("some", colorPaletteValue) : variant("none", null),
+        fill: input.fill !== undefined ? some(input.fill) : none,
+        stroke: input.stroke !== undefined ? some(input.stroke) : none,
+        labelColor: input.labelColor !== undefined ? some(input.labelColor) : none,
     }), GanttEventType);
 }
 
@@ -442,37 +511,59 @@ function createGantt<
             : style.colorPalette)
         : undefined;
 
-    const styleValue = style ? East.value({
-        height: style.height ? some(style.height) : none,
+    const hasStyle = !!style && (
+        style.height !== undefined ||
+        style.variant !== undefined ||
+        style.size !== undefined ||
+        style.striped !== undefined ||
+        style.stickyHeader !== undefined ||
+        style.showColumnBorder !== undefined ||
+        style.colorPalette !== undefined ||
+        style.showToday !== undefined ||
+        (style as any).gridColor !== undefined ||
+        (style as any).todayMarkerColor !== undefined ||
+        (style as any).headerBackground !== undefined ||
+        (style as any).headerColor !== undefined
+    );
+
+    const styleValue = hasStyle ? East.value({
+        height: style!.height ? some(style!.height) : none,
         variant: variantValue ? some(variantValue) : none,
         size: sizeValue ? some(sizeValue) : none,
-        striped: style.striped !== undefined ? some(style.striped) : none,
-        interactive: style.interactive !== undefined ? some(style.interactive) : none,
-        stickyHeader: style.stickyHeader !== undefined ? some(style.stickyHeader) : none,
-        showColumnBorder: style.showColumnBorder !== undefined ? some(style.showColumnBorder) : none,
+        striped: style!.striped !== undefined ? some(style!.striped) : none,
+        stickyHeader: style!.stickyHeader !== undefined ? some(style!.stickyHeader) : none,
+        showColumnBorder: style!.showColumnBorder !== undefined ? some(style!.showColumnBorder) : none,
         colorPalette: colorPaletteValue ? some(colorPaletteValue) : none,
-        showToday: style.showToday !== undefined ? some(style.showToday) : none,
-        dragStep: style.dragStep ? some(style.dragStep) : none,
-        durationStep: style.durationStep ? some(style.durationStep) : none,
-        onCellClick: style.onCellClick ? some(style.onCellClick) : none,
-        onCellDoubleClick: style.onCellDoubleClick ? some(style.onCellDoubleClick) : none,
-        onRowClick: style.onRowClick ? some(style.onRowClick) : none,
-        onRowDoubleClick: style.onRowDoubleClick ? some(style.onRowDoubleClick) : none,
-        onSortChange: style.onSortChange ? some(style.onSortChange) : none,
-        onTaskClick: style.onTaskClick ? some(style.onTaskClick) : none,
-        onTaskDoubleClick: style.onTaskDoubleClick ? some(style.onTaskDoubleClick) : none,
-        onTaskDrag: style.onTaskDrag ? some(style.onTaskDrag) : none,
-        onTaskDurationChange: style.onTaskDurationChange ? some(style.onTaskDurationChange) : none,
-        onTaskProgressChange: style.onTaskProgressChange ? some(style.onTaskProgressChange) : none,
-        onMilestoneClick: style.onMilestoneClick ? some(style.onMilestoneClick) : none,
-        onMilestoneDoubleClick: style.onMilestoneDoubleClick ? some(style.onMilestoneDoubleClick) : none,
-        onMilestoneDrag: style.onMilestoneDrag ? some(style.onMilestoneDrag) : none,
+        showToday: style!.showToday !== undefined ? some(style!.showToday) : none,
+        gridColor: (style as any)?.gridColor !== undefined ? some((style as any).gridColor) : none,
+        todayMarkerColor: (style as any)?.todayMarkerColor !== undefined ? some((style as any).todayMarkerColor) : none,
+        headerBackground: (style as any)?.headerBackground !== undefined ? some((style as any).headerBackground) : none,
+        headerColor: (style as any)?.headerColor !== undefined ? some((style as any).headerColor) : none,
     }, GanttStyleType) : undefined;
 
     return East.value(variant("Gantt", {
         rows: rows_mapped,
         columns: columns_expr,
         frozen: frozen_expr,
+        interactive: style?.interactive !== undefined ? some(style.interactive) : none,
+        dragStep: style?.dragStep ? some(style.dragStep) : none,
+        durationStep: style?.durationStep ? some(style.durationStep) : none,
+        rowStatus: (style as any)?.rowStatus !== undefined
+            ? some((style as any).rowStatus as SubtypeExprOrValue<FunctionType<[typeof import("@elaraai/east").IntegerType], typeof StatusTokenType>>)
+            : none,
+        onCellClick: style?.onCellClick ? some(style.onCellClick) : none,
+        onCellDoubleClick: style?.onCellDoubleClick ? some(style.onCellDoubleClick) : none,
+        onRowClick: style?.onRowClick ? some(style.onRowClick) : none,
+        onRowDoubleClick: style?.onRowDoubleClick ? some(style.onRowDoubleClick) : none,
+        onSortChange: style?.onSortChange ? some(style.onSortChange) : none,
+        onTaskClick: style?.onTaskClick ? some(style.onTaskClick) : none,
+        onTaskDoubleClick: style?.onTaskDoubleClick ? some(style.onTaskDoubleClick) : none,
+        onTaskDrag: style?.onTaskDrag ? some(style.onTaskDrag) : none,
+        onTaskDurationChange: style?.onTaskDurationChange ? some(style.onTaskDurationChange) : none,
+        onTaskProgressChange: style?.onTaskProgressChange ? some(style.onTaskProgressChange) : none,
+        onMilestoneClick: style?.onMilestoneClick ? some(style.onMilestoneClick) : none,
+        onMilestoneDoubleClick: style?.onMilestoneDoubleClick ? some(style.onMilestoneDoubleClick) : none,
+        onMilestoneDrag: style?.onMilestoneDrag ? some(style.onMilestoneDrag) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }

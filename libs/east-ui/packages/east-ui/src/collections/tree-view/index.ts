@@ -12,8 +12,12 @@ import {
     ArrayType,
     StringType,
     BooleanType,
+    FunctionType,
+    NullType,
     RecursiveType,
     variant,
+    some,
+    none,
     VariantType,
 } from "@elaraai/east";
 
@@ -56,10 +60,8 @@ export {
  * Each node has a value (unique identifier), label (display text),
  * optional indicator icon, and children.
  *
- * @property value - Unique identifier for the node
- * @property label - Display text for the node
- * @property indicator - Optional icon to display before the label
- * @property children - Array of child nodes
+ * @property Item - Leaf node variant with value, label and indicator
+ * @property Branch - Expandable node with value, label, indicator, children and disabled state
  */
 export const TreeNodeType = RecursiveType(self => VariantType({
     Item: StructType({
@@ -72,8 +74,8 @@ export const TreeNodeType = RecursiveType(self => VariantType({
         label: StringType,
         indicator: OptionType(IconType),
         children: ArrayType(self),
-        disabled: OptionType(BooleanType)
-    })
+        disabled: OptionType(BooleanType),
+    }),
 }));
 
 /**
@@ -111,8 +113,9 @@ export type TreeItemNodeType = typeof TreeItemNodeType;
  * East StructType for a branch tree node (Branch).
  *
  * @remarks
- * Branches are expandable nodes that can contain child nodes (Items or other Branches).
- * Use {@link TreeView.Branch} factory function to create Branch nodes.
+ * Branches are expandable nodes that can contain child nodes (Items or
+ * other Branches). Use {@link TreeView.Branch} factory function to
+ * create Branch nodes.
  *
  * @property value - Unique identifier for the node
  * @property label - Display text for the node
@@ -138,22 +141,48 @@ export type TreeBranchNodeType = typeof TreeBranchNodeType;
 // ============================================================================
 
 /**
- * East type for the complete tree view structure.
+ * Standalone East StructType mirror of the inline `TreeView` variant in
+ * `component.ts`.
  *
  * @remarks
- * Contains the tree nodes, optional label, and styling configuration.
+ * Per the §0.10 main/style type-shape convention, content (`nodes`),
+ * labels (`label`), initial state (`defaultExpandedValue` /
+ * `defaultSelectedValue`), config (`selectionMode`), wiring
+ * (`animateContent`), and behaviour (callbacks) live on the main
+ * struct; only visual fields live under `style`.
  *
  * @property nodes - Array of root-level tree nodes
- * @property label - Optional label for the tree view
+ * @property label - Optional accessible label for the tree view
  * @property defaultExpandedValue - Initially expanded node values
  * @property defaultSelectedValue - Initially selected node values
- * @property style - Optional styling configuration
+ * @property selectionMode - Selection behaviour (single / multiple)
+ * @property animateContent - Whether to animate expand/collapse transitions
+ * @property onExpandedChange - Callback fired when the expanded node set changes
+ * @property onSelectionChange - Callback fired when the selected node set changes
+ * @property onFocusChange - Callback fired when the focused node changes
+ * @property style - Optional visual style sub-struct
  */
-export const TreeViewRootType = StructType({
+export const TreeViewRootType: StructType<{
+    nodes: ArrayType<TreeNodeType>,
+    label: OptionType<StringType>,
+    defaultExpandedValue: OptionType<ArrayType<StringType>>,
+    defaultSelectedValue: OptionType<ArrayType<StringType>>,
+    selectionMode: OptionType<TreeViewSelectionModeType>,
+    animateContent: OptionType<BooleanType>,
+    onExpandedChange: OptionType<FunctionType<[ArrayType<StringType>], NullType>>,
+    onSelectionChange: OptionType<FunctionType<[ArrayType<StringType>], NullType>>,
+    onFocusChange: OptionType<FunctionType<[OptionType<StringType>], NullType>>,
+    style: OptionType<TreeViewStyleType>,
+}> = StructType({
     nodes: ArrayType(TreeNodeType),
     label: OptionType(StringType),
     defaultExpandedValue: OptionType(ArrayType(StringType)),
     defaultSelectedValue: OptionType(ArrayType(StringType)),
+    selectionMode: OptionType(TreeViewSelectionModeType),
+    animateContent: OptionType(BooleanType),
+    onExpandedChange: OptionType(FunctionType([ArrayType(StringType)], NullType)),
+    onSelectionChange: OptionType(FunctionType([ArrayType(StringType)], NullType)),
+    onFocusChange: OptionType(FunctionType([OptionType(StringType)], NullType)),
     style: OptionType(TreeViewStyleType),
 });
 
@@ -163,86 +192,65 @@ export const TreeViewRootType = StructType({
 export type TreeViewRootType = typeof TreeViewRootType;
 
 // ============================================================================
-// TreeNode Input Interface
-// ============================================================================
-
-/**
- * TypeScript interface for creating tree nodes.
- *
- * @remarks
- * Provides a convenient way to create tree node structures.
- *
- * @property value - Unique identifier for the node
- * @property label - Display text for the node
- * @property indicator - Optional icon to display before the label
- * @property children - Optional array of child nodes
- */
-export interface TreeNodeInput {
-    value: SubtypeExprOrValue<typeof StringType>;
-    label: SubtypeExprOrValue<typeof StringType>;
-    indicator?: SubtypeExprOrValue<typeof IconType>;
-    children?: TreeNodeInput[];
-}
-
-// ============================================================================
-// TreeNode Factory
+// TreeNode Factory helpers
 // ============================================================================
 
 /**
  * Indicator icon configuration for tree nodes.
- * Extends IconStyle so styling properties are at the top level.
+ *
+ * @remarks
+ * Extends {@link IconStyle} so styling properties are at the top level
+ * of the object.
  */
 export interface TreeNodeIndicator extends IconStyle {
-    /** Font Awesome icon prefix (e.g., "fas", "far", "fab") */
+    /** Font Awesome icon prefix (e.g., "fas", "far", "fab"). */
     prefix: IconPrefix;
-    /** Font Awesome icon name (e.g., "folder", "file", "file-code") */
+    /** Font Awesome icon name (e.g., "folder", "file", "file-code"). */
     name: IconName;
 }
 
-/**
- * Helper to build indicator option value.
- */
 function buildIndicatorValue(indicator?: TreeNodeIndicator) {
-    if (!indicator) return variant("none", null);
+    if (!indicator) return none;
+    const hasStyle = !!(indicator.size || indicator.variant || indicator.color || indicator.colorPalette);
 
-    return variant("some", East.value({
+    return some(East.value({
         prefix: indicator.prefix,
         name: indicator.name,
-        label: variant("none", null),
-        style: (indicator.size || indicator.variant || indicator.color || indicator.colorPalette)
-            ? variant("some", East.value({
+        label: none,
+        style: hasStyle
+            ? some(East.value({
                 size: indicator.size
-                    ? variant("some", typeof indicator.size === "string"
+                    ? some(typeof indicator.size === "string"
                         ? East.value(variant(indicator.size, null), IconSizeType)
                         : indicator.size)
-                    : variant("none", null),
+                    : none,
                 variant: indicator.variant
-                    ? variant("some", typeof indicator.variant === "string"
+                    ? some(typeof indicator.variant === "string"
                         ? East.value(variant(indicator.variant, null), IconVariantType)
                         : indicator.variant)
-                    : variant("none", null),
-                color: indicator.color ? variant("some", indicator.color) : variant("none", null),
-                background: variant("none", null),
+                    : none,
+                color: indicator.color ? some(indicator.color) : none,
+                background: none,
                 colorPalette: indicator.colorPalette
-                    ? variant("some", typeof indicator.colorPalette === "string"
+                    ? some(typeof indicator.colorPalette === "string"
                         ? East.value(variant(indicator.colorPalette, null), ColorSchemeType)
                         : indicator.colorPalette)
-                    : variant("none", null),
-                opacity: variant("none", null),
-                borderRadius: variant("none", null),
-                overflow: variant("none", null),
-                overflowX: variant("none", null),
-                overflowY: variant("none", null),
-                width: variant("none", null),
-                height: variant("none", null),
-                minWidth: variant("none", null),
-                minHeight: variant("none", null),
-                maxWidth: variant("none", null),
-                maxHeight: variant("none", null),
-                padding: variant("none", null),
-                margin: variant("none", null),
+                    : none,
+                opacity: none,
+                borderRadius: none,
+                overflow: none,
+                overflowX: none,
+                overflowY: none,
+                width: none,
+                height: none,
+                minWidth: none,
+                minHeight: none,
+                maxWidth: none,
+                maxHeight: none,
+                padding: none,
+                margin: none,
             }, IconStyleType))
-            : variant("none", null),
+            : none,
     }, IconType));
 }
 
@@ -267,10 +275,10 @@ function buildIndicatorValue(indicator?: TreeNodeIndicator) {
  * });
  * ```
  */
-function TreeItem(
-    value: SubtypeExprOrValue<typeof StringType>,
-    label: SubtypeExprOrValue<typeof StringType>,
-    indicator?: TreeNodeIndicator
+function createTreeItem(
+    value: SubtypeExprOrValue<StringType>,
+    label: SubtypeExprOrValue<StringType>,
+    indicator?: TreeNodeIndicator,
 ): ExprType<TreeNodeType> {
     return East.value(variant("Item", {
         value: value,
@@ -306,20 +314,60 @@ function TreeItem(
  * });
  * ```
  */
-function TreeBranch(
-    value: SubtypeExprOrValue<typeof StringType>,
-    label: SubtypeExprOrValue<typeof StringType>,
+function createTreeBranch(
+    value: SubtypeExprOrValue<StringType>,
+    label: SubtypeExprOrValue<StringType>,
     children: SubtypeExprOrValue<ArrayType<TreeNodeType>>,
     indicator?: TreeNodeIndicator,
-    disabled?: SubtypeExprOrValue<typeof BooleanType>
+    disabled?: SubtypeExprOrValue<BooleanType>,
 ): ExprType<TreeNodeType> {
     return East.value(variant("Branch", {
         value: value,
         label: label,
         indicator: buildIndicatorValue(indicator),
         children: children,
-        disabled: disabled !== undefined ? variant("some", disabled) : variant("none", null),
+        disabled: disabled !== undefined ? some(disabled) : none,
     }), TreeNodeType);
+}
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+function buildTreeViewStyle(options: TreeViewStyle | undefined): ExprType<TreeViewStyleType> | undefined {
+    if (options === undefined) return undefined;
+    const hasAny = options.size !== undefined
+        || options.variant !== undefined
+        || options.itemColor !== undefined
+        || options.itemHoverBackground !== undefined
+        || options.selectedBackground !== undefined
+        || options.selectedColor !== undefined
+        || options.caretColor !== undefined
+        || options.connectorColor !== undefined;
+    if (!hasAny) return undefined;
+
+    const sizeValue = options.size !== undefined
+        ? (typeof options.size === "string"
+            ? East.value(variant(options.size, null), TreeViewSizeType)
+            : options.size)
+        : undefined;
+
+    const variantValue = options.variant !== undefined
+        ? (typeof options.variant === "string"
+            ? East.value(variant(options.variant, null), TreeViewVariantType)
+            : options.variant)
+        : undefined;
+
+    return East.value({
+        size: sizeValue ? some(sizeValue) : none,
+        variant: variantValue ? some(variantValue) : none,
+        itemColor: options.itemColor !== undefined ? some(options.itemColor) : none,
+        itemHoverBackground: options.itemHoverBackground !== undefined ? some(options.itemHoverBackground) : none,
+        selectedBackground: options.selectedBackground !== undefined ? some(options.selectedBackground) : none,
+        selectedColor: options.selectedColor !== undefined ? some(options.selectedColor) : none,
+        caretColor: options.caretColor !== undefined ? some(options.caretColor) : none,
+        connectorColor: options.connectorColor !== undefined ? some(options.connectorColor) : none,
+    }, TreeViewStyleType);
 }
 
 // ============================================================================
@@ -327,11 +375,20 @@ function TreeBranch(
 // ============================================================================
 
 /**
- * Creates a TreeView component with nodes and styling.
+ * Creates a TreeView component with nodes, config, behaviour and styling.
  *
  * @param nodes - Array of root-level tree nodes (Item or Branch)
- * @param style - Optional styling and configuration
- * @returns An East expression representing the tree view
+ * @param options - Flat options bag covering main-struct (selection /
+ * callbacks / initial state) and visual style fields; the factory
+ * splits them internally.
+ * @returns An East expression of type `UIComponentType`
+ *
+ * @remarks
+ * Per the §0.10 main/style type-shape convention, visual fields
+ * (`size`, `variant`, colour overrides) populate the `style`
+ * sub-struct; everything else (`selectionMode`, `animateContent`,
+ * `defaultExpandedValue`, `label`, and the three callbacks) populates
+ * the main `TreeView` variant.
  *
  * @example
  * ```ts
@@ -348,67 +405,36 @@ function TreeBranch(
  *     ], {
  *         variant: "subtle",
  *         size: "sm",
+ *         selectionMode: "single",
  *     });
  * });
  * ```
  */
-function TreeViewRoot(
+function createTreeView(
     nodes: SubtypeExprOrValue<ArrayType<TreeNodeType>>,
-    style?: TreeViewStyle
+    options?: TreeViewStyle,
 ): ExprType<UIComponentType> {
-    const nodes_expr = East.value(nodes, ArrayType(TreeNodeType));
-    const sizeValue = style?.size
-        ? (typeof style.size === "string"
-            ? East.value(variant(style.size, null), TreeViewSizeType)
-            : style.size)
+    const nodesExpr = East.value(nodes, ArrayType(TreeNodeType));
+
+    const selectionModeValue = options?.selectionMode !== undefined
+        ? (typeof options.selectionMode === "string"
+            ? East.value(variant(options.selectionMode, null), TreeViewSelectionModeType)
+            : options.selectionMode)
         : undefined;
 
-    const variantValue = style?.variant
-        ? (typeof style.variant === "string"
-            ? East.value(variant(style.variant, null), TreeViewVariantType)
-            : style.variant)
-        : undefined;
-
-    const selectionModeValue = style?.selectionMode
-        ? (typeof style.selectionMode === "string"
-            ? East.value(variant(style.selectionMode, null), TreeViewSelectionModeType)
-            : style.selectionMode)
-        : undefined;
-
-    const toBoolOption = (value: SubtypeExprOrValue<typeof BooleanType> | undefined) => {
-        if (value === undefined) return variant("none", null);
-        return variant("some", value);
-    };
-
-    const toArrayOption = (value: SubtypeExprOrValue<ArrayType<typeof StringType>> | undefined) => {
-        if (value === undefined) return variant("none", null);
-        return variant("some", value);
-    };
-
-    const hasStyle = style && (
-        style.size !== undefined ||
-        style.variant !== undefined ||
-        style.selectionMode !== undefined ||
-        style.animateContent !== undefined ||
-        style.onExpandedChange !== undefined ||
-        style.onSelectionChange !== undefined ||
-        style.onFocusChange !== undefined
-    );
+    const styleValue = buildTreeViewStyle(options);
 
     return East.value(variant("TreeView", {
-        nodes: nodes_expr,
-        label: style?.label ? variant("some", style.label) : variant("none", null),
-        defaultExpandedValue: toArrayOption(style?.defaultExpandedValue),
-        defaultSelectedValue: toArrayOption(style?.defaultSelectedValue),
-        style: hasStyle ? variant("some", East.value({
-            size: sizeValue ? variant("some", sizeValue) : variant("none", null),
-            variant: variantValue ? variant("some", variantValue) : variant("none", null),
-            selectionMode: selectionModeValue ? variant("some", selectionModeValue) : variant("none", null),
-            animateContent: toBoolOption(style?.animateContent),
-            onExpandedChange: style?.onExpandedChange ? variant("some", style.onExpandedChange) : variant("none", null),
-            onSelectionChange: style?.onSelectionChange ? variant("some", style.onSelectionChange) : variant("none", null),
-            onFocusChange: style?.onFocusChange ? variant("some", style.onFocusChange) : variant("none", null),
-        }, TreeViewStyleType)) : variant("none", null),
+        nodes: nodesExpr,
+        label: options?.label !== undefined ? some(options.label) : none,
+        defaultExpandedValue: options?.defaultExpandedValue !== undefined ? some(options.defaultExpandedValue) : none,
+        defaultSelectedValue: options?.defaultSelectedValue !== undefined ? some(options.defaultSelectedValue) : none,
+        selectionMode: selectionModeValue ? some(selectionModeValue) : none,
+        animateContent: options?.animateContent !== undefined ? some(options.animateContent) : none,
+        onExpandedChange: options?.onExpandedChange !== undefined ? some(options.onExpandedChange) : none,
+        onSelectionChange: options?.onSelectionChange !== undefined ? some(options.onSelectionChange) : none,
+        onFocusChange: options?.onFocusChange !== undefined ? some(options.onFocusChange) : none,
+        style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
 
@@ -416,24 +442,38 @@ function TreeViewRoot(
 // TreeView Namespace Export
 // ============================================================================
 
+interface TreeViewNamespace {
+    Root: typeof createTreeView;
+    Item: typeof createTreeItem;
+    Branch: typeof createTreeBranch;
+    Types: {
+        Root: typeof TreeViewRootType;
+        Node: typeof TreeNodeType;
+        ItemNode: typeof TreeItemNodeType;
+        BranchNode: typeof TreeBranchNodeType;
+        Style: typeof TreeViewStyleType;
+        Variant: typeof TreeViewVariantType;
+        Size: typeof TreeViewSizeType;
+        SelectionMode: typeof TreeViewSelectionModeType;
+    };
+}
+
 /**
- * TreeView compound component for hierarchical data display.
+ * TreeView — hierarchical data display with expand/collapse and selection.
  *
  * @remarks
- * TreeView displays hierarchical data structures in an expandable tree format.
- * Use TreeView.Item for leaf nodes and TreeView.Branch for expandable nodes.
+ * Use `TreeView.Item` for leaf nodes and `TreeView.Branch` for
+ * expandable nodes. Per §0.10, selection behaviour and callbacks live
+ * on the main struct while visual styling lives under the `style`
+ * sub-struct.
  */
-export const TreeView = {
+export const TreeView: TreeViewNamespace = {
     /**
-     * Creates a TreeView component with nodes and styling.
+     * Creates a TreeView component with nodes, config, behaviour and styling.
      *
      * @param nodes - Array of root-level tree nodes (Item or Branch)
-     * @param style - Optional styling and configuration
-     * @returns An East expression representing the tree view
-     *
-     * @remarks
-     * TreeView displays hierarchical data structures in an expandable tree format.
-     * Use TreeView.Item for leaf nodes and TreeView.Branch for expandable nodes.
+     * @param options - Flat options bag; factory splits into main + style
+     * @returns An East expression of type `UIComponentType`
      *
      * @example
      * ```ts
@@ -454,7 +494,7 @@ export const TreeView = {
      * });
      * ```
      */
-    Root: TreeViewRoot,
+    Root: createTreeView,
     /**
      * Creates a leaf tree node (Item) with no children.
      *
@@ -462,10 +502,6 @@ export const TreeView = {
      * @param label - Display text for the node
      * @param indicator - Optional indicator icon with prefix, name, and styling
      * @returns An East expression representing the tree item
-     *
-     * @remarks
-     * Items are leaf nodes in the tree hierarchy that cannot have children.
-     * Use within TreeView.Root or as children of TreeView.Branch.
      *
      * @example
      * ```ts
@@ -480,7 +516,7 @@ export const TreeView = {
      * });
      * ```
      */
-    Item: TreeItem,
+    Item: createTreeItem,
     /**
      * Creates a branch tree node that can contain children.
      *
@@ -490,10 +526,6 @@ export const TreeView = {
      * @param indicator - Optional indicator icon with prefix, name, and styling
      * @param disabled - Whether the branch is disabled
      * @returns An East expression representing the tree branch
-     *
-     * @remarks
-     * Branches are expandable nodes that can contain child nodes (Items or other Branches).
-     * Use within TreeView.Root or as children of other TreeView.Branch nodes.
      *
      * @example
      * ```ts
@@ -512,87 +544,89 @@ export const TreeView = {
      * });
      * ```
      */
-    Branch: TreeBranch,
+    Branch: createTreeBranch,
     Types: {
         /**
-         * East type for the complete tree view structure.
+         * Standalone East StructType mirror of the inline `TreeView`
+         * variant in `component.ts`.
          *
          * @remarks
-         * Contains the tree nodes, optional label, and styling configuration.
+         * Per §0.10, main carries content / state / behaviour; `style`
+         * carries visual fields only.
          *
          * @property nodes - Array of root-level tree nodes
-         * @property label - Optional label for the tree view
+         * @property label - Optional accessible label
          * @property defaultExpandedValue - Initially expanded node values
          * @property defaultSelectedValue - Initially selected node values
-         * @property style - Optional styling configuration
+         * @property selectionMode - Selection behaviour (single / multiple)
+         * @property animateContent - Whether to animate expand/collapse
+         * @property onExpandedChange - Expanded-set change callback
+         * @property onSelectionChange - Selection-set change callback
+         * @property onFocusChange - Focus change callback
+         * @property style - Optional visual style sub-struct
          */
         Root: TreeViewRootType,
         /**
-         * Recursive type for tree nodes.
+         * Recursive East variant type for tree nodes.
          *
          * @remarks
-         * Each node has a value (unique identifier), label (display text),
-         * optional indicator icon, and children.
+         * Union of `Item` (leaf) and `Branch` (expandable with
+         * children). Children are themselves `TreeNodeType`s.
          *
-         * @property value - Unique identifier for the node
-         * @property label - Display text for the node
-         * @property indicator - Optional icon to display before the label
-         * @property children - Array of child nodes
+         * @property Item - Leaf node (value, label, indicator)
+         * @property Branch - Expandable node with children + optional disabled flag
          */
         Node: TreeNodeType,
         /**
          * East StructType for a leaf tree node (Item).
          *
          * @remarks
-         * Items are leaf nodes in the tree hierarchy that cannot have children.
-         * Use {@link TreeView.Item} factory function to create Item nodes.
+         * Use {@link TreeView.Item} to create Item nodes.
          *
          * @property value - Unique identifier for the node
          * @property label - Display text for the node
-         * @property indicator - Optional icon to display before the label
+         * @property indicator - Optional icon shown before the label
          */
         ItemNode: TreeItemNodeType,
         /**
          * East StructType for a branch tree node (Branch).
          *
          * @remarks
-         * Branches are expandable nodes that can contain child nodes (Items or other Branches).
-         * Use {@link TreeView.Branch} factory function to create Branch nodes.
+         * Use {@link TreeView.Branch} to create Branch nodes.
          *
          * @property value - Unique identifier for the node
          * @property label - Display text for the node
-         * @property indicator - Optional icon to display before the label
-         * @property children - Array of child nodes (Items or Branches)
+         * @property indicator - Optional icon shown before the label
+         * @property children - Array of child nodes
          * @property disabled - Whether the branch is disabled
          */
         BranchNode: TreeBranchNodeType,
         /**
-         * Style type for the tree view root component.
+         * East StructType holding every visual field for a TreeView.
          *
          * @remarks
-         * All properties are optional and wrapped in {@link OptionType}.
+         * Visual-only per §0.10. Selection / wiring / callbacks live on
+         * the main struct.
          *
-         * @property size - Tree view size (xs, sm, md)
-         * @property variant - Visual variant (subtle or solid)
-         * @property selectionMode - Selection behavior (single or multiple)
-         * @property animateContent - Whether to animate expand/collapse
+         * @property size - Size preset (xs / sm / md)
+         * @property variant - Visual variant (subtle / solid)
+         * @property itemColor - Explicit text colour override for items
+         * @property itemHoverBackground - Explicit hover background override
+         * @property selectedBackground - Selected-node background override
+         * @property selectedColor - Selected-node text-colour override
+         * @property caretColor - Caret/chevron colour override
+         * @property connectorColor - Hierarchy-connector colour override
          */
         Style: TreeViewStyleType,
         /**
-         * TreeView variant type for visual styling.
+         * East VariantType for the TreeView visual variant.
          *
-         * @remarks
-         * Create instances using string literals or the variant function.
-         *
-         * @property subtle - Subtle background on hover/selection
-         * @property solid - Solid background on hover/selection
+         * @property subtle - Subtle background on hover / selection
+         * @property solid - Solid background on hover / selection
          */
         Variant: TreeViewVariantType,
         /**
-         * TreeView size type for controlling node sizing.
-         *
-         * @remarks
-         * TreeView uses its own size type (xs, sm, md) rather than the shared SizeType.
+         * East VariantType for the TreeView size preset.
          *
          * @property xs - Extra small size
          * @property sm - Small size
@@ -600,11 +634,11 @@ export const TreeView = {
          */
         Size: TreeViewSizeType,
         /**
-         * TreeView selection mode type.
+         * East VariantType for the TreeView selection mode.
          *
-         * @property single - Only one node can be selected at a time
+         * @property single - Only one node selected at a time
          * @property multiple - Multiple nodes can be selected
          */
         SelectionMode: TreeViewSelectionModeType,
     },
-} as const;
+};

@@ -14,7 +14,7 @@ import {
     FloatType,
     IntegerType,
     NullType,
-    FunctionType
+    FunctionType,
 } from "@elaraai/east";
 
 import { TableCellClickEventType, TableRowClickEventType, TableSortEventType } from "../table/types.js";
@@ -74,13 +74,20 @@ export type TimeStepType = typeof TimeStepType;
  * Task event data for Gantt charts.
  *
  * @remarks
- * Represents a task bar spanning from start to end date.
+ * Represents a task bar spanning from start to end date. Per-task
+ * colour escape hatches (`background`, `stroke`, `labelColor`,
+ * `progressFill`) let callers override the default
+ * `colorPalette`-derived palette without needing a theme change.
  *
  * @property start - Start date/time of the task
  * @property end - End date/time of the task
  * @property label - Optional label to display on the task bar
  * @property progress - Optional progress percentage (0-100)
  * @property colorPalette - Optional color scheme for the task bar
+ * @property background - Optional explicit fill colour for the task bar
+ * @property stroke - Optional explicit stroke/border colour
+ * @property labelColor - Optional explicit colour for the task label
+ * @property progressFill - Optional explicit fill colour for the progress segment
  */
 export const GanttTaskType = StructType({
     start: DateTimeType,
@@ -88,6 +95,10 @@ export const GanttTaskType = StructType({
     label: OptionType(StringType),
     progress: OptionType(FloatType),
     colorPalette: OptionType(ColorSchemeType),
+    background: OptionType(StringType),
+    stroke: OptionType(StringType),
+    labelColor: OptionType(StringType),
+    progressFill: OptionType(StringType),
 });
 
 /**
@@ -99,16 +110,24 @@ export type GanttTaskType = typeof GanttTaskType;
  * Milestone event data for Gantt charts.
  *
  * @remarks
- * Represents a single point in time milestone.
+ * Represents a single point in time milestone. Per-milestone colour
+ * escape hatches (`fill`, `stroke`, `labelColor`) let callers override
+ * the default `colorPalette`-derived palette.
  *
  * @property date - The date/time of the milestone
  * @property label - Optional label to display near the milestone
  * @property colorPalette - Optional color scheme for the milestone marker
+ * @property fill - Optional explicit fill colour for the milestone marker
+ * @property stroke - Optional explicit stroke colour for the milestone marker
+ * @property labelColor - Optional explicit colour for the milestone label
  */
 export const GanttMilestoneType = StructType({
     date: DateTimeType,
     label: OptionType(StringType),
     colorPalette: OptionType(ColorSchemeType),
+    fill: OptionType(StringType),
+    stroke: OptionType(StringType),
+    labelColor: OptionType(StringType),
 });
 
 /**
@@ -244,62 +263,38 @@ export const GanttMilestoneDragEventType = StructType({
 export type GanttMilestoneDragEventType = typeof GanttMilestoneDragEventType;
 
 /**
- * Style type for the Gantt component.
+ * Style type for the Gantt component — visual-only per §0.10.
  *
  * @remarks
- * All properties are optional and wrapped in {@link OptionType}.
- * Reuses table styling properties where applicable.
+ * Interactive / drag-config / callbacks live on the main `Gantt`
+ * variant in `component.ts`. This struct only carries visual fields.
  *
+ * @property height - CSS height for the Gantt container
  * @property variant - Table variant (line or outline)
  * @property size - Table size (sm, md, lg)
  * @property striped - Whether to show zebra stripes on rows
- * @property interactive - Whether to highlight rows on hover
  * @property stickyHeader - Whether the header sticks when scrolling
  * @property showColumnBorder - Whether to show borders between columns
  * @property colorPalette - Default color scheme for events
  * @property showToday - Whether to show a today marker line
- * @property onCellClick - Callback triggered when a cell is clicked
- * @property onCellDoubleClick - Callback triggered when a cell is double-clicked
- * @property onRowClick - Callback triggered when a row is clicked
- * @property onRowDoubleClick - Callback triggered when a row is double-clicked
- * @property onSortChange - Callback triggered when sorting changes
- * @property onTaskClick - Callback triggered when a task is clicked
- * @property onTaskDoubleClick - Callback triggered when a task is double-clicked
- * @property onTaskDrag - Callback triggered when a task is dragged/resized
- * @property onTaskDurationChange - Callback triggered when task duration changes (dragging task end)
- * @property onTaskProgressChange - Callback triggered when task progress changes
- * @property onMilestoneClick - Callback triggered when a milestone is clicked
- * @property onMilestoneDoubleClick - Callback triggered when a milestone is double-clicked
- * @property onMilestoneDrag - Callback triggered when a milestone is dragged
- * @property dragStep - Optional time step for drag snapping (e.g., variant("days", 1) for daily)
- * @property durationStep - Optional time step for duration change snapping
- *
+ * @property gridColor - Explicit colour for the timeline grid lines
+ * @property todayMarkerColor - Explicit colour for the today-marker line
+ * @property headerBackground - Explicit background for the header row
+ * @property headerColor - Explicit text colour for the header row
  */
 export const GanttStyleType = StructType({
     height: OptionType(StringType),
     variant: OptionType(TableVariantType),
     size: OptionType(TableSizeType),
     striped: OptionType(BooleanType),
-    interactive: OptionType(BooleanType),
     stickyHeader: OptionType(BooleanType),
     showColumnBorder: OptionType(BooleanType),
     colorPalette: OptionType(ColorSchemeType),
     showToday: OptionType(BooleanType),
-    dragStep: OptionType(TimeStepType),
-    durationStep: OptionType(TimeStepType),
-    onCellClick: OptionType(FunctionType([TableCellClickEventType], NullType)),
-    onCellDoubleClick: OptionType(FunctionType([TableCellClickEventType], NullType)),
-    onRowClick: OptionType(FunctionType([TableRowClickEventType], NullType)),
-    onRowDoubleClick: OptionType(FunctionType([TableRowClickEventType], NullType)),
-    onSortChange: OptionType(FunctionType([TableSortEventType], NullType)),
-    onTaskClick: OptionType(FunctionType([GanttTaskClickEventType], NullType)),
-    onTaskDoubleClick: OptionType(FunctionType([GanttTaskClickEventType], NullType)),
-    onTaskDrag: OptionType(FunctionType([GanttTaskDragEventType], NullType)),
-    onTaskDurationChange: OptionType(FunctionType([GanttTaskDurationChangeEventType], NullType)),
-    onTaskProgressChange: OptionType(FunctionType([GanttTaskProgressChangeEventType], NullType)),
-    onMilestoneClick: OptionType(FunctionType([GanttMilestoneClickEventType], NullType)),
-    onMilestoneDoubleClick: OptionType(FunctionType([GanttMilestoneClickEventType], NullType)),
-    onMilestoneDrag: OptionType(FunctionType([GanttMilestoneDragEventType], NullType)),
+    gridColor: OptionType(StringType),
+    todayMarkerColor: OptionType(StringType),
+    headerBackground: OptionType(StringType),
+    headerColor: OptionType(StringType),
 });
 
 /**
@@ -308,84 +303,102 @@ export const GanttStyleType = StructType({
 export type GanttStyleType = typeof GanttStyleType;
 
 /**
- * TypeScript interface for Gantt styling input.
+ * TypeScript interface for Gantt construction options.
  *
  * @remarks
- * Accepts both static values and East expressions.
+ * Flat options bag — the factory splits into main-struct (content /
+ * config / wiring / callbacks) and `style` sub-struct (visual-only)
+ * per §0.10.
  *
- * @property variant - Table variant (line or outline)
- * @property size - Table size (sm, md, lg)
- * @property striped - Whether to show zebra stripes on rows
- * @property interactive - Whether to highlight rows on hover
- * @property stickyHeader - Whether the header sticks when scrolling
- * @property showColumnBorder - Whether to show borders between columns
- * @property colorPalette - Default color scheme for events
- * @property showToday - Whether to show a today marker line
- * @property dragStep - Optional time step for drag snapping
- * @property durationStep - Optional time step for duration change snapping
- * @property onCellClick - Callback triggered when a cell is clicked
- * @property onCellDoubleClick - Callback triggered when a cell is double-clicked
- * @property onRowClick - Callback triggered when a row is clicked
- * @property onRowDoubleClick - Callback triggered when a row is double-clicked
- * @property onSortChange - Callback triggered when sorting changes
- * @property onTaskClick - Callback triggered when a task is clicked
- * @property onTaskDoubleClick - Callback triggered when a task is double-clicked
- * @property onTaskDrag - Callback triggered when a task is dragged/resized
- * @property onTaskDurationChange - Callback triggered when task duration changes (dragging task end)
- * @property onTaskProgressChange - Callback triggered when task progress changes
- * @property onMilestoneClick - Callback triggered when a milestone is clicked
- * @property onMilestoneDoubleClick - Callback triggered when a milestone is double-clicked
- * @property onMilestoneDrag - Callback triggered when a milestone is dragged
+ * @property frozen - Column keys to freeze (pin left)
+ * @property height - CSS height
+ * @property variant - Table variant — visual
+ * @property size - Table size — visual
+ * @property striped - Zebra stripes — visual
+ * @property interactive - Row hover highlight — main
+ * @property stickyHeader - Sticky header — visual
+ * @property showColumnBorder - Column borders — visual
+ * @property colorPalette - Default event colour scheme — visual
+ * @property showToday - Today marker visibility — visual
+ * @property gridColor - Grid-line colour override — visual
+ * @property todayMarkerColor - Today-marker colour override — visual
+ * @property headerBackground - Header background override — visual
+ * @property headerColor - Header text-colour override — visual
+ * @property dragStep - Drag-snap time step — main
+ * @property durationStep - Duration-change snap step — main
+ * @property onCellClick - Cell click callback — main
+ * @property onCellDoubleClick - Cell double-click callback — main
+ * @property onRowClick - Row click callback — main
+ * @property onRowDoubleClick - Row double-click callback — main
+ * @property onSortChange - Sort change callback — main
+ * @property onTaskClick - Task click callback — main
+ * @property onTaskDoubleClick - Task double-click callback — main
+ * @property onTaskDrag - Task drag callback — main
+ * @property onTaskDurationChange - Task duration change callback — main
+ * @property onTaskProgressChange - Task progress change callback — main
+ * @property onMilestoneClick - Milestone click callback — main
+ * @property onMilestoneDoubleClick - Milestone double-click callback — main
+ * @property onMilestoneDrag - Milestone drag callback — main
  */
 export interface GanttStyle<ColumnKeys extends string = string> {
     /** Column keys to freeze (pin left). Frozen columns appear first and stay visible during horizontal scroll. */
     frozen?: ColumnKeys[];
     /** CSS height for the Gantt container (e.g., "500px", "100%") */
     height?: SubtypeExprOrValue<StringType>;
-    /** Table variant (line or outline) */
+    /** Table variant (line or outline). */
     variant?: SubtypeExprOrValue<TableVariantType> | TableVariantLiteral;
-    /** Table size (sm, md, lg) */
+    /** Table size (sm, md, lg). */
     size?: SubtypeExprOrValue<TableSizeType> | TableSizeLiteral;
-    /** Whether to show zebra stripes on rows */
+    /** Whether to show zebra stripes on rows. */
     striped?: SubtypeExprOrValue<BooleanType>;
-    /** Whether to highlight rows on hover */
+    /** Whether to highlight rows on hover. */
     interactive?: SubtypeExprOrValue<BooleanType>;
-    /** Whether the header sticks when scrolling */
+    /** Whether the header sticks when scrolling. */
     stickyHeader?: SubtypeExprOrValue<BooleanType>;
-    /** Whether to show borders between columns */
+    /** Whether to show borders between columns. */
     showColumnBorder?: SubtypeExprOrValue<BooleanType>;
-    /** Default color scheme for events */
+    /** Default color scheme for events. */
     colorPalette?: SubtypeExprOrValue<ColorSchemeType> | ColorSchemeLiteral;
-    /** Whether to show a today marker line */
+    /** Whether to show a today marker line. */
     showToday?: SubtypeExprOrValue<BooleanType>;
-    /** Optional time step for drag snapping (e.g., variant("days", 1) for daily) */
+    /** Explicit colour for the timeline grid lines. */
+    gridColor?: SubtypeExprOrValue<StringType>;
+    /** Explicit colour for the today-marker line. */
+    todayMarkerColor?: SubtypeExprOrValue<StringType>;
+    /** Explicit background for the header row. */
+    headerBackground?: SubtypeExprOrValue<StringType>;
+    /** Explicit text colour for the header row. */
+    headerColor?: SubtypeExprOrValue<StringType>;
+    /** Optional time step for drag snapping (e.g., variant("days", 1) for daily). */
     dragStep?: SubtypeExprOrValue<TimeStepType>;
-    /** Optional time step for duration change snapping */
+    /** Optional time step for duration change snapping. */
     durationStep?: SubtypeExprOrValue<TimeStepType>;
-    /** Callback triggered when a cell is clicked */
+    /** Row-status callback: `(rowIndex) => StatusToken`; renderer tints the row. */
+    rowStatus?: unknown;
+    /** Callback triggered when a cell is clicked. */
     onCellClick?: SubtypeExprOrValue<FunctionType<[TableCellClickEventType], NullType>>;
-    /** Callback triggered when a cell is double-clicked */
+    /** Callback triggered when a cell is double-clicked. */
     onCellDoubleClick?: SubtypeExprOrValue<FunctionType<[TableCellClickEventType], NullType>>;
-    /** Callback triggered when a row is clicked */
+    /** Callback triggered when a row is clicked. */
     onRowClick?: SubtypeExprOrValue<FunctionType<[TableRowClickEventType], NullType>>;
-    /** Callback triggered when a row is double-clicked */
+    /** Callback triggered when a row is double-clicked. */
     onRowDoubleClick?: SubtypeExprOrValue<FunctionType<[TableRowClickEventType], NullType>>;
-    /** Callback triggered when sorting changes */
+    /** Callback triggered when sorting changes. */
     onSortChange?: SubtypeExprOrValue<FunctionType<[TableSortEventType], NullType>>;
-    /** Callback triggered when a task is clicked */
+    /** Callback triggered when a task is clicked. */
     onTaskClick?: SubtypeExprOrValue<FunctionType<[GanttTaskClickEventType], NullType>>;
-    /** Callback triggered when a task is double-clicked */
+    /** Callback triggered when a task is double-clicked. */
     onTaskDoubleClick?: SubtypeExprOrValue<FunctionType<[GanttTaskClickEventType], NullType>>;
-    /** Callback triggered when a task is dragged/resized */
+    /** Callback triggered when a task is dragged/resized. */
     onTaskDrag?: SubtypeExprOrValue<FunctionType<[GanttTaskDragEventType], NullType>>;
-    /** Callback triggered when task duration changes (dragging task end) */
+    /** Callback triggered when task duration changes (dragging task end). */
     onTaskDurationChange?: SubtypeExprOrValue<FunctionType<[GanttTaskDurationChangeEventType], NullType>>;
-    /** Callback triggered when task progress changes */
+    /** Callback triggered when task progress changes. */
     onTaskProgressChange?: SubtypeExprOrValue<FunctionType<[GanttTaskProgressChangeEventType], NullType>>;
-    /** Callback triggered when a milestone is clicked */
+    /** Callback triggered when a milestone is clicked. */
     onMilestoneClick?: SubtypeExprOrValue<FunctionType<[GanttMilestoneClickEventType], NullType>>;
-    /** Callback triggered when a milestone is double-clicked */
+    /** Callback triggered when a milestone is double-clicked. */
     onMilestoneDoubleClick?: SubtypeExprOrValue<FunctionType<[GanttMilestoneClickEventType], NullType>>;
-    /** Callback triggered when a milestone is dragged */
+    /** Callback triggered when a milestone is dragged. */
     onMilestoneDrag?: SubtypeExprOrValue<FunctionType<[GanttMilestoneDragEventType], NullType>>;
 }

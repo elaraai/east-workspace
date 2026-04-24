@@ -51,6 +51,7 @@ import { EastChakraSteps } from "./disclosure/steps";
 import { EastChakraTimeline } from "./disclosure/timeline";
 import { EastChakraOptionList } from "./disclosure/option-list";
 import { EastChakraDataList } from "./collections/data-list";
+import { EastChakraPagination } from "./collections/pagination";
 import { EastChakraTable } from "./collections/table";
 import { EastChakraTreeView } from "./collections/tree-view";
 import { EastChakraGantt } from "./collections/gantt";
@@ -196,6 +197,7 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
 
             // Collections
             DataList: (v) => <EastChakraDataList value={v} storageKey={childKey(storageKey, "DataList")} />,
+            Pagination: (v) => <EastChakraPagination value={v} storageKey={childKey(storageKey, "Pagination")} />,
             Table: (v) => <EastChakraTable value={v} storageKey={childKey(storageKey, "Table")} />,
             Gantt: (v) => <EastChakraGantt value={v} storageKey={childKey(storageKey, "Gantt")} />,
             Planner: (v) => <EastChakraPlanner value={v} storageKey={childKey(storageKey, "Planner")} />,

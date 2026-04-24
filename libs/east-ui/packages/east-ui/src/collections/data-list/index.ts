@@ -5,25 +5,33 @@
 
 import {
     type ExprType,
+    type SubtypeExprOrValue,
     East,
     OptionType,
     StructType,
     StringType,
     ArrayType,
     variant,
-    type SubtypeExprOrValue,
+    some,
+    none,
 } from "@elaraai/east";
 
 import { OrientationType } from "../../style.js";
-import { DataListVariantType, DataListSizeType, type DataListStyle } from "./types.js";
+import {
+    DataListVariantType,
+    DataListSizeType,
+    DataListStyleType,
+    type DataListStyle,
+} from "./types.js";
 import { UIComponentType } from "../../component.js";
 
-// Re-export style types
 export {
     DataListVariantType,
     DataListVariant,
     DataListSizeType,
+    DataListStyleType,
     type DataListSizeLiteral,
+    type DataListVariantLiteral,
     type DataListStyle,
 } from "./types.js";
 
@@ -32,66 +40,110 @@ export {
 // ============================================================================
 
 /**
- * Type for DataList item data.
+ * East StructType for a DataList item — a single label/value pair.
  *
  * @remarks
- * Each item in a DataList has a label and value pair.
+ * Each item in a DataList is a `{ label, value }` struct. `label` is a
+ * plain string (the term); `value` is any `UIComponentType` (the
+ * definition).
  *
- * @property label - The term/label for this item
- * @property value - The definition/value for this item (any UI component)
+ * @property label - The term / label for this item
+ * @property value - The definition / value for this item (UIComponent)
  */
 export const DataListItemType = StructType({
     label: StringType,
     value: UIComponentType,
 });
 
-/**
- * Type representing the DataListItem structure.
- */
+/** Type alias for the DataList item struct. */
 export type DataListItemType = typeof DataListItemType;
 
 // ============================================================================
-// DataList Root Type
+// DataList Root Type — standalone mirror of the inline Collections variant
 // ============================================================================
 
 /**
- * Type for DataList component data.
+ * East StructType for a DataList value — the serialisable IR shape.
  *
  * @remarks
- * DataList displays a list of label-value pairs, similar to an HTML
- * description list (dl/dt/dd).
+ * Mirrors the inline `DataList` variant in `component.ts`. Main struct
+ * carries only `items` (content) and a single `style` sub-struct per
+ * the type-shape convention.
  *
- * @property items - Array of label-value items
- * @property orientation - Layout direction (horizontal or vertical)
- * @property size - Size of the data list
- * @property variant - Visual variant (subtle or bold)
+ * @property items - Array of DataList items (label + value)
+ * @property style - Optional visual style sub-struct
  */
 export const DataListRootType = StructType({
     items: ArrayType(DataListItemType),
-    orientation: OptionType(OrientationType),
-    size: OptionType(DataListSizeType),
-    variant: OptionType(DataListVariantType),
+    style: OptionType(DataListStyleType),
 });
 
-/**
- * Type representing the DataList structure.
- */
+/** Type alias for the DataList root struct. */
 export type DataListRootType = typeof DataListRootType;
 
 // ============================================================================
-// DataList Root Function
+// DataList factory
 // ============================================================================
 
 /**
- * Creates a DataList component with items and optional styling.
- *
- * @param items - Array of DataList items
- * @param style - Optional styling configuration
- * @returns An East expression representing the data list component
+ * Internal — wraps a flat `DataListStyle` options bag into the nested
+ * `DataListStyleType` struct expected by the IR.
  *
  * @remarks
- * DataList is used to display structured label-value pairs, commonly used
- * for displaying metadata, details, or key-value information.
+ * Returns `undefined` when every style field is absent so the caller
+ * can emit `none` for the outer `style: OptionType(DataListStyleType)`.
+ */
+function buildDataListStyle(style: DataListStyle | undefined): ExprType<DataListStyleType> | undefined {
+    if (style === undefined) return undefined;
+    const hasAny = style.orientation !== undefined
+        || style.size !== undefined
+        || style.variant !== undefined
+        || style.background !== undefined
+        || style.borderColor !== undefined
+        || style.labelColor !== undefined
+        || style.valueColor !== undefined;
+    if (!hasAny) return undefined;
+
+    const orientationValue = style.orientation !== undefined
+        ? (typeof style.orientation === "string"
+            ? East.value(variant(style.orientation, null), OrientationType)
+            : style.orientation)
+        : undefined;
+    const sizeValue = style.size !== undefined
+        ? (typeof style.size === "string"
+            ? East.value(variant(style.size, null), DataListSizeType)
+            : style.size)
+        : undefined;
+    const variantValue = style.variant !== undefined
+        ? (typeof style.variant === "string"
+            ? East.value(variant(style.variant, null), DataListVariantType)
+            : style.variant)
+        : undefined;
+
+    return East.value({
+        orientation: orientationValue ? some(orientationValue) : none,
+        size: sizeValue ? some(sizeValue) : none,
+        variant: variantValue ? some(variantValue) : none,
+        background: style.background !== undefined ? some(style.background) : none,
+        borderColor: style.borderColor !== undefined ? some(style.borderColor) : none,
+        labelColor: style.labelColor !== undefined ? some(style.labelColor) : none,
+        valueColor: style.valueColor !== undefined ? some(style.valueColor) : none,
+    }, DataListStyleType);
+}
+
+/**
+ * Creates a DataList component value — a list of label/value pairs
+ * (HTML `<dl>` description-list equivalent).
+ *
+ * @param items - Array of DataList items (each `{ label, value }`)
+ * @param style - Optional visual style fields (see {@link DataListStyle})
+ * @returns An East expression of type `UIComponentType`
+ *
+ * @remarks
+ * Style fields are flat at the call-site for ergonomics but internally
+ * nest into `style: OptionType(DataListStyleType)` per the east-ui
+ * main/style type-shape convention. Content lives on the main struct;
+ * visual presentation lives inside `style`.
  *
  * @example
  * ```ts
@@ -102,7 +154,6 @@ export type DataListRootType = typeof DataListRootType;
  *     return DataList.Root([
  *         { label: "Status", value: Text.Root("Active") },
  *         { label: "Created", value: Text.Root("Jan 1, 2024") },
- *         { label: "Updated", value: Text.Root("Dec 15, 2024") },
  *     ], {
  *         orientation: "horizontal",
  *         variant: "bold",
@@ -112,31 +163,12 @@ export type DataListRootType = typeof DataListRootType;
  */
 function DataListRoot(
     items: SubtypeExprOrValue<ArrayType<DataListItemType>>,
-    style?: DataListStyle
+    style?: DataListStyle,
 ): ExprType<UIComponentType>  {
-    const orientationValue = style?.orientation
-        ? (typeof style.orientation === "string"
-            ? East.value(variant(style.orientation, null), OrientationType)
-            : style.orientation)
-        : undefined;
-
-    const sizeValue = style?.size
-        ? (typeof style.size === "string"
-            ? East.value(variant(style.size, null), DataListSizeType)
-            : style.size)
-        : undefined;
-
-    const variantValue = style?.variant
-        ? (typeof style.variant === "string"
-            ? East.value(variant(style.variant, null), DataListVariantType)
-            : style.variant)
-        : undefined;
-
+    const styleValue = buildDataListStyle(style);
     return East.value(variant("DataList", {
         items: East.value(items, ArrayType(DataListItemType)),
-        orientation: orientationValue ? variant("some", orientationValue) : variant("none", null),
-        size: sizeValue ? variant("some", sizeValue) : variant("none", null),
-        variant: variantValue ? variant("some", variantValue) : variant("none", null),
+        style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
 
@@ -149,29 +181,28 @@ interface DataListNamespace {
     Types: {
         Root: typeof DataListRootType;
         Item: typeof DataListItemType;
+        Style: typeof DataListStyleType;
         Variant: typeof DataListVariantType;
         Size: typeof DataListSizeType;
     };
 }
 
 /**
- * DataList compound component for displaying label-value pairs.
+ * DataList — description-list compound primitive for rendering
+ * structured label/value metadata.
  *
  * @remarks
- * Use `DataList.Root` to create the container. Pass items as
- * `{ label, value }` struct literals.
+ * Use `DataList.Root(items, { ...style })`. Items are plain
+ * `{ label, value }` struct literals at the factory boundary;
+ * `value` accepts any `UIComponentType` (strings via `Text.Root`).
  */
 export const DataList: DataListNamespace = {
     /**
-     * Creates a DataList component with items and optional styling.
+     * Creates a DataList component value.
      *
-     * @param items - Array of DataList items
-     * @param style - Optional styling configuration
-     * @returns An East expression representing the data list component
-     *
-     * @remarks
-     * DataList is used to display structured label-value pairs, commonly used
-     * for displaying metadata, details, or key-value information.
+     * @param items - Array of DataList items (label + value)
+     * @param style - Optional visual style fields
+     * @returns An East expression of type `UIComponentType`
      *
      * @example
      * ```ts
@@ -185,6 +216,7 @@ export const DataList: DataListNamespace = {
      *         { label: "Role", value: Text.Root("Administrator") },
      *     ], {
      *         orientation: "horizontal",
+     *         labelColor: "fg.muted",
      *     });
      * });
      * ```
@@ -192,45 +224,55 @@ export const DataList: DataListNamespace = {
     Root: DataListRoot,
     Types: {
         /**
-         * Type for DataList component data.
+         * East StructType for a DataList value — the serialisable IR
+         * shape (mirrors the inline `DataList` variant in
+         * `component.ts`).
          *
-         * @remarks
-         * DataList displays a list of label-value pairs, similar to an HTML
-         * description list (dl/dt/dd).
-         *
-         * @property items - Array of label-value items
-         * @property orientation - Layout direction (horizontal or vertical)
-         * @property size - Size of the data list
-         * @property variant - Visual variant (subtle or bold)
+         * @property items - Array of DataList items
+         * @property style - Optional visual style sub-struct
          */
         Root: DataListRootType,
         /**
-         * Type for DataList item data.
+         * East StructType for a single DataList item.
          *
-         * @remarks
-         * Each item in a DataList has a label and value pair.
-         *
-         * @property label - The term/label for this item
-         * @property value - The definition/value for this item
+         * @property label - The term / label for this item
+         * @property value - The definition / value (UIComponent)
          */
         Item: DataListItemType,
         /**
-         * Variant types for DataList visual style.
+         * East StructType holding every visual field for a DataList.
          *
          * @remarks
-         * - subtle: Light/subtle styling
-         * - bold: Bold/emphasized styling
+         * Mirror of `DataListStyleType` from `./types.js`. Covers the
+         * layout preset (`orientation`), size / variant presets, and
+         * four colour slots (`background`, `borderColor`, `labelColor`,
+         * `valueColor`).
+         *
+         * @property orientation - Layout direction (horizontal / vertical)
+         * @property size - Size of the data list (sm / md / lg)
+         * @property variant - Visual variant (subtle / bold)
+         * @property background - Explicit container background colour override
+         * @property borderColor - Explicit container border colour override
+         * @property labelColor - Explicit label colour override
+         * @property valueColor - Explicit value colour override
+         */
+        Style: DataListStyleType,
+        /**
+         * Variant type for DataList visual style.
+         *
+         * @property subtle - Light / subtle styling
+         * @property bold - Bold / emphasized styling
          */
         Variant: DataListVariantType,
         /**
-         * Size options for DataList component.
+         * Size options for DataList.
          *
          * @remarks
-         * Chakra UI DataList only supports sm, md, lg sizes (not xs).
+         * Chakra UI DataList supports sm / md / lg.
          *
-         * @property sm - Small data list
-         * @property md - Medium data list (default)
-         * @property lg - Large data list
+         * @property sm - Small
+         * @property md - Medium (default)
+         * @property lg - Large
          */
         Size: DataListSizeType,
     },

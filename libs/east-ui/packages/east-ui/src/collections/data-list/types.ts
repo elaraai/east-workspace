@@ -7,6 +7,9 @@ import {
     type ExprType,
     type SubtypeExprOrValue,
     NullType,
+    OptionType,
+    StringType,
+    StructType,
     VariantType,
     East,
     variant,
@@ -99,12 +102,56 @@ export type DataListSizeType = typeof DataListSizeType;
  */
 export type DataListSizeLiteral = "sm" | "md" | "lg";
 
+// ============================================================================
+// DataList Style Type (visual-only per §0.10)
+// ============================================================================
+
+/**
+ * East StructType for the DataList style sub-struct.
+ *
+ * @remarks
+ * Visual-only per the east-ui main/style type-shape convention. Content
+ * (`items`) lives on the main `DataList` variant; every visual field —
+ * the layout-preset `orientation`, the size / variant presets, and four
+ * colour slots — lives here.
+ *
+ * @property orientation - Layout direction (horizontal / vertical)
+ * @property size - Size of the data list (sm / md / lg)
+ * @property variant - Visual variant (subtle / bold)
+ * @property background - Explicit container background colour override
+ * @property borderColor - Explicit container border colour override
+ * @property labelColor - Explicit label colour override
+ * @property valueColor - Explicit value colour override
+ */
+export const DataListStyleType = StructType({
+    orientation: OptionType(OrientationType),
+    size: OptionType(DataListSizeType),
+    variant: OptionType(DataListVariantType),
+    background: OptionType(StringType),
+    borderColor: OptionType(StringType),
+    labelColor: OptionType(StringType),
+    valueColor: OptionType(StringType),
+});
+
+/** Type alias for `DataListStyleType`. */
+export type DataListStyleType = typeof DataListStyleType;
+
 /**
  * TypeScript interface for DataList style options.
  *
- * @property orientation - Layout direction (horizontal or vertical)
- * @property size - Size of the data list
- * @property variant - Visual variant (subtle or bold)
+ * @remarks
+ * Flat mirror of `DataListStyleType`. The factory wraps this into the
+ * nested `style` sub-struct; callers write `{ orientation: "horizontal",
+ * variant: "bold", labelColor: "fg.muted" }` without manually building
+ * the IR struct.
+ *
+ * @property orientation - Layout direction (horizontal / vertical)
+ * @property size - Size of the data list (sm / md / lg)
+ * @property variant - Visual variant (subtle / bold)
+ * @property background - Explicit container background colour override
+ * @property borderColor - Explicit container border colour override
+ * @property labelColor - Explicit label colour override
+ * @property valueColor - Explicit value colour override
  */
 export interface DataListStyle {
     /** Layout direction (horizontal or vertical) */
@@ -113,4 +160,12 @@ export interface DataListStyle {
     size?: SubtypeExprOrValue<DataListSizeType> | DataListSizeLiteral;
     /** Visual variant (subtle or bold) */
     variant?: SubtypeExprOrValue<DataListVariantType> | DataListVariantLiteral;
+    /** Explicit container background colour override */
+    background?: SubtypeExprOrValue<StringType>;
+    /** Explicit container border colour override */
+    borderColor?: SubtypeExprOrValue<StringType>;
+    /** Explicit label colour override */
+    labelColor?: SubtypeExprOrValue<StringType>;
+    /** Explicit value colour override */
+    valueColor?: SubtypeExprOrValue<StringType>;
 }

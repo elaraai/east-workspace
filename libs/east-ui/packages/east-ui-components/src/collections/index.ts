@@ -12,6 +12,12 @@ export {
 } from "./data-list";
 
 export {
+    EastChakraPagination,
+    type PaginationValue,
+    type EastChakraPaginationProps,
+} from "./pagination";
+
+export {
     EastChakraTable,
     toChakraTableRoot,
     type TableRootValue,

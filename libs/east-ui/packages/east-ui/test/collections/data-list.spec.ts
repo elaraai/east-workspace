@@ -5,7 +5,7 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { East, OptionType, StringType, variant } from "@elaraai/east";
-import { DataList, Text } from "@elaraai/east-ui";
+import { DataList, Text, UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./data-list.examples.js";
 
 describeEast("DataList", (test) => {
@@ -27,26 +27,23 @@ describeEast("DataList", (test) => {
         const list = $.let(DataList.Root([
             { label: "Name", value: Text.Root("Alice") },
             { label: "Email", value: Text.Root("alice@example.com") },
-        ]));
+        ]), UIComponentType);
 
-        $(Assert.equal(list.unwrap().unwrap("DataList").orientation.hasTag("none"), true));
-        $(Assert.equal(list.unwrap().unwrap("DataList").size.hasTag("none"), true));
-        $(Assert.equal(list.unwrap().unwrap("DataList").variant.hasTag("none"), true));
+        $(Assert.equal(list.unwrap().unwrap("DataList").style.hasTag("none"), true));
     });
 
     test("creates data list with single item", $ => {
         const list = $.let(DataList.Root([
             { label: "Status", value: Text.Root("Active") },
-        ]));
+        ]), UIComponentType);
 
-        $(Assert.equal(list.unwrap().unwrap("DataList").orientation.hasTag("none"), true));
+        $(Assert.equal(list.unwrap().unwrap("DataList").style.hasTag("none"), true));
     });
 
     test("creates empty data list", $ => {
-        const list = $.let(DataList.Root([]));
+        const list = $.let(DataList.Root([]), UIComponentType);
 
-        $(Assert.equal(list.unwrap().unwrap("DataList").orientation.hasTag("none"), true));
-        $(Assert.equal(list.unwrap().unwrap("DataList").size.hasTag("none"), true));
+        $(Assert.equal(list.unwrap().unwrap("DataList").style.hasTag("none"), true));
     });
 
     // =========================================================================
@@ -58,10 +55,10 @@ describeEast("DataList", (test) => {
             { label: "Name", value: Text.Root("Bob") },
         ], {
             orientation: "horizontal",
-        }));
+        }), UIComponentType);
 
-        $(Assert.equal(list.unwrap().unwrap("DataList").orientation.hasTag("some"), true));
-        $(Assert.equal(list.unwrap().unwrap("DataList").orientation.unwrap("some").hasTag("horizontal"), true));
+        $(Assert.equal(list.unwrap().unwrap("DataList").style.unwrap("some").orientation.hasTag("some"), true));
+        $(Assert.equal(list.unwrap().unwrap("DataList").style.unwrap("some").orientation.unwrap("some").hasTag("horizontal"), true));
     });
 
     test("creates vertical data list", $ => {
@@ -69,9 +66,9 @@ describeEast("DataList", (test) => {
             { label: "Status", value: Text.Root("Active") },
         ], {
             orientation: "vertical",
-        }));
+        }), UIComponentType);
 
-        $(Assert.equal(list.unwrap().unwrap("DataList").orientation.unwrap("some").hasTag("vertical"), true));
+        $(Assert.equal(list.unwrap().unwrap("DataList").style.unwrap("some").orientation.unwrap("some").hasTag("vertical"), true));
     });
 
     // =========================================================================
@@ -83,9 +80,9 @@ describeEast("DataList", (test) => {
             { label: "Label", value: Text.Root("Value") },
         ], {
             size: "sm",
-        }));
+        }), UIComponentType);
 
-        $(Assert.equal(list.unwrap().unwrap("DataList").size.unwrap("some").hasTag("sm"), true));
+        $(Assert.equal(list.unwrap().unwrap("DataList").style.unwrap("some").size.unwrap("some").hasTag("sm"), true));
     });
 
     test("creates data list with md size", $ => {
@@ -93,9 +90,9 @@ describeEast("DataList", (test) => {
             { label: "Label", value: Text.Root("Value") },
         ], {
             size: "md",
-        }));
+        }), UIComponentType);
 
-        $(Assert.equal(list.unwrap().unwrap("DataList").size.unwrap("some").hasTag("md"), true));
+        $(Assert.equal(list.unwrap().unwrap("DataList").style.unwrap("some").size.unwrap("some").hasTag("md"), true));
     });
 
     test("creates data list with lg size", $ => {
@@ -103,9 +100,9 @@ describeEast("DataList", (test) => {
             { label: "Label", value: Text.Root("Value") },
         ], {
             size: "lg",
-        }));
+        }), UIComponentType);
 
-        $(Assert.equal(list.unwrap().unwrap("DataList").size.unwrap("some").hasTag("lg"), true));
+        $(Assert.equal(list.unwrap().unwrap("DataList").style.unwrap("some").size.unwrap("some").hasTag("lg"), true));
     });
 
     // =========================================================================
@@ -117,10 +114,10 @@ describeEast("DataList", (test) => {
             { label: "Label", value: Text.Root("Value") },
         ], {
             variant: "subtle",
-        }));
+        }), UIComponentType);
 
-        $(Assert.equal(list.unwrap().unwrap("DataList").variant.hasTag("some"), true));
-        $(Assert.equal(list.unwrap().unwrap("DataList").variant.unwrap("some").hasTag("subtle"), true));
+        $(Assert.equal(list.unwrap().unwrap("DataList").style.unwrap("some").variant.hasTag("some"), true));
+        $(Assert.equal(list.unwrap().unwrap("DataList").style.unwrap("some").variant.unwrap("some").hasTag("subtle"), true));
     });
 
     test("creates data list with bold variant", $ => {
@@ -128,9 +125,9 @@ describeEast("DataList", (test) => {
             { label: "Label", value: Text.Root("Value") },
         ], {
             variant: "bold",
-        }));
+        }), UIComponentType);
 
-        $(Assert.equal(list.unwrap().unwrap("DataList").variant.unwrap("some").hasTag("bold"), true));
+        $(Assert.equal(list.unwrap().unwrap("DataList").style.unwrap("some").variant.unwrap("some").hasTag("bold"), true));
     });
 
     test("creates data list with DataListVariant helper", $ => {
@@ -138,9 +135,9 @@ describeEast("DataList", (test) => {
             { label: "Label", value: Text.Root("Value") },
         ], {
             variant: "bold",
-        }));
+        }), UIComponentType);
 
-        $(Assert.equal(list.unwrap().unwrap("DataList").variant.unwrap("some").hasTag("bold"), true));
+        $(Assert.equal(list.unwrap().unwrap("DataList").style.unwrap("some").variant.unwrap("some").hasTag("bold"), true));
     });
 
     // =========================================================================
@@ -155,11 +152,12 @@ describeEast("DataList", (test) => {
             orientation: "horizontal",
             size: "md",
             variant: "bold",
-        }));
+        }), UIComponentType);
 
-        $(Assert.equal(list.unwrap().unwrap("DataList").orientation.unwrap("some").hasTag("horizontal"), true));
-        $(Assert.equal(list.unwrap().unwrap("DataList").size.unwrap("some").hasTag("md"), true));
-        $(Assert.equal(list.unwrap().unwrap("DataList").variant.unwrap("some").hasTag("bold"), true));
+        const style = list.unwrap().unwrap("DataList").style.unwrap("some");
+        $(Assert.equal(style.orientation.unwrap("some").hasTag("horizontal"), true));
+        $(Assert.equal(style.size.unwrap("some").hasTag("md"), true));
+        $(Assert.equal(style.variant.unwrap("some").hasTag("bold"), true));
     });
 
     test("creates user details data list", $ => {
@@ -171,10 +169,11 @@ describeEast("DataList", (test) => {
         ], {
             orientation: "vertical",
             variant: "subtle",
-        }));
+        }), UIComponentType);
 
-        $(Assert.equal(list.unwrap().unwrap("DataList").orientation.unwrap("some").hasTag("vertical"), true));
-        $(Assert.equal(list.unwrap().unwrap("DataList").variant.unwrap("some").hasTag("subtle"), true));
+        const style = list.unwrap().unwrap("DataList").style.unwrap("some");
+        $(Assert.equal(style.orientation.unwrap("some").hasTag("vertical"), true));
+        $(Assert.equal(style.variant.unwrap("some").hasTag("subtle"), true));
     });
 
     test("creates product info data list", $ => {
@@ -184,9 +183,9 @@ describeEast("DataList", (test) => {
             { label: "Stock", value: Text.Root("In Stock") },
         ], {
             size: "sm",
-        }));
+        }), UIComponentType);
 
-        $(Assert.equal(list.unwrap().unwrap("DataList").size.unwrap("some").hasTag("sm"), true));
+        $(Assert.equal(list.unwrap().unwrap("DataList").style.unwrap("some").size.unwrap("some").hasTag("sm"), true));
     });
 
     test("creates order summary data list", $ => {
@@ -199,11 +198,12 @@ describeEast("DataList", (test) => {
             orientation: "horizontal",
             size: "lg",
             variant: "bold",
-        }));
+        }), UIComponentType);
 
-        $(Assert.equal(list.unwrap().unwrap("DataList").orientation.unwrap("some").hasTag("horizontal"), true));
-        $(Assert.equal(list.unwrap().unwrap("DataList").size.unwrap("some").hasTag("lg"), true));
-        $(Assert.equal(list.unwrap().unwrap("DataList").variant.unwrap("some").hasTag("bold"), true));
+        const style = list.unwrap().unwrap("DataList").style.unwrap("some");
+        $(Assert.equal(style.orientation.unwrap("some").hasTag("horizontal"), true));
+        $(Assert.equal(style.size.unwrap("some").hasTag("lg"), true));
+        $(Assert.equal(style.variant.unwrap("some").hasTag("bold"), true));
     });
 
     test("creates metadata data list", $ => {
@@ -211,18 +211,38 @@ describeEast("DataList", (test) => {
             { label: "Created", value: Text.Root("Jan 1, 2024") },
             { label: "Modified", value: Text.Root("Dec 20, 2024") },
             { label: "Version", value: Text.Root("1.2.3") },
-        ]));
+        ]), UIComponentType);
 
-        $(Assert.equal(list.unwrap().unwrap("DataList").orientation.hasTag("none"), true));
-        $(Assert.equal(list.unwrap().unwrap("DataList").size.hasTag("none"), true));
-        $(Assert.equal(list.unwrap().unwrap("DataList").variant.hasTag("none"), true));
+        $(Assert.equal(list.unwrap().unwrap("DataList").style.hasTag("none"), true));
     });
+
+    // =========================================================================
+    // DataList.Root - Colour escape hatches
+    // =========================================================================
+
+    test("creates data list with colour escape hatches", $ => {
+        const list = $.let(DataList.Root([
+            { label: "Name", value: Text.Root("Alice") },
+        ], {
+            background: "gray.50",
+            borderColor: "gray.200",
+            labelColor: "gray.600",
+            valueColor: "gray.900",
+        }), UIComponentType);
+
+        const style = list.unwrap().unwrap("DataList").style.unwrap("some");
+        $(Assert.equal(style.background.unwrap("some"), "gray.50"));
+        $(Assert.equal(style.borderColor.unwrap("some"), "gray.200"));
+        $(Assert.equal(style.labelColor.unwrap("some"), "gray.600"));
+        $(Assert.equal(style.valueColor.unwrap("some"), "gray.900"));
+    });
+
     // =========================================================================
     // DataList.Root - Match with different item counts
     // =========================================================================
 
     test("handles match branches with different item counts as items arg", $ => {
-        const opt = $.let(East.value(variant("some", "predicted"), OptionType(StringType)));
+        const opt = $.let(East.value(variant("some", "predicted"), OptionType(StringType)), OptionType(StringType));
 
         const list = $.let(DataList.Root(
             opt.match({
@@ -236,13 +256,13 @@ describeEast("DataList", (test) => {
                 ]),
             }),
             { size: "sm", orientation: "horizontal" }
-        ));
+        ), UIComponentType);
 
-        $(Assert.equal(list.unwrap().unwrap("DataList").size.unwrap("some").hasTag("sm"), true));
+        $(Assert.equal(list.unwrap().unwrap("DataList").style.unwrap("some").size.unwrap("some").hasTag("sm"), true));
     });
 
     test("handles match branches returning whole DataList components", $ => {
-        const opt = $.let(East.value(variant("some", "predicted"), OptionType(StringType)));
+        const opt = $.let(East.value(variant("some", "predicted"), OptionType(StringType)), OptionType(StringType));
 
         const list = $.let(
             opt.match({
@@ -254,10 +274,11 @@ describeEast("DataList", (test) => {
                 none: (_$) => DataList.Root([
                     { label: "Flag", value: Text.Root("A") },
                 ], { size: "sm", orientation: "horizontal" }),
-            })
+            }),
+            UIComponentType
         );
 
-        $(Assert.equal(list.unwrap().unwrap("DataList").size.unwrap("some").hasTag("sm"), true));
+        $(Assert.equal(list.unwrap().unwrap("DataList").style.unwrap("some").size.unwrap("some").hasTag("sm"), true));
     });
 
-}, {   platformFns: TestImpl,});
+}, { platformFns: TestImpl });

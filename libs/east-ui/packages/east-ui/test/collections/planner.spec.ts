@@ -125,9 +125,8 @@ describeEast("Planner", (test) => {
         ));
 
         $(Assert.equal(planner.unwrap().hasTag("Planner"), true));
-        $(Assert.equal(planner.unwrap().unwrap("Planner").style.hasTag("some"), true));
-        $(Assert.equal(planner.unwrap().unwrap("Planner").style.unwrap("some").slotMode.hasTag("some"), true));
-        $(Assert.equal(planner.unwrap().unwrap("Planner").style.unwrap("some").slotMode.unwrap("some").hasTag("single"), true));
+        $(Assert.equal(planner.unwrap().unwrap("Planner").slotMode.hasTag("some"), true));
+        $(Assert.equal(planner.unwrap().unwrap("Planner").slotMode.unwrap("some").hasTag("single"), true));
     });
 
     test("creates planner with span mode", $ => {
@@ -140,7 +139,7 @@ describeEast("Planner", (test) => {
             }
         ));
 
-        $(Assert.equal(planner.unwrap().unwrap("Planner").style.unwrap("some").slotMode.unwrap("some").hasTag("span"), true));
+        $(Assert.equal(planner.unwrap().unwrap("Planner").slotMode.unwrap("some").hasTag("span"), true));
     });
 
     test("creates planner with minSlot and maxSlot", $ => {
@@ -154,8 +153,8 @@ describeEast("Planner", (test) => {
             }
         ));
 
-        $(Assert.equal(planner.unwrap().unwrap("Planner").style.unwrap("some").minSlot.unwrap("some"), 1.0));
-        $(Assert.equal(planner.unwrap().unwrap("Planner").style.unwrap("some").maxSlot.unwrap("some"), 10.0));
+        $(Assert.equal(planner.unwrap().unwrap("Planner").minSlot.unwrap("some"), 1.0));
+        $(Assert.equal(planner.unwrap().unwrap("Planner").maxSlot.unwrap("some"), 10.0));
     });
 
     test("creates planner with slotMinWidth", $ => {
@@ -185,7 +184,7 @@ describeEast("Planner", (test) => {
             }
         ));
 
-        $(Assert.equal(planner.unwrap().unwrap("Planner").style.unwrap("some").slotLabel.hasTag("some"), true));
+        $(Assert.equal(planner.unwrap().unwrap("Planner").slotLabel.hasTag("some"), true));
     });
 
     // =========================================================================
@@ -297,7 +296,7 @@ describeEast("Planner", (test) => {
             }
         ));
 
-        $(Assert.equal(planner.unwrap().unwrap("Planner").style.unwrap("some").interactive.unwrap("some"), true));
+        $(Assert.equal(planner.unwrap().unwrap("Planner").interactive.unwrap("some"), true));
     });
 
     test("creates planner with stickyHeader", $ => {

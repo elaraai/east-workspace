@@ -16,7 +16,9 @@ import {
     OptionType,
     FunctionType,
     variant,
-
+    BooleanType,
+    IntegerType,
+    NullType,
     type TypeOf,
     some,
     none,
@@ -26,6 +28,13 @@ import {
     LiteralValueType,
     isTypeValueEqual,
 } from "@elaraai/east";
+import {
+    TableCellClickEventType,
+    TableRowClickEventType,
+    TableSortEventType,
+} from "../table/types.js";
+import { EventAddEventType } from "./types.js";
+import { StatusTokenType } from "../../style/interaction.js";
 
 import {
     ColorSchemeType,
@@ -129,16 +138,32 @@ export type PlannerRowType = typeof PlannerRowType;
  * @property style - Optional styling configuration
  * @property eventPopover - Optional function to render popover content for events
  */
-export const PlannerRootType: StructType<{
-    rows: ArrayType<PlannerRowType>,
-    columns: ArrayType<TableColumnType>,
-    frozen: ArrayType<StringType>,
-    style: OptionType<PlannerStyleType>,
-    eventPopover: OptionType<FunctionType<[typeof EventPopoverContextType], UIComponentType>>,
-}> = StructType({
+export const PlannerRootType = StructType({
     rows: ArrayType(PlannerRowType),
     columns: ArrayType(TableColumnType),
     frozen: ArrayType(StringType),
+    interactive: OptionType(BooleanType),
+    slotMode: OptionType(SlotModeType),
+    minSlot: OptionType(FloatType),
+    maxSlot: OptionType(FloatType),
+    stepSize: OptionType(FloatType),
+    slotLabel: OptionType(FunctionType([FloatType], StringType)),
+    readOnly: OptionType(BooleanType),
+    eventPopoverTrigger: OptionType(EventPopoverTriggerType),
+    boundaries: OptionType(ArrayType(PlannerBoundaryType)),
+    rowStatus: OptionType(FunctionType([IntegerType], StatusTokenType)),
+    onCellClick: OptionType(FunctionType([TableCellClickEventType], NullType)),
+    onCellDoubleClick: OptionType(FunctionType([TableCellClickEventType], NullType)),
+    onRowClick: OptionType(FunctionType([TableRowClickEventType], NullType)),
+    onRowDoubleClick: OptionType(FunctionType([TableRowClickEventType], NullType)),
+    onSortChange: OptionType(FunctionType([TableSortEventType], NullType)),
+    onEventClick: OptionType(FunctionType([EventClickEventType], NullType)),
+    onEventDoubleClick: OptionType(FunctionType([EventClickEventType], NullType)),
+    onEventDrag: OptionType(FunctionType([EventDragEventType], NullType)),
+    onEventResize: OptionType(FunctionType([EventResizeEventType], NullType)),
+    onEventAdd: OptionType(FunctionType([EventAddEventType], NullType)),
+    onEventEdit: OptionType(FunctionType([EventClickEventType], NullType)),
+    onEventDelete: OptionType(FunctionType([EventDeleteEventType], NullType)),
     style: OptionType(PlannerStyleType),
     eventPopover: OptionType(FunctionType([EventPopoverContextType], UIComponentType)),
 });
@@ -543,56 +568,84 @@ function createPlanner<
             : style.eventPopoverTrigger)
         : undefined;
 
-    const styleValue = style ? East.value({
-        height: style.height ? some(style.height) : none,
+    const hasVisualStyle = !!style && (
+        style.height !== undefined ||
+        style.variant !== undefined ||
+        style.size !== undefined ||
+        style.striped !== undefined ||
+        style.stickyHeader !== undefined ||
+        style.showColumnBorder !== undefined ||
+        style.slotMinWidth !== undefined ||
+        style.colorPalette !== undefined ||
+        style.slotLineStroke !== undefined ||
+        style.slotLineWidth !== undefined ||
+        style.slotLineDash !== undefined ||
+        style.slotLineOpacity !== undefined ||
+        (style as any).gridColor !== undefined ||
+        (style as any).nowMarkerColor !== undefined ||
+        (style as any).headerBackground !== undefined ||
+        (style as any).headerColor !== undefined
+    );
+
+    const styleValue = hasVisualStyle ? East.value({
+        height: style!.height ? some(style!.height) : none,
         variant: variantValue ? some(variantValue) : none,
         size: sizeValue ? some(sizeValue) : none,
-        striped: style.striped !== undefined ? some(style.striped) : none,
-        interactive: style.interactive !== undefined ? some(style.interactive) : none,
-        stickyHeader: style.stickyHeader !== undefined ? some(style.stickyHeader) : none,
-        showColumnBorder: style.showColumnBorder !== undefined ? some(style.showColumnBorder) : none,
-        slotMode: slotModeValue ? some(slotModeValue) : none,
-        minSlot: style.minSlot !== undefined ? some(style.minSlot) : none,
-        maxSlot: style.maxSlot !== undefined ? some(style.maxSlot) : none,
-        stepSize: style.stepSize !== undefined ? some(style.stepSize) : none,
-        slotLabel: style.slotLabel ? some(style.slotLabel) : none,
-        slotMinWidth: style.slotMinWidth ? some(style.slotMinWidth) : none,
+        striped: style!.striped !== undefined ? some(style!.striped) : none,
+        stickyHeader: style!.stickyHeader !== undefined ? some(style!.stickyHeader) : none,
+        showColumnBorder: style!.showColumnBorder !== undefined ? some(style!.showColumnBorder) : none,
+        slotMinWidth: style!.slotMinWidth ? some(style!.slotMinWidth) : none,
         colorPalette: colorPaletteValue ? some(colorPaletteValue) : none,
-        readOnly: style.readOnly !== undefined ? some(style.readOnly) : none,
-        eventPopoverTrigger: eventPopoverTriggerValue ? some(eventPopoverTriggerValue) : none,
-        slotLineStroke: style.slotLineStroke ? some(style.slotLineStroke) : none,
-        slotLineWidth: style.slotLineWidth !== undefined ? some(style.slotLineWidth) : none,
-        slotLineDash: style.slotLineDash ? some(style.slotLineDash) : none,
-        slotLineOpacity: style.slotLineOpacity !== undefined ? some(style.slotLineOpacity) : none,
-        boundaries: style.boundaries ? some(style.boundaries.map(b => East.value({
+        slotLineStroke: style!.slotLineStroke ? some(style!.slotLineStroke) : none,
+        slotLineWidth: style!.slotLineWidth !== undefined ? some(style!.slotLineWidth) : none,
+        slotLineDash: style!.slotLineDash ? some(style!.slotLineDash) : none,
+        slotLineOpacity: style!.slotLineOpacity !== undefined ? some(style!.slotLineOpacity) : none,
+        gridColor: (style as any)?.gridColor !== undefined ? some((style as any).gridColor) : none,
+        nowMarkerColor: (style as any)?.nowMarkerColor !== undefined ? some((style as any).nowMarkerColor) : none,
+        headerBackground: (style as any)?.headerBackground !== undefined ? some((style as any).headerBackground) : none,
+        headerColor: (style as any)?.headerColor !== undefined ? some((style as any).headerColor) : none,
+    }, PlannerStyleType) : undefined;
+
+    const eventPopoverExpr = eventPopover
+        ? some(East.value(eventPopover, FunctionType([EventPopoverContextType], UIComponentType)))
+        : none;
+
+    const boundariesValue = style?.boundaries
+        ? some(style.boundaries.map(b => East.value({
             x: b.x,
             stroke: b.stroke ? some(b.stroke) : none,
             strokeWidth: b.strokeWidth !== undefined ? some(b.strokeWidth) : none,
             strokeDash: b.strokeDash ? some(b.strokeDash) : none,
             strokeOpacity: b.strokeOpacity !== undefined ? some(b.strokeOpacity) : none,
-        }, PlannerBoundaryType))) : none,
-        onCellClick: style.onCellClick ? some(style.onCellClick) : none,
-        onCellDoubleClick: style.onCellDoubleClick ? some(style.onCellDoubleClick) : none,
-        onRowClick: style.onRowClick ? some(style.onRowClick) : none,
-        onRowDoubleClick: style.onRowDoubleClick ? some(style.onRowDoubleClick) : none,
-        onSortChange: style.onSortChange ? some(style.onSortChange) : none,
-        onEventClick: style.onEventClick ? some(style.onEventClick) : none,
-        onEventDoubleClick: style.onEventDoubleClick ? some(style.onEventDoubleClick) : none,
-        onEventDrag: style.onEventDrag ? some(style.onEventDrag) : none,
-        onEventResize: style.onEventResize ? some(style.onEventResize) : none,
-        onEventAdd: style.onEventAdd ? some(style.onEventAdd) : none,
-        onEventEdit: style.onEventEdit ? some(style.onEventEdit) : none,
-        onEventDelete: style.onEventDelete ? some(style.onEventDelete) : none,
-    }, PlannerStyleType) : undefined;
-
-    const eventPopoverExpr = eventPopover ?
-      some(East.value(eventPopover, FunctionType([EventPopoverContextType], UIComponentType))) :
-      none;
+        }, PlannerBoundaryType)))
+        : none;
 
     return East.value(variant("Planner", {
         rows: rows_mapped,
         columns: columns_expr,
         frozen: frozen_expr,
+        interactive: style?.interactive !== undefined ? some(style.interactive) : none,
+        slotMode: slotModeValue ? some(slotModeValue) : none,
+        minSlot: style?.minSlot !== undefined ? some(style.minSlot) : none,
+        maxSlot: style?.maxSlot !== undefined ? some(style.maxSlot) : none,
+        stepSize: style?.stepSize !== undefined ? some(style.stepSize) : none,
+        slotLabel: style?.slotLabel ? some(style.slotLabel) : none,
+        readOnly: style?.readOnly !== undefined ? some(style.readOnly) : none,
+        eventPopoverTrigger: eventPopoverTriggerValue ? some(eventPopoverTriggerValue) : none,
+        boundaries: boundariesValue,
+        rowStatus: (style as any)?.rowStatus !== undefined ? some((style as any).rowStatus) : none,
+        onCellClick: style?.onCellClick ? some(style.onCellClick) : none,
+        onCellDoubleClick: style?.onCellDoubleClick ? some(style.onCellDoubleClick) : none,
+        onRowClick: style?.onRowClick ? some(style.onRowClick) : none,
+        onRowDoubleClick: style?.onRowDoubleClick ? some(style.onRowDoubleClick) : none,
+        onSortChange: style?.onSortChange ? some(style.onSortChange) : none,
+        onEventClick: style?.onEventClick ? some(style.onEventClick) : none,
+        onEventDoubleClick: style?.onEventDoubleClick ? some(style.onEventDoubleClick) : none,
+        onEventDrag: style?.onEventDrag ? some(style.onEventDrag) : none,
+        onEventResize: style?.onEventResize ? some(style.onEventResize) : none,
+        onEventAdd: style?.onEventAdd ? some(style.onEventAdd) : none,
+        onEventEdit: style?.onEventEdit ? some(style.onEventEdit) : none,
+        onEventDelete: style?.onEventDelete ? some(style.onEventDelete) : none,
         style: styleValue ? some(styleValue) : none,
         eventPopover: eventPopoverExpr,
     }), UIComponentType);

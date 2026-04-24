@@ -8,7 +8,6 @@ import {
     OptionType,
     StructType,
     VariantType,
-    ArrayType,
     StringType,
     BooleanType,
     FloatType,
@@ -485,22 +484,12 @@ export const PlannerStyleType = StructType({
     variant: OptionType(TableVariantType),
     size: OptionType(TableSizeType),
     striped: OptionType(BooleanType),
-    interactive: OptionType(BooleanType),
     stickyHeader: OptionType(BooleanType),
     showColumnBorder: OptionType(BooleanType),
 
-    // Planner-specific
-    slotMode: OptionType(SlotModeType),
-    minSlot: OptionType(FloatType),
-    maxSlot: OptionType(FloatType),
-    stepSize: OptionType(FloatType),
-    slotLabel: OptionType(FunctionType([FloatType], StringType)),
+    // Visual-only Planner fields
     slotMinWidth: OptionType(StringType),
     colorPalette: OptionType(ColorSchemeType),
-    readOnly: OptionType(BooleanType),
-
-    // Event popover (trigger only - popover function is in Planner struct)
-    eventPopoverTrigger: OptionType(EventPopoverTriggerType),
 
     // Slot line styling (vertical grid lines)
     slotLineStroke: OptionType(StringType),
@@ -508,22 +497,11 @@ export const PlannerStyleType = StructType({
     slotLineDash: OptionType(StringType),
     slotLineOpacity: OptionType(FloatType),
 
-    // Boundary lines
-    boundaries: OptionType(ArrayType(PlannerBoundaryType)),
-
-    // Callbacks
-    onCellClick: OptionType(FunctionType([TableCellClickEventType], NullType)),
-    onCellDoubleClick: OptionType(FunctionType([TableCellClickEventType], NullType)),
-    onRowClick: OptionType(FunctionType([TableRowClickEventType], NullType)),
-    onRowDoubleClick: OptionType(FunctionType([TableRowClickEventType], NullType)),
-    onSortChange: OptionType(FunctionType([TableSortEventType], NullType)),
-    onEventClick: OptionType(FunctionType([EventClickEventType], NullType)),
-    onEventDoubleClick: OptionType(FunctionType([EventClickEventType], NullType)),
-    onEventDrag: OptionType(FunctionType([EventDragEventType], NullType)),
-    onEventResize: OptionType(FunctionType([EventResizeEventType], NullType)),
-    onEventAdd: OptionType(FunctionType([EventAddEventType], NullType)),
-    onEventEdit: OptionType(FunctionType([EventClickEventType], NullType)),
-    onEventDelete: OptionType(FunctionType([EventDeleteEventType], NullType)),
+    // Root chrome colour slots
+    gridColor: OptionType(StringType),
+    nowMarkerColor: OptionType(StringType),
+    headerBackground: OptionType(StringType),
+    headerColor: OptionType(StringType),
 });
 
 /**

@@ -104,10 +104,38 @@ import { StatIndicatorType, StatStyleType } from "./display/stat/types.js";
 import { IconType } from "./display/icon/types.js";
 
 // Collections
-import { DataListVariantType, DataListSizeType } from "./collections/data-list/types.js";
+import { DataListStyleType } from "./collections/data-list/types.js";
+import { PaginationType } from "./collections/pagination/index.js";
 import { TableStyleType, TableCellRenderContextType } from "./collections/table/types.js";
-import { GanttEventType, GanttStyleType } from "./collections/gantt/types.js";
-import { PlannerStyleType, PlannerEventType, EventPopoverContextType } from "./collections/planner/types.js";
+import {
+    GanttEventType,
+    GanttStyleType,
+    GanttTaskClickEventType,
+    GanttTaskDragEventType,
+    GanttTaskDurationChangeEventType,
+    GanttTaskProgressChangeEventType,
+    GanttMilestoneClickEventType,
+    GanttMilestoneDragEventType,
+    TimeStepType,
+} from "./collections/gantt/types.js";
+import {
+    PlannerStyleType,
+    PlannerEventType,
+    EventPopoverContextType,
+    SlotModeType,
+    EventPopoverTriggerType,
+    PlannerBoundaryType,
+    EventClickEventType,
+    EventDragEventType,
+    EventResizeEventType,
+    EventAddEventType,
+    EventDeleteEventType,
+} from "./collections/planner/types.js";
+import {
+    TableRowClickEventType,
+    TableCellClickEventType,
+    TableSortEventType,
+} from "./collections/table/types.js";
 // import { TreeViewStyleType } from "./collections/tree-view/types.js";
 
 // Charts
@@ -134,7 +162,7 @@ import { OptionListStyleType } from "./disclosure/option-list/types.js";
 // Overlays
 import { PlacementType } from "./overlays/tooltip/types.js";
 import { MenuItemType } from "./overlays/menu/types.js";
-import { TreeViewStyleType } from "./collections/tree-view/types.js";
+import { TreeViewStyleType, TreeViewSelectionModeType } from "./collections/tree-view/types.js";
 import { DialogStyleType } from "./overlays/dialog/types.js";
 import { DrawerStyleType } from "./overlays/drawer/types.js";
 import { PopoverStyleType } from "./overlays/popover/types.js";
@@ -500,10 +528,9 @@ export const UIComponentType = RecursiveType(node => VariantType({
             label: StringType,
             value: node,
         })),
-        orientation: OptionType(OrientationType),
-        size: OptionType(DataListSizeType),
-        variant: OptionType(DataListVariantType),
+        style: OptionType(DataListStyleType),
     }),
+    Pagination: PaginationType,
 
     // Charts
     Sparkline: SparklineType,
@@ -534,6 +561,11 @@ export const UIComponentType = RecursiveType(node => VariantType({
         label: OptionType(StringType),
         defaultExpandedValue: OptionType(ArrayType(StringType)),
         defaultSelectedValue: OptionType(ArrayType(StringType)),
+        selectionMode: OptionType(TreeViewSelectionModeType),
+        animateContent: OptionType(BooleanType),
+        onExpandedChange: OptionType(FunctionType([ArrayType(StringType)], NullType)),
+        onSelectionChange: OptionType(FunctionType([ArrayType(StringType)], NullType)),
+        onFocusChange: OptionType(FunctionType([OptionType(StringType)], NullType)),
         style: OptionType(TreeViewStyleType),
     }),
 
@@ -575,6 +607,23 @@ export const UIComponentType = RecursiveType(node => VariantType({
             render: OptionType(FunctionType([TableCellRenderContextType], node)),
         })),
         frozen: ArrayType(StringType),
+        interactive: OptionType(BooleanType),
+        dragStep: OptionType(TimeStepType),
+        durationStep: OptionType(TimeStepType),
+        rowStatus: OptionType(FunctionType([IntegerType], StatusTokenType)),
+        onCellClick: OptionType(FunctionType([TableCellClickEventType], NullType)),
+        onCellDoubleClick: OptionType(FunctionType([TableCellClickEventType], NullType)),
+        onRowClick: OptionType(FunctionType([TableRowClickEventType], NullType)),
+        onRowDoubleClick: OptionType(FunctionType([TableRowClickEventType], NullType)),
+        onSortChange: OptionType(FunctionType([TableSortEventType], NullType)),
+        onTaskClick: OptionType(FunctionType([GanttTaskClickEventType], NullType)),
+        onTaskDoubleClick: OptionType(FunctionType([GanttTaskClickEventType], NullType)),
+        onTaskDrag: OptionType(FunctionType([GanttTaskDragEventType], NullType)),
+        onTaskDurationChange: OptionType(FunctionType([GanttTaskDurationChangeEventType], NullType)),
+        onTaskProgressChange: OptionType(FunctionType([GanttTaskProgressChangeEventType], NullType)),
+        onMilestoneClick: OptionType(FunctionType([GanttMilestoneClickEventType], NullType)),
+        onMilestoneDoubleClick: OptionType(FunctionType([GanttMilestoneClickEventType], NullType)),
+        onMilestoneDrag: OptionType(FunctionType([GanttMilestoneDragEventType], NullType)),
         style: OptionType(GanttStyleType),
     }),
 
@@ -597,6 +646,28 @@ export const UIComponentType = RecursiveType(node => VariantType({
             render: OptionType(FunctionType([TableCellRenderContextType], node)),
         })),
         frozen: ArrayType(StringType),
+        interactive: OptionType(BooleanType),
+        slotMode: OptionType(SlotModeType),
+        minSlot: OptionType(FloatType),
+        maxSlot: OptionType(FloatType),
+        stepSize: OptionType(FloatType),
+        slotLabel: OptionType(FunctionType([FloatType], StringType)),
+        readOnly: OptionType(BooleanType),
+        eventPopoverTrigger: OptionType(EventPopoverTriggerType),
+        boundaries: OptionType(ArrayType(PlannerBoundaryType)),
+        rowStatus: OptionType(FunctionType([IntegerType], StatusTokenType)),
+        onCellClick: OptionType(FunctionType([TableCellClickEventType], NullType)),
+        onCellDoubleClick: OptionType(FunctionType([TableCellClickEventType], NullType)),
+        onRowClick: OptionType(FunctionType([TableRowClickEventType], NullType)),
+        onRowDoubleClick: OptionType(FunctionType([TableRowClickEventType], NullType)),
+        onSortChange: OptionType(FunctionType([TableSortEventType], NullType)),
+        onEventClick: OptionType(FunctionType([EventClickEventType], NullType)),
+        onEventDoubleClick: OptionType(FunctionType([EventClickEventType], NullType)),
+        onEventDrag: OptionType(FunctionType([EventDragEventType], NullType)),
+        onEventResize: OptionType(FunctionType([EventResizeEventType], NullType)),
+        onEventAdd: OptionType(FunctionType([EventAddEventType], NullType)),
+        onEventEdit: OptionType(FunctionType([EventClickEventType], NullType)),
+        onEventDelete: OptionType(FunctionType([EventDeleteEventType], NullType)),
         style: OptionType(PlannerStyleType),
         eventPopover: OptionType(FunctionType([EventPopoverContextType], node)),
     }),

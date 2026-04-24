@@ -81,6 +81,14 @@ export const EastChakraTreeView = memo(function EastChakraTreeView({ value, stor
     const label = getSomeorUndefined(value.label);
     const defaultExpandedValue = getSomeorUndefined(value.defaultExpandedValue);
     const defaultSelectedValue = getSomeorUndefined(value.defaultSelectedValue);
+    const selectionMode = getSomeorUndefined(value.selectionMode);
+
+    const itemColor = style ? getSomeorUndefined(style.itemColor) : undefined;
+    const itemHoverBackground = style ? getSomeorUndefined(style.itemHoverBackground) : undefined;
+    const selectedBackground = style ? getSomeorUndefined(style.selectedBackground) : undefined;
+    const selectedColor = style ? getSomeorUndefined(style.selectedColor) : undefined;
+    const caretColor = style ? getSomeorUndefined(style.caretColor) : undefined;
+    const connectorColor = style ? getSomeorUndefined(style.connectorColor) : undefined;
 
     // Persisted state for expanded/selected
     const { state: persistedState, setState: setPersistedState } = usePersistedState<TreeViewPersistedState>(
@@ -88,10 +96,10 @@ export const EastChakraTreeView = memo(function EastChakraTreeView({ value, stor
         { expandedValues: defaultExpandedValue ?? [], selectedValues: defaultSelectedValue ?? [] },
     );
 
-    // Extract callbacks
-    const onExpandedChangeFn = useMemo(() => style ? getSomeorUndefined(style.onExpandedChange) : undefined, [style]);
-    const onSelectionChangeFn = useMemo(() => style ? getSomeorUndefined(style.onSelectionChange) : undefined, [style]);
-    const onFocusChangeFn = useMemo(() => style ? getSomeorUndefined(style.onFocusChange) : undefined, [style]);
+    // Extract callbacks — now on main struct per §0.10
+    const onExpandedChangeFn = useMemo(() => getSomeorUndefined(value.onExpandedChange), [value.onExpandedChange]);
+    const onSelectionChangeFn = useMemo(() => getSomeorUndefined(value.onSelectionChange), [value.onSelectionChange]);
+    const onFocusChangeFn = useMemo(() => getSomeorUndefined(value.onFocusChange), [value.onFocusChange]);
 
     const handleExpandedChange = useCallback((details: { expandedValue: string[] }) => {
         setPersistedState(prev => ({ ...prev, expandedValues: details.expandedValue }));
@@ -136,13 +144,23 @@ export const EastChakraTreeView = memo(function EastChakraTreeView({ value, stor
             collection={collection}
             size={style ? getSomeorUndefined(style.size)?.type : undefined}
             variant={style ? getSomeorUndefined(style.variant)?.type : undefined}
-            selectionMode={style ? getSomeorUndefined(style.selectionMode)?.type : undefined}
+            selectionMode={selectionMode?.type}
             expandedValue={persistedState.expandedValues}
             selectedValue={persistedState.selectedValues}
             aria-label={label}
             onExpandedChange={handleExpandedChange}
             onSelectionChange={handleSelectionChange}
             onFocusChange={onFocusChangeFn ? handleFocusChange : undefined}
+            color={itemColor}
+            css={{
+                "& [data-part='item']:hover": itemHoverBackground ? { background: itemHoverBackground } : undefined,
+                "& [data-part='item'][data-selected]": (selectedBackground || selectedColor) ? {
+                    ...(selectedBackground ? { background: selectedBackground } : {}),
+                    ...(selectedColor ? { color: selectedColor } : {}),
+                } : undefined,
+                "& [data-part='branch-indicator']": caretColor ? { color: caretColor } : undefined,
+                "& [data-part='branch-content']": connectorColor ? { borderColor: connectorColor } : undefined,
+            }}
         >
             <ChakraTreeView.Tree>
                 {collection.rootNode.children.map((node, index) => (
@@ -215,6 +233,6 @@ export function toChakraTreeViewRoot(value: TreeViewRootValue) {
     return {
         size: style ? getSomeorUndefined(style.size)?.type : undefined,
         variant: style ? getSomeorUndefined(style.variant)?.type : undefined,
-        selectionMode: style ? getSomeorUndefined(style.selectionMode)?.type : undefined,
+        selectionMode: getSomeorUndefined(value.selectionMode)?.type,
     };
 }

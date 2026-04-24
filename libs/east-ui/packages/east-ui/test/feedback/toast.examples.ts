@@ -6,7 +6,7 @@ import { East, NullType, example } from "@elaraai/east";
 import { Toast, Button, Reactive, Stack, UIComponentType } from "@elaraai/east-ui";
 
 export const toastBasic = example({
-    keywords: ["Toast", "emit", "button", "success"],
+    keywords: ["Toast", "emit", "button", "success", "Reactive"],
     description: "Button that emits a 4s success toast",
     fn: East.function([], UIComponentType, (_$) => {
         return Reactive.Root(East.function([], UIComponentType, $ => {
@@ -20,7 +20,7 @@ export const toastBasic = example({
 });
 
 export const toastWithActions = example({
-    keywords: ["Toast", "emit", "actions"],
+    keywords: ["Toast", "emit", "actions", "Reactive"],
     description: "Button that emits a toast with Undo + View actions",
     fn: East.function([], UIComponentType, (_$) => {
         return Reactive.Root(East.function([], UIComponentType, $ => {
@@ -43,7 +43,7 @@ export const toastWithActions = example({
 });
 
 export const toastPersistent = example({
-    keywords: ["Toast", "emit", "persistent", "no duration"],
+    keywords: ["Toast", "emit", "persistent", "no duration", "Reactive"],
     description: "Persistent info toast (no duration) — dismissable by close button",
     fn: East.function([], UIComponentType, (_$) => {
         return Reactive.Root(East.function([], UIComponentType, $ => {

@@ -91,7 +91,7 @@ export const alertTitleOnly = example({
 });
 
 export const alertEmbeddedInput = example({
-    keywords: ["Alert", "body", "Input", "embedded"],
+    keywords: ["Alert", "body", "Input", "embedded", "Reactive", "State"],
     description: "Warn alert with an embedded integer input inside body",
     fn: East.function([], UIComponentType, (_$) => {
         return Reactive.Root(East.function([], UIComponentType, $ => {

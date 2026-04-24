@@ -91,7 +91,7 @@ export function toChakraTableRoot(value: GanttRootValue): TableRootProps {
         variant: style ? getSomeorUndefined(style.variant)?.type : undefined,
         size: style ? getSomeorUndefined(style.size)?.type : undefined,
         striped: style ? getSomeorUndefined(style.striped) : undefined,
-        interactive: style ? getSomeorUndefined(style.interactive) : undefined,
+        interactive: getSomeorUndefined(value.interactive),
         stickyHeader: style ? getSomeorUndefined(style.stickyHeader) : undefined,
         showColumnBorder: style ? getSomeorUndefined(style.showColumnBorder) : undefined,
         colorPalette: style ? getSomeorUndefined(style.colorPalette)?.type : undefined,
@@ -176,21 +176,21 @@ export const EastChakraGantt = memo(function EastChakraGantt({
 
     // Extract East-side callbacks from style
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
-    const onCellClickFn = useMemo(() => style ? getSomeorUndefined(style.onCellClick) : undefined, [style]);
-    const onCellDoubleClickFn = useMemo(() => style ? getSomeorUndefined(style.onCellDoubleClick) : undefined, [style]);
-    const onRowClickFn = useMemo(() => style ? getSomeorUndefined(style.onRowClick) : undefined, [style]);
-    const onRowDoubleClickFn = useMemo(() => style ? getSomeorUndefined(style.onRowDoubleClick) : undefined, [style]);
-    const onSortChangeFn = useMemo(() => style ? getSomeorUndefined(style.onSortChange) : undefined, [style]);
-    const onTaskClickFn = useMemo(() => style ? getSomeorUndefined(style.onTaskClick) : undefined, [style]);
-    const onTaskDoubleClickFn = useMemo(() => style ? getSomeorUndefined(style.onTaskDoubleClick) : undefined, [style]);
-    const onTaskDragFn = useMemo(() => style ? getSomeorUndefined(style.onTaskDrag) : undefined, [style]);
-    const onTaskProgressChangeFn = useMemo(() => style ? getSomeorUndefined(style.onTaskProgressChange) : undefined, [style]);
-    const onMilestoneClickFn = useMemo(() => style ? getSomeorUndefined(style.onMilestoneClick) : undefined, [style]);
-    const onMilestoneDoubleClickFn = useMemo(() => style ? getSomeorUndefined(style.onMilestoneDoubleClick) : undefined, [style]);
-    const onMilestoneDragFn = useMemo(() => style ? getSomeorUndefined(style.onMilestoneDrag) : undefined, [style]);
-    const onTaskDurationChangeFn = useMemo(() => style ? getSomeorUndefined(style.onTaskDurationChange) : undefined, [style]);
-    const dragStepValue = useMemo(() => style ? getSomeorUndefined(style.dragStep) : undefined, [style]);
-    const durationStepValue = useMemo(() => style ? getSomeorUndefined(style.durationStep) : undefined, [style]);
+    const onCellClickFn = useMemo(() => getSomeorUndefined(value.onCellClick), [value.onCellClick]);
+    const onCellDoubleClickFn = useMemo(() => getSomeorUndefined(value.onCellDoubleClick), [value.onCellDoubleClick]);
+    const onRowClickFn = useMemo(() => getSomeorUndefined(value.onRowClick), [value.onRowClick]);
+    const onRowDoubleClickFn = useMemo(() => getSomeorUndefined(value.onRowDoubleClick), [value.onRowDoubleClick]);
+    const onSortChangeFn = useMemo(() => getSomeorUndefined(value.onSortChange), [value.onSortChange]);
+    const onTaskClickFn = useMemo(() => getSomeorUndefined(value.onTaskClick), [value.onTaskClick]);
+    const onTaskDoubleClickFn = useMemo(() => getSomeorUndefined(value.onTaskDoubleClick), [value.onTaskDoubleClick]);
+    const onTaskDragFn = useMemo(() => getSomeorUndefined(value.onTaskDrag), [value.onTaskDrag]);
+    const onTaskProgressChangeFn = useMemo(() => getSomeorUndefined(value.onTaskProgressChange), [value.onTaskProgressChange]);
+    const onMilestoneClickFn = useMemo(() => getSomeorUndefined(value.onMilestoneClick), [value.onMilestoneClick]);
+    const onMilestoneDoubleClickFn = useMemo(() => getSomeorUndefined(value.onMilestoneDoubleClick), [value.onMilestoneDoubleClick]);
+    const onMilestoneDragFn = useMemo(() => getSomeorUndefined(value.onMilestoneDrag), [value.onMilestoneDrag]);
+    const onTaskDurationChangeFn = useMemo(() => getSomeorUndefined(value.onTaskDurationChange), [value.onTaskDurationChange]);
+    const dragStepValue = useMemo(() => getSomeorUndefined(value.dragStep), [value.dragStep]);
+    const durationStepValue = useMemo(() => getSomeorUndefined(value.durationStep), [value.durationStep]);
     const [gridLineColor] = useToken("colors", ["gray.300"]);
     const tableContainerRef = useRef<HTMLDivElement>(null);
     const timelineContainerRef = useRef<HTMLDivElement>(null);

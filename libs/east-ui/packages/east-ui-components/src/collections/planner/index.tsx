@@ -94,7 +94,7 @@ export function toChakraTableRoot(value: PlannerRootValue): TableRootProps {
         variant: style ? getSomeorUndefined(style.variant)?.type : undefined,
         size: style ? getSomeorUndefined(style.size)?.type : undefined,
         striped: style ? getSomeorUndefined(style.striped) : undefined,
-        interactive: style ? getSomeorUndefined(style.interactive) : undefined,
+        interactive: getSomeorUndefined(value.interactive),
         stickyHeader: style ? getSomeorUndefined(style.stickyHeader) : undefined,
         showColumnBorder: style ? getSomeorUndefined(style.showColumnBorder) : undefined,
         colorPalette: style ? getSomeorUndefined(style.colorPalette)?.type : undefined,
@@ -181,7 +181,7 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
     const slotMinWidthValue = useMemo(() => style ? getSomeorUndefined(style.slotMinWidth) : undefined, [style]);
     const slotMinWidth = slotMinWidthValue ? parseInt(slotMinWidthValue, 10) || 60 : 60;
-    const slotModeValue = useMemo(() => style ? getSomeorUndefined(style.slotMode) : undefined, [style]);
+    const slotModeValue = useMemo(() => getSomeorUndefined(value.slotMode), [value.slotMode]);
     const slotMode = slotModeValue?.type ?? "span";
 
     // Slot line styling
@@ -190,22 +190,22 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({
     const slotLineDash = useMemo(() => style ? getSomeorUndefined(style.slotLineDash) : undefined, [style]);
     const slotLineOpacity = useMemo(() => style ? getSomeorUndefined(style.slotLineOpacity) : undefined, [style]);
 
-    // Boundaries (vertical lines at specific slot positions)
-    const boundaries = useMemo(() => style ? getSomeorUndefined(style.boundaries) : undefined, [style]);
+    // Boundaries now on main struct per §0.10
+    const boundaries = useMemo(() => getSomeorUndefined(value.boundaries), [value.boundaries]);
 
-    // Extract East-side callbacks from style
-    const onCellClickFn = useMemo(() => style ? getSomeorUndefined(style.onCellClick) : undefined, [style]);
-    const onCellDoubleClickFn = useMemo(() => style ? getSomeorUndefined(style.onCellDoubleClick) : undefined, [style]);
-    const onRowClickFn = useMemo(() => style ? getSomeorUndefined(style.onRowClick) : undefined, [style]);
-    const onRowDoubleClickFn = useMemo(() => style ? getSomeorUndefined(style.onRowDoubleClick) : undefined, [style]);
-    const onSortChangeFn = useMemo(() => style ? getSomeorUndefined(style.onSortChange) : undefined, [style]);
-    const onEventClickFn = useMemo(() => style ? getSomeorUndefined(style.onEventClick) : undefined, [style]);
-    const onEventDoubleClickFn = useMemo(() => style ? getSomeorUndefined(style.onEventDoubleClick) : undefined, [style]);
-    const onEventDragFn = useMemo(() => style ? getSomeorUndefined(style.onEventDrag) : undefined, [style]);
-    const onEventResizeFn = useMemo(() => style ? getSomeorUndefined(style.onEventResize) : undefined, [style]);
-    const onEventAddFn = useMemo(() => style ? getSomeorUndefined(style.onEventAdd) : undefined, [style]);
-    const onEventEditFn = useMemo(() => style ? getSomeorUndefined(style.onEventEdit) : undefined, [style]);
-    const onEventDeleteFn = useMemo(() => style ? getSomeorUndefined(style.onEventDelete) : undefined, [style]);
+    // Callbacks now on main struct per §0.10
+    const onCellClickFn = useMemo(() => getSomeorUndefined(value.onCellClick), [value.onCellClick]);
+    const onCellDoubleClickFn = useMemo(() => getSomeorUndefined(value.onCellDoubleClick), [value.onCellDoubleClick]);
+    const onRowClickFn = useMemo(() => getSomeorUndefined(value.onRowClick), [value.onRowClick]);
+    const onRowDoubleClickFn = useMemo(() => getSomeorUndefined(value.onRowDoubleClick), [value.onRowDoubleClick]);
+    const onSortChangeFn = useMemo(() => getSomeorUndefined(value.onSortChange), [value.onSortChange]);
+    const onEventClickFn = useMemo(() => getSomeorUndefined(value.onEventClick), [value.onEventClick]);
+    const onEventDoubleClickFn = useMemo(() => getSomeorUndefined(value.onEventDoubleClick), [value.onEventDoubleClick]);
+    const onEventDragFn = useMemo(() => getSomeorUndefined(value.onEventDrag), [value.onEventDrag]);
+    const onEventResizeFn = useMemo(() => getSomeorUndefined(value.onEventResize), [value.onEventResize]);
+    const onEventAddFn = useMemo(() => getSomeorUndefined(value.onEventAdd), [value.onEventAdd]);
+    const onEventEditFn = useMemo(() => getSomeorUndefined(value.onEventEdit), [value.onEventEdit]);
+    const onEventDeleteFn = useMemo(() => getSomeorUndefined(value.onEventDelete), [value.onEventDelete]);
 
     const [gridLineColor] = useToken("colors", ["gray.300"]);
     const slotContainerRef = useRef<HTMLDivElement>(null);
@@ -215,18 +215,18 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({
     const [rowStates, setRowStates] = useState<Map<RowKey, RowState>>(new Map());
     const visibleRowsRef = useRef<Set<RowKey>>(new Set());
 
-    // Extract stepSize from style
-    const stepSize = useMemo(() => style ? getSomeorUndefined(style.stepSize) ?? 1 : 1, [style]);
+    // stepSize now on main per §0.10
+    const stepSize = useMemo(() => getSomeorUndefined(value.stepSize) ?? 1, [value.stepSize]);
 
-    // Extract readOnly from style (disables all event interactions)
-    const readOnly = useMemo(() => style ? getSomeorUndefined(style.readOnly) ?? false : false, [style]);
+    // readOnly now on main per §0.10
+    const readOnly = useMemo(() => getSomeorUndefined(value.readOnly) ?? false, [value.readOnly]);
 
     // Extract eventPopover function (returns UI component for popover content)
     const eventPopoverFn = useMemo(() => getSomeorUndefined(value.eventPopover), [value.eventPopover]);
 
-    // Extract eventPopoverTrigger from style (click or hover)
+    // eventPopoverTrigger now on main per §0.10
     const eventPopoverTrigger = useMemo(
-        () => style ? getSomeorUndefined(style.eventPopoverTrigger)?.type ?? "click" : "click",
+        () => getSomeorUndefined(value.eventPopoverTrigger)?.type ?? "click",
         [style]
     ) as "click" | "hover";
 
@@ -245,8 +245,8 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({
         });
 
         // Apply style overrides
-        const styleMinSlot = style ? getSomeorUndefined(style.minSlot) : undefined;
-        const styleMaxSlot = style ? getSomeorUndefined(style.maxSlot) : undefined;
+        const styleMinSlot = getSomeorUndefined(value.minSlot);
+        const styleMaxSlot = getSomeorUndefined(value.maxSlot);
 
         if (styleMinSlot !== undefined) {
             minSlot = minSlot === null ? styleMinSlot : (styleMinSlot < minSlot ? styleMinSlot : minSlot);
@@ -278,7 +278,7 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({
     const slotGridWidth = useMemo(() => slots.length * slotMinWidth, [slots, slotMinWidth]);
 
     // Get slot label function
-    const slotLabelFn = useMemo(() => style ? getSomeorUndefined(style.slotLabel) : undefined, [style]);
+    const slotLabelFn = useMemo(() => getSomeorUndefined(value.slotLabel), [value.slotLabel]);
 
     // Subscribe to row state changes
     useEffect(() => {
