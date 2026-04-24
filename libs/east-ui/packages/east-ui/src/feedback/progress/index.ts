@@ -162,11 +162,56 @@ export const Progress = {
     Root: createProgress,
     Variant: ProgressVariant,
     Types: {
-        /** The concrete East type for Progress. */
+        /**
+         * East StructType for a Progress value — the serialisable IR shape.
+         *
+         * @remarks
+         * Mirror of `ProgressType` from `./types.js`. Exposed on the
+         * namespace so consumers can reference the IR type via
+         * `Progress.Types.Progress` without reaching into module internals.
+         *
+         * @property value - Current progress value (between min and max)
+         * @property min - Minimum value (defaults to 0)
+         * @property max - Maximum value (defaults to 100)
+         * @property label - Optional label text
+         * @property valueText - Optional text showing current value
+         * @property indeterminate - Indeterminate mode (no known % complete)
+         * @property showValue - Whether to render the computed value text
+         * @property estimatedDuration - Expected duration in seconds (drives ETA display)
+         * @property startedAt - Start timestamp (drives ETA display)
+         * @property style - Optional visual style sub-struct (see `Style`)
+         */
         Progress: ProgressType,
-        /** Visual preset variant (outline / subtle). */
+        /**
+         * Visual preset variant for Progress.
+         *
+         * @remarks
+         * Mirror of `ProgressVariantType` from `./types.js`. Progress does
+         * not support `solid` — use `outline` for a bordered track or
+         * `subtle` for a tinted track.
+         *
+         * @property outline - Bordered track + filled progress
+         * @property subtle - Tinted track + filled progress (default)
+         */
         Variant: ProgressVariantType,
-        /** Visual-only style struct. */
+        /**
+         * East StructType holding every visual field for Progress.
+         *
+         * @remarks
+         * Mirror of `ProgressStyleType` from `./types.js`. Includes preset
+         * (`variant`, `colorPalette`, `size`), animation toggles
+         * (`striped`, `animated`), and explicit colour slots for the track,
+         * fill, and label.
+         *
+         * @property variant - Visual preset (outline / subtle)
+         * @property colorPalette - Colour palette token
+         * @property size - Size preset (xs / sm / md / lg)
+         * @property striped - Cosmetic stripes on the fill
+         * @property animated - Animate the stripes
+         * @property trackColor - Background track colour
+         * @property fillColor - Fill colour
+         * @property labelColor - Label text colour
+         */
         Style: ProgressStyleType,
     },
 } as const;

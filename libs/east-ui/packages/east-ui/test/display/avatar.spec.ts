@@ -23,7 +23,7 @@ describeEast("Avatar", (test) => {
 
         $(Assert.equal(avatar.unwrap().unwrap("Avatar").src.hasTag("none"), true));
         $(Assert.equal(avatar.unwrap().unwrap("Avatar").name.hasTag("none"), true));
-        $(Assert.equal(avatar.unwrap().unwrap("Avatar").size.hasTag("none"), true));
+        $(Assert.equal(avatar.unwrap().unwrap("Avatar").style.hasTag("none"), true));
     });
 
     test("creates avatar with src", $ => {
@@ -63,8 +63,8 @@ describeEast("Avatar", (test) => {
             size: "xs",
         }));
 
-        $(Assert.equal(avatar.unwrap().unwrap("Avatar").size.hasTag("some"), true));
-        $(Assert.equal(avatar.unwrap().unwrap("Avatar").size.unwrap("some").hasTag("xs"), true));
+        $(Assert.equal(avatar.unwrap().unwrap("Avatar").style.unwrap("some").size.hasTag("some"), true));
+        $(Assert.equal(avatar.unwrap().unwrap("Avatar").style.unwrap("some").size.unwrap("some").hasTag("xs"), true));
     });
 
     test("creates small avatar", $ => {
@@ -72,7 +72,7 @@ describeEast("Avatar", (test) => {
             size: "sm",
         }));
 
-        $(Assert.equal(avatar.unwrap().unwrap("Avatar").size.unwrap("some").hasTag("sm"), true));
+        $(Assert.equal(avatar.unwrap().unwrap("Avatar").style.unwrap("some").size.unwrap("some").hasTag("sm"), true));
     });
 
     test("creates medium avatar", $ => {
@@ -80,7 +80,7 @@ describeEast("Avatar", (test) => {
             size: "md",
         }));
 
-        $(Assert.equal(avatar.unwrap().unwrap("Avatar").size.unwrap("some").hasTag("md"), true));
+        $(Assert.equal(avatar.unwrap().unwrap("Avatar").style.unwrap("some").size.unwrap("some").hasTag("md"), true));
     });
 
     test("creates large avatar", $ => {
@@ -88,7 +88,7 @@ describeEast("Avatar", (test) => {
             size: "lg",
         }));
 
-        $(Assert.equal(avatar.unwrap().unwrap("Avatar").size.unwrap("some").hasTag("lg"), true));
+        $(Assert.equal(avatar.unwrap().unwrap("Avatar").style.unwrap("some").size.unwrap("some").hasTag("lg"), true));
     });
 
     test("creates avatar with Size helper", $ => {
@@ -96,7 +96,7 @@ describeEast("Avatar", (test) => {
             size: "lg",
         }));
 
-        $(Assert.equal(avatar.unwrap().unwrap("Avatar").size.unwrap("some").hasTag("lg"), true));
+        $(Assert.equal(avatar.unwrap().unwrap("Avatar").style.unwrap("some").size.unwrap("some").hasTag("lg"), true));
     });
 
     // =========================================================================
@@ -108,8 +108,8 @@ describeEast("Avatar", (test) => {
             variant: "solid",
         }));
 
-        $(Assert.equal(avatar.unwrap().unwrap("Avatar").variant.hasTag("some"), true));
-        $(Assert.equal(avatar.unwrap().unwrap("Avatar").variant.unwrap("some").hasTag("solid"), true));
+        $(Assert.equal(avatar.unwrap().unwrap("Avatar").style.unwrap("some").variant.hasTag("some"), true));
+        $(Assert.equal(avatar.unwrap().unwrap("Avatar").style.unwrap("some").variant.unwrap("some").hasTag("solid"), true));
     });
 
     test("creates subtle variant avatar", $ => {
@@ -117,7 +117,7 @@ describeEast("Avatar", (test) => {
             variant: "subtle",
         }));
 
-        $(Assert.equal(avatar.unwrap().unwrap("Avatar").variant.unwrap("some").hasTag("subtle"), true));
+        $(Assert.equal(avatar.unwrap().unwrap("Avatar").style.unwrap("some").variant.unwrap("some").hasTag("subtle"), true));
     });
 
     test("creates outline variant avatar", $ => {
@@ -125,7 +125,7 @@ describeEast("Avatar", (test) => {
             variant: "outline",
         }));
 
-        $(Assert.equal(avatar.unwrap().unwrap("Avatar").variant.unwrap("some").hasTag("outline"), true));
+        $(Assert.equal(avatar.unwrap().unwrap("Avatar").style.unwrap("some").variant.unwrap("some").hasTag("outline"), true));
     });
 
     test("creates avatar with Style.StyleVariant helper", $ => {
@@ -133,7 +133,7 @@ describeEast("Avatar", (test) => {
             variant: Style.StyleVariant("solid"),
         }));
 
-        $(Assert.equal(avatar.unwrap().unwrap("Avatar").variant.unwrap("some").hasTag("solid"), true));
+        $(Assert.equal(avatar.unwrap().unwrap("Avatar").style.unwrap("some").variant.unwrap("some").hasTag("solid"), true));
     });
 
     // =========================================================================
@@ -145,8 +145,8 @@ describeEast("Avatar", (test) => {
             colorPalette: "blue",
         }));
 
-        $(Assert.equal(avatar.unwrap().unwrap("Avatar").colorPalette.hasTag("some"), true));
-        $(Assert.equal(avatar.unwrap().unwrap("Avatar").colorPalette.unwrap("some").hasTag("blue"), true));
+        $(Assert.equal(avatar.unwrap().unwrap("Avatar").style.unwrap("some").colorPalette.hasTag("some"), true));
+        $(Assert.equal(avatar.unwrap().unwrap("Avatar").style.unwrap("some").colorPalette.unwrap("some").hasTag("blue"), true));
     });
 
     test("creates avatar with purple color palette", $ => {
@@ -154,7 +154,7 @@ describeEast("Avatar", (test) => {
             colorPalette: "purple",
         }));
 
-        $(Assert.equal(avatar.unwrap().unwrap("Avatar").colorPalette.unwrap("some").hasTag("purple"), true));
+        $(Assert.equal(avatar.unwrap().unwrap("Avatar").style.unwrap("some").colorPalette.unwrap("some").hasTag("purple"), true));
     });
 
     test("creates avatar with Style.ColorScheme helper", $ => {
@@ -162,7 +162,7 @@ describeEast("Avatar", (test) => {
             colorPalette: Style.ColorScheme("green"),
         }));
 
-        $(Assert.equal(avatar.unwrap().unwrap("Avatar").colorPalette.unwrap("some").hasTag("green"), true));
+        $(Assert.equal(avatar.unwrap().unwrap("Avatar").style.unwrap("some").colorPalette.unwrap("some").hasTag("green"), true));
     });
 
     // =========================================================================
@@ -180,9 +180,9 @@ describeEast("Avatar", (test) => {
 
         $(Assert.equal(avatar.unwrap().unwrap("Avatar").src.unwrap("some"), "https://example.com/profile.jpg"));
         $(Assert.equal(avatar.unwrap().unwrap("Avatar").name.unwrap("some"), "Alice Smith"));
-        $(Assert.equal(avatar.unwrap().unwrap("Avatar").size.unwrap("some").hasTag("lg"), true));
-        $(Assert.equal(avatar.unwrap().unwrap("Avatar").variant.unwrap("some").hasTag("solid"), true));
-        $(Assert.equal(avatar.unwrap().unwrap("Avatar").colorPalette.unwrap("some").hasTag("purple"), true));
+        $(Assert.equal(avatar.unwrap().unwrap("Avatar").style.unwrap("some").size.unwrap("some").hasTag("lg"), true));
+        $(Assert.equal(avatar.unwrap().unwrap("Avatar").style.unwrap("some").variant.unwrap("some").hasTag("solid"), true));
+        $(Assert.equal(avatar.unwrap().unwrap("Avatar").style.unwrap("some").colorPalette.unwrap("some").hasTag("purple"), true));
     });
 
     test("creates user profile avatar", $ => {
@@ -193,7 +193,7 @@ describeEast("Avatar", (test) => {
         }));
 
         $(Assert.equal(avatar.unwrap().unwrap("Avatar").name.unwrap("some"), "Jane Wilson"));
-        $(Assert.equal(avatar.unwrap().unwrap("Avatar").size.unwrap("some").hasTag("md"), true));
+        $(Assert.equal(avatar.unwrap().unwrap("Avatar").style.unwrap("some").size.unwrap("some").hasTag("md"), true));
     });
 
     test("creates initials avatar", $ => {
@@ -214,8 +214,8 @@ describeEast("Avatar", (test) => {
             colorPalette: "teal",
         }));
 
-        $(Assert.equal(avatar.unwrap().unwrap("Avatar").size.unwrap("some").hasTag("sm"), true));
-        $(Assert.equal(avatar.unwrap().unwrap("Avatar").colorPalette.unwrap("some").hasTag("teal"), true));
+        $(Assert.equal(avatar.unwrap().unwrap("Avatar").style.unwrap("some").size.unwrap("some").hasTag("sm"), true));
+        $(Assert.equal(avatar.unwrap().unwrap("Avatar").style.unwrap("some").colorPalette.unwrap("some").hasTag("teal"), true));
     });
 
     test("creates large profile header avatar", $ => {
@@ -225,6 +225,6 @@ describeEast("Avatar", (test) => {
             size: "lg",
         }));
 
-        $(Assert.equal(avatar.unwrap().unwrap("Avatar").size.unwrap("some").hasTag("lg"), true));
+        $(Assert.equal(avatar.unwrap().unwrap("Avatar").style.unwrap("some").size.unwrap("some").hasTag("lg"), true));
     });
 }, {   platformFns: TestImpl,});

@@ -262,13 +262,71 @@ export const Timeline = {
      */
     Item: createTimelineItem,
     Types: {
-        /** The concrete East type for Timeline — mirrors the inline variant in component.ts. */
+        /**
+         * East StructType for a Timeline value — mirrors the inline
+         * `Timeline` variant in `component.ts`.
+         *
+         * @remarks
+         * Exposed on the namespace so consumers can reference the IR type
+         * via `Timeline.Types.Timeline` without reaching into module
+         * internals. Items are wrapped in a separate struct exposed as
+         * `Types.Item`.
+         *
+         * @property items - Array of TimelineItems (see `Item`)
+         * @property style - Optional visual style sub-struct (see `Style`)
+         */
         Timeline: TimelineType,
-        /** The concrete East type for a Timeline item. */
+        /**
+         * East StructType for a Timeline item.
+         *
+         * @remarks
+         * Each item carries content (title / description), an optional
+         * timestamp, an optional explicit indicator icon (overrides the
+         * default paired icon chosen by `status`), an optional badge
+         * label, and a required `status` driving colour + paired icon per
+         * §0.3.
+         *
+         * @property title - Item title (UIComponent)
+         * @property timestamp - Optional DateTime rendered next to the title
+         * @property description - Optional description (UIComponent)
+         * @property indicator - Optional explicit icon (overrides the default paired icon)
+         * @property badgeLabel - Optional short badge label rendered alongside the title
+         * @property status - Step status (shared with `Steps`) — drives paired icon + colour
+         */
         Item: TimelineItemType,
-        /** Visual-only style struct for Timeline. */
+        /**
+         * East StructType holding every visual field for a Timeline.
+         *
+         * @remarks
+         * Mirror of `TimelineStyleType` from `./types.js`. Covers
+         * orientation / size presets plus seven colour slots
+         * (connector + one per status value). Renderers apply these
+         * alongside the default palette driven by `item.status`.
+         *
+         * @property orientation - Horizontal / vertical axis
+         * @property size - Size preset (sm / md / lg)
+         * @property connectorColor - Colour of the line between indicators
+         * @property indicatorColor - Default indicator colour (fallback when status-specific is unset)
+         * @property pendingColor - Indicator colour for `pending` status
+         * @property activeColor - Indicator colour for `active` status
+         * @property completedColor - Indicator colour for `completed` status
+         * @property errorColor - Indicator colour for `error` status
+         * @property skippedColor - Indicator colour for `skipped` status
+         */
         Style: TimelineStyleType,
-        /** StepStatus variant enum (shared with Steps). */
+        /**
+         * Shared step-status variant used by Steps and Timeline.
+         *
+         * @remarks
+         * Mirror of `StepStatusType` from `../steps/types.js`. Drives the
+         * default paired icon + colour per §0.3.
+         *
+         * @property pending - Not started / queued
+         * @property active - Currently in progress
+         * @property completed - Finished successfully
+         * @property error - Failed / errored
+         * @property skipped - Skipped intentionally
+         */
         Status: StepStatusType,
     },
 } as const;

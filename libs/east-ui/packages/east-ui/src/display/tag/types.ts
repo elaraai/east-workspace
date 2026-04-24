@@ -41,44 +41,50 @@ export const TagSizeType = VariantType({
     xl: NullType,
 });
 
-/**
- * Type representing Tag size variant values.
- */
+/** Type alias for Tag size variant. */
 export type TagSizeType = typeof TagSizeType;
 
-/**
- * String literal type for Tag sizes.
- */
+/** String-literal shorthand for Tag sizes. */
 export type TagSizeLiteral = "sm" | "md" | "lg" | "xl";
 
 // ============================================================================
-// Tag Type
+// Tag Style
 // ============================================================================
 
 /**
- * Type for Tag component data.
+ * East StructType holding every visual field for a Tag.
  *
  * @remarks
- * Tag is used for categorization, filtering, and labeling items.
- * Unlike Badge, Tags can be closable/removable.
+ * Per the east-ui type-shape convention, visual fields live in `style` and
+ * are decoupled from the content (`label`) / state (`closable`) / behaviour
+ * (`onClose`) on the main struct.
  *
- * @property label - The tag text content
- * @property variant - Visual variant (solid, subtle, outline)
- * @property colorPalette - Color scheme for the tag
- * @property size - Size of the tag (sm, md, lg, xl)
- * @property closable - Whether the tag shows a close button
- * @property onClose - Callback triggered when close button is clicked
- * @property opacity - CSS opacity (0-1)
- * @property color - Custom text color (overrides colorPalette)
- * @property background - Custom background color (overrides colorPalette)
+ * @property variant - Visual preset — `solid` / `subtle` / `outline`
+ * @property colorPalette - Colour palette token
+ * @property size - Tag size (sm/md/lg/xl)
+ * @property opacity - CSS opacity (0–1)
+ * @property color - Explicit text colour override
+ * @property background - Explicit background colour override
+ * @property borderRadius - Corner radius
+ * @property borderWidth - Border width token
+ * @property borderStyle - Border style token
+ * @property borderColor - Border colour
+ * @property overflow - Overflow behaviour
+ * @property overflowX - Horizontal overflow
+ * @property overflowY - Vertical overflow
+ * @property width - CSS width
+ * @property height - CSS height
+ * @property minWidth - CSS min-width
+ * @property minHeight - CSS min-height
+ * @property maxWidth - CSS max-width
+ * @property maxHeight - CSS max-height
+ * @property padding - Padding struct
+ * @property margin - Margin struct
  */
-export const TagType = StructType({
-    label: StringType,
+export const TagStyleType = StructType({
     variant: OptionType(StyleVariantType),
     colorPalette: OptionType(ColorSchemeType),
     size: OptionType(TagSizeType),
-    closable: OptionType(BooleanType),
-    onClose: OptionType(FunctionType([], NullType)),
     opacity: OptionType(FloatType),
     color: OptionType(StringType),
     background: OptionType(StringType),
@@ -99,72 +105,92 @@ export const TagType = StructType({
     margin: OptionType(MarginType),
 });
 
+/** Type alias for the Tag style struct. */
+export type TagStyleType = typeof TagStyleType;
+
+// ============================================================================
+// Tag Type
+// ============================================================================
+
 /**
- * Type representing the Tag structure.
+ * East StructType for a Tag component value.
+ *
+ * @remarks
+ * Main struct carries content (`label`), state (`closable`), behaviour
+ * (`onClose`), and a single `style` sub-struct. Tags differ from Badges in
+ * that they can be closable/removable.
+ *
+ * @property label - Tag text
+ * @property closable - Whether a close button is rendered
+ * @property onClose - Click callback on the close button
+ * @property style - Optional visual style sub-struct
  */
+export const TagType = StructType({
+    label: StringType,
+    closable: OptionType(BooleanType),
+    onClose: OptionType(FunctionType([], NullType)),
+    style: OptionType(TagStyleType),
+});
+
+/** Type alias for the Tag struct. */
 export type TagType = typeof TagType;
 
 // ============================================================================
-// Tag Style
+// Tag TS options bag
 // ============================================================================
 
 /**
- * TypeScript interface for Tag style options.
+ * TypeScript options bag for `Tag.Root`.
  *
- * @property variant - Visual variant (solid, subtle, outline)
- * @property colorPalette - Color scheme for the tag
- * @property size - Size of the tag (sm, md, lg, xl)
- * @property closable - Whether the tag shows a close button
- * @property onClose - Callback triggered when close button is clicked
- * @property opacity - CSS opacity (0-1)
- * @property color - Custom text color (overrides colorPalette)
- * @property background - Custom background color (overrides colorPalette)
+ * @remarks
+ * Combines the two main-struct behaviour fields (`closable`, `onClose`) with
+ * all style fields. The factory splits them internally.
  */
 export interface TagStyle {
-    /** Visual variant (solid, subtle, outline) */
+    /** Visual preset — `solid` / `subtle` / `outline` */
     variant?: SubtypeExprOrValue<StyleVariantType> | StyleVariantLiteral;
-    /** Color scheme for the tag */
+    /** Colour palette token */
     colorPalette?: SubtypeExprOrValue<ColorSchemeType> | ColorSchemeLiteral;
-    /** Size of the tag (sm, md, lg, xl) */
+    /** Tag size (sm/md/lg/xl) */
     size?: SubtypeExprOrValue<TagSizeType> | TagSizeLiteral;
-    /** Whether the tag shows a close button */
+    /** Whether the tag shows a close button (main-struct state) */
     closable?: SubtypeExprOrValue<BooleanType>;
-    /** Callback triggered when close button is clicked */
+    /** Callback triggered when close button is clicked (main-struct behaviour) */
     onClose?: SubtypeExprOrValue<FunctionType<[], NullType>>;
-    /** CSS opacity (0-1) */
+    /** CSS opacity (0–1) */
     opacity?: SubtypeExprOrValue<FloatType>;
-    /** Custom text color (overrides colorPalette) */
+    /** Explicit text colour override */
     color?: SubtypeExprOrValue<StringType>;
-    /** Custom background color (overrides colorPalette) */
+    /** Explicit background colour override */
     background?: SubtypeExprOrValue<StringType>;
-    /** Border radius */
+    /** Corner radius */
     borderRadius?: SubtypeExprOrValue<StringType>;
-    /** Border width */
+    /** Border width token */
     borderWidth?: SubtypeExprOrValue<BorderWidthType> | BorderWidthLiteral;
-    /** Border style */
+    /** Border style token */
     borderStyle?: SubtypeExprOrValue<BorderStyleType> | BorderStyleLiteral;
-    /** Border color */
+    /** Border colour */
     borderColor?: SubtypeExprOrValue<StringType>;
-    /** Overflow behavior */
+    /** Overflow behaviour */
     overflow?: SubtypeExprOrValue<OverflowType> | OverflowLiteral;
     /** Horizontal overflow */
     overflowX?: SubtypeExprOrValue<OverflowType> | OverflowLiteral;
     /** Vertical overflow */
     overflowY?: SubtypeExprOrValue<OverflowType> | OverflowLiteral;
-    /** Width */
+    /** CSS width */
     width?: SubtypeExprOrValue<StringType>;
-    /** Height */
+    /** CSS height */
     height?: SubtypeExprOrValue<StringType>;
-    /** Min width */
+    /** CSS min-width */
     minWidth?: SubtypeExprOrValue<StringType>;
-    /** Min height */
+    /** CSS min-height */
     minHeight?: SubtypeExprOrValue<StringType>;
-    /** Max width */
+    /** CSS max-width */
     maxWidth?: SubtypeExprOrValue<StringType>;
-    /** Max height */
+    /** CSS max-height */
     maxHeight?: SubtypeExprOrValue<StringType>;
-    /** Padding configuration */
+    /** Padding (struct or shorthand for all 4 sides) */
     padding?: SubtypeExprOrValue<PaddingType> | string;
-    /** Margin configuration */
+    /** Margin (struct or shorthand for all 4 sides) */
     margin?: SubtypeExprOrValue<MarginType> | string;
 }

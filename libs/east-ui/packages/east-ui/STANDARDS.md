@@ -129,8 +129,62 @@ export const Button = {
 
 1. **Namespace-level docs** - Brief description with `@remarks` explaining usage
 2. **Root property docs** - Full documentation with `@param`, `@returns`, `@remarks`, and `@example`
-3. **Types property docs** - Each type in `Types` has its own documentation with `@property` tags
+3. **Types property docs** - Each type in `Types` has its own **full JSDoc block**: a summary, `@remarks` explaining the type's role in the namespace, and `@property` tag for EVERY field of the struct / tag of the variant. TypeDoc treats namespace `Types.*` properties as distinct exports — a one-liner here produces visibly worse TypeDoc output than the source `types.ts` already carries.
 4. **All examples use `East.function()`** - Examples MUST be wrapped in `East.function()` so they can be validated
+
+#### ❌ NON-EXAMPLE — one-liner `Types.*` blocks are forbidden
+
+Do **not** write the following form. It shaves documentation and violates rule 3 above:
+
+```typescript
+// ❌ WRONG — do not commit code shaped like this
+export const Toast = {
+    make: createToast,
+    Types: {
+        /** The concrete East type for Toast. */
+        Toast: ToastType,
+        /** Visual-only style struct. */
+        Style: ToastStyleType,
+    },
+} as const;
+```
+
+Every `Types.*` property must carry the same JSDoc completeness as the declaration in `types.ts`. Prefer copying the full block:
+
+```typescript
+// ✅ RIGHT — full block on every Types.* property
+Types: {
+    /**
+     * East StructType for a Toast value — the serialisable IR used by
+     * platform emit calls.
+     *
+     * @remarks
+     * Exposed on the namespace so hosts can reference the IR type via
+     * `Toast.Types.Toast` without reaching into module internals.
+     *
+     * @property status - Semantic classification (shared with Alert / Banner)
+     * @property title - Toast title text
+     * @property description - Optional description line
+     * @property actions - Optional action buttons (up to three)
+     * @property duration - Duration in milliseconds (none ⇒ persistent)
+     * @property style - Optional visual style sub-struct (see `Style`)
+     */
+    Toast: ToastType,
+    /**
+     * East StructType holding every visual field for a Toast.
+     *
+     * @remarks
+     * Mirror of `ToastStyleType` from `./types.js`. Covers the four colour
+     * slots (text, background, border, icon).
+     *
+     * @property color - Explicit text colour override
+     * @property background - Explicit background colour override
+     * @property borderColor - Explicit border colour override
+     * @property iconColor - Explicit icon colour override
+     */
+    Style: ToastStyleType,
+},
+```
 
 ### Factory Functions
 

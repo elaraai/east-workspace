@@ -249,13 +249,66 @@ export const Alert = {
     Status: AlertStatus,
     Variant: AlertVariant,
     Types: {
-        /** The concrete East type for Alert — mirrors the inline variant in component.ts. */
+        /**
+         * East StructType for an Alert value — mirrors the inline `Alert`
+         * variant in `component.ts`.
+         *
+         * @remarks
+         * Exposed on the namespace so consumers can reference the IR type
+         * via `Alert.Types.Alert` without reaching into module internals.
+         *
+         * @property status - Semantic classification (info / warning / success / error / neutral)
+         * @property title - Optional short alert title (UIComponent)
+         * @property description - Optional short rich description (UIComponent)
+         * @property body - Optional rich body — array of UIComponents rendered below title/description
+         * @property actions - Optional action row (typically `Button.Root(...)` wrapped in a stack)
+         * @property icon - Optional explicit icon (overrides the default paired-icon)
+         * @property closable - Whether a close affordance is rendered
+         * @property showIcon - Whether the default paired icon is shown
+         * @property onClose - Optional close-button callback
+         * @property style - Optional visual style sub-struct (see `Style`)
+         */
         Alert: AlertType,
-        /** Semantic status variant (info / warning / success / error / neutral). */
+        /**
+         * Semantic status classification for Alert — shared with Banner /
+         * Toast.
+         *
+         * @remarks
+         * Drives default paired-icon selection and colour palette per §0.3.
+         *
+         * @property info - Informational notice
+         * @property success - Confirmation / on-track
+         * @property warning - Non-blocking caution
+         * @property error - Error / failure
+         * @property neutral - Default / idle
+         */
         Status: AlertStatusType,
-        /** Visual preset variant (solid / subtle / outline). */
+        /**
+         * Visual preset variant for Alert.
+         *
+         * @remarks
+         * Mirror of the shared `StyleVariantType` restricted to the three
+         * presets the Chakra v3 Alert compound accepts.
+         *
+         * @property solid - Filled background + high-contrast text
+         * @property subtle - Tinted background + default text (default)
+         * @property outline - Border-only with background transparent
+         */
         Variant: AlertVariantType,
-        /** Visual-only style struct. */
+        /**
+         * East StructType holding every visual field for an Alert.
+         *
+         * @remarks
+         * Mirror of `AlertStyleType` from `./types.js`. Covers the four
+         * colour slots (text, background, border, icon) plus the visual
+         * preset (`variant`) and optional explicit padding.
+         *
+         * @property variant - Visual preset (solid / subtle / outline)
+         * @property color - Explicit text colour override
+         * @property background - Explicit background override
+         * @property borderColor - Explicit border colour
+         * @property iconColor - Explicit icon tint
+         */
         Style: AlertStyleType,
     },
 } as const;

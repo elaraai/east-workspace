@@ -9,35 +9,43 @@ import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Avatar } from "@elaraai/east-ui";
 import { getSomeorUndefined } from "../../utils";
 
-// Pre-define equality function at module level
 const avatarEqual = equalFor(Avatar.Types.Avatar);
 
-/** East Avatar value type */
+/** East Avatar value type. */
 export type AvatarValue = ValueTypeOf<typeof Avatar.Types.Avatar>;
 
 /**
- * Converts an East UI Avatar value to Chakra UI Avatar props.
- * Pure function - easy to test independently.
+ * Converts an East UI Avatar value into Chakra `AvatarRootProps`.
+ *
+ * @remarks
+ * Per the main/style type-shape convention, the main struct carries only
+ * `src` + `name` (content). Every visual field lives in `value.style`.
  */
 export function toChakraAvatar(value: AvatarValue): AvatarRootProps {
-    const padding = getSomeorUndefined(value.padding);
-    const margin = getSomeorUndefined(value.margin);
+    const style = getSomeorUndefined(value.style);
+    if (style === undefined) return {};
+
+    const padding = getSomeorUndefined(style.padding);
+    const margin = getSomeorUndefined(style.margin);
 
     return {
-        size: getSomeorUndefined(value.size)?.type,
-        variant: getSomeorUndefined(value.variant)?.type,
-        colorPalette: getSomeorUndefined(value.colorPalette)?.type,
-        opacity: getSomeorUndefined(value.opacity),
-        borderRadius: getSomeorUndefined(value.borderRadius),
-        overflow: getSomeorUndefined(value.overflow)?.type,
-        overflowX: getSomeorUndefined(value.overflowX)?.type,
-        overflowY: getSomeorUndefined(value.overflowY)?.type,
-        width: getSomeorUndefined(value.width),
-        height: getSomeorUndefined(value.height),
-        minWidth: getSomeorUndefined(value.minWidth),
-        minHeight: getSomeorUndefined(value.minHeight),
-        maxWidth: getSomeorUndefined(value.maxWidth),
-        maxHeight: getSomeorUndefined(value.maxHeight),
+        size: getSomeorUndefined(style.size)?.type,
+        variant: getSomeorUndefined(style.variant)?.type,
+        colorPalette: getSomeorUndefined(style.colorPalette)?.type,
+        opacity: getSomeorUndefined(style.opacity),
+        borderRadius: getSomeorUndefined(style.borderRadius),
+        overflow: getSomeorUndefined(style.overflow)?.type,
+        overflowX: getSomeorUndefined(style.overflowX)?.type,
+        overflowY: getSomeorUndefined(style.overflowY)?.type,
+        width: getSomeorUndefined(style.width),
+        height: getSomeorUndefined(style.height),
+        minWidth: getSomeorUndefined(style.minWidth),
+        minHeight: getSomeorUndefined(style.minHeight),
+        maxWidth: getSomeorUndefined(style.maxWidth),
+        maxHeight: getSomeorUndefined(style.maxHeight),
+        color: getSomeorUndefined(style.color),
+        background: getSomeorUndefined(style.background),
+        borderColor: getSomeorUndefined(style.borderColor),
         pt: padding ? getSomeorUndefined(padding.top) : undefined,
         pr: padding ? getSomeorUndefined(padding.right) : undefined,
         pb: padding ? getSomeorUndefined(padding.bottom) : undefined,
@@ -53,9 +61,7 @@ export interface EastChakraAvatarProps {
     value: AvatarValue;
 }
 
-/**
- * Renders an East UI Avatar value using Chakra UI Avatar component.
- */
+/** Renders an East UI Avatar value using Chakra v3 `Avatar`. */
 export const EastChakraAvatar = memo(function EastChakraAvatar({ value }: EastChakraAvatarProps) {
     const props = useMemo(() => toChakraAvatar(value), [value]);
     const src = useMemo(() => getSomeorUndefined(value.src), [value.src]);

@@ -110,18 +110,98 @@ const toast_emit = East.platform("toast_emit", [ToastType], NullType, { optional
  * through the host's `<Toaster />` singleton.
  */
 export const Toast = {
-    /** Construct a Toast value. */
+    /**
+     * Constructs a Toast value.
+     *
+     * @param status - Semantic classification driving default palette + icon
+     * @param title - Toast title text
+     * @param options - Optional description / actions / duration / style
+     * @returns An East expression of type `ToastType`
+     *
+     * @remarks
+     * Construction is pure — use `Toast.emit(...)` inside a Reactive /
+     * async platform context to push a built toast through the host's
+     * `<Toaster />` singleton.
+     *
+     * @example
+     * ```ts
+     * import { East } from "@elaraai/east";
+     * import { Toast } from "@elaraai/east-ui";
+     *
+     * const t = Toast.make("success", "Saved", { duration: 5000n });
+     * ```
+     */
     make: createToast,
-    /** Emit a Toast through the host's Toaster singleton. */
+    /**
+     * Emits a Toast through the host's Toaster singleton.
+     *
+     * @param toastValue - Toast value produced by `Toast.make(...)`
+     * @returns A platform call that resolves to null
+     *
+     * @remarks
+     * The platform function is marked `optional: true`; call it from an
+     * async / Reactive context so the containing function is promoted to
+     * `AsyncFunction` cleanly.
+     */
     emit: toast_emit,
     Types: {
-        /** The concrete East type for Toast. */
+        /**
+         * East StructType for a Toast value — the serialisable IR used by
+         * platform emit calls.
+         *
+         * @remarks
+         * Rich title/description slots are inlined as `StringType` so the
+         * IR can be serialised and re-hydrated across runtime boundaries.
+         * Exposed on the namespace so hosts can reference the IR type via
+         * `Toast.Types.Toast` without reaching into module internals.
+         *
+         * @property status - Semantic classification (shared with Alert / Banner)
+         * @property title - Toast title text
+         * @property description - Optional description line
+         * @property actions - Optional action buttons (up to three)
+         * @property duration - Duration in milliseconds (none ⇒ persistent)
+         * @property style - Optional visual style sub-struct (see `Style`)
+         */
         Toast: ToastType,
-        /** Semantic status variant (shared with Alert / Banner). */
+        /**
+         * Semantic status classification for Toast — shared vocabulary with
+         * Alert / Banner.
+         *
+         * @remarks
+         * Drives default paired-icon injection and colour palette per §0.3.
+         *
+         * @property info - Informational / neutral notice
+         * @property success - Confirmation of a successful action
+         * @property warning - Non-blocking caution
+         * @property error - Error / failure
+         * @property neutral - Default / idle
+         */
         Status: AlertStatusType,
-        /** Action-button sub-struct. */
+        /**
+         * East StructType for a Toast action button.
+         *
+         * @remarks
+         * Each action carries a label, an onClick callback, and an optional
+         * visual variant. Up to three actions per toast per §0.3.
+         *
+         * @property label - Button label text
+         * @property onClick - Callback invoked when the button fires
+         * @property variant - Optional button visual preset
+         */
         Action: ToastActionType,
-        /** Visual-only style struct. */
+        /**
+         * East StructType holding every visual field for a Toast.
+         *
+         * @remarks
+         * Mirror of `ToastStyleType` from `./types.js`. Covers the four
+         * colour slots (text, background, border, icon). Renderers apply
+         * these alongside the default palette driven by `status`.
+         *
+         * @property color - Explicit text colour override
+         * @property background - Explicit background colour override
+         * @property borderColor - Explicit border colour override
+         * @property iconColor - Explicit icon colour override
+         */
         Style: ToastStyleType,
     },
 } as const;

@@ -129,9 +129,41 @@ export const ProgressCircle = {
      */
     Root: createProgressCircle,
     Types: {
-        /** The concrete East type for ProgressCircle. */
+        /**
+         * East StructType for a ProgressCircle value — the serialisable IR
+         * shape.
+         *
+         * @remarks
+         * Mirror of `ProgressCircleType` from `./types.js`. Exposed on the
+         * namespace so consumers can reference the IR type via
+         * `ProgressCircle.Types.ProgressCircle` without reaching into
+         * module internals.
+         *
+         * @property value - Current progress value (between min and max)
+         * @property min - Minimum value (defaults to 0)
+         * @property max - Maximum value (defaults to 100)
+         * @property showValueText - Whether to render the value in the ring centre
+         * @property indeterminate - Indeterminate mode (spins with no known %)
+         * @property estimatedDuration - Expected duration in seconds (drives ETA label)
+         * @property startedAt - Start timestamp (drives ETA label)
+         * @property style - Optional visual style sub-struct (see `Style`)
+         */
         ProgressCircle: ProgressCircleType,
-        /** Visual-only style struct for ProgressCircle. */
+        /**
+         * East StructType holding every visual field for a ProgressCircle.
+         *
+         * @remarks
+         * Mirror of `ProgressCircleStyleType` from `./types.js`. Covers
+         * the palette / size presets, ring stroke width, and the three
+         * colour slots (track, fill, label).
+         *
+         * @property colorPalette - Chakra palette token
+         * @property size - Size preset
+         * @property thickness - Stroke width (e.g. `"4px"`)
+         * @property trackColor - Background ring colour
+         * @property fillColor - Fill colour
+         * @property labelColor - Centre value text colour
+         */
         Style: ProgressCircleStyleType,
     },
 } as const;

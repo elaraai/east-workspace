@@ -121,11 +121,46 @@ export const Skeleton = {
      */
     Root: createSkeletonRoot,
     Types: {
-        /** The concrete East type for Skeleton. */
+        /**
+         * East StructType for a Skeleton value — the serialisable IR shape.
+         *
+         * @remarks
+         * Mirror of `SkeletonType` from `./types.js`. Exposed on the
+         * namespace so consumers can reference the IR type via
+         * `Skeleton.Types.Skeleton` without reaching into module internals.
+         *
+         * @property shape - Visual shape (text / rect / circle)
+         * @property lines - Number of text lines (only meaningful when `shape === "text"`)
+         * @property fontSize - Text line font-size (only meaningful when `shape === "text"`)
+         * @property count - Repeat the skeleton `count` times (wrapped in a VStack)
+         * @property style - Optional visual style sub-struct (see `Style`)
+         */
         Skeleton: SkeletonType,
-        /** Visual-only style struct for Skeleton. */
+        /**
+         * East StructType holding every visual field for a Skeleton.
+         *
+         * @remarks
+         * Mirror of `SkeletonStyleType` from `./types.js`. Dimensions
+         * (width/height) and the two colour slots (base + shimmer
+         * highlight) live here per §0.10.
+         *
+         * @property width - Skeleton width (CSS length)
+         * @property height - Skeleton height (CSS length)
+         * @property background - Base colour
+         * @property shimmerColor - Shimmer animation highlight colour
+         */
         Style: SkeletonStyleType,
-        /** Shape variant — text / rect / circle. */
+        /**
+         * Skeleton shape variant — determines which underlying Chakra
+         * primitive is used by the renderer.
+         *
+         * @remarks
+         * Mirror of `SkeletonShapeType` from `./types.js`.
+         *
+         * @property text - Horizontal lines (paragraphs of text)
+         * @property rect - Rectangle (images / banner blocks / buttons)
+         * @property circle - Circle (avatars)
+         */
         Shape: SkeletonShapeType,
     },
 } as const;

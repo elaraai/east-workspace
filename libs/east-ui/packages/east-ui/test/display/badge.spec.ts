@@ -26,9 +26,7 @@ describeEast("Badge", (test) => {
         const badge = $.let(Badge.Root("New"));
 
         $(Assert.equal(badge.unwrap().unwrap("Badge").value, "New"));
-        $(Assert.equal(badge.unwrap().unwrap("Badge").variant.hasTag("none"), true));
-        $(Assert.equal(badge.unwrap().unwrap("Badge").colorPalette.hasTag("none"), true));
-        $(Assert.equal(badge.unwrap().unwrap("Badge").size.hasTag("none"), true));
+        $(Assert.equal(badge.unwrap().unwrap("Badge").style.hasTag("none"), true));
     });
 
     test("creates badge with expression value", $ => {
@@ -52,8 +50,8 @@ describeEast("Badge", (test) => {
             variant: "solid",
         }));
 
-        $(Assert.equal(badge.unwrap().unwrap("Badge").variant.hasTag("some"), true));
-        $(Assert.equal(badge.unwrap().unwrap("Badge").variant.unwrap("some").hasTag("solid"), true));
+        $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").variant.hasTag("some"), true));
+        $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").variant.unwrap("some").hasTag("solid"), true));
     });
 
     test("creates subtle variant badge", $ => {
@@ -61,7 +59,7 @@ describeEast("Badge", (test) => {
             variant: "subtle",
         }));
 
-        $(Assert.equal(badge.unwrap().unwrap("Badge").variant.unwrap("some").hasTag("subtle"), true));
+        $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").variant.unwrap("some").hasTag("subtle"), true));
     });
 
     test("creates outline variant badge", $ => {
@@ -69,7 +67,7 @@ describeEast("Badge", (test) => {
             variant: "outline",
         }));
 
-        $(Assert.equal(badge.unwrap().unwrap("Badge").variant.unwrap("some").hasTag("outline"), true));
+        $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").variant.unwrap("some").hasTag("outline"), true));
     });
 
     test("creates badge with Style.StyleVariant helper", $ => {
@@ -77,7 +75,7 @@ describeEast("Badge", (test) => {
             variant: Style.StyleVariant("solid"),
         }));
 
-        $(Assert.equal(badge.unwrap().unwrap("Badge").variant.unwrap("some").hasTag("solid"), true));
+        $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").variant.unwrap("some").hasTag("solid"), true));
     });
 
     // =========================================================================
@@ -89,8 +87,8 @@ describeEast("Badge", (test) => {
             colorPalette: "green",
         }));
 
-        $(Assert.equal(badge.unwrap().unwrap("Badge").colorPalette.hasTag("some"), true));
-        $(Assert.equal(badge.unwrap().unwrap("Badge").colorPalette.unwrap("some").hasTag("green"), true));
+        $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").colorPalette.hasTag("some"), true));
+        $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").colorPalette.unwrap("some").hasTag("green"), true));
     });
 
     test("creates badge with red color palette", $ => {
@@ -98,7 +96,7 @@ describeEast("Badge", (test) => {
             colorPalette: "red",
         }));
 
-        $(Assert.equal(badge.unwrap().unwrap("Badge").colorPalette.unwrap("some").hasTag("red"), true));
+        $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").colorPalette.unwrap("some").hasTag("red"), true));
     });
 
     test("creates badge with blue color palette", $ => {
@@ -106,7 +104,7 @@ describeEast("Badge", (test) => {
             colorPalette: "blue",
         }));
 
-        $(Assert.equal(badge.unwrap().unwrap("Badge").colorPalette.unwrap("some").hasTag("blue"), true));
+        $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").colorPalette.unwrap("some").hasTag("blue"), true));
     });
 
     test("creates badge with Style.ColorScheme helper", $ => {
@@ -114,7 +112,7 @@ describeEast("Badge", (test) => {
             colorPalette: Style.ColorScheme("purple"),
         }));
 
-        $(Assert.equal(badge.unwrap().unwrap("Badge").colorPalette.unwrap("some").hasTag("purple"), true));
+        $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").colorPalette.unwrap("some").hasTag("purple"), true));
     });
 
     // =========================================================================
@@ -126,8 +124,8 @@ describeEast("Badge", (test) => {
             size: "xs",
         }));
 
-        $(Assert.equal(badge.unwrap().unwrap("Badge").size.hasTag("some"), true));
-        $(Assert.equal(badge.unwrap().unwrap("Badge").size.unwrap("some").hasTag("xs"), true));
+        $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").size.hasTag("some"), true));
+        $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").size.unwrap("some").hasTag("xs"), true));
     });
 
     test("creates small badge", $ => {
@@ -135,7 +133,7 @@ describeEast("Badge", (test) => {
             size: "sm",
         }));
 
-        $(Assert.equal(badge.unwrap().unwrap("Badge").size.unwrap("some").hasTag("sm"), true));
+        $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").size.unwrap("some").hasTag("sm"), true));
     });
 
     test("creates medium badge", $ => {
@@ -143,7 +141,7 @@ describeEast("Badge", (test) => {
             size: "md",
         }));
 
-        $(Assert.equal(badge.unwrap().unwrap("Badge").size.unwrap("some").hasTag("md"), true));
+        $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").size.unwrap("some").hasTag("md"), true));
     });
 
     test("creates large badge", $ => {
@@ -151,7 +149,7 @@ describeEast("Badge", (test) => {
             size: "lg",
         }));
 
-        $(Assert.equal(badge.unwrap().unwrap("Badge").size.unwrap("some").hasTag("lg"), true));
+        $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").size.unwrap("some").hasTag("lg"), true));
     });
 
     test("creates badge with Style.Size helper", $ => {
@@ -159,7 +157,7 @@ describeEast("Badge", (test) => {
             size: Style.Size("md"),
         }));
 
-        $(Assert.equal(badge.unwrap().unwrap("Badge").size.unwrap("some").hasTag("md"), true));
+        $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").size.unwrap("some").hasTag("md"), true));
     });
 
     // =========================================================================
@@ -174,9 +172,9 @@ describeEast("Badge", (test) => {
         }));
 
         $(Assert.equal(badge.unwrap().unwrap("Badge").value, "Active"));
-        $(Assert.equal(badge.unwrap().unwrap("Badge").variant.unwrap("some").hasTag("solid"), true));
-        $(Assert.equal(badge.unwrap().unwrap("Badge").colorPalette.unwrap("some").hasTag("green"), true));
-        $(Assert.equal(badge.unwrap().unwrap("Badge").size.unwrap("some").hasTag("sm"), true));
+        $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").variant.unwrap("some").hasTag("solid"), true));
+        $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").colorPalette.unwrap("some").hasTag("green"), true));
+        $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").size.unwrap("some").hasTag("sm"), true));
     });
 
     test("creates status badge", $ => {
@@ -186,7 +184,7 @@ describeEast("Badge", (test) => {
         }));
 
         $(Assert.equal(badge.unwrap().unwrap("Badge").value, "Online"));
-        $(Assert.equal(badge.unwrap().unwrap("Badge").colorPalette.unwrap("some").hasTag("green"), true));
+        $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").colorPalette.unwrap("some").hasTag("green"), true));
     });
 
     test("creates notification count badge", $ => {
@@ -197,7 +195,7 @@ describeEast("Badge", (test) => {
         }));
 
         $(Assert.equal(badge.unwrap().unwrap("Badge").value, "99+"));
-        $(Assert.equal(badge.unwrap().unwrap("Badge").colorPalette.unwrap("some").hasTag("red"), true));
+        $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").colorPalette.unwrap("some").hasTag("red"), true));
     });
 
     test("creates category tag badge", $ => {
@@ -208,7 +206,7 @@ describeEast("Badge", (test) => {
         }));
 
         $(Assert.equal(badge.unwrap().unwrap("Badge").value, "Technology"));
-        $(Assert.equal(badge.unwrap().unwrap("Badge").variant.unwrap("some").hasTag("subtle"), true));
+        $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").variant.unwrap("some").hasTag("subtle"), true));
     });
 
     test("creates premium label badge", $ => {
@@ -218,6 +216,6 @@ describeEast("Badge", (test) => {
         }));
 
         $(Assert.equal(badge.unwrap().unwrap("Badge").value, "PRO"));
-        $(Assert.equal(badge.unwrap().unwrap("Badge").variant.unwrap("some").hasTag("outline"), true));
+        $(Assert.equal(badge.unwrap().unwrap("Badge").style.unwrap("some").variant.unwrap("some").hasTag("outline"), true));
     });
 }, {   platformFns: TestImpl,});

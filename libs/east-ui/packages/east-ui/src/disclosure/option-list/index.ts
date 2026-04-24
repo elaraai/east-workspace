@@ -264,11 +264,50 @@ export const OptionList = {
      */
     Option: createOptionListOption,
     Types: {
-        /** The concrete East type for OptionList — mirrors the inline variant in component.ts. */
+        /**
+         * East StructType for an OptionList value — mirrors the inline
+         * `OptionList` variant in `component.ts`.
+         *
+         * @remarks
+         * Exposed on the namespace so consumers can reference the IR type
+         * via `OptionList.Types.OptionList` without reaching into module
+         * internals.
+         *
+         * @property options - Array of option rows (see `Option`)
+         * @property selectedId - Optional currently-selected option id
+         * @property onSelect - Optional callback invoked with the selected id
+         * @property style - Optional visual style sub-struct (see `Style`)
+         */
         OptionList: OptionListType,
-        /** The concrete East type for an OptionList option. */
+        /**
+         * East StructType for an OptionList option row.
+         *
+         * @remarks
+         * Each option carries a stable `id` (emitted via `onSelect`), a
+         * rich `label` + optional `description` + optional `trailing`
+         * slot (e.g. an impact chip), and a `disabled` flag.
+         *
+         * @property id - Stable option identifier (emitted via `onSelect`)
+         * @property label - Rich node for the primary row label
+         * @property description - Optional rich node rendered under the label
+         * @property trailing - Optional rich node rendered on the right (e.g. impact chip)
+         * @property disabled - Disable selection / interaction for this row
+         */
         Option: OptionListItemType,
-        /** Visual-only style struct for OptionList. */
+        /**
+         * East StructType holding every visual field for an OptionList.
+         *
+         * @remarks
+         * Mirror of `OptionListStyleType` from `./types.js`. Covers item
+         * text colour, hover / selected backgrounds, the border colour
+         * between rows, and the trailing impact-chip colour slot.
+         *
+         * @property itemColor - Default row text colour
+         * @property itemHoverBackground - Background applied on hover
+         * @property selectedBackground - Background applied to the selected row
+         * @property borderColor - Divider colour between rows
+         * @property impactColor - Colour of the trailing impact chip / accent
+         */
         Style: OptionListStyleType,
     },
 } as const;

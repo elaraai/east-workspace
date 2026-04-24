@@ -230,11 +230,52 @@ export const Status = {
      */
     Root: createStatusRoot,
     Types: {
-        /** The concrete East type for Status. */
+        /**
+         * East StructType for a Status value — the serialisable IR shape.
+         *
+         * @remarks
+         * Mirror of `StatusType` from `./types.js`. Exposed on the namespace
+         * so consumers can reference the IR type via `Status.Types.Status`
+         * without reaching into module internals.
+         *
+         * @property value - Semantic classification (fresh / degraded / stale / etc.)
+         * @property label - Optional human-readable status label
+         * @property icon - Optional explicit icon (overrides default paired icon)
+         * @property pulsing - Whether the indicator pulses to signal real-time updates
+         * @property showIcon - Whether the default paired icon is rendered
+         * @property style - Optional visual style sub-struct (see `Style`)
+         */
         Status: StatusType,
-        /** Semantic classification variant. */
+        /**
+         * Semantic classification variant for Status per §0.3 paired-icon
+         * vocabulary.
+         *
+         * @remarks
+         * Mirror of `StatusValueType` from `./types.js`. Drives default
+         * paired icon and palette; renderers map each tag to a Chakra v3
+         * status token.
+         *
+         * @property success - Success / up-to-date classification
+         * @property warning - Warning classification
+         * @property danger - Danger / error classification
+         * @property info - Informational classification
+         * @property neutral - Neutral / idle classification
+         */
         Value: StatusValueType,
-        /** Visual-only style struct for Status. */
+        /**
+         * East StructType holding every visual field for a Status.
+         *
+         * @remarks
+         * Mirror of `StatusStyleType` from `./types.js`. Covers the colour
+         * slots (text, indicator, background) that renderers apply
+         * alongside the default palette driven by `value`.
+         *
+         * @property size - Size preset (sm / md / lg)
+         * @property color - Default text colour
+         * @property background - Background colour
+         * @property borderColor - Border colour
+         * @property dotColor - Colour of the leading indicator dot
+         */
         Style: StatusStyleType,
     },
 } as const;

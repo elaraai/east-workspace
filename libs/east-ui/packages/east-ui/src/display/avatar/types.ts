@@ -16,27 +16,41 @@ import type { ColorSchemeLiteral, OverflowLiteral, StyleVariantLiteral, SizeLite
 import { PaddingType, MarginType } from "../../layout/style.js";
 
 // ============================================================================
-// Avatar Type
+// Avatar Style
 // ============================================================================
 
 /**
- * Type for Avatar component data.
+ * East StructType for the Avatar style sub-struct.
  *
  * @remarks
- * Avatar displays user profile images or initials/icons as fallback.
+ * Visual-only per the type-shape convention. `src` and `name` stay on the
+ * main struct; every visual field (presets, colour slots, sizing, overflow,
+ * padding, margin) is here.
  *
- * @property src - Image URL for the avatar
- * @property name - User name (used for initials fallback)
- * @property size - Size of the avatar
- * @property variant - Visual variant (solid, subtle, outline)
- * @property colorPalette - Color scheme for fallback avatar
+ * @property variant - Visual preset — `solid` / `subtle` / `outline`
+ * @property colorPalette - Colour palette for the fallback tile
+ * @property size - Avatar size token
+ * @property opacity - CSS opacity (0–1)
+ * @property borderRadius - Corner radius
+ * @property overflow - Overflow behaviour
+ * @property overflowX - Horizontal overflow
+ * @property overflowY - Vertical overflow
+ * @property width - CSS width
+ * @property height - CSS height
+ * @property minWidth - CSS min-width
+ * @property minHeight - CSS min-height
+ * @property maxWidth - CSS max-width
+ * @property maxHeight - CSS max-height
+ * @property padding - Padding struct
+ * @property margin - Margin struct
+ * @property color - Initials text colour override
+ * @property background - Fallback tile background override
+ * @property borderColor - Ring / border colour
  */
-export const AvatarType = StructType({
-    src: OptionType(StringType),
-    name: OptionType(StringType),
-    size: OptionType(SizeType),
+export const AvatarStyleType = StructType({
     variant: OptionType(StyleVariantType),
     colorPalette: OptionType(ColorSchemeType),
+    size: OptionType(SizeType),
     opacity: OptionType(FloatType),
     borderRadius: OptionType(StringType),
     overflow: OptionType(OverflowType),
@@ -50,61 +64,90 @@ export const AvatarType = StructType({
     maxHeight: OptionType(StringType),
     padding: OptionType(PaddingType),
     margin: OptionType(MarginType),
+    color: OptionType(StringType),
+    background: OptionType(StringType),
+    borderColor: OptionType(StringType),
 });
 
+/** Type alias for the Avatar style struct. */
+export type AvatarStyleType = typeof AvatarStyleType;
+
+// ============================================================================
+// Avatar Type
+// ============================================================================
+
 /**
- * Type representing the Avatar structure.
+ * East StructType for an Avatar component value.
+ *
+ * @remarks
+ * Main struct carries `src` + `name` (content); every visual field lives
+ * under `style: OptionType(AvatarStyleType)`.
+ *
+ * @property src - Image URL for the avatar (main-struct content)
+ * @property name - User name for initials fallback (main-struct content)
+ * @property style - Optional visual style sub-struct
  */
+export const AvatarType = StructType({
+    src: OptionType(StringType),
+    name: OptionType(StringType),
+    style: OptionType(AvatarStyleType),
+});
+
+/** Type alias for the Avatar struct. */
 export type AvatarType = typeof AvatarType;
 
 // ============================================================================
-// Avatar Style
+// Avatar TS options bag
 // ============================================================================
 
 /**
- * TypeScript interface for Avatar style options.
+ * TypeScript options bag for `Avatar.Root`.
  *
- * @property src - Image URL for the avatar
- * @property name - User name (used for initials fallback)
- * @property size - Size of the avatar
- * @property variant - Visual variant (solid, subtle, outline)
- * @property colorPalette - Color scheme for fallback avatar
+ * @remarks
+ * Combines main-struct content (`src`, `name`) with flat style fields. The
+ * factory splits them into the nested IR shape internally.
  */
 export interface AvatarStyle {
-    /** Image URL for the avatar */
+    /** Image URL (main-struct content) */
     src?: SubtypeExprOrValue<StringType>;
-    /** User name (used for initials fallback) */
+    /** User name (main-struct content, used for initials fallback) */
     name?: SubtypeExprOrValue<StringType>;
-    /** Size of the avatar */
-    size?: SubtypeExprOrValue<SizeType> | SizeLiteral;
-    /** Visual variant (solid, subtle, outline) */
+    /** Visual preset — `solid` / `subtle` / `outline` */
     variant?: SubtypeExprOrValue<StyleVariantType> | StyleVariantLiteral;
-    /** Color scheme for fallback avatar */
+    /** Colour palette for the fallback tile */
     colorPalette?: SubtypeExprOrValue<ColorSchemeType> | ColorSchemeLiteral;
-    /** CSS opacity (0-1) */
+    /** Avatar size token */
+    size?: SubtypeExprOrValue<SizeType> | SizeLiteral;
+    /** CSS opacity (0–1) */
     opacity?: SubtypeExprOrValue<FloatType>;
-    /** Border radius */
+    /** Corner radius */
     borderRadius?: SubtypeExprOrValue<StringType>;
-    /** Overflow behavior */
+    /** Overflow behaviour */
     overflow?: SubtypeExprOrValue<OverflowType> | OverflowLiteral;
     /** Horizontal overflow */
     overflowX?: SubtypeExprOrValue<OverflowType> | OverflowLiteral;
     /** Vertical overflow */
     overflowY?: SubtypeExprOrValue<OverflowType> | OverflowLiteral;
-    /** Width */
+    /** CSS width */
     width?: SubtypeExprOrValue<StringType>;
-    /** Height */
+    /** CSS height */
     height?: SubtypeExprOrValue<StringType>;
-    /** Min width */
+    /** CSS min-width */
     minWidth?: SubtypeExprOrValue<StringType>;
-    /** Min height */
+    /** CSS min-height */
     minHeight?: SubtypeExprOrValue<StringType>;
-    /** Max width */
+    /** CSS max-width */
     maxWidth?: SubtypeExprOrValue<StringType>;
-    /** Max height */
+    /** CSS max-height */
     maxHeight?: SubtypeExprOrValue<StringType>;
-    /** Padding configuration */
+    /** Padding (struct or shorthand for all 4 sides) */
     padding?: SubtypeExprOrValue<PaddingType> | string;
-    /** Margin configuration */
+    /** Margin (struct or shorthand for all 4 sides) */
     margin?: SubtypeExprOrValue<MarginType> | string;
+    /** Initials text colour override */
+    color?: SubtypeExprOrValue<StringType>;
+    /** Fallback tile background override */
+    background?: SubtypeExprOrValue<StringType>;
+    /** Ring / border colour */
+    borderColor?: SubtypeExprOrValue<StringType>;
 }

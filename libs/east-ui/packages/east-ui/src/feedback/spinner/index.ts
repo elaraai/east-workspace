@@ -109,9 +109,34 @@ export const Spinner = {
      */
     Root: createSpinnerRoot,
     Types: {
-        /** The concrete East type for Spinner. */
+        /**
+         * East StructType for a Spinner value — the serialisable IR shape.
+         *
+         * @remarks
+         * Mirror of `SpinnerType` from `./types.js`. Spinner has no content
+         * or state fields — the main struct is effectively just the
+         * `style` wrapper. Exposed on the namespace so consumers can
+         * reference the IR type via `Spinner.Types.Spinner` without
+         * reaching into module internals.
+         *
+         * @property style - Optional visual style sub-struct (see `Style`)
+         */
         Spinner: SpinnerType,
-        /** Visual-only style struct for Spinner. */
+        /**
+         * East StructType holding every visual field for a Spinner.
+         *
+         * @remarks
+         * Mirror of `SpinnerStyleType` from `./types.js`. Covers the size
+         * preset, palette, stroke configuration, rotation period, and the
+         * two colour slots (active + track).
+         *
+         * @property size - Size preset (sm / md / lg)
+         * @property colorPalette - Chakra colour palette token
+         * @property thickness - Stroke width
+         * @property speed - Rotation period (e.g. `"0.65s"`)
+         * @property color - Active stroke colour
+         * @property trackColor - Faint background ring colour
+         */
         Style: SpinnerStyleType,
     },
 } as const;

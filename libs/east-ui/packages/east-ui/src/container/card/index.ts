@@ -650,11 +650,64 @@ export const Card = {
      */
     Variant: CardVariant,
     Types: {
-        /** The concrete East type for Card. */
+        /**
+         * East StructType for a Card component value — the serialisable IR
+         * shape used by renderers and assertion tooling.
+         *
+         * @remarks
+         * Mirrors the inline `Card` variant in `component.ts`. Use this
+         * alias for `ValueTypeOf<typeof Card.Types.Card>` and
+         * `equalFor(Card.Types.Card)` without reaching into module
+         * internals.
+         *
+         * @property header - Optional header slot (UIComponent)
+         * @property body - Body children (array of UIComponents)
+         * @property footer - Optional footer slot (UIComponent)
+         * @property state - Runtime state enum per §0.1 state contract
+         * @property style - Optional visual style sub-struct
+         */
         Card: CardType,
-        /** Visual-only style struct for Card. */
+        /**
+         * East StructType holding every visual field for a Card.
+         *
+         * @remarks
+         * Mirror of `CardStyleType` from `./types.js`. Covers visual
+         * presets (`variant`, `size`, `elevation`), layout / dimension
+         * fields, overflow, and the full set of colour slots
+         * (`background`, `borderColor`, `headerBackground`,
+         * `footerBackground`, `accentColor`) that renderers apply
+         * alongside state-driven overrides.
+         *
+         * @property variant - Visual preset — `elevated` / `outline` / `subtle`
+         * @property size - Card size token
+         * @property elevation - Shadow elevation token
+         * @property height - CSS height
+         * @property minHeight - CSS min-height
+         * @property maxHeight - CSS max-height
+         * @property width - CSS width
+         * @property minWidth - CSS min-width
+         * @property maxWidth - CSS max-width
+         * @property flex - Flex value (for use inside flex containers)
+         * @property overflow - Overflow behaviour
+         * @property background - Explicit card background override
+         * @property borderColor - Explicit card border colour
+         * @property headerBackground - Explicit header background override
+         * @property footerBackground - Explicit footer background override
+         * @property accentColor - Left-edge accent stripe colour
+         */
         Style: CardStyleType,
-        /** Visual preset variant (`elevated` / `outline` / `subtle`). */
+        /**
+         * East VariantType for the Card visual preset.
+         *
+         * @remarks
+         * Mirror of `CardVariantType` from `./types.js`. Used as the value
+         * type of `CardStyleType.variant`; consumers can construct a
+         * variant expression via `Card.Variant("elevated")`.
+         *
+         * @property elevated - Raised card with prominent shadow
+         * @property outline - Default — 1px border + subtle shadow
+         * @property subtle - Flat card with background tint, no shadow
+         */
         Variant: CardVariantType,
     },
 } as const;

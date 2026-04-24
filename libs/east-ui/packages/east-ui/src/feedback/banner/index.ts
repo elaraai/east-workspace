@@ -241,11 +241,52 @@ export const Banner = {
      */
     Root: createBannerRoot,
     Types: {
-        /** The concrete East type for Banner. */
+        /**
+         * East StructType for a Banner value — mirrors the inline `Banner`
+         * variant in `component.ts`.
+         *
+         * @remarks
+         * Exposed on the namespace so consumers can reference the IR type
+         * via `Banner.Types.Banner` without reaching into module internals.
+         *
+         * @property status - Semantic classification (shared with Alert / Toast)
+         * @property title - Banner title
+         * @property description - Optional description body
+         * @property icon - Optional explicit icon (overrides the default paired icon)
+         * @property closable - Whether a close affordance is rendered
+         * @property showIcon - Whether the default paired icon is shown
+         * @property actions - Optional action buttons row
+         * @property onClose - Optional close-button callback
+         * @property style - Optional visual style sub-struct (see `Style`)
+         */
         Banner: BannerType,
-        /** Semantic status variant (shared with Alert). */
+        /**
+         * Semantic status classification for Banner — shared vocabulary
+         * with Alert / Toast.
+         *
+         * @remarks
+         * Drives default paired-icon selection and colour palette per §0.3.
+         *
+         * @property info - Informational notice
+         * @property success - Confirmation / on-track
+         * @property warning - Non-blocking caution
+         * @property error - Error / failure
+         * @property neutral - Default / idle
+         */
         Status: AlertStatusType,
-        /** Visual-only style struct for Banner. */
+        /**
+         * East StructType holding every visual field for a Banner.
+         *
+         * @remarks
+         * Mirror of `BannerStyleType` from `./types.js`. Covers the four
+         * colour slots (text, background, border, icon) applied alongside
+         * the default palette driven by `status`.
+         *
+         * @property color - Explicit text colour override
+         * @property background - Explicit background override
+         * @property borderColor - Explicit border colour override
+         * @property iconColor - Explicit icon tint override
+         */
         Style: BannerStyleType,
     },
 } as const;

@@ -192,9 +192,37 @@ export const EmptyState = {
      */
     Root: createEmptyStateRoot,
     Types: {
-        /** The concrete East type for EmptyState — mirrors the inline variant in component.ts. */
+        /**
+         * East StructType for an EmptyState value — mirrors the inline
+         * `EmptyState` variant in `component.ts`.
+         *
+         * @remarks
+         * Exposed on the namespace so consumers can reference the IR type
+         * via `EmptyState.Types.EmptyState` without reaching into module
+         * internals.
+         *
+         * @property icon - Optional leading indicator icon
+         * @property title - Title UIComponent (required)
+         * @property description - Optional description UIComponent
+         * @property actions - Optional action row (typically a Button or Stack of buttons)
+         * @property style - Optional visual style sub-struct (see `Style`)
+         */
         EmptyState: EmptyStateType,
-        /** Visual-only style struct for EmptyState. */
+        /**
+         * East StructType holding every visual field for an EmptyState.
+         *
+         * @remarks
+         * Mirror of `EmptyStateStyleType` from `./types.js`. Content
+         * (title / description / icon / actions) lives on the main
+         * variant; this struct carries only the size preset and the four
+         * colour slots.
+         *
+         * @property size - Size preset (sm / md / lg)
+         * @property color - Default text colour
+         * @property background - Background colour
+         * @property borderColor - Border colour
+         * @property iconColor - Colour of the leading indicator icon
+         */
         Style: EmptyStateStyleType,
     },
 } as const;

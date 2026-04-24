@@ -16,31 +16,48 @@ import type { BorderStyleLiteral, BorderWidthLiteral, OverflowLiteral, SizeLiter
 import { PaddingType, MarginType } from "../../layout/style.js";
 
 // ============================================================================
-// Badge Type
+// Badge Style
 // ============================================================================
 
 /**
- * Type for Badge component data.
+ * East StructType holding every visual field for a Badge.
  *
  * @remarks
- * Badge displays short labels, counts, or status indicators.
+ * Per the `east-ui` type-shape convention (README §Type-shape convention), a
+ * Badge splits into **content on the main struct** (just `value`) and **every
+ * visual field inside `style`**. This matches the uniform main/style split
+ * used by Button, Card, Alert, etc.
  *
- * @property value - The badge text content
- * @property variant - Visual variant (solid, subtle, outline)
- * @property colorPalette - Color scheme for the badge
- * @property size - Size of the badge
- * @property opacity - CSS opacity (0-1)
- * @property color - Custom text color (overrides colorPalette)
- * @property background - Custom background color (overrides colorPalette)
+ * @property variant - Visual preset — `solid` / `subtle` / `outline`
+ * @property colorPalette - Colour palette token (blue, green, red, …)
+ * @property size - Badge size token
+ * @property opacity - CSS opacity (0–1)
+ * @property color - Explicit text colour override
+ * @property background - Explicit background colour override
+ * @property borderRadius - Corner radius
+ * @property borderWidth - Border width token
+ * @property borderStyle - Border style token
+ * @property borderColor - Border colour
+ * @property overflow - Overflow behaviour
+ * @property overflowX - Horizontal overflow
+ * @property overflowY - Vertical overflow
+ * @property justifyContent - Flex justify-content
+ * @property alignItems - Flex align-items
+ * @property width - CSS width
+ * @property height - CSS height
+ * @property minWidth - CSS min-width
+ * @property minHeight - CSS min-height
+ * @property maxWidth - CSS max-width
+ * @property maxHeight - CSS max-height
+ * @property padding - Padding struct (top/right/bottom/left)
+ * @property margin - Margin struct (top/right/bottom/left)
  */
-export const BadgeType = StructType({
-    value: StringType,
+export const BadgeStyleType = StructType({
+    // Visual presets
     variant: OptionType(StyleVariantType),
     colorPalette: OptionType(ColorSchemeType),
     size: OptionType(SizeType),
-    opacity: OptionType(FloatType),
-    color: OptionType(StringType),
-    background: OptionType(StringType),
+    // Shape / layout
     borderRadius: OptionType(StringType),
     borderWidth: OptionType(BorderWidthType),
     borderStyle: OptionType(BorderStyleType),
@@ -58,72 +75,97 @@ export const BadgeType = StructType({
     maxHeight: OptionType(StringType),
     padding: OptionType(PaddingType),
     margin: OptionType(MarginType),
+    opacity: OptionType(FloatType),
+    // Colour escape hatches
+    color: OptionType(StringType),
+    background: OptionType(StringType),
 });
 
+/** Type alias for the Badge style struct. */
+export type BadgeStyleType = typeof BadgeStyleType;
+
+// ============================================================================
+// Badge Type
+// ============================================================================
+
 /**
- * Type representing the Badge structure.
+ * East StructType for a Badge component value — the persistent IR shape.
+ *
+ * @remarks
+ * Main struct carries the badge text (`value`) and a single `style` sub-struct
+ * holding every visual field. Use `Badge.Root(value, { ...style })` in TS —
+ * the factory wraps flat style fields into the nested `style` shape.
+ *
+ * @property value - The badge text content
+ * @property style - Optional style sub-struct (see `BadgeStyleType`)
  */
+export const BadgeType = StructType({
+    value: StringType,
+    style: OptionType(BadgeStyleType),
+});
+
+/** Type alias for the Badge struct. */
 export type BadgeType = typeof BadgeType;
 
 // ============================================================================
-// Badge Style
+// Badge Style (TS options bag — ergonomic factory input)
 // ============================================================================
 
 /**
- * TypeScript interface for Badge style options.
+ * TypeScript options bag accepted by `Badge.Root` — a flat mirror of
+ * `BadgeStyleType`.
  *
- * @property variant - Visual variant (solid, subtle, outline)
- * @property colorPalette - Color scheme for the badge
- * @property size - Size of the badge
- * @property opacity - CSS opacity (0-1)
- * @property color - Custom text color (overrides colorPalette)
- * @property background - Custom background color (overrides colorPalette)
+ * @remarks
+ * All fields are optional. Variant / colour palette / size / border style /
+ * border width / overflow accept their string-literal union shorthand so
+ * callers write `{ variant: "solid" }` instead of constructing the variant
+ * expression by hand.
  */
 export interface BadgeStyle {
-    /** Visual variant (solid, subtle, outline) */
+    /** Visual preset — `solid` / `subtle` / `outline` */
     variant?: SubtypeExprOrValue<StyleVariantType> | StyleVariantLiteral;
-    /** Color scheme for the badge */
+    /** Colour palette token */
     colorPalette?: SubtypeExprOrValue<ColorSchemeType> | ColorSchemeLiteral;
-    /** Size of the badge */
+    /** Badge size token */
     size?: SubtypeExprOrValue<SizeType> | SizeLiteral;
-    /** CSS opacity (0-1) */
+    /** CSS opacity (0–1) */
     opacity?: SubtypeExprOrValue<FloatType>;
-    /** Custom text color (overrides colorPalette) */
+    /** Explicit text colour override */
     color?: SubtypeExprOrValue<StringType>;
-    /** Custom background color (overrides colorPalette) */
+    /** Explicit background colour override */
     background?: SubtypeExprOrValue<StringType>;
-    /** Border radius */
+    /** Corner radius */
     borderRadius?: SubtypeExprOrValue<StringType>;
-    /** Border width */
+    /** Border width token */
     borderWidth?: SubtypeExprOrValue<BorderWidthType> | BorderWidthLiteral;
-    /** Border style */
+    /** Border style token */
     borderStyle?: SubtypeExprOrValue<BorderStyleType> | BorderStyleLiteral;
-    /** Border color */
+    /** Border colour */
     borderColor?: SubtypeExprOrValue<StringType>;
-    /** Overflow behavior */
+    /** Overflow behaviour */
     overflow?: SubtypeExprOrValue<OverflowType> | OverflowLiteral;
     /** Horizontal overflow */
     overflowX?: SubtypeExprOrValue<OverflowType> | OverflowLiteral;
     /** Vertical overflow */
     overflowY?: SubtypeExprOrValue<OverflowType> | OverflowLiteral;
-    /** Horizontal alignment (flex justify-content) */
+    /** Flex justify-content */
     justifyContent?: SubtypeExprOrValue<JustifyContentType> | JustifyContentLiteral;
-    /** Vertical alignment (flex align-items) */
+    /** Flex align-items */
     alignItems?: SubtypeExprOrValue<AlignItemsType> | AlignItemsLiteral;
-    /** Width */
+    /** CSS width */
     width?: SubtypeExprOrValue<StringType>;
-    /** Height */
+    /** CSS height */
     height?: SubtypeExprOrValue<StringType>;
-    /** Min width */
+    /** CSS min-width */
     minWidth?: SubtypeExprOrValue<StringType>;
-    /** Min height */
+    /** CSS min-height */
     minHeight?: SubtypeExprOrValue<StringType>;
-    /** Max width */
+    /** CSS max-width */
     maxWidth?: SubtypeExprOrValue<StringType>;
-    /** Max height */
+    /** CSS max-height */
     maxHeight?: SubtypeExprOrValue<StringType>;
-    /** Padding configuration */
+    /** Padding (struct or shorthand string for all four sides) */
     padding?: SubtypeExprOrValue<PaddingType> | string;
-    /** Margin configuration */
+    /** Margin (struct or shorthand string for all four sides) */
     margin?: SubtypeExprOrValue<MarginType> | string;
 }
