@@ -137,6 +137,7 @@ function createToggle(
         ? East.value({
             prefix: options.icon.prefix,
             name: options.icon.name,
+            label: none,
             style: none,
         }, IconType)
         : undefined;

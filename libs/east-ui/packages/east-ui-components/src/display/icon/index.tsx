@@ -14,31 +14,34 @@ import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Icon } from "@elaraai/east-ui";
 import { getSomeorUndefined } from "../../utils";
 
-// Add all icon packs to the library
 library.add(fas, far, fab);
 
-// Pre-define equality function at module level
 const iconEqual = equalFor(Icon.Types.Icon);
 
-/** East Icon value type */
+/** East Icon value type. */
 export type IconValue = ValueTypeOf<typeof Icon.Types.Icon>;
 
-/** Map East size to Font Awesome size */
+/** Map East size to Font Awesome size. */
 const sizeMap: Record<string, FontAwesomeIconProps["size"]> = {
     xs: "xs",
     sm: "sm",
-    md: undefined, // default size
+    md: undefined,
     lg: "lg",
     xl: "xl",
     "2xl": "2xl",
 };
 
 /**
- * Converts an East UI Icon value to FontAwesomeIcon props.
- * Pure function - easy to test independently.
+ * Converts an East UI Icon value into `FontAwesomeIconProps`.
+ *
+ * @remarks
+ * Visual style lives under `value.style`. When `value.label` is present
+ * the Font Awesome `title` prop is set (§0.2 meaningful-icon contract);
+ * otherwise the library's default `aria-hidden="true"` applies (decorative).
  */
 export function toFontAwesomeIcon(value: IconValue): FontAwesomeIconProps {
     const style = getSomeorUndefined(value.style);
+    const label = getSomeorUndefined(value.label);
     const sizeType = style ? getSomeorUndefined(style.size)?.type : undefined;
     const color = style ? getSomeorUndefined(style.color) : undefined;
     const colorPalette = style ? getSomeorUndefined(style.colorPalette)?.type : undefined;
@@ -49,12 +52,16 @@ export function toFontAwesomeIcon(value: IconValue): FontAwesomeIconProps {
         icon: [value.prefix as IconPrefix, value.name as IconName],
         size,
         color: color ?? (colorPalette ? `var(--chakra-colors-${colorPalette}-500)` : undefined),
+        ...(label !== undefined
+            ? { title: label }
+            : { "aria-hidden": true }),
     };
 }
 
 /**
- * Extracts wrapper style props from an East UI Icon value for the containing Box.
- * Pure function - easy to test independently.
+ * Extracts wrapper style props from an East UI Icon value for the
+ * containing Box — returns `undefined` when no wrapper-level visual field
+ * is set.
  */
 export function toIconWrapperProps(value: IconValue): BoxProps | undefined {
     const style = getSomeorUndefined(value.style);
@@ -64,6 +71,7 @@ export function toIconWrapperProps(value: IconValue): BoxProps | undefined {
     const margin = getSomeorUndefined(style.margin);
 
     const opacity = getSomeorUndefined(style.opacity);
+    const background = getSomeorUndefined(style.background);
     const borderRadius = getSomeorUndefined(style.borderRadius);
     const overflow = getSomeorUndefined(style.overflow)?.type;
     const overflowX = getSomeorUndefined(style.overflowX)?.type;
@@ -75,9 +83,9 @@ export function toIconWrapperProps(value: IconValue): BoxProps | undefined {
     const maxWidth = getSomeorUndefined(style.maxWidth);
     const maxHeight = getSomeorUndefined(style.maxHeight);
 
-    // Only create wrapper props if at least one style property is set
     if (
         opacity === undefined &&
+        background === undefined &&
         borderRadius === undefined &&
         overflow === undefined &&
         overflowX === undefined &&
@@ -97,6 +105,7 @@ export function toIconWrapperProps(value: IconValue): BoxProps | undefined {
     return {
         display: "inline-block",
         opacity,
+        background,
         borderRadius,
         overflow,
         overflowX,
@@ -124,6 +133,12 @@ export interface EastChakraIconProps {
 
 /**
  * Renders an East UI Icon value using Font Awesome.
+ *
+ * @remarks
+ * The §0.2 a11y contract is enforced here: absent `label` ⇒
+ * `aria-hidden="true"` (decorative); present `label` ⇒ `title={label}`
+ * which Font Awesome renders into a `<title>` SVG element so screen
+ * readers pick it up.
  */
 export const EastChakraIcon = memo(function EastChakraIcon({ value }: EastChakraIconProps) {
     const props = useMemo(() => toFontAwesomeIcon(value), [value]);

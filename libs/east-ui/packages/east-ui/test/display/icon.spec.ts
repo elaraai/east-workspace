@@ -22,7 +22,40 @@ describe("Icon", (test) => {
 
         $(Assert.equal(icon.unwrap().unwrap("Icon").prefix, "fas"));
         $(Assert.equal(icon.unwrap().unwrap("Icon").name, "user"));
+        $(Assert.equal(icon.unwrap().unwrap("Icon").label.hasTag("none"), true));
         $(Assert.equal(icon.unwrap().unwrap("Icon").style.hasTag("none"), true));
+    });
+
+    // =========================================================================
+    // Icon.Root - Label (a11y §0.2)
+    // =========================================================================
+
+    test("decorative icon — label absent", $ => {
+        const icon = $.let(Icon.Root("fas", "star"));
+
+        $(Assert.equal(icon.unwrap().unwrap("Icon").label.hasTag("none"), true));
+    });
+
+    test("meaningful icon — label present", $ => {
+        const icon = $.let(Icon.Root("fas", "user", { label: "User profile" }));
+
+        $(Assert.equal(icon.unwrap().unwrap("Icon").label.hasTag("some"), true));
+        $(Assert.equal(icon.unwrap().unwrap("Icon").label.unwrap("some"), "User profile"));
+    });
+
+    test("icon with label plus style fields", $ => {
+        const icon = $.let(Icon.Root("fas", "heart", { label: "Favourite", size: "lg", color: "red.500" }));
+
+        $(Assert.equal(icon.unwrap().unwrap("Icon").label.unwrap("some"), "Favourite"));
+        $(Assert.equal(icon.unwrap().unwrap("Icon").style.unwrap("some").size.unwrap("some").hasTag("lg"), true));
+        $(Assert.equal(icon.unwrap().unwrap("Icon").style.unwrap("some").color.unwrap("some"), "red.500"));
+    });
+
+    test("icon with background tile colour", $ => {
+        const icon = $.let(Icon.Root("fas", "user", { background: "blue.100", borderRadius: "full" }));
+
+        $(Assert.equal(icon.unwrap().unwrap("Icon").style.unwrap("some").background.unwrap("some"), "blue.100"));
+        $(Assert.equal(icon.unwrap().unwrap("Icon").style.unwrap("some").borderRadius.unwrap("some"), "full"));
     });
 
     test("creates regular icon", $ => {

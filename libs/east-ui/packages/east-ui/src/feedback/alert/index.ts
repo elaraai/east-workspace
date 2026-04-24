@@ -181,6 +181,7 @@ function createAlert(
         iconValue = East.value({
             prefix: (options.icon as { prefix: string }).prefix,
             name: (options.icon as { name: string }).name,
+            label: none,
             style: none,
         }, IconType);
     } else if (options?.icon !== undefined) {
@@ -190,6 +191,7 @@ function createAlert(
         iconValue = East.value({
             prefix: paired.prefix,
             name: paired.name,
+            label: none,
             style: none,
         }, IconType);
     }

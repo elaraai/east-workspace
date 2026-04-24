@@ -109,17 +109,35 @@ export type IconVariantLiteral = "solid" | "regular" | "light" | "thin" | "brand
  * Style type for the Icon component.
  *
  * @remarks
- * All properties are optional and wrapped in {@link OptionType}.
+ * All properties are optional and wrapped in {@link OptionType}. Visual-only
+ * per the east-ui main/style type-shape convention (§0.10) — content
+ * (`prefix` / `name`) and the a11y `label` live on the main `IconType`
+ * struct.
  *
- * @property size - Icon size (xs, sm, md, lg, xl, 2xl)
- * @property variant - Icon style/weight (solid, regular, light, thin, brands)
- * @property color - Icon color (CSS color or Chakra color token)
- * @property colorPalette - Color scheme for the icon
+ * @property size - Icon size (xs / sm / md / lg / xl / 2xl)
+ * @property variant - Icon style / weight (solid / regular / light / thin / brands)
+ * @property color - Explicit icon tint (CSS colour or Chakra colour token)
+ * @property background - Explicit icon tile background override
+ * @property colorPalette - Colour palette for the icon
+ * @property opacity - CSS opacity (0–1)
+ * @property borderRadius - Corner radius of the icon tile
+ * @property overflow - Overflow behaviour
+ * @property overflowX - Horizontal overflow
+ * @property overflowY - Vertical overflow
+ * @property width - CSS width
+ * @property height - CSS height
+ * @property minWidth - CSS min-width
+ * @property minHeight - CSS min-height
+ * @property maxWidth - CSS max-width
+ * @property maxHeight - CSS max-height
+ * @property padding - Padding struct
+ * @property margin - Margin struct
  */
 export const IconStyleType = StructType({
     size: OptionType(IconSizeType),
     variant: OptionType(IconVariantType),
     color: OptionType(StringType),
+    background: OptionType(StringType),
     colorPalette: OptionType(ColorSchemeType),
     opacity: OptionType(FloatType),
     borderRadius: OptionType(StringType),
@@ -144,45 +162,76 @@ export type IconStyleType = typeof IconStyleType;
 /**
  * TypeScript interface for Icon style options.
  *
- * @property size - Icon size (xs, sm, md, lg, xl, 2xl)
- * @property variant - Icon style/weight (solid, regular, light, thin, brands)
- * @property color - Icon color (CSS color or Chakra color token)
- * @property colorPalette - Color scheme for the icon
+ * @remarks
+ * Flat options bag accepted by `Icon.Root`. The factory coerces string
+ * literals to variant expressions and wraps the whole bag into the nested
+ * `IconStyleType` sub-struct expected by the IR.
+ *
+ * @property size - Icon size (xs / sm / md / lg / xl / 2xl)
+ * @property variant - Icon style / weight (solid / regular / light / thin / brands)
+ * @property color - Icon tint (CSS colour or Chakra colour token)
+ * @property background - Icon tile background colour
+ * @property colorPalette - Colour palette for the icon
+ * @property opacity - CSS opacity (0–1)
+ * @property borderRadius - Corner radius
+ * @property overflow - Overflow behaviour
+ * @property overflowX - Horizontal overflow
+ * @property overflowY - Vertical overflow
+ * @property width - CSS width
+ * @property height - CSS height
+ * @property minWidth - CSS min-width
+ * @property minHeight - CSS min-height
+ * @property maxWidth - CSS max-width
+ * @property maxHeight - CSS max-height
+ * @property padding - Padding (struct or shorthand for all 4 sides)
+ * @property margin - Margin (struct or shorthand for all 4 sides)
  */
 export interface IconStyle {
-    /** Icon size (xs, sm, md, lg, xl, 2xl) */
+    /**
+     * Accessible label. When present, the renderer emits
+     * `aria-label={label}`; when absent, the renderer emits
+     * `aria-hidden="true"` (decorative).
+     *
+     * @remarks
+     * Main-struct field on the IR; exposed on this options bag for
+     * call-site ergonomics alongside visual style fields.
+     */
+    label?: SubtypeExprOrValue<StringType>;
+    /** Icon size (xs / sm / md / lg / xl / 2xl) */
     size?: SubtypeExprOrValue<IconSizeType> | IconSizeLiteral;
-    /** Icon style/weight (solid, regular, light, thin, brands) */
+    /** Icon style / weight (solid / regular / light / thin / brands) */
     variant?: SubtypeExprOrValue<IconVariantType> | IconVariantLiteral;
-    /** Icon color (CSS color or Chakra color token) */
+    /** Icon tint (CSS colour or Chakra colour token) */
     color?: SubtypeExprOrValue<StringType>;
-    /** Color scheme for the icon */
+    /** Icon tile background colour */
+    background?: SubtypeExprOrValue<StringType>;
+    /** Colour palette for the icon */
     colorPalette?: SubtypeExprOrValue<ColorSchemeType> | ColorSchemeLiteral;
-    /** CSS opacity (0-1) */
+    /** CSS opacity (0–1) */
     opacity?: SubtypeExprOrValue<FloatType>;
-    /** Border radius */
+    /** Corner radius */
     borderRadius?: SubtypeExprOrValue<StringType>;
-    /** Overflow behavior */
+    /** Overflow behaviour */
     overflow?: SubtypeExprOrValue<OverflowType> | OverflowLiteral;
     /** Horizontal overflow */
     overflowX?: SubtypeExprOrValue<OverflowType> | OverflowLiteral;
     /** Vertical overflow */
     overflowY?: SubtypeExprOrValue<OverflowType> | OverflowLiteral;
-    /** Width */
+    /** CSS width */
     width?: SubtypeExprOrValue<StringType>;
-    /** Height */
+    /** CSS height */
     height?: SubtypeExprOrValue<StringType>;
-    /** Min width */
+    /** CSS min-width */
     minWidth?: SubtypeExprOrValue<StringType>;
-    /** Min height */
+    /** CSS min-height */
     minHeight?: SubtypeExprOrValue<StringType>;
-    /** Max width */
+    /** CSS max-width */
     maxWidth?: SubtypeExprOrValue<StringType>;
-    /** Max height */
+    /** CSS max-height */
     maxHeight?: SubtypeExprOrValue<StringType>;
-    /** Padding configuration */
+    /** Padding (struct or shorthand for all 4 sides) */
     padding?: SubtypeExprOrValue<PaddingType> | string;
-    /** Margin configuration */
+    /** Margin (struct or shorthand for all 4 sides) */
     margin?: SubtypeExprOrValue<MarginType> | string;
 }
 
@@ -194,15 +243,25 @@ export interface IconStyle {
  * Type for Icon component data.
  *
  * @remarks
- * Icon displays a Font Awesome icon with optional styling.
+ * Icon displays a Font Awesome icon. Main struct holds the Font Awesome
+ * prefix + name (identity), an optional `label` for accessibility, and a
+ * `style` sub-struct for visual presentation.
  *
- * @property prefix - The Font Awesome prefix (e.g., "fas", "far", "fab")
- * @property name - The Font Awesome icon name (e.g., "user", "home", "chevron-right")
- * @property style - Optional styling configuration
+ * The `label` field follows the east-ui §0.2 decorative-vs-meaningful
+ * contract: when `label` is absent (`none`), the renderer emits
+ * `aria-hidden="true"`; when present, the renderer emits
+ * `aria-label={label}`. Apps using Icon alongside text that already
+ * describes the glyph should leave `label` unset.
+ *
+ * @property prefix - Font Awesome prefix (e.g. "fas", "far", "fab")
+ * @property name - Font Awesome icon name (e.g. "user", "home", "chevron-right")
+ * @property label - Accessible label — absent ⇒ decorative (aria-hidden), present ⇒ aria-label
+ * @property style - Optional visual style sub-struct (see {@link IconStyleType})
  */
 export const IconType = StructType({
     name: StringType,
     prefix: StringType,
+    label: OptionType(StringType),
     style: OptionType(IconStyleType),
 });
 

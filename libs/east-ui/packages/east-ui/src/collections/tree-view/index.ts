@@ -208,6 +208,7 @@ function buildIndicatorValue(indicator?: TreeNodeIndicator) {
     return variant("some", East.value({
         prefix: indicator.prefix,
         name: indicator.name,
+        label: variant("none", null),
         style: (indicator.size || indicator.variant || indicator.color || indicator.colorPalette)
             ? variant("some", East.value({
                 size: indicator.size
@@ -221,6 +222,7 @@ function buildIndicatorValue(indicator?: TreeNodeIndicator) {
                         : indicator.variant)
                     : variant("none", null),
                 color: indicator.color ? variant("some", indicator.color) : variant("none", null),
+                background: variant("none", null),
                 colorPalette: indicator.colorPalette
                     ? variant("some", typeof indicator.colorPalette === "string"
                         ? East.value(variant(indicator.colorPalette, null), ColorSchemeType)

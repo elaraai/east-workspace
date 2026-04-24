@@ -260,6 +260,7 @@ function toIconValue(
         return East.value({
             name: input.name,
             prefix: input.prefix,
+            label: none,
             style: none,
         }, IconType) as ExprType<IconType>;
     }

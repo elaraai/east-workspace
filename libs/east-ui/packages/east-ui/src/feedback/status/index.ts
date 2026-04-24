@@ -153,6 +153,7 @@ function createStatusRoot(
         ? East.value({
             prefix: (options.icon as { prefix: string }).prefix,
             name: (options.icon as { name: string }).name,
+            label: none,
             style: none,
         }, IconType)
         : (options?.icon as SubtypeExprOrValue<IconType> | undefined);
@@ -168,6 +169,7 @@ function createStatusRoot(
         iconValue = East.value({
             prefix: paired.prefix,
             name: paired.name,
+            label: none,
             style: none,
         }, IconType);
     } else if (showIcon === true && options?.value === undefined) {
@@ -175,6 +177,7 @@ function createStatusRoot(
         iconValue = East.value({
             prefix: paired.prefix,
             name: paired.name,
+            label: none,
             style: none,
         }, IconType);
     }

@@ -141,6 +141,7 @@ function createTimelineItem(
         ? East.value({
             prefix: (options.indicator as { prefix: string }).prefix,
             name: (options.indicator as { name: string }).name,
+            label: none,
             style: none,
         }, IconType)
         : (options?.indicator as SubtypeExprOrValue<IconType> | undefined);
