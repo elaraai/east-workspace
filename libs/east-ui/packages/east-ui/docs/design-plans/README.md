@@ -41,7 +41,7 @@ Chart functional sub-configs (`xAxis` / `yAxis` / `tooltip` / `legend` / `margin
 | 1.4 | `1.4-buttons.md` | §1.4 Buttons (Button, IconButton, CopyButton, CloseButton, Toggle, ButtonGroup) | done |
 | 1.5 | `1.5-forms.md` | §1.5 Forms (Input suite, Slider, Field, FileUpload, Textarea, TagsInput, Radio*, Date/TimeRange, TimeScaleControl) | draft |
 | 1.6 | `1.6-feedback.md` | §1.6 Feedback (Alert, Banner, Progress, ProgressCircle, Skeleton, Spinner, Status, Toast, EmptyState) | done |
-| 1.7 | `1.7-display.md` | §1.7 Display (Badge, Tag, Avatar, Stat, Icon, MetricChip, Kbd, Meter, SegmentedMeter, BarStrip, AvatarGroup) | draft |
+| 1.7 | `1.7-display.md` | §1.7 Display (Badge, Tag, Avatar, Stat, Icon, MetricChip, EditableChip, Kbd, Meter, SegmentedMeter, BarStrip, AvatarGroup) | done |
 | 1.8 | `1.8-container.md` | §1.8 Container (Card compound + state contract) | done |
 | 1.9 | `1.9-disclosure.md` | §1.9 Disclosure (Accordion, Tabs, Carousel, SegmentGroup, Collapsible, Disclosure, Steps, Timeline, OptionList) | done |
 | 1.10 | `1.10-collections.md` | §1.10 Collections (Table, DataList, TreeView, Gantt, Planner, Matrix, Pagination) | draft |
