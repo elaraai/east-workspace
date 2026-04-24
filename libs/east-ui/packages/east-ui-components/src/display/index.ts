@@ -36,3 +36,9 @@ export {
     type StatValue,
     type EastChakraStatProps,
 } from "./stat/index.js";
+
+export {
+    EastChakraMetricChip,
+    type MetricChipValue,
+    type EastChakraMetricChipProps,
+} from "./metric-chip/index.js";

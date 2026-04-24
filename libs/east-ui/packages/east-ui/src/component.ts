@@ -90,6 +90,7 @@ import { BreadcrumbRootType } from "./navigation/breadcrumb/types.js";
 import { BadgeType } from "./display/badge/types.js";
 import { TagType } from "./display/tag/types.js";
 import { AvatarType } from "./display/avatar/types.js";
+import { MetricChipToneType, MetricChipStyleType } from "./display/metric-chip/types.js";
 import { CardStyleType } from "./container/card/types.js";
 import { StateValueType } from "./contracts/states.js";
 import { StatIndicatorType, StatStyleType } from "./display/stat/types.js";
@@ -438,6 +439,13 @@ export const UIComponentType = RecursiveType(node => VariantType({
         style: OptionType(StatStyleType),
     }),
     Icon: IconType,
+    MetricChip: StructType({
+        value: node,
+        unit: OptionType(StringType),
+        icon: OptionType(IconType),
+        tone: MetricChipToneType,
+        style: OptionType(MetricChipStyleType),
+    }),
 
     // Container
     Card: StructType({

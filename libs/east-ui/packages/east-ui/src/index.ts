@@ -51,7 +51,7 @@ export { Progress, ProgressCircle, Alert, Banner, EmptyState, Spinner, Skeleton,
 export { Breadcrumb } from "./navigation/index.js";
 
 // Display
-export { Badge, Tag, Avatar, Stat, Icon, type IconName } from "./display/index.js";
+export { Badge, Tag, Avatar, Stat, Icon, MetricChip, type IconName } from "./display/index.js";
 
 // Containers
 export { Card } from "./container/index.js";
