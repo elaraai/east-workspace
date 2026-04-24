@@ -92,6 +92,7 @@ import { TagType } from "./display/tag/types.js";
 import { AvatarType } from "./display/avatar/types.js";
 import { MetricChipToneType, MetricChipStyleType } from "./display/metric-chip/types.js";
 import { EditableChipStyleType } from "./display/editable-chip/types.js";
+import { KbdType } from "./display/kbd/types.js";
 import { CardStyleType } from "./container/card/types.js";
 import { StateValueType } from "./contracts/states.js";
 import { StatIndicatorType, StatStyleType } from "./display/stat/types.js";
@@ -454,6 +455,7 @@ export const UIComponentType = RecursiveType(node => VariantType({
         onClick: OptionType(FunctionType([], NullType)),
         style: OptionType(EditableChipStyleType),
     }),
+    Kbd: KbdType,
 
     // Container
     Card: StructType({

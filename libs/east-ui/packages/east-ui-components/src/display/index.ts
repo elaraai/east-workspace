@@ -48,3 +48,9 @@ export {
     type EditableChipValue,
     type EastChakraEditableChipProps,
 } from "./editable-chip/index.js";
+
+export {
+    EastChakraKbd,
+    type KbdValue,
+    type EastChakraKbdProps,
+} from "./kbd/index.js";
