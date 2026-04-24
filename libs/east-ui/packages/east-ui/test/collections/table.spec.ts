@@ -197,7 +197,7 @@ describeEast("Table", (test) => {
 
         $(Assert.equal(table.unwrap().unwrap("Table").style.unwrap("some").variant.unwrap("some").hasTag("outline"), true));
         $(Assert.equal(table.unwrap().unwrap("Table").style.unwrap("some").striped.unwrap("some"), true));
-        $(Assert.equal(table.unwrap().unwrap("Table").style.unwrap("some").interactive.unwrap("some"), true));
+        $(Assert.equal(table.unwrap().unwrap("Table").interactive.unwrap("some"), true));
     });
 
     // =========================================================================

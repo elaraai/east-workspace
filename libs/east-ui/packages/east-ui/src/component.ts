@@ -106,7 +106,13 @@ import { IconType } from "./display/icon/types.js";
 // Collections
 import { DataListStyleType } from "./collections/data-list/types.js";
 import { PaginationType } from "./collections/pagination/index.js";
-import { TableStyleType, TableCellRenderContextType } from "./collections/table/types.js";
+import {
+    TableStyleType,
+    TableCellRenderContextType,
+    TableColumnGroupType,
+    TableSelectionType,
+    TablePaginationType,
+} from "./collections/table/types.js";
 import {
     GanttEventType,
     GanttStyleType,
@@ -134,6 +140,7 @@ import {
 import {
     TableRowClickEventType,
     TableCellClickEventType,
+    TableRowSelectionEventType,
     TableSortEventType,
 } from "./collections/table/types.js";
 // import { TreeViewStyleType } from "./collections/tree-view/types.js";
@@ -585,6 +592,33 @@ export const UIComponentType = RecursiveType(node => VariantType({
             render: OptionType(FunctionType([TableCellRenderContextType], node)),
         })),
         frozen: ArrayType(StringType),
+        columnGroups: OptionType(ArrayType(TableColumnGroupType)),
+        footer: OptionType(DictType(StringType, StructType({
+            value: LiteralValueType,
+            content: OptionType(node),
+            colSpan: OptionType(IntegerType),
+            rowSpan: OptionType(IntegerType),
+        }))),
+        footerRows: OptionType(ArrayType(DictType(StringType, StructType({
+            value: LiteralValueType,
+            content: OptionType(node),
+            colSpan: OptionType(IntegerType),
+            rowSpan: OptionType(IntegerType),
+        })))),
+        expandedContent: OptionType(FunctionType([IntegerType], node)),
+        interactive: OptionType(BooleanType),
+        columnResize: OptionType(BooleanType),
+        virtualization: OptionType(BooleanType),
+        density: OptionType(DensityType),
+        rowStatus: OptionType(FunctionType([IntegerType], StatusTokenType)),
+        pagination: OptionType(TablePaginationType),
+        selection: OptionType(TableSelectionType),
+        onCellClick: OptionType(FunctionType([TableCellClickEventType], NullType)),
+        onCellDoubleClick: OptionType(FunctionType([TableCellClickEventType], NullType)),
+        onRowClick: OptionType(FunctionType([TableRowClickEventType], NullType)),
+        onRowDoubleClick: OptionType(FunctionType([TableRowClickEventType], NullType)),
+        onRowSelectionChange: OptionType(FunctionType([TableRowSelectionEventType], NullType)),
+        onSortChange: OptionType(FunctionType([TableSortEventType], NullType)),
         style: OptionType(TableStyleType),
     }),
 

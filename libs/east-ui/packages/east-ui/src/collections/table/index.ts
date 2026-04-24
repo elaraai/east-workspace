@@ -47,10 +47,82 @@ import {
     TableRowClickEventType,
     TableRowSelectionEventType,
     TableSortEventType,
-    TableSortDirectionType
+    TableSortDirectionType,
+    TableColumnGroupType,
+    TablePaginationType,
+    TableSelectionType,
+    TableSelectionModeType,
 } from "./types.js";
 import { UIComponentType } from "../../component.js";
 import { Text } from "../../typography/index.js";
+import { DensityType } from "../../style/interaction.js";
+import { StatusTokenType } from "../../style/interaction.js";
+
+// ============================================================================
+// Table Footer Cell
+// ============================================================================
+
+/**
+ * East StructType for a footer cell.
+ *
+ * @remarks
+ * Defined in `index.ts` (not `types.ts`) because it references
+ * `UIComponentType` for its `content` field, and `types.ts` must stay
+ * free of component-recursion to avoid a circular import with
+ * `component.ts`. The inline `Table` variant in `component.ts` defines
+ * the same shape using `node`; values built against this type are
+ * structurally compatible.
+ *
+ * @property value - Primitive cell value (e.g. a total)
+ * @property content - Optional rich content (UIComponent)
+ * @property colSpan - Optional column span (1-based)
+ * @property rowSpan - Optional row span (1-based)
+ */
+export const TableFooterCellType = StructType({
+    value: LiteralValueType,
+    content: OptionType(UIComponentType),
+    colSpan: OptionType(IntegerType),
+    rowSpan: OptionType(IntegerType),
+});
+
+export type TableFooterCellType = typeof TableFooterCellType;
+
+/**
+ * TypeScript input interface for a footer cell.
+ *
+ * @property value - Primitive cell value
+ * @property content - Optional rich content (UIComponent)
+ * @property colSpan - Optional column span (1-based)
+ * @property rowSpan - Optional row span (1-based)
+ */
+export interface TableFooterCellInput {
+    /** Primitive cell value. */
+    value: SubtypeExprOrValue<LiteralValueType>;
+    /** Optional rich content (UIComponent). */
+    content?: SubtypeExprOrValue<UIComponentType>;
+    /** Optional column span (1-based). */
+    colSpan?: SubtypeExprOrValue<IntegerType>;
+    /** Optional row span (1-based). */
+    rowSpan?: SubtypeExprOrValue<IntegerType>;
+}
+
+/**
+ * Extended Table options — TableStyle + the UIComp-coupled fields that
+ * can only be typed here (because `types.ts` can't import
+ * `UIComponentType` without a circular dependency).
+ *
+ * @property footer - Single footer row (dict of column key → footer cell input)
+ * @property footerRows - Multiple footer rows
+ * @property expandedContent - `(rowIndex) => UIComponent` — expandable-row detail content
+ */
+export interface TableOptions<ColumnKeys extends string = string> extends TableStyle<ColumnKeys> {
+    /** Single footer row. */
+    footer?: Record<string, TableFooterCellInput>;
+    /** Multiple footer rows. */
+    footerRows?: Array<Record<string, TableFooterCellInput>>;
+    /** Expandable-row detail callback. */
+    expandedContent?: SubtypeExprOrValue<FunctionType<[IntegerType], UIComponentType>>;
+}
 
 // Re-export style types
 export {
@@ -110,19 +182,82 @@ export const TableCellType: StructType<{
 // ============================================================================
 
 /**
- * Type for Table component data.
+ * Standalone East StructType mirror of the inline `Table` variant in
+ * `component.ts`.
  *
  * @remarks
- * Table displays data in rows and columns with optional styling.
+ * Per §0.10, main carries content (`rows` / `columns` / `frozen` /
+ * `columnGroups` / `footer` / `footerRows` / `expandedContent`),
+ * config (`interactive` / `columnResize` / `virtualization` /
+ * `density`), structured state (`rowStatus` / `pagination` /
+ * `selection`), and behaviour (callbacks); `style` carries visual
+ * fields only.
  *
- * @property rows - Array of row data (Dict mapping column keys to UI components)
- * @property columns - Array of column definitions
- * @property style - Optional styling configuration
+ * @property rows - Row dict array
+ * @property columns - Column definitions
+ * @property frozen - Column keys to pin left
+ * @property columnGroups - Optional column-group heading row
+ * @property footer - Optional single footer row
+ * @property footerRows - Optional multiple footer rows
+ * @property expandedContent - Optional `(rowIndex) => UIComponent` expander
+ * @property interactive - Row hover highlight
+ * @property columnResize - Enable column resize
+ * @property virtualization - Enable row virtualization
+ * @property density - Density preset
+ * @property rowStatus - `(rowIndex) => StatusToken` row-tint callback
+ * @property pagination - Embedded pagination state
+ * @property selection - Embedded row-selection state
+ * @property onCellClick - Cell click callback
+ * @property onCellDoubleClick - Cell double-click callback
+ * @property onRowClick - Row click callback
+ * @property onRowDoubleClick - Row double-click callback
+ * @property onRowSelectionChange - Row selection change callback
+ * @property onSortChange - Sort change callback
+ * @property style - Optional visual style sub-struct
  */
-export const TableRootType = StructType({
+export const TableRootType: StructType<{
+    rows: ArrayType<DictType<StringType, typeof TableCellType>>,
+    columns: ArrayType<typeof TableColumnType>,
+    frozen: ArrayType<StringType>,
+    columnGroups: OptionType<ArrayType<TableColumnGroupType>>,
+    footer: OptionType<DictType<StringType, TableFooterCellType>>,
+    footerRows: OptionType<ArrayType<DictType<StringType, TableFooterCellType>>>,
+    expandedContent: OptionType<FunctionType<[IntegerType], UIComponentType>>,
+    interactive: OptionType<BooleanType>,
+    columnResize: OptionType<BooleanType>,
+    virtualization: OptionType<BooleanType>,
+    density: OptionType<typeof DensityType>,
+    rowStatus: OptionType<FunctionType<[IntegerType], typeof StatusTokenType>>,
+    pagination: OptionType<TablePaginationType>,
+    selection: OptionType<TableSelectionType>,
+    onCellClick: OptionType<FunctionType<[TableCellClickEventType], NullType>>,
+    onCellDoubleClick: OptionType<FunctionType<[TableCellClickEventType], NullType>>,
+    onRowClick: OptionType<FunctionType<[TableRowClickEventType], NullType>>,
+    onRowDoubleClick: OptionType<FunctionType<[TableRowClickEventType], NullType>>,
+    onRowSelectionChange: OptionType<FunctionType<[TableRowSelectionEventType], NullType>>,
+    onSortChange: OptionType<FunctionType<[TableSortEventType], NullType>>,
+    style: OptionType<TableStyleType>,
+}> = StructType({
     rows: ArrayType(DictType(StringType, TableCellType)),
     columns: ArrayType(TableColumnType),
     frozen: ArrayType(StringType),
+    columnGroups: OptionType(ArrayType(TableColumnGroupType)),
+    footer: OptionType(DictType(StringType, TableFooterCellType)),
+    footerRows: OptionType(ArrayType(DictType(StringType, TableFooterCellType))),
+    expandedContent: OptionType(FunctionType([IntegerType], UIComponentType)),
+    interactive: OptionType(BooleanType),
+    columnResize: OptionType(BooleanType),
+    virtualization: OptionType(BooleanType),
+    density: OptionType(DensityType),
+    rowStatus: OptionType(FunctionType([IntegerType], StatusTokenType)),
+    pagination: OptionType(TablePaginationType),
+    selection: OptionType(TableSelectionType),
+    onCellClick: OptionType(FunctionType([TableCellClickEventType], NullType)),
+    onCellDoubleClick: OptionType(FunctionType([TableCellClickEventType], NullType)),
+    onRowClick: OptionType(FunctionType([TableRowClickEventType], NullType)),
+    onRowDoubleClick: OptionType(FunctionType([TableRowClickEventType], NullType)),
+    onRowSelectionChange: OptionType(FunctionType([TableRowSelectionEventType], NullType)),
+    onSortChange: OptionType(FunctionType([TableSortEventType], NullType)),
     style: OptionType(TableStyleType),
 });
 
@@ -276,7 +411,7 @@ export function createTable<
 >(
     data: T,
     columns: C,
-    style?: TableStyle<DataFieldKeys<T>>
+    style?: TableOptions<DataFieldKeys<T>>
 ): ExprType<UIComponentType> {
     const data_expr = East.value(data) as ExprType<ArrayType<StructType>>;
     const field_types = Expr.type(data_expr).value.fields;
@@ -414,27 +549,102 @@ export function createTable<
             : style.colorPalette)
         : undefined;
 
+    const hasVisualStyle = !!style && (
+        style.height !== undefined ||
+        style.variant !== undefined ||
+        style.size !== undefined ||
+        style.striped !== undefined ||
+        style.stickyHeader !== undefined ||
+        (style as any).stickyFirstColumn !== undefined ||
+        style.showColumnBorder !== undefined ||
+        style.colorPalette !== undefined ||
+        (style as any).headerBackground !== undefined ||
+        (style as any).headerColor !== undefined ||
+        (style as any).borderColor !== undefined ||
+        (style as any).zebraBackground !== undefined ||
+        (style as any).hoverBackground !== undefined ||
+        (style as any).selectedBackground !== undefined ||
+        (style as any).selectedBorderColor !== undefined ||
+        (style as any).footerBackground !== undefined
+    );
+
+    const styleValue = hasVisualStyle ? East.value({
+        height: style!.height ? some(style!.height) : none,
+        variant: variantValue ? some(variantValue) : none,
+        size: sizeValue ? some(sizeValue) : none,
+        striped: style!.striped !== undefined ? some(style!.striped) : none,
+        stickyHeader: style!.stickyHeader !== undefined ? some(style!.stickyHeader) : none,
+        stickyFirstColumn: (style as any)?.stickyFirstColumn !== undefined ? some((style as any).stickyFirstColumn) : none,
+        showColumnBorder: style!.showColumnBorder !== undefined ? some(style!.showColumnBorder) : none,
+        colorPalette: colorPaletteValue ? some(colorPaletteValue) : none,
+        headerBackground: (style as any)?.headerBackground !== undefined ? some((style as any).headerBackground) : none,
+        headerColor: (style as any)?.headerColor !== undefined ? some((style as any).headerColor) : none,
+        borderColor: (style as any)?.borderColor !== undefined ? some((style as any).borderColor) : none,
+        zebraBackground: (style as any)?.zebraBackground !== undefined ? some((style as any).zebraBackground) : none,
+        hoverBackground: (style as any)?.hoverBackground !== undefined ? some((style as any).hoverBackground) : none,
+        selectedBackground: (style as any)?.selectedBackground !== undefined ? some((style as any).selectedBackground) : none,
+        selectedBorderColor: (style as any)?.selectedBorderColor !== undefined ? some((style as any).selectedBorderColor) : none,
+        footerBackground: (style as any)?.footerBackground !== undefined ? some((style as any).footerBackground) : none,
+    }, TableStyleType) : undefined;
+
+    const densityValue = style?.density
+        ? (typeof style.density === "string"
+            ? East.value(variant(style.density, null), DensityType)
+            : style.density)
+        : undefined;
+
+    const footerValue = style?.footer
+        ? buildFooterDict(style.footer)
+        : undefined;
+
+    const footerRowsValue = style?.footerRows
+        ? style.footerRows.map(buildFooterDict)
+        : undefined;
+
+    const expandedContentValue = style?.expandedContent !== undefined
+        ? East.value(style.expandedContent, FunctionType([IntegerType], UIComponentType))
+        : undefined;
+
+    const rowStatusValue = style?.rowStatus !== undefined
+        ? East.value(style.rowStatus, FunctionType([IntegerType], StatusTokenType))
+        : undefined;
+
     return East.value(variant("Table", {
         rows: rows_mapped,
         columns: columns_expr,
         frozen: frozen_expr,
-        style: style ? some(East.value({
-            height: style.height ? some(style.height) : none,
-            variant: variantValue ? some(variantValue) : none,
-            size: sizeValue ? some(sizeValue) : none,
-            striped: style.striped !== undefined ? some(style.striped) : none,
-            interactive: style.interactive !== undefined ? some(style.interactive) : none,
-            stickyHeader: style.stickyHeader !== undefined ? some(style.stickyHeader) : none,
-            showColumnBorder: style.showColumnBorder !== undefined ? some(style.showColumnBorder) : none,
-            colorPalette: colorPaletteValue ? some(colorPaletteValue) : none,
-            onCellClick: style.onCellClick ? some(style.onCellClick) : none,
-            onCellDoubleClick: style.onCellDoubleClick ? some(style.onCellDoubleClick) : none,
-            onRowClick: style.onRowClick ? some(style.onRowClick) : none,
-            onRowDoubleClick: style.onRowDoubleClick ? some(style.onRowDoubleClick) : none,
-            onRowSelectionChange: style.onRowSelectionChange ? some(style.onRowSelectionChange) : none,
-            onSortChange: style.onSortChange ? some(style.onSortChange) : none,
-        }, TableStyleType)) : none,
+        columnGroups: style?.columnGroups !== undefined ? some(style.columnGroups) : none,
+        footer: footerValue ? some(footerValue) : none,
+        footerRows: footerRowsValue ? some(footerRowsValue) : none,
+        expandedContent: expandedContentValue ? some(expandedContentValue) : none,
+        interactive: style?.interactive !== undefined ? some(style.interactive) : none,
+        columnResize: style?.columnResize !== undefined ? some(style.columnResize) : none,
+        virtualization: style?.virtualization !== undefined ? some(style.virtualization) : none,
+        density: densityValue ? some(densityValue) : none,
+        rowStatus: rowStatusValue ? some(rowStatusValue) : none,
+        pagination: style?.pagination !== undefined ? some(style.pagination) : none,
+        selection: style?.selection !== undefined ? some(style.selection) : none,
+        onCellClick: style?.onCellClick ? some(style.onCellClick) : none,
+        onCellDoubleClick: style?.onCellDoubleClick ? some(style.onCellDoubleClick) : none,
+        onRowClick: style?.onRowClick ? some(style.onRowClick) : none,
+        onRowDoubleClick: style?.onRowDoubleClick ? some(style.onRowDoubleClick) : none,
+        onRowSelectionChange: style?.onRowSelectionChange ? some(style.onRowSelectionChange) : none,
+        onSortChange: style?.onSortChange ? some(style.onSortChange) : none,
+        style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
+}
+
+function buildFooterDict(row: Record<string, TableFooterCellInput>): ExprType<DictType<StringType, TableFooterCellType>> {
+    const entries = new Map<string, ExprType<TableFooterCellType>>();
+    for (const [key, cell] of Object.entries(row)) {
+        entries.set(key, East.value({
+            value: cell.value,
+            content: cell.content !== undefined ? some(cell.content) : none,
+            colSpan: cell.colSpan !== undefined ? some(cell.colSpan) : none,
+            rowSpan: cell.rowSpan !== undefined ? some(cell.rowSpan) : none,
+        }, TableFooterCellType));
+    }
+    return East.value(entries, DictType(StringType, TableFooterCellType));
 }
 
 /**
@@ -444,7 +654,31 @@ export function createTable<
  * Pass data as an array of structs and configure columns with either
  * an array of field names or an object with optional header/render config.
  */
-export const Table = {
+interface TableNamespace {
+    Root: typeof createTable;
+    Types: {
+        Root: typeof TableRootType;
+        Style: typeof TableStyleType;
+        Column: typeof TableColumnType;
+        Cell: typeof TableCellType;
+        Value: typeof LiteralValueType;
+        Variant: typeof TableVariantType;
+        Size: typeof TableSizeType;
+        SelectionMode: typeof TableSelectionModeType;
+        Selection: typeof TableSelectionType;
+        Pagination: typeof TablePaginationType;
+        ColumnGroup: typeof TableColumnGroupType;
+        FooterCell: typeof TableFooterCellType;
+        RowClickEvent: typeof TableRowClickEventType;
+        CellClickEvent: typeof TableCellClickEventType;
+        RowSelectionEvent: typeof TableRowSelectionEventType;
+        SortEvent: typeof TableSortEventType;
+        SortDirection: typeof TableSortDirectionType;
+        CellRenderContext: typeof TableCellRenderContextType;
+    };
+}
+
+export const Table: TableNamespace = {
     /**
      * Creates a Table component following the chart pattern.
      *
@@ -595,5 +829,45 @@ export const Table = {
          * @property cellValue - The cell value as a LiteralValueType
          */
         CellRenderContext: TableCellRenderContextType,
+        /**
+         * Selection mode variant — `single` / `multiple` / `range`.
+         *
+         * @property single - Only one row selected at a time
+         * @property multiple - Multiple rows (checkbox model)
+         * @property range - Click-drag range selection
+         */
+        SelectionMode: TableSelectionModeType,
+        /**
+         * Row-selection state struct.
+         *
+         * @property mode - Selection mode
+         * @property selected - Currently selected row indices
+         * @property onChange - Callback fired with the new selected indices
+         */
+        Selection: TableSelectionType,
+        /**
+         * Embedded pagination state for a Table.
+         *
+         * @property pageSize - Items per page
+         * @property page - Current 0-based page index
+         * @property onPageChange - Callback fired with the new page index
+         */
+        Pagination: TablePaginationType,
+        /**
+         * Column-group heading definition.
+         *
+         * @property label - Group heading text
+         * @property columnKeys - Array of column keys covered by the group
+         */
+        ColumnGroup: TableColumnGroupType,
+        /**
+         * Footer-cell value.
+         *
+         * @property value - Literal cell value
+         * @property content - Optional rich content
+         * @property colSpan - Optional column-span
+         * @property rowSpan - Optional row-span
+         */
+        FooterCell: TableFooterCellType,
     },
-} as const;
+};

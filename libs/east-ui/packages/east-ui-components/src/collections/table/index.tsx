@@ -92,7 +92,7 @@ export function toChakraTableRoot(value: TableRootValue): TableRootProps {
         variant: style ? getSomeorUndefined(style.variant)?.type : undefined,
         size: style ? getSomeorUndefined(style.size)?.type : undefined,
         striped: style ? getSomeorUndefined(style.striped) : undefined,
-        interactive: style ? getSomeorUndefined(style.interactive) : undefined,
+        interactive: getSomeorUndefined(value.interactive),
         stickyHeader: style ? getSomeorUndefined(style.stickyHeader) : undefined,
         showColumnBorder: style ? getSomeorUndefined(style.showColumnBorder) : undefined,
         colorPalette: style ? getSomeorUndefined(style.colorPalette)?.type : undefined,
@@ -156,12 +156,12 @@ export const EastChakraTable = memo(function EastChakraTable({
 
     // Extract East-side callbacks from style
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
-    const onCellClickFn = useMemo(() => style ? getSomeorUndefined(style.onCellClick) : undefined, [style]);
-    const onCellDoubleClickFn = useMemo(() => style ? getSomeorUndefined(style.onCellDoubleClick) : undefined, [style]);
-    const onRowClickFn = useMemo(() => style ? getSomeorUndefined(style.onRowClick) : undefined, [style]);
-    const onRowDoubleClickFn = useMemo(() => style ? getSomeorUndefined(style.onRowDoubleClick) : undefined, [style]);
-    const onSortChangeFn = useMemo(() => style ? getSomeorUndefined(style.onSortChange) : undefined, [style]);
-    const onRowSelectionChangeFn = useMemo(() => style ? getSomeorUndefined(style.onRowSelectionChange) : undefined, [style]);
+    const onCellClickFn = useMemo(() => getSomeorUndefined(value.onCellClick), [value.onCellClick]);
+    const onCellDoubleClickFn = useMemo(() => getSomeorUndefined(value.onCellDoubleClick), [value.onCellDoubleClick]);
+    const onRowClickFn = useMemo(() => getSomeorUndefined(value.onRowClick), [value.onRowClick]);
+    const onRowDoubleClickFn = useMemo(() => getSomeorUndefined(value.onRowDoubleClick), [value.onRowDoubleClick]);
+    const onSortChangeFn = useMemo(() => getSomeorUndefined(value.onSortChange), [value.onSortChange]);
+    const onRowSelectionChangeFn = useMemo(() => getSomeorUndefined(value.onRowSelectionChange), [value.onRowSelectionChange]);
 
     // Row state management for loading indicators
     const [rowStateManager] = useState(() => new RowStateManager());

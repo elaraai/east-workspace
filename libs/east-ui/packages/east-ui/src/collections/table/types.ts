@@ -23,6 +23,11 @@ import {
     ColorSchemeType,
     type ColorSchemeLiteral,
 } from "../../style.js";
+import {
+    DensityType,
+    type DensityLiteral,
+    StatusTokenType,
+} from "../../style/interaction.js";
 
 // ============================================================================
 // Table Variant Types
@@ -30,9 +35,6 @@ import {
 
 /**
  * Table variant type for Chakra UI v3 table styling.
- *
- * @remarks
- * Create instances using the {@link TableVariant} function.
  *
  * @property line - Table with horizontal lines between rows
  * @property outline - Table with full border outline
@@ -42,14 +44,8 @@ export const TableVariantType = VariantType({
     outline: NullType,
 });
 
-/**
- * Type representing table variant values.
- */
 export type TableVariantType = typeof TableVariantType;
 
-/**
- * String literal type for table variant values.
- */
 export type TableVariantLiteral = "line" | "outline";
 
 // ============================================================================
@@ -59,44 +55,45 @@ export type TableVariantLiteral = "line" | "outline";
 /**
  * Size options for Table component.
  *
- * @remarks
- * Chakra UI Table only supports sm, md, lg sizes (not xs).
- *
  * @property sm - Small table
  * @property md - Medium table (default)
  * @property lg - Large table
  */
 export const TableSizeType = VariantType({
-    /** Small table */
     sm: NullType,
-    /** Medium table (default) */
     md: NullType,
-    /** Large table */
     lg: NullType,
 });
 
-/**
- * Type representing the TableSize structure.
- */
 export type TableSizeType = typeof TableSizeType;
 
-/**
- * String literal type for table size values.
- */
 export type TableSizeLiteral = "sm" | "md" | "lg";
 
-
 // ============================================================================
-// Primitive East Types (for type-safe column configuration)
+// Table Selection Mode
 // ============================================================================
 
 /**
- * Union of primitive East types that can be directly rendered in table cells.
+ * Selection mode for Table rows.
  *
- * @remarks
- * These types don't require a custom `value` function in column config
- * because they can be directly converted to LiteralValueType.
+ * @property single - Only one row selected at a time
+ * @property multiple - Multiple rows (checkbox model)
+ * @property range - Click-drag range selection
  */
+export const TableSelectionModeType = VariantType({
+    single: NullType,
+    multiple: NullType,
+    range: NullType,
+});
+
+export type TableSelectionModeType = typeof TableSelectionModeType;
+
+export type TableSelectionModeLiteral = "single" | "multiple" | "range";
+
+// ============================================================================
+// Primitive East Types
+// ============================================================================
+
 export type PrimitiveEastType = BooleanType | IntegerType | FloatType | StringType | DateTimeType;
 
 // ============================================================================
@@ -123,7 +120,7 @@ export type TableCellRenderContextType = typeof TableCellRenderContextType;
 // ============================================================================
 
 /**
- * Event data for table row events.
+ * Event data for table cell click.
  *
  * @property rowIndex - The row index (0-based)
  * @property columnKey - The column key
@@ -137,7 +134,6 @@ export const TableCellClickEventType = StructType({
 
 export type TableCellClickEventType = typeof TableCellClickEventType;
 
-
 /**
  * Event data for table row click.
  *
@@ -149,13 +145,12 @@ export const TableRowClickEventType = StructType({
 
 export type TableRowClickEventType = typeof TableRowClickEventType;
 
-
 /**
  * Event data for table row selection changes.
  *
- * @property rowIndex - The row index (0-based)
- * @property selected - Whether the row is selected
- * @property selectedRowsIndices - Array of selected row indices
+ * @property rowIndex - The row index (0-based) that triggered the change
+ * @property selected - Whether the row is now selected
+ * @property selectedRowsIndices - Full array of currently selected row indices
  */
 export const TableRowSelectionEventType = StructType({
     rowIndex: IntegerType,
@@ -168,7 +163,8 @@ export type TableRowSelectionEventType = typeof TableRowSelectionEventType;
 /**
  * Sort direction for table column.
  *
- * @property direction - Sort direction ("asc" or "desc")
+ * @property asc - Ascending sort
+ * @property desc - Descending sort
  */
 export const TableSortDirectionType = VariantType({
     asc: NullType,
@@ -177,13 +173,12 @@ export const TableSortDirectionType = VariantType({
 
 export type TableSortDirectionType = typeof TableSortDirectionType;
 
-
 /**
  * Event data for table sort changes.
  *
  * @property columnKey - The column key being sorted
  * @property sortIndex - The sort index (for multi-column sorting)
- * @property sortDirection - The sort direction ("asc" or "desc")
+ * @property sortDirection - The sort direction
  */
 export const TableSortEventType = StructType({
     columnKey: StringType,
@@ -193,66 +188,158 @@ export const TableSortEventType = StructType({
 
 export type TableSortEventType = typeof TableSortEventType;
 
+// ============================================================================
+// Table Column Group Type
+// ============================================================================
+
 /**
- * Style type for the table root component.
+ * Column-group definition — renders a grouping row above the column headers.
  *
- * @remarks All properties are optional and wrapped in {@link OptionType}.
- * 
+ * @property label - Group heading text
+ * @property columnKeys - Array of column keys covered by the group
+ */
+export const TableColumnGroupType = StructType({
+    label: StringType,
+    columnKeys: ArrayType(StringType),
+});
+
+export type TableColumnGroupType = typeof TableColumnGroupType;
+
+// NOTE: The footer-cell type references `UIComponentType` (via
+// `content: OptionType(UIComponentType)`) so it lives in
+// `collections/table/index.ts` as `TableFooterCellType`, alongside the
+// `TableFooterCellInput` TypeScript options interface. The inline
+// `Table` variant in `component.ts` defines the same shape using
+// `node` for content.
+
+// ============================================================================
+// Table Pagination Type (embedded)
+// ============================================================================
+
+/**
+ * Embedded pagination state for a Table.
+ *
+ * @remarks
+ * Distinct from the standalone `Pagination` primitive — this struct
+ * lives on the main `Table` variant so the Table renderer owns the
+ * visual layout. Consumers use the standalone `Pagination.Root`
+ * primitive for out-of-Table use.
+ *
+ * @property pageSize - Items per page
+ * @property page - Current 0-based page index
+ * @property onPageChange - Callback fired with the new 0-based page index
+ */
+export const TablePaginationType = StructType({
+    pageSize: IntegerType,
+    page: IntegerType,
+    onPageChange: FunctionType([IntegerType], NullType),
+});
+
+export type TablePaginationType = typeof TablePaginationType;
+
+// ============================================================================
+// Table Selection Type
+// ============================================================================
+
+/**
+ * Row-selection state for a Table.
+ *
+ * @property mode - Selection mode (single / multiple / range)
+ * @property selected - Currently selected row indices
+ * @property onChange - Callback fired with the new selected row indices
+ */
+export const TableSelectionType = StructType({
+    mode: TableSelectionModeType,
+    selected: ArrayType(IntegerType),
+    onChange: FunctionType([ArrayType(IntegerType)], NullType),
+});
+
+export type TableSelectionType = typeof TableSelectionType;
+
+// ============================================================================
+// Table Style Type — visual-only per §0.10
+// ============================================================================
+
+/**
+ * Style type for the table root component — visual-only per §0.10.
+ *
+ * @remarks
+ * Interactive wiring (`interactive`) and all callbacks are on the main
+ * `Table` variant in `component.ts`. This struct only carries visual
+ * fields.
+ *
+ * @property height - CSS height for the table container
  * @property variant - Table variant (line or outline)
- * @property size - Table size (sm, md, lg)
- * @property striped - Whether to show zebra stripes on rows
- * @property interactive - Whether to highlight rows on hover
- * @property stickyHeader - Whether the header sticks when scrolling
- * @property showColumnBorder - Whether to show borders between columns
- * @property colorPalette - Color scheme for interactive hover
- * @property onCellClick - Callback triggered when a cell is clicked
- * @property onCellDoubleClick - Callback triggered when a cell is double-clicked
- * @property onRowClick - Callback triggered when a row is clicked
- * @property onRowDoubleClick - Callback triggered when a row is double-clicked
- * @property onSelectionChange - Callback triggered when row selection changes
- * @property onSortChange - Callback triggered when sort column/direction changes
+ * @property size - Table size (sm / md / lg)
+ * @property striped - Zebra-stripe rows
+ * @property stickyHeader - Sticky header row
+ * @property stickyFirstColumn - Pin the first column while scrolling horizontally
+ * @property showColumnBorder - Borders between columns
+ * @property colorPalette - Color scheme for hover / selection
+ * @property headerBackground - Explicit header background
+ * @property headerColor - Explicit header text colour
+ * @property borderColor - Explicit border colour
+ * @property zebraBackground - Explicit background for zebra-striped rows
+ * @property hoverBackground - Explicit hover background
+ * @property selectedBackground - Explicit background for selected rows
+ * @property selectedBorderColor - Explicit border colour for selected rows
+ * @property footerBackground - Explicit background for the footer row
  */
 export const TableStyleType = StructType({
     height: OptionType(StringType),
     variant: OptionType(TableVariantType),
     size: OptionType(TableSizeType),
     striped: OptionType(BooleanType),
-    interactive: OptionType(BooleanType),
     stickyHeader: OptionType(BooleanType),
+    stickyFirstColumn: OptionType(BooleanType),
     showColumnBorder: OptionType(BooleanType),
     colorPalette: OptionType(ColorSchemeType),
-    onCellClick: OptionType(FunctionType([TableCellClickEventType], NullType)),
-    onCellDoubleClick: OptionType(FunctionType([TableCellClickEventType], NullType)),
-    onRowClick: OptionType(FunctionType([TableRowClickEventType], NullType)),
-    onRowDoubleClick: OptionType(FunctionType([TableRowClickEventType], NullType)),
-    onRowSelectionChange: OptionType(FunctionType([TableRowSelectionEventType], NullType)),
-    onSortChange: OptionType(FunctionType([TableSortEventType], NullType)),
+    headerBackground: OptionType(StringType),
+    headerColor: OptionType(StringType),
+    borderColor: OptionType(StringType),
+    zebraBackground: OptionType(StringType),
+    hoverBackground: OptionType(StringType),
+    selectedBackground: OptionType(StringType),
+    selectedBorderColor: OptionType(StringType),
+    footerBackground: OptionType(StringType),
 });
 
-/**
- * Type representing the table style structure.
- */
 export type TableStyleType = typeof TableStyleType;
 
 /**
- * TypeScript interface for table root styling input.
+ * TypeScript interface for table construction options.
  *
  * @remarks
- * Accepts both static values and East expressions.
+ * Flat options bag. The factory splits into main-struct (content /
+ * state / callbacks / wiring) and `style` sub-struct (visual-only).
  *
- * @property variant - Table variant (line or outline)
- * @property size - Table size (sm, md, lg)
- * @property striped - Whether to show zebra stripes on rows
- * @property interactive - Whether to highlight rows on hover
- * @property stickyHeader - Whether the header sticks when scrolling
- * @property showColumnBorder - Whether to show borders between columns
- * @property colorPalette - Color scheme for interactive hover
- * @property onCellClick - Callback triggered when a cell is clicked
- * @property onCellDoubleClick - Callback triggered when a cell is double-clicked
- * @property onRowClick - Callback triggered when a row is clicked
- * @property onRowDoubleClick - Callback triggered when a row is double-clicked
- * @property onSelectionChange - Callback triggered when row selection changes
- * @property onSortChange - Callback triggered when sort column/direction changes
+ * @property frozen - Column keys to freeze (pin left)
+ * @property height - CSS height
+ * @property variant - Table variant — visual
+ * @property size - Table size — visual
+ * @property striped - Zebra stripes — visual
+ * @property stickyHeader - Sticky header — visual
+ * @property stickyFirstColumn - Pin first column — visual
+ * @property showColumnBorder - Column borders — visual
+ * @property colorPalette - Colour scheme — visual
+ * @property headerBackground - Header background — visual
+ * @property headerColor - Header text colour — visual
+ * @property borderColor - Border colour — visual
+ * @property zebraBackground - Zebra row background — visual
+ * @property hoverBackground - Hover row background — visual
+ * @property selectedBackground - Selected row background — visual
+ * @property selectedBorderColor - Selected row border — visual
+ * @property footerBackground - Footer row background — visual
+ * @property interactive - Row hover highlight — main
+ * @property columnResize - Enable column resize — main
+ * @property virtualization - Enable row virtualization (lazy TanStack Virtual) — main
+ * @property density - Density preset — main
+ * @property onCellClick - Cell click callback — main
+ * @property onCellDoubleClick - Cell double-click callback — main
+ * @property onRowClick - Row click callback — main
+ * @property onRowDoubleClick - Row double-click callback — main
+ * @property onRowSelectionChange - Row selection change callback — main
+ * @property onSortChange - Sort change callback — main
  */
 export interface TableStyle<ColumnKeys extends string = string> {
     /** Column keys to freeze (pin left). Frozen columns appear first and stay visible during horizontal scroll. */
@@ -265,14 +352,36 @@ export interface TableStyle<ColumnKeys extends string = string> {
     size?: SubtypeExprOrValue<TableSizeType> | TableSizeLiteral;
     /** Whether to show zebra stripes on rows */
     striped?: SubtypeExprOrValue<BooleanType>;
-    /** Whether to highlight rows on hover */
+    /** Whether to highlight rows on hover (main-struct — forwarded by factory). */
     interactive?: SubtypeExprOrValue<BooleanType>;
     /** Whether the header sticks when scrolling */
     stickyHeader?: SubtypeExprOrValue<BooleanType>;
+    /** Pin the first column while scrolling horizontally. */
+    stickyFirstColumn?: SubtypeExprOrValue<BooleanType>;
     /** Whether to show borders between columns */
     showColumnBorder?: SubtypeExprOrValue<BooleanType>;
-    /** Color scheme for interactive hover */
+    /** Color scheme for hover / selection */
     colorPalette?: SubtypeExprOrValue<ColorSchemeType> | ColorSchemeLiteral;
+    /** Explicit header background. */
+    headerBackground?: SubtypeExprOrValue<StringType>;
+    /** Explicit header text colour. */
+    headerColor?: SubtypeExprOrValue<StringType>;
+    /** Explicit border colour. */
+    borderColor?: SubtypeExprOrValue<StringType>;
+    /** Explicit zebra row background. */
+    zebraBackground?: SubtypeExprOrValue<StringType>;
+    /** Explicit hover row background. */
+    hoverBackground?: SubtypeExprOrValue<StringType>;
+    /** Explicit selected row background. */
+    selectedBackground?: SubtypeExprOrValue<StringType>;
+    /** Explicit selected row border colour. */
+    selectedBorderColor?: SubtypeExprOrValue<StringType>;
+    /** Explicit footer row background. */
+    footerBackground?: SubtypeExprOrValue<StringType>;
+    /** Enable column resize via the header drag handle. */
+    columnResize?: SubtypeExprOrValue<BooleanType>;
+    /** Enable row virtualization (lazy-loads TanStack Virtual). */
+    virtualization?: SubtypeExprOrValue<BooleanType>;
     /** Callback triggered when a cell is clicked */
     onCellClick?: SubtypeExprOrValue<FunctionType<[TableCellClickEventType], NullType>>;
     /** Callback triggered when a cell is double-clicked */
@@ -285,5 +394,14 @@ export interface TableStyle<ColumnKeys extends string = string> {
     onRowSelectionChange?: SubtypeExprOrValue<FunctionType<[TableRowSelectionEventType], NullType>>;
     /** Callback triggered when sort column/direction changes */
     onSortChange?: SubtypeExprOrValue<FunctionType<[TableSortEventType], NullType>>;
+    /** Column-group heading rows — array of `{ label, columnKeys }`. */
+    columnGroups?: SubtypeExprOrValue<ArrayType<TableColumnGroupType>>;
+    /** `(rowIndex) => StatusToken` — row-status tint callback. */
+    rowStatus?: SubtypeExprOrValue<FunctionType<[IntegerType], StatusTokenType>>;
+    /** Embedded pagination state. */
+    pagination?: SubtypeExprOrValue<TablePaginationType>;
+    /** Embedded row-selection state. */
+    selection?: SubtypeExprOrValue<TableSelectionType>;
+    /** Density preset. */
+    density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
 }
-
