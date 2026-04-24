@@ -1,8 +1,16 @@
+import * as path from 'node:path';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { exampleSourcesPlugin } from './scripts/vite-plugin-example-sources';
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    exampleSourcesPlugin({
+      include: '**/*.examples.ts',
+      cwd: path.resolve(__dirname, '../east-ui/test'),
+    }),
+  ],
   base: '/east-ui/',
   define: {
     'process.env': {},

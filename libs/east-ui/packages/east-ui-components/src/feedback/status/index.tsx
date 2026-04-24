@@ -72,6 +72,8 @@ export const EastChakraStatus = memo(function EastChakraStatus({ value, storageK
             px="2"
             py="1"
             borderRadius="md"
+            whiteSpace="nowrap"
+            flexShrink="0"
             {...(color !== undefined ? { color } : {})}
             {...(background !== undefined ? { bg: background } : {})}
             {...(borderColor !== undefined ? { borderColor, borderWidth: "1px" } : {})}
