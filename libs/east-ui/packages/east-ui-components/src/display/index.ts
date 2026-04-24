@@ -42,3 +42,9 @@ export {
     type MetricChipValue,
     type EastChakraMetricChipProps,
 } from "./metric-chip/index.js";
+
+export {
+    EastChakraEditableChip,
+    type EditableChipValue,
+    type EastChakraEditableChipProps,
+} from "./editable-chip/index.js";

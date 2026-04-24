@@ -1,0 +1,50 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ */
+
+import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
+import { East, NullType } from "@elaraai/east";
+import { EditableChip, Text } from "@elaraai/east-ui";
+import * as ex from "./editable-chip.examples.js";
+
+describeEast("EditableChip", (test) => {
+    Assert.examples(test, {
+        editableChipBasic: ex.editableChipBasic,
+        editableChipWithCallback: ex.editableChipWithCallback,
+        editableChipDisabled: ex.editableChipDisabled,
+        editableChipStyled: ex.editableChipStyled,
+    });
+
+    test("creates an EditableChip with a label", $ => {
+        const chip = $.let(EditableChip.Root(Text.Root("Scenario")));
+        $(Assert.equal(chip.unwrap().unwrap("EditableChip").trigger.hasTag("none"), true));
+        $(Assert.equal(chip.unwrap().unwrap("EditableChip").disabled.hasTag("none"), true));
+        $(Assert.equal(chip.unwrap().unwrap("EditableChip").onClick.hasTag("none"), true));
+        $(Assert.equal(chip.unwrap().unwrap("EditableChip").style.hasTag("none"), true));
+    });
+
+    test("creates an EditableChip with onClick", $ => {
+        const onClick = $.const(East.function([], NullType, _ => {}));
+        const chip = $.let(EditableChip.Root(Text.Root("Click me"), { onClick }));
+        $(Assert.equal(chip.unwrap().unwrap("EditableChip").onClick.hasTag("some"), true));
+    });
+
+    test("creates a disabled EditableChip", $ => {
+        const chip = $.let(EditableChip.Root(Text.Root("Locked"), { disabled: true }));
+        $(Assert.equal(chip.unwrap().unwrap("EditableChip").disabled.unwrap("some"), true));
+    });
+
+    test("creates an EditableChip with style slots", $ => {
+        const chip = $.let(EditableChip.Root(Text.Root("Branded"), {
+            background: "blue.50",
+            color: "blue.700",
+            borderColor: "blue.200",
+            triggerIconColor: "blue.500",
+        }));
+        $(Assert.equal(chip.unwrap().unwrap("EditableChip").style.unwrap("some").background.unwrap("some"), "blue.50"));
+        $(Assert.equal(chip.unwrap().unwrap("EditableChip").style.unwrap("some").color.unwrap("some"), "blue.700"));
+        $(Assert.equal(chip.unwrap().unwrap("EditableChip").style.unwrap("some").borderColor.unwrap("some"), "blue.200"));
+        $(Assert.equal(chip.unwrap().unwrap("EditableChip").style.unwrap("some").triggerIconColor.unwrap("some"), "blue.500"));
+    });
+}, { platformFns: TestImpl });

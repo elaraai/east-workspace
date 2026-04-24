@@ -9,3 +9,4 @@ export { Avatar } from "./avatar/index.js";
 export { Stat } from "./stat/index.js";
 export { Icon, type IconName } from "./icon/index.js";
 export { MetricChip } from "./metric-chip/index.js";
+export { EditableChip } from "./editable-chip/index.js";
