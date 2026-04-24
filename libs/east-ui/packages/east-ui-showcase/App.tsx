@@ -34,7 +34,7 @@ import {
     faPuzzlePiece,
     type IconDefinition,
 } from "@fortawesome/free-solid-svg-icons";
-import { UIStoreProvider, UIStore, OverlayManagerProvider } from "@elaraai/east-ui-components";
+import { UIStoreProvider, UIStore, OverlayManagerProvider, Toaster } from "@elaraai/east-ui-components";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ElaraLogo } from "./components/ElaraLogo";
 import { ExampleCard } from "./components/ExampleCard";
@@ -78,6 +78,9 @@ import * as emptyStateExamples from "@elaraai/east-ui/examples/feedback/empty-st
 import * as spinnerExamples from "@elaraai/east-ui/examples/feedback/spinner";
 import * as skeletonExamples from "@elaraai/east-ui/examples/feedback/skeleton";
 import * as statusExamples from "@elaraai/east-ui/examples/feedback/status";
+import * as bannerExamples from "@elaraai/east-ui/examples/feedback/banner";
+import * as progressCircleExamples from "@elaraai/east-ui/examples/feedback/progress-circle";
+import * as toastExamples from "@elaraai/east-ui/examples/feedback/toast";
 import * as checkboxExamples from "@elaraai/east-ui/examples/forms/checkbox";
 import * as switchExamples from "@elaraai/east-ui/examples/forms/switch";
 import * as selectExamples from "@elaraai/east-ui/examples/forms/select";
@@ -181,6 +184,9 @@ const SOURCES: [string, string, Record<string, unknown>, number, number?][] = [
     ["Spinner",     "Feedback",    spinnerExamples,     3],
     ["Skeleton",    "Feedback",    skeletonExamples,    2],
     ["Status",      "Feedback",    statusExamples,      3],
+    ["Banner",      "Feedback",    bannerExamples,      2],
+    ["ProgressCircle","Feedback",  progressCircleExamples, 3],
+    ["Toast",       "Feedback",    toastExamples,       3],
     ["Checkbox",    "Forms",       checkboxExamples,    3],
     ["Switch",      "Forms",       switchExamples,      3],
     ["Select",      "Forms",       selectExamples,      2],
@@ -337,6 +343,7 @@ export function App() {
     return (
         <UIStoreProvider store={store}>
             <OverlayManagerProvider>
+                <Toaster />
                 <Flex minH="100vh" bg="gray.50" _dark={{ bg: "gray.900" }}>
                     <Box
                         w="220px"

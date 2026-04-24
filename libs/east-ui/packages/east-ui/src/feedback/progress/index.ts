@@ -9,8 +9,12 @@ import {
     East,
     FloatType,
     StringType,
+    IntegerType,
+    DateTimeType,
     BooleanType,
     variant,
+    some,
+    none,
 } from "@elaraai/east";
 
 import { SizeType, ColorSchemeType } from "../../style.js";
@@ -19,6 +23,7 @@ import {
     ProgressType,
     ProgressVariantType,
     ProgressVariant,
+    ProgressStyleType,
     type ProgressStyle,
 } from "./types.js";
 
@@ -27,155 +32,141 @@ export {
     ProgressType,
     ProgressVariantType,
     ProgressVariant,
+    ProgressStyleType,
     type ProgressStyle,
     type ProgressVariantLiteral,
 } from "./types.js";
 
 // ============================================================================
-// Progress Function
+// Progress Factory
 // ============================================================================
 
 /**
- * Creates a Progress component with value and optional styling.
+ * TypeScript options bag for `Progress.Root`.
+ *
+ * @property min - Minimum value (defaults to 0)
+ * @property max - Maximum value (defaults to 100)
+ * @property label - Optional label text
+ * @property valueText - Optional text showing current value
+ * @property indeterminate - Indeterminate mode (no known % complete)
+ * @property showValue - Whether to render the computed value text
+ * @property estimatedDuration - Expected duration in seconds (drives ETA display)
+ * @property startedAt - Start timestamp (drives ETA display)
+ * @property style - Optional visual-only style
+ */
+export interface ProgressOptions {
+    /** Minimum value (defaults to 0) */
+    min?: SubtypeExprOrValue<FloatType>;
+    /** Maximum value (defaults to 100) */
+    max?: SubtypeExprOrValue<FloatType>;
+    /** Optional label text */
+    label?: SubtypeExprOrValue<StringType>;
+    /** Optional text showing current value */
+    valueText?: SubtypeExprOrValue<StringType>;
+    /** Indeterminate mode (no known % complete) */
+    indeterminate?: SubtypeExprOrValue<BooleanType>;
+    /** Whether to render the computed value text */
+    showValue?: SubtypeExprOrValue<BooleanType>;
+    /** Expected duration in seconds (drives ETA display) */
+    estimatedDuration?: SubtypeExprOrValue<IntegerType>;
+    /** Start timestamp (drives ETA display) */
+    startedAt?: SubtypeExprOrValue<DateTimeType>;
+    /** Optional visual-only style */
+    style?: ProgressStyle;
+}
+
+/**
+ * Creates a Progress component with value + optional content + state + style.
  *
  * @param value - Current progress value (between min and max)
- * @param style - Optional styling configuration
+ * @param options - Optional min/max/label/valueText/indeterminate/showValue/
+ *   estimatedDuration/startedAt/style
  * @returns An East expression representing the progress component
- *
- * @remarks
- * Progress is used to display the completion status of a task. It supports
- * striped and animated styles for visual feedback.
  *
  * @example
  * ```ts
  * import { East } from "@elaraai/east";
  * import { Progress, UIComponentType } from "@elaraai/east-ui";
  *
- * const example = East.function([], UIComponentType, $ => {
- *     return Progress.Root(60.0, {
- *         colorPalette: "green",
- *         size: "md",
- *         striped: true,
- *     });
- * });
+ * const p = East.function([], UIComponentType, _$ =>
+ *     Progress.Root(60.0, {
+ *         style: { colorPalette: "green", size: "md", striped: true },
+ *     }),
+ * );
  * ```
  */
 function createProgress(
     value: SubtypeExprOrValue<FloatType>,
-    style?: ProgressStyle
+    options?: ProgressOptions,
 ): ExprType<UIComponentType> {
-    const toFloatOption = (val: SubtypeExprOrValue<FloatType> | undefined) => {
-        if (val === undefined) return variant("none", null);
-        return variant("some", val);
-    };
+    const styleValue = options?.style ? buildProgressStyle(options.style) : undefined;
 
-    const toBoolOption = (val: SubtypeExprOrValue<BooleanType> | undefined) => {
-        if (val === undefined) return variant("none", null);
-        return variant("some", val);
-    };
+    return East.value(variant("Progress", {
+        value: value,
+        min: options?.min !== undefined ? some(options.min) : none,
+        max: options?.max !== undefined ? some(options.max) : none,
+        label: options?.label !== undefined ? some(options.label) : none,
+        valueText: options?.valueText !== undefined ? some(options.valueText) : none,
+        indeterminate: options?.indeterminate !== undefined ? some(options.indeterminate) : none,
+        showValue: options?.showValue !== undefined ? some(options.showValue) : none,
+        estimatedDuration: options?.estimatedDuration !== undefined ? some(options.estimatedDuration) : none,
+        startedAt: options?.startedAt !== undefined ? some(options.startedAt) : none,
+        style: styleValue ? some(styleValue) : none,
+    }), UIComponentType);
+}
 
-    const toStringOption = (val: SubtypeExprOrValue<StringType> | undefined) => {
-        if (val === undefined) return variant("none", null);
-        return variant("some", val);
-    };
-
-    const colorPaletteValue = style?.colorPalette
+function buildProgressStyle(style: ProgressStyle): ExprType<ProgressStyleType> {
+    const variantValue = style.variant
+        ? (typeof style.variant === "string"
+            ? East.value(variant(style.variant, null), ProgressVariantType)
+            : style.variant)
+        : undefined;
+    const colorPaletteValue = style.colorPalette
         ? (typeof style.colorPalette === "string"
             ? East.value(variant(style.colorPalette, null), ColorSchemeType)
             : style.colorPalette)
         : undefined;
-
-    const sizeValue = style?.size
+    const sizeValue = style.size
         ? (typeof style.size === "string"
             ? East.value(variant(style.size, null), SizeType)
             : style.size)
         : undefined;
 
-    const variantValue = style?.variant
-        ? (typeof style.variant === "string"
-            ? East.value(variant(style.variant, null), ProgressVariantType)
-            : style.variant)
-        : undefined;
-
-    return East.value(variant("Progress", {
-        value: value,
-        min: toFloatOption(style?.min),
-        max: toFloatOption(style?.max),
-        colorPalette: colorPaletteValue ? variant("some", colorPaletteValue) : variant("none", null),
-        size: sizeValue ? variant("some", sizeValue) : variant("none", null),
-        variant: variantValue ? variant("some", variantValue) : variant("none", null),
-        striped: toBoolOption(style?.striped),
-        animated: toBoolOption(style?.animated),
-        label: toStringOption(style?.label),
-        valueText: toStringOption(style?.valueText),
-    }), UIComponentType);
+    return East.value({
+        variant: variantValue ? some(variantValue) : none,
+        colorPalette: colorPaletteValue ? some(colorPaletteValue) : none,
+        size: sizeValue ? some(sizeValue) : none,
+        striped: style.striped !== undefined ? some(style.striped) : none,
+        animated: style.animated !== undefined ? some(style.animated) : none,
+        trackColor: style.trackColor !== undefined ? some(style.trackColor) : none,
+        fillColor: style.fillColor !== undefined ? some(style.fillColor) : none,
+        labelColor: style.labelColor !== undefined ? some(style.labelColor) : none,
+    }, ProgressStyleType);
 }
 
 /**
  * Progress component for displaying task completion status.
- *
- * @remarks
- * Use `Progress.Root(value, style)` to create a progress bar, or access `Progress.Types.Progress` for the East type.
  */
 export const Progress = {
     /**
-     * Creates a Progress component with value and optional styling.
+     * Creates a Progress bar.
      *
-     * @param value - Current progress value (between min and max)
-     * @param style - Optional styling configuration
-     * @returns An East expression representing the progress component
-     *
-     * @remarks
-     * Progress is used to display the completion status of a task. It supports
-     * striped and animated styles for visual feedback.
+     * @param value - Current progress value (0–100 by default)
+     * @param options - Optional content + state + style
      *
      * @example
      * ```ts
-     * import { East } from "@elaraai/east";
-     * import { Progress, UIComponentType } from "@elaraai/east-ui";
-     *
-     * const example = East.function([], UIComponentType, $ => {
-     *     return Progress.Root(60.0, {
-     *         colorPalette: "green",
-     *         size: "md",
-     *         striped: true,
-     *     });
-     * });
+     * Progress.Root(60.0, { style: { colorPalette: "green" } });
      * ```
      */
     Root: createProgress,
-    /**
-     * Helper function to create progress variant values.
-     *
-     * @param v - The variant string ("outline" or "subtle")
-     * @returns An East expression representing the progress variant
-     */
     Variant: ProgressVariant,
     Types: {
-        /**
-         * Type for Progress component data.
-         *
-         * @remarks
-         * Progress displays the completion status of a task or operation.
-         *
-         * @property value - Current progress value (between min and max)
-         * @property min - Minimum value (defaults to 0)
-         * @property max - Maximum value (defaults to 100)
-         * @property colorPalette - Color scheme for the progress bar
-         * @property size - Size of the progress bar
-         * @property variant - Visual variant (outline or subtle)
-         * @property striped - Whether to show striped pattern
-         * @property animated - Whether to animate the progress bar
-         * @property label - Optional label text
-         * @property valueText - Optional text showing current value
-         */
+        /** The concrete East type for Progress. */
         Progress: ProgressType,
-        /**
-         * Variant types for Progress visual style.
-         *
-         * @property outline - Progress bar with outlined track
-         * @property subtle - Progress bar with subtle/filled track
-         */
+        /** Visual preset variant (outline / subtle). */
         Variant: ProgressVariantType,
+        /** Visual-only style struct. */
+        Style: ProgressStyleType,
     },
 } as const;

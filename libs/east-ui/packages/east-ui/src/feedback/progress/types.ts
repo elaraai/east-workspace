@@ -11,6 +11,8 @@ import {
     StructType,
     FloatType,
     StringType,
+    IntegerType,
+    DateTimeType,
     BooleanType,
     NullType,
     VariantType,
@@ -21,130 +23,114 @@ import { SizeType, ColorSchemeType } from "../../style.js";
 import type { SizeLiteral, ColorSchemeLiteral } from "../../style.js";
 
 // ============================================================================
-// Progress Variant Type
+// Progress Variant Type (visual preset — lives under style)
 // ============================================================================
 
 /**
  * Variant types for Progress visual style.
  *
- * @remarks
- * Controls the visual appearance of the progress bar track.
- *
  * @property outline - Progress bar with outlined track
  * @property subtle - Progress bar with subtle/filled track
  */
 export const ProgressVariantType = VariantType({
-    /** Progress bar with outlined track */
     outline: NullType,
-    /** Progress bar with subtle/filled track */
     subtle: NullType,
 });
 
-/**
- * Type representing the ProgressVariant structure.
- */
 export type ProgressVariantType = typeof ProgressVariantType;
 
-/**
- * String literal type for progress variant values.
- */
+/** String literal type for progress variant values. */
 export type ProgressVariantLiteral = "outline" | "subtle";
 
-/**
- * Helper function to create progress variant values.
- *
- * @param v - The variant string ("outline" or "subtle")
- * @returns An East expression representing the progress variant
- *
- * @example
- * ```ts
- * import { East } from "@elaraai/east";
- * import { Progress, UIComponentType } from "@elaraai/east-ui";
- *
- * const example = East.function([], UIComponentType, $ => {
- *     return Progress.Root(50.0, {
- *         variant: Progress.Variant("subtle"),
- *     });
- * });
- * ```
- */
-export function ProgressVariant(v: "outline" | "subtle"): ExprType<ProgressVariantType> {
+/** Helper to create progress variant values. */
+export function ProgressVariant(v: ProgressVariantLiteral): ExprType<ProgressVariantType> {
     return East.value(variant(v, null), ProgressVariantType);
 }
 
 // ============================================================================
-// Progress Type
+// Progress Style Type — visual presentation only (§0.10)
 // ============================================================================
 
 /**
- * Type for Progress component data.
+ * Visual-only style struct for Progress.
  *
- * @remarks
- * Progress displays the completion status of a task or operation.
+ * @property variant - Visual preset (outline / subtle)
+ * @property colorPalette - Chakra palette
+ * @property size - Size preset
+ * @property striped - Cosmetic stripes on the fill
+ * @property animated - Animate the stripes
+ * @property trackColor - Background track colour
+ * @property fillColor - Fill colour
+ * @property labelColor - Label text colour
+ */
+export const ProgressStyleType = StructType({
+    variant: OptionType(ProgressVariantType),
+    colorPalette: OptionType(ColorSchemeType),
+    size: OptionType(SizeType),
+    striped: OptionType(BooleanType),
+    animated: OptionType(BooleanType),
+    trackColor: OptionType(StringType),
+    fillColor: OptionType(StringType),
+    labelColor: OptionType(StringType),
+});
+
+export type ProgressStyleType = typeof ProgressStyleType;
+
+// ============================================================================
+// Progress IR type
+// ============================================================================
+
+/**
+ * Progress IR — content + state on main, visuals in `style`.
  *
  * @property value - Current progress value (between min and max)
  * @property min - Minimum value (defaults to 0)
  * @property max - Maximum value (defaults to 100)
- * @property colorPalette - Color scheme for the progress bar
- * @property size - Size of the progress bar
- * @property variant - Visual variant (outline or subtle)
- * @property striped - Whether to show striped pattern
- * @property animated - Whether to animate the progress bar
  * @property label - Optional label text
  * @property valueText - Optional text showing current value
+ * @property indeterminate - Indeterminate mode (no known % complete)
+ * @property showValue - Whether to render the computed value text
+ * @property estimatedDuration - Expected duration in seconds (drives ETA display)
+ * @property startedAt - Start timestamp (drives ETA display)
+ * @property style - Optional visual-only style
  */
 export const ProgressType = StructType({
     value: FloatType,
     min: OptionType(FloatType),
     max: OptionType(FloatType),
-    colorPalette: OptionType(ColorSchemeType),
-    size: OptionType(SizeType),
-    variant: OptionType(ProgressVariantType),
-    striped: OptionType(BooleanType),
-    animated: OptionType(BooleanType),
     label: OptionType(StringType),
     valueText: OptionType(StringType),
+    indeterminate: OptionType(BooleanType),
+    showValue: OptionType(BooleanType),
+    estimatedDuration: OptionType(IntegerType),
+    startedAt: OptionType(DateTimeType),
+    style: OptionType(ProgressStyleType),
 });
 
-/**
- * Type representing the Progress structure.
- */
 export type ProgressType = typeof ProgressType;
 
 // ============================================================================
-// Progress Style
+// Progress Style (TS options bag)
 // ============================================================================
 
 /**
- * TypeScript interface for Progress style options.
- *
- * @property min - Minimum value (defaults to 0)
- * @property max - Maximum value (defaults to 100)
- * @property colorPalette - Color scheme for the progress bar
- * @property size - Size of the progress bar
- * @property variant - Visual variant (outline or subtle)
- * @property striped - Whether to show striped pattern
- * @property animated - Whether to animate the progress bar
- * @property label - Optional label text
- * @property valueText - Optional text showing current value
+ * TypeScript options bag for Progress's `style` sub-struct — visual props only.
  */
 export interface ProgressStyle {
-    /** Minimum value (defaults to 0) */
-    min?: SubtypeExprOrValue<FloatType>;
-    /** Maximum value (defaults to 100) */
-    max?: SubtypeExprOrValue<FloatType>;
-    /** Color scheme for the progress bar */
-    colorPalette?: SubtypeExprOrValue<ColorSchemeType> | ColorSchemeLiteral;
-    /** Size of the progress bar */
-    size?: SubtypeExprOrValue<SizeType> | SizeLiteral;
-    /** Visual variant (outline or subtle) */
+    /** Visual preset (outline / subtle) */
     variant?: SubtypeExprOrValue<ProgressVariantType> | ProgressVariantLiteral;
-    /** Whether to show striped pattern */
+    /** Chakra palette */
+    colorPalette?: SubtypeExprOrValue<ColorSchemeType> | ColorSchemeLiteral;
+    /** Size preset */
+    size?: SubtypeExprOrValue<SizeType> | SizeLiteral;
+    /** Cosmetic stripes on the fill */
     striped?: SubtypeExprOrValue<BooleanType>;
-    /** Whether to animate the progress bar */
+    /** Animate the stripes */
     animated?: SubtypeExprOrValue<BooleanType>;
-    /** Optional label text */
-    label?: SubtypeExprOrValue<StringType>;
-    /** Optional text showing current value */
-    valueText?: SubtypeExprOrValue<StringType>;
+    /** Background track colour */
+    trackColor?: SubtypeExprOrValue<StringType>;
+    /** Fill colour */
+    fillColor?: SubtypeExprOrValue<StringType>;
+    /** Label text colour */
+    labelColor?: SubtypeExprOrValue<StringType>;
 }

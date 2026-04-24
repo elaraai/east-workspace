@@ -49,7 +49,7 @@ describeEast("UIComponentType - Nested Components", (test) => {
                     Box.Root(
                         [
                             Alert.Root("info", { title: "Welcome back!" }),
-                            Progress.Root(75.0, { colorPalette: "blue" })
+                            Progress.Root(75.0, { style: { colorPalette: "blue" } })
                         ],
                         { padding: Box.Padding({ top: "4", right: "4", bottom: "4", left: "4" }) }
                     ),

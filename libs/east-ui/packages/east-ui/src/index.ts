@@ -45,7 +45,7 @@ export { Button, IconButton, CopyButton, CloseButton, Toggle, ButtonGroup } from
 export { Input, Checkbox, Switch, Select, Combobox, Slider, Field, FileUpload, Textarea, TagsInput } from "./forms/index.js";
 
 // Feedback
-export { Progress, Alert, EmptyState, Spinner, Skeleton, Status } from "./feedback/index.js";
+export { Progress, ProgressCircle, Alert, Banner, EmptyState, Spinner, Skeleton, Status, Toast } from "./feedback/index.js";
 
 // Navigation
 export { Breadcrumb } from "./navigation/index.js";

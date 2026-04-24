@@ -75,7 +75,9 @@ import { TagsInputRootType } from "./forms/tags-input/types.js";
 
 // Feedback
 import { ProgressType } from "./feedback/progress/types.js";
-import { AlertType } from "./feedback/alert/types.js";
+import { ProgressCircleType } from "./feedback/progress-circle/types.js";
+import { AlertStatusType, AlertStyleType } from "./feedback/alert/types.js";
+import { BannerStyleType } from "./feedback/banner/types.js";
 import { EmptyStateStyleType } from "./feedback/empty-state/types.js";
 import { SpinnerType } from "./feedback/spinner/types.js";
 import { SkeletonType } from "./feedback/skeleton/types.js";
@@ -358,7 +360,39 @@ export const UIComponentType = RecursiveType(node => VariantType({
 
     // Feedback
     Progress: ProgressType,
-    Alert: AlertType,
+    ProgressCircle: ProgressCircleType,
+
+    /**
+     * Alert — semantic feedback surface with rich content + paired icon (§0.3).
+     */
+    Alert: StructType({
+        status: AlertStatusType,
+        title: OptionType(node),
+        description: OptionType(node),
+        body: OptionType(ArrayType(node)),
+        actions: OptionType(node),
+        icon: OptionType(IconType),
+        closable: OptionType(BooleanType),
+        showIcon: OptionType(BooleanType),
+        onClose: OptionType(FunctionType([], NullType)),
+        style: OptionType(AlertStyleType),
+    }),
+
+    /**
+     * Banner — full-width page-level feedback surface with paired icon.
+     */
+    Banner: StructType({
+        status: AlertStatusType,
+        title: node,
+        description: OptionType(node),
+        actions: OptionType(node),
+        icon: OptionType(IconType),
+        dismissible: OptionType(BooleanType),
+        showIcon: OptionType(BooleanType),
+        onDismiss: OptionType(FunctionType([], NullType)),
+        style: OptionType(BannerStyleType),
+    }),
+
     Spinner: SpinnerType,
     Skeleton: SkeletonType,
 

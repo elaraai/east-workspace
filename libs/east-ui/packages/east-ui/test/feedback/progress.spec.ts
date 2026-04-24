@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Progress, Style } from "@elaraai/east-ui";
+import { Progress } from "@elaraai/east-ui";
 import * as ex from "./progress.examples.js";
 
 describeEast("Progress", (test) => {
@@ -15,297 +15,100 @@ describeEast("Progress", (test) => {
         progressSizes: ex.progressSizes,
         progressStriped: ex.progressStriped,
         progressRange: ex.progressRange,
+        progressIndeterminate: ex.progressIndeterminate,
+        progressWithETA: ex.progressWithETA,
+        progressInteractive: ex.progressInteractive,
     });
 
     // =========================================================================
-    // Basic Creation
+    // Basic creation
     // =========================================================================
 
-    test("creates progress with value only", $ => {
-        const progress = $.let(Progress.Root(50.0));
-
-        $(Assert.equal(progress.unwrap().unwrap("Progress").value, 50.0));
-        $(Assert.equal(progress.unwrap().unwrap("Progress").min.hasTag("none"), true));
-        $(Assert.equal(progress.unwrap().unwrap("Progress").max.hasTag("none"), true));
+    test("creates progress at 50%", $ => {
+        const p = $.let(Progress.Root(50.0));
+        const v = p.unwrap().unwrap("Progress");
+        $(Assert.equal(v.value, 50.0));
+        $(Assert.equal(v.min.hasTag("none"), true));
+        $(Assert.equal(v.max.hasTag("none"), true));
+        $(Assert.equal(v.indeterminate.hasTag("none"), true));
+        $(Assert.equal(v.style.hasTag("none"), true));
     });
 
-    test("creates progress with different value", $ => {
-        const progress = $.let(Progress.Root(75.0));
-
-        $(Assert.equal(progress.unwrap().unwrap("Progress").value, 75.0));
-    });
-
-    test("creates progress at zero", $ => {
-        const progress = $.let(Progress.Root(0.0));
-
-        $(Assert.equal(progress.unwrap().unwrap("Progress").value, 0.0));
-    });
-
-    test("creates progress at full", $ => {
-        const progress = $.let(Progress.Root(100.0));
-
-        $(Assert.equal(progress.unwrap().unwrap("Progress").value, 100.0));
+    test("creates progress with custom min/max", $ => {
+        const p = $.let(Progress.Root(7.5, { min: 0, max: 10 }));
+        const v = p.unwrap().unwrap("Progress");
+        $(Assert.equal(v.min.unwrap("some"), 0.0));
+        $(Assert.equal(v.max.unwrap("some"), 10.0));
     });
 
     // =========================================================================
-    // Min/Max Range
+    // Label / valueText
     // =========================================================================
 
-    test("creates progress with min", $ => {
-        const progress = $.let(Progress.Root(50.0, {
-            min: 0,
-        }));
-
-        $(Assert.equal(progress.unwrap().unwrap("Progress").min.hasTag("some"), true));
-        $(Assert.equal(progress.unwrap().unwrap("Progress").min.unwrap("some"), 0.0));
-    });
-
-    test("creates progress with max", $ => {
-        const progress = $.let(Progress.Root(50.0, {
-            max: 100,
-        }));
-
-        $(Assert.equal(progress.unwrap().unwrap("Progress").max.hasTag("some"), true));
-        $(Assert.equal(progress.unwrap().unwrap("Progress").max.unwrap("some"), 100.0));
-    });
-
-    test("creates progress with min and max", $ => {
-        const progress = $.let(Progress.Root(50.0, {
-            min: 0,
-            max: 100,
-        }));
-
-        $(Assert.equal(progress.unwrap().unwrap("Progress").min.unwrap("some"), 0.0));
-        $(Assert.equal(progress.unwrap().unwrap("Progress").max.unwrap("some"), 100.0));
+    test("creates progress with label + valueText", $ => {
+        const p = $.let(Progress.Root(60.0, { label: "Upload", valueText: "60%" }));
+        const v = p.unwrap().unwrap("Progress");
+        $(Assert.equal(v.label.unwrap("some"), "Upload"));
+        $(Assert.equal(v.valueText.unwrap("some"), "60%"));
     });
 
     // =========================================================================
-    // Color Palettes
+    // NEW: indeterminate / showValue / ETA
     // =========================================================================
 
-    test("creates progress with blue color palette", $ => {
-        const progress = $.let(Progress.Root(50.0, {
-            colorPalette: "blue",
-        }));
-
-        $(Assert.equal(progress.unwrap().unwrap("Progress").colorPalette.hasTag("some"), true));
-        $(Assert.equal(progress.unwrap().unwrap("Progress").colorPalette.unwrap("some").hasTag("blue"), true));
+    test("creates indeterminate progress", $ => {
+        const p = $.let(Progress.Root(0.0, { indeterminate: true }));
+        $(Assert.equal(p.unwrap().unwrap("Progress").indeterminate.unwrap("some"), true));
     });
 
-    test("creates progress with green color palette", $ => {
-        const progress = $.let(Progress.Root(50.0, {
-            colorPalette: "green",
-        }));
-
-        $(Assert.equal(progress.unwrap().unwrap("Progress").colorPalette.unwrap("some").hasTag("green"), true));
+    test("creates progress with showValue flag", $ => {
+        const p = $.let(Progress.Root(42.0, { showValue: true }));
+        $(Assert.equal(p.unwrap().unwrap("Progress").showValue.unwrap("some"), true));
     });
 
-    test("creates progress with Style.ColorScheme helper", $ => {
-        const progress = $.let(Progress.Root(50.0, {
-            colorPalette: Style.ColorScheme("purple"),
+    test("creates progress with estimatedDuration and startedAt", $ => {
+        const started = new Date("2026-01-01T09:00:00Z");
+        const p = $.let(Progress.Root(40.0, {
+            estimatedDuration: 120n,
+            startedAt: started,
         }));
-
-        $(Assert.equal(progress.unwrap().unwrap("Progress").colorPalette.unwrap("some").hasTag("purple"), true));
+        const v = p.unwrap().unwrap("Progress");
+        $(Assert.equal(v.estimatedDuration.unwrap("some"), 120n));
+        $(Assert.equal(v.startedAt.hasTag("some"), true));
     });
 
     // =========================================================================
-    // Size
+    // Style — visual presets + colour slots
     // =========================================================================
 
-    test("creates small progress", $ => {
-        const progress = $.let(Progress.Root(50.0, {
-            size: "sm",
+    test("creates progress with style.variant + colorPalette + size", $ => {
+        const p = $.let(Progress.Root(50.0, {
+            style: { variant: "subtle", colorPalette: "blue", size: "md" },
         }));
-
-        $(Assert.equal(progress.unwrap().unwrap("Progress").size.hasTag("some"), true));
-        $(Assert.equal(progress.unwrap().unwrap("Progress").size.unwrap("some").hasTag("sm"), true));
+        const s = p.unwrap().unwrap("Progress").style.unwrap("some");
+        $(Assert.equal(s.variant.unwrap("some").hasTag("subtle"), true));
+        $(Assert.equal(s.colorPalette.unwrap("some").hasTag("blue"), true));
+        $(Assert.equal(s.size.unwrap("some").hasTag("md"), true));
     });
 
-    test("creates medium progress", $ => {
-        const progress = $.let(Progress.Root(50.0, {
-            size: "md",
-        }));
-
-        $(Assert.equal(progress.unwrap().unwrap("Progress").size.unwrap("some").hasTag("md"), true));
+    test("creates progress with style.striped + animated", $ => {
+        const p = $.let(Progress.Root(50.0, { style: { striped: true, animated: true } }));
+        const s = p.unwrap().unwrap("Progress").style.unwrap("some");
+        $(Assert.equal(s.striped.unwrap("some"), true));
+        $(Assert.equal(s.animated.unwrap("some"), true));
     });
 
-    test("creates large progress", $ => {
-        const progress = $.let(Progress.Root(50.0, {
-            size: "lg",
+    test("creates progress with colour slots", $ => {
+        const p = $.let(Progress.Root(50.0, {
+            style: {
+                trackColor: "#e5e7eb",
+                fillColor: "#3d5cff",
+                labelColor: "#111827",
+            },
         }));
-
-        $(Assert.equal(progress.unwrap().unwrap("Progress").size.unwrap("some").hasTag("lg"), true));
+        const s = p.unwrap().unwrap("Progress").style.unwrap("some");
+        $(Assert.equal(s.trackColor.unwrap("some"), "#e5e7eb"));
+        $(Assert.equal(s.fillColor.unwrap("some"), "#3d5cff"));
+        $(Assert.equal(s.labelColor.unwrap("some"), "#111827"));
     });
-
-    test("creates progress with Style.Size helper", $ => {
-        const progress = $.let(Progress.Root(50.0, {
-            size: Style.Size("md"),
-        }));
-
-        $(Assert.equal(progress.unwrap().unwrap("Progress").size.unwrap("some").hasTag("md"), true));
-    });
-
-    // =========================================================================
-    // Variant
-    // =========================================================================
-
-    test("creates outline variant progress", $ => {
-        const progress = $.let(Progress.Root(50.0, {
-            variant: "outline",
-        }));
-
-        $(Assert.equal(progress.unwrap().unwrap("Progress").variant.hasTag("some"), true));
-        $(Assert.equal(progress.unwrap().unwrap("Progress").variant.unwrap("some").hasTag("outline"), true));
-    });
-
-    test("creates subtle variant progress", $ => {
-        const progress = $.let(Progress.Root(50.0, {
-            variant: "subtle",
-        }));
-
-        $(Assert.equal(progress.unwrap().unwrap("Progress").variant.unwrap("some").hasTag("subtle"), true));
-    });
-
-    test("creates progress with ProgressVariant helper", $ => {
-        const progress = $.let(Progress.Root(50.0, {
-            variant: "subtle",
-        }));
-
-        $(Assert.equal(progress.unwrap().unwrap("Progress").variant.unwrap("some").hasTag("subtle"), true));
-    });
-
-    // =========================================================================
-    // Striped and Animated
-    // =========================================================================
-
-    test("creates striped progress", $ => {
-        const progress = $.let(Progress.Root(50.0, {
-            striped: true,
-        }));
-
-        $(Assert.equal(progress.unwrap().unwrap("Progress").striped.hasTag("some"), true));
-        $(Assert.equal(progress.unwrap().unwrap("Progress").striped.unwrap("some"), true));
-    });
-
-    test("creates non-striped progress explicitly", $ => {
-        const progress = $.let(Progress.Root(50.0, {
-            striped: false,
-        }));
-
-        $(Assert.equal(progress.unwrap().unwrap("Progress").striped.unwrap("some"), false));
-    });
-
-    test("creates animated progress", $ => {
-        const progress = $.let(Progress.Root(50.0, {
-            animated: true,
-        }));
-
-        $(Assert.equal(progress.unwrap().unwrap("Progress").animated.hasTag("some"), true));
-        $(Assert.equal(progress.unwrap().unwrap("Progress").animated.unwrap("some"), true));
-    });
-
-    test("creates striped and animated progress", $ => {
-        const progress = $.let(Progress.Root(50.0, {
-            striped: true,
-            animated: true,
-        }));
-
-        $(Assert.equal(progress.unwrap().unwrap("Progress").striped.unwrap("some"), true));
-        $(Assert.equal(progress.unwrap().unwrap("Progress").animated.unwrap("some"), true));
-    });
-
-    // =========================================================================
-    // Label and ValueText
-    // =========================================================================
-
-    test("creates progress with label", $ => {
-        const progress = $.let(Progress.Root(50.0, {
-            label: "Upload Progress",
-        }));
-
-        $(Assert.equal(progress.unwrap().unwrap("Progress").label.hasTag("some"), true));
-        $(Assert.equal(progress.unwrap().unwrap("Progress").label.unwrap("some"), "Upload Progress"));
-    });
-
-    test("creates progress with valueText", $ => {
-        const progress = $.let(Progress.Root(75.0, {
-            valueText: "75%",
-        }));
-
-        $(Assert.equal(progress.unwrap().unwrap("Progress").valueText.hasTag("some"), true));
-        $(Assert.equal(progress.unwrap().unwrap("Progress").valueText.unwrap("some"), "75%"));
-    });
-
-    test("creates progress with label and valueText", $ => {
-        const progress = $.let(Progress.Root(60.0, {
-            label: "Download",
-            valueText: "60 MB / 100 MB",
-        }));
-
-        $(Assert.equal(progress.unwrap().unwrap("Progress").label.unwrap("some"), "Download"));
-        $(Assert.equal(progress.unwrap().unwrap("Progress").valueText.unwrap("some"), "60 MB / 100 MB"));
-    });
-
-    // =========================================================================
-    // Combined Options
-    // =========================================================================
-
-    test("creates progress with all options", $ => {
-        const progress = $.let(Progress.Root(75.0, {
-            min: 0,
-            max: 100,
-            colorPalette: "blue",
-            size: "md",
-            variant: "subtle",
-            striped: true,
-            animated: true,
-            label: "Progress",
-            valueText: "75%",
-        }));
-
-        $(Assert.equal(progress.unwrap().unwrap("Progress").value, 75.0));
-        $(Assert.equal(progress.unwrap().unwrap("Progress").min.unwrap("some"), 0.0));
-        $(Assert.equal(progress.unwrap().unwrap("Progress").max.unwrap("some"), 100.0));
-        $(Assert.equal(progress.unwrap().unwrap("Progress").colorPalette.unwrap("some").hasTag("blue"), true));
-        $(Assert.equal(progress.unwrap().unwrap("Progress").size.unwrap("some").hasTag("md"), true));
-        $(Assert.equal(progress.unwrap().unwrap("Progress").variant.unwrap("some").hasTag("subtle"), true));
-        $(Assert.equal(progress.unwrap().unwrap("Progress").striped.unwrap("some"), true));
-        $(Assert.equal(progress.unwrap().unwrap("Progress").animated.unwrap("some"), true));
-        $(Assert.equal(progress.unwrap().unwrap("Progress").label.unwrap("some"), "Progress"));
-        $(Assert.equal(progress.unwrap().unwrap("Progress").valueText.unwrap("some"), "75%"));
-    });
-
-    test("creates upload progress bar", $ => {
-        const progress = $.let(Progress.Root(45.0, {
-            colorPalette: "blue",
-            label: "Uploading...",
-            valueText: "45%",
-        }));
-
-        $(Assert.equal(progress.unwrap().unwrap("Progress").value, 45.0));
-        $(Assert.equal(progress.unwrap().unwrap("Progress").label.unwrap("some"), "Uploading..."));
-    });
-
-    test("creates loading indicator", $ => {
-        const progress = $.let(Progress.Root(30.0, {
-            striped: true,
-            animated: true,
-            colorPalette: "green",
-            size: "sm",
-        }));
-
-        $(Assert.equal(progress.unwrap().unwrap("Progress").striped.unwrap("some"), true));
-        $(Assert.equal(progress.unwrap().unwrap("Progress").animated.unwrap("some"), true));
-    });
-
-    test("creates completion progress", $ => {
-        const progress = $.let(Progress.Root(100.0, {
-            colorPalette: "green",
-            label: "Complete!",
-            valueText: "100%",
-        }));
-
-        $(Assert.equal(progress.unwrap().unwrap("Progress").value, 100.0));
-        $(Assert.equal(progress.unwrap().unwrap("Progress").colorPalette.unwrap("some").hasTag("green"), true));
-    });
-}, {   platformFns: TestImpl,});
+}, { platformFns: TestImpl });

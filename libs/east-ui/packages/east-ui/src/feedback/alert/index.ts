@@ -7,166 +7,255 @@ import {
     type ExprType,
     type SubtypeExprOrValue,
     East,
-    StringType,
+    ArrayType,
+    OptionType,
+    StructType,
+    BooleanType,
+    NullType,
+    FunctionType,
     variant,
+    some,
+    none,
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
+import { IconType } from "../../display/icon/types.js";
+import { Text } from "../../typography/text/index.js";
 import {
-    AlertType,
     AlertStatusType,
     AlertStatus,
     AlertVariantType,
     AlertVariant,
-    type AlertStyle,
+    AlertStyleType,
     type AlertStatusLiteral,
+    type AlertStyle,
 } from "./types.js";
 
 // Re-export types
 export {
-    AlertType,
     AlertStatusType,
     AlertStatus,
     AlertVariantType,
     AlertVariant,
-    type AlertStyle,
+    AlertStyleType,
     type AlertStatusLiteral,
     type AlertVariantLiteral,
+    type AlertStyle,
 } from "./types.js";
 
 // ============================================================================
-// Alert Function
+// AlertType — standalone mirror of the inline `Alert` variant
 // ============================================================================
 
 /**
- * Creates an Alert component with status and optional styling.
+ * Standalone mirror of the inline `Alert` variant in `component.ts`. Used by
+ * renderers for `equalFor` memoization.
+ */
+export const AlertType: StructType<{
+    status: AlertStatusType,
+    title: OptionType<UIComponentType>,
+    description: OptionType<UIComponentType>,
+    body: OptionType<ArrayType<UIComponentType>>,
+    actions: OptionType<UIComponentType>,
+    icon: OptionType<IconType>,
+    closable: OptionType<BooleanType>,
+    showIcon: OptionType<BooleanType>,
+    onClose: OptionType<FunctionType<[], NullType>>,
+    style: OptionType<AlertStyleType>,
+}> = StructType({
+    status: AlertStatusType,
+    title: OptionType(UIComponentType),
+    description: OptionType(UIComponentType),
+    body: OptionType(ArrayType(UIComponentType)),
+    actions: OptionType(UIComponentType),
+    icon: OptionType(IconType),
+    closable: OptionType(BooleanType),
+    showIcon: OptionType(BooleanType),
+    onClose: OptionType(FunctionType([], NullType)),
+    style: OptionType(AlertStyleType),
+});
+
+export type AlertType = typeof AlertType;
+
+// ============================================================================
+// §0.3 Paired-icon map (mirrors Status)
+// ============================================================================
+
+const PAIRED_ICONS: Record<AlertStatusLiteral, { prefix: "fas"; name: string }> = {
+    info: { prefix: "fas", name: "circle-info" },
+    warning: { prefix: "fas", name: "triangle-exclamation" },
+    success: { prefix: "fas", name: "circle-check" },
+    error: { prefix: "fas", name: "circle-xmark" },
+    neutral: { prefix: "fas", name: "circle" },
+};
+
+// ============================================================================
+// Alert Factory
+// ============================================================================
+
+type AlertContentInput =
+    | string
+    | ExprType<UIComponentType>
+    | SubtypeExprOrValue<UIComponentType>;
+
+/**
+ * TypeScript options bag for `Alert.Root`.
  *
- * @param status - The alert status (info, warning, success, error)
- * @param style - Optional styling configuration
+ * @property title - Optional rich title (string coerced to `Text.Root`)
+ * @property description - Optional rich description (string coerced to `Text.Root`)
+ * @property body - Optional array of rich body nodes (e.g. an embedded input)
+ * @property actions - Optional trailing action(s) (typically a Button or HStack)
+ * @property icon - Explicit Font Awesome icon (overrides the §0.3 paired default)
+ * @property closable - Whether to show a close button
+ * @property onClose - Callback fired when the close button is pressed
+ * @property style - Optional visual-only style
+ */
+export interface AlertOptions {
+    /** Optional rich title (string coerced to `Text.Root`) */
+    title?: AlertContentInput;
+    /** Optional rich description (string coerced to `Text.Root`) */
+    description?: AlertContentInput;
+    /** Optional array of rich body nodes (e.g. an embedded input) */
+    body?: SubtypeExprOrValue<ArrayType<UIComponentType>>;
+    /** Optional trailing action(s) (typically a Button or HStack) */
+    actions?: AlertContentInput;
+    /** Explicit Font Awesome icon (overrides the §0.3 paired default) */
+    icon?: { prefix: string; name: string } | SubtypeExprOrValue<IconType>;
+    /** Whether to show a close button */
+    closable?: SubtypeExprOrValue<BooleanType>;
+    /** Callback fired when the close button is pressed */
+    onClose?: SubtypeExprOrValue<FunctionType<[], NullType>>;
+    /** Optional visual-only style */
+    style?: AlertStyle;
+}
+
+/**
+ * Creates an Alert component with status, rich content, and an auto-injected
+ * paired icon per §0.3.
+ *
+ * @param status - The alert status (info / warning / success / error / neutral)
+ * @param options - Optional `title` / `description` / `body` / `actions` /
+ *   `icon` / `closable` / `onClose` / `style`
  * @returns An East expression representing the alert component
  *
  * @remarks
- * Alert is used to display feedback messages to users. Different status
- * types have appropriate color schemes (blue for info, yellow for warning,
- * green for success, red for error).
+ * The factory auto-injects the paired icon corresponding to `status` unless
+ * `icon` is explicitly provided. Strings passed to `title` / `description` /
+ * each `body` entry / `actions` are coerced to `Text.Root(s)`.
  *
  * @example
  * ```ts
  * import { East } from "@elaraai/east";
  * import { Alert, UIComponentType } from "@elaraai/east-ui";
  *
- * const example = East.function([], UIComponentType, $ => {
- *     return Alert.Root("warning", {
- *         title: "Warning",
- *         description: "Your session will expire in 5 minutes",
- *     });
- * });
+ * const hint = East.function([], UIComponentType, _$ =>
+ *     Alert.Root("warning", {
+ *         title: "Session expiring",
+ *         description: "Your session will end in 5 minutes.",
+ *     }),
+ * );
  * ```
  */
 function createAlert(
-    status: SubtypeExprOrValue<AlertStatusType> | AlertStatusLiteral,
-    style?: AlertStyle
+    status: AlertStatusLiteral | SubtypeExprOrValue<AlertStatusType>,
+    options?: AlertOptions,
 ): ExprType<UIComponentType> {
-    const toStringOption = (val: SubtypeExprOrValue<StringType> | undefined) => {
-        if (val === undefined) return variant("none", null);
-        return variant("some", val);
-    };
-
     const statusValue = typeof status === "string"
         ? East.value(variant(status, null), AlertStatusType)
-        : status;
+        : status as ExprType<AlertStatusType>;
 
-    const variantValue = style?.variant
+    const coerce = (input: AlertContentInput | undefined): ExprType<UIComponentType> | undefined => {
+        if (input === undefined) return undefined;
+        return typeof input === "string"
+            ? Text.Root(input)
+            : input as ExprType<UIComponentType>;
+    };
+
+    const titleValue = coerce(options?.title);
+    const descriptionValue = coerce(options?.description);
+    const actionsValue = coerce(options?.actions);
+
+    // §0.3 paired-icon injection
+    let iconValue: SubtypeExprOrValue<IconType> | undefined;
+    if (options?.icon && typeof (options.icon as { prefix?: unknown }).prefix === "string") {
+        iconValue = East.value({
+            prefix: (options.icon as { prefix: string }).prefix,
+            name: (options.icon as { name: string }).name,
+            style: none,
+        }, IconType);
+    } else if (options?.icon !== undefined) {
+        iconValue = options.icon as SubtypeExprOrValue<IconType>;
+    } else if (typeof status === "string") {
+        const paired = PAIRED_ICONS[status];
+        iconValue = East.value({
+            prefix: paired.prefix,
+            name: paired.name,
+            style: none,
+        }, IconType);
+    }
+
+    const styleValue = options?.style ? buildAlertStyle(options.style) : undefined;
+
+    return East.value(variant("Alert", {
+        status: statusValue,
+        title: titleValue ? some(titleValue) : none,
+        description: descriptionValue ? some(descriptionValue) : none,
+        body: options?.body !== undefined ? some(options.body as never) : none,
+        actions: actionsValue ? some(actionsValue) : none,
+        icon: iconValue ? some(iconValue) : none,
+        closable: options?.closable !== undefined ? some(options.closable) : none,
+        showIcon: none,
+        onClose: options?.onClose !== undefined ? some(options.onClose) : none,
+        style: styleValue ? some(styleValue) : none,
+    }), UIComponentType);
+}
+
+function buildAlertStyle(style: AlertStyle): ExprType<AlertStyleType> {
+    const variantValue = style.variant
         ? (typeof style.variant === "string"
             ? East.value(variant(style.variant, null), AlertVariantType)
             : style.variant)
         : undefined;
 
-    return East.value(variant("Alert", {
-        status: statusValue,
-        title: toStringOption(style?.title),
-        description: toStringOption(style?.description),
-        variant: variantValue ? variant("some", variantValue) : variant("none", null),
-    }), UIComponentType);
+    return East.value({
+        variant: variantValue ? some(variantValue) : none,
+        color: style.color !== undefined ? some(style.color) : none,
+        background: style.background !== undefined ? some(style.background) : none,
+        borderColor: style.borderColor !== undefined ? some(style.borderColor) : none,
+        iconColor: style.iconColor !== undefined ? some(style.iconColor) : none,
+    }, AlertStyleType);
 }
 
 /**
- * Alert component for displaying feedback messages.
- *
- * @remarks
- * Use `Alert.Root(status, style)` to create an alert, or access `Alert.Types.Alert` for the East type.
+ * Alert primitive — semantic feedback surface with rich content and a paired
+ * icon per §0.3.
  */
 export const Alert = {
     /**
-     * Creates an Alert component with status and optional styling.
+     * Creates an Alert.
      *
-     * @param status - The alert status (info, warning, success, error) or AlertStatusType expression
-     * @param style - Optional styling configuration
-     * @returns An East expression representing the alert component
-     *
-     * @remarks
-     * Alert is used to display feedback messages to users. Different status
-     * types have appropriate color schemes (blue for info, yellow for warning,
-     * green for success, red for error).
+     * @param status - "info" / "warning" / "success" / "error" / "neutral"
+     * @param options - Optional rich content + state + style
      *
      * @example
      * ```ts
-     * import { East } from "@elaraai/east";
-     * import { Alert, UIComponentType } from "@elaraai/east-ui";
-     *
-     * const example = East.function([], UIComponentType, $ => {
-     *     return Alert.Root("warning", {
-     *         title: "Warning",
-     *         description: "Your session will expire in 5 minutes",
-     *     });
+     * Alert.Root("warning", {
+     *     title: "n_trials = 0",
+     *     description: "Bayesian draws will be skipped.",
      * });
      * ```
      */
     Root: createAlert,
-    /**
-     * Helper function to create alert status values.
-     *
-     * @param status - The status string ("info", "warning", "success", "error")
-     * @returns An East expression representing the alert status
-     */
     Status: AlertStatus,
-    /**
-     * Helper function to create alert variant values.
-     *
-     * @param v - The variant string ("solid", "subtle", "outline")
-     * @returns An East expression representing the alert variant
-     */
     Variant: AlertVariant,
     Types: {
-        /**
-         * Type for Alert component data.
-         *
-         * @remarks
-         * Alert displays feedback messages to users, indicating status of
-         * operations or important information.
-         *
-         * @property status - The status type (info, warning, success, error)
-         * @property title - Optional alert title
-         * @property description - Optional alert description
-         * @property variant - Visual variant (solid, subtle, outline)
-         */
+        /** The concrete East type for Alert — mirrors the inline variant in component.ts. */
         Alert: AlertType,
-        /**
-         * Status types for Alert component.
-         *
-         * @property info - Informational alert
-         * @property warning - Warning alert
-         * @property success - Success/confirmation alert
-         * @property error - Error/danger alert
-         */
+        /** Semantic status variant (info / warning / success / error / neutral). */
         Status: AlertStatusType,
-        /**
-         * Variant types for Alert visual style.
-         *
-         * @property solid - Solid background alert
-         * @property subtle - Subtle/light background alert
-         * @property outline - Bordered alert
-         */
+        /** Visual preset variant (solid / subtle / outline). */
         Variant: AlertVariantType,
+        /** Visual-only style struct. */
+        Style: AlertStyleType,
     },
 } as const;

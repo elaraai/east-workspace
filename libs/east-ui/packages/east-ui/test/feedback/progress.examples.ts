@@ -27,28 +27,28 @@ export const progressLabeled = example({
 });
 
 export const progressColors = example({
-    keywords: ["Progress", "Root", "colorPalette", "blue", "green", "orange", "red"],
-    description: "Different color palettes",
+    keywords: ["Progress", "Root", "colorPalette"],
+    description: "Different color palettes via style.colorPalette",
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.VStack([
-            Progress.Root(80.0, { colorPalette: "blue", label: "Blue" }),
-            Progress.Root(60.0, { colorPalette: "green", label: "Green" }),
-            Progress.Root(40.0, { colorPalette: "orange", label: "Orange" }),
-            Progress.Root(20.0, { colorPalette: "red", label: "Red" }),
+            Progress.Root(80.0, { label: "Blue", style: { colorPalette: "blue" } }),
+            Progress.Root(60.0, { label: "Green", style: { colorPalette: "green" } }),
+            Progress.Root(40.0, { label: "Orange", style: { colorPalette: "orange" } }),
+            Progress.Root(20.0, { label: "Red", style: { colorPalette: "red" } }),
         ], { gap: "4", align: "stretch", width: "100%" });
     }),
     inputs: [],
 });
 
 export const progressSizes = example({
-    keywords: ["Progress", "Root", "size", "xs", "sm", "md", "lg"],
-    description: "Available sizes: xs, sm, md, lg",
+    keywords: ["Progress", "Root", "size"],
+    description: "Available sizes via style.size",
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.VStack([
-            Progress.Root(50.0, { size: "xs", colorPalette: "blue" }),
-            Progress.Root(50.0, { size: "sm", colorPalette: "blue" }),
-            Progress.Root(50.0, { size: "md", colorPalette: "blue" }),
-            Progress.Root(50.0, { size: "lg", colorPalette: "blue" }),
+            Progress.Root(50.0, { style: { size: "xs", colorPalette: "blue" } }),
+            Progress.Root(50.0, { style: { size: "sm", colorPalette: "blue" } }),
+            Progress.Root(50.0, { style: { size: "md", colorPalette: "blue" } }),
+            Progress.Root(50.0, { style: { size: "lg", colorPalette: "blue" } }),
         ], { gap: "4", align: "stretch", width: "100%" });
     }),
     inputs: [],
@@ -59,15 +59,15 @@ export const progressStriped = example({
     description: "Striped pattern for visual emphasis",
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.VStack([
-            Progress.Root(65.0, { striped: true, colorPalette: "blue" }),
-            Progress.Root(45.0, { striped: true, animated: true, colorPalette: "green" }),
+            Progress.Root(65.0, { style: { striped: true, colorPalette: "blue" } }),
+            Progress.Root(45.0, { style: { striped: true, animated: true, colorPalette: "green" } }),
         ], { gap: "4", align: "stretch", width: "100%" });
     }),
     inputs: [],
 });
 
 export const progressRange = example({
-    keywords: ["Progress", "Root", "min", "max", "label", "valueText"],
+    keywords: ["Progress", "Root", "min", "max"],
     description: "Progress with custom min/max",
     fn: East.function([], UIComponentType, (_$) => {
         return Progress.Root(7.5, {
@@ -75,7 +75,35 @@ export const progressRange = example({
             max: 10,
             label: "Rating",
             valueText: "7.5 / 10",
-            colorPalette: "purple",
+            style: { colorPalette: "purple" },
+        });
+    }),
+    inputs: [],
+});
+
+export const progressIndeterminate = example({
+    keywords: ["Progress", "indeterminate"],
+    description: "Indeterminate progress — no known completion percentage",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Progress.Root(0.0, {
+            indeterminate: true,
+            label: "Solver running…",
+            style: { colorPalette: "blue" },
+        });
+    }),
+    inputs: [],
+});
+
+export const progressWithETA = example({
+    keywords: ["Progress", "estimatedDuration", "startedAt", "ETA"],
+    description: "Progress with an estimated duration + startedAt drives an ETA label in the renderer",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Progress.Root(42.0, {
+            label: "Solver running",
+            estimatedDuration: 120n,
+            startedAt: new Date("2026-01-01T09:00:00Z"),
+            showValue: true,
+            style: { colorPalette: "blue" },
         });
     }),
     inputs: [],
@@ -92,7 +120,7 @@ export const progressInteractive = example({
                 $(bind.write(next));
             }));
             return Stack.VStack([
-                Progress.Root(value, { min: 0, max: 100, colorPalette: "blue", striped: true }),
+                Progress.Root(value, { min: 0, max: 100, style: { colorPalette: "blue", striped: true } }),
                 Slider.Root(value, { min: 0, max: 100, colorPalette: "blue", onChange }),
                 Text.Root(East.str`Progress: ${East.print(value)}%`),
             ], { gap: "3", align: "stretch" });

@@ -1,0 +1,251 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ */
+
+import {
+    type ExprType,
+    type SubtypeExprOrValue,
+    East,
+    OptionType,
+    StructType,
+    BooleanType,
+    NullType,
+    FunctionType,
+    variant,
+    some,
+    none,
+} from "@elaraai/east";
+
+import { UIComponentType } from "../../component.js";
+import { SizeType } from "../../style.js";
+import { IconType } from "../../display/icon/types.js";
+import { Text } from "../../typography/text/index.js";
+import {
+    AlertStatusType,
+    AlertVariantType,
+    type AlertStatusLiteral,
+} from "../alert/types.js";
+import {
+    BannerStyleType,
+    type BannerStyle,
+} from "./types.js";
+
+// Re-export types
+export {
+    BannerStyleType,
+    type BannerStyle,
+} from "./types.js";
+
+// ============================================================================
+// BannerType — standalone mirror of the inline `Banner` variant
+// ============================================================================
+
+/**
+ * Standalone mirror of the inline `Banner` variant in `component.ts`.
+ * Reuses `AlertStatusType` for semantic classification per §0.3.
+ */
+export const BannerType: StructType<{
+    status: AlertStatusType,
+    title: UIComponentType,
+    description: OptionType<UIComponentType>,
+    actions: OptionType<UIComponentType>,
+    icon: OptionType<IconType>,
+    dismissible: OptionType<BooleanType>,
+    showIcon: OptionType<BooleanType>,
+    onDismiss: OptionType<FunctionType<[], NullType>>,
+    style: OptionType<BannerStyleType>,
+}> = StructType({
+    status: AlertStatusType,
+    title: UIComponentType,
+    description: OptionType(UIComponentType),
+    actions: OptionType(UIComponentType),
+    icon: OptionType(IconType),
+    dismissible: OptionType(BooleanType),
+    showIcon: OptionType(BooleanType),
+    onDismiss: OptionType(FunctionType([], NullType)),
+    style: OptionType(BannerStyleType),
+});
+
+export type BannerType = typeof BannerType;
+
+// ============================================================================
+// §0.3 Paired-icon map (shared with Alert / Status)
+// ============================================================================
+
+const PAIRED_ICONS: Record<AlertStatusLiteral, { prefix: "fas"; name: string }> = {
+    info: { prefix: "fas", name: "circle-info" },
+    warning: { prefix: "fas", name: "triangle-exclamation" },
+    success: { prefix: "fas", name: "circle-check" },
+    error: { prefix: "fas", name: "circle-xmark" },
+    neutral: { prefix: "fas", name: "circle" },
+};
+
+// ============================================================================
+// Banner Factory
+// ============================================================================
+
+type BannerInput =
+    | string
+    | ExprType<UIComponentType>
+    | SubtypeExprOrValue<UIComponentType>;
+
+/**
+ * TypeScript options bag for `Banner.Root`.
+ *
+ * @property description - Optional description (rich or string)
+ * @property actions - Optional trailing action(s)
+ * @property icon - Explicit icon override (skips §0.3 paired default)
+ * @property dismissible - Whether to show a close button
+ * @property showIcon - Whether to show the paired icon (default true)
+ * @property onDismiss - Callback fired when the close button is pressed
+ * @property style - Optional visual-only style
+ */
+export interface BannerOptions {
+    /** Optional description (rich or string) */
+    description?: BannerInput;
+    /** Optional trailing action(s) */
+    actions?: BannerInput;
+    /** Explicit icon override (skips §0.3 paired default) */
+    icon?: { prefix: string; name: string } | SubtypeExprOrValue<IconType>;
+    /** Whether to show a close button */
+    dismissible?: SubtypeExprOrValue<BooleanType>;
+    /** Whether to show the paired icon (default true) */
+    showIcon?: SubtypeExprOrValue<BooleanType>;
+    /** Callback fired when the close button is pressed */
+    onDismiss?: SubtypeExprOrValue<FunctionType<[], NullType>>;
+    /** Optional visual-only style */
+    style?: BannerStyle;
+}
+
+/**
+ * Creates a Banner — a full-width page-level feedback surface with paired
+ * icon per §0.3.
+ *
+ * @param status - The banner status (info / warning / success / error / neutral)
+ * @param title - String (coerced to `Text.Root(s)`) or UIComponentType
+ * @param options - Optional rich description / actions / dismissible / style
+ * @returns An East expression representing the Banner component
+ *
+ * @example
+ * ```ts
+ * import { East } from "@elaraai/east";
+ * import { Banner, Button, UIComponentType } from "@elaraai/east-ui";
+ *
+ * const stale = East.function([], UIComponentType, _$ =>
+ *     Banner.Root("warning", "Data last refreshed 48m ago", {
+ *         description: "Some metrics may be stale.",
+ *         actions: Button.Root("Refresh"),
+ *     }),
+ * );
+ * ```
+ */
+function createBannerRoot(
+    status: AlertStatusLiteral | SubtypeExprOrValue<AlertStatusType>,
+    title: BannerInput,
+    options?: BannerOptions,
+): ExprType<UIComponentType> {
+    const statusValue = typeof status === "string"
+        ? East.value(variant(status, null), AlertStatusType)
+        : status as ExprType<AlertStatusType>;
+
+    const titleExpr: ExprType<UIComponentType> = typeof title === "string"
+        ? Text.Root(title)
+        : title as ExprType<UIComponentType>;
+
+    const coerce = (input: BannerInput | undefined): ExprType<UIComponentType> | undefined => {
+        if (input === undefined) return undefined;
+        return typeof input === "string"
+            ? Text.Root(input)
+            : input as ExprType<UIComponentType>;
+    };
+
+    const descriptionValue = coerce(options?.description);
+    const actionsValue = coerce(options?.actions);
+
+    // §0.3 paired-icon
+    let iconValue: SubtypeExprOrValue<IconType> | undefined;
+    const showIcon = options?.showIcon ?? true;
+    if (options?.icon && typeof (options.icon as { prefix?: unknown }).prefix === "string") {
+        iconValue = East.value({
+            prefix: (options.icon as { prefix: string }).prefix,
+            name: (options.icon as { name: string }).name,
+            style: none,
+        }, IconType);
+    } else if (options?.icon !== undefined) {
+        iconValue = options.icon as SubtypeExprOrValue<IconType>;
+    } else if (showIcon === true && typeof status === "string") {
+        const paired = PAIRED_ICONS[status];
+        iconValue = East.value({
+            prefix: paired.prefix,
+            name: paired.name,
+            style: none,
+        }, IconType);
+    }
+
+    const styleValue = options?.style ? buildBannerStyle(options.style) : undefined;
+
+    return East.value(variant("Banner", {
+        status: statusValue,
+        title: titleExpr,
+        description: descriptionValue ? some(descriptionValue) : none,
+        actions: actionsValue ? some(actionsValue) : none,
+        icon: iconValue ? some(iconValue) : none,
+        dismissible: options?.dismissible !== undefined ? some(options.dismissible) : none,
+        showIcon: options?.showIcon !== undefined ? some(options.showIcon) : none,
+        onDismiss: options?.onDismiss !== undefined ? some(options.onDismiss) : none,
+        style: styleValue ? some(styleValue) : none,
+    }), UIComponentType);
+}
+
+function buildBannerStyle(style: BannerStyle): ExprType<BannerStyleType> {
+    const variantValue = style.variant
+        ? (typeof style.variant === "string"
+            ? East.value(variant(style.variant, null), AlertVariantType)
+            : style.variant)
+        : undefined;
+    const sizeValue = style.size
+        ? (typeof style.size === "string"
+            ? East.value(variant(style.size, null), SizeType)
+            : style.size)
+        : undefined;
+
+    return East.value({
+        variant: variantValue ? some(variantValue) : none,
+        size: sizeValue ? some(sizeValue) : none,
+        color: style.color !== undefined ? some(style.color) : none,
+        background: style.background !== undefined ? some(style.background) : none,
+        borderColor: style.borderColor !== undefined ? some(style.borderColor) : none,
+        iconColor: style.iconColor !== undefined ? some(style.iconColor) : none,
+        accentColor: style.accentColor !== undefined ? some(style.accentColor) : none,
+    }, BannerStyleType);
+}
+
+/**
+ * Banner primitive — full-width page-level feedback surface with paired icon.
+ */
+export const Banner = {
+    /**
+     * Creates a Banner.
+     *
+     * @param status - "info" / "warning" / "success" / "error" / "neutral"
+     * @param title - String (coerced to `Text.Root(s)`) or UIComponentType
+     * @param options - Optional rich description / actions / dismissible / style
+     *
+     * @example
+     * ```ts
+     * Banner.Root("warning", "Data last refreshed 48m ago", {
+     *     actions: Button.Root("Refresh"),
+     * });
+     * ```
+     */
+    Root: createBannerRoot,
+    Types: {
+        /** The concrete East type for Banner. */
+        Banner: BannerType,
+        /** Semantic status variant (shared with Alert). */
+        Status: AlertStatusType,
+        /** Visual-only style struct for Banner. */
+        Style: BannerStyleType,
+    },
+} as const;

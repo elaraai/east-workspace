@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Alert } from "@elaraai/east-ui";
+import { Alert, Text, Button } from "@elaraai/east-ui";
 import * as ex from "./alert.examples.js";
 
 describeEast("Alert", (test) => {
@@ -13,206 +13,159 @@ describeEast("Alert", (test) => {
         alertSuccess: ex.alertSuccess,
         alertWarning: ex.alertWarning,
         alertError: ex.alertError,
+        alertNeutral: ex.alertNeutral,
         alertVariants: ex.alertVariants,
         alertTitleOnly: ex.alertTitleOnly,
+        alertEmbeddedInput: ex.alertEmbeddedInput,
+        alertWithActions: ex.alertWithActions,
+        alertDismissible: ex.alertDismissible,
+        alertInteractive: ex.alertInteractive,
     });
 
     // =========================================================================
-    // Basic Creation with Status
+    // Basic status variants
     // =========================================================================
 
     test("creates info alert", $ => {
-        const alert = $.let(Alert.Root("info"));
-
-        $(Assert.equal(alert.unwrap().unwrap("Alert").status.hasTag("info"), true));
-        $(Assert.equal(alert.unwrap().unwrap("Alert").title.hasTag("none"), true));
-        $(Assert.equal(alert.unwrap().unwrap("Alert").description.hasTag("none"), true));
+        const a = $.let(Alert.Root("info"));
+        const v = a.unwrap().unwrap("Alert");
+        $(Assert.equal(v.status.hasTag("info"), true));
+        $(Assert.equal(v.title.hasTag("none"), true));
+        $(Assert.equal(v.description.hasTag("none"), true));
+        $(Assert.equal(v.body.hasTag("none"), true));
+        $(Assert.equal(v.actions.hasTag("none"), true));
+        $(Assert.equal(v.closable.hasTag("none"), true));
     });
 
-    test("creates warning alert", $ => {
-        const alert = $.let(Alert.Root("warning"));
-
-        $(Assert.equal(alert.unwrap().unwrap("Alert").status.hasTag("warning"), true));
-    });
-
-    test("creates success alert", $ => {
-        const alert = $.let(Alert.Root("success"));
-
-        $(Assert.equal(alert.unwrap().unwrap("Alert").status.hasTag("success"), true));
-    });
-
-    test("creates error alert", $ => {
-        const alert = $.let(Alert.Root("error"));
-
-        $(Assert.equal(alert.unwrap().unwrap("Alert").status.hasTag("error"), true));
+    test("creates neutral alert (NEW status)", $ => {
+        const a = $.let(Alert.Root("neutral"));
+        $(Assert.equal(a.unwrap().unwrap("Alert").status.hasTag("neutral"), true));
     });
 
     // =========================================================================
-    // String Status Shorthand
+    // §0.3 paired-icon injection
     // =========================================================================
 
-    test("creates info alert with string status", $ => {
-        const alert = $.let(Alert.Root("info"));
-
-        $(Assert.equal(alert.unwrap().unwrap("Alert").status.hasTag("info"), true));
+    test("injects paired circle-info icon for info", $ => {
+        const a = $.let(Alert.Root("info"));
+        const icon = a.unwrap().unwrap("Alert").icon.unwrap("some");
+        $(Assert.equal(icon.name, "circle-info"));
     });
 
-    test("creates warning alert with string status", $ => {
-        const alert = $.let(Alert.Root("warning"));
-
-        $(Assert.equal(alert.unwrap().unwrap("Alert").status.hasTag("warning"), true));
+    test("injects paired triangle-exclamation icon for warning", $ => {
+        const a = $.let(Alert.Root("warning"));
+        $(Assert.equal(a.unwrap().unwrap("Alert").icon.unwrap("some").name, "triangle-exclamation"));
     });
 
-    test("creates success alert with string status", $ => {
-        const alert = $.let(Alert.Root("success"));
-
-        $(Assert.equal(alert.unwrap().unwrap("Alert").status.hasTag("success"), true));
+    test("injects paired circle-check icon for success", $ => {
+        const a = $.let(Alert.Root("success"));
+        $(Assert.equal(a.unwrap().unwrap("Alert").icon.unwrap("some").name, "circle-check"));
     });
 
-    test("creates error alert with string status", $ => {
-        const alert = $.let(Alert.Root("error"));
-
-        $(Assert.equal(alert.unwrap().unwrap("Alert").status.hasTag("error"), true));
+    test("injects paired circle-xmark icon for error", $ => {
+        const a = $.let(Alert.Root("error"));
+        $(Assert.equal(a.unwrap().unwrap("Alert").icon.unwrap("some").name, "circle-xmark"));
     });
 
-    // =========================================================================
-    // Title
-    // =========================================================================
-
-    test("creates alert with title", $ => {
-        const alert = $.let(Alert.Root("success", {
-            title: "Success!",
-        }));
-
-        $(Assert.equal(alert.unwrap().unwrap("Alert").title.hasTag("some"), true));
-        $(Assert.equal(alert.unwrap().unwrap("Alert").title.unwrap("some"), "Success!"));
+    test("injects paired circle icon for neutral", $ => {
+        const a = $.let(Alert.Root("neutral"));
+        $(Assert.equal(a.unwrap().unwrap("Alert").icon.unwrap("some").name, "circle"));
     });
 
-    test("creates alert with long title", $ => {
-        const alert = $.let(Alert.Root("info", {
-            title: "Important Information About Your Account",
-        }));
-
-        $(Assert.equal(alert.unwrap().unwrap("Alert").title.unwrap("some"), "Important Information About Your Account"));
+    test("explicit icon overrides paired default", $ => {
+        const a = $.let(Alert.Root("warning", { icon: { prefix: "fas", name: "bell" } }));
+        $(Assert.equal(a.unwrap().unwrap("Alert").icon.unwrap("some").name, "bell"));
     });
 
     // =========================================================================
-    // Description
+    // Rich title / description
     // =========================================================================
 
-    test("creates alert with description", $ => {
-        const alert = $.let(Alert.Root("warning", {
-            description: "Your session will expire soon.",
-        }));
-
-        $(Assert.equal(alert.unwrap().unwrap("Alert").description.hasTag("some"), true));
-        $(Assert.equal(alert.unwrap().unwrap("Alert").description.unwrap("some"), "Your session will expire soon."));
+    test("creates alert with string title (coerced to Text.Root)", $ => {
+        const a = $.let(Alert.Root("success", { title: "Saved!" }));
+        $(Assert.equal(
+            a.unwrap().unwrap("Alert").title.unwrap("some").unwrap().unwrap("Text").value,
+            "Saved!",
+        ));
     });
 
-    test("creates alert with title and description", $ => {
-        const alert = $.let(Alert.Root("error", {
-            title: "Error",
-            description: "Failed to save changes. Please try again.",
-        }));
-
-        $(Assert.equal(alert.unwrap().unwrap("Alert").title.unwrap("some"), "Error"));
-        $(Assert.equal(alert.unwrap().unwrap("Alert").description.unwrap("some"), "Failed to save changes. Please try again."));
+    test("creates alert with string description", $ => {
+        const a = $.let(Alert.Root("warning", { description: "Session expiring." }));
+        $(Assert.equal(
+            a.unwrap().unwrap("Alert").description.unwrap("some").unwrap().unwrap("Text").value,
+            "Session expiring.",
+        ));
     });
 
-    // =========================================================================
-    // Variant
-    // =========================================================================
-
-    test("creates solid variant alert", $ => {
-        const alert = $.let(Alert.Root("success", {
-            variant: "solid",
-        }));
-
-        $(Assert.equal(alert.unwrap().unwrap("Alert").variant.hasTag("some"), true));
-        $(Assert.equal(alert.unwrap().unwrap("Alert").variant.unwrap("some").hasTag("solid"), true));
-    });
-
-    test("creates subtle variant alert", $ => {
-        const alert = $.let(Alert.Root("info", {
-            variant: "subtle",
-        }));
-
-        $(Assert.equal(alert.unwrap().unwrap("Alert").variant.unwrap("some").hasTag("subtle"), true));
-    });
-
-    test("creates outline variant alert", $ => {
-        const alert = $.let(Alert.Root("warning", {
-            variant: "outline",
-        }));
-
-        $(Assert.equal(alert.unwrap().unwrap("Alert").variant.unwrap("some").hasTag("outline"), true));
-    });
-
-    test("creates alert with AlertVariant helper", $ => {
-        const alert = $.let(Alert.Root("error", {
-            variant: "solid",
-        }));
-
-        $(Assert.equal(alert.unwrap().unwrap("Alert").variant.unwrap("some").hasTag("solid"), true));
+    test("creates alert with rich UIComp title", $ => {
+        const a = $.let(Alert.Root("info", { title: Text.Root("Rich", { fontWeight: "bold" }) }));
+        $(Assert.equal(
+            a.unwrap().unwrap("Alert").title.unwrap("some").unwrap().unwrap("Text").value,
+            "Rich",
+        ));
     });
 
     // =========================================================================
-    // Combined Options
+    // body
     // =========================================================================
 
-    test("creates alert with all options", $ => {
-        const alert = $.let(Alert.Root("success", {
-            title: "Changes Saved",
-            description: "Your changes have been saved successfully.",
-            variant: "subtle",
+    test("creates alert with body containing Text", $ => {
+        const a = $.let(Alert.Root("warning", {
+            title: "Review required",
+            body: [Text.Root("Line 1"), Text.Root("Line 2")],
         }));
-
-        $(Assert.equal(alert.unwrap().unwrap("Alert").status.hasTag("success"), true));
-        $(Assert.equal(alert.unwrap().unwrap("Alert").title.unwrap("some"), "Changes Saved"));
-        $(Assert.equal(alert.unwrap().unwrap("Alert").description.unwrap("some"), "Your changes have been saved successfully."));
-        $(Assert.equal(alert.unwrap().unwrap("Alert").variant.unwrap("some").hasTag("subtle"), true));
+        $(Assert.equal(a.unwrap().unwrap("Alert").body.unwrap("some").size(), 2n));
     });
 
-    test("creates form submission success alert", $ => {
-        const alert = $.let(Alert.Root("success", {
-            title: "Form Submitted",
-            description: "Thank you for your submission.",
-        }));
+    // =========================================================================
+    // actions
+    // =========================================================================
 
-        $(Assert.equal(alert.unwrap().unwrap("Alert").status.hasTag("success"), true));
-        $(Assert.equal(alert.unwrap().unwrap("Alert").title.unwrap("some"), "Form Submitted"));
+    test("creates alert with actions Button", $ => {
+        const a = $.let(Alert.Root("warning", {
+            title: "Drift",
+            actions: Button.Root("Accept"),
+        }));
+        $(Assert.equal(
+            a.unwrap().unwrap("Alert").actions.unwrap("some").unwrap().unwrap("Button").label.unwrap().unwrap("Text").value,
+            "Accept",
+        ));
     });
 
-    test("creates validation error alert", $ => {
-        const alert = $.let(Alert.Root("error", {
-            title: "Validation Error",
-            description: "Please check the highlighted fields.",
-            variant: "solid",
-        }));
+    // =========================================================================
+    // closable / onClose
+    // =========================================================================
 
-        $(Assert.equal(alert.unwrap().unwrap("Alert").status.hasTag("error"), true));
-        $(Assert.equal(alert.unwrap().unwrap("Alert").variant.unwrap("some").hasTag("solid"), true));
+    test("creates dismissible alert with closable", $ => {
+        const a = $.let(Alert.Root("success", { closable: true }));
+        $(Assert.equal(a.unwrap().unwrap("Alert").closable.unwrap("some"), true));
     });
 
-    test("creates update notification alert", $ => {
-        const alert = $.let(Alert.Root("info", {
-            title: "New Update Available",
-            description: "Version 2.0 is now available. Click to update.",
-            variant: "subtle",
-        }));
+    // =========================================================================
+    // style
+    // =========================================================================
 
-        $(Assert.equal(alert.unwrap().unwrap("Alert").status.hasTag("info"), true));
-        $(Assert.equal(alert.unwrap().unwrap("Alert").variant.unwrap("some").hasTag("subtle"), true));
+    test("creates alert with style.variant preset", $ => {
+        const a = $.let(Alert.Root("info", { style: { variant: "subtle" } }));
+        const s = a.unwrap().unwrap("Alert").style.unwrap("some");
+        $(Assert.equal(s.variant.unwrap("some").hasTag("subtle"), true));
     });
 
-    test("creates session expiry warning alert", $ => {
-        const alert = $.let(Alert.Root("warning", {
-            title: "Session Expiring",
-            description: "Your session will expire in 5 minutes.",
-            variant: "outline",
+    test("creates alert with colour slot escape hatches", $ => {
+        const a = $.let(Alert.Root("warning", {
+            style: {
+                variant: "outline",
+                color: "#7a3b2e",
+                background: "#fff7ed",
+                borderColor: "#fed7aa",
+                iconColor: "#ea580c",
+            },
         }));
-
-        $(Assert.equal(alert.unwrap().unwrap("Alert").status.hasTag("warning"), true));
-        $(Assert.equal(alert.unwrap().unwrap("Alert").variant.unwrap("some").hasTag("outline"), true));
+        const s = a.unwrap().unwrap("Alert").style.unwrap("some");
+        $(Assert.equal(s.variant.unwrap("some").hasTag("outline"), true));
+        $(Assert.equal(s.color.unwrap("some"), "#7a3b2e"));
+        $(Assert.equal(s.background.unwrap("some"), "#fff7ed"));
+        $(Assert.equal(s.borderColor.unwrap("some"), "#fed7aa"));
+        $(Assert.equal(s.iconColor.unwrap("some"), "#ea580c"));
     });
-}, {   platformFns: TestImpl,});
+}, { platformFns: TestImpl });
