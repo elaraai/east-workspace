@@ -105,6 +105,14 @@ import { IconType } from "./display/icon/types.js";
 
 // Collections
 import { DataListStyleType } from "./collections/data-list/types.js";
+import {
+    MatrixStyleType,
+    MatrixCellSegmentType,
+    MatrixCellOverlayKindType,
+    MatrixCellOverlayPositionType,
+    MatrixBrushCoordType,
+    MatrixBrushSelectionType,
+} from "./collections/matrix/types.js";
 import { PaginationType } from "./collections/pagination/index.js";
 import {
     TableStyleType,
@@ -538,6 +546,37 @@ export const UIComponentType = RecursiveType(node => VariantType({
         style: OptionType(DataListStyleType),
     }),
     Pagination: PaginationType,
+
+    Matrix: StructType({
+        rows: ArrayType(StructType({
+            key: StringType,
+            header: OptionType(node),
+            cells: ArrayType(StructType({
+                columnKey: StringType,
+                segments: ArrayType(MatrixCellSegmentType),
+                overlays: ArrayType(StructType({
+                    kind: MatrixCellOverlayKindType,
+                    content: node,
+                    position: MatrixCellOverlayPositionType,
+                })),
+                emphasis: OptionType(BooleanType),
+                emphasisColor: OptionType(StringType),
+                note: OptionType(StringType),
+            })),
+        })),
+        columns: ArrayType(StructType({
+            key: StringType,
+            header: OptionType(node),
+        })),
+        legend: OptionType(ArrayType(StructType({
+            category: StringType,
+            color: StringType,
+            label: OptionType(StringType),
+        }))),
+        brushSelection: OptionType(MatrixBrushSelectionType),
+        onCellClick: OptionType(FunctionType([MatrixBrushCoordType], NullType)),
+        style: OptionType(MatrixStyleType),
+    }),
 
     // Charts
     Sparkline: SparklineType,

@@ -18,6 +18,12 @@ export {
 } from "./pagination";
 
 export {
+    EastChakraMatrix,
+    type MatrixRootValue,
+    type EastChakraMatrixProps,
+} from "./matrix";
+
+export {
     EastChakraTable,
     toChakraTableRoot,
     type TableRootValue,

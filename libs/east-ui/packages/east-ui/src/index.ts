@@ -57,7 +57,7 @@ export { Badge, Tag, Avatar, Stat, Icon, MetricChip, EditableChip, Kbd, Meter, S
 export { Card } from "./container/index.js";
 
 // Collections
-export { DataList, Pagination, Table, TreeView, Gantt, Planner } from "./collections/index.js";
+export { DataList, Matrix, Pagination, Table, TreeView, Gantt, Planner } from "./collections/index.js";
 
 // Charts
 export { Chart, Sparkline } from "./charts/index.js";
