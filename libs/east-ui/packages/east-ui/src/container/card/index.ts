@@ -288,8 +288,19 @@ export function CardTitle(
     options?: CardTitleOptions,
 ): ExprType<UIComponentType> {
     if (typeof value === "string") {
-        return Heading.Root(value, {
-            textStyle: options?.textStyle ?? "heading-xs",
+        // Modern dense cards (Linear / Stripe / Notion) use bold body-sm for
+        // titles — `heading-*` tokens have generous line-height that feels
+        // JUMBO inside a tight header. Callers can override via
+        // `options.textStyle`.
+        if (options?.textStyle !== undefined) {
+            return Heading.Root(value, {
+                textStyle: options.textStyle,
+                fontWeight: "semibold",
+                ...(options.color !== undefined ? { color: options.color } : {}),
+            });
+        }
+        return Text.Root(value, {
+            textStyle: "body-sm",
             fontWeight: "semibold",
             ...(options?.color !== undefined ? { color: options.color } : {}),
         });
@@ -325,7 +336,7 @@ export function CardDescription(
 ): ExprType<UIComponentType> {
     if (typeof value === "string") {
         return Text.Root(value, {
-            textStyle: "body-sm",
+            textStyle: "caption",
             color: options?.color ?? "fg.muted",
         });
     }
@@ -417,7 +428,7 @@ export function CardHeader(options: CardHeaderOptions): ExprType<UIComponentType
     }
     const left = leftChildren.length === 1
         ? leftChildren[0]!
-        : Stack.VStack(leftChildren, { gap: "0.5", align: "stretch" });
+        : Stack.VStack(leftChildren, { gap: "0", align: "stretch" });
 
     if (options.actions !== undefined) {
         return Stack.HStack([left, options.actions], {

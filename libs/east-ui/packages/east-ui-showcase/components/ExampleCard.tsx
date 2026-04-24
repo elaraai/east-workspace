@@ -106,7 +106,8 @@ export function ExampleCard({
                         bg="white"
                         _dark={{ bg: "gray.800" }}
                         h={bodyHeight}
-                        overflow="hidden"
+                        overflowX="hidden"
+                        overflowY="auto"
                     >
                         <EastFunction ir={ir} storageKey={`example-${name}`} />
                     </Box>
