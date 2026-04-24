@@ -93,6 +93,8 @@ import { AvatarType } from "./display/avatar/types.js";
 import { MetricChipToneType, MetricChipStyleType } from "./display/metric-chip/types.js";
 import { EditableChipStyleType } from "./display/editable-chip/types.js";
 import { KbdType } from "./display/kbd/types.js";
+import { MeterStyleType } from "./display/meter/types.js";
+import { StatusTokenType } from "./style/interaction.js";
 import { CardStyleType } from "./container/card/types.js";
 import { StateValueType } from "./contracts/states.js";
 import { StatIndicatorType, StatStyleType } from "./display/stat/types.js";
@@ -456,6 +458,13 @@ export const UIComponentType = RecursiveType(node => VariantType({
         style: OptionType(EditableChipStyleType),
     }),
     Kbd: KbdType,
+    Meter: StructType({
+        value: FloatType,
+        max: OptionType(FloatType),
+        label: OptionType(node),
+        tone: OptionType(StatusTokenType),
+        style: OptionType(MeterStyleType),
+    }),
 
     // Container
     Card: StructType({

@@ -54,3 +54,9 @@ export {
     type KbdValue,
     type EastChakraKbdProps,
 } from "./kbd/index.js";
+
+export {
+    EastChakraMeter,
+    type MeterValue,
+    type EastChakraMeterProps,
+} from "./meter/index.js";
