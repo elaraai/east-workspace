@@ -137,8 +137,8 @@ interface CatalogEntry {
     columns: number;
     /** Pixel height for the rendered example body (default 280). */
     bodyHeight: number;
-    /** Captured authored source of `fn`, extracted build-time by the Vite plugin. */
-    source?: string;
+    /** Captured authored source of `fn` — raw TypeScript + highlight.js pre-highlighted HTML. */
+    source?: { raw: string; html: string };
 }
 
 /**

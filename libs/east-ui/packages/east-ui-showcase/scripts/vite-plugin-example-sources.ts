@@ -21,6 +21,10 @@ import fg from "fast-glob";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { format } from "prettier";
+import hljs from "highlight.js/lib/core";
+import typescriptLang from "highlight.js/lib/languages/typescript";
+
+hljs.registerLanguage("typescript", typescriptLang);
 
 export interface ExampleSourcesOptions {
     /** Glob(s) matching example source files, relative to `cwd`. */
@@ -32,7 +36,14 @@ export interface ExampleSourcesOptions {
 const VIRTUAL_ID = "virtual:example-sources";
 const RESOLVED_ID = "\0" + VIRTUAL_ID;
 
-async function extractAndFormat(filePath: string, code: string): Promise<Record<string, string>> {
+export interface CapturedSource {
+    /** Raw prettier-formatted TypeScript source. */
+    raw: string;
+    /** highlight.js pre-highlighted HTML of the raw source. */
+    html: string;
+}
+
+async function extractAndFormat(filePath: string, code: string): Promise<Record<string, CapturedSource>> {
     const sf = ts.createSourceFile(
         filePath,
         code,
@@ -74,8 +85,9 @@ async function extractAndFormat(filePath: string, code: string): Promise<Record<
     };
     visit(sf);
 
-    const formatted: Record<string, string> = {};
+    const captured: Record<string, CapturedSource> = {};
     for (const [name, src] of Object.entries(raw)) {
+        let formatted = src;
         try {
             const wrapped = `const __fn = ${src};`;
             const out = await format(wrapped, {
@@ -84,18 +96,32 @@ async function extractAndFormat(filePath: string, code: string): Promise<Record<
                 printWidth: 92,
                 singleQuote: false,
             });
-            const stripped = out.replace(/^\s*const\s+__fn\s*=\s*/, "").replace(/;\s*$/, "");
-            formatted[name] = stripped.trimEnd();
+            formatted = out
+                .replace(/^\s*const\s+__fn\s*=\s*/, "")
+                .replace(/;\s*$/, "")
+                .trimEnd();
         } catch {
-            formatted[name] = src;
+            // Prettier failed (bad input?) — fall through with raw src.
         }
+
+        let html = "";
+        try {
+            html = hljs.highlight(formatted, { language: "typescript" }).value;
+        } catch {
+            // Highlighter failed — emit escaped text so the renderer still works.
+            html = formatted
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;");
+        }
+        captured[name] = { raw: formatted, html };
     }
-    return formatted;
+    return captured;
 }
 
-async function buildMap(opts: ExampleSourcesOptions): Promise<Record<string, Record<string, string>>> {
+async function buildMap(opts: ExampleSourcesOptions): Promise<Record<string, Record<string, CapturedSource>>> {
     const files = await fg(opts.include, { cwd: opts.cwd, absolute: true });
-    const sources: Record<string, Record<string, string>> = {};
+    const sources: Record<string, Record<string, CapturedSource>> = {};
 
     for (const file of files) {
         const code = await fs.readFile(file, "utf8");
