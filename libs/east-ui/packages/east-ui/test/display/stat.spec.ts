@@ -76,7 +76,7 @@ describeEast("Stat", (test) => {
         }));
 
         $(Assert.equal(stat.unwrap().unwrap("Stat").indicator.hasTag("some"), true));
-        $(Assert.equal(stat.unwrap().unwrap("Stat").indicator.unwrap("some").hasTag("up"), true));
+        $(Assert.equal(stat.unwrap().unwrap("Stat").indicator.unwrap("some").direction.hasTag("up"), true));
     });
 
     test("creates stat with down indicator", $ => {
@@ -84,7 +84,7 @@ describeEast("Stat", (test) => {
             indicator: "down",
         }));
 
-        $(Assert.equal(stat.unwrap().unwrap("Stat").indicator.unwrap("some").hasTag("down"), true));
+        $(Assert.equal(stat.unwrap().unwrap("Stat").indicator.unwrap("some").direction.hasTag("down"), true));
     });
 
     test("creates stat with StatIndicator helper", $ => {
@@ -92,7 +92,7 @@ describeEast("Stat", (test) => {
             indicator: "up",
         }));
 
-        $(Assert.equal(stat.unwrap().unwrap("Stat").indicator.unwrap("some").hasTag("up"), true));
+        $(Assert.equal(stat.unwrap().unwrap("Stat").indicator.unwrap("some").direction.hasTag("up"), true));
     });
 
     // =========================================================================
@@ -108,7 +108,7 @@ describeEast("Stat", (test) => {
         $(Assert.equal(stat.unwrap().unwrap("Stat").label, "Revenue"));
         $(Assert.equal(stat.unwrap().unwrap("Stat").value.unwrap().unwrap("Text").value, "$45,231"));
         $(Assert.equal(stat.unwrap().unwrap("Stat").helpText.unwrap("some"), "+20.1% from last month"));
-        $(Assert.equal(stat.unwrap().unwrap("Stat").indicator.unwrap("some").hasTag("up"), true));
+        $(Assert.equal(stat.unwrap().unwrap("Stat").indicator.unwrap("some").direction.hasTag("up"), true));
     });
 
     test("creates revenue stat with positive trend", $ => {
@@ -128,7 +128,7 @@ describeEast("Stat", (test) => {
         }));
 
         $(Assert.equal(stat.unwrap().unwrap("Stat").value.unwrap().unwrap("Text").value, "892"));
-        $(Assert.equal(stat.unwrap().unwrap("Stat").indicator.unwrap("some").hasTag("down"), true));
+        $(Assert.equal(stat.unwrap().unwrap("Stat").indicator.unwrap("some").direction.hasTag("down"), true));
     });
 
     test("creates conversion rate stat", $ => {
@@ -154,6 +154,6 @@ describeEast("Stat", (test) => {
         }));
 
         $(Assert.equal(stat.unwrap().unwrap("Stat").value.unwrap().unwrap("Text").value, "98.5%"));
-        $(Assert.equal(stat.unwrap().unwrap("Stat").indicator.unwrap("some").hasTag("up"), true));
+        $(Assert.equal(stat.unwrap().unwrap("Stat").indicator.unwrap("some").direction.hasTag("up"), true));
     });
 }, {   platformFns: TestImpl,});

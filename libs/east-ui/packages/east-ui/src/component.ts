@@ -92,7 +92,7 @@ import { TagType } from "./display/tag/types.js";
 import { AvatarType } from "./display/avatar/types.js";
 import { CardStyleType } from "./container/card/types.js";
 import { StateValueType } from "./contracts/states.js";
-import { StatIndicatorType } from "./display/stat/types.js";
+import { StatIndicatorType, StatStyleType } from "./display/stat/types.js";
 import { IconType } from "./display/icon/types.js";
 
 // Collections
@@ -431,7 +431,11 @@ export const UIComponentType = RecursiveType(node => VariantType({
         label: StringType,
         value: node,
         helpText: OptionType(StringType),
+        baseline: OptionType(node),
+        delta: OptionType(node),
+        info: OptionType(node),
         indicator: OptionType(StatIndicatorType),
+        style: OptionType(StatStyleType),
     }),
     Icon: IconType,
 
