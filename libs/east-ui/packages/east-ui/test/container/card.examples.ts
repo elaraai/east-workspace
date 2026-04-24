@@ -183,3 +183,113 @@ export const cardSizes = example({
     }),
     inputs: [],
 });
+
+export const cardWithCompoundHeader = example({
+    keywords: ["Card", "Header", "Title", "Description", "Actions"],
+    description: "Composed card with Card.Header + title + description + trailing actions",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Card.Root([
+            Text.Root("Scenario vs baseline — per-plan week comparison."),
+        ], {
+            header: Card.Header({
+                title: "Per plan week",
+                description: "Scenario vs baseline",
+                actions: Card.Actions([Button.Root("Export", { style: { variant: "subtle" } })]),
+            }),
+            style: { variant: "elevated" },
+        });
+    }),
+    inputs: [],
+});
+
+export const cardLoading = example({
+    keywords: ["Card", "state", "loading", "Skeleton"],
+    description: "Card in loading state — skeleton body",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Card.Root([
+            Text.Root("Original content — replaced by skeleton while loading."),
+        ], {
+            header: Card.Header({ title: "Run summary" }),
+            state: "loading",
+            style: { variant: "elevated" },
+        });
+    }),
+    inputs: [],
+});
+
+export const cardEmpty = example({
+    keywords: ["Card", "state", "empty", "EmptyState"],
+    description: "Card in empty state — EmptyState fallback body",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Card.Root([
+            Text.Root("Original content — replaced by EmptyState when empty."),
+        ], {
+            header: Card.Header({ title: "Scenarios" }),
+            state: "empty",
+        });
+    }),
+    inputs: [],
+});
+
+export const cardError = example({
+    keywords: ["Card", "state", "error"],
+    description: "Card in error state — compute-error fallback body",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Card.Root([
+            Text.Root("Original content — replaced by error alert."),
+        ], {
+            header: Card.Header({ title: "Run summary" }),
+            state: "error",
+        });
+    }),
+    inputs: [],
+});
+
+export const cardPermissionDenied = example({
+    keywords: ["Card", "state", "permission-denied", "access denied"],
+    description: "Card in permission-denied state — access-denied fallback body",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Card.Root([
+            Text.Root("Sensitive content."),
+        ], {
+            header: Card.Header({ title: "Admin panel" }),
+            state: "permission-denied",
+        });
+    }),
+    inputs: [],
+});
+
+export const cardElevationOverlay = example({
+    keywords: ["Card", "style", "elevation", "overlay"],
+    description: "Card with the overlay elevation — stronger shadow via style.elevation",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Card.Root([
+            Text.Root("This card has the overlay elevation — a stronger shadow."),
+        ], {
+            header: Card.Header({ title: "Overlay elevation" }),
+            style: { elevation: "overlay", background: "white" },
+        });
+    }),
+    inputs: [],
+});
+
+export const cardWithSections = example({
+    keywords: ["Card", "Section", "multi-section"],
+    description: "Card with two hairline-separated sections",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Card.Root([
+            Text.Root("Top-level summary line."),
+            Card.Section([Text.Root("Scope A details")], { title: "Scope" }),
+            Card.Section([
+                Stack.HStack([
+                    Button.Root("Apply"),
+                    Button.Root("Revert", { style: { variant: "subtle" } }),
+                ], { gap: "2" }),
+            ], { title: "Actions" }),
+        ], {
+            header: Card.Header({ title: "Commit approval" }),
+            style: { variant: "outline" },
+        });
+    }),
+    inputs: [],
+});

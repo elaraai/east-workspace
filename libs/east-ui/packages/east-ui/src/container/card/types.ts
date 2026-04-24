@@ -17,6 +17,8 @@ import {
 
 import { SizeType, OverflowType } from "../../style.js";
 import type { SizeLiteral, OverflowLiteral } from "../../style.js";
+import { ElevationType } from "../../style/visual.js";
+import type { ElevationLiteral } from "../../style/visual.js";
 
 // ============================================================================
 // Card Variant Type
@@ -79,6 +81,7 @@ export function CardVariant(v: "elevated" | "outline" | "subtle"): ExprType<Card
 export const CardStyleType = StructType({
     variant: OptionType(CardVariantType),
     size: OptionType(SizeType),
+    elevation: OptionType(ElevationType),
     height: OptionType(StringType),
     minHeight: OptionType(StringType),
     maxHeight: OptionType(StringType),
@@ -87,6 +90,11 @@ export const CardStyleType = StructType({
     maxWidth: OptionType(StringType),
     flex: OptionType(StringType),
     overflow: OptionType(OverflowType),
+    background: OptionType(StringType),
+    borderColor: OptionType(StringType),
+    headerBackground: OptionType(StringType),
+    footerBackground: OptionType(StringType),
+    accentColor: OptionType(StringType),
 });
 
 /**
@@ -117,6 +125,8 @@ export interface CardStyle {
     variant?: SubtypeExprOrValue<CardVariantType> | CardVariantLiteral;
     /** Size of the card */
     size?: SubtypeExprOrValue<SizeType> | SizeLiteral;
+    /** Shadow elevation token */
+    elevation?: SubtypeExprOrValue<ElevationType> | ElevationLiteral;
     /** Height (Chakra UI size token or CSS value) */
     height?: SubtypeExprOrValue<StringType>;
     /** Min height (Chakra UI size token or CSS value) */
@@ -133,4 +143,14 @@ export interface CardStyle {
     flex?: SubtypeExprOrValue<StringType>;
     /** Overflow behavior (visible, hidden, scroll, auto) */
     overflow?: SubtypeExprOrValue<OverflowType> | OverflowLiteral;
+    /** Card background colour escape hatch */
+    background?: SubtypeExprOrValue<StringType>;
+    /** Border colour escape hatch */
+    borderColor?: SubtypeExprOrValue<StringType>;
+    /** Background applied to the header strip */
+    headerBackground?: SubtypeExprOrValue<StringType>;
+    /** Background applied to the footer strip */
+    footerBackground?: SubtypeExprOrValue<StringType>;
+    /** Left / top accent stripe colour */
+    accentColor?: SubtypeExprOrValue<StringType>;
 }

@@ -7,272 +7,642 @@ import {
     type ExprType,
     type SubtypeExprOrValue,
     East,
+    ArrayType,
     OptionType,
     StringType,
     StructType,
-    ArrayType,
     variant,
+    some,
+    none,
 } from "@elaraai/east";
 
 import { SizeType, OverflowType } from "../../style.js";
+import { ElevationType } from "../../style/visual.js";
 import { UIComponentType } from "../../component.js";
-import { CardStyleType, CardVariantType, CardVariant, type CardStyle } from "./types.js";
+import {
+    StateValueType,
+    type StateValueLiteral,
+} from "../../contracts/states.js";
+import { Text } from "../../typography/text/index.js";
+import { Heading } from "../../typography/heading/index.js";
+import { Box } from "../../layout/box/index.js";
+import { Stack } from "../../layout/stack/index.js";
+import { Separator } from "../../layout/separator/index.js";
+import {
+    CardStyleType,
+    CardVariantType,
+    CardVariant,
+    type CardStyle,
+    type CardVariantLiteral,
+} from "./types.js";
 
 // Re-export types
-export { CardStyleType, CardVariantType, CardVariant, type CardStyle, type CardVariantLiteral } from "./types.js";
+export {
+    CardStyleType,
+    CardVariantType,
+    CardVariant,
+    type CardStyle,
+    type CardVariantLiteral,
+} from "./types.js";
 
 // ============================================================================
-// Card Type
+// CardType — standalone mirror of the inline variant
 // ============================================================================
 
 /**
- * The concrete East type for Card component data.
+ * The concrete East type for Card — mirrors the inline `Card` variant in
+ * `component.ts`. Renderers use this type for `equalFor` memoization.
  *
  * @remarks
- * This struct type represents the serializable data structure for a Card component.
- * Card is a container component that can hold child components in its body,
- * with optional header and footer sections.
+ * Card is a container primitive. Its IR carries three content slots
+ * (`header` / `body` / `footer`), a runtime `state` enum that drives the
+ * renderer's fallback-body contract (§0.1), and a visual-only `style`
+ * sub-struct (§0.10).
  *
- * @property header - Optional header component (use Stack for multiple elements)
- * @property body - Array of child UI components for the main content
- * @property footer - Optional footer component (use Stack for multiple elements)
- * @property style - Optional styling configuration wrapped in OptionType
+ * @property header - Optional header UIComponent
+ * @property body - Array of body UIComponents
+ * @property footer - Optional footer UIComponent
+ * @property state - Optional runtime state (drives fallback body render)
+ * @property style - Optional visual-only style sub-struct
  */
 export const CardType: StructType<{
     header: OptionType<UIComponentType>,
     body: ArrayType<UIComponentType>,
     footer: OptionType<UIComponentType>,
+    state: OptionType<StateValueType>,
     style: OptionType<CardStyleType>,
 }> = StructType({
     header: OptionType(UIComponentType),
     body: ArrayType(UIComponentType),
     footer: OptionType(UIComponentType),
+    state: OptionType(StateValueType),
     style: OptionType(CardStyleType),
 });
 
-/**
- * Type representing the Card component structure.
- */
+/** Type alias for `typeof CardType`. */
 export type CardType = typeof CardType;
 
 // ============================================================================
-// Card Options Interface
+// Options
 // ============================================================================
 
 /**
- * TypeScript interface for Card options (header, footer, and style).
+ * TypeScript options bag for `Card.Root`.
  *
- * @property header - Optional header component (single UIComponentType, use Stack for multiple)
- * @property footer - Optional footer component (single UIComponentType, use Stack for multiple)
+ * @remarks
+ * Accepts both the new nested `style: {...}` sub-struct (§0.10 preferred)
+ * and legacy flat fields inherited from `CardStyle` for backward
+ * compatibility. Flat fields are folded into the style sub-struct at the
+ * factory boundary; the explicit `style` object takes precedence when both
+ * are supplied.
+ *
+ * @property header - Optional header UIComponent (use `Card.Header(...)` for the composed shape)
+ * @property footer - Optional footer UIComponent (use `Card.Footer(...)` for the composed shape)
+ * @property state - Runtime state literal or expression — drives the fallback-body contract
+ * @property style - Optional visual-only style (preferred shape)
  */
 export interface CardOptions extends CardStyle {
-    /** Optional header component (use Stack/HStack/VStack for multiple elements) */
+    /** Optional header component. Use `Card.Header(...)` to compose title + actions. */
     header?: ExprType<UIComponentType>;
-    /** Optional footer component (use Stack/HStack/VStack for multiple elements) */
+    /** Optional footer component. Use `Card.Footer(...)` to compose content + actions. */
     footer?: ExprType<UIComponentType>;
+    /** Runtime state — `"ready" | "loading" | "empty" | "error" | "stale" | "disabled" | "permission-denied"`. */
+    state?: StateValueLiteral | SubtypeExprOrValue<StateValueType>;
+    /** Optional visual-only style (preferred over the inherited flat fields). */
+    style?: CardStyle;
 }
 
 // ============================================================================
-// Card Function
+// Card Factory
 // ============================================================================
 
 /**
- * Creates a Card container component with children and optional styling.
+ * Internal — converts the TypeScript `CardStyle` options bag into the East
+ * `CardStyleType` struct expression.
  *
- * @param children - Array of child UI components for the card body
- * @param options - Optional configuration including header, footer, and styling
- * @returns An East expression representing the styled card component
+ * @param style - Visual-only style options (variant, size, elevation,
+ *   dimensions, colour slots)
+ * @returns An East expression representing the style sub-struct
+ */
+function buildCardStyle(style: CardStyle): ExprType<CardStyleType> {
+    const variantValue = style.variant
+        ? (typeof style.variant === "string"
+            ? East.value(variant(style.variant as CardVariantLiteral, null), CardVariantType)
+            : style.variant)
+        : undefined;
+    const sizeValue = style.size
+        ? (typeof style.size === "string"
+            ? East.value(variant(style.size, null), SizeType)
+            : style.size)
+        : undefined;
+    const elevationValue = style.elevation
+        ? (typeof style.elevation === "string"
+            ? East.value(variant(style.elevation, null), ElevationType)
+            : style.elevation)
+        : undefined;
+    const overflowValue = style.overflow
+        ? (typeof style.overflow === "string"
+            ? East.value(variant(style.overflow, null), OverflowType)
+            : style.overflow)
+        : undefined;
+
+    return East.value({
+        variant: variantValue ? some(variantValue) : none,
+        size: sizeValue ? some(sizeValue) : none,
+        elevation: elevationValue ? some(elevationValue) : none,
+        height: style.height !== undefined ? some(style.height) : none,
+        minHeight: style.minHeight !== undefined ? some(style.minHeight) : none,
+        maxHeight: style.maxHeight !== undefined ? some(style.maxHeight) : none,
+        width: style.width !== undefined ? some(style.width) : none,
+        minWidth: style.minWidth !== undefined ? some(style.minWidth) : none,
+        maxWidth: style.maxWidth !== undefined ? some(style.maxWidth) : none,
+        flex: style.flex !== undefined ? some(style.flex) : none,
+        overflow: overflowValue ? some(overflowValue) : none,
+        background: style.background !== undefined ? some(style.background) : none,
+        borderColor: style.borderColor !== undefined ? some(style.borderColor) : none,
+        headerBackground: style.headerBackground !== undefined ? some(style.headerBackground) : none,
+        footerBackground: style.footerBackground !== undefined ? some(style.footerBackground) : none,
+        accentColor: style.accentColor !== undefined ? some(style.accentColor) : none,
+    }, CardStyleType);
+}
+
+/**
+ * Creates a Card container with content slots + runtime state + visual style.
+ *
+ * @param children - Array of body UIComponents
+ * @param options - Optional `header` / `footer` / `state` / `style` and (for
+ *   backward compatibility) legacy flat visual fields
+ * @returns An East expression representing the Card component
  *
  * @remarks
- * Card is a container for grouping related content together. It supports
- * optional header and footer sections, and contains child components in its body.
- * For multiple elements in header/footer, wrap them in a Stack component.
+ * Card is the canonical state-contract consumer (§0.1): the optional `state`
+ * drives the renderer's fallback body for loading / empty / error / stale /
+ * disabled / permission-denied — see `libs/east-ui-components/src/container/card/index.tsx`
+ * for the dispatch table. All visual fields (variant, size, elevation,
+ * dimensions, colour slots) now live in `style: {...}` per §0.10; flat
+ * fields on the top-level options bag continue to work as a migration aid.
  *
  * @example
  * ```ts
  * import { East } from "@elaraai/east";
- * import { Card, Text, Button, Heading, HStack, UIComponentType } from "@elaraai/east-ui";
+ * import { Card, Text, UIComponentType } from "@elaraai/east-ui";
  *
  * const example = East.function([], UIComponentType, $ => {
- *     return Card.Root([
- *         Text.Root("Card content here"),
- *     ], {
- *         header: Heading.Root("Card Title"),
- *         footer: HStack.Root([
- *             Button.Root("Cancel", { variant: "outline" }),
- *             Button.Root("Save"),
- *         ]),
- *         variant: "elevated",
- *         height: "100%",
- *         flex: "1",
+ *     return Card.Root([Text.Root("Body copy")], {
+ *         header: Card.Header({
+ *             title: "Per plan week",
+ *             description: "Scenario vs baseline",
+ *         }),
+ *         style: { variant: "elevated", elevation: "raised" },
  *     });
  * });
  * ```
  */
 function createCard(
     children: SubtypeExprOrValue<ArrayType<UIComponentType>>,
-    options?: CardOptions
+    options?: CardOptions,
 ): ExprType<UIComponentType> {
-    const variantValue = options?.variant
-        ? (typeof options.variant === "string"
-            ? East.value(variant(options.variant, null), CardVariantType)
-            : options.variant)
-        : undefined;
-
-    const sizeValue = options?.size
-        ? (typeof options.size === "string"
-            ? East.value(variant(options.size, null), SizeType)
-            : options.size)
-        : undefined;
-
-    const overflowValue = options?.overflow
-        ? (typeof options.overflow === "string"
-            ? East.value(variant(options.overflow, null), OverflowType)
-            : options.overflow)
-        : undefined;
-
-    const toStringOption = (val: SubtypeExprOrValue<StringType> | undefined) => {
-        if (val === undefined) return variant("none", null);
-        return variant("some", val);
+    const flatStyle: CardStyle = {};
+    let hasFlat = false;
+    const copy = <K extends keyof CardStyle>(k: K) => {
+        const v = (options as CardStyle | undefined)?.[k];
+        if (v !== undefined) {
+            (flatStyle as Record<string, unknown>)[k] = v as unknown;
+            hasFlat = true;
+        }
     };
+    copy("variant");
+    copy("size");
+    copy("elevation");
+    copy("height");
+    copy("minHeight");
+    copy("maxHeight");
+    copy("width");
+    copy("minWidth");
+    copy("maxWidth");
+    copy("flex");
+    copy("overflow");
+    copy("background");
+    copy("borderColor");
+    copy("headerBackground");
+    copy("footerBackground");
+    copy("accentColor");
 
-    const hasStyle = options?.variant !== undefined ||
-        options?.size !== undefined ||
-        options?.height !== undefined ||
-        options?.minHeight !== undefined ||
-        options?.maxHeight !== undefined ||
-        options?.width !== undefined ||
-        options?.minWidth !== undefined ||
-        options?.maxWidth !== undefined ||
-        options?.flex !== undefined ||
-        options?.overflow !== undefined;
+    const resolvedStyle: CardStyle | undefined = options?.style
+        ? { ...flatStyle, ...options.style }
+        : (hasFlat ? flatStyle : undefined);
+
+    const styleValue = resolvedStyle ? buildCardStyle(resolvedStyle) : undefined;
+
+    const stateValue = typeof options?.state === "string"
+        ? East.value(variant(options.state, null), StateValueType)
+        : options?.state as ExprType<StateValueType> | undefined;
 
     return East.value(variant("Card", {
-        header: options?.header ? variant("some", options.header) : variant("none", null),
+        header: options?.header ? some(options.header) : none,
         body: children,
-        footer: options?.footer ? variant("some", options.footer) : variant("none", null),
-        style: hasStyle ? variant("some", East.value({
-            variant: variantValue ? variant("some", variantValue) : variant("none", null),
-            size: sizeValue ? variant("some", sizeValue) : variant("none", null),
-            height: toStringOption(options?.height),
-            minHeight: toStringOption(options?.minHeight),
-            maxHeight: toStringOption(options?.maxHeight),
-            width: toStringOption(options?.width),
-            minWidth: toStringOption(options?.minWidth),
-            maxWidth: toStringOption(options?.maxWidth),
-            flex: toStringOption(options?.flex),
-            overflow: overflowValue ? variant("some", overflowValue) : variant("none", null),
-        }, CardStyleType)) : variant("none", null),
+        footer: options?.footer ? some(options.footer) : none,
+        state: stateValue ? some(stateValue) : none,
+        style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
 
+// ============================================================================
+// Compound helpers — pure factory output (no new UIComponentType variants)
+// ============================================================================
+
+type TextInput = string | ExprType<UIComponentType> | SubtypeExprOrValue<UIComponentType>;
+
 /**
- * Card container component for grouping related content.
+ * TypeScript options bag for `Card.Title`.
+ *
+ * @property textStyle - Heading text-style token (defaults to `"heading-sm"`)
+ * @property color - Explicit text colour override
+ */
+export interface CardTitleOptions {
+    /** Heading text-style token. Defaults to `"heading-sm"`. */
+    textStyle?: "heading-lg" | "heading-md" | "heading-sm" | "heading-xs";
+    /** Explicit text colour override. */
+    color?: SubtypeExprOrValue<StringType>;
+}
+
+/**
+ * Creates a card title — a Heading rendered at `heading-sm` by default.
+ *
+ * @param value - String (wrapped in a Heading) or an existing UIComponent
+ * @param options - Optional `textStyle` / `color`
+ * @returns An East expression representing the title
  *
  * @remarks
- * Use `Card.Root(children, options)` to create a card, or access `Card.Types.Card` for the East type.
+ * Strings are coerced to `Heading.Root(s, { textStyle })`. If a rich UIComp
+ * is passed it is returned unchanged.
  *
  * @example
  * ```ts
- * // Simple card with body only
- * Card.Root([Text.Root("Content")])
+ * Card.Title("Per plan week");
+ * Card.Title("Small", { textStyle: "heading-xs" });
+ * ```
+ */
+export function CardTitle(
+    value: string | ExprType<UIComponentType>,
+    options?: CardTitleOptions,
+): ExprType<UIComponentType> {
+    if (typeof value === "string") {
+        return Heading.Root(value, {
+            textStyle: options?.textStyle ?? "heading-sm",
+            ...(options?.color !== undefined ? { color: options.color } : {}),
+        });
+    }
+    return value;
+}
+
+/**
+ * TypeScript options bag for `Card.Description`.
  *
- * // Card with header
- * Card.Root([Text.Root("Content")], {
- *     header: Heading.Root("Title"),
- * })
+ * @property color - Explicit text colour override (defaults to `"fg.muted"`)
+ */
+export interface CardDescriptionOptions {
+    /** Explicit text colour override. Defaults to `"fg.muted"`. */
+    color?: SubtypeExprOrValue<StringType>;
+}
+
+/**
+ * Creates a card description — Text rendered at `body-sm` with muted colour.
  *
- * // Card with header and footer
- * Card.Root([Text.Root("Content")], {
- *     header: VStack.Root([
- *         Heading.Root("Title"),
- *         Text.Root("Description"),
- *     ]),
- *     footer: Button.Root("Action"),
- *     variant: "elevated",
- * })
+ * @param value - String (wrapped in a Text) or an existing UIComponent
+ * @param options - Optional `color`
+ * @returns An East expression representing the description
  *
- * // Card that fills available space
- * Card.Root([...], {
- *     height: "100%",
- *     flex: "1",
- * })
+ * @example
+ * ```ts
+ * Card.Description("Scenario vs baseline");
+ * ```
+ */
+export function CardDescription(
+    value: TextInput,
+    options?: CardDescriptionOptions,
+): ExprType<UIComponentType> {
+    if (typeof value === "string") {
+        return Text.Root(value, {
+            textStyle: "body-sm",
+            color: options?.color ?? "fg.muted",
+        });
+    }
+    return value as ExprType<UIComponentType>;
+}
+
+/**
+ * TypeScript options bag for `Card.Actions`.
+ *
+ * @property placement - Horizontal alignment of the action row — `"start"` or `"end"` (default)
+ */
+export interface CardActionsOptions {
+    /** Horizontal alignment of the action row. Defaults to `"end"`. */
+    placement?: "start" | "end";
+}
+
+/**
+ * Creates a row of action buttons typically used inside `Card.Header` or
+ * `Card.Footer`.
+ *
+ * @param buttons - Array of Button UIComponents
+ * @param options - Optional `placement`
+ * @returns An East expression representing the action row
+ *
+ * @example
+ * ```ts
+ * Card.Actions([Button.Root("Export"), Button.Root("Share")]);
+ * ```
+ */
+export function CardActions(
+    buttons: Array<ExprType<UIComponentType>>,
+    options?: CardActionsOptions,
+): ExprType<UIComponentType> {
+    return Stack.HStack(buttons, {
+        gap: "2",
+        justify: options?.placement === "start" ? "flex-start" : "flex-end",
+    });
+}
+
+/**
+ * TypeScript options bag for `Card.Header`.
+ *
+ * @property title - Card title (string wrapped in `Card.Title`, or an existing UIComp)
+ * @property description - Optional secondary description
+ * @property actions - Optional trailing action row (e.g. `Card.Actions([...])`)
+ * @property eyebrow - Optional small uppercase label above the title
+ */
+export interface CardHeaderOptions {
+    /** Card title. Strings are wrapped in `Card.Title`. */
+    title?: string | ExprType<UIComponentType>;
+    /** Optional secondary description line. */
+    description?: TextInput;
+    /** Optional trailing action row — typically `Card.Actions([...])`. */
+    actions?: ExprType<UIComponentType>;
+    /** Optional small uppercase label rendered above the title. */
+    eyebrow?: TextInput;
+}
+
+/**
+ * Creates a composed card header — eyebrow + title + description on the left,
+ * optional actions on the right.
+ *
+ * @param options - Options bag (at least one of `title` / `description` / `actions` expected)
+ * @returns An East expression representing the header
+ *
+ * @example
+ * ```ts
+ * Card.Header({
+ *     title: "Per plan week",
+ *     description: "Scenario vs baseline",
+ *     actions: Card.Actions([Button.Root("Export")]),
+ * });
+ * ```
+ */
+export function CardHeader(options: CardHeaderOptions): ExprType<UIComponentType> {
+    const leftChildren: Array<ExprType<UIComponentType>> = [];
+    if (options.eyebrow !== undefined) {
+        leftChildren.push(Text.Root(typeof options.eyebrow === "string" ? options.eyebrow : "", {
+            textStyle: "label-sm",
+            color: "fg.muted",
+            textTransform: "uppercase",
+        }));
+    }
+    if (options.title !== undefined) {
+        leftChildren.push(CardTitle(options.title));
+    }
+    if (options.description !== undefined) {
+        leftChildren.push(CardDescription(options.description));
+    }
+    const left = leftChildren.length === 1
+        ? leftChildren[0]!
+        : Stack.VStack(leftChildren, { gap: "1", align: "stretch" });
+
+    if (options.actions !== undefined) {
+        return Stack.HStack([left, options.actions], {
+            gap: "3",
+            align: "center",
+            justify: "space-between",
+        });
+    }
+    return left;
+}
+
+/**
+ * TypeScript options bag for `Card.Body`.
+ *
+ * @property padded - Whether to apply default padding (default `true`).
+ *   Set to `false` for flush content like tables.
+ */
+export interface CardBodyOptions {
+    /** Whether to apply default padding. Default `true`. */
+    padded?: boolean;
+}
+
+/**
+ * Creates a card body wrapper — a padded Box.
+ *
+ * @param children - Body UIComponents
+ * @param options - Optional `padded`
+ * @returns An East expression representing the body box
+ *
+ * @example
+ * ```ts
+ * Card.Body([Text.Root("Main content")]);
+ * Card.Body([Table.Root(...)], { padded: false });
+ * ```
+ */
+export function CardBody(
+    children: Array<ExprType<UIComponentType>>,
+    options?: CardBodyOptions,
+): ExprType<UIComponentType> {
+    void options;
+    return Box.Root(children);
+}
+
+/**
+ * TypeScript options bag for `Card.Footer`.
+ *
+ * @property actions - Optional trailing action row — typically `Card.Actions([...])`
+ */
+export interface CardFooterOptions {
+    /** Optional trailing action row — typically `Card.Actions([...])`. */
+    actions?: ExprType<UIComponentType>;
+}
+
+/**
+ * Creates a composed card footer — content row with optional trailing actions.
+ *
+ * @param children - Footer content UIComponents
+ * @param options - Optional `actions`
+ * @returns An East expression representing the footer
+ *
+ * @example
+ * ```ts
+ * Card.Footer([Text.Root("Last updated 14:32")], {
+ *     actions: Card.Actions([Button.Root("Refresh")]),
+ * });
+ * ```
+ */
+export function CardFooter(
+    children: Array<ExprType<UIComponentType>>,
+    options?: CardFooterOptions,
+): ExprType<UIComponentType> {
+    if (options?.actions !== undefined) {
+        return Stack.HStack(
+            [...children, options.actions],
+            { gap: "3", align: "center", justify: "space-between" },
+        );
+    }
+    return children.length === 1
+        ? children[0]!
+        : Stack.HStack(children, { gap: "3", align: "center" });
+}
+
+/**
+ * TypeScript options bag for `Card.Section`.
+ *
+ * @property title - Optional section heading rendered above the separator
+ */
+export interface CardSectionOptions {
+    /** Optional section heading rendered above the content. */
+    title?: string | ExprType<UIComponentType>;
+}
+
+/**
+ * Creates a hairline-separated section inside `Card.body` for multi-section
+ * cards.
+ *
+ * @param children - Section content UIComponents
+ * @param options - Optional `title`
+ * @returns An East expression representing the section
+ *
+ * @example
+ * ```ts
+ * Card.Section([Text.Root("Scope A")], { title: "Scope" });
+ * ```
+ */
+export function CardSection(
+    children: Array<ExprType<UIComponentType>>,
+    options?: CardSectionOptions,
+): ExprType<UIComponentType> {
+    const inner: Array<ExprType<UIComponentType>> = [];
+    if (options?.title !== undefined) {
+        inner.push(CardTitle(options.title, { textStyle: "heading-xs" }));
+    }
+    inner.push(...children);
+    return Stack.VStack(
+        [Separator.Root({ orientation: "horizontal" }), Stack.VStack(inner, { gap: "2", align: "stretch" })],
+        { gap: "3", align: "stretch" },
+    );
+}
+
+// ============================================================================
+// Namespace export
+// ============================================================================
+
+/**
+ * Card container primitive — groups related content with optional header +
+ * footer + runtime state-fallback contract (§0.1).
+ *
+ * @remarks
+ * `Card.Root` builds the outer IR. Compound helpers (`Card.Header`, `Title`,
+ * `Description`, `Body`, `Footer`, `Section`, `Actions`) produce plain
+ * UIComponent IR — **no new variants in `UIComponentType`**.
+ *
+ * @example
+ * ```ts
+ * Card.Root(
+ *     [Card.Body([Text.Root("Body copy")])],
+ *     {
+ *         header: Card.Header({
+ *             title: "Per plan week",
+ *             description: "Scenario vs baseline",
+ *             actions: Card.Actions([Button.Root("Export")]),
+ *         }),
+ *         style: { variant: "elevated", elevation: "raised" },
+ *     },
+ * );
  * ```
  */
 export const Card = {
     /**
-     * Creates a Card container component with children and optional styling.
+     * Creates a Card container with content slots + runtime state + visual style.
      *
-     * @param children - Array of child UI components for the body
-     * @param options - Optional configuration including header, footer, and styling
-     * @returns An East expression representing the card component
-     *
-     * @remarks
-     * Card is a container component that groups related content with optional
-     * header and footer sections. Use Stack components for multiple elements
-     * in header/footer.
+     * @param children - Array of body UIComponents
+     * @param options - Optional `header` / `footer` / `state` / `style` + legacy flat fields
      *
      * @example
      * ```ts
-     * Card.Root([
-     *     Text.Root("Main content"),
-     * ], {
-     *     header: Heading.Root("Card Title"),
-     *     footer: HStack.Root([
-     *         Button.Root("Cancel", { variant: "outline" }),
-     *         Button.Root("Save"),
-     *     ]),
-     *     variant: "elevated",
-     *     minHeight: "200px",
-     * });
+     * Card.Root([Text.Root("Body")], { state: "loading" });
      * ```
      */
     Root: createCard,
     /**
-     * Helper function to create card variant values.
+     * Creates a composed card header — eyebrow + title + description + actions.
      *
-     * @param v - The variant string ("elevated", "outline", "subtle")
-     * @returns An East expression representing the card variant
+     * @param options - Header options (`title` / `description` / `actions` / `eyebrow`)
+     *
+     * @example
+     * ```ts
+     * Card.Header({ title: "Plan week", actions: Card.Actions([Button.Root("Export")]) });
+     * ```
+     */
+    Header: CardHeader,
+    /**
+     * Creates a card title — Heading at `heading-sm` by default.
+     *
+     * @param value - Title string or an existing UIComponent
+     * @param options - Optional `textStyle` / `color`
+     */
+    Title: CardTitle,
+    /**
+     * Creates a card description — Text at `body-sm` muted.
+     *
+     * @param value - Description string or UIComponent
+     * @param options - Optional `color`
+     */
+    Description: CardDescription,
+    /**
+     * Creates a card body wrapper — padded Box.
+     *
+     * @param children - Body content
+     * @param options - Optional `padded`
+     */
+    Body: CardBody,
+    /**
+     * Creates a card footer — content row with optional trailing actions.
+     *
+     * @param children - Footer content
+     * @param options - Optional `actions`
+     */
+    Footer: CardFooter,
+    /**
+     * Creates a hairline-separated section inside the card body.
+     *
+     * @param children - Section content
+     * @param options - Optional `title`
+     */
+    Section: CardSection,
+    /**
+     * Creates a row of action buttons.
+     *
+     * @param buttons - Array of Button UIComponents
+     * @param options - Optional `placement`
+     */
+    Actions: CardActions,
+    /**
+     * Helper to create a CardVariant expression (`elevated` / `outline` / `subtle`).
+     *
+     * @param v - The variant literal
      */
     Variant: CardVariant,
     Types: {
-        /**
-         * The concrete East type for Card component data.
-         *
-         * @remarks
-         * This struct type represents the serializable data structure for a Card component.
-         *
-         * @property header - Optional header component
-         * @property body - Array of child UI components
-         * @property footer - Optional footer component
-         * @property style - Optional styling configuration
-         */
+        /** The concrete East type for Card. */
         Card: CardType,
-        /**
-         * Style type for Card component configuration.
-         *
-         * @remarks
-         * This struct type defines the styling configuration for a Card.
-         *
-         * @property variant - Visual variant (elevated, outline, subtle)
-         * @property size - Size of the card (sm, md, lg)
-         * @property height - Height (Chakra token or CSS value)
-         * @property minHeight - Min height (Chakra token or CSS value)
-         * @property maxHeight - Max height (Chakra token or CSS value)
-         * @property width - Width (Chakra token or CSS value)
-         * @property minWidth - Min width (Chakra token or CSS value)
-         * @property maxWidth - Max width (Chakra token or CSS value)
-         * @property flex - Flex property for grow/shrink behavior
-         * @property overflow - Overflow behavior
-         */
+        /** Visual-only style struct for Card. */
         Style: CardStyleType,
-        /**
-         * Variant type for Card appearance styles.
-         *
-         * @property elevated - Card with shadow elevation
-         * @property outline - Card with border outline
-         * @property subtle - Card with subtle background
-         */
+        /** Visual preset variant (`elevated` / `outline` / `subtle`). */
         Variant: CardVariantType,
     },
 } as const;

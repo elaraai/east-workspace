@@ -20,6 +20,13 @@ describeEast("Card", (test) => {
         cardFlexible: ex.cardFlexible,
         cardMultiple: ex.cardMultiple,
         cardSizes: ex.cardSizes,
+        cardWithCompoundHeader: ex.cardWithCompoundHeader,
+        cardLoading: ex.cardLoading,
+        cardEmpty: ex.cardEmpty,
+        cardError: ex.cardError,
+        cardPermissionDenied: ex.cardPermissionDenied,
+        cardElevationOverlay: ex.cardElevationOverlay,
+        cardWithSections: ex.cardWithSections,
     });
 
     // =========================================================================

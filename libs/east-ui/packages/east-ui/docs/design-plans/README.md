@@ -42,7 +42,7 @@ Chart functional sub-configs (`xAxis` / `yAxis` / `tooltip` / `legend` / `margin
 | 1.5 | `1.5-forms.md` | §1.5 Forms (Input suite, Slider, Field, FileUpload, Textarea, TagsInput, Radio*, Date/TimeRange, TimeScaleControl) | draft |
 | 1.6 | `1.6-feedback.md` | §1.6 Feedback (Alert, Banner, Progress, ProgressCircle, Skeleton, Spinner, Status, Toast, EmptyState) | done |
 | 1.7 | `1.7-display.md` | §1.7 Display (Badge, Tag, Avatar, Stat, Icon, MetricChip, Kbd, Meter, SegmentedMeter, BarStrip, AvatarGroup) | draft |
-| 1.8 | `1.8-container.md` | §1.8 Container (Card compound + state contract) | draft |
+| 1.8 | `1.8-container.md` | §1.8 Container (Card compound + state contract) | done |
 | 1.9 | `1.9-disclosure.md` | §1.9 Disclosure (Accordion, Tabs, Carousel, SegmentGroup, Collapsible, Disclosure, Steps, Timeline, OptionList) | done |
 | 1.10 | `1.10-collections.md` | §1.10 Collections (Table, DataList, TreeView, Gantt, Planner, Matrix, Pagination) | draft |
 | 1.11 | `1.11-charts.md` | §1.11 Charts (cross-cutting upgrades; retire bar-segment/bar-list) | draft |
