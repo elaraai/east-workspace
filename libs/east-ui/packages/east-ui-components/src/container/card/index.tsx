@@ -37,10 +37,14 @@ export type CardValue = ValueTypeOf<typeof Card.Types.Card>;
  */
 export function toChakraCard(value: CardValue): CardRootProps {
     const style = getSomeorUndefined(value.style);
+    const size = style ? (getSomeorUndefined(style.size)?.type as CardRootProps["size"]) : undefined;
 
     return {
         variant: style ? getSomeorUndefined(style.variant)?.type : undefined,
-        size: style ? (getSomeorUndefined(style.size)?.type as CardRootProps["size"]) : undefined,
+        // Default to "sm" — modern enterprise UIs (Linear / Stripe / Notion) use
+        // dense cards, not Chakra's generous "md" default. Callers can override
+        // via `style.size`.
+        size: size ?? "sm",
         height: style ? getSomeorUndefined(style.height) : undefined,
         minHeight: style ? getSomeorUndefined(style.minHeight) : undefined,
         maxHeight: style ? getSomeorUndefined(style.maxHeight) : undefined,
@@ -190,8 +194,8 @@ export const EastChakraCard = memo(function EastChakraCard({ value, storageKey }
         >
             {header && (
                 <ChakraCard.Header
-                    py="2.5"
-                    px="4"
+                    py="2"
+                    px="3"
                     borderBottomWidth="1px"
                     borderBottomColor={defaultBorderColor}
                     {...(headerBackground !== undefined ? { bg: headerBackground } : {})}
@@ -209,7 +213,7 @@ export const EastChakraCard = memo(function EastChakraCard({ value, storageKey }
                     </ChakraAlert.Content>
                 </ChakraAlert.Root>
             )}
-            <ChakraCard.Body py="3" px="4" opacity={isStale ? 0.6 : undefined}>
+            <ChakraCard.Body py="3" px="3" opacity={isStale ? 0.6 : undefined}>
                 {hasFallbackBody ? (
                     renderStateFallback(stateTag)
                 ) : (
@@ -220,8 +224,8 @@ export const EastChakraCard = memo(function EastChakraCard({ value, storageKey }
             </ChakraCard.Body>
             {footer && (
                 <ChakraCard.Footer
-                    py="3"
-                    px="4"
+                    py="2"
+                    px="3"
                     borderTopWidth="1px"
                     borderTopColor={defaultBorderColor}
                     {...(footerBackground !== undefined ? { bg: footerBackground } : {})}
