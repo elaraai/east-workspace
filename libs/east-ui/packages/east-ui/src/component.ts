@@ -76,6 +76,10 @@ import { TagsInputRootType } from "./forms/tags-input/types.js";
 // Feedback
 import { ProgressType } from "./feedback/progress/types.js";
 import { AlertType } from "./feedback/alert/types.js";
+import { EmptyStateStyleType } from "./feedback/empty-state/types.js";
+import { SpinnerType } from "./feedback/spinner/types.js";
+import { SkeletonType } from "./feedback/skeleton/types.js";
+import { StatusValueType, StatusStyleType } from "./feedback/status/types.js";
 
 // Navigation
 import { BreadcrumbRootType } from "./navigation/breadcrumb/types.js";
@@ -355,6 +359,31 @@ export const UIComponentType = RecursiveType(node => VariantType({
     // Feedback
     Progress: ProgressType,
     Alert: AlertType,
+    Spinner: SpinnerType,
+    Skeleton: SkeletonType,
+
+    /**
+     * Status — semantic classification chip with paired icon per §0.3.
+     */
+    Status: StructType({
+        value: StatusValueType,
+        label: node,
+        icon: OptionType(IconType),
+        pulsing: OptionType(BooleanType),
+        showIcon: OptionType(BooleanType),
+        style: OptionType(StatusStyleType),
+    }),
+
+    /**
+     * EmptyState — placeholder UI for zero-state sections.
+     */
+    EmptyState: StructType({
+        icon: OptionType(IconType),
+        title: node,
+        description: OptionType(node),
+        actions: OptionType(node),
+        style: OptionType(EmptyStateStyleType),
+    }),
 
     // Navigation
     Breadcrumb: BreadcrumbRootType,

@@ -144,6 +144,16 @@ function DataListRoot(
 // DataList Compound Component
 // ============================================================================
 
+interface DataListNamespace {
+    Root: typeof DataListRoot;
+    Types: {
+        Root: typeof DataListRootType;
+        Item: typeof DataListItemType;
+        Variant: typeof DataListVariantType;
+        Size: typeof DataListSizeType;
+    };
+}
+
 /**
  * DataList compound component for displaying label-value pairs.
  *
@@ -151,7 +161,7 @@ function DataListRoot(
  * Use `DataList.Root` to create the container. Pass items as
  * `{ label, value }` struct literals.
  */
-export const DataList = {
+export const DataList: DataListNamespace = {
     /**
      * Creates a DataList component with items and optional styling.
      *
@@ -224,4 +234,4 @@ export const DataList = {
          */
         Size: DataListSizeType,
     },
-} as const;
+};

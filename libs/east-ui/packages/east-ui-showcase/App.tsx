@@ -74,6 +74,10 @@ import * as statExamples from "@elaraai/east-ui/examples/display/stat";
 import * as iconExamples from "@elaraai/east-ui/examples/display/icon";
 import * as alertExamples from "@elaraai/east-ui/examples/feedback/alert";
 import * as progressExamples from "@elaraai/east-ui/examples/feedback/progress";
+import * as emptyStateExamples from "@elaraai/east-ui/examples/feedback/empty-state";
+import * as spinnerExamples from "@elaraai/east-ui/examples/feedback/spinner";
+import * as skeletonExamples from "@elaraai/east-ui/examples/feedback/skeleton";
+import * as statusExamples from "@elaraai/east-ui/examples/feedback/status";
 import * as checkboxExamples from "@elaraai/east-ui/examples/forms/checkbox";
 import * as switchExamples from "@elaraai/east-ui/examples/forms/switch";
 import * as selectExamples from "@elaraai/east-ui/examples/forms/select";
@@ -173,6 +177,10 @@ const SOURCES: [string, string, Record<string, unknown>, number, number?][] = [
     ["Icon",        "Display",     iconExamples,        3],
     ["Alert",       "Feedback",    alertExamples,       2],
     ["Progress",    "Feedback",    progressExamples,    2],
+    ["EmptyState",  "Feedback",    emptyStateExamples,  2],
+    ["Spinner",     "Feedback",    spinnerExamples,     3],
+    ["Skeleton",    "Feedback",    skeletonExamples,    2],
+    ["Status",      "Feedback",    statusExamples,      3],
     ["Checkbox",    "Forms",       checkboxExamples,    3],
     ["Switch",      "Forms",       switchExamples,      3],
     ["Select",      "Forms",       selectExamples,      2],

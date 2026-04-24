@@ -129,7 +129,13 @@ export type PlannerRowType = typeof PlannerRowType;
  * @property style - Optional styling configuration
  * @property eventPopover - Optional function to render popover content for events
  */
-export const PlannerRootType = StructType({
+export const PlannerRootType: StructType<{
+    rows: ArrayType<PlannerRowType>,
+    columns: ArrayType<TableColumnType>,
+    frozen: ArrayType<StringType>,
+    style: OptionType<PlannerStyleType>,
+    eventPopover: OptionType<FunctionType<[typeof EventPopoverContextType], UIComponentType>>,
+}> = StructType({
     rows: ArrayType(PlannerRowType),
     columns: ArrayType(TableColumnType),
     frozen: ArrayType(StringType),

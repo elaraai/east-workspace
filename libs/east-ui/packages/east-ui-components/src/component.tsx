@@ -78,7 +78,7 @@ import {
     EastChakraTagsInput,
     EastChakraFileUpload,
 } from "./forms";
-import { EastChakraAlert, EastChakraProgress } from "./feedback";
+import { EastChakraAlert, EastChakraProgress, EastChakraEmptyState, EastChakraSpinner, EastChakraSkeleton, EastChakraStatus } from "./feedback";
 import { EastChakraCard } from "./container";
 import {
     EastChakraTooltip,
@@ -162,6 +162,10 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             // Feedback
             Progress: (v) => <EastChakraProgress value={v} />,
             Alert: (v) => <EastChakraAlert value={v} />,
+            EmptyState: (v) => <EastChakraEmptyState value={v} storageKey={childKey(storageKey, "EmptyState")} />,
+            Spinner: (v) => <EastChakraSpinner value={v} />,
+            Skeleton: (v) => <EastChakraSkeleton value={v} />,
+            Status: (v) => <EastChakraStatus value={v} storageKey={childKey(storageKey, "Status")} />,
 
             // Navigation
             Breadcrumb: (v) => <EastChakraBreadcrumb value={v} />,
