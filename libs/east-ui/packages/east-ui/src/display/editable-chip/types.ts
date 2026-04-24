@@ -36,6 +36,7 @@ import type { SizeLiteral } from "../../style.js";
  */
 export const EditableChipStyleType = StructType({
     size: OptionType(SizeType),
+    borderRadius: OptionType(StringType),
     color: OptionType(StringType),
     background: OptionType(StringType),
     borderColor: OptionType(StringType),
@@ -75,6 +76,8 @@ export interface EditableChipOptions {
     onClick?: SubtypeExprOrValue<FunctionType<[], NullType>>;
     /** Size preset (sm / md / lg). */
     size?: SubtypeExprOrValue<SizeType> | SizeLiteral;
+    /** Corner radius (Chakra token or explicit px). Default `"md"`. */
+    borderRadius?: SubtypeExprOrValue<StringType>;
     /** Explicit text colour override. */
     color?: SubtypeExprOrValue<StringType>;
     /** Explicit background override. */

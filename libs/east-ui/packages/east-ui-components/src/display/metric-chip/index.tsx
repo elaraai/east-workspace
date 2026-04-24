@@ -55,6 +55,7 @@ export const EastChakraMetricChip = memo(function EastChakraMetricChip({ value, 
     const emphasis = style ? getSomeorUndefined(style.emphasis)?.type ?? "subtle" : "subtle";
     const sizeTag = style ? getSomeorUndefined(style.size)?.type ?? "sm" : "sm";
     const sizeProps = SIZE_PADDING[sizeTag] ?? SIZE_PADDING["sm"]!;
+    const borderRadius = (style && getSomeorUndefined(style.borderRadius)) ?? "md";
 
     const palette = TONE_PALETTE[tone] ?? TONE_PALETTE["neutral"]!;
 
@@ -70,7 +71,7 @@ export const EastChakraMetricChip = memo(function EastChakraMetricChip({ value, 
         <Box
             display="inline-flex"
             alignItems="center"
-            borderRadius="md"
+            borderRadius={borderRadius}
             borderWidth={emphasis === "outline" ? "1px" : "0"}
             borderStyle="solid"
             borderColor={borderColor}

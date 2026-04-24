@@ -73,6 +73,7 @@ export type EditableChipType = typeof EditableChipType;
 function buildEditableChipStyle(options: EditableChipOptions | undefined): ExprType<EditableChipStyleType> | undefined {
     if (options === undefined) return undefined;
     const hasAny = options.size !== undefined
+        || options.borderRadius !== undefined
         || options.color !== undefined
         || options.background !== undefined
         || options.borderColor !== undefined
@@ -87,6 +88,7 @@ function buildEditableChipStyle(options: EditableChipOptions | undefined): ExprT
 
     return East.value({
         size: sizeValue ? some(sizeValue) : none,
+        borderRadius: options.borderRadius !== undefined ? some(options.borderRadius) : none,
         color: options.color !== undefined ? some(options.color) : none,
         background: options.background !== undefined ? some(options.background) : none,
         borderColor: options.borderColor !== undefined ? some(options.borderColor) : none,

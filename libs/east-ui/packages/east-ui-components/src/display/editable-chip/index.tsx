@@ -4,9 +4,9 @@
  */
 
 import { memo, useMemo, useCallback } from "react";
-import { Button, HStack, Box } from "@chakra-ui/react";
+import { Box, Button, HStack } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faChevronDown } from "@fortawesome/free-solid-svg-icons";
+import { faPen } from "@fortawesome/free-solid-svg-icons";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { EditableChip } from "@elaraai/east-ui";
@@ -18,11 +18,12 @@ const editableChipEqual = equalFor(EditableChip.Types.EditableChip);
 /** East EditableChip value type. */
 export type EditableChipValue = ValueTypeOf<typeof EditableChip.Types.EditableChip>;
 
-const SIZE_MAP: Record<string, "xs" | "sm" | "md" | "lg"> = {
-    xs: "xs",
-    sm: "sm",
-    md: "md",
-    lg: "lg",
+const SIZE_PADDING: Record<string, { px: string; py: string; fontSize: string }> = {
+    xs: { px: "1.5", py: "0", fontSize: "xs" },
+    sm: { px: "2", py: "0.5", fontSize: "sm" },
+    md: { px: "2.5", py: "1", fontSize: "sm" },
+    lg: { px: "3", py: "1.5", fontSize: "md" },
+    xl: { px: "3.5", py: "2", fontSize: "md" },
 };
 
 export interface EastChakraEditableChipProps {
@@ -31,11 +32,21 @@ export interface EastChakraEditableChipProps {
 }
 
 /**
- * Renders an East UI EditableChip using Chakra v3 `Button` with a
- * `variant="subtle"` visual and a trailing chevron icon.
+ * Renders an East UI EditableChip as a chip-sized clickable `<Box>`
+ * matching MetricChip proportions — NOT a Chakra Button.
  *
  * @remarks
- * When `value.trigger` is absent, renderer defaults to `faChevronDown`.
+ * The default trailing icon is `faPen` (pencil) to signal "editable"
+ * without looking like a Select (which uses chevron-down). Consumers
+ * can override via `value.trigger` (e.g. calendar icon for a date
+ * chip, location pin for a location picker, etc.).
+ *
+ * Semantics — EditableChip is the **trigger** for a consumer-provided
+ * picker / popover / dialog. The `onClick` callback is what the
+ * pattern-layer (ContextSelector / AssumptionsBar) hooks into to open
+ * the actual picker UI. The chip itself just shows the current label +
+ * an "editable" affordance.
+ *
  * Callbacks use the east-ui controlled-component pattern: onClick
  * scheduled via `queueMicrotask` so the Reactive cycle doesn't double-
  * fire under StrictMode.
@@ -47,39 +58,78 @@ export const EastChakraEditableChip = memo(function EastChakraEditableChip({ val
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
 
     const handleClick = useCallback(() => {
-        if (onClickFn) {
+        if (onClickFn && !disabled) {
             queueMicrotask(() => onClickFn());
         }
-    }, [onClickFn]);
+    }, [onClickFn, disabled]);
 
     const sizeTag = style ? getSomeorUndefined(style.size)?.type ?? "sm" : "sm";
-    const size = SIZE_MAP[sizeTag] ?? "sm";
-    const color = style ? getSomeorUndefined(style.color) : undefined;
-    const background = style ? getSomeorUndefined(style.background) : undefined;
+    const sizeProps = SIZE_PADDING[sizeTag] ?? SIZE_PADDING["sm"]!;
+    const borderRadius = (style && getSomeorUndefined(style.borderRadius)) ?? "md";
+    const color = (style && getSomeorUndefined(style.color)) ?? "fg";
+    const background = (style && getSomeorUndefined(style.background)) ?? "gray.100";
     const borderColor = style ? getSomeorUndefined(style.borderColor) : undefined;
-    const triggerIconColor = style ? getSomeorUndefined(style.triggerIconColor) : undefined;
+    const triggerIconColor = (style && getSomeorUndefined(style.triggerIconColor)) ?? "fg.muted";
 
     const triggerIcon = trigger
         ? [trigger.prefix as IconPrefix, trigger.name as IconName] as [IconPrefix, IconName]
-        : faChevronDown;
+        : faPen;
+
+    const interactive = !!onClickFn && !disabled;
+
+    const chipBody = (
+        <HStack gap="1.5" align="center">
+            <EastChakraComponent value={value.label} storageKey={`${storageKey}.label`} />
+            <Box color={triggerIconColor} fontSize="xs">
+                <FontAwesomeIcon icon={triggerIcon} aria-hidden />
+            </Box>
+        </HStack>
+    );
+
+    if (!interactive) {
+        return (
+            <Box
+                display="inline-flex"
+                alignItems="center"
+                borderRadius={borderRadius}
+                borderWidth={borderColor ? "1px" : "0"}
+                borderStyle="solid"
+                borderColor={borderColor}
+                bg={background}
+                color={color}
+                px={sizeProps.px}
+                py={sizeProps.py}
+                fontSize={sizeProps.fontSize}
+                fontWeight="medium"
+                cursor={disabled ? "not-allowed" : undefined}
+                opacity={disabled ? 0.5 : undefined}
+            >
+                {chipBody}
+            </Box>
+        );
+    }
 
     return (
         <Button
-            variant="subtle"
-            size={size}
-            disabled={disabled}
-            onClick={onClickFn ? handleClick : undefined}
-            color={color}
-            background={background}
+            unstyled
+            display="inline-flex"
+            alignItems="center"
+            borderRadius={borderRadius}
+            borderWidth={borderColor ? "1px" : "0"}
+            borderStyle="solid"
             borderColor={borderColor}
-            borderWidth={borderColor ? "1px" : undefined}
+            bg={background}
+            color={color}
+            px={sizeProps.px}
+            py={sizeProps.py}
+            fontSize={sizeProps.fontSize}
+            fontWeight="medium"
+            cursor="pointer"
+            _hover={{ bg: "gray.200" }}
+            _active={{ bg: "gray.300" }}
+            onClick={handleClick}
         >
-            <HStack gap="1.5" align="center">
-                <EastChakraComponent value={value.label} storageKey={`${storageKey}.label`} />
-                <Box color={triggerIconColor ?? "fg.muted"}>
-                    <FontAwesomeIcon icon={triggerIcon} aria-hidden />
-                </Box>
-            </HStack>
+            {chipBody}
         </Button>
     );
 }, (prev, next) => editableChipEqual(prev.value, next.value) && prev.storageKey === next.storageKey);

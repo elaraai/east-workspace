@@ -93,6 +93,7 @@ export type MetricChipEmphasisLiteral = "subtle" | "solid" | "outline";
 export const MetricChipStyleType = StructType({
     emphasis: OptionType(MetricChipEmphasisType),
     size: OptionType(SizeType),
+    borderRadius: OptionType(StringType),
     color: OptionType(StringType),
     background: OptionType(StringType),
     borderColor: OptionType(StringType),
@@ -132,6 +133,8 @@ export interface MetricChipOptions {
     emphasis?: SubtypeExprOrValue<MetricChipEmphasisType> | MetricChipEmphasisLiteral;
     /** Size preset. */
     size?: SubtypeExprOrValue<SizeType> | SizeLiteral;
+    /** Corner radius (Chakra token or explicit px). Default `"md"`. */
+    borderRadius?: SubtypeExprOrValue<StringType>;
     /** Explicit text colour override. */
     color?: SubtypeExprOrValue<StringType>;
     /** Explicit background colour override. */
