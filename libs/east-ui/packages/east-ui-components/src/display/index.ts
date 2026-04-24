@@ -66,3 +66,9 @@ export {
     type SegmentedMeterValue,
     type EastChakraSegmentedMeterProps,
 } from "./segmented-meter/index.js";
+
+export {
+    EastChakraBarStrip,
+    type BarStripValue,
+    type EastChakraBarStripProps,
+} from "./bar-strip/index.js";

@@ -95,6 +95,7 @@ import { EditableChipStyleType } from "./display/editable-chip/types.js";
 import { KbdType } from "./display/kbd/types.js";
 import { MeterStyleType } from "./display/meter/types.js";
 import { SegmentedMeterSegmentType, SegmentedMeterStyleType } from "./display/segmented-meter/types.js";
+import { BarStripStyleType, BarStripSortType } from "./display/bar-strip/types.js";
 import { StatusTokenType } from "./style/interaction.js";
 import { CardStyleType } from "./container/card/types.js";
 import { StateValueType } from "./contracts/states.js";
@@ -471,6 +472,19 @@ export const UIComponentType = RecursiveType(node => VariantType({
         caption: OptionType(node),
         max: OptionType(FloatType),
         style: OptionType(SegmentedMeterStyleType),
+    }),
+    BarStrip: StructType({
+        items: ArrayType(StructType({
+            label: node,
+            value: FloatType,
+            tone: OptionType(StatusTokenType),
+            color: OptionType(StringType),
+            trailing: OptionType(node),
+        })),
+        showValues: OptionType(BooleanType),
+        sort: OptionType(BarStripSortType),
+        maxItems: OptionType(IntegerType),
+        style: OptionType(BarStripStyleType),
     }),
 
     // Container

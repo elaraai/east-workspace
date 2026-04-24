@@ -68,6 +68,7 @@ import { EastChakraEditableChip } from "./display/editable-chip";
 import { EastChakraKbd } from "./display/kbd";
 import { EastChakraMeter } from "./display/meter";
 import { EastChakraSegmentedMeter } from "./display/segmented-meter";
+import { EastChakraBarStrip } from "./display/bar-strip";
 import {
     EastChakraStringInput,
     EastChakraIntegerInput,
@@ -188,6 +189,7 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             Kbd: (v) => <EastChakraKbd value={v} />,
             Meter: (v) => <EastChakraMeter value={v} storageKey={childKey(storageKey, "Meter")} />,
             SegmentedMeter: (v) => <EastChakraSegmentedMeter value={v} storageKey={childKey(storageKey, "SegmentedMeter")} />,
+            BarStrip: (v) => <EastChakraBarStrip value={v} storageKey={childKey(storageKey, "BarStrip")} />,
 
             // Container
             Card: (v) => <EastChakraCard value={v} storageKey={storageKey} />,
