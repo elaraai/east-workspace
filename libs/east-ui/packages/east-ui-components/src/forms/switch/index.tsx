@@ -20,11 +20,15 @@ export type SwitchValue = ValueTypeOf<typeof Switch.Types.Switch>;
  * Pure function - easy to test independently.
  */
 export function toChakraSwitch(value: SwitchValue): SwitchRootProps {
+    const style = getSomeorUndefined(value.style);
+    const colorPalette = style ? getSomeorUndefined(style.colorPalette)?.type : undefined;
+    const size = style ? getSomeorUndefined(style.size)?.type : undefined;
+
     return {
         checked: value.checked,
         disabled: getSomeorUndefined(value.disabled),
-        colorPalette: getSomeorUndefined(value.colorPalette)?.type,
-        size: getSomeorUndefined(value.size)?.type,
+        colorPalette,
+        size,
     };
 }
 

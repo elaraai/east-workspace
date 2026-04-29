@@ -1,7 +1,18 @@
 import { createSystem, defaultConfig } from "@chakra-ui/react"
 
+// Elara AI brand fonts. Body/UI: Inter Tight. Display/headings: DM Sans
+// (closest Google Fonts match to the rounded-geometric Elara_AI lockup).
+// Code: JetBrains Mono. Loaded via the @import in globalCss below; no
+// host-side <link> required.
+const FONT_BRAND = '"DM Sans", system-ui, -apple-system, BlinkMacSystemFont, sans-serif'
+const FONT_BODY = '"Inter Tight", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+const FONT_MONO = '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
+
 export const system = createSystem(defaultConfig, {
   globalCss: {
+    "@import": [
+      "url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap')",
+    ],
     ":root": {
       "--motion-duration-fast": "120ms",
       "--motion-duration-normal": "240ms",
@@ -41,8 +52,9 @@ export const system = createSystem(defaultConfig, {
   theme: {
     tokens: {
       fonts: {
-        heading: { value: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' },
-        body: { value: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' },
+        heading: { value: FONT_BRAND },
+        body: { value: FONT_BODY },
+        mono: { value: FONT_MONO },
       },
       colors: {
         brand: {

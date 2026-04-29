@@ -18,7 +18,8 @@ import {
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
-import { ControlRootType, FieldOrientationType, FieldType, type FieldStyle } from "./types.js";
+import { ControlRootType, FieldOrientationType, FieldStyleType, FieldType, type FieldStyle } from "./types.js";
+import { some } from "@elaraai/east";
 import type { DateTimeInputStyle, FloatInputStyle, IntegerInputStyle, StringInputStyle } from "../input/types.js";
 import { DateTimeInput_, FloatInput_, IntegerInput_, StringInput_ } from "../input/index.js";
 import { createCheckbox_, type CheckboxStyle } from "../checkbox/index.js";
@@ -85,16 +86,37 @@ function createField(
             ? East.value(variant(style.orientation, null), FieldOrientationType)
             : style.orientation)
         : undefined;
+
+    const hasFieldStyle = !!style && (
+        orientationValue !== undefined ||
+        style.labelColor !== undefined ||
+        style.helperTextColor !== undefined ||
+        style.requiredIndicatorColor !== undefined ||
+        style.errorColor !== undefined ||
+        style.warningColor !== undefined ||
+        style.infoColor !== undefined
+    );
+
+    const fieldStyleValue = hasFieldStyle ? East.value({
+        orientation: orientationValue ? some(orientationValue) : none,
+        labelColor: style!.labelColor !== undefined ? some(style!.labelColor) : none,
+        helperTextColor: style!.helperTextColor !== undefined ? some(style!.helperTextColor) : none,
+        requiredIndicatorColor: style!.requiredIndicatorColor !== undefined ? some(style!.requiredIndicatorColor) : none,
+        errorColor: style!.errorColor !== undefined ? some(style!.errorColor) : none,
+        warningColor: style!.warningColor !== undefined ? some(style!.warningColor) : none,
+        infoColor: style!.infoColor !== undefined ? some(style!.infoColor) : none,
+    }, FieldStyleType) : undefined;
+
     return East.value(variant("Field", {
-        label: label,
-        control: control,
+        label,
+        control,
         helperText: toStringOption(style?.helperText),
         errorText: toStringOption(style?.errorText),
         required: toBoolOption(style?.required),
         disabled: toBoolOption(style?.disabled),
         invalid: toBoolOption(style?.invalid),
         readOnly: toBoolOption(style?.readOnly),
-        orientation: orientationValue ? variant("some", orientationValue) : none,
+        style: fieldStyleValue ? some(fieldStyleValue) : none,
     }), UIComponentType);
 }
 

@@ -306,6 +306,15 @@ export {
     StateImpl,
     StateRuntime,
 
+    // Clipboard implementation (auto-registers on import)
+    ClipboardImpl,
+
+    // Download implementation (auto-registers on import)
+    DownloadImpl,
+
+    // Share implementation (auto-registers on import)
+    ShareImpl,
+
     // Store
     UIStore,
     createUIStore,

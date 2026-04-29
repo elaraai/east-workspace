@@ -24,9 +24,12 @@ export interface EastChakraScrollAreaProps {
 }
 
 export const EastChakraScrollArea = memo(function EastChakraScrollArea({ value, storageKey }: EastChakraScrollAreaProps) {
-    const orientationTag = useMemo(() => getSomeorUndefined(value.orientation)?.type, [value.orientation]);
     const scrollbarStyleTag = useMemo(() => getSomeorUndefined(value.scrollbarStyle)?.type, [value.scrollbarStyle]);
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
+    const orientationTag = useMemo(
+        () => (style ? getSomeorUndefined(style.orientation)?.type : undefined),
+        [style],
+    );
     const thumbColor = style ? getSomeorUndefined(style.thumbColor) : undefined;
     const trackColor = style ? getSomeorUndefined(style.trackColor) : undefined;
     const background = style ? getSomeorUndefined(style.background) : undefined;

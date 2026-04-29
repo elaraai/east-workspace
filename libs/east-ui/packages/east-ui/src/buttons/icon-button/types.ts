@@ -23,13 +23,13 @@ import type { IconPayload } from "../button/types.js";
 export { ButtonVariantType, type ButtonVariantLiteral } from "../button/types.js";
 
 // ============================================================================
-// IconButton Style Type — visual presentation only (§0.10)
+// IconButton Style Type
 // ============================================================================
 
 /**
  * Visual-only style struct for IconButton. Content / state / behaviour live
  * on the main `IconButtonType` struct per the repo-wide Type-shape
- * convention (§0.10).
+ * convention.
  *
  * @remarks
  * Anything visual goes here: the Chakra preset triplet (`variant`,

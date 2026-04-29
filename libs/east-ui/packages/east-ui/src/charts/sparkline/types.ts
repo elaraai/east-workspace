@@ -46,6 +46,30 @@ export type SparklineChartLiteral = "line" | "area";
 // Sparkline Type
 // ============================================================================
 
+// ============================================================================
+// Sparkline Style
+// ============================================================================
+
+/**
+ * Visual-only style struct for Sparkline.
+ *
+ * @property color - Line/fill colour (Chakra colour token or CSS colour)
+ * @property height - Height of the sparkline (CSS length)
+ * @property width - Width of the sparkline (CSS length)
+ */
+export const SparklineStyleType = StructType({
+    color: OptionType(StringType),
+    height: OptionType(StringType),
+    width: OptionType(StringType),
+});
+
+/** Type alias for the Sparkline style struct. */
+export type SparklineStyleType = typeof SparklineStyleType;
+
+// ============================================================================
+// Sparkline Type
+// ============================================================================
+
 /**
  * Type for Sparkline component data.
  *
@@ -55,16 +79,12 @@ export type SparklineChartLiteral = "line" | "area";
  *
  * @property data - Array of numeric values to plot
  * @property type - Chart type (line or area)
- * @property color - Line/fill color (Chakra color token or CSS color)
- * @property height - Height of the sparkline
- * @property width - Width of the sparkline
+ * @property style - Optional visual-only style sub-struct
  */
 export const SparklineType = StructType({
     data: ArrayType(FloatType),
     type: OptionType(SparklineChartType),
-    color: OptionType(StringType),
-    height: OptionType(StringType),
-    width: OptionType(StringType),
+    style: OptionType(SparklineStyleType),
 });
 
 /**

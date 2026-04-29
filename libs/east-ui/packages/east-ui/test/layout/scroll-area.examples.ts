@@ -18,7 +18,7 @@ export const scrollAreaDriverList = example({
         );
         return ScrollArea.Root(
             Stack.VStack(items, { gap: "1" }),
-            { orientation: "vertical", scrollbarStyle: "overlay" },
+            { scrollbarStyle: "overlay", style: { orientation: "vertical" } },
         );
     }),
     inputs: [],
@@ -34,9 +34,8 @@ export const scrollAreaTableInDrawer = example({
         );
         return Box.Root([
             ScrollArea.Root(wide, {
-                orientation: "both",
                 scrollbarStyle: "reserved",
-                style: { background: "gray.50" },
+                style: { orientation: "both", background: "gray.50" },
             }),
         ], { width: "400px", height: "200px", borderColor: "gray.300", borderWidth: "thin" });
     }),

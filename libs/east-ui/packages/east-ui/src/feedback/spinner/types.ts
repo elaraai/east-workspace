@@ -14,12 +14,12 @@ import { SizeType, ColorSchemeType } from "../../style.js";
 import type { SizeLiteral, ColorSchemeLiteral } from "../../style.js";
 
 // ============================================================================
-// Spinner Style Type — visual presentation only (§0.10)
+// Spinner Style Type
 // ============================================================================
 
 /**
  * Visual-only style struct for Spinner. Spinner has no content / behaviour —
- * the whole main variant is effectively a `style` wrapper per §0.10.
+ * the whole main variant is effectively a `style` wrapper.
  *
  * @property size - Size preset (sm / md / lg)
  * @property colorPalette - Chakra color palette token

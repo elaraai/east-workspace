@@ -68,7 +68,7 @@ export const StatusType: StructType<{
 export type StatusType = typeof StatusType;
 
 // ============================================================================
-// §0.3 Paired-icon map
+// Paired-icon map
 // ============================================================================
 
 const PAIRED_ICONS: Record<StatusValueLiteral, { prefix: "fas"; name: string }> = {
@@ -111,7 +111,7 @@ export interface StatusOptions {
 }
 
 /**
- * Creates a Status chip with a semantic classification and a paired icon per §0.3.
+ * Creates a Status chip with a semantic classification and a paired icon.
  *
  * @param label - String (coerced to `Text.Root(s)`) or UIComponentType
  * @param options - Optional `value` / `icon` / `pulsing` / `showIcon` / `style`
@@ -148,7 +148,7 @@ function createStatusRoot(
         ? East.value(variant(valueLiteral, null), StatusValueType)
         : options.value as ExprType<StatusValueType>;
 
-    // Paired-icon injection per §0.3
+    // Paired-icon injection
     const explicitIcon = options?.icon && typeof (options.icon as { prefix?: unknown }).prefix === "string"
         ? East.value({
             prefix: (options.icon as { prefix: string }).prefix,
@@ -211,7 +211,7 @@ function buildStatusStyle(style: StatusStyle): ExprType<StatusStyleType> {
 }
 
 /**
- * Status primitive — semantic classification chip with a paired icon (§0.3)
+ * Status primitive — semantic classification chip with a paired icon
  * and an indicator dot.
  *
  * @remarks
@@ -250,7 +250,7 @@ export const Status = {
          */
         Status: StatusType,
         /**
-         * Semantic classification variant for Status per §0.3 paired-icon
+         * Semantic classification variant for Status paired-icon
          * vocabulary.
          *
          * @remarks

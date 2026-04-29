@@ -15,11 +15,12 @@ import {
 
 import { SizeType, ColorSchemeType, OrientationType } from "../../style.js";
 import { UIComponentType } from "../../component.js";
-import { SliderType, SliderVariantType, SliderVariant, type SliderStyle } from "./types.js";
+import { SliderType, SliderStyleType, SliderVariantType, SliderVariant, type SliderStyle } from "./types.js";
 
 // Re-export types
 export {
     SliderType,
+    SliderStyleType,
     SliderVariantType,
     SliderVariant,
     type SliderStyle,
@@ -85,18 +86,37 @@ export function createSlider_(
             : style.variant)
         : undefined;
 
+    const hasStyle = !!style && (
+        orientationValue !== undefined ||
+        colorPaletteValue !== undefined ||
+        sizeValue !== undefined ||
+        variantValue !== undefined ||
+        style.trackColor !== undefined ||
+        style.fillColor !== undefined ||
+        style.thumbColor !== undefined ||
+        style.markColor !== undefined
+    );
+
+    const styleValue = hasStyle ? East.value({
+        orientation: orientationValue ? some(orientationValue) : none,
+        variant: variantValue ? some(variantValue) : none,
+        colorPalette: colorPaletteValue ? some(colorPaletteValue) : none,
+        size: sizeValue ? some(sizeValue) : none,
+        trackColor: style!.trackColor !== undefined ? some(style!.trackColor) : none,
+        fillColor: style!.fillColor !== undefined ? some(style!.fillColor) : none,
+        thumbColor: style!.thumbColor !== undefined ? some(style!.thumbColor) : none,
+        markColor: style!.markColor !== undefined ? some(style!.markColor) : none,
+    }, SliderStyleType) : undefined;
+
     return East.value({
-        value: value,
+        value,
         min: style?.min !== undefined ? some(style.min) : none,
         max: style?.max !== undefined ? some(style.max) : none,
         step: style?.step !== undefined ? some(style.step) : none,
-        orientation: orientationValue ? some(orientationValue) : none,
-        colorPalette: colorPaletteValue ? some(colorPaletteValue) : none,
-        size: sizeValue ? some(sizeValue) : none,
-        variant: variantValue ? some(variantValue) : none,
         disabled: style?.disabled !== undefined ? some(style.disabled) : none,
         onChange: style?.onChange ? some(style.onChange) : none,
         onChangeEnd: style?.onChangeEnd ? some(style.onChangeEnd) : none,
+        style: styleValue ? some(styleValue) : none,
     }, SliderType);
 }
 
@@ -133,6 +153,7 @@ export const Slider = {
     Variant: SliderVariant,
     Types: {
         Slider: SliderType,
+        Style: SliderStyleType,
         Variant: SliderVariantType,
     },
 } as const;

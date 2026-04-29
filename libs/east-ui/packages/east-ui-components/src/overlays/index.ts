@@ -62,6 +62,18 @@ export {
 } from "./toggle-tip/index.js";
 
 export {
+    EastChakraCoachMark,
+    type CoachMarkValue,
+    type EastChakraCoachMarkProps,
+} from "./coach-mark/index.js";
+
+export {
+    EastChakraCommandPalette,
+    type CommandPaletteValue,
+    type EastChakraCommandPaletteProps,
+} from "./command-palette/index.js";
+
+export {
     OverlayManagerProvider,
     type OverlayManagerProviderProps,
     DialogOpenImpl,

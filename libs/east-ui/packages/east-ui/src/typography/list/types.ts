@@ -44,7 +44,7 @@ export type ListVariantLiteral = "ordered" | "unordered";
  * Marker glyph applied to each list item.
  *
  * `check` / `dash` / `icon` render real `<svg role="img" aria-label="…">`
- * markers (not CSS `::before` characters) per the §0.2 a11y contract —
+ * markers (not CSS `::before` characters) per the a11y contract —
  * screen readers announce them alongside the item content.
  *
  * @property disc - Filled disc marker (default for unordered)

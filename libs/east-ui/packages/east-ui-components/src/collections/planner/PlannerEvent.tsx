@@ -3,19 +3,19 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { useMemo, useState, useCallback, useRef, useEffect } from "react";
-import { Text, useToken, Menu, Portal, Popover, Box } from "@chakra-ui/react";
+import { useMemo, useState, useCallback, useEffect, useRef } from "react";
+import { Text, useToken, Menu, Portal, Popover, Tooltip, Box } from "@chakra-ui/react";
+import { useDrag } from "@use-gesture/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPen, faTrash } from "@fortawesome/free-solid-svg-icons";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-common-types";
-import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
-import type { Planner, UIComponentType } from "@elaraai/east-ui";
+import type { ValueTypeOf } from "@elaraai/east";
+import type { Planner } from "@elaraai/east-ui";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
+import { alignToCss } from "../shared/helpers";
 
 export type PlannerEventValue = ValueTypeOf<typeof Planner.Types.Event>;
-export type EventPopoverContext = ValueTypeOf<typeof Planner.Types.EventPopoverContext>;
-export type EventPopoverFn = ((ctx: EventPopoverContext) => ValueTypeOf<UIComponentType>) | undefined;
 
 export interface PlannerEventProps {
     value: PlannerEventValue;
@@ -30,37 +30,23 @@ export interface PlannerEventProps {
     minSlot?: number | undefined;
     maxSlot?: number | undefined;
     stepSize?: number | undefined;
-    readOnly?: boolean | undefined;
-    eventPopoverFn?: EventPopoverFn;
-    eventPopoverTrigger?: "click" | "hover";
+    /** Visual-token defaults from `style` (per-event label.color etc. override). */
+    eventBorderRadius?: string | undefined;
+    labelColor?: string | undefined;
+    labelFontSize?: string | undefined;
+    labelFontWeight?: string | undefined;
     /** Whether this event should be dimmed (another event in the row is hovered) */
     isDimmed?: boolean | undefined;
     onClick?: (() => void) | undefined;
     onDoubleClick?: (() => void) | undefined;
     onDrag?: ((previousStart: number, previousEnd: number, newStart: number, newEnd: number) => void) | undefined;
     onResize?: ((previousStart: number, previousEnd: number, newStart: number, newEnd: number, edge: "start" | "end") => void) | undefined;
-    onPositionChange?: ((start: number, end: number) => void) | undefined;
     onEdit?: (() => void) | undefined;
     onDelete?: (() => void) | undefined;
     /** Called when mouse enters this event */
     onHoverStart?: (() => void) | undefined;
     /** Called when mouse leaves this event */
     onHoverEnd?: (() => void) | undefined;
-}
-
-/** Captured at interaction start */
-interface InteractionStart {
-    type: "drag" | "resize";
-    edge: "start" | "end" | null;
-    startX: number;
-}
-
-/** Minimal interaction state */
-interface InteractionState {
-    offset: number;
-    type: "drag" | "resize" | null;
-    edge: "start" | "end" | null;
-    hasMoved: boolean;
 }
 
 /** Consolidated overlay state (context menu or popover) */
@@ -72,8 +58,8 @@ interface OverlayState {
 export const PlannerEvent = ({
     value,
     storageKey,
-    rowIndex,
-    eventIndex,
+    rowIndex: _rowIndex,
+    eventIndex: _eventIndex,
     y,
     height,
     slotWidth,
@@ -82,25 +68,23 @@ export const PlannerEvent = ({
     minSlot,
     maxSlot,
     stepSize = 1,
-    readOnly = false,
-    eventPopoverFn,
-    eventPopoverTrigger = "click",
+    eventBorderRadius,
+    labelColor,
+    labelFontSize,
+    labelFontWeight,
     isDimmed = false,
     onClick,
     onDoubleClick,
     onDrag,
     onResize,
-    onPositionChange,
     onEdit,
     onDelete,
     onHoverStart,
     onHoverEnd,
 }: PlannerEventProps) => {
-    const startRef = useRef<InteractionStart | null>(null);
-
     // Props-derived slot values
-    const propsStart = useMemo(() => value.start, [value.start]);
-    const propsEnd = useMemo(() => getSomeorUndefined(value.end) ?? value.start, [value.end, value.start]);
+    const propsStart = value.start;
+    const propsEnd = getSomeorUndefined(value.end) ?? value.start;
 
     // Local slot values - initialized from props, updated on interaction
     const [localSlots, setLocalSlots] = useState({ start: propsStart, end: propsEnd });
@@ -110,20 +94,10 @@ export const PlannerEvent = ({
         setLocalSlots({ start: propsStart, end: propsEnd });
     }, [propsStart, propsEnd]);
 
-    // Notify parent of position changes
-    useEffect(() => {
-        if (onPositionChange) {
-            onPositionChange(localSlots.start, localSlots.end);
-        }
-    }, [localSlots, onPositionChange]);
-
-    // Interaction state
-    const [interaction, setInteraction] = useState<InteractionState>({
-        offset: 0,
-        type: null,
-        edge: null,
-        hasMoved: false,
-    });
+    // In-progress interaction offsets (px). Only one is non-null at a time.
+    const [dragPx, setDragPx] = useState<number | null>(null);
+    const [resizeStartPx, setResizeStartPx] = useState<number | null>(null);
+    const [resizeEndPx, setResizeEndPx] = useState<number | null>(null);
     const [isHovered, setIsHovered] = useState(false);
 
     // Consolidated overlay state (context menu or popover)
@@ -134,53 +108,51 @@ export const PlannerEvent = ({
     const eventRectRef = useRef<SVGRectElement>(null);
 
     // Show context menu if either callback is defined
-    const hasContextMenu = useMemo(() => !readOnly && (onEdit != null || onDelete != null), [readOnly, onEdit, onDelete]);
+    const hasContextMenu = onEdit != null || onDelete != null;
 
-    // Show popover if eventPopoverFn is defined
-    const hasPopover = useMemo(() => eventPopoverFn != null, [eventPopoverFn]);
+    // Per-event tooltip / popover slots (UIComponent values from the IR).
+    const tooltipContent = getSomeorUndefined(value.tooltip);
+    const popoverContent = getSomeorUndefined(value.popover);
+    const hasTooltip = tooltipContent !== undefined;
+    const hasPopover = popoverContent !== undefined;
+    const overlays = value.overlays ?? [];
 
     // Derived from props
-    const colorPalette = useMemo(() => getSomeorUndefined(value.colorPalette)?.type ?? "blue", [value.colorPalette]);
+    const colorPalette = getSomeorUndefined(value.colorPalette)?.type ?? "blue";
 
     // Extract label config (nested object with value, align, verticalAlign, color, etc.)
-    const labelProps = useMemo(() => {
-        const config = getSomeorUndefined(value.label);
-        if (!config) return null;
-        return {
-            value: config.value,
-            align: getSomeorUndefined(config.align)?.type ?? "start",
-            verticalAlign: getSomeorUndefined(config.verticalAlign)?.type ?? "center",
-            color: getSomeorUndefined(config.color),
-            fontWeight: getSomeorUndefined(config.fontWeight)?.type,
-            fontStyle: getSomeorUndefined(config.fontStyle)?.type,
-            fontSize: getSomeorUndefined(config.fontSize)?.type,
-        };
-    }, [value.label]);
+    const labelConfig = getSomeorUndefined(value.label);
+    const labelProps = labelConfig ? {
+        value: labelConfig.value,
+        align: getSomeorUndefined(labelConfig.align)?.type ?? "start",
+        verticalAlign: getSomeorUndefined(labelConfig.verticalAlign)?.type ?? "center",
+        color: getSomeorUndefined(labelConfig.color),
+        fontWeight: getSomeorUndefined(labelConfig.fontWeight)?.type,
+        fontStyle: getSomeorUndefined(labelConfig.fontStyle)?.type,
+        fontSize: getSomeorUndefined(labelConfig.fontSize)?.type,
+    } : null;
 
     // Extract icon config (prefix, name, align, size, color, colorPalette)
-    const iconProps = useMemo(() => {
-        const config = getSomeorUndefined(value.icon);
-        if (!config) return null;
-        return {
-            prefix: config.prefix,
-            name: config.name,
-            align: getSomeorUndefined(config.align)?.type ?? "start",
-            size: getSomeorUndefined(config.size)?.type ?? "sm",
-            color: getSomeorUndefined(config.color),
-            colorPalette: getSomeorUndefined(config.colorPalette)?.type,
-        };
-    }, [value.icon]);
+    const iconConfig = getSomeorUndefined(value.icon);
+    const iconProps = iconConfig ? {
+        prefix: iconConfig.prefix,
+        name: iconConfig.name,
+        align: getSomeorUndefined(iconConfig.align)?.type ?? "start",
+        size: getSomeorUndefined(iconConfig.size)?.type ?? "sm",
+        color: getSomeorUndefined(iconConfig.color),
+        colorPalette: getSomeorUndefined(iconConfig.colorPalette)?.type,
+    } : null;
 
     // Event-level styling
-    const backgroundColor = useMemo(() => getSomeorUndefined(value.background), [value.background]);
-    const customStrokeColor = useMemo(() => getSomeorUndefined(value.stroke), [value.stroke]);
-    const eventOpacity = useMemo(() => getSomeorUndefined(value.opacity), [value.opacity]);
+    const backgroundColor = getSomeorUndefined(value.background);
+    const customStrokeColor = getSomeorUndefined(value.stroke);
+    const eventOpacity = getSomeorUndefined(value.opacity);
 
     const [fillColor, paletteStrokeColor] = useToken("colors", [`${colorPalette}.500`, `${colorPalette}.600`]);
 
     // Use custom colors if provided, otherwise use colorPalette
-    const actualFillColor = useMemo(() => backgroundColor ?? fillColor, [backgroundColor, fillColor]);
-    const actualStrokeColor = useMemo(() => customStrokeColor ?? paletteStrokeColor, [customStrokeColor, paletteStrokeColor]);
+    const actualFillColor = backgroundColor ?? fillColor;
+    const actualStrokeColor = customStrokeColor ?? paletteStrokeColor;
 
     // Calculate base x and width from local slots
     const { baseX, baseWidth } = useMemo(() => {
@@ -196,31 +168,27 @@ export const PlannerEvent = ({
     const minWidth = useMemo(() => Math.max(slotWidth * stepSize - 12, 20), [slotWidth, stepSize]);
 
     // Apply interaction offset to get current visual position
-    const { currentX, currentWidth } = useMemo(() => {
-        const { offset, type, edge } = interaction;
-        if (type === "drag") {
-            return { currentX: baseX + offset, currentWidth: baseWidth };
-        }
-        if (type === "resize") {
-            if (edge === "end") {
-                return { currentX: baseX, currentWidth: Math.max(baseWidth + offset, minWidth) };
-            } else {
-                return { currentX: baseX + offset, currentWidth: Math.max(baseWidth - offset, minWidth) };
-            }
-        }
-        return { currentX: baseX, currentWidth: baseWidth };
-    }, [baseX, baseWidth, interaction, minWidth]);
+    const interactionActive = dragPx !== null || resizeStartPx !== null || resizeEndPx !== null;
+    let currentX = baseX;
+    let currentWidth = baseWidth;
+    if (dragPx !== null) {
+        currentX = baseX + dragPx;
+    } else if (resizeStartPx !== null) {
+        currentX = baseX + resizeStartPx;
+        currentWidth = Math.max(baseWidth - resizeStartPx, minWidth);
+    } else if (resizeEndPx !== null) {
+        currentWidth = Math.max(baseWidth + resizeEndPx, minWidth);
+    }
 
-    const eventWidth = useMemo(() => Math.max(currentWidth, 4), [currentWidth]);
-    const defaultFontSize = useMemo(() => Math.min(height * 0.7, 14), [height]);
-    const fontSize = useMemo(() => labelProps?.fontSize ?? defaultFontSize, [labelProps?.fontSize, defaultFontSize]);
-    const isActive = useMemo(() => isHovered || interaction.type !== null, [isHovered, interaction.type]);
+    const eventWidth = Math.max(currentWidth, 4);
+    const defaultFontSize = Math.min(height * 0.7, 14);
+    // Per-event label.fontSize wins; otherwise fall back to the style-level
+    // `labelFontSize` token; otherwise the dynamic height-driven default.
+    const fontSize = labelProps?.fontSize ?? labelFontSize ?? defaultFontSize;
+    const isActive = isHovered || interactionActive;
 
     // Compute actual opacity - dim when another event in the row is hovered
-    const baseOpacity = useMemo(
-        () => isDimmed ? 0.1 : (eventOpacity ?? (isActive ? 1 : 0.9)),
-        [isDimmed, eventOpacity, isActive]
-    );
+    const baseOpacity = isDimmed ? 0.1 : (eventOpacity ?? (isActive ? 1 : 0.9));
 
     // Conversions with stepSize snapping
     const pixelsToSlots = useCallback((px: number): number => {
@@ -265,88 +233,103 @@ export const PlannerEvent = ({
         return clamped;
     }, [localSlots, minSlot, maxSlot, stepSize]);
 
-    const handlePointerDown = useCallback((e: React.PointerEvent) => {
-        if (readOnly || !onDrag) return;
-        (e.target as Element).setPointerCapture(e.pointerId);
-        startRef.current = { type: "drag", edge: null, startX: e.clientX };
-        setInteraction({ offset: 0, type: "drag", edge: null, hasMoved: false });
-        e.preventDefault();
-        e.stopPropagation();
-    }, [readOnly, onDrag]);
-
-    const handleResizePointerDown = useCallback((e: React.PointerEvent, edge: "start" | "end") => {
-        if (readOnly || !onResize) return;
-        (e.target as Element).setPointerCapture(e.pointerId);
-        startRef.current = { type: "resize", edge, startX: e.clientX };
-        setInteraction({ offset: 0, type: "resize", edge, hasMoved: false });
-        e.preventDefault();
-        e.stopPropagation();
-    }, [readOnly, onResize]);
-
-    const handlePointerMove = useCallback((e: React.PointerEvent) => {
-        const start = startRef.current;
-        if (!start) return;
-
-        const rawOffset = e.clientX - start.startX;
-        const slotDelta = clampDelta(pixelsToSlots(rawOffset), start.type, start.edge);
-        const offset = slotsToPixels(slotDelta);
-
-        setInteraction(prev => ({ ...prev, offset, hasMoved: prev.hasMoved || Math.abs(rawOffset) > 3 }));
-    }, [clampDelta, pixelsToSlots, slotsToPixels]);
-
-    const handlePointerUp = useCallback((e: React.PointerEvent) => {
-        const start = startRef.current;
-        if (!start) return;
-
-        (e.target as Element).releasePointerCapture(e.pointerId);
-
-        if (!interaction.hasMoved) {
-            if (start.type === "drag" && onClick) onClick();
-        } else {
-            const slotDelta = pixelsToSlots(interaction.offset);
-            const prevStart = localSlots.start;
-            const prevEnd = localSlots.end;
-
-            if (start.type === "drag") {
-                const newStart = localSlots.start + slotDelta;
-                const newEnd = localSlots.end + slotDelta;
+    // Main drag — moves the whole event bar. `tap` distinguishes click;
+    // commit on `last` fires `onDrag` with snapped slot boundaries.
+    const bindDrag = useDrag(({ active, movement: [mx], tap, last, first }) => {
+        if (first) setIsHovered(true);
+        if (tap) {
+            if (onClick) onClick();
+            if (hasPopover) {
+                setOverlay(prev => ({ ...prev, active: prev.active === "popover" ? "none" : "popover" }));
+            }
+            setDragPx(null);
+            return;
+        }
+        if (last) {
+            const slotDelta = clampDelta(pixelsToSlots(mx), "drag", null);
+            if (slotDelta !== 0) {
+                const prevStart = localSlots.start;
+                const prevEnd = localSlots.end;
+                const newStart = prevStart + slotDelta;
+                const newEnd = prevEnd + slotDelta;
                 setLocalSlots({ start: newStart, end: newEnd });
                 if (onDrag) onDrag(prevStart, prevEnd, newStart, newEnd);
-            } else if (start.type === "resize") {
-                let newStart = localSlots.start;
-                let newEnd = localSlots.end;
-                const minEventSize = stepSize; // Minimum event size is one step
-                if (start.edge === "end") {
-                    newEnd = localSlots.end + slotDelta;
-                    // Enforce minimum size
-                    if (newEnd < newStart + minEventSize) newEnd = newStart + minEventSize;
-                } else {
-                    newStart = localSlots.start + slotDelta;
-                    // Enforce minimum size
-                    if (newStart > newEnd - minEventSize) newStart = newEnd - minEventSize;
-                }
-                setLocalSlots({ start: newStart, end: newEnd });
-                if (onResize) onResize(prevStart, prevEnd, newStart, newEnd, start.edge!);
             }
+            setDragPx(null);
+            setIsHovered(false);
+            return;
         }
+        if (active) {
+            // Always show movement during drag — gating on `onDrag` was
+            // wrong: a draggable-but-readonly bar still benefits from
+            // showing where the user is pulling. Commit only fires
+            // onDrag if defined (in the `last` branch above).
+            setDragPx(mx);
+        }
+    }, { filterTaps: true, preventDefault: true });
 
-        startRef.current = null;
-        setInteraction({ offset: 0, type: null, edge: null, hasMoved: false });
-        setIsHovered(false);
-    }, [interaction, localSlots, stepSize, onClick, onDrag, onResize, pixelsToSlots]);
+    // Resize handle (start edge) — left grip resizes the bar's start slot.
+    const bindResizeStart = useDrag(({ active, movement: [mx], last, first }) => {
+        if (!onResize) return;
+        if (first) setIsHovered(true);
+        if (last) {
+            const slotDelta = clampDelta(pixelsToSlots(mx), "resize", "start");
+            if (slotDelta !== 0) {
+                const prevStart = localSlots.start;
+                const prevEnd = localSlots.end;
+                const minEventSize = stepSize;
+                let newStart = prevStart + slotDelta;
+                if (newStart > prevEnd - minEventSize) newStart = prevEnd - minEventSize;
+                setLocalSlots({ start: newStart, end: prevEnd });
+                onResize(prevStart, prevEnd, newStart, prevEnd, "start");
+            }
+            setResizeStartPx(null);
+            setIsHovered(false);
+            return;
+        }
+        if (active) {
+            const slotDelta = clampDelta(pixelsToSlots(mx), "resize", "start");
+            setResizeStartPx(slotsToPixels(slotDelta));
+        }
+    }, { preventDefault: true });
+
+    // Resize handle (end edge) — right grip resizes the bar's end slot.
+    const bindResizeEnd = useDrag(({ active, movement: [mx], last, first }) => {
+        if (!onResize) return;
+        if (first) setIsHovered(true);
+        if (last) {
+            const slotDelta = clampDelta(pixelsToSlots(mx), "resize", "end");
+            if (slotDelta !== 0) {
+                const prevStart = localSlots.start;
+                const prevEnd = localSlots.end;
+                const minEventSize = stepSize;
+                let newEnd = prevEnd + slotDelta;
+                if (newEnd < prevStart + minEventSize) newEnd = prevStart + minEventSize;
+                setLocalSlots({ start: prevStart, end: newEnd });
+                onResize(prevStart, prevEnd, prevStart, newEnd, "end");
+            }
+            setResizeEndPx(null);
+            setIsHovered(false);
+            return;
+        }
+        if (active) {
+            const slotDelta = clampDelta(pixelsToSlots(mx), "resize", "end");
+            setResizeEndPx(slotsToPixels(slotDelta));
+        }
+    }, { preventDefault: true });
 
     const handleDoubleClick = useCallback(() => {
-        if (onDoubleClick && !interaction.type) onDoubleClick();
-    }, [onDoubleClick, interaction.type]);
+        if (onDoubleClick && !interactionActive) onDoubleClick();
+    }, [onDoubleClick, interactionActive]);
 
     const handleMouseEnter = useCallback(() => {
         setIsHovered(true);
         if (onHoverStart) onHoverStart();
     }, [onHoverStart]);
     const handleMouseLeave = useCallback(() => {
-        if (!interaction.type) setIsHovered(false);
+        if (!interactionActive) setIsHovered(false);
         if (onHoverEnd) onHoverEnd();
-    }, [interaction.type, onHoverEnd]);
+    }, [interactionActive, onHoverEnd]);
 
     // Context menu handler
     const handleContextMenu = useCallback((e: React.MouseEvent) => {
@@ -366,64 +349,27 @@ export const PlannerEvent = ({
         if (onDelete) onDelete();
     }, [onDelete]);
 
-    const cursor = useMemo(() =>
-        readOnly ? "default" : (interaction.type === "drag" ? "grabbing" : onDrag ? "grab" : (onClick || onDoubleClick || hasPopover ? "pointer" : "default")),
-        [readOnly, interaction.type, onDrag, onClick, onDoubleClick, hasPopover]
-    );
+    const cursor = dragPx !== null
+        ? "grabbing"
+        : onDrag
+            ? "grab"
+            : (onClick || onDoubleClick || hasPopover ? "pointer" : "default");
 
-    // Popover context for eventPopoverFn
-    const popoverContext = useMemo((): EventPopoverContext => ({
-        rowIndex: BigInt(rowIndex),
-        eventIndex: BigInt(eventIndex),
-        start: localSlots.start,
-        end: localSlots.end,
-        label: labelProps?.value ? some(labelProps.value) : none,
-        colorPalette: colorPalette ? some(variant(colorPalette, null)) : none,
-    }), [rowIndex, eventIndex, localSlots.start, localSlots.end, labelProps?.value, colorPalette]);
-
-    // Popover content (memoized to avoid recomputing on every render)
-    const popoverContent = useMemo(() => {
-        if (!eventPopoverFn || overlay.active !== "popover") return null;
-        try {
-            return eventPopoverFn(popoverContext);
-        } catch {
-            return null;
-        }
-    }, [eventPopoverFn, overlay.active, popoverContext]);
-
-    // Handle popover click trigger
-    const handlePopoverClick = useCallback((e: React.MouseEvent) => {
-        if (hasPopover && eventPopoverTrigger === "click" && !interaction.hasMoved) {
-            e.stopPropagation();
-            setOverlay(prev => ({ ...prev, active: prev.active === "popover" ? "none" : "popover" }));
-        }
-    }, [hasPopover, eventPopoverTrigger, interaction.hasMoved]);
-
-    // Combined mouse enter handler (hover state + popover + row dimming)
-    const handleCombinedMouseEnter = useCallback(() => {
-        setIsHovered(true);
-        if (onHoverStart) onHoverStart();
-        if (hasPopover && eventPopoverTrigger === "hover") {
-            setOverlay(prev => ({ ...prev, active: "popover" }));
-        }
-    }, [hasPopover, eventPopoverTrigger, onHoverStart]);
-
-    // Combined mouse leave handler (hover state + popover + row dimming)
-    const handleCombinedMouseLeave = useCallback(() => {
-        if (!interaction.type) setIsHovered(false);
-        if (onHoverEnd) onHoverEnd();
-        if (hasPopover && eventPopoverTrigger === "hover") {
-            setOverlay(prev => ({ ...prev, active: "none" }));
-        }
-    }, [hasPopover, eventPopoverTrigger, interaction.type, onHoverEnd]);
-
-    // Get anchor rect for popover positioning
-    const getPopoverAnchorRect = useCallback(() => {
+    // Get anchor rect for tooltip / popover positioning. Both Chakra primitives
+    // accept a `getAnchorRect` callback that returns the screen-space rect of
+    // the SVG `<rect>`; this lets us anchor HTML overlays to SVG content
+    // without bouncing through a foreignObject.
+    const getAnchorRect = useCallback(() => {
         if (eventRectRef.current) {
             return eventRectRef.current.getBoundingClientRect();
         }
         return { x: 0, y: 0, width: 0, height: 0 };
     }, []);
+
+    // Border-radius — accept "8px", "0.5rem", or unsuffixed "4". `parseInt`
+    // strips the unit if present and falls back to a numeric string.
+    const radiusN = eventBorderRadius ? parseInt(eventBorderRadius, 10) : NaN;
+    const radius = Number.isFinite(radiusN) ? radiusN : 4;
 
     return (
         <g>
@@ -437,15 +383,12 @@ export const PlannerEvent = ({
                 stroke={actualStrokeColor}
                 strokeWidth={isActive ? 3 : 2}
                 opacity={baseOpacity}
-                rx={4}
-                ry={4}
-                onClick={handlePopoverClick}
+                rx={radius}
+                ry={radius}
                 onDoubleClick={handleDoubleClick}
-                onMouseEnter={handleCombinedMouseEnter}
-                onMouseLeave={handleCombinedMouseLeave}
-                onPointerDown={handlePointerDown}
-                onPointerMove={handlePointerMove}
-                onPointerUp={handlePointerUp}
+                onMouseEnter={handleMouseEnter}
+                onMouseLeave={handleMouseLeave}
+                {...bindDrag()}
                 onContextMenu={handleContextMenu}
                 style={{ cursor, touchAction: "none", transition: "opacity 150ms ease-in-out" }}
             />
@@ -455,16 +398,16 @@ export const PlannerEvent = ({
                 <foreignObject x={currentX + 8} y={y} width={Math.max(eventWidth - 16, 0)} height={height} style={{ pointerEvents: "none" }}>
                     <Box
                         display="flex"
-                        alignItems={labelProps.verticalAlign === "start" ? "flex-start" : labelProps.verticalAlign === "end" ? "flex-end" : "center"}
-                        justifyContent={labelProps.align === "center" ? "center" : labelProps.align === "end" ? "flex-end" : "flex-start"}
+                        alignItems={alignToCss(labelProps.verticalAlign)}
+                        justifyContent={alignToCss(labelProps.align)}
                         height="100%"
                         opacity={baseOpacity}
                         transition="opacity 150ms ease-in-out"
                     >
                         <Text
                             fontSize={typeof fontSize === "number" ? `${fontSize}px` : fontSize}
-                            color={labelProps.color ?? "fg.default"}
-                            fontWeight={labelProps.fontWeight}
+                            color={labelProps.color ?? labelColor ?? "fg.default"}
+                            fontWeight={labelProps.fontWeight ?? labelFontWeight}
                             fontStyle={labelProps.fontStyle}
                             whiteSpace="nowrap"
                             cursor={cursor}
@@ -501,7 +444,38 @@ export const PlannerEvent = ({
                 </foreignObject>
             )}
 
-            {!readOnly && onResize && (
+            {/* Per-event overlays — axis-aligned UIComponents inside the bar.
+                Each overlay fills the bar as a flex container; align /
+                verticalAlign place the content within. `pointer-events: none`
+                so drag / resize / click still hit the rect. */}
+            {overlays.map((o, i) => (
+                <foreignObject
+                    key={`ov-${i}`}
+                    x={currentX}
+                    y={y}
+                    width={eventWidth}
+                    height={height}
+                    style={{ pointerEvents: "none" }}
+                >
+                    <div
+                        style={{
+                            width: "100%",
+                            height: "100%",
+                            display: "flex",
+                            justifyContent: alignToCss(o.align?.type),
+                            alignItems: alignToCss(o.verticalAlign?.type),
+                            padding: "4px",
+                        }}
+                    >
+                        <EastChakraComponent
+                            value={o.content}
+                            storageKey={`${storageKey}.overlay.${i}`}
+                        />
+                    </div>
+                </foreignObject>
+            ))}
+
+            {onResize && (
                 <>
                     <rect
                         x={currentX - 6}
@@ -511,9 +485,7 @@ export const PlannerEvent = ({
                         fill="transparent"
                         onMouseEnter={handleMouseEnter}
                         onMouseLeave={handleMouseLeave}
-                        onPointerDown={(e) => handleResizePointerDown(e, "start")}
-                        onPointerMove={handlePointerMove}
-                        onPointerUp={handlePointerUp}
+                        {...bindResizeStart()}
                         style={{ cursor: "ew-resize", touchAction: "none" }}
                     />
                     <rect
@@ -524,12 +496,32 @@ export const PlannerEvent = ({
                         fill="transparent"
                         onMouseEnter={handleMouseEnter}
                         onMouseLeave={handleMouseLeave}
-                        onPointerDown={(e) => handleResizePointerDown(e, "end")}
-                        onPointerMove={handlePointerMove}
-                        onPointerUp={handlePointerUp}
+                        {...bindResizeEnd()}
                         style={{ cursor: "ew-resize", touchAction: "none" }}
                     />
                 </>
+            )}
+
+            {/* Per-event tooltip — hover-triggered Chakra Tooltip wraps the
+                event bar via getAnchorRect (works with SVG without
+                foreignObject reflow). */}
+            {hasTooltip && (
+                <Tooltip.Root
+                    open={isHovered}
+                    openDelay={200}
+                    positioning={{ placement: "top", getAnchorRect }}
+                >
+                    <Portal>
+                        <Tooltip.Positioner>
+                            <Tooltip.Content>
+                                <EastChakraComponent
+                                    value={tooltipContent!}
+                                    storageKey={`${storageKey}.tooltip`}
+                                />
+                            </Tooltip.Content>
+                        </Tooltip.Positioner>
+                    </Portal>
+                </Tooltip.Root>
             )}
 
             {/* Context menu for Edit/Delete */}
@@ -568,21 +560,23 @@ export const PlannerEvent = ({
                 </Menu.Root>
             )}
 
-            {/* Event popover */}
+            {/* Per-event popover — click-triggered Chakra Popover. Coexists
+                with `onClick`: a non-drag pointerUp fires both the callback
+                and toggles the popover. */}
             {hasPopover && (
                 <Popover.Root
                     open={overlay.active === "popover"}
                     onOpenChange={(e) => setOverlay(prev => ({ ...prev, active: e.open ? "popover" : "none" }))}
-                    positioning={{
-                        placement: "top",
-                        getAnchorRect: getPopoverAnchorRect,
-                    }}
+                    positioning={{ placement: "top", getAnchorRect }}
                 >
                     <Portal>
                         <Popover.Positioner>
                             <Popover.Content>
-                                <Popover.Body p="1">
-                                    {popoverContent && <EastChakraComponent value={popoverContent} storageKey={`${storageKey}.popover`} />}
+                                <Popover.Body p="3">
+                                    <EastChakraComponent
+                                        value={popoverContent!}
+                                        storageKey={`${storageKey}.popover`}
+                                    />
                                 </Popover.Body>
                             </Popover.Content>
                         </Popover.Positioner>

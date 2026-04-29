@@ -75,7 +75,7 @@ export function Size(size: "xs" | "sm" | "md" | "lg"): ExprType<SizeType> {
  *   remain valid for non-semantic decoration.
  * - **Semantic tokens** (`success`…`neutral`) — bind to meaning, not hue. The
  *   consumer's Chakra theme resolves `colorPalette="success"` etc. to the
- *   dichromacy-safe palette of the design system (see §0.3 contract).
+ *   dichromacy-safe palette of the design system (see contract).
  *
  * @property gray - Gray color scheme
  * @property red - Red color scheme

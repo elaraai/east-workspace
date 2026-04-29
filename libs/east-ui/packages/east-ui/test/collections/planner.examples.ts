@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { East, FloatType, IntegerType, NullType, StringType, variant, example } from "@elaraai/east";
-import { Badge, Planner, Stack, Style, Table, Text, UIComponentType } from "@elaraai/east-ui";
+import { Badge, Icon, Planner, Reactive, Stack, State, Stat, Style, Table, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const plannerBasic = example({
     keywords: ["Planner", "Root", "Event", "basic", "resource", "allocation"],
@@ -76,13 +76,16 @@ export const plannerSingleSlotMode = example({
     fn: East.function([], UIComponentType, (_$) => {
         return Planner.Root(
             [
-                { resource: "Room A", slots: [1.0, 3.0, 5.0, 7.0] },
-                { resource: "Room B", slots: [2.0, 4.0, 6.0, 8.0] },
+                { resource: "Room A", s1: 1.0, s2: 3.0, s3: 5.0, s4: 7.0 },
+                { resource: "Room B", s1: 2.0, s2: 4.0, s3: 6.0, s4: 8.0 },
             ],
             ["resource"],
-            row => row.slots.map((_$, slot) =>
-                Planner.Event({ start: slot, colorPalette: "teal" })
-            ),
+            row => [
+                Planner.Event({ start: row.s1, colorPalette: "teal" }),
+                Planner.Event({ start: row.s2, colorPalette: "teal" }),
+                Planner.Event({ start: row.s3, colorPalette: "teal" }),
+                Planner.Event({ start: row.s4, colorPalette: "teal" }),
+            ],
             { slotMode: "single", maxSlot: 10.0 }
         );
     }),
@@ -150,7 +153,6 @@ export const plannerStyled = example({
             row => [Planner.Event({ start: row.start, end: row.end, colorPalette: "cyan" })],
             {
                 striped: true,
-                interactive: true,
                 slotLineStroke: "gray.300",
                 slotLineDash: "4 2",
                 slotLineOpacity: 0.7,
@@ -276,35 +278,9 @@ export const plannerWithBoundaries = example({
     inputs: [],
 });
 
-export const plannerWithContextMenu = example({
-    keywords: ["Planner", "onEventEdit", "onEventDelete", "context menu"],
-    description: "Right-click on events to see Edit and Delete options",
-    fn: East.function([], UIComponentType, (_$) => {
-        return Planner.Root(
-            [
-                { task: "Design Review", assignee: "Alice", start: 1.0, end: 3.0 },
-                { task: "Code Sprint", assignee: "Bob", start: 2.0, end: 5.0 },
-                { task: "QA Testing", assignee: "Charlie", start: 4.0, end: 6.0 },
-            ],
-            ["task", "assignee"],
-            row => [Planner.Event({ start: row.start, end: row.end, label: { value: row.task }, colorPalette: "blue" })],
-            {
-                maxSlot: 8.0,
-                onEventEdit: East.function([Planner.Types.ClickEvent], NullType, () => {
-                    return null;
-                }),
-                onEventDelete: East.function([Planner.Types.DeleteEvent], NullType, () => {
-                    return null;
-                }),
-            }
-        );
-    }),
-    inputs: [],
-});
-
 export const plannerPopoverClick = example({
-    keywords: ["Planner", "eventPopoverTrigger", "click", "popover"],
-    description: "Click on events to see a popover with custom content",
+    keywords: ["Planner", "popover", "click", "rich"],
+    description: "Per-event click popover — pass a UIComponent into `popover` for rich edit forms / details",
     fn: East.function([], UIComponentType, (_$) => {
         return Planner.Root(
             [
@@ -313,26 +289,26 @@ export const plannerPopoverClick = example({
                 { task: "Code Review", owner: "Charlie", start: 4.0, end: 6.0 },
             ],
             ["task", "owner"],
-            row => [Planner.Event({ start: row.start, end: row.end, label: { value: row.task }, colorPalette: "teal" })],
-            {
-                maxSlot: 8.0,
-                eventPopoverTrigger: "click",
-            },
-            East.function([Planner.Types.EventPopoverContext], UIComponentType, (_$, ctx) => {
-                return Stack.VStack([
-                    Text.Root(East.str`Event Details`, { fontWeight: "bold" }),
-                    Text.Root(East.str`Row: ${ctx.rowIndex}, Event: ${ctx.eventIndex}`),
-                    Text.Root(East.str`Slots: ${ctx.start} - ${ctx.end}`),
-                ], { gap: "2" });
-            })
+            row => [Planner.Event({
+                start: row.start,
+                end: row.end,
+                label: { value: row.task },
+                colorPalette: "teal",
+                popover: Stack.VStack([
+                    Text.Root(East.str`Event: ${row.task}`, { fontWeight: "bold" }),
+                    Text.Root(East.str`Owner: ${row.owner}`),
+                    Text.Root(East.str`Slots: ${row.start} – ${row.end}`),
+                ], { gap: "2" }),
+            })],
+            { maxSlot: 8.0 }
         );
     }),
     inputs: [],
 });
 
-export const plannerPopoverHover = example({
-    keywords: ["Planner", "eventPopoverTrigger", "hover", "tooltip"],
-    description: "Hover over events to see a tooltip-like popover",
+export const plannerEventTooltip = example({
+    keywords: ["Planner", "tooltip", "hover", "rich"],
+    description: "Per-event hover tooltip — pass a UIComponent into `tooltip` for rich preview content",
     fn: East.function([], UIComponentType, (_$) => {
         return Planner.Root(
             [
@@ -341,25 +317,25 @@ export const plannerPopoverHover = example({
                 { resource: "Server C", status: "Maintenance", start: 5.0, end: 8.0 },
             ],
             ["resource", "status"],
-            row => [Planner.Event({ start: row.start, end: row.end, label: { value: row.resource }, colorPalette: "purple" })],
-            {
-                maxSlot: 10.0,
-                eventPopoverTrigger: "hover",
-            },
-            East.function([Planner.Types.EventPopoverContext], UIComponentType, (_$, ctx) => {
-                return Stack.VStack([
-                    Badge.Root(East.str`Event #${ctx.eventIndex}`, { colorPalette: "purple", variant: "solid" }),
-                    Text.Root(East.str`Duration: ${ctx.end.subtract(ctx.start)} slots`),
-                ], { gap: "1", padding: "0px" });
-            })
+            row => [Planner.Event({
+                start: row.start,
+                end: row.end,
+                label: { value: row.resource },
+                colorPalette: "purple",
+                tooltip: Stack.VStack([
+                    Badge.Root(East.str`${row.resource}`, { colorPalette: "purple", variant: "solid" }),
+                    Text.Root(East.str`Status: ${row.status}`),
+                ], { gap: "1", padding: "0px" }),
+            })],
+            { maxSlot: 10.0 }
         );
     }),
     inputs: [],
 });
 
 export const plannerPopoverAndContextMenu = example({
-    keywords: ["Planner", "eventPopoverTrigger", "onEventEdit", "onEventDelete", "combined"],
-    description: "Click for popover, right-click for Edit/Delete menu",
+    keywords: ["Planner", "popover", "onEventEdit", "onEventDelete", "combined"],
+    description: "Click for popover, right-click for Edit/Delete context menu",
     fn: East.function([], UIComponentType, (_$) => {
         return Planner.Root(
             [
@@ -368,28 +344,29 @@ export const plannerPopoverAndContextMenu = example({
                 { project: "Gamma", phase: "Test", start: 4.0, end: 7.0 },
             ],
             ["project", "phase"],
-            row => [Planner.Event({ start: row.start, end: row.end, label: { value: row.project }, colorPalette: "orange" })],
+            row => [Planner.Event({
+                start: row.start,
+                end: row.end,
+                label: { value: row.project },
+                colorPalette: "orange",
+                popover: Stack.VStack([
+                    Text.Root(East.str`${row.project} — ${row.phase}`, { fontWeight: "semibold" }),
+                    Text.Root(East.str`Time: ${row.start} to ${row.end}`),
+                ], { gap: "2" }),
+            })],
             {
                 maxSlot: 8.0,
-                eventPopoverTrigger: "click",
                 onEventEdit: East.function([Planner.Types.ClickEvent], NullType, () => null),
                 onEventDelete: East.function([Planner.Types.DeleteEvent], NullType, () => null),
-            },
-            East.function([Planner.Types.EventPopoverContext], UIComponentType, (_$, ctx) => {
-                return Stack.VStack([
-                    Text.Root(East.str`Project Info`, { fontWeight: "semibold" }),
-                    Text.Root(East.str`Event #${ctx.eventIndex} in row ${ctx.rowIndex}`),
-                    Text.Root(East.str`Time: ${ctx.start} to ${ctx.end}`),
-                ], { gap: "2" });
-            })
+            }
         );
     }),
     inputs: [],
 });
 
 export const plannerReadOnlyMode = example({
-    keywords: ["Planner", "readOnly", "disabled"],
-    description: "Disables moving, resizing, adding, and deleting events",
+    keywords: ["Planner", "read-only", "no callbacks"],
+    description: "Read-only planner — omit `onEventDrag` / `onEventResize` / `onEventAdd` callbacks; presence of callback determines which interactions are enabled.",
     fn: East.function([], UIComponentType, (_$) => {
         return Planner.Root(
             [
@@ -399,10 +376,7 @@ export const plannerReadOnlyMode = example({
             ],
             ["task"],
             row => [Planner.Event({ start: row.start, end: row.end, colorPalette: "gray", label: { value: row.task } })],
-            {
-                maxSlot: 8.0,
-                readOnly: true,
-            }
+            { maxSlot: 8.0 }
         );
     }),
     inputs: [],
@@ -651,6 +625,242 @@ export const plannerChromeColours = example({
                 headerColor: "blue.900",
             },
         );
+    }),
+    inputs: [],
+});
+
+// ============================================================================
+// Plan 1.10 H — per-event overlays + visual-parity tokens + live interactivity
+// ============================================================================
+
+export const plannerEventOverlays = example({
+    keywords: ["Planner", "Event", "overlays", "axis", "align", "verticalAlign", "Badge", "Icon"],
+    description: "Per-event overlays — UIComponents pinned to corners of the event bar (priority chip top-right, status icon bottom-left)",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Planner.Root(
+            [
+                { task: "API redesign", priority: "HIGH", start: 0.0, end: 4.0 },
+                { task: "UI polish", priority: "LOW", start: 2.0, end: 6.0 },
+            ],
+            ["task", "priority"],
+            row => [Planner.Event({
+                start: row.start,
+                end: row.end,
+                label: { value: row.task, color: "white" },
+                colorPalette: "purple",
+                overlays: [
+                    {
+                        content: Badge.Root(row.priority, { colorPalette: "red", variant: "solid", size: "xs" }),
+                        align: "end",
+                        verticalAlign: "start",
+                    },
+                    {
+                        content: Icon.Root("fas", "circle-check", { colorPalette: "green", size: "sm" }),
+                        align: "start",
+                        verticalAlign: "end",
+                    },
+                ],
+            })],
+            { maxSlot: 8.0 },
+        );
+    }),
+    inputs: [],
+});
+
+export const plannerVisualTokens = example({
+    keywords: ["Planner", "eventBorderRadius", "labelColor", "labelFontSize", "labelFontWeight", "visual", "tokens"],
+    description: "Visual-parity tokens — `eventBorderRadius` / `labelColor` / `labelFontSize` / `labelFontWeight` set defaults; per-event `label.color` etc. override",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Planner.Root(
+            // Single row carrying two events on the same track. The first
+            // event inherits the cascading style-level label tokens; the
+            // second overrides them via per-event `label.color` /
+            // `fontSize` / `fontWeight`.
+            [{ row: "demo" }],
+            ["row"],
+            (_row) => [
+                Planner.Event({
+                    start: 0.0,
+                    end: 4.0,
+                    label: { value: "Inherits defaults" },
+                    colorPalette: "teal",
+                }),
+                Planner.Event({
+                    start: 5.0,
+                    end: 9.0,
+                    label: {
+                        value: "Overrides per-event",
+                        color: "yellow.300",
+                        fontSize: "lg",
+                        fontWeight: "bold",
+                    },
+                    colorPalette: "teal",
+                }),
+            ],
+            {
+                maxSlot: 10.0,
+                eventBorderRadius: "8px",
+                labelColor: "white",
+                labelFontSize: "0.875rem",
+                labelFontWeight: "700",
+            },
+        );
+    }),
+    inputs: [],
+});
+
+export const plannerInteractive = example({
+    keywords: ["Planner", "Reactive", "State", "onEventDrag", "onEventResize", "onEventAdd", "interactive", "live"],
+    description: "Live interactivity — drag, resize, and click-on-empty-slot fire callbacks that update state; absence of a callback would disable that interaction",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const startBind = $.let(State.bind([FloatType], "planner_event_start", 1.0));
+            const endBind = $.let(State.bind([FloatType], "planner_event_end", 4.0));
+            const eventStart = $.let(startBind.read());
+            const eventEnd = $.let(endBind.read());
+
+            const onEventDrag = $.const(East.function(
+                [Planner.Types.DragEvent],
+                NullType,
+                ($, event) => {
+                    $(startBind.write(event.newStart));
+                    $(endBind.write(event.newEnd));
+                },
+            ));
+
+            const onEventResize = $.const(East.function(
+                [Planner.Types.ResizeEvent],
+                NullType,
+                ($, event) => {
+                    $(startBind.write(event.newStart));
+                    $(endBind.write(event.newEnd));
+                },
+            ));
+
+            const onEventAdd = $.const(East.function(
+                [Planner.Types.AddEvent],
+                NullType,
+                ($, event) => {
+                    $(startBind.write(event.slot));
+                    $(endBind.write(event.slot.add(2.0)));
+                },
+            ));
+
+            return Stack.VStack([
+                Planner.Root(
+                    [{ name: "Drag, resize, or click an empty slot" }],
+                    { name: { header: "Demo" } },
+                    _row => [Planner.Event({
+                        start: eventStart,
+                        end: eventEnd,
+                        label: { value: "Drag me / resize edges" },
+                        colorPalette: "orange",
+                    })],
+                    {
+                        minSlot: 0.0,
+                        maxSlot: 10.0,
+                        onEventDrag,
+                        onEventResize,
+                        onEventAdd,
+                    },
+                ),
+                Text.Root(
+                    East.str`Position: slot ${eventStart} → ${eventEnd}`,
+                    { textStyle: "body-sm", color: "fg.muted" },
+                ),
+            ], { gap: "3", align: "stretch" });
+        }));
+    }),
+    inputs: [],
+});
+
+export const plannerReactiveClick = example({
+    keywords: ["Planner", "Reactive", "State", "onEventClick", "reactive", "callback"],
+    description: "Reactive click — `onEventClick` writes the clicked event's identity to state and a Badge below the planner reflects it",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const lastClickBind = $.let(State.bind([StringType], "planner_last_click", ""));
+            const lastClick = $.let(lastClickBind.read());
+
+            const onEventClick = $.const(East.function(
+                [Planner.Types.ClickEvent],
+                NullType,
+                ($, event) => {
+                    $(lastClickBind.write(
+                        East.str`row ${event.rowIndex}, event ${event.eventIndex}, slots ${event.start}-${event.end}`,
+                    ));
+                },
+            ));
+
+            return Stack.VStack([
+                Planner.Root(
+                    [
+                        { team: "Alpha", start: 1.0, end: 3.0 },
+                        { team: "Beta", start: 2.0, end: 5.0 },
+                        { team: "Gamma", start: 4.0, end: 7.0 },
+                    ],
+                    ["team"],
+                    row => [Planner.Event({
+                        start: row.start,
+                        end: row.end,
+                        label: { value: row.team },
+                        colorPalette: "cyan",
+                    })],
+                    { maxSlot: 8.0, onEventClick },
+                ),
+                Badge.Root(
+                    East.equal(lastClick.length(), 0n).ifElse(
+                        _$ => "Click any event",
+                        _$ => East.str`Last click: ${lastClick}`,
+                    ),
+                    { colorPalette: "cyan", variant: "outline" },
+                ),
+            ], { gap: "3", align: "stretch" });
+        }));
+    }),
+    inputs: [],
+});
+
+export const plannerEventPopoverWithCallback = example({
+    keywords: ["Planner", "popover", "onEventClick", "coexist", "callback"],
+    description: "Per-event popover coexists with `onEventClick` — clicking the bar opens the popover AND fires the callback",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const clicksBind = $.let(State.bind([IntegerType], "planner_popover_clicks", 0n));
+            const clicks = $.let(clicksBind.read());
+
+            const onEventClick = $.const(East.function(
+                [Planner.Types.ClickEvent],
+                NullType,
+                ($, _event) => {
+                    const current = $.let(clicksBind.read(), IntegerType);
+                    $(clicksBind.write(current.add(1n)));
+                },
+            ));
+
+            return Stack.VStack([
+                Planner.Root(
+                    [{ task: "Status review", owner: "Alice", start: 1.0, end: 4.0 }],
+                    ["task", "owner"],
+                    row => [Planner.Event({
+                        start: row.start,
+                        end: row.end,
+                        label: { value: row.task },
+                        colorPalette: "purple",
+                        popover: Stat.Root(
+                            "Total clicks",
+                            Text.Root(East.str`${clicks}`, { fontWeight: "bold", textStyle: "heading-md" }),
+                            { helpText: "Counter increments every click — popover and callback coexist." },
+                        ),
+                    })],
+                    { maxSlot: 6.0, onEventClick },
+                ),
+                Text.Root(
+                    East.str`Clicked ${clicks} times`,
+                    { textStyle: "body-sm", color: "fg.muted" },
+                ),
+            ], { gap: "3", align: "stretch" });
+        }));
     }),
     inputs: [],
 });

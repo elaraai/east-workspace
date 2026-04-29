@@ -53,6 +53,10 @@ import {
     HoverIntent, HoverIntentType,
     StatusToken, StatusTokenType,
 } from "./interaction.js";
+import {
+    Align, AlignType,
+    LabelInputType,
+} from "./content.js";
 
 /**
  * Style namespace providing convenient access to all styling functions.
@@ -139,6 +143,8 @@ export const Style = {
     FocusStyle,
     HoverIntent,
     StatusToken,
+    // Content
+    Align,
     Types: {
         // Scheme
         Size: SizeType,
@@ -184,5 +190,8 @@ export const Style = {
         FocusStyle: FocusStyleType,
         HoverIntent: HoverIntentType,
         StatusToken: StatusTokenType,
+        // Content
+        Align: AlignType,
+        LabelInput: LabelInputType,
     },
 } as const;

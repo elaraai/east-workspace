@@ -96,22 +96,34 @@ export const BreadcrumbItemType = StructType({
 export type BreadcrumbItemType = typeof BreadcrumbItemType;
 
 // ============================================================================
-// Breadcrumb Root Type
+// Breadcrumb Style Type
 // ============================================================================
+
+/**
+ * Visual-only style struct for Breadcrumb.
+ *
+ * @property variant - Visual variant (underline or plain)
+ * @property size - Size of the breadcrumb (sm, md, lg)
+ * @property colorPalette - Colour scheme for the breadcrumb
+ */
+export const BreadcrumbStyleType = StructType({
+    variant: OptionType(BreadcrumbVariantType),
+    size: OptionType(BreadcrumbSizeType),
+    colorPalette: OptionType(ColorSchemeType),
+});
+
+/** Type alias for the Breadcrumb style struct. */
+export type BreadcrumbStyleType = typeof BreadcrumbStyleType;
 
 /**
  * Type for the Breadcrumb component.
  *
  * @property items - Array of breadcrumb items
- * @property variant - Visual variant (underline or plain)
- * @property size - Size of the breadcrumb (sm, md, lg)
- * @property colorPalette - Color scheme for the breadcrumb
+ * @property style - Optional visual-only style sub-struct
  */
 export const BreadcrumbRootType = StructType({
     items: ArrayType(BreadcrumbItemType),
-    variant: OptionType(BreadcrumbVariantType),
-    size: OptionType(BreadcrumbSizeType),
-    colorPalette: OptionType(ColorSchemeType),
+    style: OptionType(BreadcrumbStyleType),
 });
 
 /**

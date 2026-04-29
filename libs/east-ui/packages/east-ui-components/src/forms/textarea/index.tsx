@@ -22,19 +22,32 @@ export type TextareaValue = ValueTypeOf<typeof Textarea.Types.Textarea>;
 export function toChakraTextarea(value: TextareaValue): TextareaProps {
     const rows = getSomeorUndefined(value.rows);
     const maxLength = getSomeorUndefined(value.maxLength);
+    const style = getSomeorUndefined(value.style);
+    const variantTag = style ? getSomeorUndefined(style.variant)?.type : undefined;
+    const sizeTag = style ? getSomeorUndefined(style.size)?.type : undefined;
+    const resizeTag = style ? getSomeorUndefined(style.resize)?.type : undefined;
+    const colour = style ? getSomeorUndefined(style.color) : undefined;
+    const background = style ? getSomeorUndefined(style.background) : undefined;
+    const borderColor = style ? getSomeorUndefined(style.borderColor) : undefined;
+    const focusBorderColor = style ? getSomeorUndefined(style.focusBorderColor) : undefined;
 
     return {
         value: value.value,
         placeholder: getSomeorUndefined(value.placeholder),
-        variant: getSomeorUndefined(value.variant)?.type,
-        size: getSomeorUndefined(value.size)?.type,
-        resize: getSomeorUndefined(value.resize)?.type,
+        variant: variantTag,
+        size: sizeTag,
+        resize: resizeTag,
         rows: rows !== undefined ? Number(rows) : undefined,
         disabled: getSomeorUndefined(value.disabled),
         readOnly: getSomeorUndefined(value.readOnly),
         required: getSomeorUndefined(value.required),
+        ...(getSomeorUndefined(value.invalid) ? { "aria-invalid": true } : {}),
         maxLength: maxLength !== undefined ? Number(maxLength) : undefined,
         autoresize: getSomeorUndefined(value.autoresize),
+        color: colour,
+        bg: background,
+        borderColor,
+        ...(focusBorderColor ? { _focus: { borderColor: focusBorderColor, boxShadow: `0 0 0 1px ${focusBorderColor}` } } : {}),
     };
 }
 

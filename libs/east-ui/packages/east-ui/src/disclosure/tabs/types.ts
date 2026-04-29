@@ -148,14 +148,14 @@ export type TabsSizeType = typeof TabsSizeType;
 export type TabsSizeLiteral = "sm" | "md" | "lg";
 
 // ============================================================================
-// Tabs Style Type — visual presentation only (§0.10)
+// Tabs Style Type
 // ============================================================================
 
 /**
  * Visual-only style struct for Tabs. Content (`items`), state (`value`,
  * `defaultValue`), and behaviour (`onValueChange`) live on the main `Tabs`
  * variant (inline in `component.ts` because of the item `trigger: node`
- * field) per the Type-shape convention (§0.10).
+ * field).
  *
  * @remarks
  * Holds visual + geometric presets plus per-slot colour escape hatches for

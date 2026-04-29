@@ -190,7 +190,7 @@ function buildListVisualStyle(style: ListStyle): ExprType<ListVisualStyleType> {
  *
  * `marker: "check"` and `marker: "dash"` render real SVG glyphs with
  * `role="img"` + `aria-label` so screen readers announce them — never
- * CSS-only `::before` characters (§0.2 a11y contract).
+ * CSS-only `::before` characters (a11y contract).
  *
  * @example
  * ```ts

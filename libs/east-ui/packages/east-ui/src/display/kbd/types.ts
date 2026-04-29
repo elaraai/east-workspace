@@ -50,7 +50,7 @@ export type KbdVariantLiteral = "solid" | "subtle" | "outline";
  * East StructType for the Kbd style sub-struct.
  *
  * @remarks
- * Visual-only per §0.10. The keys themselves (`keys` array of strings)
+ * Visual-only. The keys themselves (`keys` array of strings)
  * live on the main `KbdType` struct.
  *
  * @property variant - Visual preset (solid / subtle / outline)

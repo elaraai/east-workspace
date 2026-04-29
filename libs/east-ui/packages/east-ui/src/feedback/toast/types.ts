@@ -55,7 +55,7 @@ export const ToastActionType: StructType<{
 export type ToastActionType = typeof ToastActionType;
 
 // ============================================================================
-// Toast Style Type — visual presentation only (§0.10)
+// Toast Style Type
 // ============================================================================
 
 /**

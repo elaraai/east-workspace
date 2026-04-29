@@ -34,22 +34,20 @@ import { NoteVariantType, NoteVisualStyleType } from "./typography/note/types.js
 import { CodeBlockType } from "./typography/code-block/types.js";
 
 // Layout
-import { OrientationType, SizeType, DensityType } from "./style.js";
+import { DensityType, AlignType, LabelInputType, ColorSchemeType } from "./style.js";
 import { BoxStyleType } from "./layout/box/types.js";
 import { FlexStyleType } from "./layout/flex/types.js";
 import { StackStyleType } from "./layout/stack/types.js";
-import { SeparatorVariantType, SeparatorAlignType } from "./layout/separator/types.js";
+import { SeparatorStyleType } from "./layout/separator/types.js";
 import { GridStyleType } from "./layout/grid/types.js";
 import { SplitterStyleType } from "./layout/splitter/types.js";
 import { StickyBoundaryType, StickyStyleType } from "./layout/sticky/types.js";
 import {
-    ScrollAreaOrientationType,
     ScrollbarStyleType,
     ScrollAreaStyleType,
 } from "./layout/scroll-area/types.js";
 import {
     ChipRailSeparatorType,
-    ChipRailOverflowType,
     ChipRailStyleType,
 } from "./layout/chip-rail/types.js";
 
@@ -64,6 +62,11 @@ import { ButtonGroupStyleType } from "./buttons/button-group/types.js";
 // Forms
 import { StringInputType, IntegerInputType, FloatInputType, DateTimeInputType } from "./forms/input/types.js";
 import { CheckboxType } from "./forms/checkbox/types.js";
+import { RadioGroupType } from "./forms/radio-group/types.js";
+import { RadioCardGroupType } from "./forms/radio-card-group/types.js";
+import { TimeScaleControlType } from "./forms/time-scale-control/types.js";
+import { TimeRangeInputType } from "./forms/time-range-input/types.js";
+import { DateRangeInputType } from "./forms/date-range-input/types.js";
 import { FieldType } from "./forms/field/types.js";
 import { SwitchType } from "./forms/switch/types.js";
 import { SelectRootType } from "./forms/select/types.js";
@@ -85,6 +88,7 @@ import { StatusValueType, StatusStyleType } from "./feedback/status/types.js";
 
 // Navigation
 import { BreadcrumbRootType } from "./navigation/breadcrumb/types.js";
+import { NavListType } from "./navigation/nav-list/types.js";
 
 // Display
 import { BadgeType } from "./display/badge/types.js";
@@ -108,10 +112,10 @@ import { DataListStyleType } from "./collections/data-list/types.js";
 import {
     MatrixStyleType,
     MatrixCellSegmentType,
-    MatrixCellOverlayKindType,
-    MatrixCellOverlayPositionType,
     MatrixBrushCoordType,
     MatrixBrushSelectionType,
+    MatrixSegmentClickEventType,
+    MatrixSegmentChangeEventType,
 } from "./collections/matrix/types.js";
 import { PaginationType } from "./collections/pagination/index.js";
 import {
@@ -122,7 +126,6 @@ import {
     TablePaginationType,
 } from "./collections/table/types.js";
 import {
-    GanttEventType,
     GanttStyleType,
     GanttTaskClickEventType,
     GanttTaskDragEventType,
@@ -134,16 +137,14 @@ import {
 } from "./collections/gantt/types.js";
 import {
     PlannerStyleType,
-    PlannerEventType,
-    EventPopoverContextType,
     SlotModeType,
-    EventPopoverTriggerType,
     PlannerBoundaryType,
     EventClickEventType,
     EventDragEventType,
     EventResizeEventType,
     EventAddEventType,
     EventDeleteEventType,
+    EventIconType,
 } from "./collections/planner/types.js";
 import {
     TableRowClickEventType,
@@ -175,8 +176,8 @@ import { TimelineStyleType } from "./disclosure/timeline/types.js";
 import { OptionListStyleType } from "./disclosure/option-list/types.js";
 
 // Overlays
-import { PlacementType } from "./overlays/tooltip/types.js";
-import { MenuItemType } from "./overlays/menu/types.js";
+import { TooltipStyleType } from "./overlays/tooltip/types.js";
+import { MenuItemType, MenuStyleType } from "./overlays/menu/types.js";
 import { TreeViewStyleType, TreeViewSelectionModeType } from "./collections/tree-view/types.js";
 import { DialogStyleType } from "./overlays/dialog/types.js";
 import { DrawerStyleType } from "./overlays/drawer/types.js";
@@ -184,6 +185,9 @@ import { PopoverStyleType } from "./overlays/popover/types.js";
 import { HoverCardStyleType } from "./overlays/hover-card/types.js";
 import { ActionBarItemType, ActionBarStyleType } from "./overlays/action-bar/types.js";
 import { ToggleTipStyleType } from "./overlays/toggle-tip/types.js";
+import { CoachMarkStyleType } from "./overlays/coach-mark/types.js";
+import { CommandPaletteType } from "./overlays/command-palette/types.js";
+import { HotkeyType } from "./platform/hotkey/index.js";
 
 /**
  * Recursive type representing any UI component in East UI.
@@ -319,14 +323,9 @@ export const UIComponentType = RecursiveType(node => VariantType({
     }),
 
     Separator: StructType({
-        orientation: OptionType(OrientationType),
-        variant: OptionType(SeparatorVariantType),
-        size: OptionType(SizeType),
-        color: OptionType(StringType),
         /** Rich label inside the separator. String callers coerce to `Text.Root` at the factory. */
         label: OptionType(node),
-        /** Label alignment (start | center | end); defaults to center. */
-        align: OptionType(SeparatorAlignType),
+        style: OptionType(SeparatorStyleType),
     }),
 
     Grid: StructType({
@@ -374,7 +373,6 @@ export const UIComponentType = RecursiveType(node => VariantType({
      */
     ScrollArea: StructType({
         content: node,
-        orientation: OptionType(ScrollAreaOrientationType),
         scrollbarStyle: OptionType(ScrollbarStyleType),
         style: OptionType(ScrollAreaStyleType),
     }),
@@ -388,7 +386,6 @@ export const UIComponentType = RecursiveType(node => VariantType({
         chips: ArrayType(node),
         density: OptionType(DensityType),
         separator: OptionType(ChipRailSeparatorType),
-        overflow: OptionType(ChipRailOverflowType),
         style: OptionType(ChipRailStyleType),
     }),
 
@@ -399,6 +396,11 @@ export const UIComponentType = RecursiveType(node => VariantType({
     FloatInput: FloatInputType,
     DateTimeInput: DateTimeInputType,
     Checkbox: CheckboxType,
+    RadioGroup: RadioGroupType,
+    RadioCardGroup: RadioCardGroupType,
+    TimeScaleControl: TimeScaleControlType,
+    TimeRangeInput: TimeRangeInputType,
+    DateRangeInput: DateRangeInputType,
     Switch: SwitchType,
     Select: SelectRootType,
     Combobox: ComboboxRootType,
@@ -413,7 +415,7 @@ export const UIComponentType = RecursiveType(node => VariantType({
     ProgressCircle: ProgressCircleType,
 
     /**
-     * Alert — semantic feedback surface with rich content + paired icon (§0.3).
+     * Alert — semantic feedback surface with rich content + paired icon.
      */
     Alert: StructType({
         status: AlertStatusType,
@@ -447,7 +449,7 @@ export const UIComponentType = RecursiveType(node => VariantType({
     Skeleton: SkeletonType,
 
     /**
-     * Status — semantic classification chip with paired icon per §0.3.
+     * Status — semantic classification chip with paired icon.
      */
     Status: StructType({
         value: StatusValueType,
@@ -471,6 +473,7 @@ export const UIComponentType = RecursiveType(node => VariantType({
 
     // Navigation
     Breadcrumb: BreadcrumbRootType,
+    NavList: NavListType,
 
     // Display
     Badge: BadgeType,
@@ -551,17 +554,16 @@ export const UIComponentType = RecursiveType(node => VariantType({
         rows: ArrayType(StructType({
             key: StringType,
             header: OptionType(node),
-            cells: ArrayType(StructType({
-                columnKey: StringType,
+            cells: DictType(StringType, StructType({
                 segments: ArrayType(MatrixCellSegmentType),
                 overlays: ArrayType(StructType({
-                    kind: MatrixCellOverlayKindType,
                     content: node,
-                    position: MatrixCellOverlayPositionType,
+                    align: AlignType,
+                    verticalAlign: AlignType,
                 })),
-                emphasis: OptionType(BooleanType),
                 emphasisColor: OptionType(StringType),
-                note: OptionType(StringType),
+                tooltip: OptionType(node),
+                popover: OptionType(node),
             })),
         })),
         columns: ArrayType(StructType({
@@ -575,6 +577,8 @@ export const UIComponentType = RecursiveType(node => VariantType({
         }))),
         brushSelection: OptionType(MatrixBrushSelectionType),
         onCellClick: OptionType(FunctionType([MatrixBrushCoordType], NullType)),
+        onSegmentClick: OptionType(FunctionType([MatrixSegmentClickEventType], NullType)),
+        onSegmentChange: OptionType(FunctionType([MatrixSegmentChangeEventType], NullType)),
         style: OptionType(MatrixStyleType),
     }),
 
@@ -665,7 +669,37 @@ export const UIComponentType = RecursiveType(node => VariantType({
                 value: LiteralValueType,
                 content: OptionType(node),
             })),
-            events: ArrayType(GanttEventType),
+            tasks: ArrayType(StructType({
+                start: DateTimeType,
+                end: DateTimeType,
+                label: OptionType(LabelInputType),
+                progress: OptionType(FloatType),
+                colorPalette: OptionType(ColorSchemeType),
+                background: OptionType(StringType),
+                stroke: OptionType(StringType),
+                progressFill: OptionType(StringType),
+                overlays: ArrayType(StructType({
+                    content: node,
+                    align: AlignType,
+                    verticalAlign: AlignType,
+                })),
+                tooltip: OptionType(node),
+                popover: OptionType(node),
+            })),
+            milestones: ArrayType(StructType({
+                date: DateTimeType,
+                label: OptionType(LabelInputType),
+                colorPalette: OptionType(ColorSchemeType),
+                fill: OptionType(StringType),
+                stroke: OptionType(StringType),
+                overlays: ArrayType(StructType({
+                    content: node,
+                    align: AlignType,
+                    verticalAlign: AlignType,
+                })),
+                tooltip: OptionType(node),
+                popover: OptionType(node),
+            })),
         })),
         columns: ArrayType(StructType({
             key: StringType,
@@ -678,7 +712,6 @@ export const UIComponentType = RecursiveType(node => VariantType({
             render: OptionType(FunctionType([TableCellRenderContextType], node)),
         })),
         frozen: ArrayType(StringType),
-        interactive: OptionType(BooleanType),
         dragStep: OptionType(TimeStepType),
         durationStep: OptionType(TimeStepType),
         rowStatus: OptionType(FunctionType([IntegerType], StatusTokenType)),
@@ -704,7 +737,23 @@ export const UIComponentType = RecursiveType(node => VariantType({
                 value: LiteralValueType,
                 content: OptionType(node),
             })),
-            events: ArrayType(PlannerEventType),
+            events: ArrayType(StructType({
+                start: FloatType,
+                end: OptionType(FloatType),
+                label: OptionType(LabelInputType),
+                icon: OptionType(EventIconType),
+                colorPalette: OptionType(ColorSchemeType),
+                background: OptionType(StringType),
+                stroke: OptionType(StringType),
+                opacity: OptionType(FloatType),
+                overlays: ArrayType(StructType({
+                    content: node,
+                    align: AlignType,
+                    verticalAlign: AlignType,
+                })),
+                tooltip: OptionType(node),
+                popover: OptionType(node),
+            })),
         })),
         columns: ArrayType(StructType({
             key: StringType,
@@ -717,14 +766,11 @@ export const UIComponentType = RecursiveType(node => VariantType({
             render: OptionType(FunctionType([TableCellRenderContextType], node)),
         })),
         frozen: ArrayType(StringType),
-        interactive: OptionType(BooleanType),
         slotMode: OptionType(SlotModeType),
         minSlot: OptionType(FloatType),
         maxSlot: OptionType(FloatType),
         stepSize: OptionType(FloatType),
         slotLabel: OptionType(FunctionType([FloatType], StringType)),
-        readOnly: OptionType(BooleanType),
-        eventPopoverTrigger: OptionType(EventPopoverTriggerType),
         boundaries: OptionType(ArrayType(PlannerBoundaryType)),
         rowStatus: OptionType(FunctionType([IntegerType], StatusTokenType)),
         onCellClick: OptionType(FunctionType([TableCellClickEventType], NullType)),
@@ -740,7 +786,6 @@ export const UIComponentType = RecursiveType(node => VariantType({
         onEventEdit: OptionType(FunctionType([EventClickEventType], NullType)),
         onEventDelete: OptionType(FunctionType([EventDeleteEventType], NullType)),
         style: OptionType(PlannerStyleType),
-        eventPopover: OptionType(FunctionType([EventPopoverContextType], node)),
     }),
 
     // Disclosure
@@ -785,7 +830,6 @@ export const UIComponentType = RecursiveType(node => VariantType({
         showIndicators: OptionType(BooleanType),
         showControls: OptionType(BooleanType),
         spacing: OptionType(StringType),
-        padding: OptionType(StringType),
         onIndexChange: OptionType(FunctionType([IntegerType], NullType)),
         style: OptionType(CarouselStyleType),
     }),
@@ -902,14 +946,13 @@ export const UIComponentType = RecursiveType(node => VariantType({
     Tooltip: StructType({
         trigger: node,
         content: StringType,
-        placement: OptionType(PlacementType),
-        hasArrow: OptionType(BooleanType),
+        style: OptionType(TooltipStyleType),
     }),
 
     Menu: StructType({
         trigger: node,
         items: ArrayType(MenuItemType),
-        placement: OptionType(PlacementType),
+        style: OptionType(MenuStyleType),
     }),
 
     Dialog: StructType({
@@ -955,6 +998,23 @@ export const UIComponentType = RecursiveType(node => VariantType({
         style: OptionType(ToggleTipStyleType),
     }),
 
+    /**
+     * CoachMark — single one-shot inline hint that wraps a target child
+     * and anchors a popover to it. `target` is the wrapped UIComponent
+     * the popover points at.
+     */
+    CoachMark: StructType({
+        target: node,
+        title: StringType,
+        body: StringType,
+        showOnce: OptionType(StringType),
+        dismissible: OptionType(BooleanType),
+        onDismiss: OptionType(FunctionType([], NullType)),
+        style: OptionType(CoachMarkStyleType),
+    }),
+    CommandPalette: CommandPaletteType,
+    Hotkey: HotkeyType,
+
     // Reactive - for selective re-rendering
     ReactiveComponent: StructType({
         /** The render function to execute - returns UIComponentType */
@@ -966,3 +1026,33 @@ export const UIComponentType = RecursiveType(node => VariantType({
  * Type alias for UIComponentType.
  */
 export type UIComponentType = typeof UIComponentType;
+
+// ============================================================================
+// Shared positioned-content primitives (UIComp-coupled)
+// ============================================================================
+
+/**
+ * Shared overlay input — a UIComponent positioned inside a container
+ * via the same axis-based `align` / `verticalAlign` pair used for
+ * segment labels.
+ *
+ * @remarks
+ * Used by Matrix cell overlays, Planner event overlays, and Gantt
+ * task / milestone overlays. The renderer paints each overlay as an
+ * absolutely-positioned flex container filling the parent box, with
+ * `align` / `verticalAlign` mapped to `justify-content` /
+ * `align-items` (start → flex-start, end → flex-end). Multiple
+ * overlays stack as siblings and don't interfere because each gets
+ * its own flex container.
+ *
+ * @property content - The UIComponent rendered inside the overlay.
+ * @property align - Horizontal alignment within the parent box.
+ * @property verticalAlign - Vertical alignment within the parent box.
+ */
+export const OverlayInputType = StructType({
+    content: UIComponentType,
+    align: AlignType,
+    verticalAlign: AlignType,
+});
+
+export type OverlayInputType = typeof OverlayInputType;

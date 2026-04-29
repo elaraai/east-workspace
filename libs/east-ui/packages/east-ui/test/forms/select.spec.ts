@@ -184,8 +184,8 @@ describeEast("Select", (test) => {
             size: "sm",
         }));
 
-        $(Assert.equal(select.unwrap().unwrap("Select").size.hasTag("some"), true));
-        $(Assert.equal(select.unwrap().unwrap("Select").size.unwrap("some").hasTag("sm"), true));
+        $(Assert.equal(select.unwrap().unwrap("Select").style.unwrap("some").size.hasTag("some"), true));
+        $(Assert.equal(select.unwrap().unwrap("Select").style.unwrap("some").size.unwrap("some").hasTag("sm"), true));
     });
 
     test("creates medium select", $ => {
@@ -195,7 +195,7 @@ describeEast("Select", (test) => {
             size: "md",
         }));
 
-        $(Assert.equal(select.unwrap().unwrap("Select").size.unwrap("some").hasTag("md"), true));
+        $(Assert.equal(select.unwrap().unwrap("Select").style.unwrap("some").size.unwrap("some").hasTag("md"), true));
     });
 
     test("creates large select", $ => {
@@ -205,7 +205,7 @@ describeEast("Select", (test) => {
             size: "lg",
         }));
 
-        $(Assert.equal(select.unwrap().unwrap("Select").size.unwrap("some").hasTag("lg"), true));
+        $(Assert.equal(select.unwrap().unwrap("Select").style.unwrap("some").size.unwrap("some").hasTag("lg"), true));
     });
 
     test("creates select with Style.Size helper", $ => {
@@ -215,7 +215,7 @@ describeEast("Select", (test) => {
             size: Style.Size("md"),
         }));
 
-        $(Assert.equal(select.unwrap().unwrap("Select").size.unwrap("some").hasTag("md"), true));
+        $(Assert.equal(select.unwrap().unwrap("Select").style.unwrap("some").size.unwrap("some").hasTag("md"), true));
     });
 
     // =========================================================================
@@ -238,7 +238,7 @@ describeEast("Select", (test) => {
         $(Assert.equal(select.unwrap().unwrap("Select").placeholder.unwrap("some"), "Select a country"));
         $(Assert.equal(select.unwrap().unwrap("Select").multiple.unwrap("some"), false));
         $(Assert.equal(select.unwrap().unwrap("Select").disabled.unwrap("some"), false));
-        $(Assert.equal(select.unwrap().unwrap("Select").size.unwrap("some").hasTag("md"), true));
+        $(Assert.equal(select.unwrap().unwrap("Select").style.unwrap("some").size.unwrap("some").hasTag("md"), true));
     });
 
     test("creates country selector", $ => {
@@ -254,7 +254,7 @@ describeEast("Select", (test) => {
         }));
 
         $(Assert.equal(select.unwrap().unwrap("Select").placeholder.unwrap("some"), "Select your country"));
-        $(Assert.equal(select.unwrap().unwrap("Select").size.unwrap("some").hasTag("md"), true));
+        $(Assert.equal(select.unwrap().unwrap("Select").style.unwrap("some").size.unwrap("some").hasTag("md"), true));
     });
 
     test("creates color picker select", $ => {

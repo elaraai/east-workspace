@@ -3,12 +3,14 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useMemo, useRef, useState, useCallback } from "react";
-import { Box, Grid, HStack, Text, useToken } from "@chakra-ui/react";
+import React, { memo, useMemo, useRef, useState, useEffect, useCallback } from "react";
+import { Box, Grid, HStack, Popover, Portal, Text, Tooltip, useToken } from "@chakra-ui/react";
+import { useDrag } from "@use-gesture/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Matrix } from "@elaraai/east-ui";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
+import { alignToCss, tokenToCssVar } from "../shared/helpers";
 
 const matrixRootEqual = equalFor(Matrix.Types.Root);
 
@@ -21,120 +23,255 @@ export interface EastChakraMatrixProps {
 }
 
 const SIZE_PRESETS: Record<string, { cellHeight: string; fontSize: string; headerPad: string }> = {
-    xs: { cellHeight: "28px", fontSize: "xs", headerPad: "1" },
-    sm: { cellHeight: "36px", fontSize: "sm", headerPad: "2" },
-    md: { cellHeight: "48px", fontSize: "sm", headerPad: "2" },
-    lg: { cellHeight: "60px", fontSize: "md", headerPad: "3" },
+    xs: { cellHeight: "32px", fontSize: "xs", headerPad: "1.5" },
+    sm: { cellHeight: "40px", fontSize: "sm", headerPad: "2" },
+    md: { cellHeight: "52px", fontSize: "sm", headerPad: "2.5" },
+    lg: { cellHeight: "64px", fontSize: "md", headerPad: "3" },
 };
 
-const POSITION_STYLE: Record<string, React.CSSProperties> = {
-    tl: { top: 2, left: 2 },
-    tr: { top: 2, right: 2 },
-    bl: { bottom: 2, left: 2 },
-    br: { bottom: 2, right: 2 },
-    center: { top: "50%", left: "50%", transform: "translate(-50%, -50%)" },
-};
 
 /**
- * Renders an East UI Matrix value as a CSS-Grid heat-grid with sticky
- * first column, multi-overlay cells, and optional brush selection.
+ * Internal stacking order within a single Matrix. These are ordinal
+ * ranks inside the Matrix's own stacking context — not theme-level
+ * z-indices. Kept as a single map so the intent is visible and the
+ * relationships are easy to audit.
  *
- * @remarks
- * Each cell exposes `data-cell-id="{rowKey}:{columnKey}"` for
- * consumer patterns (AssignmentBoard / RosterGrid) that address
- * cells by coordinate.
+ *   dragHandle < segmentLabel < cellEmphasis < rowHeader < columnHeader < corner < brushRect
+ *
+ * `dragHandle` and `segmentLabel` are local to a cell's segment
+ * stacking context. Segment labels sit above the drag handle but are
+ * `pointer-events: none` so interactions still reach the handle.
+ */
+const STACK = {
+    dragHandle: 1,
+    segmentLabel: 2,
+    cellEmphasis: 3,
+    rowHeader: 4,
+    columnHeader: 5,
+    corner: 6,
+    brushRect: 7,
+} as const;
+
+/**
+ * Renders an East UI Matrix value as a modern enterprise heat-grid —
+ * Chakra CSS-Grid with sticky first column, dict-keyed cells,
+ * hover cross-highlight, controlled brush selection, and optional
+ * segment drag-resize.
  */
 export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageKey }: EastChakraMatrixProps) {
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
     const sizeTag = style ? getSomeorUndefined(style.size)?.type ?? "md" : "md";
     const sizePreset = SIZE_PRESETS[sizeTag] ?? SIZE_PRESETS.md!;
 
-    const showGridLines = style ? getSomeorUndefined(style.showGridLines) ?? true : true;
+    const showGridLines = style ? getSomeorUndefined(style.showGridLines) ?? false : false;
     const gridColorOverride = style ? getSomeorUndefined(style.gridColor) : undefined;
     const headerBackground = style ? getSomeorUndefined(style.headerBackground) : undefined;
     const headerColor = style ? getSomeorUndefined(style.headerColor) : undefined;
     const cellBackground = style ? getSomeorUndefined(style.cellBackground) : undefined;
+    const cellBorderRadius = style ? getSomeorUndefined(style.cellBorderRadius) ?? "2px" : "2px";
     const rowHeaderWidth = style ? getSomeorUndefined(style.rowHeaderWidth) ?? "180px" : "180px";
     const columnHeaderHeight = style ? getSomeorUndefined(style.columnHeaderHeight) ?? sizePreset.cellHeight : sizePreset.cellHeight;
     const legendPosition = style ? getSomeorUndefined(style.legendPosition)?.type ?? "bottom" : "bottom";
+    const emphasisDefault = style ? getSomeorUndefined(style.emphasisColor) : undefined;
+    const selectedBackground = style ? getSomeorUndefined(style.selectedBackground) ?? "blue.200" : "blue.200";
+    const selectedBorderColor = style ? getSomeorUndefined(style.selectedBorderColor) ?? "blue.700" : "blue.700";
+    const hoverHighlightColor = style ? getSomeorUndefined(style.hoverHighlightColor) ?? "yellow.50" : "yellow.50";
+    const segmentLabelColor = style ? getSomeorUndefined(style.segmentLabelColor) ?? "white" : "white";
+    const segmentLabelFontSize = style ? getSomeorUndefined(style.segmentLabelFontSize) ?? "0.75rem" : "0.75rem";
+    const segmentLabelFontWeight = style ? getSomeorUndefined(style.segmentLabelFontWeight) ?? "600" : "600";
+    const orientation = style ? getSomeorUndefined(style.cellOrientation)?.type ?? "horizontal" : "horizontal";
+    // Minimum rendered segment width (CSS) below which the segment label is
+    // suppressed. Default `"24px"`; `"0"` always renders.
+    const minLabelSizePx = useMemo(() => {
+        const raw = style ? getSomeorUndefined(style.minLabelSize) : undefined;
+        if (raw === undefined) return 24;
+        const n = parseInt(raw, 10);
+        return Number.isFinite(n) ? n : 24;
+    }, [style]);
 
-    const [defaultGridColor] = useToken("colors", ["gray.200"]);
+    const [defaultGridColor, defaultEmphasis, selectedBgToken, selectedBorderToken, hoverHighlightToken] = useToken("colors", [
+        "gray.200",
+        emphasisDefault ?? "blue.500",
+        selectedBackground,
+        selectedBorderColor,
+        hoverHighlightColor,
+    ]);
     const gridColor = gridColorOverride ?? defaultGridColor;
 
     const legendEntries = getSomeorUndefined(value.legend);
+    const colorByCategory = useMemo(() => {
+        const m = new Map<string, string>();
+        if (legendEntries) {
+            for (const e of legendEntries) m.set(e.category, e.color);
+        }
+        return m;
+    }, [legendEntries]);
     const brushSelection = getSomeorUndefined(value.brushSelection);
     const brushEnabled = brushSelection?.enabled ?? false;
     const brushOnChange = brushSelection ? getSomeorUndefined(brushSelection.onChange) : undefined;
+    const brushSelected = brushSelection ? getSomeorUndefined(brushSelection.selected) : undefined;
     const onCellClick = getSomeorUndefined(value.onCellClick);
+    const onSegmentClick = getSomeorUndefined(value.onSegmentClick);
+    const onSegmentChange = getSomeorUndefined(value.onSegmentChange);
 
-    const gridRef = useRef<HTMLDivElement>(null);
-    const [brushRect, setBrushRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
-    const [brushOrigin, setBrushOrigin] = useState<{ x: number; y: number } | null>(null);
-    const [selectedCells, setSelectedCells] = useState<Set<string>>(new Set());
-
-    const handlePointerDown = useCallback((e: React.PointerEvent) => {
-        if (!brushEnabled || !gridRef.current) return;
-        const rect = gridRef.current.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-        setBrushOrigin({ x, y });
-        setBrushRect({ x, y, w: 0, h: 0 });
-    }, [brushEnabled]);
-
-    const handlePointerMove = useCallback((e: React.PointerEvent) => {
-        if (!brushEnabled || !brushOrigin || !gridRef.current) return;
-        const rect = gridRef.current.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-        const r = {
-            x: Math.min(x, brushOrigin.x),
-            y: Math.min(y, brushOrigin.y),
-            w: Math.abs(x - brushOrigin.x),
-            h: Math.abs(y - brushOrigin.y),
-        };
-        setBrushRect(r);
-    }, [brushEnabled, brushOrigin]);
-
-    const handlePointerUp = useCallback(() => {
-        if (!brushEnabled || !brushRect || !gridRef.current) {
-            setBrushOrigin(null);
-            setBrushRect(null);
-            return;
+    // Selected cells: when `brushSelected` (the IR prop) is defined,
+    // derive directly from it. When undefined (uncontrolled), fall
+    // through to local state. The pointerUp commit fires
+    // `brushOnChange` for controlled callers; the local state is only
+    // mutated in uncontrolled mode.
+    const isBrushControlled = brushSelected !== undefined;
+    const [localSelectedCells, setLocalSelectedCells] = useState<Set<string>>(new Set());
+    const selectedCells = useMemo<Set<string>>(() => {
+        if (brushSelected) {
+            return new Set(brushSelected.map(c => `${c.row}:${c.column}`));
         }
+        return localSelectedCells;
+    }, [brushSelected, localSelectedCells]);
+
+    // Hover cross-highlight
+    const [hoveredCell, setHoveredCell] = useState<{ row: string; column: string } | null>(null);
+
+    // Brush-drag state
+    const gridRef = useRef<HTMLDivElement>(null);
+
+    // Live-measured cell pixel width — feeds the `minLabelSize` gating
+    // and the horizontal segment-drag math. Cells in a Matrix are
+    // uniformly sized (`repeat(N, 1fr)`), so one measurement applies to
+    // every cell. Updated via ResizeObserver on the grid container.
+    const [cellWidthPx, setCellWidthPx] = useState<number>(0);
+    useEffect(() => {
+        const el = gridRef.current;
+        if (!el) return;
+        const measure = () => {
+            const total = el.clientWidth;
+            const rowHdrPx = parseInt(rowHeaderWidth, 10) || 0;
+            const cols = value.columns.length || 1;
+            const w = Math.max(0, (total - rowHdrPx) / cols);
+            setCellWidthPx(w);
+        };
+        measure();
+        const ro = new ResizeObserver(measure);
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, [rowHeaderWidth, value.columns.length]);
+    const [brushRect, setBrushRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+    const [provisionalSelected, setProvisionalSelected] = useState<Set<string>>(() => new Set());
+    const brushOriginRef = useRef<{ x: number; y: number } | null>(null);
+
+    const computeCellsInRect = useCallback((rect: { x: number; y: number; w: number; h: number }) => {
+        if (!gridRef.current) return new Set<string>();
         const gridRect = gridRef.current.getBoundingClientRect();
-        const selected = new Set<string>();
-        const cellEls = gridRef.current.querySelectorAll<HTMLElement>("[data-cell-id]");
-        cellEls.forEach(el => {
+        const hits = new Set<string>();
+        gridRef.current.querySelectorAll<HTMLElement>("[data-cell-id]").forEach(el => {
             const cellId = el.getAttribute("data-cell-id");
             if (!cellId) return;
             const r = el.getBoundingClientRect();
             const cx = r.left - gridRect.left;
             const cy = r.top - gridRect.top;
-            const intersects = !(
-                cx + r.width < brushRect.x
-                || cx > brushRect.x + brushRect.w
-                || cy + r.height < brushRect.y
-                || cy > brushRect.y + brushRect.h
-            );
-            if (intersects) selected.add(cellId);
+            if (!(cx + r.width < rect.x || cx > rect.x + rect.w
+                || cy + r.height < rect.y || cy > rect.y + rect.h)) {
+                hits.add(cellId);
+            }
         });
-        setSelectedCells(selected);
-        if (brushOnChange) {
-            const coords = Array.from(selected).map(id => {
-                const idx = id.indexOf(":");
-                return { row: id.slice(0, idx), column: id.slice(idx + 1) };
-            });
-            queueMicrotask(() => brushOnChange(coords));
+        return hits;
+    }, []);
+
+    // Brush selection via @use-gesture/react. The library handles
+    // pointerCapture, pointer-cancel cleanup, and click-vs-drag (via
+    // `filterTaps`); we just compute the rect against the grid's local
+    // coordinate frame and commit on `last`.
+    const bindBrush = useDrag(({ active, xy: [px, py], last, first, tap }) => {
+        if (!brushEnabled || !gridRef.current) return;
+        if (tap) {
+            // Single click hits a cell — no brush selection.
+            brushOriginRef.current = null;
+            setBrushRect(null);
+            setProvisionalSelected(new Set());
+            return;
         }
-        setBrushOrigin(null);
-        setBrushRect(null);
-    }, [brushEnabled, brushRect, brushOnChange]);
+        const r = gridRef.current.getBoundingClientRect();
+        const x = px - r.left;
+        const y = py - r.top;
+        if (first) {
+            brushOriginRef.current = { x, y };
+        }
+        const origin = brushOriginRef.current;
+        if (!origin) return;
+        const rect = {
+            x: Math.min(x, origin.x),
+            y: Math.min(y, origin.y),
+            w: Math.abs(x - origin.x),
+            h: Math.abs(y - origin.y),
+        };
+        if (last) {
+            const selected = computeCellsInRect(rect);
+            // Only mutate local state when uncontrolled — when controlled,
+            // the IR prop drives the next render via `brushOnChange`.
+            if (!isBrushControlled) {
+                setLocalSelectedCells(selected);
+            }
+            setProvisionalSelected(new Set());
+            if (brushOnChange) {
+                const coords = Array.from(selected).map(id => {
+                    const idx = id.indexOf(":");
+                    return { row: id.slice(0, idx), column: id.slice(idx + 1) };
+                });
+                queueMicrotask(() => brushOnChange(coords));
+            }
+            brushOriginRef.current = null;
+            setBrushRect(null);
+            return;
+        }
+        if (active) {
+            setBrushRect(rect);
+            setProvisionalSelected(computeCellsInRect(rect));
+        }
+    }, { filterTaps: true, preventDefault: true });
 
     const handleCellClick = useCallback((rowKey: string, columnKey: string) => {
         if (onCellClick) {
             queueMicrotask(() => onCellClick({ row: rowKey, column: columnKey }));
         }
     }, [onCellClick]);
+
+    const handleSegmentClick = useCallback((e: React.MouseEvent, rowKey: string, columnKey: string, category: string) => {
+        if (!onSegmentClick) return;
+        e.stopPropagation();
+        queueMicrotask(() => onSegmentClick({ row: rowKey, column: columnKey, category }));
+    }, [onSegmentClick]);
+
+    const handleSegmentDrag = useCallback((
+        e: React.PointerEvent,
+        rowKey: string,
+        columnKey: string,
+        category: string,
+        startWeight: number,
+        totalWeight: number,
+        axis: "x" | "y",
+        cellSize: number,
+        min: number,
+        max: number,
+        step: number,
+    ) => {
+        if (!onSegmentChange) return;
+        e.stopPropagation();
+        const startX = e.clientX;
+        const startY = e.clientY;
+        const moveHandler = (me: PointerEvent) => {
+            const delta = axis === "x" ? me.clientX - startX : me.clientY - startY;
+            const deltaWeight = (delta / cellSize) * totalWeight;
+            let newWeight = startWeight + (axis === "x" ? deltaWeight : -deltaWeight);
+            newWeight = Math.max(min, Math.min(max, newWeight));
+            newWeight = Math.round(newWeight / step) * step;
+            queueMicrotask(() => onSegmentChange({ row: rowKey, column: columnKey, category, weight: newWeight }));
+        };
+        const upHandler = () => {
+            window.removeEventListener("pointermove", moveHandler);
+            window.removeEventListener("pointerup", upHandler);
+        };
+        window.addEventListener("pointermove", moveHandler);
+        window.addEventListener("pointerup", upHandler);
+    }, [onSegmentChange]);
 
     const columns = value.columns;
     const rows = value.rows;
@@ -147,157 +284,377 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
         <Box
             position="relative"
             overflow="auto"
-            border={showGridLines ? `1px solid ${gridColor}` : undefined}
             borderRadius="md"
             background="white"
             boxShadow="sm"
+            border="1px solid"
+            borderColor={gridColor}
         >
             <Grid
                 ref={gridRef}
                 templateColumns={gridTemplateColumns}
-                onPointerDown={handlePointerDown}
-                onPointerMove={handlePointerMove}
-                onPointerUp={handlePointerUp}
-                onPointerLeave={handlePointerUp}
+                gap={showGridLines ? "0" : "1px"}
+                background={showGridLines ? undefined : gridColor}
+                {...bindBrush()}
                 userSelect="none"
                 role="grid"
             >
-                {/* Top-left corner (sticky) */}
+                {/* Top-left corner */}
                 <Box
                     position="sticky"
                     left={0}
                     top={0}
-                    zIndex={3}
+                    zIndex={STACK.corner}
                     height={columnHeaderHeight}
                     background={headerBg}
                     color={headerFg}
-                    borderRight={showGridLines ? `1px solid ${gridColor}` : undefined}
-                    borderBottom={showGridLines ? `1px solid ${gridColor}` : undefined}
+                    {...(showGridLines ? { borderRight: `1px solid ${gridColor}`, borderBottom: `1px solid ${gridColor}` } : {})}
                 />
 
                 {/* Column headers */}
-                {columns.map((col, i) => (
-                    <Box
-                        key={`colhdr-${col.key}`}
-                        position="sticky"
-                        top={0}
-                        zIndex={2}
-                        height={columnHeaderHeight}
-                        background={headerBg}
-                        color={headerFg}
-                        px={sizePreset.headerPad}
-                        display="flex"
-                        alignItems="center"
-                        justifyContent="center"
-                        fontSize={sizePreset.fontSize}
-                        fontWeight="semibold"
-                        borderRight={showGridLines && i < columns.length - 1 ? `1px solid ${gridColor}` : undefined}
-                        borderBottom={showGridLines ? `1px solid ${gridColor}` : undefined}
-                        role="columnheader"
-                    >
-                        {col.header ? (
-                            <EastChakraComponent
-                                value={getSomeorUndefined(col.header)!}
-                                storageKey={`${storageKey}.col.${col.key}`}
-                            />
-                        ) : col.key}
-                    </Box>
-                ))}
-
-                {/* Rows */}
-                {rows.map(row => (
-                    <>
-                        {/* Row header — sticky left */}
+                {columns.map(col => {
+                    const isHovered = hoveredCell?.column === col.key;
+                    return (
                         <Box
-                            key={`rowhdr-${row.key}`}
+                            key={`colhdr-${col.key}`}
                             position="sticky"
-                            left={0}
-                            zIndex={1}
-                            height={sizePreset.cellHeight}
-                            background={headerBg}
+                            top={0}
+                            zIndex={STACK.columnHeader}
+                            height={columnHeaderHeight}
+                            background={isHovered ? hoverHighlightToken : headerBg}
                             color={headerFg}
                             px={sizePreset.headerPad}
                             display="flex"
                             alignItems="center"
+                            justifyContent="center"
                             fontSize={sizePreset.fontSize}
-                            fontWeight="medium"
-                            borderRight={showGridLines ? `1px solid ${gridColor}` : undefined}
-                            borderBottom={showGridLines ? `1px solid ${gridColor}` : undefined}
-                            role="rowheader"
+                            fontWeight="semibold"
+                            transition="background 0.15s"
+                            {...(showGridLines ? { borderBottom: `1px solid ${gridColor}` } : {})}
+                            role="columnheader"
                         >
-                            {row.header ? (
+                            {col.header ? (
                                 <EastChakraComponent
-                                    value={getSomeorUndefined(row.header)!}
-                                    storageKey={`${storageKey}.row.${row.key}`}
+                                    value={getSomeorUndefined(col.header)!}
+                                    storageKey={`${storageKey}.col.${col.key}`}
                                 />
-                            ) : row.key}
+                            ) : col.key}
                         </Box>
+                    );
+                })}
 
-                        {/* Cells for this row */}
-                        {columns.map((col, colIdx) => {
-                            const cell = row.cells.find(c => c.columnKey === col.key);
-                            const cellId = `${row.key}:${col.key}`;
-                            const segments = cell?.segments ?? [];
-                            const totalWeight = segments.reduce((a, s) => a + s.value, 0) || 1;
-                            const emphasis = cell ? getSomeorUndefined(cell.emphasis) : undefined;
-                            const emphasisColor = cell ? getSomeorUndefined(cell.emphasisColor) : undefined;
-                            const note = cell ? getSomeorUndefined(cell.note) : undefined;
-                            const overlays = cell?.overlays ?? [];
-                            const isSelected = selectedCells.has(cellId);
+                {/* Rows */}
+                {rows.map(row => {
+                    const isRowHovered = hoveredCell?.row === row.key;
+                    return (
+                        <>
+                            {/* Row header */}
+                            <Box
+                                key={`rowhdr-${row.key}`}
+                                position="sticky"
+                                left={0}
+                                zIndex={STACK.rowHeader}
+                                height={sizePreset.cellHeight}
+                                background={isRowHovered ? hoverHighlightToken : headerBg}
+                                color={headerFg}
+                                px={sizePreset.headerPad}
+                                display="flex"
+                                alignItems="center"
+                                fontSize={sizePreset.fontSize}
+                                fontWeight="medium"
+                                transition="background 0.15s"
+                                {...(showGridLines ? { borderRight: `1px solid ${gridColor}` } : {})}
+                                role="rowheader"
+                            >
+                                {row.header ? (
+                                    <EastChakraComponent
+                                        value={getSomeorUndefined(row.header)!}
+                                        storageKey={`${storageKey}.row.${row.key}`}
+                                    />
+                                ) : row.key}
+                            </Box>
 
-                            return (
-                                <Box
-                                    key={cellId}
-                                    data-cell-id={cellId}
-                                    role="gridcell"
-                                    position="relative"
-                                    height={sizePreset.cellHeight}
-                                    background={cellBackground ?? "white"}
-                                    borderRight={showGridLines && colIdx < columns.length - 1 ? `1px solid ${gridColor}` : undefined}
-                                    borderBottom={showGridLines ? `1px solid ${gridColor}` : undefined}
-                                    cursor={onCellClick ? "pointer" : brushEnabled ? "crosshair" : "default"}
-                                    transition="background 0.15s"
-                                    {...(onCellClick ? { _hover: { background: "gray.50" } } : {})}
-                                    {...(note !== undefined ? { title: note } : {})}
-                                    onClick={() => handleCellClick(row.key, col.key)}
-                                    {...((emphasis || isSelected) ? {
-                                        outline: `2px solid ${emphasisColor ?? "var(--chakra-colors-blue-400)"}`,
-                                        outlineOffset: "-2px",
-                                    } : {})}
-                                >
-                                    {/* Segment fill */}
-                                    {segments.length > 0 && (
-                                        <HStack gap={0} height="100%" width="100%">
-                                            {segments.map((seg, i) => (
-                                                <Box
-                                                    key={i}
-                                                    height="100%"
-                                                    flex={seg.value / totalWeight}
-                                                    background={getSomeorUndefined(seg.color) ?? "blue.400"}
-                                                />
-                                            ))}
-                                        </HStack>
-                                    )}
+                            {/* Cells for this row */}
+                            {columns.map(col => {
+                                const cell = row.cells.get(col.key);
+                                const cellId = `${row.key}:${col.key}`;
+                                const segments = cell?.segments ?? [];
+                                const totalWeight = segments.reduce((a, s) => a + s.weight, 0) || 1;
+                                const emphasisColor = cell ? getSomeorUndefined(cell.emphasisColor) : undefined;
+                                const isEmphasized = !!emphasisColor || (cell && emphasisDefault !== undefined && false);
+                                const tooltip = cell ? getSomeorUndefined(cell.tooltip) : undefined;
+                                const popover = cell ? getSomeorUndefined(cell.popover) : undefined;
+                                const overlays = cell?.overlays ?? [];
+                                const isSelected = selectedCells.has(cellId) || provisionalSelected.has(cellId);
+                                const isThisCellHovered = hoveredCell?.row === row.key && hoveredCell?.column === col.key;
 
-                                    {/* Overlays */}
-                                    {overlays.map((o, i) => (
-                                        <Box
-                                            key={`ov-${i}`}
-                                            position="absolute"
-                                            style={POSITION_STYLE[o.position.type] ?? POSITION_STYLE.tl!}
-                                            fontSize={sizePreset.fontSize}
-                                        >
-                                            <EastChakraComponent
-                                                value={o.content}
-                                                storageKey={`${storageKey}.cell.${cellId}.overlay.${i}`}
+                                const cellBody = (
+                                    <Box
+                                        data-cell-id={cellId}
+                                        role="gridcell"
+                                        position="relative"
+                                        width="100%"
+                                        height={sizePreset.cellHeight}
+                                        background={
+                                            isSelected ? selectedBgToken
+                                            : isThisCellHovered ? "yellow.100"
+                                            : (cellBackground ?? "white")
+                                        }
+                                        borderRadius={cellBorderRadius}
+                                        cursor={onCellClick ? "pointer" : brushEnabled ? "crosshair" : "default"}
+                                        transition="background 0.15s, box-shadow 0.15s"
+                                        onClick={() => handleCellClick(row.key, col.key)}
+                                        onPointerEnter={() => setHoveredCell({ row: row.key, column: col.key })}
+                                        onPointerLeave={() => setHoveredCell(null)}
+                                        overflow="hidden"
+                                        {...(emphasisColor ? {
+                                            outline: `3px solid ${emphasisColor}`,
+                                            outlineOffset: "-3px",
+                                            zIndex: STACK.cellEmphasis,
+                                        } : isEmphasized ? {
+                                            outline: `3px solid ${defaultEmphasis}`,
+                                            outlineOffset: "-3px",
+                                            zIndex: STACK.cellEmphasis,
+                                        } : {})}
+                                        {...(isSelected ? {
+                                            boxShadow: `inset 0 0 0 3px ${selectedBorderToken}`,
+                                        } : {})}
+                                    >
+                                        {/* Segment fill */}
+                                        {segments.length > 0 && (
+                                            orientation === "vertical" ? (
+                                                <Box display="flex" flexDirection="column-reverse" height="100%" width="100%">
+                                                    {segments.map((seg, i) => {
+                                                        const pct = (seg.weight / totalWeight) * 100;
+                                                        const isResizable = !!onSegmentChange && i < segments.length - 1;
+                                                        const segColor = getSomeorUndefined(seg.color) ?? colorByCategory.get(seg.category) ?? "blue.400";
+                                                        const handleColor = tokenToCssVar(segColor);
+                                                        const segLabel = getSomeorUndefined(seg.label);
+                                                        // Cell height is fixed via the size preset; vertical
+                                                        // segment height in pixels = pct% × cellHeight. Hide
+                                                        // label when below `style.minLabelSize`.
+                                                        const cellPxV = parseInt(sizePreset.cellHeight, 10) || 52;
+                                                        const segPxV = (pct / 100) * cellPxV;
+                                                        const showLabelV = segPxV >= minLabelSizePx;
+                                                        return (
+                                                            <Box
+                                                                key={i}
+                                                                width="100%"
+                                                                height={`${pct}%`}
+                                                                background={segColor}
+                                                                position="relative"
+                                                                cursor={onSegmentClick ? "pointer" : "default"}
+                                                                onClick={(e) => handleSegmentClick(e, row.key, col.key, seg.category)}
+                                                            >
+                                                                {isResizable && (
+                                                                    <div
+                                                                        style={{
+                                                                            position: "absolute",
+                                                                            top: "-4px",
+                                                                            left: 0,
+                                                                            right: 0,
+                                                                            height: "8px",
+                                                                            cursor: "row-resize",
+                                                                            background: "transparent",
+                                                                            transition: "background 0.15s",
+                                                                            zIndex: STACK.dragHandle,
+                                                                        }}
+                                                                        onPointerEnter={(e) => { e.currentTarget.style.background = handleColor; e.currentTarget.style.filter = "brightness(0.55)"; }}
+                                                                        onPointerLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.filter = "none"; }}
+                                                                        onPointerDown={(e) => handleSegmentDrag(
+                                                                            e, row.key, col.key, seg.category,
+                                                                            seg.weight, totalWeight, "y",
+                                                                            parseInt(sizePreset.cellHeight, 10) || 52,
+                                                                            getSomeorUndefined(seg.min) ?? 0,
+                                                                            getSomeorUndefined(seg.max) ?? 1,
+                                                                            getSomeorUndefined(seg.step) ?? 0.01,
+                                                                        )}
+                                                                    />
+                                                                )}
+                                                                {segLabel && showLabelV && (
+                                                                    <div
+                                                                        style={{
+                                                                            position: "absolute",
+                                                                            inset: 0,
+                                                                            display: "flex",
+                                                                            alignItems: alignToCss(getSomeorUndefined(segLabel.verticalAlign)?.type),
+                                                                            justifyContent: alignToCss(getSomeorUndefined(segLabel.align)?.type),
+                                                                            padding: "0 6px",
+                                                                            color: getSomeorUndefined(segLabel.color) ?? segmentLabelColor,
+                                                                            fontSize: segmentLabelFontSize,
+                                                                            fontWeight: segmentLabelFontWeight,
+                                                                            pointerEvents: "none",
+                                                                            zIndex: STACK.segmentLabel,
+                                                                        }}
+                                                                    >
+                                                                        {segLabel.value}
+                                                                    </div>
+                                                                )}
+                                                            </Box>
+                                                        );
+                                                    })}
+                                                </Box>
+                                            ) : (
+                                                <Box display="flex" flexDirection="row" height="100%" width="100%">
+                                                    {segments.map((seg, i) => {
+                                                        const pct = (seg.weight / totalWeight) * 100;
+                                                        const isResizable = !!onSegmentChange && i < segments.length - 1;
+                                                        const segColor = getSomeorUndefined(seg.color) ?? colorByCategory.get(seg.category) ?? "blue.400";
+                                                        const handleColor = tokenToCssVar(segColor);
+                                                        const segLabel = getSomeorUndefined(seg.label);
+                                                        // Cell width is live-measured via the ResizeObserver
+                                                        // on the grid container (cells are uniformly sized
+                                                        // by `repeat(N, 1fr)` so one measurement applies).
+                                                        // Hide the label when its segment renders narrower
+                                                        // than `style.minLabelSize`.
+                                                        const segPxH = (pct / 100) * cellWidthPx;
+                                                        const showLabelH = cellWidthPx > 0 && segPxH >= minLabelSizePx;
+                                                        return (
+                                                            <Box
+                                                                key={i}
+                                                                height="100%"
+                                                                width={`${pct}%`}
+                                                                background={segColor}
+                                                                position="relative"
+                                                                cursor={onSegmentClick ? "pointer" : "default"}
+                                                                onClick={(e) => handleSegmentClick(e, row.key, col.key, seg.category)}
+                                                            >
+                                                                {isResizable && (
+                                                                    <div
+                                                                        style={{
+                                                                            position: "absolute",
+                                                                            right: "-4px",
+                                                                            top: 0,
+                                                                            bottom: 0,
+                                                                            width: "8px",
+                                                                            cursor: "col-resize",
+                                                                            background: "transparent",
+                                                                            transition: "background 0.15s",
+                                                                            zIndex: STACK.dragHandle,
+                                                                        }}
+                                                                        onPointerEnter={(e) => { e.currentTarget.style.background = handleColor; e.currentTarget.style.filter = "brightness(0.55)"; }}
+                                                                        onPointerLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.filter = "none"; }}
+                                                                        onPointerDown={(e) => handleSegmentDrag(
+                                                                            e, row.key, col.key, seg.category,
+                                                                            seg.weight, totalWeight, "x",
+                                                                            cellWidthPx || 200,
+                                                                            getSomeorUndefined(seg.min) ?? 0,
+                                                                            getSomeorUndefined(seg.max) ?? 1,
+                                                                            getSomeorUndefined(seg.step) ?? 0.01,
+                                                                        )}
+                                                                    />
+                                                                )}
+                                                                {segLabel && showLabelH && (
+                                                                    <div
+                                                                        style={{
+                                                                            position: "absolute",
+                                                                            inset: 0,
+                                                                            display: "flex",
+                                                                            alignItems: alignToCss(getSomeorUndefined(segLabel.verticalAlign)?.type),
+                                                                            justifyContent: alignToCss(getSomeorUndefined(segLabel.align)?.type),
+                                                                            padding: "0 6px",
+                                                                            color: getSomeorUndefined(segLabel.color) ?? segmentLabelColor,
+                                                                            fontSize: segmentLabelFontSize,
+                                                                            fontWeight: segmentLabelFontWeight,
+                                                                            pointerEvents: "none",
+                                                                            zIndex: STACK.segmentLabel,
+                                                                        }}
+                                                                    >
+                                                                        {segLabel.value}
+                                                                    </div>
+                                                                )}
+                                                            </Box>
+                                                        );
+                                                    })}
+                                                </Box>
+                                            )
+                                        )}
+
+                                        {/* Selection / hover tint — drawn on top of segments so the
+                                            state colour shows through even when the cell is fully filled. */}
+                                        {(isSelected || isThisCellHovered) && (
+                                            <Box
+                                                position="absolute"
+                                                inset={0}
+                                                background={isSelected ? selectedBgToken : hoverHighlightToken}
+                                                opacity={isSelected ? 0.55 : 0.4}
+                                                pointerEvents="none"
                                             />
-                                        </Box>
-                                    ))}
-                                </Box>
-                            );
-                        })}
-                    </>
-                ))}
+                                        )}
+
+                                        {/* Overlays — each fills the cell as a flex container so
+                                            align / verticalAlign position the content within. */}
+                                        {overlays.map((o, i) => (
+                                            <div
+                                                key={`ov-${i}`}
+                                                style={{
+                                                    position: "absolute",
+                                                    inset: 0,
+                                                    display: "flex",
+                                                    justifyContent: alignToCss(o.align?.type),
+                                                    alignItems: alignToCss(o.verticalAlign?.type),
+                                                    padding: "4px",
+                                                    pointerEvents: "none",
+                                                }}
+                                            >
+                                                <EastChakraComponent
+                                                    value={o.content}
+                                                    storageKey={`${storageKey}.cell.${cellId}.overlay.${i}`}
+                                                />
+                                            </div>
+                                        ))}
+                                    </Box>
+                                );
+
+                                // Wrapping order: Popover.Root (outermost so its
+                                // anchor element is the cell), then Tooltip.Root
+                                // around the same cellBody. Both can be present
+                                // simultaneously — popover opens on click,
+                                // tooltip opens on hover.
+                                let body: React.ReactNode = cellBody;
+                                if (tooltip !== undefined) {
+                                    body = (
+                                        <Tooltip.Root key={`${cellId}-tt`} openDelay={200}>
+                                            <Tooltip.Trigger asChild>
+                                                {body}
+                                            </Tooltip.Trigger>
+                                            <Tooltip.Positioner>
+                                                <Tooltip.Content>
+                                                    <EastChakraComponent
+                                                        value={tooltip}
+                                                        storageKey={`${storageKey}.cell.${cellId}.tooltip`}
+                                                    />
+                                                </Tooltip.Content>
+                                            </Tooltip.Positioner>
+                                        </Tooltip.Root>
+                                    );
+                                }
+                                if (popover !== undefined) {
+                                    body = (
+                                        <Popover.Root key={`${cellId}-pop`}>
+                                            <Popover.Trigger asChild>
+                                                {body}
+                                            </Popover.Trigger>
+                                            <Portal>
+                                                <Popover.Positioner>
+                                                    <Popover.Content>
+                                                        <Popover.Body p="3">
+                                                            <EastChakraComponent
+                                                                value={popover}
+                                                                storageKey={`${storageKey}.cell.${cellId}.popover`}
+                                                            />
+                                                        </Popover.Body>
+                                                    </Popover.Content>
+                                                </Popover.Positioner>
+                                            </Portal>
+                                        </Popover.Root>
+                                    );
+                                }
+                                return <React.Fragment key={cellId}>{body}</React.Fragment>;
+                            })}
+                        </>
+                    );
+                })}
             </Grid>
 
             {/* Brush selection rectangle */}
@@ -308,12 +665,12 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
                     top={`${brushRect.y}px`}
                     width={`${brushRect.w}px`}
                     height={`${brushRect.h}px`}
-                    background="blue.400"
-                    opacity={0.15}
+                    background={selectedBgToken}
+                    opacity={0.35}
                     border="1px dashed"
-                    borderColor="blue.500"
+                    borderColor={selectedBorderToken}
                     pointerEvents="none"
-                    zIndex={10}
+                    zIndex={STACK.brushRect}
                 />
             )}
         </Box>
@@ -332,14 +689,8 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
         </HStack>
     ) : null;
 
-    if (legendPosition === "top") {
-        return <Box>{legend}{grid}</Box>;
-    }
-    if (legendPosition === "bottom" || !legend) {
-        return <Box>{grid}{legend}</Box>;
-    }
-    if (legendPosition === "left") {
-        return <HStack gap="3" align="flex-start"><Box>{legend}</Box>{grid}</HStack>;
-    }
+    if (legendPosition === "top") return <Box>{legend}{grid}</Box>;
+    if (legendPosition === "bottom" || !legend) return <Box>{grid}{legend}</Box>;
+    if (legendPosition === "left") return <HStack gap="3" align="flex-start"><Box>{legend}</Box>{grid}</HStack>;
     return <HStack gap="3" align="flex-start">{grid}<Box>{legend}</Box></HStack>;
 }, (prev, next) => matrixRootEqual(prev.value, next.value) && prev.storageKey === next.storageKey);

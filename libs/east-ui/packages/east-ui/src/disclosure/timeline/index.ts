@@ -284,8 +284,7 @@ export const Timeline = {
          * Each item carries content (title / description), an optional
          * timestamp, an optional explicit indicator icon (overrides the
          * default paired icon chosen by `status`), an optional badge
-         * label, and a required `status` driving colour + paired icon per
-         * §0.3.
+         * label, and a required `status` driving colour + paired icon.
          *
          * @property title - Item title (UIComponent)
          * @property timestamp - Optional DateTime rendered next to the title
@@ -320,7 +319,7 @@ export const Timeline = {
          *
          * @remarks
          * Mirror of `StepStatusType` from `../steps/types.js`. Drives the
-         * default paired icon + colour per §0.3.
+         * default paired icon + colour.
          *
          * @property pending - Not started / queued
          * @property active - Currently in progress

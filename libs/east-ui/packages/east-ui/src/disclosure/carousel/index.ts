@@ -56,9 +56,8 @@ export {
  * @property showIndicators - Show dot indicators
  * @property showControls - Show prev/next controls
  * @property spacing - Gap between slides (Chakra spacing token)
- * @property padding - Viewport padding
  * @property onIndexChange - Callback invoked when the active slide changes
- * @property style - Visual-presentation sub-struct
+ * @property style - Visual-presentation sub-struct (includes `padding`)
  */
 export const CarouselType: StructType<{
     items: ArrayType<UIComponentType>,
@@ -72,7 +71,6 @@ export const CarouselType: StructType<{
     showIndicators: OptionType<BooleanType>,
     showControls: OptionType<BooleanType>,
     spacing: OptionType<StringType>,
-    padding: OptionType<StringType>,
     onIndexChange: OptionType<FunctionType<[IntegerType], NullType>>,
     style: OptionType<CarouselStyleType>,
 }> = StructType({
@@ -87,7 +85,6 @@ export const CarouselType: StructType<{
     showIndicators: OptionType(BooleanType),
     showControls: OptionType(BooleanType),
     spacing: OptionType(StringType),
-    padding: OptionType(StringType),
     onIndexChange: OptionType(FunctionType([IntegerType], NullType)),
     style: OptionType(CarouselStyleType),
 });
@@ -106,12 +103,12 @@ export type CarouselType = typeof CarouselType;
  * @returns An East expression representing the Carousel component
  *
  * @remarks
- * Per the Type-shape convention: state (`index` / `defaultIndex`), config
+ * Note: state (`index` / `defaultIndex`), config
  * (`loop` / `autoplay` / `slidesPerView` / `slidesPerMove` /
- * `allowMouseDrag` / `showIndicators` / `showControls` / `spacing` /
- * `padding`), and behaviour (`onIndexChange`) are top-level options —
- * visual presentation (`orientation` + indicator/control colour slots)
- * lives inside `options.style`.
+ * `allowMouseDrag` / `showIndicators` / `showControls` / `spacing`), and
+ * behaviour (`onIndexChange`) are top-level options — visual presentation
+ * (`orientation`, `padding`, indicator/control colour slots) lives inside
+ * `options.style`.
  *
  * @example
  * ```ts
@@ -128,8 +125,7 @@ export type CarouselType = typeof CarouselType;
  *             showIndicators: true,
  *             showControls: true,
  *             spacing: "4",
- *             padding: "2",
- *             style: { orientation: "horizontal", activeIndicatorColor: "#3d5cff" },
+ *             style: { orientation: "horizontal", padding: "2", activeIndicatorColor: "#3d5cff" },
  *         },
  *     ),
  * );
@@ -153,7 +149,6 @@ function createCarousel(
         showIndicators: options?.showIndicators !== undefined ? some(options.showIndicators) : none,
         showControls: options?.showControls !== undefined ? some(options.showControls) : none,
         spacing: options?.spacing !== undefined ? some(options.spacing) : none,
-        padding: options?.padding !== undefined ? some(options.padding) : none,
         onIndexChange: options?.onIndexChange ? some(options.onIndexChange) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
@@ -168,6 +163,7 @@ function buildCarouselStyle(style: CarouselStyle): ExprType<CarouselStyleType> {
 
     return East.value({
         orientation: orientationValue ? some(orientationValue) : none,
+        padding: style.padding !== undefined ? some(style.padding) : none,
         indicatorColor: style.indicatorColor !== undefined ? some(style.indicatorColor) : none,
         activeIndicatorColor: style.activeIndicatorColor !== undefined ? some(style.activeIndicatorColor) : none,
         controlColor: style.controlColor !== undefined ? some(style.controlColor) : none,
@@ -184,9 +180,9 @@ function buildCarouselStyle(style: CarouselStyle): ExprType<CarouselStyleType> {
  *
  * @remarks
  * Use `Carousel.Root(items, options)` to create a carousel, or access
- * `Carousel.Types.Carousel` for the East type. Per the Type-shape
- * convention: state + config + behaviour at top level; `style` holds the
- * `orientation` preset and colour escape hatches.
+ * `Carousel.Types.Carousel` for the East type. State + config + behaviour
+ * sit at the top level; `style` holds the `orientation` preset and colour
+ * escape hatches.
  */
 export const Carousel = {
     /**

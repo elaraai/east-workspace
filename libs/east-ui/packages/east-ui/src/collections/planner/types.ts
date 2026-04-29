@@ -19,14 +19,10 @@ import {
 import { TableCellClickEventType, TableRowClickEventType, TableSortEventType } from "../table/types.js";
 
 import {
+    AlignType,
     ColorSchemeType,
     type ColorSchemeLiteral,
-    FontWeightType,
-    type FontWeightLiteral,
-    FontStyleType,
-    type FontStyleLiteral,
-    SizeType,
-    type SizeLiteral,
+    type AlignLiteral,
 } from "../../style.js";
 import { StatusTokenType } from "../../style/interaction.js";
 
@@ -37,6 +33,10 @@ import {
 
 // Re-export Font Awesome types for convenience
 export type { IconName, IconPrefix } from "@fortawesome/fontawesome-common-types";
+
+// Re-export shared content primitives under the Planner namespace
+// for ergonomic discovery via `Planner.Types.*`.
+export { AlignType, LabelInputType, type AlignLiteral, type LabelInput } from "../../style.js";
 
 // Import shared types from table
 import {
@@ -79,104 +79,6 @@ export type SlotModeType = typeof SlotModeType;
 export type SlotModeLiteral = "single" | "span";
 
 // ============================================================================
-// Event Popover Trigger Type
-// ============================================================================
-
-/**
- * Trigger variant type for event popover - determines when the popover appears.
- *
- * @property click - Popover appears when event is clicked
- * @property hover - Popover appears when hovering over event
- */
-export const EventPopoverTriggerType = VariantType({
-    /** Popover appears when event is clicked */
-    click: NullType,
-    /** Popover appears when hovering over event */
-    hover: NullType,
-});
-
-export type EventPopoverTriggerType = typeof EventPopoverTriggerType;
-
-/**
- * String literal type for event popover trigger values.
- */
-export type EventPopoverTriggerLiteral = "click" | "hover";
-
-// ============================================================================
-// Content Align Type
-// ============================================================================
-
-/**
- * Alignment for content within an event.
- *
- * @property start - Align to the start (left)
- * @property center - Align to center
- * @property end - Align to the end (right)
- */
-export const ContentAlignType = VariantType({
-    /** Align to the start (left) */
-    start: NullType,
-    /** Align to center */
-    center: NullType,
-    /** Align to the end (right) */
-    end: NullType,
-});
-
-export type ContentAlignType = typeof ContentAlignType;
-
-/**
- * String literal type for content align values.
- */
-export type ContentAlignLiteral = "start" | "center" | "end";
-
-// ============================================================================
-// Event Label Type
-// ============================================================================
-
-/**
- * Label configuration for Planner events.
- *
- * @property value - The label text (required)
- * @property align - Horizontal position within the event (start, center, end)
- * @property verticalAlign - Vertical position within the event (start, center, end)
- * @property color - Text color (CSS color or Chakra token)
- * @property fontWeight - Font weight
- * @property fontStyle - Font style (normal, italic)
- * @property fontSize - Font size
- */
-export const EventLabelType = StructType({
-    value: StringType,
-    align: OptionType(ContentAlignType),
-    verticalAlign: OptionType(ContentAlignType),
-    color: OptionType(StringType),
-    fontWeight: OptionType(FontWeightType),
-    fontStyle: OptionType(FontStyleType),
-    fontSize: OptionType(SizeType),
-});
-
-export type EventLabelType = typeof EventLabelType;
-
-/**
- * TypeScript interface for event label input.
- */
-export interface EventLabel {
-    /** The label text (required) */
-    value: SubtypeExprOrValue<StringType>;
-    /** Horizontal position within the event (start, center, end). Default: start */
-    align?: SubtypeExprOrValue<ContentAlignType> | ContentAlignLiteral;
-    /** Vertical position within the event (start, center, end). Default: center */
-    verticalAlign?: SubtypeExprOrValue<ContentAlignType> | ContentAlignLiteral;
-    /** Text color (CSS color or Chakra token) */
-    color?: SubtypeExprOrValue<StringType>;
-    /** Font weight */
-    fontWeight?: SubtypeExprOrValue<FontWeightType> | FontWeightLiteral;
-    /** Font style (normal, italic) */
-    fontStyle?: SubtypeExprOrValue<FontStyleType> | FontStyleLiteral;
-    /** Font size */
-    fontSize?: SubtypeExprOrValue<SizeType> | SizeLiteral;
-}
-
-// ============================================================================
 // Event Icon Type
 // ============================================================================
 
@@ -193,7 +95,7 @@ export interface EventLabel {
 export const EventIconType = StructType({
     prefix: StringType,
     name: StringType,
-    align: OptionType(ContentAlignType),
+    align: OptionType(AlignType),
     size: OptionType(IconSizeType),
     color: OptionType(StringType),
     colorPalette: OptionType(ColorSchemeType),
@@ -210,7 +112,7 @@ export interface EventIcon {
     /** Font Awesome icon name */
     name: string;
     /** Position within the event (start, center, end). Default: start */
-    align?: SubtypeExprOrValue<ContentAlignType> | ContentAlignLiteral;
+    align?: SubtypeExprOrValue<AlignType> | AlignLiteral;
     /** Icon size */
     size?: SubtypeExprOrValue<IconSizeType> | IconSizeLiteral;
     /** Icon color (CSS color or Chakra token) */
@@ -219,42 +121,10 @@ export interface EventIcon {
     colorPalette?: SubtypeExprOrValue<ColorSchemeType> | ColorSchemeLiteral;
 }
 
-// ============================================================================
-// Event Type
-// ============================================================================
-
-/**
- * Event data for Planner.
- *
- * @remarks
- * Represents an event that occupies one or more slots.
- * In single mode, only start is used.
- * In span mode, start and end define the range (inclusive).
- *
- * @property start - Start slot (or single slot if mode=single)
- * @property end - End slot (only used if mode=span)
- * @property label - Optional label configuration
- * @property icon - Optional icon configuration
- * @property colorPalette - Optional color scheme for the event background
- * @property background - Optional background/fill color (overrides colorPalette)
- * @property stroke - Optional stroke/border color (overrides colorPalette)
- * @property opacity - Optional opacity (0-1)
- */
-export const PlannerEventType = StructType({
-    start: FloatType,
-    end: OptionType(FloatType),
-    label: OptionType(EventLabelType),
-    icon: OptionType(EventIconType),
-    colorPalette: OptionType(ColorSchemeType),
-    background: OptionType(StringType),
-    stroke: OptionType(StringType),
-    opacity: OptionType(FloatType),
-});
-
-/**
- * Type representing the Planner event structure.
- */
-export type PlannerEventType = typeof PlannerEventType;
+// NOTE: `PlannerEventType` is UIComp-coupled (it carries `tooltip` and
+// `popover` UIComponent slots) and lives in `./index.ts` alongside the
+// factory. types.ts stays UIComp-free so it can be imported by
+// `component.ts` without a circular dependency.
 
 // ============================================================================
 // Callback Event Types
@@ -364,27 +234,6 @@ export const EventDeleteEventType = StructType({
 
 export type EventDeleteEventType = typeof EventDeleteEventType;
 
-/**
- * Context passed to the eventPopover function.
- *
- * @property rowIndex - Row index (0-based)
- * @property eventIndex - Event index within the row (0-based)
- * @property start - Start slot of the event
- * @property end - End slot of the event
- * @property label - Event label (if any)
- * @property colorPalette - Event color palette (if any)
- */
-export const EventPopoverContextType = StructType({
-    rowIndex: IntegerType,
-    eventIndex: IntegerType,
-    start: FloatType,
-    end: FloatType,
-    label: OptionType(StringType),
-    colorPalette: OptionType(ColorSchemeType),
-});
-
-export type EventPopoverContextType = typeof EventPopoverContextType;
-
 // ============================================================================
 // Boundary Type
 // ============================================================================
@@ -440,44 +289,39 @@ export interface PlannerBoundary {
 // ============================================================================
 
 /**
- * Style type for the Planner component.
+ * East StructType holding every visual field for a Planner.
  *
  * @remarks
- * All properties are optional and wrapped in {@link OptionType}.
- * Reuses table styling properties where applicable.
+ * Visual-only. Content (`rows` / `columns` / `frozen`),
+ * structured state (`rowStatus`), behaviour callbacks (`on*`), and
+ * timeline configuration (`slotMode` / `minSlot` / `maxSlot` /
+ * `stepSize` / `slotLabel` / `boundaries`) live on the main
+ * `Planner` variant in `index.ts`, not in this struct.
  *
+ * Drag / resize / add / delete behaviour is driven by callback
+ * presence on main (Matrix-style) — there is no `readOnly` flag.
+ * Row hover is always on — there is no `interactive` flag.
+ *
+ * @property height - CSS height for the Planner container
  * @property variant - Table variant (line or outline)
  * @property size - Table size (sm, md, lg)
  * @property striped - Whether to show zebra stripes on rows
- * @property interactive - Whether to highlight rows on hover
  * @property stickyHeader - Whether the header sticks when scrolling
  * @property showColumnBorder - Whether to show borders between columns
- * @property slotMode - single or span (default: span)
- * @property minSlot - Optional min slot override (else derived from data)
- * @property maxSlot - Optional max slot override (else derived from data)
- * @property stepSize - Step size for snapping (e.g., 0.25 for quarter steps, 0.5 for half steps)
- * @property slotLabel - Custom slot label function
- * @property slotMinWidth - Min width per slot (CSS value, default "60px")
+ * @property slotMinWidth - Min width per slot (CSS value, default `"60px"`)
  * @property colorPalette - Default color scheme for events
- * @property readOnly - When true, disables all event interactions (drag, resize, add, delete)
- * @property eventPopoverTrigger - Trigger mode for event popover (click or hover)
  * @property slotLineStroke - Vertical grid line color
  * @property slotLineWidth - Vertical grid line width in pixels
  * @property slotLineDash - Vertical grid line dash pattern
  * @property slotLineOpacity - Vertical grid line opacity (0-1)
- * @property boundaries - Array of boundary lines at specific slot positions
- * @property onCellClick - Callback triggered when a cell is clicked
- * @property onCellDoubleClick - Callback triggered when a cell is double-clicked
- * @property onRowClick - Callback triggered when a row is clicked
- * @property onRowDoubleClick - Callback triggered when a row is double-clicked
- * @property onSortChange - Callback triggered when sorting changes
- * @property onEventClick - Callback triggered when an event is clicked
- * @property onEventDoubleClick - Callback triggered when an event is double-clicked
- * @property onEventDrag - Callback triggered when an event is dragged/moved
- * @property onEventResize - Callback triggered when an event is resized
- * @property onEventAdd - Callback triggered when adding a new event (click on empty slot)
- * @property onEventEdit - Callback triggered when editing an event (via context menu)
- * @property onEventDelete - Callback triggered when deleting an event (via context menu)
+ * @property gridColor - Explicit grid colour
+ * @property nowMarkerColor - Explicit now-marker colour
+ * @property headerBackground - Header row background
+ * @property headerColor - Header row text colour
+ * @property eventBorderRadius - CSS border-radius for event bars (default `"4px"`)
+ * @property labelColor - Default text colour for per-event labels (per-event `label.color` overrides)
+ * @property labelFontSize - Default CSS `font-size` for per-event labels (per-event `label.fontSize` overrides)
+ * @property labelFontWeight - Default CSS `font-weight` for per-event labels (per-event `label.fontWeight` overrides)
  */
 export const PlannerStyleType = StructType({
     // Table styling (reused from Table)
@@ -503,6 +347,12 @@ export const PlannerStyleType = StructType({
     nowMarkerColor: OptionType(StringType),
     headerBackground: OptionType(StringType),
     headerColor: OptionType(StringType),
+
+    // Visual parity with Matrix — event chrome + label defaults.
+    eventBorderRadius: OptionType(StringType),
+    labelColor: OptionType(StringType),
+    labelFontSize: OptionType(StringType),
+    labelFontWeight: OptionType(StringType),
 });
 
 /**
@@ -527,8 +377,6 @@ export interface PlannerStyle<ColumnKeys extends string = string> {
     size?: SubtypeExprOrValue<TableSizeType> | TableSizeLiteral;
     /** Whether to show zebra stripes on rows */
     striped?: SubtypeExprOrValue<BooleanType>;
-    /** Whether to highlight rows on hover */
-    interactive?: SubtypeExprOrValue<BooleanType>;
     /** Whether the header sticks when scrolling */
     stickyHeader?: SubtypeExprOrValue<BooleanType>;
     /** Whether to show borders between columns */
@@ -547,10 +395,6 @@ export interface PlannerStyle<ColumnKeys extends string = string> {
     slotMinWidth?: SubtypeExprOrValue<StringType>;
     /** Default color scheme for events */
     colorPalette?: SubtypeExprOrValue<ColorSchemeType> | ColorSchemeLiteral;
-    /** When true, disables all event interactions (drag, resize, add, delete) */
-    readOnly?: SubtypeExprOrValue<BooleanType>;
-    /** Trigger mode for event popover (click or hover) */
-    eventPopoverTrigger?: SubtypeExprOrValue<EventPopoverTriggerType> | EventPopoverTriggerLiteral;
     /** Vertical grid line color */
     slotLineStroke?: SubtypeExprOrValue<StringType>;
     /** Vertical grid line width in pixels */
@@ -595,4 +439,12 @@ export interface PlannerStyle<ColumnKeys extends string = string> {
     headerColor?: SubtypeExprOrValue<StringType>;
     /** Row-status callback: `(rowIndex) => StatusToken`; renderer tints the row. */
     rowStatus?: SubtypeExprOrValue<FunctionType<[IntegerType], StatusTokenType>>;
+    /** CSS border-radius for event bars. Default `"2px"`. */
+    eventBorderRadius?: SubtypeExprOrValue<StringType>;
+    /** Default text colour for per-event labels. Default `"white"`. Per-event `label.color` overrides. */
+    labelColor?: SubtypeExprOrValue<StringType>;
+    /** Default CSS `font-size` for per-event labels. Default `"0.75rem"`. Per-event `label.fontSize` overrides. */
+    labelFontSize?: SubtypeExprOrValue<StringType>;
+    /** Default CSS `font-weight` for per-event labels. Default `"600"`. Per-event `label.fontWeight` overrides. */
+    labelFontWeight?: SubtypeExprOrValue<StringType>;
 }

@@ -21,7 +21,7 @@ import type { SizeLiteral } from "../../style.js";
 
 /**
  * Semantic classification for a Status chip. Drives the default paired icon
- * (§0.3) and colour palette.
+ * and colour palette.
  *
  * @property success - Success / up-to-date classification
  * @property warning - Warning classification
@@ -43,7 +43,7 @@ export type StatusValueType = typeof StatusValueType;
 export type StatusValueLiteral = "success" | "warning" | "danger" | "info" | "neutral";
 
 // ============================================================================
-// Status Style Type — visual presentation only (§0.10)
+// Status Style Type
 // ============================================================================
 
 /**

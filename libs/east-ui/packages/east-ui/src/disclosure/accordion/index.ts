@@ -138,8 +138,8 @@ type AccordionItemTriggerInput =
  * @returns An East expression representing the accordion item
  *
  * @remarks
- * `trigger` is a UIComp per the Type-shape convention — strings coerce to
- * `Text.Root(s)` at the factory boundary, so the common case stays ergonomic.
+ * `trigger` is a UIComp — strings coerce to `Text.Root(s)` at the factory
+ * boundary, so the common case stays ergonomic.
  *
  * @example
  * ```ts
@@ -190,7 +190,7 @@ function createAccordionItem(
  * @returns An East expression representing the Accordion component
  *
  * @remarks
- * Per the Type-shape convention: `multiple` / `collapsible` (config),
+ * `multiple` / `collapsible` (config),
  * `value` / `defaultValue` (state), and `onValueChange` (behaviour) are
  * top-level options — visual presentation lives inside `options.style`.
  *
@@ -295,10 +295,9 @@ export const Accordion = {
      * @returns An East expression representing the Accordion component
      *
      * @remarks
-     * See {@link createAccordionRoot} for full semantics. Per the Type-shape
-     * convention: `multiple` / `collapsible` / `value` / `defaultValue` /
-     * `onValueChange` are top-level options; `style` holds visual presets
-     * and colour slots.
+     * See {@link createAccordionRoot} for full semantics. `multiple` /
+     * `collapsible` / `value` / `defaultValue` / `onValueChange` are top-level
+     * options; `style` holds visual presets and colour slots.
      *
      * @example
      * ```ts

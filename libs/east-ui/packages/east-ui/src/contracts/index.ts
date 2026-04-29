@@ -5,7 +5,7 @@
 
 /**
  * Cross-cutting contract types — the semantic-layer subset of `style.ts`
- * plus the `StateValueType` seven-state vocabulary (§0.1).
+ * plus the `StateValueType` seven-state vocabulary.
  *
  * @remarks
  * Downstream components that encode §0 contracts (states, paired-icon status,

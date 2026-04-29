@@ -26,9 +26,9 @@ export type CarouselValue = ValueTypeOf<typeof Carousel.Types.Carousel>;
  * Converts an East UI Carousel value to Chakra UI CarouselRoot props.
  *
  * @remarks
- * `spacing` / `padding` come from main (moved out of `style` in Plan 1.9).
- * Only `orientation` comes from `style` — colour slots are applied via
- * CSS on sub-components in the renderer body.
+ * `spacing` lives on main (gap-between-slides). `orientation` and
+ * `padding` come from `style` — colour slots also live in `style` and
+ * are applied via CSS on sub-components in the renderer body.
  */
 export function toChakraCarousel(value: CarouselValue): CarouselRootProps {
     const style = getSomeorUndefined(value.style);
@@ -41,7 +41,7 @@ export function toChakraCarousel(value: CarouselValue): CarouselRootProps {
         slideCount: value.items.length,
         orientation: style ? getSomeorUndefined(style.orientation)?.type : undefined,
         gap: getSomeorUndefined(value.spacing),
-        padding: getSomeorUndefined(value.padding),
+        padding: style ? getSomeorUndefined(style.padding) : undefined,
         loop: getSomeorUndefined(value.loop),
         autoplay: getSomeorUndefined(value.autoplay),
         allowMouseDrag: getSomeorUndefined(value.allowMouseDrag),

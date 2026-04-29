@@ -107,7 +107,7 @@ export type SegmentedMeterLabelsLiteral = "inside" | "outside" | "none";
  * East StructType for the SegmentedMeter style sub-struct.
  *
  * @remarks
- * Visual-only per §0.10. Content (`segments` / `caption`) and config
+ * Visual-only. Content (`segments` / `caption`) and config
  * (`max`) live on the main `SegmentedMeterType` struct.
  *
  * @property thickness - Visual thickness preset

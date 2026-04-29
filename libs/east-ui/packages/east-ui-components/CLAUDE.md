@@ -2,6 +2,88 @@
 
 React rendering layer for East UI types. Converts East variant/struct values into Chakra UI v3 React components.
 
+## Visual style — Elara AI
+
+Reference look-and-feel: clean modern enterprise SaaS in the **Mixpanel /
+Linear / Stripe** family — airy, content-dense without feeling cramped,
+strong type hierarchy, subtle borders over heavy fills, micro-shadows
+over hard drops, restrained colour. **No vibrant purple chrome.** Brand
+mid is a muted deep teal (`#488e97`); accent palettes (purple, blue,
+green, orange, red, yellow) are reserved for status / category coding.
+
+### Tokens
+
+Canonical tokens live in `packages/east-ui-showcase/theme/index.ts`. The
+host app owns the Chakra theme — this package is theme-less.
+
+**Brand (deep teal):** `brand.50` → `brand.900` (`#f0fffe` → `#111b22`).
+Mid `brand.500` `#488e97`, deep ink `brand.900` `#111b22`.
+
+**Neutrals (cool green-gray):** `gray.50` `#f8fafa` → `gray.900`
+`#1a2626`. The slight green tint matches the brand teal — never use
+warm-gray neutrals.
+
+**Accents:** `teal.500` `#14b8a6`, `purple.500` `#8b5cf6`, `blue.500`
+`#3b82f6`, `green.500` `#22c55e`, `orange.500` `#f97316`, `red.500`
+`#ef4444`, `yellow.500` `#eab308`.
+
+**Semantic (mapped via Chakra `semanticTokens`):**
+- `bg.primary` / `bg.secondary` / `bg.tertiary`
+- `text.primary` / `text.secondary` / `text.muted`
+- `border.primary`
+- `card.bg`
+
+Always reach for the semantic token — never raw hex — in renderer code.
+The semantic layer flips automatically under `_dark`.
+
+### Typography
+
+- **Body / UI:** `Inter Tight` (400 / 500 / 600 / 700).
+- **Brand / display:** `DM Sans` (400 / 500 / 600 / 700 / 800) — used by
+  `Heading` and any large display text. Closest Google Fonts match to
+  the Elara_AI lockup (rounded geometric sans).
+- **Mono:** `JetBrains Mono` (400 / 500 / 600) for `Code`, `CodeBlock`,
+  KPI numbers via `mono-kpi` textStyle, `Kbd`.
+
+Weights: avoid `300` (light) — too thin against muted neutrals. Default
+body is `400`; emphasis is `500`–`600`; display is `600`–`700`.
+
+Letter-spacing: tight on display (`-0.01em` to `-0.02em`); normal on
+body; `0.12em uppercase` on `eyebrow` style only.
+
+### Composition rules
+
+- **Borders over fills.** Cards, panels, chips: 1px `border.primary`
+  with `card.bg` background. Coloured fills only for status / selection
+  state, never as a default container treatment.
+- **Subtle elevation.** Use Chakra shadow tokens (`shadow-sm`,
+  `shadow-md`); never inline drop shadows. Modal/Drawer use `shadow-xl`;
+  cards stay flat with a 1px border (no shadow at rest).
+- **Generous spacing.** Default content gap `4` (16px); section gap `8`
+  (32px); card padding `5`–`6` (20–24px). Never less than `2` (8px)
+  between adjacent visual elements.
+- **Soft pills + chips.** All chip-shaped components (Tag, Badge with
+  subtle variant, MetricChip, DeltaPill, ChipRail items) use
+  `borderRadius: full`, soft tinted background (e.g. `green.50` /
+  `red.50`) with same-hue border, never a saturated solid. Solid fill
+  only for primary actions (Button) and current-page indicators.
+- **Status colour pairing.** Every status colour appears alongside an
+  icon or label — colour is never the only signal. The pair is encoded
+  at the IR factory layer, not left to the renderer.
+- **Thin chart lines.** Stroke width `1.5` for line/area charts; `1` for
+  reference markers. Brush handles use the brand teal at 60% opacity.
+  Avoid bold strokes — the chart should read as data, not as ink.
+
+### Don't
+
+- ❌ Vibrant purple as primary brand chrome (it's an accent only).
+- ❌ Warm-gray neutrals (use the cool green-gray scale).
+- ❌ Heavy box shadows on everything — reserve elevation for actual lift
+  (overlays, floating menus).
+- ❌ Mixing `system-ui` and the brand stack — every renderer text node
+  inherits via the Chakra `body` / `heading` token.
+- ❌ Hard-coded hex in renderer source. Always token-back.
+
 ## Stack
 
 - **React 19.2** with `react-dom` 19

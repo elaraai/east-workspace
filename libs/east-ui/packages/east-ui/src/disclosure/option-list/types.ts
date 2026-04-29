@@ -11,13 +11,13 @@ import {
 } from "@elaraai/east";
 
 // ============================================================================
-// OptionList Style Type — visual presentation only (§0.10)
+// OptionList Style Type
 // ============================================================================
 
 /**
  * Visual-only style struct for OptionList. Content (`options` / `selectedId`)
  * and behaviour (`onSelect`) live on the main `OptionList` variant (inline
- * in `component.ts`) per the Type-shape convention (§0.10).
+ * in `component.ts`).
  *
  * @property itemColor - Default text colour for option rows
  * @property itemHoverBackground - Row background on hover

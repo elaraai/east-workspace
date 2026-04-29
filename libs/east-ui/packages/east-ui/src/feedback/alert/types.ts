@@ -23,7 +23,7 @@ import {
  * Status types for Alert component.
  *
  * @remarks
- * Determines the color scheme and paired icon for the alert per §0.3.
+ * Determines the color scheme and paired icon for the alert.
  *
  * @property info - Informational alert (blue + info icon)
  * @property warning - Warning alert (yellow + triangle-exclamation icon)
@@ -87,13 +87,13 @@ export function AlertVariant(v: AlertVariantLiteral): ExprType<AlertVariantType>
 }
 
 // ============================================================================
-// Alert Style Type — visual presentation only (§0.10)
+// Alert Style Type
 // ============================================================================
 
 /**
  * Visual-only style struct for Alert. Content (`title` / `description` /
  * `body` / `actions` / `icon`) and state (`closable` / `showIcon`) live on
- * the main `Alert` variant (inline in `component.ts`) per §0.10.
+ * the main `Alert` variant (inline in `component.ts`).
  *
  * @property variant - Visual preset (solid / subtle / outline)
  * @property color - Text colour

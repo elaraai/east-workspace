@@ -17,6 +17,14 @@
       "types": "./dist/test/buttons/button.examples.d.ts",
       "default": "./dist/test/buttons/button.examples.js"
     },
+    "./examples/format": {
+      "types": "./dist/test/format/format.examples.d.ts",
+      "default": "./dist/test/format/format.examples.js"
+    },
+    "./examples/platform": {
+      "types": "./dist/test/platform/platform.examples.d.ts",
+      "default": "./dist/test/platform/platform.examples.js"
+    },
     "./examples/buttons/*": {
       "types": "./dist/test/buttons/*.examples.d.ts",
       "default": "./dist/test/buttons/*.examples.js"
@@ -44,6 +52,10 @@
     "./examples/forms": {
       "types": "./dist/test/forms/index.d.ts",
       "default": "./dist/test/forms/index.js"
+    },
+    "./examples/navigation/*": {
+      "types": "./dist/test/navigation/*.examples.d.ts",
+      "default": "./dist/test/navigation/*.examples.js"
     },
     "./examples/navigation": {
       "types": "./dist/test/navigation/breadcrumb.examples.d.ts",

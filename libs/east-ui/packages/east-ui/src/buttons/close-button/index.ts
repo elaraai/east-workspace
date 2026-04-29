@@ -43,7 +43,7 @@ export {
  *
  * @remarks
  * The rendered button's `aria-label` defaults to `"Close"` when `label` is
- * absent. Per the Type-shape convention: state + behaviour live at the top
+ * absent. state + behaviour live at the top
  * level; visual presentation lives inside `options.style`.
  *
  * @example

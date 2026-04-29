@@ -11,8 +11,7 @@ describeEast("Menu", (test) => {
     Assert.examples(test, {
         menuBasic: ex.menuBasic,
         menuDisabled: ex.menuDisabled,
-        menuOnSelect: ex.menuOnSelect,
-        menuOnOpenChange: ex.menuOnOpenChange,
+        menuPlacement: ex.menuPlacement,
     });
 
     // =========================================================================
@@ -50,7 +49,7 @@ describeEast("Menu", (test) => {
             [Menu.Item("item", "Item")]
         ));
 
-        $(Assert.equal(menu.unwrap().unwrap("Menu").placement.hasTag("none"), true));
+        $(Assert.equal(menu.unwrap().unwrap("Menu").style.hasTag("none"), true));
     });
 
     // =========================================================================
@@ -119,8 +118,8 @@ describeEast("Menu", (test) => {
             { placement: "bottom" }
         ));
 
-        $(Assert.equal(menu.unwrap().unwrap("Menu").placement.hasTag("some"), true));
-        $(Assert.equal(menu.unwrap().unwrap("Menu").placement.unwrap("some").hasTag("bottom"), true));
+        $(Assert.equal(menu.unwrap().unwrap("Menu").style.unwrap("some").placement.hasTag("some"), true));
+        $(Assert.equal(menu.unwrap().unwrap("Menu").style.unwrap("some").placement.unwrap("some").hasTag("bottom"), true));
     });
 
     test("creates menu with bottom-start placement", $ => {
@@ -130,7 +129,7 @@ describeEast("Menu", (test) => {
             { placement: "bottom-start" }
         ));
 
-        $(Assert.equal(menu.unwrap().unwrap("Menu").placement.unwrap("some").hasTag("bottom-start"), true));
+        $(Assert.equal(menu.unwrap().unwrap("Menu").style.unwrap("some").placement.unwrap("some").hasTag("bottom-start"), true));
     });
 
     test("creates menu with bottom-end placement", $ => {
@@ -140,7 +139,7 @@ describeEast("Menu", (test) => {
             { placement: "bottom-end" }
         ));
 
-        $(Assert.equal(menu.unwrap().unwrap("Menu").placement.unwrap("some").hasTag("bottom-end"), true));
+        $(Assert.equal(menu.unwrap().unwrap("Menu").style.unwrap("some").placement.unwrap("some").hasTag("bottom-end"), true));
     });
 
     test("creates menu with top placement", $ => {
@@ -150,7 +149,7 @@ describeEast("Menu", (test) => {
             { placement: "top" }
         ));
 
-        $(Assert.equal(menu.unwrap().unwrap("Menu").placement.unwrap("some").hasTag("top"), true));
+        $(Assert.equal(menu.unwrap().unwrap("Menu").style.unwrap("some").placement.unwrap("some").hasTag("top"), true));
     });
 
     test("creates menu with right placement", $ => {
@@ -160,7 +159,7 @@ describeEast("Menu", (test) => {
             { placement: "right" }
         ));
 
-        $(Assert.equal(menu.unwrap().unwrap("Menu").placement.unwrap("some").hasTag("right"), true));
+        $(Assert.equal(menu.unwrap().unwrap("Menu").style.unwrap("some").placement.unwrap("some").hasTag("right"), true));
     });
 
     test("creates menu with left placement", $ => {
@@ -170,7 +169,7 @@ describeEast("Menu", (test) => {
             { placement: "left" }
         ));
 
-        $(Assert.equal(menu.unwrap().unwrap("Menu").placement.unwrap("some").hasTag("left"), true));
+        $(Assert.equal(menu.unwrap().unwrap("Menu").style.unwrap("some").placement.unwrap("some").hasTag("left"), true));
     });
 
     // =========================================================================
@@ -245,6 +244,6 @@ describeEast("Menu", (test) => {
         ));
 
         $(Assert.equal(menu.unwrap().unwrap("Menu").items.get(3n).unwrap("Item").value, "logout"));
-        $(Assert.equal(menu.unwrap().unwrap("Menu").placement.unwrap("some").hasTag("bottom-end"), true));
+        $(Assert.equal(menu.unwrap().unwrap("Menu").style.unwrap("some").placement.unwrap("some").hasTag("bottom-end"), true));
     });
 }, {   platformFns: TestImpl,});

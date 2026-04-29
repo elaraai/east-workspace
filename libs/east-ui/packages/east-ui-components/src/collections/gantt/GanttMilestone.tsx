@@ -3,11 +3,14 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { useMemo, useState, useCallback, useEffect } from "react";
-import { Text, useToken } from "@chakra-ui/react";
+import { useState, useCallback, useEffect, useRef } from "react";
+import { Box, Popover, Portal, Text, Tooltip, useToken } from "@chakra-ui/react";
+import { useDrag } from "@use-gesture/react";
 import type { ValueTypeOf } from "@elaraai/east";
 import type { Gantt } from "@elaraai/east-ui";
 import { getSomeorUndefined } from "../../utils";
+import { EastChakraComponent } from "../../component";
+import { alignToCss } from "../shared/helpers";
 
 export type GanttMilestoneValue = ValueTypeOf<typeof Gantt.Types.Milestone>;
 
@@ -16,6 +19,8 @@ export interface GanttMilestoneProps {
     y: number;
     height: number;
     value: GanttMilestoneValue;
+    /** Storage key used by per-milestone UIComp slots (tooltip / popover / overlays). */
+    storageKey?: string | undefined;
     onClick?: (() => void) | undefined;
     onDoubleClick?: (() => void) | undefined;
     /** Callback when milestone is dragged to a new position */
@@ -26,13 +31,10 @@ export interface GanttMilestoneProps {
     timelineEndDate?: Date | undefined;
     /** Width of the timeline in pixels (for position-to-date conversion) */
     timelineWidth?: number | undefined;
-}
-
-interface DragState {
-    startX: number;
-    offset: number;
-    startDate: Date;
-    hasMoved: boolean;
+    /** Visual-token defaults from `style` (per-milestone `label.color` etc. override). */
+    labelColor?: string | undefined;
+    labelFontSize?: string | undefined;
+    labelFontWeight?: string | undefined;
 }
 
 const makeDiamondPoints = (x: number, y: number, size: number): string => {
@@ -46,53 +48,78 @@ export const GanttMilestone = ({
     y,
     height,
     value,
+    storageKey = "milestone",
     onClick,
     onDoubleClick,
     onDrag,
     timelineStartDate,
     timelineEndDate,
     timelineWidth,
+    labelColor,
+    labelFontSize,
+    labelFontWeight,
 }: GanttMilestoneProps) => {
     const [isHovered, setIsHovered] = useState(false);
-    const [dragState, setDragState] = useState<DragState | null>(null);
+    // In-progress drag offset (px). null when not dragging.
+    const [dragOffset, setDragOffset] = useState<number | null>(null);
     // Local position state - reset from props, updated on drag end
     const [position, setPosition] = useState({ x });
+    const [popoverOpen, setPopoverOpen] = useState(false);
+    const polygonRef = useRef<SVGPolygonElement>(null);
 
     // Reset position when x changes externally (e.g., from store update after callback)
     useEffect(() => {
         setPosition({ x });
     }, [x]);
 
-    // Get color palette from value or default to blue
-    const { colorPalette, label } = useMemo(() => ({
-        colorPalette: getSomeorUndefined(value.colorPalette)?.type ?? "blue",
-        label: getSomeorUndefined(value.label),
-    }), [value]);
+    // Per-milestone label config
+    const li = getSomeorUndefined(value.label);
+    const labelProps = li ? {
+        value: li.value,
+        align: getSomeorUndefined(li.align)?.type ?? "start",
+        verticalAlign: getSomeorUndefined(li.verticalAlign)?.type ?? "center",
+        color: getSomeorUndefined(li.color),
+        fontWeight: getSomeorUndefined(li.fontWeight)?.type,
+        fontStyle: getSomeorUndefined(li.fontStyle)?.type,
+        fontSize: getSomeorUndefined(li.fontSize)?.type,
+    } : null;
+
+    const colorPalette = getSomeorUndefined(value.colorPalette)?.type ?? "blue";
+    const customFill = getSomeorUndefined(value.fill);
+    const customStroke = getSomeorUndefined(value.stroke);
+
+    // Per-milestone tooltip / popover / overlays slots
+    const tooltipContent = getSomeorUndefined(value.tooltip);
+    const popoverContent = getSomeorUndefined(value.popover);
+    const hasTooltip = tooltipContent !== undefined;
+    const hasPopover = popoverContent !== undefined;
+    const overlays = value.overlays ?? [];
 
     // Get Chakra color tokens based on color palette
-    const [fillColor, strokeColor] = useToken("colors", [
+    const [paletteFill, paletteStroke] = useToken("colors", [
         `${colorPalette}.500`,
         `${colorPalette}.600`,
     ]);
+    const fillColor = customFill ?? paletteFill;
+    const strokeColor = customStroke ?? paletteStroke;
 
     // Calculate current position from local state + drag offset
-    const currentX = useMemo(() => position.x + (dragState?.offset ?? 0), [position.x, dragState?.offset]);
+    const currentX = position.x + (dragOffset ?? 0);
 
-    const fontSize = useMemo(() => Math.min(height * 0.7, 14), [height]);
-    const diamondSize = useMemo(() => height, [height]);
+    const defaultFontSize = Math.min(height * 0.7, 14);
+    const fontSize = labelProps?.fontSize ?? labelFontSize ?? `${defaultFontSize}px`;
+    const diamondSize = height;
     const textX = currentX + diamondSize / 2 + 4;
-    const diamondPoints = useMemo(() => makeDiamondPoints(currentX, y, diamondSize), [currentX, y, diamondSize]);
+    const diamondPoints = makeDiamondPoints(currentX, y, diamondSize);
 
     const handleMouseEnter = useCallback(() => setIsHovered(true), []);
     const handleMouseLeave = useCallback(() => {
-        if (!dragState) setIsHovered(false);
-    }, [dragState]);
+        if (dragOffset === null) setIsHovered(false);
+    }, [dragOffset]);
 
     // Convert pixel position to date
     const positionToDate = useCallback((pixelX: number): Date => {
-        if (!timelineStartDate || !timelineEndDate || !timelineWidth) {
-            return value.date;
-        }
+        if (!timelineStartDate || !timelineEndDate || !timelineWidth) return value.date;
         const totalDuration = timelineEndDate.getTime() - timelineStartDate.getTime();
         const ratio = Math.max(0, Math.min(1, pixelX / timelineWidth));
         return new Date(timelineStartDate.getTime() + ratio * totalDuration);
@@ -100,77 +127,77 @@ export const GanttMilestone = ({
 
     const isDraggable = onDrag && timelineStartDate && timelineEndDate && timelineWidth;
 
-    const handlePointerDown = useCallback((e: React.PointerEvent) => {
-        if (!isDraggable) return;
-        (e.target as Element).setPointerCapture(e.pointerId);
-        setDragState({
-            startX: e.clientX,
-            offset: 0,
-            startDate: value.date,
-            hasMoved: false,
-        });
-        e.preventDefault();
-        e.stopPropagation();
-    }, [isDraggable, value.date]);
-
-    const handlePointerMove = useCallback((e: React.PointerEvent) => {
-        if (!dragState) return;
-        const offset = e.clientX - dragState.startX;
-        setDragState(prev => prev ? {
-            ...prev,
-            offset,
-            hasMoved: prev.hasMoved || Math.abs(offset) > 3,
-        } : null);
-    }, [dragState]);
-
-    const handlePointerUp = useCallback((e: React.PointerEvent) => {
-        if (!dragState) return;
-        (e.target as Element).releasePointerCapture(e.pointerId);
-
-        if (dragState.hasMoved && timelineWidth) {
-            // Update local position to persist the drag
-            setPosition(prev => ({ x: prev.x + dragState.offset }));
-            // Call callback if provided
-            if (onDrag) {
-                const newDate = positionToDate(position.x + dragState.offset);
-                onDrag(dragState.startDate, newDate);
+    // Drag state machine via @use-gesture/react. `filterTaps` makes
+    // the library distinguish click (tap) from drag (movement >
+    // threshold) so we don't have to track `hasMoved` ourselves.
+    // Pointer-capture is automatic.
+    const bind = useDrag(({ active, movement: [mx], tap, last, first }) => {
+        if (first) {
+            setIsHovered(true);
+        }
+        if (tap) {
+            // Click — fire onClick AND toggle popover.
+            if (onClick) onClick();
+            if (hasPopover) setPopoverOpen(prev => !prev);
+            setDragOffset(null);
+            setIsHovered(false);
+            return;
+        }
+        if (last) {
+            if (isDraggable && timelineWidth) {
+                setPosition(prev => ({ x: prev.x + mx }));
+                if (onDrag) {
+                    const newDate = positionToDate(position.x + mx);
+                    onDrag(value.date, newDate);
+                }
             }
-        } else if (!dragState.hasMoved && onClick) {
-            onClick();
+            setDragOffset(null);
+            setIsHovered(false);
+            return;
         }
-        setDragState(null);
-        setIsHovered(false);
-    }, [dragState, onDrag, onClick, positionToDate, position.x, timelineWidth]);
-
-    // Handle double click separately (only when not dragging)
-    const handleDoubleClick = useCallback((_e: React.MouseEvent) => {
-        if (onDoubleClick && !dragState) {
-            onDoubleClick();
+        if (active && isDraggable) {
+            setDragOffset(mx);
         }
-    }, [onDoubleClick, dragState]);
+    }, { filterTaps: true, preventDefault: true });
 
-    const cursor = dragState ? "grabbing" : isDraggable ? "grab" : (onClick || onDoubleClick ? "pointer" : "default");
+    const handleDoubleClick = useCallback(() => {
+        if (onDoubleClick && dragOffset === null) onDoubleClick();
+    }, [onDoubleClick, dragOffset]);
+
+    const cursor = dragOffset !== null
+        ? "grabbing"
+        : isDraggable
+            ? "grab"
+            : (onClick || onDoubleClick || hasPopover ? "pointer" : "default");
+
+    const getAnchorRect = useCallback(() => {
+        if (polygonRef.current) {
+            return polygonRef.current.getBoundingClientRect();
+        }
+        return { x: 0, y: 0, width: 0, height: 0 };
+    }, []);
 
     return (
         <g>
             {/* Diamond shape */}
             <polygon
+                ref={polygonRef}
                 points={diamondPoints}
                 fill={fillColor}
                 stroke={strokeColor}
-                strokeWidth={isHovered || dragState ? 3 : 2}
-                opacity={isHovered || dragState ? 1 : 0.9}
+                strokeWidth={isHovered || dragOffset !== null ? 3 : 2}
+                opacity={isHovered || dragOffset !== null ? 1 : 0.9}
                 onDoubleClick={handleDoubleClick}
                 onMouseEnter={handleMouseEnter}
                 onMouseLeave={handleMouseLeave}
-                onPointerDown={handlePointerDown}
-                onPointerMove={handlePointerMove}
-                onPointerUp={handlePointerUp}
+                {...bind()}
                 style={{ cursor, touchAction: "none" }}
             />
 
-            {/* Label */}
-            {label && (
+            {/* Per-milestone label — LabelInput shape: `value`, `align`,
+                `verticalAlign`, plus typography overrides cascade on top of
+                style-level label* defaults. */}
+            {labelProps && (
                 <foreignObject
                     x={textX}
                     y={y}
@@ -178,23 +205,101 @@ export const GanttMilestone = ({
                     height={height}
                     style={{ pointerEvents: "none" }}
                 >
-                    <Text
-                        fontSize={`${fontSize}px`}
-                        color="fg.default"
-                        opacity={isHovered || dragState ? 1 : 0.9}
-                        whiteSpace="nowrap"
-                        cursor={cursor}
-                        userSelect="none"
-                        lineHeight="1"
+                    <Box
                         display="flex"
-                        alignItems="center"
+                        alignItems={alignToCss(labelProps.verticalAlign)}
+                        justifyContent={alignToCss(labelProps.align)}
                         height="100%"
-                        m={0}
-                        p={0}
+                        opacity={isHovered || dragOffset !== null ? 1 : 0.9}
                     >
-                        {label}
-                    </Text>
+                        <Text
+                            fontSize={typeof fontSize === "number" ? `${fontSize}px` : fontSize}
+                            color={labelProps.color ?? labelColor ?? "fg.default"}
+                            fontWeight={labelProps.fontWeight ?? labelFontWeight}
+                            fontStyle={labelProps.fontStyle}
+                            whiteSpace="nowrap"
+                            cursor={cursor}
+                            userSelect="none"
+                            lineHeight="1"
+                            m={0}
+                            p={0}
+                        >
+                            {labelProps.value}
+                        </Text>
+                    </Box>
                 </foreignObject>
+            )}
+
+            {/* Per-milestone overlays — axis-aligned UIComponents painted on
+                top of the diamond. The overlay layer extends slightly beyond
+                the diamond's bounding box so corner content (top-right
+                badges, etc.) reads naturally. */}
+            {overlays.map((o, i) => (
+                <foreignObject
+                    key={`ov-${i}`}
+                    x={currentX - diamondSize / 2}
+                    y={y}
+                    width={diamondSize}
+                    height={diamondSize}
+                    style={{ pointerEvents: "none" }}
+                >
+                    <div
+                        style={{
+                            width: "100%",
+                            height: "100%",
+                            display: "flex",
+                            justifyContent: alignToCss(o.align?.type),
+                            alignItems: alignToCss(o.verticalAlign?.type),
+                        }}
+                    >
+                        <EastChakraComponent
+                            value={o.content}
+                            storageKey={`${storageKey}.overlay.${i}`}
+                        />
+                    </div>
+                </foreignObject>
+            ))}
+
+            {/* Per-milestone tooltip */}
+            {hasTooltip && (
+                <Tooltip.Root
+                    open={isHovered}
+                    openDelay={200}
+                    positioning={{ placement: "top", getAnchorRect }}
+                >
+                    <Portal>
+                        <Tooltip.Positioner>
+                            <Tooltip.Content>
+                                <EastChakraComponent
+                                    value={tooltipContent!}
+                                    storageKey={`${storageKey}.tooltip`}
+                                />
+                            </Tooltip.Content>
+                        </Tooltip.Positioner>
+                    </Portal>
+                </Tooltip.Root>
+            )}
+
+            {/* Per-milestone popover */}
+            {hasPopover && (
+                <Popover.Root
+                    open={popoverOpen}
+                    onOpenChange={(e) => setPopoverOpen(e.open)}
+                    positioning={{ placement: "top", getAnchorRect }}
+                >
+                    <Portal>
+                        <Popover.Positioner>
+                            <Popover.Content>
+                                <Popover.Body p="3">
+                                    <EastChakraComponent
+                                        value={popoverContent!}
+                                        storageKey={`${storageKey}.popover`}
+                                    />
+                                </Popover.Body>
+                            </Popover.Content>
+                        </Popover.Positioner>
+                    </Portal>
+                </Popover.Root>
             )}
         </g>
     );

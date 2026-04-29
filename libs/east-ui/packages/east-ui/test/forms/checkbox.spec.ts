@@ -25,6 +25,7 @@ describeEast("Checkbox", (test) => {
         $(Assert.equal(checkbox.unwrap().unwrap("Checkbox").label.hasTag("none"), true));
         $(Assert.equal(checkbox.unwrap().unwrap("Checkbox").indeterminate.hasTag("none"), true));
         $(Assert.equal(checkbox.unwrap().unwrap("Checkbox").disabled.hasTag("none"), true));
+        $(Assert.equal(checkbox.unwrap().unwrap("Checkbox").style.hasTag("none"), true));
     });
 
     test("creates checkbox with checked false", $ => {
@@ -97,69 +98,85 @@ describeEast("Checkbox", (test) => {
     });
 
     // =========================================================================
-    // Color Palettes
+    // Color Palettes (now inside style)
     // =========================================================================
 
-    test("creates checkbox with blue color palette", $ => {
+    test("creates checkbox with blue color palette in style", $ => {
         const checkbox = $.let(Checkbox.Root(true, {
             colorPalette: "blue",
         }));
-
-        $(Assert.equal(checkbox.unwrap().unwrap("Checkbox").colorPalette.hasTag("some"), true));
-        $(Assert.equal(checkbox.unwrap().unwrap("Checkbox").colorPalette.unwrap("some").hasTag("blue"), true));
+        const style = $.let(checkbox.unwrap().unwrap("Checkbox").style.unwrap("some"));
+        $(Assert.equal(style.colorPalette.hasTag("some"), true));
+        $(Assert.equal(style.colorPalette.unwrap("some").hasTag("blue"), true));
     });
 
-    test("creates checkbox with green color palette", $ => {
+    test("creates checkbox with green color palette in style", $ => {
         const checkbox = $.let(Checkbox.Root(true, {
             colorPalette: "green",
         }));
-
-        $(Assert.equal(checkbox.unwrap().unwrap("Checkbox").colorPalette.unwrap("some").hasTag("green"), true));
+        const style = $.let(checkbox.unwrap().unwrap("Checkbox").style.unwrap("some"));
+        $(Assert.equal(style.colorPalette.unwrap("some").hasTag("green"), true));
     });
 
-    test("creates checkbox with Style.ColorScheme helper", $ => {
+    test("creates checkbox with Style.ColorScheme helper in style", $ => {
         const checkbox = $.let(Checkbox.Root(true, {
             colorPalette: Style.ColorScheme("purple"),
         }));
-
-        $(Assert.equal(checkbox.unwrap().unwrap("Checkbox").colorPalette.unwrap("some").hasTag("purple"), true));
+        const style = $.let(checkbox.unwrap().unwrap("Checkbox").style.unwrap("some"));
+        $(Assert.equal(style.colorPalette.unwrap("some").hasTag("purple"), true));
     });
 
     // =========================================================================
-    // Sizes
+    // Sizes (now inside style)
     // =========================================================================
 
-    test("creates small checkbox", $ => {
+    test("creates small checkbox via style.size", $ => {
         const checkbox = $.let(Checkbox.Root(true, {
             size: "sm",
         }));
-
-        $(Assert.equal(checkbox.unwrap().unwrap("Checkbox").size.hasTag("some"), true));
-        $(Assert.equal(checkbox.unwrap().unwrap("Checkbox").size.unwrap("some").hasTag("sm"), true));
+        const style = $.let(checkbox.unwrap().unwrap("Checkbox").style.unwrap("some"));
+        $(Assert.equal(style.size.hasTag("some"), true));
+        $(Assert.equal(style.size.unwrap("some").hasTag("sm"), true));
     });
 
-    test("creates medium checkbox", $ => {
+    test("creates medium checkbox via style.size", $ => {
         const checkbox = $.let(Checkbox.Root(true, {
             size: "md",
         }));
-
-        $(Assert.equal(checkbox.unwrap().unwrap("Checkbox").size.unwrap("some").hasTag("md"), true));
+        const style = $.let(checkbox.unwrap().unwrap("Checkbox").style.unwrap("some"));
+        $(Assert.equal(style.size.unwrap("some").hasTag("md"), true));
     });
 
-    test("creates large checkbox", $ => {
+    test("creates large checkbox via style.size", $ => {
         const checkbox = $.let(Checkbox.Root(true, {
             size: "lg",
         }));
-
-        $(Assert.equal(checkbox.unwrap().unwrap("Checkbox").size.unwrap("some").hasTag("lg"), true));
+        const style = $.let(checkbox.unwrap().unwrap("Checkbox").style.unwrap("some"));
+        $(Assert.equal(style.size.unwrap("some").hasTag("lg"), true));
     });
 
-    test("creates checkbox with Style.Size helper", $ => {
+    test("creates checkbox with Style.Size helper in style", $ => {
         const checkbox = $.let(Checkbox.Root(true, {
             size: Style.Size("md"),
         }));
+        const style = $.let(checkbox.unwrap().unwrap("Checkbox").style.unwrap("some"));
+        $(Assert.equal(style.size.unwrap("some").hasTag("md"), true));
+    });
 
-        $(Assert.equal(checkbox.unwrap().unwrap("Checkbox").size.unwrap("some").hasTag("md"), true));
+    // =========================================================================
+    // Colour escape hatches (new)
+    // =========================================================================
+
+    test("fillColor / checkColor / borderColor round-trip via style", $ => {
+        const checkbox = $.let(Checkbox.Root(true, {
+            fillColor: "blue.500",
+            checkColor: "white",
+            borderColor: "gray.300",
+        }));
+        const style = $.let(checkbox.unwrap().unwrap("Checkbox").style.unwrap("some"));
+        $(Assert.equal(style.fillColor.unwrap("some"), "blue.500"));
+        $(Assert.equal(style.checkColor.unwrap("some"), "white"));
+        $(Assert.equal(style.borderColor.unwrap("some"), "gray.300"));
     });
 
     // =========================================================================
@@ -179,8 +196,9 @@ describeEast("Checkbox", (test) => {
         $(Assert.equal(checkbox.unwrap().unwrap("Checkbox").label.unwrap("some"), "Enable feature"));
         $(Assert.equal(checkbox.unwrap().unwrap("Checkbox").indeterminate.unwrap("some"), false));
         $(Assert.equal(checkbox.unwrap().unwrap("Checkbox").disabled.unwrap("some"), false));
-        $(Assert.equal(checkbox.unwrap().unwrap("Checkbox").colorPalette.unwrap("some").hasTag("blue"), true));
-        $(Assert.equal(checkbox.unwrap().unwrap("Checkbox").size.unwrap("some").hasTag("md"), true));
+        const style = $.let(checkbox.unwrap().unwrap("Checkbox").style.unwrap("some"));
+        $(Assert.equal(style.colorPalette.unwrap("some").hasTag("blue"), true));
+        $(Assert.equal(style.size.unwrap("some").hasTag("md"), true));
     });
 
     test("creates terms acceptance checkbox", $ => {
@@ -191,7 +209,8 @@ describeEast("Checkbox", (test) => {
 
         $(Assert.equal(checkbox.unwrap().unwrap("Checkbox").checked, false));
         $(Assert.equal(checkbox.unwrap().unwrap("Checkbox").label.unwrap("some"), "I accept the terms and conditions"));
-        $(Assert.equal(checkbox.unwrap().unwrap("Checkbox").colorPalette.unwrap("some").hasTag("blue"), true));
+        const style = $.let(checkbox.unwrap().unwrap("Checkbox").style.unwrap("some"));
+        $(Assert.equal(style.colorPalette.unwrap("some").hasTag("blue"), true));
     });
 
     test("creates select all checkbox with indeterminate", $ => {
@@ -213,6 +232,7 @@ describeEast("Checkbox", (test) => {
 
         $(Assert.equal(checkbox.unwrap().unwrap("Checkbox").checked, true));
         $(Assert.equal(checkbox.unwrap().unwrap("Checkbox").disabled.unwrap("some"), true));
-        $(Assert.equal(checkbox.unwrap().unwrap("Checkbox").colorPalette.unwrap("some").hasTag("gray"), true));
+        const style = $.let(checkbox.unwrap().unwrap("Checkbox").style.unwrap("some"));
+        $(Assert.equal(style.colorPalette.unwrap("some").hasTag("gray"), true));
     });
 }, {   platformFns: TestImpl,});

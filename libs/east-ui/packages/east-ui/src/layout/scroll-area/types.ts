@@ -48,11 +48,13 @@ export type ScrollbarStyleLiteral = "overlay" | "reserved";
 /**
  * Style configuration for ScrollArea.
  *
+ * @property orientation - Scrollbar orientation
  * @property thumbColor - Colour of the draggable scroll thumb
  * @property trackColor - Colour of the scrollbar track
  * @property background - Background colour of the scrollable viewport
  */
 export const ScrollAreaStyleType = StructType({
+    orientation: OptionType(ScrollAreaOrientationType),
     thumbColor: OptionType(StringType),
     trackColor: OptionType(StringType),
     background: OptionType(StringType),
@@ -60,6 +62,8 @@ export const ScrollAreaStyleType = StructType({
 export type ScrollAreaStyleType = typeof ScrollAreaStyleType;
 
 export interface ScrollAreaStyle {
+    /** Scrollbar orientation; default `vertical`. */
+    orientation?: SubtypeExprOrValue<ScrollAreaOrientationType> | ScrollAreaOrientationLiteral;
     /** Colour of the draggable scroll thumb. */
     thumbColor?: SubtypeExprOrValue<StringType>;
     /** Colour of the scrollbar track. */
@@ -69,10 +73,8 @@ export interface ScrollAreaStyle {
 }
 
 export interface ScrollAreaOptions {
-    /** Scrollbar orientation; default `vertical`. */
-    orientation?: SubtypeExprOrValue<ScrollAreaOrientationType> | ScrollAreaOrientationLiteral;
     /** Scrollbar visual style; default `overlay`. */
     scrollbarStyle?: SubtypeExprOrValue<ScrollbarStyleType> | ScrollbarStyleLiteral;
-    /** Style escape hatches. */
+    /** Style escape hatches (includes `orientation`). */
     style?: ScrollAreaStyle;
 }

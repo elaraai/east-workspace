@@ -22,6 +22,10 @@ export type TagsInputValue = ValueTypeOf<typeof TagsInput.Types.Root>;
 export function toChakraTagsInput(value: TagsInputValue): TagsInputRootProps {
     const max = getSomeorUndefined(value.max);
     const maxLength = getSomeorUndefined(value.maxLength);
+    const style = getSomeorUndefined(value.style);
+    const variantTag = style ? getSomeorUndefined(style.variant)?.type : undefined;
+    const sizeTag = style ? getSomeorUndefined(style.size)?.type : undefined;
+    const colorPalette = style ? getSomeorUndefined(style.colorPalette)?.type : undefined;
 
     return {
         value: value.value,
@@ -36,9 +40,9 @@ export function toChakraTagsInput(value: TagsInputValue): TagsInputRootProps {
         addOnPaste: getSomeorUndefined(value.addOnPaste),
         blurBehavior: getSomeorUndefined(value.blurBehavior)?.type,
         allowOverflow: getSomeorUndefined(value.allowOverflow),
-        size: getSomeorUndefined(value.size)?.type,
-        variant: getSomeorUndefined(value.variant)?.type,
-        colorPalette: getSomeorUndefined(value.colorPalette)?.type,
+        size: sizeTag,
+        variant: variantTag,
+        colorPalette,
     };
 }
 

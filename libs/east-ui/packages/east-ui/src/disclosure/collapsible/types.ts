@@ -14,14 +14,13 @@ import {
 } from "@elaraai/east";
 
 // ============================================================================
-// Collapsible Style Type — visual presentation only (§0.10)
+// Collapsible Style Type
 // ============================================================================
 
 /**
  * Visual-only style struct for Collapsible. Content (`trigger` / `content`),
  * state (`defaultOpen`), and behaviour (`onOpenChange`) live on the main
- * `Collapsible` variant (inline in `component.ts`) per the Type-shape
- * convention (§0.10).
+ * `Collapsible` variant (inline in `component.ts`).
  *
  * @property background - Container background colour
  * @property borderColor - Container border colour

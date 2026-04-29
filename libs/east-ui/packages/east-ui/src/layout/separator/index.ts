@@ -7,7 +7,6 @@ import {
     type ExprType,
     East,
     OptionType,
-    StringType,
     StructType,
     variant,
 } from "@elaraai/east";
@@ -15,6 +14,7 @@ import {
 import {
     SeparatorVariantType,
     SeparatorAlignType,
+    SeparatorStyleType,
     type SeparatorStyle,
 } from "./types.js";
 import { UIComponentType } from "../../component.js";
@@ -25,6 +25,7 @@ import { Text } from "../../typography/text/index.js";
 export {
     SeparatorVariantType,
     SeparatorAlignType,
+    SeparatorStyleType,
     type SeparatorVariantLiteral,
     type SeparatorAlignLiteral,
     type SeparatorStyle,
@@ -38,12 +39,8 @@ export {
  * reference resolves.
  */
 export const SeparatorType = StructType({
-    orientation: OptionType(OrientationType),
-    variant: OptionType(SeparatorVariantType),
-    size: OptionType(SizeType),
-    color: OptionType(StringType),
     label: OptionType(UIComponentType),
-    align: OptionType(SeparatorAlignType),
+    style: OptionType(SeparatorStyleType),
 });
 export type SeparatorType = typeof SeparatorType;
 
@@ -130,13 +127,25 @@ function createSeparator(
             : (style.label as ExprType<UIComponentType>))
         : undefined;
 
+    const hasVisualStyle = orientationValue !== undefined ||
+        variantValue !== undefined ||
+        sizeValue !== undefined ||
+        style?.color !== undefined ||
+        alignValue !== undefined;
+
+    const styleValue = hasVisualStyle
+        ? East.value({
+            orientation: orientationValue ? variant("some", orientationValue) : variant("none", null),
+            variant: variantValue ? variant("some", variantValue) : variant("none", null),
+            size: sizeValue ? variant("some", sizeValue) : variant("none", null),
+            color: style!.color ? variant("some", style!.color) : variant("none", null),
+            align: alignValue ? variant("some", alignValue) : variant("none", null),
+        }, SeparatorStyleType)
+        : undefined;
+
     return East.value(variant("Separator", {
-        orientation: orientationValue ? variant("some", orientationValue) : variant("none", null),
-        variant: variantValue ? variant("some", variantValue) : variant("none", null),
-        size: sizeValue ? variant("some", sizeValue) : variant("none", null),
-        color: style?.color ? variant("some", style.color) : variant("none", null),
         label: labelValue ? variant("some", labelValue) : variant("none", null),
-        align: alignValue ? variant("some", alignValue) : variant("none", null),
+        style: styleValue ? variant("some", styleValue) : variant("none", null),
     }), UIComponentType);
 }
 
@@ -152,8 +161,28 @@ export const Separator = {
         /**
          * The East struct for the `Separator` variant payload — consumed by
          * the renderer's memoisation (`equalFor(Separator.Types.Separator)`).
+         *
+         * @remarks
+         * Visual fields (orientation, variant, size, colour, align) live in
+         * `style`. The `label` is content and stays on main.
+         *
+         * @property label - Optional rich label inside the separator
+         * @property style - Optional visual-only style sub-struct (see `Style`)
          */
         Separator: SeparatorType,
+        /**
+         * Visual-only style struct for Separator.
+         *
+         * @remarks
+         * Mirror of `SeparatorStyleType` from `./types.js`.
+         *
+         * @property orientation - Orientation (horizontal or vertical)
+         * @property variant - Line style variant (solid, dashed, dotted)
+         * @property size - Thickness size
+         * @property color - Colour (Chakra UI colour token or CSS colour)
+         * @property align - Label alignment (start | center | end)
+         */
+        Style: SeparatorStyleType,
         /**
          * The `SeparatorVariantType` reusable variant (solid | dashed | dotted).
          */

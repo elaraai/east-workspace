@@ -10,3 +10,9 @@ export {
     type EastChakraBreadcrumbProps,
     type EastChakraBreadcrumbItemProps,
 } from "./breadcrumb/index.js";
+
+export {
+    EastChakraNavList,
+    type NavListValue,
+    type EastChakraNavListProps,
+} from "./nav-list/index.js";

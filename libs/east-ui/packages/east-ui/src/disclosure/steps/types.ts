@@ -58,13 +58,13 @@ export function StepStatus(v: StepStatusLiteral): ExprType<StepStatusType> {
 }
 
 // ============================================================================
-// Steps Style Type — visual presentation only (§0.10)
+// Steps Style Type
 // ============================================================================
 
 /**
  * Visual-only style struct for Steps. Content (`items`) and state
  * (`activeIndex`) live on the main `Steps` variant (inline in
- * `component.ts`) per the Type-shape convention (§0.10).
+ * `component.ts`).
  *
  * @property orientation - Layout direction (horizontal / vertical)
  * @property size - Size token (sm / md / lg)

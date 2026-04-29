@@ -144,7 +144,7 @@ export type FlexStyle = {
     transform?: SubtypeExprOrValue<StringType>;
     /** Named CSS transition preset. */
     transition?: SubtypeExprOrValue<TransitionType> | TransitionLiteral;
-    /** Named cursor token; pair `help` / `not-allowed` with appropriate ARIA per §0.2. */
+    /** Named cursor token; pair `help` / `not-allowed` with appropriate ARIA. */
     cursor?: SubtypeExprOrValue<CursorType> | CursorLiteral;
     /** Opacity in `[0, 1]`. */
     opacity?: SubtypeExprOrValue<FloatType>;
@@ -152,7 +152,7 @@ export type FlexStyle = {
     fontFamily?: SubtypeExprOrValue<FontFamilyType> | FontFamilyLiteral;
     /** Named numeric-glyph variant (`tabular-nums` aligns digit columns). */
     fontVariantNumeric?: SubtypeExprOrValue<FontVariantNumericType> | FontVariantNumericLiteral;
-    /** Named animation preset; renderer degrades under `prefers-reduced-motion` per §0.2. */
+    /** Named animation preset; renderer degrades under `prefers-reduced-motion`. */
     animation?: SubtypeExprOrValue<AnimationPresetType> | AnimationPresetLiteral;
 };
 

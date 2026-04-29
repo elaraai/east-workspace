@@ -52,7 +52,7 @@ export {
  * (milliseconds, stringified). The confirmation glyph can be tinted via
  * `style.successColor`.
  *
- * Per the Type-shape convention: content + state + config are top-level
+ * content + state + config are top-level
  * options; visual presentation lives inside `options.style`.
  *
  * @example
@@ -130,8 +130,7 @@ function buildCopyButtonStyle(style: CopyButtonStyle): ExprType<CopyButtonStyleT
  *
  * @remarks
  * Use `CopyButton.Root(value, options)` to create a copy button, or access
- * `CopyButton.Types.CopyButton` for the East type. Per the Type-shape
- * convention: content + state + config are top-level options; visual
+ * `CopyButton.Types.CopyButton` for the East type. content + state + config are top-level options; visual
  * presentation lives inside `options.style`.
  */
 export const CopyButton = {

@@ -21,14 +21,14 @@ import { ButtonVariantType, type ButtonVariantLiteral } from "../button/types.js
 export { ButtonVariantType, type ButtonVariantLiteral } from "../button/types.js";
 
 // ============================================================================
-// Toggle Style Type — visual presentation only (§0.10)
+// Toggle Style Type
 // ============================================================================
 
 /**
  * Visual-only style struct for Toggle. Content (label, icon), state
  * (`pressed`, `disabled`), and behaviour (`onChange`) live on the main
  * `Toggle` variant — defined inline in `component.ts` because `label: UIComp`
- * is recursive — per the Type-shape convention (§0.10).
+ * is recursive —.
  *
  * @remarks
  * Holds the variant + size presets plus colour escape hatches, including

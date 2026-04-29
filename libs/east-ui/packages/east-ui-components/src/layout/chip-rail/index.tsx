@@ -45,8 +45,11 @@ export const EastChakraChipRail = memo(function EastChakraChipRail({ value, stor
     const gap = densityToGap(density);
 
     const separatorTag = useMemo(() => getSomeorUndefined(value.separator)?.type, [value.separator]);
-    const overflowTag = useMemo(() => getSomeorUndefined(value.overflow)?.type, [value.overflow]);
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
+    const overflowTag = useMemo(
+        () => (style ? getSomeorUndefined(style.overflow)?.type : undefined),
+        [style],
+    );
     const background = style ? getSomeorUndefined(style.background) : undefined;
     const separatorColor = style ? getSomeorUndefined(style.separatorColor) : undefined;
 

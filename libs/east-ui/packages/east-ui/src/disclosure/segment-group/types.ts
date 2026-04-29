@@ -21,14 +21,14 @@ import {
 } from "../../style.js";
 
 // ============================================================================
-// SegmentGroup Style Type — visual presentation only (§0.10)
+// SegmentGroup Style Type
 // ============================================================================
 
 /**
  * Visual-only style struct for SegmentGroup. Content (`items`), state
  * (`value`), and behaviour (`onChange`) live on the main `SegmentGroup`
  * variant (inline in `component.ts` because of the item `label: node`
- * field) per the Type-shape convention (§0.10).
+ * field).
  *
  * @remarks
  * Holds the visual preset triplet (`size` / `colorPalette` / `orientation`)

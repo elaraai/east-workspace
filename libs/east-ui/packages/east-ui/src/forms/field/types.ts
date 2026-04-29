@@ -81,6 +81,36 @@ export const ControlRootType = VariantType({
 export type ControlRootType = typeof ControlRootType;
 
 // ============================================================================
+// Field Style
+// ============================================================================
+
+/**
+ * East StructType holding visual fields for `Field`.
+ *
+ * @property orientation - Layout orientation (`vertical` / `horizontal`)
+ * @property labelColor - Explicit text colour for the label
+ * @property helperTextColor - Explicit text colour for the helper line
+ * @property requiredIndicatorColor - Explicit colour for the `*` next to required labels
+ * @property errorColor - Explicit text colour for the error line
+ * @property warningColor - Explicit text colour for warning state
+ * @property infoColor - Explicit text colour for info state
+ */
+export const FieldStyleType = StructType({
+    orientation: OptionType(FieldOrientationType),
+    labelColor: OptionType(StringType),
+    helperTextColor: OptionType(StringType),
+    requiredIndicatorColor: OptionType(StringType),
+    errorColor: OptionType(StringType),
+    warningColor: OptionType(StringType),
+    infoColor: OptionType(StringType),
+});
+
+/**
+ * Type alias for the Field style struct.
+ */
+export type FieldStyleType = typeof FieldStyleType;
+
+// ============================================================================
 // Field Type
 // ============================================================================
 
@@ -109,7 +139,7 @@ export const FieldType = StructType({
     disabled: OptionType(BooleanType),
     invalid: OptionType(BooleanType),
     readOnly: OptionType(BooleanType),
-    orientation: OptionType(FieldOrientationType),
+    style: OptionType(FieldStyleType),
 });
 
 /**
@@ -145,10 +175,22 @@ export interface FieldStyle {
     required?: SubtypeExprOrValue<BooleanType>;
     /** Whether the field is disabled */
     disabled?: SubtypeExprOrValue<BooleanType>;
-    /** Weather the field is invalid */
+    /** Whether the field is invalid */
     invalid?: SubtypeExprOrValue<BooleanType>;
     /** Whether the field is read-only */
     readOnly?: SubtypeExprOrValue<BooleanType>;
     /** Layout orientation of label and control */
     orientation?: SubtypeExprOrValue<FieldOrientationType> | FieldOrientationLiteral;
+    /** Explicit text colour for the label. */
+    labelColor?: SubtypeExprOrValue<StringType>;
+    /** Explicit text colour for the helper line. */
+    helperTextColor?: SubtypeExprOrValue<StringType>;
+    /** Explicit colour for the `*` next to required labels. */
+    requiredIndicatorColor?: SubtypeExprOrValue<StringType>;
+    /** Explicit text colour for the error line. */
+    errorColor?: SubtypeExprOrValue<StringType>;
+    /** Explicit text colour for warning state. */
+    warningColor?: SubtypeExprOrValue<StringType>;
+    /** Explicit text colour for info state. */
+    infoColor?: SubtypeExprOrValue<StringType>;
 }

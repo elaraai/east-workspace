@@ -14,13 +14,13 @@ import { SizeType } from "../../style.js";
 import type { SizeLiteral } from "../../style.js";
 
 // ============================================================================
-// EmptyState Style Type — visual presentation only (§0.10)
+// EmptyState Style Type
 // ============================================================================
 
 /**
  * Visual-only style struct for EmptyState. Content (`title` / `description` /
  * `icon` / `actions`) lives on the main `EmptyState` variant (inline in
- * `component.ts`) per the Type-shape convention (§0.10).
+ * `component.ts`).
  *
  * @property size - Size preset (sm / md / lg)
  * @property color - Default text colour

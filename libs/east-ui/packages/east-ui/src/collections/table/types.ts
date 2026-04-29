@@ -257,11 +257,11 @@ export const TableSelectionType = StructType({
 export type TableSelectionType = typeof TableSelectionType;
 
 // ============================================================================
-// Table Style Type — visual-only per §0.10
+// Table Style Type — visual-only
 // ============================================================================
 
 /**
- * Style type for the table root component — visual-only per §0.10.
+ * Style type for the table root component — visual-only.
  *
  * @remarks
  * Interactive wiring (`interactive`) and all callbacks are on the main
@@ -273,7 +273,6 @@ export type TableSelectionType = typeof TableSelectionType;
  * @property size - Table size (sm / md / lg)
  * @property striped - Zebra-stripe rows
  * @property stickyHeader - Sticky header row
- * @property stickyFirstColumn - Pin the first column while scrolling horizontally
  * @property showColumnBorder - Borders between columns
  * @property colorPalette - Color scheme for hover / selection
  * @property headerBackground - Explicit header background
@@ -291,7 +290,6 @@ export const TableStyleType = StructType({
     size: OptionType(TableSizeType),
     striped: OptionType(BooleanType),
     stickyHeader: OptionType(BooleanType),
-    stickyFirstColumn: OptionType(BooleanType),
     showColumnBorder: OptionType(BooleanType),
     colorPalette: OptionType(ColorSchemeType),
     headerBackground: OptionType(StringType),
@@ -319,7 +317,6 @@ export type TableStyleType = typeof TableStyleType;
  * @property size - Table size — visual
  * @property striped - Zebra stripes — visual
  * @property stickyHeader - Sticky header — visual
- * @property stickyFirstColumn - Pin first column — visual
  * @property showColumnBorder - Column borders — visual
  * @property colorPalette - Colour scheme — visual
  * @property headerBackground - Header background — visual
@@ -356,8 +353,6 @@ export interface TableStyle<ColumnKeys extends string = string> {
     interactive?: SubtypeExprOrValue<BooleanType>;
     /** Whether the header sticks when scrolling */
     stickyHeader?: SubtypeExprOrValue<BooleanType>;
-    /** Pin the first column while scrolling horizontally. */
-    stickyFirstColumn?: SubtypeExprOrValue<BooleanType>;
     /** Whether to show borders between columns */
     showColumnBorder?: SubtypeExprOrValue<BooleanType>;
     /** Color scheme for hover / selection */

@@ -10,12 +10,14 @@ import {
     ArrayType,
     FloatType,
     variant,
-    StringType,
+    some,
+    none,
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
 import {
     SparklineType,
+    SparklineStyleType,
     SparklineChartType,
     type SparklineStyle,
 } from "./types.js";
@@ -23,6 +25,7 @@ import {
 // Re-export types
 export {
     SparklineType,
+    SparklineStyleType,
     SparklineChartType,
     type SparklineChartLiteral,
     type SparklineStyle,
@@ -74,17 +77,24 @@ function createSparkline(
             : style.type)
         : undefined;
 
-    const toStringOption = (val: SubtypeExprOrValue<StringType> | undefined) => {
-        if (val === undefined) return variant("none", null);
-        return variant("some", val);
-    };
+    const hasVisualStyle = !!style && (
+        style.color !== undefined ||
+        style.height !== undefined ||
+        style.width !== undefined
+    );
+
+    const styleValue = hasVisualStyle
+        ? East.value({
+            color: style!.color !== undefined ? some(style!.color) : none,
+            height: style!.height !== undefined ? some(style!.height) : none,
+            width: style!.width !== undefined ? some(style!.width) : none,
+        }, SparklineStyleType)
+        : undefined;
 
     return East.value(variant("Sparkline", {
         data: data,
-        type: typeValue ? variant("some", typeValue) : variant("none", null),
-        color: toStringOption(style?.color),
-        height: toStringOption(style?.height),
-        width: toStringOption(style?.width),
+        type: typeValue ? some(typeValue) : none,
+        style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
 
@@ -143,14 +153,25 @@ export const Sparkline = {
          * @remarks
          * Sparkline is a compact inline chart for showing trends.
          * It displays an array of numeric values as a small visualization.
+         * Visual fields (colour, width, height) live in `style`.
          *
          * @property data - Array of numeric values to plot (ArrayType<FloatType>)
          * @property type - Chart type line or area (OptionType<SparklineChartType>)
-         * @property color - Line/fill color (OptionType<StringType>)
-         * @property height - Height of the sparkline (OptionType<StringType>)
-         * @property width - Width of the sparkline (OptionType<StringType>)
+         * @property style - Optional visual-only style sub-struct (see `Style`)
          */
         Sparkline: SparklineType,
+        /**
+         * East StructType holding every visual field for a Sparkline.
+         *
+         * @remarks
+         * Mirror of `SparklineStyleType` from `./types.js`. Holds the
+         * line/fill colour and the dimensions of the inline chart.
+         *
+         * @property color - Line/fill colour (Chakra colour token or CSS colour)
+         * @property height - Height of the sparkline (CSS length)
+         * @property width - Width of the sparkline (CSS length)
+         */
+        Style: SparklineStyleType,
         /**
          * Variant type for Sparkline chart appearance.
          *

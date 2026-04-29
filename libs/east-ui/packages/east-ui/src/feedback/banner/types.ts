@@ -16,7 +16,7 @@ import { AlertVariantType } from "../alert/types.js";
 import type { AlertVariantLiteral } from "../alert/types.js";
 
 // ============================================================================
-// Banner Style Type — visual presentation only (§0.10)
+// Banner Style Type
 // ============================================================================
 
 /**

@@ -24,7 +24,7 @@ import type { SizeLiteral } from "../../style.js";
  * East StructType for the EditableChip style sub-struct.
  *
  * @remarks
- * Visual-only per §0.10. Content (`label` / `trigger`), state
+ * Visual-only. Content (`label` / `trigger`), state
  * (`disabled`), and behaviour (`onClick`) live on the main
  * `EditableChip` inline variant in `component.ts`.
  *

@@ -110,7 +110,7 @@ export type IconVariantLiteral = "solid" | "regular" | "light" | "thin" | "brand
  *
  * @remarks
  * All properties are optional and wrapped in {@link OptionType}. Visual-only
- * per the east-ui main/style type-shape convention (§0.10) — content
+ * per the east-ui main/style type-shape convention — content
  * (`prefix` / `name`) and the a11y `label` live on the main `IconType`
  * struct.
  *
@@ -247,7 +247,7 @@ export interface IconStyle {
  * prefix + name (identity), an optional `label` for accessibility, and a
  * `style` sub-struct for visual presentation.
  *
- * The `label` field follows the east-ui §0.2 decorative-vs-meaningful
+ * The `label` field follows the east-ui decorative-vs-meaningful
  * contract: when `label` is absent (`none`), the renderer emits
  * `aria-hidden="true"`; when present, the renderer emits
  * `aria-label={label}`. Apps using Icon alongside text that already

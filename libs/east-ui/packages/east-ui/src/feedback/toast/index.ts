@@ -168,7 +168,7 @@ export const Toast = {
          * Alert / Banner.
          *
          * @remarks
-         * Drives default paired-icon injection and colour palette per §0.3.
+         * Drives default paired-icon injection and colour palette.
          *
          * @property info - Informational / neutral notice
          * @property success - Confirmation of a successful action
@@ -182,7 +182,7 @@ export const Toast = {
          *
          * @remarks
          * Each action carries a label, an onClick callback, and an optional
-         * visual variant. Up to three actions per toast per §0.3.
+         * visual variant. Up to three actions per toast.
          *
          * @property label - Button label text
          * @property onClick - Callback invoked when the button fires

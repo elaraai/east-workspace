@@ -66,9 +66,19 @@ const EastChakraBreadcrumbItem = memo(function EastChakraBreadcrumbItem({ value 
  * Renders an East UI Breadcrumb value using Chakra UI Breadcrumb component.
  */
 export const EastChakraBreadcrumb = memo(function EastChakraBreadcrumb({ value }: EastChakraBreadcrumbProps) {
-    const variant = useMemo(() => getSomeorUndefined(value.variant)?.type, [value]);
-    const size = useMemo(() => getSomeorUndefined(value.size)?.type, [value]);
-    const colorPalette = useMemo(() => getSomeorUndefined(value.colorPalette)?.type, [value]);
+    const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
+    const variant = useMemo(
+        () => (style ? getSomeorUndefined(style.variant)?.type : undefined),
+        [style],
+    );
+    const size = useMemo(
+        () => (style ? getSomeorUndefined(style.size)?.type : undefined),
+        [style],
+    );
+    const colorPalette = useMemo(
+        () => (style ? getSomeorUndefined(style.colorPalette)?.type : undefined),
+        [style],
+    );
     return (
         <ChakraBreadcrumb.Root
             variant={variant}

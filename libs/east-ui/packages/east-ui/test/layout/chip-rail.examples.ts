@@ -45,7 +45,7 @@ export const chipRailOverflow = example({
         return ChipRail.Root(chips, {
             density: "condensed",
             separator: "none",
-            overflow: "scroll",
+            style: { overflow: "scroll" },
         });
     }),
     inputs: [],

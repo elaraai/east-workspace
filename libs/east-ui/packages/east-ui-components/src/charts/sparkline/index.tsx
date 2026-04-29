@@ -34,12 +34,13 @@ export interface SparklineStyleProps {
  * @returns Sparkline style props
  */
 export function toChakraSparkline(value: SparklineValue): SparklineStyleProps {
+    const style = getSomeorUndefined(value.style);
     return {
         data: value.data,
         chartType: getSomeorUndefined(value.type)?.type ?? "line",
-        color: getSomeorUndefined(value.color) ?? "currentColor",
-        width: getSomeorUndefined(value.width) ?? "100%",
-        height: getSomeorUndefined(value.height) ?? "100%",
+        color: (style ? getSomeorUndefined(style.color) : undefined) ?? "currentColor",
+        width: (style ? getSomeorUndefined(style.width) : undefined) ?? "100%",
+        height: (style ? getSomeorUndefined(style.height) : undefined) ?? "100%",
     };
 }
 

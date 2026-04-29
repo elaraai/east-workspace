@@ -31,6 +31,7 @@ export const EastChakraSkeleton = memo(function EastChakraSkeleton({ value }: Ea
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
     const width = style ? getSomeorUndefined(style.width) : undefined;
     const height = style ? getSomeorUndefined(style.height) : undefined;
+    const fontSize = style ? getSomeorUndefined(style.fontSize) : undefined;
     const background = style ? getSomeorUndefined(style.background) : undefined;
     const shimmer = style ? getSomeorUndefined(style.shimmerColor) : undefined;
     const count = getSomeorUndefined(value.count);
@@ -44,7 +45,6 @@ export const EastChakraSkeleton = memo(function EastChakraSkeleton({ value }: Ea
     const renderOne = (key: number) => {
         if (shapeTag === "text") {
             const lines = getSomeorUndefined(value.lines);
-            const fontSize = getSomeorUndefined(value.fontSize);
             return (
                 <ChakraSkeletonText
                     key={key}

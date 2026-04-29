@@ -218,8 +218,7 @@ export const Tag = {
          * @remarks
          * Main struct holds the tag text (`label`), the closable state
          * (`closable`), the close-button callback (`onClose`), and a single
-         * `style` sub-struct holding every visual field per the type-shape
-         * convention. Exposed on the namespace so consumers can reference
+         * `style` sub-struct holding every visual field. Exposed on the namespace so consumers can reference
          * the IR type directly via `Tag.Types.Tag` without reaching into
          * module internals.
          *

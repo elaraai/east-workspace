@@ -14,7 +14,7 @@ import {
     type TableRootProps,
 } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faChevronUp, faChevronDown, faAnglesDown, faThumbtack } from "@fortawesome/free-solid-svg-icons";
+import { faChevronUp, faChevronDown, faChevronLeft, faChevronRight, faAnglesDown, faThumbtack } from "@fortawesome/free-solid-svg-icons";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
     useReactTable,
@@ -32,6 +32,7 @@ import { Table, type UIComponentType } from "@elaraai/east-ui";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { RowStateManager, type RowKey, type RowState } from "../../utils/RowStateManager";
+import { useRowStatusBg } from "../shared/helpers";
 
 // Pre-define equality function at module level
 const tableRootEqual = equalFor(Table.Types.Root);
@@ -144,24 +145,81 @@ export const EastChakraTable = memo(function EastChakraTable({
     enableMultiSort = true,
     maxSortColumns = 5,
     loadingDelay = 200,
-    enableColumnResizing = true,
+    enableColumnResizing: enableColumnResizingProp,
     storageKey,
 }: EastChakraTableProps) {
     const props = useMemo(() => toChakraTableRoot(value), [value]);
-    const styleHeight = useMemo(() => {
-        const style = getSomeorUndefined(value.style);
-        return style ? getSomeorUndefined(style.height) : undefined;
-    }, [value]);
     const tableContainerRef = useRef<HTMLDivElement>(null);
 
     // Extract East-side callbacks from style
-    const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
-    const onCellClickFn = useMemo(() => getSomeorUndefined(value.onCellClick), [value.onCellClick]);
-    const onCellDoubleClickFn = useMemo(() => getSomeorUndefined(value.onCellDoubleClick), [value.onCellDoubleClick]);
-    const onRowClickFn = useMemo(() => getSomeorUndefined(value.onRowClick), [value.onRowClick]);
-    const onRowDoubleClickFn = useMemo(() => getSomeorUndefined(value.onRowDoubleClick), [value.onRowDoubleClick]);
-    const onSortChangeFn = useMemo(() => getSomeorUndefined(value.onSortChange), [value.onSortChange]);
-    const onRowSelectionChangeFn = useMemo(() => getSomeorUndefined(value.onRowSelectionChange), [value.onRowSelectionChange]);
+    const style = getSomeorUndefined(value.style);
+    const onCellClickFn = getSomeorUndefined(value.onCellClick);
+    const onCellDoubleClickFn = getSomeorUndefined(value.onCellDoubleClick);
+    const onRowClickFn = getSomeorUndefined(value.onRowClick);
+    const onRowDoubleClickFn = getSomeorUndefined(value.onRowDoubleClick);
+    const onSortChangeFn = getSomeorUndefined(value.onSortChange);
+    const onRowSelectionChangeFn = getSomeorUndefined(value.onRowSelectionChange);
+
+    // Column-resize gating — IR `value.columnResize` takes precedence
+    // over the JS-side prop. When neither is defined, default to true
+    // (preserves the current always-on behaviour).
+    const irColumnResize = getSomeorUndefined(value.columnResize);
+    const enableColumnResizing = irColumnResize !== undefined
+        ? irColumnResize
+        : (enableColumnResizingProp ?? true);
+
+    // Virtualization gate — IR `value.virtualization` flag. When false,
+    // virtualization is bypassed and every row is rendered. The
+    // virtualizer instance is still created (its `getVirtualItems`
+    // method drives the layout); we just synthesize a full list of
+    // virtual items when virtualization is off so the existing render
+    // loop works unchanged.
+    const virtualizationEnabled = getSomeorUndefined(value.virtualization) !== false;
+
+    // Visual colour overrides — explicit theme escape hatches per
+    // §0.10. Each falls back to Chakra's default when undefined; when
+    // set, the renderer plumbs it onto the relevant DOM node via
+    // inline style.
+    const headerBackground = style ? getSomeorUndefined(style.headerBackground) : undefined;
+    const headerColor = style ? getSomeorUndefined(style.headerColor) : undefined;
+    const borderColor = style ? getSomeorUndefined(style.borderColor) : undefined;
+    const zebraBackground = style ? getSomeorUndefined(style.zebraBackground) : undefined;
+    const hoverBackground = style ? getSomeorUndefined(style.hoverBackground) : undefined;
+    const selectedBackground = style ? getSomeorUndefined(style.selectedBackground) : undefined;
+    const selectedBorderColor = style ? getSomeorUndefined(style.selectedBorderColor) : undefined;
+    const footerBackground = style ? getSomeorUndefined(style.footerBackground) : undefined;
+
+    // Density token — `compact` | `comfortable` | `cozy`. Translates to
+    // a row-height + cell-padding pair used by every body row.
+    const densityTag = getSomeorUndefined(value.density)?.type;
+    const densityRowHeight = densityTag === "compact" ? 32
+        : densityTag === "comfortable" ? 56
+        : 48; // cozy / default
+    const densityCellPadX = densityTag === "compact" ? "8px"
+        : densityTag === "comfortable" ? "20px"
+        : "12px";
+    const densityCellPadY = densityTag === "compact" ? "4px"
+        : densityTag === "comfortable" ? "12px"
+        : "8px";
+
+    // Expandable rows — `value.expandedContent` is a `(rowIndex) =>
+    // UIComponent` callback. When defined, an extra toggle column is
+    // prepended; clicking the chevron toggles the row's `expandedRows`
+    // membership; expanded rows render an extra child row beneath
+    // showing the callback's UIComp.
+    const expandedContentFn = getSomeorUndefined(value.expandedContent);
+    const [expandedRows, setExpandedRows] = useState<Set<number>>(() => new Set());
+    const toggleExpanded = useCallback((idx: number) => {
+        setExpandedRows(prev => {
+            const next = new Set(prev);
+            if (next.has(idx)) next.delete(idx); else next.add(idx);
+            return next;
+        });
+    }, []);
+
+    // Row-status callback — paints each row's background with a
+    // semantic token. Shared helper used by Planner / Gantt too.
+    const rowStatusBgFor = useRowStatusBg(getSomeorUndefined(value.rowStatus));
 
     // Row state management for loading indicators
     const [rowStateManager] = useState(() => new RowStateManager());
@@ -232,7 +290,7 @@ export const EastChakraTable = memo(function EastChakraTable({
         storageKey,
         { sorting: [], columnSizing: {}, pinnedColumns: [...value.frozen] },
     );
-    const sorting = useMemo(() => persistedState.sorting, [persistedState.sorting]);
+    const sorting = persistedState.sorting;
     const setSorting = useCallback((updater: SortingState | ((prev: SortingState) => SortingState)) => {
         setPersistedState(prev => ({
             ...prev,
@@ -240,50 +298,115 @@ export const EastChakraTable = memo(function EastChakraTable({
         }));
     }, [setPersistedState]);
 
-    // Row selection state
-    const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+    // Controlled selection — `value.selection` carries `mode` /
+    // `selected` / `onChange`. When defined the renderer:
+    //   1. mirrors `selected` into local `rowSelection` state
+    //      (controlled-component pattern, see `useEffect` below)
+    //   2. honours `mode` (single / multiple / range) when toggling
+    //   3. calls the East-side `onChange` with the new index list
+    const selectionConfig = getSomeorUndefined(value.selection) as undefined | {
+        mode: { type: "single" | "multiple" | "range" };
+        // `selected` and `onChange` live on the IR as plain types (not
+        // wrapped in OptionType) — both required when selection is
+        // defined.
+        selected: bigint[];
+        onChange: (idxs: bigint[]) => null;
+    };
+    const selectionMode = selectionConfig?.mode?.type;
+    const selectionSelected = selectionConfig?.selected;
+    const selectionOnChange = selectionConfig?.onChange;
 
-    // Handle row selection changes
+    // Row selection state. When `selectionSelected` is defined the IR
+    // prop is the source of truth — `rowSelection` is derived directly.
+    // When undefined, fall through to local state.
+    const isSelectionControlled = selectionSelected !== undefined;
+    const [localRowSelection, setLocalRowSelection] = useState<RowSelectionState>({});
+    const rowSelection = useMemo<RowSelectionState>(() => {
+        if (selectionSelected) {
+            const m: RowSelectionState = {};
+            for (const idx of selectionSelected) m[String(idx)] = true;
+            return m;
+        }
+        return localRowSelection;
+    }, [selectionSelected, localRowSelection]);
+
+    // Track last-clicked index for range-selection (shift+click extends).
+    const lastClickedRef = useRef<number | null>(null);
+
+    // Handle row selection changes. Reads from displayed `rowSelection`
+    // (which is the IR prop when controlled) so the new selection is
+    // computed against the truth. Fires East callbacks and only updates
+    // local state in uncontrolled mode.
     const handleRowSelectionChange = useCallback((updater: RowSelectionState | ((prev: RowSelectionState) => RowSelectionState)) => {
-        setRowSelection(prev => {
-            const newSelection = typeof updater === 'function' ? updater(prev) : updater;
+        const prev = rowSelection;
+        const newSelection = typeof updater === 'function' ? updater(prev) : updater;
 
-            // Find what changed
-            if (onRowSelectionChangeFn) {
-                const selectedIndices = Object.keys(newSelection)
-                    .filter(key => newSelection[key])
-                    .map(key => BigInt(parseInt(key, 10)));
+        const selectedIndices = Object.keys(newSelection)
+            .filter(key => newSelection[key])
+            .map(key => BigInt(parseInt(key, 10)));
 
-                // Find which row changed by comparing with previous state
-                const prevSelected = new Set(Object.keys(prev).filter(key => prev[key]));
-                const newSelected = new Set(Object.keys(newSelection).filter(key => newSelection[key]));
-
-                // Find newly selected or deselected rows
-                for (const key of newSelected) {
-                    if (!prevSelected.has(key)) {
-                        const rowIndex = BigInt(parseInt(key, 10));
-                        queueMicrotask(() => onRowSelectionChangeFn({
-                            rowIndex,
-                            selected: true,
-                            selectedRowsIndices: selectedIndices,
-                        }));
-                    }
-                }
-                for (const key of prevSelected) {
-                    if (!newSelected.has(key)) {
-                        const rowIndex = BigInt(parseInt(key, 10));
-                        queueMicrotask(() => onRowSelectionChangeFn({
-                            rowIndex,
-                            selected: false,
-                            selectedRowsIndices: selectedIndices,
-                        }));
-                    }
+        // Per-row delta (legacy `onRowSelectionChange`).
+        if (onRowSelectionChangeFn) {
+            const prevSelected = new Set(Object.keys(prev).filter(key => prev[key]));
+            const newSelected = new Set(Object.keys(newSelection).filter(key => newSelection[key]));
+            for (const key of newSelected) {
+                if (!prevSelected.has(key)) {
+                    const rowIndex = BigInt(parseInt(key, 10));
+                    queueMicrotask(() => onRowSelectionChangeFn({
+                        rowIndex,
+                        selected: true,
+                        selectedRowsIndices: selectedIndices,
+                    }));
                 }
             }
+            for (const key of prevSelected) {
+                if (!newSelected.has(key)) {
+                    const rowIndex = BigInt(parseInt(key, 10));
+                    queueMicrotask(() => onRowSelectionChangeFn({
+                        rowIndex,
+                        selected: false,
+                        selectedRowsIndices: selectedIndices,
+                    }));
+                }
+            }
+        }
 
-            return newSelection;
-        });
-    }, [onRowSelectionChangeFn]);
+        // New `selection.onChange` fires the full selected index list.
+        if (selectionOnChange) {
+            queueMicrotask(() => selectionOnChange(selectedIndices));
+        }
+
+        // Only mutate local state when uncontrolled — when controlled the
+        // IR prop drives the next render.
+        if (!isSelectionControlled) {
+            setLocalRowSelection(newSelection);
+        }
+    }, [rowSelection, isSelectionControlled, onRowSelectionChangeFn, selectionOnChange]);
+
+    // Toggle a row by index, honouring `selectionMode`. Called by the
+    // checkbox column. `shift` enables range-mode extension. Computes
+    // the next selection from the displayed `rowSelection` (which is
+    // the IR prop when controlled) and delegates to
+    // `handleRowSelectionChange` for callback dispatch + local state
+    // sync.
+    const toggleRowSelection = useCallback((idx: number, shift: boolean) => {
+        const prev = rowSelection;
+        let next: RowSelectionState;
+        const wasSelected = !!prev[String(idx)];
+        if (selectionMode === "single") {
+            next = wasSelected ? {} : { [String(idx)]: true };
+        } else if (selectionMode === "range" && shift && lastClickedRef.current !== null) {
+            const lo = Math.min(lastClickedRef.current, idx);
+            const hi = Math.max(lastClickedRef.current, idx);
+            next = { ...prev };
+            for (let i = lo; i <= hi; i++) next[String(i)] = true;
+        } else {
+            next = { ...prev };
+            if (wasSelected) delete next[String(idx)]; else next[String(idx)] = true;
+        }
+        handleRowSelectionChange(next);
+        lastClickedRef.current = idx;
+    }, [rowSelection, selectionMode, handleRowSelectionChange]);
 
     // Handle sorting changes and notify parent
     const handleSortingChange = useCallback((updater: SortingState | ((prev: SortingState) => SortingState)) => {
@@ -341,7 +464,7 @@ export const EastChakraTable = memo(function EastChakraTable({
     }, [onRowDoubleClickFn]);
 
     // Column sizing (derived from persisted state)
-    const columnSizing = useMemo(() => persistedState.columnSizing, [persistedState.columnSizing]);
+    const columnSizing = persistedState.columnSizing;
     const setColumnSizing = useCallback((updater: Record<string, number> | ((prev: Record<string, number>) => Record<string, number>)) => {
         setPersistedState(prev => ({
             ...prev,
@@ -370,9 +493,34 @@ export const EastChakraTable = memo(function EastChakraTable({
         });
     }, [setPersistedState, value.frozen]);
 
+    // Embedded pagination — `value.pagination` carries `pageSize`,
+    // `page` (1-based), and an `onPageChange` callback. When defined,
+    // the renderer slices `rows` to the current page on the JS side
+    // and renders a small pager beneath the table. Virtualization
+    // remains active but only across the page slice.
+    const paginationConfig = getSomeorUndefined(value.pagination) as undefined | {
+        pageSize: bigint;
+        page: bigint;
+        // `onPageChange` lives on the IR as a plain `FunctionType` (not
+        // wrapped in OptionType) — it's required when pagination is
+        // defined.
+        onPageChange: (page: bigint) => null;
+    };
+    const pageSize = paginationConfig ? Number(paginationConfig.pageSize) : undefined;
+    // Page index is 0-based per the IR (`TablePaginationType.page` doc).
+    const currentPage = paginationConfig ? Number(paginationConfig.page) : 0;
+    const paginationOnChange = paginationConfig?.onPageChange;
+    const totalPages = pageSize ? Math.max(1, Math.ceil(value.rows.length / pageSize)) : 1;
+    // Slice rows to the current page when pagination is active.
+    const pagedRows = useMemo(() => {
+        if (!pageSize) return value.rows;
+        const startIdx = currentPage * pageSize;
+        return value.rows.slice(startIdx, startIdx + pageSize);
+    }, [value.rows, pageSize, currentPage]);
+
     // Create table instance
     const table = useReactTable({
-        data: value.rows,
+        data: pagedRows,
         columns,
         state: {
             sorting,
@@ -411,15 +559,34 @@ export const EastChakraTable = memo(function EastChakraTable({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [table.getState().columnSizingInfo, table.getState().columnSizing]);
 
-    // Virtual row setup
+    // Virtual row setup. Density token overrides the default rowHeight
+    // unless the consumer passed a JS-side rowHeight prop explicitly.
+    const effectiveRowHeight = densityTag ? densityRowHeight : rowHeight;
     const virtualizer = useVirtualizer({
         count: rows.length,
         getScrollElement: () => tableContainerRef.current,
-        estimateSize: () => rowHeight,
+        estimateSize: () => effectiveRowHeight,
         overscan,
+        // measureElement enables variable-height rows. Required so that
+        // rows expanded via `expandedContent` push subsequent rows down
+        // by their actual rendered height instead of overlapping.
+        measureElement: (el) => el?.getBoundingClientRect().height,
     });
 
-    const virtualItems = virtualizer.getVirtualItems();
+    // Virtual items: when virtualization is off, synthesize a full
+    // list of items so the existing render loop walks every row.
+    const virtualItems = useMemo(() => {
+        if (virtualizationEnabled) return virtualizer.getVirtualItems();
+        return rows.map((_r, idx) => ({
+            index: idx,
+            start: idx * effectiveRowHeight,
+            end: (idx + 1) * effectiveRowHeight,
+            size: effectiveRowHeight,
+            key: idx,
+            lane: 0,
+        }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [virtualizationEnabled, virtualizer, rows.length, effectiveRowHeight, virtualizer.getVirtualItems()]);
 
     // Process visible rows for loading state
     useEffect(() => {
@@ -494,7 +661,7 @@ export const EastChakraTable = memo(function EastChakraTable({
     return (
         <Box
             ref={tableContainerRef}
-            height={styleHeight ?? height}
+            height={(style ? getSomeorUndefined(style.height) : undefined) ?? height}
             overflowY="auto"
             overflowX={hasFrozen ? 'auto' : undefined}
             position="relative"
@@ -509,8 +676,118 @@ export const EastChakraTable = memo(function EastChakraTable({
                 }}
             >
                 <ChakraTable.Header style={{ display: 'block' }} position="sticky" top={0} zIndex={2} bg="bg.panel">
+                    {/* Column-group row — rendered above the column headers when
+                        `value.columnGroups` is defined. Each group spans the
+                        columns whose keys it lists, computed via CSS `calc()`
+                        across the relevant `--col-*-size` variables. */}
+                    {(() => {
+                        const groups = getSomeorUndefined(value.columnGroups);
+                        if (!groups || groups.length === 0) return null;
+                        return (
+                            <ChakraTable.Row key="column-groups" style={{ display: "flex", width: "100%" }}>
+                                {(() => {
+                                    // Group-row alignment: when the column-header row uses
+                                    // `flex: 1 1 0%` per cell (columns without explicit width
+                                    // and no frozen pin), the column cells grow to fill the
+                                    // container. To keep group cells aligned, mirror that
+                                    // semantic by giving each group cell flex-grow equal to
+                                    // the number of columns it spans, with the calc width as
+                                    // its min-width. When columns have explicit widths
+                                    // (frozen pinning or sized headers), use `flex: none` +
+                                    // calc width (no growth, exact alignment).
+                                    const groupsRowGrows = !hasFrozen && Object.keys(columnSizing).length === 0
+                                        && value.columns.every(c => getSomeorUndefined(c.width) === undefined);
+                                    return groups.map((g, gi) => {
+                                        const groupKeys: string[] = Array.from(g.columnKeys);
+                                        if (groupKeys.length === 0) return null;
+                                        const widthCalc = groupKeys.map(k => `var(--col-${k}-size)`).join(" + ");
+                                        return (
+                                            <ChakraTable.ColumnHeader
+                                                key={`group-${gi}`}
+                                                style={{
+                                                    width: `calc(${widthCalc})`,
+                                                    minWidth: `calc(${widthCalc})`,
+                                                    flex: groupsRowGrows ? `${groupKeys.length} 1 0%` : "none",
+                                                    background: headerBackground,
+                                                    color: headerColor,
+                                                    borderColor,
+                                                    paddingLeft: densityCellPadX,
+                                                    paddingRight: densityCellPadX,
+                                                    paddingTop: densityCellPadY,
+                                                    paddingBottom: densityCellPadY,
+                                                    textAlign: "center",
+                                                    fontWeight: 600,
+                                                    // Remove the cell's bottom border so the header
+                                                    // row's top border is the single divider —
+                                                    // otherwise both rows draw a 1px line at the
+                                                    // boundary, doubling up.
+                                                    borderBottomWidth: 0,
+                                                }}
+                                            >
+                                                {g.label}
+                                            </ChakraTable.ColumnHeader>
+                                        );
+                                    });
+                                })()}
+                            </ChakraTable.Row>
+                        );
+                    })()}
                     {table.getHeaderGroups().map(headerGroup => (
                         <ChakraTable.Row key={headerGroup.id} style={{ display: 'flex', width: '100%' }}>
+                            {/* Expand toggle column header — empty placeholder cell. */}
+                            {expandedContentFn && (
+                                <ChakraTable.ColumnHeader
+                                    key="expand-toggle-col-header"
+                                    style={{
+                                        width: "32px",
+                                        flex: "none",
+                                        background: headerBackground,
+                                        color: headerColor,
+                                        borderColor,
+                                        paddingLeft: 0,
+                                        paddingRight: 0,
+                                    }}
+                                />
+                            )}
+                            {/* Selection checkbox column header — only shown for
+                                `multiple` mode (toggles select-all). For `single`
+                                / `range` modes the column has no header action. */}
+                            {selectionMode && (
+                                <ChakraTable.ColumnHeader
+                                    key="selection-col-header"
+                                    style={{
+                                        width: "40px",
+                                        flex: "none",
+                                        background: headerBackground,
+                                        color: headerColor,
+                                        borderColor,
+                                        paddingLeft: 0,
+                                        paddingRight: 0,
+                                        textAlign: "center",
+                                    }}
+                                >
+                                    {selectionMode === "multiple" && (
+                                        <input
+                                            type="checkbox"
+                                            aria-label="Select all rows"
+                                            checked={rows.length > 0 && Object.values(rowSelection).filter(Boolean).length === rows.length}
+                                            ref={(el) => {
+                                                if (el) {
+                                                    const some = Object.values(rowSelection).some(Boolean);
+                                                    const all = rows.length > 0 && Object.values(rowSelection).filter(Boolean).length === rows.length;
+                                                    el.indeterminate = some && !all;
+                                                }
+                                            }}
+                                            onChange={() => {
+                                                const all = rows.length > 0 && Object.values(rowSelection).filter(Boolean).length === rows.length;
+                                                const next: RowSelectionState = {};
+                                                if (!all) for (let i = 0; i < rows.length; i++) next[String(i)] = true;
+                                                handleRowSelectionChange(next);
+                                            }}
+                                        />
+                                    )}
+                                </ChakraTable.ColumnHeader>
+                            )}
                             {headerGroup.headers.map((header) => {
                                 const sortIndex = getSortIndex(header.id);
                                 const isSorted = header.column.getIsSorted();
@@ -529,6 +806,13 @@ export const EastChakraTable = memo(function EastChakraTable({
                                             flex: hasFrozen ? 'none' : (columnSizing[header.id] || header.column.columnDef.meta?.width) ? 'none' : 1,
                                             ...pinningStyles,
                                             zIndex: isPinned ? 3 : undefined,
+                                            background: headerBackground,
+                                            color: headerColor,
+                                            borderColor: borderColor,
+                                            paddingLeft: densityCellPadX,
+                                            paddingRight: densityCellPadX,
+                                            paddingTop: densityCellPadY,
+                                            paddingBottom: densityCellPadY,
                                         }}
                                         position={isPinned ? "sticky" : "relative"}
                                     >
@@ -611,23 +895,138 @@ export const EastChakraTable = memo(function EastChakraTable({
                         const rowState = rowStates.get(rowKey) || { status: 'unloaded' };
                         const isRowLoading = !rowStateManager.isRowLoaded(rowKey) || rowState.status === 'loading';
                         const rowIndex = BigInt(row.index);
+                        const isSelected = !!row.getIsSelected?.();
+                        const isOdd = virtualRow.index % 2 === 1;
+
+                        // Background priority: rowStatus > selected > zebra
+                        // (when striped on odd row) > undefined.
+                        // Note: virtualizer wraps each row in a `<div>`, which
+                        // breaks Chakra's `:nth-child` zebra. Apply zebra
+                        // inline. Default uses a translucent black overlay so
+                        // it always contrasts against the row beneath in both
+                        // light and dark themes (Chakra colour tokens like
+                        // `bg-muted` can resolve to the same value as the
+                        // table base in some palettes, leaving stripes
+                        // invisible).
+                        const rowStatusBg = rowStatusBgFor(virtualRow.index);
+                        // Default zebra: Chakra's `bg.subtle` token (mode-aware,
+                        // distinct from the base table bg in both light and dark
+                        // themes). Falls back to a 12% currentColor mix for browsers
+                        // / themes where the token isn't defined.
+                        const stripedZebra = props.striped && isOdd
+                            ? (zebraBackground ?? "var(--chakra-colors-bg-subtle, color-mix(in srgb, currentColor 12%, transparent))")
+                            : undefined;
+                        const rowBg = rowStatusBg
+                            ?? (isSelected ? selectedBackground : undefined)
+                            ?? stripedZebra;
+
+                        const isExpanded = expandedRows.has(virtualRow.index);
 
                         return (
-                            <ChakraTable.Row
+                            <div
                                 key={row.id}
+                                data-index={virtualRow.index}
+                                ref={virtualizer.measureElement}
                                 style={{
-                                    display: 'flex',
-                                    position: 'absolute',
+                                    position: "absolute",
                                     top: 0,
                                     left: 0,
-                                    width: '100%',
-                                    height: `${virtualRow.size}px`,
+                                    width: "100%",
                                     transform: `translateY(${virtualRow.start}px)`,
-                                    cursor: (onRowClickFn || onRowDoubleClickFn) ? 'pointer' : undefined,
+                                    // Apply zebra / status / selected bg here on the
+                                    // wrapper (no Chakra CSS class) instead of the
+                                    // <tr>. The Chakra-emotion class on the <tr>
+                                    // applies its own bg in some themes which can
+                                    // override an inline `style` even though that
+                                    // shouldn't normally happen — applying here
+                                    // guarantees the bg shows through.
+                                    background: rowBg,
                                 }}
+                            >
+                            <ChakraTable.Row
+                                data-selected={isSelected ? "true" : undefined}
+                                style={{
+                                    display: 'flex',
+                                    width: '100%',
+                                    height: `${effectiveRowHeight}px`,
+                                    cursor: (onRowClickFn || onRowDoubleClickFn) ? 'pointer' : undefined,
+                                    background: "transparent",
+                                    boxShadow: isSelected && selectedBorderColor
+                                        ? `inset 0 0 0 2px ${selectedBorderColor}`
+                                        : undefined,
+                                }}
+                                {...(hoverBackground ? { _hover: { bg: hoverBackground } } : {})}
                                 onClick={onRowClickFn ? () => handleRowClick(rowIndex) : undefined}
                                 onDoubleClick={onRowDoubleClickFn ? () => handleRowDoubleClick(rowIndex) : undefined}
                             >
+                                {/* Selection checkbox cell — fires `toggleRowSelection`
+                                    which honours `selectionMode` (single / multiple /
+                                    range). Stops click propagation so it doesn't fire
+                                    `onRowClick`. */}
+                                {selectionMode && (
+                                    <ChakraTable.Cell
+                                        key="selection"
+                                        style={{
+                                            width: "40px",
+                                            flex: "none",
+                                            display: "flex",
+                                            alignItems: "center",
+                                            justifyContent: "center",
+                                            padding: 0,
+                                            borderColor,
+                                            background: "transparent",
+                                        }}
+                                        onClick={(e) => e.stopPropagation()}
+                                    >
+                                        <input
+                                            type={selectionMode === "single" ? "radio" : "checkbox"}
+                                            checked={isSelected}
+                                            aria-label={`Select row ${virtualRow.index + 1}`}
+                                            onChange={() => toggleRowSelection(virtualRow.index, false)}
+                                            onClick={(e) => {
+                                                if (e.shiftKey) {
+                                                    e.preventDefault();
+                                                    toggleRowSelection(virtualRow.index, true);
+                                                }
+                                            }}
+                                        />
+                                    </ChakraTable.Cell>
+                                )}
+                                {/* Expand toggle button cell */}
+                                {expandedContentFn && (
+                                    <ChakraTable.Cell
+                                        key="expand-toggle"
+                                        style={{
+                                            width: "32px",
+                                            flex: "none",
+                                            display: "flex",
+                                            alignItems: "center",
+                                            justifyContent: "center",
+                                            padding: 0,
+                                            background: "transparent",
+                                            borderColor,
+                                        }}
+                                        onClick={(e) => { e.stopPropagation(); toggleExpanded(virtualRow.index); }}
+                                    >
+                                        <Box
+                                            as="button"
+                                            aria-label={isExpanded ? "Collapse row" : "Expand row"}
+                                            aria-expanded={isExpanded}
+                                            cursor="pointer"
+                                            display="flex"
+                                            alignItems="center"
+                                            justifyContent="center"
+                                            w="24px" h="24px"
+                                            borderRadius="sm"
+                                            color="fg.muted"
+                                            _hover={{ color: "fg.default", bg: "bg.emphasized" }}
+                                            transition="transform 0.15s"
+                                            transform={isExpanded ? "rotate(90deg)" : "none"}
+                                        >
+                                            <FontAwesomeIcon icon={faChevronRight} style={{ width: 10, height: 10 }} />
+                                        </Box>
+                                    </ChakraTable.Cell>
+                                )}
                                 {row.getVisibleCells().map((cell) => {
                                     const cellValue = cell.getValue() as TableCellValue | undefined;
                                     const meta = cell.column.columnDef.meta;
@@ -640,6 +1039,16 @@ export const EastChakraTable = memo(function EastChakraTable({
                                         display: 'flex',
                                         alignItems: 'center',
                                         overflow: 'hidden',
+                                        paddingLeft: densityCellPadX,
+                                        paddingRight: densityCellPadX,
+                                        paddingTop: densityCellPadY,
+                                        paddingBottom: densityCellPadY,
+                                        borderColor,
+                                        // Transparent cell bg so the wrapper-div's
+                                        // zebra / status / selected bg shows through.
+                                        // Pinned cells override below to keep their
+                                        // sticky-column bg.
+                                        background: pinningStyles.backgroundColor ?? "transparent",
                                         ...pinningStyles,
                                     };
 
@@ -719,10 +1128,158 @@ export const EastChakraTable = memo(function EastChakraTable({
                                     );
                                 })}
                             </ChakraTable.Row>
+                            {/* Expandable detail panel — rendered when this row is in
+                                `expandedRows`. Spans the full table width. The wrapper
+                                <div>'s `measureElement` ref reports the combined height
+                                back to the virtualizer so subsequent rows are
+                                positioned correctly. */}
+                            {expandedContentFn && isExpanded && (() => {
+                                const detail = expandedContentFn(rowIndex);
+                                return (
+                                    <Box
+                                        bg="bg.subtle"
+                                        borderTop="1px solid"
+                                        borderBottom="1px solid"
+                                        borderColor={borderColor ?? "border.subtle"}
+                                        padding="3"
+                                    >
+                                        <EastChakraComponent
+                                            value={detail as Parameters<typeof EastChakraComponent>[0]["value"]}
+                                            storageKey={`${storageKey}.expand.${virtualRow.index}`}
+                                        />
+                                    </Box>
+                                );
+                            })()}
+                            </div>
                         );
                     })}
                 </ChakraTable.Body>
+
+                {/* Footer rows — `value.footer` is a single dict, `value.footerRows` is
+                    an array of dicts. The renderer concatenates: any single-row footer
+                    is treated as the first entry of the multi-row list. Each footer
+                    cell carries `content?: UIComponent` and `colSpan?: number`. */}
+                {(() => {
+                    const singleFooter = getSomeorUndefined(value.footer);
+                    const multiFooterRows = getSomeorUndefined(value.footerRows);
+                    const footerRows: Array<Map<string, { content: any; colSpan: any }>> = [];
+                    if (singleFooter) footerRows.push(singleFooter as any);
+                    if (multiFooterRows) for (const r of multiFooterRows) footerRows.push(r as any);
+                    if (footerRows.length === 0) return null;
+                    return (
+                        <ChakraTable.Footer style={{ display: "block" }}>
+                            {footerRows.map((rowMap, rowIdx) => {
+                                // Walk columns in order; emit a footer cell per column,
+                                // skipping any columns "consumed" by an earlier cell's
+                                // colSpan. Footer cells with `colSpan: n` widen to span
+                                // n columns horizontally.
+                                const cells: React.ReactNode[] = [];
+                                let skip = 0;
+                                for (let i = 0; i < value.columns.length; i++) {
+                                    if (skip > 0) { skip--; continue; }
+                                    const colKey = value.columns[i]!.key;
+                                    const cellEntry = rowMap.get?.(colKey);
+                                    const span = cellEntry ? Number(getSomeorUndefined(cellEntry.colSpan) ?? 1n) : 1;
+                                    skip = span - 1;
+                                    const widthVar = Array.from({ length: span }, (_, k) =>
+                                        `var(--col-${value.columns[i + k]!.key}-size)`
+                                    ).join(" + ");
+                                    // Footer alignment: when columns are flexible (no
+                                    // frozen pin, no explicit widths), each footer cell
+                                    // grows in proportion to the columns it spans. When
+                                    // columns have explicit widths, use `flex: none` +
+                                    // calc width for exact alignment.
+                                    const footerRowGrows = !hasFrozen && Object.keys(columnSizing).length === 0
+                                        && value.columns.every(c => getSomeorUndefined(c.width) === undefined);
+                                    const widthCalc = span > 1 ? `calc(${widthVar})` : `var(--col-${colKey}-size)`;
+                                    const cellStyle: React.CSSProperties = {
+                                        width: widthCalc,
+                                        minWidth: widthCalc,
+                                        flex: footerRowGrows ? `${span} 1 0%` : "none",
+                                        display: "flex",
+                                        alignItems: "center",
+                                        overflow: "hidden",
+                                        paddingLeft: densityCellPadX,
+                                        paddingRight: densityCellPadX,
+                                        paddingTop: densityCellPadY,
+                                        paddingBottom: densityCellPadY,
+                                        background: footerBackground,
+                                        borderColor,
+                                        fontWeight: 600,
+                                    };
+                                    // `content` on the IR footer cell is `UIComponentType`
+                                    // (not OptionType), so read directly — wrapping in
+                                    // `getSomeorUndefined` would always yield undefined.
+                                    const content = cellEntry?.content;
+                                    cells.push(
+                                        <ChakraTable.Cell key={`${rowIdx}-${colKey}`} style={cellStyle}>
+                                            {content ? (
+                                                <EastChakraComponent
+                                                    value={content as Parameters<typeof EastChakraComponent>[0]["value"]}
+                                                    storageKey={`${storageKey}.footer.${rowIdx}.${colKey}`}
+                                                />
+                                            ) : null}
+                                        </ChakraTable.Cell>
+                                    );
+                                }
+                                return (
+                                    <ChakraTable.Row key={`footer-${rowIdx}`} style={{ display: "flex", width: "100%" }}>
+                                        {cells}
+                                    </ChakraTable.Row>
+                                );
+                            })}
+                        </ChakraTable.Footer>
+                    );
+                })()}
             </ChakraTable.Root>
+            {/* Embedded pagination — rendered beneath the table when
+                `value.pagination` is defined. Calls the East-side
+                onChange (when present) with the new page (1-based). */}
+            {paginationConfig && (
+                <HStack gap="2" justify="flex-end" px="3" py="2" borderTop="1px solid" borderColor="border.subtle">
+                    <Text fontSize="sm" color="fg.muted">
+                        Page {currentPage + 1} of {totalPages} ({value.rows.length} total)
+                    </Text>
+                    <button
+                        type="button"
+                        aria-label="Previous page"
+                        disabled={currentPage <= 0}
+                        style={{
+                            cursor: currentPage <= 0 ? "not-allowed" : "pointer",
+                            opacity: currentPage <= 0 ? 0.4 : 1,
+                            padding: "4px 8px",
+                            borderRadius: "4px",
+                            border: "none",
+                            background: "transparent",
+                        }}
+                        onClick={() => {
+                            if (currentPage <= 0) return;
+                            if (paginationOnChange) queueMicrotask(() => paginationOnChange(BigInt(currentPage - 1)));
+                        }}
+                    >
+                        <FontAwesomeIcon icon={faChevronLeft} style={{ width: 10, height: 10 }} />
+                    </button>
+                    <button
+                        type="button"
+                        aria-label="Next page"
+                        disabled={currentPage >= totalPages - 1}
+                        style={{
+                            cursor: currentPage >= totalPages - 1 ? "not-allowed" : "pointer",
+                            opacity: currentPage >= totalPages - 1 ? 0.4 : 1,
+                            padding: "4px 8px",
+                            borderRadius: "4px",
+                            border: "none",
+                            background: "transparent",
+                        }}
+                        onClick={() => {
+                            if (currentPage >= totalPages - 1) return;
+                            if (paginationOnChange) queueMicrotask(() => paginationOnChange(BigInt(currentPage + 1)));
+                        }}
+                    >
+                        <FontAwesomeIcon icon={faChevronRight} style={{ width: 10, height: 10 }} />
+                    </button>
+                </HStack>
+            )}
         </Box>
     );
 }, (prev, next) => tableRootEqual(prev.value, next.value));

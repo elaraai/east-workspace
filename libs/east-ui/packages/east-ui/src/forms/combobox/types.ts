@@ -53,6 +53,27 @@ export interface ComboboxItemStyle {
 }
 
 // ============================================================================
+// Combobox Style
+// ============================================================================
+
+/**
+ * East StructType holding visual fields for `Combobox`.
+ *
+ * @property size - Control size (`xs` / `sm` / `md` / `lg`)
+ * @property color - Explicit text colour for the trigger
+ * @property background - Explicit background colour for the trigger
+ * @property borderColor - Explicit border colour for the trigger
+ */
+export const ComboboxStyleType = StructType({
+    size: OptionType(SizeType),
+    color: OptionType(StringType),
+    background: OptionType(StringType),
+    borderColor: OptionType(StringType),
+});
+
+export type ComboboxStyleType = typeof ComboboxStyleType;
+
+// ============================================================================
 // Combobox Root Type
 // ============================================================================
 
@@ -81,12 +102,12 @@ export const ComboboxRootType = StructType({
     placeholder: OptionType(StringType),
     multiple: OptionType(BooleanType),
     disabled: OptionType(BooleanType),
-    size: OptionType(SizeType),
     allowCustomValue: OptionType(BooleanType),
     onChange: OptionType(FunctionType([StringType], NullType)),
     onChangeMultiple: OptionType(FunctionType([ArrayType(StringType)], NullType)),
     onInputValueChange: OptionType(FunctionType([StringType], NullType)),
     onOpenChange: OptionType(FunctionType([BooleanType], NullType)),
+    style: OptionType(ComboboxStyleType),
 });
 
 export type ComboboxRootType = typeof ComboboxRootType;
@@ -116,6 +137,12 @@ export interface ComboboxStyle {
     disabled?: SubtypeExprOrValue<BooleanType>;
     /** Size of the combobox control (xs, sm, md, lg) */
     size?: SubtypeExprOrValue<SizeType> | SizeLiteral;
+    /** Explicit text colour for the trigger. */
+    color?: SubtypeExprOrValue<StringType>;
+    /** Explicit background colour for the trigger. */
+    background?: SubtypeExprOrValue<StringType>;
+    /** Explicit border colour for the trigger. */
+    borderColor?: SubtypeExprOrValue<StringType>;
     /** Whether to accept values not in the list */
     allowCustomValue?: SubtypeExprOrValue<BooleanType>;
     /** Callback triggered when selection changes (single select) */

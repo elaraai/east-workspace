@@ -146,7 +146,7 @@ function buildCodeBlockVisualStyle(
  * `showLineNumbers`, `highlightLines`, `showCopyButton`, `wordWrap`, and
  * `title` live on the main struct (content + wiring flags); every visual
  * field (dimensions, overflow, colour slots, padding, margin, opacity)
- * wraps into the `style` sub-struct per the type-shape convention.
+ * wraps into the `style` sub-struct.
  *
  * @example
  * ```ts

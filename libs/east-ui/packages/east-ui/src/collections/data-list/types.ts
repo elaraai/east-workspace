@@ -103,7 +103,7 @@ export type DataListSizeType = typeof DataListSizeType;
 export type DataListSizeLiteral = "sm" | "md" | "lg";
 
 // ============================================================================
-// DataList Style Type (visual-only per §0.10)
+// DataList Style Type (visual-only)
 // ============================================================================
 
 /**

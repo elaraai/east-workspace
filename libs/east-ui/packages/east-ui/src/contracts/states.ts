@@ -6,7 +6,7 @@
 import { East, NullType, variant, VariantType, type ExprType } from "@elaraai/east";
 
 // ============================================================================
-// State Value — seven-state contract (§0.1)
+// State Value — seven-state contract
 // ============================================================================
 
 /**

@@ -56,8 +56,8 @@ export {
  * @remarks
  * Card is a container primitive. Its IR carries three content slots
  * (`header` / `body` / `footer`), a runtime `state` enum that drives the
- * renderer's fallback-body contract (§0.1), and a visual-only `style`
- * sub-struct (§0.10).
+ * renderer's fallback-body contract, and a visual-only `style`
+ * sub-struct.
  *
  * @property header - Optional header UIComponent
  * @property body - Array of body UIComponents
@@ -90,7 +90,7 @@ export type CardType = typeof CardType;
  * TypeScript options bag for `Card.Root`.
  *
  * @remarks
- * Accepts both the new nested `style: {...}` sub-struct (§0.10 preferred)
+ * Accepts both the new nested `style: {...}` sub-struct (0 preferred)
  * and legacy flat fields inherited from `CardStyle` for backward
  * compatibility. Flat fields are folded into the style sub-struct at the
  * factory boundary; the explicit `style` object takes precedence when both
@@ -175,11 +175,11 @@ function buildCardStyle(style: CardStyle): ExprType<CardStyleType> {
  * @returns An East expression representing the Card component
  *
  * @remarks
- * Card is the canonical state-contract consumer (§0.1): the optional `state`
+ * Card is the canonical state-contract consumer: the optional `state`
  * drives the renderer's fallback body for loading / empty / error / stale /
  * disabled / permission-denied — see `libs/east-ui-components/src/container/card/index.tsx`
  * for the dispatch table. All visual fields (variant, size, elevation,
- * dimensions, colour slots) now live in `style: {...}` per §0.10; flat
+ * dimensions, colour slots) now live in `style: {...}`; flat
  * fields on the top-level options bag continue to work as a migration aid.
  *
  * @example
@@ -555,7 +555,7 @@ export function CardSection(
 
 /**
  * Card container primitive — groups related content with optional header +
- * footer + runtime state-fallback contract (§0.1).
+ * footer + runtime state-fallback contract.
  *
  * @remarks
  * `Card.Root` builds the outer IR. Compound helpers (`Card.Header`, `Title`,
@@ -663,7 +663,7 @@ export const Card = {
          * @property header - Optional header slot (UIComponent)
          * @property body - Body children (array of UIComponents)
          * @property footer - Optional footer slot (UIComponent)
-         * @property state - Runtime state enum per §0.1 state contract
+         * @property state - Runtime state enum state contract
          * @property style - Optional visual style sub-struct
          */
         Card: CardType,

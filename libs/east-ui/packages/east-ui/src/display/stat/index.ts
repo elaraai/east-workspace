@@ -83,7 +83,7 @@ const StatType: StructType<{
 type StatType = typeof StatType;
 
 // ============================================================================
-// §0.3 paired-icon mapping (sentiment → default icon)
+// paired-icon mapping (sentiment → default icon)
 // ============================================================================
 
 const SENTIMENT_ICON: Record<StatSentimentLiteral, { prefix: "fas"; name: string }> = {
@@ -152,7 +152,7 @@ function buildIndicator(
         if (input.icon !== undefined) {
             iconOpt = some(input.icon as ExprType<IconType>);
         } else if (input.sentiment !== undefined) {
-            // §0.3 paired-icon injection
+            // paired-icon injection
             const paired = SENTIMENT_ICON[input.sentiment];
             iconOpt = some(East.value({
                 prefix: paired.prefix,
@@ -189,7 +189,7 @@ function buildIndicator(
  * @returns An East expression of type `UIComponentType`
  *
  * @remarks
- * **Indicator shorthand (§0.3):**
+ * **Indicator shorthand:**
  * - Pass a direction literal (`"up"` / `"down"` / `"flat"`) for a simple
  *   arrow with no semantic valence.
  * - Pass a struct `{ direction, sentiment?, icon? }` to express whether
@@ -241,7 +241,7 @@ function createStat(
  * @remarks
  * Use `Stat.Root(label, value, options?)`. For indicator semantics, pass
  * either a direction literal or a `{ direction, sentiment?, icon? }`
- * struct — the factory handles §0.3 paired-icon injection when
+ * struct — the factory handles paired-icon injection when
  * `sentiment` is set without an explicit `icon`.
  */
 interface StatNamespace {
@@ -349,7 +349,7 @@ export const Stat: StatNamespace = {
          *
          * @remarks
          * Mirror of `StatSentimentType` from `./types.js`. Drives default
-         * palette + paired-icon injection per §0.3.
+         * palette + paired-icon injection.
          *
          * @property positive - Change is favourable (green palette)
          * @property negative - Change is unfavourable (red palette)

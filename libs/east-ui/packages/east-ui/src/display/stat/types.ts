@@ -59,7 +59,7 @@ export type StatDirectionLiteral = "up" | "down" | "flat";
  * @remarks
  * Paired with {@link StatDirectionType} in `StatIndicatorType`. When
  * `sentiment` is set and the indicator has no explicit `icon`, the IR
- * factory auto-injects a paired icon per §0.3.
+ * factory auto-injects a paired icon.
  *
  * @property positive - Change is favourable (green palette)
  * @property negative - Change is unfavourable (red palette)
@@ -90,7 +90,7 @@ export type StatSentimentLiteral = "positive" | "negative" | "neutral";
  * The `sentiment` axis expresses whether that direction is favourable —
  * orthogonal, because metrics like cost, error count, or latency are
  * "good when down". When `sentiment` is set and `icon` is absent, the
- * factory auto-injects the paired icon per §0.3; callers override by
+ * factory auto-injects the paired icon; callers override by
  * passing explicit `icon`.
  *
  * @property direction - Mathematical direction of the delta (up / down / flat)
@@ -167,7 +167,7 @@ export function StatIndicator(
 
 /**
  * East StructType for the Stat style sub-struct — visual presentation
- * slots only (§0.10).
+ * slots only.
  *
  * @remarks
  * Content (`label` / `value` / `helpText` / `baseline` / `delta` / `info`)

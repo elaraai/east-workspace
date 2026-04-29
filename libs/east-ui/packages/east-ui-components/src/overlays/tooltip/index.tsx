@@ -25,8 +25,15 @@ export interface EastChakraTooltipProps {
  * Renders an East UI Tooltip value using Chakra UI Tooltip component.
  */
 export const EastChakraTooltip = memo(function EastChakraTooltip({ value, storageKey }: EastChakraTooltipProps) {
-    const placement = useMemo(() => getSomeorUndefined(value.placement)?.type, [value.placement]);
-    const hasArrow = useMemo(() => getSomeorUndefined(value.hasArrow), [value.hasArrow]);
+    const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
+    const placement = useMemo(
+        () => (style ? getSomeorUndefined(style.placement)?.type : undefined),
+        [style],
+    );
+    const hasArrow = useMemo(
+        () => (style ? getSomeorUndefined(style.hasArrow) : undefined),
+        [style],
+    );
 
     return (
         <ChakraTooltip.Root positioning={placement ? { placement } : undefined}>

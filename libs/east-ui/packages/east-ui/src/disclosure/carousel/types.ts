@@ -21,22 +21,19 @@ import type { OrientationLiteral } from "../../style.js";
 export { OrientationType, type OrientationLiteral } from "../../style.js";
 
 // ============================================================================
-// Carousel Style Type — visual presentation only (§0.10)
+// Carousel Style Type
 // ============================================================================
 
 /**
- * Visual-only style struct for Carousel. Content (`items`), state
- * (`index` / `defaultIndex`), config (`loop` / `autoplay` / `slidesPerView`
- * / `slidesPerMove` / `allowMouseDrag` / `showIndicators` / `showControls` /
- * `spacing` / `padding`), and behaviour (`onIndexChange`) live on the main
- * `Carousel` variant (inline in `component.ts`) per the Type-shape
- * convention (§0.10).
+ * Visual-only style struct for Carousel.
  *
  * @remarks
- * Holds the geometric preset (`orientation`) plus colour escape hatches
- * for the indicator and prev/next control slots.
+ * Holds the geometric preset (`orientation`), the viewport padding,
+ * plus colour escape hatches for the indicator and prev/next control
+ * slots.
  *
  * @property orientation - Slide direction (horizontal / vertical)
+ * @property padding - Viewport padding (CSS length / Chakra spacing token)
  * @property indicatorColor - Indicator dot colour (unselected)
  * @property activeIndicatorColor - Indicator dot colour for the active slide
  * @property controlColor - Prev/next arrow glyph colour
@@ -44,6 +41,7 @@ export { OrientationType, type OrientationLiteral } from "../../style.js";
  */
 export const CarouselStyleType = StructType({
     orientation: OptionType(OrientationType),
+    padding: OptionType(StringType),
     indicatorColor: OptionType(StringType),
     activeIndicatorColor: OptionType(StringType),
     controlColor: OptionType(StringType),
@@ -63,6 +61,7 @@ export type CarouselStyleType = typeof CarouselStyleType;
  * TypeScript options bag for Carousel's `style` sub-struct — visual props only.
  *
  * @property orientation - Slide direction (horizontal / vertical)
+ * @property padding - Viewport padding (CSS length / Chakra spacing token)
  * @property indicatorColor - Indicator dot colour (unselected)
  * @property activeIndicatorColor - Active-slide indicator dot colour
  * @property controlColor - Prev/next arrow glyph colour
@@ -71,6 +70,8 @@ export type CarouselStyleType = typeof CarouselStyleType;
 export interface CarouselStyle {
     /** Slide direction */
     orientation?: SubtypeExprOrValue<OrientationType> | OrientationLiteral;
+    /** Viewport padding (CSS length / Chakra spacing token) */
+    padding?: SubtypeExprOrValue<StringType>;
     /** Indicator dot colour (unselected) */
     indicatorColor?: SubtypeExprOrValue<StringType>;
     /** Active-slide indicator dot colour */
@@ -87,9 +88,9 @@ export interface CarouselStyle {
  * @remarks
  * State (`index` / `defaultIndex`), config (`loop` / `autoplay` /
  * `slidesPerView` / `slidesPerMove` / `allowMouseDrag` / `showIndicators` /
- * `showControls` / `spacing` / `padding`), and behaviour (`onIndexChange`)
- * live at the top level. Visual presentation lives inside the nested
- * `style` object.
+ * `showControls` / `spacing`), and behaviour (`onIndexChange`) live at
+ * the top level. Visual presentation (including `padding`) lives inside
+ * the nested `style` object.
  *
  * @property index - Controlled current slide index
  * @property defaultIndex - Initial slide index (uncontrolled)
@@ -101,7 +102,6 @@ export interface CarouselStyle {
  * @property showIndicators - Whether to show dot indicators
  * @property showControls - Whether to show prev/next controls
  * @property spacing - Gap between slides (Chakra spacing token)
- * @property padding - Viewport padding
  * @property onIndexChange - Callback invoked when the active slide changes
  * @property style - Visual-presentation sub-struct
  */
@@ -126,8 +126,6 @@ export interface CarouselOptions {
     showControls?: SubtypeExprOrValue<BooleanType>;
     /** Gap between slides (Chakra spacing token) */
     spacing?: SubtypeExprOrValue<StringType>;
-    /** Viewport padding */
-    padding?: SubtypeExprOrValue<StringType>;
     /** Callback invoked when the active slide changes */
     onIndexChange?: SubtypeExprOrValue<FunctionType<[IntegerType], NullType>>;
     /** Visual-presentation sub-struct */

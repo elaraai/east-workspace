@@ -58,6 +58,7 @@ import { EastChakraTreeView } from "./collections/tree-view";
 import { EastChakraGantt } from "./collections/gantt";
 import { EastChakraPlanner } from "./collections/planner";
 import { EastChakraBreadcrumb } from "./navigation/breadcrumb";
+import { EastChakraNavList } from "./navigation/nav-list";
 import { EastChakraIcon } from "./display/icon";
 import { EastChakraBadge } from "./display/badge";
 import { EastChakraTag } from "./display/tag";
@@ -76,6 +77,11 @@ import {
     EastChakraFloatInput,
     EastChakraDateTimeInput,
     EastChakraCheckbox,
+    EastChakraRadioGroup,
+    EastChakraRadioCardGroup,
+    EastChakraTimeScaleControl,
+    EastChakraTimeRangeInput,
+    EastChakraDateRangeInput,
     EastChakraSwitch,
     EastChakraSelect,
     EastChakraCombobox,
@@ -96,7 +102,10 @@ import {
     EastChakraDrawer,
     EastChakraActionBar,
     EastChakraToggleTip,
+    EastChakraCoachMark,
+    EastChakraCommandPalette,
 } from "./overlays";
+import { EastChakraHotkey } from "./platform/hotkey";
 import { EastReactiveComponent } from "./reactive";
 
 // Pre-define the equality function at module level
@@ -157,6 +166,11 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             FloatInput: (v) => <EastChakraFloatInput value={v} />,
             DateTimeInput: (v) => <EastChakraDateTimeInput value={v} />,
             Checkbox: (v) => <EastChakraCheckbox value={v} />,
+            RadioGroup: (v) => <EastChakraRadioGroup value={v} />,
+            RadioCardGroup: (v) => <EastChakraRadioCardGroup value={v} />,
+            TimeScaleControl: (v) => <EastChakraTimeScaleControl value={v} />,
+            TimeRangeInput: (v) => <EastChakraTimeRangeInput value={v} />,
+            DateRangeInput: (v) => <EastChakraDateRangeInput value={v} />,
             Switch: (v) => <EastChakraSwitch value={v} />,
             Select: (v) => <EastChakraSelect value={v} />,
             Combobox: (v) => <EastChakraCombobox value={v} />,
@@ -178,6 +192,7 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
 
             // Navigation
             Breadcrumb: (v) => <EastChakraBreadcrumb value={v} />,
+            NavList: (v) => <EastChakraNavList value={v} />,
 
             // Display
             Icon: (v) => <EastChakraIcon value={v} />,
@@ -237,6 +252,9 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             Drawer: (v) => <EastChakraDrawer value={v} storageKey={childKey(storageKey, "Drawer")} />,
             ActionBar: (v) => <EastChakraActionBar value={v} />,
             ToggleTip: (v) => <EastChakraToggleTip value={v} storageKey={childKey(storageKey, "ToggleTip")} />,
+            CoachMark: (v) => <EastChakraCoachMark value={v} storageKey={childKey(storageKey, "CoachMark")} />,
+            CommandPalette: (v) => <EastChakraCommandPalette value={v} />,
+            Hotkey: (v) => <EastChakraHotkey value={v} />,
 
             // Reactive
             ReactiveComponent: (v) => <EastReactiveComponent value={v} storageKey={childKey(storageKey, "ReactiveComponent")} />,

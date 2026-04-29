@@ -24,7 +24,7 @@ import { AvatarType } from "../avatar/types.js";
  * East StructType for the AvatarGroup style sub-struct.
  *
  * @remarks
- * Visual-only per §0.10. Content (`avatars`) and config (`max`) live on
+ * Visual-only. Content (`avatars`) and config (`max`) live on
  * the main `AvatarGroupType` struct.
  *
  * @property size - Shared avatar size preset applied to every avatar in the group

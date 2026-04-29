@@ -235,7 +235,7 @@ export const TableCellType: StructType<{
  * `component.ts`.
  *
  * @remarks
- * Per §0.10, main carries content (`rows` / `columns` / `frozen` /
+ * main carries content (`rows` / `columns` / `frozen` /
  * `columnGroups` / `footer` / `footerRows` / `expandedContent`),
  * config (`interactive` / `columnResize` / `virtualization` /
  * `density`), structured state (`rowStatus` / `pagination` /
@@ -604,7 +604,6 @@ export function createTable<
         style.size !== undefined ||
         style.striped !== undefined ||
         style.stickyHeader !== undefined ||
-        (style as any).stickyFirstColumn !== undefined ||
         style.showColumnBorder !== undefined ||
         style.colorPalette !== undefined ||
         (style as any).headerBackground !== undefined ||
@@ -623,7 +622,6 @@ export function createTable<
         size: sizeValue ? some(sizeValue) : none,
         striped: style!.striped !== undefined ? some(style!.striped) : none,
         stickyHeader: style!.stickyHeader !== undefined ? some(style!.stickyHeader) : none,
-        stickyFirstColumn: (style as any)?.stickyFirstColumn !== undefined ? some((style as any).stickyFirstColumn) : none,
         showColumnBorder: style!.showColumnBorder !== undefined ? some(style!.showColumnBorder) : none,
         colorPalette: colorPaletteValue ? some(colorPaletteValue) : none,
         headerBackground: (style as any)?.headerBackground !== undefined ? some((style as any).headerBackground) : none,
@@ -724,11 +722,11 @@ function buildFooterDict(row: Record<string, TableFooterCellInput>): ExprType<Di
 }
 
 /**
- * Table namespace following the chart pattern.
+ * TypeScript shape of the {@link Table} namespace export.
  *
  * @remarks
- * Pass data as an array of structs and configure columns with either
- * an array of field names or an object with optional header/render config.
+ * Internal aid for the typed namespace literal — Table itself is
+ * documented on the `export const Table` declaration below.
  */
 interface TableNamespace {
     Root: typeof createTable;
@@ -754,6 +752,42 @@ interface TableNamespace {
     };
 }
 
+/**
+ * Table component for tabular data display.
+ *
+ * @remarks
+ * Pass row data as an array of structs and declare columns with either
+ * an array of primitive field names or an object keyed by field name
+ * with per-column configuration (header text, width bounds, render
+ * function, value extractor for non-primitive fields). The factory
+ * builds the IR rows + columns from the struct shape, freezes columns
+ * listed in `style.frozen`, threads visual + structural style through
+ * the optional sub-struct, and forwards every callback (`onCellClick`,
+ * `onRowClick`, `onSortChange`, etc.) onto the main `Table` variant.
+ *
+ * Use {@link Table.Root} to construct the component, and access
+ * {@link Table.Types} for IR-level types — `Table.Types.Root`,
+ * `Table.Types.Style`, `Table.Types.Column`, `Table.Types.Cell`,
+ * `Table.Types.FooterCell`, `Table.Types.ColumnGroup`,
+ * `Table.Types.Pagination`, `Table.Types.Selection`, etc.
+ *
+ * @example
+ * ```ts
+ * import { East } from "@elaraai/east";
+ * import { Table, UIComponentType } from "@elaraai/east-ui";
+ *
+ * const example = East.function([], UIComponentType, $ => {
+ *     return Table.Root(
+ *         [
+ *             { name: "Alice", age: 30n },
+ *             { name: "Bob", age: 25n },
+ *         ],
+ *         ["name", "age"],
+ *         { variant: "line", striped: true, stickyHeader: true },
+ *     );
+ * });
+ * ```
+ */
 export const Table: TableNamespace = {
     /**
      * Creates a Table component following the chart pattern.
@@ -792,61 +826,129 @@ export const Table: TableNamespace = {
     Root: createTable,
     Types: {
         /**
-         * Type for Table component data.
+         * East StructType for the full Table IR — content + state +
+         * callbacks on the main struct, visual fields on the optional
+         * `style` sub-struct.
          *
          * @remarks
-         * Table displays data in rows and columns with optional styling.
+         * main carries content (`rows`, `columns`, `frozen`,
+         * `columnGroups`, `footer`, `footerRows`, `expandedContent`),
+         * config (`interactive`, `columnResize`, `virtualization`,
+         * `density`), structured state (`rowStatus`, `pagination`,
+         * `selection`), and behaviour callbacks; `style` carries
+         * visual-only fields (variant, colour overrides, sticky flags).
+         * Mirror of the inline `Table` variant in `component.ts`.
          *
-         * @property rows - Array of row data (Dict mapping column keys to UI components)
-         * @property columns - Array of column definitions
-         * @property style - Optional styling configuration
+         * @property rows - Row dict array — each entry maps column key to {@link TableCellType}
+         * @property columns - Column definitions ({@link TableColumnType}, including `dataType` and `valueType`)
+         * @property frozen - Column keys to pin left (frozen columns appear first and stay visible during horizontal scroll)
+         * @property columnGroups - Optional column-group heading row above the column header (renders a second `<thead>` row)
+         * @property footer - Optional single footer row (dict of column-key to {@link TableFooterCellType})
+         * @property footerRows - Optional multi-row footer (array of footer-row dicts)
+         * @property expandedContent - Optional `(rowIndex) => UIComponent` — when defined, rows show an expand toggle and reveal a detail panel below the row
+         * @property interactive - Row hover highlight (defaults to whatever the renderer picks when none)
+         * @property columnResize - Enable column resize via header drag handle (defaults to true when none)
+         * @property virtualization - Enable row virtualization (lazy TanStack Virtual; defaults to true when none)
+         * @property density - Density preset — `compact` / `comfortable` / `cozy` ({@link DensityType})
+         * @property rowStatus - `(rowIndex) => StatusToken` — per-row tint via the shared status palette
+         * @property pagination - Embedded pagination state ({@link TablePaginationType}) — when defined, rows are sliced to the current page and a pager is rendered beneath the table
+         * @property selection - Embedded row-selection state ({@link TableSelectionType}) — controlled-mode row selection in `single` / `multiple` / `range` modes
+         * @property onCellClick - Cell click callback fired with {@link TableCellClickEventType}
+         * @property onCellDoubleClick - Cell double-click callback
+         * @property onRowClick - Row click callback fired with {@link TableRowClickEventType}
+         * @property onRowDoubleClick - Row double-click callback
+         * @property onRowSelectionChange - Row selection change callback fired with {@link TableRowSelectionEventType}
+         * @property onSortChange - Sort change callback fired with {@link TableSortEventType}
+         * @property style - Optional visual-only style sub-struct ({@link TableStyleType})
          */
         Root: TableRootType,
         /**
-         * Style type for the table root component.
+         * East StructType holding every visual field for a Table —
+         * visual-only.
          *
          * @remarks
          * All properties are optional and wrapped in {@link OptionType}.
+         * Interactive wiring (`interactive`, `columnResize`,
+         * `virtualization`, `density`, `rowStatus`) and all callbacks
+         * live on the main `Table` variant — not here.
          *
-         * @property variant - Table variant (line or outline)
-         * @property size - Table size (sm, md, lg)
-         * @property striped - Whether to show zebra stripes on rows
-         * @property interactive - Whether to highlight rows on hover
-         * @property stickyHeader - Whether the header sticks when scrolling
-         * @property showColumnBorder - Whether to show borders between columns
-         * @property colorPalette - Color scheme for interactive hover
+         * @property height - CSS height for the table container (e.g. "500px", "100%")
+         * @property variant - Table variant (`line` for horizontal-only borders, `outline` for full border outline)
+         * @property size - Table size (`sm` / `md` / `lg`)
+         * @property striped - Zebra-stripe rows
+         * @property stickyHeader - Pin the header row while scrolling vertically
+         * @property showColumnBorder - Borders between columns
+         * @property colorPalette - Color scheme for hover / selection ({@link ColorSchemeType})
+         * @property headerBackground - Explicit header background override
+         * @property headerColor - Explicit header text colour override
+         * @property borderColor - Explicit border colour override
+         * @property zebraBackground - Explicit background for zebra-striped rows
+         * @property hoverBackground - Explicit hover background
+         * @property selectedBackground - Explicit background for selected rows
+         * @property selectedBorderColor - Explicit border colour for selected rows
+         * @property footerBackground - Explicit background for the footer row
          */
         Style: TableStyleType,
         /**
-         * East type for a table column definition.
+         * East StructType for a column definition.
          *
          * @remarks
-         * Defines the header text and key for a column.
+         * `dataType` records the original East field type from the row
+         * struct; `valueType` records the type after applying the
+         * (optional) `value` extractor — both are stored as
+         * {@link EastTypeValue} so the renderer can produce a
+         * sortable / filterable comparator without round-tripping the
+         * column config.
          *
-         * @property key - The column key (field name)
-         * @property type - The column value type
-         * @property header - Optional header text for the column
+         * @property key - Column key (the row-struct field name)
+         * @property dataType - Original East type of the row field (as {@link EastTypeValue})
+         * @property valueType - Cell value type after applying `value` extractor (as {@link EastTypeValue})
+         * @property header - Optional header text (defaults to `key` when absent)
+         * @property width - Optional fixed CSS width (e.g. "200px", "20%")
+         * @property minWidth - Optional CSS minimum width
+         * @property maxWidth - Optional CSS maximum width
+         * @property render - Optional `(context: TableCellRenderContextType) => UIComponent` — custom cell renderer; when absent the renderer auto-stringifies the value as `Text.Root`
          */
         Column: TableColumnType,
         /**
-         * East type for a table cell.
+         * East StructType for a table body cell.
          *
          * @remarks
-         * Defines the type for a table cell.
+         * `value` is the sortable / filterable {@link LiteralValueType}
+         * representation; `content` is the optional pre-rendered
+         * UIComponent. When `content` is `none`, the renderer calls the
+         * column's `render` function with cell context to produce the
+         * UI; when `content` is `some`, the renderer uses it directly.
          *
-         * @property value - The cell value as a LiteralValueType
-         * @property content - UI component content for the cell
+         * @property value - Cell value as a {@link LiteralValueType} (drives sorting / filtering)
+         * @property content - Optional pre-rendered cell UI ({@link OptionType} of {@link UIComponentType})
          */
         Cell: TableCellType,
         /**
-         * Type for cell values (LiteralValueType - supports any primitive East value).
+         * Cell-value union — any primitive East value.
+         *
+         * @remarks
+         * Alias for {@link LiteralValueType}. Tagged variant covering
+         * `Null` / `Boolean` / `Integer` / `Float` / `String` /
+         * `DateTime` / `Blob`. Sorting and filtering are defined on
+         * this union.
+         *
+         * @property Null - The null cell
+         * @property Boolean - Boolean cell
+         * @property Integer - Integer cell
+         * @property Float - Float cell
+         * @property String - String cell
+         * @property DateTime - DateTime cell
+         * @property Blob - Blob cell
          */
         Value: LiteralValueType,
         /**
          * Table variant type for Chakra UI v3 table styling.
          *
          * @remarks
-         * Create instances using the {@link TableVariant} function.
+         * Pass the literal `"line"` or `"outline"` directly to
+         * `Table.Root({ variant })` — the factory wraps the literal
+         * into the East variant value.
          *
          * @property line - Table with horizontal lines between rows
          * @property outline - Table with full border outline
@@ -856,93 +958,161 @@ export const Table: TableNamespace = {
          * Size options for Table component.
          *
          * @remarks
-         * Chakra UI Table only supports sm, md, lg sizes (not xs).
+         * Chakra UI Table only supports `sm` / `md` / `lg` (not `xs`).
+         * Density preset (compact / comfortable / cozy) is a separate
+         * field on the main struct ({@link Table.Types.Root}.density).
          *
-         * @property sm - Small table
+         * @property sm - Small table — denser padding, smaller font
          * @property md - Medium table (default)
-         * @property lg - Large table
+         * @property lg - Large table — looser padding, larger font
          */
         Size: TableSizeType,
         /**
-         * Event type for row click callbacks.
+         * Event payload fired when a row is clicked or double-clicked.
          *
-         * @property rowIndex - The index of the clicked row
+         * @remarks
+         * Used by both `onRowClick` and `onRowDoubleClick` callbacks
+         * on the main {@link TableRootType}.
+         *
+         * @property rowIndex - The 0-based row index of the clicked row
          */
         RowClickEvent: TableRowClickEventType,
         /**
-         * Event type for cell click callbacks.
+         * Event payload fired when a cell is clicked or double-clicked.
          *
-         * @property rowIndex - The row index
-         * @property columnKey - The column key
-         * @property cellValue - The cell value
+         * @remarks
+         * Used by both `onCellClick` and `onCellDoubleClick` callbacks
+         * on the main {@link TableRootType}.
+         *
+         * @property rowIndex - The 0-based row index
+         * @property columnKey - The column key (matches a row-struct field)
+         * @property cellValue - The cell value as a {@link LiteralValueType}
          */
         CellClickEvent: TableCellClickEventType,
         /**
-         * Event type for row selection change callbacks.
+         * Event payload fired when row selection changes via the
+         * uncontrolled checkbox model.
          *
-         * @property rowIndex - The row index
-         * @property selected - Whether the row is selected
-         * @property selectedRowsIndices - Array of all selected row indices
+         * @remarks
+         * Used by `onRowSelectionChange` on the main
+         * {@link TableRootType}. For controlled selection use
+         * {@link Table.Types.Selection}.
+         *
+         * @property rowIndex - The 0-based row index that triggered the change
+         * @property selected - Whether the row is now selected (true) or deselected (false)
+         * @property selectedRowsIndices - Full array of currently selected row indices
          */
         RowSelectionEvent: TableRowSelectionEventType,
         /**
-         * Event type for sort change callbacks.
+         * Event payload fired when sort column / direction changes.
+         *
+         * @remarks
+         * Used by `onSortChange` on the main {@link TableRootType}.
          *
          * @property columnKey - The column key being sorted
-         * @property sortIndex - The sort index (for multi-column sorting)
-         * @property sortDirection - The sort direction
+         * @property sortIndex - The 0-based sort index (for multi-column sorting; 0 is the primary sort column)
+         * @property sortDirection - The new sort direction ({@link TableSortDirectionType})
          */
         SortEvent: TableSortEventType,
         /**
-         * Sort direction type (asc or desc).
+         * Sort direction variant for table columns.
+         *
+         * @remarks
+         * Returned in `SortEvent.sortDirection`. Pass the literal
+         * `"asc"` or `"desc"` when constructing `SortEvent` IR
+         * directly.
+         *
+         * @property asc - Ascending sort (smallest first)
+         * @property desc - Descending sort (largest first)
          */
         SortDirection: TableSortDirectionType,
         /**
-         * Context type passed to column render functions.
+         * Context struct passed to column render functions at render
+         * time.
          *
-         * @property rowIndex - The row index (0-based)
+         * @remarks
+         * `Column.render` is `(context: CellRenderContext) =>
+         * UIComponent`. The renderer constructs a fresh context per
+         * cell visit so render functions can build dynamic content
+         * from the row index, column key, or cell value.
+         *
+         * @property rowIndex - The 0-based row index
          * @property columnKey - The column key
-         * @property cellValue - The cell value as a LiteralValueType
+         * @property cellValue - The cell value as a {@link LiteralValueType}
          */
         CellRenderContext: TableCellRenderContextType,
         /**
          * Selection mode variant — `single` / `multiple` / `range`.
          *
-         * @property single - Only one row selected at a time
-         * @property multiple - Multiple rows (checkbox model)
-         * @property range - Click-drag range selection
+         * @remarks
+         * Drives how the renderer responds to row clicks when
+         * controlled selection is active (see {@link TableSelectionType}).
+         *
+         * @property single - At most one row selected at a time; clicking another row replaces selection
+         * @property multiple - Independent toggle per row (checkbox model)
+         * @property range - Click + shift-click extends from last anchor; plain click resets to a single row
          */
         SelectionMode: TableSelectionModeType,
         /**
-         * Row-selection state struct.
+         * Row-selection state struct (controlled mode).
          *
-         * @property mode - Selection mode
-         * @property selected - Currently selected row indices
-         * @property onChange - Callback fired with the new selected indices
+         * @remarks
+         * Lives on the main `Table` variant under `selection`. When
+         * present, the renderer treats selection as controlled: the
+         * `selected` array is the source of truth and the renderer
+         * fires `onChange` with the new array on every selection
+         * mutation.
+         *
+         * @property mode - Selection mode ({@link TableSelectionModeType})
+         * @property selected - Currently-selected row indices
+         * @property onChange - Callback fired with the new selected row indices
          */
         Selection: TableSelectionType,
         /**
          * Embedded pagination state for a Table.
          *
+         * @remarks
+         * Lives on the main `Table` variant under `pagination`. When
+         * defined, the renderer slices `rows` to the current page,
+         * disables virtualization (the page is small enough that
+         * virtualization is redundant), and renders pager controls
+         * beneath the table. Distinct from the standalone
+         * `Pagination` primitive — use that primitive for paging UI
+         * outside a Table.
+         *
          * @property pageSize - Items per page
          * @property page - Current 0-based page index
-         * @property onPageChange - Callback fired with the new page index
+         * @property onPageChange - Callback fired with the new 0-based page index
          */
         Pagination: TablePaginationType,
         /**
-         * Column-group heading definition.
+         * Column-group heading definition — renders a grouping row
+         * above the column header.
+         *
+         * @remarks
+         * Each group claims a contiguous span of `columnKeys`; the
+         * renderer emits a second `<thead>` row with one `<th>` per
+         * group spanning the matching column count. Columns not
+         * referenced by any group render an empty cell in the group
+         * row.
          *
          * @property label - Group heading text
-         * @property columnKeys - Array of column keys covered by the group
+         * @property columnKeys - Column keys covered by the group (must reference existing column keys; order is preserved)
          */
         ColumnGroup: TableColumnGroupType,
         /**
-         * Footer-cell value.
+         * East StructType for a footer cell.
          *
-         * @property value - Literal cell value
-         * @property content - Optional rich content
-         * @property colSpan - Optional column-span
-         * @property rowSpan - Optional row-span
+         * @remarks
+         * Footer cells are display-only — they don't participate in
+         * sorting or filtering, so they don't carry a `value`
+         * primitive. Callers render totals / labels via `content`
+         * (e.g. `Text.Root("$560.00", { fontWeight: "bold" })`).
+         * `colSpan` and `rowSpan` honour HTML table-cell merging.
+         *
+         * @property content - Rich cell content ({@link UIComponentType})
+         * @property colSpan - Optional column span (1-based; defaults to 1 when absent)
+         * @property rowSpan - Optional row span (1-based; defaults to 1 when absent)
          */
         FooterCell: TableFooterCellType,
     },

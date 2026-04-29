@@ -38,4 +38,5 @@ export * from "./style/layout.js";
 export * from "./style/visual.js";
 export * from "./style/motion.js";
 export * from "./style/interaction.js";
+export * from "./style/content.js";
 export { Style } from "./style/namespace.js";

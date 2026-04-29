@@ -19,7 +19,6 @@ describeEast("ScrollArea", (test) => {
     test("creates a scroll area with bare content (defaults)", $ => {
         const sa = $.let(ScrollArea.Root(Text.Root("Content")));
 
-        $(Assert.equal(sa.unwrap().unwrap("ScrollArea").orientation.hasTag("none"), true));
         $(Assert.equal(sa.unwrap().unwrap("ScrollArea").scrollbarStyle.hasTag("none"), true));
         $(Assert.equal(sa.unwrap().unwrap("ScrollArea").style.hasTag("none"), true));
     });
@@ -29,21 +28,21 @@ describeEast("ScrollArea", (test) => {
     // =========================================================================
 
     test("creates a scroll area with vertical orientation", $ => {
-        const sa = $.let(ScrollArea.Root(Text.Root("Content"), { orientation: "vertical" }));
-
-        $(Assert.equal(sa.unwrap().unwrap("ScrollArea").orientation.unwrap("some").hasTag("vertical"), true));
+        const sa = $.let(ScrollArea.Root(Text.Root("Content"), { style: { orientation: "vertical" } }));
+        const sv = sa.unwrap().unwrap("ScrollArea").style.unwrap("some");
+        $(Assert.equal(sv.orientation.unwrap("some").hasTag("vertical"), true));
     });
 
     test("creates a scroll area with horizontal orientation", $ => {
-        const sa = $.let(ScrollArea.Root(Text.Root("Content"), { orientation: "horizontal" }));
-
-        $(Assert.equal(sa.unwrap().unwrap("ScrollArea").orientation.unwrap("some").hasTag("horizontal"), true));
+        const sa = $.let(ScrollArea.Root(Text.Root("Content"), { style: { orientation: "horizontal" } }));
+        const sv = sa.unwrap().unwrap("ScrollArea").style.unwrap("some");
+        $(Assert.equal(sv.orientation.unwrap("some").hasTag("horizontal"), true));
     });
 
     test("creates a scroll area with both orientation", $ => {
-        const sa = $.let(ScrollArea.Root(Text.Root("Content"), { orientation: "both" }));
-
-        $(Assert.equal(sa.unwrap().unwrap("ScrollArea").orientation.unwrap("some").hasTag("both"), true));
+        const sa = $.let(ScrollArea.Root(Text.Root("Content"), { style: { orientation: "both" } }));
+        const sv = sa.unwrap().unwrap("ScrollArea").style.unwrap("some");
+        $(Assert.equal(sv.orientation.unwrap("some").hasTag("both"), true));
     });
 
     // =========================================================================

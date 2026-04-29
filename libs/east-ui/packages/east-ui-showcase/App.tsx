@@ -91,6 +91,11 @@ import * as bannerExamples from "@elaraai/east-ui/examples/feedback/banner";
 import * as progressCircleExamples from "@elaraai/east-ui/examples/feedback/progress-circle";
 import * as toastExamples from "@elaraai/east-ui/examples/feedback/toast";
 import * as checkboxExamples from "@elaraai/east-ui/examples/forms/checkbox";
+import * as radioGroupExamples from "@elaraai/east-ui/examples/forms/radio-group";
+import * as radioCardGroupExamples from "@elaraai/east-ui/examples/forms/radio-card-group";
+import * as timeScaleControlExamples from "@elaraai/east-ui/examples/forms/time-scale-control";
+import * as timeRangeInputExamples from "@elaraai/east-ui/examples/forms/time-range-input";
+import * as dateRangeInputExamples from "@elaraai/east-ui/examples/forms/date-range-input";
 import * as switchExamples from "@elaraai/east-ui/examples/forms/switch";
 import * as selectExamples from "@elaraai/east-ui/examples/forms/select";
 import * as sliderExamples from "@elaraai/east-ui/examples/forms/slider";
@@ -101,6 +106,7 @@ import * as fieldExamples from "@elaraai/east-ui/examples/forms/field";
 import * as inputExamples from "@elaraai/east-ui/examples/forms/input";
 import * as comboboxExamples from "@elaraai/east-ui/examples/forms/combobox";
 import * as breadcrumbExamples from "@elaraai/east-ui/examples/navigation";
+import * as navListExamples from "@elaraai/east-ui/examples/navigation/nav-list";
 import * as accordionExamples from "@elaraai/east-ui/examples/disclosure/accordion";
 import * as carouselExamples from "@elaraai/east-ui/examples/disclosure/carousel";
 import * as tabsExamples from "@elaraai/east-ui/examples/disclosure/tabs";
@@ -117,11 +123,15 @@ import * as hoverCardExamples from "@elaraai/east-ui/examples/overlays/hover-car
 import * as dialogExamples from "@elaraai/east-ui/examples/overlays/dialog";
 import * as drawerExamples from "@elaraai/east-ui/examples/overlays/drawer";
 import * as toggleTipExamples from "@elaraai/east-ui/examples/overlays/toggle-tip";
+import * as coachMarkExamples from "@elaraai/east-ui/examples/overlays/coach-mark";
+import * as commandPaletteExamples from "@elaraai/east-ui/examples/overlays/command-palette";
 import * as dataListExamples from "@elaraai/east-ui/examples/collections/data-list";
 import * as treeViewExamples from "@elaraai/east-ui/examples/collections/tree-view";
 import * as tableExamples from "@elaraai/east-ui/examples/collections/table";
 import * as ganttExamples from "@elaraai/east-ui/examples/collections/gantt";
 import * as plannerExamples from "@elaraai/east-ui/examples/collections/planner";
+import * as matrixExamples from "@elaraai/east-ui/examples/collections/matrix";
+import * as paginationExamples from "@elaraai/east-ui/examples/collections/pagination";
 import * as areaExamples from "@elaraai/east-ui/examples/charts/area";
 import * as barExamples from "@elaraai/east-ui/examples/charts/bar";
 import * as composedExamples from "@elaraai/east-ui/examples/charts/composed";
@@ -204,6 +214,11 @@ const SOURCES: [string, string, Record<string, unknown>, string, number, number?
     ["ProgressCircle","Feedback",   progressCircleExamples,"feedback/progress-circle",    3],
     ["Toast",        "Feedback",    toastExamples,        "feedback/toast",               3],
     ["Checkbox",     "Forms",       checkboxExamples,     "forms/checkbox",               3],
+    ["RadioGroup",   "Forms",       radioGroupExamples,   "forms/radio-group",            3],
+    ["RadioCardGroup","Forms",      radioCardGroupExamples,"forms/radio-card-group",      2],
+    ["TimeScaleControl","Forms",    timeScaleControlExamples,"forms/time-scale-control",  3],
+    ["TimeRangeInput",  "Forms",    timeRangeInputExamples, "forms/time-range-input",       2],
+    ["DateRangeInput",  "Forms",    dateRangeInputExamples, "forms/date-range-input",       2],
     ["Switch",       "Forms",       switchExamples,       "forms/switch",                 3],
     ["Select",       "Forms",       selectExamples,       "forms/select",                 2],
     ["Slider",       "Forms",       sliderExamples,       "forms/slider",                 2],
@@ -214,6 +229,7 @@ const SOURCES: [string, string, Record<string, unknown>, string, number, number?
     ["Input",        "Forms",       inputExamples,        "forms/input",                  2],
     ["Combobox",     "Forms",       comboboxExamples,     "forms/combobox",               2],
     ["Breadcrumb",   "Navigation",  breadcrumbExamples,   "navigation/breadcrumb",        2],
+    ["NavList",      "Navigation",  navListExamples,      "navigation/nav-list",          2],
     ["Accordion",    "Disclosure",  accordionExamples,    "disclosure/accordion",         2],
     ["Carousel",     "Disclosure",  carouselExamples,     "disclosure/carousel",          1],
     ["Tabs",         "Disclosure",  tabsExamples,         "disclosure/tabs",              2],
@@ -230,11 +246,15 @@ const SOURCES: [string, string, Record<string, unknown>, string, number, number?
     ["Dialog",       "Overlays",    dialogExamples,       "overlays/dialog",              2],
     ["Drawer",       "Overlays",    drawerExamples,       "overlays/drawer",              2],
     ["ToggleTip",    "Overlays",    toggleTipExamples,    "overlays/toggle-tip",          3],
+    ["CoachMark",    "Overlays",    coachMarkExamples,    "overlays/coach-mark",          2],
+    ["CommandPalette","Overlays",   commandPaletteExamples,"overlays/command-palette",    2],
     ["DataList",     "Collections", dataListExamples,     "collections/data-list",        3],
     ["TreeView",     "Collections", treeViewExamples,     "collections/tree-view",        3],
     ["Table",        "Collections", tableExamples,        "collections/table",            1],
     ["Gantt",        "Collections", ganttExamples,        "collections/gantt",            1],
     ["Planner",      "Collections", plannerExamples,      "collections/planner",          1],
+    ["Matrix",       "Collections", matrixExamples,       "collections/matrix",           2],
+    ["Pagination",   "Collections", paginationExamples,   "collections/pagination",       3],
     ["Area",         "Charts",      areaExamples,         "charts/area",                  1],
     ["Bar",          "Charts",      barExamples,          "charts/bar",                   1],
     ["Composed",     "Charts",      composedExamples,     "charts/composed",              1],

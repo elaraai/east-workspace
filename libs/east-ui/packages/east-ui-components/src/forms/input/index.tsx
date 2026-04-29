@@ -23,6 +23,26 @@ const stringInputEqual = equalFor(Input.Types.String);
 /** East StringInput value type */
 export type StringInputValue = ValueTypeOf<typeof Input.Types.String>;
 
+/** Map an Input value's `style` sub-struct to Chakra `<Input>` props. */
+function inputStyleProps(styleOpt: StringInputValue["style"]): Partial<InputProps> {
+    const style = getSomeorUndefined(styleOpt);
+    if (!style) return {};
+    const variantTag = getSomeorUndefined(style.variant)?.type;
+    const sizeTag = getSomeorUndefined(style.size)?.type;
+    const colour = getSomeorUndefined(style.color);
+    const background = getSomeorUndefined(style.background);
+    const borderColor = getSomeorUndefined(style.borderColor);
+    const focusBorderColor = getSomeorUndefined(style.focusBorderColor);
+    const out: Partial<InputProps> = {};
+    if (variantTag) out.variant = variantTag;
+    if (sizeTag) out.size = sizeTag;
+    if (colour) out.color = colour;
+    if (background) out.bg = background;
+    if (borderColor) out.borderColor = borderColor;
+    if (focusBorderColor) out._focus = { borderColor: focusBorderColor, boxShadow: `0 0 0 1px ${focusBorderColor}` };
+    return out;
+}
+
 /**
  * Converts an East UI StringInput value to Chakra UI Input props.
  */
@@ -30,8 +50,7 @@ export function toChakraStringInput(value: StringInputValue): InputProps {
     return {
         value: value.value,
         placeholder: getSomeorUndefined(value.placeholder),
-        variant: getSomeorUndefined(value.variant)?.type,
-        size: getSomeorUndefined(value.size)?.type,
+        ...inputStyleProps(value.style),
         maxLength: getSomeorUndefined(value.maxLength) !== undefined ? Number(getSomeorUndefined(value.maxLength)) : undefined,
         pattern: getSomeorUndefined(value.pattern),
         disabled: getSomeorUndefined(value.disabled),
@@ -101,8 +120,7 @@ export function toChakraIntegerInput(value: IntegerInputValue): InputProps {
         min: getSomeorUndefined(value.min) !== undefined ? Number(getSomeorUndefined(value.min)) : undefined,
         max: getSomeorUndefined(value.max) !== undefined ? Number(getSomeorUndefined(value.max)) : undefined,
         step: getSomeorUndefined(value.step) !== undefined ? Number(getSomeorUndefined(value.step)) : 1,
-        variant: getSomeorUndefined(value.variant)?.type,
-        size: getSomeorUndefined(value.size)?.type,
+        ...inputStyleProps(value.style),
         disabled: getSomeorUndefined(value.disabled),
     };
 }
@@ -208,8 +226,7 @@ export function toChakraFloatInput(value: FloatInputValue): InputProps {
         min: getSomeorUndefined(value.min),
         max: getSomeorUndefined(value.max),
         step: getSomeorUndefined(value.step) ?? "any",
-        variant: getSomeorUndefined(value.variant)?.type,
-        size: getSomeorUndefined(value.size)?.type,
+        ...inputStyleProps(value.style),
         disabled: getSomeorUndefined(value.disabled),
     };
 }

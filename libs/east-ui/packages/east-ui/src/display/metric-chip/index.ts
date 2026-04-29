@@ -46,7 +46,7 @@ export {
  * @remarks
  * Main struct holds content (`value` UIComponent, `unit` text, optional
  * `icon`), the required semantic `tone` classification, and a `style`
- * sub-struct holding visual fields per §0.10.
+ * sub-struct holding visual fields.
  *
  * @property value - Primary metric value (UIComponent)
  * @property unit - Optional unit suffix (e.g. `"%"`, `"ms"`)

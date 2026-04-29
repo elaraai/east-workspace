@@ -116,7 +116,7 @@ export function Verbosity(verbosity: VerbosityLiteral): ExprType<VerbosityType> 
  * Create instances using the {@link FocusStyle} function. Every focusable
  * primitive references this token; the consumer's theme resolves to a
  * `{ ringWidth, ringOffset, ringColor }` triple. A single focus-ring policy
- * across the catalogue — see §0.2 contract.
+ * across the catalogue — see contract.
  *
  * @property default - Standard ring
  * @property emphasis - Higher-contrast ring (e.g. for editing cells)
@@ -168,7 +168,7 @@ export function FocusStyle(focus: FocusStyleLiteral): ExprType<FocusStyleType> {
  * Create instances using the {@link HoverIntent} function. All hover-to-open
  * primitives (`Tooltip`, `ToggleTip`, `HoverCard`, `Menu`-on-hover) share this
  * single token for consistent timing. The theme resolves each tag to an
- * `(openDelay, closeDelay)` pair — see §0.5 contract.
+ * `(openDelay, closeDelay)` pair — see contract.
  *
  * @property instant - No delay (0/0 ms)
  * @property brief - Short dwell (~100/50 ms)
@@ -220,7 +220,7 @@ export function HoverIntent(intent: HoverIntentLiteral): ExprType<HoverIntentTyp
  * Create instances using the {@link StatusToken} function. Used by `Alert`,
  * `Banner`, `Status`, `Badge` with semantic palette, `DeltaPill`, and
  * `Stat.indicator`. Every semantic-status surface auto-injects a paired icon
- * (see §0.3 contract) so colour is never the only signal.
+ * (see contract) so colour is never the only signal.
  *
  * @property success - On-track / passed / ok
  * @property warning - At-risk / needs attention

@@ -65,7 +65,7 @@ export function AccordionVariant(v: AccordionVariantLiteral): ExprType<Accordion
 }
 
 // ============================================================================
-// Accordion Style Type — visual presentation only (§0.10)
+// Accordion Style Type
 // ============================================================================
 
 /**
@@ -73,7 +73,7 @@ export function AccordionVariant(v: AccordionVariantLiteral): ExprType<Accordion
  * `defaultValue`), config (`multiple`, `collapsible`), and behaviour
  * (`onValueChange`) live on the main `Accordion` variant (inline in
  * `component.ts` because of the recursive item `trigger: node` field) per
- * the Type-shape convention (§0.10).
+ * the Type-shape convention.
  *
  * @remarks
  * Holds the appearance variant + size plus per-slot colour escape hatches

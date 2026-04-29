@@ -5,13 +5,11 @@
 
 import { useMemo, useState, useCallback } from "react";
 import type { ValueTypeOf } from "@elaraai/east";
-import type { Planner, UIComponentType } from "@elaraai/east-ui";
+import type { Planner } from "@elaraai/east-ui";
 import { PlannerEvent } from "./PlannerEvent";
 import { PlannerSlotCell } from "./PlannerSlotCell";
 
 export type PlannerEventValue = ValueTypeOf<typeof Planner.Types.Event>;
-export type EventPopoverContext = ValueTypeOf<typeof Planner.Types.EventPopoverContext>;
-export type EventPopoverFn = ((ctx: EventPopoverContext) => ValueTypeOf<UIComponentType>) | undefined;
 export type PlannerRowValue = ValueTypeOf<typeof Planner.Types.Row>;
 
 // Re-export PlannerEventValue for external consumers
@@ -31,9 +29,11 @@ export interface PlannerEventRowProps {
     minSlot?: number;
     maxSlot?: number;
     stepSize?: number;
-    readOnly?: boolean;
-    eventPopoverFn?: EventPopoverFn;
-    eventPopoverTrigger?: "click" | "hover";
+    /** Visual-token defaults from Planner `style` (per-event overrides win). */
+    eventBorderRadius?: string | undefined;
+    labelColor?: string | undefined;
+    labelFontSize?: string | undefined;
+    labelFontWeight?: string | undefined;
     onEventClick?: ((event: PlannerEventValue, rowIndex: number, eventIndex: number) => void) | undefined;
     onEventDoubleClick?: ((event: PlannerEventValue, rowIndex: number, eventIndex: number) => void) | undefined;
     onEventDrag?: ((rowIndex: number, eventIndex: number, previousStart: number, previousEnd: number, newStart: number, newEnd: number) => void) | undefined;
@@ -56,9 +56,10 @@ export const PlannerEventRow = ({
     minSlot,
     maxSlot,
     stepSize,
-    readOnly = false,
-    eventPopoverFn,
-    eventPopoverTrigger = "click",
+    eventBorderRadius,
+    labelColor,
+    labelFontSize,
+    labelFontWeight,
     onEventClick,
     onEventDoubleClick,
     onEventDrag,
@@ -98,13 +99,12 @@ export const PlannerEventRow = ({
                     width={subSlotWidth}
                     height={height}
                     slot={slot}
-                    readOnly={readOnly}
                     onClick={onSlotClick}
                 />
             );
         }
         return cells;
-    }, [onSlotClick, slotCount, slotRangeStart, slotWidth, stepSize, y, height, readOnly]);
+    }, [onSlotClick, slotCount, slotRangeStart, slotWidth, stepSize, y, height]);
 
     const renderedEvents = useMemo(() => {
         const eventHeight = height - 12;
@@ -134,9 +134,10 @@ export const PlannerEventRow = ({
                     minSlot={minSlot}
                     maxSlot={maxSlot}
                     stepSize={stepSize}
-                    readOnly={readOnly}
-                    eventPopoverFn={eventPopoverFn}
-                    eventPopoverTrigger={eventPopoverTrigger}
+                    eventBorderRadius={eventBorderRadius}
+                    labelColor={labelColor}
+                    labelFontSize={labelFontSize}
+                    labelFontWeight={labelFontWeight}
                     isDimmed={isDimmed}
                     onClick={onEventClick ? () => onEventClick(event, rowIndex, eventIndex) : undefined}
                     onDoubleClick={onEventDoubleClick ? () => onEventDoubleClick(event, rowIndex, eventIndex) : undefined}
@@ -149,7 +150,13 @@ export const PlannerEventRow = ({
                 />
             );
         }).filter(Boolean);
-    }, [events, storageKey, rowIndex, y, height, slotWidth, slotRangeStart, slotMode, slotCount, minSlot, maxSlot, stepSize, readOnly, eventPopoverFn, eventPopoverTrigger, hoveredEventIndex, handleEventHoverStart, handleEventHoverEnd, onEventClick, onEventDoubleClick, onEventDrag, onEventResize, onEventEdit, onEventDelete]);
+    }, [
+        events, storageKey, rowIndex, y, height, slotWidth, slotRangeStart, slotMode,
+        slotCount, minSlot, maxSlot, stepSize,
+        eventBorderRadius, labelColor, labelFontSize, labelFontWeight,
+        hoveredEventIndex, handleEventHoverStart, handleEventHoverEnd,
+        onEventClick, onEventDoubleClick, onEventDrag, onEventResize, onEventEdit, onEventDelete,
+    ]);
     return (
         <g>
             {renderedSlotCells}

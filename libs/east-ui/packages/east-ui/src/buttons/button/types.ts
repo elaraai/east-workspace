@@ -51,13 +51,13 @@ export type ButtonVariantType = typeof ButtonVariantType;
 export type ButtonVariantLiteral = "solid" | "subtle" | "outline" | "ghost" | "plain";
 
 // ============================================================================
-// Button Style Type — visual presentation only (§0.10)
+// Button Style Type
 // ============================================================================
 
 /**
  * Visual-only style struct for Button. Content, state, and behaviour live on
  * the main `ButtonType` struct — NOT in this sub-struct — per the repo-wide
- * Type-shape convention (§0.10).
+ * Type-shape convention.
  *
  * @remarks
  * Anything visual goes here: the Chakra preset triplet (`variant`,

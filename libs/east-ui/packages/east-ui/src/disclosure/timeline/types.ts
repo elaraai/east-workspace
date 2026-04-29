@@ -14,13 +14,12 @@ import { SizeType, OrientationType } from "../../style.js";
 import type { SizeLiteral, OrientationLiteral } from "../../style.js";
 
 // ============================================================================
-// Timeline Style Type — visual presentation only (§0.10)
+// Timeline Style Type
 // ============================================================================
 
 /**
  * Visual-only style struct for Timeline. Content (`items`) lives on the
- * main `Timeline` variant (inline in `component.ts`) per the Type-shape
- * convention (§0.10). Reuses `StepStatusType` with `Steps` for per-item
+ * main `Timeline` variant (inline in `component.ts`). Reuses `StepStatusType` with `Steps` for per-item
  * status.
  *
  * @property orientation - Layout direction (horizontal / vertical)

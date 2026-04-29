@@ -43,7 +43,7 @@ export {
 
 /**
  * Standalone mirror of the inline `Banner` variant in `component.ts`.
- * Reuses `AlertStatusType` for semantic classification per §0.3.
+ * Reuses `AlertStatusType` for semantic classification.
  */
 export const BannerType: StructType<{
     status: AlertStatusType,
@@ -70,7 +70,7 @@ export const BannerType: StructType<{
 export type BannerType = typeof BannerType;
 
 // ============================================================================
-// §0.3 Paired-icon map (shared with Alert / Status)
+// Paired-icon map (shared with Alert / Status)
 // ============================================================================
 
 const PAIRED_ICONS: Record<AlertStatusLiteral, { prefix: "fas"; name: string }> = {
@@ -95,7 +95,7 @@ type BannerInput =
  *
  * @property description - Optional description (rich or string)
  * @property actions - Optional trailing action(s)
- * @property icon - Explicit icon override (skips §0.3 paired default)
+ * @property icon - Explicit icon override (skips paired default)
  * @property dismissible - Whether to show a close button
  * @property showIcon - Whether to show the paired icon (default true)
  * @property onDismiss - Callback fired when the close button is pressed
@@ -106,7 +106,7 @@ export interface BannerOptions {
     description?: BannerInput;
     /** Optional trailing action(s) */
     actions?: BannerInput;
-    /** Explicit icon override (skips §0.3 paired default) */
+    /** Explicit icon override (skips paired default) */
     icon?: { prefix: string; name: string } | SubtypeExprOrValue<IconType>;
     /** Whether to show a close button */
     dismissible?: SubtypeExprOrValue<BooleanType>;
@@ -120,7 +120,7 @@ export interface BannerOptions {
 
 /**
  * Creates a Banner — a full-width page-level feedback surface with paired
- * icon per §0.3.
+ * icon.
  *
  * @param status - The banner status (info / warning / success / error / neutral)
  * @param title - String (coerced to `Text.Root(s)`) or UIComponentType
@@ -163,7 +163,7 @@ function createBannerRoot(
     const descriptionValue = coerce(options?.description);
     const actionsValue = coerce(options?.actions);
 
-    // §0.3 paired-icon
+    // paired-icon
     let iconValue: SubtypeExprOrValue<IconType> | undefined;
     const showIcon = options?.showIcon ?? true;
     if (options?.icon && typeof (options.icon as { prefix?: unknown }).prefix === "string") {
@@ -267,7 +267,7 @@ export const Banner = {
          * with Alert / Toast.
          *
          * @remarks
-         * Drives default paired-icon selection and colour palette per §0.3.
+         * Drives default paired-icon selection and colour palette.
          *
          * @property info - Informational notice
          * @property success - Confirmation / on-track

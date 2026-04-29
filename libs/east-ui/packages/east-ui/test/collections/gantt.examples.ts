@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from "@elaraai/east";
-import { Badge, Gantt, Reactive, Stack, State, Style, Table, Text, UIComponentType } from "@elaraai/east-ui";
+import { Badge, Gantt, Icon, Reactive, Stack, Stat, State, Style, Table, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const ganttBasic = example({
     keywords: ["Gantt", "Root", "Task", "basic", "timeline"],
@@ -17,7 +17,7 @@ export const ganttBasic = example({
                 { task: "Testing", owner: "Diana", start: new Date("2024-03-01"), end: new Date("2024-03-30") },
             ],
             ["task", "owner"],
-            row => [Gantt.Task({ start: row.start, end: row.end })]
+            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })
         );
     }),
     inputs: [],
@@ -37,7 +37,7 @@ export const ganttCustomHeaders = example({
                 phase: { header: "Phase", width: "300px", minWidth: "80px" },
                 team: { header: "Team", width: "150px", maxWidth: "200px" },
             },
-            row => [Gantt.Task({ start: row.start, end: row.end, colorPalette: "teal" })]
+            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end, colorPalette: "teal" })] })
         );
     }),
     inputs: [],
@@ -54,10 +54,10 @@ export const ganttWithMilestones = example({
                 { name: "Sprint 3", start: new Date("2024-01-29"), end: new Date("2024-02-11"), release: new Date("2024-02-11") },
             ],
             { name: { header: "Sprint" } },
-            row => [
-                Gantt.Task({ start: row.start, end: row.end, colorPalette: "blue" }),
-                Gantt.Milestone({ date: row.release, label: "Release", colorPalette: "green" }),
-            ]
+            row => ({
+                tasks: [Gantt.Task({ start: row.start, end: row.end, colorPalette: "blue" })],
+                milestones: [Gantt.Milestone({ date: row.release, label: "Release", colorPalette: "green" })],
+            })
         );
     }),
     inputs: [],
@@ -75,22 +75,22 @@ export const ganttWithProgress = example({
                 { task: "QA Testing", start: new Date("2024-02-15"), end: new Date("2024-04-01"), progress: 10 },
             ],
             { task: { header: "Task" } },
-            row => [
-                Gantt.Task({
+            row => ({
+                tasks: [Gantt.Task({
                     start: row.start,
                     end: row.end,
                     progress: row.progress,
                     colorPalette: "purple",
-                }),
-            ]
+                })],
+            })
         );
     }),
     inputs: [],
 });
 
 export const ganttColorful = example({
-    keywords: ["Gantt", "Task", "label", "color"],
-    description: "Different colors for different task types",
+    keywords: ["Gantt", "Task", "label", "color", "colorPalette", "ifElse", "per-type"],
+    description: "Different colors for different task types — per-row colorPalette derived from a type field via East ifElse",
     fn: East.function([], UIComponentType, (_$) => {
         return Gantt.Root(
             [
@@ -103,21 +103,30 @@ export const ganttColorful = example({
                 type: { header: "Type" },
                 name: { header: "Name" },
             },
-            row => [
-                Gantt.Task({
+            row => ({
+                tasks: [Gantt.Task({
                     start: row.start,
                     end: row.end,
                     label: row.name,
-                }),
-            ]
+                    // Map task type → colorPalette via chained East ifElse:
+                    //   Feature → blue, Bug Fix → red, Enhancement → purple.
+                    colorPalette: row.type.equal("Feature").ifElse(
+                        _$ => variant("blue", null),
+                        _$ => row.type.equal("Bug Fix").ifElse(
+                            _$ => variant("red", null),
+                            _$ => variant("purple", null),
+                        ),
+                    ),
+                })],
+            })
         );
     }),
     inputs: [],
 });
 
 export const ganttStyled = example({
-    keywords: ["Gantt", "variant", "line", "striped", "interactive", "showToday"],
-    description: "Multiple style options combined",
+    keywords: ["Gantt", "variant", "line", "striped", "showToday"],
+    description: "Multiple style options combined — `variant: line`, `striped: true`, `showToday: true`",
     fn: East.function([], UIComponentType, (_$) => {
         return Gantt.Root(
             [
@@ -130,11 +139,10 @@ export const ganttStyled = example({
                 dept: { header: "Department" },
                 project: { header: "Project" },
             },
-            row => [Gantt.Task({ start: row.start, end: row.end, colorPalette: "cyan" })],
+            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end, colorPalette: "cyan" })] }),
             {
                 variant: "line",
                 striped: true,
-                interactive: true,
                 showToday: true,
             }
         );
@@ -177,7 +185,7 @@ export const ganttComplexColumns = example({
                     ),
                 },
             },
-            row => [Gantt.Task({ start: row.start, end: row.end, colorPalette: "purple" })],
+            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end, colorPalette: "purple" })] }),
             { variant: "line", striped: true }
         );
     }),
@@ -223,7 +231,7 @@ export const ganttColumnRenderWithRow = example({
                     ),
                 },
             },
-            row => [Gantt.Task({ start: row.start, end: row.end })],
+            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] }),
             { variant: "line", striped: true }
         );
     }),
@@ -350,12 +358,11 @@ export const ganttInteractiveCallbacks = example({
                         { name: "Sprint 3", start: new Date("2024-01-29"), end: new Date("2024-02-11"), release: new Date("2024-02-11") },
                     ],
                     { name: { header: "Sprint" } },
-                    row => [
-                        Gantt.Task({ start: row.start, end: row.end, colorPalette: "blue", progress: 50 }),
-                        Gantt.Milestone({ date: row.release, label: "Release", colorPalette: "green" }),
-                    ],
+                    row => ({
+                        tasks: [Gantt.Task({ start: row.start, end: row.end, colorPalette: "blue", progress: 50 })],
+                        milestones: [Gantt.Milestone({ date: row.release, label: "Release", colorPalette: "green" })],
+                    }),
                     {
-                        interactive: true,
                         striped: true,
                         showToday: true,
                         onRowClick,
@@ -407,16 +414,15 @@ export const ganttReactiveDrag = example({
                 Gantt.Root(
                     [{ name: "Draggable Task" }],
                     { name: { header: "Task" } },
-                    _row => [
-                        Gantt.Task({
+                    _row => ({
+                        tasks: [Gantt.Task({
                             start: taskStart,
                             end: taskEnd,
                             label: "Drag me!",
                             colorPalette: "orange",
-                        }),
-                    ],
+                        })],
+                    }),
                     {
-                        interactive: true,
                         onTaskDrag,
                         dragStep: variant("days", 1),
                         durationStep: variant("days", 1),
@@ -442,7 +448,7 @@ export const ganttCustomHeight = example({
                 { task: "Deployment", owner: "Eve", start: new Date("2024-03-20"), end: new Date("2024-04-15") },
             ],
             ["task", "owner"],
-            row => [Gantt.Task({ start: row.start, end: row.end })],
+            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] }),
             { height: "200px", variant: "line" }
         );
     }),
@@ -468,7 +474,7 @@ export const ganttFrozenColumns = example({
                 dept: { header: "Department", width: "150px" },
                 priority: { header: "Priority", width: "120px" },
             },
-            row => [Gantt.Task({ start: row.start, end: row.end })],
+            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] }),
             {
                 frozen: ["id", "task"],
                 variant: "line",
@@ -506,7 +512,7 @@ export const ganttRowStatus = example({
                 { task: "Development", start: new Date("2024-01-20"), end: new Date("2024-03-15") },
             ],
             { task: { header: "Task" } },
-            row => [Gantt.Task({ start: row.start, end: row.end })],
+            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] }),
             { rowStatus, variant: "line" },
         );
     }),
@@ -523,16 +529,15 @@ export const ganttPerEventColours = example({
                 { task: "Standard work", start: new Date("2024-01-15"), end: new Date("2024-02-10"), progress: 40 },
             ],
             { task: { header: "Task" } },
-            row => [Gantt.Task({
+            row => ({ tasks: [Gantt.Task({
                 start: row.start,
                 end: row.end,
-                label: row.task,
+                label: { value: row.task, color: "white" },
                 progress: row.progress,
                 background: "#C53030",
                 stroke: "#742A2A",
-                labelColor: "white",
                 progressFill: "#822727",
-            })],
+            })] }),
             { variant: "line" },
         );
     }),
@@ -549,7 +554,7 @@ export const ganttChromeColours = example({
                 { task: "Design", start: new Date("2024-01-10"), end: new Date("2024-02-01") },
             ],
             { task: { header: "Task" } },
-            row => [Gantt.Task({ start: row.start, end: row.end, colorPalette: "blue" })],
+            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end, colorPalette: "blue" })] }),
             {
                 variant: "line",
                 gridColor: "blue.100",
@@ -559,6 +564,302 @@ export const ganttChromeColours = example({
                 showToday: true,
             },
         );
+    }),
+    inputs: [],
+});
+
+// ============================================================================
+// Plan 1.10 I — per-task tooltip / popover / overlays + visual-parity tokens
+// ============================================================================
+
+export const ganttTaskTooltip = example({
+    keywords: ["Gantt", "Task", "tooltip", "hover", "rich"],
+    description: "Per-task hover tooltip — pass a UIComponent into `tooltip` for rich preview content",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Gantt.Root(
+            [
+                { task: "API redesign", owner: "Alice", start: new Date("2024-01-01"), end: new Date("2024-01-20") },
+                { task: "UI polish", owner: "Bob", start: new Date("2024-01-15"), end: new Date("2024-02-10") },
+            ],
+            { task: { header: "Task" } },
+            row => ({ tasks: [Gantt.Task({
+                start: row.start,
+                end: row.end,
+                label: row.task,
+                colorPalette: "purple",
+                tooltip: Stack.VStack([
+                    Badge.Root(row.task, { colorPalette: "purple", variant: "solid" }),
+                    Text.Root(East.str`Owner: ${row.owner}`),
+                ], { gap: "1", padding: "0px" }),
+            })] }),
+        );
+    }),
+    inputs: [],
+});
+
+export const ganttTaskPopover = example({
+    keywords: ["Gantt", "Task", "popover", "click", "rich"],
+    description: "Per-task click popover — pass a UIComponent into `popover` for rich edit forms / details",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Gantt.Root(
+            [
+                { task: "Sprint 1", owner: "Alice", start: new Date("2024-01-01"), end: new Date("2024-01-14") },
+                { task: "Sprint 2", owner: "Bob", start: new Date("2024-01-15"), end: new Date("2024-01-28") },
+            ],
+            { task: { header: "Sprint" } },
+            row => ({ tasks: [Gantt.Task({
+                start: row.start,
+                end: row.end,
+                label: row.task,
+                colorPalette: "teal",
+                popover: Stack.VStack([
+                    Text.Root(East.str`Sprint: ${row.task}`, { fontWeight: "bold" }),
+                    Text.Root(East.str`Owner: ${row.owner}`),
+                    Text.Root(East.str`From ${row.start} to ${row.end}`),
+                ], { gap: "2" }),
+            })] }),
+        );
+    }),
+    inputs: [],
+});
+
+export const ganttTaskOverlays = example({
+    keywords: ["Gantt", "Task", "overlays", "axis", "Badge", "Icon"],
+    description: "Per-task overlays — UIComponents pinned to corners of the bar (priority chip top-right, status icon bottom-left)",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Gantt.Root(
+            [
+                { task: "Critical Path", priority: "HIGH", start: new Date("2024-01-01"), end: new Date("2024-01-20") },
+                { task: "Background Work", priority: "LOW", start: new Date("2024-01-15"), end: new Date("2024-02-10") },
+            ],
+            { task: { header: "Task" }, priority: { header: "Priority" } },
+            row => ({ tasks: [Gantt.Task({
+                start: row.start,
+                end: row.end,
+                label: { value: row.task, color: "white" },
+                colorPalette: "purple",
+                overlays: [
+                    {
+                        content: Badge.Root(row.priority, { colorPalette: "red", variant: "solid", size: "xs" }),
+                        align: "end",
+                        verticalAlign: "start",
+                    },
+                    {
+                        content: Icon.Root("fas", "circle-check", { colorPalette: "green", size: "sm" }),
+                        align: "start",
+                        verticalAlign: "end",
+                    },
+                ],
+            })] }),
+        );
+    }),
+    inputs: [],
+});
+
+export const ganttRichLabel = example({
+    keywords: ["Gantt", "Task", "label", "LabelInput", "align", "verticalAlign", "fontWeight"],
+    description: "Rich task label — LabelInput with align / verticalAlign / color / fontWeight / fontStyle / fontSize overrides",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Gantt.Root(
+            [{ task: "Pretty", start: new Date("2024-01-01"), end: new Date("2024-01-31") }],
+            { task: { header: "Task" } },
+            row => ({ tasks: [Gantt.Task({
+                start: row.start,
+                end: row.end,
+                colorPalette: "purple",
+                label: {
+                    value: row.task,
+                    align: "center",
+                    verticalAlign: "center",
+                    color: "yellow.300",
+                    fontWeight: "bold",
+                    fontStyle: "italic",
+                    fontSize: "lg",
+                },
+            })] }),
+        );
+    }),
+    inputs: [],
+});
+
+export const ganttVisualTokens = example({
+    keywords: ["Gantt", "taskBorderRadius", "labelColor", "labelFontSize", "labelFontWeight", "visual", "tokens"],
+    description: "Visual-parity tokens — `taskBorderRadius` / `labelColor` / `labelFontSize` / `labelFontWeight` set defaults; per-task `label.color` etc. override",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Gantt.Root(
+            [{ row: "demo" }],
+            ["row"],
+            (_row) => ({
+                tasks: [
+                    Gantt.Task({
+                        start: new Date("2024-01-01"),
+                        end: new Date("2024-01-15"),
+                        label: { value: "Inherits defaults" },
+                        colorPalette: "teal",
+                    }),
+                    Gantt.Task({
+                        start: new Date("2024-01-20"),
+                        end: new Date("2024-02-05"),
+                        label: {
+                            value: "Overrides per-task",
+                            color: "yellow.300",
+                            fontSize: "lg",
+                            fontWeight: "bold",
+                        },
+                        colorPalette: "teal",
+                    }),
+                ],
+            }),
+            {
+                taskBorderRadius: "8px",
+                labelColor: "white",
+                labelFontSize: "0.875rem",
+                labelFontWeight: "700",
+            },
+        );
+    }),
+    inputs: [],
+});
+
+export const ganttMilestoneTooltip = example({
+    keywords: ["Gantt", "Milestone", "tooltip", "hover", "rich"],
+    description: "Per-milestone hover tooltip — same UIComponent slot as tasks, anchored to the diamond",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Gantt.Root(
+            [
+                { sprint: "Sprint 1", release: new Date("2024-01-14"), notes: "Internal beta" },
+                { sprint: "Sprint 2", release: new Date("2024-01-28"), notes: "Customer preview" },
+            ],
+            { sprint: { header: "Sprint" } },
+            row => ({ milestones: [Gantt.Milestone({
+                date: row.release,
+                label: "Release",
+                colorPalette: "green",
+                tooltip: Stack.VStack([
+                    Badge.Root(row.sprint, { colorPalette: "green", variant: "solid" }),
+                    Text.Root(East.str`Notes: ${row.notes}`),
+                ], { gap: "1", padding: "0px" }),
+            })] }),
+        );
+    }),
+    inputs: [],
+});
+
+export const ganttMilestonePopover = example({
+    keywords: ["Gantt", "Milestone", "popover", "click", "rich"],
+    description: "Per-milestone click popover — UIComponent surface anchored to the diamond, click toggles open/close",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Gantt.Root(
+            [
+                { name: "Q1 Launch", date: new Date("2024-03-31"), owner: "Alice", scope: "Public release" },
+                { name: "Q2 GA", date: new Date("2024-06-30"), owner: "Bob", scope: "Enterprise tier" },
+            ],
+            { name: { header: "Milestone" } },
+            row => ({ milestones: [Gantt.Milestone({
+                date: row.date,
+                label: row.name,
+                colorPalette: "purple",
+                popover: Stack.VStack([
+                    Text.Root(East.str`${row.name}`, { fontWeight: "bold" }),
+                    Text.Root(East.str`Owner: ${row.owner}`),
+                    Text.Root(East.str`Scope: ${row.scope}`),
+                ], { gap: "2" }),
+            })] }),
+        );
+    }),
+    inputs: [],
+});
+
+export const ganttMilestoneOverlays = example({
+    keywords: ["Gantt", "Milestone", "overlays", "axis", "Badge", "Icon"],
+    description: "Per-milestone overlays — UIComponents pinned to corners of the diamond (status icon top-right, badge bottom)",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Gantt.Root(
+            [
+                { name: "Beta", date: new Date("2024-02-01"), status: "DONE" },
+                { name: "GA", date: new Date("2024-04-01"), status: "TODO" },
+            ],
+            { name: { header: "Milestone" } },
+            row => ({ milestones: [Gantt.Milestone({
+                date: row.date,
+                label: row.name,
+                colorPalette: "purple",
+                overlays: [
+                    {
+                        content: Icon.Root("fas", "star", { colorPalette: "yellow", size: "xs" }),
+                        align: "end",
+                        verticalAlign: "start",
+                    },
+                    {
+                        content: Badge.Root(row.status, { colorPalette: "green", variant: "solid", size: "xs" }),
+                        align: "center",
+                        verticalAlign: "end",
+                    },
+                ],
+            })] }),
+        );
+    }),
+    inputs: [],
+});
+
+export const ganttMilestoneColours = example({
+    keywords: ["Gantt", "Milestone", "fill", "stroke", "per-milestone"],
+    description: "Per-milestone colour escapes — `fill` / `stroke` override the default palette for individual diamonds",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Gantt.Root(
+            [
+                { milestone: "Compliance review", date: new Date("2024-02-15") },
+                { milestone: "External audit", date: new Date("2024-04-15") },
+            ],
+            { milestone: { header: "Milestone" } },
+            row => ({ milestones: [Gantt.Milestone({
+                date: row.date,
+                label: row.milestone,
+                fill: "#C53030",
+                stroke: "#742A2A",
+            })] }),
+        );
+    }),
+    inputs: [],
+});
+
+export const ganttTaskPopoverWithCallback = example({
+    keywords: ["Gantt", "popover", "onTaskClick", "coexist", "Reactive", "State"],
+    description: "Per-task popover coexists with `onTaskClick` — clicking the bar opens the popover AND fires the callback",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const clicksBind = $.let(State.bind([IntegerType], "gantt_popover_clicks", 0n));
+            const clicks = $.let(clicksBind.read());
+
+            const onTaskClick = $.const(East.function(
+                [Gantt.Types.TaskClickEvent],
+                NullType,
+                ($, _event) => {
+                    const current = $.let(clicksBind.read(), IntegerType);
+                    $(clicksBind.write(current.add(1n)));
+                },
+            ));
+
+            return Stack.VStack([
+                Gantt.Root(
+                    [{ task: "Status review", start: new Date("2024-01-01"), end: new Date("2024-01-31") }],
+                    { task: { header: "Task" } },
+                    row => ({ tasks: [Gantt.Task({
+                        start: row.start,
+                        end: row.end,
+                        label: row.task,
+                        colorPalette: "purple",
+                        popover: Stat.Root(
+                            "Total clicks",
+                            Text.Root(East.str`${clicks}`, { fontWeight: "bold", textStyle: "heading-md" }),
+                            { helpText: "Counter increments every click — popover and callback coexist." },
+                        ),
+                    })] }),
+                    { onTaskClick },
+                ),
+                Text.Root(East.str`Clicked ${clicks} times`, { textStyle: "body-sm", color: "fg.muted" }),
+            ], { gap: "3", align: "stretch" });
+        }));
     }),
     inputs: [],
 });

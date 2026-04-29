@@ -9,6 +9,7 @@ import {
     East,
     OptionType,
     StructType,
+    StringType,
     FloatType,
     BooleanType,
     NullType,
@@ -31,14 +32,12 @@ import type { SizeLiteral, ColorSchemeLiteral, OrientationLiteral } from "../../
  * @property subtle - Slider with subtle/filled track
  */
 export const SliderVariantType = VariantType({
-    /** Slider with outlined track */
     outline: NullType,
-    /** Slider with subtle/filled track */
     subtle: NullType,
 });
 
 /**
- * Type representing the SliderVariant structure.
+ * Type alias for the SliderVariant variant.
  */
 export type SliderVariantType = typeof SliderVariantType;
 
@@ -52,70 +51,81 @@ export type SliderVariantLiteral = "outline" | "subtle";
  *
  * @param v - The variant string ("outline" or "subtle")
  * @returns An East expression representing the slider variant
- *
- * @example
- * ```ts
- * import { East } from "@elaraai/east";
- * import { Slider, UIComponentType } from "@elaraai/east-ui";
- *
- * const example = East.function([], UIComponentType, $ => {
- *     return Slider.Root(50.0, {
- *         variant: Slider.Variant("subtle"),
- *     });
- * });
- * ```
  */
 export function SliderVariant(v: "outline" | "subtle"): ExprType<SliderVariantType> {
     return East.value(variant(v, null), SliderVariantType);
 }
 
 // ============================================================================
+// Slider Style
+// ============================================================================
+
+/**
+ * East StructType holding visual fields for `Slider`.
+ *
+ * @property orientation - Layout orientation (`horizontal` / `vertical`)
+ * @property variant - Visual variant (`outline` / `subtle`)
+ * @property colorPalette - Chakra colour palette
+ * @property size - Slider size (`xs` / `sm` / `md` / `lg`)
+ * @property trackColor - Explicit colour of the unfilled rail
+ * @property fillColor - Explicit colour of the filled portion (start → thumb)
+ * @property thumbColor - Explicit colour of the thumb knob
+ * @property markColor - Explicit colour of tick / mark indicators
+ */
+export const SliderStyleType = StructType({
+    orientation: OptionType(OrientationType),
+    variant: OptionType(SliderVariantType),
+    colorPalette: OptionType(ColorSchemeType),
+    size: OptionType(SizeType),
+    trackColor: OptionType(StringType),
+    fillColor: OptionType(StringType),
+    thumbColor: OptionType(StringType),
+    markColor: OptionType(StringType),
+});
+
+/**
+ * Type alias for the Slider style struct.
+ */
+export type SliderStyleType = typeof SliderStyleType;
+
+// ============================================================================
 // Slider Type
 // ============================================================================
 
 /**
- * Type for Slider component data.
- *
- * @remarks
- * Slider is a form control for selecting a numeric value within a range.
+ * East StructType for `Slider` — numeric range selector.
  *
  * @property value - Current slider value
  * @property min - Minimum value (defaults to 0)
  * @property max - Maximum value (defaults to 100)
  * @property step - Step increment for value changes
- * @property orientation - Horizontal or vertical orientation
- * @property colorPalette - Color scheme for the slider
- * @property size - Size of the slider
- * @property variant - Visual variant (outline or subtle)
  * @property disabled - Whether the slider is disabled
- * @property onChange - Callback triggered when value changes (during drag)
- * @property onChangeEnd - Callback triggered when drag ends
+ * @property onChange - Callback fired during drag
+ * @property onChangeEnd - Callback fired when drag ends
+ * @property style - Optional visual style sub-struct
  */
 export const SliderType = StructType({
     value: FloatType,
     min: OptionType(FloatType),
     max: OptionType(FloatType),
     step: OptionType(FloatType),
-    orientation: OptionType(OrientationType),
-    colorPalette: OptionType(ColorSchemeType),
-    size: OptionType(SizeType),
-    variant: OptionType(SliderVariantType),
     disabled: OptionType(BooleanType),
     onChange: OptionType(FunctionType([FloatType], NullType)),
     onChangeEnd: OptionType(FunctionType([FloatType], NullType)),
+    style: OptionType(SliderStyleType),
 });
 
 /**
- * Type representing the Slider structure.
+ * Type alias for the Slider struct.
  */
 export type SliderType = typeof SliderType;
 
 // ============================================================================
-// Slider Style
+// Slider Style Interface
 // ============================================================================
 
 /**
- * TypeScript interface for Slider style options.
+ * TypeScript interface for `Slider` factory options.
  *
  * @property min - Minimum value (defaults to 0)
  * @property max - Maximum value (defaults to 100)
@@ -123,10 +133,14 @@ export type SliderType = typeof SliderType;
  * @property orientation - Horizontal or vertical orientation
  * @property colorPalette - Color scheme for the slider
  * @property size - Size of the slider
- * @property variant - Visual variant (outline or subtle)
+ * @property variant - Visual variant
+ * @property trackColor - Explicit colour of the unfilled rail
+ * @property fillColor - Explicit colour of the filled portion
+ * @property thumbColor - Explicit colour of the thumb knob
+ * @property markColor - Explicit colour of tick / mark indicators
  * @property disabled - Whether the slider is disabled
- * @property onChange - Callback triggered when value changes (during drag)
- * @property onChangeEnd - Callback triggered when drag ends
+ * @property onChange - Callback during drag
+ * @property onChangeEnd - Callback when drag ends
  */
 export interface SliderStyle {
     /** Minimum value (defaults to 0) */
@@ -143,6 +157,14 @@ export interface SliderStyle {
     size?: SubtypeExprOrValue<SizeType> | SizeLiteral;
     /** Visual variant (outline or subtle) */
     variant?: SubtypeExprOrValue<SliderVariantType> | SliderVariantLiteral;
+    /** Explicit colour of the unfilled rail. */
+    trackColor?: SubtypeExprOrValue<StringType>;
+    /** Explicit colour of the filled portion (start → thumb). */
+    fillColor?: SubtypeExprOrValue<StringType>;
+    /** Explicit colour of the thumb knob. */
+    thumbColor?: SubtypeExprOrValue<StringType>;
+    /** Explicit colour of tick / mark indicators. */
+    markColor?: SubtypeExprOrValue<StringType>;
     /** Whether the slider is disabled */
     disabled?: SubtypeExprOrValue<BooleanType>;
     /** Callback triggered when value changes (during drag) */

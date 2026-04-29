@@ -16,7 +16,6 @@ import {
     DateTimeType,
     FloatType,
     variant,
-    BooleanType,
     IntegerType,
     NullType,
     type TypeOf,
@@ -36,8 +35,17 @@ import {
 } from "../table/types.js";
 import { TimeStepType } from "./types.js";
 
-import { ColorSchemeType } from "../../style.js";
-import { UIComponentType } from "../../component.js";
+import {
+    AlignType,
+    LabelInputType,
+    FontWeightType,
+    FontStyleType,
+    SizeType,
+    ColorSchemeType,
+    type AlignLiteral,
+    type LabelInput,
+} from "../../style.js";
+import { UIComponentType, OverlayInputType } from "../../component.js";
 import {
     TableCellType,
     TableColumnType,
@@ -47,9 +55,6 @@ import {
 import { Text } from "../../typography/index.js";
 
 import {
-    GanttEventType,
-    GanttTaskType,
-    GanttMilestoneType,
     GanttStyleType,
     TableVariantType,
     TableSizeType,
@@ -65,13 +70,102 @@ import { StatusTokenType } from "../../style/interaction.js";
 
 // Re-export types
 export {
-    GanttEventType,
-    GanttTaskType,
-    GanttMilestoneType,
     GanttStyleType,
     TimeStepType,
     type GanttStyle,
 } from "./types.js";
+
+// ============================================================================
+// Gantt Task / Milestone (UIComp-coupled — defined here, not in types.ts)
+// ============================================================================
+
+/**
+ * East StructType for a Gantt task bar.
+ *
+ * @remarks
+ * Spans from `start` to `end`. Per-task colour overrides
+ * (`background`, `stroke`, `progressFill`) sit alongside `colorPalette`.
+ * Two rich-content slots: `tooltip` (hover-triggered) and `popover`
+ * (click-triggered) accept any UIComponent. `overlays` paints axis-
+ * aligned UIComp content (badges, status chips) inside the bar.
+ *
+ * @property start - Start date/time of the task
+ * @property end - End date/time of the task
+ * @property label - Optional rich label (text + alignment + typography)
+ * @property progress - Optional progress percentage (0-100)
+ * @property colorPalette - Optional color scheme for the task bar
+ * @property background - Optional explicit fill colour for the task bar
+ * @property stroke - Optional explicit stroke/border colour
+ * @property progressFill - Optional explicit fill colour for the progress segment
+ * @property overlays - Per-task overlay annotations
+ * @property tooltip - Optional rich tooltip (hover-triggered, UIComponent)
+ * @property popover - Optional rich popover (click-triggered, UIComponent)
+ */
+export const GanttTaskType: StructType<{
+    start: DateTimeType,
+    end: DateTimeType,
+    label: OptionType<LabelInputType>,
+    progress: OptionType<FloatType>,
+    colorPalette: OptionType<ColorSchemeType>,
+    background: OptionType<StringType>,
+    stroke: OptionType<StringType>,
+    progressFill: OptionType<StringType>,
+    overlays: ArrayType<OverlayInputType>,
+    tooltip: OptionType<UIComponentType>,
+    popover: OptionType<UIComponentType>,
+}> = StructType({
+    start: DateTimeType,
+    end: DateTimeType,
+    label: OptionType(LabelInputType),
+    progress: OptionType(FloatType),
+    colorPalette: OptionType(ColorSchemeType),
+    background: OptionType(StringType),
+    stroke: OptionType(StringType),
+    progressFill: OptionType(StringType),
+    overlays: ArrayType(OverlayInputType),
+    tooltip: OptionType(UIComponentType),
+    popover: OptionType(UIComponentType),
+});
+
+export type GanttTaskType = typeof GanttTaskType;
+
+/**
+ * East StructType for a Gantt milestone marker.
+ *
+ * @remarks
+ * Single point in time (no duration). Same `tooltip` / `popover` /
+ * `overlays` rich-content surface as tasks.
+ *
+ * @property date - The date/time of the milestone
+ * @property label - Optional rich label
+ * @property colorPalette - Optional color scheme for the milestone marker
+ * @property fill - Optional explicit fill colour
+ * @property stroke - Optional explicit stroke colour
+ * @property overlays - Per-milestone overlay annotations
+ * @property tooltip - Optional rich tooltip (hover, UIComponent)
+ * @property popover - Optional rich popover (click, UIComponent)
+ */
+export const GanttMilestoneType: StructType<{
+    date: DateTimeType,
+    label: OptionType<LabelInputType>,
+    colorPalette: OptionType<ColorSchemeType>,
+    fill: OptionType<StringType>,
+    stroke: OptionType<StringType>,
+    overlays: ArrayType<OverlayInputType>,
+    tooltip: OptionType<UIComponentType>,
+    popover: OptionType<UIComponentType>,
+}> = StructType({
+    date: DateTimeType,
+    label: OptionType(LabelInputType),
+    colorPalette: OptionType(ColorSchemeType),
+    fill: OptionType(StringType),
+    stroke: OptionType(StringType),
+    overlays: ArrayType(OverlayInputType),
+    tooltip: OptionType(UIComponentType),
+    popover: OptionType(UIComponentType),
+});
+
+export type GanttMilestoneType = typeof GanttMilestoneType;
 
 // ============================================================================
 // Gantt Row Type
@@ -81,14 +175,24 @@ export {
  * East type for a Gantt row.
  *
  * @remarks
- * Each row has table cells (displayed on the left) and events (displayed on the right as a timeline).
+ * Each row has table cells (displayed on the left) and two timeline-
+ * track arrays on the right: `tasks` (duration bars) and `milestones`
+ * (single-point markers). The previous variant `events` array has
+ * been retired — splitting by subtype removes variant ceremony at the
+ * call site and gives per-subtype TS narrowing for free.
  *
  * @property cells - Dict of column key to cell content (same as Table)
- * @property events - Array of events (Task or Milestone variants)
+ * @property tasks - Array of task bars (start + end DateTime)
+ * @property milestones - Array of milestone markers (single DateTime)
  */
-export const GanttRowType = StructType({
+export const GanttRowType: StructType<{
+    cells: DictType<StringType, typeof TableCellType>,
+    tasks: ArrayType<GanttTaskType>,
+    milestones: ArrayType<GanttMilestoneType>,
+}> = StructType({
     cells: DictType(StringType, TableCellType),
-    events: ArrayType(GanttEventType),
+    tasks: ArrayType(GanttTaskType),
+    milestones: ArrayType(GanttMilestoneType),
 });
 
 /**
@@ -105,7 +209,7 @@ export type GanttRowType = typeof GanttRowType;
  * `component.ts`.
  *
  * @remarks
- * Per §0.10, main carries content (`rows` / `columns` / `frozen`),
+ * main carries content (`rows` / `columns` / `frozen`),
  * config (`interactive` / `dragStep` / `durationStep`), structured
  * state (`rowStatus`), and behaviour (callbacks); `style` carries
  * visual fields only.
@@ -132,11 +236,31 @@ export type GanttRowType = typeof GanttRowType;
  * @property onMilestoneDrag - Milestone drag callback
  * @property style - Optional visual style sub-struct
  */
-export const GanttRootType = StructType({
+export const GanttRootType: StructType<{
+    rows: ArrayType<GanttRowType>,
+    columns: ArrayType<typeof TableColumnType>,
+    frozen: ArrayType<StringType>,
+    dragStep: OptionType<TimeStepType>,
+    durationStep: OptionType<TimeStepType>,
+    rowStatus: OptionType<FunctionType<[IntegerType], StatusTokenType>>,
+    onCellClick: OptionType<FunctionType<[TableCellClickEventType], NullType>>,
+    onCellDoubleClick: OptionType<FunctionType<[TableCellClickEventType], NullType>>,
+    onRowClick: OptionType<FunctionType<[TableRowClickEventType], NullType>>,
+    onRowDoubleClick: OptionType<FunctionType<[TableRowClickEventType], NullType>>,
+    onSortChange: OptionType<FunctionType<[TableSortEventType], NullType>>,
+    onTaskClick: OptionType<FunctionType<[GanttTaskClickEventType], NullType>>,
+    onTaskDoubleClick: OptionType<FunctionType<[GanttTaskClickEventType], NullType>>,
+    onTaskDrag: OptionType<FunctionType<[GanttTaskDragEventType], NullType>>,
+    onTaskDurationChange: OptionType<FunctionType<[GanttTaskDurationChangeEventType], NullType>>,
+    onTaskProgressChange: OptionType<FunctionType<[GanttTaskProgressChangeEventType], NullType>>,
+    onMilestoneClick: OptionType<FunctionType<[GanttMilestoneClickEventType], NullType>>,
+    onMilestoneDoubleClick: OptionType<FunctionType<[GanttMilestoneClickEventType], NullType>>,
+    onMilestoneDrag: OptionType<FunctionType<[GanttMilestoneDragEventType], NullType>>,
+    style: OptionType<GanttStyleType>,
+}> = StructType({
     rows: ArrayType(GanttRowType),
     columns: ArrayType(TableColumnType),
     frozen: ArrayType(StringType),
-    interactive: OptionType(BooleanType),
     dragStep: OptionType(TimeStepType),
     durationStep: OptionType(TimeStepType),
     rowStatus: OptionType(FunctionType([IntegerType], StatusTokenType)),
@@ -166,138 +290,287 @@ export type GanttRootType = typeof GanttRootType;
 // ============================================================================
 
 /**
- * Input interface for creating a Task event.
+ * TypeScript interface for the ergonomic input passed to {@link createTask}
+ * (`Gantt.Task`).
+ *
+ * @remarks
+ * The factory normalises this flat input into a fully-shaped East
+ * `GanttTaskType` value — wrapping each optional field in its
+ * `OptionType` envelope and converting variant string literals
+ * (`"blue"`, `"start"`, `"bold"`) to East variant values. Every field
+ * accepts either a plain JS value or an East expression via
+ * {@link SubtypeExprOrValue}.
  *
  * @property start - Start date/time of the task
  * @property end - End date/time of the task
- * @property label - Optional label to display on the task bar
- * @property progress - Optional progress percentage (0-100)
- * @property colorPalette - Optional color scheme for the task bar
+ * @property label - Plain string shorthand expands to `{ value: <string> }`; or a full {@link LabelInput} for alignment / typography overrides
+ * @property progress - Progress percentage (0-100)
+ * @property colorPalette - Color scheme for the task bar
+ * @property background - Explicit fill colour for the task bar (overrides colorPalette)
+ * @property stroke - Explicit stroke/border colour (overrides colorPalette)
+ * @property progressFill - Explicit fill colour for the progress segment
+ * @property overlays - Axis-aligned UIComponent overlays painted inside the bar
+ * @property tooltip - Hover-triggered rich tooltip content (UIComponent)
+ * @property popover - Click-triggered rich popover content (UIComponent), coexists with `onTaskClick`
  */
 export interface TaskInput {
+    /** Start date/time of the task */
     start: SubtypeExprOrValue<DateTimeType>;
+    /** End date/time of the task */
     end: SubtypeExprOrValue<DateTimeType>;
-    label?: SubtypeExprOrValue<StringType>;
+    /** Task label. Plain string shorthand expands to `{ value: <string> }`; pass a full {@link LabelInput} for alignment / typography overrides. */
+    label?: SubtypeExprOrValue<StringType> | LabelInput;
+    /** Progress percentage (0-100) */
     progress?: SubtypeExprOrValue<FloatType>;
+    /** Color scheme for the task bar */
     colorPalette?: SubtypeExprOrValue<ColorSchemeType> | string;
-    /** Explicit fill colour for the task bar. */
+    /** Explicit fill colour for the task bar (overrides colorPalette). */
     background?: SubtypeExprOrValue<StringType>;
-    /** Explicit stroke/border colour. */
+    /** Explicit stroke/border colour (overrides colorPalette). */
     stroke?: SubtypeExprOrValue<StringType>;
-    /** Explicit colour for the task label. */
-    labelColor?: SubtypeExprOrValue<StringType>;
     /** Explicit fill colour for the progress segment. */
     progressFill?: SubtypeExprOrValue<StringType>;
+    /** Per-task overlays (badges, status icons) — same axis-aligned positioning as Matrix overlays. */
+    overlays?: GanttOverlayInput[];
+    /** Rich tooltip content (hover-triggered UIComponent). */
+    tooltip?: SubtypeExprOrValue<UIComponentType>;
+    /** Rich popover content (click-triggered UIComponent). Coexists with `onTaskClick`. */
+    popover?: SubtypeExprOrValue<UIComponentType>;
 }
 
 /**
- * Input interface for creating a Milestone event.
+ * TypeScript interface for a Gantt overlay — UIComponent painted at an
+ * axis-aligned position inside the task / milestone shape.
+ *
+ * @remarks
+ * Mirrors the Matrix overlay pattern. Defaults (when align /
+ * verticalAlign omitted) are `"center"` / `"center"`. Pointer events
+ * pass through the overlay so drag / click / popover triggers still
+ * hit the underlying shape.
+ *
+ * @property content - The UIComponent painted at the chosen corner
+ * @property align - Horizontal alignment (start / center / end). Default `"center"`.
+ * @property verticalAlign - Vertical alignment (start / center / end). Default `"center"`.
+ */
+export interface GanttOverlayInput {
+    /** The UIComponent painted at the chosen corner */
+    content: SubtypeExprOrValue<UIComponentType>;
+    /** Horizontal alignment (start / center / end). Default `"center"`. */
+    align?: AlignLiteral | SubtypeExprOrValue<AlignType>;
+    /** Vertical alignment (start / center / end). Default `"center"`. */
+    verticalAlign?: AlignLiteral | SubtypeExprOrValue<AlignType>;
+}
+
+/**
+ * TypeScript interface for the ergonomic input passed to {@link createMilestone}
+ * (`Gantt.Milestone`).
+ *
+ * @remarks
+ * Same option/variant normalisation as `Gantt.Task` — flat TS input
+ * in, fully-shaped East `GanttMilestoneType` value out.
  *
  * @property date - The date/time of the milestone
- * @property label - Optional label to display near the milestone
- * @property colorPalette - Optional color scheme for the milestone marker
+ * @property label - Plain string shorthand expands to `{ value: <string> }`; or a full {@link LabelInput} for alignment / typography overrides
+ * @property colorPalette - Color scheme for the milestone marker
+ * @property fill - Explicit fill colour for the milestone marker (overrides colorPalette)
+ * @property stroke - Explicit stroke colour for the milestone marker (overrides colorPalette)
+ * @property overlays - Axis-aligned UIComponent overlays painted on the marker
+ * @property tooltip - Hover-triggered rich tooltip content (UIComponent)
+ * @property popover - Click-triggered rich popover content (UIComponent), coexists with `onMilestoneClick`
  */
 export interface MilestoneInput {
+    /** The date/time of the milestone */
     date: SubtypeExprOrValue<DateTimeType>;
-    label?: SubtypeExprOrValue<StringType>;
+    /** Milestone label. Plain string shorthand expands to `{ value: <string> }`; pass a full {@link LabelInput} for alignment / typography overrides. */
+    label?: SubtypeExprOrValue<StringType> | LabelInput;
+    /** Color scheme for the milestone marker */
     colorPalette?: SubtypeExprOrValue<ColorSchemeType> | string;
-    /** Explicit fill colour for the milestone marker. */
+    /** Explicit fill colour for the milestone marker (overrides colorPalette). */
     fill?: SubtypeExprOrValue<StringType>;
-    /** Explicit stroke colour for the milestone marker. */
+    /** Explicit stroke colour for the milestone marker (overrides colorPalette). */
     stroke?: SubtypeExprOrValue<StringType>;
-    /** Explicit colour for the milestone label. */
-    labelColor?: SubtypeExprOrValue<StringType>;
+    /** Per-milestone overlays (badges, status icons). */
+    overlays?: GanttOverlayInput[];
+    /** Rich tooltip content (hover-triggered UIComponent). */
+    tooltip?: SubtypeExprOrValue<UIComponentType>;
+    /** Rich popover content (click-triggered UIComponent). Coexists with `onMilestoneClick`. */
+    popover?: SubtypeExprOrValue<UIComponentType>;
 }
 
 // ============================================================================
 // Factory Functions for Events
 // ============================================================================
 
+function buildAlignValue(a: AlignLiteral | SubtypeExprOrValue<AlignType> | undefined): SubtypeExprOrValue<AlignType> | undefined {
+    if (a === undefined) return undefined;
+    if (typeof a === "string") {
+        return East.value(variant(a as AlignLiteral, null), AlignType);
+    }
+    return a;
+}
+
+function isLabelInputObject(input: SubtypeExprOrValue<StringType> | LabelInput): input is LabelInput {
+    return (
+        typeof input === "object"
+        && input !== null
+        && !Array.isArray(input)
+        && Object.prototype.hasOwnProperty.call(input, "value")
+        && typeof (input as { type?: unknown }).type === "undefined"
+    );
+}
+
+function buildLabel(input: SubtypeExprOrValue<StringType> | LabelInput): ExprType<LabelInputType> {
+    if (!isLabelInputObject(input)) {
+        return East.value({
+            value: input as SubtypeExprOrValue<StringType>,
+            align: none,
+            verticalAlign: none,
+            color: none,
+            fontWeight: none,
+            fontStyle: none,
+            fontSize: none,
+        }, LabelInputType);
+    }
+    const li = input;
+    const fontWeightValue = li.fontWeight !== undefined
+        ? (typeof li.fontWeight === "string"
+            ? East.value(variant(li.fontWeight as any, null), FontWeightType)
+            : li.fontWeight)
+        : undefined;
+    const fontStyleValue = li.fontStyle !== undefined
+        ? (typeof li.fontStyle === "string"
+            ? East.value(variant(li.fontStyle as any, null), FontStyleType)
+            : li.fontStyle)
+        : undefined;
+    const fontSizeValue = li.fontSize !== undefined
+        ? (typeof li.fontSize === "string"
+            ? East.value(variant(li.fontSize as any, null), SizeType)
+            : li.fontSize)
+        : undefined;
+    return East.value({
+        value: li.value,
+        align: li.align !== undefined ? some(buildAlignValue(li.align)!) : none,
+        verticalAlign: li.verticalAlign !== undefined ? some(buildAlignValue(li.verticalAlign)!) : none,
+        color: li.color !== undefined ? some(li.color) : none,
+        fontWeight: fontWeightValue ? some(fontWeightValue) : none,
+        fontStyle: fontStyleValue ? some(fontStyleValue) : none,
+        fontSize: fontSizeValue ? some(fontSizeValue) : none,
+    }, LabelInputType);
+}
+
+function buildOverlay(o: GanttOverlayInput): ExprType<OverlayInputType> {
+    const align = o.align !== undefined
+        ? (typeof o.align === "string"
+            ? East.value(variant(o.align as AlignLiteral, null), AlignType)
+            : o.align)
+        : East.value(variant("center", null), AlignType);
+    const verticalAlign = o.verticalAlign !== undefined
+        ? (typeof o.verticalAlign === "string"
+            ? East.value(variant(o.verticalAlign as AlignLiteral, null), AlignType)
+            : o.verticalAlign)
+        : East.value(variant("center", null), AlignType);
+    return East.value({ content: o.content, align, verticalAlign }, OverlayInputType);
+}
+
 /**
- * Creates a Task event for a Gantt row.
+ * Builds a single Gantt task East value from an ergonomic TS input.
  *
- * @param input - Task configuration
- * @returns An East expression representing the Task event
+ * @param input - Task configuration ({@link TaskInput})
+ * @returns An East expression of {@link GanttTaskType}
+ *
+ * @remarks
+ * Internal implementation of `Gantt.Task` — see the namespace JSDoc
+ * for the externally-visible contract. Normalises optional fields
+ * into their `OptionType` envelopes and converts variant string
+ * literals to East variant values.
  *
  * @example
  * ```ts
  * import { East } from "@elaraai/east";
  * import { Gantt, UIComponentType } from "@elaraai/east-ui";
  *
- * const example = East.function([], UIComponentType, $ => {
+ * const example = East.function([], UIComponentType, _$ => {
  *     return Gantt.Root(
  *         [{ name: "Task", start: new Date("2024-01-01"), end: new Date("2024-01-15") }],
  *         ["name"],
- *         row => [Gantt.Task({
+ *         row => ({ tasks: [Gantt.Task({
  *             start: row.start,
  *             end: row.end,
  *             label: "Design Phase",
  *             progress: 75,
  *             colorPalette: "blue",
- *         })]
+ *         })] }),
  *     );
  * });
  * ```
  */
-function createTask(input: TaskInput): ExprType<GanttEventType> {
+function createTask(input: TaskInput): ExprType<GanttTaskType> {
     const colorPaletteValue = input.colorPalette
         ? (typeof input.colorPalette === "string"
             ? East.value(variant(input.colorPalette as any, null), ColorSchemeType)
             : input.colorPalette)
         : undefined;
 
-    return East.value(variant("Task", {
+    return East.value({
         start: input.start,
         end: input.end,
-        label: input.label ? variant("some", input.label) : variant("none", null),
-        progress: input.progress ? variant("some", input.progress) : variant("none", null),
-        colorPalette: colorPaletteValue ? variant("some", colorPaletteValue) : variant("none", null),
+        label: input.label !== undefined ? some(buildLabel(input.label)) : none,
+        progress: input.progress !== undefined ? some(input.progress) : none,
+        colorPalette: colorPaletteValue ? some(colorPaletteValue) : none,
         background: input.background !== undefined ? some(input.background) : none,
         stroke: input.stroke !== undefined ? some(input.stroke) : none,
-        labelColor: input.labelColor !== undefined ? some(input.labelColor) : none,
         progressFill: input.progressFill !== undefined ? some(input.progressFill) : none,
-    }), GanttEventType);
+        overlays: (input.overlays ?? []).map(buildOverlay),
+        tooltip: input.tooltip !== undefined ? some(input.tooltip) : none,
+        popover: input.popover !== undefined ? some(input.popover) : none,
+    }, GanttTaskType);
 }
 
 /**
- * Creates a Milestone event for a Gantt row.
+ * Builds a single Gantt milestone East value from an ergonomic TS input.
  *
- * @param input - Milestone configuration
- * @returns An East expression representing the Milestone event
+ * @param input - Milestone configuration ({@link MilestoneInput})
+ * @returns An East expression of {@link GanttMilestoneType}
+ *
+ * @remarks
+ * Internal implementation of `Gantt.Milestone` — see the namespace
+ * JSDoc for the externally-visible contract.
  *
  * @example
  * ```ts
  * import { East } from "@elaraai/east";
  * import { Gantt, UIComponentType } from "@elaraai/east-ui";
  *
- * const example = East.function([], UIComponentType, $ => {
+ * const example = East.function([], UIComponentType, _$ => {
  *     return Gantt.Root(
  *         [{ name: "Launch", date: new Date("2024-02-01") }],
  *         ["name"],
- *         row => [Gantt.Milestone({
+ *         row => ({ milestones: [Gantt.Milestone({
  *             date: row.date,
  *             label: "Design Complete",
  *             colorPalette: "green",
- *         })]
+ *         })] }),
  *     );
  * });
  * ```
  */
-function createMilestone(input: MilestoneInput): ExprType<GanttEventType> {
+function createMilestone(input: MilestoneInput): ExprType<GanttMilestoneType> {
     const colorPaletteValue = input.colorPalette
         ? (typeof input.colorPalette === "string"
             ? East.value(variant(input.colorPalette as any, null), ColorSchemeType)
             : input.colorPalette)
         : undefined;
 
-    return East.value(variant("Milestone", {
+    return East.value({
         date: input.date,
-        label: input.label ? variant("some", input.label) : variant("none", null),
-        colorPalette: colorPaletteValue ? variant("some", colorPaletteValue) : variant("none", null),
+        label: input.label !== undefined ? some(buildLabel(input.label)) : none,
+        colorPalette: colorPaletteValue ? some(colorPaletteValue) : none,
         fill: input.fill !== undefined ? some(input.fill) : none,
         stroke: input.stroke !== undefined ? some(input.stroke) : none,
-        labelColor: input.labelColor !== undefined ? some(input.labelColor) : none,
-    }), GanttEventType);
+        overlays: (input.overlays ?? []).map(buildOverlay),
+        tooltip: input.tooltip !== undefined ? some(input.tooltip) : none,
+        popover: input.popover !== undefined ? some(input.popover) : none,
+    }, GanttMilestoneType);
 }
 
 // ============================================================================
@@ -371,7 +644,10 @@ function createGantt<
 >(
     data: T,
     columns: C,
-    events: (row: ExprType<TypeOf<T> extends ArrayType<infer E> ? E : never>) => SubtypeExprOrValue<ArrayType<GanttEventType>>,
+    rowSpec: (row: ExprType<TypeOf<T> extends ArrayType<infer E> ? E : never>) => {
+        tasks?: SubtypeExprOrValue<ArrayType<GanttTaskType>>;
+        milestones?: SubtypeExprOrValue<ArrayType<GanttMilestoneType>>;
+    },
     style?: GanttStyle<DataFieldKeys<T>>
 ): ExprType<UIComponentType> {
     const data_expr = East.value(data) as ExprType<ArrayType<StructType>>;
@@ -454,12 +730,20 @@ function createGantt<
             }));
         }
 
-        // Get events from the row using the events function
-        const row_events = events(datum as any);
+        // Get tasks + milestones from the row. The callback returns
+        // `SubtypeExprOrValue<ArrayType<...>>` for each — accepting either
+        // an East-side ArrayExpr (e.g. mapping over an East array field)
+        // or a plain JS array of values built by `Gantt.Task(...)` /
+        // `Gantt.Milestone(...)`. Default to an empty East array when a
+        // key is omitted.
+        const spec = rowSpec(datum as any);
+        const tasks = $.let(spec.tasks ?? [], ArrayType(GanttTaskType));
+        const milestones = $.let(spec.milestones ?? [], ArrayType(GanttMilestoneType));
 
         return East.value({
             cells: cells,
-            events: row_events,
+            tasks,
+            milestones,
         }, GanttRowType);
     });
 
@@ -523,7 +807,11 @@ function createGantt<
         style.gridColor !== undefined ||
         style.todayMarkerColor !== undefined ||
         style.headerBackground !== undefined ||
-        style.headerColor !== undefined
+        style.headerColor !== undefined ||
+        style.taskBorderRadius !== undefined ||
+        style.labelColor !== undefined ||
+        style.labelFontSize !== undefined ||
+        style.labelFontWeight !== undefined
     );
 
     const styleValue = hasStyle ? East.value({
@@ -539,13 +827,16 @@ function createGantt<
         todayMarkerColor: style!.todayMarkerColor !== undefined ? some(style!.todayMarkerColor) : none,
         headerBackground: style!.headerBackground !== undefined ? some(style!.headerBackground) : none,
         headerColor: style!.headerColor !== undefined ? some(style!.headerColor) : none,
+        taskBorderRadius: style!.taskBorderRadius !== undefined ? some(style!.taskBorderRadius) : none,
+        labelColor: style!.labelColor !== undefined ? some(style!.labelColor) : none,
+        labelFontSize: style!.labelFontSize !== undefined ? some(style!.labelFontSize) : none,
+        labelFontWeight: style!.labelFontWeight !== undefined ? some(style!.labelFontWeight) : none,
     }, GanttStyleType) : undefined;
 
     return East.value(variant("Gantt", {
         rows: rows_mapped,
         columns: columns_expr,
         frozen: frozen_expr,
-        interactive: style?.interactive !== undefined ? some(style.interactive) : none,
         dragStep: style?.dragStep ? some(style.dragStep) : none,
         durationStep: style?.durationStep ? some(style.durationStep) : none,
         rowStatus: style?.rowStatus !== undefined
@@ -575,7 +866,6 @@ function createGantt<
 interface GanttTypesShape {
     Root: GanttRootType;
     Row: GanttRowType;
-    Event: GanttEventType;
     Task: GanttTaskType;
     Milestone: GanttMilestoneType;
     Style: GanttStyleType;
@@ -591,101 +881,142 @@ interface GanttTypesShape {
 
 const GanttTypes: GanttTypesShape = {
     /**
-     * Type for Gantt component data.
+     * East StructType for the entire Gantt value — the root IR.
      *
      * @remarks
-     * Gantt displays rows with time-based events (tasks and milestones).
-     * The time range is derived from the events' domain.
+     * The main struct carries content (`rows` / `columns` /
+     * `frozen`), drag-step configuration, structured state
+     * (`rowStatus`), and behaviour callbacks; visual-only fields live
+     * inside the optional `style` sub-struct ({@link GanttStyleType}).
      *
-     * @property rows - Array of Gantt rows
-     * @property columns - Array of column definitions (same as Table)
-     * @property style - Optional styling configuration
+     * @property rows - Array of Gantt rows ({@link GanttRowType})
+     * @property columns - Array of column definitions (shared with Table)
+     * @property frozen - Column keys to freeze (pin left)
+     * @property dragStep - Optional snap step for task drag
+     * @property durationStep - Optional snap step for task duration change
+     * @property rowStatus - Row-status callback `(rowIndex) => StatusToken`
+     * @property onCellClick - Cell click callback
+     * @property onCellDoubleClick - Cell double-click callback
+     * @property onRowClick - Row click callback
+     * @property onRowDoubleClick - Row double-click callback
+     * @property onSortChange - Sort change callback
+     * @property onTaskClick - Task click callback
+     * @property onTaskDoubleClick - Task double-click callback
+     * @property onTaskDrag - Task drag callback (presence enables drag)
+     * @property onTaskDurationChange - Task duration-change callback (presence enables resize)
+     * @property onTaskProgressChange - Task progress-change callback
+     * @property onMilestoneClick - Milestone click callback
+     * @property onMilestoneDoubleClick - Milestone double-click callback
+     * @property onMilestoneDrag - Milestone drag callback
+     * @property style - Optional visual style sub-struct
      */
     Root: GanttRootType,
     /**
-     * East type for a Gantt row.
+     * East StructType for a single Gantt row.
      *
      * @remarks
-     * Each row has table cells (displayed on the left) and events (displayed on the right as a timeline).
+     * Each row pairs `cells` (the dict of column-keyed table cells,
+     * shared with the Table primitive) with two timeline tracks:
+     * `tasks` (duration bars) and `milestones` (single-point markers).
      *
-     * @property cells - Dict of column key to cell content (same as Table)
-     * @property events - Array of events (Task or Milestone variants)
+     * @property cells - Dict of column key to cell content (shared with Table)
+     * @property tasks - Array of task bars ({@link GanttTaskType})
+     * @property milestones - Array of milestone markers ({@link GanttMilestoneType})
      */
     Row: GanttRowType,
     /**
-     * Gantt event variant type.
+     * East StructType for a single Gantt task bar.
      *
      * @remarks
-     * Events can be either tasks (with duration) or milestones (single point).
-     *
-     * @property Task - A task spanning from start to end date
-     * @property Milestone - A milestone at a specific date
-     */
-    Event: GanttEventType,
-    /**
-     * Task event data for Gantt charts.
-     *
-     * @remarks
-     * Represents a task bar spanning from start to end date.
+     * Every optional field is wrapped in `OptionType`. Use the
+     * {@link createTask | `Gantt.Task`} factory to construct values
+     * from a flat TS interface; the factory handles the `some` /
+     * `none` / `variant(...)` envelopes for you.
      *
      * @property start - Start date/time of the task
      * @property end - End date/time of the task
-     * @property label - Optional label to display on the task bar
-     * @property progress - Optional progress percentage (0-100)
-     * @property colorPalette - Optional color scheme for the task bar
+     * @property label - Optional rich label (text + alignment + typography)
+     * @property progress - Progress percentage (0-100)
+     * @property colorPalette - Color scheme for the task bar
+     * @property background - Explicit fill colour override
+     * @property stroke - Explicit stroke colour override
+     * @property progressFill - Explicit fill colour for the progress segment
+     * @property overlays - Axis-aligned UIComponent overlays
+     * @property tooltip - Hover-triggered rich tooltip (UIComponent)
+     * @property popover - Click-triggered rich popover (UIComponent)
      */
     Task: GanttTaskType,
     /**
-     * Milestone event data for Gantt charts.
+     * East StructType for a single Gantt milestone marker.
      *
      * @remarks
-     * Represents a single point in time milestone.
+     * Every optional field is wrapped in `OptionType`. Use the
+     * {@link createMilestone | `Gantt.Milestone`} factory to construct
+     * values from a flat TS interface.
      *
      * @property date - The date/time of the milestone
-     * @property label - Optional label to display near the milestone
-     * @property colorPalette - Optional color scheme for the milestone marker
+     * @property label - Optional rich label (text + alignment + typography)
+     * @property colorPalette - Color scheme for the marker
+     * @property fill - Explicit fill colour override
+     * @property stroke - Explicit stroke colour override
+     * @property overlays - Axis-aligned UIComponent overlays
+     * @property tooltip - Hover-triggered rich tooltip (UIComponent)
+     * @property popover - Click-triggered rich popover (UIComponent)
      */
     Milestone: GanttMilestoneType,
     /**
-     * Style type for the Gantt component.
+     * East StructType holding every visual field for a Gantt.
      *
      * @remarks
-     * All properties are optional and wrapped in {@link OptionType}.
-     * Reuses table styling properties where applicable.
+     * Visual-only. Mirror of {@link GanttStyleType} —
+     * exposed on the namespace so consumers can reference the IR
+     * style type via `Gantt.Types.Style`.
      *
-     * @property variant - Table variant (line or outline)
-     * @property size - Table size (sm, md, lg)
+     * @property height - CSS height for the Gantt container
+     * @property variant - Table variant (line / outline)
+     * @property size - Table size (sm / md / lg)
      * @property striped - Whether to show zebra stripes on rows
-     * @property interactive - Whether to highlight rows on hover
      * @property stickyHeader - Whether the header sticks when scrolling
      * @property showColumnBorder - Whether to show borders between columns
      * @property colorPalette - Default color scheme for events
      * @property showToday - Whether to show a today marker line
+     * @property gridColor - Explicit grid colour
+     * @property todayMarkerColor - Explicit today-marker colour
+     * @property headerBackground - Header row background
+     * @property headerColor - Header row text colour
+     * @property taskBorderRadius - CSS border-radius for task bars
+     * @property labelColor - Default text colour for per-task labels
+     * @property labelFontSize - Default CSS font-size for per-task labels
+     * @property labelFontWeight - Default CSS font-weight for per-task labels
      */
     Style: GanttStyleType,
     /**
-     * East type for a table column definition.
-     *
-     * @remarks
-     * Defines the header text and key for a column.
+     * East StructType for a table column definition — re-export of
+     * the shared {@link TableColumnType} so consumers can reference
+     * column shape via `Gantt.Types.Column`.
      *
      * @property key - The column key (field name)
-     * @property type - The column value type
-     * @property header - Optional header text for the column
+     * @property dataType - Original data field type
+     * @property valueType - Sortable / display value type after value-fn
+     * @property header - Optional header text
+     * @property width - Optional CSS width
+     * @property minWidth - Optional CSS min-width
+     * @property maxWidth - Optional CSS max-width
+     * @property render - Optional render function for cell content
      */
     Column: TableColumnType,
     /**
-     * East type for a table cell.
+     * East StructType for a table cell — re-export of the shared
+     * {@link TableCellType} so consumers can reference the cell
+     * shape via `Gantt.Types.Cell`.
      *
-     * @remarks
-     * Defines the type for a table cell.
-     *
-     * @property value - The cell value as a literal
-     * @property content - Optional UI component content for the cell
+     * @property value - The literal cell value (used for sorting)
+     * @property content - Optional pre-rendered UIComponent body
      */
     Cell: TableCellType,
     /**
-     * Event data for task click events.
+     * East StructType for the event payload of `onTaskClick` /
+     * `onTaskDoubleClick` callbacks.
      *
      * @property rowIndex - Row index (0-based)
      * @property taskIndex - Task index within the row (0-based)
@@ -694,7 +1025,12 @@ const GanttTypes: GanttTypesShape = {
      */
     TaskClickEvent: GanttTaskClickEventType,
     /**
-     * Event data for task drag/resize events.
+     * East StructType for the event payload of `onTaskDrag`.
+     *
+     * @remarks
+     * Renderer fires this when a user finishes dragging a task to a
+     * new position. Both previous and new dates are provided so the
+     * consumer can validate / undo / persist as needed.
      *
      * @property rowIndex - Row index (0-based)
      * @property taskIndex - Task index within the row (0-based)
@@ -705,7 +1041,7 @@ const GanttTypes: GanttTypesShape = {
      */
     TaskDragEvent: GanttTaskDragEventType,
     /**
-     * Event data for task progress change events.
+     * East StructType for the event payload of `onTaskProgressChange`.
      *
      * @property rowIndex - Row index (0-based)
      * @property taskIndex - Task index within the row (0-based)
@@ -714,7 +1050,8 @@ const GanttTypes: GanttTypesShape = {
      */
     TaskProgressChangeEvent: GanttTaskProgressChangeEventType,
     /**
-     * Event data for task duration change events.
+     * East StructType for the event payload of `onTaskDurationChange`
+     * (right-edge resize).
      *
      * @property rowIndex - Row index (0-based)
      * @property taskIndex - Task index within the row (0-based)
@@ -723,7 +1060,8 @@ const GanttTypes: GanttTypesShape = {
      */
     TaskDurationChangeEvent: GanttTaskDurationChangeEventType,
     /**
-     * Event data for milestone click events.
+     * East StructType for the event payload of `onMilestoneClick` /
+     * `onMilestoneDoubleClick` callbacks.
      *
      * @property rowIndex - Row index (0-based)
      * @property milestoneIndex - Milestone index within the row (0-based)
@@ -731,7 +1069,7 @@ const GanttTypes: GanttTypesShape = {
      */
     MilestoneClickEvent: GanttMilestoneClickEventType,
     /**
-     * Event data for milestone drag events.
+     * East StructType for the event payload of `onMilestoneDrag`.
      *
      * @property rowIndex - Row index (0-based)
      * @property milestoneIndex - Milestone index within the row (0-based)
@@ -784,7 +1122,7 @@ const GanttImpl: GanttNamespace = {
      *             { name: "Development", start: new Date("2024-01-10"), end: new Date("2024-02-01") },
      *         ],
      *         ["name"],
-     *         row => [Gantt.Task({ start: row.start, end: row.end })],
+     *         row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] }),
      *         { showToday: true }
      *     );
      * });
@@ -792,60 +1130,69 @@ const GanttImpl: GanttNamespace = {
      */
     Root: createGantt,
     /**
-     * Creates a Task event for a Gantt row.
+     * Builds a single Gantt task East value from an ergonomic TS input.
      *
-     * @param input - Task configuration
-     * @returns An East expression representing the Task event
+     * @param input - Task configuration ({@link TaskInput})
+     * @returns An East expression of {@link GanttTaskType}
      *
      * @remarks
-     * Tasks represent work items that span a duration from start to end date.
-     * Tasks can show progress and be styled with different colors.
+     * Use inside the `rowSpec` callback of `Gantt.Root`. The callback's
+     * `tasks` field is `SubtypeExprOrValue<ArrayType<GanttTaskType>>`,
+     * so callers pass either an East-side ArrayExpr or a JS array of
+     * values built by this factory. The factory normalises optional
+     * fields (`label` / `progress` / `colorPalette` / `tooltip` /
+     * `popover` / `overlays`) into their `OptionType` envelopes and
+     * converts variant string literals (`"blue"`, `"start"`) to East
+     * variant values — flat TS input in, fully-shaped East value out.
      *
      * @example
      * ```ts
      * import { East } from "@elaraai/east";
      * import { Gantt, UIComponentType } from "@elaraai/east-ui";
      *
-     * const example = East.function([], UIComponentType, $ => {
+     * const example = East.function([], UIComponentType, _$ => {
      *     return Gantt.Root(
-     *         [{ name: "Task", start: new Date("2024-01-01"), end: new Date("2024-01-15") }],
+     *         [{ name: "Design", start: new Date("2024-01-01"), end: new Date("2024-01-15") }],
      *         ["name"],
-     *         row => [Gantt.Task({
+     *         row => ({ tasks: [Gantt.Task({
      *             start: row.start,
      *             end: row.end,
      *             label: "Design Phase",
      *             progress: 75,
      *             colorPalette: "blue",
-     *         })]
+     *         })] }),
      *     );
      * });
      * ```
      */
     Task: createTask,
     /**
-     * Creates a Milestone event for a Gantt row.
+     * Builds a single Gantt milestone East value from an ergonomic TS input.
      *
-     * @param input - Milestone configuration
-     * @returns An East expression representing the Milestone event
+     * @param input - Milestone configuration ({@link MilestoneInput})
+     * @returns An East expression of {@link GanttMilestoneType}
      *
      * @remarks
-     * Milestones represent single points in time (e.g., deadlines, releases).
-     * They appear as markers on the timeline rather than bars.
+     * Use inside the `rowSpec` callback of `Gantt.Root`. The callback's
+     * `milestones` field is `SubtypeExprOrValue<ArrayType<GanttMilestoneType>>`,
+     * so callers pass either an East-side ArrayExpr or a JS array of
+     * values built by this factory. Same option/variant normalisation
+     * as `Gantt.Task`.
      *
      * @example
      * ```ts
      * import { East } from "@elaraai/east";
      * import { Gantt, UIComponentType } from "@elaraai/east-ui";
      *
-     * const example = East.function([], UIComponentType, $ => {
+     * const example = East.function([], UIComponentType, _$ => {
      *     return Gantt.Root(
      *         [{ name: "Launch", date: new Date("2024-02-01") }],
      *         ["name"],
-     *         row => [Gantt.Milestone({
+     *         row => ({ milestones: [Gantt.Milestone({
      *             date: row.date,
-     *             label: "Launch",
+     *             label: "Design Complete",
      *             colorPalette: "green",
-     *         })]
+     *         })] }),
      *     );
      * });
      * ```

@@ -104,7 +104,7 @@ type ToggleLabelInput =
  * the new value (`!pressed`) on click — callers typically wire this to
  * `State.bind` inside a `Reactive.Root` body.
  *
- * Per the Type-shape convention: content + state + behaviour at top level;
+ * content + state + behaviour at top level;
  * visual presentation inside `options.style`.
  *
  * @example

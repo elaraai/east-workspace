@@ -332,7 +332,6 @@ Chart primitives in east-ui are **unusually rich** compared to Chakra defaults: 
 | `ActionBar` | ⚠ | items `{Action:{value,label,disabled}, Separator}`, selectionCount, selectionLabel | Extend Action with `icon`, `description`, `primary: Boolean`. **Colour escape hatches: `background`, `borderColor`, `color`, `selectionBadgeColor` (the "N items selected" chip).** | Branded bulk-selection bar. |
 | `CommandPalette` | ✗ | — | `CommandPalette.Root({ commands: Array<{ id, label, icon?, shortcut?, group?: string, action }>, placeholder?, recents?, scopes?: Array<{ label, filter }> })`. **Colour escape hatches: `background`, `borderColor`, `inputBackground`, `inputColor`, `itemColor`, `selectedBackground`, `selectedColor`, `groupLabelColor`.** | Branded ⌘K launcher. |
 | `InfoAffordance` | ✗ | — | `InfoAffordance.Root({ trigger: UIComp, content: UIComp, richness: "label" \| "brief" \| "structured" \| "interactive" })`. The IR factory maps `richness` → Tooltip (label) / ToggleTip (brief) / HoverCard (structured) / Popover (interactive) so authors stop picking inconsistently. **Colour escape hatches passthrough to the chosen overlay.** | Replaces the cookbook-only guidance; encodes the choice rather than documenting it. |
-| `Tour` | ✗ | — | `Tour.Root({ steps: Array<{ target: string, title, body: UIComp, placement? }>, onComplete?, onSkip?, triggerKey? })`. Guided overlay that walks a user through a first-time flow. | New users of an LOB app see empty tables; they need a guided intro. |
 | `CoachMark` | ✗ | — | `CoachMark.Root({ target: string, title, body: UIComp, showOnce?: StringKey, dismissible?: Boolean })`. Inline first-time hint that disappears after acknowledgement (keyed off `State.bind`). | Progressive disclosure for power features. |
 
 ### 1.13 Navigation — `Breadcrumb`
@@ -341,7 +340,6 @@ Chart primitives in east-ui are **unusually rich** compared to Chakra defaults: 
 |---|---|---|---|---|
 | `Breadcrumb` | ⚠ | items `{label: String, current, onClick}`, variant (underline/plain), size, colorPalette | Promote `label` to `UIComponentType`. **Colour escape hatches: `linkColor: OptionType(StringType)` (past-crumb links), `currentColor: OptionType(StringType)` (leaf crumb), `separatorColor: OptionType(StringType)` (the `/` between).** | Icons + branded nav tint. |
 | `NavList` | ✗ | — | `NavList.Root(sections: Array<{ label?, items: Array<{ key, label, icon?, badge?, active? }> }>, { orientation?, onSelect })`. **Colour escape hatches: `sectionLabelColor`, `itemColor`, `itemHoverBackground`, `activeColor`, `activeBackground`, `activeIndicatorColor` (left-edge stripe), `badgeBackground`, `badgeColor`.** | Grouped nav list for use *inside* panels (settings subnav, in-drawer navigation, in-card section tabs). East-ui doesn't ship an app-level sidebar — hosts own the viewport chrome. |
-| `TableOfContents` | ✗ | — | `TableOfContents.Root(items: Array<{ id, label, level: 1\|2\|3 }>, { activeId?, onSelect? })`. **Colour escape hatches: `itemColor`, `activeColor`, `activeIndicatorColor`, `connectorColor` (the vertical guide line for nesting).** | Right-rail on long pages. |
 
 ### 1.14 Platform / reactive
 

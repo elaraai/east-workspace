@@ -41,20 +41,21 @@ export {
  *
  * @remarks
  * Menu wraps a trigger element and displays a dropdown menu on click.
- * The trigger can be any UI component.
+ * The trigger can be any UI component. Visual fields (placement) live in
+ * `style`.
  *
  * @property trigger - The UI component that triggers the menu on click
  * @property items - Array of menu items (Item or Separator)
- * @property placement - Optional placement position
+ * @property style - Optional visual-only style sub-struct
  */
 export const MenuType: StructType<{
     trigger: UIComponentType,
     items: ArrayType<MenuItemType>,
-    placement: OptionType<PlacementType>,
+    style: OptionType<MenuStyleType>,
 }> = StructType({
     trigger: UIComponentType,
     items: ArrayType(MenuItemType),
-    placement: OptionType(PlacementType),
+    style: OptionType(MenuStyleType),
 });
 
 /**
@@ -169,12 +170,16 @@ function createMenu(
             : style.placement)
         : undefined;
 
-    // Note: Menu's style properties (onSelect, onOpenChange) are in MenuStyleType but
-    // the Menu component only uses placement directly on the component, not in a style object
+    const styleValue = placementValue !== undefined
+        ? East.value({
+            placement: variant("some", placementValue),
+        }, MenuStyleType)
+        : undefined;
+
     return East.value(variant("Menu", {
         trigger: trigger,
         items: items,
-        placement: placementValue ? variant("some", placementValue) : variant("none", null),
+        style: styleValue ? variant("some", styleValue) : variant("none", null),
     }), UIComponentType);
 }
 
@@ -283,11 +288,12 @@ export const Menu = {
          *
          * @remarks
          * Menu wraps a trigger element and displays a dropdown menu on click.
-         * The trigger can be any UI component.
+         * The trigger can be any UI component. Visual fields (placement)
+         * live in `style`.
          *
          * @property trigger - The UI component that triggers the menu on click
          * @property items - Array of menu items (Item or Separator)
-         * @property placement - Optional placement position
+         * @property style - Optional visual-only style sub-struct (see `Style`)
          */
         Menu: MenuType,
         /**

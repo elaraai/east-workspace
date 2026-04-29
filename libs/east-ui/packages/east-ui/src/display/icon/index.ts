@@ -150,7 +150,7 @@ function buildIconStyle(style: IconStyle | undefined): ExprType<IconStyleType> |
  * @returns An East expression of type `UIComponentType`
  *
  * @remarks
- * **Accessibility contract (§0.2):** the renderer reads `label` from the
+ * **Accessibility contract:** the renderer reads `label` from the
  * main IR struct. When `label` is absent, the rendered SVG carries
  * `aria-hidden="true"` (purely decorative); when present, it carries
  * `aria-label={label}`. Apps pairing Icon with adjacent text that already
@@ -222,7 +222,7 @@ export const Icon = {
          *
          * @remarks
          * Main struct carries the Font Awesome identity (`prefix` / `name`),
-         * the a11y `label` (§0.2 decorative-vs-meaningful contract), and a
+         * the a11y `label` (decorative-vs-meaningful contract), and a
          * `style` sub-struct for visual presentation per the main/style
          * type-shape convention.
          *

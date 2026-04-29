@@ -21,12 +21,15 @@ export type CheckboxValue = ValueTypeOf<typeof Checkbox.Types.Checkbox>;
  */
 export function toChakraCheckbox(value: CheckboxValue): CheckboxRootProps {
     const indeterminate = getSomeorUndefined(value.indeterminate);
+    const style = getSomeorUndefined(value.style);
+    const colorPalette = style ? getSomeorUndefined(style.colorPalette)?.type : undefined;
+    const size = style ? getSomeorUndefined(style.size)?.type : undefined;
 
     return {
         checked: indeterminate ? "indeterminate" : value.checked,
         disabled: getSomeorUndefined(value.disabled),
-        colorPalette: getSomeorUndefined(value.colorPalette)?.type,
-        size: getSomeorUndefined(value.size)?.type,
+        colorPalette,
+        size,
     };
 }
 

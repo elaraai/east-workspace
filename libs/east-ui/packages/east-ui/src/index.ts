@@ -25,6 +25,16 @@ export { variant } from "@elaraai/east";
 // Style System
 export { Style } from "./style.js";
 
+// Format helpers
+export { Format } from "./format/index.js";
+export type {
+    NumberFormatOptions,
+    CurrencyFormatOptions,
+    PercentFormatOptions,
+    CompactFormatOptions,
+    UnitFormatOptions,
+} from "./format/index.js";
+
 // Typography
 export {
     Text, Code, Heading, Link, Highlight, Mark, List, CodeBlock,
@@ -42,13 +52,14 @@ export {
 export { Button, IconButton, CopyButton, CloseButton, Toggle, ButtonGroup } from "./buttons/index.js";
 
 // Forms
-export { Input, Checkbox, Switch, Select, Combobox, Slider, Field, FileUpload, Textarea, TagsInput } from "./forms/index.js";
+export { Input, Checkbox, RadioGroup, RadioCardGroup, TimeScaleControl, TimeRangeInput, DateRangeInput, Switch, Select, Combobox, Slider, Field, FileUpload, Textarea, TagsInput } from "./forms/index.js";
 
 // Feedback
 export { Progress, ProgressCircle, Alert, Banner, EmptyState, Spinner, Skeleton, Status, Toast } from "./feedback/index.js";
 
 // Navigation
-export { Breadcrumb } from "./navigation/index.js";
+export { Breadcrumb, NavList, NavListType, NavListStyleType, NavListOrientationType, NavSectionType, NavItemType } from "./navigation/index.js";
+export type { NavListStyle, NavListOrientationLiteral, NavSectionInput, NavItemInput } from "./navigation/index.js";
 
 // Display
 export { Badge, Tag, Avatar, Stat, Icon, MetricChip, EditableChip, Kbd, Meter, SegmentedMeter, BarStrip, AvatarGroup, type IconName } from "./display/index.js";
@@ -66,7 +77,8 @@ export { Chart, Sparkline } from "./charts/index.js";
 export { Accordion, Carousel, Collapsible, Disclosure, OptionList, SegmentGroup, Steps, Tabs, Timeline } from "./disclosure/index.js";
 
 // Overlays
-export { Tooltip, Menu, Dialog, dialog_open, Drawer, drawer_open, Popover, HoverCard, ActionBar, ToggleTip } from "./overlays/index.js";
+export { Tooltip, Menu, Dialog, dialog_open, Drawer, drawer_open, Popover, HoverCard, ActionBar, ToggleTip, CoachMark, CommandPalette } from "./overlays/index.js";
+export { Hotkey, HotkeyType } from "./platform/hotkey/index.js";
 
 // Reactive (selective re-rendering)
 export { Reactive } from "./reactive/index.js";
@@ -76,4 +88,4 @@ export { UIComponentType } from "./component.js";
 
 // Platform (state management - signatures only)
 // For e3 dataset bindings, use Data.bind from @elaraai/e3-ui
-export { State } from "./platform/index.js";
+export { State, Clipboard, Download, Share } from "./platform/index.js";

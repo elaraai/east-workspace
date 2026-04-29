@@ -53,7 +53,7 @@ export {
  * argument is REQUIRED so that screen readers always have an accessible name;
  * omitting it is a TypeScript compile error.
  *
- * Per the Type-shape convention: content + state + behaviour are top-level
+ * content + state + behaviour are top-level
  * options; visual-presentation lives inside `options.style`.
  *
  * @example
@@ -168,9 +168,9 @@ export const IconButton = {
      *
      * @remarks
      * The renderer emits `label` as the button's `aria-label`. Omitting it is
-     * a TypeScript compile error (positional argument). Per the Type-shape
-     * convention: content + state + behaviour are top-level options; visual
-     * presentation lives inside `options.style`.
+     * a TypeScript compile error (positional argument). Content + state +
+     * behaviour are top-level options; visual presentation lives inside
+     * `options.style`.
      *
      * @example
      * ```ts

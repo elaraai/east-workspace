@@ -157,7 +157,7 @@ export interface ButtonOptions {
  * optional custom loading text + loading icon, colour escape hatches, and
  * five visual variants.
  *
- * Per the Type-shape convention: content + state + behaviour are top-level
+ * content + state + behaviour are top-level
  * options; visual-presentation lives inside `options.style`.
  *
  * @example
@@ -282,7 +282,7 @@ function isIconPayload(x: unknown): x is IconPayload {
  * Use `Button.Root(label, options)` to create a button, or access
  * `Button.Types.Button` for the East type.
  *
- * Per the Type-shape convention: content + state + behaviour are on the main
+ * content + state + behaviour are on the main
  * struct; visual presentation lives inside `style: ButtonStyleType`.
  */
 export const Button = {
@@ -299,7 +299,7 @@ export const Button = {
      * optional custom loading text + loading icon, colour escape hatches, and
      * five visual variants (solid / subtle / outline / ghost / plain).
      *
-     * Per the Type-shape convention: content + state + behaviour are top-level
+     * content + state + behaviour are top-level
      * options; visual-presentation lives inside `options.style`.
      *
      * @example

@@ -26,11 +26,12 @@ export type SeparatorValue = ValueTypeOf<typeof Separator.Types.Separator>;
  * UIComponent shape works.
  */
 export function toChakraSeparator(value: SeparatorValue): SeparatorProps {
+    const style = getSomeorUndefined(value.style);
     return {
-        orientation: getSomeorUndefined(value.orientation)?.type,
-        variant: getSomeorUndefined(value.variant)?.type,
-        size: getSomeorUndefined(value.size)?.type,
-        borderColor: getSomeorUndefined(value.color),
+        orientation: style ? getSomeorUndefined(style.orientation)?.type : undefined,
+        variant: style ? getSomeorUndefined(style.variant)?.type : undefined,
+        size: style ? getSomeorUndefined(style.size)?.type : undefined,
+        borderColor: style ? getSomeorUndefined(style.color) : undefined,
     };
 }
 
@@ -48,7 +49,8 @@ export interface EastChakraSeparatorProps {
 export const EastChakraSeparator = memo(function EastChakraSeparator({ value, storageKey }: EastChakraSeparatorProps) {
     const props = useMemo(() => toChakraSeparator(value), [value]);
     const label = getSomeorUndefined(value.label);
-    const alignTag = getSomeorUndefined(value.align)?.type;
+    const style = getSomeorUndefined(value.style);
+    const alignTag = style ? getSomeorUndefined(style.align)?.type : undefined;
 
     // `align` maps to flex-alignment on the separator label slot.
     // `start` biases leading-edge, `end` trailing, `center` centres.

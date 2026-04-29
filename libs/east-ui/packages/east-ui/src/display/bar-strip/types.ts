@@ -72,7 +72,7 @@ export type BarStripThicknessLiteral = "xs" | "sm" | "md";
  * East StructType for the BarStrip style sub-struct.
  *
  * @remarks
- * Visual-only per §0.10. Content (`items`), config (`showValues`, `sort`,
+ * Visual-only. Content (`items`), config (`showValues`, `sort`,
  * `maxItems`) live on the main `BarStripType` struct.
  *
  * @property orientation - Geometric orientation (horizontal default)

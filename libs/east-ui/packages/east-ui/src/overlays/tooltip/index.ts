@@ -8,7 +8,6 @@ import {
     type SubtypeExprOrValue,
     East,
     StringType,
-    BooleanType,
     OptionType,
     StructType,
     variant,
@@ -40,23 +39,21 @@ export {
  *
  * @remarks
  * Tooltip wraps a trigger element and displays content on hover.
- * The trigger can be any UI component.
+ * The trigger can be any UI component. Visual fields (placement,
+ * hasArrow) live in `style`.
  *
  * @property trigger - The UI component that triggers the tooltip on hover
  * @property content - The tooltip text content
- * @property placement - Optional placement position
- * @property hasArrow - Whether to show an arrow pointing to the trigger
+ * @property style - Optional visual-only style sub-struct
  */
 export const TooltipType: StructType<{
     trigger: UIComponentType,
     content: StringType,
-    placement: OptionType<PlacementType>,
-    hasArrow: OptionType<BooleanType>,
+    style: OptionType<TooltipStyleType>,
 }> = StructType({
     trigger: UIComponentType,
     content: StringType,
-    placement: OptionType(PlacementType),
-    hasArrow: OptionType(BooleanType),
+    style: OptionType(TooltipStyleType),
 });
 
 /**
@@ -104,11 +101,22 @@ function createTooltip(
             : style.placement)
         : undefined;
 
+    const hasVisualStyle = !!style && (
+        placementValue !== undefined ||
+        style.hasArrow !== undefined
+    );
+
+    const styleValue = hasVisualStyle
+        ? East.value({
+            placement: placementValue ? variant("some", placementValue) : variant("none", null),
+            hasArrow: style!.hasArrow !== undefined ? variant("some", style!.hasArrow) : variant("none", null),
+        }, TooltipStyleType)
+        : undefined;
+
     return East.value(variant("Tooltip", {
         trigger: trigger,
         content: content,
-        placement: placementValue ? variant("some", placementValue) : variant("none", null),
-        hasArrow: style?.hasArrow !== undefined ? variant("some", style.hasArrow) : variant("none", null),
+        style: styleValue ? variant("some", styleValue) : variant("none", null),
     }), UIComponentType);
 }
 
@@ -164,11 +172,11 @@ export const Tooltip = {
          * @remarks
          * This struct type represents the serializable data structure for a Tooltip
          * component. Tooltip displays text content when hovering over a trigger element.
+         * Visual fields (placement, hasArrow) live in `style`.
          *
          * @property trigger - The UI component that triggers the tooltip on hover (UIComponentType)
          * @property content - The tooltip text content (StringType)
-         * @property placement - Optional placement position (OptionType<PlacementType>)
-         * @property hasArrow - Whether to show an arrow pointing to the trigger (OptionType<BooleanType>)
+         * @property style - Optional visual-only style sub-struct (see `Style`)
          */
         Tooltip: TooltipType,
         /**

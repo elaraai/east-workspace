@@ -37,7 +37,7 @@ export type SkeletonShapeType = typeof SkeletonShapeType;
 export type SkeletonShapeLiteral = "text" | "rect" | "circle";
 
 // ============================================================================
-// Skeleton Style Type — visual presentation only (§0.10)
+// Skeleton Style Type
 // ============================================================================
 
 /**
@@ -45,12 +45,14 @@ export type SkeletonShapeLiteral = "text" | "rect" | "circle";
  *
  * @property width - Skeleton width (CSS length)
  * @property height - Skeleton height (CSS length)
+ * @property fontSize - Text line font-size (only meaningful when `shape === "text"`)
  * @property background - Base colour
  * @property shimmerColor - Shimmer animation highlight colour
  */
 export const SkeletonStyleType = StructType({
     width: OptionType(StringType),
     height: OptionType(StringType),
+    fontSize: OptionType(StringType),
     background: OptionType(StringType),
     shimmerColor: OptionType(StringType),
 });
@@ -63,18 +65,16 @@ export type SkeletonStyleType = typeof SkeletonStyleType;
 
 /**
  * Skeleton IR — `shape` determines identity; dimensions and colours live
- * in `style` per the Type-shape convention (§0.10).
+ * in `style`.
  *
  * @property shape - Visual shape (text / rect / circle)
  * @property lines - Number of text lines (only meaningful when `shape === "text"`)
- * @property fontSize - Text line font-size (only meaningful when `shape === "text"`)
  * @property count - Repeat the skeleton `count` times (wrapped in a VStack)
  * @property style - Optional visual-only style
  */
 export const SkeletonType = StructType({
     shape: SkeletonShapeType,
     lines: OptionType(IntegerType),
-    fontSize: OptionType(StringType),
     count: OptionType(IntegerType),
     style: OptionType(SkeletonStyleType),
 });
@@ -89,6 +89,8 @@ export interface SkeletonStyle {
     width?: SubtypeExprOrValue<StringType>;
     /** Skeleton height (CSS length) */
     height?: SubtypeExprOrValue<StringType>;
+    /** Text line font-size (only meaningful when `shape === "text"`) */
+    fontSize?: SubtypeExprOrValue<StringType>;
     /** Base colour */
     background?: SubtypeExprOrValue<StringType>;
     /** Shimmer animation highlight colour */

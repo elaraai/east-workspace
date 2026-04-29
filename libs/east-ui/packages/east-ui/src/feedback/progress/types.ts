@@ -48,7 +48,7 @@ export function ProgressVariant(v: ProgressVariantLiteral): ExprType<ProgressVar
 }
 
 // ============================================================================
-// Progress Style Type — visual presentation only (§0.10)
+// Progress Style Type
 // ============================================================================
 
 /**

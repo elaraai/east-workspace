@@ -21,12 +21,12 @@ import { ButtonVariantType, type ButtonVariantLiteral } from "../button/types.js
 export { ButtonVariantType, type ButtonVariantLiteral } from "../button/types.js";
 
 // ============================================================================
-// CloseButton Style Type — visual presentation only (§0.10)
+// CloseButton Style Type
 // ============================================================================
 
 /**
  * Visual-only style struct for CloseButton. Content / state / behaviour live
- * on the main `CloseButtonType` struct per the Type-shape convention (§0.10).
+ * on the main `CloseButtonType` struct.
  *
  * @remarks
  * CloseButton reuses `ButtonVariantType` for its appearance variants but
@@ -92,7 +92,7 @@ export interface CloseButtonStyle {
  *
  * @remarks
  * `label` is the aria-label; the renderer defaults to `"Close"` when absent.
- * `disabled` and `onClick` live on main per the Type-shape convention.
+ * `disabled` and `onClick` live on main.
  *
  * @property label - Optional aria-label (renderer default: "Close")
  * @property disabled - Disabled state — renderer blocks interaction

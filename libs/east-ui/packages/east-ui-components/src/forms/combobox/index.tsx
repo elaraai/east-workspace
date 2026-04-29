@@ -25,13 +25,21 @@ export type ComboboxItemValue = ValueTypeOf<typeof Combobox.Types.Item>;
  */
 export function toChakraCombobox(value: ComboboxRootValue) {
     const selectedValue = getSomeorUndefined(value.value);
+    const style = getSomeorUndefined(value.style);
+    const sizeTag = style ? getSomeorUndefined(style.size)?.type : undefined;
+    const colour = style ? getSomeorUndefined(style.color) : undefined;
+    const background = style ? getSomeorUndefined(style.background) : undefined;
+    const borderColor = style ? getSomeorUndefined(style.borderColor) : undefined;
 
     return {
         value: selectedValue ? [selectedValue] : [],
         multiple: getSomeorUndefined(value.multiple),
         disabled: getSomeorUndefined(value.disabled),
-        size: getSomeorUndefined(value.size)?.type,
+        size: sizeTag,
         allowCustomValue: getSomeorUndefined(value.allowCustomValue),
+        color: colour,
+        bg: background,
+        borderColor,
     };
 }
 

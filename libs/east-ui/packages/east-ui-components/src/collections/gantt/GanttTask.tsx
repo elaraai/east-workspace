@@ -3,11 +3,14 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { useMemo, useState, useCallback, useEffect } from "react";
-import { Text, useToken } from "@chakra-ui/react";
+import { useRef, useState, useCallback, useEffect } from "react";
+import { Box, Popover, Portal, Text, Tooltip, useToken } from "@chakra-ui/react";
+import { useDrag } from "@use-gesture/react";
 import type { ValueTypeOf } from "@elaraai/east";
 import type { Gantt } from "@elaraai/east-ui";
 import { getSomeorUndefined } from "../../utils";
+import { EastChakraComponent } from "../../component";
+import { alignToCss } from "../shared/helpers";
 
 export type GanttTaskValue = ValueTypeOf<typeof Gantt.Types.Task>;
 
@@ -23,6 +26,8 @@ export interface GanttTaskProps {
     width: number;
     height: number;
     value: GanttTaskValue;
+    /** Storage key used by per-task UIComp slots (tooltip / popover / overlays). */
+    storageKey?: string | undefined;
     onClick?: (() => void) | undefined;
     onDoubleClick?: (() => void) | undefined;
     /** Callback when task is dragged to a new position */
@@ -41,28 +46,11 @@ export interface GanttTaskProps {
     dragStep?: TimeStep | undefined;
     /** Optional step size for duration change snapping */
     durationStep?: TimeStep | undefined;
-}
-
-interface DragState {
-    startX: number;
-    offset: number;
-    taskStart: Date;
-    taskEnd: Date;
-    hasMoved: boolean;
-}
-
-interface DurationDragState {
-    startX: number;
-    widthOffset: number;
-    originalEnd: Date;
-    hasMoved: boolean;
-}
-
-interface ProgressDragState {
-    startX: number;
-    originalProgress: number;
-    currentProgress: number;
-    hasMoved: boolean;
+    /** Visual-token defaults from `style` (per-task `label.color` etc. override). */
+    taskBorderRadius?: string | undefined;
+    labelColor?: string | undefined;
+    labelFontSize?: string | undefined;
+    labelFontWeight?: string | undefined;
 }
 
 /** Convert a time step to milliseconds */
@@ -72,7 +60,7 @@ const timeStepToMs = (step: TimeStep): number => {
         case "hours": return step.value * 60 * 60 * 1000;
         case "days": return step.value * 24 * 60 * 60 * 1000;
         case "weeks": return step.value * 7 * 24 * 60 * 60 * 1000;
-        case "months": return step.value * 30 * 24 * 60 * 60 * 1000; // Approximate
+        case "months": return step.value * 30 * 24 * 60 * 60 * 1000;
     }
 };
 
@@ -90,6 +78,7 @@ export const GanttTask = ({
     width,
     height,
     value,
+    storageKey = "task",
     onClick,
     onDoubleClick,
     onDrag,
@@ -100,20 +89,46 @@ export const GanttTask = ({
     timelineWidth,
     dragStep,
     durationStep,
+    taskBorderRadius,
+    labelColor,
+    labelFontSize,
+    labelFontWeight,
 }: GanttTaskProps) => {
     const [isHovered, setIsHovered] = useState(false);
-    const [dragState, setDragState] = useState<DragState | null>(null);
-    const [durationDragState, setDurationDragState] = useState<DurationDragState | null>(null);
-    const [progressDragState, setProgressDragState] = useState<ProgressDragState | null>(null);
+    // In-progress drag offsets (px). null when not dragging that axis.
+    const [dragOffset, setDragOffset] = useState<number | null>(null);
+    const [durationOffset, setDurationOffset] = useState<number | null>(null);
+    const [progressDelta, setProgressDelta] = useState<number | null>(null);
     // Local position/width state - reset from props, updated on drag end
     const [position, setPosition] = useState({ x, width });
+    const [popoverOpen, setPopoverOpen] = useState(false);
+    const taskRectRef = useRef<SVGRectElement>(null);
 
-    // Get color palette from value or default to blue
-    const { colorPalette, label, progress: propsProgress } = useMemo(() => ({
-        colorPalette: getSomeorUndefined(value.colorPalette)?.type ?? "blue",
-        label: getSomeorUndefined(value.label),
-        progress: getSomeorUndefined(value.progress),
-    }), [value]);
+    // Per-task label config (now a LabelInput value with align/typography fields)
+    const li = getSomeorUndefined(value.label);
+    const labelProps = li ? {
+        value: li.value,
+        align: getSomeorUndefined(li.align)?.type ?? "start",
+        verticalAlign: getSomeorUndefined(li.verticalAlign)?.type ?? "center",
+        color: getSomeorUndefined(li.color),
+        fontWeight: getSomeorUndefined(li.fontWeight)?.type,
+        fontStyle: getSomeorUndefined(li.fontStyle)?.type,
+        fontSize: getSomeorUndefined(li.fontSize)?.type,
+    } : null;
+
+    // Per-task colour escape hatches
+    const colorPalette = getSomeorUndefined(value.colorPalette)?.type ?? "blue";
+    const propsProgress = getSomeorUndefined(value.progress);
+    const customBackground = getSomeorUndefined(value.background);
+    const customStroke = getSomeorUndefined(value.stroke);
+    const customProgressFill = getSomeorUndefined(value.progressFill);
+
+    // Per-task tooltip / popover / overlays slots
+    const tooltipContent = getSomeorUndefined(value.tooltip);
+    const popoverContent = getSomeorUndefined(value.popover);
+    const hasTooltip = tooltipContent !== undefined;
+    const hasPopover = popoverContent !== undefined;
+    const overlays = value.overlays ?? [];
 
     // Local progress state - reset from props, updated on drag end
     const [localProgress, setLocalProgress] = useState(propsProgress ?? 0);
@@ -129,238 +144,150 @@ export const GanttTask = ({
     }, [propsProgress]);
 
     // Get Chakra color tokens based on color palette
-    const [fillColor, strokeColor] = useToken("colors", [
+    const [paletteFill, paletteStroke] = useToken("colors", [
         `${colorPalette}.500`,
         `${colorPalette}.600`,
     ]);
 
-    // Calculate current position from local state + drag offset
-    const currentX = useMemo(() => position.x + (dragState?.offset ?? 0), [position.x, dragState?.offset]);
-    // Calculate current width from local state + duration drag offset
-    const currentWidth = useMemo(() => Math.max(position.width + (durationDragState?.widthOffset ?? 0), 4), [position.width, durationDragState?.widthOffset]);
+    const fillColor = customBackground ?? paletteFill;
+    const strokeColor = customStroke ?? paletteStroke;
 
-    const fontSize = useMemo(() => Math.min(height * 0.7, 14), [height]);
-    const textX = currentX + 8;
-    const taskWidth = useMemo(() => Math.max(currentWidth, 4), [currentWidth]);
-    // Use progressDragState.currentProgress during drag, otherwise use local progress state
-    const currentProgress = useMemo(() => progressDragState?.currentProgress ?? localProgress, [progressDragState, localProgress]);
-    const progressWidth = useMemo(() => taskWidth * (currentProgress / 100), [taskWidth, currentProgress]);
+    // Calculate current position from local state + drag offset
+    const currentX = position.x + (dragOffset ?? 0);
+    const currentWidth = Math.max(position.width + (durationOffset ?? 0), 4);
+    const taskWidth = Math.max(currentWidth, 4);
+
+    const defaultFontSize = Math.min(height * 0.7, 14);
+    const fontSize = labelProps?.fontSize ?? labelFontSize ?? `${defaultFontSize}px`;
+
+    // Border-radius parser (accepts "8px", "0.5rem", or "4")
+    const radiusN = taskBorderRadius ? parseInt(taskBorderRadius, 10) : NaN;
+    const radius = Number.isFinite(radiusN) ? radiusN : 4;
+
+    const currentProgress = progressDelta ?? localProgress;
+    const progressWidth = taskWidth * (currentProgress / 100);
 
     const handleMouseEnter = useCallback(() => setIsHovered(true), []);
     const handleMouseLeave = useCallback(() => {
-        if (!dragState && !durationDragState && !progressDragState) setIsHovered(false);
-    }, [dragState, durationDragState, progressDragState]);
+        if (dragOffset === null && durationOffset === null && progressDelta === null) setIsHovered(false);
+    }, [dragOffset, durationOffset, progressDelta]);
 
     // Convert pixel offset to duration offset in milliseconds
     const offsetToDuration = useCallback((pixelOffset: number): number => {
-        if (!timelineStartDate || !timelineEndDate || !timelineWidth) {
-            return 0;
-        }
+        if (!timelineStartDate || !timelineEndDate || !timelineWidth) return 0;
         const totalDuration = timelineEndDate.getTime() - timelineStartDate.getTime();
         return (pixelOffset / timelineWidth) * totalDuration;
     }, [timelineStartDate, timelineEndDate, timelineWidth]);
 
-    // Convert duration offset (ms) to pixel offset
     const durationToOffset = useCallback((durationMs: number): number => {
-        if (!timelineStartDate || !timelineEndDate || !timelineWidth) {
-            return 0;
-        }
+        if (!timelineStartDate || !timelineEndDate || !timelineWidth) return 0;
         const totalDuration = timelineEndDate.getTime() - timelineStartDate.getTime();
         return (durationMs / totalDuration) * timelineWidth;
     }, [timelineStartDate, timelineEndDate, timelineWidth]);
 
-    const isDraggable = useMemo(() => onDrag && timelineStartDate && timelineEndDate && timelineWidth, [onDrag, timelineStartDate, timelineEndDate, timelineWidth]);
+    const isDraggable = onDrag && timelineStartDate && timelineEndDate && timelineWidth;
+    const isDurationDraggable = onDurationChange && timelineStartDate && timelineEndDate && timelineWidth;
+    const isProgressDraggable = onProgressChange && propsProgress !== undefined;
 
-    const handlePointerDown = useCallback((e: React.PointerEvent) => {
-        if (!isDraggable) return;
-        (e.target as Element).setPointerCapture(e.pointerId);
-        setDragState({
-            startX: e.clientX,
-            offset: 0,
-            taskStart: value.start,
-            taskEnd: value.end,
-            hasMoved: false,
-        });
-        e.preventDefault();
-        e.stopPropagation();
-    }, [isDraggable, value.start, value.end]);
+    // Snap a raw pixel offset to the nearest tick of `step`. Returns the
+    // snapped pixel offset.
+    const snapPxToStep = useCallback((rawPx: number, anchor: Date, step: TimeStep | undefined): number => {
+        if (!step || !timelineWidth || !timelineStartDate || !timelineEndDate) return rawPx;
+        const durMs = offsetToDuration(rawPx);
+        const snapped = snapToStep(new Date(anchor.getTime() + durMs), step);
+        return durationToOffset(snapped.getTime() - anchor.getTime());
+    }, [timelineWidth, timelineStartDate, timelineEndDate, offsetToDuration, durationToOffset]);
 
-    const handlePointerMove = useCallback((e: React.PointerEvent) => {
-        if (!dragState) return;
-        const rawOffset = e.clientX - dragState.startX;
-
-        // Apply snapping during drag for visual feedback
-        let offset = rawOffset;
-        if (dragStep && timelineWidth && timelineStartDate && timelineEndDate) {
-            const durationOffset = offsetToDuration(rawOffset);
-            const rawNewStart = new Date(dragState.taskStart.getTime() + durationOffset);
-            const snappedNewStart = snapToStep(rawNewStart, dragStep);
-            const snappedDurationOffset = snappedNewStart.getTime() - dragState.taskStart.getTime();
-            offset = durationToOffset(snappedDurationOffset);
+    // Main drag — moves the whole task bar. Click distinguishes via
+    // `tap`; commit on `last` fires `onDrag` with snapped boundaries.
+    const bindDrag = useDrag(({ active, movement: [mx], tap, last, first }) => {
+        if (first) setIsHovered(true);
+        if (tap) {
+            if (onClick) onClick();
+            if (hasPopover) setPopoverOpen(prev => !prev);
+            setDragOffset(null);
+            setIsHovered(false);
+            return;
         }
-
-        setDragState(prev => prev ? {
-            ...prev,
-            offset,
-            hasMoved: prev.hasMoved || Math.abs(rawOffset) > 3,
-        } : null);
-    }, [dragState, dragStep, timelineWidth, timelineStartDate, timelineEndDate, offsetToDuration, durationToOffset]);
-
-    const handlePointerUp = useCallback((e: React.PointerEvent) => {
-        if (!dragState) return;
-        (e.target as Element).releasePointerCapture(e.pointerId);
-
-        if (dragState.hasMoved && timelineWidth) {
-            const durationOffset = offsetToDuration(dragState.offset);
-            const rawNewStart = new Date(dragState.taskStart.getTime() + durationOffset);
-            const rawNewEnd = new Date(dragState.taskEnd.getTime() + durationOffset);
-            // Apply step snapping
-            const newStart = snapToStep(rawNewStart, dragStep);
-            const newEnd = snapToStep(rawNewEnd, dragStep);
-
-            // Calculate snapped pixel offset for visual position
-            const snappedDurationOffset = newStart.getTime() - dragState.taskStart.getTime();
-            const snappedPixelOffset = durationToOffset(snappedDurationOffset);
-
-            // Update local position with snapped offset
-            setPosition(prev => ({ ...prev, x: prev.x + snappedPixelOffset }));
-
-            // Call callback if provided
-            if (onDrag) {
-                onDrag(dragState.taskStart, dragState.taskEnd, newStart, newEnd);
+        if (last) {
+            if (isDraggable && timelineWidth) {
+                const snappedPx = snapPxToStep(mx, value.start, dragStep);
+                const newStart = snapToStep(new Date(value.start.getTime() + offsetToDuration(snappedPx)), dragStep);
+                const newEnd = snapToStep(new Date(value.end.getTime() + offsetToDuration(snappedPx)), dragStep);
+                setPosition(prev => ({ ...prev, x: prev.x + snappedPx }));
+                if (onDrag) onDrag(value.start, value.end, newStart, newEnd);
             }
-        } else if (!dragState.hasMoved && onClick) {
-            onClick();
+            setDragOffset(null);
+            setIsHovered(false);
+            return;
         }
-        setDragState(null);
-        setIsHovered(false);
-    }, [dragState, onDrag, onClick, offsetToDuration, durationToOffset, timelineWidth, dragStep]);
+        if (active && isDraggable) {
+            setDragOffset(snapPxToStep(mx, value.start, dragStep));
+        }
+    }, { filterTaps: true, preventDefault: true });
 
-    // Handle double click separately (only when not dragging)
-    const handleDoubleClick = useCallback((_e: React.MouseEvent) => {
-        if (onDoubleClick && !dragState && !durationDragState) {
+    // Duration drag — right-edge resize handle. No tap path because the
+    // handle has no click semantics.
+    const bindDuration = useDrag(({ active, movement: [mx], last }) => {
+        if (last) {
+            if (isDurationDraggable && timelineWidth) {
+                const snappedPx = snapPxToStep(mx, value.end, durationStep);
+                const newEnd = snapToStep(new Date(value.end.getTime() + offsetToDuration(snappedPx)), durationStep);
+                setPosition(prev => ({ ...prev, width: prev.width + snappedPx }));
+                if (onDurationChange) onDurationChange(value.end, newEnd);
+            }
+            setDurationOffset(null);
+            setIsHovered(false);
+            return;
+        }
+        if (active && isDurationDraggable) {
+            setDurationOffset(snapPxToStep(mx, value.end, durationStep));
+        }
+    }, { preventDefault: true });
+
+    // Progress drag — horizontal handle that adjusts a 0..100 percentage.
+    const bindProgress = useDrag(({ active, movement: [mx], last }) => {
+        if (last) {
+            if (isProgressDraggable) {
+                const pct = (mx / taskWidth) * 100;
+                const newProgress = Math.max(0, Math.min(100, localProgress + pct));
+                setLocalProgress(newProgress);
+                if (onProgressChange) onProgressChange(localProgress, newProgress);
+            }
+            setProgressDelta(null);
+            setIsHovered(false);
+            return;
+        }
+        if (active && isProgressDraggable) {
+            const pct = (mx / taskWidth) * 100;
+            setProgressDelta(Math.max(0, Math.min(100, localProgress + pct)));
+        }
+    }, { preventDefault: true });
+
+    const handleDoubleClick = useCallback(() => {
+        if (onDoubleClick && dragOffset === null && durationOffset === null) {
             onDoubleClick();
         }
-    }, [onDoubleClick, dragState, durationDragState]);
+    }, [onDoubleClick, dragOffset, durationOffset]);
 
-    // Duration resize handling
-    const isDurationDraggable = useMemo(() => onDurationChange && timelineStartDate && timelineEndDate && timelineWidth, [onDurationChange, timelineStartDate, timelineEndDate, timelineWidth]);
+    const cursor = dragOffset !== null
+        ? "grabbing"
+        : isDraggable
+            ? "grab"
+            : (onClick || onDoubleClick || hasPopover ? "pointer" : "default");
+    const isActive = isHovered || dragOffset !== null || durationOffset !== null || progressDelta !== null;
 
-    const handleDurationPointerDown = useCallback((e: React.PointerEvent) => {
-        if (!isDurationDraggable) return;
-        (e.target as Element).setPointerCapture(e.pointerId);
-        setDurationDragState({
-            startX: e.clientX,
-            widthOffset: 0,
-            originalEnd: value.end,
-            hasMoved: false,
-        });
-        e.preventDefault();
-        e.stopPropagation();
-    }, [isDurationDraggable, value.end]);
-
-    const handleDurationPointerMove = useCallback((e: React.PointerEvent) => {
-        if (!durationDragState) return;
-        const rawWidthOffset = e.clientX - durationDragState.startX;
-
-        // Apply snapping during drag for visual feedback
-        let widthOffset = rawWidthOffset;
-        if (durationStep && timelineWidth && timelineStartDate && timelineEndDate) {
-            const durationOffset = offsetToDuration(rawWidthOffset);
-            const rawNewEnd = new Date(durationDragState.originalEnd.getTime() + durationOffset);
-            const snappedNewEnd = snapToStep(rawNewEnd, durationStep);
-            const snappedDurationOffset = snappedNewEnd.getTime() - durationDragState.originalEnd.getTime();
-            widthOffset = durationToOffset(snappedDurationOffset);
+    const getAnchorRect = useCallback(() => {
+        if (taskRectRef.current) {
+            return taskRectRef.current.getBoundingClientRect();
         }
-
-        setDurationDragState(prev => prev ? {
-            ...prev,
-            widthOffset,
-            hasMoved: prev.hasMoved || Math.abs(rawWidthOffset) > 3,
-        } : null);
-    }, [durationDragState, durationStep, timelineWidth, timelineStartDate, timelineEndDate, offsetToDuration, durationToOffset]);
-
-    const handleDurationPointerUp = useCallback((e: React.PointerEvent) => {
-        if (!durationDragState) return;
-        (e.target as Element).releasePointerCapture(e.pointerId);
-
-        if (durationDragState.hasMoved && timelineWidth) {
-            // Calculate new end date
-            const durationOffset = offsetToDuration(durationDragState.widthOffset);
-            const rawNewEnd = new Date(durationDragState.originalEnd.getTime() + durationOffset);
-            // Apply step snapping
-            const newEnd = snapToStep(rawNewEnd, durationStep);
-
-            // Calculate snapped pixel offset for visual width
-            const snappedDurationOffset = newEnd.getTime() - durationDragState.originalEnd.getTime();
-            const snappedPixelOffset = durationToOffset(snappedDurationOffset);
-
-            // Update local width with snapped offset
-            setPosition(prev => ({ ...prev, width: prev.width + snappedPixelOffset }));
-
-            // Call callback if provided
-            if (onDurationChange) {
-                onDurationChange(durationDragState.originalEnd, newEnd);
-            }
-        }
-        setDurationDragState(null);
-        setIsHovered(false);
-    }, [durationDragState, onDurationChange, offsetToDuration, durationToOffset, timelineWidth, durationStep]);
-
-    // Progress change handling
-    const isProgressDraggable = useMemo(() => onProgressChange && propsProgress !== undefined, [onProgressChange, propsProgress]);
-
-    const handleProgressPointerDown = useCallback((e: React.PointerEvent) => {
-        if (!isProgressDraggable) return;
-        (e.target as Element).setPointerCapture(e.pointerId);
-        setProgressDragState({
-            startX: e.clientX,
-            originalProgress: localProgress,
-            currentProgress: localProgress,
-            hasMoved: false,
-        });
-        e.preventDefault();
-        e.stopPropagation();
-    }, [isProgressDraggable, localProgress]);
-
-    const handleProgressPointerMove = useCallback((e: React.PointerEvent) => {
-        if (!progressDragState) return;
-        const pixelOffset = e.clientX - progressDragState.startX;
-        // Convert pixel offset to progress percentage based on task width
-        const progressOffset = (pixelOffset / taskWidth) * 100;
-        const newProgress = Math.max(0, Math.min(100, progressDragState.originalProgress + progressOffset));
-        setProgressDragState(prev => prev ? {
-            ...prev,
-            currentProgress: newProgress,
-            hasMoved: prev.hasMoved || Math.abs(pixelOffset) > 3,
-        } : null);
-    }, [progressDragState, taskWidth]);
-
-    const handleProgressPointerUp = useCallback((e: React.PointerEvent) => {
-        if (!progressDragState) return;
-        (e.target as Element).releasePointerCapture(e.pointerId);
-
-        if (progressDragState.hasMoved) {
-            // Update local progress to persist the drag
-            setLocalProgress(progressDragState.currentProgress);
-            // Call callback if provided
-            if (onProgressChange) {
-                onProgressChange(progressDragState.originalProgress, progressDragState.currentProgress);
-            }
-        }
-        setProgressDragState(null);
-        setIsHovered(false);
-    }, [progressDragState, onProgressChange]);
-
-    const cursor = useMemo(() => dragState ? "grabbing" : isDraggable ? "grab" : (onClick || onDoubleClick ? "pointer" : "default"), [dragState, isDraggable, onClick, onDoubleClick]);
-    const resizeCursor = useMemo(() => durationDragState ? "ew-resize" : "ew-resize", [durationDragState]);
-    const progressCursor = useMemo(() => progressDragState ? "ew-resize" : "ew-resize", [progressDragState]);
-    const isActive = useMemo(() => isHovered || dragState || durationDragState || progressDragState, [isHovered, dragState, durationDragState, progressDragState]);
+        return { x: 0, y: 0, width: 0, height: 0 };
+    }, []);
 
     return (
         <g>
-            {/* Task bar */}
             <rect
+                ref={taskRectRef}
                 x={currentX}
                 y={y}
                 width={taskWidth}
@@ -369,14 +296,12 @@ export const GanttTask = ({
                 stroke={strokeColor}
                 strokeWidth={isActive ? 3 : 2}
                 opacity={isActive ? 1 : 0.9}
-                rx={4}
-                ry={4}
+                rx={radius}
+                ry={radius}
                 onDoubleClick={handleDoubleClick}
                 onMouseEnter={handleMouseEnter}
                 onMouseLeave={handleMouseLeave}
-                onPointerDown={handlePointerDown}
-                onPointerMove={handlePointerMove}
-                onPointerUp={handlePointerUp}
+                {...bindDrag()}
                 style={{ cursor, touchAction: "none" }}
             />
 
@@ -387,42 +312,81 @@ export const GanttTask = ({
                     y={y}
                     width={progressWidth}
                     height={height}
-                    fill="rgba(255,255,255,0.3)"
-                    rx={4}
-                    ry={4}
+                    fill={customProgressFill ?? "rgba(255,255,255,0.3)"}
+                    rx={radius}
+                    ry={radius}
                     style={{ pointerEvents: "none" }}
                 />
             )}
 
-            {/* Label */}
-            {label && (
+            {/* Per-task label — LabelInput shape: `value`, `align`,
+                `verticalAlign`, plus typography overrides. Style-level
+                `labelColor` / `labelFontSize` / `labelFontWeight` act as
+                cascading defaults; per-task `label.color` etc. win. */}
+            {labelProps && (
                 <foreignObject
-                    x={textX}
+                    x={currentX + 8}
                     y={y}
-                    width={180}
+                    width={Math.max(taskWidth - 16, 0)}
                     height={height}
                     style={{ pointerEvents: "none" }}
                 >
-                    <Text
-                        fontSize={`${fontSize}px`}
-                        color="fg.default"
-                        opacity={isActive ? 1 : 0.9}
-                        whiteSpace="nowrap"
-                        cursor={cursor}
-                        userSelect="none"
-                        lineHeight="1"
-                        overflow="hidden"
-                        textOverflow="ellipsis"
+                    <Box
                         display="flex"
-                        alignItems="center"
+                        alignItems={alignToCss(labelProps.verticalAlign)}
+                        justifyContent={alignToCss(labelProps.align)}
                         height="100%"
-                        m={0}
-                        p={0}
+                        opacity={isActive ? 1 : 0.9}
                     >
-                        {label}
-                    </Text>
+                        <Text
+                            fontSize={typeof fontSize === "number" ? `${fontSize}px` : fontSize}
+                            color={labelProps.color ?? labelColor ?? "fg.default"}
+                            fontWeight={labelProps.fontWeight ?? labelFontWeight}
+                            fontStyle={labelProps.fontStyle}
+                            whiteSpace="nowrap"
+                            cursor={cursor}
+                            userSelect="none"
+                            lineHeight="1"
+                            overflow="hidden"
+                            textOverflow="ellipsis"
+                            m={0}
+                            p={0}
+                        >
+                            {labelProps.value}
+                        </Text>
+                    </Box>
                 </foreignObject>
             )}
+
+            {/* Per-task overlays — axis-aligned UIComponents painted inside
+                the bar. `pointer-events: none` so drag / click still hit the
+                rect underneath. */}
+            {overlays.map((o, i) => (
+                <foreignObject
+                    key={`ov-${i}`}
+                    x={currentX}
+                    y={y}
+                    width={taskWidth}
+                    height={height}
+                    style={{ pointerEvents: "none" }}
+                >
+                    <div
+                        style={{
+                            width: "100%",
+                            height: "100%",
+                            display: "flex",
+                            justifyContent: alignToCss(o.align?.type),
+                            alignItems: alignToCss(o.verticalAlign?.type),
+                            padding: "4px",
+                        }}
+                    >
+                        <EastChakraComponent
+                            value={o.content}
+                            storageKey={`${storageKey}.overlay.${i}`}
+                        />
+                    </div>
+                </foreignObject>
+            ))}
 
             {/* Duration resize handle (right edge) */}
             {isDurationDraggable && (
@@ -434,14 +398,12 @@ export const GanttTask = ({
                     fill="transparent"
                     onMouseEnter={handleMouseEnter}
                     onMouseLeave={handleMouseLeave}
-                    onPointerDown={handleDurationPointerDown}
-                    onPointerMove={handleDurationPointerMove}
-                    onPointerUp={handleDurationPointerUp}
-                    style={{ cursor: resizeCursor, touchAction: "none" }}
+                    {...bindDuration()}
+                    style={{ cursor: "ew-resize", touchAction: "none" }}
                 />
             )}
 
-            {/* Progress drag handle (at right edge of progress indicator) */}
+            {/* Progress drag handle */}
             {isProgressDraggable && progressWidth > 8 && (
                 <rect
                     x={currentX + progressWidth - 6}
@@ -451,11 +413,51 @@ export const GanttTask = ({
                     fill="transparent"
                     onMouseEnter={handleMouseEnter}
                     onMouseLeave={handleMouseLeave}
-                    onPointerDown={handleProgressPointerDown}
-                    onPointerMove={handleProgressPointerMove}
-                    onPointerUp={handleProgressPointerUp}
-                    style={{ cursor: progressCursor, touchAction: "none" }}
+                    {...bindProgress()}
+                    style={{ cursor: "ew-resize", touchAction: "none" }}
                 />
+            )}
+
+            {/* Per-task tooltip */}
+            {hasTooltip && (
+                <Tooltip.Root
+                    open={isHovered}
+                    openDelay={200}
+                    positioning={{ placement: "top", getAnchorRect }}
+                >
+                    <Portal>
+                        <Tooltip.Positioner>
+                            <Tooltip.Content>
+                                <EastChakraComponent
+                                    value={tooltipContent!}
+                                    storageKey={`${storageKey}.tooltip`}
+                                />
+                            </Tooltip.Content>
+                        </Tooltip.Positioner>
+                    </Portal>
+                </Tooltip.Root>
+            )}
+
+            {/* Per-task popover */}
+            {hasPopover && (
+                <Popover.Root
+                    open={popoverOpen}
+                    onOpenChange={(e) => setPopoverOpen(e.open)}
+                    positioning={{ placement: "top", getAnchorRect }}
+                >
+                    <Portal>
+                        <Popover.Positioner>
+                            <Popover.Content>
+                                <Popover.Body p="3">
+                                    <EastChakraComponent
+                                        value={popoverContent!}
+                                        storageKey={`${storageKey}.popover`}
+                                    />
+                                </Popover.Body>
+                            </Popover.Content>
+                        </Popover.Positioner>
+                    </Portal>
+                </Popover.Root>
             )}
         </g>
     );

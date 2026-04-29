@@ -45,7 +45,7 @@ export {
  * @param style - Optional configuration. `format`, `sentiment`, and
  *                `showSign` land on the main struct (content / state);
  *                visual fields (`textStyle`, colour slots, opacity) wrap
- *                into the `style` sub-struct per the type-shape convention.
+ *                into the `style` sub-struct.
  * @returns An East expression representing the Numeric component
  */
 function createNumeric(

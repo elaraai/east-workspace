@@ -4,8 +4,8 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Table, Badge, Text, Stack, UIComponentType } from "@elaraai/east-ui";
-import { East } from "@elaraai/east";
+import { Table, Badge, Text, Stack, Style, UIComponentType } from "@elaraai/east-ui";
+import { East, IntegerType, NullType, ArrayType } from "@elaraai/east";
 import * as ex from "./table.examples.js";
 
 describeEast("Table", (test) => {
@@ -30,6 +30,13 @@ describeEast("Table", (test) => {
         tableExpandedContent: ex.tableExpandedContent,
         tableDensityCompact: ex.tableDensityCompact,
         tableColourOverrides: ex.tableColourOverrides,
+        tableExpandedRichDetail: ex.tableExpandedRichDetail,
+        tableMultiRowFooter: ex.tableMultiRowFooter,
+        tableNestedColumnGroups: ex.tableNestedColumnGroups,
+        tablePaginationServerSide: ex.tablePaginationServerSide,
+        tableMultiSelection: ex.tableMultiSelection,
+        tableRangeSelection: ex.tableRangeSelection,
+        tableDensityComfortable: ex.tableDensityComfortable,
     });
 
     // =========================================================================
@@ -404,5 +411,203 @@ describeEast("Table", (test) => {
 
         $(Assert.equal(table.unwrap().unwrap("Table").columns.size(), 3n));
         $(Assert.equal(table.unwrap().unwrap("Table").rows.size(), 2n));
+    });
+
+    // =========================================================================
+    // Plan 1.10 K — IR roundtrip coverage for newly-wired fields
+    // =========================================================================
+
+    test("footer dict round-trips with content + colSpan", $ => {
+        const t = $.let(Table.Root(
+            [{ a: "1", b: "2" }],
+            { a: { header: "A" }, b: { header: "B" } },
+            {
+                footer: {
+                    a: { content: Text.Root("Total"), colSpan: 1n },
+                    b: { content: Text.Root("3") },
+                },
+            },
+        ));
+        const footer = $.let(t.unwrap().unwrap("Table").footer.unwrap("some"));
+        $(Assert.equal(footer.size(), 2n));
+        $(Assert.equal(footer.get("a").colSpan.unwrap("some"), 1n));
+        $(Assert.equal(footer.get("a").content.unwrap().hasTag("Text"), true));
+    });
+
+    test("footerRows array round-trips multiple rows", $ => {
+        const t = $.let(Table.Root(
+            [{ a: "x", b: "y" }],
+            { a: { header: "A" }, b: { header: "B" } },
+            {
+                footerRows: [
+                    { a: { content: Text.Root("Subtotal"), colSpan: 1n }, b: { content: Text.Root("10") } },
+                    { a: { content: Text.Root("Total"), colSpan: 1n }, b: { content: Text.Root("100") } },
+                ],
+            },
+        ));
+        const footerRows = $.let(t.unwrap().unwrap("Table").footerRows.unwrap("some"));
+        $(Assert.equal(footerRows.size(), 2n));
+        $(Assert.equal(footerRows.get(0n).get("b").content.unwrap().hasTag("Text"), true));
+        $(Assert.equal(footerRows.get(1n).get("a").colSpan.unwrap("some"), 1n));
+    });
+
+    test("columnGroups round-trip with label + columnKeys", $ => {
+        const t = $.let(Table.Root(
+            [{ a: 1n, b: 2n, c: 3n }],
+            { a: { header: "A" }, b: { header: "B" }, c: { header: "C" } },
+            {
+                columnGroups: [
+                    { label: "First", columnKeys: ["a"] },
+                    { label: "Rest", columnKeys: ["b", "c"] },
+                ],
+            },
+        ));
+        const groups = $.let(t.unwrap().unwrap("Table").columnGroups.unwrap("some"));
+        $(Assert.equal(groups.size(), 2n));
+        $(Assert.equal(groups.get(0n).label, "First"));
+        $(Assert.equal(groups.get(1n).columnKeys.size(), 2n));
+        $(Assert.equal(groups.get(1n).columnKeys.get(0n), "b"));
+    });
+
+    test("pagination struct round-trips pageSize / page / onPageChange", $ => {
+        const onPageChange = East.function([IntegerType], NullType, (_$, _next) => { /* noop */ });
+        const t = $.let(Table.Root(
+            [{ a: "x" }],
+            { a: { header: "A" } },
+            {
+                pagination: { pageSize: 25n, page: 2n, onPageChange },
+            },
+        ));
+        const pag = $.let(t.unwrap().unwrap("Table").pagination.unwrap("some"));
+        $(Assert.equal(pag.pageSize, 25n));
+        $(Assert.equal(pag.page, 2n));
+    });
+
+    test("selection round-trips single mode + selected array + onChange", $ => {
+        const onChange = East.function([ArrayType(IntegerType)], NullType, (_$, _idxs) => { /* noop */ });
+        const t = $.let(Table.Root(
+            [{ a: "x" }, { a: "y" }],
+            { a: { header: "A" } },
+            {
+                selection: { mode: "single", selected: [0n], onChange },
+            },
+        ));
+        const sel = $.let(t.unwrap().unwrap("Table").selection.unwrap("some"));
+        $(Assert.equal(sel.mode.hasTag("single"), true));
+        $(Assert.equal(sel.selected.size(), 1n));
+        $(Assert.equal(sel.selected.get(0n), 0n));
+    });
+
+    test("selection round-trips multiple mode", $ => {
+        const onChange = East.function([ArrayType(IntegerType)], NullType, (_$, _idxs) => { /* noop */ });
+        const t = $.let(Table.Root(
+            [{ a: "x" }, { a: "y" }, { a: "z" }],
+            { a: { header: "A" } },
+            {
+                selection: { mode: "multiple", selected: [0n, 2n], onChange },
+            },
+        ));
+        const sel = $.let(t.unwrap().unwrap("Table").selection.unwrap("some"));
+        $(Assert.equal(sel.mode.hasTag("multiple"), true));
+        $(Assert.equal(sel.selected.size(), 2n));
+    });
+
+    test("selection round-trips range mode", $ => {
+        const onChange = East.function([ArrayType(IntegerType)], NullType, (_$, _idxs) => { /* noop */ });
+        const t = $.let(Table.Root(
+            [{ a: "x" }, { a: "y" }, { a: "z" }],
+            { a: { header: "A" } },
+            {
+                selection: { mode: "range", selected: [], onChange },
+            },
+        ));
+        const sel = $.let(t.unwrap().unwrap("Table").selection.unwrap("some"));
+        $(Assert.equal(sel.mode.hasTag("range"), true));
+        $(Assert.equal(sel.selected.size(), 0n));
+    });
+
+    test("expandedContent round-trips as some(callback)", $ => {
+        const t = $.let(Table.Root(
+            [{ a: "x" }],
+            { a: { header: "A" } },
+            {
+                expandedContent: East.function([IntegerType], UIComponentType, (_$, _i) => Text.Root("detail")),
+            },
+        ));
+        $(Assert.equal(t.unwrap().unwrap("Table").expandedContent.hasTag("some"), true));
+    });
+
+    test("density compact round-trips as variant tag", $ => {
+        const t = $.let(Table.Root(
+            [{ a: "x" }],
+            { a: { header: "A" } },
+            { density: "compact" },
+        ));
+        const den = $.let(t.unwrap().unwrap("Table").density.unwrap("some"));
+        $(Assert.equal(den.hasTag("compact"), true));
+    });
+
+    test("density comfortable round-trips as variant tag", $ => {
+        const t = $.let(Table.Root(
+            [{ a: "x" }],
+            { a: { header: "A" } },
+            { density: "comfortable" },
+        ));
+        const den = $.let(t.unwrap().unwrap("Table").density.unwrap("some"));
+        $(Assert.equal(den.hasTag("comfortable"), true));
+    });
+
+    test("rowStatus callback round-trips on main struct", $ => {
+        const rowStatus = East.function([IntegerType], Style.Types.StatusToken, (_$, _i) => Style.StatusToken("success"));
+        const t = $.let(Table.Root(
+            [{ a: "x" }],
+            { a: { header: "A" } },
+            { rowStatus },
+        ));
+        $(Assert.equal(t.unwrap().unwrap("Table").rowStatus.hasTag("some"), true));
+    });
+
+    test("columnResize flag round-trips when explicit", $ => {
+        const t = $.let(Table.Root(
+            [{ a: "x" }],
+            { a: { header: "A" } },
+            { columnResize: false },
+        ));
+        $(Assert.equal(t.unwrap().unwrap("Table").columnResize.unwrap("some"), false));
+    });
+
+    test("virtualization flag round-trips when explicit", $ => {
+        const t = $.let(Table.Root(
+            [{ a: "x" }],
+            { a: { header: "A" } },
+            { virtualization: false },
+        ));
+        $(Assert.equal(t.unwrap().unwrap("Table").virtualization.unwrap("some"), false));
+    });
+
+    test("colour overrides round-trip via style sub-struct", $ => {
+        const t = $.let(Table.Root(
+            [{ a: "x" }],
+            { a: { header: "A" } },
+            {
+                headerBackground: "blue.600",
+                headerColor: "white",
+                borderColor: "blue.200",
+                zebraBackground: "blue.50",
+                hoverBackground: "blue.100",
+                selectedBackground: "blue.200",
+                selectedBorderColor: "blue.400",
+                footerBackground: "gray.100",
+            },
+        ));
+        const style = $.let(t.unwrap().unwrap("Table").style.unwrap("some"));
+        $(Assert.equal(style.headerBackground.unwrap("some"), "blue.600"));
+        $(Assert.equal(style.headerColor.unwrap("some"), "white"));
+        $(Assert.equal(style.borderColor.unwrap("some"), "blue.200"));
+        $(Assert.equal(style.zebraBackground.unwrap("some"), "blue.50"));
+        $(Assert.equal(style.hoverBackground.unwrap("some"), "blue.100"));
+        $(Assert.equal(style.selectedBackground.unwrap("some"), "blue.200"));
+        $(Assert.equal(style.selectedBorderColor.unwrap("some"), "blue.400"));
+        $(Assert.equal(style.footerBackground.unwrap("some"), "gray.100"));
     });
 }, {   platformFns: TestImpl,});

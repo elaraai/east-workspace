@@ -30,6 +30,7 @@ import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { RowStateManager, type RowKey, type RowState } from "../../utils/RowStateManager";
 import { useColumnPinning, HeaderControls, getHeaderCellStyle, getCellStyle, createGetSortIndex } from "../shared/column-pinning";
+import { useRowStatusBg } from "../shared/helpers";
 import { PlannerEventRow, type PlannerEventValue } from "./PlannerEventRow";
 import { PlannerAxis } from "./PlannerAxis";
 
@@ -86,6 +87,11 @@ declare module "@tanstack/react-table" {
 
 /**
  * Converts an East UI Planner Root value to Chakra UI TableRoot props.
+ *
+ * @remarks
+ * `interactive` is dropped from the IR (row hover is always on, matching
+ * Matrix). We pass it as `true` here so Chakra preserves the existing
+ * row-hover behaviour without us having to thread it through the IR.
  */
 export function toChakraTableRoot(value: PlannerRootValue): TableRootProps {
     const style = getSomeorUndefined(value.style);
@@ -94,7 +100,7 @@ export function toChakraTableRoot(value: PlannerRootValue): TableRootProps {
         variant: style ? getSomeorUndefined(style.variant)?.type : undefined,
         size: style ? getSomeorUndefined(style.size)?.type : undefined,
         striped: style ? getSomeorUndefined(style.striped) : undefined,
-        interactive: getSomeorUndefined(value.interactive),
+        interactive: true,
         stickyHeader: style ? getSomeorUndefined(style.stickyHeader) : undefined,
         showColumnBorder: style ? getSomeorUndefined(style.showColumnBorder) : undefined,
         colorPalette: style ? getSomeorUndefined(style.colorPalette)?.type : undefined,
@@ -158,10 +164,6 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({
     storageKey,
 }: EastChakraPlannerProps) {
     const props = useMemo(() => toChakraTableRoot(value), [value]);
-    const styleHeight = useMemo(() => {
-        const style = getSomeorUndefined(value.style);
-        return style ? getSomeorUndefined(style.height) : undefined;
-    }, [value]);
     const headerHeight = 56;
 
     // Track root container width for accurate splitter sizing
@@ -178,34 +180,33 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({
     }, []);
 
     // Extract style options
-    const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
-    const slotMinWidthValue = useMemo(() => style ? getSomeorUndefined(style.slotMinWidth) : undefined, [style]);
+    const style = getSomeorUndefined(value.style);
+    const slotMinWidthValue = style ? getSomeorUndefined(style.slotMinWidth) : undefined;
     const slotMinWidth = slotMinWidthValue ? parseInt(slotMinWidthValue, 10) || 60 : 60;
-    const slotModeValue = useMemo(() => getSomeorUndefined(value.slotMode), [value.slotMode]);
-    const slotMode = slotModeValue?.type ?? "span";
+    const slotMode = getSomeorUndefined(value.slotMode)?.type ?? "span";
 
     // Slot line styling
-    const slotLineStroke = useMemo(() => style ? getSomeorUndefined(style.slotLineStroke) : undefined, [style]);
-    const slotLineWidth = useMemo(() => style ? getSomeorUndefined(style.slotLineWidth) : undefined, [style]);
-    const slotLineDash = useMemo(() => style ? getSomeorUndefined(style.slotLineDash) : undefined, [style]);
-    const slotLineOpacity = useMemo(() => style ? getSomeorUndefined(style.slotLineOpacity) : undefined, [style]);
+    const slotLineStroke = style ? getSomeorUndefined(style.slotLineStroke) : undefined;
+    const slotLineWidth = style ? getSomeorUndefined(style.slotLineWidth) : undefined;
+    const slotLineDash = style ? getSomeorUndefined(style.slotLineDash) : undefined;
+    const slotLineOpacity = style ? getSomeorUndefined(style.slotLineOpacity) : undefined;
 
     // Boundaries now on main struct per §0.10
-    const boundaries = useMemo(() => getSomeorUndefined(value.boundaries), [value.boundaries]);
+    const boundaries = getSomeorUndefined(value.boundaries);
 
     // Callbacks now on main struct per §0.10
-    const onCellClickFn = useMemo(() => getSomeorUndefined(value.onCellClick), [value.onCellClick]);
-    const onCellDoubleClickFn = useMemo(() => getSomeorUndefined(value.onCellDoubleClick), [value.onCellDoubleClick]);
-    const onRowClickFn = useMemo(() => getSomeorUndefined(value.onRowClick), [value.onRowClick]);
-    const onRowDoubleClickFn = useMemo(() => getSomeorUndefined(value.onRowDoubleClick), [value.onRowDoubleClick]);
-    const onSortChangeFn = useMemo(() => getSomeorUndefined(value.onSortChange), [value.onSortChange]);
-    const onEventClickFn = useMemo(() => getSomeorUndefined(value.onEventClick), [value.onEventClick]);
-    const onEventDoubleClickFn = useMemo(() => getSomeorUndefined(value.onEventDoubleClick), [value.onEventDoubleClick]);
-    const onEventDragFn = useMemo(() => getSomeorUndefined(value.onEventDrag), [value.onEventDrag]);
-    const onEventResizeFn = useMemo(() => getSomeorUndefined(value.onEventResize), [value.onEventResize]);
-    const onEventAddFn = useMemo(() => getSomeorUndefined(value.onEventAdd), [value.onEventAdd]);
-    const onEventEditFn = useMemo(() => getSomeorUndefined(value.onEventEdit), [value.onEventEdit]);
-    const onEventDeleteFn = useMemo(() => getSomeorUndefined(value.onEventDelete), [value.onEventDelete]);
+    const onCellClickFn = getSomeorUndefined(value.onCellClick);
+    const onCellDoubleClickFn = getSomeorUndefined(value.onCellDoubleClick);
+    const onRowClickFn = getSomeorUndefined(value.onRowClick);
+    const onRowDoubleClickFn = getSomeorUndefined(value.onRowDoubleClick);
+    const onSortChangeFn = getSomeorUndefined(value.onSortChange);
+    const onEventClickFn = getSomeorUndefined(value.onEventClick);
+    const onEventDoubleClickFn = getSomeorUndefined(value.onEventDoubleClick);
+    const onEventDragFn = getSomeorUndefined(value.onEventDrag);
+    const onEventResizeFn = getSomeorUndefined(value.onEventResize);
+    const onEventAddFn = getSomeorUndefined(value.onEventAdd);
+    const onEventEditFn = getSomeorUndefined(value.onEventEdit);
+    const onEventDeleteFn = getSomeorUndefined(value.onEventDelete);
 
     const [gridLineColor] = useToken("colors", ["gray.300"]);
     const slotContainerRef = useRef<HTMLDivElement>(null);
@@ -216,19 +217,15 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({
     const visibleRowsRef = useRef<Set<RowKey>>(new Set());
 
     // stepSize now on main per §0.10
-    const stepSize = useMemo(() => getSomeorUndefined(value.stepSize) ?? 1, [value.stepSize]);
+    const stepSize = getSomeorUndefined(value.stepSize) ?? 1;
 
-    // readOnly now on main per §0.10
-    const readOnly = useMemo(() => getSomeorUndefined(value.readOnly) ?? false, [value.readOnly]);
-
-    // Extract eventPopover function (returns UI component for popover content)
-    const eventPopoverFn = useMemo(() => getSomeorUndefined(value.eventPopover), [value.eventPopover]);
-
-    // eventPopoverTrigger now on main per §0.10
-    const eventPopoverTrigger = useMemo(
-        () => getSomeorUndefined(value.eventPopoverTrigger)?.type ?? "click",
-        [style]
-    ) as "click" | "hover";
+    // Visual-parity tokens — per-event `label.color` etc. override these
+    // defaults inside `PlannerEvent`. Pulled out of `style` once and threaded
+    // down through `PlannerEventRow`.
+    const eventBorderRadius = style ? getSomeorUndefined(style.eventBorderRadius) : undefined;
+    const labelColor = style ? getSomeorUndefined(style.labelColor) : undefined;
+    const labelFontSize = style ? getSomeorUndefined(style.labelFontSize) : undefined;
+    const labelFontWeight = style ? getSomeorUndefined(style.labelFontWeight) : undefined;
 
     // Calculate slot range from events
     const slotRange = useMemo(() => {
@@ -275,10 +272,14 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({
         return result;
     }, [slotRange]);
 
-    const slotGridWidth = useMemo(() => slots.length * slotMinWidth, [slots, slotMinWidth]);
+    const slotGridWidth = slots.length * slotMinWidth;
 
     // Get slot label function
-    const slotLabelFn = useMemo(() => getSomeorUndefined(value.slotLabel), [value.slotLabel]);
+    const slotLabelFn = getSomeorUndefined(value.slotLabel);
+
+    // Row-status callback — paints each row's background with a semantic
+    // token. Shared helper used by Gantt / Table too.
+    const rowStatusBgFor = useRowStatusBg(getSomeorUndefined(value.rowStatus));
 
     // Subscribe to row state changes
     useEffect(() => {
@@ -344,7 +345,7 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({
         storageKey,
         { sorting: [], columnSizing: {}, pinnedColumns: [...value.frozen], tablePanelSize: null },
     );
-    const sorting = useMemo(() => persistedState.sorting, [persistedState.sorting]);
+    const sorting = persistedState.sorting;
 
     // Column pinning
     const { columnPinning, hasFrozen, toggleColumnPin } = useColumnPinning({
@@ -364,7 +365,7 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({
     }, [setPersistedState]);
 
     // Column sizing (derived from persisted state)
-    const columnSizing = useMemo(() => persistedState.columnSizing, [persistedState.columnSizing]);
+    const columnSizing = persistedState.columnSizing;
     const setColumnSizing = useCallback((updater: Record<string, number> | ((prev: Record<string, number>) => Record<string, number>)) => {
         setPersistedState(prev => ({
             ...prev,
@@ -775,7 +776,7 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({
         <Box
             ref={rootRef}
             width="100%"
-            height={styleHeight ?? height}
+            height={(style ? getSomeorUndefined(style.height) : undefined) ?? height}
             overflow="hidden"
             borderWidth="1px"
             borderColor="border.subtle"
@@ -860,6 +861,8 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({
 
                                     const rowIndex = BigInt(virtualRow.index);
 
+                                    const rowStatusBg = rowStatusBgFor(Number(rowIndex));
+
                                     return (
                                         <ChakraTable.Row
                                             key={row.id}
@@ -872,6 +875,7 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({
                                                 height: `${virtualRow.size}px`,
                                                 transform: `translateY(${virtualRow.start}px)`,
                                                 cursor: (onRowClickFn || onRowDoubleClickFn) ? 'pointer' : undefined,
+                                                background: rowStatusBg,
                                             }}
                                             onClick={onRowClickFn ? () => handleRowClick(Number(rowIndex)) : undefined}
                                             onDoubleClick={onRowDoubleClickFn ? () => handleRowDoubleClick(Number(rowIndex)) : undefined}
@@ -1011,6 +1015,7 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({
                                         if (!row) return null;
 
                                         const rowIndex = virtualRow.index;
+                                        const slotRowBg = rowStatusBgFor(rowIndex);
 
                                         return (
                                             <ChakraTable.Row
@@ -1021,6 +1026,7 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({
                                                     top: 0,
                                                     left: 0,
                                                     width: "100%",
+                                                    background: slotRowBg,
                                                     height: `${virtualRow.size}px`,
                                                     transform: `translateY(${virtualRow.start}px)`,
                                                 }}
@@ -1043,16 +1049,17 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({
                                                             minSlot={slotRange.start}
                                                             maxSlot={slotRange.end}
                                                             stepSize={stepSize}
-                                                            readOnly={readOnly}
-                                                            eventPopoverFn={eventPopoverFn}
-                                                            eventPopoverTrigger={eventPopoverTrigger}
+                                                            eventBorderRadius={eventBorderRadius}
+                                                            labelColor={labelColor}
+                                                            labelFontSize={labelFontSize}
+                                                            labelFontWeight={labelFontWeight}
                                                             onEventClick={handleEventClick}
                                                             onEventDoubleClick={handleEventDoubleClick}
-                                                            onEventDrag={handleEventDrag}
-                                                            onEventResize={handleEventResize}
+                                                            onEventDrag={onEventDragFn ? handleEventDrag : undefined}
+                                                            onEventResize={onEventResizeFn ? handleEventResize : undefined}
                                                             onEventEdit={onEventEditFn ? handleEventEdit : undefined}
                                                             onEventDelete={onEventDeleteFn ? handleEventDelete : undefined}
-                                                            onSlotClick={(slot) => handleEventAdd(rowIndex, slot)}
+                                                            onSlotClick={onEventAddFn ? (slot) => handleEventAdd(rowIndex, slot) : undefined}
                                                         />
                                                     </svg>
                                                 </ChakraTable.Cell>

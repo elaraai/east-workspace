@@ -46,7 +46,6 @@ describeEast("Carousel", (test) => {
         $(Assert.equal(c.loop.hasTag("none"), true));
         $(Assert.equal(c.autoplay.hasTag("none"), true));
         $(Assert.equal(c.spacing.hasTag("none"), true));
-        $(Assert.equal(c.padding.hasTag("none"), true));
         $(Assert.equal(c.onIndexChange.hasTag("none"), true));
         $(Assert.equal(c.style.hasTag("none"), true));
     });
@@ -111,11 +110,12 @@ describeEast("Carousel", (test) => {
         $(Assert.equal(carousel.unwrap().unwrap("Carousel").spacing.unwrap("some"), "4"));
     });
 
-    test("creates carousel with padding on main (moved from style)", $ => {
+    test("creates carousel with padding inside style", $ => {
         const carousel = $.let(Carousel.Root([
             Text.Root("Slide 1"),
-        ], { padding: "2" }));
-        $(Assert.equal(carousel.unwrap().unwrap("Carousel").padding.unwrap("some"), "2"));
+        ], { style: { padding: "2" } }));
+        const sv = carousel.unwrap().unwrap("Carousel").style.unwrap("some");
+        $(Assert.equal(sv.padding.unwrap("some"), "2"));
     });
 
     // =========================================================================
@@ -179,10 +179,10 @@ describeEast("Carousel", (test) => {
             showIndicators: true,
             showControls: true,
             spacing: "4",
-            padding: "2",
-            style: { orientation: "horizontal" },
+            style: { orientation: "horizontal", padding: "2" },
         }));
         const c = carousel.unwrap().unwrap("Carousel");
+        const sv = c.style.unwrap("some");
         $(Assert.equal(c.items.size(), 3n));
         $(Assert.equal(c.defaultIndex.unwrap("some"), 0n));
         $(Assert.equal(c.slidesPerView.unwrap("some"), 2n));
@@ -193,8 +193,8 @@ describeEast("Carousel", (test) => {
         $(Assert.equal(c.showIndicators.unwrap("some"), true));
         $(Assert.equal(c.showControls.unwrap("some"), true));
         $(Assert.equal(c.spacing.unwrap("some"), "4"));
-        $(Assert.equal(c.padding.unwrap("some"), "2"));
-        $(Assert.equal(c.style.unwrap("some").orientation.unwrap("some").hasTag("horizontal"), true));
+        $(Assert.equal(sv.padding.unwrap("some"), "2"));
+        $(Assert.equal(sv.orientation.unwrap("some").hasTag("horizontal"), true));
     });
 
     test("creates image carousel with indicators and controls", $ => {

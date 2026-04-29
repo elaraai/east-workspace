@@ -1,5 +1,14 @@
 # 0 — Cross-cutting conventions
 
+**Visual style — Elara AI.** Reference look-and-feel: clean modern
+enterprise SaaS in the Mixpanel / Linear / Stripe family — borders over
+fills, micro-shadows over hard drops, restrained colour. Brand mid is
+the muted deep teal `#488e97` (`brand.500`); deep ink `#111b22`
+(`brand.900`). Cool green-gray neutrals (`gray.50` `#f8fafa` → `gray.900`
+`#1a2626`). Body `Inter Tight`, display `DM Sans`, mono `JetBrains
+Mono`. Vibrant purple is an accent only — never primary chrome. Full
+rules: [`east-ui-components/CLAUDE.md` §Visual style](../../../east-ui-components/CLAUDE.md#visual-style--elara-ai).
+
 **Gaps-doc reference:** [`COMPONENT_AND_PATTERN_GAPS.md` §0](../COMPONENT_AND_PATTERN_GAPS.md).
 **Scope:** Turn every §0.x contract into enforceable code: a states-contract protocol, an a11y CI gate, a dichromacy-safe palette test, a reduced-motion audit, hover-intent tokens, reactive-state documentation, a patch-typing lint rule, and the enforcement-location matrix documented in per-file comments. Not a component section, but must land before Band-2 patterns ship so patterns inherit enforcement rather than re-derive.
 **Out of scope for this plan:** per-pattern states/a11y content — lives in each pattern's own plan.

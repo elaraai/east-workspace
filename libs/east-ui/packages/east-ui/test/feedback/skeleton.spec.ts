@@ -34,10 +34,10 @@ describeEast("Skeleton", (test) => {
     });
 
     test("text skeleton with lines + fontSize", $ => {
-        const s = $.let(Skeleton.Root("text", { lines: 5n, fontSize: "md" }));
+        const s = $.let(Skeleton.Root("text", { lines: 5n, style: { fontSize: "md" } }));
         const v = s.unwrap().unwrap("Skeleton");
         $(Assert.equal(v.lines.unwrap("some"), 5n));
-        $(Assert.equal(v.fontSize.unwrap("some"), "md"));
+        $(Assert.equal(v.style.unwrap("some").fontSize.unwrap("some"), "md"));
     });
 
     test("skeleton with count repeats", $ => {

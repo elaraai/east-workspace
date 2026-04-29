@@ -16,7 +16,6 @@ import {
     OptionType,
     FunctionType,
     variant,
-    BooleanType,
     IntegerType,
     NullType,
     type TypeOf,
@@ -41,10 +40,14 @@ import {
     FontWeightType,
     FontStyleType,
     SizeType,
+    AlignType,
+    LabelInputType,
     type ColorSchemeLiteral,
+    type AlignLiteral,
+    type LabelInput,
 } from "../../style.js";
 import { IconSizeType } from "../../display/icon/types.js";
-import { UIComponentType } from "../../component.js";
+import { UIComponentType, OverlayInputType } from "../../component.js";
 import {
     TableCellType,
     TableColumnType,
@@ -63,14 +66,8 @@ import {
     EventDragEventType,
     EventResizeEventType,
     EventDeleteEventType,
-    PlannerEventType,
     PlannerBoundaryType,
-    EventPopoverTriggerType,
-    EventPopoverContextType,
-    ContentAlignType,
-    EventLabelType,
     EventIconType,
-    type EventLabel,
     type EventIcon,
 } from "./types.js";
 
@@ -85,19 +82,74 @@ export {
     EventResizeEventType,
     EventDeleteEventType,
     ResizeEdgeType,
-    PlannerEventType,
     PlannerBoundaryType,
     type PlannerBoundary,
-    EventPopoverTriggerType,
-    type EventPopoverTriggerLiteral,
-    EventPopoverContextType,
-    ContentAlignType,
-    EventLabelType,
     EventIconType,
-    type EventLabel,
     type EventIcon,
-    type ContentAlignLiteral,
 } from "./types.js";
+
+// PlannerEventType is UIComp-coupled and defined further down in this file;
+// it gets re-exported through the namespace + this barrel.
+
+// ============================================================================
+// Planner Event Type (UIComp-coupled — lives here, not in types.ts)
+// ============================================================================
+
+/**
+ * East StructType for a Planner event.
+ *
+ * @remarks
+ * Represents an event that occupies one or more slots. In `single` mode
+ * only `start` is used; in `span` mode `start` and `end` define the
+ * inclusive range.
+ *
+ * Two rich-content slots:
+ * - `tooltip` — hover-triggered, a Chakra Tooltip wraps the event bar.
+ * - `popover` — click-triggered, a Chakra Popover wraps the event bar.
+ *
+ * `overlays` paints additional UIComponents (badges, icons, status
+ * chips) at axis-aligned positions inside the event bar — same axis
+ * pattern as Matrix overlays.
+ *
+ * @property start - Start slot (or single slot if mode=single)
+ * @property end - End slot (only used if mode=span)
+ * @property label - Optional rich label (text + alignment + typography)
+ * @property icon - Optional icon configuration
+ * @property colorPalette - Optional color scheme for the event background
+ * @property background - Optional background/fill colour (overrides colorPalette)
+ * @property stroke - Optional stroke/border colour (overrides colorPalette)
+ * @property opacity - Optional opacity (0-1)
+ * @property overlays - Per-event overlay annotations
+ * @property tooltip - Optional rich tooltip content (hover-triggered, UIComponent)
+ * @property popover - Optional rich popover content (click-triggered, UIComponent)
+ */
+export const PlannerEventType: StructType<{
+    start: FloatType,
+    end: OptionType<FloatType>,
+    label: OptionType<LabelInputType>,
+    icon: OptionType<EventIconType>,
+    colorPalette: OptionType<ColorSchemeType>,
+    background: OptionType<StringType>,
+    stroke: OptionType<StringType>,
+    opacity: OptionType<FloatType>,
+    overlays: ArrayType<OverlayInputType>,
+    tooltip: OptionType<UIComponentType>,
+    popover: OptionType<UIComponentType>,
+}> = StructType({
+    start: FloatType,
+    end: OptionType(FloatType),
+    label: OptionType(LabelInputType),
+    icon: OptionType(EventIconType),
+    colorPalette: OptionType(ColorSchemeType),
+    background: OptionType(StringType),
+    stroke: OptionType(StringType),
+    opacity: OptionType(FloatType),
+    overlays: ArrayType(OverlayInputType),
+    tooltip: OptionType(UIComponentType),
+    popover: OptionType(UIComponentType),
+});
+
+export type PlannerEventType = typeof PlannerEventType;
 
 // ============================================================================
 // Planner Row Type
@@ -110,9 +162,12 @@ export {
  * Each row has table cells (displayed on the left) and events (displayed on the right as slots).
  *
  * @property cells - Dict of column key to cell content (same as Table)
- * @property events - Array of events (with optional popover content)
+ * @property events - Array of events
  */
-export const PlannerRowType = StructType({
+export const PlannerRowType: StructType<{
+    cells: DictType<StringType, typeof TableCellType>,
+    events: ArrayType<PlannerEventType>,
+}> = StructType({
     cells: DictType(StringType, TableCellType),
     events: ArrayType(PlannerEventType),
 });
@@ -127,29 +182,75 @@ export type PlannerRowType = typeof PlannerRowType;
 // ============================================================================
 
 /**
- * Type for Planner component data.
+ * Standalone East StructType mirror of the inline `Planner` variant in
+ * `component.ts`.
  *
  * @remarks
- * Planner displays rows with integer-based events (slots).
- * The slot range is derived from the events' domain, with optional min/max overrides.
+ * main carries content (`rows` / `columns` / `frozen`),
+ * timeline configuration (`slotMode` / `minSlot` / `maxSlot` /
+ * `stepSize` / `slotLabel` / `boundaries`), structured state
+ * (`rowStatus`), and behaviour (callbacks); `style` carries visual
+ * fields only. Per-event hover-tooltip and click-popover are now
+ * UIComponent slots on each event itself (`event.tooltip`,
+ * `event.popover`) — no root-level `eventPopover` callback.
  *
  * @property rows - Array of Planner rows
  * @property columns - Array of column definitions (same as Table)
- * @property style - Optional styling configuration
- * @property eventPopover - Optional function to render popover content for events
+ * @property frozen - Column keys to freeze (pin left)
+ * @property slotMode - Slot mode (single / span)
+ * @property minSlot - Optional min slot override
+ * @property maxSlot - Optional max slot override
+ * @property stepSize - Step size for snapping
+ * @property slotLabel - Custom slot label function
+ * @property boundaries - Vertical boundary lines at specific slot positions
+ * @property rowStatus - Row-status callback `(rowIndex) => StatusToken`
+ * @property onCellClick - Cell click callback
+ * @property onCellDoubleClick - Cell double-click callback
+ * @property onRowClick - Row click callback
+ * @property onRowDoubleClick - Row double-click callback
+ * @property onSortChange - Sort change callback
+ * @property onEventClick - Event click callback
+ * @property onEventDoubleClick - Event double-click callback
+ * @property onEventDrag - Event drag callback (presence enables drag)
+ * @property onEventResize - Event resize callback (presence enables resize)
+ * @property onEventAdd - Empty-slot click callback (presence enables add)
+ * @property onEventEdit - Context-menu edit callback (presence enables edit)
+ * @property onEventDelete - Context-menu delete callback (presence enables delete)
+ * @property style - Optional visual style sub-struct
  */
-export const PlannerRootType = StructType({
+export const PlannerRootType: StructType<{
+    rows: ArrayType<PlannerRowType>,
+    columns: ArrayType<typeof TableColumnType>,
+    frozen: ArrayType<StringType>,
+    slotMode: OptionType<SlotModeType>,
+    minSlot: OptionType<FloatType>,
+    maxSlot: OptionType<FloatType>,
+    stepSize: OptionType<FloatType>,
+    slotLabel: OptionType<FunctionType<[FloatType], StringType>>,
+    boundaries: OptionType<ArrayType<PlannerBoundaryType>>,
+    rowStatus: OptionType<FunctionType<[IntegerType], StatusTokenType>>,
+    onCellClick: OptionType<FunctionType<[TableCellClickEventType], NullType>>,
+    onCellDoubleClick: OptionType<FunctionType<[TableCellClickEventType], NullType>>,
+    onRowClick: OptionType<FunctionType<[TableRowClickEventType], NullType>>,
+    onRowDoubleClick: OptionType<FunctionType<[TableRowClickEventType], NullType>>,
+    onSortChange: OptionType<FunctionType<[TableSortEventType], NullType>>,
+    onEventClick: OptionType<FunctionType<[EventClickEventType], NullType>>,
+    onEventDoubleClick: OptionType<FunctionType<[EventClickEventType], NullType>>,
+    onEventDrag: OptionType<FunctionType<[EventDragEventType], NullType>>,
+    onEventResize: OptionType<FunctionType<[EventResizeEventType], NullType>>,
+    onEventAdd: OptionType<FunctionType<[EventAddEventType], NullType>>,
+    onEventEdit: OptionType<FunctionType<[EventClickEventType], NullType>>,
+    onEventDelete: OptionType<FunctionType<[EventDeleteEventType], NullType>>,
+    style: OptionType<PlannerStyleType>,
+}> = StructType({
     rows: ArrayType(PlannerRowType),
     columns: ArrayType(TableColumnType),
     frozen: ArrayType(StringType),
-    interactive: OptionType(BooleanType),
     slotMode: OptionType(SlotModeType),
     minSlot: OptionType(FloatType),
     maxSlot: OptionType(FloatType),
     stepSize: OptionType(FloatType),
     slotLabel: OptionType(FunctionType([FloatType], StringType)),
-    readOnly: OptionType(BooleanType),
-    eventPopoverTrigger: OptionType(EventPopoverTriggerType),
     boundaries: OptionType(ArrayType(PlannerBoundaryType)),
     rowStatus: OptionType(FunctionType([IntegerType], StatusTokenType)),
     onCellClick: OptionType(FunctionType([TableCellClickEventType], NullType)),
@@ -165,7 +266,6 @@ export const PlannerRootType = StructType({
     onEventEdit: OptionType(FunctionType([EventClickEventType], NullType)),
     onEventDelete: OptionType(FunctionType([EventDeleteEventType], NullType)),
     style: OptionType(PlannerStyleType),
-    eventPopover: OptionType(FunctionType([EventPopoverContextType], UIComponentType)),
 });
 
 /**
@@ -178,38 +278,76 @@ export type PlannerRootType = typeof PlannerRootType;
 // ============================================================================
 
 /**
- * Input interface for creating a Planner event.
+ * TypeScript interface for the ergonomic input passed to {@link createEvent}
+ * (`Planner.Event`).
  *
  * @remarks
- * This interface provides an ergonomic way to create events
- * by accepting both plain values and East expressions.
+ * The factory normalises this flat input into a fully-shaped East
+ * `PlannerEventType` value — wrapping each optional field in its
+ * `OptionType` envelope and converting variant string literals
+ * (`"blue"`, `"start"`, `"bold"`) to East variant values.
+ *
+ * Every field accepts either a plain JS value or an East expression
+ * via {@link SubtypeExprOrValue}.
  *
  * @property start - Start slot (or single slot if mode=single)
  * @property end - End slot (only used if mode=span)
- * @property label - Optional label configuration
- * @property icon - Optional icon configuration
- * @property colorPalette - Optional color scheme for the event background
- * @property background - Optional background color (overrides colorPalette)
- * @property stroke - Optional stroke/border color (overrides colorPalette)
- * @property opacity - Optional opacity (0-1)
+ * @property label - Optional rich label (text + alignment + typography)
+ * @property icon - Optional Font Awesome icon configuration
+ * @property colorPalette - Color scheme for the event background
+ * @property background - Explicit background/fill colour (overrides colorPalette)
+ * @property stroke - Explicit stroke/border colour (overrides colorPalette)
+ * @property opacity - Opacity (0-1)
+ * @property overlays - Axis-aligned UIComponent overlays painted inside the bar
+ * @property tooltip - Hover-triggered rich tooltip content (UIComponent)
+ * @property popover - Click-triggered rich popover content (UIComponent), coexists with `onEventClick`
  */
 export interface EventInput {
     /** Start slot (or single slot if mode=single) */
     start: SubtypeExprOrValue<FloatType>;
     /** End slot (only used if mode=span) */
     end?: SubtypeExprOrValue<FloatType>;
-    /** Optional label configuration */
-    label?: EventLabel;
-    /** Optional icon configuration */
+    /** Optional rich label (text + alignment + typography) */
+    label?: LabelInput;
+    /** Optional Font Awesome icon configuration */
     icon?: EventIcon;
     /** Color scheme for the event background */
     colorPalette?: SubtypeExprOrValue<ColorSchemeType> | ColorSchemeLiteral;
-    /** Background/fill color (overrides colorPalette) */
+    /** Explicit background/fill colour (overrides colorPalette) */
     background?: SubtypeExprOrValue<StringType>;
-    /** Stroke/border color (overrides colorPalette) */
+    /** Explicit stroke/border colour (overrides colorPalette) */
     stroke?: SubtypeExprOrValue<StringType>;
     /** Opacity (0-1) */
     opacity?: SubtypeExprOrValue<FloatType>;
+    /** Axis-aligned UIComponent overlays painted inside the bar */
+    overlays?: PlannerOverlayInput[];
+    /** Hover-triggered rich tooltip content (UIComponent) */
+    tooltip?: SubtypeExprOrValue<UIComponentType>;
+    /** Click-triggered rich popover content (UIComponent). Coexists with `onEventClick`. */
+    popover?: SubtypeExprOrValue<UIComponentType>;
+}
+
+/**
+ * TypeScript interface for a Planner event overlay — UIComponent painted
+ * at an axis-aligned position inside the event bar.
+ *
+ * @remarks
+ * Mirrors the Matrix overlay pattern. Defaults (when align /
+ * verticalAlign omitted) are `"center"` / `"center"`. Pointer events
+ * pass through the overlay so drag / click / popover triggers still hit
+ * the bar.
+ *
+ * @property content - The UIComponent painted at the chosen corner
+ * @property align - Horizontal alignment (start / center / end). Default `"center"`.
+ * @property verticalAlign - Vertical alignment (start / center / end). Default `"center"`.
+ */
+export interface PlannerOverlayInput {
+    /** The UIComponent painted at the chosen corner */
+    content: SubtypeExprOrValue<UIComponentType>;
+    /** Horizontal alignment (start / center / end). Default `"center"`. */
+    align?: AlignLiteral | SubtypeExprOrValue<AlignType>;
+    /** Vertical alignment (start / center / end). Default `"center"`. */
+    verticalAlign?: AlignLiteral | SubtypeExprOrValue<AlignType>;
 }
 
 // ============================================================================
@@ -217,26 +355,37 @@ export interface EventInput {
 // ============================================================================
 
 /**
- * Creates a Planner event.
+ * Builds a single Planner event East value from an ergonomic TS input.
  *
- * @param input - Event configuration
- * @returns An East expression representing the Planner event
+ * @param input - Event configuration ({@link EventInput})
+ * @returns An East expression of {@link PlannerEventType}
+ *
+ * @remarks
+ * Use inside the `events` callback of {@link createPlanner}. The callback
+ * returns `SubtypeExprOrValue<ArrayType<PlannerEventType>>`, so callers
+ * pass either an East-side ArrayExpr (e.g. mapping over an East array
+ * field) or a plain JS array of values built by this factory. The
+ * factory normalises optional fields (`label` / `icon` / `colorPalette`
+ * / `tooltip` / `popover` / `overlays`) into their `OptionType`
+ * envelopes and converts variant string literals (`"blue"`, `"start"`,
+ * `"bold"`) to East variant values — so callers don't have to reach
+ * for `some` / `none` / `variant(...)` directly.
  *
  * @example
  * ```ts
  * import { East } from "@elaraai/east";
  * import { Planner, UIComponentType } from "@elaraai/east-ui";
  *
- * const example = East.function([], UIComponentType, $ => {
+ * const example = East.function([], UIComponentType, _$ => {
  *     return Planner.Root(
- *         [{ name: "Alice", slot: 1n }],
+ *         [{ name: "Alice", start: 1.0, end: 4.0 }],
  *         ["name"],
  *         row => [Planner.Event({
- *             start: row.slot,
- *             end: row.slot.add(2n),
- *             label: { value: "Task" },
+ *             start: row.start,
+ *             end: row.end,
+ *             label: { value: "Task", color: "white" },
  *             colorPalette: "blue",
- *         })]
+ *         })],
  *     );
  * });
  * ```
@@ -254,13 +403,13 @@ function createEvent(input: EventInput): ExprType<PlannerEventType> {
     if (input.label) {
         const labelAlignValue = input.label.align
             ? (typeof input.label.align === "string"
-                ? East.value(variant(input.label.align, null), ContentAlignType)
+                ? East.value(variant(input.label.align, null), AlignType)
                 : input.label.align)
             : undefined;
 
         const labelVerticalAlignValue = input.label.verticalAlign
             ? (typeof input.label.verticalAlign === "string"
-                ? East.value(variant(input.label.verticalAlign, null), ContentAlignType)
+                ? East.value(variant(input.label.verticalAlign, null), AlignType)
                 : input.label.verticalAlign)
             : undefined;
 
@@ -290,7 +439,7 @@ function createEvent(input: EventInput): ExprType<PlannerEventType> {
             fontWeight: labelFontWeightValue ? variant("some", labelFontWeightValue) : variant("none", null),
             fontStyle: labelFontStyleValue ? variant("some", labelFontStyleValue) : variant("none", null),
             fontSize: labelFontSizeValue ? variant("some", labelFontSizeValue) : variant("none", null),
-        }, EventLabelType);
+        }, LabelInputType);
     }
 
     // Build icon object if provided
@@ -298,7 +447,7 @@ function createEvent(input: EventInput): ExprType<PlannerEventType> {
     if (input.icon) {
         const iconAlignValue = input.icon.align
             ? (typeof input.icon.align === "string"
-                ? East.value(variant(input.icon.align, null), ContentAlignType)
+                ? East.value(variant(input.icon.align, null), AlignType)
                 : input.icon.align)
             : undefined;
 
@@ -324,6 +473,20 @@ function createEvent(input: EventInput): ExprType<PlannerEventType> {
         }, EventIconType);
     }
 
+    const overlays = (input.overlays ?? []).map(o => {
+        const align = o.align !== undefined
+            ? (typeof o.align === "string"
+                ? East.value(variant(o.align as AlignLiteral, null), AlignType)
+                : o.align)
+            : East.value(variant("center", null), AlignType);
+        const verticalAlign = o.verticalAlign !== undefined
+            ? (typeof o.verticalAlign === "string"
+                ? East.value(variant(o.verticalAlign as AlignLiteral, null), AlignType)
+                : o.verticalAlign)
+            : East.value(variant("center", null), AlignType);
+        return East.value({ content: o.content, align, verticalAlign }, OverlayInputType);
+    });
+
     return East.value({
         start: input.start,
         end: input.end ? variant("some", input.end) : variant("none", null),
@@ -333,6 +496,9 @@ function createEvent(input: EventInput): ExprType<PlannerEventType> {
         background: input.background ? variant("some", input.background) : variant("none", null),
         stroke: input.stroke ? variant("some", input.stroke) : variant("none", null),
         opacity: input.opacity ? variant("some", input.opacity) : variant("none", null),
+        overlays,
+        tooltip: input.tooltip !== undefined ? some(input.tooltip) : none,
+        popover: input.popover !== undefined ? some(input.popover) : none,
     }, PlannerEventType);
 }
 
@@ -399,7 +565,7 @@ type DataFieldKeys<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
  *             { name: "Bob", start: 2n, end: 5n },
  *         ],
  *         ["name"],
- *         row => [Planner.Event({ start: row.start, end: row.end })],
+ *         row => [{ start: row.start, end: row.end }],
  *         {
  *             slotLabel: East.function([IntegerType], StringType, ($, slot) => {
  *                 return East.str`Day ${slot}`;
@@ -416,8 +582,7 @@ function createPlanner<
     data: T,
     columns: C,
     events: (row: ExprType<RowElement<T>>) => SubtypeExprOrValue<ArrayType<PlannerEventType>>,
-    style?: PlannerStyle<DataFieldKeys<T>>,
-    eventPopover?: SubtypeExprOrValue<FunctionType<[EventPopoverContextType], UIComponentType>>
+    style?: PlannerStyle<DataFieldKeys<T>>
 ): ExprType<UIComponentType> {
     const data_expr = East.value(data) as ExprType<ArrayType<StructType>>;
     const field_types = Expr.type(data_expr).value.fields;
@@ -499,7 +664,12 @@ function createPlanner<
             }));
         }
 
-        // Get events from the row using the events function
+        // Get events from the row using the events function. The callback
+        // returns a `SubtypeExprOrValue<ArrayType<PlannerEventType>>` — either
+        // an East-side ArrayExpr (e.g. `row.events.map(...)`) or a plain JS
+        // array of `ExprType<PlannerEventType>` values produced by
+        // `Planner.Event(...)`. Both forms are accepted directly by East.value
+        // when constructing the row struct.
         const row_events = $.let(events(datum as any), ArrayType(PlannerEventType));
 
         return East.value({
@@ -562,12 +732,6 @@ function createPlanner<
             : style.colorPalette)
         : undefined;
 
-    const eventPopoverTriggerValue = style?.eventPopoverTrigger
-        ? (typeof style.eventPopoverTrigger === "string"
-            ? East.value(variant(style.eventPopoverTrigger, null), EventPopoverTriggerType)
-            : style.eventPopoverTrigger)
-        : undefined;
-
     const hasVisualStyle = !!style && (
         style.height !== undefined ||
         style.variant !== undefined ||
@@ -584,7 +748,11 @@ function createPlanner<
         style.gridColor !== undefined ||
         style.nowMarkerColor !== undefined ||
         style.headerBackground !== undefined ||
-        style.headerColor !== undefined
+        style.headerColor !== undefined ||
+        style.eventBorderRadius !== undefined ||
+        style.labelColor !== undefined ||
+        style.labelFontSize !== undefined ||
+        style.labelFontWeight !== undefined
     );
 
     const styleValue = hasVisualStyle ? East.value({
@@ -604,11 +772,11 @@ function createPlanner<
         nowMarkerColor: style!.nowMarkerColor !== undefined ? some(style!.nowMarkerColor) : none,
         headerBackground: style!.headerBackground !== undefined ? some(style!.headerBackground) : none,
         headerColor: style!.headerColor !== undefined ? some(style!.headerColor) : none,
+        eventBorderRadius: style!.eventBorderRadius !== undefined ? some(style!.eventBorderRadius) : none,
+        labelColor: style!.labelColor !== undefined ? some(style!.labelColor) : none,
+        labelFontSize: style!.labelFontSize !== undefined ? some(style!.labelFontSize) : none,
+        labelFontWeight: style!.labelFontWeight !== undefined ? some(style!.labelFontWeight) : none,
     }, PlannerStyleType) : undefined;
-
-    const eventPopoverExpr = eventPopover
-        ? some(East.value(eventPopover, FunctionType([EventPopoverContextType], UIComponentType)))
-        : none;
 
     const boundariesValue = style?.boundaries
         ? some(style.boundaries.map(b => East.value({
@@ -624,14 +792,11 @@ function createPlanner<
         rows: rows_mapped,
         columns: columns_expr,
         frozen: frozen_expr,
-        interactive: style?.interactive !== undefined ? some(style.interactive) : none,
         slotMode: slotModeValue ? some(slotModeValue) : none,
         minSlot: style?.minSlot !== undefined ? some(style.minSlot) : none,
         maxSlot: style?.maxSlot !== undefined ? some(style.maxSlot) : none,
         stepSize: style?.stepSize !== undefined ? some(style.stepSize) : none,
         slotLabel: style?.slotLabel ? some(style.slotLabel) : none,
-        readOnly: style?.readOnly !== undefined ? some(style.readOnly) : none,
-        eventPopoverTrigger: eventPopoverTriggerValue ? some(eventPopoverTriggerValue) : none,
         boundaries: boundariesValue,
         rowStatus: style?.rowStatus !== undefined
             ? some(East.value(style.rowStatus, FunctionType([IntegerType], StatusTokenType)))
@@ -649,7 +814,6 @@ function createPlanner<
         onEventEdit: style?.onEventEdit ? some(style.onEventEdit) : none,
         onEventDelete: style?.onEventDelete ? some(style.onEventDelete) : none,
         style: styleValue ? some(styleValue) : none,
-        eventPopover: eventPopoverExpr,
     }), UIComponentType);
 }
 
@@ -665,18 +829,17 @@ interface PlannerNamespace {
         Root: typeof PlannerRootType;
         Row: typeof PlannerRowType;
         Event: typeof PlannerEventType;
-        EventLabel: typeof EventLabelType;
+        Label: typeof LabelInputType;
         EventIcon: typeof EventIconType;
-        ContentAlign: typeof ContentAlignType;
+        Align: typeof AlignType;
         Style: typeof PlannerStyleType;
         SlotMode: typeof SlotModeType;
         Boundary: typeof PlannerBoundaryType;
         ClickEvent: typeof EventClickEventType;
         DragEvent: typeof EventDragEventType;
         ResizeEvent: typeof EventResizeEventType;
+        AddEvent: typeof EventAddEventType;
         DeleteEvent: typeof EventDeleteEventType;
-        EventPopoverTrigger: typeof EventPopoverTriggerType;
-        EventPopoverContext: typeof EventPopoverContextType;
         Column: typeof TableColumnType;
         Cell: typeof TableCellType;
     };
@@ -730,49 +893,124 @@ export const Planner: PlannerNamespace = {
      */
     Root: createPlanner,
     /**
-     * Creates a Planner event.
+     * Builds a single Planner event East value from an ergonomic TS input.
      *
-     * @param input - Event configuration with start, end, label, colorPalette
-     * @returns An East expression representing the Planner event
+     * @param input - Event configuration ({@link EventInput})
+     * @returns An East expression of {@link PlannerEventType}
+     *
+     * @remarks
+     * Use inside the `events` callback of `Planner.Root`. The callback's
+     * return type is `SubtypeExprOrValue<ArrayType<PlannerEventType>>`,
+     * so callers pass an East-side ArrayExpr or a JS array of values
+     * built by this factory. The factory normalises optional fields
+     * (`label` / `icon` / `colorPalette` / `tooltip` / `popover` /
+     * `overlays`) into their `OptionType` envelopes and converts variant
+     * string literals (`"blue"`, `"start"`, `"bold"`) to East variant
+     * values — flat TS input in, fully-shaped East value out.
+     *
+     * @example
+     * ```ts
+     * import { East } from "@elaraai/east";
+     * import { Planner, UIComponentType } from "@elaraai/east-ui";
+     *
+     * const example = East.function([], UIComponentType, _$ => {
+     *     return Planner.Root(
+     *         [{ name: "Alice", start: 1.0, end: 4.0 }],
+     *         ["name"],
+     *         row => [Planner.Event({
+     *             start: row.start,
+     *             end: row.end,
+     *             label: { value: "Task", color: "white" },
+     *             colorPalette: "blue",
+     *         })],
+     *     );
+     * });
+     * ```
      */
     Event: createEvent,
     Types: {
         /**
-         * Type for Planner component data.
+         * East StructType for the entire Planner value — the root IR.
          *
-         * @property rows - Array of Planner rows
-         * @property columns - Array of column definitions
-         * @property style - Optional styling configuration
+         * @remarks
+         * The main struct carries content (`rows` / `columns`
+         * / `frozen`), timeline configuration, structured state
+         * (`rowStatus`), and behaviour callbacks; visual-only fields live
+         * inside the optional `style` sub-struct ({@link PlannerStyleType}).
+         *
+         * @property rows - Array of Planner rows ({@link PlannerRowType})
+         * @property columns - Array of column definitions (shared with Table)
+         * @property frozen - Column keys to freeze (pin left)
+         * @property slotMode - Slot mode (single / span)
+         * @property minSlot - Optional min slot override
+         * @property maxSlot - Optional max slot override
+         * @property stepSize - Step size for snapping
+         * @property slotLabel - Custom slot label function
+         * @property boundaries - Vertical boundary lines
+         * @property rowStatus - Row-status callback `(rowIndex) => StatusToken`
+         * @property onCellClick - Cell click callback
+         * @property onCellDoubleClick - Cell double-click callback
+         * @property onRowClick - Row click callback
+         * @property onRowDoubleClick - Row double-click callback
+         * @property onSortChange - Sort change callback
+         * @property onEventClick - Event click callback
+         * @property onEventDoubleClick - Event double-click callback
+         * @property onEventDrag - Event drag callback (presence enables drag)
+         * @property onEventResize - Event resize callback (presence enables resize)
+         * @property onEventAdd - Empty-slot click callback (presence enables add)
+         * @property onEventEdit - Context-menu edit callback
+         * @property onEventDelete - Context-menu delete callback
+         * @property style - Optional visual style sub-struct
          */
         Root: PlannerRootType,
         /**
-         * East type for an Planner row.
+         * East StructType for a single Planner row.
          *
-         * @property cells - Dict of column key to cell content
-         * @property events - Array of events
+         * @remarks
+         * Each row pairs `cells` (the dict of column-keyed table cells,
+         * shared with the Table primitive) with `events` (the array of
+         * Planner-event values painted on the row's slot grid).
+         *
+         * @property cells - Dict of column key to cell content (shared with Table)
+         * @property events - Array of events ({@link PlannerEventType})
          */
         Row: PlannerRowType,
         /**
-         * Event data for Planner.
+         * East StructType for a single Planner event — the row's slot bar.
          *
-         * @property start - Start slot
-         * @property end - End slot (optional, for span mode)
-         * @property label - Optional label configuration
-         * @property icon - Optional icon configuration
-         * @property colorPalette - Optional color scheme
+         * @remarks
+         * Every optional field is wrapped in `OptionType`. Use the
+         * {@link createEvent | `Planner.Event`} factory to construct
+         * values from a flat TS interface; the factory handles the
+         * `some` / `none` / `variant(...)` envelopes for you.
+         *
+         * @property start - Start slot (or single slot if mode=single)
+         * @property end - End slot (only used if mode=span)
+         * @property label - Optional rich label (text + alignment + typography)
+         * @property icon - Optional Font Awesome icon configuration
+         * @property colorPalette - Color scheme for the event background
+         * @property background - Explicit fill colour override
+         * @property stroke - Explicit stroke colour override
+         * @property opacity - Opacity (0-1)
+         * @property overlays - Axis-aligned UIComponent overlays
+         * @property tooltip - Hover-triggered rich tooltip (UIComponent)
+         * @property popover - Click-triggered rich popover (UIComponent)
          */
         Event: PlannerEventType,
         /**
-         * Label configuration for Planner events.
+         * Rich label configuration for Planner events — re-export of the
+         * shared {@link LabelInputType} from `@elaraai/east-ui` for ergonomic
+         * discovery via `Planner.Types.Label`.
          *
          * @property value - The label text (required)
-         * @property align - Position within the event (start, center, end)
+         * @property align - Horizontal position within the event (start, center, end)
+         * @property verticalAlign - Vertical position within the event (start, center, end)
          * @property color - Text color
          * @property fontWeight - Font weight
          * @property fontStyle - Font style
          * @property fontSize - Font size
          */
-        EventLabel: EventLabelType,
+        Label: LabelInputType,
         /**
          * Icon configuration for Planner events.
          *
@@ -785,74 +1023,158 @@ export const Planner: PlannerNamespace = {
          */
         EventIcon: EventIconType,
         /**
-         * Alignment for content within an event.
+         * Axis alignment variant — re-export of the shared {@link AlignType}
+         * from `@elaraai/east-ui` for ergonomic discovery via `Planner.Types.Align`.
          *
-         * @property start - Align to the start (left)
+         * @property start - Align to the start (left / top)
          * @property center - Align to center
-         * @property end - Align to the end (right)
+         * @property end - Align to the end (right / bottom)
          */
-        ContentAlign: ContentAlignType,
+        Align: AlignType,
         /**
-         * Style type for the Planner component.
+         * East StructType holding every visual field for a Planner.
+         *
+         * @remarks
+         * Visual-only. Mirror of {@link PlannerStyleType} —
+         * exposed on the namespace so consumers can reference the IR
+         * style type via `Planner.Types.Style`.
+         *
+         * @property height - CSS height for the Planner container
+         * @property variant - Table variant (line / outline)
+         * @property size - Table size (sm / md / lg)
+         * @property striped - Whether to show zebra stripes on rows
+         * @property stickyHeader - Whether the header sticks when scrolling
+         * @property showColumnBorder - Whether to show borders between columns
+         * @property slotMinWidth - Min width per slot (CSS value, default `"60px"`)
+         * @property colorPalette - Default color scheme for events
+         * @property slotLineStroke - Vertical grid line colour
+         * @property slotLineWidth - Vertical grid line width in pixels
+         * @property slotLineDash - Vertical grid line dash pattern
+         * @property slotLineOpacity - Vertical grid line opacity (0-1)
+         * @property gridColor - Explicit grid colour
+         * @property nowMarkerColor - Explicit now-marker colour
+         * @property headerBackground - Header row background
+         * @property headerColor - Header row text colour
+         * @property eventBorderRadius - CSS border-radius for event bars
+         * @property labelColor - Default text colour for per-event labels
+         * @property labelFontSize - Default CSS font-size for per-event labels
+         * @property labelFontWeight - Default CSS font-weight for per-event labels
          */
         Style: PlannerStyleType,
         /**
-         * Slot mode variant type.
+         * Slot mode variant — controls how events occupy the slot grid.
          *
-         * @property single - Each event occupies one slot
-         * @property span - Events span from start to end
+         * @remarks
+         * Use string literals (`"single"` / `"span"`) at call sites; the
+         * factory normalises them into East variant values.
+         *
+         * @property single - Each event occupies exactly one slot (start only)
+         * @property span - Events span from start to end (inclusive)
          */
         SlotMode: SlotModeType,
         /**
-         * Boundary data for vertical lines at specific slot positions.
+         * East StructType for a vertical boundary line at a specific
+         * slot position — typically used to mark deadlines / milestones
+         * on the timeline.
+         *
+         * @remarks
+         * Boundaries are rendered as full-height vertical lines on the
+         * slot grid. Stroke / dash / opacity all default to sensible
+         * values when omitted.
          *
          * @property x - Slot position for the boundary line
-         * @property stroke - Line color
+         * @property stroke - Line colour
          * @property strokeWidth - Line width in pixels
-         * @property strokeDash - Dash pattern
+         * @property strokeDash - Dash pattern (e.g. `"4 2"`)
          * @property strokeOpacity - Line opacity (0-1)
          */
         Boundary: PlannerBoundaryType,
         /**
-         * Event data for event click events.
+         * East StructType for the event payload of `onEventClick` /
+         * `onEventDoubleClick` / `onEventEdit` callbacks.
+         *
+         * @property rowIndex - Row index (0-based)
+         * @property eventIndex - Event index within the row (0-based)
+         * @property start - Start slot of the event
+         * @property end - End slot of the event (same as start for single-slot mode)
          */
         ClickEvent: EventClickEventType,
         /**
-         * Event data for event drag (move) events.
+         * East StructType for the event payload of `onEventDrag`.
+         *
+         * @remarks
+         * The renderer fires this when a user finishes dragging an event
+         * to a new position. Both previous and new slot positions are
+         * provided so the consumer can validate / undo / persist as
+         * needed.
+         *
+         * @property rowIndex - Row index (0-based)
+         * @property eventIndex - Event index within the row (0-based)
+         * @property previousStart - Slot position before the drag
+         * @property previousEnd - End slot before the drag
+         * @property newStart - New start slot after the drag
+         * @property newEnd - New end slot after the drag
          */
         DragEvent: EventDragEventType,
         /**
-         * Event data for event resize events.
+         * East StructType for the event payload of `onEventResize`.
+         *
+         * @remarks
+         * Same shape as `DragEvent` plus an `edge` discriminator marking
+         * which edge (start / end) was dragged.
+         *
+         * @property rowIndex - Row index (0-based)
+         * @property eventIndex - Event index within the row (0-based)
+         * @property previousStart - Slot position before the resize
+         * @property previousEnd - End slot before the resize
+         * @property newStart - New start slot after the resize
+         * @property newEnd - New end slot after the resize
+         * @property edge - Which edge was dragged (start / end)
          */
         ResizeEvent: EventResizeEventType,
         /**
-         * Event data for event delete events.
+         * East StructType for the event payload of `onEventAdd`.
+         *
+         * @remarks
+         * Renderer fires this when a user clicks an unoccupied slot —
+         * the callback's presence on `onEventAdd` is what enables the
+         * empty-slot affordance in the first place.
+         *
+         * @property rowIndex - Row index (0-based)
+         * @property slot - Slot the user clicked
+         */
+        AddEvent: EventAddEventType,
+        /**
+         * East StructType for the event payload of `onEventDelete`.
+         *
+         * @property rowIndex - Row index (0-based)
+         * @property eventIndex - Event index within the row (0-based)
+         * @property start - Start slot of the deleted event
+         * @property end - End slot of the deleted event
          */
         DeleteEvent: EventDeleteEventType,
         /**
-         * Trigger variant type for event popover.
+         * East StructType for a table column definition — re-export of
+         * the shared {@link TableColumnType} so consumers can reference
+         * column shape via `Planner.Types.Column`.
          *
-         * @property click - Popover appears when event is clicked
-         * @property hover - Popover appears when hovering over event
-         */
-        EventPopoverTrigger: EventPopoverTriggerType,
-        /**
-         * Context passed to the eventPopover function.
-         *
-         * @property rowIndex - Row index (0-based)
-         * @property eventIndex - Event index within the row
-         * @property start - Start slot of the event
-         * @property end - End slot of the event
-         * @property label - Event label (if any)
-         * @property colorPalette - Event color palette (if any)
-         */
-        EventPopoverContext: EventPopoverContextType,
-        /**
-         * East type for a table column definition.
+         * @property key - The column key (field name)
+         * @property dataType - Original data field type
+         * @property valueType - Sortable / display value type after value-fn
+         * @property header - Optional header text
+         * @property width - Optional CSS width
+         * @property minWidth - Optional CSS min-width
+         * @property maxWidth - Optional CSS max-width
+         * @property render - Optional render function for cell content
          */
         Column: TableColumnType,
         /**
-         * East type for a table cell.
+         * East StructType for a table cell — re-export of the shared
+         * {@link TableCellType} so consumers can reference the cell
+         * shape via `Planner.Types.Cell`.
+         *
+         * @property value - The literal cell value (used for sorting)
+         * @property content - Optional pre-rendered UIComponent body
          */
         Cell: TableCellType,
     },

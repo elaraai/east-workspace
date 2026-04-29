@@ -23,7 +23,7 @@ import { PaddingType, MarginType } from "../../layout/style.js";
  * East StructType for the Avatar style sub-struct.
  *
  * @remarks
- * Visual-only per the type-shape convention. `src` and `name` stay on the
+ * Visual-only. `src` and `name` stay on the
  * main struct; every visual field (presets, colour slots, sizing, overflow,
  * padding, margin) is here.
  *

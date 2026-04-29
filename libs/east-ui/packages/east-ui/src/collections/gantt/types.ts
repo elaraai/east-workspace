@@ -25,6 +25,9 @@ import {
 } from "../../style.js";
 import { StatusTokenType } from "../../style/interaction.js";
 
+// Re-export shared content primitives for ergonomic discovery via Gantt.Types.*.
+export { AlignType, LabelInputType, type AlignLiteral, type LabelInput } from "../../style.js";
+
 // Import shared types from table
 import {
     TableVariantType,
@@ -67,93 +70,14 @@ export const TimeStepType = VariantType({
 
 export type TimeStepType = typeof TimeStepType;
 
-// ============================================================================
-// Gantt Event Types
-// ============================================================================
-
-/**
- * Task event data for Gantt charts.
- *
- * @remarks
- * Represents a task bar spanning from start to end date. Per-task
- * colour escape hatches (`background`, `stroke`, `labelColor`,
- * `progressFill`) let callers override the default
- * `colorPalette`-derived palette without needing a theme change.
- *
- * @property start - Start date/time of the task
- * @property end - End date/time of the task
- * @property label - Optional label to display on the task bar
- * @property progress - Optional progress percentage (0-100)
- * @property colorPalette - Optional color scheme for the task bar
- * @property background - Optional explicit fill colour for the task bar
- * @property stroke - Optional explicit stroke/border colour
- * @property labelColor - Optional explicit colour for the task label
- * @property progressFill - Optional explicit fill colour for the progress segment
- */
-export const GanttTaskType = StructType({
-    start: DateTimeType,
-    end: DateTimeType,
-    label: OptionType(StringType),
-    progress: OptionType(FloatType),
-    colorPalette: OptionType(ColorSchemeType),
-    background: OptionType(StringType),
-    stroke: OptionType(StringType),
-    labelColor: OptionType(StringType),
-    progressFill: OptionType(StringType),
-});
-
-/**
- * Type representing the Gantt task structure.
- */
-export type GanttTaskType = typeof GanttTaskType;
-
-/**
- * Milestone event data for Gantt charts.
- *
- * @remarks
- * Represents a single point in time milestone. Per-milestone colour
- * escape hatches (`fill`, `stroke`, `labelColor`) let callers override
- * the default `colorPalette`-derived palette.
- *
- * @property date - The date/time of the milestone
- * @property label - Optional label to display near the milestone
- * @property colorPalette - Optional color scheme for the milestone marker
- * @property fill - Optional explicit fill colour for the milestone marker
- * @property stroke - Optional explicit stroke colour for the milestone marker
- * @property labelColor - Optional explicit colour for the milestone label
- */
-export const GanttMilestoneType = StructType({
-    date: DateTimeType,
-    label: OptionType(StringType),
-    colorPalette: OptionType(ColorSchemeType),
-    fill: OptionType(StringType),
-    stroke: OptionType(StringType),
-    labelColor: OptionType(StringType),
-});
-
-/**
- * Type representing the Gantt milestone structure.
- */
-export type GanttMilestoneType = typeof GanttMilestoneType;
-
-/**
- * Gantt event variant type.
- *
- * @remarks
- * Events can be either tasks (with duration) or milestones (single point).
- *
- * @property Task - A task spanning from start to end date
- * @property Milestone - A milestone at a specific date
- */
-export const GanttEventType = VariantType({
-    Task: GanttTaskType,
-    Milestone: GanttMilestoneType,
-});
-
-/**
- * Type representing the Gantt event variant.
- */
-export type GanttEventType = typeof GanttEventType;
+// NOTE: `GanttTaskType` and `GanttMilestoneType` are UIComp-coupled
+// (they carry `tooltip` / `popover` UIComponent slots and `overlays`)
+// and live in `./index.ts` alongside the factory. types.ts stays
+// UIComp-free so it can be imported by `component.ts` without a
+// circular dependency. The previous `GanttEventType` variant has been
+// dropped — Gantt rows now expose `tasks` and `milestones` as separate
+// arrays, which removes the variant ceremony at the call site and
+// gives per-subtype TS narrowing for free.
 
 // ============================================================================
 // Gantt Callback Event Types
@@ -264,7 +188,7 @@ export const GanttMilestoneDragEventType = StructType({
 export type GanttMilestoneDragEventType = typeof GanttMilestoneDragEventType;
 
 /**
- * Style type for the Gantt component — visual-only per §0.10.
+ * Style type for the Gantt component — visual-only.
  *
  * @remarks
  * Interactive / drag-config / callbacks live on the main `Gantt`
@@ -296,6 +220,12 @@ export const GanttStyleType = StructType({
     todayMarkerColor: OptionType(StringType),
     headerBackground: OptionType(StringType),
     headerColor: OptionType(StringType),
+
+    // Visual parity with Matrix — task/milestone chrome + label defaults.
+    taskBorderRadius: OptionType(StringType),
+    labelColor: OptionType(StringType),
+    labelFontSize: OptionType(StringType),
+    labelFontWeight: OptionType(StringType),
 });
 
 /**
@@ -308,8 +238,7 @@ export type GanttStyleType = typeof GanttStyleType;
  *
  * @remarks
  * Flat options bag — the factory splits into main-struct (content /
- * config / wiring / callbacks) and `style` sub-struct (visual-only)
- * per §0.10.
+ * config / wiring / callbacks) and `style` sub-struct (visual-only).
  *
  * @property frozen - Column keys to freeze (pin left)
  * @property height - CSS height
@@ -352,8 +281,6 @@ export interface GanttStyle<ColumnKeys extends string = string> {
     size?: SubtypeExprOrValue<TableSizeType> | TableSizeLiteral;
     /** Whether to show zebra stripes on rows. */
     striped?: SubtypeExprOrValue<BooleanType>;
-    /** Whether to highlight rows on hover. */
-    interactive?: SubtypeExprOrValue<BooleanType>;
     /** Whether the header sticks when scrolling. */
     stickyHeader?: SubtypeExprOrValue<BooleanType>;
     /** Whether to show borders between columns. */
@@ -370,6 +297,14 @@ export interface GanttStyle<ColumnKeys extends string = string> {
     headerBackground?: SubtypeExprOrValue<StringType>;
     /** Explicit text colour for the header row. */
     headerColor?: SubtypeExprOrValue<StringType>;
+    /** CSS border-radius for task bars. Default `"2px"`. */
+    taskBorderRadius?: SubtypeExprOrValue<StringType>;
+    /** Default text colour for per-task / per-milestone labels. Default `"white"`. */
+    labelColor?: SubtypeExprOrValue<StringType>;
+    /** Default CSS `font-size` for per-task / per-milestone labels. Default `"0.75rem"`. */
+    labelFontSize?: SubtypeExprOrValue<StringType>;
+    /** Default CSS `font-weight` for per-task / per-milestone labels. Default `"600"`. */
+    labelFontWeight?: SubtypeExprOrValue<StringType>;
     /** Optional time step for drag snapping (e.g., variant("days", 1) for daily). */
     dragStep?: SubtypeExprOrValue<TimeStepType>;
     /** Optional time step for duration change snapping. */

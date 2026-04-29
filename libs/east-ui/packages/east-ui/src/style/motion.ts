@@ -16,7 +16,7 @@ import { East, NullType, variant, VariantType, type ExprType } from "@elaraai/ea
  * Create instances using the {@link AnimationPreset} function. The renderer
  * consults the `prefers-reduced-motion` media query: every preset degrades to
  * `none` when the user requests reduced motion (IR-level default, enforced by
- * the renderer — see §0.2 contract).
+ * the renderer — see contract).
  *
  * @property none - No animation (used as the reduced-motion fallback)
  * @property pulse - Opacity / scale pulse (e.g. "recomputing" status dot)

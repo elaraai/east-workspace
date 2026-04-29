@@ -2,8 +2,8 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, ArrayType, IntegerType, LiteralValueType, NullType, StringType, variant, example } from "@elaraai/east";
-import { Badge, Box, Reactive, Stack, State, Style, Table, Tag, Text, UIComponentType } from "@elaraai/east-ui";
+import { East, ArrayType, IntegerType, LiteralValueType, NullType, StringType, StructType, variant, example } from "@elaraai/east";
+import { Badge, Box, Pagination, Reactive, Stack, State, Style, Table, Tag, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const tableBasic = example({
     keywords: ["Table", "Root", "basic", "header"],
@@ -636,6 +636,260 @@ export const tableColourOverrides = example({
                 zebraBackground: "blue.50",
                 hoverBackground: "blue.100",
             },
+        );
+    }),
+    inputs: [],
+});
+
+// ============================================================================
+// Plan 1.10 K — additional feature coverage
+// ============================================================================
+
+export const tableExpandedRichDetail = example({
+    keywords: ["Table", "Root", "expandedContent", "rich detail", "Stack", "Stat"],
+    description: "Expandable rows with rich detail content — Stack of Stat + Text components nested in the detail panel",
+    fn: East.function([], UIComponentType, (_$) => {
+        const rows = [
+            { name: "Alice", revenue: 142000n, deals: 18n, region: "EMEA" },
+            { name: "Bob", revenue: 98000n, deals: 12n, region: "APAC" },
+            { name: "Charlie", revenue: 215000n, deals: 24n, region: "AMER" },
+        ];
+        const rowsExpr = East.value(rows);
+        return Table.Root(
+            rows,
+            { name: { header: "Sales rep" }, region: { header: "Region" } },
+            {
+                variant: "line",
+                striped: true,
+                expandedContent: East.function([IntegerType], UIComponentType, ($, rowIndex) => {
+                    const row = $.let(rowsExpr.get(rowIndex));
+                    return Box.Root([
+                        Stack.HStack([
+                            Stack.VStack([
+                                Text.Root("Revenue", { textStyle: "caption", color: "gray.600" }),
+                                Text.Root(East.str`$${row.revenue}`, { textStyle: "heading-md", fontWeight: "bold" }),
+                            ], { gap: "1" }),
+                            Stack.VStack([
+                                Text.Root("Deals closed", { textStyle: "caption", color: "gray.600" }),
+                                Text.Root(East.str`${row.deals}`, { textStyle: "heading-md", fontWeight: "bold" }),
+                            ], { gap: "1" }),
+                            Stack.VStack([
+                                Text.Root("Region", { textStyle: "caption", color: "gray.600" }),
+                                Badge.Root(row.region, { variant: "subtle", colorPalette: "blue" }),
+                            ], { gap: "1" }),
+                        ], { gap: "8" }),
+                    ], { padding: "4", background: "gray.50" });
+                }),
+            },
+        );
+    }),
+    inputs: [],
+});
+
+export const tableMultiRowFooter = example({
+    keywords: ["Table", "Root", "footerRows", "subtotal", "grand total", "multi-row"],
+    description: "Multi-row footer — `footerRows` with a subtotal row and a bold grand-total row, demonstrating colSpan-spanned label cells",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Table.Root(
+            [
+                { item: "Sandwich", category: "Food", price: 12.50 },
+                { item: "Salad", category: "Food", price: 9.00 },
+                { item: "Soda", category: "Drink", price: 3.50 },
+                { item: "Coffee", category: "Drink", price: 4.50 },
+            ],
+            {
+                item: { header: "Item" },
+                category: { header: "Category" },
+                price: { header: "Price ($)" },
+            },
+            {
+                variant: "line",
+                footerRows: [
+                    {
+                        item: { content: Text.Root("Food subtotal", { fontWeight: "medium" }), colSpan: 2n },
+                        price: { content: Text.Root("$21.50") },
+                    },
+                    {
+                        item: { content: Text.Root("Drink subtotal", { fontWeight: "medium" }), colSpan: 2n },
+                        price: { content: Text.Root("$8.00") },
+                    },
+                    {
+                        item: { content: Text.Root("Grand total", { fontWeight: "bold" }), colSpan: 2n },
+                        price: { content: Text.Root("$29.50", { fontWeight: "bold" }) },
+                    },
+                ],
+                footerBackground: "gray.50",
+            },
+        );
+    }),
+    inputs: [],
+});
+
+export const tableNestedColumnGroups = example({
+    keywords: ["Table", "Root", "columnGroups", "nested", "category", "header row"],
+    description: "Three column groups across six columns — financial-report-style header with Identity / Q1-Q2 / Q3-Q4 groupings",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Table.Root(
+            [
+                { dept: "Sales", region: "EMEA", q1: "$120k", q2: "$135k", q3: "$148k", q4: "$162k" },
+                { dept: "Sales", region: "APAC", q1: "$95k", q2: "$102k", q3: "$118k", q4: "$130k" },
+                { dept: "Marketing", region: "AMER", q1: "$48k", q2: "$52k", q3: "$54k", q4: "$59k" },
+            ],
+            {
+                dept: { header: "Department" },
+                region: { header: "Region" },
+                q1: { header: "Q1" },
+                q2: { header: "Q2" },
+                q3: { header: "Q3" },
+                q4: { header: "Q4" },
+            },
+            {
+                variant: "outline",
+                showColumnBorder: true,
+                columnGroups: [
+                    { label: "Identity", columnKeys: ["dept", "region"] },
+                    { label: "First half", columnKeys: ["q1", "q2"] },
+                    { label: "Second half", columnKeys: ["q3", "q4"] },
+                ],
+            },
+        );
+    }),
+    inputs: [],
+});
+
+export const tablePaginationServerSide = example({
+    keywords: ["Table", "Root", "pagination", "server-side", "slice", "Reactive", "State"],
+    description: "Server-side-style pagination — full dataset captured outside Reactive via $.let; inside, the State page index slices it via slice(start, pageSize) and only the page window reaches Table",
+    fn: East.function([], UIComponentType, ($) => {
+        const RowType = StructType({
+            id: StringType,
+            name: StringType,
+            value: IntegerType,
+        });
+        const allRows = $.let(
+            East.Array.range(0n, 200n).map((_$, i) => ({
+                id: East.str`#${i}`,
+                name: East.str`Customer ${i}`,
+                value: i.multiply(13n),
+            })),
+            ArrayType(RowType),
+        );
+        const total = $.let(allRows.size(), IntegerType);
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const pageSize = $.let(10n, IntegerType);
+            const pageBind = $.let(State.bind([IntegerType], "table_server_page", 0n));
+            const page = $.let(pageBind.read(), IntegerType);
+            const start = $.let(page.multiply(pageSize), IntegerType);
+            const end = $.let(start.add(pageSize), IntegerType);
+            const pageRows = $.let(allRows.slice(start, end), ArrayType(RowType));
+            const onPageChange = $.const(East.function([IntegerType], NullType, ($, next) => {
+                $(pageBind.write(next));
+            }));
+            return Stack.VStack([
+                Badge.Root(
+                    East.str`Showing rows ${start.add(1n)}–${start.add(pageRows.size())} of ${total}`,
+                    { variant: "subtle", colorPalette: "blue" },
+                ),
+                Table.Root(
+                    pageRows,
+                    {
+                        id: { header: "ID" },
+                        name: { header: "Customer" },
+                        value: { header: "Value" },
+                    },
+                    { variant: "line", striped: true },
+                ),
+                Pagination.Root(page, pageSize, total, onPageChange),
+            ], { gap: "3", align: "stretch" });
+        }));
+    }),
+    inputs: [],
+});
+
+export const tableMultiSelection = example({
+    keywords: ["Table", "Root", "selection", "multiple", "checkbox", "Reactive", "State"],
+    description: "Multiple-row selection — `mode: 'multiple'` toggles rows independently; selection mirrors a State array",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const selectedBind = $.let(State.bind([ArrayType(IntegerType)], "table_multi_selected", []));
+            const selected = $.let(selectedBind.read(), ArrayType(IntegerType));
+            const onChange = $.const(East.function([ArrayType(IntegerType)], NullType, ($, next) => {
+                $(selectedBind.write(next));
+            }));
+            return Stack.VStack([
+                Badge.Root(
+                    East.str`${selected.size()} selected`,
+                    { variant: "solid", colorPalette: "blue" },
+                ),
+                Table.Root(
+                    [
+                        { name: "Alice", role: "Admin" },
+                        { name: "Bob", role: "User" },
+                        { name: "Charlie", role: "User" },
+                        { name: "Diana", role: "Manager" },
+                        { name: "Eve", role: "User" },
+                    ],
+                    { name: { header: "Name" }, role: { header: "Role" } },
+                    {
+                        variant: "line",
+                        striped: true,
+                        selection: { mode: "multiple", selected, onChange },
+                        selectedBackground: "blue.50",
+                        selectedBorderColor: "blue.300",
+                    },
+                ),
+            ], { gap: "3", align: "stretch" });
+        }));
+    }),
+    inputs: [],
+});
+
+export const tableRangeSelection = example({
+    keywords: ["Table", "Root", "selection", "range", "shift-click", "Reactive", "State"],
+    description: "Range-mode selection — shift-click extends from the last anchor; plain click resets to a single row",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const selectedBind = $.let(State.bind([ArrayType(IntegerType)], "table_range_selected", []));
+            const selected = $.let(selectedBind.read(), ArrayType(IntegerType));
+            const onChange = $.const(East.function([ArrayType(IntegerType)], NullType, ($, next) => {
+                $(selectedBind.write(next));
+            }));
+            return Stack.VStack([
+                Badge.Root(
+                    East.str`Range size: ${selected.size()}`,
+                    { variant: "outline", colorPalette: "purple" },
+                ),
+                Table.Root(
+                    East.Array.range(0n, 8n).map((_$, i) => ({
+                        id: East.str`#${i.add(1n)}`,
+                        task: East.str`Task ${i.add(1n)}`,
+                    })),
+                    { id: { header: "ID" }, task: { header: "Task" } },
+                    {
+                        variant: "line",
+                        striped: true,
+                        selection: { mode: "range", selected, onChange },
+                        selectedBackground: "purple.50",
+                        selectedBorderColor: "purple.300",
+                    },
+                ),
+            ], { gap: "3", align: "stretch" });
+        }));
+    }),
+    inputs: [],
+});
+
+export const tableDensityComfortable = example({
+    keywords: ["Table", "Root", "density", "comfortable", "spacious"],
+    description: "Comfortable density — the `density: 'comfortable'` token loosens row height for breathable layouts",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Table.Root(
+            East.Array.range(0n, 5n).map((_$, i) => ({
+                name: East.str`Row ${i}`,
+                description: East.str`Comfortable row description ${i}`,
+            })),
+            { name: { header: "Name" }, description: { header: "Description" } },
+            { variant: "line", density: "comfortable" },
         );
     }),
     inputs: [],

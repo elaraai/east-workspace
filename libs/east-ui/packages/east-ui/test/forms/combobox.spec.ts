@@ -180,8 +180,8 @@ describeEast("Combobox", (test) => {
             size: "sm",
         }));
 
-        $(Assert.equal(combobox.unwrap().unwrap("Combobox").size.hasTag("some"), true));
-        $(Assert.equal(combobox.unwrap().unwrap("Combobox").size.unwrap("some").hasTag("sm"), true));
+        $(Assert.equal(combobox.unwrap().unwrap("Combobox").style.unwrap("some").size.hasTag("some"), true));
+        $(Assert.equal(combobox.unwrap().unwrap("Combobox").style.unwrap("some").size.unwrap("some").hasTag("sm"), true));
     });
 
     test("creates medium combobox", $ => {
@@ -191,7 +191,7 @@ describeEast("Combobox", (test) => {
             size: "md",
         }));
 
-        $(Assert.equal(combobox.unwrap().unwrap("Combobox").size.unwrap("some").hasTag("md"), true));
+        $(Assert.equal(combobox.unwrap().unwrap("Combobox").style.unwrap("some").size.unwrap("some").hasTag("md"), true));
     });
 
     test("creates large combobox", $ => {
@@ -201,7 +201,7 @@ describeEast("Combobox", (test) => {
             size: "lg",
         }));
 
-        $(Assert.equal(combobox.unwrap().unwrap("Combobox").size.unwrap("some").hasTag("lg"), true));
+        $(Assert.equal(combobox.unwrap().unwrap("Combobox").style.unwrap("some").size.unwrap("some").hasTag("lg"), true));
     });
 
     test("creates combobox with Style.Size helper", $ => {
@@ -211,7 +211,7 @@ describeEast("Combobox", (test) => {
             size: Style.Size("md"),
         }));
 
-        $(Assert.equal(combobox.unwrap().unwrap("Combobox").size.unwrap("some").hasTag("md"), true));
+        $(Assert.equal(combobox.unwrap().unwrap("Combobox").style.unwrap("some").size.unwrap("some").hasTag("md"), true));
     });
 
     // =========================================================================
@@ -258,7 +258,7 @@ describeEast("Combobox", (test) => {
         $(Assert.equal(combobox.unwrap().unwrap("Combobox").placeholder.unwrap("some"), "Search countries..."));
         $(Assert.equal(combobox.unwrap().unwrap("Combobox").multiple.unwrap("some"), false));
         $(Assert.equal(combobox.unwrap().unwrap("Combobox").disabled.unwrap("some"), false));
-        $(Assert.equal(combobox.unwrap().unwrap("Combobox").size.unwrap("some").hasTag("md"), true));
+        $(Assert.equal(combobox.unwrap().unwrap("Combobox").style.unwrap("some").size.unwrap("some").hasTag("md"), true));
         $(Assert.equal(combobox.unwrap().unwrap("Combobox").allowCustomValue.unwrap("some"), false));
     });
 
@@ -275,7 +275,7 @@ describeEast("Combobox", (test) => {
         }));
 
         $(Assert.equal(combobox.unwrap().unwrap("Combobox").placeholder.unwrap("some"), "Search your country"));
-        $(Assert.equal(combobox.unwrap().unwrap("Combobox").size.unwrap("some").hasTag("md"), true));
+        $(Assert.equal(combobox.unwrap().unwrap("Combobox").style.unwrap("some").size.unwrap("some").hasTag("md"), true));
     });
 
     test("creates combobox with disabled item", $ => {

@@ -6,7 +6,9 @@
 import {
     type ExprType,
     type SubtypeExprOrValue,
+    OptionType,
     StringType,
+    StructType,
     VariantType,
     NullType,
 } from "@elaraai/east";
@@ -74,6 +76,31 @@ export type SeparatorAlignType = typeof SeparatorAlignType;
  * String literal type for separator alignment values.
  */
 export type SeparatorAlignLiteral = "start" | "center" | "end";
+
+/**
+ * Visual-only style struct for Separator.
+ *
+ * @remarks
+ * The visual fields (orientation, variant, size, colour,
+ * align) live in `style`. The `label` is content and stays on the main
+ * struct.
+ *
+ * @property orientation - Orientation (horizontal or vertical)
+ * @property variant - Line style variant (solid, dashed, dotted)
+ * @property size - Thickness size
+ * @property color - Colour (Chakra UI colour token or CSS colour)
+ * @property align - Label alignment (start | center | end)
+ */
+export const SeparatorStyleType = StructType({
+    orientation: OptionType(OrientationType),
+    variant: OptionType(SeparatorVariantType),
+    size: OptionType(SizeType),
+    color: OptionType(StringType),
+    align: OptionType(SeparatorAlignType),
+});
+
+/** Type alias for the Separator style struct. */
+export type SeparatorStyleType = typeof SeparatorStyleType;
 
 /**
  * Style configuration for Separator components.

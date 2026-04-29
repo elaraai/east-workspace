@@ -162,7 +162,7 @@ export interface SegmentGroupOptions {
  * @returns An East expression representing the SegmentGroup component
  *
  * @remarks
- * Per the Type-shape convention: `value` (state) and `onChange` (behaviour)
+ * `value` (state) and `onChange` (behaviour)
  * are top-level; `size` / `colorPalette` / `orientation` + colour slots
  * live inside `options.style`.
  *

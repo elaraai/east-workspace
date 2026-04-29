@@ -161,7 +161,7 @@ export type BoxStyle = {
     transform?: SubtypeExprOrValue<StringType>;
     /** Named CSS transition preset (paired with theme-owned duration + easing). */
     transition?: SubtypeExprOrValue<TransitionType> | TransitionLiteral;
-    /** Named cursor. Pair `help` / `not-allowed` with appropriate ARIA per §0.2. */
+    /** Named cursor. Pair `help` / `not-allowed` with appropriate ARIA. */
     cursor?: SubtypeExprOrValue<CursorType> | CursorLiteral;
     /** Opacity in `[0, 1]`. */
     opacity?: SubtypeExprOrValue<FloatType>;
@@ -176,7 +176,7 @@ export type BoxStyle = {
      * Named animation preset (pulse / spin / bounce / fade-in / shimmer).
      *
      * The renderer consults `prefers-reduced-motion` and degrades to `none`
-     * when the user has requested reduced motion (§0.2 contract).
+     * when the user has requested reduced motion (contract).
      */
     animation?: SubtypeExprOrValue<AnimationPresetType> | AnimationPresetLiteral;
 };

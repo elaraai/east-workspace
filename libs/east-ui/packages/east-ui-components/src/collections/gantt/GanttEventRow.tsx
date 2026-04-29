@@ -9,60 +9,62 @@ import type { Gantt } from "@elaraai/east-ui";
 import { GanttTask, type TimeStep } from "./GanttTask";
 import { GanttMilestone } from "./GanttMilestone";
 
-export type GanttEventValue = ValueTypeOf<typeof Gantt.Types.Event>;
+export type GanttTaskValue = ValueTypeOf<typeof Gantt.Types.Task>;
+export type GanttMilestoneValue = ValueTypeOf<typeof Gantt.Types.Milestone>;
 export type GanttRowValue = ValueTypeOf<typeof Gantt.Types.Row>;
 
 export interface GanttEventRowProps {
-    events: GanttEventValue[];
+    tasks: GanttTaskValue[];
+    milestones: GanttMilestoneValue[];
     rowIndex: number;
     y: number;
     width: number;
     height: number;
     startDate: Date;
     endDate: Date;
-    onEventClick?: ((event: GanttEventValue, rowIndex: number, eventIndex: number) => void) | undefined;
-    onEventDoubleClick?: ((event: GanttEventValue, rowIndex: number, eventIndex: number) => void) | undefined;
+    onTaskClick?: ((task: GanttTaskValue, rowIndex: number, taskIndex: number) => void) | undefined;
+    onTaskDoubleClick?: ((task: GanttTaskValue, rowIndex: number, taskIndex: number) => void) | undefined;
+    onMilestoneClick?: ((milestone: GanttMilestoneValue, rowIndex: number, milestoneIndex: number) => void) | undefined;
+    onMilestoneDoubleClick?: ((milestone: GanttMilestoneValue, rowIndex: number, milestoneIndex: number) => void) | undefined;
     /** Callback when a task is dragged */
-    onTaskDrag?: ((rowIndex: number, eventIndex: number, previousStart: Date, previousEnd: Date, newStart: Date, newEnd: Date) => void) | undefined;
+    onTaskDrag?: ((rowIndex: number, taskIndex: number, previousStart: Date, previousEnd: Date, newStart: Date, newEnd: Date) => void) | undefined;
     /** Callback when a task duration is changed (dragging the end) */
-    onTaskDurationChange?: ((rowIndex: number, eventIndex: number, previousEnd: Date, newEnd: Date) => void) | undefined;
+    onTaskDurationChange?: ((rowIndex: number, taskIndex: number, previousEnd: Date, newEnd: Date) => void) | undefined;
     /** Callback when task progress is changed (dragging the progress handle) */
-    onTaskProgressChange?: ((rowIndex: number, eventIndex: number, previousProgress: number, newProgress: number) => void) | undefined;
+    onTaskProgressChange?: ((rowIndex: number, taskIndex: number, previousProgress: number, newProgress: number) => void) | undefined;
     /** Callback when a milestone is dragged */
-    onMilestoneDrag?: ((rowIndex: number, eventIndex: number, previousDate: Date, newDate: Date) => void) | undefined;
+    onMilestoneDrag?: ((rowIndex: number, milestoneIndex: number, previousDate: Date, newDate: Date) => void) | undefined;
     /** Optional step size for drag snapping */
     dragStep?: TimeStep | undefined;
     /** Optional step size for duration change snapping */
     durationStep?: TimeStep | undefined;
+    /** Storage key prefix for per-task / per-milestone UIComp slots. */
+    storageKey?: string | undefined;
+    /** Visual-token defaults from Gantt `style` (per-event overrides win). */
+    taskBorderRadius?: string | undefined;
+    labelColor?: string | undefined;
+    labelFontSize?: string | undefined;
+    labelFontWeight?: string | undefined;
 }
 
-const getEventPosition = (
-    event: GanttEventValue,
+interface TaskPosition {
+    x: number;
+    width: number;
+}
+
+interface MilestonePosition {
+    x: number;
+}
+
+const getTaskPosition = (
+    task: GanttTaskValue,
     startDate: Date,
     endDate: Date,
-    width: number
-): { x: number; width: number; isMilestone: boolean } => {
+    width: number,
+): TaskPosition => {
     const totalTimespan = endDate.getTime() - startDate.getTime();
-
-    if (event.type === "Milestone") {
-        const eventDate = event.value.date;
-        const eventTime = eventDate.getTime();
-
-        if (eventTime >= startDate.getTime() && eventTime <= endDate.getTime()) {
-            const position = (eventTime - startDate.getTime()) / totalTimespan;
-            return {
-                x: position * width,
-                width: 0,
-                isMilestone: true,
-            };
-        }
-        return { x: 0, width: 0, isMilestone: true };
-    }
-
-    // Task event
-    const taskValue = event.value;
-    const eventStart = taskValue.start;
-    const eventEnd = taskValue.end;
+    const eventStart = task.start;
+    const eventEnd = task.end;
 
     const clampedStart = Math.max(eventStart.getTime(), startDate.getTime());
     const clampedEnd = Math.min(eventEnd.getTime(), endDate.getTime());
@@ -73,76 +75,114 @@ const getEventPosition = (
     return {
         x: startOffset * width,
         width: Math.max(duration * width, 2),
-        isMilestone: false,
     };
 };
 
+const getMilestonePosition = (
+    milestone: GanttMilestoneValue,
+    startDate: Date,
+    endDate: Date,
+    width: number,
+): MilestonePosition | null => {
+    const totalTimespan = endDate.getTime() - startDate.getTime();
+    const eventDate = milestone.date;
+    const eventTime = eventDate.getTime();
+
+    if (eventTime < startDate.getTime() || eventTime > endDate.getTime()) {
+        return null;
+    }
+
+    const position = (eventTime - startDate.getTime()) / totalTimespan;
+    return { x: position * width };
+};
+
 export const GanttEventRow = ({
-    events,
+    tasks,
+    milestones,
     rowIndex,
     y,
     width,
     height,
     startDate,
     endDate,
-    onEventClick,
-    onEventDoubleClick,
+    onTaskClick,
+    onTaskDoubleClick,
+    onMilestoneClick,
+    onMilestoneDoubleClick,
     onTaskDrag,
     onTaskDurationChange,
     onTaskProgressChange,
     onMilestoneDrag,
     dragStep,
     durationStep,
+    storageKey = "gantt",
+    taskBorderRadius,
+    labelColor,
+    labelFontSize,
+    labelFontWeight,
 }: GanttEventRowProps) => {
     const renderedEvents = useMemo(() => {
         const eventHeight = height - 24;
         const eventY = y + 12;
 
-        return events.map((event, eventIndex) => {
-            const position = getEventPosition(event, startDate, endDate, width);
-
+        const renderedTasks = tasks.map((task, taskIndex) => {
+            const position = getTaskPosition(task, startDate, endDate, width);
             if (position.x < 0 || position.x > width) return null;
-
-            if (event.type === "Milestone") {
-                return (
-                    <GanttMilestone
-                        key={`${rowIndex}-${eventIndex}`}
-                        x={position.x}
-                        y={eventY}
-                        height={eventHeight}
-                        value={event.value}
-                        onClick={onEventClick ? () => onEventClick(event, rowIndex, eventIndex) : undefined}
-                        onDoubleClick={onEventDoubleClick ? () => onEventDoubleClick(event, rowIndex, eventIndex) : undefined}
-                        onDrag={onMilestoneDrag ? (prevDate, newDate) => onMilestoneDrag(rowIndex, eventIndex, prevDate, newDate) : undefined}
-                        timelineStartDate={startDate}
-                        timelineEndDate={endDate}
-                        timelineWidth={width}
-                    />
-                );
-            }
 
             return (
                 <GanttTask
-                    key={`${rowIndex}-${eventIndex}`}
+                    key={`task-${rowIndex}-${taskIndex}`}
                     x={position.x}
                     y={eventY}
                     width={position.width}
                     height={eventHeight}
-                    value={event.value}
-                    onClick={onEventClick ? () => onEventClick(event, rowIndex, eventIndex) : undefined}
-                    onDoubleClick={onEventDoubleClick ? () => onEventDoubleClick(event, rowIndex, eventIndex) : undefined}
-                    onDrag={onTaskDrag ? (prevStart, prevEnd, newStart, newEnd) => onTaskDrag(rowIndex, eventIndex, prevStart, prevEnd, newStart, newEnd) : undefined}
-                    onDurationChange={onTaskDurationChange ? (prevEnd, newEnd) => onTaskDurationChange(rowIndex, eventIndex, prevEnd, newEnd) : undefined}
-                    onProgressChange={onTaskProgressChange ? (prevProgress, newProgress) => onTaskProgressChange(rowIndex, eventIndex, prevProgress, newProgress) : undefined}
+                    value={task}
+                    storageKey={`${storageKey}.${rowIndex}.task.${taskIndex}`}
+                    onClick={onTaskClick ? () => onTaskClick(task, rowIndex, taskIndex) : undefined}
+                    onDoubleClick={onTaskDoubleClick ? () => onTaskDoubleClick(task, rowIndex, taskIndex) : undefined}
+                    onDrag={onTaskDrag ? (prevStart, prevEnd, newStart, newEnd) => onTaskDrag(rowIndex, taskIndex, prevStart, prevEnd, newStart, newEnd) : undefined}
+                    onDurationChange={onTaskDurationChange ? (prevEnd, newEnd) => onTaskDurationChange(rowIndex, taskIndex, prevEnd, newEnd) : undefined}
+                    onProgressChange={onTaskProgressChange ? (prevProgress, newProgress) => onTaskProgressChange(rowIndex, taskIndex, prevProgress, newProgress) : undefined}
                     timelineStartDate={startDate}
                     timelineEndDate={endDate}
                     timelineWidth={width}
                     dragStep={dragStep}
                     durationStep={durationStep}
+                    taskBorderRadius={taskBorderRadius}
+                    labelColor={labelColor}
+                    labelFontSize={labelFontSize}
+                    labelFontWeight={labelFontWeight}
                 />
             );
-        }).filter(Boolean);
-    }, [events, rowIndex, y, width, height, startDate, endDate, onEventClick, onEventDoubleClick, onTaskDrag, onTaskDurationChange, onTaskProgressChange, onMilestoneDrag, dragStep, durationStep]);
+        });
+
+        const renderedMilestones = milestones.map((milestone, milestoneIndex) => {
+            const position = getMilestonePosition(milestone, startDate, endDate, width);
+            if (position === null) return null;
+
+            return (
+                <GanttMilestone
+                    key={`milestone-${rowIndex}-${milestoneIndex}`}
+                    x={position.x}
+                    y={eventY}
+                    height={eventHeight}
+                    value={milestone}
+                    storageKey={`${storageKey}.${rowIndex}.milestone.${milestoneIndex}`}
+                    onClick={onMilestoneClick ? () => onMilestoneClick(milestone, rowIndex, milestoneIndex) : undefined}
+                    onDoubleClick={onMilestoneDoubleClick ? () => onMilestoneDoubleClick(milestone, rowIndex, milestoneIndex) : undefined}
+                    onDrag={onMilestoneDrag ? (prevDate, newDate) => onMilestoneDrag(rowIndex, milestoneIndex, prevDate, newDate) : undefined}
+                    timelineStartDate={startDate}
+                    timelineEndDate={endDate}
+                    timelineWidth={width}
+                    labelColor={labelColor}
+                    labelFontSize={labelFontSize}
+                    labelFontWeight={labelFontWeight}
+                />
+            );
+        });
+
+        return [...renderedTasks, ...renderedMilestones].filter(Boolean);
+    }, [tasks, milestones, rowIndex, y, width, height, startDate, endDate, onTaskClick, onTaskDoubleClick, onMilestoneClick, onMilestoneDoubleClick, onTaskDrag, onTaskDurationChange, onTaskProgressChange, onMilestoneDrag, dragStep, durationStep, storageKey, taskBorderRadius, labelColor, labelFontSize, labelFontWeight]);
 
     return <g>{renderedEvents}</g>;
 };

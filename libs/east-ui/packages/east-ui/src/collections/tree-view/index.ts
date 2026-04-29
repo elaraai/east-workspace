@@ -145,7 +145,7 @@ export type TreeBranchNodeType = typeof TreeBranchNodeType;
  * `component.ts`.
  *
  * @remarks
- * Per the §0.10 main/style type-shape convention, content (`nodes`),
+ * Per the 0 main/style type-shape convention, content (`nodes`),
  * labels (`label`), initial state (`defaultExpandedValue` /
  * `defaultSelectedValue`), config (`selectionMode`), wiring
  * (`animateContent`), and behaviour (callbacks) live on the main
@@ -384,7 +384,7 @@ function buildTreeViewStyle(options: TreeViewStyle | undefined): ExprType<TreeVi
  * @returns An East expression of type `UIComponentType`
  *
  * @remarks
- * Per the §0.10 main/style type-shape convention, visual fields
+ * Per the 0 main/style type-shape convention, visual fields
  * (`size`, `variant`, colour overrides) populate the `style`
  * sub-struct; everything else (`selectionMode`, `animateContent`,
  * `defaultExpandedValue`, `label`, and the three callbacks) populates
@@ -463,7 +463,7 @@ interface TreeViewNamespace {
  *
  * @remarks
  * Use `TreeView.Item` for leaf nodes and `TreeView.Branch` for
- * expandable nodes. Per §0.10, selection behaviour and callbacks live
+ * expandable nodes. selection behaviour and callbacks live
  * on the main struct while visual styling lives under the `style`
  * sub-struct.
  */
@@ -551,7 +551,7 @@ export const TreeView: TreeViewNamespace = {
          * variant in `component.ts`.
          *
          * @remarks
-         * Per §0.10, main carries content / state / behaviour; `style`
+         * main carries content / state / behaviour; `style`
          * carries visual fields only.
          *
          * @property nodes - Array of root-level tree nodes
@@ -605,7 +605,7 @@ export const TreeView: TreeViewNamespace = {
          * East StructType holding every visual field for a TreeView.
          *
          * @remarks
-         * Visual-only per §0.10. Selection / wiring / callbacks live on
+         * Visual-only. Selection / wiring / callbacks live on
          * the main struct.
          *
          * @property size - Size preset (xs / sm / md)

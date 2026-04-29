@@ -78,7 +78,7 @@ export const AlertType: StructType<{
 export type AlertType = typeof AlertType;
 
 // ============================================================================
-// §0.3 Paired-icon map (mirrors Status)
+// Paired-icon map (mirrors Status)
 // ============================================================================
 
 const PAIRED_ICONS: Record<AlertStatusLiteral, { prefix: "fas"; name: string }> = {
@@ -105,7 +105,7 @@ type AlertContentInput =
  * @property description - Optional rich description (string coerced to `Text.Root`)
  * @property body - Optional array of rich body nodes (e.g. an embedded input)
  * @property actions - Optional trailing action(s) (typically a Button or HStack)
- * @property icon - Explicit Font Awesome icon (overrides the §0.3 paired default)
+ * @property icon - Explicit Font Awesome icon (overrides the paired default)
  * @property closable - Whether to show a close button
  * @property onClose - Callback fired when the close button is pressed
  * @property style - Optional visual-only style
@@ -119,7 +119,7 @@ export interface AlertOptions {
     body?: SubtypeExprOrValue<ArrayType<UIComponentType>>;
     /** Optional trailing action(s) (typically a Button or HStack) */
     actions?: AlertContentInput;
-    /** Explicit Font Awesome icon (overrides the §0.3 paired default) */
+    /** Explicit Font Awesome icon (overrides the paired default) */
     icon?: { prefix: string; name: string } | SubtypeExprOrValue<IconType>;
     /** Whether to show a close button */
     closable?: SubtypeExprOrValue<BooleanType>;
@@ -131,7 +131,7 @@ export interface AlertOptions {
 
 /**
  * Creates an Alert component with status, rich content, and an auto-injected
- * paired icon per §0.3.
+ * paired icon.
  *
  * @param status - The alert status (info / warning / success / error / neutral)
  * @param options - Optional `title` / `description` / `body` / `actions` /
@@ -175,7 +175,7 @@ function createAlert(
     const descriptionValue = coerce(options?.description);
     const actionsValue = coerce(options?.actions);
 
-    // §0.3 paired-icon injection
+    // paired-icon injection
     let iconValue: SubtypeExprOrValue<IconType> | undefined;
     if (options?.icon && typeof (options.icon as { prefix?: unknown }).prefix === "string") {
         iconValue = East.value({
@@ -230,7 +230,7 @@ function buildAlertStyle(style: AlertStyle): ExprType<AlertStyleType> {
 
 /**
  * Alert primitive — semantic feedback surface with rich content and a paired
- * icon per §0.3.
+ * icon.
  */
 export const Alert = {
     /**
@@ -276,7 +276,7 @@ export const Alert = {
          * Toast.
          *
          * @remarks
-         * Drives default paired-icon selection and colour palette per §0.3.
+         * Drives default paired-icon selection and colour palette.
          *
          * @property info - Informational notice
          * @property success - Confirmation / on-track

@@ -18,6 +18,7 @@ import { SizeType } from "../../style.js";
 import {
     SelectItemType,
     SelectRootType,
+    SelectStyleType,
     type SelectItemStyle,
     type SelectStyle,
 } from "./types.js";
@@ -27,6 +28,7 @@ import { UIComponentType } from "../../component.js";
 export {
     SelectItemType,
     SelectRootType,
+    SelectStyleType,
     type SelectItemStyle,
     type SelectStyle,
 } from "./types.js";
@@ -115,16 +117,30 @@ export function createSelectRoot_(
             : style.size)
         : undefined;
 
+    const hasStyle = !!style && (
+        sizeValue !== undefined ||
+        style.color !== undefined ||
+        style.background !== undefined ||
+        style.borderColor !== undefined
+    );
+
+    const styleValue = hasStyle ? East.value({
+        size: sizeValue ? some(sizeValue) : none,
+        color: style!.color !== undefined ? some(style!.color) : none,
+        background: style!.background !== undefined ? some(style!.background) : none,
+        borderColor: style!.borderColor !== undefined ? some(style!.borderColor) : none,
+    }, SelectStyleType) : undefined;
+
     return East.value({
         value: toStringOption(value),
         items: East.value(items, ArrayType(SelectItemType)),
         placeholder: toStringOption(style?.placeholder),
         multiple: style?.multiple !== undefined ? some(style.multiple) : none,
         disabled: style?.disabled !== undefined ? some(style.disabled) : none,
-        size: sizeValue ? some(sizeValue) : none,
         onChange: style?.onChange ? some(style.onChange) : none,
         onChangeMultiple: style?.onChangeMultiple ? some(style.onChangeMultiple) : none,
         onOpenChange: style?.onOpenChange ? some(style.onOpenChange) : none,
+        style: styleValue ? some(styleValue) : none,
     }, SelectRootType);
 }
 

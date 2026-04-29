@@ -207,8 +207,8 @@ describeEast("TagsInput", (test) => {
             variant: "outline",
         }));
 
-        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").variant.hasTag("some"), true));
-        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").variant.unwrap("some").hasTag("outline"), true));
+        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").variant.hasTag("some"), true));
+        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").variant.unwrap("some").hasTag("outline"), true));
     });
 
     test("creates tags input with subtle variant", $ => {
@@ -216,7 +216,7 @@ describeEast("TagsInput", (test) => {
             variant: "subtle",
         }));
 
-        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").variant.unwrap("some").hasTag("subtle"), true));
+        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").variant.unwrap("some").hasTag("subtle"), true));
     });
 
     test("creates tags input with flushed variant", $ => {
@@ -224,7 +224,7 @@ describeEast("TagsInput", (test) => {
             variant: "flushed",
         }));
 
-        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").variant.unwrap("some").hasTag("flushed"), true));
+        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").variant.unwrap("some").hasTag("flushed"), true));
     });
 
     // =========================================================================
@@ -236,8 +236,8 @@ describeEast("TagsInput", (test) => {
             size: "md",
         }));
 
-        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").size.hasTag("some"), true));
-        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").size.unwrap("some").hasTag("md"), true));
+        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").size.hasTag("some"), true));
+        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").size.unwrap("some").hasTag("md"), true));
     });
 
     test("supports all sizes", $ => {
@@ -246,10 +246,10 @@ describeEast("TagsInput", (test) => {
         const md = $.let(TagsInput.Root([], { size: "md" }));
         const lg = $.let(TagsInput.Root([], { size: "lg" }));
 
-        $(Assert.equal(xs.unwrap().unwrap("TagsInput").size.unwrap("some").hasTag("xs"), true));
-        $(Assert.equal(sm.unwrap().unwrap("TagsInput").size.unwrap("some").hasTag("sm"), true));
-        $(Assert.equal(md.unwrap().unwrap("TagsInput").size.unwrap("some").hasTag("md"), true));
-        $(Assert.equal(lg.unwrap().unwrap("TagsInput").size.unwrap("some").hasTag("lg"), true));
+        $(Assert.equal(xs.unwrap().unwrap("TagsInput").style.unwrap("some").size.unwrap("some").hasTag("xs"), true));
+        $(Assert.equal(sm.unwrap().unwrap("TagsInput").style.unwrap("some").size.unwrap("some").hasTag("sm"), true));
+        $(Assert.equal(md.unwrap().unwrap("TagsInput").style.unwrap("some").size.unwrap("some").hasTag("md"), true));
+        $(Assert.equal(lg.unwrap().unwrap("TagsInput").style.unwrap("some").size.unwrap("some").hasTag("lg"), true));
     });
 
     test("supports Style.Size helper", $ => {
@@ -257,7 +257,7 @@ describeEast("TagsInput", (test) => {
             size: Style.Size("lg"),
         }));
 
-        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").size.unwrap("some").hasTag("lg"), true));
+        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").size.unwrap("some").hasTag("lg"), true));
     });
 
     // =========================================================================
@@ -269,8 +269,8 @@ describeEast("TagsInput", (test) => {
             colorPalette: "blue",
         }));
 
-        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").colorPalette.hasTag("some"), true));
-        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").colorPalette.unwrap("some").hasTag("blue"), true));
+        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").colorPalette.hasTag("some"), true));
+        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").colorPalette.unwrap("some").hasTag("blue"), true));
     });
 
     test("creates tags input with red color palette", $ => {
@@ -278,7 +278,7 @@ describeEast("TagsInput", (test) => {
             colorPalette: "red",
         }));
 
-        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").colorPalette.unwrap("some").hasTag("red"), true));
+        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").colorPalette.unwrap("some").hasTag("red"), true));
     });
 
     test("creates tags input with green color palette", $ => {
@@ -286,7 +286,7 @@ describeEast("TagsInput", (test) => {
             colorPalette: "green",
         }));
 
-        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").colorPalette.unwrap("some").hasTag("green"), true));
+        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").colorPalette.unwrap("some").hasTag("green"), true));
     });
 
     test("supports Style.ColorScheme helper", $ => {
@@ -294,7 +294,7 @@ describeEast("TagsInput", (test) => {
             colorPalette: Style.ColorScheme("purple"),
         }));
 
-        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").colorPalette.unwrap("some").hasTag("purple"), true));
+        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").colorPalette.unwrap("some").hasTag("purple"), true));
     });
 
     // =========================================================================
@@ -333,9 +333,9 @@ describeEast("TagsInput", (test) => {
         $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").addOnPaste.unwrap("some"), true));
         $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").blurBehavior.unwrap("some").hasTag("add"), true));
         $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").allowOverflow.unwrap("some"), false));
-        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").size.unwrap("some").hasTag("md"), true));
-        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").variant.unwrap("some").hasTag("outline"), true));
-        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").colorPalette.unwrap("some").hasTag("blue"), true));
+        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").size.unwrap("some").hasTag("md"), true));
+        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").variant.unwrap("some").hasTag("outline"), true));
+        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").colorPalette.unwrap("some").hasTag("blue"), true));
     });
 
     test("creates basic skills input", $ => {
@@ -369,6 +369,6 @@ describeEast("TagsInput", (test) => {
 
         $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").value.size(), 2n));
         $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").readOnly.unwrap("some"), true));
-        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").variant.unwrap("some").hasTag("subtle"), true));
+        $(Assert.equal(tagsInput.unwrap().unwrap("TagsInput").style.unwrap("some").variant.unwrap("some").hasTag("subtle"), true));
     });
 }, {   platformFns: TestImpl,});

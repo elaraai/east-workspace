@@ -7,11 +7,14 @@ import {
     type ExprType,
     East,
     variant,
+    some,
+    none,
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
 import {
     FileUploadType,
+    FileUploadStyleType,
     FileCaptureType,
     type FileUploadStyle,
 } from "./types.js";
@@ -19,6 +22,7 @@ import {
 // Re-export types
 export {
     FileUploadType,
+    FileUploadStyleType,
     FileCaptureType,
     type FileUploadStyle,
     type FileCaptureLiteral,
@@ -68,6 +72,26 @@ export function createFileUpload_(
             : style.capture)
         : undefined;
 
+    const hasStyle = !!style && (
+        style.variant !== undefined ||
+        style.size !== undefined ||
+        style.background !== undefined ||
+        style.borderColor !== undefined ||
+        style.dropzoneBackground !== undefined ||
+        style.dropzoneBorderColor !== undefined ||
+        style.activeBackground !== undefined
+    );
+
+    const styleValue = hasStyle ? East.value({
+        variant: style!.variant !== undefined ? some(style!.variant) : none,
+        size: style!.size !== undefined ? some(style!.size) : none,
+        background: style!.background !== undefined ? some(style!.background) : none,
+        borderColor: style!.borderColor !== undefined ? some(style!.borderColor) : none,
+        dropzoneBackground: style!.dropzoneBackground !== undefined ? some(style!.dropzoneBackground) : none,
+        dropzoneBorderColor: style!.dropzoneBorderColor !== undefined ? some(style!.dropzoneBorderColor) : none,
+        activeBackground: style!.activeBackground !== undefined ? some(style!.activeBackground) : none,
+    }, FileUploadStyleType) : undefined;
+
     return East.value({
         accept: style?.accept !== undefined ? variant("some", style.accept) : variant("none", null),
         maxFiles: maxFilesValue !== undefined ? variant("some", maxFilesValue) : variant("none", null),
@@ -84,6 +108,7 @@ export function createFileUpload_(
         triggerText: style?.triggerText !== undefined ? variant("some", style.triggerText) : variant("none", null),
         onFileAccept: style?.onFileAccept !== undefined ? variant("some", style.onFileAccept) : variant("none", null),
         onFileReject: style?.onFileReject !== undefined ? variant("some", style.onFileReject) : variant("none", null),
+        style: styleValue ? some(styleValue) : none,
     }, FileUploadType);
 }
 
@@ -147,6 +172,18 @@ export const FileUpload = {
          * @property triggerText - Text for the upload trigger button
          */
         FileUpload: FileUploadType,
+        /**
+         * East StructType holding visual fields for `FileUpload`.
+         *
+         * @property variant - Visual style variant (`outline` / `subtle` / `solid`)
+         * @property size - Component size (`xs` / `sm` / `md` / `lg`)
+         * @property background - Explicit background colour for the container
+         * @property borderColor - Explicit border colour for the container
+         * @property dropzoneBackground - Background colour of the dashed-border dropzone region
+         * @property dropzoneBorderColor - Border colour of the dropzone region
+         * @property activeBackground - Background colour while dragging files over
+         */
+        Style: FileUploadStyleType,
         /**
          * Capture mode for camera access on mobile devices.
          *

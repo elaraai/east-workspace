@@ -12,14 +12,14 @@ import {
 } from "@elaraai/east";
 
 // ============================================================================
-// Disclosure Style Type — visual presentation only (§0.10)
+// Disclosure Style Type
 // ============================================================================
 
 /**
  * Visual-only style struct for Disclosure (show-more text truncation).
  * Content (`text`), config (`lines` / `moreLabel` / `lessLabel`) live on
  * the main `Disclosure` variant (inline in `component.ts`) per the
- * Type-shape convention (§0.10).
+ * Type-shape convention.
  *
  * @property color - Body text colour
  * @property triggerColor - "show more" / "show less" trigger link colour

@@ -110,7 +110,7 @@ export type TreeViewSelectionModeLiteral = "single" | "multiple";
  * Style type for the tree view root component.
  *
  * @remarks
- * Per the §0.10 main/style type-shape convention, style carries only
+ * Per the 0 main/style type-shape convention, style carries only
  * visual fields. Selection mode (`selectionMode`), animation wiring
  * (`animateContent`), and callbacks (`onExpandedChange` /
  * `onSelectionChange` / `onFocusChange`) live on the main `TreeView`

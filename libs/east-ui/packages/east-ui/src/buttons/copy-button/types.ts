@@ -49,13 +49,13 @@ export type CopyButtonVariantType = typeof CopyButtonVariantType;
 export type CopyButtonVariantLiteral = "solid" | "subtle" | "outline" | "ghost";
 
 // ============================================================================
-// CopyButton Style Type — visual presentation only (§0.10)
+// CopyButton Style Type
 // ============================================================================
 
 /**
  * Visual-only style struct for CopyButton. Content + state + config (notably
  * `timeout` for the "Copied!" animation) live on the main `CopyButtonType`
- * struct per the Type-shape convention (§0.10).
+ * struct.
  *
  * @remarks
  * Holds the Chakra preset triplet (`variant`, `colorPalette`, `size`) plus

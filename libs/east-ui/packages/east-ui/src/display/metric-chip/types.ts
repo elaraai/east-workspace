@@ -79,7 +79,7 @@ export type MetricChipEmphasisLiteral = "subtle" | "solid" | "outline";
  * East StructType for the MetricChip style sub-struct.
  *
  * @remarks
- * Visual-only per §0.10. Content (`value` / `unit` / `icon`) and the
+ * Visual-only. Content (`value` / `unit` / `icon`) and the
  * semantic `tone` classification live on the main `MetricChipType`
  * struct.
  *

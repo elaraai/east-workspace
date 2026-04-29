@@ -79,6 +79,39 @@ export const FileRejectionType = StructType({
 export type FileRejectionType = typeof FileRejectionType;
 
 // ============================================================================
+// File Upload Style
+// ============================================================================
+
+/**
+ * East StructType holding visual fields for `FileUpload`.
+ *
+ * @remarks
+ * Visual presets and explicit colour overrides for branded dropzones.
+ *
+ * @property variant - Visual style variant (`outline` / `subtle` / `solid`)
+ * @property size - Component size (`xs` / `sm` / `md` / `lg`)
+ * @property background - Explicit background colour for the container
+ * @property borderColor - Explicit border colour for the container
+ * @property dropzoneBackground - Background colour of the dashed-border dropzone region
+ * @property dropzoneBorderColor - Border colour of the dropzone region
+ * @property activeBackground - Background colour while dragging files over
+ */
+export const FileUploadStyleType = StructType({
+    variant: OptionType(StringType),
+    size: OptionType(StringType),
+    background: OptionType(StringType),
+    borderColor: OptionType(StringType),
+    dropzoneBackground: OptionType(StringType),
+    dropzoneBorderColor: OptionType(StringType),
+    activeBackground: OptionType(StringType),
+});
+
+/**
+ * Type alias for the FileUpload style struct.
+ */
+export type FileUploadStyleType = typeof FileUploadStyleType;
+
+// ============================================================================
 // File Upload Type
 // ============================================================================
 
@@ -135,6 +168,8 @@ export const FileUploadType = StructType({
     onFileAccept: OptionType(FunctionType([ArrayType(FileInfoType)], NullType)),
     /** Callback triggered when files are rejected */
     onFileReject: OptionType(FunctionType([ArrayType(FileRejectionType)], NullType)),
+    /** Optional visual style sub-struct */
+    style: OptionType(FileUploadStyleType),
 });
 
 /**
@@ -196,4 +231,18 @@ export interface FileUploadStyle {
     onFileAccept?: SubtypeExprOrValue<FunctionType<[ArrayType<FileInfoType>], NullType>>;
     /** Callback triggered when files are rejected */
     onFileReject?: SubtypeExprOrValue<FunctionType<[ArrayType<FileRejectionType>], NullType>>;
+    /** Visual style variant (outline / subtle / solid). */
+    variant?: SubtypeExprOrValue<StringType>;
+    /** Component size (xs / sm / md / lg). */
+    size?: SubtypeExprOrValue<StringType>;
+    /** Explicit background colour for the container. */
+    background?: SubtypeExprOrValue<StringType>;
+    /** Explicit border colour for the container. */
+    borderColor?: SubtypeExprOrValue<StringType>;
+    /** Background colour of the dashed-border dropzone region. */
+    dropzoneBackground?: SubtypeExprOrValue<StringType>;
+    /** Border colour of the dropzone region. */
+    dropzoneBorderColor?: SubtypeExprOrValue<StringType>;
+    /** Background colour while dragging files over. */
+    activeBackground?: SubtypeExprOrValue<StringType>;
 }

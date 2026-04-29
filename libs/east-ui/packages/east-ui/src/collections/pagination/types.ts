@@ -74,7 +74,7 @@ export type PaginationSizeLiteral = "sm" | "md" | "lg";
  * component.
  *
  * @remarks
- * Visual-only per §0.10. Content (`page` / `pageSize` / `count`) and
+ * Visual-only. Content (`page` / `pageSize` / `count`) and
  * behaviour (`onPageChange`) live on the main `Pagination` variant.
  *
  * @property size - Size preset (sm / md / lg)

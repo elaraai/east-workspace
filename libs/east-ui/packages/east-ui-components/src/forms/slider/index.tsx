@@ -20,15 +20,21 @@ export type SliderValue = ValueTypeOf<typeof Slider.Types.Slider>;
  * Pure function - easy to test independently.
  */
 export function toChakraSlider(value: SliderValue): SliderRootProps {
+    const style = getSomeorUndefined(value.style);
+    const orientation = style ? getSomeorUndefined(style.orientation)?.type : undefined;
+    const colorPalette = style ? getSomeorUndefined(style.colorPalette)?.type : undefined;
+    const sizeTag = style ? getSomeorUndefined(style.size)?.type : undefined;
+    const variantTag = style ? getSomeorUndefined(style.variant)?.type : undefined;
+
     return {
         value: [value.value],
         min: getSomeorUndefined(value.min),
         max: getSomeorUndefined(value.max),
         step: getSomeorUndefined(value.step),
-        orientation: getSomeorUndefined(value.orientation)?.type,
-        colorPalette: getSomeorUndefined(value.colorPalette)?.type,
-        size: getSomeorUndefined(value.size)?.type as ConditionalValue<"sm" | "md" | "lg" | undefined>,
-        variant: getSomeorUndefined(value.variant)?.type as ConditionalValue<"outline" | "solid" | undefined>,
+        orientation,
+        colorPalette,
+        size: sizeTag as ConditionalValue<"sm" | "md" | "lg" | undefined>,
+        variant: variantTag as ConditionalValue<"outline" | "solid" | undefined>,
         disabled: getSomeorUndefined(value.disabled),
     };
 }

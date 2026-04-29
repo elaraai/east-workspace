@@ -11,7 +11,6 @@ export interface PlannerSlotCellProps {
     width: number;
     height: number;
     slot: number;
-    readOnly?: boolean | undefined;
     onClick?: ((slot: number) => void) | undefined;
 }
 
@@ -21,22 +20,21 @@ export const PlannerSlotCell = ({
     width,
     height,
     slot,
-    readOnly = false,
     onClick,
 }: PlannerSlotCellProps) => {
     const [isHovered, setIsHovered] = useState(false);
 
     const handleMouseEnter = useCallback(() => {
-        if (!readOnly) setIsHovered(true);
-    }, [readOnly]);
+        if (onClick) setIsHovered(true);
+    }, [onClick]);
 
     const handleMouseLeave = useCallback(() => {
-        if (!readOnly) setIsHovered(false)
-    }, [readOnly]);
+        if (onClick) setIsHovered(false);
+    }, [onClick]);
 
     const handleClick = useCallback(() => {
-        if (!readOnly && onClick) onClick(slot);
-    }, [readOnly, onClick, slot]);
+        if (onClick) onClick(slot);
+    }, [onClick, slot]);
 
     // Plus icon dimensions - only show if cell is large enough
     const icon = useMemo(() => {

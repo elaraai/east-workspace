@@ -46,11 +46,13 @@ export type ChipRailOverflowLiteral = "wrap" | "scroll";
 /**
  * Style configuration for ChipRail.
  *
+ * @property overflow - Overflow behaviour when the rail can't fit every chip
  * @property background - Rail background colour
  * @property separatorColor - Colour of the separator glyph / hairline
  * @property overflowTriggerColor - Colour of the overflow menu trigger (`⋯`)
  */
 export const ChipRailStyleType = StructType({
+    overflow: OptionType(ChipRailOverflowType),
     background: OptionType(StringType),
     separatorColor: OptionType(StringType),
     overflowTriggerColor: OptionType(StringType),
@@ -58,6 +60,8 @@ export const ChipRailStyleType = StructType({
 export type ChipRailStyleType = typeof ChipRailStyleType;
 
 export interface ChipRailStyle {
+    /** Overflow behaviour when the rail can't fit every chip. */
+    overflow?: SubtypeExprOrValue<ChipRailOverflowType> | ChipRailOverflowLiteral;
     /** Rail background colour. */
     background?: SubtypeExprOrValue<StringType>;
     /** Colour of the separator glyph / hairline. */
@@ -74,8 +78,6 @@ export interface ChipRailOptions {
     density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
     /** Separator between chips. */
     separator?: SubtypeExprOrValue<ChipRailSeparatorType> | ChipRailSeparatorLiteral;
-    /** Overflow behaviour when the rail can't fit every chip. */
-    overflow?: SubtypeExprOrValue<ChipRailOverflowType> | ChipRailOverflowLiteral;
-    /** Style escape hatches. */
+    /** Style escape hatches (includes `overflow`). */
     style?: ChipRailStyle;
 }

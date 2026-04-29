@@ -40,14 +40,12 @@ export { InputVariantType, type InputVariantLiteral } from "../input/types.js";
  * @property add - Add the input text as a tag on blur
  */
 export const TagsInputBlurBehaviorType = VariantType({
-    /** Clear the input on blur */
     clear: NullType,
-    /** Add the input text as a tag on blur */
     add: NullType,
 });
 
 /**
- * Type representing the TagsInputBlurBehavior structure.
+ * Type alias for the TagsInputBlurBehavior variant.
  */
 export type TagsInputBlurBehaviorType = typeof TagsInputBlurBehaviorType;
 
@@ -57,15 +55,57 @@ export type TagsInputBlurBehaviorType = typeof TagsInputBlurBehaviorType;
 export type TagsInputBlurBehaviorLiteral = "clear" | "add";
 
 // ============================================================================
+// TagsInput Style
+// ============================================================================
+
+/**
+ * East StructType holding visual fields for `TagsInput`.
+ *
+ * @remarks
+ * Visual presets and explicit colour overrides — both for the
+ * container and per-tag chip rendering.
+ *
+ * @property variant - Visual style variant (`outline` / `subtle` / `flushed`)
+ * @property size - Input size (`xs` / `sm` / `md` / `lg`)
+ * @property colorPalette - Chakra colour palette for the tag pills
+ * @property color - Explicit text colour for the input
+ * @property background - Explicit background colour for the container
+ * @property borderColor - Explicit border colour for the container
+ * @property tagBackground - Explicit per-tag fill colour
+ * @property tagColor - Explicit per-tag text colour
+ * @property tagBorderColor - Explicit per-tag border colour
+ */
+export const TagsInputStyleType = StructType({
+    variant: OptionType(InputVariantType),
+    size: OptionType(SizeType),
+    colorPalette: OptionType(ColorSchemeType),
+    color: OptionType(StringType),
+    background: OptionType(StringType),
+    borderColor: OptionType(StringType),
+    tagBackground: OptionType(StringType),
+    tagColor: OptionType(StringType),
+    tagBorderColor: OptionType(StringType),
+});
+
+/**
+ * Type alias for the TagsInput style struct.
+ */
+export type TagsInputStyleType = typeof TagsInputStyleType;
+
+// ============================================================================
 // TagsInput Type
 // ============================================================================
 
 /**
- * Type for TagsInput component data.
+ * East StructType for `TagsInput` — multi-tag string input.
  *
  * @remarks
- * TagsInput is a multi-tag input control for entering and managing
- * a collection of string tags.
+ * Content (`value` / `defaultValue` / `label` / `placeholder`) +
+ * config (`max` / `maxLength` / `delimiter` / `addOnPaste` /
+ * `blurBehavior` / `allowOverflow` / `editable`) + state (`disabled`
+ * / `readOnly` / `invalid`) + behaviour (`onChange` /
+ * `onInputChange` / `onHighlightChange`) on the main struct; visual
+ * fields inside `style: OptionType(TagsInputStyleType)`.
  *
  * @property value - Array of current tag values
  * @property defaultValue - Initial tag values
@@ -77,68 +117,44 @@ export type TagsInputBlurBehaviorLiteral = "clear" | "add";
  * @property editable - Whether existing tags can be edited
  * @property delimiter - Separator for parsing pasted text
  * @property addOnPaste - Whether to parse pasted text into tags
- * @property blurBehavior - Action on blur (clear or add)
- * @property allowOverflow - Whether to allow exceeding max
+ * @property blurBehavior - Action on blur (`clear` or `add`)
+ * @property allowOverflow - Whether to allow exceeding `max`
  * @property label - Descriptive label
  * @property placeholder - Placeholder text for input
- * @property size - Size of the input
- * @property variant - Visual style variant
- * @property colorPalette - Color scheme for tags
- * @property onChange - Callback triggered when tags change
- * @property onInputChange - Callback triggered when input text changes
- * @property onHighlightChange - Callback triggered when highlighted tag changes
+ * @property onChange - Callback fired when the tag list changes
+ * @property onInputChange - Callback fired when the input text changes
+ * @property onHighlightChange - Callback fired when the highlighted tag changes
+ * @property style - Optional visual style sub-struct
  */
 export const TagsInputRootType = StructType({
-    /** Array of current tag values */
     value: ArrayType(StringType),
-    /** Initial tag values */
     defaultValue: OptionType(ArrayType(StringType)),
 
-    /** Maximum number of tags allowed */
     max: OptionType(IntegerType),
-    /** Maximum characters per tag */
     maxLength: OptionType(IntegerType),
 
-    /** Whether the input is disabled */
     disabled: OptionType(BooleanType),
-    /** Whether the input is read-only */
     readOnly: OptionType(BooleanType),
-    /** Whether the input is in invalid state */
     invalid: OptionType(BooleanType),
 
-    /** Whether existing tags can be edited */
     editable: OptionType(BooleanType),
-    /** Separator for parsing pasted text */
     delimiter: OptionType(StringType),
-    /** Whether to parse pasted text into tags */
     addOnPaste: OptionType(BooleanType),
-    /** Action on blur (clear or add) */
     blurBehavior: OptionType(TagsInputBlurBehaviorType),
-    /** Whether to allow exceeding max */
     allowOverflow: OptionType(BooleanType),
 
-    /** Descriptive label */
     label: OptionType(StringType),
-    /** Placeholder text for input */
     placeholder: OptionType(StringType),
 
-    /** Size of the input */
-    size: OptionType(SizeType),
-    /** Visual style variant */
-    variant: OptionType(InputVariantType),
-    /** Color scheme for tags */
-    colorPalette: OptionType(ColorSchemeType),
-
-    /** Callback triggered when tags change */
     onChange: OptionType(FunctionType([ArrayType(StringType)], NullType)),
-    /** Callback triggered when input text changes */
     onInputChange: OptionType(FunctionType([StringType], NullType)),
-    /** Callback triggered when highlighted tag changes */
     onHighlightChange: OptionType(FunctionType([OptionType(StringType)], NullType)),
+
+    style: OptionType(TagsInputStyleType),
 });
 
 /**
- * Type representing the TagsInputRoot structure.
+ * Type alias for the TagsInputRoot struct.
  */
 export type TagsInputRootType = typeof TagsInputRootType;
 
@@ -147,7 +163,7 @@ export type TagsInputRootType = typeof TagsInputRootType;
 // ============================================================================
 
 /**
- * TypeScript interface for TagsInput style options.
+ * TypeScript interface for `TagsInput` factory options.
  *
  * @property defaultValue - Initial tag values
  * @property max - Maximum number of tags allowed
@@ -158,54 +174,72 @@ export type TagsInputRootType = typeof TagsInputRootType;
  * @property editable - Whether existing tags can be edited
  * @property delimiter - Separator for parsing pasted text
  * @property addOnPaste - Whether to parse pasted text into tags
- * @property blurBehavior - Action on blur (clear or add)
- * @property allowOverflow - Whether to allow exceeding max
+ * @property blurBehavior - Action on blur (`clear` or `add`)
+ * @property allowOverflow - Whether to allow exceeding `max`
  * @property label - Descriptive label
  * @property placeholder - Placeholder text for input
- * @property size - Size of the input
+ * @property size - Input size
  * @property variant - Visual style variant
- * @property colorPalette - Color scheme for tags
- * @property onChange - Callback triggered when tags change
- * @property onInputChange - Callback triggered when input text changes
- * @property onHighlightChange - Callback triggered when highlighted tag changes
+ * @property colorPalette - Chakra colour palette for the tag pills
+ * @property color - Explicit text colour
+ * @property background - Explicit background colour
+ * @property borderColor - Explicit border colour
+ * @property tagBackground - Explicit per-tag fill colour
+ * @property tagColor - Explicit per-tag text colour
+ * @property tagBorderColor - Explicit per-tag border colour
+ * @property onChange - Callback when the tag list changes
+ * @property onInputChange - Callback when the input text changes
+ * @property onHighlightChange - Callback when the highlighted tag changes
  */
 export interface TagsInputStyle {
-    /** Initial tag values */
+    /** Initial tag values. */
     defaultValue?: SubtypeExprOrValue<ArrayType<typeof StringType>> | string[];
-    /** Maximum number of tags allowed */
+    /** Maximum number of tags allowed. */
     max?: SubtypeExprOrValue<IntegerType> | number;
-    /** Maximum characters per tag */
+    /** Maximum characters per tag. */
     maxLength?: SubtypeExprOrValue<IntegerType> | number;
-    /** Whether the input is disabled */
+    /** Whether the input is disabled. */
     disabled?: SubtypeExprOrValue<BooleanType>;
-    /** Whether the input is read-only */
+    /** Whether the input is read-only. */
     readOnly?: SubtypeExprOrValue<BooleanType>;
-    /** Whether the input is in invalid state */
+    /** Whether the input is in invalid state. */
     invalid?: SubtypeExprOrValue<BooleanType>;
-    /** Whether existing tags can be edited */
+    /** Whether existing tags can be edited. */
     editable?: SubtypeExprOrValue<BooleanType>;
-    /** Separator for parsing pasted text */
+    /** Separator for parsing pasted text. */
     delimiter?: SubtypeExprOrValue<StringType>;
-    /** Whether to parse pasted text into tags */
+    /** Whether to parse pasted text into tags. */
     addOnPaste?: SubtypeExprOrValue<BooleanType>;
-    /** Action on blur (clear or add) */
+    /** Action on blur (`clear` or `add`). */
     blurBehavior?: SubtypeExprOrValue<TagsInputBlurBehaviorType> | TagsInputBlurBehaviorLiteral;
-    /** Whether to allow exceeding max */
+    /** Whether to allow exceeding `max`. */
     allowOverflow?: SubtypeExprOrValue<BooleanType>;
-    /** Descriptive label */
+    /** Descriptive label. */
     label?: SubtypeExprOrValue<StringType>;
-    /** Placeholder text for input */
+    /** Placeholder text for input. */
     placeholder?: SubtypeExprOrValue<StringType>;
-    /** Size of the input */
-    size?: SubtypeExprOrValue<SizeType> | SizeLiteral;
-    /** Visual style variant */
+    /** Visual style variant (outline / subtle / flushed). */
     variant?: SubtypeExprOrValue<InputVariantType> | InputVariantLiteral;
-    /** Color scheme for tags */
+    /** Input size. */
+    size?: SubtypeExprOrValue<SizeType> | SizeLiteral;
+    /** Chakra colour palette for the tag pills. */
     colorPalette?: SubtypeExprOrValue<ColorSchemeType> | ColorSchemeLiteral;
-    /** Callback triggered when tags change */
+    /** Explicit text colour for the input. */
+    color?: SubtypeExprOrValue<StringType>;
+    /** Explicit background colour for the container. */
+    background?: SubtypeExprOrValue<StringType>;
+    /** Explicit border colour for the container. */
+    borderColor?: SubtypeExprOrValue<StringType>;
+    /** Explicit per-tag fill colour. */
+    tagBackground?: SubtypeExprOrValue<StringType>;
+    /** Explicit per-tag text colour. */
+    tagColor?: SubtypeExprOrValue<StringType>;
+    /** Explicit per-tag border colour. */
+    tagBorderColor?: SubtypeExprOrValue<StringType>;
+    /** Callback triggered when tags change. */
     onChange?: SubtypeExprOrValue<FunctionType<[ArrayType<typeof StringType>], NullType>>;
-    /** Callback triggered when input text changes */
+    /** Callback triggered when input text changes. */
     onInputChange?: SubtypeExprOrValue<FunctionType<[typeof StringType], NullType>>;
-    /** Callback triggered when highlighted tag changes */
+    /** Callback triggered when highlighted tag changes. */
     onHighlightChange?: SubtypeExprOrValue<FunctionType<[OptionType<typeof StringType>], NullType>>;
 }

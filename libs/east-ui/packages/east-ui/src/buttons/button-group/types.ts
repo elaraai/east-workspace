@@ -12,14 +12,13 @@ import {
 } from "@elaraai/east";
 
 // ============================================================================
-// ButtonGroup Style Type — visual presentation only (§0.10)
+// ButtonGroup Style Type
 // ============================================================================
 
 /**
  * Visual-only style struct for ButtonGroup. Content (`buttons`) lives on the
  * main `ButtonGroup` variant — defined inline in `component.ts` because
- * `buttons: ArrayType(node)` is recursive — per the Type-shape convention
- * (§0.10).
+ * 
  *
  * @remarks
  * **Chakra v3's `<Group>` does NOT propagate `size`/`variant`/`colorPalette`

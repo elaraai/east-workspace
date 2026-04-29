@@ -131,9 +131,9 @@ type TabsTriggerInput =
  * @returns An East expression representing the tabs item
  *
  * @remarks
- * `trigger` is a UIComp per the Type-shape convention — strings coerce to
- * `Text.Root(s)` so the common case stays ergonomic. Rich triggers let
- * callers embed count badges, icons, or two-line labels inline.
+ * `trigger` is a UIComp — strings coerce to `Text.Root(s)` so the common
+ * case stays ergonomic. Rich triggers let callers embed count badges, icons,
+ * or two-line labels inline.
  *
  * @example
  * ```ts
@@ -182,7 +182,7 @@ function createTabsItem(
  * @returns An East expression representing the Tabs component
  *
  * @remarks
- * Per the Type-shape convention: `value` / `defaultValue` (state) and
+ * `value` / `defaultValue` (state) and
  * `onValueChange` (behaviour) are top-level options; visual presentation
  * lives inside `options.style`.
  *
@@ -309,9 +309,9 @@ export const Tabs = {
      * @returns An East expression representing the Tabs component
      *
      * @remarks
-     * See {@link createTabsRoot} for full semantics. Per the Type-shape
-     * convention: `value` / `defaultValue` / `onValueChange` are top-level
-     * options; `style` holds visual presets + colour slots.
+     * See {@link createTabsRoot} for full semantics. `value` / `defaultValue`
+     * / `onValueChange` are top-level options; `style` holds visual presets
+     * + colour slots.
      *
      * @example
      * ```ts

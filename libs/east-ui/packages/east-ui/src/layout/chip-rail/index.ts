@@ -30,7 +30,6 @@ export const ChipRailType = StructType({
     chips: ArrayType(UIComponentType),
     density: OptionType(DensityType),
     separator: OptionType(ChipRailSeparatorType),
-    overflow: OptionType(ChipRailOverflowType),
     style: OptionType(ChipRailStyleType),
 });
 export type ChipRailType = typeof ChipRailType;
@@ -83,22 +82,29 @@ function createChipRail(
             : options.separator)
         : undefined;
 
-    const overflowValue = options?.overflow
-        ? (typeof options.overflow === "string"
-            ? East.value(variant(options.overflow, null), ChipRailOverflowType)
-            : options.overflow)
+    const overflowValue = options?.style?.overflow
+        ? (typeof options.style.overflow === "string"
+            ? East.value(variant(options.style.overflow, null), ChipRailOverflowType)
+            : options.style.overflow)
         : undefined;
+
+    const hasStyle = !!options?.style && (
+        overflowValue !== undefined ||
+        options.style.background !== undefined ||
+        options.style.separatorColor !== undefined ||
+        options.style.overflowTriggerColor !== undefined
+    );
 
     return East.value(variant("ChipRail", {
         chips,
         density: densityValue ? variant("some", densityValue) : variant("none", null),
         separator: separatorValue ? variant("some", separatorValue) : variant("none", null),
-        overflow: overflowValue ? variant("some", overflowValue) : variant("none", null),
-        style: options?.style
+        style: hasStyle
             ? variant("some", East.value({
-                background: options.style.background ? variant("some", options.style.background) : variant("none", null),
-                separatorColor: options.style.separatorColor ? variant("some", options.style.separatorColor) : variant("none", null),
-                overflowTriggerColor: options.style.overflowTriggerColor ? variant("some", options.style.overflowTriggerColor) : variant("none", null),
+                overflow: overflowValue ? variant("some", overflowValue) : variant("none", null),
+                background: options!.style!.background ? variant("some", options!.style!.background) : variant("none", null),
+                separatorColor: options!.style!.separatorColor ? variant("some", options!.style!.separatorColor) : variant("none", null),
+                overflowTriggerColor: options!.style!.overflowTriggerColor ? variant("some", options!.style!.overflowTriggerColor) : variant("none", null),
             }, ChipRailStyleType))
             : variant("none", null),
     }), UIComponentType);

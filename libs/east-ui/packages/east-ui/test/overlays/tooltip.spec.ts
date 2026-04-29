@@ -44,8 +44,7 @@ describeEast("Tooltip", (test) => {
             "Help text"
         ));
 
-        $(Assert.equal(tooltip.unwrap().unwrap("Tooltip").placement.hasTag("none"), true));
-        $(Assert.equal(tooltip.unwrap().unwrap("Tooltip").hasArrow.hasTag("none"), true));
+        $(Assert.equal(tooltip.unwrap().unwrap("Tooltip").style.hasTag("none"), true));
     });
 
     // =========================================================================
@@ -58,9 +57,8 @@ describeEast("Tooltip", (test) => {
             "Tooltip above",
             { placement: "top" }
         ));
-
-        $(Assert.equal(tooltip.unwrap().unwrap("Tooltip").placement.hasTag("some"), true));
-        $(Assert.equal(tooltip.unwrap().unwrap("Tooltip").placement.unwrap("some").hasTag("top"), true));
+        const sv = tooltip.unwrap().unwrap("Tooltip").style.unwrap("some");
+        $(Assert.equal(sv.placement.unwrap("some").hasTag("top"), true));
     });
 
     test("creates tooltip with bottom placement", $ => {
@@ -69,8 +67,8 @@ describeEast("Tooltip", (test) => {
             "Tooltip below",
             { placement: "bottom" }
         ));
-
-        $(Assert.equal(tooltip.unwrap().unwrap("Tooltip").placement.unwrap("some").hasTag("bottom"), true));
+        const sv = tooltip.unwrap().unwrap("Tooltip").style.unwrap("some");
+        $(Assert.equal(sv.placement.unwrap("some").hasTag("bottom"), true));
     });
 
     test("creates tooltip with left placement", $ => {
@@ -79,8 +77,8 @@ describeEast("Tooltip", (test) => {
             "Tooltip left",
             { placement: "left" }
         ));
-
-        $(Assert.equal(tooltip.unwrap().unwrap("Tooltip").placement.unwrap("some").hasTag("left"), true));
+        const sv = tooltip.unwrap().unwrap("Tooltip").style.unwrap("some");
+        $(Assert.equal(sv.placement.unwrap("some").hasTag("left"), true));
     });
 
     test("creates tooltip with right placement", $ => {
@@ -89,8 +87,8 @@ describeEast("Tooltip", (test) => {
             "Tooltip right",
             { placement: "right" }
         ));
-
-        $(Assert.equal(tooltip.unwrap().unwrap("Tooltip").placement.unwrap("some").hasTag("right"), true));
+        const sv = tooltip.unwrap().unwrap("Tooltip").style.unwrap("some");
+        $(Assert.equal(sv.placement.unwrap("some").hasTag("right"), true));
     });
 
     test("creates tooltip with top-start placement", $ => {
@@ -99,8 +97,8 @@ describeEast("Tooltip", (test) => {
             "Tooltip top start",
             { placement: "top-start" }
         ));
-
-        $(Assert.equal(tooltip.unwrap().unwrap("Tooltip").placement.unwrap("some").hasTag("top-start"), true));
+        const sv = tooltip.unwrap().unwrap("Tooltip").style.unwrap("some");
+        $(Assert.equal(sv.placement.unwrap("some").hasTag("top-start"), true));
     });
 
     test("creates tooltip with bottom-end placement", $ => {
@@ -109,8 +107,8 @@ describeEast("Tooltip", (test) => {
             "Tooltip bottom end",
             { placement: "bottom-end" }
         ));
-
-        $(Assert.equal(tooltip.unwrap().unwrap("Tooltip").placement.unwrap("some").hasTag("bottom-end"), true));
+        const sv = tooltip.unwrap().unwrap("Tooltip").style.unwrap("some");
+        $(Assert.equal(sv.placement.unwrap("some").hasTag("bottom-end"), true));
     });
 
     // =========================================================================
@@ -123,9 +121,8 @@ describeEast("Tooltip", (test) => {
             "Tooltip with arrow",
             { hasArrow: true }
         ));
-
-        $(Assert.equal(tooltip.unwrap().unwrap("Tooltip").hasArrow.hasTag("some"), true));
-        $(Assert.equal(tooltip.unwrap().unwrap("Tooltip").hasArrow.unwrap("some"), true));
+        const sv = tooltip.unwrap().unwrap("Tooltip").style.unwrap("some");
+        $(Assert.equal(sv.hasArrow.unwrap("some"), true));
     });
 
     test("creates tooltip without arrow", $ => {
@@ -134,8 +131,8 @@ describeEast("Tooltip", (test) => {
             "Tooltip without arrow",
             { hasArrow: false }
         ));
-
-        $(Assert.equal(tooltip.unwrap().unwrap("Tooltip").hasArrow.unwrap("some"), false));
+        const sv = tooltip.unwrap().unwrap("Tooltip").style.unwrap("some");
+        $(Assert.equal(sv.hasArrow.unwrap("some"), false));
     });
 
     // =========================================================================
@@ -148,9 +145,9 @@ describeEast("Tooltip", (test) => {
             "Save your changes",
             { placement: "bottom", hasArrow: true }
         ));
-
-        $(Assert.equal(tooltip.unwrap().unwrap("Tooltip").placement.unwrap("some").hasTag("bottom"), true));
-        $(Assert.equal(tooltip.unwrap().unwrap("Tooltip").hasArrow.unwrap("some"), true));
+        const sv = tooltip.unwrap().unwrap("Tooltip").style.unwrap("some");
+        $(Assert.equal(sv.placement.unwrap("some").hasTag("bottom"), true));
+        $(Assert.equal(sv.hasArrow.unwrap("some"), true));
     });
 
     test("creates tooltip with all options", $ => {
@@ -159,10 +156,11 @@ describeEast("Tooltip", (test) => {
             "This action cannot be undone",
             { placement: "top", hasArrow: true }
         ));
-
-        $(Assert.equal(tooltip.unwrap().unwrap("Tooltip").content, "This action cannot be undone"));
-        $(Assert.equal(tooltip.unwrap().unwrap("Tooltip").placement.unwrap("some").hasTag("top"), true));
-        $(Assert.equal(tooltip.unwrap().unwrap("Tooltip").hasArrow.unwrap("some"), true));
+        const t = tooltip.unwrap().unwrap("Tooltip");
+        const sv = t.style.unwrap("some");
+        $(Assert.equal(t.content, "This action cannot be undone"));
+        $(Assert.equal(sv.placement.unwrap("some").hasTag("top"), true));
+        $(Assert.equal(sv.hasArrow.unwrap("some"), true));
     });
 
     // =========================================================================
@@ -175,9 +173,10 @@ describeEast("Tooltip", (test) => {
             "Enter your full legal name as it appears on your ID",
             { placement: "right", hasArrow: true }
         ));
-
-        $(Assert.equal(tooltip.unwrap().unwrap("Tooltip").trigger.unwrap().unwrap("Text").value, "?"));
-        $(Assert.equal(tooltip.unwrap().unwrap("Tooltip").placement.unwrap("some").hasTag("right"), true));
+        const t = tooltip.unwrap().unwrap("Tooltip");
+        const sv = t.style.unwrap("some");
+        $(Assert.equal(t.trigger.unwrap().unwrap("Text").value, "?"));
+        $(Assert.equal(sv.placement.unwrap("some").hasTag("right"), true));
     });
 
     test("creates action button tooltip", $ => {
@@ -196,7 +195,7 @@ describeEast("Tooltip", (test) => {
             "Click to read our full terms and conditions",
             { placement: "bottom-start" }
         ));
-
-        $(Assert.equal(tooltip.unwrap().unwrap("Tooltip").placement.unwrap("some").hasTag("bottom-start"), true));
+        const sv = tooltip.unwrap().unwrap("Tooltip").style.unwrap("some");
+        $(Assert.equal(sv.placement.unwrap("some").hasTag("bottom-start"), true));
     });
 }, {   platformFns: TestImpl,});

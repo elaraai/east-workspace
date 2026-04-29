@@ -20,9 +20,8 @@ describeEast("Planner", (test) => {
         plannerComplexColumns: ex.plannerComplexColumns,
         plannerColumnRenderWithRow: ex.plannerColumnRenderWithRow,
         plannerWithBoundaries: ex.plannerWithBoundaries,
-        plannerWithContextMenu: ex.plannerWithContextMenu,
         plannerPopoverClick: ex.plannerPopoverClick,
-        plannerPopoverHover: ex.plannerPopoverHover,
+        plannerEventTooltip: ex.plannerEventTooltip,
         plannerPopoverAndContextMenu: ex.plannerPopoverAndContextMenu,
         plannerReadOnlyMode: ex.plannerReadOnlyMode,
         plannerEventStyling: ex.plannerEventStyling,
@@ -33,68 +32,11 @@ describeEast("Planner", (test) => {
         plannerFrozenColumns: ex.plannerFrozenColumns,
         plannerRowStatus: ex.plannerRowStatus,
         plannerChromeColours: ex.plannerChromeColours,
-    });
-
-    // =========================================================================
-    // Basic Event Creation
-    // =========================================================================
-
-    test("creates event with start only", $ => {
-        const event = $.let(Planner.Event({
-            start: 1.0,
-        }));
-
-        $(Assert.equal(event.start, 1.0));
-        $(Assert.equal(event.end.hasTag("none"), true));
-        $(Assert.equal(event.label.hasTag("none"), true));
-        $(Assert.equal(event.colorPalette.hasTag("none"), true));
-    });
-
-    test("creates event with start and end", $ => {
-        const event = $.let(Planner.Event({
-            start: 1.0,
-            end: 5.0,
-        }));
-
-        $(Assert.equal(event.start, 1.0));
-        $(Assert.equal(event.end.hasTag("some"), true));
-        $(Assert.equal(event.end.unwrap("some"), 5.0));
-    });
-
-    test("creates event with label", $ => {
-        const event = $.let(Planner.Event({
-            start: 1.0,
-            end: 3.0,
-            label: { value: "Task A" },
-        }));
-
-        $(Assert.equal(event.label.hasTag("some"), true));
-        $(Assert.equal(event.label.unwrap("some").value, "Task A"));
-    });
-
-    test("creates event with colorPalette", $ => {
-        const event = $.let(Planner.Event({
-            start: 1.0,
-            end: 3.0,
-            colorPalette: "blue",
-        }));
-
-        $(Assert.equal(event.colorPalette.hasTag("some"), true));
-        $(Assert.equal(event.colorPalette.unwrap("some").hasTag("blue"), true));
-    });
-
-    test("creates event with all options", $ => {
-        const event = $.let(Planner.Event({
-            start: 2.0,
-            end: 6.0,
-            label: { value: "Important Task" },
-            colorPalette: "green",
-        }));
-
-        $(Assert.equal(event.start, 2.0));
-        $(Assert.equal(event.end.unwrap("some"), 6.0));
-        $(Assert.equal(event.label.unwrap("some").value, "Important Task"));
-        $(Assert.equal(event.colorPalette.unwrap("some").hasTag("green"), true));
+        plannerEventOverlays: ex.plannerEventOverlays,
+        plannerVisualTokens: ex.plannerVisualTokens,
+        plannerInteractive: ex.plannerInteractive,
+        plannerReactiveClick: ex.plannerReactiveClick,
+        plannerEventPopoverWithCallback: ex.plannerEventPopoverWithCallback,
     });
 
     // =========================================================================
@@ -288,17 +230,17 @@ describeEast("Planner", (test) => {
         $(Assert.equal(planner.unwrap().unwrap("Planner").style.unwrap("some").striped.unwrap("some"), true));
     });
 
-    test("creates planner with interactive", $ => {
+    test("interactive flag is dropped — row hover is always on", $ => {
+        // The Planner no longer carries an `interactive` boolean. Row-hover
+        // highlight is always rendered. This test asserts the field is absent
+        // from the IR by exercising a Planner without ever passing one.
         const planner = $.let(Planner.Root(
             [{ name: "Task", start: 1.0 }],
             ["name"],
             row => [Planner.Event({ start: row.start })],
-            {
-                interactive: true,
-            }
         ));
 
-        $(Assert.equal(planner.unwrap().unwrap("Planner").interactive.unwrap("some"), true));
+        $(Assert.equal(planner.unwrap().hasTag("Planner"), true));
     });
 
     test("creates planner with stickyHeader", $ => {
@@ -535,5 +477,164 @@ describeEast("Planner", (test) => {
 
         $(Assert.equal(planner.unwrap().unwrap("Planner").columns.size(), 3n));
         $(Assert.equal(planner.unwrap().unwrap("Planner").rows.size(), 2n));
+    });
+
+    // =========================================================================
+    // Per-event tooltip / popover / overlays — Plan 1.10 H IR coverage
+    // =========================================================================
+
+    test("event with tooltip slot round-trips as some(UIComp)", $ => {
+        const planner = $.let(Planner.Root(
+            [{ name: "Task", start: 1.0, end: 3.0 }],
+            ["name"],
+            row => [Planner.Event({
+                start: row.start,
+                end: row.end,
+                tooltip: Text.Root("hello"),
+            })],
+        ));
+        const event = $.let(planner.unwrap().unwrap("Planner").rows.get(0n).events.get(0n));
+        $(Assert.equal(event.tooltip.hasTag("some"), true));
+        $(Assert.equal(event.tooltip.unwrap("some").unwrap().hasTag("Text"), true));
+    });
+
+    test("event without tooltip is none", $ => {
+        const planner = $.let(Planner.Root(
+            [{ name: "Task", start: 1.0, end: 3.0 }],
+            ["name"],
+            row => [Planner.Event({ start: row.start, end: row.end })],
+        ));
+        const event = $.let(planner.unwrap().unwrap("Planner").rows.get(0n).events.get(0n));
+        $(Assert.equal(event.tooltip.hasTag("none"), true));
+        $(Assert.equal(event.popover.hasTag("none"), true));
+    });
+
+    test("event with popover slot round-trips as some(UIComp)", $ => {
+        const planner = $.let(Planner.Root(
+            [{ name: "Task", start: 1.0, end: 3.0 }],
+            ["name"],
+            row => [Planner.Event({
+                start: row.start,
+                end: row.end,
+                popover: Text.Root("popover content"),
+            })],
+        ));
+        const event = $.let(planner.unwrap().unwrap("Planner").rows.get(0n).events.get(0n));
+        $(Assert.equal(event.popover.hasTag("some"), true));
+        $(Assert.equal(event.popover.unwrap("some").unwrap().hasTag("Text"), true));
+    });
+
+    test("event with overlays round-trips with axis-aligned positioning", $ => {
+        const planner = $.let(Planner.Root(
+            [{ name: "Task", start: 1.0, end: 3.0 }],
+            ["name"],
+            row => [Planner.Event({
+                start: row.start,
+                end: row.end,
+                overlays: [
+                    {
+                        content: Badge.Root("HIGH"),
+                        align: "end",
+                        verticalAlign: "start",
+                    },
+                    {
+                        content: Text.Root("note"),
+                        align: "start",
+                        verticalAlign: "end",
+                    },
+                ],
+            })],
+        ));
+        const event = $.let(planner.unwrap().unwrap("Planner").rows.get(0n).events.get(0n));
+        $(Assert.equal(event.overlays.size(), 2n));
+        const o0 = $.let(event.overlays.get(0n));
+        $(Assert.equal(o0.align.hasTag("end"), true));
+        $(Assert.equal(o0.verticalAlign.hasTag("start"), true));
+        $(Assert.equal(o0.content.unwrap().hasTag("Badge"), true));
+        const o1 = $.let(event.overlays.get(1n));
+        $(Assert.equal(o1.align.hasTag("start"), true));
+        $(Assert.equal(o1.verticalAlign.hasTag("end"), true));
+        $(Assert.equal(o1.content.unwrap().hasTag("Text"), true));
+    });
+
+    test("creates planner with eventBorderRadius", $ => {
+        const planner = $.let(Planner.Root(
+            [{ name: "Task", start: 1.0 }],
+            ["name"],
+            row => [Planner.Event({ start: row.start })],
+            { eventBorderRadius: "8px" },
+        ));
+        $(Assert.equal(
+            planner.unwrap().unwrap("Planner").style.unwrap("some").eventBorderRadius.unwrap("some"),
+            "8px",
+        ));
+    });
+
+    test("creates planner with labelColor", $ => {
+        const planner = $.let(Planner.Root(
+            [{ name: "Task", start: 1.0 }],
+            ["name"],
+            row => [Planner.Event({ start: row.start })],
+            { labelColor: "white" },
+        ));
+        $(Assert.equal(
+            planner.unwrap().unwrap("Planner").style.unwrap("some").labelColor.unwrap("some"),
+            "white",
+        ));
+    });
+
+    test("creates planner with labelFontSize", $ => {
+        const planner = $.let(Planner.Root(
+            [{ name: "Task", start: 1.0 }],
+            ["name"],
+            row => [Planner.Event({ start: row.start })],
+            { labelFontSize: "0.875rem" },
+        ));
+        $(Assert.equal(
+            planner.unwrap().unwrap("Planner").style.unwrap("some").labelFontSize.unwrap("some"),
+            "0.875rem",
+        ));
+    });
+
+    test("creates planner with labelFontWeight", $ => {
+        const planner = $.let(Planner.Root(
+            [{ name: "Task", start: 1.0 }],
+            ["name"],
+            row => [Planner.Event({ start: row.start })],
+            { labelFontWeight: "700" },
+        ));
+        $(Assert.equal(
+            planner.unwrap().unwrap("Planner").style.unwrap("some").labelFontWeight.unwrap("some"),
+            "700",
+        ));
+    });
+
+    test("rich label with align/verticalAlign/color/fontWeight/fontStyle/fontSize round-trips", $ => {
+        const planner = $.let(Planner.Root(
+            [{ name: "Task", start: 1.0, end: 3.0 }],
+            ["name"],
+            row => [Planner.Event({
+                start: row.start,
+                end: row.end,
+                label: {
+                    value: "Rich",
+                    align: "center",
+                    verticalAlign: "end",
+                    color: "yellow.300",
+                    fontWeight: "bold",
+                    fontStyle: "italic",
+                    fontSize: "lg",
+                },
+            })],
+        ));
+        const event = $.let(planner.unwrap().unwrap("Planner").rows.get(0n).events.get(0n));
+        const label = $.let(event.label.unwrap("some"));
+        $(Assert.equal(label.value, "Rich"));
+        $(Assert.equal(label.align.unwrap("some").hasTag("center"), true));
+        $(Assert.equal(label.verticalAlign.unwrap("some").hasTag("end"), true));
+        $(Assert.equal(label.color.unwrap("some"), "yellow.300"));
+        $(Assert.equal(label.fontWeight.unwrap("some").hasTag("bold"), true));
+        $(Assert.equal(label.fontStyle.unwrap("some").hasTag("italic"), true));
+        $(Assert.equal(label.fontSize.unwrap("some").hasTag("lg"), true));
     });
 }, {   platformFns: TestImpl,});

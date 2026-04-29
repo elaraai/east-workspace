@@ -41,7 +41,7 @@ export {
  * in `component.ts`.
  *
  * @remarks
- * Per the §0.10 main/style type-shape convention, main carries content
+ * Per the 0 main/style type-shape convention, main carries content
  * (`page` / `pageSize` / `count`) and behaviour (`onPageChange`);
  * `style` carries visual fields only.
  *
@@ -226,7 +226,7 @@ export const Pagination: PaginationNamespace = {
          *
          * @remarks
          * Main carries content / behaviour; `style` carries visual
-         * fields only (per §0.10).
+         * fields only (per 0).
          *
          * @property page - Current 0-based page index
          * @property pageSize - Number of items per page
@@ -239,7 +239,7 @@ export const Pagination: PaginationNamespace = {
          * East StructType holding every visual field for a Pagination.
          *
          * @remarks
-         * Visual-only per §0.10. Content and behaviour live on the main
+         * Visual-only. Content and behaviour live on the main
          * struct.
          *
          * @property size - Size preset (sm / md / lg)

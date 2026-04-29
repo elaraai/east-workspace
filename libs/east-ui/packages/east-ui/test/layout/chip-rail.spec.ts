@@ -22,7 +22,6 @@ describeEast("ChipRail", (test) => {
 
         $(Assert.equal(rail.unwrap().unwrap("ChipRail").density.hasTag("none"), true));
         $(Assert.equal(rail.unwrap().unwrap("ChipRail").separator.hasTag("none"), true));
-        $(Assert.equal(rail.unwrap().unwrap("ChipRail").overflow.hasTag("none"), true));
         $(Assert.equal(rail.unwrap().unwrap("ChipRail").style.hasTag("none"), true));
     });
 
@@ -85,15 +84,15 @@ describeEast("ChipRail", (test) => {
     // =========================================================================
 
     test("creates a chip rail with wrap overflow", $ => {
-        const rail = $.let(ChipRail.Root([Tag.Root("A")], { overflow: "wrap" }));
-
-        $(Assert.equal(rail.unwrap().unwrap("ChipRail").overflow.unwrap("some").hasTag("wrap"), true));
+        const rail = $.let(ChipRail.Root([Tag.Root("A")], { style: { overflow: "wrap" } }));
+        const sv = rail.unwrap().unwrap("ChipRail").style.unwrap("some");
+        $(Assert.equal(sv.overflow.unwrap("some").hasTag("wrap"), true));
     });
 
     test("creates a chip rail with scroll overflow", $ => {
-        const rail = $.let(ChipRail.Root([Tag.Root("A")], { overflow: "scroll" }));
-
-        $(Assert.equal(rail.unwrap().unwrap("ChipRail").overflow.unwrap("some").hasTag("scroll"), true));
+        const rail = $.let(ChipRail.Root([Tag.Root("A")], { style: { overflow: "scroll" } }));
+        const sv = rail.unwrap().unwrap("ChipRail").style.unwrap("some");
+        $(Assert.equal(sv.overflow.unwrap("some").hasTag("scroll"), true));
     });
 
     // =========================================================================

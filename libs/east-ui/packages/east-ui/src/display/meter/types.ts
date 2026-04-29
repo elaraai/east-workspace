@@ -53,7 +53,7 @@ export type MeterThicknessLiteral = "xs" | "sm" | "md" | "lg";
  * East StructType for the Meter style sub-struct.
  *
  * @remarks
- * Visual-only per §0.10. Content (`value` / `max` / `label`) and
+ * Visual-only. Content (`value` / `max` / `label`) and
  * semantic `tone` live on the main `MeterType` struct.
  *
  * @property thickness - Visual thickness preset (xs / sm / md / lg)

@@ -18,7 +18,7 @@ import { SizeType, ColorSchemeType } from "../../style.js";
 import type { SizeLiteral, ColorSchemeLiteral } from "../../style.js";
 
 // ============================================================================
-// ProgressCircle Style Type — visual presentation only (§0.10)
+// ProgressCircle Style Type
 // ============================================================================
 
 /**

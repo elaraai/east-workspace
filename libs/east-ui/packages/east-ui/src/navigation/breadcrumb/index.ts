@@ -13,10 +13,10 @@ import {
 
 import { ColorSchemeType } from "../../style.js";
 import { UIComponentType } from "../../component.js";
-import { BreadcrumbVariantType, BreadcrumbSizeType, BreadcrumbItemType, BreadcrumbRootType, type BreadcrumbStyle } from "./types.js";
+import { BreadcrumbVariantType, BreadcrumbSizeType, BreadcrumbItemType, BreadcrumbRootType, BreadcrumbStyleType, type BreadcrumbStyle } from "./types.js";
 
 // Re-export types
-export { BreadcrumbVariantType, BreadcrumbSizeType, BreadcrumbItemType, BreadcrumbRootType, type BreadcrumbStyle, type BreadcrumbSizeLiteral } from "./types.js";
+export { BreadcrumbVariantType, BreadcrumbSizeType, BreadcrumbItemType, BreadcrumbRootType, BreadcrumbStyleType, type BreadcrumbStyle, type BreadcrumbSizeLiteral } from "./types.js";
 
 
 // ============================================================================
@@ -69,11 +69,19 @@ function createBreadcrumb(
             : style.colorPalette)
         : undefined;
 
+    const hasStyle = variantValue !== undefined || sizeValue !== undefined || colorPaletteValue !== undefined;
+
+    const styleValue = hasStyle
+        ? East.value({
+            variant: variantValue ? variant("some", variantValue) : variant("none", null),
+            size: sizeValue ? variant("some", sizeValue) : variant("none", null),
+            colorPalette: colorPaletteValue ? variant("some", colorPaletteValue) : variant("none", null),
+        }, BreadcrumbStyleType)
+        : undefined;
+
     return East.value(variant("Breadcrumb", {
         items: items,
-        variant: variantValue ? variant("some", variantValue) : variant("none", null),
-        size: sizeValue ? variant("some", sizeValue) : variant("none", null),
-        colorPalette: colorPaletteValue ? variant("some", colorPaletteValue) : variant("none", null),
+        style: styleValue ? variant("some", styleValue) : variant("none", null),
     }), UIComponentType);
 }
 
@@ -115,9 +123,27 @@ export const Breadcrumb = {
     Root: createBreadcrumb,
     Types: {
         /**
-         * Type for Breadcrumb component data.
+         * East StructType for Breadcrumb component data.
+         *
+         * @remarks
+         * Visual fields (variant, size, colorPalette) live in `style` per
+         * 0.
+         *
+         * @property items - Array of breadcrumb items
+         * @property style - Optional visual-only style sub-struct (see `Style`)
          */
         Root: BreadcrumbRootType,
+        /**
+         * East StructType holding every visual field for a Breadcrumb.
+         *
+         * @remarks
+         * Mirror of `BreadcrumbStyleType` from `./types.js`.
+         *
+         * @property variant - Visual variant (underline or plain)
+         * @property size - Size of the breadcrumb (sm, md, lg)
+         * @property colorPalette - Colour scheme for the breadcrumb
+         */
+        Style: BreadcrumbStyleType,
         /**
          * Type for a single breadcrumb item.
          */

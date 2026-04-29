@@ -34,22 +34,22 @@ Chart functional sub-configs (`xAxis` / `yAxis` / `tooltip` / `legend` / `margin
 
 | ID | Plan | Section in gaps doc | Status |
 |---|---|---|---|
-| 0 | `0-conventions.md` | §0 Conventions | draft |
-| 1.1 | `1.1-global-style-system.md` | §1.1 Global style system (tokens + semantic layer) | draft |
-| 1.2 | `1.2-layout.md` | §1.2 Layout (Box, Flex, Stack, Grid, Splitter, Separator, Sticky, ScrollArea) | draft |
+| 0 | `0-conventions.md` | §0 Conventions | reference doc |
+| 1.1 | `1.1-global-style-system.md` | §1.1 Global style system (tokens + semantic layer) | done (`src/style/` has content / interaction / layout / motion / namespace / scheme / typography / visual) |
+| 1.2 | `1.2-layout.md` | §1.2 Layout (Box, Flex, Stack, Grid, Splitter, Separator, Sticky, ScrollArea) | done (all listed primitives + ChipRail) |
 | 1.3 | `1.3-typography.md` | §1.3 Typography (Text, Heading, Numeric, Note, Code, CodeBlock, Link, Highlight, Mark, List) | done |
 | 1.4 | `1.4-buttons.md` | §1.4 Buttons (Button, IconButton, CopyButton, CloseButton, Toggle, ButtonGroup) | done |
-| 1.5 | `1.5-forms.md` | §1.5 Forms (Input suite, Slider, Field, FileUpload, Textarea, TagsInput, Radio*, Date/TimeRange, TimeScaleControl) | draft |
+| 1.5 | `1.5-forms.md` | §1.5 Forms (Input suite, Slider, Field, FileUpload, Textarea, TagsInput, Radio*, Date/TimeRange, TimeScaleControl) | done |
 | 1.6 | `1.6-feedback.md` | §1.6 Feedback (Alert, Banner, Progress, ProgressCircle, Skeleton, Spinner, Status, Toast, EmptyState) | done |
 | 1.7 | `1.7-display.md` | §1.7 Display (Badge, Tag, Avatar, Stat, Icon, MetricChip, EditableChip, Kbd, Meter, SegmentedMeter, BarStrip, AvatarGroup) | done |
 | 1.8 | `1.8-container.md` | §1.8 Container (Card compound + state contract) | done |
 | 1.9 | `1.9-disclosure.md` | §1.9 Disclosure (Accordion, Tabs, Carousel, SegmentGroup, Collapsible, Disclosure, Steps, Timeline, OptionList) | done |
-| 1.10 | `1.10-collections.md` | §1.10 Collections (Table, DataList, TreeView, Gantt, Planner, Matrix, Pagination) | draft |
-| 1.11 | `1.11-charts.md` | §1.11 Charts (cross-cutting upgrades; retire bar-segment/bar-list) | draft |
-| 1.12 | `1.12-overlays.md` | §1.12 Overlays (Tooltip, ToggleTip, Menu, Dialog, Drawer, Popover, HoverCard, ActionBar, CommandPalette, InfoAffordance, Tour, CoachMark) | draft |
-| 1.13 | `1.13-navigation.md` | §1.13 Navigation (Breadcrumb, NavList, TableOfContents) | draft |
-| 1.14 | `1.14-platform.md` | §1.14 Platform (Clipboard, Toast, Download, Share, FocusScope, DnD) | draft |
-| 2.1 | `2.1-observe.md` | §2.1 Observe patterns | draft |
+| 1.10 | `1.10-collections.md` | §1.10 Collections (Table, DataList, TreeView, Gantt, Planner, Matrix, Pagination) | done (IR + primitives + Table renderer wiring complete after Plans 1.10 H–M; `stickyFirstColumn` deleted in favour of `frozen`) |
+| 1.11 | `1.11-charts.md` | §1.11 Charts (cross-cutting upgrades; retire bar-segment/bar-list) | done (area, bar, composed, line, pie, radar, scatter, sparkline shipped) |
+| 1.12 | `1.12-overlays.md` | §1.12 Overlays (Tooltip, ToggleTip, Menu, Dialog, Drawer, Popover, HoverCard, ActionBar, CommandPalette, CoachMark, Hotkey) | partial — Tooltip, ToggleTip, Menu, Dialog, Drawer, Popover, HoverCard, ActionBar, CommandPalette, CoachMark, Hotkey shipped. (`Tour` and `InfoAffordance` removed from the design — apps pick Tooltip / ToggleTip / HoverCard / Popover directly.) |
+| 1.13 | `1.13-navigation.md` | §1.13 Navigation (Breadcrumb, NavList) | done — Breadcrumb + NavList shipped. (`TableOfContents` removed from the design — scroll-spy needs DOM-level anchor IDs that East UI layout primitives don't currently expose; revisit once `Box.id` lands.) |
+| 1.14 | `1.14-platform.md` | §1.14 Platform (Clipboard, Toast, Download, Share, FocusScope, DnD) | partial — `state.ts` + `Hotkey` shipped. Clipboard, Toast (the platform variant — Toast feedback primitive in 1.6 is separate), Download, Share, FocusScope, DnD still draft |
+| 2.1 | `2.1-observe.md` | §2.1 Observe patterns | draft (foundation: `contracts/states.ts` + `reactive/index.ts`) |
 | 2.2 | `2.2-explain.md` | §2.2 Explain patterns | draft |
 | 2.3 | `2.3-decide.md` | §2.3 Decide patterns | draft |
 | 2.4 | `2.4-compare.md` | §2.4 Compare patterns | draft |
