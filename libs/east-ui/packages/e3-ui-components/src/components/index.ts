@@ -6,7 +6,7 @@
 export { InputPreview, type InputPreviewProps } from './InputPreview.js';
 export { TaskPreview, type TaskPreviewProps } from './TaskPreview.js';
 export { TaskLogs, type TaskLogsProps } from './TaskLogs.js';
-export { UITaskPreview, type UITaskPreviewProps, type UITaskPreviewConfig } from './UITaskPreview.js';
+export { UITaskPreview, type UITaskPreviewProps } from './UITaskPreview.js';
 export { DataTaskPreview, type DataTaskPreviewProps } from './DataTaskPreview.js';
 export { DatasetPreview, type DatasetPreviewProps } from './DatasetPreview.js';
 export { StatusDisplay, type StatusDisplayProps } from './StatusDisplay.js';

@@ -74,6 +74,8 @@ export const cpsatScheduleJobs = example({
             log_search_progress: variant('none', null),
             seed: variant('some', 42n),
             max_solutions: variant('none', null),
+            relative_gap_limit: variant('none', null),
+            absolute_gap_limit: variant('none', null),
         }, GoogleOr.Types.CpSatConfigType);
 
         const result = $.let(GoogleOr.cpsatSolve(model, config));
@@ -137,6 +139,8 @@ export const cpsatAssignShifts = example({
             log_search_progress: variant('none', null),
             seed: variant('some', 42n),
             max_solutions: variant('none', null),
+            relative_gap_limit: variant('none', null),
+            absolute_gap_limit: variant('none', null),
         }, GoogleOr.Types.CpSatConfigType);
 
         const result = $.let(GoogleOr.cpsatSolve(model, config));
@@ -198,6 +202,8 @@ export const cpsatSolveAll = example({
             log_search_progress: variant('none', null),
             seed: variant('some', 42n),
             max_solutions: variant('some', 100n),
+            relative_gap_limit: variant('none', null),
+            absolute_gap_limit: variant('none', null),
         }, GoogleOr.Types.CpSatConfigType);
 
         const results = $.let(GoogleOr.cpsatSolveAll(model, config));

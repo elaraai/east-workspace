@@ -1,0 +1,175 @@
+/*
+ * Elara AI — Colors & Typography tokens
+ * Derived from the east-ui Chakra theme (packages/east-ui-showcase/theme/index.ts)
+ * and the elaraai.com platform page. Values in OKLCH-friendly hex.
+ */
+
+/* ---------- Fonts ---------- */
+/* Body/UI: system stack used by east-ui.
+ * Brand/display: Nunito (closest Google Fonts match to the rounded geometric
+ * sans used in the Elara_AI_Lockup logotype — flagged as a substitution).
+ */
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root {
+  /* ===== BRAND — Deep teal scale ===== */
+  --brand-50:  #f0fffe;
+  --brand-100: #c2fcfc;
+  --brand-200: #94f9f9;
+  --brand-300: #79f8f8;
+  --brand-400: #5ce5e5;
+  --brand-500: #488e97;   /* primary brand mid */
+  --brand-600: #3a7780;
+  --brand-700: #2b4b55;
+  --brand-800: #1f363d;
+  --brand-900: #111b22;   /* deep brand ink */
+
+  /* ===== NEUTRALS — cool green-gray ===== */
+  --gray-50:  #f8fafa;
+  --gray-100: #f1f5f5;
+  --gray-200: #e2e8e8;
+  --gray-300: #cbd5d5;
+  --gray-400: #9bb0b0;
+  --gray-500: #6b8080;
+  --gray-600: #4a5f5f;
+  --gray-700: #374848;
+  --gray-800: #253333;
+  --gray-900: #1a2626;
+
+  /* ===== ACCENTS (from east-ui color palettes used in product) ===== */
+  --teal-500:   #14b8a6;
+  --purple-500: #8b5cf6;
+  --blue-500:   #3b82f6;
+  --green-500:  #22c55e;
+  --orange-500: #f97316;
+  --red-500:    #ef4444;
+  --yellow-500: #eab308;
+
+  /* ===== SEMANTIC — Light theme (default) ===== */
+  --bg-primary:   #ffffff;
+  --bg-secondary: var(--gray-50);
+  --bg-tertiary:  var(--gray-100);
+  --bg-inverse:   var(--brand-900);
+
+  --fg-primary:   var(--gray-900);    /* headings, body */
+  --fg-secondary: var(--gray-600);    /* secondary text */
+  --fg-muted:     var(--gray-500);    /* labels, captions */
+  --fg-inverse:   #ffffff;
+
+  --border-subtle: var(--gray-200);
+  --border-strong: var(--gray-300);
+  --border-focus:  var(--brand-500);
+
+  --card-bg:      #ffffff;
+  --card-border:  var(--gray-200);
+
+  --link:         var(--brand-600);
+  --link-hover:   var(--brand-700);
+
+  /* ===== TYPE ===== */
+  --font-brand:  'DM Sans', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-body:   'Inter Tight', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono:   'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
+  /* Chakra-derived scale */
+  --fs-xs:   12px;
+  --fs-sm:   14px;
+  --fs-md:   16px;
+  --fs-lg:   18px;
+  --fs-xl:   20px;
+  --fs-2xl:  24px;
+  --fs-3xl:  30px;
+  --fs-4xl:  36px;
+  --fs-5xl:  48px;
+  --fs-6xl:  60px;
+
+  --fw-light:    300;
+  --fw-normal:   400;
+  --fw-medium:   500;
+  --fw-semibold: 600;
+  --fw-bold:     700;
+  --fw-extra:    800;
+
+  --lh-tight:  1.25;
+  --lh-snug:   1.375;
+  --lh-normal: 1.5;
+  --lh-relaxed: 1.625;
+
+  /* ===== SPACING (Chakra scale) ===== */
+  --sp-0: 0;
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --sp-10: 40px;
+  --sp-12: 48px;
+  --sp-16: 64px;
+  --sp-20: 80px;
+
+  /* ===== RADII ===== */
+  --r-sm:  4px;
+  --r-md:  6px;
+  --r-lg:  8px;
+  --r-xl:  12px;
+  --r-2xl: 16px;
+  --r-full: 9999px;
+
+  /* ===== SHADOWS ===== */
+  --shadow-xs: 0 1px 2px rgba(17, 27, 34, 0.05);
+  --shadow-sm: 0 1px 2px rgba(17, 27, 34, 0.06), 0 1px 3px rgba(17, 27, 34, 0.08);
+  --shadow-md: 0 4px 6px -1px rgba(17, 27, 34, 0.08), 0 2px 4px -2px rgba(17, 27, 34, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(17, 27, 34, 0.10), 0 4px 6px -4px rgba(17, 27, 34, 0.08);
+  --shadow-xl: 0 20px 25px -5px rgba(17, 27, 34, 0.12), 0 8px 10px -6px rgba(17, 27, 34, 0.10);
+  --shadow-focus: 0 0 0 3px rgba(72, 142, 151, 0.35);
+
+  /* ===== MOTION ===== */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-fast: 120ms;
+  --dur-base: 200ms;
+  --dur-slow: 360ms;
+}
+
+/* ===== Dark theme ===== */
+[data-theme="dark"], .dark {
+  --bg-primary:   var(--gray-900);
+  --bg-secondary: var(--gray-800);
+  --bg-tertiary:  var(--gray-700);
+  --bg-inverse:   #ffffff;
+
+  --fg-primary:   var(--gray-100);
+  --fg-secondary: var(--gray-400);
+  --fg-muted:     var(--gray-500);
+  --fg-inverse:   var(--brand-900);
+
+  --border-subtle: var(--gray-700);
+  --border-strong: var(--gray-600);
+
+  --card-bg:      var(--gray-800);
+  --card-border:  var(--gray-700);
+
+  --link:         var(--brand-300);
+  --link-hover:   var(--brand-200);
+}
+
+/* ===== SEMANTIC TYPE STYLES ===== */
+html, body { font-family: var(--font-body); color: var(--fg-primary); background: var(--bg-primary); }
+
+.h1, h1 { font-family: var(--font-brand); font-size: var(--fs-5xl); font-weight: var(--fw-bold);     line-height: var(--lh-tight); letter-spacing: -0.02em; color: var(--fg-primary); }
+.h2, h2 { font-family: var(--font-brand); font-size: var(--fs-4xl); font-weight: var(--fw-bold);     line-height: var(--lh-tight); letter-spacing: -0.015em; color: var(--fg-primary); }
+.h3, h3 { font-family: var(--font-brand); font-size: var(--fs-3xl); font-weight: var(--fw-semibold); line-height: var(--lh-snug);  letter-spacing: -0.01em; color: var(--fg-primary); }
+.h4, h4 { font-family: var(--font-brand); font-size: var(--fs-2xl); font-weight: var(--fw-semibold); line-height: var(--lh-snug); color: var(--fg-primary); }
+.h5, h5 { font-family: var(--font-body);  font-size: var(--fs-xl);  font-weight: var(--fw-semibold); line-height: var(--lh-snug); color: var(--fg-primary); }
+.h6, h6 { font-family: var(--font-body);  font-size: var(--fs-lg);  font-weight: var(--fw-semibold); line-height: var(--lh-normal); color: var(--fg-primary); }
+
+.p, p          { font-size: var(--fs-md); line-height: var(--lh-relaxed); color: var(--fg-primary); }
+.lead          { font-size: var(--fs-lg); line-height: var(--lh-relaxed); color: var(--fg-secondary); }
+.small         { font-size: var(--fs-sm); line-height: var(--lh-normal);  color: var(--fg-secondary); }
+.caption       { font-size: var(--fs-xs); line-height: var(--lh-normal);  color: var(--fg-muted); letter-spacing: 0.02em; }
+.eyebrow       { font-size: var(--fs-xs); font-weight: var(--fw-semibold); letter-spacing: 0.12em; text-transform: uppercase; color: var(--brand-600); }
+.code, code    { font-family: var(--font-mono); font-size: 0.92em; background: var(--bg-tertiary); padding: 1px 5px; border-radius: var(--r-sm); color: var(--fg-primary); }
+a              { color: var(--link); text-decoration: none; }
+a:hover        { color: var(--link-hover); text-decoration: underline; text-underline-offset: 2px; }

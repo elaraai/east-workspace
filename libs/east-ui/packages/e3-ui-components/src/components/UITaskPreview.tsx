@@ -36,25 +36,22 @@ import {
     usePreloadReactiveDatasets,
     type ReactiveDatasetToPreload,
 } from '../platform/dataset-hooks.js';
-import { createScopedDataPlatform } from '../platform/dataset-runtime.js';
+import { useE3Config, type E3Config } from '../platform/e3-config.js';
+import { createScopedBindPlatform } from '../platform/bind-runtime.js';
 import { useTaskDetails, getTaskKind, getTaskMetadata } from '../hooks/useTaskDetails.js';
 import { useDatasetStatus } from '../hooks/useDatasetStatus.js';
 import { useDatasetValue } from '../hooks/useDatasetValue.js';
 import { StatusDisplay } from './StatusDisplay.js';
 import { ErrorBoundary } from './ErrorBoundary.js';
 
-export interface UITaskPreviewConfig {
-    apiUrl: string;
-    repo?: string;
-    workspace: string | null;
-    token?: string | null;
-}
-
 export interface UITaskPreviewProps {
     /** Task name (must have `kind: 'ui'`). */
     task: string;
-    /** Override apiUrl/repo/workspace/token; defaults to ReactiveDatasetProvider context. */
-    config?: UITaskPreviewConfig;
+    /**
+     * Override the surrounding `<E3Provider>` config — useful when a
+     * single page renders previews for multiple workspaces.
+     */
+    config?: E3Config;
     /**
      * Poll interval (ms) for the manifest's declared reads. Default 1000ms.
      */
@@ -70,12 +67,12 @@ export const UITaskPreview = memo(function UITaskPreview({
     config,
     pollInterval = 1000,
 }: UITaskPreviewProps) {
+    const e3 = useE3Config();
     const cache = useReactiveDatasetCacheOptional();
-    const cacheConfig = cache?.getConfig();
-    const apiUrl = config?.apiUrl ?? cacheConfig?.apiUrl ?? '';
-    const repo = config?.repo ?? cacheConfig?.repo ?? 'default';
-    const workspace = config?.workspace ?? cacheConfig?.workspace ?? null;
-    const token = config?.token ?? cacheConfig?.token ?? null;
+    const apiUrl = config?.apiUrl ?? e3.apiUrl;
+    const repo = config?.repo ?? e3.repo ?? 'default';
+    const workspace = config?.workspace ?? e3.workspace ?? null;
+    const token = config?.token ?? e3.token ?? null;
     const requestOptions = { token };
 
     const detailsQuery = useTaskDetails(apiUrl, repo, workspace, task, { requestOptions });
@@ -99,11 +96,17 @@ export const UITaskPreview = memo(function UITaskPreview({
     );
     const { loading: preloading, error: preloadError } = usePreloadReactiveDatasets(preloads);
 
-    // Per-render scoped Data.bind impl (strict path validation against manifest).
+    // Per-render scoped `Data.bind` impl (strict path validation against
+    // the manifest). `OverlayImpl` here is the UI overlay (modal/dialog)
+    // impl — unrelated to data bindings despite the name.
     const scopedPlatforms = useMemo<PlatformFunction[] | undefined>(
         () =>
             manifest
-                ? [...StateImpl, ...createScopedDataPlatform(manifest), ...OverlayImpl]
+                ? [
+                    ...StateImpl,
+                    ...createScopedBindPlatform(manifest),
+                    ...OverlayImpl,
+                ]
                 : undefined,
         [manifest],
     );
@@ -125,7 +128,10 @@ export const UITaskPreview = memo(function UITaskPreview({
         ...(scopedPlatforms && { platforms: scopedPlatforms }),
     });
 
-    // Stable UIStore per UI tree (re-create when task changes).
+    // Stable UIStore per UI tree (re-create when task changes — `task`
+    // listed as a dep so a new store is allocated whenever the task
+    // identity changes, even though the factory takes no arguments).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     const store = useMemo(() => createUIStore(), [task]);
 
     if (detailsQuery.isLoading) return <StatusDisplay variant="loading" title="Loading task..." />;

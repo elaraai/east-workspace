@@ -107,6 +107,7 @@ import {
 } from "./overlays";
 import { EastChakraHotkey } from "./platform/hotkey";
 import { EastReactiveComponent } from "./reactive";
+import { EastChakraExtension } from "./extension/index.js";
 
 // Pre-define the equality function at module level
 const uiComponentEqual = equalFor(UIComponentType);
@@ -258,6 +259,10 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
 
             // Reactive
             ReactiveComponent: (v) => <EastReactiveComponent value={v} storageKey={childKey(storageKey, "ReactiveComponent")} />,
+
+            // Extension — declared via `EastUI.component(...)` in any package;
+            // renderer registered via `implementUIComponent`.
+            Extension: (v) => <EastChakraExtension value={v} storageKey={childKey(storageKey, `Extension:${v.kind}`)} />,
         });
     }, [value, storageKey]);
 

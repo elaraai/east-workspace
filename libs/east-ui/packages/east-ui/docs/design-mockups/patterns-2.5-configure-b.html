@@ -1,0 +1,1847 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>East UI — Patterns §2.5 Configure (B · allocation &amp; flow)</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+  :root {
+    --brand-50:  #f0fffe; --brand-100: #c2fcfc; --brand-500: #488e97;
+    --brand-600: #3a7780; --brand-700: #2b4b55; --brand-900: #111b22;
+    --gray-50: #f8fafa; --gray-100: #f1f5f5; --gray-200: #e2e8e8;
+    --gray-300: #cbd5d5; --gray-400: #9bb0b0; --gray-500: #6b8080;
+    --gray-600: #4a5f5f; --gray-700: #374848; --gray-800: #253333; --gray-900: #1a2626;
+    --teal-500: #14b8a6;   --purple-500: #8b5cf6; --blue-500: #3b82f6;
+    --green-500: #22c55e;  --orange-500: #f97316; --red-500: #ef4444;
+    --yellow-500: #eab308;
+
+    --bg-primary:   #ffffff;
+    --bg-secondary: var(--gray-50);
+    --bg-tertiary:  var(--gray-100);
+    --fg-primary:   var(--gray-900);
+    --fg-secondary: var(--gray-600);
+    --fg-muted:     var(--gray-500);
+    --border-subtle: var(--gray-200);
+    --border-strong: var(--gray-300);
+    --card-bg: #ffffff;
+    --card-border: var(--gray-200);
+    --link: var(--brand-600);
+
+    --font-brand: 'DM Sans', system-ui, -apple-system, sans-serif;
+    --font-body:  'Inter Tight', system-ui, -apple-system, sans-serif;
+    --font-mono:  'JetBrains Mono', ui-monospace, Menlo, monospace;
+
+    --fs-xs: 12px;  --fs-sm: 14px;  --fs-md: 16px;  --fs-lg: 18px;
+    --fs-xl: 20px;  --fs-2xl: 24px; --fs-3xl: 30px; --fs-4xl: 36px;
+
+    --fw-normal: 400; --fw-medium: 500; --fw-semibold: 600; --fw-bold: 700;
+    --lh-tight: 1.25; --lh-snug: 1.375; --lh-normal: 1.5; --lh-relaxed: 1.625;
+
+    --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px;  --sp-4: 16px;
+    --sp-5: 20px; --sp-6: 24px; --sp-8: 32px;  --sp-10: 40px;
+    --sp-12: 48px; --sp-16: 64px; --sp-20: 80px;
+
+    --r-sm: 4px; --r-md: 6px; --r-lg: 8px; --r-full: 9999px;
+
+    --shadow-xs: 0 1px 2px rgba(17, 27, 34, 0.05);
+    --shadow-sm: 0 1px 2px rgba(17, 27, 34, 0.06), 0 1px 3px rgba(17, 27, 34, 0.08);
+    --shadow-md: 0 4px 6px -1px rgba(17, 27, 34, 0.08), 0 2px 4px -2px rgba(17, 27, 34, 0.06);
+    --shadow-lg: 0 10px 15px -3px rgba(17, 27, 34, 0.10), 0 4px 6px -4px rgba(17, 27, 34, 0.08);
+    --shadow-xl: 0 20px 25px -5px rgba(17, 27, 34, 0.12), 0 8px 10px -6px rgba(17, 27, 34, 0.10);
+    --shadow-focus: 0 0 0 3px rgba(72, 142, 151, 0.35);
+
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    --dur-fast: 120ms;
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: var(--font-body);
+    color: var(--fg-primary);
+    background: var(--bg-secondary);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Type styles */
+  .h2 { font-family: var(--font-brand); font-size: var(--fs-4xl); font-weight: var(--fw-bold); line-height: var(--lh-tight); letter-spacing: -0.015em; margin: 0; }
+  .lead    { font-size: var(--fs-lg); line-height: var(--lh-relaxed); color: var(--fg-secondary); margin: 0; }
+  .small   { font-size: var(--fs-sm); line-height: var(--lh-normal); color: var(--fg-secondary); margin: 0; }
+  .caption { font-size: var(--fs-xs); line-height: var(--lh-normal); color: var(--fg-muted); letter-spacing: 0.02em; margin: 0; }
+  .eyebrow { font-size: var(--fs-xs); font-weight: var(--fw-semibold); letter-spacing: 0.12em; text-transform: uppercase; color: var(--brand-600); margin: 0; }
+  code     { font-family: var(--font-mono); font-size: 0.92em; background: var(--bg-tertiary); padding: 1px 5px; border-radius: var(--r-sm); }
+  a        { color: var(--link); text-decoration: none; }
+  a:hover  { color: var(--brand-700); text-decoration: underline; text-underline-offset: 2px; }
+
+  .doc { max-width: 1200px; margin: 0 auto; padding: var(--sp-8) var(--sp-10) var(--sp-20); }
+  .doc-header {
+    margin-bottom: var(--sp-12);
+    padding-bottom: var(--sp-5);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .doc-eyebrow { margin-bottom: var(--sp-2); }
+  .doc-title { margin: 0 0 var(--sp-2); }
+  .doc-sub { max-width: 780px; }
+  .doc-toc { display: flex; gap: var(--sp-5); margin-top: var(--sp-5); font-size: var(--fs-sm); flex-wrap: wrap; }
+  .doc-toc a {
+    color: var(--fg-secondary);
+    border-bottom: 1px dotted transparent;
+    padding-bottom: 1px;
+  }
+  .doc-toc a:hover {
+    color: var(--fg-primary);
+    border-bottom-color: var(--border-strong);
+    text-decoration: none;
+  }
+
+  /* Pattern section */
+  .pattern { margin-bottom: var(--sp-16); }
+  .pattern-head { margin-bottom: var(--sp-5); }
+  .pattern-name {
+    font-family: var(--font-brand);
+    font-size: var(--fs-2xl);
+    font-weight: var(--fw-semibold);
+    letter-spacing: -0.01em;
+    line-height: var(--lh-snug);
+    margin: 0 0 var(--sp-1);
+  }
+  .pattern-name .anchor {
+    color: var(--fg-muted);
+    font-size: var(--fs-sm);
+    margin-right: var(--sp-2);
+    font-family: var(--font-body);
+    font-weight: var(--fw-normal);
+  }
+  .pattern-purpose {
+    font-size: var(--fs-sm);
+    color: var(--fg-secondary);
+    line-height: var(--lh-relaxed);
+    max-width: 780px;
+    margin: 0;
+  }
+  .pattern-api {
+    margin-top: var(--sp-3);
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    color: var(--fg-secondary);
+    background: var(--bg-tertiary);
+    padding: var(--sp-2) var(--sp-3);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--r-sm);
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  .examples {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: var(--r-lg);
+    padding: var(--sp-6);
+    display: grid;
+    gap: var(--sp-6);
+  }
+  .example {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: var(--sp-6);
+    align-items: start;
+  }
+  .example-label {
+    font-size: var(--fs-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--fg-muted);
+    font-weight: var(--fw-semibold);
+    padding-top: 4px;
+  }
+  .example-label .sub {
+    display: block;
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: var(--fw-normal);
+    color: var(--fg-muted);
+    font-size: var(--fs-xs);
+    margin-top: 4px;
+    line-height: var(--lh-normal);
+  }
+  .example-body { display: flex; flex-direction: column; gap: var(--sp-2); }
+  .row { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+  hr.sep { border: 0; border-top: 1px solid var(--border-subtle); margin: 0; }
+
+  /* Soft pill */
+  .pill {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+    font-variant-numeric: tabular-nums;
+    padding: 2px 10px;
+    border-radius: var(--r-full);
+    line-height: 1.5;
+    border: 1px solid transparent;
+  }
+  .pill.up   { color: #15803d; background: #f0fdf4; border-color: #bbf7d0; }
+  .pill.down { color: #b91c1c; background: #fef2f2; border-color: #fecaca; }
+  .pill.warn { color: #c2410c; background: #fff7ed; border-color: #fed7aa; }
+  .pill.neutral { color: var(--fg-secondary); background: var(--bg-tertiary); border-color: var(--border-subtle); }
+  .pill.info { color: #1d4ed8; background: #eff6ff; border-color: #bfdbfe; }
+  .pill.brand { color: var(--brand-700); background: var(--brand-50); border-color: var(--brand-100); }
+  .pill .arrow { font-size: 10px; line-height: 1; }
+
+  /* Buttons */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    font-family: var(--font-body); font-size: var(--fs-sm); font-weight: var(--fw-medium);
+    padding: 6px 14px; border-radius: var(--r-md);
+    border: 1px solid transparent;
+    cursor: pointer; line-height: 1.4;
+  }
+  .btn.primary { background: var(--brand-500); color: #fff; border-color: var(--brand-500); }
+  .btn.primary:hover { background: var(--brand-600); border-color: var(--brand-600); }
+  .btn.secondary { background: var(--card-bg); color: var(--fg-primary); border-color: var(--border-strong); }
+  .btn.secondary:hover { background: var(--bg-tertiary); }
+  .btn.ghost { background: transparent; color: var(--fg-secondary); border-color: transparent; }
+  .btn.ghost:hover { background: var(--bg-tertiary); color: var(--fg-primary); }
+  .btn.danger { background: var(--red-500); color: #fff; border-color: var(--red-500); }
+  .btn.sm { padding: 3px 10px; font-size: var(--fs-xs); }
+  .btn .key {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    background: rgba(17, 27, 34, 0.12);
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-left: 4px;
+    opacity: 0.85;
+  }
+  .btn.primary .key { background: rgba(255,255,255,0.18); }
+
+  /* Glyph circles */
+  .glyph {
+    display: inline-grid; place-items: center;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    font-size: 9px; line-height: 1;
+    font-weight: var(--fw-bold);
+    flex-shrink: 0;
+  }
+  .glyph.ok  { background: var(--green-500); color: #fff; }
+  .glyph.warn{ background: var(--orange-500); color: #fff; }
+  .glyph.err { background: var(--red-500); color: #fff; }
+  .glyph.info{ background: var(--blue-500); color: #fff; }
+
+  /* ============================================================
+     §2.5.9 — AssignmentBoard
+     ============================================================ */
+  .board-shell {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: var(--r-md);
+    overflow: hidden;
+    min-width: 880px;
+    min-height: 380px;
+  }
+  .board-tray {
+    background: var(--bg-secondary);
+    border-right: 1px solid var(--border-subtle);
+    padding: var(--sp-3);
+    display: flex; flex-direction: column;
+    gap: var(--sp-2);
+    overflow: hidden;
+  }
+  .board-tray .tr-head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: var(--sp-2);
+  }
+  .board-tray .tr-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--fg-muted);
+    font-weight: var(--fw-semibold);
+  }
+  .board-tray .tr-search {
+    background: var(--card-bg);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-sm);
+    padding: 5px 10px;
+    font-size: var(--fs-xs);
+    color: var(--fg-primary);
+    margin-bottom: var(--sp-2);
+  }
+
+  .draggable-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--r-sm);
+    padding: var(--sp-2) var(--sp-3);
+    cursor: grab;
+    display: flex; align-items: center;
+    gap: var(--sp-2);
+    transition: all var(--dur-fast) var(--ease-out);
+  }
+  .draggable-card:hover {
+    border-color: var(--border-strong);
+    box-shadow: var(--shadow-sm);
+  }
+  .draggable-card .dc-handle {
+    color: var(--fg-muted);
+    flex-shrink: 0;
+    line-height: 1;
+    font-size: 12px;
+  }
+  .draggable-card .dc-name {
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+    color: var(--fg-primary);
+  }
+  .draggable-card .dc-meta {
+    font-size: 11px;
+    color: var(--fg-muted);
+    margin-left: auto;
+    font-family: var(--font-mono);
+  }
+  .draggable-card.ghost {
+    opacity: 0.4;
+    pointer-events: none;
+  }
+  .draggable-card.dragging {
+    box-shadow: var(--shadow-lg);
+    transform: rotate(-1deg);
+    border-color: var(--brand-500);
+    background: var(--brand-50);
+  }
+
+  /* Grid area */
+  .board-grid {
+    display: flex; flex-direction: column;
+    background: var(--card-bg);
+  }
+  .board-axis {
+    display: grid;
+    grid-template-columns: 80px repeat(7, 1fr);
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .board-axis .ax-cell {
+    padding: 6px 10px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--fg-muted);
+    font-weight: var(--fw-semibold);
+    border-right: 1px solid var(--border-subtle);
+    text-align: center;
+  }
+  .board-axis .ax-cell:last-child { border-right: 0; }
+  .board-axis .ax-cell:first-child { text-align: left; }
+  .board-row {
+    display: grid;
+    grid-template-columns: 80px repeat(7, 1fr);
+    border-bottom: 1px solid var(--border-subtle);
+    min-height: 64px;
+  }
+  .board-row:last-child { border-bottom: 0; }
+  .row-label {
+    padding: var(--sp-2) var(--sp-3);
+    font-size: var(--fs-xs);
+    color: var(--fg-secondary);
+    background: var(--bg-secondary);
+    border-right: 1px solid var(--border-subtle);
+    display: flex; align-items: center;
+    font-weight: var(--fw-medium);
+  }
+  .board-cell {
+    border-right: 1px solid var(--border-subtle);
+    padding: 4px;
+    display: flex; flex-direction: column; gap: 3px;
+    overflow: hidden;
+    position: relative;
+  }
+  .board-cell:last-child { border-right: 0; }
+  .board-cell.drop-target {
+    background: var(--brand-50);
+    box-shadow: inset 0 0 0 2px var(--brand-500);
+  }
+  .board-cell.drop-invalid {
+    background: #fef2f2;
+    box-shadow: inset 0 0 0 2px var(--red-500);
+  }
+  .board-cell.conflict {
+    background: rgba(249, 115, 22, 0.08);
+    box-shadow: inset 0 0 0 1px rgba(249, 115, 22, 0.4);
+  }
+  .board-cell .placed-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border-subtle);
+    border-radius: 3px;
+    padding: 4px 8px;
+    font-size: 11px;
+    cursor: grab;
+    display: flex; align-items: center;
+    gap: 4px;
+    line-height: 1.2;
+  }
+  .board-cell .placed-card.role-A { border-left: 3px solid var(--brand-500); }
+  .board-cell .placed-card.role-B { border-left: 3px solid var(--purple-500); }
+  .board-cell .placed-card.role-C { border-left: 3px solid var(--blue-500); }
+  .board-cell .placed-card.role-D { border-left: 3px solid var(--green-500); }
+  .board-cell .placed-card .name {
+    font-weight: var(--fw-medium);
+    color: var(--fg-primary);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .board-cell .placed-card .conflict-mark {
+    margin-left: auto;
+    color: #c2410c;
+    font-size: 11px;
+    font-weight: var(--fw-bold);
+  }
+  .board-cell .ghost-preview {
+    background: var(--brand-100);
+    border: 1px dashed var(--brand-500);
+    border-radius: 3px;
+    padding: 4px 8px;
+    font-size: 11px;
+    color: var(--brand-700);
+    font-style: italic;
+    opacity: 0.85;
+  }
+
+  /* ============================================================
+     §2.5.10 — UnassignedTray (standalone — re-uses tray styles)
+     ============================================================ */
+  .tray-standalone {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: var(--r-md);
+    padding: var(--sp-3);
+    width: 280px;
+    display: flex; flex-direction: column; gap: var(--sp-2);
+  }
+  .tray-standalone .tr-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding-bottom: var(--sp-2);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .tray-standalone .empty-state {
+    background: var(--bg-secondary);
+    border: 1px dashed var(--border-strong);
+    border-radius: var(--r-sm);
+    padding: var(--sp-5);
+    text-align: center;
+    font-size: var(--fs-xs);
+    color: var(--fg-muted);
+    line-height: var(--lh-relaxed);
+  }
+  .tray-standalone .empty-state .es-icon {
+    font-size: 22px;
+    color: var(--green-500);
+    margin-bottom: var(--sp-1);
+    line-height: 1;
+  }
+  .tray-standalone .empty-state .es-msg {
+    font-size: var(--fs-sm);
+    color: var(--fg-primary);
+    font-weight: var(--fw-semibold);
+    margin-bottom: 4px;
+  }
+
+  /* ============================================================
+     §2.5.11 — SourceLibrary
+     ============================================================ */
+  .source-lib {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: var(--r-md);
+    width: 320px;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .source-lib .sl-head {
+    padding: var(--sp-3) var(--sp-4);
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--bg-secondary);
+    display: flex; flex-direction: column; gap: var(--sp-2);
+  }
+  .source-lib .sl-title {
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+  }
+  .source-lib .sl-search {
+    background: var(--card-bg);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-sm);
+    padding: 5px 10px;
+    font-size: var(--fs-xs);
+  }
+  .source-lib .sl-category {
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .source-lib .sl-category:last-child { border-bottom: 0; }
+  .source-lib .sl-cat-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: var(--sp-2) var(--sp-4);
+    background: var(--bg-secondary);
+    cursor: pointer;
+  }
+  .source-lib .sl-cat-head .label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--fg-muted);
+    font-weight: var(--fw-semibold);
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .source-lib .sl-cat-head .count {
+    font-size: 11px;
+    color: var(--fg-muted);
+    font-family: var(--font-mono);
+  }
+  .source-lib .sl-cat-body {
+    padding: var(--sp-2);
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .template-card {
+    display: flex; align-items: center;
+    gap: var(--sp-2);
+    padding: 6px 10px;
+    background: var(--card-bg);
+    border: 1px solid transparent;
+    border-radius: var(--r-sm);
+    cursor: grab;
+  }
+  .template-card:hover {
+    background: var(--bg-secondary);
+    border-color: var(--border-subtle);
+  }
+  .template-card .tc-icon {
+    width: 22px; height: 22px;
+    border-radius: 4px;
+    display: grid; place-items: center;
+    font-size: 10px;
+    font-weight: var(--fw-bold);
+    color: #fff;
+    flex-shrink: 0;
+  }
+  .template-card .tc-icon.brand   { background: var(--brand-500); }
+  .template-card .tc-icon.blue    { background: var(--blue-500); }
+  .template-card .tc-icon.green   { background: var(--green-500); }
+  .template-card .tc-icon.orange  { background: var(--orange-500); }
+  .template-card .tc-icon.purple  { background: var(--purple-500); }
+  .template-card .tc-meta {
+    flex: 1; min-width: 0;
+    display: flex; flex-direction: column; gap: 1px;
+  }
+  .template-card .tc-name {
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-medium);
+    color: var(--fg-primary);
+  }
+  .template-card .tc-desc {
+    font-size: 11px;
+    color: var(--fg-muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  /* ============================================================
+     §2.5.12 — ConflictAnnotator (recipe note + example grid)
+     ============================================================ */
+  .recipe-note {
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    border-radius: var(--r-md);
+    padding: var(--sp-3) var(--sp-4);
+    font-size: var(--fs-xs);
+    color: #9a3412;
+    line-height: var(--lh-relaxed);
+    display: flex; align-items: flex-start; gap: var(--sp-2);
+  }
+  .recipe-note .recipe-icon {
+    color: #c2410c;
+    font-weight: var(--fw-bold);
+    flex-shrink: 0;
+    line-height: 1.5;
+  }
+  .conflict-mini-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 1px;
+    background: var(--border-subtle);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--r-md);
+    overflow: hidden;
+    width: max-content;
+    min-width: 380px;
+  }
+  .conflict-mini-grid .cm-cell {
+    background: var(--card-bg);
+    padding: var(--sp-3) var(--sp-2);
+    font-size: 11px;
+    text-align: center;
+    min-height: 48px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 2px;
+    position: relative;
+  }
+  .conflict-mini-grid .cm-cell.warn {
+    background: #fff7ed;
+    color: #c2410c;
+  }
+  .conflict-mini-grid .cm-cell.err {
+    background: #fef2f2;
+    color: #b91c1c;
+  }
+  .conflict-mini-grid .cm-cell .cm-status {
+    font-size: 10px;
+    display: inline-flex; align-items: center; gap: 3px;
+    font-weight: var(--fw-semibold);
+  }
+  .conflict-mini-grid .cm-cell.ok    .cm-status { color: #15803d; }
+  .conflict-mini-grid .cm-cell.warn  .cm-status { color: #c2410c; }
+  .conflict-mini-grid .cm-cell.err   .cm-status { color: #b91c1c; }
+
+  /* ============================================================
+     §2.5.13 — SwapRequest
+     ============================================================ */
+  .dialog-frame {
+    background: rgba(17, 27, 34, 0.45);
+    padding: var(--sp-6);
+    border-radius: var(--r-md);
+    display: flex; align-items: center; justify-content: center;
+    min-height: 400px;
+  }
+  .swap-dialog {
+    background: var(--card-bg);
+    border-radius: var(--r-md);
+    box-shadow: var(--shadow-xl);
+    width: 100%;
+    max-width: 540px;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .swap-dialog .sd-head {
+    padding: var(--sp-5) var(--sp-6) var(--sp-3);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .swap-dialog .sd-head h3 {
+    font-family: var(--font-brand);
+    font-size: var(--fs-xl);
+    font-weight: var(--fw-semibold);
+    margin: 0 0 4px;
+    letter-spacing: -0.01em;
+  }
+  .swap-dialog .sd-head .sd-state {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: var(--fs-xs);
+    color: var(--fg-secondary);
+    font-family: var(--font-mono);
+    margin-top: 4px;
+  }
+  .swap-dialog .sd-state .state-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+  }
+  .swap-dialog .sd-state.proposed .state-dot { background: var(--blue-500); }
+  .swap-dialog .sd-state.accepted .state-dot { background: var(--green-500); }
+  .swap-dialog .sd-state.declined .state-dot { background: var(--red-500); }
+  .swap-dialog .sd-body {
+    padding: var(--sp-5) var(--sp-6);
+    display: flex; flex-direction: column; gap: var(--sp-4);
+  }
+  .swap-pair {
+    display: grid;
+    grid-template-columns: 1fr 32px 1fr;
+    gap: var(--sp-3);
+    align-items: stretch;
+  }
+  .swap-pair .person {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--r-md);
+    padding: var(--sp-3) var(--sp-4);
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .swap-pair .person .p-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--fg-muted);
+    font-weight: var(--fw-semibold);
+  }
+  .swap-pair .person .p-name {
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+  }
+  .swap-pair .person .p-shift {
+    font-size: var(--fs-xs);
+    color: var(--fg-secondary);
+    font-family: var(--font-mono);
+  }
+  .swap-pair .swap-arrow {
+    display: grid; place-items: center;
+    color: var(--brand-500);
+    font-size: 22px;
+    font-weight: var(--fw-bold);
+  }
+  .swap-reason {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--r-sm);
+    padding: var(--sp-2) var(--sp-3);
+    font-size: var(--fs-sm);
+    color: var(--fg-primary);
+    font-style: italic;
+  }
+  .swap-reason .label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--fg-muted);
+    font-style: normal;
+    font-weight: var(--fw-semibold);
+    margin-right: 6px;
+  }
+  .swap-dialog .sd-foot {
+    padding: var(--sp-4) var(--sp-6);
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border-subtle);
+    display: flex; align-items: center; gap: var(--sp-2);
+  }
+  .swap-dialog .sd-foot .right { margin-left: auto; display: flex; gap: var(--sp-2); }
+
+  /* ============================================================
+     §2.5.14 — SupplyDemandView
+     ============================================================ */
+  .supply-demand {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: var(--r-md);
+    padding: var(--sp-4) var(--sp-5);
+    min-width: 720px;
+  }
+  .supply-demand .sd-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    margin-bottom: var(--sp-3);
+    gap: var(--sp-3);
+  }
+  .supply-demand .sd-title {
+    font-family: var(--font-brand);
+    font-size: var(--fs-md);
+    font-weight: var(--fw-semibold);
+  }
+  .supply-demand .sd-meta {
+    font-size: var(--fs-xs);
+    color: var(--fg-muted);
+    display: flex; gap: var(--sp-3);
+    flex-wrap: wrap;
+  }
+  .supply-demand .sd-meta .swatch {
+    display: inline-block;
+    width: 14px; height: 14px;
+    border-radius: 2px;
+    margin-right: 4px;
+    vertical-align: middle;
+  }
+  .supply-demand .sd-meta .swatch.line {
+    width: 14px; height: 2px;
+  }
+  .supply-demand svg.sd-svg {
+    width: 100%; height: 220px;
+    display: block;
+  }
+  .supply-demand .sd-axis-text {
+    font-size: 10px;
+    font-family: var(--font-mono);
+    fill: var(--fg-muted);
+  }
+
+  /* ============================================================
+     §2.5.15 — DraftPublishBar
+     ============================================================ */
+  .sticky-frame {
+    position: relative;
+    background: var(--bg-tertiary);
+    border: 1px dashed var(--border-strong);
+    border-radius: var(--r-md);
+    padding: var(--sp-2);
+  }
+  .sticky-frame::before {
+    content: 'Sticky bottom';
+    position: absolute;
+    top: -10px; left: 12px;
+    background: var(--bg-secondary);
+    color: var(--fg-muted);
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: var(--r-sm);
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .draft-bar {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-top: 2px solid var(--brand-500);
+    border-radius: var(--r-md);
+    padding: var(--sp-3) var(--sp-4);
+    display: flex; align-items: center;
+    gap: var(--sp-4);
+    box-shadow: var(--shadow-md);
+    min-width: 720px;
+  }
+  .draft-bar .draft-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+    background: var(--brand-50);
+    color: var(--brand-700);
+    border: 1px solid var(--brand-100);
+    padding: 3px 10px;
+    border-radius: var(--r-full);
+  }
+  .draft-bar .draft-badge .count {
+    background: var(--brand-500);
+    color: #fff;
+    border-radius: var(--r-full);
+    padding: 0 6px;
+    min-width: 18px;
+    text-align: center;
+    font-weight: var(--fw-bold);
+  }
+  .draft-bar .summary {
+    display: flex; flex-direction: column; gap: 2px;
+    flex: 1;
+    min-width: 0;
+  }
+  .draft-bar .s-title {
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+  }
+  .draft-bar .s-meta {
+    font-size: var(--fs-xs);
+    color: var(--fg-muted);
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+  .draft-bar .actions {
+    display: flex; align-items: center; gap: var(--sp-2);
+  }
+
+  .review-modal {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: var(--r-md);
+    padding: var(--sp-4);
+    width: 100%;
+    max-width: 520px;
+    box-shadow: var(--shadow-md);
+    display: flex; flex-direction: column; gap: var(--sp-3);
+  }
+  .review-modal .rm-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding-bottom: var(--sp-2);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .review-modal .rm-title {
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+  }
+  .review-modal .mini-diff {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--r-sm);
+    padding: var(--sp-2) 0;
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  .review-modal .mini-diff .row {
+    display: grid;
+    grid-template-columns: 24px 200px 1fr;
+    gap: var(--sp-2);
+    align-items: center;
+    padding: 4px var(--sp-3);
+  }
+  .review-modal .mini-diff .row.add { background: #f0fdf4; }
+  .review-modal .mini-diff .row.upd { background: #eff6ff; }
+  .review-modal .mini-diff .row.del { background: #fef2f2; }
+  .review-modal .mini-diff .row .marker { font-weight: var(--fw-bold); text-align: center; }
+  .review-modal .mini-diff .row.add .marker { color: #15803d; }
+  .review-modal .mini-diff .row.upd .marker { color: #1d4ed8; }
+  .review-modal .mini-diff .row.del .marker { color: #b91c1c; }
+  .review-modal .mini-diff .path { color: var(--fg-secondary); }
+
+</style>
+</head>
+<body>
+<div class="doc">
+
+  <header class="doc-header">
+    <div class="doc-eyebrow eyebrow">East UI · Patterns Catalogue</div>
+    <h1 class="doc-title h2">§2.5 Configure <span style="font-size: var(--fs-md); color: var(--fg-muted); font-weight: var(--fw-normal);">— part B · allocation &amp; flow</span></h1>
+    <p class="doc-sub lead">
+      Configure-mode patterns for moving items between containers and resolving conflicts: drag-to-assign
+      grids, unassigned trays, template libraries, conflict annotations, peer-to-peer swaps,
+      supply-vs-demand views, and draft → publish flows.
+    </p>
+    <nav class="doc-toc">
+      <a href="#assignment-board">AssignmentBoard</a>
+      <a href="#unassigned-tray">UnassignedTray</a>
+      <a href="#source-library">SourceLibrary</a>
+      <a href="#conflict-annotator">ConflictAnnotator</a>
+      <a href="#swap-request">SwapRequest</a>
+      <a href="#supply-demand">SupplyDemandView</a>
+      <a href="#draft-publish">DraftPublishBar</a>
+    </nav>
+    <p class="caption" style="margin-top: var(--sp-3);">
+      Continued from <a href="patterns-2.5-configure-a.html">part A · form-level</a>.
+    </p>
+  </header>
+
+  <!-- ========================================================
+       §2.5.9 AssignmentBoard
+       ======================================================== -->
+  <section class="pattern" id="assignment-board">
+    <div class="pattern-head">
+      <h2 class="pattern-name"><span class="anchor">2.5.9</span>AssignmentBoard</h2>
+      <p class="pattern-purpose">
+        Generic drag-to-assign grid. Items in a tray drop onto cells of a grid (worker → shift, order →
+        truck, lead → owner). Each drop emits a <code>Patch&lt;TBoard&gt;</code>; the parent composes
+        drops into a draft until commit. <code>validateDrop</code> shows valid / invalid drop targets in
+        flight. Drag-and-drop pairs with the required <code>DnD.KeyboardMove</code> fallback (§0.2).
+      </p>
+      <div class="pattern-api">AssignmentBoard.Root&lt;TBoard&gt;({ stateType, grid, tray, acceptsType, onAssign, validateDrop?, conflicts?, mode? })</div>
+    </div>
+
+    <div class="examples">
+      <div class="example">
+        <div class="example-label">in-flight drag
+          <span class="sub">Tray + grid · valid drop tinted brand · invalid tinted red · ghost-preview in target</span>
+        </div>
+        <div class="example-body">
+          <div class="board-shell">
+            <aside class="board-tray">
+              <div class="tr-head">
+                <div class="tr-title">Available · 6</div>
+                <span class="pill neutral" style="font-size: 10px;">3 left</span>
+              </div>
+              <input class="tr-search" placeholder="Filter workers…" />
+              <div class="draggable-card">
+                <span class="dc-handle">⋮⋮</span>
+                <span class="dc-name">S. Cho</span>
+                <span class="dc-meta">RN · 28h</span>
+              </div>
+              <div class="draggable-card dragging">
+                <span class="dc-handle">⋮⋮</span>
+                <span class="dc-name">P. Nguyen</span>
+                <span class="dc-meta">RN · 24h</span>
+              </div>
+              <div class="draggable-card">
+                <span class="dc-handle">⋮⋮</span>
+                <span class="dc-name">A. Patel</span>
+                <span class="dc-meta">CN · 16h</span>
+              </div>
+              <div class="draggable-card ghost">
+                <span class="dc-handle">⋮⋮</span>
+                <span class="dc-name">L. Whaite</span>
+                <span class="dc-meta">EN · 22h</span>
+              </div>
+            </aside>
+
+            <div class="board-grid">
+              <div class="board-axis">
+                <div class="ax-cell">Region</div>
+                <div class="ax-cell">Mon</div>
+                <div class="ax-cell">Tue</div>
+                <div class="ax-cell">Wed</div>
+                <div class="ax-cell">Thu</div>
+                <div class="ax-cell">Fri</div>
+                <div class="ax-cell">Sat</div>
+                <div class="ax-cell">Sun</div>
+              </div>
+              <div class="board-row">
+                <div class="row-label">SE-1</div>
+                <div class="board-cell">
+                  <span class="placed-card role-A"><span class="name">S. Cho</span></span>
+                </div>
+                <div class="board-cell drop-target">
+                  <span class="ghost-preview">P. Nguyen → drop</span>
+                </div>
+                <div class="board-cell">
+                  <span class="placed-card role-B"><span class="name">A. Patel</span></span>
+                </div>
+                <div class="board-cell">
+                  <span class="placed-card role-A"><span class="name">S. Cho</span></span>
+                </div>
+                <div class="board-cell">
+                  <span class="placed-card role-C"><span class="name">L. Whaite</span></span>
+                </div>
+                <div class="board-cell"></div>
+                <div class="board-cell"></div>
+              </div>
+              <div class="board-row">
+                <div class="row-label">SE-2</div>
+                <div class="board-cell"></div>
+                <div class="board-cell">
+                  <span class="placed-card role-B"><span class="name">A. Patel</span></span>
+                </div>
+                <div class="board-cell drop-invalid">
+                  <span class="ghost-preview" style="background: #fef2f2; border-color: var(--red-500); color: #b91c1c;">overtime cap</span>
+                </div>
+                <div class="board-cell"></div>
+                <div class="board-cell">
+                  <span class="placed-card role-D"><span class="name">M. Liu</span></span>
+                </div>
+                <div class="board-cell">
+                  <span class="placed-card role-D"><span class="name">M. Liu</span></span>
+                </div>
+                <div class="board-cell"></div>
+              </div>
+              <div class="board-row">
+                <div class="row-label">VIC-N</div>
+                <div class="board-cell">
+                  <span class="placed-card role-C"><span class="name">L. Whaite</span></span>
+                </div>
+                <div class="board-cell"></div>
+                <div class="board-cell">
+                  <span class="placed-card role-A"><span class="name">S. Cho</span></span>
+                </div>
+                <div class="board-cell conflict">
+                  <span class="placed-card role-A"><span class="name">S. Cho</span><span class="conflict-mark">⚠</span></span>
+                </div>
+                <div class="board-cell"></div>
+                <div class="board-cell"></div>
+                <div class="board-cell"></div>
+              </div>
+              <div class="board-row">
+                <div class="row-label">VIC-S</div>
+                <div class="board-cell"></div>
+                <div class="board-cell">
+                  <span class="placed-card role-B"><span class="name">A. Patel</span></span>
+                </div>
+                <div class="board-cell"></div>
+                <div class="board-cell"></div>
+                <div class="board-cell">
+                  <span class="placed-card role-D"><span class="name">M. Liu</span></span>
+                </div>
+                <div class="board-cell">
+                  <span class="placed-card role-D"><span class="name">M. Liu</span></span>
+                </div>
+                <div class="board-cell">
+                  <span class="placed-card role-D"><span class="name">M. Liu</span></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <hr class="sep">
+
+      <div class="example">
+        <div class="example-label">role legend
+          <span class="sub">Card left-border colour codes the role/category</span>
+        </div>
+        <div class="example-body">
+          <div class="row" style="font-size: var(--fs-xs); color: var(--fg-secondary); gap: var(--sp-3);">
+            <span style="display:inline-flex; align-items:center; gap: 6px;">
+              <span class="placed-card role-A" style="padding: 2px 8px;"><span class="name">RN</span></span>
+              registered nurse
+            </span>
+            <span style="display:inline-flex; align-items:center; gap: 6px;">
+              <span class="placed-card role-B" style="padding: 2px 8px;"><span class="name">CN</span></span>
+              charge nurse
+            </span>
+            <span style="display:inline-flex; align-items:center; gap: 6px;">
+              <span class="placed-card role-C" style="padding: 2px 8px;"><span class="name">EN</span></span>
+              enrolled nurse
+            </span>
+            <span style="display:inline-flex; align-items:center; gap: 6px;">
+              <span class="placed-card role-D" style="padding: 2px 8px;"><span class="name">PCA</span></span>
+              personal-care assistant
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================
+       §2.5.10 UnassignedTray
+       ======================================================== -->
+  <section class="pattern" id="unassigned-tray">
+    <div class="pattern-head">
+      <h2 class="pattern-name"><span class="anchor">2.5.10</span>UnassignedTray</h2>
+      <p class="pattern-purpose">
+        Sidebar list of draggable unassigned items. Search-filterable; usually paired with an
+        <code>AssignmentBoard</code>. Empty state explicitly congratulates a clean tray (no orphans).
+      </p>
+      <div class="pattern-api">UnassignedTray.Root(items, { title?, search?, onClaim?, emptyState? })</div>
+    </div>
+
+    <div class="examples">
+      <div class="example">
+        <div class="example-label">populated
+          <span class="sub">6 items · 3 visible after filter</span>
+        </div>
+        <div class="example-body">
+          <div class="tray-standalone">
+            <div class="tr-head">
+              <div class="tr-title" style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--fg-muted); font-weight: var(--fw-semibold);">Unassigned · 6</div>
+              <span class="pill neutral" style="font-size: 10px;">filter: RN</span>
+            </div>
+            <input class="tr-search" placeholder="Filter…" value="rn" style="background: var(--card-bg); border: 1px solid var(--border-strong); border-radius: var(--r-sm); padding: 5px 10px; font-size: var(--fs-xs);" />
+            <div class="draggable-card">
+              <span class="dc-handle">⋮⋮</span>
+              <span class="dc-name">S. Cho</span>
+              <span class="dc-meta">RN · 28h</span>
+            </div>
+            <div class="draggable-card">
+              <span class="dc-handle">⋮⋮</span>
+              <span class="dc-name">P. Nguyen</span>
+              <span class="dc-meta">RN · 24h</span>
+            </div>
+            <div class="draggable-card">
+              <span class="dc-handle">⋮⋮</span>
+              <span class="dc-name">J. Park</span>
+              <span class="dc-meta">RN · 16h</span>
+            </div>
+            <div style="font-size: 11px; color: var(--fg-muted); padding: var(--sp-2) var(--sp-3); font-family: var(--font-mono);">3 hidden by filter</div>
+          </div>
+        </div>
+      </div>
+
+      <hr class="sep">
+
+      <div class="example">
+        <div class="example-label">empty (all assigned)
+          <span class="sub">First-class state — celebrates a clean tray</span>
+        </div>
+        <div class="example-body">
+          <div class="tray-standalone">
+            <div class="tr-head">
+              <div class="tr-title" style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--fg-muted); font-weight: var(--fw-semibold);">Unassigned · 0</div>
+            </div>
+            <div class="empty-state">
+              <div class="es-icon">✓</div>
+              <div class="es-msg">All assigned</div>
+              <div>No orphan items. Re-run the solver if anything changes.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <hr class="sep">
+
+      <div class="example">
+        <div class="example-label">empty (zero state)
+          <span class="sub">Different — nothing has been added to the tray yet</span>
+        </div>
+        <div class="example-body">
+          <div class="tray-standalone">
+            <div class="tr-head">
+              <div class="tr-title" style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--fg-muted); font-weight: var(--fw-semibold);">Unassigned · 0</div>
+            </div>
+            <div class="empty-state">
+              <div class="es-icon" style="color: var(--gray-400);">∅</div>
+              <div class="es-msg" style="color: var(--fg-secondary);">Nothing to assign</div>
+              <div>Add workers from the directory or run the import wizard.</div>
+              <button class="btn secondary sm" style="margin-top: var(--sp-2);">Open directory</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================
+       §2.5.11 SourceLibrary
+       ======================================================== -->
+  <section class="pattern" id="source-library">
+    <div class="pattern-head">
+      <h2 class="pattern-name"><span class="anchor">2.5.11</span>SourceLibrary</h2>
+      <p class="pattern-purpose">
+        Catalogue of draggable templates grouped by category — drop a template onto an
+        <code>AssignmentBoard</code> or canvas. <code>onApplyBulk</code> applies multiple templates at
+        once via a composed patch.
+      </p>
+      <div class="pattern-api">SourceLibrary.Root(templates, { grouped?, onApplyBulk? })</div>
+    </div>
+
+    <div class="examples">
+      <div class="example">
+        <div class="example-label">grouped catalogue
+          <span class="sub">3 categories · 8 templates · drag onto a board</span>
+        </div>
+        <div class="example-body">
+          <div class="source-lib">
+            <div class="sl-head">
+              <div class="sl-title">Shift templates</div>
+              <input class="sl-search" placeholder="Search 28 templates…" />
+            </div>
+
+            <div class="sl-category">
+              <div class="sl-cat-head">
+                <span class="label">▾ Standard shifts</span>
+                <span class="count">5</span>
+              </div>
+              <div class="sl-cat-body">
+                <div class="template-card">
+                  <span class="tc-icon brand">D</span>
+                  <span class="tc-meta">
+                    <span class="tc-name">Day · 07–15</span>
+                    <span class="tc-desc">8h · 1× lunch</span>
+                  </span>
+                </div>
+                <div class="template-card">
+                  <span class="tc-icon blue">A</span>
+                  <span class="tc-meta">
+                    <span class="tc-name">Afternoon · 15–23</span>
+                    <span class="tc-desc">8h · weekend +12%</span>
+                  </span>
+                </div>
+                <div class="template-card">
+                  <span class="tc-icon purple">N</span>
+                  <span class="tc-meta">
+                    <span class="tc-name">Night · 23–07</span>
+                    <span class="tc-desc">8h · night premium</span>
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div class="sl-category">
+              <div class="sl-cat-head">
+                <span class="label">▾ Extended</span>
+                <span class="count">2</span>
+              </div>
+              <div class="sl-cat-body">
+                <div class="template-card">
+                  <span class="tc-icon green">D+</span>
+                  <span class="tc-meta">
+                    <span class="tc-name">Day · 07–19</span>
+                    <span class="tc-desc">12h · double-shift coverage</span>
+                  </span>
+                </div>
+                <div class="template-card">
+                  <span class="tc-icon orange">N+</span>
+                  <span class="tc-meta">
+                    <span class="tc-name">Night · 19–07</span>
+                    <span class="tc-desc">12h · weekend only</span>
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div class="sl-category">
+              <div class="sl-cat-head">
+                <span class="label">▸ On-call &amp; standby</span>
+                <span class="count">3</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <hr class="sep">
+
+      <div class="example">
+        <div class="example-label">drag preview
+          <span class="sub">Template lifted from the library</span>
+        </div>
+        <div class="example-body">
+          <div style="display: flex; gap: var(--sp-3); align-items: center;">
+            <div class="template-card" style="background: var(--card-bg); border-color: var(--brand-500); box-shadow: var(--shadow-lg); transform: rotate(-1deg); width: 220px;">
+              <span class="tc-icon brand">D</span>
+              <span class="tc-meta">
+                <span class="tc-name">Day · 07–15</span>
+                <span class="tc-desc">drag onto a cell to apply</span>
+              </span>
+            </div>
+            <span class="caption">→ drop on grid cell</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================
+       §2.5.12 ConflictAnnotator (recipe)
+       ======================================================== -->
+  <section class="pattern" id="conflict-annotator">
+    <div class="pattern-head">
+      <h2 class="pattern-name"><span class="anchor">2.5.12</span>ConflictAnnotator <span style="font-size: var(--fs-sm); color: var(--fg-muted); font-weight: var(--fw-normal); margin-left: var(--sp-2);">— recipe</span></h2>
+      <p class="pattern-purpose">
+        Not a pattern: a recipe over <code>Status</code> + <code>Tooltip</code> applied per offending cell
+        of any grid (Matrix / Planner / AssignmentBoard). Iterate the grid's cells, attach a status chip
+        when a conflict applies, surface the rule in a tooltip on hover.
+      </p>
+      <div class="pattern-api">Recipe — for each cell with a conflict, render Status({ tone: warn|err, label }) + Tooltip({ children: ruleExplanation })</div>
+    </div>
+
+    <div class="examples">
+      <div class="example">
+        <div class="example-label">canonical
+          <span class="sub">5×3 mini-grid showing pass · warn · fail annotations</span>
+        </div>
+        <div class="example-body">
+          <div class="recipe-note" style="margin-bottom: var(--sp-3);">
+            <span class="recipe-icon">★</span>
+            <span><strong>Recipe convention.</strong> Every offending cell renders a <code>Status</code> chip in its corner. The chip's tone (<code>ok | warn | err</code>) maps the rule's severity. Hovering surfaces a <code>Tooltip</code> with rule label + violation detail. Use this on Planner cells, Matrix cells, AssignmentBoard cells — any grid with cell addressability.</span>
+          </div>
+
+          <div class="conflict-mini-grid">
+            <div class="cm-cell ok">
+              <span>Mon · SE-1</span>
+              <span class="cm-status"><span class="glyph ok">✓</span>covered</span>
+            </div>
+            <div class="cm-cell ok">
+              <span>Tue · SE-1</span>
+              <span class="cm-status"><span class="glyph ok">✓</span>covered</span>
+            </div>
+            <div class="cm-cell warn">
+              <span>Wed · SE-1</span>
+              <span class="cm-status"><span class="glyph warn">!</span>OT cap</span>
+            </div>
+            <div class="cm-cell ok">
+              <span>Thu · SE-1</span>
+              <span class="cm-status"><span class="glyph ok">✓</span>covered</span>
+            </div>
+            <div class="cm-cell err">
+              <span>Fri · SE-1</span>
+              <span class="cm-status"><span class="glyph err">×</span>award rule</span>
+            </div>
+
+            <div class="cm-cell ok">
+              <span>Mon · SE-2</span>
+              <span class="cm-status"><span class="glyph ok">✓</span>covered</span>
+            </div>
+            <div class="cm-cell ok">
+              <span>Tue · SE-2</span>
+              <span class="cm-status"><span class="glyph ok">✓</span>covered</span>
+            </div>
+            <div class="cm-cell warn">
+              <span>Wed · SE-2</span>
+              <span class="cm-status"><span class="glyph warn">!</span>solo shift</span>
+            </div>
+            <div class="cm-cell ok">
+              <span>Thu · SE-2</span>
+              <span class="cm-status"><span class="glyph ok">✓</span>covered</span>
+            </div>
+            <div class="cm-cell ok">
+              <span>Fri · SE-2</span>
+              <span class="cm-status"><span class="glyph ok">✓</span>covered</span>
+            </div>
+
+            <div class="cm-cell ok">
+              <span>Mon · VIC</span>
+              <span class="cm-status"><span class="glyph ok">✓</span>covered</span>
+            </div>
+            <div class="cm-cell err">
+              <span>Tue · VIC</span>
+              <span class="cm-status"><span class="glyph err">×</span>under-min</span>
+            </div>
+            <div class="cm-cell ok">
+              <span>Wed · VIC</span>
+              <span class="cm-status"><span class="glyph ok">✓</span>covered</span>
+            </div>
+            <div class="cm-cell warn">
+              <span>Thu · VIC</span>
+              <span class="cm-status"><span class="glyph warn">!</span>back-to-back</span>
+            </div>
+            <div class="cm-cell ok">
+              <span>Fri · VIC</span>
+              <span class="cm-status"><span class="glyph ok">✓</span>covered</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <hr class="sep">
+
+      <div class="example">
+        <div class="example-label">tooltip on hover
+          <span class="sub">Per-cell rule explanation</span>
+        </div>
+        <div class="example-body">
+          <div style="display: flex; align-items: flex-start; gap: var(--sp-4);">
+            <div class="cm-cell err" style="width: 100px; height: 64px; border: 1px solid var(--border-subtle); border-radius: var(--r-sm); padding: var(--sp-2);">
+              <span>Fri · SE-1</span>
+              <span class="cm-status"><span class="glyph err">×</span>award rule</span>
+            </div>
+            <div style="background: var(--gray-900); color: #fff; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-sm); font-size: var(--fs-xs); max-width: 280px; box-shadow: var(--shadow-md);">
+              <div style="font-weight: var(--fw-semibold); margin-bottom: 2px;">⚠ Award rule violation</div>
+              <div style="opacity: 0.85; line-height: var(--lh-snug);">Saturday-night premium not applied. Per Award Code §3.4.1, shifts starting after 22:00 on a Friday qualifying for SAT-night premium.</div>
+              <div style="font-size: 10px; opacity: 0.6; margin-top: 4px; font-family: var(--font-mono);">rule-id: award.rule.34.1</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================
+       §2.5.13 SwapRequest
+       ======================================================== -->
+  <section class="pattern" id="swap-request">
+    <div class="pattern-head">
+      <h2 class="pattern-name"><span class="anchor">2.5.13</span>SwapRequest</h2>
+      <p class="pattern-purpose">
+        Peer-to-peer reassignment workflow. The swap is a patch pair: <em>propose</em> = patch;
+        <em>accept</em> = apply; <em>decline</em> = discard. State drives the dialog tone:
+        <code>proposed</code> · <code>accepted</code> · <code>declined</code>.
+      </p>
+      <div class="pattern-api">SwapRequest.Root&lt;TBoard&gt;({ stateType, from, to, patch, reason?, state, onRespond })</div>
+    </div>
+
+    <div class="examples">
+      <div class="example">
+        <div class="example-label">proposed (counterparty view)
+          <span class="sub">Recipient sees the swap pair + accept / decline</span>
+        </div>
+        <div class="example-body">
+          <div class="dialog-frame">
+            <div class="swap-dialog">
+              <div class="sd-head">
+                <h3>Swap request from S. Cho</h3>
+                <div class="sd-state proposed">
+                  <span class="state-dot"></span>proposed · 4m ago
+                </div>
+              </div>
+              <div class="sd-body">
+                <div class="swap-pair">
+                  <div class="person">
+                    <div class="p-label">From — S. Cho gives</div>
+                    <div class="p-name">Tue · Day shift</div>
+                    <div class="p-shift">07–15 · SE-1 · 8h</div>
+                  </div>
+                  <div class="swap-arrow">⇄</div>
+                  <div class="person">
+                    <div class="p-label">To — you give</div>
+                    <div class="p-name">Thu · Aft shift</div>
+                    <div class="p-shift">15–23 · SE-2 · 8h · +12% wknd</div>
+                  </div>
+                </div>
+                <div class="swap-reason">
+                  <span class="label">Reason</span>
+                  Doctor's appointment Tuesday morning — can pick up your Thu aft if it works.
+                </div>
+                <div style="font-size: var(--fs-xs); color: var(--fg-muted);">Hours unchanged · weekend premium difference +$24 to you.</div>
+              </div>
+              <div class="sd-foot">
+                <button class="btn ghost">Counter-propose</button>
+                <div class="right">
+                  <button class="btn secondary">Decline</button>
+                  <button class="btn primary">Accept</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <hr class="sep">
+
+      <div class="example">
+        <div class="example-label">accepted
+          <span class="sub">Both parties see the resolved state — patch applied, audit recorded</span>
+        </div>
+        <div class="example-body">
+          <div class="swap-dialog" style="max-width: 480px;">
+            <div class="sd-head" style="background: #f0fdf4; border-bottom-color: #bbf7d0;">
+              <h3 style="color: #15803d;">Swap accepted</h3>
+              <div class="sd-state accepted">
+                <span class="state-dot"></span>applied 38s ago · roster v1.3+1
+              </div>
+            </div>
+            <div class="sd-body">
+              <div class="swap-pair">
+                <div class="person">
+                  <div class="p-label">S. Cho · now</div>
+                  <div class="p-name">Thu · Aft</div>
+                  <div class="p-shift">15–23 · SE-2</div>
+                </div>
+                <div class="swap-arrow" style="color: var(--green-500);">⇄</div>
+                <div class="person">
+                  <div class="p-label">P. Nguyen · now</div>
+                  <div class="p-name">Tue · Day</div>
+                  <div class="p-shift">07–15 · SE-1</div>
+                </div>
+              </div>
+              <div style="font-size: var(--fs-xs); color: var(--fg-secondary); padding: var(--sp-2) var(--sp-3); background: var(--bg-secondary); border-radius: var(--r-sm);">
+                Audit: applied via composed patch · ref <code>swap.7c2a</code>. Inverse recorded for 24h undo.
+              </div>
+            </div>
+            <div class="sd-foot">
+              <button class="btn ghost">Undo · 23h 59m</button>
+              <div class="right">
+                <button class="btn primary">Close</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <hr class="sep">
+
+      <div class="example">
+        <div class="example-label">declined
+          <span class="sub">Recipient declined — proposer sees the reason</span>
+        </div>
+        <div class="example-body">
+          <div class="swap-dialog" style="max-width: 480px;">
+            <div class="sd-head" style="background: #fef2f2; border-bottom-color: #fecaca;">
+              <h3 style="color: #b91c1c;">Swap declined by P. Nguyen</h3>
+              <div class="sd-state declined">
+                <span class="state-dot"></span>declined 12m ago
+              </div>
+            </div>
+            <div class="sd-body">
+              <div class="swap-reason">
+                <span class="label">Their reason</span>
+                Already committed to Thursday afternoon (school pickup). Could do Wednesday morning instead.
+              </div>
+            </div>
+            <div class="sd-foot">
+              <div class="right">
+                <button class="btn ghost">Close</button>
+                <button class="btn primary">Counter-propose</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================
+       §2.5.14 SupplyDemandView
+       ======================================================== -->
+  <section class="pattern" id="supply-demand">
+    <div class="pattern-head">
+      <h2 class="pattern-name"><span class="anchor">2.5.14</span>SupplyDemandView</h2>
+      <p class="pattern-purpose">
+        Generic supply-vs-demand alignment. Pairs a supply surface and a demand surface on a shared axis.
+        Works for roster vs demand (workforce), inventory vs forecast (supply chain), budget vs burn
+        (finance), capacity vs orders (manufacturing).
+      </p>
+      <div class="pattern-api">SupplyDemandView.Root({ supply, demand, axis: "time" | "category", syncAxis?, gapIndicator?: "bar" | "band" | "none" })</div>
+    </div>
+
+    <div class="examples">
+      <div class="example">
+        <div class="example-label">time axis
+          <span class="sub">Roster (supply) vs demand · gap shaded</span>
+        </div>
+        <div class="example-body">
+          <div class="supply-demand">
+            <div class="sd-head">
+              <div class="sd-title">Roster vs demand · week of May 11</div>
+              <div class="sd-meta">
+                <span><span class="swatch" style="background: var(--brand-500); opacity: 0.85;"></span>supply (rostered)</span>
+                <span><span class="swatch line" style="background: var(--gray-700);"></span>demand (forecast)</span>
+                <span><span class="swatch" style="background: var(--orange-500); opacity: 0.18;"></span>shortfall</span>
+                <span><span class="swatch" style="background: var(--green-500); opacity: 0.18;"></span>surplus</span>
+              </div>
+            </div>
+            <svg class="sd-svg" viewBox="0 0 720 220" preserveAspectRatio="none">
+              <!-- Plot: x=44–700, y=24–180 -->
+              <g stroke="var(--border-subtle)">
+                <line x1="44"  y1="24"  x2="700" y2="24"/>
+                <line x1="44"  y1="76"  x2="700" y2="76"/>
+                <line x1="44"  y1="128" x2="700" y2="128"/>
+                <line x1="44"  y1="180" x2="700" y2="180"/>
+              </g>
+              <line x1="44" y1="24" x2="44" y2="180" stroke="var(--border-strong)"/>
+
+              <!-- Supply bars (7 days) -->
+              <g fill="var(--brand-500)" opacity="0.85">
+                <rect x="60"   y="68"  width="80" height="112"/>
+                <rect x="160"  y="62"  width="80" height="118"/>
+                <rect x="260"  y="58"  width="80" height="122"/>
+                <rect x="360"  y="56"  width="80" height="124"/>
+                <rect x="460"  y="50"  width="80" height="130"/>
+                <rect x="560"  y="92"  width="80" height="88"/>
+                <rect x="660"  y="148" width="36" height="32"/>
+              </g>
+
+              <!-- Surplus tints (between supply top and demand line where supply > demand) -->
+              <path d="M60 68 L140 68 L140 80 L60 80 Z"
+                    fill="var(--green-500)" opacity="0.20"/>
+              <path d="M260 58 L340 58 L340 70 L260 70 Z"
+                    fill="var(--green-500)" opacity="0.20"/>
+
+              <!-- Shortfall tints (where demand > supply) -->
+              <path d="M460 50 L540 50 L540 38 L460 38 Z"
+                    fill="var(--orange-500)" opacity="0.22"/>
+              <path d="M560 92 L640 92 L640 60 L560 60 Z"
+                    fill="var(--orange-500)" opacity="0.22"/>
+
+              <!-- Demand line -->
+              <path d="M60 80 L140 80 L160 74 L240 74 L260 70 L340 70 L360 60 L440 60 L460 38 L540 38 L560 60 L640 60 L660 130 L696 130"
+                    stroke="var(--gray-700)" stroke-width="2" fill="none" stroke-linejoin="round"/>
+
+              <!-- Demand dots -->
+              <g fill="var(--gray-700)">
+                <circle cx="100" cy="80"  r="2.5"/>
+                <circle cx="200" cy="74"  r="2.5"/>
+                <circle cx="300" cy="70"  r="2.5"/>
+                <circle cx="400" cy="60"  r="2.5"/>
+                <circle cx="500" cy="38"  r="2.5"/>
+                <circle cx="600" cy="60"  r="2.5"/>
+                <circle cx="678" cy="130" r="2.5"/>
+              </g>
+
+              <!-- Day labels -->
+              <g class="sd-axis-text" text-anchor="middle">
+                <text x="100" y="200">Mon</text>
+                <text x="200" y="200">Tue</text>
+                <text x="300" y="200">Wed</text>
+                <text x="400" y="200">Thu</text>
+                <text x="500" y="200">Fri</text>
+                <text x="600" y="200">Sat</text>
+                <text x="678" y="200">Sun</text>
+              </g>
+              <g class="sd-axis-text" text-anchor="end">
+                <text x="38" y="28">120</text>
+                <text x="38" y="80">90</text>
+                <text x="38" y="132">60</text>
+                <text x="38" y="184">30</text>
+              </g>
+            </svg>
+
+            <div style="display: flex; gap: var(--sp-3); margin-top: var(--sp-2); padding-top: var(--sp-2); border-top: 1px solid var(--border-subtle); font-size: var(--fs-xs); color: var(--fg-secondary);">
+              <span style="display: inline-flex; align-items: center; gap: 4px;">
+                <span class="glyph warn">!</span>
+                Fri shortfall: <strong style="font-family: var(--font-mono); color: #c2410c; margin-left: 4px;">−12 hrs</strong>
+              </span>
+              <span style="display: inline-flex; align-items: center; gap: 4px;">
+                <span class="glyph warn">!</span>
+                Sat shortfall: <strong style="font-family: var(--font-mono); color: #c2410c; margin-left: 4px;">−32 hrs</strong>
+              </span>
+              <span style="display: inline-flex; align-items: center; gap: 4px;">
+                <span class="glyph ok">✓</span>
+                Mon–Thu coverage: <strong style="font-family: var(--font-mono); color: #15803d; margin-left: 4px;">+18 hrs</strong>
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <hr class="sep">
+
+      <div class="example">
+        <div class="example-label">category axis
+          <span class="sub">Inventory vs forecast by SKU — same component, different axis</span>
+        </div>
+        <div class="example-body">
+          <div class="supply-demand" style="min-width: 600px;">
+            <div class="sd-head">
+              <div class="sd-title">Inventory vs forecast · top SKUs</div>
+              <div class="sd-meta">
+                <span><span class="swatch" style="background: var(--brand-500); opacity: 0.85;"></span>on hand</span>
+                <span><span class="swatch line" style="background: var(--gray-700);"></span>30-day forecast</span>
+              </div>
+            </div>
+            <svg class="sd-svg" viewBox="0 0 600 220" preserveAspectRatio="none" style="height: 200px;">
+              <g stroke="var(--border-subtle)">
+                <line x1="120" y1="24"  x2="580" y2="24"/>
+                <line x1="120" y1="76"  x2="580" y2="76"/>
+                <line x1="120" y1="128" x2="580" y2="128"/>
+                <line x1="120" y1="180" x2="580" y2="180"/>
+              </g>
+
+              <!-- Horizontal bars (supply) -->
+              <g fill="var(--brand-500)" opacity="0.85">
+                <rect x="120" y="34"  width="380" height="20"/>
+                <rect x="120" y="68"  width="220" height="20"/>
+                <rect x="120" y="102" width="160" height="20"/>
+                <rect x="120" y="136" width="320" height="20"/>
+              </g>
+
+              <!-- Demand markers (vertical lines for each SKU) -->
+              <g stroke="var(--gray-700)" stroke-width="2">
+                <line x1="350" y1="32"  x2="350" y2="56"/>
+                <line x1="280" y1="66"  x2="280" y2="90"/>
+                <line x1="410" y1="100" x2="410" y2="124"/>
+                <line x1="380" y1="134" x2="380" y2="158"/>
+              </g>
+              <g fill="var(--gray-700)">
+                <circle cx="350" cy="44"  r="3"/>
+                <circle cx="280" cy="78"  r="3"/>
+                <circle cx="410" cy="112" r="3"/>
+                <circle cx="380" cy="146" r="3"/>
+              </g>
+
+              <!-- Shortfall: SKU-3 (forecast 410 > supply 280, so 280–410 region orange) -->
+              <rect x="280" y="100" width="130" height="22" fill="var(--orange-500)" opacity="0.20"/>
+
+              <!-- Surplus -->
+              <rect x="350" y="32" width="150" height="22" fill="var(--green-500)" opacity="0.18"/>
+              <rect x="380" y="134" width="60" height="22" fill="var(--green-500)" opacity="0.18"/>
+
+              <!-- SKU labels -->
+              <g class="sd-axis-text" text-anchor="end">
+                <text x="112" y="48">SKU-001</text>
+                <text x="112" y="82">SKU-002</text>
+                <text x="112" y="116">SKU-003</text>
+                <text x="112" y="150">SKU-004</text>
+              </g>
+              <g class="sd-axis-text" text-anchor="middle">
+                <text x="120" y="200">0</text>
+                <text x="280" y="200">200</text>
+                <text x="440" y="200">400</text>
+                <text x="580" y="200">600 units</text>
+              </g>
+            </svg>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================
+       §2.5.15 DraftPublishBar
+       ======================================================== -->
+  <section class="pattern" id="draft-publish">
+    <div class="pattern-head">
+      <h2 class="pattern-name"><span class="anchor">2.5.15</span>DraftPublishBar</h2>
+      <p class="pattern-purpose">
+        Specialisation of <code>DecisionBar</code> for draft → published. Drafts are an
+        <code>Array&lt;Patch&lt;T&gt;&gt;</code> held in <code>State.bind</code>; "Review diff" opens a
+        <code>DiffView</code> of <code>{ base, applyPatch(base, composePatch(drafts)) }</code>; "Publish"
+        composes and applies atomically.
+      </p>
+      <div class="pattern-api">DraftPublishBar.Root&lt;TState&gt;({ stateType, base, drafts, lastPublishedAt?, onPublish, onDiscard, onReviewDiff? })</div>
+    </div>
+
+    <div class="examples">
+      <div class="example">
+        <div class="example-label">5 staged
+          <span class="sub">Draft badge · summary · review / discard / publish</span>
+        </div>
+        <div class="example-body">
+          <div class="sticky-frame">
+            <div class="draft-bar">
+              <span class="draft-badge"><span class="count">5</span>drafts</span>
+              <div class="summary">
+                <div class="s-title">Roster v1.3 · 5 unpublished changes</div>
+                <div class="s-meta">3 shifts moved · 2 workers reassigned · last publish 18m ago</div>
+              </div>
+              <div class="actions">
+                <button class="btn ghost">Discard all</button>
+                <button class="btn secondary">Review diff</button>
+                <button class="btn primary">Publish <span class="key">⌘⏎</span></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <hr class="sep">
+
+      <div class="example">
+        <div class="example-label">review diff modal
+          <span class="sub">Shows DiffView({ base, applyPatch(base, composePatch(drafts)) })</span>
+        </div>
+        <div class="example-body">
+          <div class="review-modal">
+            <div class="rm-head">
+              <div class="rm-title">5 drafts · composed diff</div>
+              <span class="pill brand">v1.3 → v1.3+5</span>
+            </div>
+            <div class="mini-diff">
+              <div class="row upd">
+                <span class="marker">△</span>
+                <span class="path">shifts[42].region</span>
+                <span><code style="background: transparent; padding: 0; color: #b91c1c; text-decoration: line-through;">VIC-N</code> → <code style="background: transparent; padding: 0; color: #15803d;">SE-1</code></span>
+              </div>
+              <div class="row upd">
+                <span class="marker">△</span>
+                <span class="path">shifts[43].region</span>
+                <span><code style="background: transparent; padding: 0; color: #b91c1c; text-decoration: line-through;">VIC-N</code> → <code style="background: transparent; padding: 0; color: #15803d;">SE-1</code></span>
+              </div>
+              <div class="row upd">
+                <span class="marker">△</span>
+                <span class="path">shifts[44].region</span>
+                <span><code style="background: transparent; padding: 0; color: #b91c1c; text-decoration: line-through;">VIC-S</code> → <code style="background: transparent; padding: 0; color: #15803d;">SE-2</code></span>
+              </div>
+              <div class="row upd">
+                <span class="marker">△</span>
+                <span class="path">shifts[42].assignee</span>
+                <span><code style="background: transparent; padding: 0; color: #b91c1c; text-decoration: line-through;">P. Nguyen</code> → <code style="background: transparent; padding: 0; color: #15803d;">S. Cho</code></span>
+              </div>
+              <div class="row add">
+                <span class="marker">+</span>
+                <span class="path">audit.notes</span>
+                <span><code style="background: transparent; padding: 0; color: #15803d;">"Coverage rebalance for week of May 11"</code></span>
+              </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: var(--sp-2); padding-top: var(--sp-2);">
+              <span class="caption">Composed via <code>East.composePatch(drafts)</code> · 5 ops</span>
+              <div style="margin-left: auto; display: flex; gap: var(--sp-2);">
+                <button class="btn ghost sm">Cancel</button>
+                <button class="btn primary sm">Publish all</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <hr class="sep">
+
+      <div class="example">
+        <div class="example-label">publishing
+          <span class="sub">In-flight — composed patch is being applied</span>
+        </div>
+        <div class="example-body">
+          <div class="sticky-frame">
+            <div class="draft-bar" style="border-top-color: var(--green-500);">
+              <span class="draft-badge" style="background: #f0fdf4; border-color: #bbf7d0; color: #15803d;">
+                <span class="count" style="background: var(--green-500);">5</span>publishing…
+              </span>
+              <div class="summary">
+                <div class="s-title">Composing 5 patches → atomic commit</div>
+                <div class="s-meta">step 3 of 5 · 1.2s elapsed</div>
+              </div>
+              <div class="actions">
+                <button class="btn ghost" disabled style="opacity:0.5;">Discard</button>
+                <button class="btn secondary" disabled style="opacity:0.5;">Review</button>
+                <button class="btn primary" disabled style="opacity:0.7; cursor: progress;">Publishing… <span class="key">·</span></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <hr class="sep">
+
+      <div class="example">
+        <div class="example-label">no drafts
+          <span class="sub">Bar collapses — only "last published" pip remains</span>
+        </div>
+        <div class="example-body">
+          <div class="sticky-frame">
+            <div class="draft-bar" style="border-top-color: var(--gray-300); background: var(--bg-secondary); opacity: 0.85;">
+              <span style="font-size: var(--fs-xs); color: var(--fg-muted); display: inline-flex; align-items: center; gap: 6px;">
+                <span class="glyph ok">✓</span>
+                Up to date — no drafts
+              </span>
+              <div class="summary">
+                <div class="s-meta" style="margin-left: auto; text-align: right;">last published just now · v1.3</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+</body>
+</html>

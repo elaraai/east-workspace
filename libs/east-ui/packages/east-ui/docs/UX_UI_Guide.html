@@ -1,0 +1,1427 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Elara AI — UX/UI Guide</title>
+<style>
+/* ===== Embedded from colors_and_type.css ===== */
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root {
+  --brand-50:  #f0fffe;
+  --brand-100: #c2fcfc;
+  --brand-200: #94f9f9;
+  --brand-300: #79f8f8;
+  --brand-400: #5ce5e5;
+  --brand-500: #488e97;
+  --brand-600: #3a7780;
+  --brand-700: #2b4b55;
+  --brand-800: #1f363d;
+  --brand-900: #111b22;
+
+  --gray-50:  #f8fafa;
+  --gray-100: #f1f5f5;
+  --gray-200: #e2e8e8;
+  --gray-300: #cbd5d5;
+  --gray-400: #9bb0b0;
+  --gray-500: #6b8080;
+  --gray-600: #4a5f5f;
+  --gray-700: #374848;
+  --gray-800: #253333;
+  --gray-900: #1a2626;
+
+  --teal-500:   #14b8a6;
+  --purple-500: #8b5cf6;
+  --blue-500:   #3b82f6;
+  --green-500:  #22c55e;
+  --orange-500: #f97316;
+  --red-500:    #ef4444;
+  --yellow-500: #eab308;
+
+  --bg-primary:   #ffffff;
+  --bg-secondary: var(--gray-50);
+  --bg-tertiary:  var(--gray-100);
+  --bg-inverse:   var(--brand-900);
+
+  --fg-primary:   var(--gray-900);
+  --fg-secondary: var(--gray-600);
+  --fg-muted:     var(--gray-500);
+  --fg-inverse:   #ffffff;
+
+  --border-subtle: var(--gray-200);
+  --border-strong: var(--gray-300);
+  --border-focus:  var(--brand-500);
+
+  --card-bg:      #ffffff;
+  --card-border:  var(--gray-200);
+
+  --link:         var(--brand-600);
+  --link-hover:   var(--brand-700);
+
+  --font-brand:  'DM Sans', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-body:   'Inter Tight', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono:   'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
+  --fs-xs: 12px; --fs-sm: 14px; --fs-md: 16px; --fs-lg: 18px;
+  --fs-xl: 20px; --fs-2xl: 24px; --fs-3xl: 30px; --fs-4xl: 36px;
+  --fs-5xl: 48px; --fs-6xl: 60px;
+
+  --fw-light: 300; --fw-normal: 400; --fw-medium: 500;
+  --fw-semibold: 600; --fw-bold: 700; --fw-extra: 800;
+
+  --lh-tight: 1.25; --lh-snug: 1.375; --lh-normal: 1.5; --lh-relaxed: 1.625;
+
+  --sp-0: 0; --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px;
+  --sp-5: 20px; --sp-6: 24px; --sp-8: 32px; --sp-10: 40px;
+  --sp-12: 48px; --sp-16: 64px; --sp-20: 80px;
+
+  --r-sm: 4px; --r-md: 6px; --r-lg: 8px; --r-xl: 12px; --r-2xl: 16px; --r-full: 9999px;
+
+  --shadow-xs: 0 1px 2px rgba(17, 27, 34, 0.05);
+  --shadow-sm: 0 1px 2px rgba(17, 27, 34, 0.06), 0 1px 3px rgba(17, 27, 34, 0.08);
+  --shadow-md: 0 4px 6px -1px rgba(17, 27, 34, 0.08), 0 2px 4px -2px rgba(17, 27, 34, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(17, 27, 34, 0.10), 0 4px 6px -4px rgba(17, 27, 34, 0.08);
+  --shadow-xl: 0 20px 25px -5px rgba(17, 27, 34, 0.12), 0 8px 10px -6px rgba(17, 27, 34, 0.10);
+  --shadow-focus: 0 0 0 3px rgba(72, 142, 151, 0.35);
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-fast: 120ms; --dur-base: 200ms; --dur-slow: 360ms;
+}
+
+[data-theme="dark"], .dark {
+  --bg-primary:   var(--gray-900);
+  --bg-secondary: var(--gray-800);
+  --bg-tertiary:  var(--gray-700);
+  --bg-inverse:   #ffffff;
+  --fg-primary:   var(--gray-100);
+  --fg-secondary: var(--gray-400);
+  --fg-muted:     var(--gray-500);
+  --fg-inverse:   var(--brand-900);
+  --border-subtle: var(--gray-700);
+  --border-strong: var(--gray-600);
+  --card-bg:      var(--gray-800);
+  --card-border:  var(--gray-700);
+  --link:         var(--brand-300);
+  --link-hover:   var(--brand-200);
+}
+
+html, body { font-family: var(--font-body); color: var(--fg-primary); background: var(--bg-primary); }
+
+.h1, h1 { font-family: var(--font-brand); font-size: var(--fs-5xl); font-weight: var(--fw-bold); line-height: var(--lh-tight); letter-spacing: -0.02em; color: var(--fg-primary); }
+.h2, h2 { font-family: var(--font-brand); font-size: var(--fs-4xl); font-weight: var(--fw-bold); line-height: var(--lh-tight); letter-spacing: -0.015em; color: var(--fg-primary); }
+.h3, h3 { font-family: var(--font-brand); font-size: var(--fs-3xl); font-weight: var(--fw-semibold); line-height: var(--lh-snug); letter-spacing: -0.01em; color: var(--fg-primary); }
+.h4, h4 { font-family: var(--font-brand); font-size: var(--fs-2xl); font-weight: var(--fw-semibold); line-height: var(--lh-snug); color: var(--fg-primary); }
+.h5, h5 { font-family: var(--font-body); font-size: var(--fs-xl); font-weight: var(--fw-semibold); line-height: var(--lh-snug); color: var(--fg-primary); }
+.h6, h6 { font-family: var(--font-body); font-size: var(--fs-lg); font-weight: var(--fw-semibold); line-height: var(--lh-normal); color: var(--fg-primary); }
+
+.p, p { font-size: var(--fs-md); line-height: var(--lh-relaxed); color: var(--fg-primary); }
+.lead { font-size: var(--fs-lg); line-height: var(--lh-relaxed); color: var(--fg-secondary); }
+.small { font-size: var(--fs-sm); line-height: var(--lh-normal); color: var(--fg-secondary); }
+.caption { font-size: var(--fs-xs); line-height: var(--lh-normal); color: var(--fg-muted); letter-spacing: 0.02em; }
+.eyebrow { font-size: var(--fs-xs); font-weight: var(--fw-semibold); letter-spacing: 0.12em; text-transform: uppercase; color: var(--brand-600); }
+.code, code { font-family: var(--font-mono); font-size: 0.92em; background: var(--bg-tertiary); padding: 1px 5px; border-radius: var(--r-sm); color: var(--fg-primary); }
+a { color: var(--link); text-decoration: none; }
+a:hover { color: var(--link-hover); text-decoration: underline; text-underline-offset: 2px; }
+</style>
+<style>
+  :root { color-scheme: light; }
+  html, body { margin: 0; background: var(--bg-secondary); color: var(--fg-primary); font-family: var(--font-body); }
+  .doc { max-width: 1040px; margin: 0 auto; padding: 80px 48px 120px; }
+  .toc { position: sticky; top: 0; background: var(--bg-secondary); padding: 14px 0; margin: -80px -48px 48px; padding-left: 48px; padding-right: 48px; border-bottom: 1px solid var(--border-subtle); font-size: 12px; color: var(--fg-secondary); display: flex; gap: 14px 18px; flex-wrap: wrap; z-index: 5; letter-spacing: 0.02em;}
+  .toc a { color: var(--fg-secondary); text-decoration: none; }
+  .toc a:hover { color: var(--brand-600); }
+  h1 { font-size: 56px; line-height: 1.1; letter-spacing: -0.025em; margin: 0 0 8px; }
+  h1 + .deck { font-size: 20px; color: var(--fg-secondary); line-height: 1.5; max-width: 720px; margin-bottom: 64px; }
+  h2 { font-family: var(--font-brand); font-size: 36px; font-weight: 700; line-height: 1.2; letter-spacing: -0.018em; margin: 96px 0 8px; padding-top: 24px; border-top: 1px solid var(--border-subtle);}
+  h2 .num { color: var(--brand-500); font-variant-numeric: tabular-nums; margin-right: 12px; font-weight: 500; }
+  h3 { font-size: 22px; line-height: 1.3; margin: 48px 0 12px; }
+  h4 { font-size: 16px; line-height: 1.4; margin: 24px 0 8px; color: var(--fg-secondary); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; font-family: var(--font-body); }
+  p { font-size: 16px; line-height: 1.65; max-width: 760px; }
+  p.lead { font-size: 18px; color: var(--fg-secondary); }
+  ul li { font-size: 16px; line-height: 1.65; margin-bottom: 8px; max-width: 720px; }
+  strong { color: var(--fg-primary); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; margin: 16px 0; background: #fff; border: 1px solid var(--border-subtle); border-radius: 8px; overflow: hidden;}
+  th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--border-subtle); vertical-align: top; }
+  th { font-weight: 600; color: var(--fg-primary); background: var(--bg-secondary); font-size: 13px;}
+  tr:last-child td { border-bottom: none; }
+  td { color: var(--fg-secondary); }
+  td strong { color: var(--fg-primary); }
+
+  /* example surfaces */
+  .ex { background: #fff; border: 1px solid var(--border-subtle); border-radius: 8px; padding: 28px; margin: 16px 0; }
+  .ex.dark { background: var(--brand-900); color: #fff; }
+  .ex.flat { background: var(--bg-secondary); }
+  .ex.tight { padding: 20px; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 16px 0; }
+  .pair > div { background: #fff; border: 1px solid var(--border-subtle); border-radius: 8px; padding: 20px; }
+  .pair .tag { font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 10px; }
+  .pair .do .tag { color: var(--green-500); }
+  .pair .dont .tag { color: var(--red-500); }
+
+  /* color row */
+  .swatch-row { display: flex; border: 1px solid var(--border-subtle); border-radius: 8px; overflow: hidden; height: 72px; }
+  .swatch-row > div { flex: 1; display: flex; align-items: flex-end; padding: 8px; font-size: 11px; font-family: var(--font-mono); }
+  .accent-row { display: flex; gap: 8px; }
+  .accent-row > div { flex: 1; height: 56px; border-radius: 8px; display: flex; align-items: flex-end; padding: 8px; font-size: 11px; color: #fff; font-family: var(--font-mono);}
+
+  /* buttons */
+  .btn { display: inline-flex; align-items: center; gap: 8px; border-radius: var(--r-md); font-weight: 600; font-size: 14px; padding: 9px 16px; cursor: pointer; border: 1px solid transparent; transition: all 120ms var(--ease-out); font-family: var(--font-body); line-height: 1; }
+  .btn.solid { background: var(--brand-500); color: #fff; }
+  .btn.solid:hover { background: var(--brand-600); }
+  .btn.ink { background: var(--brand-900); color: #fff; }
+  .btn.outline { background: #fff; color: var(--brand-700); border-color: var(--border-strong); }
+  .btn.outline:hover { background: var(--bg-tertiary); }
+  .btn.ghost { background: transparent; color: var(--fg-secondary); }
+  .btn.disabled { background: var(--gray-200); color: var(--fg-muted); cursor: not-allowed; }
+  .btn.sm { padding: 6px 12px; font-size: 13px; }
+  .btn.lg { padding: 12px 22px; font-size: 15px; }
+
+  /* state grid */
+  .states { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; align-items: center; }
+  .states .label { font-size: 11px; color: var(--fg-muted); margin-top: 8px; letter-spacing: .04em; }
+
+  /* type specimens */
+  .spec > * { margin: 0 0 14px; }
+  .spec .h1d { font-family: var(--font-brand); font-size: 48px; font-weight: 700; line-height: 1.25; letter-spacing: -0.02em; }
+  .spec .h2d { font-family: var(--font-brand); font-size: 36px; font-weight: 700; line-height: 1.25; letter-spacing: -0.015em; }
+  .spec .h3d { font-family: var(--font-brand); font-size: 30px; font-weight: 600; line-height: 1.375; letter-spacing: -0.01em; }
+  .spec .h4d { font-family: var(--font-brand); font-size: 24px; font-weight: 600; line-height: 1.375; }
+  .spec .h5d { font-size: 20px; font-weight: 600; line-height: 1.375; }
+  .spec .h6d { font-size: 18px; font-weight: 600; line-height: 1.5; }
+  .spec .lead { font-size: 18px; line-height: 1.625; color: var(--fg-secondary); }
+  .spec .body { font-size: 16px; line-height: 1.625; }
+  .spec .small { font-size: 14px; line-height: 1.5; color: var(--fg-secondary); }
+  .spec .caption { font-size: 12px; line-height: 1.5; color: var(--fg-muted); letter-spacing: 0.02em; }
+  .spec .eyebrow { font-size: 12px; font-weight: 700; color: var(--brand-600); letter-spacing: 0.12em; text-transform: uppercase; }
+
+  /* spacing scale */
+  .scale-row { display: flex; flex-direction: column; gap: 6px; }
+  .scale-row .row { display: grid; grid-template-columns: 64px 1fr; align-items: center; gap: 16px; }
+  .scale-row .tok { font-family: var(--font-mono); font-size: 12px; color: var(--fg-muted); text-align: right; }
+  .scale-row .track { position: relative; height: 28px; background: var(--bg-secondary); border-radius: 4px; }
+  .scale-row .mark { position: absolute; left: 0; top: 0; bottom: 0; background: var(--brand-500); border-radius: 4px 0 0 4px; }
+  .scale-row .lbl { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-size: 12px; color: var(--fg-secondary); white-space: nowrap; }
+  .scale-row .lbl strong { color: var(--fg-primary); font-weight: 600; }
+
+  /* shadow demo */
+  .sh-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; background: var(--bg-secondary); padding: 40px; border-radius: 8px; }
+  .sh-grid .b { background: #fff; border: 1px solid var(--border-subtle); border-radius: 8px; padding: 20px; }
+  .sh-grid .b .t { font-size: 11px; font-weight: 700; color: var(--brand-600); letter-spacing: .12em; text-transform: uppercase; margin-bottom: 6px; }
+  .sh-grid .b .d { font-size: 12px; color: var(--fg-secondary); line-height: 1.5; }
+  .sh-xs { box-shadow: var(--shadow-xs); }
+  .sh-sm { box-shadow: var(--shadow-sm); }
+  .sh-md { box-shadow: var(--shadow-md); }
+  .sh-lg { box-shadow: var(--shadow-lg); }
+  .sh-xl { box-shadow: var(--shadow-xl); }
+
+  /* radius demo */
+  .radii { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; }
+  .radii > div { height: 64px; background: #fff; border: 1px solid var(--border-subtle); display: flex; align-items: flex-end; justify-content: center; padding: 6px; font-size: 11px; color: var(--fg-secondary); font-family: var(--font-mono); }
+
+  /* card demo */
+  .card { background: #fff; border: 1px solid var(--border-subtle); border-radius: var(--r-lg); padding: 24px; box-shadow: var(--shadow-sm); }
+  .card .eye { font-size: 11px; font-weight: 700; color: var(--brand-600); letter-spacing: .12em; text-transform: uppercase; margin-bottom: 8px; }
+  .card .h { font-family: var(--font-brand); font-size: 18px; font-weight: 700; line-height: 1.3; margin: 0 0 8px; }
+  .card .b { font-size: 13px; line-height: 1.5; color: var(--fg-secondary); margin: 0 0 14px; }
+  .card .stat { font-family: var(--font-brand); font-size: 32px; font-weight: 700; line-height: 1; letter-spacing: -.01em; }
+  .card .d { font-size: 12px; color: var(--fg-muted); margin-top: 4px; }
+  .card .bar { height: 4px; background: var(--bg-tertiary); border-radius: 9999px; overflow: hidden; margin-top: 14px; }
+  .card .bar > span { display: block; height: 100%; width: 72%; background: var(--brand-500); border-radius: 9999px; }
+  .card .bar-lbl { display: flex; justify-content: space-between; font-size: 11px; color: var(--fg-muted); margin-top: 6px; letter-spacing: 0.02em; }
+
+  /* form */
+  .form { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .form .field { display: flex; flex-direction: column; gap: 6px; }
+  .form label { font-size: 12px; font-weight: 600; }
+  .form input, .form select { font-family: var(--font-body); font-size: 14px; padding: 9px 12px; border-radius: var(--r-md); border: 1px solid var(--border-strong); background: #fff; color: var(--fg-primary); outline: none; }
+  .form input.focus { border-color: var(--brand-500); box-shadow: var(--shadow-focus); }
+  .form input.err { border-color: var(--red-500); }
+  .form .help { font-size: 11px; color: var(--fg-muted); }
+  .form .err-help { color: var(--red-500); }
+
+  /* icon row */
+  .icons { display: flex; flex-direction: column; gap: 12px; }
+  .icons .row { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+  .note-bad { font-size: 11px; color: var(--red-500); margin-left: 8px; }
+
+  /* part dividers */
+  .part-banner { margin: 96px -48px 0; padding: 64px 48px 48px; background: var(--brand-900); color: #fff; border-radius: 0; }
+  .part-banner .kicker { font-size: 12px; font-weight: 700; color: var(--brand-300); letter-spacing: .14em; text-transform: uppercase; margin-bottom: 12px; }
+  .part-banner h2.part { font-family: var(--font-brand); font-size: 48px; font-weight: 700; line-height: 1.1; letter-spacing: -0.02em; margin: 0 0 14px; padding: 0; border: none; color: #fff; }
+  .part-banner p { color: var(--gray-300); font-size: 17px; line-height: 1.55; max-width: 680px; margin: 0; }
+  .part-banner + h2 { margin-top: 64px; border-top: none; padding-top: 0; }
+
+  /* app shell mock */
+  .shell { display: grid; grid-template-columns: 220px 1fr; background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: 8px; overflow: hidden; min-height: 380px; font-size: 13px; }
+  .shell .rail { background: #fff; border-right: 1px solid var(--border-subtle); padding: 16px 12px; display: flex; flex-direction: column; gap: 4px; }
+  .shell .rail .ws { display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 6px; margin-bottom: 16px; }
+  .shell .rail .ws .dot { width: 24px; height: 24px; border-radius: 6px; background: var(--brand-500); color: #fff; font-weight: 700; display: flex; align-items: center; justify-content: center; font-size: 12px; }
+  .shell .rail .ws .nm { font-weight: 600; }
+  .shell .rail .grp { font-size: 11px; font-weight: 600; color: var(--fg-muted); text-transform: uppercase; letter-spacing: .08em; padding: 12px 8px 4px; }
+  .shell .rail .nav { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 6px; color: var(--fg-secondary); cursor: pointer; }
+  .shell .rail .nav:hover { background: var(--bg-secondary); color: var(--fg-primary); }
+  .shell .rail .nav.active { background: var(--bg-tertiary); color: var(--fg-primary); font-weight: 600; }
+  .shell .rail .nav .ic { width: 14px; height: 14px; background: currentColor; opacity: .7; mask-position: center; mask-repeat: no-repeat; mask-size: contain; -webkit-mask-position: center; -webkit-mask-repeat: no-repeat; -webkit-mask-size: contain; }
+  .shell .work { display: flex; flex-direction: column; }
+  .shell .topbar { display: flex; align-items: center; gap: 12px; padding: 10px 20px; background: #fff; border-bottom: 1px solid var(--border-subtle); }
+  .shell .crumb { color: var(--fg-secondary); }
+  .shell .crumb strong { color: var(--fg-primary); font-weight: 600; }
+  .shell .topbar .search { margin-left: auto; padding: 6px 10px; border: 1px solid var(--border-subtle); border-radius: 6px; color: var(--fg-muted); font-size: 12px; display: flex; align-items: center; gap: 8px; min-width: 200px; }
+  .shell .topbar .kbd { font-family: var(--font-mono); font-size: 10px; padding: 1px 5px; border: 1px solid var(--border-subtle); border-radius: 3px; color: var(--fg-muted); margin-left: auto; }
+  .shell .body { padding: 20px; flex: 1; }
+
+  /* data table */
+  .dt { width: 100%; border-collapse: collapse; font-size: 13px; background: #fff; border: 1px solid var(--border-subtle); border-radius: 8px; overflow: hidden; }
+  .dt th, .dt td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border-subtle); }
+  .dt th { background: var(--bg-secondary); font-size: 11px; font-weight: 600; color: var(--fg-secondary); text-transform: uppercase; letter-spacing: .06em; }
+  .dt td { color: var(--fg-primary); }
+  .dt td.num { text-align: right; font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+  .dt th.num { text-align: right; }
+  .dt tbody tr:hover { background: var(--bg-secondary); }
+  .dt tbody tr.sel { background: rgba(72,142,151,.06); }
+  .dt tbody tr:last-child td { border-bottom: none; }
+  .dt .delta-up { color: #15803d; font-variant-numeric: tabular-nums; }
+  .dt .delta-dn { color: #b91c1c; font-variant-numeric: tabular-nums; }
+
+  /* chart */
+  .chart-card { background: #fff; border: 1px solid var(--border-subtle); border-radius: 8px; padding: 16px; }
+  .chart-card .chd { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+  .chart-card .ttl { font-family: var(--font-brand); font-size: 14px; font-weight: 600; }
+  .chart-card .sub { font-size: 12px; color: var(--fg-muted); }
+  .chart-card .legend { display: flex; gap: 14px; font-size: 11px; color: var(--fg-secondary); margin-bottom: 8px; }
+  .chart-card .legend .sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+
+  /* kpi tile */
+  .kpi { background: #fff; border: 1px solid var(--border-subtle); border-radius: 8px; padding: 16px; }
+  .kpi .l { font-size: 11px; font-weight: 600; color: var(--fg-muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 8px; }
+  .kpi .v { font-family: var(--font-brand); font-size: 32px; font-weight: 700; line-height: 1; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+  .kpi .v .u { font-size: 16px; color: var(--fg-muted); font-weight: 500; margin-left: 4px; }
+  .kpi .d { font-size: 12px; margin-top: 8px; font-variant-numeric: tabular-nums; }
+  .kpi .d.up { color: #15803d; }
+  .kpi .d.dn { color: #b91c1c; }
+
+  /* filter chip */
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border-subtle); background: #fff; font-size: 12px; color: var(--fg-primary); }
+  .chip.active { border-color: var(--brand-500); background: rgba(72,142,151,.06); color: var(--brand-700); }
+  .chip .x { color: var(--fg-muted); font-size: 14px; line-height: 1; }
+  .chip .k { color: var(--fg-muted); }
+  .chip .op { color: var(--fg-muted); margin: 0 2px; }
+
+  /* live dot */
+  .live { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; color: var(--brand-700); text-transform: uppercase; letter-spacing: .08em; }
+  .live::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--brand-500); animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+
+  /* command palette */
+  .cmdk { width: 100%; max-width: 520px; background: #fff; border: 1px solid var(--border-subtle); border-radius: 10px; box-shadow: var(--shadow-xl); overflow: hidden; margin: 0 auto; }
+  .cmdk .inp { padding: 14px 16px; font-size: 14px; border-bottom: 1px solid var(--border-subtle); color: var(--fg-muted); display: flex; gap: 8px; }
+  .cmdk .inp .cur { color: var(--fg-primary); }
+  .cmdk .res { padding: 6px; }
+  .cmdk .grp { font-size: 10px; font-weight: 600; color: var(--fg-muted); text-transform: uppercase; letter-spacing: .08em; padding: 8px 10px 4px; }
+  .cmdk .it { display: flex; align-items: center; padding: 7px 10px; border-radius: 6px; font-size: 13px; gap: 10px; }
+  .cmdk .it.sel { background: var(--bg-tertiary); }
+  .cmdk .it .sp { flex: 1; }
+  .cmdk .it .kb { font-family: var(--font-mono); font-size: 10px; padding: 1px 5px; border: 1px solid var(--border-subtle); border-radius: 3px; color: var(--fg-muted); }
+
+  /* skeleton */
+  .skel { background: linear-gradient(90deg, var(--gray-100) 0%, var(--gray-200) 50%, var(--gray-100) 100%); background-size: 200% 100%; animation: shimmer 1.4s ease-in-out infinite; border-radius: 4px; }
+  @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+</style>
+</head>
+<body>
+<div class="doc">
+
+<nav class="toc">
+  <span style="font-weight:700;color:var(--fg-primary);">P1</span>
+  <a href="#brand">01 Brand</a>
+  <a href="#color">02 Colour</a>
+  <a href="#type">03 Type</a>
+  <a href="#space">04 Space</a>
+  <a href="#surf">05 Surfaces</a>
+  <a href="#border">06 Borders</a>
+  <a href="#btn">07 Buttons</a>
+  <a href="#form">08 Forms</a>
+  <a href="#icon">09 Icons</a>
+  <a href="#motion">10 Motion</a>
+  <a href="#a11y">11 A11y</a>
+  <span style="font-weight:700;color:var(--fg-primary);">P2</span>
+  <a href="#voice">12 Voice</a>
+  <a href="#img">13 Imagery</a>
+  <span style="font-weight:700;color:var(--fg-primary);">P3</span>
+  <a href="#prod-found">14 Product</a>
+  <a href="#shell">15 Shell</a>
+  <a href="#cmdk">16 ⌘K</a>
+  <a href="#tables">17 Tables</a>
+  <a href="#numbers">18 Numbers</a>
+  <a href="#charts">19 Charts</a>
+  <a href="#filters">20 Filters</a>
+  <a href="#states">21 States</a>
+  <a href="#keys">22 Keys</a>
+  <a href="#density">23 Density</a>
+  <a href="#prod-anti">24 P-anti</a>
+  <a href="#anti">25 Anti</a>
+  <a href="#ref">26 Ref</a>
+</nav>
+
+<h1>UX/UI guide</h1>
+<p class="deck">A visual reference for anyone building Elara AI interfaces. Framework-agnostic — it shows what the product should look and feel like, not how to wire it up. All design tokens are embedded in this file; copy what you need.</p>
+
+<p>The guide is in three parts. <strong>Part&nbsp;1 — Foundations</strong> covers the tokens and rules that apply everywhere. <strong>Part&nbsp;2 — Marketing surface</strong> covers the public-facing site, decks, and CEO briefings. <strong>Part&nbsp;3 — Product surface</strong> covers the analyst workspace itself: app shell, tables, charts, filters, keyboard, density. Marketing and Product share tokens but diverge sharply on density, motion, and voice — don't import a marketing pattern into the product, or vice versa.</p>
+
+<p>If you find yourself reaching for a colour, weight, radius, or motion that isn't on this page, the answer is almost always <em>no</em>. Anti-patterns are shown beside correct usage so you can recognise them in flight — most off-brand work doesn't look obviously wrong, it looks <em>almost right</em>.</p>
+
+<div class="part-banner">
+  <div class="kicker">Part 1</div>
+  <h2 class="part">Foundations</h2>
+  <p>Tokens and rules that apply across every Elara surface — colour, type, spacing, surfaces, borders, buttons, forms, icons, motion, accessibility. Marketing and product both inherit from here.</p>
+</div>
+
+<!-- ==================== 1 BRAND ==================== -->
+<h2 id="brand"><span class="num">01</span>Brand foundations</h2>
+<p>Elara is enterprise-formal, mathematics-led, restrained. The product reads as confident and quietly technical — not playful, not loud, not consumer-y. Three rules carry the brand more than any other:</p>
+<ul>
+  <li><strong>Restraint over expression.</strong> A near-monochrome palette of deep teal ink and cool neutrals does the work; accent colour appears in single, deliberate places.</li>
+  <li><strong>Mathematical precision.</strong> Tight tracking on display type, conservative radii, exact spacing on a 4-pixel grid. Nothing approximate.</li>
+  <li><strong>No decoration.</strong> Borders are structural, shadows are functional, motion is purposeful. If an element exists only to look nice, it should be removed.</li>
+</ul>
+
+<div class="pair">
+  <div class="do">
+    <div class="tag">✓ On brand</div>
+    <div style="font-size:11px;font-weight:700;color:var(--brand-600);letter-spacing:.12em;text-transform:uppercase;margin-bottom:8px;">Pillar 02</div>
+    <div style="font-family:var(--font-brand);font-size:18px;font-weight:700;line-height:1.3;letter-spacing:-0.01em;margin-bottom:6px;">Procurement run</div>
+    <div style="font-size:13px;color:var(--fg-secondary);line-height:1.5;">Reinforcement learning against the live digital twin.</div>
+  </div>
+  <div class="dont" style="border-radius:18px;box-shadow:0 8px 24px rgba(72,142,151,.18);">
+    <div class="tag">✗ Off brand</div>
+    <div style="font-size:11px;font-weight:700;color:var(--teal-500);letter-spacing:.12em;text-transform:uppercase;margin-bottom:8px;">PILLAR 02</div>
+    <div style="font-family:var(--font-brand);font-size:20px;font-weight:800;line-height:1.2;margin-bottom:6px;">Procurement Run</div>
+    <div style="font-size:13px;color:var(--fg-secondary);line-height:1.5;">Reinforcement learning against the live digital twin.</div>
+  </div>
+</div>
+<p class="small" style="color:var(--fg-muted);margin-top:-4px;">The wrong card looks reasonable at a glance — but the radius is too soft (18 vs 8), the shadow has lift it shouldn't have, the eyebrow uses the data-viz teal not brand-600, the title is Title Case, and the weight has crept to 800. Off-brand drift is almost never one big mistake; it's five small ones.</p>
+
+<!-- ==================== 2 COLOUR ==================== -->
+<h2 id="color"><span class="num">02</span>Colour</h2>
+
+<h3>The palette</h3>
+<p>Four roles. Most screens use only the first two.</p>
+
+<h4>Brand · deep teal scale</h4>
+<div class="swatch-row">
+  <div style="background:#f0fffe;color:var(--fg-primary);">50</div>
+  <div style="background:#c2fcfc;color:var(--fg-primary);">100</div>
+  <div style="background:#94f9f9;color:var(--fg-primary);">200</div>
+  <div style="background:#79f8f8;color:var(--fg-primary);">300</div>
+  <div style="background:#5ce5e5;color:var(--fg-primary);">400</div>
+  <div style="background:#488e97;color:#fff;">500</div>
+  <div style="background:#3a7780;color:#fff;">600</div>
+  <div style="background:#2b4b55;color:#fff;">700</div>
+  <div style="background:#1f363d;color:#fff;">800</div>
+  <div style="background:#111b22;color:#fff;">900</div>
+</div>
+
+<h4>Neutrals · cool green-gray</h4>
+<div class="swatch-row">
+  <div style="background:#f8fafa;color:var(--fg-primary);">50</div>
+  <div style="background:#f1f5f5;color:var(--fg-primary);">100</div>
+  <div style="background:#e2e8e8;color:var(--fg-primary);">200</div>
+  <div style="background:#cbd5d5;color:var(--fg-primary);">300</div>
+  <div style="background:#9bb0b0;color:var(--fg-primary);">400</div>
+  <div style="background:#6b8080;color:#fff;">500</div>
+  <div style="background:#4a5f5f;color:#fff;">600</div>
+  <div style="background:#374848;color:#fff;">700</div>
+  <div style="background:#253333;color:#fff;">800</div>
+  <div style="background:#1a2626;color:#fff;">900</div>
+</div>
+
+<h4>Accents · data-viz only</h4>
+<div class="accent-row">
+  <div style="background:var(--teal-500);">teal</div>
+  <div style="background:var(--purple-500);">purple</div>
+  <div style="background:var(--blue-500);">blue</div>
+  <div style="background:var(--green-500);">green</div>
+  <div style="background:var(--orange-500);">orange</div>
+  <div style="background:var(--red-500);">red</div>
+  <div style="background:var(--yellow-500);">yellow</div>
+</div>
+<p class="small" style="color:var(--fg-muted);margin-top:8px;">Categorical series for charts only. Order is not semantic — pick the first <em>n</em> for an <em>n</em>-series chart, in this order, for consistency across the product. Red is reserved for destructive / error states; never use it as a chart series unless the data itself is "bad".</p>
+
+<h3>Where each colour belongs</h3>
+<table>
+  <tr><th style="width:200px;">Role</th><th>What it does</th><th>Where</th></tr>
+  <tr><td><strong>Brand 900 — deep ink</strong> <code>#111b22</code></td><td>Headings, body on light, dark inverse surfaces.</td><td>Body text, h1–h4, dark sections, the mark.</td></tr>
+  <tr><td><strong>Brand 500 — primary teal</strong> <code>#488e97</code></td><td>The single confident accent.</td><td>Primary CTAs, active nav, focus rings, key data series.</td></tr>
+  <tr><td><strong>Brand 600 / 700</strong></td><td>Hover / pressed states for brand 500.</td><td>Button hover, link hover.</td></tr>
+  <tr><td><strong>Brand 50–300</strong></td><td>Highlights, chart fills against dark grounds.</td><td>Sparkline fills, badge backgrounds — never page chrome.</td></tr>
+  <tr><td><strong>Gray 50–100</strong></td><td>Page and section backgrounds.</td><td>App bg (50), card-on-card lift (100).</td></tr>
+  <tr><td><strong>Gray 200–300</strong></td><td>Borders.</td><td>Subtle (200) on cards, strong (300) on inputs.</td></tr>
+  <tr><td><strong>Gray 500–700</strong></td><td>Secondary and muted text.</td><td>Secondary copy (600), captions (500), labels.</td></tr>
+  <tr><td><strong>Accents</strong></td><td>Categorical data series in charts.</td><td>Chart palettes, occasional concept-bullet icons.</td></tr>
+</table>
+
+<h3>DO / DON'T</h3>
+<p><strong>DO</strong> anchor every screen on white or <code>bg-secondary</code> with deep-ink type. The brand teal carries the personality — let it.</p>
+<div class="ex flat">
+  <div class="card" style="max-width:520px;">
+    <div class="eye">Pillar 02</div>
+    <div style="font-family:var(--font-brand);font-size:22px;font-weight:700;line-height:1.25;letter-spacing:-.01em;margin-bottom:6px;">AI data-driven Digital Twin</div>
+    <div style="font-size:14px;color:var(--fg-secondary);line-height:1.6;margin-bottom:14px;">A live replica of your business, simulated bottom-up.</div>
+    <button class="btn solid">Find out more</button>
+  </div>
+</div>
+
+<p><strong>DON'T</strong> use accent hues as page chrome, button fills, or section backgrounds. They are for charts.</p>
+<div class="pair">
+  <div class="dont" style="background:#f0fdf4;border-color:var(--green-500);">
+    <div class="tag">✗ Don't</div>
+    <div style="font-family:var(--font-brand);font-size:16px;font-weight:600;margin-bottom:4px;color:#166534;">Run completed</div>
+    <div style="font-size:13px;color:#166534;line-height:1.5;">Tinted background to signal "success". Other systems do this — Elara doesn't.</div>
+  </div>
+  <div class="dont">
+    <div class="tag">✗ Don't</div>
+    <div style="font-family:var(--font-brand);font-size:16px;font-weight:600;margin-bottom:4px;">Run completed</div>
+    <div style="font-size:13px;color:var(--fg-secondary);line-height:1.5;display:flex;align-items:center;gap:6px;"><span style="display:inline-block;width:8px;height:8px;border-radius:9999px;background:var(--green-500);"></span> Status carried by a single coloured dot, not by the whole surface.</div>
+  </div>
+</div>
+<p class="small" style="color:var(--fg-muted);margin-top:-4px;">Tinted-background status cards (Stripe, Linear, Notion all do them) read as friendly and consumer-y. Elara's enterprise-formal positioning needs the chrome to stay neutral; status lives in a dot, an icon, or a one-word label.</p>
+
+<p><strong>DON'T</strong> introduce colours that aren't on the palette — warm reds, candy magentas, lime greens, navy blues. <strong>DON'T</strong> tint borders or shadows with accent colours. Borders are gray-200/300; shadows are cool ink at low opacity.</p>
+
+<h3>Dark surfaces</h3>
+<p>Used sparingly — full-bleed hero sections, dialogs, footers. Dark surface is brand 900 (<code>#111b22</code>), not pure black.</p>
+<div class="ex dark">
+  <div style="font-size:11px;font-weight:700;color:var(--brand-300);letter-spacing:.12em;text-transform:uppercase;margin-bottom:10px;">Decision loop</div>
+  <div style="font-family:var(--font-brand);font-size:32px;font-weight:700;line-height:1.2;letter-spacing:-.015em;margin-bottom:10px;">Embedded next-best actions, in your existing tools.</div>
+  <div style="font-size:15px;color:var(--gray-300);line-height:1.6;max-width:520px;">Elara writes back to your systems of record so the people who already use them act on better answers.</div>
+</div>
+<p>On dark, body text uses <code>gray-100</code>, secondary uses <code>gray-400</code>, and brand mid-tones (300/400) become legible accents. Never put deep-ink type on deep-ink ground.</p>
+
+<!-- ==================== 3 TYPE ==================== -->
+<h2 id="type"><span class="num">03</span>Typography</h2>
+
+<h3>Two families, three jobs</h3>
+<ul>
+  <li><strong>DM Sans</strong> — display face. Headings (h1–h4), big numerals, hero copy. Tight tracking, semibold/bold.</li>
+  <li><strong>Inter Tight</strong> — UI face. Everything else: body, labels, buttons, table cells, helper text.</li>
+  <li><strong>JetBrains Mono</strong> — code, formulas, IDs, API tokens. Never for prose.</li>
+</ul>
+
+<h3>The hierarchy</h3>
+<div class="ex spec">
+  <div class="h1d">Display H1 · 48 / 1.25 / −0.02em</div>
+  <div class="h2d">Section H2 · 36 / 1.25 / −0.015em</div>
+  <div class="h3d">Subsection H3 · 30 / 1.375 / −0.01em</div>
+  <div class="h4d">Card title H4 · 24 / 1.375</div>
+  <div class="h5d">Inline H5 · 20 / 1.375</div>
+  <div class="h6d">Inline H6 · 18 / 1.5</div>
+  <div class="lead">Lead paragraph · 18 / 1.625 / secondary. A sentence-long deck under a hero or section heading to set the scene.</div>
+  <div class="body">Body · 16 / 1.625. The default reading size. Long passages live here; never go below 14 px for prose, never above 16 px for in-app body.</div>
+  <div class="small">Small · 14 / 1.5. Helper text, table cells, footnotes.</div>
+  <div class="caption">Caption · 12 / 1.5 / +0.02em. Image captions, fine print.</div>
+  <div class="eyebrow">Eyebrow · 12 / +0.12em / uppercase</div>
+</div>
+
+<h3>Rules that trip people up</h3>
+<ul>
+  <li><strong>Letter-spacing is negative on display.</strong> H1 −0.02em, H2 −0.015em, H3 −0.01em. Don't render display type at default tracking.</li>
+  <li><strong>Letter-spacing is positive on the eyebrow.</strong> +0.12em, uppercased. Eyebrows label sections — never use them as decorative tags.</li>
+  <li><strong>Body line-height is 1.625.</strong> Generous on purpose. Don't compress it to look "denser".</li>
+  <li><strong>Headings sit at 1.25.</strong> Tight, but not crashed. Don't reduce below 1.2.</li>
+  <li><strong>Sentence case for everything.</strong> Headings, buttons, labels, nav. The only Title-Cased phrases are proper concept names: <strong>Digital Twin</strong>, <strong>Reinforcement Learning</strong>.</li>
+  <li><strong>Periods end marketing section headings.</strong> They turn a label into a statement. Skip the period in product UI labels.</li>
+  <li><strong>No exclamation marks. No emoji.</strong> Anywhere.</li>
+</ul>
+
+<h3>DO / DON'T</h3>
+<div class="pair">
+  <div class="do">
+    <div class="tag">✓ Do</div>
+    <div style="font-family:var(--font-brand);font-size:24px;font-weight:600;line-height:1.3;letter-spacing:-.01em;">Embedded decision making.</div>
+  </div>
+  <div class="dont">
+    <div class="tag">✗ Don't</div>
+    <div style="font-family:var(--font-brand);font-size:24px;font-weight:700;line-height:1.3;text-transform:uppercase;">EMBEDDED DECISION MAKING!</div>
+  </div>
+</div>
+<div class="pair">
+  <div class="do">
+    <div class="tag">✓ Do</div>
+    <div style="font-size:16px;line-height:1.625;">Elara connects to your business data and turns it into a live "Digital Twin" you can interrogate.</div>
+  </div>
+  <div class="dont">
+    <div class="tag">✗ Don't</div>
+    <div style="font-size:16px;line-height:1.625;">We're excited to bring you a revolutionary AI-powered Digital Twin! 🚀✨</div>
+  </div>
+</div>
+
+<!-- ==================== 4 SPACE ==================== -->
+<h2 id="space"><span class="num">04</span>Spacing &amp; layout</h2>
+
+<h3>The 4-pixel scale</h3>
+<p>Every spacing decision uses a multiple of 4. There is no 5, 7, 18.</p>
+<div class="ex scale-row">
+  <div class="row"><div class="tok">sp-1</div><div class="track"><div class="mark" style="width:0.5%;"></div><div class="lbl"><strong>4 px</strong> — hairline gap, badge padding</div></div></div>
+  <div class="row"><div class="tok">sp-2</div><div class="track"><div class="mark" style="width:1%;"></div><div class="lbl"><strong>8 px</strong> — icon ↔ label, tight clusters</div></div></div>
+  <div class="row"><div class="tok">sp-3</div><div class="track"><div class="mark" style="width:1.5%;"></div><div class="lbl"><strong>12 px</strong> — small inline gaps, button row gap</div></div></div>
+  <div class="row"><div class="tok">sp-4</div><div class="track"><div class="mark" style="width:2%;"></div><div class="lbl"><strong>16 px</strong> — default content gap, list item</div></div></div>
+  <div class="row"><div class="tok">sp-5</div><div class="track"><div class="mark" style="width:2.5%;"></div><div class="lbl"><strong>20 px</strong> — card interior, form gap</div></div></div>
+  <div class="row"><div class="tok">sp-6</div><div class="track"><div class="mark" style="width:3%;"></div><div class="lbl"><strong>24 px</strong> — card padding, section sub-gap</div></div></div>
+  <div class="row"><div class="tok">sp-8</div><div class="track"><div class="mark" style="width:4%;"></div><div class="lbl"><strong>32 px</strong> — section gap, dialog padding</div></div></div>
+  <div class="row"><div class="tok">sp-12</div><div class="track"><div class="mark" style="width:6%;"></div><div class="lbl"><strong>48 px</strong> — large section gap</div></div></div>
+  <div class="row"><div class="tok">sp-16</div><div class="track"><div class="mark" style="width:8%;"></div><div class="lbl"><strong>64 px</strong> — page-level gutter</div></div></div>
+  <div class="row"><div class="tok">sp-20</div><div class="track"><div class="mark" style="width:10%;"></div><div class="lbl"><strong>80 px</strong> — top-of-page rhythm, hero margins</div></div></div>
+</div>
+
+<h3>Density</h3>
+<p>The system is comfortable, not compact. Defaults:</p>
+<ul>
+  <li>Card interior padding: <strong>24 px</strong>.</li>
+  <li>Form field gap: <strong>16–20 px</strong>.</li>
+  <li>Button hit area: <strong>36 px tall minimum</strong>.</li>
+  <li>Table row height: <strong>40–44 px</strong>.</li>
+  <li>Marketing section vertical rhythm: <strong>80–120 px</strong>.</li>
+  <li>Container max-width: <strong>1200 px</strong>.</li>
+</ul>
+
+<h3>DO / DON'T</h3>
+<ul>
+  <li><strong>DO</strong> stack content with explicit <code>gap</code> rather than per-element margins.</li>
+  <li><strong>DO</strong> use <code>gap: 24px</code> for cards, <code>gap: 16px</code> for body, <code>gap: 64px</code> between marketing blocks.</li>
+  <li><strong>DON'T</strong> crowd content. If two elements look squashed, the answer is more space, not a smaller font.</li>
+  <li><strong>DON'T</strong> invent in-between values (10, 14, 18, 22, 28). Stick to the scale.</li>
+</ul>
+
+<!-- ==================== 5 SURFACES ==================== -->
+<h2 id="surf"><span class="num">05</span>Surfaces &amp; elevation</h2>
+
+<h3>The five-tier shadow scale</h3>
+<p>Cards at rest, raised cards, popovers, and dialogs each have a defined elevation. <strong>No element should pick a shadow it likes — pick the role.</strong></p>
+<div class="sh-grid">
+  <div class="b sh-xs"><div class="t">xs</div><div class="d">Hover lift on a flat row.</div></div>
+  <div class="b sh-sm"><div class="t">sm</div><div class="d">Card at rest. Default.</div></div>
+  <div class="b sh-md"><div class="t">md</div><div class="d">Card on hover, dropdown.</div></div>
+  <div class="b sh-lg"><div class="t">lg</div><div class="d">Popover, menu.</div></div>
+  <div class="b sh-xl"><div class="t">xl</div><div class="d">Dialog, modal.</div></div>
+</div>
+<p>Shadows are <strong>always cool ink at low opacity</strong> — never warm, never black. The tint comes from <code>#111b22</code> at 5–12%. If a shadow looks gray-blue, it's right.</p>
+
+<h3>Cards</h3>
+<p>The default card: white fill, 1 px subtle border, small shadow, 8 px radius, 24 px interior padding.</p>
+<div class="ex flat" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+  <div class="card">
+    <div class="eye">Pillar 02</div>
+    <div class="h">AI data-driven Digital Twin</div>
+    <div class="b">A live replica of your business, simulated bottom-up.</div>
+    <div class="stat">99.4<span style="font-size:20px;color:var(--fg-muted);">%</span></div>
+    <div class="d">Simulation fidelity · last 30 days</div>
+  </div>
+  <div class="card">
+    <div class="eye">Optimisation</div>
+    <div class="h">Procurement run</div>
+    <div class="b">Reinforcement learning against the live digital twin.</div>
+    <div class="stat">$2.4M</div>
+    <div class="d">Projected uplift</div>
+    <div class="bar"><span></span></div>
+    <div class="bar-lbl"><span>Run progress</span><span>72%</span></div>
+  </div>
+</div>
+
+<h3>DO / DON'T</h3>
+<p><strong>DON'T</strong> use coloured left-border accents on cards. One of the most common off-brand tells.</p>
+<div class="pair">
+  <div class="do">
+    <div class="tag">✓ Do</div>
+    <div style="font-family:var(--font-brand);font-size:16px;font-weight:600;margin-bottom:4px;">Connector status</div>
+    <div style="font-size:13px;color:var(--fg-secondary);">All sources synced.</div>
+  </div>
+  <div class="dont" style="border-left:4px solid var(--brand-500);">
+    <div class="tag">✗ Don't</div>
+    <div style="font-family:var(--font-brand);font-size:16px;font-weight:600;margin-bottom:4px;">Connector status</div>
+    <div style="font-size:13px;color:var(--fg-secondary);">Coloured left-border. Off brand.</div>
+  </div>
+</div>
+<p><strong>DON'T</strong> stack shadows or add glows for emphasis. Shadows depict elevation, not energy. <strong>DON'T</strong> oversize radii (24+), use inset shadows decoratively, or add gradient fills.</p>
+
+<!-- ==================== 6 BORDERS ==================== -->
+<h2 id="border"><span class="num">06</span>Borders &amp; corners</h2>
+
+<h3>Borders</h3>
+<ul>
+  <li><strong>1 px, solid, always.</strong> No 2 px decorative borders. No dashed except on file-drop targets.</li>
+  <li><strong>Subtle (gray-200)</strong> — default for cards, table rows, dividers.</li>
+  <li><strong>Strong (gray-300)</strong> — inputs, separators that need to register against bg-secondary.</li>
+  <li><strong>Focus (brand-500)</strong> — only when an element receives keyboard focus.</li>
+  <li><strong>Never coloured borders for decoration.</strong> A red border means error. A teal border means focus. Anything else is wrong.</li>
+</ul>
+
+<h3>Corner radii</h3>
+<p>Conservative. The default card is 8 px. The biggest you go is 16 px for dialogs.</p>
+<div class="ex flat">
+<div class="radii">
+  <div style="border-radius:4px;">4 · sm</div>
+  <div style="border-radius:6px;">6 · md (buttons, inputs)</div>
+  <div style="border-radius:8px;">8 · lg (cards)</div>
+  <div style="border-radius:12px;">12 · xl</div>
+  <div style="border-radius:16px;">16 · 2xl (dialogs)</div>
+  <div style="border-radius:9999px;">full · pill</div>
+</div>
+</div>
+<p><strong>DON'T</strong> use 20 px+ radii on cards or buttons. The "rounded soft consumer-app" look isn't on brand. Pills are reserved for badges and avatars.</p>
+
+<!-- ==================== 7 BUTTONS ==================== -->
+<h2 id="btn"><span class="num">07</span>Buttons</h2>
+
+<h3>Variants</h3>
+<p>Four roles. The label tells you the intent.</p>
+<div class="ex" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+  <button class="btn solid">Request demo</button>
+  <button class="btn ink">Explore product</button>
+  <button class="btn outline">Find out more</button>
+  <button class="btn ghost">Cancel</button>
+  <button class="btn disabled" disabled>Disabled</button>
+</div>
+<ul>
+  <li><strong>Solid (brand 500)</strong> — the <em>one</em> primary action on a screen. Two solid buttons next to each other = one is wrong.</li>
+  <li><strong>Ink (brand 900)</strong> — the dual-CTA partner to solid. Used in marketing pairs.</li>
+  <li><strong>Outline</strong> — secondary actions, less assertive.</li>
+  <li><strong>Ghost</strong> — tertiary, low-stakes (Cancel, Dismiss).</li>
+  <li><strong>Disabled</strong> — flat gray, muted text, no shadow.</li>
+</ul>
+
+<h3>Sizes</h3>
+<div class="ex" style="display:flex;gap:10px;align-items:center;">
+  <button class="btn solid sm">Small</button>
+  <button class="btn solid">Default</button>
+  <button class="btn solid lg">Large</button>
+</div>
+
+<h3>States — every button has all four</h3>
+<div class="ex states">
+  <div><button class="btn solid">Default</button><div class="label">Default</div></div>
+  <div><button class="btn solid" style="background:var(--brand-600);">Hover</button><div class="label">Hover · −1 step</div></div>
+  <div><button class="btn solid" style="background:var(--brand-700);transform:scale(.98);">Active</button><div class="label">Active · scale .98</div></div>
+  <div><button class="btn solid" style="box-shadow:var(--shadow-focus);">Focus</button><div class="label">Focus · 3 px ring</div></div>
+</div>
+<p>Hover darkens by exactly one brand step (500 → 600). Active scales to 0.98 and darkens further (→ 700). Focus shows a 3 px brand-tinted glow — never an outline.</p>
+
+<h3>DO / DON'T</h3>
+<ul>
+  <li><strong>DO</strong> keep one primary (solid) action per screen or section.</li>
+  <li><strong>DO</strong> put icons before labels, with an 8 px gap.</li>
+  <li><strong>DON'T</strong> stack two solid buttons. Pair solid + ink, or solid + outline.</li>
+  <li><strong>DON'T</strong> use accent hues (purple, orange, green) for buttons.</li>
+  <li><strong>DON'T</strong> add gradients, glows, inner shadows, or animated shimmers.</li>
+  <li><strong>DON'T</strong> make buttons full-width unless inside a narrow form column on mobile.</li>
+</ul>
+
+<!-- ==================== 8 FORMS ==================== -->
+<h2 id="form"><span class="num">08</span>Forms &amp; inputs</h2>
+
+<h3>Anatomy</h3>
+<h4>Default + focus</h4>
+<div class="ex form">
+  <div class="field">
+    <label>Business name</label>
+    <input value="Elara Industrial"/>
+    <span class="help">Legal entity as it appears on your contract.</span>
+  </div>
+  <div class="field">
+    <label>Work email</label>
+    <input class="focus" value="maria@elara.ai"/>
+    <span class="help">Focus state — 3 px brand-tinted ring + brand-500 border.</span>
+  </div>
+</div>
+
+<h4>Error</h4>
+<div class="ex form">
+  <div class="field">
+    <label>API token</label>
+    <input class="err" value="eai_***************"/>
+    <span class="help err-help">Token has expired. Rotate to continue.</span>
+  </div>
+  <div class="field">
+    <label>Data source</label>
+    <select><option>Snowflake · production</option></select>
+    <span class="help">Connection is verified in real time.</span>
+  </div>
+</div>
+
+<ul>
+  <li><strong>Label.</strong> 12 px, weight 600, deep ink. Sentence case. Never uppercase.</li>
+  <li><strong>Input.</strong> 14 px, 9×12 padding, 1 px gray-300 border, 6 px radius, white fill.</li>
+  <li><strong>Helper text.</strong> 11 px, muted. Sits below the field with a 6 px gap.</li>
+  <li><strong>Focus.</strong> Border switches to brand 500 <em>and</em> gains the 3 px focus ring.</li>
+  <li><strong>Error.</strong> Border switches to red 500. Helper text becomes red. <strong>No icon needed</strong> — the colour change is the affordance.</li>
+</ul>
+
+<h3>DO / DON'T</h3>
+<ul>
+  <li><strong>DO</strong> use the focus ring as the primary keyboard affordance — it's a <code>box-shadow</code>, not an <code>outline</code>, so it doesn't get clipped.</li>
+  <li><strong>DON'T</strong> use placeholder text as a substitute for a label. Always pair them.</li>
+  <li><strong>DON'T</strong> float labels (Material-style). Static labels above the field, always.</li>
+  <li><strong>DON'T</strong> colour input borders to "match the section".</li>
+</ul>
+
+<!-- ==================== 9 ICONS ==================== -->
+<h2 id="icon"><span class="num">09</span>Iconography</h2>
+
+<h3>Rules</h3>
+<ul>
+  <li><strong>System:</strong> a single line/solid icon family used consistently — Font Awesome, Lucide, or Phosphor are all acceptable. Pick one and don't mix.</li>
+  <li><strong>Style:</strong> 1.5–2 px stroke or geometric solid. No filled-circle backgrounds, no duo-tone, no 3D, no skeuomorphic glyphs.</li>
+  <li><strong>Sizes:</strong> 16 px inline · 20 px UI affordances · 24–32 px feature lead-ins.</li>
+  <li><strong>Weight:</strong> Solid for status / feature bullets · Regular (or stroke) for toolbar actions.</li>
+  <li><strong>Colour:</strong> <code>fg-muted</code> by default · <code>brand-600</code> on hover · accent hue <em>only</em> in marketing concept-bullets.</li>
+  <li><strong>No emoji.</strong> Anywhere. Replace 🚀 / ✨ / ✅ with an icon or remove.</li>
+  <li><strong>Mathematical Unicode is welcome:</strong> <code>→ ← ↗ × · ≈ ∑</code>. Reinforces the "mathematics" positioning.</li>
+</ul>
+<p class="small" style="color:var(--fg-muted);">The SVG examples below are illustrative — your build can render them through <code>&lt;i class="fa-solid fa-..."&gt;</code>, a Lucide React component, or any other source. The point is the visual treatment, not the library.</p>
+
+<h3>Inline icon + label</h3>
+<div class="ex icons">
+  <div class="row">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="var(--brand-500)"><path d="M12 2 4 6v6c0 5 3.4 9.2 8 10 4.6-.8 8-5 8-10V6l-8-4z"/></svg>
+    Secure
+  </div>
+  <div class="row">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="var(--brand-500)"><path d="M3 12h6l3-9 4 18 3-9h2"/></svg>
+    Real-time
+  </div>
+  <div class="row">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="var(--brand-500)"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/></svg>
+    Configurable
+  </div>
+</div>
+
+<h3>DON'T</h3>
+<div class="ex icons">
+  <div class="row">🚀 Real-time <span class="note-bad">✗ emoji</span></div>
+  <div class="row">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="#ec4899"><path d="M3 12h6l3-9 4 18 3-9h2"/></svg>
+    Real-time <span class="note-bad">✗ off-palette icon colour</span>
+  </div>
+  <div class="row">
+    <svg width="32" height="32" viewBox="0 0 24 24" fill="var(--brand-500)"><path d="M3 12h6l3-9 4 18 3-9h2"/></svg>
+    Real-time <span class="note-bad">✗ icon dwarfs label</span>
+  </div>
+</div>
+
+<!-- ==================== 10 MOTION ==================== -->
+<h2 id="motion"><span class="num">10</span>Motion</h2>
+
+<h3>Durations</h3>
+<ul>
+  <li><strong>120 ms</strong> — instant micro-interactions: button colour, hover.</li>
+  <li><strong>200 ms</strong> — default. Reveals, dismissals, dropdown open.</li>
+  <li><strong>360 ms</strong> — slow. Dialog open, page-level transitions, chart interpolations.</li>
+</ul>
+
+<h3>Easing</h3>
+<ul>
+  <li><strong>Out</strong> — <code>cubic-bezier(0.16, 1, 0.3, 1)</code>. The default. Soft landing.</li>
+  <li><strong>In-out</strong> — <code>cubic-bezier(0.65, 0, 0.35, 1)</code>. Used on durations that need symmetry (slide-in dialogs).</li>
+</ul>
+
+<h3>Demos</h3>
+<style>
+  .motion-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .motion-tile { background: #fff; border: 1px solid var(--border-subtle); border-radius: 8px; padding: 24px; display: flex; flex-direction: column; align-items: center; gap: 14px; min-height: 160px; justify-content: center; }
+  .motion-tile .lbl { font-size: 11px; font-weight: 700; color: var(--brand-600); letter-spacing: .12em; text-transform: uppercase; }
+  .motion-tile .meta { font-size: 11px; color: var(--fg-muted); font-family: var(--font-mono); text-align: center; }
+  .m-btn { background: var(--brand-500); color: #fff; padding: 9px 18px; border-radius: 6px; font-size: 14px; font-weight: 600; transition: background 120ms cubic-bezier(0.16, 1, 0.3, 1); cursor: pointer; }
+  .m-btn:hover { background: var(--brand-600); }
+  .m-dialog-stage { width: 100%; height: 80px; background: var(--bg-secondary); border-radius: 6px; position: relative; overflow: hidden; }
+  .m-dialog { position: absolute; left: 12px; right: 12px; top: 12px; bottom: 12px; background: #fff; border: 1px solid var(--border-subtle); border-radius: 6px; box-shadow: var(--shadow-lg); animation: m-dlg 2.4s cubic-bezier(0.65, 0, 0.35, 1) infinite; transform-origin: center; }
+  @keyframes m-dlg { 0%,15% { opacity: 0; transform: translateY(8px) scale(.96); } 35%,75% { opacity: 1; transform: translateY(0) scale(1); } 100% { opacity: 0; transform: translateY(8px) scale(.96); } }
+  .m-chart-stage { width: 100%; height: 80px; position: relative; }
+  .m-bar { position: absolute; bottom: 0; width: 14%; background: var(--brand-500); border-radius: 2px 2px 0 0; transition: height 360ms cubic-bezier(0.16, 1, 0.3, 1); }
+</style>
+<div class="ex motion-row">
+  <div class="motion-tile">
+    <div class="lbl">120 ms</div>
+    <button class="m-btn">Hover me</button>
+    <div class="meta">Button hover<br>colour shift</div>
+  </div>
+  <div class="motion-tile">
+    <div class="lbl">200 ms</div>
+    <div class="m-dialog-stage"><div class="m-dialog"></div></div>
+    <div class="meta">Dropdown / dialog<br>fade + 8 px translate</div>
+  </div>
+  <div class="motion-tile">
+    <div class="lbl">360 ms</div>
+    <div class="m-chart-stage" id="m-chart">
+      <div class="m-bar" style="left:6%;height:30%;"></div>
+      <div class="m-bar" style="left:24%;height:55%;"></div>
+      <div class="m-bar" style="left:42%;height:42%;"></div>
+      <div class="m-bar" style="left:60%;height:78%;"></div>
+      <div class="m-bar" style="left:78%;height:62%;"></div>
+    </div>
+    <div class="meta">Chart interpolation<br>natural curve, no overshoot</div>
+  </div>
+</div>
+<script>
+(function(){
+  const heights = [[30,55,42,78,62],[58,40,72,28,90],[44,68,30,82,50]];
+  let i = 0;
+  const stage = document.getElementById('m-chart');
+  if (!stage) return;
+  setInterval(()=>{
+    i = (i+1) % heights.length;
+    const bars = stage.querySelectorAll('.m-bar');
+    bars.forEach((b,idx)=>{ b.style.height = heights[i][idx] + '%'; });
+  }, 1800);
+})();
+</script>
+
+<h3>Rules</h3>
+<ul>
+  <li>Motion is purposeful and short. Fades, short translates (≤ 8 px), opacity. No bounces, springs, overshoot.</li>
+  <li><strong>Never</strong> auto-play decorative motion (pulsing dots, drifting backgrounds, parallax).</li>
+  <li>Chart transitions use natural-curve interpolations, not stepped morphs.</li>
+  <li>Respect <code>prefers-reduced-motion</code>. Reveals should fade, not translate, when reduced motion is on.</li>
+</ul>
+
+<!-- ==================== 11 ACCESSIBILITY ==================== -->
+<h2 id="a11y"><span class="num">11</span>Accessibility</h2>
+<p>Elara is enterprise software. Accessibility isn't optional and it isn't a "phase 2". The rules below are the floor — WCAG 2.1 AA is the target.</p>
+
+<h3>Contrast</h3>
+<ul>
+  <li>Body text on white: <strong>minimum 4.5:1</strong>. Defaults — <code>fg-primary</code> (#1a2626) on white = 14.2:1, <code>fg-secondary</code> (#4a5f5f) = 7.4:1. Both pass.</li>
+  <li>Body text on dark (<code>brand-900</code>): <code>gray-100</code> = 14.8:1. Pass.</li>
+  <li><strong>Don't</strong> drop secondary text below <code>gray-500</code>. Below that fails AA on white.</li>
+  <li>Disabled controls are exempt from contrast minimums but should still be visually unambiguous.</li>
+</ul>
+
+<h3>Hit targets</h3>
+<ul>
+  <li><strong>44 × 44 px minimum</strong> for any tap target on touch devices. Default buttons (36 px tall) are fine on desktop; bump to 44+ on mobile.</li>
+  <li>Inline icon buttons need at least 8 px of clear space around them.</li>
+</ul>
+
+<h3>Focus</h3>
+<ul>
+  <li><strong>Every interactive element gets a visible focus ring.</strong> The 3 px brand-tinted <code>box-shadow</code> is the only acceptable treatment.</li>
+  <li>Don't <code>outline: none</code> without replacing it. The browser default is ugly; invisible is unusable.</li>
+  <li>Focus order matches reading order. Positive <code>tabindex</code> values are a bug.</li>
+  <li>Skip-link to main content on every full-page route.</li>
+</ul>
+
+<h3>Semantics</h3>
+<ul>
+  <li>Use the right element. <code>&lt;button&gt;</code> for actions, <code>&lt;a&gt;</code> for navigation. A <code>&lt;div onClick&gt;</code> is a bug.</li>
+  <li>Headings are hierarchical — never skip levels for size. Style with classes, not tag choice.</li>
+  <li>Form fields pair with <code>&lt;label&gt;</code>. Helper and error text reference the field via <code>aria-describedby</code>.</li>
+  <li>Icon-only buttons need <code>aria-label</code>.</li>
+</ul>
+
+<h3>Reduced motion</h3>
+<ul>
+  <li>Honour <code>prefers-reduced-motion: reduce</code>. Replace translate / scale animations with simple fades. Disable auto-playing transitions entirely.</li>
+  <li>Chart animations stay (they convey data) but skip entrance flourishes.</li>
+</ul>
+
+<h3>Colour as information</h3>
+<ul>
+  <li>Never carry meaning in colour alone. Errors pair red border + red helper text. Status pairs the dot with a word.</li>
+  <li>Charts that rely on colour to distinguish series must also use shape, label, or pattern when there are more than three series.</li>
+</ul>
+
+<div class="part-banner">
+  <div class="kicker">Part 2</div>
+  <h2 class="part">Marketing surface</h2>
+  <p>The public site, decks, sales collateral, the CEO briefing. Lower density, hero typography, illustrative imagery, declarative voice. Everything in this part assumes a reader skimming, not an analyst working.</p>
+</div>
+
+<!-- ==================== 12 VOICE ==================== -->
+<h2 id="voice"><span class="num">12</span>Voice in UI</h2>
+
+<p>The product UI voice is much quieter than the marketing voice. Inside the application, copy is short, neutral, technical. Marketing-voice belongs only on the marketing site and decks. The contrast is below; Part 3 covers the product side in depth.</p>
+
+<h3>The most common mistake</h3>
+<p>Marketing voice leaking into the product. Below: the same empty-state, written twice.</p>
+<div class="pair">
+  <div class="dont">
+    <div class="tag">✗ Marketing voice in the product</div>
+    <div style="font-family:var(--font-brand);font-size:18px;font-weight:600;line-height:1.3;margin-bottom:6px;">Welcome aboard! 🎉</div>
+    <div style="font-size:13px;color:var(--fg-secondary);line-height:1.6;margin-bottom:12px;">We're excited to help you unlock the full potential of your business. Let's get your data flowing in just a few clicks!</div>
+    <button class="btn solid sm">Get started ✨</button>
+  </div>
+  <div class="do">
+    <div class="tag">✓ Product voice</div>
+    <div style="font-family:var(--font-brand);font-size:18px;font-weight:600;line-height:1.3;margin-bottom:6px;">No data sources connected</div>
+    <div style="font-size:13px;color:var(--fg-secondary);line-height:1.6;margin-bottom:12px;">Connect Snowflake, BigQuery, or upload a CSV to start your first run.</div>
+    <button class="btn solid sm">Add source</button>
+  </div>
+</div>
+
+<table>
+  <tr><th>Context</th><th>Voice</th><th>Example</th></tr>
+  <tr><td>Marketing headline</td><td>Confident, sentence case + period.</td><td>AI data-driven Digital Twin.</td></tr>
+  <tr><td>Marketing body</td><td>Technical, hedged, "you / your business".</td><td>Elara automatically applies reinforcement learning to your digital twin.</td></tr>
+  <tr><td>Product label</td><td>Short phrase, sentence case, no period.</td><td>Growth factor · Run optimisation · Connectors</td></tr>
+  <tr><td>Form helper</td><td>Plain, declarative.</td><td>Connection is verified in real time.</td></tr>
+  <tr><td>Error</td><td>Direct, non-blaming.</td><td>Token has expired. Rotate to continue.</td></tr>
+  <tr><td>Empty state</td><td>Tells the user what to do next.</td><td>No optimisation runs yet. Start your first run.</td></tr>
+  <tr><td>Confirm dialog</td><td>Verb match between question and action.</td><td>Q: "Discard changes?" → button: "Discard."</td></tr>
+</table>
+
+<p><strong>DON'T</strong> use:</p>
+<ul>
+  <li>Emoji. Anywhere.</li>
+  <li>Exclamation marks.</li>
+  <li>"We're excited to…", "Welcome aboard!", "Oops!", "Awesome!"</li>
+  <li>Filler phrases like "powerful AI-driven insights", "next-generation analytics".</li>
+  <li>Title Case in headings or buttons (except proper concept names).</li>
+</ul>
+
+<!-- ==================== 13 IMAGERY ==================== -->
+<h2 id="img"><span class="num">13</span>Imagery</h2>
+
+<h3>Rules</h3>
+<ul>
+  <li><strong>Vector-only by default.</strong> Commissioned SVG illustrations carry the visual weight of the marketing site.</li>
+  <li><strong>No stock photography of people.</strong> No team photos, no smiling office shots.</li>
+  <li><strong>No film-grain, no warm tones.</strong> If a raster appears, it's monochrome or muted.</li>
+  <li><strong>No background gradients as decoration.</strong> Flat white or flat brand-900 only.</li>
+  <li><strong>No noise textures, no patterns, no hand-drawn sketches.</strong></li>
+</ul>
+
+<h3>The one recurring motif</h3>
+<p>The Elara mark — a dotted-diamond / compass-rose composition of small ink dots — is the only geometric motif allowed as a decorative hint. Use sparingly: a corner mark on a hero, a quiet watermark, or the favicon. <strong>Don't redraw it. Don't recolour it. Don't add to it.</strong></p>
+
+<div class="part-banner">
+  <div class="kicker">Part 3</div>
+  <h2 class="part">Product surface</h2>
+  <p>The analyst workspace — app shell, navigation, tables, charts, filters, keyboard. Denser than marketing, more functional, mathematically alive. Think Mixpanel-class tooling with Anthropic-grade restraint: every pixel earns its place, but the product is allowed to feel fast and exploratory.</p>
+</div>
+
+<!-- ==================== 14 PRODUCT FOUNDATIONS ==================== -->
+<h2 id="prod-found"><span class="num">14</span>Product foundations</h2>
+<p>The product surface inherits every token from Part 1 but tightens density and softens the "no decoration" rule into <em>"every visual decision must serve comprehension or feedback."</em> Motion is allowed when it explains, never when it decorates.</p>
+
+<h3>How product diverges from marketing</h3>
+<table>
+  <tr><th style="width:160px;">Token</th><th>Marketing</th><th>Product</th></tr>
+  <tr><td>Display top size</td><td>56 px</td><td>32 px</td></tr>
+  <tr><td>Section rhythm</td><td>80–120 px</td><td>24–32 px</td></tr>
+  <tr><td>Card padding</td><td>24–32 px</td><td>16 px</td></tr>
+  <tr><td>Card radius</td><td>8 px</td><td>6 px</td></tr>
+  <tr><td>Body size</td><td>16 px</td><td>13–14 px</td></tr>
+  <tr><td>Imagery</td><td>Vector hero illustrations</td><td>None — data is the imagery</td></tr>
+  <tr><td>Voice</td><td>Confident, sentence + period</td><td>Neutral, terse, no period</td></tr>
+  <tr><td>Motion</td><td>Subtle reveal</td><td>Fast feedback + chart interpolation</td></tr>
+</table>
+
+<h3>Two operational accents</h3>
+<p>Marketing only needs one accent: brand teal. The product needs <em>two</em> — they signal different things and must not share a hue.</p>
+<ul>
+  <li><strong>Brand 500</strong> — selected, active, primary. The thing the user has chosen.</li>
+  <li><strong>Purple 500</strong> (<code>#8b5cf6</code>) — live, streaming, new. The thing the system is doing for them.</li>
+</ul>
+<p>Red still means error/destructive. Green still means success/positive delta. Other accent hues stay on charts.</p>
+
+<!-- ==================== 15 APP SHELL ==================== -->
+<h2 id="shell"><span class="num">15</span>App shell &amp; navigation</h2>
+<p>Two-column shell: left rail for primary navigation, top bar for context (workspace, breadcrumbs, search, user menu). The work area fills the rest.</p>
+
+<div class="ex flat" style="padding:0;">
+<div class="shell">
+  <div class="rail">
+    <div class="ws"><div class="dot">E</div><div class="nm">Elara Industrial</div></div>
+    <div class="nav active">Dashboards</div>
+    <div class="nav">Runs</div>
+    <div class="nav">Segments</div>
+    <div class="nav">Connectors</div>
+    <div class="grp">Workspace</div>
+    <div class="nav">Members</div>
+    <div class="nav">Settings</div>
+  </div>
+  <div class="work">
+    <div class="topbar">
+      <div class="crumb">Dashboards <span style="color:var(--fg-muted);">/</span> <strong>Procurement Q3</strong></div>
+      <div class="search"><span>Search</span><span class="kbd">⌘K</span></div>
+    </div>
+    <div class="body" style="display:flex;align-items:center;justify-content:center;color:var(--fg-muted);font-size:12px;">— work area —</div>
+  </div>
+</div>
+</div>
+
+<h3>Specs</h3>
+<ul>
+  <li><strong>Left rail:</strong> 220 px expanded, 56 px collapsed. Background white, 1 px right border. 16 px vertical padding, 12 px horizontal.</li>
+  <li><strong>Nav item:</strong> 32 px tall, 6 px radius, 8 px padding. Icon 14 px, label 13 px. Active = <code>bg-tertiary</code>, weight 600. Hover = <code>bg-secondary</code>.</li>
+  <li><strong>Workspace switcher:</strong> top of rail, 24 px square avatar with workspace initial in brand-500. Click opens a popover.</li>
+  <li><strong>Top bar:</strong> 44 px tall, white, 1 px bottom border. Breadcrumbs left, search and user menu right.</li>
+  <li><strong>Search trigger:</strong> always visible in top bar with <code>⌘K</code> shortcut hint. Clicking opens the command palette.</li>
+  <li><strong>Page tabs:</strong> below the top bar when a page has sub-views. 36 px tall, 2 px brand-500 underline on active, no fill.</li>
+</ul>
+
+<!-- ==================== 16 COMMAND PALETTE ==================== -->
+<h2 id="cmdk"><span class="num">16</span>Command palette</h2>
+<p>The keyboard surface. <code>⌘K</code> opens it from anywhere. Search across pages, segments, runs, and global actions.</p>
+
+<div class="ex flat">
+<div class="cmdk">
+  <div class="inp"><span class="cur">go to procure</span></div>
+  <div class="res">
+    <div class="grp">Dashboards</div>
+    <div class="it sel"><span class="sp">Procurement Q3</span><span class="kb">↵</span></div>
+    <div class="it"><span class="sp">Procurement — historical</span></div>
+    <div class="grp">Actions</div>
+    <div class="it"><span class="sp">New optimisation run</span><span class="kb">⌘N</span></div>
+    <div class="it"><span class="sp">Invite teammate</span></div>
+  </div>
+</div>
+</div>
+
+<ul>
+  <li><strong>Width</strong> 520 px max. Centred, 25% from top of viewport.</li>
+  <li><strong>Backdrop</strong> <code>rgba(17,27,34,0.4)</code>. Click to dismiss.</li>
+  <li><strong>Input</strong> 14 px, 14 px padding. Placeholder is task-oriented ("Search or type a command…") not literal ("Type to search").</li>
+  <li><strong>Results</strong> grouped by type. Selected row uses <code>bg-tertiary</code>, never the brand colour — selection in the palette is the cursor, not a choice yet.</li>
+  <li><strong>Keys:</strong> <code>↑↓</code> navigate, <code>↵</code> activate, <code>Esc</code> close, <code>⌘K</code> toggle.</li>
+</ul>
+
+<!-- ==================== 17 DATA TABLES ==================== -->
+<h2 id="tables"><span class="num">17</span>Data tables</h2>
+<p>Tables are the workhorse. Three density tiers; numbers right-aligned with tabular figures; no zebra; hover reveals row actions.</p>
+
+<h3>Default table</h3>
+<div class="ex flat">
+<table class="dt">
+  <thead><tr>
+    <th>Run</th><th>Started</th><th class="num">Iterations</th><th class="num">Reward</th><th class="num">Δ vs. baseline</th>
+  </tr></thead>
+  <tbody>
+    <tr class="sel"><td>procure-2024-09-14</td><td>2 hours ago</td><td class="num">1,284</td><td class="num">0.847</td><td class="num delta-up">+12.4%</td></tr>
+    <tr><td>procure-2024-09-13</td><td>Yesterday</td><td class="num">1,200</td><td class="num">0.821</td><td class="num delta-up">+9.1%</td></tr>
+    <tr><td>logistics-2024-09-12</td><td>Sep 12</td><td class="num">980</td><td class="num">0.752</td><td class="num delta-dn">−2.1%</td></tr>
+    <tr><td>procure-2024-09-11</td><td>Sep 11</td><td class="num">1,440</td><td class="num">0.798</td><td class="num delta-up">+5.6%</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>Specs</h3>
+<ul>
+  <li><strong>Density:</strong> compact 32 px / default 40 px / comfortable 48 px row height. User-selectable.</li>
+  <li><strong>Header:</strong> 11 px, weight 600, uppercase, <code>bg-secondary</code>. Sticky on vertical scroll.</li>
+  <li><strong>Cell:</strong> 13 px, 10 × 14 padding. Numeric cells right-aligned with <code>font-variant-numeric: tabular-nums</code>.</li>
+  <li><strong>Hover row:</strong> <code>bg-secondary</code>. Row actions appear at the right edge on hover (no permanent action column).</li>
+  <li><strong>Selected row:</strong> brand-500 at 6% opacity. Multi-select uses a leading checkbox column.</li>
+  <li><strong>No zebra striping.</strong> The hover state and 1 px border do the work.</li>
+  <li><strong>Sticky first column:</strong> for tables wider than the viewport. 1 px right border with a faint shadow when scrolled.</li>
+  <li><strong>Empty cells:</strong> em dash (—), never "0" or blank. Distinguishes "no data" from "zero".</li>
+  <li><strong>Loading:</strong> 6 skeleton rows of <code>.skel</code> bars at varying widths. Never a spinner inside the table.</li>
+</ul>
+
+<!-- ==================== 18 KPIS & NUMBERS ==================== -->
+<h2 id="numbers"><span class="num">18</span>KPIs &amp; numeric typography</h2>
+<p>Numbers carry the product. Every numeric surface uses tabular figures so digits column-align across rows and across re-renders.</p>
+
+<div class="ex flat" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;">
+  <div class="kpi">
+    <div class="l">Projected uplift</div>
+    <div class="v">$2.4<span class="u">M</span></div>
+    <div class="d up">+12.4% vs. baseline</div>
+  </div>
+  <div class="kpi">
+    <div class="l">Active runs</div>
+    <div class="v">7</div>
+    <div class="d" style="color:var(--fg-muted);">3 queued</div>
+  </div>
+  <div class="kpi">
+    <div class="l">Sim fidelity</div>
+    <div class="v">99.4<span class="u">%</span></div>
+    <div class="d up">+0.2 pp</div>
+  </div>
+  <div class="kpi">
+    <div class="l">Stockout risk</div>
+    <div class="v">—</div>
+    <div class="d" style="color:var(--fg-muted);">No data</div>
+  </div>
+</div>
+
+<ul>
+  <li><strong>Hero number:</strong> DM Sans 32–60 px, weight 700, −0.01em. Tabular figures.</li>
+  <li><strong>Inline number:</strong> body 13–14 px, tabular figures.</li>
+  <li><strong>Unit suffix:</strong> 50% size of the number, <code>fg-muted</code>, weight 500, 4 px gap.</li>
+  <li><strong>Sign rules:</strong> always show + on positive deltas. Use minus sign (<code>−</code>) not hyphen (<code>-</code>).</li>
+  <li><strong>Colour:</strong> positive delta <code>#15803d</code>, negative <code>#b91c1c</code>. These are darker than the chart green/red so they read on white at 12 px.</li>
+  <li><strong>Zero treatment:</strong> em dash (—) for "no data". Use "0" only when zero is the actual measured value.</li>
+  <li><strong>Large numbers:</strong> abbreviate at 1k+ (1.2k, 24.5M, 3.1B). Never show "2,400,000" in a KPI.</li>
+</ul>
+
+<!-- ==================== 19 CHARTS ==================== -->
+<h2 id="charts"><span class="num">19</span>Charts</h2>
+<p>Where Mixpanel actually competes. Charts are first-class — spec'd as carefully as type.</p>
+
+<h3>The chart palette</h3>
+<p>Eight categorical colours, ordered for max distinguishability when adjacent. Use the first <em>n</em> for an <em>n</em>-series chart.</p>
+<div class="accent-row" style="flex-wrap:wrap;">
+  <div style="background:#488e97;">01 brand</div>
+  <div style="background:#8b5cf6;">02 purple</div>
+  <div style="background:#f97316;">03 orange</div>
+  <div style="background:#3b82f6;">04 blue</div>
+  <div style="background:#14b8a6;">05 teal</div>
+  <div style="background:#eab308;">06 yellow</div>
+  <div style="background:#ec4899;">07 pink</div>
+  <div style="background:#6b8080;">08 gray</div>
+</div>
+<p class="small" style="color:var(--fg-muted);margin-top:8px;">Order is fixed. A two-series chart is brand + purple, never brand + orange. This means a returning user reads colour without re-checking the legend. Red is reserved for "bad data" — losses, errors, breaches — and never appears as series N.</p>
+
+<h3>Chart frame</h3>
+<div class="ex flat">
+<div class="chart-card">
+  <div class="chd">
+    <div>
+      <div class="ttl">Reward over training</div>
+      <div class="sub">Last 1,000 iterations</div>
+    </div>
+    <span class="live">Live</span>
+  </div>
+  <div class="legend"><span><span class="sw" style="background:#488e97;"></span>Procurement v3</span><span><span class="sw" style="background:#8b5cf6;"></span>Procurement v2</span></div>
+  <svg viewBox="0 0 600 180" style="width:100%;height:180px;display:block;">
+    <line x1="0" y1="45" x2="600" y2="45" stroke="#e2e8e8" stroke-width="1"/>
+    <line x1="0" y1="90" x2="600" y2="90" stroke="#e2e8e8" stroke-width="1"/>
+    <line x1="0" y1="135" x2="600" y2="135" stroke="#e2e8e8" stroke-width="1"/>
+    <path d="M0 140 C 80 130, 140 100, 200 95 S 340 70, 420 60 S 540 35, 600 30" stroke="#488e97" stroke-width="2" fill="none"/>
+    <path d="M0 150 C 80 145, 140 130, 200 120 S 340 110, 420 100 S 540 90, 600 80" stroke="#8b5cf6" stroke-width="2" fill="none" stroke-dasharray="4 3"/>
+    <line x1="450" y1="0" x2="450" y2="180" stroke="#9bb0b0" stroke-width="1" stroke-dasharray="3 3"/>
+    <text x="454" y="14" font-size="10" fill="#6b8080" font-family="Inter Tight">v3 deployed</text>
+  </svg>
+  <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--fg-muted);font-variant-numeric:tabular-nums;margin-top:4px;">
+    <span>0</span><span>200</span><span>400</span><span>600</span><span>800</span><span>1,000</span>
+  </div>
+</div>
+</div>
+
+<h3>Specs</h3>
+<ul>
+  <li><strong>Frame:</strong> white card, 6 px radius, 16 px padding, 1 px subtle border. No shadow at rest.</li>
+  <li><strong>Title:</strong> DM Sans 14 px / 600 / left. <strong>Subtitle:</strong> 12 px <code>fg-muted</code>.</li>
+  <li><strong>Live indicator:</strong> top-right, brand-500 pulsing dot + the word "Live" in 11 px brand-700 uppercase. Only when streaming.</li>
+  <li><strong>Axis labels:</strong> 10 px, <code>fg-muted</code>. Tabular figures. Y axis sits to the left without an axis line — gridlines do the work.</li>
+  <li><strong>Gridlines:</strong> <code>border-subtle</code> at 1 px, horizontal only. Never use a gridline as a baseline.</li>
+  <li><strong>Series stroke:</strong> 2 px. Second series is dashed (<code>4 3</code>) when both are the same metric — colour alone never carries meaning.</li>
+  <li><strong>Reference lines:</strong> 1 px <code>gray-400</code> dashed for events; 1 px <code>green-500</code> dashed for goals/thresholds. Always labelled.</li>
+  <li><strong>Tooltip:</strong> white card, sm shadow, 12 px padding, colour swatch + series name + tabular value, sorted by current value descending.</li>
+  <li><strong>Empty state:</strong> centred 12 px <code>fg-muted</code> message inside the frame ("No runs in this period"). Keep the frame so layout doesn't collapse.</li>
+  <li><strong>Loading:</strong> animated <code>.skel</code> bars matching the chart's silhouette. No spinners.</li>
+</ul>
+
+<!-- ==================== 20 FILTERS & SEGMENTS ==================== -->
+<h2 id="filters"><span class="num">20</span>Filters &amp; segmentation</h2>
+<p>The filter bar is how analysts query. Chips show what's applied; clicking opens an editor; an "+" trigger adds a new clause.</p>
+
+<div class="ex flat" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+  <span class="chip active"><span class="k">scenario</span><span class="op">=</span>Procurement v3<span class="x">×</span></span>
+  <span class="chip active"><span class="k">region</span><span class="op">in</span>EU, NA<span class="x">×</span></span>
+  <span class="chip"><span class="k">date</span><span class="op">=</span>last 30 days</span>
+  <span class="chip" style="color:var(--fg-muted);border-style:dashed;">+ Add filter</span>
+  <span style="color:var(--fg-muted);font-size:12px;margin-left:auto;">Showing 1,284 events</span>
+</div>
+
+<h3>Specs</h3>
+<ul>
+  <li><strong>Chip:</strong> 26 px tall, 6 px radius, 1 px border, 5 × 10 padding. Three states — neutral (border-subtle), active (brand-500 outline + 6% brand fill), placeholder (dashed border, muted).</li>
+  <li><strong>Anatomy:</strong> field name (muted) · operator (muted, italicised intent) · value (primary) · close × (muted, hover-darken).</li>
+  <li><strong>Editor:</strong> popover anchored to the chip. Field selector → operator → value picker. <code>↵</code> commits, <code>Esc</code> reverts.</li>
+  <li><strong>Compare-to mode:</strong> a second filter row, 50% opacity until populated, prefixed "compared to". Gives charts a built-in A/B treatment.</li>
+  <li><strong>Date range:</strong> presets (24h / 7d / 30d / 90d / YTD) + custom + relative ("last N days"). Always show the resolved absolute range under the trigger.</li>
+  <li><strong>Saved segment:</strong> a chip cluster you can name and pin. Pinned segments live in the left rail.</li>
+</ul>
+
+<!-- ==================== 21 STATES ==================== -->
+<h2 id="states"><span class="num">21</span>State density: loading, empty, error, live</h2>
+<p>Every data view passes through these four states. Each gets a defined treatment so users learn to recognise them.</p>
+
+<div class="ex flat" style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;">
+  <div class="chart-card">
+    <div class="chd"><div><div class="ttl">Loading</div><div class="sub">Skeleton matches silhouette</div></div></div>
+    <div style="display:flex;align-items:flex-end;gap:8px;height:120px;padding:8px 0;">
+      <div class="skel" style="width:14%;height:40%;"></div>
+      <div class="skel" style="width:14%;height:65%;"></div>
+      <div class="skel" style="width:14%;height:50%;"></div>
+      <div class="skel" style="width:14%;height:80%;"></div>
+      <div class="skel" style="width:14%;height:55%;"></div>
+      <div class="skel" style="width:14%;height:70%;"></div>
+    </div>
+  </div>
+  <div class="chart-card">
+    <div class="chd"><div><div class="ttl">Empty</div><div class="sub">Tells the user what to do next</div></div></div>
+    <div style="display:flex;align-items:center;justify-content:center;height:120px;flex-direction:column;gap:6px;">
+      <div style="font-size:13px;color:var(--fg-secondary);">No runs in this period</div>
+      <a href="#" style="font-size:12px;">Adjust date range</a>
+    </div>
+  </div>
+  <div class="chart-card" style="border-color:var(--red-500);">
+    <div class="chd"><div><div class="ttl" style="color:var(--red-500);">Error</div><div class="sub">Inline; doesn't replace the frame</div></div></div>
+    <div style="display:flex;align-items:center;justify-content:center;height:120px;flex-direction:column;gap:6px;text-align:center;padding:0 24px;">
+      <div style="font-size:13px;color:var(--fg-primary);">Could not load reward stream</div>
+      <a href="#" style="font-size:12px;">Retry</a>
+    </div>
+  </div>
+  <div class="chart-card">
+    <div class="chd"><div><div class="ttl">Live</div><div class="sub">Streaming · cell highlight on update</div></div><span class="live">Live</span></div>
+    <div style="display:flex;align-items:flex-end;gap:8px;height:120px;padding:8px 0;">
+      <div style="width:14%;height:40%;background:var(--brand-500);border-radius:2px 2px 0 0;"></div>
+      <div style="width:14%;height:60%;background:var(--brand-500);border-radius:2px 2px 0 0;"></div>
+      <div style="width:14%;height:55%;background:var(--brand-500);border-radius:2px 2px 0 0;"></div>
+      <div style="width:14%;height:75%;background:var(--brand-500);border-radius:2px 2px 0 0;"></div>
+      <div style="width:14%;height:50%;background:var(--brand-500);border-radius:2px 2px 0 0;"></div>
+      <div style="width:14%;height:80%;background:var(--brand-500);border-radius:2px 2px 0 0;animation:pulse 1.6s ease-in-out infinite;"></div>
+    </div>
+  </div>
+</div>
+
+<ul>
+  <li><strong>Loading:</strong> skeleton matches the silhouette of the loaded content. Never a spinner inside a chart or table cell. Spinners only on full-page loads.</li>
+  <li><strong>Empty:</strong> 13 px secondary text + a single primary link/action. No illustration unless the empty state is a first-run experience.</li>
+  <li><strong>Error:</strong> red border on the frame, red title, neutral body, single retry link. Don't replace the frame with an error page — keep layout stable.</li>
+  <li><strong>Live:</strong> pulsing brand-500 dot + "Live" label top-right. Newly arriving cells/bars flash at 35% brand-500 for 600 ms then settle.</li>
+</ul>
+
+<!-- ==================== 22 KEYBOARD ==================== -->
+<h2 id="keys"><span class="num">22</span>Keyboard &amp; shortcuts</h2>
+<p>The keyboard surface is the single biggest "feels fast" lever. Every page has at least one shortcut; every shortcut is discoverable from the <code>?</code> overlay.</p>
+
+<h3>Global</h3>
+<table>
+  <tr><th style="width:120px;">Key</th><th>Action</th></tr>
+  <tr><td><code>⌘K</code></td><td>Open command palette</td></tr>
+  <tr><td><code>/</code></td><td>Focus search in current view</td></tr>
+  <tr><td><code>?</code></td><td>Open shortcut cheatsheet</td></tr>
+  <tr><td><code>g</code> then <code>d</code></td><td>Go to dashboards</td></tr>
+  <tr><td><code>g</code> then <code>r</code></td><td>Go to runs</td></tr>
+  <tr><td><code>Esc</code></td><td>Dismiss palette / popover / dialog</td></tr>
+</table>
+
+<h3>In a table or list</h3>
+<table>
+  <tr><th style="width:120px;">Key</th><th>Action</th></tr>
+  <tr><td><code>j</code> / <code>k</code></td><td>Next / previous row</td></tr>
+  <tr><td><code>↵</code></td><td>Open the focused row</td></tr>
+  <tr><td><code>x</code></td><td>Select / deselect row (multi-select)</td></tr>
+  <tr><td><code>e</code></td><td>Edit focused row inline (where supported)</td></tr>
+</table>
+
+<h3>Shortcut chips</h3>
+<p>Show shortcut hints next to the action they trigger, in a faint mono chip. Don't hide them in tooltips only.</p>
+<div class="ex" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+  <button class="btn solid">New run <span class="kbd" style="font-family:var(--font-mono);font-size:10px;padding:1px 5px;border:1px solid rgba(255,255,255,.3);border-radius:3px;color:rgba(255,255,255,.8);margin-left:4px;">⌘N</span></button>
+  <button class="btn outline">Search <span class="kbd" style="font-family:var(--font-mono);font-size:10px;padding:1px 5px;border:1px solid var(--border-subtle);border-radius:3px;color:var(--fg-muted);margin-left:4px;">⌘K</span></button>
+  <button class="btn ghost">Help <span class="kbd" style="font-family:var(--font-mono);font-size:10px;padding:1px 5px;border:1px solid var(--border-subtle);border-radius:3px;color:var(--fg-muted);margin-left:4px;">?</span></button>
+</div>
+
+<!-- ==================== 23 DENSITY MODES ==================== -->
+<h2 id="density"><span class="num">23</span>Density modes</h2>
+<p>Comfortable / Default / Compact. User-selectable in settings. Tokens shift; layout doesn't.</p>
+<table>
+  <tr><th style="width:140px;">Token</th><th>Compact</th><th>Default</th><th>Comfortable</th></tr>
+  <tr><td>Table row height</td><td>32</td><td>40</td><td>48</td></tr>
+  <tr><td>Card padding</td><td>12</td><td>16</td><td>20</td></tr>
+  <tr><td>Body size</td><td>12</td><td>13</td><td>14</td></tr>
+  <tr><td>Form gap</td><td>10</td><td>12</td><td>16</td></tr>
+  <tr><td>Nav item height</td><td>28</td><td>32</td><td>36</td></tr>
+</table>
+<p class="small" style="color:var(--fg-muted);">Compact is the analyst default at scale (lots of data on screen). Comfortable is the onboarding/learning default. Don't ship a fourth tier.</p>
+
+<!-- ==================== 24 PRODUCT ANTI-PATTERNS ==================== -->
+<h2 id="prod-anti"><span class="num">24</span>Product-specific anti-patterns</h2>
+<p>On top of the marketing anti-patterns in section 25 below, these are the failure modes that show up only in the analyst surface.</p>
+<table>
+  <tr><th>Symptom</th><th>Why it's wrong</th><th>Fix</th></tr>
+  <tr><td>Spinner inside a chart or table cell</td><td>Chrome jitters; user loses the layout</td><td>Skeleton matching the loaded silhouette</td></tr>
+  <tr><td>Centred numeric column</td><td>Digits don't column-align; eye can't compare</td><td>Right-align with tabular figures</td></tr>
+  <tr><td>Zebra striping</td><td>Adds visual noise without aiding scanning</td><td>Hover state + 1 px borders</td></tr>
+  <tr><td>Modal dialog for single-row destructive action</td><td>Wrong weight for the operation</td><td>Inline confirm in the row, or undo toast</td></tr>
+  <tr><td>Permanent action column on every row</td><td>Eats horizontal space</td><td>Show actions on row hover</td></tr>
+  <tr><td>Colour-only encoding for &gt; 3 series</td><td>Fails colour-blind, fails grayscale print</td><td>Add dash pattern, label, or shape</td></tr>
+  <tr><td>Marketing voice in a product empty state</td><td>Tonal whiplash for analysts</td><td>Direct: "No runs yet. Start your first run."</td></tr>
+  <tr><td>"0" where data is missing</td><td>Conflates absence with measured zero</td><td>Em dash (—) for no-data</td></tr>
+  <tr><td>Clicking a chart series shows a tooltip but no detail page</td><td>Dead end</td><td>Click-through to the underlying segment</td></tr>
+  <tr><td>Hidden keyboard shortcuts</td><td>Power users can't discover them</td><td>Show in chips beside actions; <code>?</code> opens cheatsheet</td></tr>
+</table>
+
+<!-- ==================== 25 ANTI-PATTERNS ==================== -->
+<h2 id="anti"><span class="num">25</span>Anti-pattern gallery</h2>
+
+<p>Each of these maps to a rule earlier in the document. They're listed roughly in order of how often they show up — the top entries are the failure modes I see most.</p>
+<table>
+  <tr><th>Symptom</th><th>Why it's wrong</th><th>Fix</th></tr>
+  <tr><td>Spacing of 10, 14, 18, 22 px</td><td>Off the 4 px grid</td><td>Snap to 8/12/16/20/24</td></tr>
+  <tr><td>"Awesome!" / "We're excited to…" in product UI</td><td>Marketing voice in the product</td><td>Direct, declarative copy — section 12</td></tr>
+  <tr><td>Coloured left-border on a card</td><td>Borders are structural, not expressive</td><td>Use an eyebrow or icon for category</td></tr>
+  <tr><td>Two solid teal buttons next to each other</td><td>No clear primary</td><td>Solid + ink, or solid + outline</td></tr>
+  <tr><td>24+ px corner radii on cards</td><td>Reads as playful</td><td>8 px on cards, 12–16 only on dialogs</td></tr>
+  <tr><td>Outline focus state (browser default)</td><td>Looks unfinished</td><td>3 px brand-tinted box-shadow</td></tr>
+  <tr><td>Title Case on buttons / labels</td><td>Eyebrows are the only uppercase; everything else is sentence case</td><td>Sentence case, with the period only on marketing display headings</td></tr>
+  <tr><td>Tinted-background "status" cards</td><td>Off-brand consumer pattern</td><td>Neutral chrome, status carried by a dot or word</td></tr>
+  <tr><td>Glow / outer-shadow accents for emphasis</td><td>Shadows depict elevation only</td><td>Use the 5-tier scale</td></tr>
+  <tr><td>Multi-hue gradient background</td><td>Off-brand consumer aesthetic</td><td>Flat white or flat brand-900</td></tr>
+  <tr><td>Auto-pulsing decorative dots / drifting backgrounds</td><td>Motion must be purposeful</td><td>Remove</td></tr>
+  <tr><td>Emoji in headings or labels</td><td>Brand is enterprise-formal</td><td>Replace with an icon or remove</td></tr>
+  <tr><td>Exclamation marks anywhere</td><td>Statements, not exhortations</td><td>Period or no terminal punctuation</td></tr>
+  <tr><td>Stock photo of people in a hero</td><td>Imagery is vector-only</td><td>Use a commissioned illustration</td></tr>
+</table>
+
+<!-- ==================== 26 REF ==================== -->
+<h2 id="ref"><span class="num">26</span>Quick reference</h2>
+
+<p>The whole guide on one screen. Print this and pin it.</p>
+
+<div class="ex" style="display:grid;grid-template-columns:repeat(2,1fr);gap:32px;">
+<div>
+  <div class="eye" style="font-size:11px;font-weight:700;color:var(--brand-600);letter-spacing:.12em;text-transform:uppercase;margin-bottom:10px;">Colour</div>
+  <ul style="margin:0;padding-left:18px;">
+    <li><strong>Brand</strong> <code>#488e97</code> · hover <code>#3a7780</code> · pressed <code>#2b4b55</code></li>
+    <li><strong>Ink</strong> <code>#111b22</code></li>
+    <li><strong>Body fg</strong> <code>#1a2626</code> · <strong>secondary</strong> <code>#4a5f5f</code> · <strong>muted</strong> <code>#6b8080</code></li>
+    <li><strong>Bg</strong> white · secondary <code>#f8fafa</code> · tertiary <code>#f1f5f5</code></li>
+    <li><strong>Borders</strong> subtle <code>#e2e8e8</code> · strong <code>#cbd5d5</code></li>
+    <li><strong>Accents</strong> chart series only</li>
+  </ul>
+</div>
+<div>
+  <div class="eye" style="font-size:11px;font-weight:700;color:var(--brand-600);letter-spacing:.12em;text-transform:uppercase;margin-bottom:10px;">Type</div>
+  <ul style="margin:0;padding-left:18px;">
+    <li><strong>Display</strong> DM Sans · 600/700 · −0.01 to −0.02em</li>
+    <li><strong>UI</strong> Inter Tight · 400–600</li>
+    <li><strong>Mono</strong> JetBrains Mono · code only</li>
+    <li><strong>Body</strong> 16/1.625 · <strong>headings</strong> 1.25</li>
+    <li><strong>Eyebrow</strong> 12 / +0.12em / uppercase / brand-600</li>
+    <li><strong>Sentence case</strong> everywhere except eyebrows</li>
+  </ul>
+</div>
+<div>
+  <div class="eye" style="font-size:11px;font-weight:700;color:var(--brand-600);letter-spacing:.12em;text-transform:uppercase;margin-bottom:10px;">Spacing &amp; shape</div>
+  <ul style="margin:0;padding-left:18px;">
+    <li><strong>Grid</strong> multiples of 4</li>
+    <li><strong>Cards</strong> 24 padding · 8 radius · sm shadow</li>
+    <li><strong>Sections</strong> 64–80 vertical rhythm</li>
+    <li><strong>Radii</strong> 6 buttons · 8 cards · 16 dialogs · pill badges</li>
+    <li><strong>Shadow</strong> sm rest · md hover · xl dialog</li>
+    <li><strong>Container</strong> max 1200</li>
+  </ul>
+</div>
+<div>
+  <div class="eye" style="font-size:11px;font-weight:700;color:var(--brand-600);letter-spacing:.12em;text-transform:uppercase;margin-bottom:10px;">Motion &amp; a11y</div>
+  <ul style="margin:0;padding-left:18px;">
+    <li><strong>Default</strong> 200 ms · <code>cubic-bezier(0.16, 1, 0.3, 1)</code></li>
+    <li><strong>Fast</strong> 120 ms hover · <strong>slow</strong> 360 ms dialog</li>
+    <li><strong>Focus</strong> 3 px brand-tinted box-shadow</li>
+    <li><strong>Contrast</strong> AA minimum (4.5:1 body)</li>
+    <li><strong>Hit target</strong> 44 px on touch</li>
+    <li><strong>Reduced motion</strong> always honour</li>
+  </ul>
+</div>
+</div>
+
+<p style="margin-top:32px;color:var(--fg-muted);">If you need something that isn't here, ask before inventing.</p>
+
+</div>
+</body>
+</html>

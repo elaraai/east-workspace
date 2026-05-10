@@ -1,0 +1,671 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Elara AI — UX/UI Guide</title>
+<link rel="stylesheet" href="colors_and_type.css">
+<style>
+  :root { color-scheme: light; }
+  html, body { margin: 0; background: var(--bg-secondary); color: var(--fg-primary); font-family: var(--font-body); }
+  .doc { max-width: 1040px; margin: 0 auto; padding: 80px 48px 120px; }
+  .toc { position: sticky; top: 0; background: var(--bg-secondary); padding: 14px 0; margin: -80px -48px 48px; padding-left: 48px; padding-right: 48px; border-bottom: 1px solid var(--border-subtle); font-size: 13px; color: var(--fg-secondary); display: flex; gap: 18px; flex-wrap: wrap; z-index: 5;}
+  .toc a { color: var(--fg-secondary); text-decoration: none; }
+  .toc a:hover { color: var(--brand-600); }
+  h1 { font-size: 56px; line-height: 1.1; letter-spacing: -0.025em; margin: 0 0 8px; }
+  h1 + .deck { font-size: 20px; color: var(--fg-secondary); line-height: 1.5; max-width: 720px; margin-bottom: 64px; }
+  h2 { font-size: 36px; line-height: 1.2; letter-spacing: -0.015em; margin: 96px 0 8px; padding-top: 24px; border-top: 1px solid var(--border-subtle);}
+  h2 .num { color: var(--brand-500); font-variant-numeric: tabular-nums; margin-right: 12px; font-weight: 500; }
+  h3 { font-size: 22px; line-height: 1.3; margin: 48px 0 12px; }
+  h4 { font-size: 16px; line-height: 1.4; margin: 24px 0 8px; color: var(--fg-secondary); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; font-family: var(--font-body); }
+  p { font-size: 16px; line-height: 1.65; max-width: 760px; }
+  p.lead { font-size: 18px; color: var(--fg-secondary); }
+  ul li { font-size: 16px; line-height: 1.65; margin-bottom: 8px; max-width: 720px; }
+  strong { color: var(--fg-primary); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; margin: 16px 0; background: #fff; border: 1px solid var(--border-subtle); border-radius: 8px; overflow: hidden;}
+  th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--border-subtle); vertical-align: top; }
+  th { font-weight: 600; color: var(--fg-primary); background: var(--bg-secondary); font-size: 13px;}
+  tr:last-child td { border-bottom: none; }
+  td { color: var(--fg-secondary); }
+  td strong { color: var(--fg-primary); }
+
+  /* example surfaces */
+  .ex { background: #fff; border: 1px solid var(--border-subtle); border-radius: 8px; padding: 28px; margin: 16px 0; }
+  .ex.dark { background: var(--brand-900); color: #fff; }
+  .ex.flat { background: var(--bg-secondary); }
+  .ex.tight { padding: 20px; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 16px 0; }
+  .pair > div { background: #fff; border: 1px solid var(--border-subtle); border-radius: 8px; padding: 20px; }
+  .pair .tag { font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 10px; }
+  .pair .do .tag { color: var(--green-500); }
+  .pair .dont .tag { color: var(--red-500); }
+
+  /* color row */
+  .swatch-row { display: flex; border: 1px solid var(--border-subtle); border-radius: 8px; overflow: hidden; height: 72px; }
+  .swatch-row > div { flex: 1; display: flex; align-items: flex-end; padding: 8px; font-size: 11px; font-family: var(--font-mono); }
+  .accent-row { display: flex; gap: 8px; }
+  .accent-row > div { flex: 1; height: 56px; border-radius: 8px; display: flex; align-items: flex-end; padding: 8px; font-size: 11px; color: #fff; font-family: var(--font-mono);}
+
+  /* buttons */
+  .btn { display: inline-flex; align-items: center; gap: 8px; border-radius: var(--r-md); font-weight: 600; font-size: 14px; padding: 9px 16px; cursor: pointer; border: 1px solid transparent; transition: all 120ms var(--ease-out); font-family: var(--font-body); line-height: 1; }
+  .btn.solid { background: var(--brand-500); color: #fff; }
+  .btn.solid:hover { background: var(--brand-600); }
+  .btn.ink { background: var(--brand-900); color: #fff; }
+  .btn.outline { background: #fff; color: var(--brand-700); border-color: var(--border-strong); }
+  .btn.outline:hover { background: var(--bg-tertiary); }
+  .btn.ghost { background: transparent; color: var(--fg-secondary); }
+  .btn.disabled { background: var(--gray-200); color: var(--fg-muted); cursor: not-allowed; }
+  .btn.sm { padding: 6px 12px; font-size: 13px; }
+  .btn.lg { padding: 12px 22px; font-size: 15px; }
+
+  /* state grid */
+  .states { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; align-items: center; }
+  .states .label { font-size: 11px; color: var(--fg-muted); margin-top: 8px; letter-spacing: .04em; }
+
+  /* type specimens */
+  .spec > * { margin: 0 0 14px; }
+  .spec .h1d { font-family: var(--font-brand); font-size: 48px; font-weight: 700; line-height: 1.25; letter-spacing: -0.02em; }
+  .spec .h2d { font-family: var(--font-brand); font-size: 36px; font-weight: 700; line-height: 1.25; letter-spacing: -0.015em; }
+  .spec .h3d { font-family: var(--font-brand); font-size: 30px; font-weight: 600; line-height: 1.375; letter-spacing: -0.01em; }
+  .spec .h4d { font-family: var(--font-brand); font-size: 24px; font-weight: 600; line-height: 1.375; }
+  .spec .h5d { font-size: 20px; font-weight: 600; line-height: 1.375; }
+  .spec .h6d { font-size: 18px; font-weight: 600; line-height: 1.5; }
+  .spec .lead { font-size: 18px; line-height: 1.625; color: var(--fg-secondary); }
+  .spec .body { font-size: 16px; line-height: 1.625; }
+  .spec .small { font-size: 14px; line-height: 1.5; color: var(--fg-secondary); }
+  .spec .caption { font-size: 12px; line-height: 1.5; color: var(--fg-muted); letter-spacing: 0.02em; }
+  .spec .eyebrow { font-size: 12px; font-weight: 700; color: var(--brand-600); letter-spacing: 0.12em; text-transform: uppercase; }
+
+  /* spacing scale */
+  .scale-row { display: flex; flex-direction: column; gap: 8px; }
+  .scale-row .row { display: flex; align-items: center; gap: 14px; }
+  .scale-row .bar { background: var(--brand-500); height: 20px; }
+  .scale-row .lbl { font-size: 13px; color: var(--fg-secondary); }
+
+  /* shadow demo */
+  .sh-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; background: var(--bg-secondary); padding: 32px; border-radius: 8px; }
+  .sh-grid .b { background: #fff; border: 1px solid var(--border-subtle); border-radius: 8px; padding: 16px; }
+  .sh-grid .b .t { font-size: 11px; font-weight: 700; color: var(--brand-600); letter-spacing: .12em; text-transform: uppercase; margin-bottom: 6px; }
+  .sh-grid .b .d { font-size: 12px; color: var(--fg-secondary); }
+  .sh-xs { box-shadow: var(--shadow-xs); }
+  .sh-sm { box-shadow: var(--shadow-sm); }
+  .sh-md { box-shadow: var(--shadow-md); }
+  .sh-lg { box-shadow: var(--shadow-lg); }
+  .sh-xl { box-shadow: var(--shadow-xl); }
+
+  /* radius demo */
+  .radii { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; }
+  .radii > div { height: 64px; background: #fff; border: 1px solid var(--border-subtle); display: flex; align-items: flex-end; justify-content: center; padding: 6px; font-size: 11px; color: var(--fg-secondary); font-family: var(--font-mono); }
+
+  /* card demo */
+  .card { background: #fff; border: 1px solid var(--border-subtle); border-radius: var(--r-lg); padding: 24px; box-shadow: var(--shadow-sm); }
+  .card .eye { font-size: 11px; font-weight: 700; color: var(--brand-600); letter-spacing: .12em; text-transform: uppercase; margin-bottom: 8px; }
+  .card .h { font-family: var(--font-brand); font-size: 18px; font-weight: 700; line-height: 1.3; margin: 0 0 8px; }
+  .card .b { font-size: 13px; line-height: 1.5; color: var(--fg-secondary); margin: 0 0 14px; }
+  .card .stat { font-family: var(--font-brand); font-size: 32px; font-weight: 700; line-height: 1; letter-spacing: -.01em; }
+  .card .d { font-size: 12px; color: var(--fg-muted); margin-top: 4px; }
+  .card .bar { height: 4px; background: var(--bg-tertiary); border-radius: 9999px; overflow: hidden; margin-top: 14px; }
+  .card .bar > span { display: block; height: 100%; width: 72%; background: var(--brand-500); border-radius: 9999px; }
+
+  /* form */
+  .form { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .form .field { display: flex; flex-direction: column; gap: 6px; }
+  .form label { font-size: 12px; font-weight: 600; }
+  .form input, .form select { font-family: var(--font-body); font-size: 14px; padding: 9px 12px; border-radius: var(--r-md); border: 1px solid var(--border-strong); background: #fff; color: var(--fg-primary); outline: none; }
+  .form input.focus { border-color: var(--brand-500); box-shadow: var(--shadow-focus); }
+  .form input.err { border-color: var(--red-500); }
+  .form .help { font-size: 11px; color: var(--fg-muted); }
+  .form .err-help { color: var(--red-500); }
+
+  /* icon row */
+  .icons { display: flex; flex-direction: column; gap: 12px; }
+  .icons .row { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+  .note-bad { font-size: 11px; color: var(--red-500); margin-left: 8px; }
+</style>
+</head>
+<body>
+<div class="doc">
+
+<nav class="toc">
+  <a href="#brand">1 · Brand</a>
+  <a href="#color">2 · Colour</a>
+  <a href="#type">3 · Type</a>
+  <a href="#space">4 · Space</a>
+  <a href="#surf">5 · Surfaces</a>
+  <a href="#border">6 · Borders</a>
+  <a href="#btn">7 · Buttons</a>
+  <a href="#form">8 · Forms</a>
+  <a href="#icon">9 · Icons</a>
+  <a href="#motion">10 · Motion</a>
+  <a href="#voice">11 · Voice</a>
+  <a href="#img">12 · Imagery</a>
+  <a href="#anti">13 · Anti-patterns</a>
+  <a href="#ref">14 · Reference</a>
+</nav>
+
+<h1>UX/UI guide</h1>
+<p class="deck">A visual reference for anyone building Elara AI interfaces. Framework-agnostic — it shows you what the product should look and feel like, not how to wire it up. Pair it with <code>colors_and_type.css</code> for the exact tokens.</p>
+
+<p>If you find yourself reaching for a colour, weight, radius, or motion that isn't on this page, the answer is almost always <em>no</em>. Anti-patterns are shown beside correct usage so you can recognise them in flight.</p>
+
+<!-- ==================== 1 BRAND ==================== -->
+<h2 id="brand"><span class="num">01</span>Brand foundations</h2>
+<p>Elara is enterprise-formal, mathematics-led, restrained. The product reads as confident and quietly technical — not playful, not loud, not consumer-y. Three rules carry the brand more than any other:</p>
+<ul>
+  <li><strong>Restraint over expression.</strong> A near-monochrome palette of deep teal ink and cool neutrals does the work; accent colour appears in single, deliberate places.</li>
+  <li><strong>Mathematical precision.</strong> Tight tracking on display type, conservative radii, exact spacing on a 4-pixel grid. Nothing approximate.</li>
+  <li><strong>No decoration.</strong> Borders are structural, shadows are functional, motion is purposeful. If an element exists only to look nice, it should be removed.</li>
+</ul>
+
+<div class="pair">
+  <div class="do">
+    <div class="tag">✓ On brand</div>
+    <div style="font-size:11px;font-weight:700;color:var(--brand-600);letter-spacing:.12em;text-transform:uppercase;margin-bottom:8px;">Pillar 02</div>
+    <div style="font-family:var(--font-brand);font-size:18px;font-weight:700;line-height:1.3;margin-bottom:6px;">Procurement run</div>
+    <div style="font-size:13px;color:var(--fg-secondary);line-height:1.5;">Reinforcement learning against the live digital twin.</div>
+  </div>
+  <div class="dont" style="background:linear-gradient(135deg,#7c3aed,#06b6d4);border-radius:24px;color:#fff;border:none;box-shadow:0 0 40px rgba(124,58,237,.5);">
+    <div class="tag" style="color:#fff;">✗ Off brand</div>
+    <div style="font-family:Comic Sans MS,sans-serif;font-size:20px;font-weight:700;line-height:1.3;margin-bottom:6px;">Procurement run! ✨</div>
+    <div style="font-size:13px;line-height:1.5;">AI-powered next-gen procurement, supercharged 🚀💰</div>
+  </div>
+</div>
+
+<!-- ==================== 2 COLOUR ==================== -->
+<h2 id="color"><span class="num">02</span>Colour</h2>
+
+<h3>The palette</h3>
+<p>Four roles. Most screens use only the first two.</p>
+
+<h4>Brand · deep teal scale</h4>
+<div class="swatch-row">
+  <div style="background:#f0fffe;color:var(--fg-primary);">50</div>
+  <div style="background:#c2fcfc;color:var(--fg-primary);">100</div>
+  <div style="background:#94f9f9;color:var(--fg-primary);">200</div>
+  <div style="background:#79f8f8;color:var(--fg-primary);">300</div>
+  <div style="background:#5ce5e5;color:var(--fg-primary);">400</div>
+  <div style="background:#488e97;color:#fff;">500</div>
+  <div style="background:#3a7780;color:#fff;">600</div>
+  <div style="background:#2b4b55;color:#fff;">700</div>
+  <div style="background:#1f363d;color:#fff;">800</div>
+  <div style="background:#111b22;color:#fff;">900</div>
+</div>
+
+<h4>Neutrals · cool green-gray</h4>
+<div class="swatch-row">
+  <div style="background:#f8fafa;color:var(--fg-primary);">50</div>
+  <div style="background:#f1f5f5;color:var(--fg-primary);">100</div>
+  <div style="background:#e2e8e8;color:var(--fg-primary);">200</div>
+  <div style="background:#cbd5d5;color:var(--fg-primary);">300</div>
+  <div style="background:#9bb0b0;color:var(--fg-primary);">400</div>
+  <div style="background:#6b8080;color:#fff;">500</div>
+  <div style="background:#4a5f5f;color:#fff;">600</div>
+  <div style="background:#374848;color:#fff;">700</div>
+  <div style="background:#253333;color:#fff;">800</div>
+  <div style="background:#1a2626;color:#fff;">900</div>
+</div>
+
+<h4>Accents · data-viz only</h4>
+<div class="accent-row">
+  <div style="background:var(--teal-500);">teal</div>
+  <div style="background:var(--purple-500);">purple</div>
+  <div style="background:var(--blue-500);">blue</div>
+  <div style="background:var(--green-500);">green</div>
+  <div style="background:var(--orange-500);">orange</div>
+  <div style="background:var(--red-500);">red</div>
+  <div style="background:var(--yellow-500);">yellow</div>
+</div>
+
+<h3>Where each colour belongs</h3>
+<table>
+  <tr><th style="width:200px;">Role</th><th>What it does</th><th>Where</th></tr>
+  <tr><td><strong>Brand 900 — deep ink</strong> <code>#111b22</code></td><td>Headings, body on light, dark inverse surfaces.</td><td>Body text, h1–h4, dark sections, the mark.</td></tr>
+  <tr><td><strong>Brand 500 — primary teal</strong> <code>#488e97</code></td><td>The single confident accent.</td><td>Primary CTAs, active nav, focus rings, key data series.</td></tr>
+  <tr><td><strong>Brand 600 / 700</strong></td><td>Hover / pressed states for brand 500.</td><td>Button hover, link hover.</td></tr>
+  <tr><td><strong>Brand 50–300</strong></td><td>Highlights, chart fills against dark grounds.</td><td>Sparkline fills, badge backgrounds — never page chrome.</td></tr>
+  <tr><td><strong>Gray 50–100</strong></td><td>Page and section backgrounds.</td><td>App bg (50), card-on-card lift (100).</td></tr>
+  <tr><td><strong>Gray 200–300</strong></td><td>Borders.</td><td>Subtle (200) on cards, strong (300) on inputs.</td></tr>
+  <tr><td><strong>Gray 500–700</strong></td><td>Secondary and muted text.</td><td>Secondary copy (600), captions (500), labels.</td></tr>
+  <tr><td><strong>Accents</strong></td><td>Categorical data series in charts.</td><td>Chart palettes, occasional concept-bullet icons.</td></tr>
+</table>
+
+<h3>DO / DON'T</h3>
+<p><strong>DO</strong> anchor every screen on white or <code>bg-secondary</code> with deep-ink type. The brand teal carries the personality — let it.</p>
+<div class="ex flat">
+  <div class="card" style="max-width:520px;">
+    <div class="eye">Pillar 02</div>
+    <div style="font-family:var(--font-brand);font-size:22px;font-weight:700;line-height:1.25;letter-spacing:-.01em;margin-bottom:6px;">AI data-driven Digital Twin</div>
+    <div style="font-size:14px;color:var(--fg-secondary);line-height:1.6;margin-bottom:14px;">A live replica of your business, simulated bottom-up.</div>
+    <button class="btn solid">Find out more</button>
+  </div>
+</div>
+
+<p><strong>DON'T</strong> use accent hues as page chrome, button fills, or section backgrounds. They are for charts.</p>
+<div class="pair">
+  <div class="dont" style="background:#f0fdf4;border-color:var(--green-500);">
+    <div class="tag">✗ Don't</div>
+    <div style="font-size:14px;color:#166534;">Coloured section background to signal "growth".</div>
+  </div>
+  <div class="dont" style="background:linear-gradient(135deg,var(--blue-500),var(--purple-500));border:none;color:#fff;">
+    <div class="tag" style="color:#fff;">✗ Don't</div>
+    <div style="font-size:14px;">Multi-hue gradient hero. Off-brand.</div>
+  </div>
+</div>
+
+<p><strong>DON'T</strong> introduce colours that aren't on the palette — warm reds, candy magentas, lime greens, navy blues. <strong>DON'T</strong> tint borders or shadows with accent colours. Borders are gray-200/300; shadows are cool ink at low opacity.</p>
+
+<h3>Dark surfaces</h3>
+<p>Used sparingly — full-bleed hero sections, dialogs, footers. Dark surface is brand 900 (<code>#111b22</code>), not pure black.</p>
+<div class="ex dark">
+  <div style="font-size:11px;font-weight:700;color:var(--brand-300);letter-spacing:.12em;text-transform:uppercase;margin-bottom:10px;">Decision loop</div>
+  <div style="font-family:var(--font-brand);font-size:32px;font-weight:700;line-height:1.2;letter-spacing:-.015em;margin-bottom:10px;">Embedded next-best actions, in your existing tools.</div>
+  <div style="font-size:15px;color:var(--gray-300);line-height:1.6;max-width:520px;">Elara writes back to your systems of record so the people who already use them act on better answers.</div>
+</div>
+<p>On dark, body text uses <code>gray-100</code>, secondary uses <code>gray-400</code>, and brand mid-tones (300/400) become legible accents. Never put deep-ink type on deep-ink ground.</p>
+
+<!-- ==================== 3 TYPE ==================== -->
+<h2 id="type"><span class="num">03</span>Typography</h2>
+
+<h3>Two families, three jobs</h3>
+<ul>
+  <li><strong>DM Sans</strong> — display face. Headings (h1–h4), big numerals, hero copy. Tight tracking, semibold/bold.</li>
+  <li><strong>Inter Tight</strong> — UI face. Everything else: body, labels, buttons, table cells, helper text.</li>
+  <li><strong>JetBrains Mono</strong> — code, formulas, IDs, API tokens. Never for prose.</li>
+</ul>
+
+<h3>The hierarchy</h3>
+<div class="ex spec">
+  <div class="h1d">Display H1 · 48 / 1.25 / −0.02em</div>
+  <div class="h2d">Section H2 · 36 / 1.25 / −0.015em</div>
+  <div class="h3d">Subsection H3 · 30 / 1.375 / −0.01em</div>
+  <div class="h4d">Card title H4 · 24 / 1.375</div>
+  <div class="h5d">Inline H5 · 20 / 1.375</div>
+  <div class="h6d">Inline H6 · 18 / 1.5</div>
+  <div class="lead">Lead paragraph · 18 / 1.625 / secondary. A sentence-long deck under a hero or section heading to set the scene.</div>
+  <div class="body">Body · 16 / 1.625. The default reading size. Long passages live here; never go below 14 px for prose, never above 16 px for in-app body.</div>
+  <div class="small">Small · 14 / 1.5. Helper text, table cells, footnotes.</div>
+  <div class="caption">Caption · 12 / 1.5 / +0.02em. Image captions, fine print.</div>
+  <div class="eyebrow">Eyebrow · 12 / +0.12em / uppercase</div>
+</div>
+
+<h3>Rules that trip people up</h3>
+<ul>
+  <li><strong>Letter-spacing is negative on display.</strong> H1 −0.02em, H2 −0.015em, H3 −0.01em. Don't render display type at default tracking.</li>
+  <li><strong>Letter-spacing is positive on the eyebrow.</strong> +0.12em, uppercased. Eyebrows label sections — never use them as decorative tags.</li>
+  <li><strong>Body line-height is 1.625.</strong> Generous on purpose. Don't compress it to look "denser".</li>
+  <li><strong>Headings sit at 1.25.</strong> Tight, but not crashed. Don't reduce below 1.2.</li>
+  <li><strong>Sentence case for everything.</strong> Headings, buttons, labels, nav. The only Title-Cased phrases are proper concept names: <strong>Digital Twin</strong>, <strong>Reinforcement Learning</strong>.</li>
+  <li><strong>Periods end marketing section headings.</strong> They turn a label into a statement. Skip the period in product UI labels.</li>
+  <li><strong>No exclamation marks. No emoji.</strong> Anywhere.</li>
+</ul>
+
+<h3>DO / DON'T</h3>
+<div class="pair">
+  <div class="do">
+    <div class="tag">✓ Do</div>
+    <div style="font-family:var(--font-brand);font-size:24px;font-weight:600;line-height:1.3;letter-spacing:-.01em;">Embedded decision making.</div>
+  </div>
+  <div class="dont">
+    <div class="tag">✗ Don't</div>
+    <div style="font-family:var(--font-brand);font-size:24px;font-weight:700;line-height:1.3;text-transform:uppercase;">EMBEDDED DECISION MAKING!</div>
+  </div>
+</div>
+<div class="pair">
+  <div class="do">
+    <div class="tag">✓ Do</div>
+    <div style="font-size:16px;line-height:1.625;">Elara connects to your business data and turns it into a live "Digital Twin" you can interrogate.</div>
+  </div>
+  <div class="dont">
+    <div class="tag">✗ Don't</div>
+    <div style="font-size:16px;line-height:1.625;">We're excited to bring you a revolutionary AI-powered Digital Twin! 🚀✨</div>
+  </div>
+</div>
+
+<!-- ==================== 4 SPACE ==================== -->
+<h2 id="space"><span class="num">04</span>Spacing &amp; layout</h2>
+
+<h3>The 4-pixel scale</h3>
+<p>Every spacing decision uses a multiple of 4. There is no 5, 7, 18.</p>
+<div class="ex scale-row">
+  <div class="row"><div class="bar" style="width:4px;"></div><div class="lbl">4 — hairline gap, badge padding</div></div>
+  <div class="row"><div class="bar" style="width:8px;"></div><div class="lbl">8 — icon ↔ label, tight clusters</div></div>
+  <div class="row"><div class="bar" style="width:12px;"></div><div class="lbl">12 — small inline gaps, button row gap</div></div>
+  <div class="row"><div class="bar" style="width:16px;"></div><div class="lbl">16 — default content gap, list item</div></div>
+  <div class="row"><div class="bar" style="width:20px;"></div><div class="lbl">20 — card interior, form gap</div></div>
+  <div class="row"><div class="bar" style="width:24px;"></div><div class="lbl">24 — card padding, section sub-gap</div></div>
+  <div class="row"><div class="bar" style="width:32px;"></div><div class="lbl">32 — section gap, dialog padding</div></div>
+  <div class="row"><div class="bar" style="width:48px;"></div><div class="lbl">48 — large section gap</div></div>
+  <div class="row"><div class="bar" style="width:64px;"></div><div class="lbl">64 — page-level gutter</div></div>
+  <div class="row"><div class="bar" style="width:80px;"></div><div class="lbl">80 — top-of-page rhythm, hero margins</div></div>
+</div>
+
+<h3>Density</h3>
+<p>The system is comfortable, not compact. Defaults:</p>
+<ul>
+  <li>Card interior padding: <strong>24 px</strong>.</li>
+  <li>Form field gap: <strong>16–20 px</strong>.</li>
+  <li>Button hit area: <strong>36 px tall minimum</strong>.</li>
+  <li>Table row height: <strong>40–44 px</strong>.</li>
+  <li>Marketing section vertical rhythm: <strong>80–120 px</strong>.</li>
+  <li>Container max-width: <strong>1200 px</strong>.</li>
+</ul>
+
+<h3>DO / DON'T</h3>
+<ul>
+  <li><strong>DO</strong> stack content with explicit <code>gap</code> rather than per-element margins.</li>
+  <li><strong>DO</strong> use <code>gap: 24px</code> for cards, <code>gap: 16px</code> for body, <code>gap: 64px</code> between marketing blocks.</li>
+  <li><strong>DON'T</strong> crowd content. If two elements look squashed, the answer is more space, not a smaller font.</li>
+  <li><strong>DON'T</strong> invent in-between values (10, 14, 18, 22, 28). Stick to the scale.</li>
+</ul>
+
+<!-- ==================== 5 SURFACES ==================== -->
+<h2 id="surf"><span class="num">05</span>Surfaces &amp; elevation</h2>
+
+<h3>The five-tier shadow scale</h3>
+<p>Cards at rest, raised cards, popovers, and dialogs each have a defined elevation. <strong>No element should pick a shadow it likes — pick the role.</strong></p>
+<div class="sh-grid">
+  <div class="b sh-xs"><div class="t">xs</div><div class="d">Hover lift on a flat row.</div></div>
+  <div class="b sh-sm"><div class="t">sm</div><div class="d">Card at rest. Default.</div></div>
+  <div class="b sh-md"><div class="t">md</div><div class="d">Card on hover, dropdown.</div></div>
+  <div class="b sh-lg"><div class="t">lg</div><div class="d">Popover, menu.</div></div>
+  <div class="b sh-xl"><div class="t">xl</div><div class="d">Dialog, modal.</div></div>
+</div>
+<p>Shadows are <strong>always cool ink at low opacity</strong> — never warm, never black. The tint comes from <code>#111b22</code> at 5–12%. If a shadow looks gray-blue, it's right.</p>
+
+<h3>Cards</h3>
+<p>The default card: white fill, 1 px subtle border, small shadow, 8 px radius, 24 px interior padding.</p>
+<div class="ex flat" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+  <div class="card">
+    <div class="eye">Pillar 02</div>
+    <div class="h">AI data-driven Digital Twin</div>
+    <div class="b">A live replica of your business, simulated bottom-up.</div>
+    <div class="stat">99.4<span style="font-size:20px;color:var(--fg-muted);">%</span></div>
+    <div class="d">Simulation fidelity · last 30 days</div>
+  </div>
+  <div class="card">
+    <div class="eye">Optimisation</div>
+    <div class="h">Procurement run</div>
+    <div class="b">Reinforcement learning against the live digital twin.</div>
+    <div class="stat">$2.4M</div>
+    <div class="d">Projected uplift</div>
+    <div class="bar"><span></span></div>
+  </div>
+</div>
+
+<h3>DO / DON'T</h3>
+<p><strong>DON'T</strong> use coloured left-border accents on cards. One of the most common off-brand tells.</p>
+<div class="pair">
+  <div class="do">
+    <div class="tag">✓ Do</div>
+    <div style="font-family:var(--font-brand);font-size:16px;font-weight:600;margin-bottom:4px;">Connector status</div>
+    <div style="font-size:13px;color:var(--fg-secondary);">All sources synced.</div>
+  </div>
+  <div class="dont" style="border-left:4px solid var(--brand-500);">
+    <div class="tag">✗ Don't</div>
+    <div style="font-family:var(--font-brand);font-size:16px;font-weight:600;margin-bottom:4px;">Connector status</div>
+    <div style="font-size:13px;color:var(--fg-secondary);">Coloured left-border. Off brand.</div>
+  </div>
+</div>
+<p><strong>DON'T</strong> stack shadows or add glows for emphasis. Shadows depict elevation, not energy. <strong>DON'T</strong> oversize radii (24+), use inset shadows decoratively, or add gradient fills.</p>
+
+<!-- ==================== 6 BORDERS ==================== -->
+<h2 id="border"><span class="num">06</span>Borders &amp; corners</h2>
+
+<h3>Borders</h3>
+<ul>
+  <li><strong>1 px, solid, always.</strong> No 2 px decorative borders. No dashed except on file-drop targets.</li>
+  <li><strong>Subtle (gray-200)</strong> — default for cards, table rows, dividers.</li>
+  <li><strong>Strong (gray-300)</strong> — inputs, separators that need to register against bg-secondary.</li>
+  <li><strong>Focus (brand-500)</strong> — only when an element receives keyboard focus.</li>
+  <li><strong>Never coloured borders for decoration.</strong> A red border means error. A teal border means focus. Anything else is wrong.</li>
+</ul>
+
+<h3>Corner radii</h3>
+<p>Conservative. The default card is 8 px. The biggest you go is 16 px for dialogs.</p>
+<div class="ex flat">
+<div class="radii">
+  <div style="border-radius:4px;">4 · sm</div>
+  <div style="border-radius:6px;">6 · md (buttons, inputs)</div>
+  <div style="border-radius:8px;">8 · lg (cards)</div>
+  <div style="border-radius:12px;">12 · xl</div>
+  <div style="border-radius:16px;">16 · 2xl (dialogs)</div>
+  <div style="border-radius:9999px;">full · pill</div>
+</div>
+</div>
+<p><strong>DON'T</strong> use 20 px+ radii on cards or buttons. The "rounded soft consumer-app" look isn't on brand. Pills are reserved for badges and avatars.</p>
+
+<!-- ==================== 7 BUTTONS ==================== -->
+<h2 id="btn"><span class="num">07</span>Buttons</h2>
+
+<h3>Variants</h3>
+<p>Four roles. The label tells you the intent.</p>
+<div class="ex" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+  <button class="btn solid">Request demo</button>
+  <button class="btn ink">Explore product</button>
+  <button class="btn outline">Find out more</button>
+  <button class="btn ghost">Cancel</button>
+  <button class="btn disabled" disabled>Disabled</button>
+</div>
+<ul>
+  <li><strong>Solid (brand 500)</strong> — the <em>one</em> primary action on a screen. Two solid buttons next to each other = one is wrong.</li>
+  <li><strong>Ink (brand 900)</strong> — the dual-CTA partner to solid. Used in marketing pairs.</li>
+  <li><strong>Outline</strong> — secondary actions, less assertive.</li>
+  <li><strong>Ghost</strong> — tertiary, low-stakes (Cancel, Dismiss).</li>
+  <li><strong>Disabled</strong> — flat gray, muted text, no shadow.</li>
+</ul>
+
+<h3>Sizes</h3>
+<div class="ex" style="display:flex;gap:10px;align-items:center;">
+  <button class="btn solid sm">Small</button>
+  <button class="btn solid">Default</button>
+  <button class="btn solid lg">Large</button>
+</div>
+
+<h3>States — every button has all four</h3>
+<div class="ex states">
+  <div><button class="btn solid">Default</button><div class="label">Default</div></div>
+  <div><button class="btn solid" style="background:var(--brand-600);">Hover</button><div class="label">Hover · −1 step</div></div>
+  <div><button class="btn solid" style="background:var(--brand-700);transform:scale(.98);">Active</button><div class="label">Active · scale .98</div></div>
+  <div><button class="btn solid" style="box-shadow:var(--shadow-focus);">Focus</button><div class="label">Focus · 3 px ring</div></div>
+</div>
+<p>Hover darkens by exactly one brand step (500 → 600). Active scales to 0.98 and darkens further (→ 700). Focus shows a 3 px brand-tinted glow — never an outline.</p>
+
+<h3>DO / DON'T</h3>
+<ul>
+  <li><strong>DO</strong> keep one primary (solid) action per screen or section.</li>
+  <li><strong>DO</strong> put icons before labels, with an 8 px gap.</li>
+  <li><strong>DON'T</strong> stack two solid buttons. Pair solid + ink, or solid + outline.</li>
+  <li><strong>DON'T</strong> use accent hues (purple, orange, green) for buttons.</li>
+  <li><strong>DON'T</strong> add gradients, glows, inner shadows, or animated shimmers.</li>
+  <li><strong>DON'T</strong> make buttons full-width unless inside a narrow form column on mobile.</li>
+</ul>
+
+<!-- ==================== 8 FORMS ==================== -->
+<h2 id="form"><span class="num">08</span>Forms &amp; inputs</h2>
+
+<h3>Anatomy</h3>
+<div class="ex form">
+  <div class="field">
+    <label>Business name</label>
+    <input value="Elara Industrial"/>
+    <span class="help">Legal entity as it appears on your contract.</span>
+  </div>
+  <div class="field">
+    <label>Work email</label>
+    <input class="focus" value="maria@elara.ai"/>
+    <span class="help">Focus state shown.</span>
+  </div>
+  <div class="field">
+    <label>Data source</label>
+    <select><option>Snowflake · production</option></select>
+    <span class="help">Connection is verified in real time.</span>
+  </div>
+  <div class="field">
+    <label>API token</label>
+    <input class="err" value="eai_***************"/>
+    <span class="help err-help">Token has expired. Rotate to continue.</span>
+  </div>
+</div>
+
+<ul>
+  <li><strong>Label.</strong> 12 px, weight 600, deep ink. Sentence case. Never uppercase.</li>
+  <li><strong>Input.</strong> 14 px, 9×12 padding, 1 px gray-300 border, 6 px radius, white fill.</li>
+  <li><strong>Helper text.</strong> 11 px, muted. Sits below the field with a 6 px gap.</li>
+  <li><strong>Focus.</strong> Border switches to brand 500 <em>and</em> gains the 3 px focus ring.</li>
+  <li><strong>Error.</strong> Border switches to red 500. Helper text becomes red. <strong>No icon needed</strong> — the colour change is the affordance.</li>
+</ul>
+
+<h3>DO / DON'T</h3>
+<ul>
+  <li><strong>DO</strong> use the focus ring as the primary keyboard affordance — it's a <code>box-shadow</code>, not an <code>outline</code>, so it doesn't get clipped.</li>
+  <li><strong>DON'T</strong> use placeholder text as a substitute for a label. Always pair them.</li>
+  <li><strong>DON'T</strong> float labels (Material-style). Static labels above the field, always.</li>
+  <li><strong>DON'T</strong> colour input borders to "match the section".</li>
+</ul>
+
+<!-- ==================== 9 ICONS ==================== -->
+<h2 id="icon"><span class="num">09</span>Iconography</h2>
+
+<h3>Rules</h3>
+<ul>
+  <li><strong>System:</strong> Font Awesome (Solid + Regular). No in-house glyph set.</li>
+  <li><strong>Sizes:</strong> 16 px inline · 20 px UI affordances · 24–32 px feature lead-ins.</li>
+  <li><strong>Weight:</strong> Solid for status / feature bullets · Regular for toolbar actions.</li>
+  <li><strong>Colour:</strong> <code>fg-muted</code> by default · <code>brand-600</code> on hover · accent hue <em>only</em> in marketing concept-bullets.</li>
+  <li><strong>No emoji.</strong> Anywhere. Replace 🚀 / ✨ / ✅ with a Font Awesome icon or remove.</li>
+  <li><strong>Mathematical Unicode is welcome:</strong> <code>→ ← ↗ × · ≈ ∑</code>. Reinforces the "mathematics" positioning.</li>
+</ul>
+
+<h3>Inline icon + label</h3>
+<div class="ex icons">
+  <div class="row">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="var(--brand-500)"><path d="M12 2 4 6v6c0 5 3.4 9.2 8 10 4.6-.8 8-5 8-10V6l-8-4z"/></svg>
+    Secure
+  </div>
+  <div class="row">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="var(--brand-500)"><path d="M3 12h6l3-9 4 18 3-9h2"/></svg>
+    Real-time
+  </div>
+  <div class="row">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="var(--brand-500)"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/></svg>
+    Configurable
+  </div>
+</div>
+
+<h3>DON'T</h3>
+<div class="ex icons">
+  <div class="row">🚀 Real-time <span class="note-bad">✗ emoji</span></div>
+  <div class="row">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="#ec4899"><path d="M3 12h6l3-9 4 18 3-9h2"/></svg>
+    Real-time <span class="note-bad">✗ off-palette icon colour</span>
+  </div>
+  <div class="row">
+    <svg width="32" height="32" viewBox="0 0 24 24" fill="var(--brand-500)"><path d="M3 12h6l3-9 4 18 3-9h2"/></svg>
+    Real-time <span class="note-bad">✗ icon dwarfs label</span>
+  </div>
+</div>
+
+<!-- ==================== 10 MOTION ==================== -->
+<h2 id="motion"><span class="num">10</span>Motion</h2>
+
+<h3>Durations</h3>
+<ul>
+  <li><strong>120 ms</strong> — instant micro-interactions: button colour, hover.</li>
+  <li><strong>200 ms</strong> — default. Reveals, dismissals, dropdown open.</li>
+  <li><strong>360 ms</strong> — slow. Dialog open, page-level transitions, chart interpolations.</li>
+</ul>
+
+<h3>Easing</h3>
+<ul>
+  <li><strong>Out</strong> — <code>cubic-bezier(0.16, 1, 0.3, 1)</code>. The default. Soft landing.</li>
+  <li><strong>In-out</strong> — <code>cubic-bezier(0.65, 0, 0.35, 1)</code>. Used on durations that need symmetry (slide-in dialogs).</li>
+</ul>
+
+<h3>Rules</h3>
+<ul>
+  <li>Motion is purposeful and short. Fades, short translates (≤ 8 px), opacity. No bounces, springs, overshoot.</li>
+  <li><strong>Never</strong> auto-play decorative motion (pulsing dots, drifting backgrounds, parallax).</li>
+  <li>Chart transitions use natural-curve interpolations, not stepped morphs.</li>
+  <li>Respect <code>prefers-reduced-motion</code>. Reveals should fade, not translate, when reduced motion is on.</li>
+</ul>
+
+<!-- ==================== 11 VOICE ==================== -->
+<h2 id="voice"><span class="num">11</span>Voice in UI</h2>
+
+<p>The product UI voice is much quieter than the marketing voice. Inside the application, copy is short, neutral, technical. Marketing-voice belongs only on the marketing site and decks.</p>
+
+<table>
+  <tr><th>Context</th><th>Voice</th><th>Example</th></tr>
+  <tr><td>Marketing headline</td><td>Confident, sentence case + period.</td><td>AI data-driven Digital Twin.</td></tr>
+  <tr><td>Marketing body</td><td>Technical, hedged, "you / your business".</td><td>Elara automatically applies reinforcement learning to your digital twin.</td></tr>
+  <tr><td>Product label</td><td>Short phrase, sentence case, no period.</td><td>Growth factor · Run optimisation · Connectors</td></tr>
+  <tr><td>Form helper</td><td>Plain, declarative.</td><td>Connection is verified in real time.</td></tr>
+  <tr><td>Error</td><td>Direct, non-blaming.</td><td>Token has expired. Rotate to continue.</td></tr>
+  <tr><td>Empty state</td><td>Tells the user what to do next.</td><td>No optimisation runs yet. Start your first run.</td></tr>
+  <tr><td>Confirm dialog</td><td>Verb match between question and action.</td><td>Q: "Discard changes?" → button: "Discard."</td></tr>
+</table>
+
+<p><strong>DON'T</strong> use:</p>
+<ul>
+  <li>Emoji. Anywhere.</li>
+  <li>Exclamation marks.</li>
+  <li>"We're excited to…", "Welcome aboard!", "Oops!", "Awesome!"</li>
+  <li>Filler phrases like "powerful AI-driven insights", "next-generation analytics".</li>
+  <li>Title Case in headings or buttons (except proper concept names).</li>
+</ul>
+
+<!-- ==================== 12 IMAGERY ==================== -->
+<h2 id="img"><span class="num">12</span>Imagery</h2>
+
+<h3>Rules</h3>
+<ul>
+  <li><strong>Vector-only by default.</strong> Commissioned SVG illustrations carry the visual weight of the marketing site.</li>
+  <li><strong>No stock photography of people.</strong> No team photos, no smiling office shots.</li>
+  <li><strong>No film-grain, no warm tones.</strong> If a raster appears, it's monochrome or muted.</li>
+  <li><strong>No background gradients as decoration.</strong> Flat white or flat brand-900 only.</li>
+  <li><strong>No noise textures, no patterns, no hand-drawn sketches.</strong></li>
+</ul>
+
+<h3>The one recurring motif</h3>
+<p>The Elara mark — a dotted-diamond / compass-rose composition of small ink dots — is the only geometric motif allowed as a decorative hint. Use sparingly: a corner mark on a hero, a quiet watermark, or the favicon. <strong>Don't redraw it. Don't recolour it. Don't add to it.</strong></p>
+
+<!-- ==================== 13 ANTI-PATTERNS ==================== -->
+<h2 id="anti"><span class="num">13</span>Anti-pattern gallery</h2>
+
+<p>If you see any of these, something has gone wrong. Each maps back to a rule above.</p>
+<table>
+  <tr><th>Symptom</th><th>Why it's wrong</th><th>Fix</th></tr>
+  <tr><td>Two solid teal buttons next to each other</td><td>No clear primary</td><td>Solid + ink, or solid + outline</td></tr>
+  <tr><td>Coloured left-border on a card</td><td>Borders are structural, not expressive</td><td>Use an eyebrow or icon for category</td></tr>
+  <tr><td>Multi-hue gradient background</td><td>Off-brand consumer aesthetic</td><td>Flat white or flat brand-900</td></tr>
+  <tr><td>24+ px corner radii on cards</td><td>Reads as playful</td><td>8 px on cards, 12–16 only on dialogs</td></tr>
+  <tr><td>Emoji in headings or labels</td><td>Brand is enterprise-formal</td><td>Replace with FA icon or remove</td></tr>
+  <tr><td>Exclamation marks anywhere</td><td>Statements, not exhortations</td><td>Period or no terminal punctuation</td></tr>
+  <tr><td>All-caps body or buttons</td><td>Eyebrows are the only uppercase</td><td>Sentence case</td></tr>
+  <tr><td>Glow / outer-shadow accents</td><td>Shadows depict elevation only</td><td>Use the 5-tier scale</td></tr>
+  <tr><td>Stock photo of people in a hero</td><td>Imagery is vector-only</td><td>Use a commissioned illustration</td></tr>
+  <tr><td>Spacing of 10, 14, 18, 22 px</td><td>Off the 4 px grid</td><td>Snap to 8/12/16/20/24</td></tr>
+  <tr><td>Outline focus state (browser default)</td><td>Looks unfinished</td><td>3 px brand-tinted box-shadow</td></tr>
+  <tr><td>Auto-pulsing decorative dots</td><td>Motion must be purposeful</td><td>Remove</td></tr>
+  <tr><td>"Awesome!" / "We're excited to…"</td><td>Wrong voice</td><td>Direct, declarative copy</td></tr>
+</table>
+
+<!-- ==================== 14 REF ==================== -->
+<h2 id="ref"><span class="num">14</span>Quick reference</h2>
+
+<p>When you're moving fast and just need the tokens:</p>
+<ul>
+  <li><strong>Primary brand:</strong> <code>#488e97</code> · hover <code>#3a7780</code> · pressed <code>#2b4b55</code>.</li>
+  <li><strong>Deep ink:</strong> <code>#111b22</code> (text, dark surfaces).</li>
+  <li><strong>Neutrals:</strong> gray-50 (<code>#f8fafa</code>) → gray-900 (<code>#1a2626</code>).</li>
+  <li><strong>Accents:</strong> charts only.</li>
+  <li><strong>Type:</strong> DM Sans (display) / Inter Tight (UI) / JetBrains Mono (code).</li>
+  <li><strong>Spacing:</strong> multiples of 4. Cards 24. Sections 64–80.</li>
+  <li><strong>Radii:</strong> 6 buttons · 8 cards · 16 dialogs · pill badges.</li>
+  <li><strong>Shadow:</strong> sm rest · md hover · xl dialog.</li>
+  <li><strong>Motion:</strong> 200 ms · <code>cubic-bezier(0.16, 1, 0.3, 1)</code>.</li>
+</ul>
+<p>If you need something that isn't here, ask before inventing.</p>
+
+</div>
+</body>
+</html>

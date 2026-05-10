@@ -13,11 +13,11 @@ import {
     OverlayImpl,
 } from '@elaraai/east-ui-components';
 import type { PlatformFunction } from '@elaraai/east/internal';
-import { ReactiveDatasetPlatform } from '../platform/dataset-runtime.js';
+import { BindPlatform } from '../platform/bind-runtime.js';
 import type { QueryOverrides } from './types.js';
 
 const defaultPlatformImplementations: PlatformFunction[] =
-    [...StateImpl, ...ReactiveDatasetPlatform, ...OverlayImpl];
+    [...StateImpl, ...BindPlatform, ...OverlayImpl];
 
 export interface UseDatasetValueOptions {
     requestOptions?: RequestOptions;
@@ -88,7 +88,10 @@ export function useDatasetDownload(
     datasetPath: string | null,
     requestOptions?: RequestOptions,
 ) {
-    const reqOpts = requestOptions ?? { token: null };
+    const reqOpts = useMemo(
+        () => requestOptions ?? { token: null },
+        [requestOptions],
+    );
 
     const pathParts = useMemo(() =>
         datasetPath?.split('.').filter(Boolean).map((v) => variant('field', v)) ?? [],

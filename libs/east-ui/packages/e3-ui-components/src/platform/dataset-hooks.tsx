@@ -20,19 +20,19 @@ import {
     useSyncExternalStore,
     type ReactNode,
 } from "react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { TreePath } from "@elaraai/e3-types";
 import {
     ReactiveDatasetCache,
     type ReactiveDatasetCacheInterface,
-    type ReactiveDatasetCacheConfig,
+    createDefaultDatasetApi,
     datasetCacheKey,
 } from "./dataset-store.js";
 import {
     initializeReactiveDatasetCache,
     clearReactiveDatasetCache,
-    createDatasetTracker,
-} from "./dataset-runtime.js";
+    clearBindingRegistry,
+} from "./bind-runtime.js";
+import { useE3Config } from "./e3-config.js";
 
 // =============================================================================
 // Context
@@ -41,84 +41,83 @@ import {
 const ReactiveDatasetCacheContext = createContext<ReactiveDatasetCacheInterface | null>(null);
 
 /**
- * Props for the ReactiveDatasetProvider component.
+ * Props for {@link ReactiveDatasetProvider}.
+ *
+ * @property children - Subtree that should see the dataset cache.
  */
 export interface ReactiveDatasetProviderProps {
-    /** Child components */
     children: ReactNode;
-    /** Configuration for the reactive dataset cache */
-    config: ReactiveDatasetCacheConfig;
-    /** Optional external QueryClient (if not provided, one will be created) */
-    queryClient?: QueryClient;
 }
 
 /**
- * Provides a ReactiveDatasetCache to the component tree.
+ * Provide a {@link ReactiveDatasetCache} to the component tree.
  *
  * @remarks
- * Sets up TanStack Query and ReactiveDatasetCache for reactive dataset operations.
- * Also configures the cache's scheduler to use `queueMicrotask` for deferred
- * notifications, avoiding "setState during render" errors in React.
+ * Reads server identity from the surrounding `<E3Provider>` to build a
+ * default {@link DatasetApi} adapter, then constructs a workspace-scoped
+ * cache. Configures the cache's scheduler to use `queueMicrotask` so
+ * cache notifications never fire during a React render pass.
+ *
+ * Must be mounted inside an `<E3Provider>` (which also owns the
+ * `<QueryClientProvider>` wrap that this package's TanStack hooks
+ * depend on). Throws otherwise.
  *
  * @example
  * ```tsx
- * import { ReactiveDatasetProvider } from "@elaraai/east-ui-components";
- *
- * function App() {
- *     return (
- *         <ReactiveDatasetProvider config={{ apiUrl: "http://localhost:3000", token: "..." }}>
- *             <MyComponent />
- *         </ReactiveDatasetProvider>
- *     );
- * }
+ * <E3Provider config={{ apiUrl: "http://localhost:3000", workspace: "prod", token }}>
+ *     <ReactiveDatasetProvider>
+ *         <MyComponent />
+ *     </ReactiveDatasetProvider>
+ * </E3Provider>
  * ```
  */
 export function ReactiveDatasetProvider({
     children,
-    config,
-    queryClient: externalQueryClient,
 }: ReactiveDatasetProviderProps) {
-    // Create or use provided QueryClient
-    const queryClient = useMemo(
-        () =>
-            externalQueryClient ??
-            new QueryClient({
-                defaultOptions: {
-                    queries: {
-                        retry: 2,
-                        staleTime: config.staleTime ?? 30000,
-                    },
-                },
-            }),
-        [externalQueryClient, config.staleTime]
+    const e3 = useE3Config();
+
+    // Build the network adapter from E3 context. `getToken` is a getter
+    // (not a snapshot) so token rotation in the surrounding context
+    // propagates without rebuilding the cache.
+    const tokenRef = useRef<string | null>(e3.token ?? null);
+    tokenRef.current = e3.token ?? null;
+    const api = useMemo(
+        () => createDefaultDatasetApi(e3.apiUrl, e3.repo ?? "default", () => tokenRef.current),
+        [e3.apiUrl, e3.repo],
     );
 
-    // Create ReactiveDatasetCache
-    const cache = useMemo(
-        () => new ReactiveDatasetCache(queryClient, config),
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [queryClient, config.apiUrl, config.repo, config.token, config.staleTime]
-    );
+    const cache = useMemo(() => {
+        const cfg: { workspace?: string } = {};
+        if (e3.workspace !== undefined) cfg.workspace = e3.workspace;
+        return new ReactiveDatasetCache(cfg, api);
+    }, [api, e3.workspace]);
 
-    // Synchronous registration: initialize singleton cache, register tracker
-    // and platform implementation BEFORE first render of children.
-    // This ensures EastReactiveComponent children see the Data tracker on
-    // their first render pass, and Data.bind reads find the cache.
-    const unregisterRef = useRef<(() => void) | null>(null);
+    // Render-time wiring: install the singleton cache + scheduler BEFORE
+    // children render so the East-side `Data.bind` impl finds the cache
+    // on its first read. The Data-tracker + platform implementation are
+    // registered once at module-load time inside bind-runtime.ts; there
+    // is nothing per-cache to register here.
     useMemo(() => {
-        unregisterRef.current?.();
         initializeReactiveDatasetCache(cache);
         cache.setScheduler((notify) => queueMicrotask(notify));
-        unregisterRef.current = createDatasetTracker(cache);
     }, [cache]);
 
-    // Cleanup on cache change or unmount
+    // Cleanup on cache change or unmount.
     useEffect(() => {
         return () => {
-            unregisterRef.current?.();
-            unregisterRef.current = null;
-            cache.destroy();
+            const ws = cache.getConfig().workspace;
+            // Order matters: drop the queued writes BEFORE destroying
+            // the cache. Otherwise a write that's already been dequeued
+            // and is mid-await would fire `cache.write` against a
+            // destroyed instance, leaking a network call against a
+            // workspace the user has navigated away from.
             clearReactiveDatasetCache();
+            cache.destroy();
+            // Drop binding-registry entries for this workspace so a long
+            // session navigating across workspaces doesn't leak metadata
+            // for paths it no longer consults.
+            if (ws) clearBindingRegistry(ws);
+            else clearBindingRegistry();
         };
     }, [cache]);
 
@@ -135,11 +134,9 @@ export function ReactiveDatasetProvider({
     }, [cache]);
 
     return (
-        <QueryClientProvider client={queryClient}>
-            <ReactiveDatasetCacheContext.Provider value={cache}>
-                {children}
-            </ReactiveDatasetCacheContext.Provider>
-        </QueryClientProvider>
+        <ReactiveDatasetCacheContext.Provider value={cache}>
+            {children}
+        </ReactiveDatasetCacheContext.Provider>
     );
 }
 

@@ -78,6 +78,8 @@ describeEast("GoogleOr platform functions", (test) => {
             log_search_progress: variant('none', null),
             seed: variant('some', 42n),
             max_solutions: variant('none', null),
+            relative_gap_limit: variant('none', null),
+            absolute_gap_limit: variant('none', null),
         }, CpSatConfigType);
 
         const result = $.let(GoogleOr.cpsatSolve(model, config));
@@ -128,6 +130,8 @@ describeEast("GoogleOr platform functions", (test) => {
             log_search_progress: variant('none', null),
             seed: variant('some', 42n),
             max_solutions: variant('none', null),
+            relative_gap_limit: variant('none', null),
+            absolute_gap_limit: variant('none', null),
         }, CpSatConfigType);
 
         const result = $.let(GoogleOr.cpsatSolve(model, config));

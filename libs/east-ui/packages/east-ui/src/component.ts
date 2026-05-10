@@ -15,6 +15,7 @@ import {
     BooleanType,
     NullType,
     DateTimeType,
+    BlobType,
     DictType,
     FunctionType,
     LiteralValueType,
@@ -1019,6 +1020,21 @@ export const UIComponentType = RecursiveType(node => VariantType({
     ReactiveComponent: StructType({
         /** The render function to execute - returns UIComponentType */
         render: FunctionType([], node),
+    }),
+
+    /**
+     * Extensible UI component slot — the analog of a platform function for the
+     * UI layer. Downstream packages declare typed components via
+     * {@link EastUI.component} and wire renderers via {@link implementUIComponent}
+     * (in `@elaraai/east-ui-components`); the renderer dispatcher resolves
+     * `kind` against the registry.
+     *
+     * @property kind - Component identifier ("Diff", future "AuditLog", etc.).
+     * @property payload - Beast2-encoded value of the component's declared schema.
+     */
+    Extension: StructType({
+        kind: StringType,
+        payload: BlobType,
     }),
 }));
 

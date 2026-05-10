@@ -17,14 +17,17 @@ describeEast("Data", (test) => {
         dataBindInteger: ex.dataBindInteger,
         dataBindStringReset: ex.dataBindStringReset,
         dataBindHasGuard: ex.dataBindHasGuard,
+        dataBindStagedFloat: ex.dataBindStagedFloat,
+        dataBindStagedSliderWrite: ex.dataBindStagedSliderWrite,
+        dataBindStagedCommitDiscard: ex.dataBindStagedCommitDiscard,
+        dataBindStagedOriginalVsRead: ex.dataBindStagedOriginalVsRead,
     });
 
     test("Data.bind exposes a read closure inside Reactive.Root", $ => {
+        // Path is a JS-side literal — `Data.bind` requires this so
+        // manifest derivation can preload it.
+        const path = [variant("field", "inputs"), variant("field", "x")];
         const root = $.let(Reactive.Root(East.function([], UIComponentType, $ => {
-            const path = $.const(
-                [variant("field", "inputs"), variant("field", "x")],
-                TreePathType,
-            );
             const bound = $.let(Data.bind([FloatType], path));
             const value = $.let(bound.read());
             return Stat.Root("X", Text.Root(East.print(value)));
@@ -33,11 +36,8 @@ describeEast("Data", (test) => {
     });
 
     test("Data.bind exposes a write closure inside Reactive.Root", $ => {
+        const path = [variant("field", "inputs"), variant("field", "x")];
         const root = $.let(Reactive.Root(East.function([], UIComponentType, $ => {
-            const path = $.const(
-                [variant("field", "inputs"), variant("field", "x")],
-                TreePathType,
-            );
             const bound = $.let(Data.bind([FloatType], path));
             const reset = $.const(East.function([], NullType, $ => {
                 $(bound.write(0.0));

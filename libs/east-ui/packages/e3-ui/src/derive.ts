@@ -7,52 +7,81 @@
  * Derive a `DataManifest` by walking an East function's IR.
  *
  * Finds every `Data.bind(...)` platform call (the walker recurses into
- * nested `FunctionIR` bodies) and reads each call's path argument as a
- * literal `TreePath`. The IR shape for the path is fixed by how East wraps
- * the JS-side TreePath: a `NewArray` of `Variant("field", Value(String))`
- * entries — no variable indirection, no wrappers.
+ * nested `FunctionIR` bodies) and reads its source + (optional) patch
+ * path arguments.
+ *
+ * Both arguments are required to be statically known JS-side
+ * `TreePath`s — the public `Data.bind` factory enforces this through
+ * its TS signature. Each path arrives as East-compiled structured IR:
+ *
+ *   - source: `NewArray` of `Variant("field", Value(string))` (the
+ *     TreePath array literal)
+ *   - patch:  `Variant("some"|"none", inner)` where `inner` for
+ *     `some` is the same `NewArray` shape as a source path
+ *
+ * Anything else is a programmer error and throws.
  *
  * @packageDocumentation
  */
 
-import type {
-    CallableFunctionExpr,
-    CallableAsyncFunctionExpr,
-    IR,
-    NewArrayIR,
-    VariantIR,
-    ValueIR,
-    PlatformIR,
-} from '@elaraai/east';
-import { variant, walkIR } from '@elaraai/east';
+import type { IR, NewArrayIR, VariantIR, ValueIR, PlatformIR } from '@elaraai/east';
+import { variant, walkIR, literalValueOf } from '@elaraai/east';
 import type { TreePath } from '@elaraai/e3-types';
 import type { DataManifest } from './manifest.js';
 
-const DATA_BIND_NAME = 'data_bind';
+/** Platform-fn name we extract paths from. */
+const DATA_BIND = "data_bind";
 
 /** Walk `fn`'s IR and derive its bound-path manifest. */
 export function deriveManifest(
-    fn: CallableFunctionExpr<any, any> | CallableAsyncFunctionExpr<any, any>,
+    fn: { toIR(): { ir: IR } },
 ): DataManifest {
     const paths: TreePath[] = [];
     walkIR(fn.toIR().ir, (node) => {
         if (node.type !== 'Platform') return;
         const platform = node as PlatformIR;
-        if (platform.value.name !== DATA_BIND_NAME) return;
-        paths.push(extractPath(platform.value.arguments[0] as IR));
+        if (platform.value.name !== DATA_BIND) return;
+
+        // arg[0] — source: always a NewArray of Variant("field", Value(string)).
+        paths.push(readTreePath(platform.value.arguments[0] as IR));
+
+        // arg[1] — patch: Option<TreePath>, encoded as a Variant IR with
+        // case "some" (carrying a NewArray inner) or "none".
+        const patchArg = platform.value.arguments[1] as IR;
+        if (patchArg.type !== 'Variant') {
+            throw new Error(
+                `Data.bind: patch must be a literal Option<TreePath>; got dynamic IR (${patchArg.type}).`,
+            );
+        }
+        const patchVariant = (patchArg as VariantIR).value;
+        if (patchVariant.case === 'some') {
+            paths.push(readTreePath(patchVariant.value as IR));
+        } else if (patchVariant.case !== 'none') {
+            throw new Error(
+                `Data.bind: patch variant tag must be "some" or "none"; got "${patchVariant.case}".`,
+            );
+        }
     });
     return { paths: dedupePaths(paths) };
 }
 
-/** Read the literal `TreePath` out of `Data.bind`'s path-argument IR. */
-function extractPath(ir: IR): TreePath {
+/**
+ * Read a literal `TreePath` from a `NewArray` IR node. Each element is
+ * a `Variant("field", Value(string))` produced by East.value-wrapping a
+ * `TreePath` JS literal. Used for both the source path arg and the
+ * inner of a `some(path)` patch variant.
+ */
+function readTreePath(ir: IR): TreePath {
     if (ir.type !== 'NewArray') {
-        throw new Error(`Data.bind: expected NewArray for path arg, got "${ir.type}"`);
+        throw new Error(
+            `Data.bind: path must be a literal TreePath; got dynamic IR (${ir.type}). ` +
+            `Pass a JS TreePath (e.g. someInput.path), not a computed expression.`,
+        );
     }
-    return (ir as NewArrayIR).value.values.map((segment: IR): TreePath[number] => {
-        const v = segment as VariantIR;
-        const lit = (v.value.value as ValueIR).value.value;
-        return variant('field', lit.value as string);
+    return (ir as NewArrayIR).value.values.map((segIR: IR) => {
+        const v = segIR as VariantIR;
+        const fieldName = literalValueOf(v.value.value as ValueIR) as string;
+        return variant('field', fieldName);
     });
 }
 

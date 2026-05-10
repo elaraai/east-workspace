@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { Component, type ReactNode } from 'react';
+import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { StatusDisplay } from './StatusDisplay.js';
 import { formatError } from '../errors.js';
 
@@ -18,6 +18,13 @@ interface ErrorBoundaryState {
 /**
  * React Error Boundary that catches rendering errors in East UI components.
  * Displays EastError details (including source locations) using StatusDisplay.
+ *
+ * @remarks
+ * `componentDidUpdate` clears the error when `children` changes, so a
+ * transient render exception followed by a successful re-render shows up
+ * as a brief "flash" of the error UI. We always `console.error` the caught
+ * exception so the failure is preserved even when the visual flash is too
+ * fast to read.
  */
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
     constructor(props: ErrorBoundaryProps) {
@@ -27,6 +34,10 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
     static getDerivedStateFromError(error: Error): ErrorBoundaryState {
         return { error };
+    }
+
+    override componentDidCatch(error: Error, info: ErrorInfo): void {
+        console.error('[ErrorBoundary] render exception caught:', error, info.componentStack);
     }
 
     override componentDidUpdate(prevProps: ErrorBoundaryProps) {

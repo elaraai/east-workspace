@@ -175,6 +175,11 @@ export const CpSatConfigType = StructType({
     log_search_progress: OptionType(BooleanType),
     seed: OptionType(IntegerType),
     max_solutions: OptionType(IntegerType),
+    /** Stop with status OPTIMAL once (best - lower_bound) / |best| ≤ this.
+     *  e.g. 0.005 → stop at 0.5% proven gap. */
+    relative_gap_limit: OptionType(FloatType),
+    /** Stop with status OPTIMAL once (best - lower_bound) ≤ this (in objective units). */
+    absolute_gap_limit: OptionType(FloatType),
 });
 
 /** CP-SAT solution result. */

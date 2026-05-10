@@ -3,7 +3,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { ArrayType, BlobType, BooleanType, DateTimeType, FloatType, IntegerType, NullType, printType, RecursiveType, StringType, StructType, VariantType, type EastType, type_id_symbol, getTypeId, isPrimitiveType } from "./types.js"
+import { ArrayType, BlobType, BooleanType, DateTimeType, FloatType, IntegerType, NullType, NeverType, printType, RecursiveType, StringType, StructType, VariantType, RefType, SetType, DictType, FunctionType, AsyncFunctionType, VectorType, MatrixType, type EastType, type_id_symbol, getTypeId, isPrimitiveType } from "./types.js"
 import { isVariant, variant } from "./containers/variant.js";
 
 
@@ -252,6 +252,89 @@ function toEastTypeValueImpl(type: EastType, stack: EastType[], _is_recursive: b
 }
 
 export const EastTypeValueType: EastTypeValue = toEastTypeValue(EastTypeType);
+
+/**
+ * Inverse of {@link toEastTypeValue}: rebuild a static {@link EastType} from
+ * its runtime {@link EastTypeValue} variant form.
+ *
+ * @remarks
+ * Mirror of `toEastTypeValueImpl` in reverse. Used by callers who hold a
+ * runtime EastTypeValue (e.g. from a generic platform-fn impl factory) but
+ * need to invoke an EastType-only API like {@link PatchType}.
+ *
+ * Recursive types are reassembled via the `wrapper`/`ref` shape east emits:
+ * a `wrapper` carries `{id, inner}` (we recurse into `inner` and reconstruct
+ * the `RecursiveType`), and a `ref(id)` is a back-reference into an
+ * already-being-reconstructed scope.
+ *
+ * The conversion preserves type equality via east's interning: feeding the
+ * result back through {@link toEastTypeValue} produces the same identity as
+ * the input.
+ */
+export function fromEastTypeValue(t: EastTypeValue): EastType {
+    const ctx = new Map<bigint, EastType>();
+    return fromImpl(t, ctx);
+}
+
+function fromImpl(t: EastTypeValue, ctx: Map<bigint, EastType>): EastType {
+    const tag = t.type;
+    if (tag === "Never")    return NeverType;
+    if (tag === "Null")     return NullType;
+    if (tag === "Boolean")  return BooleanType;
+    if (tag === "Integer")  return IntegerType;
+    if (tag === "Float")    return FloatType;
+    if (tag === "String")   return StringType;
+    if (tag === "DateTime") return DateTimeType;
+    if (tag === "Blob")     return BlobType;
+    if (tag === "Ref")      return RefType(fromImpl(t.value as EastTypeValue, ctx));
+    if (tag === "Array")    return ArrayType(fromImpl(t.value as EastTypeValue, ctx));
+    if (tag === "Set")      return SetType(fromImpl(t.value as EastTypeValue, ctx));
+    if (tag === "Vector")   return VectorType(fromImpl(t.value as EastTypeValue, ctx)) as EastType;
+    if (tag === "Matrix")   return MatrixType(fromImpl(t.value as EastTypeValue, ctx)) as EastType;
+    if (tag === "Dict") {
+        const v = t.value as { key: EastTypeValue; value: EastTypeValue };
+        return DictType(fromImpl(v.key, ctx), fromImpl(v.value, ctx));
+    }
+    if (tag === "Struct") {
+        const fields = t.value as Array<{ name: string; type: EastTypeValue }>;
+        const obj: Record<string, EastType> = {};
+        for (const f of fields) obj[f.name] = fromImpl(f.type, ctx);
+        return StructType(obj);
+    }
+    if (tag === "Variant") {
+        const cases = t.value as Array<{ name: string; type: EastTypeValue }>;
+        const obj: Record<string, EastType> = {};
+        for (const c of cases) obj[c.name] = fromImpl(c.type, ctx);
+        return VariantType(obj);
+    }
+    if (tag === "Function") {
+        const v = t.value as { inputs: EastTypeValue[]; output: EastTypeValue };
+        return FunctionType(v.inputs.map(i => fromImpl(i, ctx)), fromImpl(v.output, ctx));
+    }
+    if (tag === "AsyncFunction") {
+        const v = t.value as { inputs: EastTypeValue[]; output: EastTypeValue };
+        return AsyncFunctionType(v.inputs.map(i => fromImpl(i, ctx)), fromImpl(v.output, ctx));
+    }
+    if (tag === "Recursive") {
+        // Recursive carries either `wrapper({id, inner})` or `ref(id)`.
+        const inner = t.value as { type: "wrapper" | "ref"; value: any };
+        if (inner.type === "ref") {
+            const id = inner.value as bigint;
+            const cached = ctx.get(id);
+            if (!cached) throw new Error(`fromEastTypeValue: unresolved Recursive ref(${id})`);
+            return cached;
+        }
+        // wrapper — reconstruct the RecursiveType, registering its id in ctx
+        // before recursing so a back-ref inside the body resolves to it.
+        const w = inner.value as { id: bigint; inner: EastTypeValue };
+        const rec = RecursiveType(_self => {
+            ctx.set(w.id, _self as unknown as EastType);
+            return fromImpl(w.inner, ctx);
+        });
+        return rec as EastType;
+    }
+    throw new Error(`fromEastTypeValue: unhandled tag "${tag}"`);
+}
 
 /**
  * Compares two EastTypeValue instances for type equality.

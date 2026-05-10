@@ -18,13 +18,24 @@ import {
   DictType,
   IntegerType,
 } from "../types.js";
+import { type EastTypeValue, fromEastTypeValue } from "../type_of_type.js";
+import { isVariant } from "../containers/variant.js";
 
 /**
  * Construct the patch type for a given East type.
- * Works directly with EastType objects (not EastTypeValue variants).
+ *
+ * Accepts either an `EastType` (the static type-definition object) or an
+ * `EastTypeValue` (the runtime variant form, e.g. from a generic
+ * platform-fn impl factory). The result is always an `EastType`, suitable
+ * for passing to constructors like {@link StructType} or for round-tripping
+ * via `toEastTypeValue` if a runtime form is needed.
+ *
  * Uses a context map to handle recursive types.
  */
-export function PatchType<T extends EastType>(type: T, ctx?: Map<EastType, EastType>): EastType {
+export function PatchType<T extends EastType>(type: T, ctx?: Map<EastType, EastType>): EastType;
+export function PatchType(type: EastTypeValue, ctx?: Map<EastType, EastType>): EastType;
+export function PatchType(type: EastType | EastTypeValue, ctx?: Map<EastType, EastType>): EastType {
+  if (isVariant(type)) type = fromEastTypeValue(type as EastTypeValue);
   // Initialize context for tracking recursive types
   const context = ctx ?? new Map<EastType, EastType>();
 

@@ -13,7 +13,7 @@ import { composeFor } from './compose.js';
 import { invertFor } from './invert.js';
 import { PatchType } from './index.js';
 import { ArrayType, BooleanType, DictType, FloatType, IntegerType, NullType, SetType, StringType, StructType, VariantType, isTypeEqual } from '../types.js';
-import { equalFor } from '../comparison.js';
+import { compareFor, equalFor } from '../comparison.js';
 import { generateFuzzTestCases } from './fuzz.js';
 
 describe('Patch system for EAST values', () => {
@@ -245,14 +245,13 @@ describe('Patch system for EAST values', () => {
 
     describe('Dicts', () => {
         const type = DictType(StringType, IntegerType);
-        const compare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
-        const createDict = (entries: [string, bigint][]) => new SortedMap(entries, compare);
+        const cmp = compareFor(StringType);
 
         test('should diff identical dicts as unchanged', () => {
             const diff = diffFor(type);
             const result = diff(
-                createDict([["a", 1n], ["b", 2n]]),
-                createDict([["a", 1n], ["b", 2n]])
+                new SortedMap([["a", 1n], ["b", 2n]], cmp),
+                new SortedMap([["a", 1n], ["b", 2n]], cmp),
             );
             assert.deepEqual(result, variant('unchanged', null));
         });
@@ -260,8 +259,8 @@ describe('Patch system for EAST values', () => {
         test('should diff different dicts with insert', () => {
             const diff = diffFor(type);
             const result = diff(
-                createDict([["a", 1n]]),
-                createDict([["a", 1n], ["b", 2n]])
+                new SortedMap([["a", 1n]], cmp),
+                new SortedMap([["a", 1n], ["b", 2n]], cmp),
             );
             assert.equal(result.type, 'patch');
         });
@@ -269,8 +268,8 @@ describe('Patch system for EAST values', () => {
         test('should diff different dicts with update', () => {
             const diff = diffFor(type);
             const result = diff(
-                createDict([["a", 1n], ["b", 2n]]),
-                createDict([["a", 1n], ["b", 99n]])
+                new SortedMap([["a", 1n], ["b", 2n]], cmp),
+                new SortedMap([["a", 1n], ["b", 99n]], cmp),
             );
             assert.equal(result.type, 'patch');
         });
@@ -278,8 +277,8 @@ describe('Patch system for EAST values', () => {
         test('should round-trip diff and apply for dicts', () => {
             const diff = diffFor(type);
             const apply = applyFor(type);
-            const before = createDict([["a", 1n], ["b", 2n]]);
-            const after = createDict([["a", 10n], ["c", 3n]]);
+            const before = new SortedMap<string, bigint>([["a", 1n], ["b", 2n]], cmp);
+            const after  = new SortedMap<string, bigint>([["a", 10n], ["c", 3n]], cmp);
             const patch = diff(before, after);
             const result = apply(before, patch);
             assert.deepEqual([...result.entries()], [["a", 10n], ["c", 3n]]);

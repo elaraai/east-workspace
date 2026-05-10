@@ -2,7 +2,7 @@ DIST := /tmp/east-ui-showcase
 REPO := .repos
 VERSION := $(shell node -p "require('./package.json').version")
 CATEGORIES := buttons typography layout container display feedback forms \
-              navigation disclosure overlays collections charts data \
+              navigation disclosure overlays collections charts data diff \
               integration
 
 .PHONY: install build test test-ts lint clean repo \
@@ -44,7 +44,7 @@ $(CATEGORIES:%=start-%): start-%: % repo
 	e3 workspace create $(REPO) e3_ui_showcase_$* 2>/dev/null || true
 	e3 package import $(REPO) $(DIST)/$*.zip
 	e3 workspace deploy $(REPO) e3_ui_showcase_$* east-ui-showcase-$*@$(VERSION)
-	e3 start $(REPO) e3_ui_showcase_$*
+	e3 start $(REPO) e3_ui_showcase_$* --force
 
 # Start every category sequentially in its own workspace
 start-all: $(CATEGORIES:%=start-%)

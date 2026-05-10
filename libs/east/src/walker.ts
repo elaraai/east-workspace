@@ -13,7 +13,41 @@
  * @packageDocumentation
  */
 
-import type { IR } from "./ir.js";
+import type { IR, ValueIR } from "./ir.js";
+
+// ============================================================================
+// Convenience helper
+// ============================================================================
+
+/**
+ * Read the raw JS payload from a `Value` IR node.
+ *
+ * `Value` IR wraps its payload in two envelopes:
+ *
+ *   - the outer `value` field carries `{type, loc_id, value}`, where the
+ *     inner `value` is itself a {@link LiteralValue} variant
+ *     (`{type: "String" | "Integer" | …, value: <jsValue>}`),
+ *   - and that variant's `value` field is the raw JS value.
+ *
+ * Static-analysis tools (manifest derivation, compile-time validation,
+ * etc.) need to read those payloads back out, and writing
+ * `(ir as ValueIR).value.value.value` at every call site is both
+ * fragile (brittle to envelope shape changes) and unreadable.
+ *
+ * @example
+ * ```ts
+ * import { East, walkIR, literalValueOf } from "@elaraai/east";
+ *
+ * walkIR(fn.toIR().ir, (node) => {
+ *     if (node.type === 'Value') {
+ *         console.log(literalValueOf(node));
+ *     }
+ * });
+ * ```
+ */
+export function literalValueOf(ir: ValueIR): unknown {
+    return ir.value.value.value;
+}
 
 /** Context passed to {@link IRVisitor} on each node. */
 export interface IRWalkContext {

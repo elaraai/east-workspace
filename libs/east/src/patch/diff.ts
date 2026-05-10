@@ -48,6 +48,7 @@ export function diffFor(type: EastTypeValue | EastType, ctx: DiffContext = { dif
     };
   } else if (t.type === "Array") {
     let elementEqual: (a: any, b: any) => boolean;
+    let elementDiff: (a: any, b: any) => any;
     let is: (a: any, b: any) => boolean;
 
     const ret = (before: any[], after: any[]) => {
@@ -61,37 +62,67 @@ export function diffFor(type: EastTypeValue | EastType, ctx: DiffContext = { dif
       let beforePtr = 0;
       let afterPtr = 0;
       let lcsPtr = 0;
-      let deleteCount = 0;
-      let insertCount = 0;  // Track inserts that shift subsequent delete positions
+      let deleteCount = 0;   // emitted (unpaired) deletes only
+      let insertCount = 0;   // emitted (unpaired) inserts only — pairs preserve length
 
       while (beforePtr < before.length || afterPtr < after.length) {
         const nextBeforeLCS = lcsPtr < beforeIndices.length ? beforeIndices[lcsPtr]! : before.length;
         const nextAfterLCS = lcsPtr < afterIndices.length ? afterIndices[lcsPtr]! : after.length;
 
+        // Collect this chunk's would-be deletes and inserts. We don't decide
+        // until both lists are gathered whether each is part of a pair (→
+        // emitted as a single `update`) or stands alone.
+        const chunkDeletes: Array<{ beforePtr: number; value: any }> = [];
         while (beforePtr < nextBeforeLCS) {
-          // For deletes: key is the position in the mutating array
-          // We need to account for:
-          // - Previous deletes (which shrink the array)
-          // - Previous inserts (which grow the array and shift positions)
-          const actualPosition = beforePtr - deleteCount + insertCount;
+          chunkDeletes.push({ beforePtr, value: before[beforePtr]! });
+          beforePtr++;
+        }
+        const chunkInserts: Array<{ afterPtr: number; value: any }> = [];
+        while (afterPtr < nextAfterLCS) {
+          chunkInserts.push({ afterPtr, value: after[afterPtr]! });
+          afterPtr++;
+        }
+
+        // Pair the i-th chunk-local delete with the i-th chunk-local insert
+        // and emit a single `update` op carrying the inner diff. Length of
+        // the running array is unchanged for each paired position, so
+        // `deleteCount` / `insertCount` stay frozen across the pair span.
+        const pairCount = Math.min(chunkDeletes.length, chunkInserts.length);
+        for (let i = 0; i < pairCount; i++) {
+          const del = chunkDeletes[i]!;
+          const ins = chunkInserts[i]!;
+          // `del.beforePtr - deleteCount + insertCount` is the position the
+          // old element currently sits at in the running array; the inner
+          // patch transforms it in place.
+          const actualPosition = del.beforePtr - deleteCount + insertCount;
           operations.push({
             key: BigInt(actualPosition),
             offset: 0n,
-            operation: variant("delete", before[beforePtr]!),
+            operation: variant("update", elementDiff(del.value, ins.value)),
           });
-          deleteCount++;
-          beforePtr++;
         }
 
-        while (afterPtr < nextAfterLCS) {
-          // For inserts: key is the position in the target array
+        // Excess deletes — the chunk had more elements removed than added.
+        for (let i = pairCount; i < chunkDeletes.length; i++) {
+          const del = chunkDeletes[i]!;
+          const actualPosition = del.beforePtr - deleteCount + insertCount;
           operations.push({
-            key: BigInt(afterPtr),
+            key: BigInt(actualPosition),
             offset: 0n,
-            operation: variant("insert", after[afterPtr]!),
+            operation: variant("delete", del.value),
+          });
+          deleteCount++;
+        }
+
+        // Excess inserts — the chunk had more elements added than removed.
+        for (let i = pairCount; i < chunkInserts.length; i++) {
+          const ins = chunkInserts[i]!;
+          operations.push({
+            key: BigInt(ins.afterPtr),
+            offset: 0n,
+            operation: variant("insert", ins.value),
           });
           insertCount++;
-          afterPtr++;
         }
 
         if (lcsPtr < beforeIndices.length) {
@@ -112,6 +143,7 @@ export function diffFor(type: EastTypeValue | EastType, ctx: DiffContext = { dif
     ctx.types.push(t);
     is = isFor(t, ctx.equal);
     elementEqual = equalFor(t.value as EastTypeValue, ctx.equal);
+    elementDiff = diffFor(t.value as EastTypeValue, ctx);
     ctx.diff.pop();
     ctx.types.pop();
 

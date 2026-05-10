@@ -3,14 +3,15 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { East, FloatType, IntegerType, NullType, StringType, variant, example } from "@elaraai/east";
+import { East, FloatType, FunctionType, IntegerType, NullType, StringType, PatchType, variant, example } from "@elaraai/east";
 import { Reactive, Slider, Stack, Stat, Text, Input, Button, UIComponentType } from "@elaraai/east-ui";
 import { Data } from "@elaraai/e3-ui";
 import * as e3 from "@elaraai/e3";
 
-export const thresholdInput = e3.input('threshold', FloatType, 50.0);
-export const countInput     = e3.input('count', IntegerType, 0n);
-export const nameInput      = e3.input('name', StringType, '');
+export const thresholdInput      = e3.input('threshold',       FloatType, 50.0);
+export const thresholdPatchInput = e3.input('threshold_patch', PatchType(FloatType), variant("unchanged", null));
+export const countInput          = e3.input('count', IntegerType, 0n);
+export const nameInput           = e3.input('name',  StringType,  '');
 
 export const dataBindFloat = example({
     keywords: ["Data", "bind", "Reactive", "Float", "dataset", "read"],
@@ -88,6 +89,78 @@ export const dataBindHasGuard = example({
                 $.assign(message, East.print(thresh.read()));
             });
             return Text.Root(message);
+        }));
+    }),
+    inputs: [],
+});
+
+export const dataBindStagedFloat = example({
+    keywords: ["Data", "bindStaged", "Reactive", "Float", "buffered", "transactional"],
+    description: "Stage edits to a Float dataset; read returns overlay (buffered or server)",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const thresh = $.let(Data.bind([FloatType], thresholdInput.path, { mode: "staged" }));
+            const value = $.let(thresh.read(), FloatType);
+            return Stat.Root("Threshold (live)", Text.Root(East.print(value)));
+        }));
+    }),
+    inputs: [],
+});
+
+export const dataBindStagedSliderWrite = example({
+    keywords: ["Data", "bindStaged", "Slider", "write", "buffer", "interactive"],
+    description: "Slider whose onChange writes to the staged buffer instead of the server",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const thresh = $.let(Data.bind([FloatType], thresholdInput.path, { mode: "staged" }));
+            const value = $.let(thresh.read(), FloatType);
+            return Slider.Root(value, {
+                min: 0,
+                max: 100,
+                onChange: thresh.write,
+            });
+        }));
+    }),
+    inputs: [],
+});
+
+export const dataBindStagedCommitDiscard = example({
+    keywords: ["Data", "bindStaged", "commit", "discard", "pending", "transactional"],
+    description: "Two buttons that commit or discard the staged buffer for a path",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const thresh = $.let(Data.bind([FloatType], thresholdInput.path, { mode: "staged" }));
+            const commit = $.const(East.function([], NullType, $ => {
+                $(thresh.commit());
+            }), FunctionType([], NullType));
+            const discard = $.const(East.function([], NullType, $ => {
+                $(thresh.discard());
+            }), FunctionType([], NullType));
+            return Stack.VStack([
+                Text.Root("Pending edits"),
+                Button.Root("Commit", { onClick: commit }),
+                Button.Root("Discard", {
+                    style: { variant: "outline" },
+                    onClick: discard,
+                }),
+            ], { gap: "3", align: "stretch" });
+        }));
+    }),
+    inputs: [],
+});
+
+export const dataBindStagedOriginalVsRead = example({
+    keywords: ["Data", "bindStaged", "original", "read", "overlay", "diff"],
+    description: "Show server snapshot (original) and overlay (read) side by side",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const thresh = $.let(Data.bind([FloatType], thresholdInput.path, { mode: "staged", patch: thresholdPatchInput.path }));
+            const live = $.let(thresh.read(), FloatType);
+            const server = $.let(thresh.source(), FloatType);
+            return Stack.VStack([
+                Stat.Root("Server", Text.Root(East.print(server))),
+                Stat.Root("Live (with stage)", Text.Root(East.print(live))),
+            ], { gap: "3", align: "stretch" });
         }));
     }),
     inputs: [],

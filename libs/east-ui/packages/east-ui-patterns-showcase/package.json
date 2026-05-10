@@ -1,0 +1,46 @@
+{
+  "name": "@elaraai/east-ui-patterns-showcase",
+  "version": "0.0.1-beta.1",
+  "private": true,
+  "description": "Authoritative spec + live mocks for east-ui decision-quality patterns. Renders the published @elaraai/east-ui-patterns examples through @elaraai/east-ui-patterns-components renderers; location-based feedback persisted to SQLite for iteration.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "lint": "eslint .",
+    "feedback:list": "node scripts/feedback-list.mjs",
+    "feedback:resolve": "node scripts/feedback-resolve.mjs"
+  },
+  "dependencies": {
+    "@chakra-ui/react": "^3.0.0",
+    "@elaraai/east": "workspace:*",
+    "@elaraai/east-ui": "workspace:*",
+    "@elaraai/east-ui-components": "workspace:*",
+    "@elaraai/east-ui-patterns": "workspace:*",
+    "@elaraai/east-ui-patterns-components": "workspace:*",
+    "@emotion/react": "^11.14.0",
+    "next-themes": "^0.4.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-markdown": "^9.0.0",
+    "react-router-dom": "^7.1.0",
+    "remark-gfm": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.18.1",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "better-sqlite3": "^11.7.0",
+    "fast-glob": "^3.3.3",
+    "highlight.js": "^11.10.0",
+    "prettier": "^3.3.0",
+    "typescript": "~5.9.2",
+    "vite": "^6.0.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

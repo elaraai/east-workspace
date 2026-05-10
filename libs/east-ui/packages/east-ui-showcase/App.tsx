@@ -107,6 +107,7 @@ import * as inputExamples from "@elaraai/east-ui/examples/forms/input";
 import * as comboboxExamples from "@elaraai/east-ui/examples/forms/combobox";
 import * as breadcrumbExamples from "@elaraai/east-ui/examples/navigation";
 import * as navListExamples from "@elaraai/east-ui/examples/navigation/nav-list";
+import * as patternCompareExamples from "@elaraai/east-ui/examples/patterns/compare";
 import * as accordionExamples from "@elaraai/east-ui/examples/disclosure/accordion";
 import * as carouselExamples from "@elaraai/east-ui/examples/disclosure/carousel";
 import * as tabsExamples from "@elaraai/east-ui/examples/disclosure/tabs";
@@ -230,6 +231,7 @@ const SOURCES: [string, string, Record<string, unknown>, string, number, number?
     ["Combobox",     "Forms",       comboboxExamples,     "forms/combobox",               2],
     ["Breadcrumb",   "Navigation",  breadcrumbExamples,   "navigation/breadcrumb",        2],
     ["NavList",      "Navigation",  navListExamples,      "navigation/nav-list",          2],
+    ["Compare",      "Patterns",    patternCompareExamples, "patterns/compare",           2],
     ["Accordion",    "Disclosure",  accordionExamples,    "disclosure/accordion",         2],
     ["Carousel",     "Disclosure",  carouselExamples,     "disclosure/carousel",          1],
     ["Tabs",         "Disclosure",  tabsExamples,         "disclosure/tabs",              2],
@@ -304,6 +306,7 @@ const CATEGORY_ICONS: Record<string, IconDefinition> = {
     Overlays: faWindowMaximize,
     Collections: faTableList,
     Charts: faChartLine,
+    Patterns: faPuzzlePiece,
 };
 // Card chrome (description + keyword tags + padding) adds ~110px on top of the body.
 const CARD_CHROME = 110;

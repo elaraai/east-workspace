@@ -24,6 +24,7 @@ export { variant } from "@elaraai/east";
 
 // Style System
 export { Style } from "./style.js";
+export { DensityType, type DensityLiteral } from "./style/interaction.js";
 
 // Format helpers
 export { Format } from "./format/index.js";
@@ -50,6 +51,7 @@ export {
 
 // Buttons
 export { Button, IconButton, CopyButton, CloseButton, Toggle, ButtonGroup } from "./buttons/index.js";
+export type { ButtonLabelInput, ButtonOptions } from "./buttons/index.js";
 
 // Forms
 export { Input, Checkbox, RadioGroup, RadioCardGroup, TimeScaleControl, TimeRangeInput, DateRangeInput, Switch, Select, Combobox, Slider, Field, FileUpload, Textarea, TagsInput } from "./forms/index.js";
@@ -85,6 +87,15 @@ export { Reactive } from "./reactive/index.js";
 
 // Component Types
 export { UIComponentType } from "./component.js";
+
+// Extension mechanism — declare custom UI components that are rendered by
+// downstream `*-components` packages (the UI analog of platform functions).
+export {
+    EastUI,
+    component,
+    type UIComponentDef,
+    type UIComponentOptions,
+} from "./extension.js";
 
 // Platform (state management - signatures only)
 // For e3 dataset bindings, use Data.bind from @elaraai/e3-ui

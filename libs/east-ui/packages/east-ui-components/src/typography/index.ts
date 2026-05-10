@@ -58,3 +58,5 @@ export {
     type CodeBlockValue,
     type EastChakraCodeBlockProps,
 } from "./code-block/index.js";
+
+export { Markdown, type MarkdownProps } from "./markdown/index.js";

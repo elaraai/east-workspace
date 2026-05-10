@@ -21,10 +21,24 @@
   ],
   "sideEffects": [
     "./dist/platform/state-runtime.js",
-    "./src/platform/state-runtime.ts"
+    "./src/platform/state-runtime.ts",
+    "./dist/platform/clipboard/index.js",
+    "./src/platform/clipboard/index.ts",
+    "./dist/platform/download/index.js",
+    "./src/platform/download/index.ts",
+    "./dist/platform/share/index.js",
+    "./src/platform/share/index.ts",
+    "./dist/feedback/toast/index.js",
+    "./src/feedback/toast/index.tsx",
+    "./dist/overlays/overlay-manager.js",
+    "./src/overlays/overlay-manager.tsx"
   ],
   "scripts": {
-    "build": "tsc --noEmit && vite build",
+    "prebuild": "pnpm chakra:typegen",
+    "build": "vite build",
+    "chakra:typegen": "chakra typegen src/theme/index.ts --strict",
+    "chakra:typegen:watch": "chakra typegen src/theme/index.ts --strict --watch src/theme",
+    "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "node --import tsx --test-reporter=spec --test test/**/*.spec.ts",
@@ -54,11 +68,14 @@
     "@tanstack/react-table": "^8.21.3",
     "@tanstack/react-virtual": "^3.13.9",
     "@use-gesture/react": "^10.3.1",
+    "react-markdown": "^9.0.0",
     "recharts": "3.5.1",
+    "remark-gfm": "^4.0.0",
     "sorted-btree": "^2.0.0-alpha.0",
     "use-local-storage-state": "^19.5.0"
   },
   "devDependencies": {
+    "@chakra-ui/cli": "^3.35.0",
     "@elaraai/east-node-std": "workspace:*",
     "@fortawesome/fontawesome-common-types": "^7.1.0",
     "@types/node": "^22.18.1",

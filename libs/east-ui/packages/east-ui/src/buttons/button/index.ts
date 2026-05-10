@@ -103,7 +103,7 @@ export type ButtonType = typeof ButtonType;
  * ergonomics — callers wanting rich content can pass any UIComponentType
  * expression (e.g. `Stack.HStack([...])`).
  */
-type ButtonLabelInput =
+export type ButtonLabelInput =
     | string
     | ExprType<UIComponentType>
     | SubtypeExprOrValue<UIComponentType>;

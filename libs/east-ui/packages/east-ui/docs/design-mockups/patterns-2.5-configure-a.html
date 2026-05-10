@@ -1,0 +1,1725 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>East UI — Patterns §2.5 Configure (A · form-level)</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+  :root {
+    --brand-50:  #f0fffe; --brand-100: #c2fcfc; --brand-500: #488e97;
+    --brand-600: #3a7780; --brand-700: #2b4b55; --brand-900: #111b22;
+    --gray-50: #f8fafa; --gray-100: #f1f5f5; --gray-200: #e2e8e8;
+    --gray-300: #cbd5d5; --gray-400: #9bb0b0; --gray-500: #6b8080;
+    --gray-600: #4a5f5f; --gray-700: #374848; --gray-800: #253333; --gray-900: #1a2626;
+    --teal-500: #14b8a6;   --purple-500: #8b5cf6; --blue-500: #3b82f6;
+    --green-500: #22c55e;  --orange-500: #f97316; --red-500: #ef4444;
+    --yellow-500: #eab308;
+
+    --bg-primary:   #ffffff;
+    --bg-secondary: var(--gray-50);
+    --bg-tertiary:  var(--gray-100);
+    --fg-primary:   var(--gray-900);
+    --fg-secondary: var(--gray-600);
+    --fg-muted:     var(--gray-500);
+    --border-subtle: var(--gray-200);
+    --border-strong: var(--gray-300);
+    --card-bg: #ffffff;
+    --card-border: var(--gray-200);
+    --link: var(--brand-600);
+
+    --font-brand: 'DM Sans', system-ui, -apple-system, sans-serif;
+    --font-body:  'Inter Tight', system-ui, -apple-system, sans-serif;
+    --font-mono:  'JetBrains Mono', ui-monospace, Menlo, monospace;
+
+    --fs-xs: 12px;  --fs-sm: 14px;  --fs-md: 16px;  --fs-lg: 18px;
+    --fs-xl: 20px;  --fs-2xl: 24px; --fs-3xl: 30px; --fs-4xl: 36px;
+
+    --fw-normal: 400; --fw-medium: 500; --fw-semibold: 600; --fw-bold: 700;
+    --lh-tight: 1.25; --lh-snug: 1.375; --lh-normal: 1.5; --lh-relaxed: 1.625;
+
+    --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px;  --sp-4: 16px;
+    --sp-5: 20px; --sp-6: 24px; --sp-8: 32px;  --sp-10: 40px;
+    --sp-12: 48px; --sp-16: 64px; --sp-20: 80px;
+
+    --r-sm: 4px; --r-md: 6px; --r-lg: 8px; --r-full: 9999px;
+
+    --shadow-xs: 0 1px 2px rgba(17, 27, 34, 0.05);
+    --shadow-sm: 0 1px 2px rgba(17, 27, 34, 0.06), 0 1px 3px rgba(17, 27, 34, 0.08);
+    --shadow-md: 0 4px 6px -1px rgba(17, 27, 34, 0.08), 0 2px 4px -2px rgba(17, 27, 34, 0.06);
+    --shadow-lg: 0 10px 15px -3px rgba(17, 27, 34, 0.10), 0 4px 6px -4px rgba(17, 27, 34, 0.08);
+    --shadow-focus: 0 0 0 3px rgba(72, 142, 151, 0.35);
+
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    --dur-fast: 120ms;
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: var(--font-body);
+    color: var(--fg-primary);
+    background: var(--bg-secondary);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Type styles */
+  .h2 { font-family: var(--font-brand); font-size: var(--fs-4xl); font-weight: var(--fw-bold); line-height: var(--lh-tight); letter-spacing: -0.015em; margin: 0; }
+  .lead    { font-size: var(--fs-lg); line-height: var(--lh-relaxed); color: var(--fg-secondary); margin: 0; }
+  .small   { font-size: var(--fs-sm); line-height: var(--lh-normal); color: var(--fg-secondary); margin: 0; }
+  .caption { font-size: var(--fs-xs); line-height: var(--lh-normal); color: var(--fg-muted); letter-spacing: 0.02em; margin: 0; }
+  .eyebrow { font-size: var(--fs-xs); font-weight: var(--fw-semibold); letter-spacing: 0.12em; text-transform: uppercase; color: var(--brand-600); margin: 0; }
+  code     { font-family: var(--font-mono); font-size: 0.92em; background: var(--bg-tertiary); padding: 1px 5px; border-radius: var(--r-sm); }
+  a        { color: var(--link); text-decoration: none; }
+  a:hover  { color: var(--brand-700); text-decoration: underline; text-underline-offset: 2px; }
+
+  /* Page shell */
+  .doc { max-width: 1200px; margin: 0 auto; padding: var(--sp-8) var(--sp-10) var(--sp-20); }
+  .doc-header {
+    margin-bottom: var(--sp-12);
+    padding-bottom: var(--sp-5);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .doc-eyebrow { margin-bottom: var(--sp-2); }
+  .doc-title { margin: 0 0 var(--sp-2); }
+  .doc-sub { max-width: 780px; }
+  .doc-toc { display: flex; gap: var(--sp-5); margin-top: var(--sp-5); font-size: var(--fs-sm); flex-wrap: wrap; }
+  .doc-toc a {
+    color: var(--fg-secondary);
+    border-bottom: 1px dotted transparent;
+    padding-bottom: 1px;
+  }
+  .doc-toc a:hover {
+    color: var(--fg-primary);
+    border-bottom-color: var(--border-strong);
+    text-decoration: none;
+  }
+
+  /* Pattern section */
+  .pattern { margin-bottom: var(--sp-16); }
+  .pattern-head { margin-bottom: var(--sp-5); }
+  .pattern-name {
+    font-family: var(--font-brand);
+    font-size: var(--fs-2xl);
+    font-weight: var(--fw-semibold);
+    letter-spacing: -0.01em;
+    line-height: var(--lh-snug);
+    margin: 0 0 var(--sp-1);
+    color: var(--fg-primary);
+  }
+  .pattern-name .anchor {
+    color: var(--fg-muted);
+    font-size: var(--fs-sm);
+    margin-right: var(--sp-2);
+    font-family: var(--font-body);
+    font-weight: var(--fw-normal);
+  }
+  .pattern-purpose {
+    font-size: var(--fs-sm);
+    color: var(--fg-secondary);
+    line-height: var(--lh-relaxed);
+    max-width: 780px;
+    margin: 0;
+  }
+  .pattern-api {
+    margin-top: var(--sp-3);
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    color: var(--fg-secondary);
+    background: var(--bg-tertiary);
+    padding: var(--sp-2) var(--sp-3);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--r-sm);
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  .examples {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: var(--r-lg);
+    padding: var(--sp-6);
+    display: grid;
+    gap: var(--sp-6);
+  }
+  .example {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: var(--sp-6);
+    align-items: start;
+  }
+  .example-label {
+    font-size: var(--fs-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--fg-muted);
+    font-weight: var(--fw-semibold);
+    padding-top: 4px;
+  }
+  .example-label .sub {
+    display: block;
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: var(--fw-normal);
+    color: var(--fg-muted);
+    font-size: var(--fs-xs);
+    margin-top: 4px;
+    line-height: var(--lh-normal);
+  }
+  .example-body { display: flex; flex-direction: column; gap: var(--sp-2); }
+  .row { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+  hr.sep { border: 0; border-top: 1px solid var(--border-subtle); margin: 0; }
+
+  /* Soft pill */
+  .pill {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+    font-variant-numeric: tabular-nums;
+    padding: 2px 10px;
+    border-radius: var(--r-full);
+    line-height: 1.5;
+    border: 1px solid transparent;
+  }
+  .pill.up   { color: #15803d; background: #f0fdf4; border-color: #bbf7d0; }
+  .pill.down { color: #b91c1c; background: #fef2f2; border-color: #fecaca; }
+  .pill.warn { color: #c2410c; background: #fff7ed; border-color: #fed7aa; }
+  .pill.neutral { color: var(--fg-secondary); background: var(--bg-tertiary); border-color: var(--border-subtle); }
+  .pill.info { color: #1d4ed8; background: #eff6ff; border-color: #bfdbfe; }
+  .pill.brand { color: var(--brand-700); background: var(--brand-50); border-color: var(--brand-100); }
+  .pill .arrow { font-size: 10px; line-height: 1; }
+
+  /* Buttons */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    font-family: var(--font-body); font-size: var(--fs-sm); font-weight: var(--fw-medium);
+    padding: 6px 14px; border-radius: var(--r-md);
+    border: 1px solid transparent;
+    cursor: pointer; line-height: 1.4;
+  }
+  .btn.primary { background: var(--brand-500); color: #fff; border-color: var(--brand-500); }
+  .btn.primary:hover { background: var(--brand-600); border-color: var(--brand-600); }
+  .btn.secondary { background: var(--card-bg); color: var(--fg-primary); border-color: var(--border-strong); }
+  .btn.secondary:hover { background: var(--bg-tertiary); }
+  .btn.ghost { background: transparent; color: var(--fg-secondary); border-color: transparent; }
+  .btn.ghost:hover { background: var(--bg-tertiary); color: var(--fg-primary); }
+  .btn.sm { padding: 3px 10px; font-size: var(--fs-xs); }
+
+  /* Glyph circles */
+  .glyph {
+    display: inline-grid; place-items: center;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    font-size: 9px; line-height: 1;
+    font-weight: var(--fw-bold);
+    font-family: var(--font-body);
+    flex-shrink: 0;
+  }
+  .glyph.ok  { background: var(--green-500); color: #fff; }
+  .glyph.warn{ background: var(--orange-500); color: #fff; }
+  .glyph.err { background: var(--red-500); color: #fff; }
+  .glyph.info{ background: var(--blue-500); color: #fff; }
+
+  /* ============================================================
+     §2.5.1 — AssumptionsBar
+     ============================================================ */
+  .assumptions-bar {
+    display: flex; align-items: center;
+    gap: var(--sp-2);
+    padding: var(--sp-3) var(--sp-4);
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: var(--r-md);
+    flex-wrap: wrap;
+    min-width: 720px;
+  }
+  .assumptions-bar .ab-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--fg-muted);
+    font-weight: var(--fw-semibold);
+    margin-right: var(--sp-2);
+  }
+  .editable-chip {
+    display: inline-flex; align-items: center;
+    gap: 6px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--r-full);
+    padding: 3px 4px 3px 10px;
+    font-size: var(--fs-xs);
+    color: var(--fg-secondary);
+    cursor: pointer;
+    transition: all var(--dur-fast) var(--ease-out);
+  }
+  .editable-chip:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--border-strong);
+  }
+  .editable-chip .ec-key {
+    color: var(--fg-muted);
+    font-weight: var(--fw-medium);
+  }
+  .editable-chip .ec-value {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--fg-primary);
+    font-weight: var(--fw-semibold);
+  }
+  .editable-chip .ec-icon {
+    display: grid; place-items: center;
+    width: 18px; height: 18px;
+    color: var(--fg-muted);
+    background: transparent;
+    border-radius: var(--r-full);
+    font-size: 10px;
+  }
+  .editable-chip:hover .ec-icon {
+    background: rgba(72, 142, 151, 0.12);
+    color: var(--brand-600);
+  }
+  .editable-chip.read-only {
+    background: var(--bg-tertiary);
+    cursor: default;
+  }
+  .editable-chip.read-only:hover { background: var(--bg-tertiary); border-color: var(--border-subtle); }
+  .editable-chip.read-only .ec-icon { display: none; }
+  .editable-chip.read-only::before {
+    content: '🔒';
+    font-size: 10px;
+    margin-right: 2px;
+    opacity: 0.5;
+  }
+  .editable-chip.dirty {
+    background: var(--brand-50);
+    border-color: var(--brand-100);
+  }
+  .editable-chip.dirty .ec-value { color: var(--brand-700); }
+  .editable-chip.dirty::after {
+    content: '';
+    width: 5px; height: 5px;
+    background: var(--brand-500);
+    border-radius: 50%;
+    margin-right: 2px;
+  }
+
+  /* Popover preview */
+  .popover {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: var(--r-md);
+    padding: var(--sp-4);
+    box-shadow: var(--shadow-lg);
+    min-width: 280px;
+    max-width: 320px;
+    display: flex; flex-direction: column; gap: var(--sp-3);
+  }
+  .popover .pop-head {
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+  }
+  .popover .pop-input {
+    background: var(--card-bg);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-sm);
+    padding: 6px 10px;
+    font-family: var(--font-mono);
+    font-size: var(--fs-sm);
+    color: var(--fg-primary);
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .popover .pop-actions {
+    display: flex; justify-content: flex-end; gap: var(--sp-2);
+  }
+
+  /* ============================================================
+     §2.5.2 — ParameterFormSection
+     ============================================================ */
+  .param-section {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: var(--r-md);
+    padding: var(--sp-5);
+    display: flex; flex-direction: column; gap: var(--sp-4);
+    min-width: 520px;
+    max-width: 720px;
+  }
+  .param-section .ps-head {
+    display: flex; flex-direction: column; gap: 4px;
+    padding-bottom: var(--sp-3);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .param-section .ps-title {
+    font-family: var(--font-brand);
+    font-size: var(--fs-lg);
+    font-weight: var(--fw-semibold);
+    letter-spacing: -0.01em;
+  }
+  .param-section .ps-desc {
+    font-size: var(--fs-sm);
+    color: var(--fg-secondary);
+  }
+  .param-section .field-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--sp-4);
+  }
+  .field {
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .field.span-2 { grid-column: span 2; }
+  .field .f-label {
+    font-size: var(--fs-xs);
+    color: var(--fg-secondary);
+    font-weight: var(--fw-medium);
+    display: flex; align-items: center; gap: 4px;
+  }
+  .field .f-input {
+    background: var(--card-bg);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-sm);
+    padding: 6px 10px;
+    font-family: var(--font-mono);
+    font-size: var(--fs-sm);
+    color: var(--fg-primary);
+    font-variant-numeric: tabular-nums;
+  }
+  .field .f-input:focus { outline: none; border-color: var(--brand-500); box-shadow: var(--shadow-focus); }
+  .field .f-help {
+    font-size: 11px;
+    color: var(--fg-muted);
+    font-family: var(--font-body);
+  }
+  .field .f-help.dirty {
+    color: var(--brand-600);
+  }
+  .field .f-help.error {
+    color: #b91c1c;
+  }
+  .field.with-unit { position: relative; }
+  .field.with-unit .f-unit {
+    position: absolute;
+    right: 10px; top: 26px;
+    font-size: var(--fs-xs);
+    color: var(--fg-muted);
+    font-family: var(--font-mono);
+    pointer-events: none;
+  }
+  .field select.f-input {
+    appearance: none;
+    background-image: linear-gradient(45deg, transparent 50%, var(--fg-muted) 50%), linear-gradient(135deg, var(--fg-muted) 50%, transparent 50%);
+    background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
+    background-size: 5px 5px;
+    background-repeat: no-repeat;
+    padding-right: 28px;
+  }
+
+  /* ============================================================
+     §2.5.3 — GuardrailNotice
+     ============================================================ */
+  .guardrail {
+    display: flex; align-items: flex-start;
+    gap: var(--sp-3);
+    padding: var(--sp-3) var(--sp-4);
+    border-radius: var(--r-md);
+    border: 1px solid;
+    min-width: 480px;
+    max-width: 720px;
+  }
+  .guardrail.info { background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8; }
+  .guardrail.warning { background: #fff7ed; border-color: #fed7aa; color: #9a3412; }
+  .guardrail.danger { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
+  .guardrail .gr-icon {
+    flex-shrink: 0;
+    display: grid; place-items: center;
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    font-size: 12px;
+    font-weight: var(--fw-bold);
+    color: #fff;
+    margin-top: 1px;
+  }
+  .guardrail.info .gr-icon { background: var(--blue-500); }
+  .guardrail.warning .gr-icon { background: var(--orange-500); }
+  .guardrail.danger .gr-icon { background: var(--red-500); }
+  .guardrail .gr-body {
+    flex: 1;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .guardrail .gr-message {
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+    line-height: var(--lh-snug);
+  }
+  .guardrail .gr-reason {
+    font-size: var(--fs-xs);
+    line-height: var(--lh-relaxed);
+    opacity: 0.92;
+  }
+  .guardrail .gr-meta {
+    display: flex; align-items: center; gap: var(--sp-3);
+    font-size: 11px;
+    font-family: var(--font-mono);
+    margin-top: 4px;
+    flex-wrap: wrap;
+  }
+  .guardrail .gr-actions {
+    display: flex; align-items: center; gap: var(--sp-2);
+    margin-top: var(--sp-1);
+  }
+  .guardrail .gr-block {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: var(--fw-bold);
+    margin-left: auto;
+    flex-shrink: 0;
+    padding: 1px 8px;
+    border-radius: var(--r-full);
+    background: rgba(0,0,0,0.06);
+  }
+
+  /* ============================================================
+     §2.5.4 — SumCheckBadge
+     ============================================================ */
+  .sumcheck {
+    display: inline-flex; align-items: center;
+    gap: 8px;
+    padding: 5px 12px;
+    border-radius: var(--r-full);
+    font-size: var(--fs-xs);
+    border: 1px solid;
+    background: var(--bg-tertiary);
+    color: var(--fg-secondary);
+    border-color: var(--border-subtle);
+  }
+  .sumcheck.ok    { background: #f0fdf4; border-color: #bbf7d0; color: #15803d; }
+  .sumcheck.tight { background: #fff7ed; border-color: #fed7aa; color: #c2410c; }
+  .sumcheck.bad   { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
+  .sumcheck .sc-icon {
+    display: grid; place-items: center;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    color: #fff;
+    font-size: 9px;
+    font-weight: var(--fw-bold);
+  }
+  .sumcheck.ok    .sc-icon { background: var(--green-500); }
+  .sumcheck.tight .sc-icon { background: var(--orange-500); }
+  .sumcheck.bad   .sc-icon { background: var(--red-500); }
+  .sumcheck .sc-default-icon { background: var(--gray-500); display: grid; place-items: center; width: 14px; height: 14px; border-radius: 50%; color: #fff; font-size: 9px; }
+  .sumcheck .sc-vals {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-weight: var(--fw-semibold);
+  }
+  .sumcheck .sc-vals .sep { color: var(--fg-muted); font-weight: var(--fw-normal); margin: 0 4px; }
+  .sumcheck .sc-tol {
+    font-family: var(--font-mono);
+    color: var(--fg-muted);
+    font-size: 11px;
+    font-weight: var(--fw-normal);
+  }
+
+  /* ============================================================
+     §2.5.5 — CalendarHeatmap
+     ============================================================ */
+  .heatmap {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: var(--r-md);
+    padding: var(--sp-4);
+    display: flex; flex-direction: column; gap: var(--sp-3);
+    min-width: 520px;
+  }
+  .heatmap .hm-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: var(--sp-3);
+  }
+  .heatmap .hm-title {
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+  }
+  .heatmap-grid {
+    display: grid;
+    gap: 2px;
+  }
+  .heatmap-grid.weekly {
+    grid-template-columns: 24px repeat(7, 1fr);
+  }
+  .heatmap-grid .hg-day-label {
+    font-size: 10px;
+    color: var(--fg-muted);
+    text-align: center;
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .heatmap-grid .hg-week-label {
+    font-size: 10px;
+    color: var(--fg-muted);
+    font-family: var(--font-mono);
+    display: flex; align-items: center; justify-content: flex-end;
+    padding-right: 6px;
+  }
+  .heatmap-cell {
+    background: var(--gray-100);
+    border: 1px solid var(--border-subtle);
+    border-radius: 3px;
+    padding: 6px 4px;
+    font-size: 10px;
+    color: var(--fg-muted);
+    font-family: var(--font-mono);
+    cursor: pointer;
+    text-align: center;
+    transition: all var(--dur-fast) var(--ease-out);
+    aspect-ratio: 1.4 / 1;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .heatmap-cell:hover { border-color: var(--brand-500); }
+  .heatmap-cell.l1 { background: rgba(72, 142, 151, 0.12); }
+  .heatmap-cell.l2 { background: rgba(72, 142, 151, 0.32); color: var(--brand-700); }
+  .heatmap-cell.l3 { background: rgba(72, 142, 151, 0.55); color: #fff; border-color: var(--brand-500); }
+  .heatmap-cell.l4 { background: var(--brand-500); color: #fff; border-color: var(--brand-600); }
+  .heatmap-cell.selected {
+    box-shadow: 0 0 0 2px var(--brand-500);
+    z-index: 2;
+  }
+  .heatmap-cell.warn { background: rgba(249, 115, 22, 0.32); border-color: var(--orange-500); color: #9a3412; }
+  .heatmap-cell.empty { background: transparent; border-color: transparent; cursor: default; }
+  .heatmap-legend {
+    display: flex; align-items: center; gap: var(--sp-2);
+    font-size: 11px; color: var(--fg-muted);
+    font-family: var(--font-mono);
+    margin-top: var(--sp-2);
+    flex-wrap: wrap;
+  }
+  .heatmap-legend .swatch-row {
+    display: inline-flex; align-items: center; gap: 3px;
+  }
+  .heatmap-legend .swatch {
+    width: 14px; height: 14px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 3px;
+  }
+
+  /* ============================================================
+     §2.5.6 — PresetPicker
+     ============================================================ */
+  .preset-picker {
+    display: flex; gap: var(--sp-3);
+    flex-wrap: wrap;
+    min-width: 480px;
+  }
+  .preset-card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: var(--r-md);
+    padding: var(--sp-4);
+    flex: 1; min-width: 160px;
+    cursor: pointer;
+    transition: all var(--dur-fast) var(--ease-out);
+    display: flex; flex-direction: column; gap: var(--sp-2);
+    position: relative;
+  }
+  .preset-card:hover {
+    border-color: var(--border-strong);
+  }
+  .preset-card.active {
+    background: var(--brand-50);
+    border-color: var(--brand-500);
+    box-shadow: 0 0 0 1px var(--brand-500);
+  }
+  .preset-card .pc-radio {
+    position: absolute;
+    top: var(--sp-3); right: var(--sp-3);
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    border: 1.5px solid var(--border-strong);
+    background: #fff;
+  }
+  .preset-card.active .pc-radio {
+    border-color: var(--brand-500);
+    background: var(--brand-500);
+    box-shadow: inset 0 0 0 3px #fff;
+  }
+  .preset-card .pc-label {
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+    color: var(--fg-primary);
+  }
+  .preset-card .pc-desc {
+    font-size: var(--fs-xs);
+    color: var(--fg-secondary);
+    line-height: var(--lh-snug);
+  }
+  .preset-card .pc-meta {
+    display: flex; gap: var(--sp-2);
+    margin-top: 4px;
+    flex-wrap: wrap;
+  }
+  .preset-card .pc-meta .pill { padding: 1px 8px; font-size: 10px; }
+  .preset-card.custom { border-style: dashed; background: var(--bg-secondary); }
+
+  /* ============================================================
+     §2.5.7 — ValueMatrixEditor
+     ============================================================ */
+  .value-matrix {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: var(--r-md);
+    overflow: hidden;
+    width: max-content;
+    min-width: 100%;
+  }
+  .value-matrix .vm-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: var(--sp-3) var(--sp-4);
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--bg-secondary);
+    gap: var(--sp-3);
+  }
+  .value-matrix .vm-title {
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+  }
+  .vm-table {
+    border-collapse: separate; border-spacing: 0;
+    font-size: var(--fs-xs);
+    width: 100%;
+  }
+  .vm-table th, .vm-table td {
+    padding: 0; margin: 0;
+    border-right: 1px solid var(--border-subtle);
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--card-bg);
+    text-align: right;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    height: 32px;
+  }
+  .vm-table th {
+    background: var(--bg-secondary);
+    color: var(--fg-muted);
+    font-weight: var(--fw-semibold);
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.05em;
+    padding: 6px 10px;
+    text-align: center;
+  }
+  .vm-table th:first-child {
+    background: var(--bg-secondary);
+    text-align: left;
+    width: 96px;
+  }
+  .vm-table th:last-child, .vm-table td.total {
+    background: var(--bg-tertiary);
+    color: var(--fg-primary);
+    font-weight: var(--fw-semibold);
+  }
+  .vm-table th:last-child { background: var(--bg-secondary); }
+  .vm-table tr:last-child td { border-bottom: 0; }
+  .vm-table tr:last-child td:first-child {
+    background: var(--bg-tertiary);
+    color: var(--fg-primary);
+    font-weight: var(--fw-semibold);
+    text-align: left;
+  }
+  .vm-table td:first-child, .vm-table th:first-child {
+    text-align: left;
+    padding: 6px 10px;
+    font-family: var(--font-body);
+    color: var(--fg-secondary);
+  }
+  .vm-table td:last-child { border-right: 0; }
+  .vm-table .cell {
+    width: 100%; height: 32px;
+    border: 0;
+    background: transparent;
+    padding: 6px 10px;
+    text-align: right;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--fg-primary);
+    font-size: var(--fs-xs);
+  }
+  .vm-table .cell:focus { outline: 2px solid var(--brand-500); outline-offset: -2px; background: var(--brand-50); }
+  .vm-table td.editing { background: var(--brand-50); box-shadow: inset 0 0 0 2px var(--brand-500); }
+  .vm-table td.invalid { background: #fef2f2; }
+  .vm-table td.invalid .cell { color: #b91c1c; }
+  .vm-table td.dirty .cell { color: var(--brand-700); font-weight: var(--fw-semibold); }
+  .vm-table .row-status {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 10px;
+  }
+
+  /* ============================================================
+     §2.5.8 — SensitivityView
+     ============================================================ */
+  .sensitivity {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: var(--r-md);
+    padding: var(--sp-5);
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: var(--sp-5);
+    min-width: 760px;
+  }
+  .sensitivity .sv-main {
+    display: flex; flex-direction: column;
+    gap: var(--sp-4);
+    min-width: 0;
+  }
+  .sensitivity .sv-head {
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .sensitivity .sv-section-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--fg-muted);
+    font-weight: var(--fw-semibold);
+    margin-bottom: var(--sp-2);
+  }
+  .sensitivity .sv-outcome {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--r-sm);
+    padding: var(--sp-3) var(--sp-4);
+  }
+  .sensitivity .sv-outcome .o-value {
+    font-family: var(--font-mono);
+    font-size: var(--fs-2xl);
+    font-weight: var(--fw-medium);
+    font-variant-numeric: tabular-nums;
+  }
+  .sensitivity .sv-outcome .o-band {
+    font-size: var(--fs-xs);
+    color: var(--fg-muted);
+    margin-top: 4px;
+  }
+  .sensitivity .assumption-row {
+    display: grid;
+    grid-template-columns: 1fr 80px 100px;
+    align-items: center;
+    gap: var(--sp-3);
+    padding: var(--sp-2) var(--sp-3);
+    border-radius: var(--r-sm);
+    background: var(--bg-secondary);
+  }
+  .sensitivity .assumption-row + .assumption-row { margin-top: 4px; }
+  .sensitivity .assumption-row .ar-label {
+    font-size: var(--fs-sm);
+    color: var(--fg-primary);
+  }
+  .sensitivity .assumption-row .ar-value {
+    text-align: right;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+  }
+  .sensitivity .assumption-row .ar-elasticity {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--fg-muted);
+    text-align: right;
+  }
+  .sensitivity .assumption-row .ar-elasticity.flip {
+    color: #c2410c;
+  }
+  .sensitivity .sv-side {
+    display: flex; flex-direction: column;
+    gap: var(--sp-3);
+    border-left: 1px solid var(--border-subtle);
+    padding-left: var(--sp-5);
+  }
+  .sensitivity .whatif-mini {
+    display: flex; align-items: center; gap: var(--sp-2);
+    padding: var(--sp-2) var(--sp-3);
+    border-radius: var(--r-sm);
+    background: var(--bg-secondary);
+    cursor: pointer;
+  }
+  .sensitivity .whatif-mini:hover { background: var(--bg-tertiary); }
+  .sensitivity .whatif-mini .wf-label {
+    flex: 1;
+    font-size: var(--fs-xs);
+    color: var(--fg-primary);
+  }
+  .sensitivity .whatif-mini .wf-delta {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    font-weight: var(--fw-semibold);
+  }
+</style>
+</head>
+<body>
+<div class="doc">
+
+  <header class="doc-header">
+    <div class="doc-eyebrow eyebrow">East UI · Patterns Catalogue</div>
+    <h1 class="doc-title h2">§2.5 Configure <span style="font-size: var(--fs-md); color: var(--fg-muted); font-weight: var(--fw-normal);">— part A · form-level</span></h1>
+    <p class="doc-sub lead">
+      Configure-mode patterns for editing the inputs that drive a view: assumptions, parameter forms,
+      guardrails, sum checks, calendar cells, presets, value grids, and sensitivity workbenches. Edits
+      emit patches; the parent composes a draft until commit.
+    </p>
+    <nav class="doc-toc">
+      <a href="#assumptions-bar">AssumptionsBar</a>
+      <a href="#parameter-form">ParameterFormSection</a>
+      <a href="#guardrail">GuardrailNotice</a>
+      <a href="#sum-check">SumCheckBadge</a>
+      <a href="#calendar-heatmap">CalendarHeatmap</a>
+      <a href="#preset-picker">PresetPicker</a>
+      <a href="#value-matrix">ValueMatrixEditor</a>
+      <a href="#sensitivity">SensitivityView</a>
+    </nav>
+    <p class="caption" style="margin-top: var(--sp-3);">
+      Continued in <a href="patterns-2.5-configure-b.html">part B · allocation &amp; flow</a> — AssignmentBoard, UnassignedTray, SourceLibrary, ConflictAnnotator, SwapRequest, SupplyDemandView, DraftPublishBar.
+    </p>
+  </header>
+
+  <!-- ========================================================
+       §2.5.1 AssumptionsBar
+       ======================================================== -->
+  <section class="pattern" id="assumptions-bar">
+    <div class="pattern-head">
+      <h2 class="pattern-name"><span class="anchor">2.5.1</span>AssumptionsBar</h2>
+      <p class="pattern-purpose">
+        Horizontal chip row of the assumptions driving the current view. Chips open edit popovers; each
+        edit emits a <code>Patch&lt;TAssumptions&gt;</code>. The parent composes incoming edits into a draft
+        until commit.
+      </p>
+      <div class="pattern-api">AssumptionsBar.Root&lt;TAssumptions&gt;({ stateType, assumptions, fields, onEdit, readOnly?, density? })</div>
+    </div>
+
+    <div class="examples">
+      <div class="example">
+        <div class="example-label">standard
+          <span class="sub">Mixed editable + read-only + dirty chips</span>
+        </div>
+        <div class="example-body">
+          <div class="assumptions-bar">
+            <span class="ab-label">Assumptions</span>
+            <span class="editable-chip">
+              <span class="ec-key">Period</span>
+              <span class="ec-value">FY26 Q1</span>
+              <span class="ec-icon">▾</span>
+            </span>
+            <span class="editable-chip dirty">
+              <span class="ec-key">Region</span>
+              <span class="ec-value">SE + VIC</span>
+              <span class="ec-icon">▾</span>
+            </span>
+            <span class="editable-chip">
+              <span class="ec-key">Channel</span>
+              <span class="ec-value">all</span>
+              <span class="ec-icon">▾</span>
+            </span>
+            <span class="editable-chip">
+              <span class="ec-key">Promo lift</span>
+              <span class="ec-value">+12%</span>
+              <span class="ec-icon">▾</span>
+            </span>
+            <span class="editable-chip read-only">
+              <span class="ec-key">Tax rate</span>
+              <span class="ec-value">10.0%</span>
+            </span>
+            <span class="editable-chip">
+              <span class="ec-key">FX</span>
+              <span class="ec-value">USD 1.52</span>
+              <span class="ec-icon">▾</span>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <hr class="sep">
+
+      <div class="example">
+        <div class="example-label">edit popover
+          <span class="sub">Click a chip — popover opens with field input</span>
+        </div>
+        <div class="example-body">
+          <div style="display: flex; gap: var(--sp-4); align-items: flex-start;">
+            <span class="editable-chip" style="background: var(--brand-50); border-color: var(--brand-500);">
+              <span class="ec-key">Promo lift</span>
+              <span class="ec-value">+12%</span>
+              <span class="ec-icon" style="background: rgba(72,142,151,0.18); color: var(--brand-700);">▾</span>
+            </span>
+            <div class="popover">
+              <div class="pop-head">Promo lift</div>
+              <input type="text" class="pop-input" value="+12%" />
+              <div style="font-size: 11px; color: var(--fg-muted); font-family: var(--font-mono);">range +0% to +30% · default +6%</div>
+              <div class="pop-actions">
+                <button class="btn ghost sm">Cancel</button>
+                <button class="btn primary sm">Apply</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <hr class="sep">
+
+      <div class="example">
+        <div class="example-label">density: compact
+          <span class="sub">Tighter — for inline use in a header</span>
+        </div>
+        <div class="example-body">
+          <div class="assumptions-bar" style="padding: var(--sp-2) var(--sp-3); min-width: 540px;">
+            <span class="editable-chip" style="font-size: 11px; padding: 2px 4px 2px 8px;">
+              <span class="ec-key">FY26 Q1</span>
+              <span class="ec-icon" style="width: 14px; height: 14px;">▾</span>
+            </span>
+            <span class="editable-chip" style="font-size: 11px; padding: 2px 4px 2px 8px;">
+              <span class="ec-key">SE + VIC</span>
+              <span class="ec-icon" style="width: 14px; height: 14px;">▾</span>
+            </span>
+            <span class="editable-chip" style="font-size: 11px; padding: 2px 4px 2px 8px;">
+              <span class="ec-key">all channels</span>
+              <span class="ec-icon" style="width: 14px; height: 14px;">▾</span>
+            </span>
+            <span class="editable-chip dirty" style="font-size: 11px; padding: 2px 4px 2px 8px;">
+              <span class="ec-key">+12% promo</span>
+              <span class="ec-icon" style="width: 14px; height: 14px;">▾</span>
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================
+       §2.5.2 ParameterFormSection
+       ======================================================== -->
+  <section class="pattern" id="parameter-form">
+    <div class="pattern-head">
+      <h2 class="pattern-name"><span class="anchor">2.5.2</span>ParameterFormSection</h2>
+      <p class="pattern-purpose">
+        Card-wrapped labelled inputs + guardrails. Each field edit emits a <code>Patch&lt;TParams&gt;</code>;
+        the section composes edits into a staged patch shown in the footer (commits via the standard
+        pipeline).
+      </p>
+      <div class="pattern-api">ParameterFormSection.Root&lt;TParams&gt;({ stateType, value, title, description?, fields, guardrails?, actions?, onEdit })</div>
+    </div>
+
+    <div class="examples">
+      <div class="example">
+        <div class="example-label">standard
+          <span class="sub">Title · description · field grid · guardrail · actions</span>
+        </div>
+        <div class="example-body">
+          <div class="param-section">
+            <div class="ps-head">
+              <div class="ps-title">Solver parameters · roster v1.3</div>
+              <div class="ps-desc">Tune these before kicking off the next planning cycle. Changes are staged until you commit.</div>
+            </div>
+
+            <div class="field-grid">
+              <div class="field with-unit">
+                <label class="f-label">Coverage floor</label>
+                <input class="f-input" value="98.5" />
+                <span class="f-unit">%</span>
+                <span class="f-help">range 95–100 · default 98.0</span>
+              </div>
+
+              <div class="field with-unit">
+                <label class="f-label">Max OT/worker/wk</label>
+                <input class="f-input" value="8" />
+                <span class="f-unit">hrs</span>
+                <span class="f-help">company policy max 12h</span>
+              </div>
+
+              <div class="field">
+                <label class="f-label">Solver mode</label>
+                <select class="f-input">
+                  <option>balanced (default)</option>
+                  <option>min cost</option>
+                  <option>max coverage</option>
+                </select>
+                <span class="f-help">balanced trades cost vs fairness</span>
+              </div>
+
+              <div class="field with-unit">
+                <label class="f-label">Time budget</label>
+                <input class="f-input" value="60" />
+                <span class="f-unit">s</span>
+                <span class="f-help dirty">edited · was 30s</span>
+              </div>
+
+              <div class="field span-2">
+                <label class="f-label">Notes (audit trail)</label>
+                <input class="f-input" placeholder="Optional — explains edits to reviewers" style="font-family: var(--font-body);" />
+              </div>
+            </div>
+
+            <div class="guardrail warning">
+              <div class="gr-icon">!</div>
+              <div class="gr-body">
+                <div class="gr-message">Lower coverage floor will trigger re-solve</div>
+                <div class="gr-reason">Staged edit drops coverage from 98.5% → 96.0%. Solver will re-run on commit (~45s).</div>
+                <div class="gr-meta">
+                  <span>est. recompute 45s</span>
+                </div>
+              </div>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: var(--sp-2); padding-top: var(--sp-2); border-top: 1px solid var(--border-subtle);">
+              <span class="pill brand">2 staged edits</span>
+              <div style="margin-left: auto; display: flex; gap: var(--sp-2);">
+                <button class="btn ghost">Reset</button>
+                <button class="btn secondary">Save draft</button>
+                <button class="btn primary">Run solver</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================
+       §2.5.3 GuardrailNotice
+       ======================================================== -->
+  <section class="pattern" id="guardrail">
+    <div class="pattern-head">
+      <h2 class="pattern-name"><span class="anchor">2.5.3</span>GuardrailNotice</h2>
+      <p class="pattern-purpose">
+        Structured warning paired with an icon (§0.3). <code>severity</code> selects palette:
+        <code>info</code> · <code>warning</code> · <code>danger</code>. Optional
+        <code>blockCommit</code> shows a "blocks commit" tag and disables the parent's submit button.
+      </p>
+      <div class="pattern-api">GuardrailNotice.Root({ severity, message, reason?, recomputeTime?, blockCommit?, onAcknowledge? })</div>
+    </div>
+
+    <div class="examples">
+      <div class="example">
+        <div class="example-label">info
+          <span class="sub">Heads-up — no friction</span>
+        </div>
+        <div class="example-body">
+          <div class="guardrail info">
+            <div class="gr-icon">i</div>
+            <div class="gr-body">
+              <div class="gr-message">Solver will use cached SE-region weather data</div>
+              <div class="gr-reason">Live source is paused for maintenance. Cached snapshot is 2h old; consistent with solver tolerance.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <hr class="sep">
+
+      <div class="example">
+        <div class="example-label">warning
+          <span class="sub">Significant change — disclose impact</span>
+        </div>
+        <div class="example-body">
+          <div class="guardrail warning">
+            <div class="gr-icon">!</div>
+            <div class="gr-body">
+              <div class="gr-message">Lowering coverage floor below 96% will trigger re-solve</div>
+              <div class="gr-reason">3 shifts will fall out of feasibility; the solver needs to rebalance assignments.</div>
+              <div class="gr-meta">
+                <span>est. recompute 45s</span>
+                <span>· affects 3 shifts</span>
+              </div>
+              <div class="gr-actions">
+                <button class="btn secondary sm">View affected</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <hr class="sep">
+
+      <div class="example">
+        <div class="example-label">danger · blocks commit
+          <span class="sub">Hard stop — commit disabled until resolved</span>
+        </div>
+        <div class="example-body">
+          <div class="guardrail danger">
+            <div class="gr-icon">×</div>
+            <div class="gr-body">
+              <div class="gr-message">Cannot commit: 2 award-rule violations</div>
+              <div class="gr-reason">Saturday-night premium not applied; under-18 worker on night shift. Both must resolve before publish.</div>
+              <div class="gr-actions">
+                <button class="btn secondary sm">Show violations</button>
+                <button class="btn primary sm">Auto-fix · 1 of 2</button>
+              </div>
+            </div>
+            <span class="gr-block">blocks commit</span>
+          </div>
+        </div>
+      </div>
+
+      <hr class="sep">
+
+      <div class="example">
+        <div class="example-label">acknowledged
+          <span class="sub">Reviewer has signed off — preserved for audit</span>
+        </div>
+        <div class="example-body">
+          <div class="guardrail warning" style="opacity: 0.85;">
+            <div class="gr-icon">✓</div>
+            <div class="gr-body">
+              <div class="gr-message">3 workers above weekly cap — acknowledged</div>
+              <div class="gr-reason">Cho 44h · Patel 42h · Nguyen 41h. Acknowledged by jchen@elara.ai · 4m ago.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================
+       §2.5.4 SumCheckBadge
+       ======================================================== -->
+  <section class="pattern" id="sum-check">
+    <div class="pattern-head">
+      <h2 class="pattern-name"><span class="anchor">2.5.4</span>SumCheckBadge</h2>
+      <p class="pattern-purpose">
+        Total-vs-target validation chip. Inline indicator showing whether a sum matches its target
+        within a tolerance. Used in <code>ValueMatrixEditor</code> row totals, budget allocations,
+        capacity / demand alignments, etc.
+      </p>
+      <div class="pattern-api">SumCheckBadge.Root({ current, target, tolerance?, format? })</div>
+    </div>
+
+    <div class="examples">
+      <div class="example">
+        <div class="example-label">on target
+          <span class="sub">|current − target| ≤ tolerance</span>
+        </div>
+        <div class="example-body">
+          <div class="row" style="gap: var(--sp-3);">
+            <span class="sumcheck ok">
+              <span class="sc-icon">✓</span>
+              <span class="sc-vals">100.0%<span class="sep">/</span>100%</span>
+              <span class="sc-tol">±0.5%</span>
+            </span>
+            <span class="sumcheck ok">
+              <span class="sc-icon">✓</span>
+              <span class="sc-vals">$2.00M<span class="sep">/</span>$2.00M</span>
+              <span class="sc-tol">±$10k</span>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <hr class="sep">
+
+      <div class="example">
+        <div class="example-label">tight
+          <span class="sub">Within tolerance but trending against target</span>
+        </div>
+        <div class="example-body">
+          <div class="row" style="gap: var(--sp-3);">
+            <span class="sumcheck tight">
+              <span class="sc-icon">!</span>
+              <span class="sc-vals">99.2%<span class="sep">/</span>100%</span>
+              <span class="sc-tol">−0.8%</span>
+            </span>
+            <span class="sumcheck tight">
+              <span class="sc-icon">!</span>
+              <span class="sc-vals">42<span class="sep">/</span>40</span>
+              <span class="sc-tol">+5.0% over</span>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <hr class="sep">
+
+      <div class="example">
+        <div class="example-label">bad
+          <span class="sub">Outside tolerance — must resolve to commit</span>
+        </div>
+        <div class="example-body">
+          <div class="row" style="gap: var(--sp-3);">
+            <span class="sumcheck bad">
+              <span class="sc-icon">×</span>
+              <span class="sc-vals">87.4%<span class="sep">/</span>100%</span>
+              <span class="sc-tol">−12.6%</span>
+            </span>
+            <span class="sumcheck bad">
+              <span class="sc-icon">×</span>
+              <span class="sc-vals">$1.74M<span class="sep">/</span>$2.00M</span>
+              <span class="sc-tol">−$260k</span>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <hr class="sep">
+
+      <div class="example">
+        <div class="example-label">in context
+          <span class="sub">Embedded in a value-matrix row total</span>
+        </div>
+        <div class="example-body">
+          <div style="display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-3) var(--sp-4); background: var(--bg-secondary); border-radius: var(--r-sm); border: 1px solid var(--border-subtle);">
+            <span style="font-size: var(--fs-sm); font-weight: var(--fw-medium);">SE region · daily mix</span>
+            <span style="font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--fg-muted); margin-left: auto;">25 + 30 + 20 + 25 = 100</span>
+            <span class="sumcheck ok">
+              <span class="sc-icon">✓</span>
+              <span class="sc-vals">100<span class="sep">/</span>100</span>
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================
+       §2.5.5 CalendarHeatmap
+       ======================================================== -->
+  <section class="pattern" id="calendar-heatmap">
+    <div class="pattern-head">
+      <h2 class="pattern-name"><span class="anchor">2.5.5</span>CalendarHeatmap</h2>
+      <p class="pattern-purpose">
+        Calendar grid + multi-select + legend. Each cell carries an intensity (0–4) tinted from the brand
+        scale or a category palette. <code>CalendarHeatmap.Weekly</code> is a 7-column preset for
+        Mon–Sun layouts.
+      </p>
+      <div class="pattern-api">CalendarHeatmap.Root({ cells, columns?, selected?, onToggle?, legend? })</div>
+    </div>
+
+    <div class="examples">
+      <div class="example">
+        <div class="example-label">weekly · 7 cols
+          <span class="sub">5-week activity view</span>
+        </div>
+        <div class="example-body">
+          <div class="heatmap">
+            <div class="hm-head">
+              <div class="hm-title">Activity · weeks of Apr 7 – May 5</div>
+              <div class="caption">5 weeks · click to select · drag for range</div>
+            </div>
+            <div class="heatmap-grid weekly">
+              <div></div>
+              <div class="hg-day-label">Mon</div>
+              <div class="hg-day-label">Tue</div>
+              <div class="hg-day-label">Wed</div>
+              <div class="hg-day-label">Thu</div>
+              <div class="hg-day-label">Fri</div>
+              <div class="hg-day-label">Sat</div>
+              <div class="hg-day-label">Sun</div>
+
+              <div class="hg-week-label">W15</div>
+              <div class="heatmap-cell l1">12</div>
+              <div class="heatmap-cell l2">28</div>
+              <div class="heatmap-cell l2">31</div>
+              <div class="heatmap-cell l3">42</div>
+              <div class="heatmap-cell l3">38</div>
+              <div class="heatmap-cell l1">8</div>
+              <div class="heatmap-cell">0</div>
+
+              <div class="hg-week-label">W16</div>
+              <div class="heatmap-cell l1">14</div>
+              <div class="heatmap-cell l2 selected">26</div>
+              <div class="heatmap-cell l2 selected">29</div>
+              <div class="heatmap-cell l3 selected">44</div>
+              <div class="heatmap-cell l3">40</div>
+              <div class="heatmap-cell l1">6</div>
+              <div class="heatmap-cell">0</div>
+
+              <div class="hg-week-label">W17</div>
+              <div class="heatmap-cell l2">18</div>
+              <div class="heatmap-cell l3">35</div>
+              <div class="heatmap-cell l4">52</div>
+              <div class="heatmap-cell warn">!</div>
+              <div class="heatmap-cell l3">38</div>
+              <div class="heatmap-cell l1">10</div>
+              <div class="heatmap-cell">0</div>
+
+              <div class="hg-week-label">W18</div>
+              <div class="heatmap-cell l2">22</div>
+              <div class="heatmap-cell l3">36</div>
+              <div class="heatmap-cell l3">40</div>
+              <div class="heatmap-cell l4">48</div>
+              <div class="heatmap-cell l3">42</div>
+              <div class="heatmap-cell l1">12</div>
+              <div class="heatmap-cell">0</div>
+
+              <div class="hg-week-label">W19</div>
+              <div class="heatmap-cell l2">20</div>
+              <div class="heatmap-cell l3">34</div>
+              <div class="heatmap-cell l3">38</div>
+              <div class="heatmap-cell l3">40</div>
+              <div class="heatmap-cell empty"></div>
+              <div class="heatmap-cell empty"></div>
+              <div class="heatmap-cell empty"></div>
+            </div>
+            <div class="heatmap-legend">
+              <span>0</span>
+              <span class="swatch-row">
+                <span class="swatch" style="background: var(--gray-100);"></span>
+                <span class="swatch" style="background: rgba(72,142,151,0.12);"></span>
+                <span class="swatch" style="background: rgba(72,142,151,0.32);"></span>
+                <span class="swatch" style="background: rgba(72,142,151,0.55);"></span>
+                <span class="swatch" style="background: var(--brand-500);"></span>
+              </span>
+              <span>52</span>
+              <span style="margin-left: var(--sp-3);">⚠ flagged</span>
+              <span style="margin-left: var(--sp-3);">3 cells selected</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <hr class="sep">
+
+      <div class="example">
+        <div class="example-label">day-of-week preset
+          <span class="sub">CalendarHeatmap.Weekly — single-row pattern picker</span>
+        </div>
+        <div class="example-body">
+          <div class="heatmap" style="min-width: 380px;">
+            <div class="hm-head">
+              <div class="hm-title">Default coverage by day-of-week</div>
+            </div>
+            <div class="heatmap-grid weekly" style="grid-template-columns: 24px repeat(7, 1fr);">
+              <div></div>
+              <div class="hg-day-label">Mon</div>
+              <div class="hg-day-label">Tue</div>
+              <div class="hg-day-label">Wed</div>
+              <div class="hg-day-label">Thu</div>
+              <div class="hg-day-label">Fri</div>
+              <div class="hg-day-label">Sat</div>
+              <div class="hg-day-label">Sun</div>
+
+              <div class="hg-week-label">cov</div>
+              <div class="heatmap-cell l3 selected">100%</div>
+              <div class="heatmap-cell l3 selected">100%</div>
+              <div class="heatmap-cell l3 selected">100%</div>
+              <div class="heatmap-cell l3 selected">100%</div>
+              <div class="heatmap-cell l4 selected">110%</div>
+              <div class="heatmap-cell l2">85%</div>
+              <div class="heatmap-cell l1">40%</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================
+       §2.5.6 PresetPicker
+       ======================================================== -->
+  <section class="pattern" id="preset-picker">
+    <div class="pattern-head">
+      <h2 class="pattern-name"><span class="anchor">2.5.6</span>PresetPicker</h2>
+      <p class="pattern-purpose">
+        "Conservative / Balanced / Aggressive"–style picker. A preset is a <em>named patch</em>:
+        selecting one applies <code>preset.patch</code> via the standard commit pipeline. Optional
+        <code>allowCustom</code> appends a dashed-border "Custom" tile.
+      </p>
+      <div class="pattern-api">PresetPicker.Root&lt;TParams&gt;({ stateType, presets, activeId?, onSelect, allowCustom? })</div>
+    </div>
+
+    <div class="examples">
+      <div class="example">
+        <div class="example-label">3 presets · with active
+          <span class="sub">Balanced is currently applied</span>
+        </div>
+        <div class="example-body">
+          <div class="preset-picker">
+            <div class="preset-card">
+              <span class="pc-radio"></span>
+              <div class="pc-label">Conservative</div>
+              <div class="pc-desc">Tight floor, minimal OT. Lowest cost; least flexibility.</div>
+              <div class="pc-meta">
+                <span class="pill neutral">cov 95%</span>
+                <span class="pill neutral">OT 4h</span>
+              </div>
+            </div>
+
+            <div class="preset-card active">
+              <span class="pc-radio"></span>
+              <div class="pc-label">Balanced</div>
+              <div class="pc-desc">Default for most planning cycles — trades cost vs fairness.</div>
+              <div class="pc-meta">
+                <span class="pill brand">cov 98%</span>
+                <span class="pill brand">OT 8h</span>
+              </div>
+            </div>
+
+            <div class="preset-card">
+              <span class="pc-radio"></span>
+              <div class="pc-label">Aggressive</div>
+              <div class="pc-desc">High coverage at any cost. Use for peaks or SLA-critical weeks.</div>
+              <div class="pc-meta">
+                <span class="pill neutral">cov 100%</span>
+                <span class="pill neutral">OT 12h</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <hr class="sep">
+
+      <div class="example">
+        <div class="example-label">with custom slot
+          <span class="sub">allowCustom: true — dashed tile lets the user fork the active preset</span>
+        </div>
+        <div class="example-body">
+          <div class="preset-picker">
+            <div class="preset-card">
+              <span class="pc-radio"></span>
+              <div class="pc-label">Conservative</div>
+              <div class="pc-desc">Tight floor, minimal OT.</div>
+            </div>
+            <div class="preset-card active">
+              <span class="pc-radio"></span>
+              <div class="pc-label">Balanced</div>
+              <div class="pc-desc">Default for most cycles.</div>
+            </div>
+            <div class="preset-card">
+              <span class="pc-radio"></span>
+              <div class="pc-label">Aggressive</div>
+              <div class="pc-desc">High coverage, any cost.</div>
+            </div>
+            <div class="preset-card custom">
+              <span class="pc-radio"></span>
+              <div class="pc-label" style="color: var(--fg-secondary);">+ Custom</div>
+              <div class="pc-desc">Fork the active preset and tune fields individually.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================
+       §2.5.7 ValueMatrixEditor
+       ======================================================== -->
+  <section class="pattern" id="value-matrix">
+    <div class="pattern-head">
+      <h2 class="pattern-name"><span class="anchor">2.5.7</span>ValueMatrixEditor</h2>
+      <p class="pattern-purpose">
+        Editable grid with per-row and per-column totals. Edits emit a <code>Patch&lt;TGrid&gt;</code>
+        per cell. Row-status chips (<code>SumCheckBadge</code>) light up red / orange / green based on
+        validation. Keyboard contract per §0.2: arrow-key navigation, enter to commit, escape to revert.
+      </p>
+      <div class="pattern-api">ValueMatrixEditor.Root&lt;TGrid&gt;({ stateType, value, columns, validate?, onEdit })</div>
+    </div>
+
+    <div class="examples">
+      <div class="example">
+        <div class="example-label">monthly mix
+          <span class="sub">Each row sums to 100% · invalid row tinted red</span>
+        </div>
+        <div class="example-body">
+          <div class="value-matrix">
+            <div class="vm-head">
+              <div class="vm-title">Channel mix · monthly · %</div>
+              <span class="pill neutral">3 staged edits</span>
+            </div>
+            <table class="vm-table">
+              <thead>
+                <tr>
+                  <th>Month</th>
+                  <th>Direct</th>
+                  <th>Marketplace</th>
+                  <th>Wholesale</th>
+                  <th>Retail</th>
+                  <th>Σ</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Apr</td>
+                  <td><input class="cell" value="42" /></td>
+                  <td><input class="cell" value="14" /></td>
+                  <td><input class="cell" value="20" /></td>
+                  <td><input class="cell" value="24" /></td>
+                  <td class="total">100</td>
+                  <td><span class="sumcheck ok" style="padding: 1px 6px; font-size: 10px;"><span class="sc-icon" style="width: 11px; height: 11px;">✓</span></span></td>
+                </tr>
+                <tr>
+                  <td>May</td>
+                  <td class="dirty"><input class="cell" value="44" /></td>
+                  <td><input class="cell" value="14" /></td>
+                  <td class="editing"><input class="cell" value="22" /></td>
+                  <td><input class="cell" value="22" /></td>
+                  <td class="total">102</td>
+                  <td><span class="sumcheck tight" style="padding: 1px 6px; font-size: 10px;"><span class="sc-icon" style="width: 11px; height: 11px;">!</span></span></td>
+                </tr>
+                <tr>
+                  <td>Jun</td>
+                  <td class="dirty"><input class="cell" value="48" /></td>
+                  <td class="invalid"><input class="cell" value="−2" /></td>
+                  <td><input class="cell" value="22" /></td>
+                  <td><input class="cell" value="20" /></td>
+                  <td class="total">88</td>
+                  <td><span class="sumcheck bad" style="padding: 1px 6px; font-size: 10px;"><span class="sc-icon" style="width: 11px; height: 11px;">×</span></span></td>
+                </tr>
+                <tr>
+                  <td>Jul</td>
+                  <td><input class="cell" value="40" /></td>
+                  <td><input class="cell" value="16" /></td>
+                  <td><input class="cell" value="20" /></td>
+                  <td><input class="cell" value="24" /></td>
+                  <td class="total">100</td>
+                  <td><span class="sumcheck ok" style="padding: 1px 6px; font-size: 10px;"><span class="sc-icon" style="width: 11px; height: 11px;">✓</span></span></td>
+                </tr>
+                <tr>
+                  <td>Σ</td>
+                  <td class="total">174</td>
+                  <td class="total">42</td>
+                  <td class="total">84</td>
+                  <td class="total">90</td>
+                  <td class="total">390</td>
+                  <td>&nbsp;</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <hr class="sep">
+
+      <div class="example">
+        <div class="example-label">keyboard hints
+          <span class="sub">Authoring with arrow-key navigation</span>
+        </div>
+        <div class="example-body">
+          <div style="font-size: var(--fs-xs); color: var(--fg-secondary); display: grid; grid-template-columns: auto 1fr; gap: 4px var(--sp-3); font-family: var(--font-mono); max-width: 520px;">
+            <span style="color: var(--brand-700); font-weight: var(--fw-semibold);">↑ ↓ ← →</span><span>navigate cells</span>
+            <span style="color: var(--brand-700); font-weight: var(--fw-semibold);">Enter</span><span>commit + move down</span>
+            <span style="color: var(--brand-700); font-weight: var(--fw-semibold);">Tab / Shift+Tab</span><span>commit + move right / left</span>
+            <span style="color: var(--brand-700); font-weight: var(--fw-semibold);">Esc</span><span>revert cell</span>
+            <span style="color: var(--brand-700); font-weight: var(--fw-semibold);">⌘Z</span><span>undo last edit (uses East.invertPatch)</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================
+       §2.5.8 SensitivityView
+       ======================================================== -->
+  <section class="pattern" id="sensitivity">
+    <div class="pattern-head">
+      <h2 class="pattern-name"><span class="anchor">2.5.8</span>SensitivityView</h2>
+      <p class="pattern-purpose">
+        Unified workbench: shows the <code>AssumptionsBar</code>, a small <code>WhatIfList</code>, and
+        <code>PresetPicker</code> alongside the outcome being driven. Each assumption carries elasticity
+        / flip-point so the user can see <em>which inputs matter</em>.
+      </p>
+      <div class="pattern-api">SensitivityView.Root({ assumptions, whatIfs, presets, outcome, onAssumptionEdit?, onWhatIf?, onPreset? })</div>
+    </div>
+
+    <div class="examples">
+      <div class="example">
+        <div class="example-label">workbench
+          <span class="sub">2-up: assumptions + outcome | what-ifs + presets</span>
+        </div>
+        <div class="example-body">
+          <div class="sensitivity">
+            <div class="sv-main">
+              <div class="sv-head">
+                <div class="sv-section-label">Outcome</div>
+                <div class="sv-outcome">
+                  <div class="o-value">$2.06M</div>
+                  <div class="o-band">±$110k 80% CI · target $2.00M · <span style="color: #15803d; font-weight: var(--fw-semibold);">+$60k surplus</span></div>
+                </div>
+              </div>
+
+              <div>
+                <div class="sv-section-label">Assumptions · drivers ranked by elasticity</div>
+                <div class="assumption-row">
+                  <span class="ar-label">Promo lift</span>
+                  <span class="ar-value">+12%</span>
+                  <span class="ar-elasticity flip">±2.4% per pp · flips at +6%</span>
+                </div>
+                <div class="assumption-row">
+                  <span class="ar-label">SE-region growth</span>
+                  <span class="ar-value">+14%</span>
+                  <span class="ar-elasticity">±1.8% per pp</span>
+                </div>
+                <div class="assumption-row">
+                  <span class="ar-label">FX (USD)</span>
+                  <span class="ar-value">1.52</span>
+                  <span class="ar-elasticity">±0.6% per ¢</span>
+                </div>
+                <div class="assumption-row">
+                  <span class="ar-label">Channel mix · direct share</span>
+                  <span class="ar-value">42%</span>
+                  <span class="ar-elasticity">±0.4% per pp</span>
+                </div>
+                <div class="assumption-row">
+                  <span class="ar-label">Cost of OT</span>
+                  <span class="ar-value">$48/h</span>
+                  <span class="ar-elasticity">±0.2% per $</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="sv-side">
+              <div>
+                <div class="sv-section-label">Apply preset</div>
+                <div style="display: flex; flex-direction: column; gap: var(--sp-2);">
+                  <label class="whatif-mini" style="cursor: pointer;">
+                    <input type="radio" name="p" style="margin: 0;" />
+                    <span class="wf-label">Conservative</span>
+                    <span class="wf-delta" style="color: var(--fg-muted);">−$120k</span>
+                  </label>
+                  <label class="whatif-mini" style="background: var(--brand-50); border: 1px solid var(--brand-100);">
+                    <input type="radio" name="p" checked style="margin: 0;" />
+                    <span class="wf-label">Balanced</span>
+                    <span class="wf-delta" style="color: var(--brand-700);">current</span>
+                  </label>
+                  <label class="whatif-mini">
+                    <input type="radio" name="p" style="margin: 0;" />
+                    <span class="wf-label">Aggressive</span>
+                    <span class="wf-delta" style="color: #15803d;">+$48k</span>
+                  </label>
+                </div>
+              </div>
+
+              <div>
+                <div class="sv-section-label">What if…</div>
+                <div style="display: flex; flex-direction: column; gap: var(--sp-2);">
+                  <div class="whatif-mini">
+                    <span class="wf-label">SE growth +20%</span>
+                    <span class="wf-delta" style="color: #15803d;">+$24k</span>
+                  </div>
+                  <div class="whatif-mini">
+                    <span class="wf-label">Promo lift cut to +6%</span>
+                    <span class="wf-delta" style="color: #b91c1c;">−$36k</span>
+                  </div>
+                  <div class="whatif-mini">
+                    <span class="wf-label">FX → 1.55</span>
+                    <span class="wf-delta" style="color: #15803d;">+$8k</span>
+                  </div>
+                  <div class="whatif-mini">
+                    <span class="wf-label">2 contractors hired</span>
+                    <span class="wf-delta" style="color: #15803d;">+$11k</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+</body>
+</html>

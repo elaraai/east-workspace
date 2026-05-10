@@ -9,8 +9,23 @@
  * @packageDocumentation
  */
 
+// Canonical Elara Chakra v3 system — wrap your root in `<ChakraProvider value={system}>`.
+export {
+    system,
+    tokens,
+    semanticTokens,
+    textStyles,
+    layerStyles,
+    globalCss,
+    buttonRecipe,
+    inputRecipe,
+} from "./theme/index.js";
+
 // Top-level component that renders any East UI component
 export { EastChakraComponent, type EastChakraComponentProps } from "./component.js";
+
+// Renderer-side primitives — shared chrome consumed by pattern renderers.
+export { Pill, type PillProps, type PillSize } from "./primitives/index.js";
 
 // Typography
 export {
@@ -18,6 +33,8 @@ export {
     EastChakraText,
     type TextValue,
     type EastChakraTextProps,
+    Markdown,
+    type MarkdownProps,
 } from "./typography/index.js";
 
 // Buttons
@@ -357,3 +374,15 @@ export {
     registerPlatformImplementation,
     getRegisteredPlatformImplementations,
 } from "./platform/registry.js";
+
+// UI extension mechanism — register renderers for components declared via
+// `EastUI.component(...)` in `@elaraai/east-ui`.
+export {
+    EastChakraExtension,
+    implementUIComponent,
+    getExtensionEntry,
+    hasExtensionRenderer,
+    clearExtensionRegistry,
+    type EastChakraExtensionProps,
+    type ExtensionRendererProps,
+} from "./extension/index.js";

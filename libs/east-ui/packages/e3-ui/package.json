@@ -16,6 +16,10 @@
     "./examples/data": {
       "types": "./dist/test/data.examples.d.ts",
       "default": "./dist/test/data.examples.js"
+    },
+    "./examples/diff": {
+      "types": "./dist/test/diff.examples.d.ts",
+      "default": "./dist/test/diff.examples.js"
     }
   },
   "files": [
@@ -30,7 +34,7 @@
   "scripts": {
     "build": "tsc",
     "lint": "eslint .",
-    "test": "echo 'no tests yet'"
+    "test": "node --enable-source-maps --test-reporter=spec --test 'dist/test/**/*.spec.js'"
   },
   "repository": {
     "type": "git",

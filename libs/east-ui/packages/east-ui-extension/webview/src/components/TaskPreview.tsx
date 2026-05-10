@@ -7,15 +7,17 @@ import { useE3Context } from '../context/E3Context';
 import {
     TaskPreview as TaskPreviewInner,
     StatusDisplay,
+    E3Provider,
     ReactiveDatasetProvider,
 } from '@elaraai/e3-ui-components';
 import { InputPreview } from './InputPreview';
 
 /**
  * Outer component that handles context. Wraps the renderer in
- * ReactiveDatasetProvider so Data.bind reads/writes inside UI tasks have a
- * cache to dispatch to. The key on the provider rebuilds the cache when
- * workspace changes, so per-workspace pollers don't leak across selections.
+ * `<E3Provider>` (server identity + auth) and `<ReactiveDatasetProvider>`
+ * (the dataset cache) so `Data.bind` reads/writes inside UI tasks have
+ * everything they need. The keys rebuild on workspace change so per-
+ * workspace pollers don't leak across selections.
  */
 export function TaskPreview() {
     const { apiUrl, selection } = useE3Context();
@@ -37,17 +39,19 @@ export function TaskPreview() {
     }
 
     return (
-        <ReactiveDatasetProvider
+        <E3Provider
             key={selectedWorkspace}
             config={{ apiUrl, repo: 'default', workspace: selectedWorkspace }}
         >
-            <TaskPreviewInner
-                key={`${selectedWorkspace}:${selectedTask}`}
-                apiUrl={apiUrl}
-                repo="default"
-                workspace={selectedWorkspace}
-                task={selectedTask}
-            />
-        </ReactiveDatasetProvider>
+            <ReactiveDatasetProvider>
+                <TaskPreviewInner
+                    key={`${selectedWorkspace}:${selectedTask}`}
+                    apiUrl={apiUrl}
+                    repo="default"
+                    workspace={selectedWorkspace}
+                    task={selectedTask}
+                />
+            </ReactiveDatasetProvider>
+        </E3Provider>
     );
 }

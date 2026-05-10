@@ -258,6 +258,11 @@ CpSatConfigType = StructType(
         ("log_search_progress", OptionType(BooleanType)),
         ("seed", OptionType(IntegerType)),
         ("max_solutions", OptionType(IntegerType)),
+        # Stop with status OPTIMAL once (best - lower_bound) / |best| <= this.
+        # e.g. 0.005 -> stop at 0.5% proven gap.
+        ("relative_gap_limit", OptionType(FloatType)),
+        # Stop with status OPTIMAL once (best - lower_bound) <= this (in objective units).
+        ("absolute_gap_limit", OptionType(FloatType)),
     ]
 )
 
@@ -493,6 +498,14 @@ def _build_model_and_solve(
     seed = _get_option(config.get("seed"), None)
     if seed is not None:
         solver.parameters.random_seed = int(seed)
+
+    rel_gap = _get_option(config.get("relative_gap_limit"), None)
+    if rel_gap is not None:
+        solver.parameters.relative_gap_limit = float(rel_gap)
+
+    abs_gap = _get_option(config.get("absolute_gap_limit"), None)
+    if abs_gap is not None:
+        solver.parameters.absolute_gap_limit = float(abs_gap)
 
     # Solve
     start_time = time.monotonic()

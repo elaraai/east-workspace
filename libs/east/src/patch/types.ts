@@ -28,6 +28,7 @@ import type {
   VariantType,
   RecursiveType,
 } from "../types.js";
+import type { variant as VariantValue } from "../containers/variant.js";
 
 // ============================================================================
 // Context types for recursive type handling
@@ -91,6 +92,63 @@ export interface InvertContext {
   equal: Map<bigint, (a: any, b: any) => boolean>;
 }
 
+/**
+ * A single conflict — two patches against the same base touch the same
+ * leaf with different intentions.
+ */
+export interface Conflict {
+  /**
+   * Dot/bracket-encoded path from the root of T down to the conflicting
+   * leaf. Format:
+   *   - struct field: dot-joined name (e.g. `policy.maxWeeklyHours`)
+   *   - array element: bracket-suffixed (e.g. `roster[2]`)
+   *   - dict entry:    brace-suffixed (e.g. `prices{Cabernet}`)
+   *   - variant case:  at-prefixed   (e.g. `status@active`)
+   *   - root:          empty string
+   */
+  path: string;
+  /** patchA's intended value at this path (whole patch operation, e.g. `{type:"replace",value:{before,after}}`). */
+  valueA: any;
+  /** patchB's intended value at this path. */
+  valueB: any;
+}
+
+/**
+ * Per-conflict resolution that the caller supplies to
+ * `mergeWithResolutionsFor`. Keys are paths (matching `Conflict.path`).
+ */
+export type Resolution =
+  | { type: "keepA" }
+  | { type: "keepB" }
+  | { type: "manual"; value: any };
+
+/**
+ * Context for building merge handlers with proper recursive type support.
+ *
+ * Carries only the merge-handler stack + types + equality cache. Unlike
+ * `ComposeContext`, merge does NOT need apply/invert handlers — every merge
+ * case is either a clean recursive walk over patch shapes, or a conflict that
+ * the caller resolves; we never need to apply or invert a sub-patch as part of
+ * merging.
+ */
+export interface MergeContext {
+  /** Merge handlers, indexed by type-stack depth. Used for recursive-type
+   *  back-references. The signature is the internal walker's; not exposed in
+   *  the public API. */
+  merge: Array<(
+    a: VariantValue<string, any>,
+    b: VariantValue<string, any>,
+    path: string,
+    accConflict: (path: string, vA: any, vB: any) => void,
+    lookup: ((path: string) => Resolution | undefined) | null,
+  ) => VariantValue<string, any>>;
+  /** Types at each level — used to resolve `Recursive n` back-references. */
+  types: Array<EastTypeValue>;
+  /** Equality handlers for recursive types, keyed by type id. Threaded
+   *  into every nested `equalFor(...)` call. */
+  equal: Map<bigint, (a: any, b: any) => boolean>;
+}
+
 // ============================================================================
 // Type-level PatchType (for TypeScript inference)
 // ============================================================================
@@ -145,11 +203,19 @@ export type PatchTypeOf<T extends EastType> =
 
 /**
  * Error thrown when patch operations encounter conflicts.
+ *
+ * For merge operations, the `conflicts` field lists every detected conflict
+ * with its path and the two divergent patch arms. The caller decides how to
+ * format / render this information.
  */
 export class ConflictError extends Error {
-  constructor(message: string) {
+  /** Detailed conflict list (only populated by merge / merge-with-resolutions). */
+  readonly conflicts: ReadonlyArray<Conflict>;
+
+  constructor(message: string, conflicts: ReadonlyArray<Conflict> = []) {
     super(message);
     this.name = "ConflictError";
+    this.conflicts = conflicts;
   }
 }
 

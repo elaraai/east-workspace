@@ -7,18 +7,20 @@
  * ReactiveDatasetCache for managing e3 dataset caching and reactivity.
  *
  * @remarks
- * Combines TanStack Query for network operations with a local
- * subscription system for reactive updates in East UI components.
+ * Hand-rolled cache + subscription layer over `@elaraai/e3-api-client`.
+ * The cache is a `Map<string, Uint8Array>` keyed by `(workspace, path)`;
+ * change notifications go to per-key subscribers and a single global
+ * subscriber set, with an optional `setScheduler` hook to defer flush
+ * out of React render. Hash-based polling against `workspaceStatus`
+ * detects server-side changes; only when a hash changes do we issue a
+ * full content fetch.
  *
- * This differs from raw `@elaraai/e3-api-client` dataset functions which
- * are for direct API calls without reactive binding or caching.
- *
- * Uses e3-api-client for all e3 API interactions.
+ * Independent from `@tanstack/react-query`. Other hooks in this package
+ * (status / repos) use TanStack on their own keys; this cache does not.
  *
  * @packageDocumentation
  */
 
-import { QueryClient } from "@tanstack/react-query";
 import { variant } from "@elaraai/east";
 import {
     datasetGet,
@@ -32,19 +34,91 @@ import {
 import type { TreePath, DatasetStatus as PlatformDatasetStatus } from "@elaraai/e3-types";
 
 /**
- * Configuration for the ReactiveDatasetCache.
+ * Timer abstraction the cache uses for periodic polling. Exists so
+ * tests can drive the poll loop deterministically with a fake clock
+ * instead of `setInterval` real-time.
+ */
+export interface Clock {
+    /** Schedule `fn` to run every `ms` milliseconds. Returns a handle
+     *  whose `clear()` cancels future invocations. */
+    setInterval(fn: () => void, ms: number): { clear(): void };
+}
+
+/** Default {@link Clock} backed by `globalThis.setInterval`. */
+export const realClock: Clock = {
+    setInterval(fn, ms) {
+        const id = setInterval(fn, ms);
+        return { clear: () => clearInterval(id) };
+    },
+};
+
+/**
+ * Adapter the cache uses for every server round-trip. Exists so tests
+ * (and any non-e3 host) can inject a synthetic implementation; the
+ * default wraps the `@elaraai/e3-api-client` module-level functions.
+ *
+ * The cache passes its own `apiUrl` / `repo` / `token` config to the
+ * adapter only via the {@link createDefaultDatasetApi} factory — the
+ * adapter itself doesn't see those values, so tests don't need to
+ * scaffold dummy URLs.
+ */
+export interface DatasetApi {
+    get(workspace: string, path: TreePath): Promise<Uint8Array>;
+    set(workspace: string, path: TreePath, value: Uint8Array): Promise<void>;
+    launchDataflow(workspace: string): Promise<void>;
+    listRoot(workspace: string): Promise<string[]>;
+    listAt(workspace: string, path: TreePath): Promise<string[]>;
+    workspaceStatus(workspace: string): Promise<{ datasets: DatasetStatusInfo[] }>;
+}
+
+/**
+ * Build the default {@link DatasetApi} that talks to a real e3 server
+ * via `@elaraai/e3-api-client`. Tests typically construct a
+ * hand-rolled adapter instead.
+ */
+export function createDefaultDatasetApi(
+    apiUrl: string,
+    repo: string,
+    getToken: () => string | null,
+): DatasetApi {
+    const opts = (): { token: string | null } => ({ token: getToken() });
+    return {
+        async get(workspace, path) {
+            const result = await datasetGet(apiUrl, repo, workspace, path, opts());
+            return result.data;
+        },
+        async set(workspace, path, value) {
+            await datasetSet(apiUrl, repo, workspace, path, value, opts());
+        },
+        async launchDataflow(workspace) {
+            await dataflowExecuteLaunch(apiUrl, repo, workspace, {}, opts());
+        },
+        async listRoot(workspace) {
+            return e3DatasetList(apiUrl, repo, workspace, opts());
+        },
+        async listAt(workspace, path) {
+            return datasetListAt(apiUrl, repo, workspace, path, opts());
+        },
+        async workspaceStatus(workspace) {
+            return workspaceStatus(apiUrl, repo, workspace, opts());
+        },
+    };
+}
+
+/**
+ * Configuration for the {@link ReactiveDatasetCache}.
+ *
+ * Strictly cache-internal — credentials and server identity (apiUrl,
+ * repo, token) live in the {@link E3Config} context exposed by
+ * `<E3Provider>`. The cache talks to the server only via the injected
+ * {@link DatasetApi} adapter, so it has no opinion on transport.
+ *
+ * @property workspace - The workspace this cache instance renders
+ *  against. Used by `Data.bind` to scope cache keys; consumed by
+ *  bind-runtime + the Diff renderer via `getConfig().workspace`.
  */
 export interface ReactiveDatasetCacheConfig {
-    /** Base URL of the e3 API server */
-    apiUrl: string;
-    /** Repository name (default: 'default') */
-    repo?: string;
-    /** Workspace name — required for Data.bind */
     workspace?: string;
-    /** Authentication token */
-    token?: string;
-    /** Default stale time in ms (default: 30000) */
-    staleTime?: number;
 }
 
 /**
@@ -130,13 +204,10 @@ function toTreePath(path: TreePath): TreePath {
  * are for direct API calls without reactive binding or caching.
  */
 export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
-    private queryClient: QueryClient;
+    private destroyed = false;
+    private api: DatasetApi;
     private config: {
-        apiUrl: string;
-        repo: string;
         workspace: string | undefined;
-        token: string | undefined;
-        staleTime: number;
     };
 
     // Local cache for synchronous access
@@ -159,13 +230,19 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
     private version: number = 0;
     private keyVersions: Map<string, number> = new Map();
 
-    // Workspace status polling - groups subscriptions by workspace for efficiency
-    // Maps workspace -> { intervalMs, paths, intervalId }
+    // Workspace status polling — groups subscriptions by workspace for
+    // efficiency. Each entry holds the active interval handle from the
+    // injected {@link Clock} so tests can drive ticking deterministically.
     private workspacePollers: Map<string, {
         intervalMs: number;
-        paths: Set<string>; // Set of path strings being watched
-        intervalId: ReturnType<typeof setInterval> | null;
+        paths: Set<string>;
+        handle: { clear(): void } | null;
     }> = new Map();
+    private readonly clock: Clock;
+
+    // In-flight poll dedup — concurrent callers (interval tick + a
+    // post-write trigger) share a single round-trip rather than racing.
+    private inFlightPolls: Map<string, Promise<void>> = new Map();
 
     // Batching
     private batchDepth: number = 0;
@@ -178,47 +255,21 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
     private scheduler: ((notify: () => void) => void) | undefined;
     private flushScheduled = false;
 
-    constructor(queryClient: QueryClient, config: ReactiveDatasetCacheConfig) {
-        this.queryClient = queryClient;
-        this.config = {
-            apiUrl: config.apiUrl,
-            repo: config.repo ?? "default",
-            workspace: config.workspace,
-            token: config.token,
-            staleTime: config.staleTime ?? 30000,
-        };
+    constructor(config: ReactiveDatasetCacheConfig, api: DatasetApi, clock: Clock = realClock) {
+        this.config = { workspace: config.workspace };
+        this.api = api;
+        this.clock = clock;
     }
 
     /**
-     * Get the configuration.
+     * Read the cache's own configuration. Server identity (apiUrl,
+     * repo, token) is NOT here — read it from `<E3Provider>` via
+     * `useE3Config()` instead.
      */
     getConfig(): ReactiveDatasetCacheConfig {
-        const result: ReactiveDatasetCacheConfig = {
-            apiUrl: this.config.apiUrl,
-            repo: this.config.repo,
-            staleTime: this.config.staleTime,
-        };
-        if (this.config.workspace !== undefined) {
-            result.workspace = this.config.workspace;
-        }
-        if (this.config.token !== undefined) {
-            result.token = this.config.token;
-        }
-        return result;
-    }
-
-    /**
-     * Create a TanStack Query key.
-     */
-    private queryKey(workspace: string, path: TreePath): readonly unknown[] {
-        return ["dataset", workspace, datasetPathToString(path)] as const;
-    }
-
-    /**
-     * Get request options for e3-api-client.
-     */
-    private getRequestOptions(): { token: string | null } {
-        return { token: this.config.token ?? null };
+        return this.config.workspace !== undefined
+            ? { workspace: this.config.workspace }
+            : {};
     }
 
     /**
@@ -250,51 +301,28 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
      * Write a dataset value (async - mutates remotely).
      */
     async write(workspace: string, path: TreePath, value: Uint8Array): Promise<void> {
+        if (this.destroyed) return;
         const key = datasetCacheKey(workspace, path);
 
-        // eslint-disable-next-line no-console
-        console.log('[cache.write] key=', key, 'bytes=', value.length, 'previousStatus=', this.statuses.get(key));
-
-        // Optimistic update
+        // Optimistic update — bytes go into the cache synchronously,
+        // status flips to `stale` until the server confirms. On any
+        // failure we restore everything atomically.
         const previous = this.cache.get(key);
         const previousHash = this.knownHashes.get(key);
         const previousStatus = this.statuses.get(key);
         this.cache.set(key, value);
-        // Mark hash as unknown until we get confirmation
         this.knownHashes.delete(key);
-        // Optimistically mark stale — server hasn't confirmed yet, and any
-        // downstream task outputs WILL be stale until they re-run.
         this.statuses.set(key, variant('stale', null));
-        // eslint-disable-next-line no-console
-        console.log('[cache.status] key=', key, 'status:', previousStatus?.type ?? 'unset', '→ stale (optimistic write)');
         this.notifyChange(key);
 
         try {
-            // Send to e3 using e3-api-client
-            await datasetSet(
-                this.config.apiUrl,
-                this.config.repo,
-                workspace,
-                toTreePath(path),
-                value,
-                this.getRequestOptions()
-            );
+            await this.api.set(workspace, toTreePath(path), value);
 
-            // Invalidate query cache
-            await this.queryClient.invalidateQueries({
-                queryKey: this.queryKey(workspace, path),
-            });
-
-            // Trigger a poll to get the new hash + authoritative status.
-            // pollWorkspaceStatus updates this.statuses from server-side info.
-            const poller = this.workspacePollers.get(workspace);
-            if (poller) {
-                this.pollWorkspaceStatus(workspace);
+            // Trigger a poll to refresh the hash + authoritative status.
+            if (this.workspacePollers.has(workspace)) {
+                void this.pollWorkspaceStatus(workspace);
             }
         } catch (error) {
-            // eslint-disable-next-line no-console
-            console.warn('[cache.write] rollback key=', key, 'reason=', (error as Error)?.message ?? error);
-            // Rollback on failure
             if (previous !== undefined) {
                 this.cache.set(key, previous);
                 if (previousHash !== undefined) {
@@ -322,19 +350,14 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
      */
     async writeAndStart(workspace: string, path: TreePath, value: Uint8Array): Promise<void> {
         await this.write(workspace, path, value);
-        await dataflowExecuteLaunch(
-            this.config.apiUrl,
-            this.config.repo,
-            workspace,
-            {},
-            this.getRequestOptions(),
-        );
+        await this.api.launchDataflow(workspace);
     }
 
     /**
      * Preload a dataset into cache.
      */
     async preload(workspace: string, path: TreePath): Promise<void> {
+        if (this.destroyed) return;
         const key = datasetCacheKey(workspace, path);
 
         // Check if already cached
@@ -353,6 +376,10 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
 
         try {
             const data = await fetchPromise;
+            // Bail if we destroyed during the await — otherwise we'd
+            // repopulate the cleared map and notify subscribers that
+            // were torn down on unmount.
+            if (this.destroyed) return;
             // Only update if not already set (another fetch might have completed)
             if (!this.cache.has(key)) {
                 this.cache.set(key, data);
@@ -363,42 +390,17 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
         }
     }
 
-    /**
-     * Fetch a dataset from e3 using e3-api-client.
-     */
-    private async fetchDataset(workspace: string, path: TreePath): Promise<Uint8Array> {
-        const result = await datasetGet(
-            this.config.apiUrl,
-            this.config.repo,
-            workspace,
-            toTreePath(path),
-            this.getRequestOptions()
-        );
-        return result.data;
+    private fetchDataset(workspace: string, path: TreePath): Promise<Uint8Array> {
+        return this.api.get(workspace, toTreePath(path));
     }
 
     /**
-     * List fields at a path using e3-api-client.
+     * List fields at a path. Empty path lists workspace root.
      */
-    async list(workspace: string, path: TreePath): Promise<string[]> {
-        if (path.length === 0) {
-            // Root listing
-            return e3DatasetList(
-                this.config.apiUrl,
-                this.config.repo,
-                workspace,
-                this.getRequestOptions()
-            );
-        } else {
-            // List at path
-            return datasetListAt(
-                this.config.apiUrl,
-                this.config.repo,
-                workspace,
-                toTreePath(path),
-                this.getRequestOptions()
-            );
-        }
+    list(workspace: string, path: TreePath): Promise<string[]> {
+        return path.length === 0
+            ? this.api.listRoot(workspace)
+            : this.api.listAt(workspace, toTreePath(path));
     }
 
     /**
@@ -414,117 +416,135 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
      */
     setRefetchInterval(workspace: string, path: TreePath, intervalMs: number): void {
         const pathStr = datasetPathToString(path);
-
-        // Get or create workspace poller
         let poller = this.workspacePollers.get(workspace);
 
         if (poller) {
-            // Add this path to the existing poller
             poller.paths.add(pathStr);
-
-            // If the new interval is shorter, restart with shorter interval
+            // If the new interval is shorter, restart with shorter interval.
             if (intervalMs < poller.intervalMs) {
-                if (poller.intervalId) {
-                    clearInterval(poller.intervalId);
-                }
+                poller.handle?.clear();
                 poller.intervalMs = intervalMs;
-                poller.intervalId = setInterval(
+                poller.handle = this.clock.setInterval(
                     () => this.pollWorkspaceStatus(workspace),
-                    intervalMs
+                    intervalMs,
                 );
             }
         } else {
-            // Create new poller for this workspace
             poller = {
                 intervalMs,
                 paths: new Set([pathStr]),
-                intervalId: setInterval(
+                handle: this.clock.setInterval(
                     () => this.pollWorkspaceStatus(workspace),
-                    intervalMs
+                    intervalMs,
                 ),
             };
             this.workspacePollers.set(workspace, poller);
-
-            // Do an immediate poll
-            this.pollWorkspaceStatus(workspace);
+            // Do an immediate poll. Promise is intentionally floated —
+            // the dedup map handles concurrency, errors are logged.
+            void this.pollWorkspaceStatus(workspace);
         }
     }
 
     /**
-     * Poll workspace status and check for hash changes.
+     * Poll workspace status and reconcile the cache with the server.
+     * Concurrent calls for the same workspace dedupe to a single fetch.
      */
-    private async pollWorkspaceStatus(workspace: string): Promise<void> {
+    private pollWorkspaceStatus(workspace: string): Promise<void> {
+        const existing = this.inFlightPolls.get(workspace);
+        if (existing) return existing;
+        const promise = this.doPollWorkspaceStatus(workspace).finally(() => {
+            this.inFlightPolls.delete(workspace);
+        });
+        this.inFlightPolls.set(workspace, promise);
+        return promise;
+    }
+
+    private async doPollWorkspaceStatus(workspace: string): Promise<void> {
+        if (this.destroyed) return;
         const poller = this.workspacePollers.get(workspace);
         if (!poller || poller.paths.size === 0) return;
 
+        let status;
         try {
-            const status = await workspaceStatus(
-                this.config.apiUrl,
-                this.config.repo,
-                workspace,
-                this.getRequestOptions()
-            );
+            status = await this.api.workspaceStatus(workspace);
+        } catch (error) {
+            console.error(`Failed to poll workspace status for ${workspace}:`, error);
+            return;
+        }
+        if (this.destroyed) return;
 
-            // Check each watched path for hash changes
+        // First pass — apply status updates synchronously, collect paths
+        // that need a content fetch. Doing these in two passes lets us
+        // batch the hash/status notifications under one `flush()` and
+        // run the fetches in parallel.
+        type PendingFetch =
+            | { kind: "fetch"; key: string; path: TreePath; pathStr: string; newHash: string }
+            | { kind: "clear"; key: string };
+        const pending: PendingFetch[] = [];
+
+        this.batch(() => {
             for (const pathStr of poller.paths) {
-                const e3Path = pathStr ? `.${pathStr}` : ""; // e3 uses leading dot
-                const datasetInfo = status.datasets.find(
-                    (d: DatasetStatusInfo) => d.path === e3Path
-                );
-
+                const e3Path = pathStr ? `.${pathStr}` : "";
+                const info = status.datasets.find((d: DatasetStatusInfo) => d.path === e3Path);
                 const key = pathStr ? `${workspace}.${pathStr}` : workspace;
-                // Extract hash from East Option type
-                const currentHash = datasetInfo?.hash?.type === "some"
-                    ? datasetInfo.hash.value
-                    : null;
+                const currentHash = info?.hash?.type === "some" ? info.hash.value : null;
                 const knownHash = this.knownHashes.get(key);
 
-                // Sync the platform status from the server response. This
-                // covers both our own writes (server eventually flips back
-                // to up-to-date once recomputation settles) and downstream
-                // outputs of OTHER inputs we touched (server marks them
-                // stale until their producing tasks rerun).
-                if (datasetInfo?.status) {
-                    const previousStatus = this.statuses.get(key);
-                    this.statuses.set(key, datasetInfo.status);
-                    if (!previousStatus || previousStatus.type !== datasetInfo.status.type) {
-                        // eslint-disable-next-line no-console
-                        console.log('[cache.status] key=', key, 'status:', previousStatus?.type ?? 'unset', '→', datasetInfo.status.type);
+                if (info?.status) {
+                    const previous = this.statuses.get(key);
+                    this.statuses.set(key, info.status);
+                    if (!previous || previous.type !== info.status.type) {
                         this.notifyChange(key);
                     }
                 }
 
-                // Check if hash changed (or if we don't have data yet)
                 if (currentHash !== knownHash || !this.cache.has(key)) {
-                    // Hash changed - fetch the new data
                     if (currentHash !== null) {
-                        // Dataset has a value - fetch it
-                        const path = this.stringToPath(pathStr);
-                        try {
-                            const data = await this.fetchDataset(workspace, path);
-                            // eslint-disable-next-line no-console
-                            console.log('[cache.value] key=', key, 'fetched bytes=', data.length, 'hash:', knownHash ?? '(none)', '→', currentHash);
-                            this.cache.set(key, data);
-                            this.knownHashes.set(key, currentHash);
-                            this.notifyChange(key);
-                        } catch (error) {
-                            console.error(`Failed to fetch dataset ${key}:`, error);
-                        }
-                    } else {
-                        // Dataset is unset - clear from cache
-                        if (this.cache.has(key)) {
-                            // eslint-disable-next-line no-console
-                            console.log('[cache.value] key=', key, 'cleared (server reports unset)');
-                            this.cache.delete(key);
-                            this.knownHashes.set(key, null);
-                            this.notifyChange(key);
-                        }
+                        pending.push({
+                            kind: "fetch",
+                            key,
+                            pathStr,
+                            path: this.stringToPath(pathStr),
+                            newHash: currentHash,
+                        });
+                    } else if (this.cache.has(key)) {
+                        pending.push({ kind: "clear", key });
                     }
                 }
             }
-        } catch (error) {
-            console.error(`Failed to poll workspace status for ${workspace}:`, error);
-        }
+        });
+
+        if (pending.length === 0) return;
+
+        // Run all fetches in parallel — N paths with hash changes used
+        // to cost N serialized round-trips. Errors per path are isolated.
+        const fetched = await Promise.allSettled(
+            pending.map(p => p.kind === "fetch"
+                ? this.fetchDataset(workspace, p.path).then(data => ({ p, data }))
+                : Promise.resolve({ p, data: null as Uint8Array | null }),
+            ),
+        );
+        if (this.destroyed) return;
+
+        this.batch(() => {
+            for (let i = 0; i < pending.length; i++) {
+                const p = pending[i]!;
+                const result = fetched[i]!;
+                if (result.status === "rejected") {
+                    console.error(`Failed to fetch dataset ${p.key}:`, result.reason);
+                    continue;
+                }
+                if (p.kind === "fetch") {
+                    this.cache.set(p.key, result.value.data!);
+                    this.knownHashes.set(p.key, p.newHash);
+                    this.notifyChange(p.key);
+                } else {
+                    this.cache.delete(p.key);
+                    this.knownHashes.set(p.key, null);
+                    this.notifyChange(p.key);
+                }
+            }
+        });
     }
 
     /**
@@ -548,7 +568,7 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
         if (typeof keyOrCallback === "function") {
             // Global subscription
             this.globalSubscribers.add(keyOrCallback);
-            return () => this.globalSubscribers.delete(keyOrCallback);
+            return () => { this.globalSubscribers.delete(keyOrCallback); };
         } else {
             // Key-specific subscription
             const key = keyOrCallback;
@@ -641,47 +661,59 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
         this.flushScheduled = false;
         if (this.changedKeys.size === 0) return;
 
-        // Increment version so useSyncExternalStore triggers re-render
+        // Snapshot + clear BEFORE notifying. Without this, a subscriber
+        // that mutates the cache during its callback would add new keys
+        // to `changedKeys`, which we'd then `clear()` at the end —
+        // silently dropping the new notifications. Snapshot-first lets
+        // the recursive flush (or the next batch) handle them.
+        const keys = [...this.changedKeys];
+        const globals = [...this.globalSubscribers];
+        this.changedKeys.clear();
+
         this.version++;
 
-        // Notify key-specific subscribers
-        for (const key of this.changedKeys) {
+        for (const key of keys) {
             const subs = this.keySubscribers.get(key);
-            if (subs) {
-                for (const cb of subs) cb();
-            }
+            if (subs) for (const cb of subs) cb();
         }
-
-        // Notify global subscribers
-        for (const cb of this.globalSubscribers) cb();
-
-        this.changedKeys.clear();
+        for (const cb of globals) cb();
     }
 
     /**
-     * Cleanup resources.
+     * Cleanup resources. After `destroy()` returns, in-flight fetches
+     * and polls that are still mid-await won't write to the cache —
+     * `this.destroyed` short-circuits their post-await branches.
      */
     destroy(): void {
-        // Clear workspace pollers
+        this.destroyed = true;
         for (const poller of this.workspacePollers.values()) {
-            if (poller.intervalId) {
-                clearInterval(poller.intervalId);
-            }
+            poller.handle?.clear();
         }
         this.workspacePollers.clear();
-
+        this.inFlightPolls.clear();
         this.keySubscribers.clear();
         this.globalSubscribers.clear();
         this.cache.clear();
         this.knownHashes.clear();
+        this.statuses.clear();
+        this.keyVersions.clear();
+        this.changedKeys.clear();
         this.pendingFetches.clear();
     }
 }
 
 /**
- * Create a new ReactiveDatasetCache.
+ * Create a new {@link ReactiveDatasetCache}. The caller is responsible
+ * for constructing a {@link DatasetApi} adapter; in a React tree the
+ * `<ReactiveDatasetProvider>` builds one from the surrounding
+ * `<E3Provider>`. Tests inject a fake `clock` to drive polling
+ * deterministically.
  */
-export function createReactiveDatasetCache(queryClient: QueryClient, config: ReactiveDatasetCacheConfig): ReactiveDatasetCache {
-    return new ReactiveDatasetCache(queryClient, config);
+export function createReactiveDatasetCache(
+    config: ReactiveDatasetCacheConfig,
+    api: DatasetApi,
+    clock?: Clock,
+): ReactiveDatasetCache {
+    return new ReactiveDatasetCache(config, api, clock);
 }
 

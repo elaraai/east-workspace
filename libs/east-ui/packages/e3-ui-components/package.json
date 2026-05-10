@@ -21,12 +21,18 @@
   ],
   "sideEffects": [
     "./dist/platform/dataset-runtime.js",
-    "./src/platform/dataset-runtime.ts"
+    "./src/platform/dataset-runtime.ts",
+    "./dist/platform/staged-runtime.js",
+    "./src/platform/staged-runtime.ts",
+    "./dist/diff/index.js",
+    "./src/diff/index.tsx"
   ],
   "scripts": {
-    "build": "tsc --noEmit && vite build",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "test": "node --import tsx --test test/*.spec.ts test/**/*.spec.ts"
   },
   "peerDependencies": {
     "@chakra-ui/react": "^3.0.0",
