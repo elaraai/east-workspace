@@ -438,6 +438,7 @@ jobs:
         with:
           packages-dir: dist-staging
           skip-existing: true
+          password: ${{ secrets.PYPI_TOKEN }}
 
   # ────────────────────────────────────────────────────────────────────────
   # 5. publish-c-native: linux-x64 + linux-arm64 + macos-arm64 + macos-x64 binary tarballs.
