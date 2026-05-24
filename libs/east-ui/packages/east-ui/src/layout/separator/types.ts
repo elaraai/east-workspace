@@ -7,7 +7,6 @@ import {
     type ExprType,
     type SubtypeExprOrValue,
     OptionType,
-    StringType,
     StructType,
     VariantType,
     NullType,
@@ -15,28 +14,28 @@ import {
 
 import {
     OrientationType,
-    SizeType,
 } from "../../style.js";
 import type {
     OrientationLiteral,
-    SizeLiteral,
 } from "../../style.js";
 import type { UIComponentType } from "../../component.js";
 
 /**
- * Separator variant type for line style.
+ * Separator variant type — the bsys `.rule` hairline set.
  *
  * @remarks
  * Create instances using East's variant function.
  *
- * @property solid - Solid continuous line
- * @property dashed - Dashed line
- * @property dotted - Dotted line
+ * @property subtle - 1px solid `rule` hairline (default)
+ * @property strong - 1px solid `rule-strong` hairline
+ * @property dashed - 1px dashed `rule-strong` hairline
+ * @property brand - 1px solid `brand` hairline
  */
 export const SeparatorVariantType = VariantType({
-    solid: NullType,
+    subtle: NullType,
+    strong: NullType,
     dashed: NullType,
-    dotted: NullType,
+    brand: NullType,
 });
 
 /**
@@ -47,7 +46,7 @@ export type SeparatorVariantType = typeof SeparatorVariantType;
 /**
  * String literal type for separator variant values.
  */
-export type SeparatorVariantLiteral = "solid" | "dashed" | "dotted";
+export type SeparatorVariantLiteral = "subtle" | "strong" | "dashed" | "brand";
 
 /**
  * Separator label alignment.
@@ -86,16 +85,12 @@ export type SeparatorAlignLiteral = "start" | "center" | "end";
  * struct.
  *
  * @property orientation - Orientation (horizontal or vertical)
- * @property variant - Line style variant (solid, dashed, dotted)
- * @property size - Thickness size
- * @property color - Colour (Chakra UI colour token or CSS colour)
+ * @property variant - Hairline variant (subtle, strong, dashed, brand)
  * @property align - Label alignment (start | center | end)
  */
 export const SeparatorStyleType = StructType({
     orientation: OptionType(OrientationType),
     variant: OptionType(SeparatorVariantType),
-    size: OptionType(SizeType),
-    color: OptionType(StringType),
     align: OptionType(SeparatorAlignType),
 });
 
@@ -112,9 +107,7 @@ export type SeparatorStyleType = typeof SeparatorStyleType;
  * explicit `UIComponentType` expression for full control.
  *
  * @property orientation - Orientation (horizontal or vertical)
- * @property variant - Line style variant (solid, dashed, dotted)
- * @property size - Thickness size
- * @property color - Color (Chakra UI color token or CSS color)
+ * @property variant - Hairline variant (subtle, strong, dashed, brand)
  * @property label - Optional label inside the separator line. `string` is
  *     coerced to `Text.Root`; pass a UIComponent expression for control.
  * @property align - Label alignment (start | center | end); defaults to center.
@@ -122,12 +115,8 @@ export type SeparatorStyleType = typeof SeparatorStyleType;
 export type SeparatorStyle = {
     /** Orientation (horizontal or vertical) */
     orientation?: SubtypeExprOrValue<OrientationType> | OrientationLiteral;
-    /** Line style variant */
+    /** Hairline variant (subtle, strong, dashed, brand) */
     variant?: SubtypeExprOrValue<SeparatorVariantType> | SeparatorVariantLiteral;
-    /** Thickness size */
-    size?: SubtypeExprOrValue<SizeType> | SizeLiteral;
-    /** Color (Chakra UI color token or CSS color) */
-    color?: SubtypeExprOrValue<StringType>;
     /**
      * Optional label. A plain string is coerced at the factory to a muted
      * uppercase caption `Text`. For dynamic strings (`East.str\`...\``) or

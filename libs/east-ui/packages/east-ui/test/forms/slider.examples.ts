@@ -3,15 +3,15 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { East, FloatType, NullType, example } from "@elaraai/east";
-import { Badge, Reactive, Slider, Stack, State, Text, UIComponentType } from "@elaraai/east-ui";
+import { Reactive, Slider, Stack, State, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const sliderBasic = example({
-    keywords: ["Slider", "Root", "min", "max", "step", "colorPalette"],
+    keywords: ["Slider", "Root", "min", "max", "step"],
     description: "Numeric range selection",
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.VStack([
-            Slider.Root(50.0, { min: 0, max: 100, colorPalette: "blue" }),
-            Slider.Root(25.0, { min: 0, max: 100, step: 25, colorPalette: "green" }),
+            Slider.Root(50.0, { min: 0, max: 100 }),
+            Slider.Root(25.0, { min: 0, max: 100, step: 25 }),
             Slider.Root(75.0, { min: 0, max: 100, disabled: true }),
         ], { gap: "4", align: "stretch", width: "100%" });
     }),
@@ -20,7 +20,7 @@ export const sliderBasic = example({
 
 export const sliderInteractive = example({
     keywords: ["Slider", "Root", "Reactive", "State", "onChange", "interactive"],
-    description: "Drag to see live value updates",
+    description: "Drag to see live value updates — paired with mono tabular readout",
     fn: East.function([], UIComponentType, (_$) => {
         return Reactive.Root(East.function([], UIComponentType, $ => {
             const sliderBind = $.let(State.bind([FloatType], "form_slider", 50.0));
@@ -30,17 +30,8 @@ export const sliderInteractive = example({
             }));
 
             return Stack.VStack([
-                Slider.Root(value, {
-                    min: 0,
-                    max: 100,
-                    colorPalette: "blue",
-                    onChange,
-                }),
-                Text.Root(East.str`Value: ${East.print(value)}`),
-                Badge.Root(
-                    East.str`${East.print(value)}%`,
-                    { colorPalette: "blue", variant: "solid" }
-                ),
+                Slider.Root(value, { min: 0, max: 100, onChange }),
+                Text.Presets.MonoKpi(East.str`${East.print(value)} %`),
             ], { gap: "3", align: "stretch" });
         }));
     }),
@@ -58,13 +49,8 @@ export const sliderOnChangeEnd = example({
                 $(bind.write(next));
             }));
             return Stack.VStack([
-                Slider.Root(value, {
-                    min: 0,
-                    max: 100,
-                    colorPalette: "purple",
-                    onChangeEnd,
-                }),
-                Text.Root(East.str`Committed value: ${East.print(value)}`),
+                Slider.Root(value, { min: 0, max: 100, onChangeEnd }),
+                Text.Presets.MonoLabel(East.str`COMMITTED · ${East.print(value)}`),
             ], { gap: "3", align: "stretch" });
         }));
     }),

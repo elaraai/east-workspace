@@ -18,7 +18,7 @@ import {
     type SeparatorStyle,
 } from "./types.js";
 import { UIComponentType } from "../../component.js";
-import { OrientationType, SizeType } from "../../style.js";
+import { OrientationType } from "../../style.js";
 import { Text } from "../../typography/text/index.js";
 
 // Re-export types
@@ -70,7 +70,7 @@ export type SeparatorType = typeof SeparatorType;
  * const example = East.function([], UIComponentType, $ => {
  *     return Separator.Root({
  *         orientation: "horizontal",
- *         variant: "solid",
+ *         variant: "subtle",
  *         label: "Cross-phase decisions",   // coerced to uppercase muted caption
  *         align: "center",
  *     });
@@ -92,12 +92,6 @@ function createSeparator(
             : style.variant)
         : undefined;
 
-    const sizeValue = style?.size
-        ? (typeof style.size === "string"
-            ? East.value(variant(style.size, null), SizeType)
-            : style.size)
-        : undefined;
-
     const alignValue = style?.align
         ? (typeof style.align === "string"
             ? East.value(variant(style.align, null), SeparatorAlignType)
@@ -116,11 +110,12 @@ function createSeparator(
     // `East.str` template expressions both read as "caption-shaped label" at
     // this factory.
     const isPlainString = typeof style?.label === "string";
-    // Only `textTransform` + `color` are wired onto `Text.Root` today; the
-    // semantic `textStyle: "caption"` lands alongside the §1.3 typography plan.
+    // Coerced labels render as a small uppercase muted caption (12px) so the
+    // divider label reads as an eyebrow, not body copy.
     const labelValue = style?.label !== undefined
         ? (isPlainString
             ? Text.Root(style.label as string, {
+                textStyle: "caption",
                 color: "fg.muted",
                 textTransform: "uppercase",
             })
@@ -129,16 +124,12 @@ function createSeparator(
 
     const hasVisualStyle = orientationValue !== undefined ||
         variantValue !== undefined ||
-        sizeValue !== undefined ||
-        style?.color !== undefined ||
         alignValue !== undefined;
 
     const styleValue = hasVisualStyle
         ? East.value({
             orientation: orientationValue ? variant("some", orientationValue) : variant("none", null),
             variant: variantValue ? variant("some", variantValue) : variant("none", null),
-            size: sizeValue ? variant("some", sizeValue) : variant("none", null),
-            color: style!.color ? variant("some", style!.color) : variant("none", null),
             align: alignValue ? variant("some", alignValue) : variant("none", null),
         }, SeparatorStyleType)
         : undefined;
@@ -163,8 +154,8 @@ export const Separator = {
          * the renderer's memoisation (`equalFor(Separator.Types.Separator)`).
          *
          * @remarks
-         * Visual fields (orientation, variant, size, colour, align) live in
-         * `style`. The `label` is content and stays on main.
+         * Visual fields (orientation, variant, align) live in `style`. The
+         * `label` is content and stays on main.
          *
          * @property label - Optional rich label inside the separator
          * @property style - Optional visual-only style sub-struct (see `Style`)
@@ -177,14 +168,12 @@ export const Separator = {
          * Mirror of `SeparatorStyleType` from `./types.js`.
          *
          * @property orientation - Orientation (horizontal or vertical)
-         * @property variant - Line style variant (solid, dashed, dotted)
-         * @property size - Thickness size
-         * @property color - Colour (Chakra UI colour token or CSS colour)
+         * @property variant - Hairline variant (subtle, strong, dashed, brand)
          * @property align - Label alignment (start | center | end)
          */
         Style: SeparatorStyleType,
         /**
-         * The `SeparatorVariantType` reusable variant (solid | dashed | dotted).
+         * The `SeparatorVariantType` reusable variant (subtle | strong | dashed | brand).
          */
         Variant: SeparatorVariantType,
         /**

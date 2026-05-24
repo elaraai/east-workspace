@@ -1,6 +1,6 @@
 Copyright (c) 2025 Elara AI Pty Ltd
 
-# Dual License
+# Dual License — AGPL-3.0 / Commercial
 
 This software is available under two licenses. You may choose which license applies to your use:
 

@@ -20,6 +20,10 @@
     "./examples/diff": {
       "types": "./dist/test/diff.examples.d.ts",
       "default": "./dist/test/diff.examples.js"
+    },
+    "./examples/ontology": {
+      "types": "./dist/test/ontology.examples.d.ts",
+      "default": "./dist/test/ontology.examples.js"
     }
   },
   "files": [
@@ -38,8 +42,8 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/elaraai/east-ui.git",
-    "directory": "packages/e3-ui"
+    "url": "git+https://github.com/elaraai/east-workspace.git",
+    "directory": "libs/east-ui/packages/e3-ui"
   },
   "keywords": [
     "east",
@@ -50,7 +54,7 @@
     "bindings"
   ],
   "author": "Elara AI Pty Ltd",
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "AGPL-3.0-or-later",
   "type": "module",
   "sideEffects": false,
   "engines": {

@@ -652,7 +652,7 @@ export const matrixCellPopover = example({
                         ],
                         popover: Stat.Root(
                             "Alice — Monday",
-                            Text.Root("6 booked / 2 free", { fontWeight: "bold", textStyle: "heading-md" }),
+                            "6 booked / 2 free",
                             { helpText: "Click again to dismiss." },
                         ),
                     },
@@ -660,7 +660,7 @@ export const matrixCellPopover = example({
                         segments: [{ category: "free", weight: 8.0 }],
                         popover: Stat.Root(
                             "Alice — Tuesday",
-                            Text.Root("Fully free", { fontWeight: "bold", textStyle: "heading-md" }),
+                            "Fully free",
                         ),
                     },
                 } },

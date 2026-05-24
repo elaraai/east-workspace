@@ -1,0 +1,101 @@
+{
+  "entries": [
+    {
+      "id": "e3:static:input-basic",
+      "skill": "e3",
+      "package": "e3",
+      "file": "static",
+      "suite": "e3.input",
+      "test": "Define an input dataset with a default value",
+      "keywords": ["e3", "input", "dataset", "default", "StringType", "IntegerType"],
+      "imports": [
+        "import { East, StringType, IntegerType } from '@elaraai/east';",
+        "import e3 from '@elaraai/e3';"
+      ],
+      "source": "// Define an input with a default value\nconst name = e3.input('name', StringType, 'default');\nconst count = e3.input('count', IntegerType);"
+    },
+    {
+      "id": "e3:static:task-basic",
+      "skill": "e3",
+      "package": "e3",
+      "file": "static",
+      "suite": "e3.task",
+      "test": "Define a task that runs an East function",
+      "keywords": ["e3", "task", "function", "dataflow", "dependency"],
+      "imports": [
+        "import { East, StringType } from '@elaraai/east';",
+        "import e3 from '@elaraai/e3';"
+      ],
+      "source": "// Define a task that runs an East function\nconst name = e3.input('name', StringType, 'World');\n\nconst greet = e3.task(\n  'greet',\n  [name],\n  East.function([StringType], StringType, ($, n) =>\n    East.str`Hello, ${n}!`\n  )\n);"
+    },
+    {
+      "id": "e3:static:task-chain",
+      "skill": "e3",
+      "package": "e3",
+      "file": "static",
+      "suite": "e3.task",
+      "test": "Chain tasks via .output",
+      "keywords": ["e3", "task", "chain", "output", "dependency", "pipeline"],
+      "imports": [
+        "import { East, StringType } from '@elaraai/east';",
+        "import e3 from '@elaraai/e3';"
+      ],
+      "source": "// Chain tasks via .output\nconst greet = e3.task(\n  'greet',\n  [name],\n  East.function([StringType], StringType, ($, n) =>\n    East.str`Hello, ${n}!`\n  )\n);\n\nconst shout = e3.task(\n  'shout',\n  [greet.output],\n  East.function([StringType], StringType, ($, s) => s.toUpperCase())\n);"
+    },
+    {
+      "id": "e3:static:task-python-runner",
+      "skill": "e3",
+      "package": "e3",
+      "file": "static",
+      "suite": "e3.task",
+      "test": "Define a task with a custom Python runner",
+      "keywords": ["e3", "task", "runner", "python", "uv", "east-py"],
+      "imports": [
+        "import { East, IntegerType } from '@elaraai/east';",
+        "import e3 from '@elaraai/e3';"
+      ],
+      "source": "// Define a task with a custom Python runner\nconst pyTask = e3.task(\n  'py_task',\n  [input],\n  East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)),\n  { runner: ['uv', 'run', 'east-py', 'run', '-p', 'east-py-std'] }\n);"
+    },
+    {
+      "id": "e3:static:custom-task",
+      "skill": "e3",
+      "package": "e3",
+      "file": "static",
+      "suite": "e3.customTask",
+      "test": "Define a task that runs a shell command",
+      "keywords": ["e3", "customTask", "shell", "command", "script", "process"],
+      "imports": [
+        "import { East, StringType } from '@elaraai/east';",
+        "import e3 from '@elaraai/e3';"
+      ],
+      "source": "// Define a task that runs a shell command\nconst process = e3.customTask(\n  'process',\n  [rawData],\n  StringType,\n  ($, input_paths, output_path) =>\n    East.str`python script.py -i ${input_paths.get(0n)} -o ${output_path}`\n);"
+    },
+    {
+      "id": "e3:static:package-export",
+      "skill": "e3",
+      "package": "e3",
+      "file": "static",
+      "suite": "e3.package",
+      "test": "Bundle tasks into a package and export to zip",
+      "keywords": ["e3", "package", "export", "bundle", "zip", "deploy"],
+      "imports": [
+        "import e3 from '@elaraai/e3';"
+      ],
+      "source": "// Bundle tasks into a package and export to zip\nconst pkg = e3.package('myapp', '1.0.0', finalTask);\nawait e3.export(pkg, '/tmp/myapp.zip');\nexport default pkg;"
+    },
+    {
+      "id": "e3:static:full-example",
+      "skill": "e3",
+      "package": "e3",
+      "file": "static",
+      "suite": "e3 Quick Start",
+      "test": "Complete e3 package with input, task, package, and export",
+      "keywords": ["e3", "input", "task", "package", "export", "complete", "example", "hello world"],
+      "imports": [
+        "import { East, StringType } from '@elaraai/east';",
+        "import e3 from '@elaraai/e3';"
+      ],
+      "source": "// Complete e3 package with input, task, package, and export\nconst name = e3.input('name', StringType, 'World');\n\nconst greet = e3.task(\n  'greet',\n  [name],\n  East.function([StringType], StringType, ($, n) =>\n    East.str`Hello, ${n}!`\n  )\n);\n\nconst pkg = e3.package('hello', '1.0.0', greet);\nawait e3.export(pkg, '/tmp/hello.zip');\nexport default pkg;"
+    }
+  ]
+}

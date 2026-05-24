@@ -25,13 +25,15 @@ export interface EastChakraKbdProps {
 export const EastChakraKbd = memo(function EastChakraKbd({ value }: EastChakraKbdProps) {
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
 
+    /* Default to the spec-conformant `flat` variant — no drop shadow.
+     * pattern_spec `.kbd` is a flat 3 px chip; the `raised` Chakra default
+     * with `0 2px 0 …` was non-spec. Callers opt into `raised` explicitly. */
     const variant = style ? (getSomeorUndefined(style.variant)?.type as string | undefined) : undefined;
     const size = style ? (getSomeorUndefined(style.size)?.type as string | undefined) : undefined;
     const colorPalette = style ? getSomeorUndefined(style.colorPalette)?.type : undefined;
     const color = style ? getSomeorUndefined(style.color) : undefined;
     const background = style ? getSomeorUndefined(style.background) : undefined;
     const borderColor = style ? getSomeorUndefined(style.borderColor) : undefined;
-    const shadowColor = style ? getSomeorUndefined(style.shadowColor) : undefined;
 
     const keys = value.keys;
 
@@ -41,13 +43,12 @@ export const EastChakraKbd = memo(function EastChakraKbd({ value }: EastChakraKb
                 <Fragment key={i}>
                     {i > 0 && <ChakraText as="span" color="fg.muted">+</ChakraText>}
                     <ChakraKbd
-                        variant={variant === "solid" ? "raised" : (variant as "outline" | "subtle" | "plain" | "raised" | undefined)}
+                        variant={(variant ?? "flat") as "outline" | "subtle" | "plain" | "raised" | "flat" | undefined}
                         size={(size === "xs" || size === "xl" || size === "2xl" ? "sm" : size) as "sm" | "md" | "lg" | undefined}
                         colorPalette={colorPalette}
                         color={color}
                         background={background}
                         borderColor={borderColor}
-                        boxShadow={shadowColor ? `0 2px 0 ${shadowColor}` : undefined}
                     >
                         {key}
                     </ChakraKbd>

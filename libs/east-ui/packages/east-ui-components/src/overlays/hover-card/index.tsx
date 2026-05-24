@@ -56,14 +56,18 @@ export const EastChakraHoverCard = memo(function EastChakraHoverCard({ value, st
             onOpenChange={onOpenChangeFn ? handleOpenChange : undefined}
         >
             <ChakraHoverCard.Trigger asChild>
-                <span>
+                <span style={{ display: "inline-flex" }}>
                     <EastChakraComponent value={value.trigger} storageKey={`${storageKey}.trigger`} />
                 </span>
             </ChakraHoverCard.Trigger>
             <Portal>
                 <ChakraHoverCard.Positioner>
-                    <ChakraHoverCard.Content width="fit-content" maxWidth="unset">
-                        {hasArrow && <ChakraHoverCard.Arrow />}
+                    <ChakraHoverCard.Content padding="14px 16px" minW="240px" maxW="320px">
+                        {hasArrow && (
+                            <ChakraHoverCard.Arrow>
+                                <ChakraHoverCard.ArrowTip />
+                            </ChakraHoverCard.Arrow>
+                        )}
                         {value.body.map((child, index) => (
                             <EastChakraComponent key={index} value={child} storageKey={`${storageKey}.${index}`} />
                         ))}

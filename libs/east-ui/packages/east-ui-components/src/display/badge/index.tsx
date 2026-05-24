@@ -32,7 +32,7 @@ export function toChakraBadge(value: BadgeValue): BadgeProps {
 
     return {
         display: "flex",
-        variant: getSomeorUndefined(style.variant)?.type,
+        variant: getSomeorUndefined(style.variant)?.type as BadgeProps["variant"] | undefined,
         colorPalette: getSomeorUndefined(style.colorPalette)?.type,
         size: getSomeorUndefined(style.size)?.type,
         opacity: getSomeorUndefined(style.opacity),

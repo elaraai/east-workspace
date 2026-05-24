@@ -46,7 +46,8 @@ export * from "./forms/tags-input/types.js";
 
 // Feedback
 export * from "./feedback/index.js";
-export * from "./feedback/alert/types.js";
+export * from "./feedback/banner/status-type.js";
+export * from "./feedback/banner/types.js";
 export * from "./feedback/progress/types.js";
 
 // Display

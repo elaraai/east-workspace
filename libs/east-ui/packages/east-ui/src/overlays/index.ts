@@ -22,12 +22,6 @@ export { HoverCard } from "./hover-card/index.js";
 export { ActionBar } from "./action-bar/index.js";
 export { ToggleTip } from "./toggle-tip/index.js";
 export {
-    CoachMark,
-    CoachMarkType,
-    CoachMarkStyleType,
-} from "./coach-mark/index.js";
-export type { CoachMarkStyle } from "./coach-mark/index.js";
-export {
     CommandPalette,
     CommandPaletteType,
     CommandPaletteStyleType,

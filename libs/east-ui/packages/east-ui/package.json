@@ -81,18 +81,6 @@
       "types": "./dist/test/charts/index.d.ts",
       "default": "./dist/test/charts/index.js"
     },
-    "./examples/integration": {
-      "types": "./dist/test/integration/index.d.ts",
-      "default": "./dist/test/integration/index.js"
-    },
-    "./examples/integration/*": {
-      "types": "./dist/test/integration/*.examples.d.ts",
-      "default": "./dist/test/integration/*.examples.js"
-    },
-    "./examples/reactive": {
-      "types": "./dist/test/reactive/reactive.examples.d.ts",
-      "default": "./dist/test/reactive/reactive.examples.js"
-    },
     "./examples/typography/*": {
       "types": "./dist/test/typography/*.examples.d.ts",
       "default": "./dist/test/typography/*.examples.js"
@@ -147,14 +135,14 @@
     "example": "node --enable-source-maps dist/examples/example.js",
     "test": "npm run build && npm run lint && node --enable-source-maps --test-reporter=spec --test 'dist/test/**/*.spec.js' 'dist/src/**/*.spec.js'",
     "test:coverage": "npm run build && npm run lint && node --enable-source-maps --test-reporter=spec --test --experimental-test-coverage 'dist/test/**/*.spec.js' 'dist/src/**/*.spec.js'",
-    "test:export": "npm run build && npm run lint && EXPORT_TEST_IR=1 npm test 2>&1 | grep 'Exported test IR'",
+    "test:export": "npm run build && npm run lint && rm -rf /tmp/east-ui-tests && EXPORT_TEST_IR=/tmp/east-ui-tests npm test 2>&1 | grep 'Exported test IR'",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/elaraai/east-ui.git",
-    "directory": "packages/east-ui"
+    "url": "git+https://github.com/elaraai/east-workspace.git",
+    "directory": "libs/east-ui/packages/east-ui"
   },
   "keywords": [
     "east",
@@ -163,7 +151,7 @@
     "components"
   ],
   "author": "Elara AI Pty Ltd",
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "AGPL-3.0-or-later",
   "type": "module",
   "engines": {
     "node": ">=22.0.0"

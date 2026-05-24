@@ -4,7 +4,7 @@
  */
 
 import { memo, useMemo } from "react";
-import { Box, HStack } from "@chakra-ui/react";
+import { Box, useSlotRecipe } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Meter } from "@elaraai/east-ui";
 import { EastChakraComponent } from "../../component";
@@ -15,33 +15,15 @@ const meterEqual = equalFor(Meter.Types.Meter);
 /** East Meter value type. */
 export type MeterValue = ValueTypeOf<typeof Meter.Types.Meter>;
 
-const THICKNESS_PX: Record<string, string> = {
-    xs: "2px",
-    sm: "4px",
-    md: "6px",
-    lg: "8px",
-};
-
-const TONE_FILL: Record<string, string> = {
-    success: "green.500",
-    warning: "orange.500",
-    danger: "red.500",
-    info: "blue.500",
-    neutral: "gray.400",
-};
-
 export interface EastChakraMeterProps {
     value: MeterValue;
     storageKey: string;
 }
 
 /**
- * Renders an East UI Meter using pure Chakra v3 `Box` composition.
- *
- * @remarks
- * Track = outer `Box` at full width with the thickness height. Fill =
- * inner `Box` with `width = (value / max) * 100%`. Tone drives the
- * default fill palette; `style.fillColor` / `style.trackColor` override.
+ * Renders an East UI Meter from the `meter` slot recipe — spec progress
+ * grammar (6px paper-3 track, radius-full, brand-d fill, mono percent). The
+ * renderer supplies only the dynamic fill width + escape-hatch overrides.
  */
 export const EastChakraMeter = memo(function EastChakraMeter({ value, storageKey }: EastChakraMeterProps) {
     const label = useMemo(() => getSomeorUndefined(value.label), [value.label]);
@@ -49,48 +31,30 @@ export const EastChakraMeter = memo(function EastChakraMeter({ value, storageKey
     const tone = useMemo(() => getSomeorUndefined(value.tone)?.type, [value.tone]);
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
 
-    const thicknessTag = style ? getSomeorUndefined(style.thickness)?.type ?? "sm" : "sm";
-    const height = THICKNESS_PX[thicknessTag] ?? "4px";
-    const borderRadius = (style && getSomeorUndefined(style.borderRadius)) ?? "sm";
-    const fillColor = (style && getSomeorUndefined(style.fillColor))
-        ?? (tone ? TONE_FILL[tone] : "blue.500");
-    const trackColor = (style && getSomeorUndefined(style.trackColor)) ?? "gray.100";
+    const thickness = style ? getSomeorUndefined(style.thickness)?.type : undefined;
+    const fillColor = style ? getSomeorUndefined(style.fillColor) : undefined;
+    const trackColor = style ? getSomeorUndefined(style.trackColor) : undefined;
     const labelColor = style ? getSomeorUndefined(style.labelColor) : undefined;
+    const borderRadius = style ? getSomeorUndefined(style.borderRadius) : undefined;
+    const showValue = (style ? getSomeorUndefined(style.showValue) : undefined) ?? true;
+
+    const styles = useSlotRecipe({ key: "meter" })({ thickness, tone });
 
     const clamped = Math.max(0, Math.min(Number(value.value) / Number(max), 1));
     const percent = `${(clamped * 100).toFixed(2)}%`;
-
-    const track = (
-        <Box
-            position="relative"
-            width="full"
-            height={height}
-            bg={trackColor}
-            borderRadius={borderRadius}
-            overflow="hidden"
-        >
-            <Box
-                position="absolute"
-                top="0"
-                left="0"
-                bottom="0"
-                width={percent}
-                bg={fillColor}
-                borderRadius={borderRadius}
-            />
-        </Box>
-    );
-
-    if (!label) {
-        return track;
-    }
+    const percentLabel = `${Math.round(clamped * 100)}%`;
 
     return (
-        <HStack gap="3" align="center" width="full">
-            <Box color={labelColor} flexShrink={0}>
-                <EastChakraComponent value={label} storageKey={`${storageKey}.label`} />
+        <Box css={styles.root}>
+            {label && (
+                <Box css={styles.label} color={labelColor}>
+                    <EastChakraComponent value={label} storageKey={`${storageKey}.label`} />
+                </Box>
+            )}
+            <Box css={styles.track} bg={trackColor} borderRadius={borderRadius}>
+                <Box css={styles.fill} width={percent} bg={fillColor} borderRadius={borderRadius} />
             </Box>
-            <Box flex="1">{track}</Box>
-        </HStack>
+            {showValue && <Box as="span" css={styles.value}>{percentLabel}</Box>}
+        </Box>
     );
 }, (prev, next) => meterEqual(prev.value, next.value) && prev.storageKey === next.storageKey);

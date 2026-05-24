@@ -163,6 +163,14 @@ export const StyleVariantType = VariantType({
     subtle: NullType,
     solid: NullType,
     outline: NullType,
+    brand: NullType,
+    ok: NullType,
+    warn: NullType,
+    danger: NullType,
+    dashed: NullType,
+    plain: NullType,
+    count: NullType,
+    callout: NullType,
 });
 
 /**
@@ -171,9 +179,20 @@ export const StyleVariantType = VariantType({
 export type StyleVariantType = typeof StyleVariantType;
 
 /**
- * String literal type for style variant values (solid, subtle, outline).
+ * String literal type for style variant values.
  */
-export type StyleVariantLiteral = "subtle" | "solid" | "outline";
+export type StyleVariantLiteral =
+    | "subtle"
+    | "solid"
+    | "outline"
+    | "brand"
+    | "ok"
+    | "warn"
+    | "danger"
+    | "dashed"
+    | "plain"
+    | "count"
+    | "callout";
 
 /**
  * Creates a badge variant expression.
@@ -188,6 +207,6 @@ export type StyleVariantLiteral = "subtle" | "solid" | "outline";
  * const subtle = variant("subtle", null);
  * ```
  */
-export function StyleVariant(variant_: "subtle" | "solid" | "outline"): ExprType<StyleVariantType> {
+export function StyleVariant(variant_: StyleVariantLiteral): ExprType<StyleVariantType> {
     return East.value(variant(variant_, null), StyleVariantType);
 }

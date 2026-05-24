@@ -91,6 +91,7 @@ function createField(
         orientationValue !== undefined ||
         style.labelColor !== undefined ||
         style.helperTextColor !== undefined ||
+        style.schemaKey !== undefined ||
         style.requiredIndicatorColor !== undefined ||
         style.errorColor !== undefined ||
         style.warningColor !== undefined ||
@@ -101,6 +102,7 @@ function createField(
         orientation: orientationValue ? some(orientationValue) : none,
         labelColor: style!.labelColor !== undefined ? some(style!.labelColor) : none,
         helperTextColor: style!.helperTextColor !== undefined ? some(style!.helperTextColor) : none,
+        schemaKey: style!.schemaKey !== undefined ? some(style!.schemaKey) : none,
         requiredIndicatorColor: style!.requiredIndicatorColor !== undefined ? some(style!.requiredIndicatorColor) : none,
         errorColor: style!.errorColor !== undefined ? some(style!.errorColor) : none,
         warningColor: style!.warningColor !== undefined ? some(style!.warningColor) : none,

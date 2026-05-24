@@ -97,8 +97,6 @@ export const IterativeConfigType = StructType({
     random_state: OptionType(IntegerType),
     /** Optimization mode: coordinate (default) or swap for permutations */
     mode: OptionType(ModeType),
-    /** Number of parallel worker threads for samples (default: 1) */
-    workers: OptionType(IntegerType),
 });
 
 /**

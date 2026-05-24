@@ -11,12 +11,11 @@ describeEast("Separator", (test) => {
     Assert.examples(test, {
         separatorHorizontal: ex.separatorHorizontal,
         separatorVertical: ex.separatorVertical,
-        separatorSolid: ex.separatorSolid,
+        separatorSubtle: ex.separatorSubtle,
+        separatorStrong: ex.separatorStrong,
         separatorDashed: ex.separatorDashed,
-        separatorDotted: ex.separatorDotted,
-        separatorSizes: ex.separatorSizes,
+        separatorBrand: ex.separatorBrand,
         separatorLabeled: ex.separatorLabeled,
-        separatorColored: ex.separatorColored,
         separatorFormDivider: ex.separatorFormDivider,
         separatorWithEyebrow: ex.separatorWithEyebrow,
         separatorAlignedStart: ex.separatorAlignedStart,
@@ -50,13 +49,19 @@ describeEast("Separator", (test) => {
     });
 
     // =========================================================================
-    // Variant (Line Style)
+    // Variant (hairline: subtle | strong | dashed | brand)
     // =========================================================================
 
-    test("creates separator with solid variant", $ => {
-        const separator = $.let(Separator.Root({ variant: "solid" }));
+    test("creates separator with subtle variant", $ => {
+        const separator = $.let(Separator.Root({ variant: "subtle" }));
         const sv = separator.unwrap().unwrap("Separator").style.unwrap("some");
-        $(Assert.equal(sv.variant.unwrap("some").hasTag("solid"), true));
+        $(Assert.equal(sv.variant.unwrap("some").hasTag("subtle"), true));
+    });
+
+    test("creates separator with strong variant", $ => {
+        const separator = $.let(Separator.Root({ variant: "strong" }));
+        const sv = separator.unwrap().unwrap("Separator").style.unwrap("some");
+        $(Assert.equal(sv.variant.unwrap("some").hasTag("strong"), true));
     });
 
     test("creates separator with dashed variant", $ => {
@@ -65,48 +70,10 @@ describeEast("Separator", (test) => {
         $(Assert.equal(sv.variant.unwrap("some").hasTag("dashed"), true));
     });
 
-    test("creates separator with dotted variant", $ => {
-        const separator = $.let(Separator.Root({ variant: "dotted" }));
+    test("creates separator with brand variant", $ => {
+        const separator = $.let(Separator.Root({ variant: "brand" }));
         const sv = separator.unwrap().unwrap("Separator").style.unwrap("some");
-        $(Assert.equal(sv.variant.unwrap("some").hasTag("dotted"), true));
-    });
-
-    // =========================================================================
-    // Size
-    // =========================================================================
-
-    test("creates separator with small size", $ => {
-        const separator = $.let(Separator.Root({ size: "sm" }));
-        const sv = separator.unwrap().unwrap("Separator").style.unwrap("some");
-        $(Assert.equal(sv.size.unwrap("some").hasTag("sm"), true));
-    });
-
-    test("creates separator with medium size", $ => {
-        const separator = $.let(Separator.Root({ size: "md" }));
-        const sv = separator.unwrap().unwrap("Separator").style.unwrap("some");
-        $(Assert.equal(sv.size.unwrap("some").hasTag("md"), true));
-    });
-
-    test("creates separator with large size", $ => {
-        const separator = $.let(Separator.Root({ size: "lg" }));
-        const sv = separator.unwrap().unwrap("Separator").style.unwrap("some");
-        $(Assert.equal(sv.size.unwrap("some").hasTag("lg"), true));
-    });
-
-    // =========================================================================
-    // Color
-    // =========================================================================
-
-    test("creates separator with color", $ => {
-        const separator = $.let(Separator.Root({ color: "gray.300" }));
-        const sv = separator.unwrap().unwrap("Separator").style.unwrap("some");
-        $(Assert.equal(sv.color.unwrap("some"), "gray.300"));
-    });
-
-    test("creates separator with custom color", $ => {
-        const separator = $.let(Separator.Root({ color: "#e2e8f0" }));
-        const sv = separator.unwrap().unwrap("Separator").style.unwrap("some");
-        $(Assert.equal(sv.color.unwrap("some"), "#e2e8f0"));
+        $(Assert.equal(sv.variant.unwrap("some").hasTag("brand"), true));
     });
 
     // =========================================================================
@@ -132,16 +99,12 @@ describeEast("Separator", (test) => {
         const separator = $.let(Separator.Root({
             orientation: "horizontal",
             variant: "dashed",
-            size: "md",
-            color: "gray.400",
             label: "Section Break",
         }));
         const v = separator.unwrap().unwrap("Separator");
         const sv = v.style.unwrap("some");
         $(Assert.equal(sv.orientation.unwrap("some").hasTag("horizontal"), true));
         $(Assert.equal(sv.variant.unwrap("some").hasTag("dashed"), true));
-        $(Assert.equal(sv.size.unwrap("some").hasTag("md"), true));
-        $(Assert.equal(sv.color.unwrap("some"), "gray.400"));
         $(Assert.equal(v.label.unwrap("some").unwrap().unwrap("Text").value, "Section Break"));
     });
 
@@ -156,30 +119,24 @@ describeEast("Separator", (test) => {
     });
 
     test("creates labeled OR separator for forms", $ => {
-        const orSeparator = $.let(Separator.Root({ label: "OR", color: "gray.400" }));
+        const orSeparator = $.let(Separator.Root({ label: "OR" }));
         const v = orSeparator.unwrap().unwrap("Separator");
-        const sv = v.style.unwrap("some");
         $(Assert.equal(v.label.unwrap("some").unwrap().unwrap("Text").value, "OR"));
-        $(Assert.equal(sv.color.unwrap("some"), "gray.400"));
     });
 
     test("creates vertical separator for side-by-side content", $ => {
-        const verticalDivider = $.let(Separator.Root({ orientation: "vertical", color: "gray.200" }));
+        const verticalDivider = $.let(Separator.Root({ orientation: "vertical", variant: "subtle" }));
         const sv = verticalDivider.unwrap().unwrap("Separator").style.unwrap("some");
         $(Assert.equal(sv.orientation.unwrap("some").hasTag("vertical"), true));
-        $(Assert.equal(sv.color.unwrap("some"), "gray.200"));
+        $(Assert.equal(sv.variant.unwrap("some").hasTag("subtle"), true));
     });
 
     test("creates styled section divider", $ => {
         const sectionDivider = $.let(Separator.Root({
-            variant: "dotted",
-            color: "blue.300",
-            size: "sm",
+            variant: "brand",
         }));
         const sv = sectionDivider.unwrap().unwrap("Separator").style.unwrap("some");
-        $(Assert.equal(sv.variant.unwrap("some").hasTag("dotted"), true));
-        $(Assert.equal(sv.color.unwrap("some"), "blue.300"));
-        $(Assert.equal(sv.size.unwrap("some").hasTag("sm"), true));
+        $(Assert.equal(sv.variant.unwrap("some").hasTag("brand"), true));
     });
 
     // =========================================================================

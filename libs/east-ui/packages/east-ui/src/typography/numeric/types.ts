@@ -16,37 +16,7 @@ import {
 
 import { TextStyleType } from "../../style.js";
 import type { TextStyleLiteral } from "../../style.js";
-import {
-    NumberFormatType,
-    CurrencyFormatType,
-    PercentFormatType,
-    CompactFormatType,
-    UnitFormatType,
-} from "../../charts/types.js";
-
-// ============================================================================
-// Numeric Format Variant
-// ============================================================================
-
-/**
- * Numeric formatting variants. Each tag carries the format's configuration
- * struct from `charts/types.ts` — `Intl.NumberFormat` options at the renderer.
- *
- * @property Number - Plain number formatting (optionally fraction digits / sign)
- * @property Currency - Currency formatting (ISO 4217 code + display)
- * @property Percent - Percent formatting (fraction digits + sign)
- * @property Compact - Compact notation (1.24M, 384K, …)
- * @property Unit - Unit formatting (12 kg, 42.5 °C, …)
- */
-export const NumericFormatType = VariantType({
-    Number: NumberFormatType,
-    Currency: CurrencyFormatType,
-    Percent: PercentFormatType,
-    Compact: CompactFormatType,
-    Unit: UnitFormatType,
-});
-
-export type NumericFormatType = typeof NumericFormatType;
+import { TickFormatType } from "../../charts/types.js";
 
 // ============================================================================
 // Numeric Sentiment Variant
@@ -73,7 +43,7 @@ export type NumericSentimentLiteral = "positive" | "negative" | "neutral";
 /**
  * Visual-presentation struct for the Numeric component.
  *
- * Holds the typography preset (`textStyle` — defaults to `mono-kpi` at the
+ * Holds the typography preset (`textStyle` — defaults to inline 14px mono at the
  * renderer), colour (escape hatches for foreground, background, and the
  * leading sign glyph), and opacity. Consumed via `NumericType.style`.
  */
@@ -98,14 +68,16 @@ export type NumericVisualStyleType = typeof NumericVisualStyleType;
  * The concrete East type for Numeric component data.
  *
  * @property value - The numeric value (FloatType — factory coerces integers)
- * @property format - Formatting preset (Number / Currency / Percent / Compact / Unit)
+ * @property format - Formatting preset (shared `Format` / tick vocabulary —
+ *                    number / currency / percent / compact / unit / scientific /
+ *                    engineering / date / time / datetime)
  * @property sentiment - Semantic classification (drives default colour tint)
  * @property showSign - Whether to show a leading `+` / `−` glyph
  * @property style - Visual-presentation sub-struct
  */
 export const NumericType = StructType({
     value: FloatType,
-    format: OptionType(NumericFormatType),
+    format: OptionType(TickFormatType),
     sentiment: OptionType(NumericSentimentType),
     showSign: OptionType(BooleanType),
     style: OptionType(NumericVisualStyleType),
@@ -125,13 +97,14 @@ export type NumericType = typeof NumericType;
  * content/state — they land on the main struct.
  */
 export type NumericStyle = {
-    /** Formatting preset (Number / Currency / Percent / Compact / Unit) */
-    format?: SubtypeExprOrValue<NumericFormatType>;
+    /** Formatting preset — a `Format.*` / tick value (number, currency,
+     *  percent, compact, unit, scientific, engineering, date, time, datetime) */
+    format?: SubtypeExprOrValue<TickFormatType>;
     /** Semantic sentiment classification */
     sentiment?: SubtypeExprOrValue<NumericSentimentType> | NumericSentimentLiteral;
     /** Whether to show a leading `+` / `−` glyph */
     showSign?: SubtypeExprOrValue<BooleanType> | boolean;
-    /** Typography preset (defaults to `mono-kpi` at the renderer) */
+    /** Typography preset (defaults to inline 14px mono at the renderer) */
     textStyle?: SubtypeExprOrValue<TextStyleType> | TextStyleLiteral;
     /** Foreground colour. Overrides the sentiment-derived default. */
     color?: SubtypeExprOrValue<StringType>;

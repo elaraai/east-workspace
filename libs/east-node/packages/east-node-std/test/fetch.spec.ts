@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { variant } from "@elaraai/east";
+import { variant, some, none } from "@elaraai/east";
 import { describeEast, Assert, Fetch, FetchRequestConfig, NodePlatform } from "@elaraai/east-node-std";
 import * as ex from "./fetch.examples.js";
 
@@ -44,7 +44,7 @@ describeEast("Fetch platform functions", (test) => {
             url: "http://localhost:8085/get",
             method: variant("GET", null),
             headers: new Map<string, string>(),
-            body: variant("none", null),
+            body: none,
         }, FetchRequestConfig);
 
         const response = $.let(Fetch.request(config));
@@ -62,7 +62,7 @@ describeEast("Fetch platform functions", (test) => {
             url: "http://localhost:8085/post",
             method: variant("POST", null),
             headers,
-            body: variant("some", '{"test": "data"}'),
+            body: some('{"test": "data"}'),
         }, FetchRequestConfig);
 
         const response = $.let(Fetch.request(config));
@@ -76,7 +76,7 @@ describeEast("Fetch platform functions", (test) => {
             url: "http://localhost:8085/get",
             method: variant("GET", null),
             headers: new Map<string, string>(),
-            body: variant("none", null),
+            body: none,
         }, FetchRequestConfig);
 
         const response = $.let(Fetch.request(config));

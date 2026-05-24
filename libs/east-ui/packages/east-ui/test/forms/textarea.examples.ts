@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { East, IntegerType, NullType, StringType, example } from "@elaraai/east";
-import { Badge, Reactive, Stack, State, Text, Textarea, UIComponentType } from "@elaraai/east-ui";
+import { Reactive, Stack, State, Text, Textarea, UIComponentType } from "@elaraai/east-ui";
 
 export const textareaBasic = example({
     keywords: ["Textarea", "Root", "placeholder", "rows", "resize"],
@@ -35,9 +35,7 @@ export const textareaInteractive = example({
                     rows: 3,
                     onChange,
                 }),
-                Stack.HStack([
-                    Badge.Root(East.str`${text.length()} chars`, { colorPalette: "blue" }),
-                ], { gap: "2" }),
+                Text.Presets.MonoLabel(East.str`${text.length()} CHARS`),
             ], { gap: "3", align: "stretch" });
         }));
     }),
@@ -69,9 +67,9 @@ export const textareaOnFocusBlur = example({
                     onBlur,
                 }),
                 Stack.HStack([
-                    Badge.Root(East.str`Focus: ${focusCount}`, { colorPalette: "blue" }),
-                    Badge.Root(East.str`Blur: ${blurCount}`, { colorPalette: "orange" }),
-                ], { gap: "2" }),
+                    Text.Presets.MonoLabel(East.str`FOCUS · ${focusCount}`),
+                    Text.Presets.MonoLabel(East.str`BLUR · ${blurCount}`),
+                ], { gap: "4" }),
             ], { gap: "3", align: "stretch" });
         }));
     }),

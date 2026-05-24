@@ -25,7 +25,7 @@ describeEast("Reactive.Root - Valid Cases", (test) => {
             East.function([], UIComponentType, $ => {
                 const counter = $.let(State.bind([IntegerType], "counter", 0n));
                 const count = $.let(counter.read(), IntegerType);
-                return Stat.Root("Counter", Text.Root(East.str`${count}`));
+                return Stat.Root("Counter", East.str`${count}`);
             })));
 
         $(Assert.equal(reactive.unwrap().getTag(), "ReactiveComponent"));
@@ -69,7 +69,7 @@ describeEast("Reactive.Root - Valid Cases", (test) => {
             East.function([], UIComponentType, $ => {
                 const counter = $.let(State.bind([IntegerType], "counter", 42n));
                 const count = $.let(counter.read(), IntegerType);
-                return Stat.Root(TITLE, Text.Root(East.str`${count}`));
+                return Stat.Root(TITLE, East.str`${count}`);
             }))
         );
 

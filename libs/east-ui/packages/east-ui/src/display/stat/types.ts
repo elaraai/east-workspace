@@ -18,6 +18,7 @@ import {
 import { SizeType } from "../../style.js";
 import type { SizeLiteral } from "../../style.js";
 import { IconType } from "../icon/types.js";
+import { TickFormatType } from "../../charts/types.js";
 
 // ============================================================================
 // Stat Direction (axis)
@@ -218,6 +219,9 @@ export type StatStyleType = typeof StatStyleType;
  * @property indicatorColor - Explicit colour for the indicator arrow / icon
  */
 export interface StatStyle {
+    /** Optional `Format` / tick descriptor applied when the value is numeric
+     *  (e.g. `Format.Currency({ currency: "AUD" })`). Ignored for string values. */
+    format?: SubtypeExprOrValue<TickFormatType>;
     /** Optional caption beneath the main value. */
     helpText?: SubtypeExprOrValue<StringType>;
     /** Optional UIComponent rendered as a secondary baseline line. */

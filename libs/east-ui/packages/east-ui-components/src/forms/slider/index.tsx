@@ -32,7 +32,7 @@ export function toChakraSlider(value: SliderValue): SliderRootProps {
         max: getSomeorUndefined(value.max),
         step: getSomeorUndefined(value.step),
         orientation,
-        colorPalette,
+        colorPalette: colorPalette ?? "brand",
         size: sizeTag as ConditionalValue<"sm" | "md" | "lg" | undefined>,
         variant: variantTag as ConditionalValue<"outline" | "solid" | undefined>,
         disabled: getSomeorUndefined(value.disabled),

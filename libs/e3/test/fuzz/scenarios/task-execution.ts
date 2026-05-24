@@ -75,7 +75,7 @@ export async function testTaskExecution(config: TaskExecutionConfig = {}): Promi
     assert(result.exitCode === 0, `deploy failed: ${result.stderr}`);
 
     // Execute tasks
-    const startResult = await runE3Command(['start', repoDir, wsName], testDir);
+    const startResult = await runE3Command(['dataflow', 'run', repoDir, wsName], testDir);
     assert(
       startResult.exitCode === 0,
       `start failed: ${startResult.stderr}\nstdout: ${startResult.stdout}`
@@ -84,7 +84,7 @@ export async function testTaskExecution(config: TaskExecutionConfig = {}): Promi
     // Verify each task has output
     for (const task of generated.tasks) {
       const getResult = await runE3Command(
-        ['get', repoDir, `${wsName}.tasks.${task.name}.output`],
+        ['dataset', 'get', repoDir, `${wsName}.${task.name}`],
         testDir
       );
       assert(
@@ -149,11 +149,11 @@ export async function testTaskCaching(config: TaskExecutionConfig = {}): Promise
     await runE3Command(['workspace', 'deploy', repoDir, 'ws', `${pkg.name}@${pkg.version}`], testDir);
 
     // First execution
-    const firstStart = await runE3Command(['start', repoDir, 'ws'], testDir);
+    const firstStart = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
     assert(firstStart.exitCode === 0, `first start failed: ${firstStart.stderr}`);
 
     // Second execution - should be cached (faster)
-    const secondStart = await runE3Command(['start', repoDir, 'ws'], testDir);
+    const secondStart = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
     assert(secondStart.exitCode === 0, `second start failed: ${secondStart.stderr}`);
 
     // Check that output mentions "cached" or is very fast

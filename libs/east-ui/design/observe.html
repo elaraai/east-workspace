@@ -1,0 +1,684 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>East UI · Observe — Pattern spec</title>
+<link rel="stylesheet" href="./colors_and_type.css">
+<link rel="stylesheet" href="./spec.css">
+<!-- Chart implementation: visx (Airbnb's d3-primitives-as-React-components).
+     Pattern-spec mocks are rendered by the bootstrap below, which loads React
+     + visx from esm.sh and mounts a chart into every element carrying a
+     data-spec-* hook. The east-ui-components implementation should use the
+     same visx primitives so that the runtime output matches the spec mocks
+     pixel-for-pixel. -->
+<script type="module" src="./charts-visx.js"></script>
+<style>
+  .nav-back {
+    display: flex; gap: 14px; align-items: baseline;
+    padding: 12px 0 18px;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 28px;
+    font-family: var(--font-mono); font-size: 11px;
+    letter-spacing: 0.12em; text-transform: uppercase;
+  }
+  .nav-back a { color: var(--ink-4); text-decoration: none; }
+  .nav-back a:hover { color: var(--brand-d); }
+  .nav-back .sep { color: var(--rule-strong); }
+  .nav-back .here { color: var(--ink); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <nav class="nav-back" aria-label="Pattern spec categories">
+    <a href="./index.html">← Index</a>
+    <span class="sep">·</span>
+    <a href="./observe.html" class="here">Observe</a>
+    <span class="sep">·</span>
+    <a href="./decide.html">Decide</a>
+    <span class="sep">·</span>
+    <a href="./configure.html">Configure</a>
+    <span class="sep">·</span>
+    <a href="./frame-trust.html">Trust</a>
+  </nav>
+
+  <main>
+
+  <section id="mode-observe" class="mode">
+    <div class="mode-head">
+      <span class="mode-id">§ 2.1</span>
+      <h2>Observe</h2>
+      <span class="anchor-tag">Anchors · <span class="pat">Stat<span class="ns">.</span>Grid</span> · <span class="pat">Slice<span class="ns">.</span>Filter</span></span>
+    </div>
+    <p class="mode-lede">
+      The user lands here. What needs me? What's unusual? What's the shape of the workload?
+    </p>
+
+
+    <article id="stat-card" class="pattern">
+      <div class="pattern-head">
+        <span class="pattern-name">Stat<span class="ns">.</span>Card</span>
+      </div>
+      <p class="pattern-blurb">Eyebrow · hero number (DM Sans 32–60 px tabular) · delta · sparkline.</p>
+      <div style="display: grid; grid-template-columns: 260px 260px; gap: 16px;">
+        <div class="frame pad-18">
+          <div class="cap-eyebrow" style="margin-bottom: 6px;">Projected uplift</div>
+          <div class="num" style="font-family: var(--font-brand); font-size: 40px; font-weight: 700; letter-spacing: -0.02em; line-height: 1;">$2.4M</div>
+          <div class="num pos" style="font-size: 12px; margin-top: 6px;">+12.4% vs baseline</div>
+          <div data-spec-spark='[8,10,14,12,18,16,21,19,26]' style="width: 100%; height: 36px; margin-top: 10px;"></div>
+        </div>
+        <div class="frame pad-18">
+          <div class="cap-eyebrow" style="margin-bottom: 6px;">Acceptance</div>
+          <div class="num" style="font-family: var(--font-brand); font-size: 40px; font-weight: 700; letter-spacing: -0.02em; line-height: 1;">87%</div>
+          <div class="num muted" style="font-size: 12px; margin-top: 6px;">stable · last 30d</div>
+          <div data-spec-spark='[14,15,13,14,12,15,14,16,15]' data-area="false" style="width: 100%; height: 36px; margin-top: 10px;"></div>
+        </div>
+      </div>
+
+    </article>
+
+    <article id="stat-grid" class="pattern">
+      <div class="pattern-head">
+        <span class="pattern-name">Stat<span class="ns">.</span>Grid</span>
+      </div>
+      <p class="pattern-blurb">N×M grid of compact metric cells sharing a single bordered frame, no internal shadows. Each cell can carry an optional leading FA icon (same <span class="mono">IconType</span> shape as <span class="mono">Button.startIcon</span>) and an optional inline sparkline — the renderer collapses to a clean label-and-number cell when both are omitted.</p>
+      <div class="frame">
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr);">
+          <div class="cell">
+            <div class="lbl">Uplift</div>
+            <div class="val">$2.4M</div>
+            <div class="sub pos">▲ +12% bsl</div>
+          </div>
+          <div class="cell">
+            <div class="lbl">Runs</div>
+            <div class="val">7</div>
+            <div class="sub muted">3 queued</div>
+          </div>
+          <div class="cell">
+            <div class="lbl">Fidelity</div>
+            <div class="val">99.4%</div>
+            <div class="sub pos">▲ +0.2 pp</div>
+          </div>
+          <div class="cell" style="border-right: none;">
+            <div class="lbl">Stockout</div>
+            <div class="val muted">—</div>
+            <div class="sub muted">no data</div>
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--rule);">
+          <div class="cell" style="display: grid; grid-template-columns: 1fr 64px; gap: 12px; align-items: stretch;">
+            <div>
+              <div class="lbl" style="display: flex; align-items: center; gap: 6px;">
+                <svg width="12" height="12" viewBox="0 0 12 12" style="color: var(--brand-d); flex: none;"><path fill="currentColor" d="M2 9 L6 4 L10 9 Z"/></svg>
+                Acceptance
+              </div>
+              <div class="val">87%</div>
+              <div class="sub pos">▲ +2 pp</div>
+            </div>
+            <svg style="width: 100%; height: 100%; min-height: 56px; align-self: stretch;" viewBox="0 0 60 36" preserveAspectRatio="none"><polyline points="0,24 8,22 16,22 24,18 32,18 40,16 48,12 60,10" fill="none" stroke="#3a7780" stroke-width="1.4" vector-effect="non-scaling-stroke"/></svg>
+          </div>
+          <div class="cell" style="display: grid; grid-template-columns: 1fr 64px; gap: 12px; align-items: stretch;">
+            <div>
+              <div class="lbl" style="display: flex; align-items: center; gap: 6px;">
+                <svg width="12" height="12" viewBox="0 0 12 12" style="color: var(--ink-3); flex: none;"><circle cx="6" cy="6" r="4" fill="none" stroke="currentColor" stroke-width="1.4"/><line x1="6" y1="6" x2="6" y2="3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><line x1="6" y1="6" x2="9" y2="6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+                Avg time
+              </div>
+              <div class="val">4.2m</div>
+              <div class="sub pos">▼ −6%</div>
+            </div>
+            <svg style="width: 100%; height: 100%; min-height: 56px; align-self: stretch;" viewBox="0 0 60 36" preserveAspectRatio="none"><polyline points="0,12 8,14 16,16 24,20 32,20 40,24 48,26 60,28" fill="none" stroke="#2f7a5b" stroke-width="1.4" vector-effect="non-scaling-stroke"/></svg>
+          </div>
+          <div class="cell" style="display: grid; grid-template-columns: 1fr 64px; gap: 12px; align-items: stretch;">
+            <div>
+              <div class="lbl" style="display: flex; align-items: center; gap: 6px;">
+                <svg width="12" height="12" viewBox="0 0 12 12" style="color: var(--brand-d); flex: none;"><rect x="2" y="2" width="3" height="8" fill="currentColor"/><rect x="6" y="4" width="3" height="6" fill="currentColor" opacity="0.6"/></svg>
+                Overrides
+              </div>
+              <div class="val">5%</div>
+              <div class="sub muted">≈ stable</div>
+            </div>
+            <svg style="width: 100%; height: 100%; min-height: 56px; align-self: stretch;" viewBox="0 0 60 36" preserveAspectRatio="none"><polyline points="0,20 8,20 16,18 24,20 32,20 40,18 48,20 60,20" fill="none" stroke="#5b6e87" stroke-width="1.4" vector-effect="non-scaling-stroke"/></svg>
+          </div>
+          <div class="cell" style="display: grid; grid-template-columns: 1fr 64px; gap: 12px; align-items: stretch; border-right: none;">
+            <div>
+              <div class="lbl" style="display: flex; align-items: center; gap: 6px;">
+                <svg width="12" height="12" viewBox="0 0 12 12" style="color: var(--neg); flex: none;"><path fill="currentColor" d="M6 1 L11 11 L1 11 Z"/></svg>
+                SLA breach
+              </div>
+              <div class="val">2</div>
+              <div class="sub neg">▲ +1 vs prev</div>
+            </div>
+            <svg style="width: 100%; height: 100%; min-height: 56px; align-self: stretch;" viewBox="0 0 60 36" preserveAspectRatio="none"><polyline points="0,28 8,28 16,24 24,24 32,20 40,16 48,10 60,6" fill="none" stroke="#b85a4a" stroke-width="1.4" vector-effect="non-scaling-stroke"/></svg>
+          </div>
+        </div>
+      </div>
+
+    </article>
+
+    <article id="stat-rail" class="pattern">
+      <div class="pattern-head">
+        <span class="pattern-name">Stat<span class="ns">.</span>Rail</span>
+      </div>
+      <p class="pattern-blurb">Horizontal pill rail of compact metrics — for headers and filter chips.</p>
+      <div class="frame pad-18 row gap-2" style="flex-wrap: wrap;">
+        <span class="chip"><span class="cap-eyebrow">Uplift</span> <span class="num">$2.4M</span> <span class="num pos">↑12%</span></span>
+        <span class="chip"><span class="cap-eyebrow">Runs</span> <span class="num">7</span></span>
+        <span class="chip"><span class="cap-eyebrow">Fidelity</span> <span class="num">99.4%</span> <span class="num pos">↑0.2</span></span>
+        <span class="chip"><span class="cap-eyebrow">SLA</span> <span class="num">2</span></span>
+      </div>
+
+    </article>
+
+    <article id="stat-threshold" class="pattern">
+      <div class="pattern-head">
+        <span class="pattern-name">Stat<span class="ns">.</span>Threshold</span>
+      </div>
+      <p class="pattern-blurb">
+        Coloured bands behind a chart axis (good / acceptable / bad). Visual overlay only — colour conveys <em>band</em>, not status; legend names them.
+      </p>
+      <div class="frame pad-18">
+        <div class="tband" style="border: 1px solid var(--rule);">
+          <div class="good"><span>Good</span><span class="num muted">≥ 99%</span></div>
+          <div class="accept"><span>Acceptable</span><span class="num muted">95–99%</span></div>
+          <div class="bad"><span>Bad</span><span class="num muted">&lt; 95%</span></div>
+        </div>
+        <div class="cap-eyebrow" style="margin-top: 10px;">Current <span class="num pos" style="margin-left: 6px;">99.4%</span> <span class="muted">· target 99.0%</span></div>
+      </div>
+
+    </article>
+
+    <article id="stat-distribution" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Stat<span class="ns">.</span>Distribution</span></div>
+      <p class="pattern-blurb">Histogram + summary percentiles (p50 / p90 / p99 / mean) for a quantitative dimension — session duration, checkout time, basket size. The diagnostic stat: where do tails live, and where does the mass sit?</p>
+      <div class="frame">
+        <div class="eyebrow-row">
+          <span class="lbl">Distribution · checkout duration</span>
+          <span class="meta">n = <span class="num" style="color: var(--ink); font-weight: 600;">12,840</span> events · last 30d</span>
+        </div>
+        <div class="pad-18" style="border-bottom: 1px solid var(--rule);">
+          <div data-spec-histogram='{"bins":[3,8,18,34,58,92,128,142,118,86,58,38,24,16,12,8,6,4,3,2],"xMin":0,"xMax":25,"xUnit":"s","percentiles":{"p50":3.2,"p90":8.4,"p99":22.1}}'
+               style="width: 100%; height: 130px;"></div>
+        </div>
+        <div class="rail" style="--cols: 4;">
+          <div class="cell"><div class="lbl">p50</div><div class="val" style="font-size: 18px;">3.2s</div></div>
+          <div class="cell"><div class="lbl">p90</div><div class="val" style="font-size: 18px;">8.4s</div></div>
+          <div class="cell"><div class="lbl">p99</div><div class="val" style="font-size: 18px;">22.1s</div></div>
+          <div class="cell"><div class="lbl">mean</div><div class="val" style="font-size: 18px;">4.6s</div></div>
+        </div>
+        <div class="diff-meta-row">
+          <span class="cap-eyebrow">Long tail</span>
+          <span style="margin-left: 8px;" class="muted">1.2% of sessions &gt; 22s — typically retry-storm or upstream-DB stalls</span>
+        </div>
+      </div>
+    </article>
+
+    <article id="stat-beforeafter" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Stat<span class="ns">.</span>BeforeAfter</span></div>
+      <p class="pattern-blurb">Time-axis view of one metric across before-state / now / projected post-commit / deadline. The causal-comparison stat — what shifted, what we expect to shift, what we'll measure against. Formerly <span class="mono">Comparison.BeforeAfter</span>; the underlying shape is a stat, not a diff primitive.</p>
+      <div class="frame">
+        <div class="ba-timeline">
+          <div class="ba-rail">
+            <span class="ba-tick" style="left: 8%;">Mon 09-09</span>
+            <span class="ba-tick" style="left: 38%;">Today</span>
+            <span class="ba-tick commit" style="left: 62%;">▼ Apply</span>
+            <span class="ba-tick" style="left: 92%;">Fri 09-19</span>
+            <span class="ba-marker" style="left: 8%;"></span>
+            <span class="ba-marker" style="left: 38%;"></span>
+            <span class="ba-marker now" style="left: 38%;"></span>
+            <span class="ba-marker commit" style="left: 62%;"></span>
+            <span class="ba-marker" style="left: 92%;"></span>
+          </div>
+          <div class="ba-card-row">
+            <div class="ba-card">
+              <div class="ba-when">5 days ago</div>
+              <div class="ba-val">$1.94M</div>
+              <div class="ba-sub">baseline · pre-edit</div>
+            </div>
+            <div class="ba-card now">
+              <div class="ba-when">Now · do-nothing</div>
+              <div class="ba-val">$1.94M</div>
+              <div class="ba-sub">SLA risk wk2 <span class="num neg">−$140k</span></div>
+            </div>
+            <div class="ba-card commit">
+              <div class="ba-when">Post-Apply · projected</div>
+              <div class="ba-val">$2.02M</div>
+              <div class="ba-sub"><span class="deltapill up" style="font-size: 10px; padding: 1px 6px;">▲ +$80k</span> · 82% conf</div>
+            </div>
+            <div class="ba-card">
+              <div class="ba-when">Fri 09-19</div>
+              <div class="ba-val muted">$2.02M ± $6k</div>
+              <div class="ba-sub">deadline · re-evaluate</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <article id="stat-trend" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Stat<span class="ns">.</span>Trend</span></div>
+      <p class="pattern-blurb">Hero KPI with optional breakdown chips and an inline trend line. Different from <span class="mono">Stat.Card</span> (no breakdown) and <span class="mono">Chart.Line</span> (no hero number) — this is the "current value, here's how it got here, segmented by X" composite. Pairs with <span class="mono">Slice.Breakdown</span>.</p>
+      <div class="frame">
+        <div class="eyebrow-row">
+          <span class="lbl">Active users · last 30d</span>
+          <span class="meta">by <span class="mono" style="color: var(--ink); font-weight: 600;">plan_tier</span> <span class="sep">·</span> <a class="btn-link" href="#">change ▾</a></span>
+        </div>
+        <div class="pad-18" style="border-bottom: 1px solid var(--rule);">
+          <!-- Hero value + delta -->
+          <div style="display: flex; align-items: baseline; gap: 16px; margin-bottom: 14px;">
+            <span class="num" style="font-size: 36px; font-weight: 600; color: var(--ink); line-height: 1;">24,128</span>
+            <span class="muted" style="font-size: 12.5px;">total · all tiers</span>
+            <span class="deltapill up" style="margin-left: auto;">▲ 12.4% vs prev 30d</span>
+          </div>
+          <div data-spec-multiline='{"series":[{"data":[8800,9400,9800,10800,11400,12800,13400,14800,15600,16800,18000,19200,20400,21600,23200,24128],"stroke":"#3a7780","strokeWidth":2},{"data":[4400,4600,4800,5000,5400,5600,5800,6000,6200,6400,6600,6800,6900,7000,7100,6830],"stroke":"#2f7a5b","strokeWidth":1.6},{"data":[2000,2100,2100,2200,2200,2400,2400,2500,2500,2700,2800,2800,2900,3000,3000,3088],"stroke":"#8d9aab","strokeWidth":1.4}],"ticks":["Aug 14","Aug 21","Aug 28","Sep 04","Sep 13"],"yTicks":["0","12k","25k"]}'
+               style="width: 100%; height: 140px;"></div>
+        </div>
+        <!-- Breakdown bucket rows: chip + value + delta + per-series sparkline ghost -->
+        <div>
+          <div style="display: grid; grid-template-columns: 24px 130px 1fr 96px 70px; gap: 12px; align-items: center; padding: 10px 18px; border-bottom: 1px solid var(--rule);">
+            <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #3a7780;"></span>
+            <span class="mono" style="font-weight: 600;">pro</span>
+            <div style="position: relative; height: 12px; background: var(--paper-2); border-radius: 1px;">
+              <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 100%; background: #3a7780; border-radius: 1px;"></div>
+            </div>
+            <span class="num" style="text-align: right; font-weight: 600;">14,210</span>
+            <span class="deltapill up" style="font-size: 10px;">▲ 14.8%</span>
+          </div>
+          <div style="display: grid; grid-template-columns: 24px 130px 1fr 96px 70px; gap: 12px; align-items: center; padding: 10px 18px; border-bottom: 1px solid var(--rule);">
+            <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #2f7a5b;"></span>
+            <span class="mono" style="font-weight: 600;">enterprise</span>
+            <div style="position: relative; height: 12px; background: var(--paper-2); border-radius: 1px;">
+              <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 48.1%; background: #2f7a5b; border-radius: 1px;"></div>
+            </div>
+            <span class="num" style="text-align: right; font-weight: 600;">6,830</span>
+            <span class="deltapill up" style="font-size: 10px;">▲ 9.4%</span>
+          </div>
+          <div style="display: grid; grid-template-columns: 24px 130px 1fr 96px 70px; gap: 12px; align-items: center; padding: 10px 18px;">
+            <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #8d9aab;"></span>
+            <span class="mono muted" style="font-weight: 600;">free</span>
+            <div style="position: relative; height: 12px; background: var(--paper-2); border-radius: 1px;">
+              <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 21.7%; background: #8d9aab; border-radius: 1px;"></div>
+            </div>
+            <span class="num muted" style="text-align: right; font-weight: 600;">3,088</span>
+            <span class="deltapill flat" style="font-size: 10px;">≈ 1.2%</span>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <article id="stat-top" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Stat<span class="ns">.</span>Top</span></div>
+      <p class="pattern-blurb">Leaderboard — ranked top-N rows with value + delta. The natural surface for "top SKUs by revenue", "top regions by sessions", "top errors by frequency". Pairs with <span class="mono">Slice.Breakdown</span> when N is large enough that chip rows lose readability.</p>
+      <div class="frame">
+        <div class="eyebrow-row">
+          <span class="lbl">Top SKUs · last 30d</span>
+          <span class="meta">by <span class="mono" style="color: var(--ink); font-weight: 600;">revenue</span> <span class="sep">·</span> top <span class="num" style="color: var(--ink); font-weight: 600;">5</span> of 142</span>
+        </div>
+        <!-- Column header row -->
+        <div style="display: grid; grid-template-columns: 28px 1fr 92px 90px 80px; gap: 14px; padding: 8px 18px; background: var(--paper-2); border-bottom: 1px solid var(--rule-strong); font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-3);">
+          <span>#</span>
+          <span>SKU · name</span>
+          <span style="text-align: center;">trend · 30d</span>
+          <span style="text-align: right;">revenue</span>
+          <span style="text-align: right;">vs prev</span>
+        </div>
+        <div>
+          <!-- Row 1 — leader, full bar + sparkline -->
+          <div style="display: grid; grid-template-columns: 28px 1fr 92px 90px 80px; gap: 14px; align-items: center; padding: 12px 18px; border-bottom: 1px solid var(--rule); position: relative;">
+            <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--brand-d);"></div>
+            <span style="display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: var(--brand-tint); color: var(--brand-dd); font-family: var(--font-mono); font-weight: 700; font-size: 11px;">1</span>
+            <div>
+              <div class="mono" style="font-weight: 600; font-size: 13px;">SKU-001</div>
+              <div class="muted" style="font-size: 11.5px; margin-top: 1px;">Industrial fan · NA region</div>
+            </div>
+            <svg style="width: 92px; height: 28px;" viewBox="0 0 92 28" preserveAspectRatio="none">
+              <polyline points="0,22 12,20 24,18 36,16 48,12 60,10 72,6 92,4" fill="none" stroke="#3a7780" stroke-width="1.6" vector-effect="non-scaling-stroke"/>
+            </svg>
+            <span class="num" style="text-align: right; font-weight: 600; font-size: 15px;">$284k</span>
+            <span class="deltapill up" style="font-size: 10.5px; justify-self: end;">▲ 8.2%</span>
+          </div>
+          <!-- Row 2 -->
+          <div style="display: grid; grid-template-columns: 28px 1fr 92px 90px 80px; gap: 14px; align-items: center; padding: 12px 18px; border-bottom: 1px solid var(--rule);">
+            <span style="display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: var(--paper-2); color: var(--ink); font-family: var(--font-mono); font-weight: 700; font-size: 11px;">2</span>
+            <div>
+              <div class="mono" style="font-weight: 600; font-size: 13px;">SKU-018</div>
+              <div class="muted" style="font-size: 11.5px; margin-top: 1px;">Pump motor · global</div>
+            </div>
+            <svg style="width: 92px; height: 28px;" viewBox="0 0 92 28" preserveAspectRatio="none">
+              <polyline points="0,18 12,18 24,16 36,16 48,14 60,12 72,12 92,10" fill="none" stroke="#3a7780" stroke-width="1.4" vector-effect="non-scaling-stroke"/>
+            </svg>
+            <span class="num" style="text-align: right; font-weight: 600; font-size: 15px;">$192k</span>
+            <span class="deltapill up" style="font-size: 10.5px; justify-self: end;">▲ 3.1%</span>
+          </div>
+          <!-- Row 3 -->
+          <div style="display: grid; grid-template-columns: 28px 1fr 92px 90px 80px; gap: 14px; align-items: center; padding: 12px 18px; border-bottom: 1px solid var(--rule);">
+            <span style="display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: var(--paper-2); color: var(--ink); font-family: var(--font-mono); font-weight: 700; font-size: 11px;">3</span>
+            <div>
+              <div class="mono" style="font-weight: 600; font-size: 13px;">SKU-007</div>
+              <div class="muted" style="font-size: 11.5px; margin-top: 1px;">Filter set · service kits</div>
+            </div>
+            <svg style="width: 92px; height: 28px;" viewBox="0 0 92 28" preserveAspectRatio="none">
+              <polyline points="0,14 12,14 24,16 36,14 48,14 60,16 72,14 92,14" fill="none" stroke="#5b6e87" stroke-width="1.4" vector-effect="non-scaling-stroke"/>
+            </svg>
+            <span class="num" style="text-align: right; font-weight: 600; font-size: 15px;">$148k</span>
+            <span class="deltapill flat" style="font-size: 10.5px; justify-self: end;">≈ 0.4%</span>
+          </div>
+          <!-- Row 4 — down -->
+          <div style="display: grid; grid-template-columns: 28px 1fr 92px 90px 80px; gap: 14px; align-items: center; padding: 12px 18px; border-bottom: 1px solid var(--rule);">
+            <span style="display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: var(--paper-2); color: var(--ink); font-family: var(--font-mono); font-weight: 700; font-size: 11px;">4</span>
+            <div>
+              <div class="mono" style="font-weight: 600; font-size: 13px;">SKU-022</div>
+              <div class="muted" style="font-size: 11.5px; margin-top: 1px;">Switching unit · APAC</div>
+            </div>
+            <svg style="width: 92px; height: 28px;" viewBox="0 0 92 28" preserveAspectRatio="none">
+              <polyline points="0,8 12,10 24,12 36,14 48,16 60,18 72,18 92,20" fill="none" stroke="#b85a4a" stroke-width="1.4" vector-effect="non-scaling-stroke"/>
+            </svg>
+            <span class="num" style="text-align: right; font-weight: 600; font-size: 15px;">$112k</span>
+            <span class="deltapill down" style="font-size: 10.5px; justify-self: end;">▼ 4.6%</span>
+          </div>
+          <!-- Row 5 — fast riser -->
+          <div style="display: grid; grid-template-columns: 28px 1fr 92px 90px 80px; gap: 14px; align-items: center; padding: 12px 18px; border-bottom: 1px solid var(--rule);">
+            <span style="display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: var(--paper-2); color: var(--ink); font-family: var(--font-mono); font-weight: 700; font-size: 11px;">5</span>
+            <div>
+              <div class="mono" style="font-weight: 600; font-size: 13px;">SKU-031</div>
+              <div class="muted" style="font-size: 11.5px; margin-top: 1px;">Mount kit · NA · <span style="color: var(--pos);">new this q</span></div>
+            </div>
+            <svg style="width: 92px; height: 28px;" viewBox="0 0 92 28" preserveAspectRatio="none">
+              <polyline points="0,22 12,22 24,20 36,18 48,14 60,12 72,8 92,4" fill="none" stroke="#2f7a5b" stroke-width="1.6" vector-effect="non-scaling-stroke"/>
+            </svg>
+            <span class="num" style="text-align: right; font-weight: 600; font-size: 15px;">$98k</span>
+            <span class="deltapill up" style="font-size: 10.5px; justify-self: end;">▲ 12.1%</span>
+          </div>
+        </div>
+        <div class="diff-meta-row">
+          <span class="cap-eyebrow">Rest of catalogue</span>
+          <span style="margin-left: 8px;" class="muted">137 SKUs · $312k combined · <a class="btn-link" href="#">show all →</a></span>
+        </div>
+      </div>
+    </article>
+
+    <article id="stat-lifecycle" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Stat<span class="ns">.</span>Lifecycle</span></div>
+      <p class="pattern-blurb">Segmented bar of N mutually-exclusive states summing to 100% — new / returning / dormant / resurrected for users, or any state-of-X composite metric. One row, swatched, count + % per segment.</p>
+      <div class="frame">
+        <div class="eyebrow-row">
+          <span class="lbl">Users · last 30d</span>
+          <span class="meta">total <span class="num" style="color: var(--ink); font-weight: 600;">24,128</span></span>
+        </div>
+        <div class="pad-18">
+          <div style="display: flex; height: 24px; border-radius: 2px; overflow: hidden;">
+            <div style="flex: 4.2; background: var(--brand-d);"></div>
+            <div style="flex: 3.6; background: var(--pos);"></div>
+            <div style="flex: 1.6; background: var(--rule-strong);"></div>
+            <div style="flex: 0.6; background: var(--warn);"></div>
+          </div>
+          <div class="row gap-3" style="flex-wrap: wrap; margin-top: 10px;">
+            <span class="chip compact"><span class="dot brand"></span>new <span class="num muted">10,200 · 42%</span></span>
+            <span class="chip compact"><span class="dot ok"></span>returning <span class="num muted">8,720 · 36%</span></span>
+            <span class="chip compact"><span class="dot ring"></span>dormant <span class="num muted">3,900 · 16%</span></span>
+            <span class="chip compact"><span class="dot warn"></span>resurrected <span class="num muted">1,308 · 6%</span></span>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <article id="stat-comparison" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Stat<span class="ns">.</span>Comparison</span></div>
+      <p class="pattern-blurb">Period-over-period side-by-side — "this 30d vs last 30d", "Q4 vs Q3". Two values, delta %, paired sparklines, single direction call. The natural consumer of <span class="mono">Slice.Range</span>'s compareWith.</p>
+      <div class="frame">
+        <div class="eyebrow-row">
+          <span class="lbl">Sessions · this period vs previous</span>
+          <span class="meta">
+            <span class="dot brand" style="display: inline-block; margin-right: 4px;"></span>
+            <span style="color: var(--ink); font-weight: 600;">last 30d</span>
+            <span class="muted" style="margin: 0 6px;">vs</span>
+            <span style="display: inline-block; width: 8px; height: 0; border-top: 2px dashed var(--ink-3); vertical-align: middle; margin-right: 4px;"></span>
+            <span style="color: var(--ink-3); font-weight: 600;">prev 30d</span>
+          </span>
+        </div>
+        <div class="pad-18" style="border-bottom: 1px solid var(--rule);">
+          <!-- Hero values + delta in a single row above the chart -->
+          <div style="display: grid; grid-template-columns: auto auto 1fr auto; gap: 24px; align-items: baseline; margin-bottom: 14px;">
+            <div>
+              <div class="cap-eyebrow muted" style="margin-bottom: 2px;">this 30d</div>
+              <div class="num" style="font-size: 30px; font-weight: 600; color: var(--ink); line-height: 1;">24,128</div>
+            </div>
+            <div>
+              <div class="cap-eyebrow muted" style="margin-bottom: 2px;">prev 30d</div>
+              <div class="num" style="font-size: 22px; font-weight: 500; color: var(--ink-3); line-height: 1;">21,470</div>
+            </div>
+            <div></div>
+            <div style="text-align: right;">
+              <span class="deltapill up" style="font-size: 13px;">▲ +12.4%</span>
+              <div class="muted" style="font-size: 11.5px; margin-top: 4px; font-family: var(--font-mono);">+2,658 sessions</div>
+            </div>
+          </div>
+          <div data-spec-multiline='{"series":[{"data":[8000,8800,9200,10000,10400,11200,11600,12400,12800,13600,14400,15200,16000,16800,17600,18400],"stroke":"#5b6e87","strokeWidth":1.4,"dasharray":"3 2","opacity":0.7},{"data":[9600,11200,12000,13600,14000,15600,16400,18000,18800,20400,22000,23600,25200,26800,28400,30000],"stroke":"#3a7780","strokeWidth":2}],"ticks":["day 1","day 8","day 15","day 22","day 30"],"yTicks":["0","12k","25k"]}'
+               style="width: 100%; height: 120px;"></div>
+        </div>
+        <div class="diff-meta-row">
+          <span class="cap-eyebrow">Read</span>
+          <span style="margin-left: 8px;" class="muted">Trends diverged from ~day 8 — current window ran consistently above the previous window's same-day count.</span>
+        </div>
+      </div>
+    </article>
+
+    <article id="stat-annotated" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Stat<span class="ns">.</span>Annotated</span></div>
+      <p class="pattern-blurb">Trend line with event markers — deploys, incidents, releases pinned to the time axis with a label on hover. The explanation tool: when a stat shifts, the annotation tells you why. Mixpanel doesn't do this well; Linear and Datadog do.</p>
+      <div class="frame">
+        <div class="eyebrow-row">
+          <span class="lbl">p99 latency · last 30d</span>
+          <span class="meta">current <span class="num" style="color: var(--ink); font-weight: 600;">128ms</span> <span class="sep">·</span> 3 deploys · 1 incident</span>
+        </div>
+        <div class="pad-18">
+          <div data-spec-annotated='{"series":[120,118,124,130,128,134,128,260,240,210,180,164,148,138,134,128,122,118,116,118,124,128,132,130,134,138,134,128,124,120],"yMin":116,"yMax":260,"annotations":[{"at":0.233,"kind":"deploy"},{"at":0.267,"kind":"incident","callout":"260ms · incident"},{"at":0.333,"kind":"deploy"},{"at":0.700,"kind":"deploy"}],"xTicks":["Aug 14","Aug 21","Aug 28","Sep 04","Sep 13"]}'
+               style="width: 100%; height: 160px;"></div>
+          <!-- Annotation legend with date + description -->
+          <div style="display: grid; grid-template-columns: 16px 80px 1fr 96px; gap: 8px; row-gap: 6px; align-items: baseline; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--rule); font-family: var(--font-mono); font-size: 11.5px; color: var(--ink);">
+            <span style="width: 10px; height: 10px; background: var(--brand-d); border-radius: 1px;"></span>
+            <span style="font-weight: 600;">deploy</span>
+            <span>v3.4 · service mesh upgrade</span>
+            <span class="muted" style="text-align: right;">Aug 21 · 14:22</span>
+
+            <span style="width: 10px; height: 10px; background: var(--neg); border-radius: 1px;"></span>
+            <span style="font-weight: 600; color: var(--neg);">incident</span>
+            <span>p99 spike to 260ms · kafka backpressure</span>
+            <span class="muted" style="text-align: right;">Aug 22 · 09:14</span>
+
+            <span style="width: 10px; height: 10px; background: var(--brand-d); border-radius: 1px;"></span>
+            <span style="font-weight: 600;">deploy</span>
+            <span>v3.5 · hotfix · cap retry depth</span>
+            <span class="muted" style="text-align: right;">Aug 24 · 11:48</span>
+
+            <span style="width: 10px; height: 10px; background: var(--brand-d); border-radius: 1px;"></span>
+            <span style="font-weight: 600;">deploy</span>
+            <span>v3.6 · pool tuning</span>
+            <span class="muted" style="text-align: right;">Sep 04 · 16:05</span>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <article id="stat-pacing" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Stat<span class="ns">.</span>Pacing</span></div>
+      <p class="pattern-blurb">Current value vs goal, with a "where you should be by now" guide line. The pacing question: are we on track for the period target? Different from <span class="mono">Stat.Threshold</span> (visual band overlay) — Pacing is specifically time-bounded with an expected-by-now reference.</p>
+      <div class="frame">
+        <div class="eyebrow-row">
+          <span class="lbl">Quarterly revenue · Q4 2025</span>
+          <span class="meta">day <span class="num" style="color: var(--ink); font-weight: 600;">46</span> of 92 <span class="sep">·</span> 50% elapsed</span>
+        </div>
+        <div class="pad-18">
+          <div style="display: flex; align-items: baseline; gap: 16px; margin-bottom: 8px;">
+            <span class="num" style="font-size: 32px; font-weight: 600; color: var(--ink);">$1.42M</span>
+            <span class="muted" style="font-size: 13px;">of <span class="num" style="color: var(--ink);">$3.0M</span> goal</span>
+            <span class="deltapill up" style="margin-left: auto;">▲ ahead of pace</span>
+          </div>
+          <div style="position: relative; height: 8px; background: var(--paper-2); border-radius: 1px; margin-top: 12px;">
+            <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 47.3%; background: var(--brand-d); border-radius: 1px;"></div>
+            <div style="position: absolute; left: 50%; top: -4px; bottom: -4px; width: 1px; background: var(--rule-strong); border-left: 1px dashed var(--ink-3);"></div>
+          </div>
+          <div style="display: flex; justify-content: space-between; margin-top: 6px; font-family: var(--font-mono); font-size: 11px; color: var(--ink-3);">
+            <span>0</span>
+            <span style="position: absolute; left: 50%; transform: translateX(-50%);">expected by now ↑</span>
+            <span>$3.0M</span>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <article id="stat-sensitivity" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Stat<span class="ns">.</span>Sensitivity</span></div>
+      <p class="pattern-blurb">Tornado chart — sorted bidirectional bars showing how each input perturbation moves a target metric. The "what's load-bearing" stat. <span class="mono">Configure.SensitivityView</span> in scheduling surfaces is the model-input specialisation.</p>
+      <div class="frame">
+        <div class="eyebrow-row">
+          <span class="lbl">Sensitivity of forecast revenue · ±10% perturb each input</span>
+          <span class="meta">top <span class="num" style="color: var(--ink); font-weight: 600;">5</span> drivers</span>
+        </div>
+        <div class="pad-18">
+          <div data-spec-tornado='{"drivers":[{"label":"demand_growth","down":-28,"up":34},{"label":"price_elasticity","down":-24,"up":22},{"label":"supplier_leadtime","down":-18,"up":14},{"label":"fx_rate_eur","down":-10,"up":12},{"label":"marketing_spend","down":-7,"up":9}],"max":40}'
+               style="width: 100%; height: 130px;"></div>
+          <div style="margin-top: 10px; font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); display: flex; justify-content: center; gap: 24px;">
+            <span><span style="display: inline-block; width: 10px; height: 8px; background: var(--neg); opacity: 0.6; margin-right: 4px;"></span>down (input −10%)</span>
+            <span><span style="display: inline-block; width: 10px; height: 8px; background: var(--pos); margin-right: 4px;"></span>up (input +10%)</span>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <article id="stat-scorecard" class="pattern">
+      <div class="pattern-head">
+        <span class="pattern-name">Stat<span class="ns">.</span>Scorecard</span>
+        <span class="pattern-anchor">Anchor</span>
+      </div>
+      <p class="pattern-blurb">Multi-KPI report card — N labelled metrics in a single bordered frame, with title strip and optional embedded chart. Formerly <span class="mono">Track.Scorecard</span>; the visual primitive is generic, calibrate consumers (model performance) and other domains compose it with their specific metrics.</p>
+      <div class="frame">
+        <header class="diff-head">
+          <div class="diff-title">Model performance · v3.4</div>
+          <div class="diff-sub">241 closed cases · last 90 days · <span class="status-pill"><span class="dot ok"></span> well calibrated</span></div>
+        </header>
+        <div class="scorecard-grid">
+          <div class="scorecard-cell">
+            <div class="sc-eyebrow">Hit rate</div>
+            <div class="sc-val">87%</div>
+            <div class="sc-sub"><span class="num pos">▲ 2pp</span> vs prior 90d</div>
+          </div>
+          <div class="scorecard-cell">
+            <div class="sc-eyebrow">Mean residual</div>
+            <div class="sc-val">±$3.2k</div>
+            <div class="sc-sub">target ≤ $5k</div>
+          </div>
+          <div class="scorecard-cell">
+            <div class="sc-eyebrow">Coverage</div>
+            <div class="sc-val">94%</div>
+            <div class="sc-sub">82% conf band</div>
+          </div>
+          <div class="scorecard-cell">
+            <div class="sc-eyebrow">Drift</div>
+            <div class="sc-val">low</div>
+            <div class="sc-sub">last retrain · 14d</div>
+          </div>
+        </div>
+        <div class="pad-18" style="border-bottom: 1px solid var(--rule);">
+          <div class="cap-eyebrow" style="margin-bottom: 8px;">Predicted vs actual · last 90d</div>
+          <div data-spec-scatter='{"points":[{"x":4.2,"y":4.5},{"x":6.1,"y":5.8},{"x":8.4,"y":8.0},{"x":11.2,"y":11.6},{"x":12.0,"y":11.4},{"x":14.8,"y":15.2},{"x":15.6,"y":14.9},{"x":18.4,"y":18.0},{"x":21.0,"y":22.4},{"x":22.5,"y":21.6},{"x":24.2,"y":24.0},{"x":26.8,"y":27.2},{"x":28.4,"y":28.0},{"x":30.6,"y":31.4},{"x":32.2,"y":32.5},{"x":34.0,"y":33.2},{"x":36.8,"y":37.0},{"x":38.4,"y":38.8},{"x":40.2,"y":40.0},{"x":42.6,"y":43.2},{"x":18.2,"y":24.8},{"x":35.4,"y":28.6},{"x":12.6,"y":18.4},{"x":29.0,"y":22.5}],"xMin":0,"xMax":50,"yMin":0,"yMax":50,"diagonal":true,"xLabel":"predicted ($k)","yLabel":"actual ($k)"}'
+               style="width: 100%; height: 200px;"></div>
+        </div>
+        <footer class="diff-foot">
+          <span><span class="num">241</span> cases · <span class="num pos">211</span> hits · <span class="num neg">30</span> misses</span>
+          <span class="actions">
+            <button class="btn-discard">Filter by case-type</button>
+            <a class="btn-apply" href="#" style="text-decoration: none;">Review details →</a>
+          </span>
+        </footer>
+      </div>
+    </article>
+
+
+    <article id="stat-layout" class="pattern">
+      <div class="pattern-head">
+        <span class="pattern-name">Stat<span class="ns">.</span>Layout</span>
+      </div>
+      <p class="pattern-blurb">Master–detail split: scrollable list left, selected panel right. Splitter for resize. The selection is a single <span class="mono">OptionType(IntegerType)</span> state binding — usually backed by <span class="mono">State.bind</span>, but anything exposing an index handle works. Decoupled from the Slice platform so the layout can drive any list, not just a narrowed slice.</p>
+      <div class="frame" style="display: grid; grid-template-columns: 220px 1fr;">
+        <div style="border-right: 1px solid var(--rule);">
+          <div class="eyebrow-row" style="border-bottom: 1px solid var(--rule);"><span class="lbl">Runs</span></div>
+          <div style="padding: 10px 16px; border-bottom: 1px solid var(--rule); background: var(--brand-tint);"><span class="status"><span class="dot brand"></span>09-14</span> <span class="num pos" style="margin-left: 8px;">↑12%</span></div>
+          <div style="padding: 10px 16px; border-bottom: 1px solid var(--rule);"><span class="status"><span class="dot ok"></span>09-13</span> <span class="num pos muted" style="margin-left: 8px;">↑9%</span></div>
+          <div style="padding: 10px 16px; border-bottom: 1px solid var(--rule);"><span class="status"><span class="dot ring"></span>09-12</span> <span class="num neg muted" style="margin-left: 8px;">−2%</span></div>
+          <div style="padding: 10px 16px;"><span class="status"><span class="dot ok"></span>09-11</span> <span class="num pos muted" style="margin-left: 8px;">↑6%</span></div>
+        </div>
+        <div>
+          <div class="eyebrow-row"><span class="lbl">procure-2024-09-14</span><span class="meta">model v3.4</span></div>
+          <div class="rail" style="--cols: 3;">
+            <div class="cell"><div class="lbl">Started</div><div class="val" style="font-size: 16px;">2h ago</div></div>
+            <div class="cell"><div class="lbl">Iterations</div><div class="val" style="font-size: 16px;">1,284</div></div>
+            <div class="cell"><div class="lbl">Reward</div><div class="val" style="font-size: 16px;">0.847</div></div>
+          </div>
+          <div class="pad-18">
+            <div class="cap-eyebrow" style="margin-bottom: 8px;">Δ vs baseline <span class="num pos" style="margin-left: 6px;">+12.4%</span></div>
+            <div data-spec-spark='[10,12,16,12,22,18,28,24,32,30,36]' style="width: 100%; height: 60px;"></div>
+          </div>
+        </div>
+      </div>
+
+    </article>
+
+
+
+    <article id="stat-compare-header" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Stat<span class="ns">.</span>Compare<span class="ns">.</span>Header</span></div>
+      <p class="pattern-blurb">The header strip for any side-by-side compare. Names the two states, shows their stamp, and carries the headline delta.</p>
+      <div class="frame">
+        <div class="versus-header">
+          <div class="versus-side">
+            <div class="vs-eyebrow">Last run</div>
+            <div class="vs-title">Move 5 shifts Patel → Cho</div>
+            <div class="vs-meta">09-13 · v3.4 · <span class="num">79%</span> conf</div>
+          </div>
+          <div class="versus-mid">VS</div>
+          <div class="versus-side right">
+            <div class="vs-eyebrow">This run</div>
+            <div class="vs-title">Move 3 shifts Patel → Cho</div>
+            <div class="vs-meta">09-14 · v3.4 · <span class="num">82%</span> conf</div>
+          </div>
+        </div>
+        <div class="pad-18 row gap-3" style="align-items: center; border-bottom: 1px solid var(--rule);">
+          <span class="cap-eyebrow">Headline delta</span>
+          <span class="deltapill flat">— shifts: 5 → 3</span>
+          <span class="deltapill up">▲ conf +3pp</span>
+          <span class="deltapill up">▲ value +$2k</span>
+          <span class="muted" style="margin-left: auto; font-size: 12px;"><a class="btn-link" href="#stat-compare-view">full diff →</a></span>
+        </div>
+      </div>
+    </article>
+
+    <article id="slice-pointer" class="pattern">
+      <div class="pattern-head">
+        <span class="pattern-name" style="color: var(--ink-3);">Slice<span class="ns">.</span>*</span>
+        <span class="pattern-anchor" style="background: var(--paper-2); color: var(--ink-3);">Moved</span>
+      </div>
+      <p class="pattern-blurb">
+        The seven <span class="mono">Slice.*</span> affordances (Filter / Search / Range / Breakdown / Cohort / Legend / Summary) plus the new <span class="mono">Slice.Frame</span> container and <span class="mono">Slice.Edit</span> popover now live in their own document — <span class="mono">Slice</span> is the data-narrowing primitive that Observe surfaces consume, but it's used by Configure surfaces too, so it deserved its own home.
+      </p>
+      <div class="frame pad-18" style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+        <span class="cap-eyebrow">See</span>
+        <a class="btn-link" href="./slice.html#slice-frame">Slice.Frame →</a>
+        <a class="btn-link" href="./slice.html#slice-edit">Slice.Edit →</a>
+        <a class="btn-link" href="./slice.html#slice-filter">Slice.Filter →</a>
+        <a class="btn-link" href="./slice.html#slice-search">Slice.Search →</a>
+        <a class="btn-link" href="./slice.html#slice-range">Slice.Range →</a>
+        <a class="btn-link" href="./slice.html#slice-breakdown">Slice.Breakdown →</a>
+        <a class="btn-link" href="./slice.html#slice-cohort">Slice.Cohort →</a>
+        <a class="btn-link" href="./slice.html#slice-legend">Slice.Legend →</a>
+        <a class="btn-link" href="./slice.html#slice-summary">Slice.Summary →</a>
+      </div>
+    </article>
+
+    </section>
+
+  </main>
+</div>
+
+</body>
+</html>

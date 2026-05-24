@@ -25,8 +25,8 @@
 			"path": "libs/east-ui"
 		},
 		{
-			"name": "east-plugin",
-			"path": "libs/east-plugin"
+			"name": "east-claude-plugin",
+			"path": "libs/east-claude-plugin"
 		}
 	],
 	"tasks": {

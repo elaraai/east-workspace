@@ -5,9 +5,9 @@
 
 import { memo, useMemo, useEffect, useState } from "react";
 import {
-    Status as ChakraStatus,
     Box as ChakraBox,
     HStack as ChakraHStack,
+    useSlotRecipe,
 } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-common-types";
@@ -25,20 +25,40 @@ export interface EastChakraStatusProps {
     storageKey?: string;
 }
 
-const PALETTE: Record<StatusValue["value"]["type"], string> = {
-    success: "green",
-    warning: "yellow",
-    danger: "red",
-    info: "blue",
-    neutral: "gray",
+/* Status dot ↦ muted semantic-token palette (pattern_spec/spec.css `.dot.*`).
+ *
+ * Spec rule: status = dot + WORD, never a tinted background. We render a
+ * bare 8 px circle whose colour comes from the spec's muted hues, and a
+ * label rendered in `caption.eyebrow` (mono / 10 / 600 / 0.18 em / uppercase). */
+const DOT_COLOR: Record<StatusValue["value"]["type"], string> = {
+    success: "fg.success",
+    warning: "fg.warning",
+    danger:  "fg.danger",
+    info:    "fg.info",
+    neutral: "fg.muted",
 };
 
 /**
- * Renders an East UI Status chip. The paired icon has already been injected
- * in the IR factory (§0.3); we just render it here. `pulsing` enables a CSS
- * keyframe on the indicator dot unless `prefers-reduced-motion: reduce`.
+ * Renders an East UI Status indicator. Per pattern_spec convention this is
+ * "dot + word, no tint" — a coloured 8 px circle paired with a mono
+ * uppercase label. No background, no padding, no border on the wrapper.
+ *
+ * @remarks
+ * `pulsing` enables a CSS pulse animation on the indicator dot unless the
+ * user has `prefers-reduced-motion: reduce`. Animation duration matches
+ * the spec's `.dot.run` (1.6 s); use `value.style.live` (not modelled here)
+ * for the slower 2.4 s ring pulse if needed.
+ *
+ * The paired icon has already been injected in the IR factory (§0.3); we
+ * just render it here between the dot and the label.
  */
 export const EastChakraStatus = memo(function EastChakraStatus({ value, storageKey }: EastChakraStatusProps) {
+    /* Consume the `status` slot recipe upstream — root/indicator/label
+     * styles flow from `theme/slot-recipes/status.ts` (registered under
+     * `slotRecipes.status` in the system). The renderer only contributes
+     * the data + content; chrome lives in the theme. */
+    const statusRecipe = useSlotRecipe({ key: "status" });
+
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
     const icon = useMemo(() => getSomeorUndefined(value.icon), [value.icon]);
     const pulsing = getSomeorUndefined(value.pulsing) ?? false;
@@ -54,53 +74,36 @@ export const EastChakraStatus = memo(function EastChakraStatus({ value, storageK
     }, []);
 
     const statusTag = value.value.type;
-    const colorPalette = PALETTE[statusTag] as "green" | "yellow" | "red" | "blue" | "gray";
-
-    const size = style ? (getSomeorUndefined(style.size)?.type as "sm" | "md" | "lg" | undefined) : undefined;
+    const sizeTag = style ? (getSomeorUndefined(style.size)?.type as "sm" | "md" | "lg" | undefined) : undefined;
     const color = style ? getSomeorUndefined(style.color) : undefined;
-    const background = style ? getSomeorUndefined(style.background) : undefined;
-    const borderColor = style ? getSomeorUndefined(style.borderColor) : undefined;
-    const dotColor = style ? getSomeorUndefined(style.dotColor) : undefined;
-
+    const dotColorOverride = style ? getSomeorUndefined(style.dotColor) : undefined;
     const shouldPulse = pulsing && !reducedMotion;
+
+    /* Resolve slot styles from the upstream `status` slot recipe. */
+    const styles = statusRecipe({
+        status: statusTag,
+        size: sizeTag ?? "md",
+        pulsing: shouldPulse,
+    });
 
     return (
         <ChakraHStack
-            gap="2"
-            align="center"
-            display="inline-flex"
-            px="2"
-            py="1"
-            borderRadius="md"
-            whiteSpace="nowrap"
-            flexShrink="0"
+            css={styles.root}
             {...(color !== undefined ? { color } : {})}
-            {...(background !== undefined ? { bg: background } : {})}
-            {...(borderColor !== undefined ? { borderColor, borderWidth: "1px" } : {})}
         >
-            <ChakraStatus.Root
-                colorPalette={colorPalette}
-                {...(size !== undefined ? { size } : {})}
-            >
-                <ChakraStatus.Indicator
-                    {...(dotColor !== undefined ? { bg: dotColor } : {})}
-                    css={shouldPulse ? {
-                        animation: "pulse 1.4s ease-in-out infinite",
-                        "@keyframes pulse": {
-                            "0%, 100%": { opacity: 1 },
-                            "50%": { opacity: 0.4 },
-                        },
-                    } : undefined}
-                />
-            </ChakraStatus.Root>
+            <ChakraBox
+                as="span"
+                css={styles.indicator}
+                {...(dotColorOverride !== undefined ? { bg: dotColorOverride } : {})}
+            />
             {icon ? (
-                <ChakraBox as="span" display="inline-flex" alignItems="center">
+                <ChakraBox as="span" display="inline-flex" alignItems="center" color={dotColorOverride ?? DOT_COLOR[statusTag]}>
                     <FontAwesomeIcon
                         icon={[icon.prefix as IconPrefix, icon.name as IconName]}
                     />
                 </ChakraBox>
             ) : null}
-            <ChakraBox>
+            <ChakraBox css={styles.label}>
                 <EastChakraComponent
                     value={value.label}
                     storageKey={`${storageKey ?? ""}.label`}

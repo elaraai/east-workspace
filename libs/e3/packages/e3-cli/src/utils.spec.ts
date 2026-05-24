@@ -14,7 +14,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { ApiError } from '@elaraai/e3-api-client';
-import { formatError } from './utils.js';
+import { formatError, defaultRepoArg, shortHash, HASH_DISPLAY_WIDTH } from './utils.js';
 
 describe('formatError', () => {
   // ---------------------------------------------------------------------------
@@ -111,6 +111,89 @@ describe('formatError', () => {
   // ---------------------------------------------------------------------------
   // Non-Error values
   // ---------------------------------------------------------------------------
+
+  // ---------------------------------------------------------------------------
+  // defaultRepoArg — positional > E3_REPO > "."
+  // ---------------------------------------------------------------------------
+
+  describe('defaultRepoArg', () => {
+    it('returns the positional argument when provided', () => {
+      const prev = process.env.E3_REPO;
+      try {
+        process.env.E3_REPO = '/from/env';
+        assert.strictEqual(defaultRepoArg('./explicit'), './explicit');
+      } finally {
+        if (prev === undefined) delete process.env.E3_REPO;
+        else process.env.E3_REPO = prev;
+      }
+    });
+
+    it('falls back to E3_REPO when positional is undefined', () => {
+      const prev = process.env.E3_REPO;
+      try {
+        process.env.E3_REPO = '/from/env';
+        assert.strictEqual(defaultRepoArg(undefined), '/from/env');
+      } finally {
+        if (prev === undefined) delete process.env.E3_REPO;
+        else process.env.E3_REPO = prev;
+      }
+    });
+
+    it('falls back to E3_REPO when positional is the empty string', () => {
+      const prev = process.env.E3_REPO;
+      try {
+        process.env.E3_REPO = '/from/env';
+        assert.strictEqual(defaultRepoArg(''), '/from/env');
+      } finally {
+        if (prev === undefined) delete process.env.E3_REPO;
+        else process.env.E3_REPO = prev;
+      }
+    });
+
+    it('defaults to "." when neither positional nor E3_REPO are set', () => {
+      const prev = process.env.E3_REPO;
+      try {
+        delete process.env.E3_REPO;
+        assert.strictEqual(defaultRepoArg(undefined), '.');
+      } finally {
+        if (prev !== undefined) process.env.E3_REPO = prev;
+      }
+    });
+
+    it('observes the order: positional > env > default', () => {
+      const prev = process.env.E3_REPO;
+      try {
+        delete process.env.E3_REPO;
+        assert.strictEqual(defaultRepoArg('explicit'), 'explicit');
+
+        process.env.E3_REPO = '/env';
+        assert.strictEqual(defaultRepoArg('explicit'), 'explicit');
+        assert.strictEqual(defaultRepoArg(undefined), '/env');
+
+        delete process.env.E3_REPO;
+        assert.strictEqual(defaultRepoArg(undefined), '.');
+      } finally {
+        if (prev === undefined) delete process.env.E3_REPO;
+        else process.env.E3_REPO = prev;
+      }
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // shortHash
+  // ---------------------------------------------------------------------------
+
+  describe('shortHash', () => {
+    it('truncates to HASH_DISPLAY_WIDTH chars with an ellipsis', () => {
+      const hash = 'a'.repeat(64);
+      assert.strictEqual(shortHash(hash), `${'a'.repeat(HASH_DISPLAY_WIDTH)}...`);
+    });
+
+    it('does not truncate shorter strings, still appends ellipsis', () => {
+      // documented behaviour: always appends `...`; callers control input
+      assert.strictEqual(shortHash('abc'), 'abc...');
+    });
+  });
 
   describe('non-Error values', () => {
     it('converts a string to itself', () => {

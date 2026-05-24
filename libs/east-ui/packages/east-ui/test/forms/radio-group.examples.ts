@@ -32,7 +32,7 @@ export const radioGroupHorizontal = example({
                 { value: "medium", label: "Medium" },
                 { value: "large", label: "Large" },
             ],
-            { orientation: "horizontal", colorPalette: "blue" },
+            { orientation: "horizontal" },
         );
     }),
     inputs: [],
@@ -72,7 +72,7 @@ export const radioGroupReactive = example({
                         { value: "medium", label: "Medium" },
                         { value: "large", label: "Large" },
                     ],
-                    { onChange, colorPalette: "blue" },
+                    { onChange },
                 ),
                 Text.Root(East.str`Selected: ${choice}`, { textStyle: "body-sm", color: "fg.muted" }),
             ], { gap: "3", align: "flex-start" });

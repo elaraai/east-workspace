@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
-import { IconButton, Reactive, Stack, State, Stat, Text, UIComponentType } from "@elaraai/east-ui";
+import { IconButton, Reactive, Stack, State, Stat, UIComponentType } from "@elaraai/east-ui";
 
 export const iconButtonBasic = example({
     keywords: ["IconButton", "Root", "label", "aria-label", "close"],
@@ -56,7 +56,7 @@ export const iconButtonOnClickReactive = example({
                 $(counter.write(current.add(1n)));
             }));
             return Stack.VStack([
-                Stat.Root("Clicks", Text.Root(East.print(count))),
+                Stat.Root("Clicks", East.print(count)),
                 IconButton.Root("fas", "plus", "Increment", {
                     onClick: increment,
                     style: { variant: "solid", colorPalette: "blue" },

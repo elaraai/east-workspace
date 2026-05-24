@@ -25,6 +25,7 @@ export function toChakraLink(value: LinkValue): LinkProps {
     const style = getSomeorUndefined(value.style);
     const padding = style ? getSomeorUndefined(style.padding) : undefined;
     const margin = style ? getSomeorUndefined(style.margin) : undefined;
+    const variant = style ? getSomeorUndefined(style.variant)?.type : undefined;
     const color = style ? getSomeorUndefined(style.color) : undefined;
     const hoverColor = style ? getSomeorUndefined(style.hoverColor) : undefined;
     const visitedColor = style ? getSomeorUndefined(style.visitedColor) : undefined;
@@ -34,6 +35,11 @@ export function toChakraLink(value: LinkValue): LinkProps {
     const css: Record<string, unknown> = {};
     if (hoverColor !== undefined) {
         css["&:hover"] = { color: hoverColor };
+    } else if (variant === undefined && color === undefined) {
+        // Spec default link: brand ink that underlines on hover. An explicit
+        // colour prop is needed because Chakra's built-in Link recipe otherwise
+        // resolves the rest colour to the gray color-palette fg.
+        css["&:hover"] = { color: "link.hover", textDecoration: "underline", textUnderlineOffset: "2px" };
     }
     if (visitedColor !== undefined) {
         css["&:visited"] = { color: visitedColor };
@@ -41,9 +47,9 @@ export function toChakraLink(value: LinkValue): LinkProps {
 
     return {
         href: value.href,
-        variant: style ? getSomeorUndefined(style.variant)?.type : undefined,
+        variant,
         colorPalette: style ? getSomeorUndefined(style.colorPalette) : undefined,
-        color,
+        color: color ?? "link",
         ...(external ? { target: "_blank", rel: "noopener noreferrer" } : {}),
         textDecoration: style ? getSomeorUndefined(style.textDecoration)?.type : undefined,
         overflow: style ? getSomeorUndefined(style.overflow)?.type : undefined,

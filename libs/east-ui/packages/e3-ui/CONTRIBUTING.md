@@ -1,4 +1,4 @@
-# Contributing to East
+# Contributing to e3-ui
 
 Thank you for your interest in contributing! We welcome contributions from the community.
 
@@ -15,7 +15,7 @@ When you submit your first pull request, the CLA Assistant bot will automaticall
 
 ## Contributing Process
 
-1. Fork the repository
+1. Fork the [east-workspace monorepo](https://github.com/elaraai/east-workspace)
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
 3. Make your changes
 4. Commit your changes (`git commit -m 'Add amazing feature'`)

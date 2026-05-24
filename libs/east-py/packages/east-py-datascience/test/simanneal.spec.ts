@@ -9,7 +9,7 @@
  * Tests use describeEast following east-node conventions.
  * Tests export IR for Python to run (exportOnly: true).
  */
-import {East, FloatType, IntegerType, BooleanType, variant, VectorType} from "@elaraai/east";
+import { East, FloatType, IntegerType, BooleanType, variant, VectorType, some, none } from "@elaraai/east";
 import { describeEast, Assert } from "@elaraai/east-node-std";
 import { SimAnneal, AnnealConfigType, DiscreteStateType } from "@elaraai/east-py-datascience";
 import * as ex from "./simanneal.examples.js";
@@ -63,12 +63,12 @@ describeEast("SimAnneal platform functions", (test) => {
         const initial = $.let(new BigInt64Array([0n, 1n, 2n, 3n]));
 
         const config = $.let({
-            t_max: variant("some", 1000.0),
-            t_min: variant("some", 0.1),
-            steps: variant("some", 5000n),
-            updates: variant("none", null),
-            auto_schedule: variant("none", null),
-            random_state: variant("some", 42n),
+            t_max: some(1000.0),
+            t_min: some(0.1),
+            steps: some(5000n),
+            updates: none,
+            auto_schedule: none,
+            random_state: some(42n),
         }, AnnealConfigType);
 
         const result = $.let(SimAnneal.optimizePermutation(initial, energy, config));
@@ -107,12 +107,12 @@ describeEast("SimAnneal platform functions", (test) => {
         const initial = $.let(East.Vector.fromArray([true, true, true, true, true]));
 
         const config = $.let({
-            t_max: variant("some", 500.0),
-            t_min: variant("some", 0.1),
-            steps: variant("some", 2000n),
-            updates: variant("none", null),
-            auto_schedule: variant("none", null),
-            random_state: variant("some", 123n),
+            t_max: some(500.0),
+            t_min: some(0.1),
+            steps: some(2000n),
+            updates: none,
+            auto_schedule: none,
+            random_state: some(123n),
         }, AnnealConfigType);
 
         const result = $.let(SimAnneal.optimizeSubset(initial, energy, config));
@@ -193,12 +193,12 @@ describeEast("SimAnneal platform functions", (test) => {
         const initial = $.let(variant("int_array", new BigInt64Array([0n, 0n, 0n])), DiscreteStateType);
 
         const config = $.let({
-            t_max: variant("some", 100.0),
-            t_min: variant("some", 0.01),
-            steps: variant("some", 1000n),
-            updates: variant("none", null),
-            auto_schedule: variant("none", null),
-            random_state: variant("some", 42n),
+            t_max: some(100.0),
+            t_min: some(0.01),
+            steps: some(1000n),
+            updates: none,
+            auto_schedule: none,
+            random_state: some(42n),
         }, AnnealConfigType);
 
         const result = $.let(SimAnneal.optimize(initial, energy, move, config));
@@ -226,12 +226,12 @@ describeEast("SimAnneal platform functions", (test) => {
         const initial = $.let(new BigInt64Array([3n, 1n, 4n, 1n, 5n]));
 
         const config = $.let({
-            t_max: variant("some", 100.0),
-            t_min: variant("some", 0.1),
-            steps: variant("some", 500n),
-            updates: variant("none", null),
-            auto_schedule: variant("none", null),
-            random_state: variant("some", 12345n),
+            t_max: some(100.0),
+            t_min: some(0.1),
+            steps: some(500n),
+            updates: none,
+            auto_schedule: none,
+            random_state: some(12345n),
         }, AnnealConfigType);
 
         const result1 = $.let(SimAnneal.optimizePermutation(initial, energy, config));

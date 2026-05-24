@@ -851,7 +851,7 @@ export const ganttTaskPopoverWithCallback = example({
                         colorPalette: "purple",
                         popover: Stat.Root(
                             "Total clicks",
-                            Text.Root(East.str`${clicks}`, { fontWeight: "bold", textStyle: "heading-md" }),
+                            East.str`${clicks}`,
                             { helpText: "Counter increments every click — popover and callback coexist." },
                         ),
                     })] }),

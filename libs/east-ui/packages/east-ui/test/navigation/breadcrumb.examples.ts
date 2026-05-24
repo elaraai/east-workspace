@@ -2,83 +2,31 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, NullType, StringType, variant, example } from "@elaraai/east";
+import { East, NullType, StringType, example, some, none } from "@elaraai/east";
 import { Breadcrumb, Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui";
 
-export const breadcrumbPlain = example({
-    keywords: ["Breadcrumb", "Root", "variant", "plain", "chevron"],
-    description: "Default plain variant with chevron separators",
+export const breadcrumbBasic = example({
+    keywords: ["Breadcrumb", "Root", "navigation", "separator"],
+    description: "Basic breadcrumb — mono links, '/' separator, current page in ink",
     fn: East.function([], UIComponentType, (_$) => {
         return Breadcrumb.Root([
-            { label: "Home", current: variant("none", null), onClick: variant("none", null) },
-            { label: "Components", current: variant("none", null), onClick: variant("none", null) },
-            { label: "Breadcrumb", current: variant("some", true), onClick: variant("none", null) },
-        ], {
-            variant: "plain",
-        });
+            { label: "Home", current: none, onClick: none },
+            { label: "Components", current: none, onClick: none },
+            { label: "Breadcrumb", current: some(true), onClick: none },
+        ]);
     }),
     inputs: [],
 });
 
-export const breadcrumbUnderline = example({
-    keywords: ["Breadcrumb", "Root", "variant", "underline", "colorPalette"],
-    description: "Underline variant with color palette",
+export const breadcrumbRunAnchor = example({
+    keywords: ["Breadcrumb", "Root", "runAnchor", "run", "stamp"],
+    description: "Breadcrumb pinned to a run via a trailing run anchor",
     fn: East.function([], UIComponentType, (_$) => {
         return Breadcrumb.Root([
-            { label: "Docs", current: variant("none", null), onClick: variant("none", null) },
-            { label: "Components", current: variant("none", null), onClick: variant("none", null) },
-            { label: "Props", current: variant("some", true), onClick: variant("none", null) },
-        ], {
-            variant: "underline",
-            colorPalette: "blue",
-        });
-    }),
-    inputs: [],
-});
-
-export const breadcrumbSizes = example({
-    keywords: ["Breadcrumb", "Root", "size", "sm", "md", "lg"],
-    description: "Available sizes: sm, md, lg",
-    fn: East.function([], UIComponentType, (_$) => {
-        return Stack.VStack([
-            Breadcrumb.Root([
-                { label: "Home", current: variant("none", null), onClick: variant("none", null) },
-                { label: "Products", current: variant("none", null), onClick: variant("none", null) },
-                { label: "Item", current: variant("some", true), onClick: variant("none", null) },
-            ], { size: "sm" }),
-            Breadcrumb.Root([
-                { label: "Home", current: variant("none", null), onClick: variant("none", null) },
-                { label: "Products", current: variant("none", null), onClick: variant("none", null) },
-                { label: "Item", current: variant("some", true), onClick: variant("none", null) },
-            ], { size: "md" }),
-            Breadcrumb.Root([
-                { label: "Home", current: variant("none", null), onClick: variant("none", null) },
-                { label: "Products", current: variant("none", null), onClick: variant("none", null) },
-                { label: "Item", current: variant("some", true), onClick: variant("none", null) },
-            ], { size: "lg" }),
-        ], { gap: "4", align: "flex-start" });
-    }),
-    inputs: [],
-});
-
-export const breadcrumbColors = example({
-    keywords: ["Breadcrumb", "Root", "colorPalette", "blue", "teal", "purple"],
-    description: "Underline variant with different color palettes",
-    fn: East.function([], UIComponentType, (_$) => {
-        return Stack.VStack([
-            Breadcrumb.Root([
-                { label: "Home", current: variant("none", null), onClick: variant("none", null) },
-                { label: "Blue", current: variant("some", true), onClick: variant("none", null) },
-            ], { variant: "underline", colorPalette: "blue" }),
-            Breadcrumb.Root([
-                { label: "Home", current: variant("none", null), onClick: variant("none", null) },
-                { label: "Teal", current: variant("some", true), onClick: variant("none", null) },
-            ], { variant: "underline", colorPalette: "teal" }),
-            Breadcrumb.Root([
-                { label: "Home", current: variant("none", null), onClick: variant("none", null) },
-                { label: "Purple", current: variant("some", true), onClick: variant("none", null) },
-            ], { variant: "underline", colorPalette: "purple" }),
-        ], { gap: "4", align: "flex-start" });
+            { label: "SE region", current: none, onClick: none },
+            { label: "wk of Sep 16", current: none, onClick: none },
+            { label: "Roster builder", current: some(true), onClick: none },
+        ], { runAnchor: "run #42" });
     }),
     inputs: [],
 });
@@ -97,11 +45,11 @@ export const breadcrumbInteractive = example({
 
             return Stack.VStack([
                 Breadcrumb.Root([
-                    { label: "Home", current: variant("none", null), onClick: variant("some", navigateTo("Home")) },
-                    { label: "Products", current: variant("none", null), onClick: variant("some", navigateTo("Products")) },
-                    { label: "Widgets", current: variant("none", null), onClick: variant("some", navigateTo("Widgets")) },
-                    { label: "Details", current: variant("some", true), onClick: variant("none", null) },
-                ], { variant: "underline", colorPalette: "blue" }),
+                    { label: "Home", current: none, onClick: some(navigateTo("Home")) },
+                    { label: "Products", current: none, onClick: some(navigateTo("Products")) },
+                    { label: "Widgets", current: none, onClick: some(navigateTo("Widgets")) },
+                    { label: "Details", current: some(true), onClick: none },
+                ]),
                 Text.Root(East.str`Current page: ${page}`, { fontWeight: "bold" }),
             ], { gap: "4", align: "flex-start" });
         }));

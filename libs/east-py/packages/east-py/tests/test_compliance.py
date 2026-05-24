@@ -161,31 +161,41 @@ def main():
         print(f"Error: No test IR files in {ir_dir}")
         sys.exit(1)
 
-    # Parallel execution — print as each file completes (like east-c's run_compliance.sh)
-    import concurrent.futures
+    # Run each IR file in its own isolated subprocess by re-invoking this script.
+    # ProcessPoolExecutor reuses workers, causing ML libraries (PyTorch, sklearn,
+    # XGBoost) loaded by early tasks to corrupt state for later ones. A fresh process
+    # per file avoids this entirely.
+    import subprocess
+    import re
+
+    platform_flags: list[str] = []
+    for mod_name in (platform_modules or []):
+        platform_flags += ['-p', mod_name]
 
     total_pass = total_fail = total_crash = 0
 
     t_start = time.perf_counter()
-    with concurrent.futures.ProcessPoolExecutor() as pool:
-        futures = {pool.submit(_run_one_subprocess, f, not quiet, platform_modules): f for f in files}
-        for future in concurrent.futures.as_completed(futures):
-            name, p, fl, output, err = future.result()
-            if err:
-                total_crash += 1
-                print(f"  CRASH {name} ({err})", flush=True)
+    for f in files:
+        name = f.stem
+        cmd = [sys.executable, __file__, str(f), '--ir-dir', str(ir_dir)] + platform_flags + ['-q']
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        out = result.stdout + result.stderr
+        m = re.search(r'Results:\s*(\d+)/(\d+)', out)
+        if m:
+            p, total = int(m.group(1)), int(m.group(2))
+            fl = total - p
+            total_pass += p
+            total_fail += fl
+            if fl == 0:
+                print(f"  PASS  {name} ({p}/{total})", flush=True)
             else:
-                total_pass += p
-                total_fail += fl
+                print(f"  FAIL  {name} ({p}/{total}, {fl} failed)", flush=True)
                 if not quiet:
-                    sys.stdout.write(output)
-                    sys.stdout.flush()
-                else:
-                    total = p + fl
-                    if fl == 0:
-                        print(f"  PASS  {name} ({p}/{total})", flush=True)
-                    else:
-                        print(f"  FAIL  {name} ({p}/{total}, {fl} failed)", flush=True)
+                    sys.stdout.write(out)
+        elif result.returncode != 0:
+            total_crash += 1
+            stderr_first = out.strip().splitlines()[-1] if out.strip() else f"exit {result.returncode}"
+            print(f"  CRASH {name} ({stderr_first})", flush=True)
 
     wall = (time.perf_counter() - t_start) * 1000
 

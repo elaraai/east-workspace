@@ -43,8 +43,8 @@ export const TaskPreview = memo(function TaskPreview({
 
     return (
         <Box height="100%" display="flex" flexDirection="column" overflow="hidden">
-            <Flex px={4} py={2} borderBottom="1px solid" borderColor="gray.200" bg="white" align="center" flexShrink={0}>
-                <Text fontSize="sm" fontWeight="medium" color="gray.700">{task}</Text>
+            <Flex px={4} py={2} borderBottom="1px solid" borderColor="border.subtle" bg="bg.surface" align="center" flexShrink={0}>
+                <Text fontSize="sm" fontWeight="medium" color="fg">{task}</Text>
             </Flex>
             <Box flex={1} overflow="hidden" minHeight={0}>
                 {detailsQuery.isLoading

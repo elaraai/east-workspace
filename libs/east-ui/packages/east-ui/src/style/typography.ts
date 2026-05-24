@@ -513,6 +513,7 @@ export function FontVariantNumeric(variant_: FontVariantNumericLiteral): ExprTyp
  * Text and Heading require a `textStyle`; raw `fontSize` stays on Box only
  * as an escape hatch.
  *
+ * @property display-xl - Hero page title (48 px)
  * @property display-lg - Large display heading
  * @property display-md - Medium display heading
  * @property display-sm - Small display heading
@@ -532,6 +533,7 @@ export function FontVariantNumeric(variant_: FontVariantNumericLiteral): ExprTyp
  * @property mono-kpi - KPI numeric — mono + tabular-nums + display sizing
  */
 export const TextStyleType = VariantType({
+    "display-xl": NullType,
     "display-lg": NullType,
     "display-md": NullType,
     "display-sm": NullType,
@@ -560,7 +562,7 @@ export type TextStyleType = typeof TextStyleType;
  * String literal type for text style values.
  */
 export type TextStyleLiteral =
-    | "display-lg" | "display-md" | "display-sm"
+    | "display-xl" | "display-lg" | "display-md" | "display-sm"
     | "heading-lg" | "heading-md" | "heading-sm" | "heading-xs"
     | "body-lg" | "body-md" | "body-sm"
     | "label-md" | "label-sm"

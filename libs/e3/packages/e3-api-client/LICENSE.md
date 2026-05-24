@@ -34,6 +34,10 @@ On the Change Date (four years after each release), the Licensed Work will be ma
 
 THE LICENSED WORK IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND. THE LICENSOR DISCLAIMS ALL WARRANTIES, EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
 
+### Package-Specific Licenses
+
+Individual packages within this repository may have different licensing terms. See the LICENSE.md file in each package directory for details.
+
 ## Commercial Licensing
 
 To obtain a commercial license for Production Use, contact:

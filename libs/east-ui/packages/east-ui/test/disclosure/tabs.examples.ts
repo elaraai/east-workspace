@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { East, NullType, StringType, example } from "@elaraai/east";
-import { Badge, Box, Reactive, Stack, State, Tabs, Text, UIComponentType } from "@elaraai/east-ui";
+import { Box, Reactive, Stack, State, Tabs, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const tabsBasic = example({
     keywords: ["Tabs", "Root", "Item", "defaultValue", "basic"],
@@ -46,75 +46,6 @@ export const tabsLine = example({
             ], {
                 defaultValue: "tab1",
                 style: { variant: "line" },
-            }),
-        ], { width: "100%" });
-    }),
-    inputs: [],
-});
-
-export const tabsEnclosed = example({
-    keywords: ["Tabs", "Root", "variant", "enclosed", "bordered"],
-    description: "Bordered tab container",
-    fn: East.function([], UIComponentType, (_$) => {
-        return Box.Root([
-            Tabs.Root([
-                Tabs.Item("general", "General", [
-                    Box.Root([Text.Root("General application settings.")], { padding: "4" }),
-                ]),
-                Tabs.Item("advanced", "Advanced", [
-                    Box.Root([Text.Root("Advanced configuration options.")], { padding: "4" }),
-                ]),
-            ], {
-                defaultValue: "general",
-                style: { variant: "enclosed" },
-            }),
-        ], { width: "100%" });
-    }),
-    inputs: [],
-});
-
-export const tabsOutline = example({
-    keywords: ["Tabs", "Root", "variant", "outline"],
-    description: "Outlined tab buttons",
-    fn: East.function([], UIComponentType, (_$) => {
-        return Box.Root([
-            Tabs.Root([
-                Tabs.Item("all", "All Items", [
-                    Box.Root([Text.Root("Showing all items in the list.")], { padding: "4" }),
-                ]),
-                Tabs.Item("active", "Active", [
-                    Box.Root([Text.Root("Showing only active items.")], { padding: "4" }),
-                ]),
-                Tabs.Item("archived", "Archived", [
-                    Box.Root([Text.Root("Showing archived items.")], { padding: "4" }),
-                ]),
-            ], {
-                defaultValue: "all",
-                style: { variant: "outline" },
-            }),
-        ], { width: "100%" });
-    }),
-    inputs: [],
-});
-
-export const tabsSubtle = example({
-    keywords: ["Tabs", "Root", "variant", "subtle"],
-    description: "Light background on selected",
-    fn: East.function([], UIComponentType, (_$) => {
-        return Box.Root([
-            Tabs.Root([
-                Tabs.Item("home", "Home", [
-                    Box.Root([Text.Root("Welcome to the home tab.")], { padding: "4" }),
-                ]),
-                Tabs.Item("profile", "Profile", [
-                    Box.Root([Text.Root("Your profile information.")], { padding: "4" }),
-                ]),
-                Tabs.Item("settings", "Settings", [
-                    Box.Root([Text.Root("Application settings.")], { padding: "4" }),
-                ]),
-            ], {
-                defaultValue: "home",
-                style: { variant: "subtle" },
             }),
         ], { width: "100%" });
     }),
@@ -197,7 +128,7 @@ export const tabsInteractive = example({
     fn: East.function([], UIComponentType, (_$) => {
         return Reactive.Root(East.function([], UIComponentType, $ => {
             const selectedBind = $.let(State.bind([StringType], "tabs_selected", "tab1"));
-            const selected = $.let(selectedBind.read());
+            const selected = $.let(selectedBind.read(), StringType);
 
             const onValueChange = $.const(East.function(
                 [StringType],
@@ -225,10 +156,7 @@ export const tabsInteractive = example({
                         style: { variant: "line" },
                     }),
                 ], { width: "100%" }),
-                Badge.Root(
-                    East.str`Selected tab: ${selected}`,
-                    { colorPalette: "blue", variant: "solid" }
-                ),
+                Text.Presets.Eyebrow(East.str`SELECTED · ${selected}`),
             ], { gap: "3", align: "stretch" });
         }));
     }),
@@ -240,8 +168,8 @@ export const tabsInteractive = example({
 // -----------------------------------------------------------------------------
 
 export const tabsWithCountBadges = example({
-    keywords: ["Tabs", "Root", "Item", "trigger", "Badge", "count", "rich"],
-    description: "Rich trigger with an inline count badge (Results · 5)",
+    keywords: ["Tabs", "Root", "Item", "trigger", "count", "mono", "rich"],
+    description: "Rich trigger with an inline mono count (Results · 5) per bsys eyebrow grammar",
     fn: East.function([], UIComponentType, (_$) => {
         return Tabs.Root([
             Tabs.Item("inputs", "Inputs", [
@@ -251,7 +179,7 @@ export const tabsWithCountBadges = example({
                 "results",
                 Stack.HStack([
                     Text.Root("Results"),
-                    Badge.Root("5", { colorPalette: "blue", variant: "subtle" }),
+                    Text.Presets.MonoSm("5"),
                 ], { gap: "2", align: "center" }),
                 [Box.Root([Text.Root("Five results computed.")], { padding: "4" })],
             ),
@@ -286,7 +214,7 @@ export const tabsTwoLine = example({
             ),
         ], {
             defaultValue: "week-06",
-            style: { variant: "enclosed" },
+            style: { variant: "line" },
         });
     }),
     inputs: [],
@@ -298,7 +226,7 @@ export const tabsReactive = example({
     fn: East.function([], UIComponentType, (_$) => {
         return Reactive.Root(East.function([], UIComponentType, $ => {
             const bind = $.let(State.bind([StringType], "tabs_reactive_active", "a"));
-            const active = $.let(bind.read());
+            const active = $.let(bind.read(), StringType);
             const onValueChange = $.const(East.function([StringType], NullType, ($, next) => {
                 $(bind.write(next));
             }));

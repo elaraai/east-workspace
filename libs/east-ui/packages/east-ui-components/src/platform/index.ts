@@ -66,6 +66,9 @@ export { DownloadImpl } from "./download/index.js";
 // Share — OS share sheet with clipboard fallback
 export { ShareImpl } from "./share/index.js";
 
+// Slice — stateful narrowing platform (bind) + pure apply engine
+export { SliceImpl, SliceApplyImpl } from "./slice/index.js";
+
 // =============================================================================
 // StateRuntime Namespace
 // =============================================================================

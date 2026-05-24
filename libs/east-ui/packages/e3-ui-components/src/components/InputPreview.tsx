@@ -27,8 +27,8 @@ export const InputPreview = memo(function InputPreview({
 
     return (
         <Box flex={1} display="flex" flexDirection="column" overflow="hidden">
-            <Flex px={4} py={2} borderBottom="1px solid" borderColor="gray.200" bg="white" align="center" justify="space-between">
-                <Text fontSize="sm" fontWeight="medium" color="gray.700">{displayName}</Text>
+            <Flex px={4} py={2} borderBottom="1px solid" borderColor="border.subtle" bg="bg.surface" align="center" justify="space-between">
+                <Text fontSize="sm" fontWeight="medium" color="fg">{displayName}</Text>
             </Flex>
             <Box flex={1} overflow="hidden" minHeight={0}>
                 <DatasetPreview

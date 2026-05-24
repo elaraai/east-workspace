@@ -8,7 +8,21 @@
 /**
  * e3 CLI - East Execution Engine command-line interface
  *
- * All commands take a repository path as the first argument (`.` for current directory).
+ * Top-level command tree:
+ *
+ *   repo      create | remove | status | gc | list
+ *   package   import | export | list | remove
+ *   workspace create | remove | list | status | deploy | export
+ *   dataset   get | set | list | status | find
+ *   task      logs | list
+ *   dataflow  run
+ *   auth      login | logout | status | token | whoami
+ *   run       <pkg.task> <inputs...> -o <out>     (ad-hoc)
+ *   watch     <source> [<ws>]
+ *   convert   <input> [...]
+ *
+ * Every command that takes <repo> accepts a local path or http(s) URL — the
+ * transport is detected from the argument.
  */
 
 import { createRequire } from 'node:module';
@@ -16,6 +30,7 @@ import { Command } from 'commander';
 
 const require = createRequire(import.meta.url);
 const packageJson = require('../../package.json') as { version: string };
+
 import { repoCommand } from './commands/repo.js';
 import { packageCommand } from './commands/package.js';
 import { workspaceCommand } from './commands/workspace.js';
@@ -26,9 +41,14 @@ import { startCommand } from './commands/start.js';
 import { runCommand } from './commands/run.js';
 import { logsCommand } from './commands/logs.js';
 import { datasetStatusCommand } from './commands/dataset-status.js';
+import { findCommand } from './commands/find.js';
 import { convertCommand } from './commands/convert.js';
 import { watchCommand } from './commands/watch.js';
-import { createAuthCommand, createLoginCommand, createLogoutCommand } from './commands/auth.js';
+import { createAuthCommand } from './commands/auth.js';
+import { completionCommand } from './commands/completion.js';
+import { installCommand as completionInstall, uninstallCommand as completionUninstall } from './commands/completion-install.js';
+import { completeCommand } from './commands/complete.js';
+import { withDefaultRepo, defaultRepoArg } from './utils.js';
 
 const program = new Command();
 
@@ -37,36 +57,38 @@ program
   .description('East Execution Engine - Execute tasks across multiple runtimes')
   .version(packageJson.version);
 
-// Repository commands
+// ---------------------------------------------------------------------------
+// repo
+// ---------------------------------------------------------------------------
 program
   .command('repo')
   .description('Repository operations')
   .addCommand(
     new Command('create')
       .description('Create a new repository')
-      .argument('<repo>', 'Repository path or URL')
-      .action(repoCommand.create)
+      .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
+      .action(withDefaultRepo(repoCommand.create))
   )
   .addCommand(
     new Command('remove')
       .description('Remove a repository')
-      .argument('<repo>', 'Repository path or URL')
+      .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
       .option('-r, --recursive', 'Remove all workspaces first')
-      .action(repoCommand.remove)
+      .action(withDefaultRepo(repoCommand.remove))
   )
   .addCommand(
     new Command('status')
       .description('Show repository status')
-      .argument('<repo>', 'Repository path or URL')
-      .action(repoCommand.status)
+      .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
+      .action(withDefaultRepo(repoCommand.status))
   )
   .addCommand(
     new Command('gc')
       .description('Remove unreferenced objects')
-      .argument('<repo>', 'Repository path or URL')
+      .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
       .option('--dry-run', 'Report what would be deleted without deleting')
       .option('--min-age <ms>', 'Minimum file age in ms before deletion', '60000')
-      .action(repoCommand.gc)
+      .action(withDefaultRepo(repoCommand.gc))
   )
   .addCommand(
     new Command('list')
@@ -75,165 +97,265 @@ program
       .action(repoCommand.list)
   );
 
-// Package commands
+// ---------------------------------------------------------------------------
+// package
+// ---------------------------------------------------------------------------
 program
   .command('package')
   .description('Package operations')
   .addCommand(
     new Command('import')
       .description('Import package from .zip file')
-      .argument('<repo>', 'Repository path')
+      .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
       .argument('<zipPath>', 'Path to .zip file')
-      .action(packageCommand.import)
+      .action(withDefaultRepo(packageCommand.import))
   )
   .addCommand(
     new Command('export')
       .description('Export package to .zip file')
-      .argument('<repo>', 'Repository path')
+      .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
       .argument('<pkg>', 'Package name[@version]')
       .argument('<zipPath>', 'Output .zip path')
-      .action(packageCommand.export)
+      .action(withDefaultRepo(packageCommand.export))
   )
   .addCommand(
     new Command('list')
       .description('List installed packages')
-      .argument('<repo>', 'Repository path')
-      .action(packageCommand.list)
+      .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
+      .action(withDefaultRepo(packageCommand.list))
   )
   .addCommand(
     new Command('remove')
       .description('Remove a package')
-      .argument('<repo>', 'Repository path')
+      .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
       .argument('<pkg>', 'Package name[@version]')
-      .action(packageCommand.remove)
+      .action(withDefaultRepo(packageCommand.remove))
   );
 
-// Workspace commands
+// ---------------------------------------------------------------------------
+// workspace
+// ---------------------------------------------------------------------------
 program
   .command('workspace')
   .description('Workspace operations')
   .addCommand(
     new Command('create')
       .description('Create an empty workspace')
-      .argument('<repo>', 'Repository path')
+      .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
       .argument('<name>', 'Workspace name')
-      .action(workspaceCommand.create)
+      .action(withDefaultRepo(workspaceCommand.create))
   )
   .addCommand(
     new Command('deploy')
       .description('Deploy a package to a workspace')
-      .argument('<repo>', 'Repository path')
+      .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
       .argument('<ws>', 'Workspace name')
-      .argument('<pkg>', 'Package name[@version]')
-      .action(workspaceCommand.deploy)
+      .argument('[pkg]', 'Package name[@version] (omit when using --from-zip)')
+      .option('--from-zip <path>', 'Import the zip and deploy (creates the workspace if needed)')
+      .action(withDefaultRepo(workspaceCommand.deploy))
   )
   .addCommand(
     new Command('export')
       .description('Export workspace as a package')
-      .argument('<repo>', 'Repository path')
+      .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
       .argument('<ws>', 'Workspace name')
       .argument('<zipPath>', 'Output .zip path')
       .option('--name <name>', 'Package name (default: deployed package name)')
       .option('--version <version>', 'Package version (default: auto-generated)')
-      .action(workspaceCommand.export)
-  )
-  .addCommand(
-    new Command('import')
-      .description('Import a package zip into a workspace (creates workspace if needed)')
-      .argument('<repo>', 'Repository path or URL')
-      .argument('<ws>', 'Workspace name')
-      .argument('<zipPath>', 'Input .zip path')
-      .action(workspaceCommand.import)
+      .action(withDefaultRepo(workspaceCommand.export))
   )
   .addCommand(
     new Command('list')
       .description('List workspaces')
-      .argument('<repo>', 'Repository path')
-      .action(workspaceCommand.list)
+      .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
+      .action(withDefaultRepo(workspaceCommand.list))
   )
   .addCommand(
     new Command('remove')
       .description('Remove a workspace')
-      .argument('<repo>', 'Repository path')
+      .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
       .argument('<ws>', 'Workspace name')
-      .action(workspaceCommand.remove)
+      .action(withDefaultRepo(workspaceCommand.remove))
   )
   .addCommand(
     new Command('status')
       .description('Show detailed workspace status (tasks, datasets, locks)')
-      .argument('<repo>', 'Repository path')
+      .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
       .argument('<ws>', 'Workspace name')
-      .action(workspaceCommand.status)
+      .action(withDefaultRepo(workspaceCommand.status))
   );
 
-// Dataset commands
+// ---------------------------------------------------------------------------
+// dataset
+// ---------------------------------------------------------------------------
 program
-  .command('list <repo> [path]')
-  .description('List workspaces or tree contents at path (ws.path.to.tree)')
-  .option('-r, --recursive', 'List all datasets recursively')
-  .option('-l, --long', 'Show detailed information (type, status, size)')
-  .action(listCommand);
+  .command('dataset')
+  .description('Dataset operations within a workspace')
+  .addCommand(
+    new Command('get')
+      .description('Print a dataset value (path: <ws>.<name>)')
+      .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
+      .argument('<path>', 'Dataset path (<ws>.<name>)')
+      .option('-f, --format <format>', 'Output format: east, json, beast2', 'east')
+      .action(withDefaultRepo(getCommand))
+  )
+  .addCommand(
+    new Command('set')
+      .description('Set a dataset value from a file (path: <ws>.<name>)')
+      .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
+      .argument('<path>', 'Dataset path (<ws>.<name>)')
+      .argument('<file>', 'Path to .east, .beast2, .json, or .csv file')
+      .option('--type <typespec>', 'Inline .east type specification (required for .json/.csv)')
+      .option('--type-file <path>', 'Read .east type specification from a file (alternative to --type)')
+      .action(withDefaultRepo(setCommand))
+  )
+  .addCommand(
+    new Command('list')
+      .description('List dataset paths in a workspace')
+      .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
+      .argument('<ws>', 'Workspace name')
+      .option('-l, --long', 'Show kind/type/status/size columns')
+      .action(withDefaultRepo(listCommand))
+  )
+  .addCommand(
+    new Command('status')
+      .description('Show status of a single dataset')
+      .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
+      .argument('<path>', 'Dataset path (<ws>.<name>)')
+      .action(withDefaultRepo(datasetStatusCommand))
+  )
+  .addCommand(
+    new Command('find')
+      .description('Search dataset names by substring or glob pattern')
+      .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
+      .argument('<ws>', 'Workspace name')
+      .argument('<pattern>', 'Substring or glob (`*`, `?`)')
+      .action(withDefaultRepo(findCommand))
+  );
 
+// ---------------------------------------------------------------------------
+// task
+// ---------------------------------------------------------------------------
 program
-  .command('get <repo> <path>')
-  .description('Get dataset value at path (ws.path.to.dataset)')
-  .option('-f, --format <format>', 'Output format: east, json, beast2', 'east')
-  .action(getCommand);
+  .command('task')
+  .description('Task operations within a workspace')
+  .addCommand(
+    new Command('list')
+      .description('List tasks in a workspace with execution status')
+      .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
+      .argument('<ws>', 'Workspace name')
+      .action((repo: string | undefined, ws: string) => logsCommand(defaultRepoArg(repo), ws, {}))
+  )
+  .addCommand(
+    new Command('logs')
+      .description('View logs for a task')
+      .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
+      .argument('<path>', 'Task path (<ws>.<task>)')
+      .option('--follow', 'Follow log output')
+      .action(withDefaultRepo(logsCommand))
+  );
 
+// ---------------------------------------------------------------------------
+// dataflow
+// ---------------------------------------------------------------------------
 program
-  .command('set <repo> <path> <file>')
-  .description('Set dataset value from file (ws.path.to.dataset)')
-  .option('--type <typespec>', 'Type specification in .east format (required for .json/.csv files)')
-  .action(setCommand);
+  .command('dataflow')
+  .description('Workspace dataflow execution')
+  .addCommand(
+    new Command('run')
+      .description('Execute the workspace dataflow')
+      .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
+      .argument('<ws>', 'Workspace name')
+      .option('--filter <pattern>', 'Only run tasks matching pattern')
+      .option('--concurrency <n>', 'Max concurrent tasks', '4')
+      .option('--force', 'Force re-execution even if cached')
+      .action(withDefaultRepo(startCommand))
+  );
 
-program
-  .command('status <repo> <path>')
-  .description('Show dataset status at path (ws.path.to.dataset)')
-  .action(datasetStatusCommand);
+// ---------------------------------------------------------------------------
+// auth
+// ---------------------------------------------------------------------------
+program.addCommand(createAuthCommand());
 
-// Execution commands
+// ---------------------------------------------------------------------------
+// run (ad-hoc) — uses pkg.task dot syntax
+// ---------------------------------------------------------------------------
 program
-  .command('run <repo> <task> [inputs...]')
-  .description('Run task ad-hoc (task format: pkg/task or pkg@version/task)')
+  .command('run')
+  .description('Run a task ad-hoc from a package (task: pkg.task or pkg@version.task)')
+  .argument('<repo>', 'Repository path or URL')
+  .argument('<task>', 'Task specifier: pkg.task or pkg@version.task')
+  .argument('[inputs...]', 'Input file paths (.beast2)')
   .option('-o, --output <path>', 'Output file path')
   .option('--force', 'Force re-execution even if cached')
   .action(runCommand);
 
+// ---------------------------------------------------------------------------
+// watch — source first, workspace second
+// ---------------------------------------------------------------------------
 program
-  .command('start <repo> <ws>')
-  .description('Execute tasks in a workspace')
-  .option('--filter <pattern>', 'Only run tasks matching pattern')
-  .option('--concurrency <n>', 'Max concurrent tasks', '4')
-  .option('--force', 'Force re-execution even if cached')
-  .action(startCommand);
-
-program
-  .command('watch <repo> <workspace> <source>')
+  .command('watch')
   .description('Watch a TypeScript file and auto-deploy on changes')
+  .argument('<source>', 'TypeScript file to watch')
+  .argument('<repo>', 'Repository path or URL')
+  .argument('<workspace>', 'Workspace name')
   .option('--start', 'Execute dataflow after each deploy')
   .option('--concurrency <n>', 'Max concurrent tasks when using --start', '4')
   .option('--abort-on-change', 'Abort running execution when file changes')
   .action(watchCommand);
 
+// ---------------------------------------------------------------------------
+// convert
+// ---------------------------------------------------------------------------
 program
-  .command('logs <repo> <path>')
-  .description('View task logs (path format: ws or ws.taskName)')
-  .option('--follow', 'Follow log output')
-  .action(logsCommand);
-
-// Utility commands
-program
-  .command('convert [input]')
+  .command('convert')
   .description('Convert between .east, .json, and .beast2 formats')
+  .argument('[input]', 'Input file path (default: read from stdin)')
   .option('--from <format>', 'Input format: east, json, beast2 (default: auto-detect)')
   .option('--to <format>', 'Output format: east, json, beast2', 'east')
   .option('-o, --output <path>', 'Output file path (default: stdout)')
   .option('--type <typespec>', 'Type specification in .east format')
   .action(convertCommand);
 
-// Authentication commands
-program.addCommand(createLoginCommand());
-program.addCommand(createLogoutCommand());
-program.addCommand(createAuthCommand());
+// ---------------------------------------------------------------------------
+// completion (shell scripts) + __complete (hidden handler for the scripts)
+// ---------------------------------------------------------------------------
+program
+  .command('completion')
+  .description('Shell tab-completion: install, uninstall, or print scripts')
+  .addCommand(
+    new Command('install')
+      .description('Auto-detect shell and wire up completion in your rc file')
+      .option('--shell <shell>', 'Override shell detection: bash | zsh | fish')
+      .option('--quiet', 'Suppress output on success')
+      .action(completionInstall),
+  )
+  .addCommand(
+    new Command('uninstall')
+      .description('Remove completion from your shell rc file')
+      .option('--shell <shell>', 'Override shell detection: bash | zsh | fish')
+      .action(completionUninstall),
+  )
+  .addCommand(
+    new Command('bash')
+      .description('Print bash completion script (use `install` to wire it up automatically)')
+      .action(() => completionCommand('bash')),
+  )
+  .addCommand(
+    new Command('zsh')
+      .description('Print zsh completion script')
+      .action(() => completionCommand('zsh')),
+  )
+  .addCommand(
+    new Command('fish')
+      .description('Print fish completion script')
+      .action(() => completionCommand('fish')),
+  );
+
+program
+  .command('__complete', { hidden: true })
+  .argument('<cword>', 'Index of the word being completed (0-based)')
+  .argument('[words...]', 'Words on the command line, excluding the leading e3')
+  .action(completeCommand);
 
 program.parse();

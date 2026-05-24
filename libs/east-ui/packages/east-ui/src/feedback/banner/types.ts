@@ -4,16 +4,51 @@
  */
 
 import {
+    type ExprType,
     type SubtypeExprOrValue,
+    East,
+    NullType,
     OptionType,
     StructType,
     StringType,
+    VariantType,
+    variant,
 } from "@elaraai/east";
 
 import { SizeType } from "../../style.js";
 import type { SizeLiteral } from "../../style.js";
-import { AlertVariantType } from "../alert/types.js";
-import type { AlertVariantLiteral } from "../alert/types.js";
+
+// ============================================================================
+// Banner Variant Type (visual preset — lives under style)
+// ============================================================================
+
+/**
+ * Visual preset for Banner.
+ *
+ * @property solid - Solid background banner (escape hatch — high-emphasis only)
+ * @property subtle - Subtle/light background banner (default, paper-2 + status border)
+ * @property outline - Bordered banner with paper background
+ */
+export const BannerVariantType = VariantType({
+    solid: NullType,
+    subtle: NullType,
+    outline: NullType,
+});
+
+export type BannerVariantType = typeof BannerVariantType;
+
+/** String literal type for banner variant values. */
+export type BannerVariantLiteral = "solid" | "subtle" | "outline";
+
+/**
+ * Helper function to create banner variant values.
+ *
+ * @param v - The variant string
+ * @returns An East expression representing the banner variant
+ */
+export function BannerVariant(v: BannerVariantLiteral): ExprType<BannerVariantType> {
+    return East.value(variant(v, null), BannerVariantType);
+}
 
 // ============================================================================
 // Banner Style Type
@@ -22,7 +57,7 @@ import type { AlertVariantLiteral } from "../alert/types.js";
 /**
  * Visual-only style struct for Banner.
  *
- * @property variant - Visual preset (reuses Alert's variant set)
+ * @property variant - Visual preset (subtle / solid / outline)
  * @property size - Size preset (sm / md / lg)
  * @property color - Text colour
  * @property background - Background colour
@@ -31,7 +66,7 @@ import type { AlertVariantLiteral } from "../alert/types.js";
  * @property accentColor - Prominent left / top accent stripe
  */
 export const BannerStyleType = StructType({
-    variant: OptionType(AlertVariantType),
+    variant: OptionType(BannerVariantType),
     size: OptionType(SizeType),
     color: OptionType(StringType),
     background: OptionType(StringType),
@@ -46,8 +81,8 @@ export type BannerStyleType = typeof BannerStyleType;
  * TypeScript options bag for Banner's `style` sub-struct — visual props only.
  */
 export interface BannerStyle {
-    /** Visual preset (reuses Alert's variant set) */
-    variant?: SubtypeExprOrValue<AlertVariantType> | AlertVariantLiteral;
+    /** Visual preset (subtle / solid / outline) */
+    variant?: SubtypeExprOrValue<BannerVariantType> | BannerVariantLiteral;
     /** Size preset (sm / md / lg) */
     size?: SubtypeExprOrValue<SizeType> | SizeLiteral;
     /** Text colour */

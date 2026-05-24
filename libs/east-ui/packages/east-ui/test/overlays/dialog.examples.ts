@@ -2,8 +2,8 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, BooleanType, IntegerType, NullType, variant, example } from "@elaraai/east";
-import { Badge, Button, Card, Dialog, Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui";
+import { East, BooleanType, IntegerType, NullType, variant, example, some, none } from "@elaraai/east";
+import { Button, Card, Dialog, Reactive, Stack, State, Status, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const dialogBasic = example({
     keywords: ["Dialog", "Root", "title", "description", "modal"],
@@ -15,7 +15,7 @@ export const dialogBasic = example({
                 Text.Root("This is a dialog. It appears as a modal overlay and captures focus."),
                 Stack.HStack([
                     Button.Root("Cancel", { style: { variant: "outline" } }),
-                    Button.Root("Confirm", { style: { variant: "solid", colorPalette: "blue" } }),
+                    Button.Root("Confirm", { style: { variant: "solid" } }),
                 ], { gap: "2", justify: "flex-end" }),
             ],
             { title: "Confirm Action", description: "Are you sure you want to proceed?" }
@@ -35,7 +35,7 @@ export const dialogLarge = example({
                     Text.Root("Configure your preferences below. Changes will be saved automatically."),
                     Card.Root([
                         Text.Root("Notification settings, privacy options, and more would go here."),
-                    ], { variant: "outline" }),
+                    ]),
                 ], { gap: "4" }),
             ],
             { title: "Settings", size: "lg" }
@@ -75,15 +75,15 @@ export const dialogInteractive = example({
                     [
                         Text.Root("This dialog tracks when it's opened and closed."),
                         Stack.HStack([
-                            Button.Root("Got it!", { style: { variant: "solid", colorPalette: "blue" } }),
+                            Button.Root("Got it!", { style: { variant: "solid" } }),
                         ], { gap: "2", justify: "flex-end" }),
                     ],
                     { title: "Interactive Dialog", onOpenChange }
                 ),
                 Stack.HStack([
-                    Badge.Root(East.str`Opened: ${openCount}`, { colorPalette: "green", variant: "solid" }),
-                    Badge.Root(East.str`Closed: ${closeCount}`, { colorPalette: "red", variant: "solid" }),
-                ], { gap: "2" }),
+                    Status.Root(Text.Root(East.str`OPENED · ${East.print(openCount)}`), { value: "success" }),
+                    Status.Root(Text.Root(East.str`CLOSED · ${East.print(closeCount)}`), { value: "danger" }),
+                ], { gap: "3" }),
             ], { gap: "3", align: "flex-start" });
         }));
     }),
@@ -95,18 +95,19 @@ export const dialogProgrammatic = example({
     description: "Dialog.open() without trigger",
     fn: East.function([], UIComponentType, (_$) => {
         return Button.Root("Open Dialog Programmatically", {
-            style: { variant: "solid", colorPalette: "teal" },
+            style: { variant: "solid" },
             onClick: East.function([], NullType, $ => {
                 $(Dialog.open(East.value({
                     body: [
-                        Text.Root("This dialog was opened programmatically using Dialog.open()!"),
+                        Text.Root("This dialog was opened programmatically using Dialog.open()."),
                         Stack.HStack([
-                            Button.Root("Cool!", { style: { variant: "solid", colorPalette: "teal" } }),
+                            Button.Root("Cool!", { style: { variant: "solid" } }),
                         ], { gap: "2", justify: "flex-end" }),
                     ],
-                    title: variant("some", "Programmatic Dialog"),
-                    description: variant("some", "No trigger element needed"),
-                    style: variant("none", null),
+                    eyebrow: some("Confirm · programmatic"),
+                    title: some("Programmatic Dialog"),
+                    description: some("No trigger element needed"),
+                    style: none,
                 }, Dialog.Types.OpenInput)));
             }),
         });

@@ -8,10 +8,8 @@ import * as ex from "./breadcrumb.examples.js";
 
 describeEast("Breadcrumb", (test) => {
     Assert.examples(test, {
-        breadcrumbPlain: ex.breadcrumbPlain,
-        breadcrumbUnderline: ex.breadcrumbUnderline,
-        breadcrumbSizes: ex.breadcrumbSizes,
-        breadcrumbColors: ex.breadcrumbColors,
+        breadcrumbBasic: ex.breadcrumbBasic,
+        breadcrumbRunAnchor: ex.breadcrumbRunAnchor,
         breadcrumbInteractive: ex.breadcrumbInteractive,
     });
 }, { platformFns: TestImpl });

@@ -1,6 +1,6 @@
 ---
 name: e3
-description: "East Execution Engine (e3) - durable dataflow execution for East programs. Use when: (1) Authoring e3 packages with @elaraai/e3 (e3.input, e3.task, e3.package, e3.export), (2) Running e3 CLI commands (e3 repo create, e3 start, e3 watch, e3 get, e3 set), (3) Working with workspaces and packages, (4) Content-addressable caching and dataflow execution."
+description: "East Execution Engine (e3) - durable dataflow execution for East programs. Use when: (1) Authoring e3 packages with @elaraai/e3 (e3.input, e3.task, e3.customTask, e3.ui, e3.package, e3.export), (2) Running e3 CLI commands (e3 repo, e3 workspace, e3 package, e3 dataset, e3 task, e3 dataflow run, e3 watch, e3 auth), (3) Working with workspaces and packages, (4) Content-addressable caching and reactive dataflow execution."
 ---
 
 # East Execution Engine (e3)
@@ -36,23 +36,79 @@ export default pkg;
 # Create repository
 e3 repo create .
 
-# Import and deploy
-e3 package import . /tmp/hello.zip
-e3 workspace create . dev
-e3 workspace deploy . dev hello@1.0.0
+# Deploy the package zip (imports + creates workspace + deploys)
+e3 workspace deploy . dev --from-zip /tmp/hello.zip
 
 # Execute dataflow
-e3 start . dev
+e3 dataflow run . dev
 
-# Get result
-e3 get . dev.tasks.greet.output
+# Get result (flat path: <ws>.<name>)
+e3 dataset get . dev.greet
+```
+
+## Decision Tree
+
+```
+Task → What do you need?
+│
+├─ Authoring a package (SDK)
+│   ├─ Input dataset        → e3.input(name, type, default?)
+│   ├─ East function task   → e3.task(name, [inputs], fn, config?)
+│   ├─ Shell command task   → e3.customTask(name, [inputs], outputType, cmd)
+│   ├─ Chain task outputs   → secondTask([firstTask.output], ...)
+│   ├─ Bundle               → e3.package(name, version, ...items)
+│   └─ Export to zip        → e3.export(pkg, zipPath)
+│
+├─ Repository
+│   ├─ Create               → e3 repo create <repo>
+│   ├─ Status / inspect     → e3 repo status <repo>
+│   ├─ List repos on server → e3 repo list <server-url>
+│   └─ Garbage collect      → e3 repo gc <repo> [--dry-run]
+│
+├─ Package operations
+│   ├─ Import from zip      → e3 package import <repo> <zip>
+│   ├─ Export to zip        → e3 package export <repo> <pkg> <zip>
+│   ├─ List                 → e3 package list <repo>
+│   └─ Remove               → e3 package remove <repo> <pkg>
+│
+├─ Workspace
+│   ├─ Deploy (import+create+deploy) → e3 workspace deploy <repo> <ws> --from-zip <zip>
+│   ├─ Deploy already-imported pkg   → e3 workspace deploy <repo> <ws> <pkg>[@<ver>]
+│   ├─ List workspaces               → e3 workspace list <repo>
+│   ├─ Inspect                       → e3 workspace status <repo> <ws>
+│   ├─ Export as package             → e3 workspace export <repo> <ws> <zip>
+│   └─ Remove                        → e3 workspace remove <repo> <ws>
+│
+├─ Running the dataflow
+│   └─ Execute all tasks    → e3 dataflow run <repo> <ws> [--force] [--concurrency <n>]
+│
+├─ Datasets (read / write values)
+│   ├─ Read a value         → e3 dataset get <repo> <ws.name> [-f east|json|beast2]
+│   ├─ Write a value        → e3 dataset set <repo> <ws.name> <file>
+│   ├─ List all paths       → e3 dataset list <repo> <ws> [-l]
+│   ├─ Status (kind/type)   → e3 dataset status <repo> <ws.name>
+│   └─ Search               → e3 dataset find <repo> <ws> <pattern>
+│
+├─ Tasks (inspect / logs)
+│   ├─ List with status     → e3 task list <repo> <ws>
+│   └─ View / follow logs   → e3 task logs <repo> <ws.task> [--follow]
+│
+├─ Development workflow
+│   ├─ Watch + auto-deploy  → e3 watch <src.ts> <repo> <ws> [--start]
+│   ├─ Ad-hoc task run      → e3 run <repo> <pkg.task> [inputs...] -o <output>
+│   └─ Convert formats      → e3 convert [input] --from <fmt> --to <fmt>
+│
+└─ Remote servers / auth
+    ├─ Log in               → e3 auth login <server>
+    ├─ Status               → e3 auth status
+    └─ Use remote repo      → e3 <cmd> http://server/repos/my-repo
 ```
 
 ## SDK Reference (@elaraai/e3)
 
 ### e3.input(name, type, defaultValue?)
 
-Define an input dataset at `.inputs.${name}`.
+Define an input dataset. Addressed from the CLI as `<ws>.${name}` (storage path `<ws>/inputs/${name}` is internal).
 
 ```typescript
 const name = e3.input('name', StringType, 'default');
@@ -120,16 +176,19 @@ await e3.export(pkg, '/tmp/myapp.zip');
 
 ## CLI Reference
 
-### Repository Commands
+Every command that takes `<repo>` accepts a local path or an `http(s)://` URL — transport is detected from the argument. Where the `<repo>` positional is optional it falls back to `$E3_REPO`, then `.`.
+
+### Repository
 
 ```bash
 e3 repo create <repo>             # Create a new repository
 e3 repo status <repo>             # Show repository status
-e3 repo remove <repo> [-r]        # Remove a repository (-r to remove workspaces first; remote servers require empty repos)
+e3 repo remove <repo> [-r]        # Remove a repository (-r to remove workspaces first)
 e3 repo gc <repo> [--dry-run]     # Garbage collect unreferenced objects
+e3 repo list <server-url>         # List repositories on a server
 ```
 
-### Package Commands
+### Package
 
 ```bash
 e3 package import <repo> <zipPath>       # Import from .zip
@@ -138,57 +197,76 @@ e3 package list <repo>                   # List packages
 e3 package remove <repo> <pkg>           # Remove package
 ```
 
-### Workspace Commands
+### Workspace
 
 ```bash
-e3 workspace create <repo> <name>           # Create workspace
-e3 workspace deploy <repo> <ws> <pkg[@ver]> # Deploy package
-e3 workspace export <repo> <ws> <zipPath>   # Export workspace
-e3 workspace import <repo> <ws> <zipPath>   # Import package zip into workspace
-e3 workspace list <repo>                    # List workspaces
-e3 workspace status <repo> <ws>             # Show workspace status
-e3 workspace remove <repo> <ws>             # Remove workspace
+e3 workspace create <repo> <name>                     # Create workspace
+e3 workspace deploy <repo> <ws> <pkg>[@<ver>]         # Deploy an imported package
+e3 workspace deploy <repo> <ws> --from-zip <zip>      # Import + create + deploy in one shot
+e3 workspace export <repo> <ws> <zipPath>             # Export workspace as a package
+e3 workspace list <repo>                              # List workspaces
+e3 workspace status <repo> <ws>                       # Detailed status (tasks, datasets, locks)
+e3 workspace remove <repo> <ws>                       # Remove workspace
 ```
 
-### Data Commands
+### Dataset
+
+Paths use the flat form `<ws>.<name>`. The resolver maps `<name>` to its storage location (input or task output) automatically — no `.tasks.X.output` / `.inputs.X` ceremony. Typos get `did you mean` suggestions.
 
 ```bash
-e3 list <repo> [path]                       # List tree contents
-e3 list <repo> <path> -r                    # List all dataset paths recursively
-e3 list <repo> <path> -l                    # Immediate children with type/status/size
-e3 list <repo> <path> -r -l                 # All datasets with type/status/size
-e3 get <repo> <path> [-f east|json|beast2]  # Get dataset value
-e3 set <repo> <path> <file> [--type <spec>] # Set dataset from file
+e3 dataset get <repo> <ws.name> [-f east|json|beast2]
+e3 dataset set <repo> <ws.name> <file> [--type <spec>] [--type-file <path>]
+e3 dataset list <repo> <ws> [-l]            # List dataset paths (-l adds columns)
+e3 dataset status <repo> <ws.name>          # Kind/type/status/size for one dataset
+e3 dataset find <repo> <ws> <pattern>       # Substring or glob (`*`, `?`) match
 ```
-
-Path format: `workspace.path.to.dataset`
 
 ```bash
-e3 get . dev.inputs.name
-e3 get . dev.tasks.greet.output
-e3 set . dev.inputs.name data.east
+e3 dataset get . dev.name      # an input
+e3 dataset get . dev.greet     # a task output
+e3 dataset set . dev.name data.east
 ```
 
-### Execution Commands
+### Task
 
 ```bash
-e3 start <repo> <ws> [--filter] [--concurrency <n>] [--force]
-e3 run <repo> <pkg/task> [inputs...] -o <output>
-e3 watch <repo> <ws> <source.ts> [--start] [--abort-on-change]
-e3 logs <repo> <path> [--follow]
+e3 task list <repo> <ws>                    # List tasks with execution status
+e3 task logs <repo> <ws.task> [--follow]    # View / follow a task's logs
 ```
 
-### Utility Commands
+### Dataflow
+
+```bash
+e3 dataflow run <repo> <ws> [--filter <p>] [--concurrency <n>] [--force]
+```
+
+After a successful run the output paths are printed in flat form, ready to read with `e3 dataset get`.
+
+### Ad-hoc Run
+
+```bash
+e3 run <repo> <pkg.task> [inputs...] -o <output>     # task spec uses dots: pkg.task or pkg@1.0.0.task
+```
+
+### Watch
+
+```bash
+e3 watch <source.ts> <repo> <ws> [--start] [--abort-on-change]   # source file first
+```
+
+### Utilities
 
 ```bash
 e3 convert [input] [--from <fmt>] [--to <fmt>] [-o <output>]
+e3 completion install            # Detect $SHELL and wire up tab completion
+e3 completion {bash|zsh|fish}    # Print the raw completion script
 ```
 
 ### Authentication (for remote servers)
 
 ```bash
-e3 login <server>                 # Log in using OAuth2 Device Flow
-e3 logout <server>                # Log out and clear credentials
+e3 auth login <server>            # Log in using OAuth2 Device Flow
+e3 auth logout <server>           # Log out and clear credentials
 e3 auth status                    # List all saved credentials
 e3 auth token <server>            # Print access token (for curl/debugging)
 e3 auth whoami [server]           # Show current identity
@@ -213,7 +291,7 @@ e3 package import http://localhost:3000/repos/my-repo ./pkg.zip
 ### Watch Mode (recommended)
 
 ```bash
-e3 watch . dev ./src/index.ts --start
+e3 watch ./src/index.ts . dev --start
 ```
 
 Auto-compiles, deploys, and runs on file changes.
@@ -222,9 +300,8 @@ Auto-compiles, deploys, and runs on file changes.
 
 ```bash
 npm run build && npm run main
-e3 package import . /tmp/pkg.zip
-e3 workspace deploy . dev myapp@1.0.0
-e3 start . dev
+e3 workspace deploy . dev --from-zip /tmp/pkg.zip
+e3 dataflow run . dev
 ```
 
 ## Packages
@@ -259,4 +336,4 @@ Tasks are cached by content hash. Re-runs only when:
 - Task's East function IR changes
 - Input values change
 
-Use `--force` to bypass: `e3 start . dev --force`
+Use `--force` to bypass: `e3 dataflow run . dev --force`

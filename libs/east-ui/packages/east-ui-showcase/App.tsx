@@ -3,369 +3,77 @@
  * Licensed under AGPL-3.0. See LICENSE file for details.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+/**
+ * Showcase chrome built to the brand-system spec
+ * (`libs/east-ui/design/index.html`, `#brand-system` section).
+ *
+ * Sidebar recipe: 240 px paper-2 panel · 1 px right rule · mono 12 px
+ * uppercase items @ 36 px height · active state = 3 px brand-d left rule
+ * + brand-tint fill. Collapses to a 56 px logo + chevron rail; toggle is
+ * the chevron in the panel header *or* the `[` key. State is persisted to
+ * `localStorage` per the spec. The icon column the spec mandates is
+ * intentionally omitted (this surface doesn't carry per-item icons) — in
+ * collapsed mode only the toggle button is shown beneath the logo.
+ *
+ * Logo region (bsys): fixed-height identity strip at the top of the sidebar
+ * — 64 px expanded · 56 px collapsed · 16 px left/right padding · vertically
+ * centred · 12 px rule-free gap below to the first item. No badges /
+ * version stamps / toggles / search inside the region — identity only.
+ *
+ * Header recipe: sticky to viewport top · 84 px tall · 1 px bottom rule.
+ *   Row 1 — breadcrumb left, search right.
+ *   Row 2 — surface title left, state eyebrow right.
+ *
+ * Main recipe: 32 px top/bottom · 24 px left/right viewport padding,
+ * 1480 px max content width. Grid layout (one of the three allowed).
+ */
+
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-    Box,
-    Button,
-    Container,
-    Flex,
-    Heading,
-    Input,
-    InputGroup,
-    Kbd,
-    Stack,
-    Text,
+    Box, Container, Flex, Heading, IconButton, Input, InputGroup, Kbd, Text, useSlotRecipe,
 } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import {
-    faMagnifyingGlass,
-    faHandPointer,
-    faFont,
-    faTableCells,
-    faBox,
-    faIdBadge,
-    faBell,
-    faRectangleList,
-    faCompass,
-    faChevronDown,
-    faWindowMaximize,
-    faTableList,
-    faChartLine,
-    faPuzzlePiece,
-    type IconDefinition,
-} from "@fortawesome/free-solid-svg-icons";
-import { UIStoreProvider, UIStore, OverlayManagerProvider, Toaster } from "@elaraai/east-ui-components";
-import { exampleSources } from "virtual:example-sources";
-import { useVirtualizer } from "@tanstack/react-virtual";
-import { ElaraLogo } from "./components/ElaraLogo";
-import { ExampleCard, codeBlockAdapter } from "./components/ExampleCard";
-import { CodeBlock } from "@chakra-ui/react";
+import { faMagnifyingGlass, faChevronLeft, faChevronRight } from "@fortawesome/free-solid-svg-icons";
+import { LogoCollapsed, LogoFull } from "./components/ElaraLogo";
+import { VirtualizedGrid } from "./components/VirtualizedGrid";
+import { catalog, categories } from "./catalog";
 
-// Per-component example module imports. Each entry in SOURCES below pairs a
-// module with its preferred column count in the showcase grid.
-import * as buttonExamples from "@elaraai/east-ui/examples/buttons/button";
-import * as iconButtonExamples from "@elaraai/east-ui/examples/buttons/icon-button";
-import * as copyButtonExamples from "@elaraai/east-ui/examples/buttons/copy-button";
-import * as closeButtonExamples from "@elaraai/east-ui/examples/buttons/close-button";
-import * as toggleExamples from "@elaraai/east-ui/examples/buttons/toggle";
-import * as buttonGroupExamples from "@elaraai/east-ui/examples/buttons/button-group";
-import * as textExamples from "@elaraai/east-ui/examples/typography/text";
-import * as codeExamples from "@elaraai/east-ui/examples/typography/code";
-import * as codeBlockExamples from "@elaraai/east-ui/examples/typography/code-block";
-import * as headingExamples from "@elaraai/east-ui/examples/typography/heading";
-import * as linkExamples from "@elaraai/east-ui/examples/typography/link";
-import * as highlightExamples from "@elaraai/east-ui/examples/typography/highlight";
-import * as markExamples from "@elaraai/east-ui/examples/typography/mark";
-import * as listExamples from "@elaraai/east-ui/examples/typography/list";
-import * as numericExamples from "@elaraai/east-ui/examples/typography/numeric";
-import * as noteExamples from "@elaraai/east-ui/examples/typography/note";
-import * as boxExamples from "@elaraai/east-ui/examples/layout/box";
-import * as flexExamples from "@elaraai/east-ui/examples/layout/flex";
-import * as gridExamples from "@elaraai/east-ui/examples/layout/grid";
-import * as separatorExamples from "@elaraai/east-ui/examples/layout/separator";
-import * as splitterExamples from "@elaraai/east-ui/examples/layout/splitter";
-import * as stackExamples from "@elaraai/east-ui/examples/layout/stack";
-import * as chipRailExamples from "@elaraai/east-ui/examples/layout/chip-rail";
-import * as scrollAreaExamples from "@elaraai/east-ui/examples/layout/scroll-area";
-import * as stickyExamples from "@elaraai/east-ui/examples/layout/sticky";
-import * as cardExamples from "@elaraai/east-ui/examples/container";
-import * as badgeExamples from "@elaraai/east-ui/examples/display/badge";
-import * as tagExamples from "@elaraai/east-ui/examples/display/tag";
-import * as avatarExamples from "@elaraai/east-ui/examples/display/avatar";
-import * as statExamples from "@elaraai/east-ui/examples/display/stat";
-import * as iconExamples from "@elaraai/east-ui/examples/display/icon";
-import * as metricChipExamples from "@elaraai/east-ui/examples/display/metric-chip";
-import * as editableChipExamples from "@elaraai/east-ui/examples/display/editable-chip";
-import * as kbdExamples from "@elaraai/east-ui/examples/display/kbd";
-import * as meterExamples from "@elaraai/east-ui/examples/display/meter";
-import * as segmentedMeterExamples from "@elaraai/east-ui/examples/display/segmented-meter";
-import * as barStripExamples from "@elaraai/east-ui/examples/display/bar-strip";
-import * as avatarGroupExamples from "@elaraai/east-ui/examples/display/avatar-group";
-import * as alertExamples from "@elaraai/east-ui/examples/feedback/alert";
-import * as progressExamples from "@elaraai/east-ui/examples/feedback/progress";
-import * as emptyStateExamples from "@elaraai/east-ui/examples/feedback/empty-state";
-import * as spinnerExamples from "@elaraai/east-ui/examples/feedback/spinner";
-import * as skeletonExamples from "@elaraai/east-ui/examples/feedback/skeleton";
-import * as statusExamples from "@elaraai/east-ui/examples/feedback/status";
-import * as bannerExamples from "@elaraai/east-ui/examples/feedback/banner";
-import * as progressCircleExamples from "@elaraai/east-ui/examples/feedback/progress-circle";
-import * as toastExamples from "@elaraai/east-ui/examples/feedback/toast";
-import * as checkboxExamples from "@elaraai/east-ui/examples/forms/checkbox";
-import * as radioGroupExamples from "@elaraai/east-ui/examples/forms/radio-group";
-import * as radioCardGroupExamples from "@elaraai/east-ui/examples/forms/radio-card-group";
-import * as timeScaleControlExamples from "@elaraai/east-ui/examples/forms/time-scale-control";
-import * as timeRangeInputExamples from "@elaraai/east-ui/examples/forms/time-range-input";
-import * as dateRangeInputExamples from "@elaraai/east-ui/examples/forms/date-range-input";
-import * as switchExamples from "@elaraai/east-ui/examples/forms/switch";
-import * as selectExamples from "@elaraai/east-ui/examples/forms/select";
-import * as sliderExamples from "@elaraai/east-ui/examples/forms/slider";
-import * as textareaExamples from "@elaraai/east-ui/examples/forms/textarea";
-import * as tagsInputExamples from "@elaraai/east-ui/examples/forms/tags-input";
-import * as fileUploadExamples from "@elaraai/east-ui/examples/forms/file-upload";
-import * as fieldExamples from "@elaraai/east-ui/examples/forms/field";
-import * as inputExamples from "@elaraai/east-ui/examples/forms/input";
-import * as comboboxExamples from "@elaraai/east-ui/examples/forms/combobox";
-import * as breadcrumbExamples from "@elaraai/east-ui/examples/navigation";
-import * as navListExamples from "@elaraai/east-ui/examples/navigation/nav-list";
-import * as patternCompareExamples from "@elaraai/east-ui/examples/patterns/compare";
-import * as accordionExamples from "@elaraai/east-ui/examples/disclosure/accordion";
-import * as carouselExamples from "@elaraai/east-ui/examples/disclosure/carousel";
-import * as tabsExamples from "@elaraai/east-ui/examples/disclosure/tabs";
-import * as segmentGroupExamples from "@elaraai/east-ui/examples/disclosure/segment-group";
-import * as collapsibleExamples from "@elaraai/east-ui/examples/disclosure/collapsible";
-import * as showMoreExamples from "@elaraai/east-ui/examples/disclosure/show-more";
-import * as stepsExamples from "@elaraai/east-ui/examples/disclosure/steps";
-import * as timelineExamples from "@elaraai/east-ui/examples/disclosure/timeline";
-import * as optionListExamples from "@elaraai/east-ui/examples/disclosure/option-list";
-import * as tooltipExamples from "@elaraai/east-ui/examples/overlays/tooltip";
-import * as menuExamples from "@elaraai/east-ui/examples/overlays/menu";
-import * as popoverExamples from "@elaraai/east-ui/examples/overlays/popover";
-import * as hoverCardExamples from "@elaraai/east-ui/examples/overlays/hover-card";
-import * as dialogExamples from "@elaraai/east-ui/examples/overlays/dialog";
-import * as drawerExamples from "@elaraai/east-ui/examples/overlays/drawer";
-import * as toggleTipExamples from "@elaraai/east-ui/examples/overlays/toggle-tip";
-import * as coachMarkExamples from "@elaraai/east-ui/examples/overlays/coach-mark";
-import * as commandPaletteExamples from "@elaraai/east-ui/examples/overlays/command-palette";
-import * as dataListExamples from "@elaraai/east-ui/examples/collections/data-list";
-import * as treeViewExamples from "@elaraai/east-ui/examples/collections/tree-view";
-import * as tableExamples from "@elaraai/east-ui/examples/collections/table";
-import * as ganttExamples from "@elaraai/east-ui/examples/collections/gantt";
-import * as plannerExamples from "@elaraai/east-ui/examples/collections/planner";
-import * as matrixExamples from "@elaraai/east-ui/examples/collections/matrix";
-import * as paginationExamples from "@elaraai/east-ui/examples/collections/pagination";
-import * as areaExamples from "@elaraai/east-ui/examples/charts/area";
-import * as barExamples from "@elaraai/east-ui/examples/charts/bar";
-import * as composedExamples from "@elaraai/east-ui/examples/charts/composed";
-import * as lineExamples from "@elaraai/east-ui/examples/charts/line";
-import * as pieExamples from "@elaraai/east-ui/examples/charts/pie";
-import * as radarExamples from "@elaraai/east-ui/examples/charts/radar";
-import * as scatterExamples from "@elaraai/east-ui/examples/charts/scatter";
-import * as sparklineExamples from "@elaraai/east-ui/examples/charts/sparkline";
-import * as integrationExamples from "@elaraai/east-ui/examples/integration";
+const SIDEBAR_KEY = "east-ui-showcase.sidebar-collapsed";
 
-interface CatalogEntry {
-    name: string;
-    category: string;
-    keywords: string[];
-    description: string;
-    fn: any;
-    inputs: any[];
-    /** Target column width in the showcase grid — 1 = full-width, 2 = half, 3 = third. */
-    columns: number;
-    /** Pixel height for the rendered example body (default 280). */
-    bodyHeight: number;
-    /** Captured authored source of `fn` — raw TypeScript + highlight.js pre-highlighted HTML. */
-    source?: { raw: string; html: string };
-}
-
-/**
- * Each row: [sub-component display name, sidebar category, example module, grid column count,
- * optional body pixel height]. Entries sharing both columns and bodyHeight are grouped into
- * the same virtualized row.
- *   Columns = 3 for narrow components (lists, badges), 2 for medium, 1 for wide (tables, charts).
- *   bodyHeight defaults to 280 — override when a demo needs more vertical room.
- */
-const SOURCES: [string, string, Record<string, unknown>, string, number, number?][] = [
-    ["SalesDashboard", "Integration", integrationExamples, "integration/sales-dashboard", 1, 680],
-    ["Button",       "Buttons",     buttonExamples,       "buttons/button",               3],
-    ["IconButton",   "Buttons",     iconButtonExamples,   "buttons/icon-button",          3],
-    ["CopyButton",   "Buttons",     copyButtonExamples,   "buttons/copy-button",          3],
-    ["CloseButton",  "Buttons",     closeButtonExamples,  "buttons/close-button",         3],
-    ["Toggle",       "Buttons",     toggleExamples,       "buttons/toggle",               3],
-    ["ButtonGroup",  "Buttons",     buttonGroupExamples,  "buttons/button-group",         2],
-    ["Text",         "Typography",  textExamples,         "typography/text",              3],
-    ["Code",         "Typography",  codeExamples,         "typography/code",              3],
-    ["CodeBlock",    "Typography",  codeBlockExamples,    "typography/code-block",        2],
-    ["Heading",      "Typography",  headingExamples,      "typography/heading",           3],
-    ["Link",         "Typography",  linkExamples,         "typography/link",              3],
-    ["Highlight",    "Typography",  highlightExamples,    "typography/highlight",         3],
-    ["Mark",         "Typography",  markExamples,         "typography/mark",              3],
-    ["List",         "Typography",  listExamples,         "typography/list",              3],
-    ["Numeric",      "Typography",  numericExamples,      "typography/numeric",           3],
-    ["Note",         "Typography",  noteExamples,         "typography/note",              2],
-    ["Box",          "Layout",      boxExamples,          "layout/box",                   3],
-    ["Flex",         "Layout",      flexExamples,         "layout/flex",                  2],
-    ["Grid",         "Layout",      gridExamples,         "layout/grid",                  2],
-    ["Separator",    "Layout",      separatorExamples,    "layout/separator",             3],
-    ["Splitter",     "Layout",      splitterExamples,     "layout/splitter",              1],
-    ["Stack",        "Layout",      stackExamples,        "layout/stack",                 2],
-    ["ChipRail",     "Layout",      chipRailExamples,     "layout/chip-rail",             2],
-    ["ScrollArea",   "Layout",      scrollAreaExamples,   "layout/scroll-area",           2],
-    ["Sticky",       "Layout",      stickyExamples,       "layout/sticky",                2],
-    ["Card",         "Container",   cardExamples,         "container/card",               2],
-    ["Badge",        "Display",     badgeExamples,        "display/badge",                3],
-    ["Tag",          "Display",     tagExamples,          "display/tag",                  3],
-    ["Avatar",       "Display",     avatarExamples,       "display/avatar",               3],
-    ["Stat",         "Display",     statExamples,         "display/stat",                 3],
-    ["Icon",         "Display",     iconExamples,         "display/icon",                 3],
-    ["MetricChip",   "Display",     metricChipExamples,   "display/metric-chip",          3],
-    ["EditableChip", "Display",     editableChipExamples, "display/editable-chip",        3],
-    ["Kbd",          "Display",     kbdExamples,          "display/kbd",                  3],
-    ["Meter",        "Display",     meterExamples,        "display/meter",                3],
-    ["SegmentedMeter","Display",    segmentedMeterExamples,"display/segmented-meter",     2],
-    ["BarStrip",    "Display",      barStripExamples,     "display/bar-strip",            2],
-    ["AvatarGroup",  "Display",     avatarGroupExamples,  "display/avatar-group",         3],
-    ["Alert",        "Feedback",    alertExamples,        "feedback/alert",               2],
-    ["Progress",     "Feedback",    progressExamples,     "feedback/progress",            2],
-    ["EmptyState",   "Feedback",    emptyStateExamples,   "feedback/empty-state",         2],
-    ["Spinner",      "Feedback",    spinnerExamples,      "feedback/spinner",             3],
-    ["Skeleton",     "Feedback",    skeletonExamples,     "feedback/skeleton",            2],
-    ["Status",       "Feedback",    statusExamples,       "feedback/status",              3],
-    ["Banner",       "Feedback",    bannerExamples,       "feedback/banner",              2],
-    ["ProgressCircle","Feedback",   progressCircleExamples,"feedback/progress-circle",    3],
-    ["Toast",        "Feedback",    toastExamples,        "feedback/toast",               3],
-    ["Checkbox",     "Forms",       checkboxExamples,     "forms/checkbox",               3],
-    ["RadioGroup",   "Forms",       radioGroupExamples,   "forms/radio-group",            3],
-    ["RadioCardGroup","Forms",      radioCardGroupExamples,"forms/radio-card-group",      2],
-    ["TimeScaleControl","Forms",    timeScaleControlExamples,"forms/time-scale-control",  3],
-    ["TimeRangeInput",  "Forms",    timeRangeInputExamples, "forms/time-range-input",       2],
-    ["DateRangeInput",  "Forms",    dateRangeInputExamples, "forms/date-range-input",       2],
-    ["Switch",       "Forms",       switchExamples,       "forms/switch",                 3],
-    ["Select",       "Forms",       selectExamples,       "forms/select",                 2],
-    ["Slider",       "Forms",       sliderExamples,       "forms/slider",                 2],
-    ["Textarea",     "Forms",       textareaExamples,     "forms/textarea",               2],
-    ["TagsInput",    "Forms",       tagsInputExamples,    "forms/tags-input",             2],
-    ["FileUpload",   "Forms",       fileUploadExamples,   "forms/file-upload",            2],
-    ["Field",        "Forms",       fieldExamples,        "forms/field",                  2],
-    ["Input",        "Forms",       inputExamples,        "forms/input",                  2],
-    ["Combobox",     "Forms",       comboboxExamples,     "forms/combobox",               2],
-    ["Breadcrumb",   "Navigation",  breadcrumbExamples,   "navigation/breadcrumb",        2],
-    ["NavList",      "Navigation",  navListExamples,      "navigation/nav-list",          2],
-    ["Compare",      "Patterns",    patternCompareExamples, "patterns/compare",           2],
-    ["Accordion",    "Disclosure",  accordionExamples,    "disclosure/accordion",         2],
-    ["Carousel",     "Disclosure",  carouselExamples,     "disclosure/carousel",          1],
-    ["Tabs",         "Disclosure",  tabsExamples,         "disclosure/tabs",              2],
-    ["SegmentGroup", "Disclosure",  segmentGroupExamples, "disclosure/segment-group",     2],
-    ["Collapsible",  "Disclosure",  collapsibleExamples,  "disclosure/collapsible",       2],
-    ["Disclosure",   "Disclosure",  showMoreExamples,     "disclosure/show-more",         2],
-    ["Steps",        "Disclosure",  stepsExamples,        "disclosure/steps",             1],
-    ["Timeline",     "Disclosure",  timelineExamples,     "disclosure/timeline",          1],
-    ["OptionList",   "Disclosure",  optionListExamples,   "disclosure/option-list",       2],
-    ["Tooltip",      "Overlays",    tooltipExamples,      "overlays/tooltip",             3],
-    ["Menu",         "Overlays",    menuExamples,         "overlays/menu",                3],
-    ["Popover",      "Overlays",    popoverExamples,      "overlays/popover",             3],
-    ["HoverCard",    "Overlays",    hoverCardExamples,    "overlays/hover-card",          3],
-    ["Dialog",       "Overlays",    dialogExamples,       "overlays/dialog",              2],
-    ["Drawer",       "Overlays",    drawerExamples,       "overlays/drawer",              2],
-    ["ToggleTip",    "Overlays",    toggleTipExamples,    "overlays/toggle-tip",          3],
-    ["CoachMark",    "Overlays",    coachMarkExamples,    "overlays/coach-mark",          2],
-    ["CommandPalette","Overlays",   commandPaletteExamples,"overlays/command-palette",    2],
-    ["DataList",     "Collections", dataListExamples,     "collections/data-list",        3],
-    ["TreeView",     "Collections", treeViewExamples,     "collections/tree-view",        3],
-    ["Table",        "Collections", tableExamples,        "collections/table",            1],
-    ["Gantt",        "Collections", ganttExamples,        "collections/gantt",            1],
-    ["Planner",      "Collections", plannerExamples,      "collections/planner",          1],
-    ["Matrix",       "Collections", matrixExamples,       "collections/matrix",           2],
-    ["Pagination",   "Collections", paginationExamples,   "collections/pagination",       3],
-    ["Area",         "Charts",      areaExamples,         "charts/area",                  1],
-    ["Bar",          "Charts",      barExamples,          "charts/bar",                   1],
-    ["Composed",     "Charts",      composedExamples,     "charts/composed",              1],
-    ["Line",         "Charts",      lineExamples,         "charts/line",                  1],
-    ["Pie",          "Charts",      pieExamples,          "charts/pie",                   2],
-    ["Radar",        "Charts",      radarExamples,        "charts/radar",                 2],
-    ["Scatter",      "Charts",      scatterExamples,      "charts/scatter",               1],
-    ["Sparkline",    "Charts",      sparklineExamples,    "charts/sparkline",             3],
-];
-
-function buildCatalog(): CatalogEntry[] {
-    const entries: CatalogEntry[] = [];
-    for (const [, category, mod, pathKey, columns, bodyHeight] of SOURCES) {
-        for (const [name, ex] of Object.entries(mod)) {
-            const e = ex as any;
-            entries.push({
-                name,
-                category,
-                keywords: e.keywords,
-                description: e.description,
-                fn: e.fn,
-                inputs: e.inputs,
-                columns,
-                bodyHeight: bodyHeight ?? 280,
-                source: exampleSources[pathKey]?.[name],
-            });
-        }
-    }
-    return entries;
-}
-
-const catalog = buildCatalog();
-const categories = [...new Set(catalog.map(e => e.category))];
-const store = new UIStore();
-
-const CATEGORY_ICONS: Record<string, IconDefinition> = {
-    Integration: faPuzzlePiece,
-    Buttons: faHandPointer,
-    Typography: faFont,
-    Layout: faTableCells,
-    Container: faBox,
-    Display: faIdBadge,
-    Feedback: faBell,
-    Forms: faRectangleList,
-    Navigation: faCompass,
-    Disclosure: faChevronDown,
-    Overlays: faWindowMaximize,
-    Collections: faTableList,
-    Charts: faChartLine,
-    Patterns: faPuzzlePiece,
-};
-// Card chrome (description + keyword tags + padding) adds ~110px on top of the body.
-const CARD_CHROME = 110;
-const GAP = 16;
-
-function useViewportWidth(): number {
-    const [w, setW] = useState(() => window.innerWidth);
-    useEffect(() => {
-        const onResize = () => setW(window.innerWidth);
-        window.addEventListener("resize", onResize);
-        return () => window.removeEventListener("resize", onResize);
+function useSidebarCollapsed(): [boolean, () => void] {
+    const [collapsed, setCollapsed] = useState<boolean>(() => {
+        try { return localStorage.getItem(SIDEBAR_KEY) === "true"; } catch { return false; }
+    });
+    const toggle = useCallback(() => {
+        setCollapsed(prev => {
+            const next = !prev;
+            try { localStorage.setItem(SIDEBAR_KEY, String(next)); } catch { /* ignore */ }
+            return next;
+        });
     }, []);
-    return w;
-}
-
-/** Clamp each entry's preferred column count to what fits in the viewport. */
-function columnsForEntry(e: CatalogEntry, viewportW: number): number {
-    if (viewportW < 768) return 1;
-    if (viewportW < 1280) return Math.min(e.columns, 2);
-    return e.columns;
-}
-
-interface Row { entries: CatalogEntry[]; cols: number; bodyHeight: number; rowHeight: number }
-
-/**
- * Group consecutive entries that share both column count and body height into
- * rows. Mixed-width sections (narrow DataLists followed by wide Tables) and
- * mixed-height sections (short cards followed by the tall dashboard) render in
- * a single virtualized scroll container.
- */
-function buildRows(entries: CatalogEntry[], viewportW: number): Row[] {
-    const out: Row[] = [];
-    let buf: CatalogEntry[] = [];
-    let bufCols: number | null = null;
-    let bufHeight: number | null = null;
-    const flush = () => {
-        if (buf.length === 0 || bufCols === null || bufHeight === null) return;
-        const rowHeight = bufHeight + CARD_CHROME;
-        for (let i = 0; i < buf.length; i += bufCols) {
-            out.push({ entries: buf.slice(i, i + bufCols), cols: bufCols, bodyHeight: bufHeight, rowHeight });
+    /* bsys Sidebar recipe: `[` toggles collapse globally (not bound to focus
+     * on the toggle button so the operator can hit it from anywhere). */
+    useEffect(() => {
+        function onKey(e: KeyboardEvent) {
+            if (e.key !== "[") return;
+            const t = e.target as HTMLElement | null;
+            if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+            toggle();
         }
-        buf = [];
-    };
-    for (const e of entries) {
-        const cols = columnsForEntry(e, viewportW);
-        if ((bufCols !== null && cols !== bufCols) || (bufHeight !== null && e.bodyHeight !== bufHeight)) flush();
-        bufCols = cols;
-        bufHeight = e.bodyHeight;
-        buf.push(e);
-    }
-    flush();
-    return out;
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [toggle]);
+    return [collapsed, toggle];
 }
+
+/** Outer max content width per the Main recipe. */
+const MAX_CONTENT_W = "1480px";
 
 export function App() {
     const [search, setSearch] = useState("");
     const [selectedCategory, setSelectedCategory] = useState<string>(categories[0]);
 
-    const filtered = useMemo<CatalogEntry[]>(() => {
+    const filtered = useMemo(() => {
         let results = catalog.filter(e => e.category === selectedCategory);
         if (search.trim()) {
             const q = search.toLowerCase();
@@ -378,141 +86,202 @@ export function App() {
         return results;
     }, [search, selectedCategory]);
 
+    const categoryCount = useMemo(
+        () => catalog.filter(e => e.category === selectedCategory).length,
+        [selectedCategory],
+    );
+
     return (
-        <UIStoreProvider store={store}>
-            <OverlayManagerProvider>
-                <CodeBlock.AdapterProvider value={codeBlockAdapter}>
-                <Toaster />
-                <Flex minH="100vh" bg="gray.50" _dark={{ bg: "gray.900" }}>
-                    <Box
-                        w="220px"
-                        minH="100vh"
-                        bg="white"
-                        _dark={{ bg: "gray.800" }}
-                        borderRightWidth="1px"
-                        borderColor="gray.200"
-                        py="6"
-                        px="4"
-                        flexShrink={0}
-                        position="sticky"
-                        top="0"
-                        alignSelf="flex-start"
-                        h="100vh"
-                        overflowY="auto"
-                    >
-                        <Flex align="center" gap="2" mb="6">
-                            <ElaraLogo height="24px" />
-                            <Text fontSize="sm" fontWeight="semibold">East UI</Text>
-                        </Flex>
-
-                        <Stack gap="1">
-                            {categories.map(cat => {
-                                const count = catalog.filter(e => e.category === cat).length;
-                                const isActive = selectedCategory === cat;
-                                const icon = CATEGORY_ICONS[cat];
-                                return (
-                                    <Button
-                                        key={cat}
-                                        variant={isActive ? "subtle" : "ghost"}
-                                        colorPalette={isActive ? "blue" : undefined}
-                                        justifyContent="flex-start"
-                                        w="full"
-                                        size="sm"
-                                        onClick={() => setSelectedCategory(cat)}
-                                    >
-                                        {icon && <FontAwesomeIcon icon={icon} fixedWidth />}
-                                        {cat} ({count})
-                                    </Button>
-                                );
-                            })}
-                        </Stack>
-                    </Box>
-
-                    <Box flex="1" p="2" minW={0}>
-                        <Container maxW="full" w="full">
-                            <Flex align="center" justify="space-between" mb="6">
-                                <Heading size="lg">{selectedCategory}</Heading>
-                                <InputGroup
-                                    maxW="300px"
-                                    startElement={<FontAwesomeIcon icon={faMagnifyingGlass} />}
-                                    endElement={<Kbd>⌘K</Kbd>}
-                                >
-                                    <Input
-                                        placeholder="Search examples..."
-                                        value={search}
-                                        onChange={(e) => setSearch(e.target.value)}
-                                        bg="white"
-                                        _dark={{ bg: "gray.800" }}
-                                    />
-                                </InputGroup>
-                            </Flex>
-
-                            {filtered.length === 0
-                                ? <Text color="gray.400">No examples match your search.</Text>
-                                : <VirtualizedGrid entries={filtered} />}
-                        </Container>
-                    </Box>
-                </Flex>
-                </CodeBlock.AdapterProvider>
-            </OverlayManagerProvider>
-        </UIStoreProvider>
+        /* h=100vh locks the shell to the viewport — the Main content area
+         * scrolls internally; the page itself never overflows. */
+        <Flex h="100vh" w="100vw" overflow="hidden" bg="bg.canvas" align="stretch">
+            <Sidebar selected={selectedCategory} onSelect={setSelectedCategory} />
+            <Flex flex="1" minW={0} direction="column" h="100vh">
+                <Header
+                    category={selectedCategory}
+                    categoryCount={categoryCount}
+                    search={search}
+                    onSearch={setSearch}
+                />
+                {/* Main scroll region. VirtualizedGrid owns the scroll
+                 *  container so the scrollbar sits flush against the
+                 *  viewport's right edge — the 24 px side gutters are
+                 *  applied to the grid's inner content area, not here. */}
+                <Box flex="1" minH={0} display="flex" flexDirection="column">
+                    {filtered.length === 0
+                        ? <Text color="fg.muted" px="24px" py="32px">No examples match your search.</Text>
+                        : <VirtualizedGrid entries={filtered} />}
+                </Box>
+            </Flex>
+        </Flex>
     );
 }
 
-/**
- * Virtualizes the grid by row using TanStack Virtual against a scrollable
- * parent. Only rows currently in or near the viewport are mounted, so even
- * 130+ Chart cards don't all mount on category switch.
- */
-function VirtualizedGrid({ entries }: { entries: CatalogEntry[] }) {
-    const viewportWidth = useViewportWidth();
-    const rows = useMemo(() => buildRows(entries, viewportWidth), [entries, viewportWidth]);
-    const parentRef = useRef<HTMLDivElement>(null);
+/* ------------------------------------------------------------------ */
+/* Sidebar — bsys "Sidebar recipe"                                    */
+/* ------------------------------------------------------------------ */
 
-    const virtualizer = useVirtualizer({
-        count: rows.length,
-        getScrollElement: () => parentRef.current,
-        estimateSize: (i) => rows[i].rowHeight,
-        overscan: 2,
-        gap: GAP,
-    });
-
-    // Reset scroll on entry-set change so switching to a shorter category
-    // doesn't leave us pinned at an out-of-range offset.
-    useEffect(() => {
-        parentRef.current?.scrollTo({ top: 0 });
-    }, [entries]);
-
+/** 22 × 22 chevron toggle — matches bsys Sidebar header button dims (line 643). */
+function ToggleButton({
+    onClick, icon, ...rest
+}: { onClick: () => void; icon: import("@fortawesome/fontawesome-svg-core").IconDefinition } & React.AriaAttributes) {
     return (
-        <Box ref={parentRef} h="calc(100vh - 120px)" overflow="auto">
-            <Box position="relative" h={`${virtualizer.getTotalSize()}px`} w="full">
-                {virtualizer.getVirtualItems().map(virtualRow => {
-                    const row = rows[virtualRow.index];
-                    return (
-                        <Box
-                            key={virtualRow.key}
-                            position="absolute"
-                            top="0"
-                            left="0"
-                            w="full"
-                            h={`${row.rowHeight}px`}
-                            transform={`translateY(${virtualRow.start}px)`}
-                            display="grid"
-                            gridTemplateColumns={`repeat(${row.cols}, minmax(0, 1fr))`}
-                            gap={`${GAP}px`}
-                        >
-                            {row.entries.map(entry => (
-                                <ExampleCard
-                                    key={entry.name}
-                                    name={entry.name}
-                                    example={entry}
-                                    bodyHeight={`${row.bodyHeight}px`}
-                                />
-                            ))}
-                        </Box>
-                    );
-                })}
-            </Box>
+        <Box
+            as="button"
+            type="button"
+            onClick={onClick}
+            width="22px"
+            height="22px"
+            display="inline-flex"
+            alignItems="center"
+            justifyContent="center"
+            border="0"
+            background="transparent"
+            color="fg.muted"
+            cursor="pointer"
+            borderRadius="{radii.sm}"
+            _hover={{ color: "brand.700", background: "bg.muted" }}
+            {...rest}
+        >
+            <FontAwesomeIcon icon={icon} style={{ fontSize: "10px" }} />
         </Box>
+    );
+}
+
+function Sidebar({ selected, onSelect }: { selected: string; onSelect: (cat: string) => void }) {
+    const recipe = useSlotRecipe({ key: "navList" });
+    const styles = recipe({ surface: "shell" });
+    const [collapsed, toggle] = useSidebarCollapsed();
+    return (
+        <Box
+            as="aside"
+            layerStyle="nav.panel"
+            w={collapsed ? "56px" : "240px"}
+            flexShrink={0}
+            position="sticky"
+            top="0"
+            alignSelf="flex-start"
+            h="100vh"
+            overflowY="auto"
+            overflowX="hidden"
+            transitionProperty="width"
+            transitionDuration="{durations.normal}"
+            transitionTimingFunction="{easings.smooth}"
+        >
+            {/* Logo region — bsys "Logo region" rules. Fixed-height strip
+             *  pinned to the top of the sidebar. The wordmark anchors to
+             *  the left padding edge expanded · app-mark centres collapsed.
+             *  No bottom rule — visual separation from the first item
+             *  below comes from a 12 px rule-free gap. */}
+            <Box
+                layerStyle="nav.logo"
+                display="flex"
+                alignItems="center"
+                h={collapsed ? "56px" : "64px"}
+                justifyContent={collapsed ? "center" : "flex-start"}
+                px={collapsed ? "0" : "16px"}
+                mb="12px"
+            >
+                {collapsed ? <LogoCollapsed height={8} width={8} /> : <LogoFull height={8} />}
+            </Box>
+
+            {collapsed ? (
+                <Flex justify="center">
+                    <ToggleButton aria-label="Expand sidebar" onClick={toggle} icon={faChevronRight} />
+                </Flex>
+            ) : (
+                <Box as="nav" css={styles.root}>
+                    {/* Section eyebrow + collapse toggle — bsys line 641
+                     *  padding: 4px 10px 10px 14px · 9.5 px / 0.18 em eyebrow · 22 px button */}
+                    <Flex
+                        align="center"
+                        justify="space-between"
+                        pt="4px"
+                        pb="10px"
+                        pl="14px"
+                        pr="10px"
+                    >
+                        <Box
+                            fontFamily="mono"
+                            fontSize="9.5px"
+                            fontWeight="semibold"
+                            letterSpacing="0.18em"
+                            textTransform="uppercase"
+                            color="fg.muted"
+                        >
+                            Components
+                        </Box>
+                        <ToggleButton aria-label="Collapse sidebar" onClick={toggle} icon={faChevronLeft} />
+                    </Flex>
+                    {categories.map(cat => {
+                        const active = selected === cat;
+                        return (
+                            <Box
+                                key={cat}
+                                as="button"
+                                type="button"
+                                onClick={() => onSelect(cat)}
+                                aria-current={active ? "page" : undefined}
+                                css={styles.item}
+                            >
+                                <Box flex="1" textAlign="left">{cat}</Box>
+                                <Text as="span" textStyle="mono.sm" color="fg.muted" letterSpacing="0">
+                                    {catalog.filter(e => e.category === cat).length}
+                                </Text>
+                            </Box>
+                        );
+                    })}
+                </Box>
+            )}
+        </Box>
+    );
+}
+
+/* ------------------------------------------------------------------ */
+/* Header — bsys "Header recipe"                                      */
+/* ------------------------------------------------------------------ */
+
+function Header({
+    category, categoryCount, search, onSearch,
+}: { category: string; categoryCount: number; search: string; onSearch: (q: string) => void }) {
+    return (
+        <Box as="header" layerStyle="header.bar" position="sticky" top="0" zIndex={10}>
+            {/* Row 1 — breadcrumb left · search right · 28 px tall */}
+            <Flex align="center" gap="3" mb="6px" h="28px">
+                <Breadcrumb category={category} />
+                <Box ml="auto">
+                    <InputGroup
+                        maxW="280px"
+                        startElement={<FontAwesomeIcon icon={faMagnifyingGlass} />}
+                        endElement={<Kbd>⌘K</Kbd>}
+                    >
+                        <Input
+                            size="sm"
+                            placeholder="Search examples"
+                            value={search}
+                            onChange={(e) => onSearch(e.target.value)}
+                        />
+                    </InputGroup>
+                </Box>
+            </Flex>
+
+            {/* Row 2 — surface title left · state eyebrow right · 36 px tall */}
+            <Flex align="baseline" gap="3.5" h="36px">
+                <Heading as="h1" textStyle="surface.title">{category}</Heading>
+                <Text textStyle="state.eyebrow">
+                    {categoryCount} example{categoryCount === 1 ? "" : "s"}
+                </Text>
+            </Flex>
+        </Box>
+    );
+}
+
+function Breadcrumb({ category }: { category: string }) {
+    return (
+        <Text textStyle="breadcrumb">
+            <Box as="span" color="brand.700">East UI</Box>
+            <Box as="span" px="1">/</Box>
+            <Box as="span" color="fg">{category}</Box>
+        </Text>
     );
 }

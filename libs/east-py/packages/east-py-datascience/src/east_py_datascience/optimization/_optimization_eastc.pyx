@@ -622,7 +622,6 @@ cdef _eastc.EvalResult _optimization_iterative_incremental_impl(
     cdef int num_samples = 1
     cdef bint use_random_init = False
     cdef bint use_swap = False
-    cdef int num_workers = 1
     cdef unsigned int seed = 42
 
     cdef _eastc.EastValue *opt_val
@@ -658,15 +657,6 @@ cdef _eastc.EvalResult _optimization_iterative_incremental_impl(
             if inner_val.data.variant.case_tag != NULL:
                 if inner_val.data.variant.case_tag[0] == b's':
                     use_swap = True
-
-    opt_val = _eastc.east_struct_get_field(config_val, "workers")
-    if opt_val != NULL and opt_val.kind == _eastc.EAST_VAL_VARIANT:
-        if opt_val.data.variant.value != NULL and opt_val.data.variant.value.kind == _eastc.EAST_VAL_INTEGER:
-            num_workers = <int>opt_val.data.variant.value.data.integer
-    if num_workers < 1:
-        num_workers = 1
-    if num_workers > num_samples:
-        num_workers = num_samples
 
     # ── extract spaces ────────────────────────────────────────────────
     cdef _eastc.EastType *elem_type = &_eastc.east_integer_type
@@ -710,36 +700,8 @@ cdef _eastc.EvalResult _optimization_iterative_incremental_impl(
         work[s].had_error = 0
 
     # ── run samples ───────────────────────────────────────────────────
-    cdef pthread_t *threads
-    cdef int launched, batch
-
-    if num_workers <= 1:
-        for s in range(num_samples):
-            _incr_sample_worker(&work[s])
-    else:
-        threads = <pthread_t*>malloc(num_workers * sizeof(pthread_t))
-        if threads == NULL:
-            free(work)
-            free(spaces)
-            err.error_message = strdup(b"iterative_incremental: thread alloc failed")
-            return err
-
-        launched = 0
-        while launched < num_samples:
-            batch = num_samples - launched
-            if batch > num_workers:
-                batch = num_workers
-
-            with nogil:
-                for i in range(<size_t>batch):
-                    pthread_create(&threads[i], NULL, _incr_sample_worker,
-                                   &work[launched + <int>i])
-                for i in range(<size_t>batch):
-                    pthread_join(threads[i], NULL)
-
-            launched += batch
-
-        free(threads)
+    for s in range(num_samples):
+        _incr_sample_worker(&work[s])
 
     # ── collect results ───────────────────────────────────────────────
     cdef double global_best_obj = -INFINITY
@@ -1147,7 +1109,6 @@ cdef _eastc.EvalResult _optimization_iterative_grouped_impl(
     cdef int num_samples = 1
     cdef bint use_random_init = False
     cdef bint use_swap = False
-    cdef int num_workers = 1
     cdef unsigned int seed = 42
 
     cdef _eastc.EastValue *opt_val
@@ -1183,15 +1144,6 @@ cdef _eastc.EvalResult _optimization_iterative_grouped_impl(
             if inner_val.data.variant.case_tag != NULL:
                 if inner_val.data.variant.case_tag[0] == b's':
                     use_swap = True
-
-    opt_val = _eastc.east_struct_get_field(config_val, "workers")
-    if opt_val != NULL and opt_val.kind == _eastc.EAST_VAL_VARIANT:
-        if opt_val.data.variant.value != NULL and opt_val.data.variant.value.kind == _eastc.EAST_VAL_INTEGER:
-            num_workers = <int>opt_val.data.variant.value.data.integer
-    if num_workers < 1:
-        num_workers = 1
-    if num_workers > num_samples:
-        num_workers = num_samples
 
     # ── extract spaces ────────────────────────────────────────────────
     cdef _eastc.EastType *elem_type = &_eastc.east_integer_type
@@ -1262,37 +1214,8 @@ cdef _eastc.EvalResult _optimization_iterative_grouped_impl(
         work[s].had_error = 0
 
     # ── run samples ───────────────────────────────────────────────────
-    cdef pthread_t *threads
-    cdef int launched, batch
-
-    if num_workers <= 1:
-        for s in range(num_samples):
-            _grouped_sample_worker(&work[s])
-    else:
-        threads = <pthread_t*>malloc(num_workers * sizeof(pthread_t))
-        if threads == NULL:
-            free(work)
-            free(spaces)
-            free(group_keys)
-            err.error_message = strdup(b"iterative_grouped: thread alloc failed")
-            return err
-
-        launched = 0
-        while launched < num_samples:
-            batch = num_samples - launched
-            if batch > num_workers:
-                batch = num_workers
-
-            with nogil:
-                for i in range(<size_t>batch):
-                    pthread_create(&threads[i], NULL, _grouped_sample_worker,
-                                   &work[launched + <int>i])
-                for i in range(<size_t>batch):
-                    pthread_join(threads[i], NULL)
-
-            launched += batch
-
-        free(threads)
+    for s in range(num_samples):
+        _grouped_sample_worker(&work[s])
 
     # ── collect results ───────────────────────────────────────────────
     cdef double global_best_obj = -INFINITY

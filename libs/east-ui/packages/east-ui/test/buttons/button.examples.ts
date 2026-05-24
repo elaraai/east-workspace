@@ -57,7 +57,7 @@ export const buttonReactiveCounter = example({
             }));
 
             return Stack.VStack([
-                Stat.Root("Count", Text.Root(East.print(count))),
+                Stat.Root("Count", East.print(count)),
                 Stack.HStack([
                     Button.Root("-", { onClick: decrement, style: { variant: "solid", colorPalette: "red" } }),
                     Button.Root("+", { onClick: increment, style: { variant: "solid", colorPalette: "blue" } }),
@@ -106,7 +106,7 @@ export const buttonRichLabel = example({
         return Button.Root(
             Stack.HStack([
                 Text.Root("Accept"),
-                Text.Root("→ log to MES", { color: "fg.muted" }),
+                Text.Root("→ log to MES", { color: "whiteAlpha.700" }),
             ], { gap: "1", align: "center" }),
             { style: { variant: "solid", colorPalette: "green" } },
         );

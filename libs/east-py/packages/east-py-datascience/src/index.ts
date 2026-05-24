@@ -396,12 +396,9 @@ export {
 export {
     Simulation,
     simulation_run,
-    simulation_run_trajectories,
     SimulationTypes,
     SimulationConfigType,
     SimulationResultType,
-    SimulationTrajectoriesConfigType,
-    SimulationTrajectoriesResultType,
 } from "./simulation/simulation.js";
 
 // Shared types

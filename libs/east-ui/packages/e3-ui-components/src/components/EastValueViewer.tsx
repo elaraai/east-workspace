@@ -347,12 +347,10 @@ function ValueNode({
 export function EastValueViewer({ type, value }: EastValueViewerProps) {
     return (
         <Box
+            layerStyle="surface.code.dark"
             fontFamily="mono"
             fontSize="sm"
-            bg="gray.900"
-            color="gray.100"
             p={4}
-            borderRadius="md"
             overflow="auto"
             maxHeight="100%"
         >

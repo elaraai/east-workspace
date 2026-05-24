@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { East, DateTimeType, FloatType, IntegerType, NullType, StringType, example } from "@elaraai/east";
-import { Badge, Input, Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui";
+import { Input, Reactive, Stack, State, Status, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const inputString = example({
     keywords: ["Input", "String", "placeholder", "variant", "outline"],
@@ -102,9 +102,9 @@ export const inputStringInteractive = example({
                 Text.Root(East.str`You typed: ${text}`),
                 Text.Root(East.str`Length: ${text.length()}`),
                 Stack.HStack([
-                    Badge.Root(East.str`Focus: ${focusCount}`, { colorPalette: "blue" }),
-                    Badge.Root(East.str`Blur: ${blurCount}`, { colorPalette: "orange" }),
-                ], { gap: "2" }),
+                    Text.Presets.MonoLabel(East.str`FOCUS · ${focusCount}`),
+                    Text.Presets.MonoLabel(East.str`BLUR · ${blurCount}`),
+                ], { gap: "4" }),
             ], { gap: "3", align: "stretch" });
         }));
     }),
@@ -130,9 +130,9 @@ export const inputIntegerInteractive = example({
                     onChange,
                 }),
                 Text.Root(East.str`Value: ${value}`),
-                Badge.Root(
-                    East.equal(value.remainder(2n), 0n).ifElse(_$ => "Even", _$ => "Odd"),
-                    { colorPalette: "teal", variant: "solid" }
+                East.equal(value.remainder(2n), 0n).ifElse(
+                    _$ => Status.Root("Even", { value: "info" }),
+                    _$ => Status.Root("Odd", { value: "neutral" }),
                 ),
             ], { gap: "3", align: "stretch" });
         }));

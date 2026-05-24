@@ -10,16 +10,7 @@
  * register the renderer separately via `implementUIComponent`.
  */
 
-import {
-    East,
-    StructType,
-    StringType,
-    IntegerType,
-    BooleanType,
-    OptionType,
-    variant,
-    example,
-} from "@elaraai/east";
+import { East, StructType, StringType, IntegerType, BooleanType, OptionType, example, some, none } from "@elaraai/east";
 import { EastUI, UIComponentType, Stack, Text } from "@elaraai/east-ui";
 
 // ---- Tiny example: a "Counter" component declared via the extension API. ----
@@ -39,7 +30,7 @@ export const counterBasic = example({
         return Counter.Root({
             label: "Visits",
             value: 42n,
-            accent: variant("none", null),
+            accent: none,
         });
     }),
     inputs: [],
@@ -54,12 +45,12 @@ export const counterInsideStack = example({
             Counter.Root({
                 label: "Visits",
                 value: 42n,
-                accent: variant("some", "#488e97"),
+                accent: some("#488e97"),
             }),
             Counter.Root({
                 label: "Conversions",
                 value: 7n,
-                accent: variant("none", null),
+                accent: none,
             }),
         ], { gap: "3" });
     }),

@@ -96,6 +96,99 @@ function shouldIncludeFrame(filename: string): boolean {
  */
 
 
+// ── Frame path normalization ───────────────────────────────────────────
+//
+// Stack-trace paths are absolute and environment-specific (and `file://` URLs
+// under ESM). Baking them into serialized IR leaks the author's filesystem
+// layout and makes the IR non-reproducible across machines and build modes. We
+// normalize each frame path to a portable form: strip the `file://` scheme,
+// normalize separators, and relativize to a base directory. The base defaults
+// to the working directory when one is available (Node) and can be set with
+// `setLocationBasePath` (e.g. for deterministic fixtures). Browser / no-cwd
+// environments keep the cleaned path. This stays free of `node:` imports
+// (browser-safe) and never throws.
+
+let explicitBaseSet = false;
+let explicitBase: string | undefined;
+let autoBase: string | undefined;
+let autoBaseComputed = false;
+
+function normalizeSeparators(p: string): string {
+  return p.replace(/\\/g, '/');
+}
+
+function stripTrailingSlash(p: string): string {
+  return p.length > 1 && p.endsWith('/') ? p.slice(0, -1) : p;
+}
+
+function stripFileUrl(p: string): string {
+  if (!p.startsWith('file://')) return p;
+  try {
+    // `URL` is a universal (WHATWG) global — present in Node and browsers, no
+    // `node:url` import. `.pathname` is percent-encoded; decode it.
+    const pathname = decodeURIComponent(new URL(p).pathname);
+    return pathname.replace(/^\/([A-Za-z]:)/, '$1'); // Windows: "/C:/x" → "C:/x"
+  } catch {
+    return p;
+  }
+}
+
+function computeAutoBase(): string | undefined {
+  if (!autoBaseComputed) {
+    autoBaseComputed = true;
+    // Guarded global access (not a `node:` import) — `process` is undefined in
+    // the browser, where we simply skip relativization.
+    const proc = (globalThis as { process?: { cwd?: () => string } }).process;
+    if (proc !== undefined && typeof proc.cwd === 'function') {
+      try {
+        autoBase = stripTrailingSlash(normalizeSeparators(String(proc.cwd())));
+      } catch {
+        autoBase = undefined;
+      }
+    }
+  }
+  return autoBase;
+}
+
+function currentBase(): string | undefined {
+  return explicitBaseSet ? explicitBase : computeAutoBase();
+}
+
+/**
+ * Set the base directory that captured locations are relativized against.
+ * Pass a path to relativize against it (paths outside it stay absolute); pass
+ * `undefined` to reset to the automatic default (the working directory in
+ * Node, none in the browser).
+ */
+export function setLocationBasePath(base: string | undefined): void {
+  if (base === undefined) {
+    explicitBaseSet = false;
+    explicitBase = undefined;
+  } else {
+    explicitBaseSet = true;
+    explicitBase = stripTrailingSlash(normalizeSeparators(stripFileUrl(base)));
+  }
+}
+
+/**
+ * Normalize a stack-frame path to a portable, deterministic form: `file://`
+ * stripped, separators as `/`, and relativized to the current base when the
+ * path is under it. Exported for testing. Never throws.
+ */
+export function normalizeFramePath(raw: string): string {
+  try {
+    const cleaned = normalizeSeparators(stripFileUrl(raw));
+    const base = currentBase();
+    if (base !== undefined && base !== '') {
+      if (cleaned === base) return '.';
+      if (cleaned.startsWith(base + '/')) return cleaned.slice(base.length + 1);
+    }
+    return cleaned;
+  } catch {
+    return raw;
+  }
+}
+
 function capture_stack_frames(): Location[] {
   const err = new Error();
   const stack = err.stack;
@@ -109,9 +202,10 @@ function capture_stack_frames(): Location[] {
     const match = line.match(/\(?([^()\s]+):(\d+):(\d+)\)?$/);
     if (match) {
       const [, filename, lineNum, column] = match;
+      // `shouldIncludeFrame` runs on the raw path so its node_modules/internal
+      // filters see absolute paths; the stored path is normalized.
       if (filename && filename !== '' && shouldIncludeFrame(filename)) {
-        let loc: Location = { filename, line: BigInt(lineNum!), column: BigInt(column!) };
-        frames.push(loc);
+        frames.push({ filename: normalizeFramePath(filename), line: BigInt(lineNum!), column: BigInt(column!) });
       }
     }
   }

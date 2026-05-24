@@ -174,12 +174,12 @@ describe('end-to-end workflow', () => {
       // =====================================================================
 
       // First let's check what we have
-      const listResult = await runE3Command(['list', repoDir, 'test-ws'], testDir);
+      const listResult = await runE3Command(['dataset', 'list', repoDir, 'test-ws'], testDir);
       console.log('=== List before start ===');
       console.log(listResult.stdout);
 
       const startResult = await runE3Command(
-        ['start', repoDir, 'test-ws'],
+        ['dataflow', 'run', repoDir, 'test-ws'],
         testDir
       );
       console.log('=== Start result ===');
@@ -200,7 +200,7 @@ describe('end-to-end workflow', () => {
 
       // Get the merge task output: should be (10+5) + (10*5) = 15 + 50 = 65
       const getResult = await runE3Command(
-        ['get', repoDir, 'test-ws.tasks.merge.output'],
+        ['dataset', 'get', repoDir, 'test-ws.merge'],
         testDir
       );
       assert.strictEqual(getResult.exitCode, 0, `get failed: ${getResult.stderr}`);
@@ -213,14 +213,14 @@ describe('end-to-end workflow', () => {
 
       // Also verify intermediate results
       const getLeftResult = await runE3Command(
-        ['get', repoDir, 'test-ws.tasks.left.output'],
+        ['dataset', 'get', repoDir, 'test-ws.left'],
         testDir
       );
       assert.strictEqual(getLeftResult.exitCode, 0, `get left failed: ${getLeftResult.stderr}`);
       assert.ok(getLeftResult.stdout.includes('15'), `Left should be 15, got: ${getLeftResult.stdout}`);
 
       const getRightResult = await runE3Command(
-        ['get', repoDir, 'test-ws.tasks.right.output'],
+        ['dataset', 'get', repoDir, 'test-ws.right'],
         testDir
       );
       assert.strictEqual(getRightResult.exitCode, 0, `get right failed: ${getRightResult.stderr}`);
@@ -251,10 +251,10 @@ describe('end-to-end workflow', () => {
       await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'double-test@1.0.0'], testDir);
 
       // Run with default value (10)
-      let startResult = await runE3Command(['start', repoDir, 'ws'], testDir);
+      let startResult = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
       assert.strictEqual(startResult.exitCode, 0, `first start failed: ${startResult.stderr}`);
 
-      let getResult = await runE3Command(['get', repoDir, 'ws.tasks.double.output'], testDir);
+      let getResult = await runE3Command(['dataset', 'get', repoDir, 'ws.double'], testDir);
       assert.ok(getResult.stdout.includes('20'), `Output should be 20, got: ${getResult.stdout}`);
 
       // Change input value to 25
@@ -262,20 +262,20 @@ describe('end-to-end workflow', () => {
       const newValuePath = join(testDir, 'new_value.east');
       writeFileSync(newValuePath, '25');
       const setResult = await runE3Command(
-        ['set', repoDir, 'ws.inputs.x', newValuePath],
+        ['dataset', 'set', repoDir, 'ws.x', newValuePath],
         testDir
       );
       assert.strictEqual(setResult.exitCode, 0, `set failed: ${setResult.stderr}`);
 
       // Verify the input was actually changed
-      const getInputResult = await runE3Command(['get', repoDir, 'ws.inputs.x'], testDir);
+      const getInputResult = await runE3Command(['dataset', 'get', repoDir, 'ws.x'], testDir);
       assert.ok(getInputResult.stdout.includes('25'), `Input should be 25 after set, got: ${getInputResult.stdout}`);
 
       // Re-run - should compute new value (input changed, so cache should miss)
-      startResult = await runE3Command(['start', repoDir, 'ws'], testDir);
+      startResult = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
       assert.strictEqual(startResult.exitCode, 0, `second start failed: ${startResult.stderr}`);
 
-      getResult = await runE3Command(['get', repoDir, 'ws.tasks.double.output'], testDir);
+      getResult = await runE3Command(['dataset', 'get', repoDir, 'ws.double'], testDir);
       assert.ok(getResult.stdout.includes('50'), `Output should be 50 after change, got: ${getResult.stdout}`);
     });
   });
@@ -313,11 +313,11 @@ describe('end-to-end workflow', () => {
       await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'custom-test@1.0.0'], testDir);
 
       // Run
-      const startResult = await runE3Command(['start', repoDir, 'ws'], testDir);
+      const startResult = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
       assert.strictEqual(startResult.exitCode, 0, `start failed: ${startResult.stderr}\n${startResult.stdout}`);
 
       // Verify output exists (content should be same as input since we just copied)
-      const getResult = await runE3Command(['get', repoDir, 'ws.tasks.upper.output'], testDir);
+      const getResult = await runE3Command(['dataset', 'get', repoDir, 'ws.upper'], testDir);
       assert.strictEqual(getResult.exitCode, 0, `get failed: ${getResult.stderr}`);
       assert.ok(getResult.stdout.includes('hello'), `Output should contain 'hello', got: ${getResult.stdout}`);
     });
@@ -369,11 +369,11 @@ describe('end-to-end workflow', () => {
       await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'mixed-test@1.0.0'], testDir);
 
       // Run
-      const startResult = await runE3Command(['start', repoDir, 'ws'], testDir);
+      const startResult = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
       assert.strictEqual(startResult.exitCode, 0, `start failed: ${startResult.stderr}\n${startResult.stdout}`);
 
       // Verify: (7 * 2) + 1 = 15
-      const getResult = await runE3Command(['get', repoDir, 'ws.tasks.increment.output'], testDir);
+      const getResult = await runE3Command(['dataset', 'get', repoDir, 'ws.increment'], testDir);
       assert.strictEqual(getResult.exitCode, 0, `get failed: ${getResult.stderr}`);
       assert.ok(getResult.stdout.includes('15'), `Output should be 15, got: ${getResult.stdout}`);
     });
@@ -402,43 +402,40 @@ describe('end-to-end workflow', () => {
       await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'list-status-test@1.0.0'], testDir);
 
       // Before execution: input has a default value (set), task output is unset
-      let listResult = await runE3Command(['list', repoDir, 'ws', '-r', '-l'], testDir);
-      assert.strictEqual(listResult.exitCode, 0, `list -r -l failed: ${listResult.stderr}`);
+      let listResult = await runE3Command(['dataset', 'list', repoDir, 'ws', '-l'], testDir);
+      assert.strictEqual(listResult.exitCode, 0, `list -l failed: ${listResult.stderr}`);
       assert.match(listResult.stdout, /unset/, 'Task output should show unset');
       assert.match(listResult.stdout, /\bset\b/, 'Input should show set');
       assert.match(listResult.stdout, /\d+ B/, 'Input should show byte size');
-      // Tree entries should appear with (tree) marker
-      assert.match(listResult.stdout, /\(tree\)/, 'Should show tree entries');
 
       // Update input
       const newValuePath = join(testDir, 'val.east');
       writeFileSync(newValuePath, '25');
-      await runE3Command(['set', repoDir, 'ws.inputs.x', newValuePath], testDir);
+      await runE3Command(['dataset', 'set', repoDir, 'ws.x', newValuePath], testDir);
 
       // After set: input still shows set
-      listResult = await runE3Command(['list', repoDir, 'ws', '-r', '-l'], testDir);
-      assert.strictEqual(listResult.exitCode, 0, `list -r -l failed after set: ${listResult.stderr}`);
+      listResult = await runE3Command(['dataset', 'list', repoDir, 'ws', '-l'], testDir);
+      assert.strictEqual(listResult.exitCode, 0, `list -l failed after set: ${listResult.stderr}`);
       assert.match(listResult.stdout, /\bset\b/, 'Updated input should show set');
 
-      // -r -l should show types
+      // -l should show types
       assert.match(listResult.stdout, /Integer/, 'Should show type');
 
       // Execute dataflow
-      const startResult = await runE3Command(['start', repoDir, 'ws'], testDir);
+      const startResult = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
       assert.strictEqual(startResult.exitCode, 0, `start failed: ${startResult.stderr}\n${startResult.stdout}`);
 
       // After execution: all datasets should be set
-      listResult = await runE3Command(['list', repoDir, 'ws', '-r', '-l'], testDir);
-      assert.strictEqual(listResult.exitCode, 0, `list -r -l after start failed: ${listResult.stderr}`);
+      listResult = await runE3Command(['dataset', 'list', repoDir, 'ws', '-l'], testDir);
+      assert.strictEqual(listResult.exitCode, 0, `list -l after start failed: ${listResult.stderr}`);
       // All datasets should now show "set" (no more "unset")
       assert.doesNotMatch(listResult.stdout, /\bunset\b/, 'No datasets should be unset after execution');
 
-      // -r (paths only) should return dot-separated paths
-      listResult = await runE3Command(['list', repoDir, 'ws', '-r'], testDir);
-      assert.strictEqual(listResult.exitCode, 0, `list -r failed: ${listResult.stderr}`);
-      assert.match(listResult.stdout, /\.inputs\.x/, 'Should show input path');
-      // Tasks are collapsed to leaves (e.g., .tasks.double, not .tasks.double.output)
-      assert.match(listResult.stdout, /\.tasks\.double/, 'Should show task path');
+      // Paths only (no -l) should return flat dot-separated paths
+      listResult = await runE3Command(['dataset', 'list', repoDir, 'ws'], testDir);
+      assert.strictEqual(listResult.exitCode, 0, `list failed: ${listResult.stderr}`);
+      assert.match(listResult.stdout, /ws\.x/, 'Should show input path');
+      assert.match(listResult.stdout, /ws\.double/, 'Should show task path');
     });
   });
 
@@ -465,7 +462,7 @@ describe('end-to-end workflow', () => {
       await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'status-test@1.0.0'], testDir);
 
       // Check input status — should show set with hash and size
-      let statusResult = await runE3Command(['status', repoDir, 'ws.inputs.x'], testDir);
+      let statusResult = await runE3Command(['dataset', 'status', repoDir, 'ws.x'], testDir);
       assert.strictEqual(statusResult.exitCode, 0, `status failed: ${statusResult.stderr}`);
       assert.match(statusResult.stdout, /Status: set/, 'Input should show Status: set');
       assert.match(statusResult.stdout, /Hash:/, 'Input should show Hash');
@@ -473,16 +470,16 @@ describe('end-to-end workflow', () => {
       assert.match(statusResult.stdout, /Type:/, 'Should show Type');
 
       // Check task output status — should show unset
-      statusResult = await runE3Command(['status', repoDir, 'ws.tasks.double.output'], testDir);
+      statusResult = await runE3Command(['dataset', 'status', repoDir, 'ws.double'], testDir);
       assert.strictEqual(statusResult.exitCode, 0, `status failed: ${statusResult.stderr}`);
       assert.match(statusResult.stdout, /Status: unset/, 'Task output should show Status: unset');
 
       // Execute dataflow
-      const startResult = await runE3Command(['start', repoDir, 'ws'], testDir);
+      const startResult = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
       assert.strictEqual(startResult.exitCode, 0, `start failed: ${startResult.stderr}\n${startResult.stdout}`);
 
       // After execution: task output should now show set
-      statusResult = await runE3Command(['status', repoDir, 'ws.tasks.double.output'], testDir);
+      statusResult = await runE3Command(['dataset', 'status', repoDir, 'ws.double'], testDir);
       assert.strictEqual(statusResult.exitCode, 0, `status after start failed: ${statusResult.stderr}`);
       assert.match(statusResult.stdout, /Status: set/, 'Task output should show Status: set after execution');
       assert.match(statusResult.stdout, /Hash:/, 'Task output should show Hash after execution');
@@ -500,7 +497,7 @@ describe('end-to-end workflow', () => {
       await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'status-err-field@1.0.0'], testDir);
 
       // Typo in field name
-      const result = await runE3Command(['status', repoDir, 'ws.inputs.typo'], testDir);
+      const result = await runE3Command(['dataset', 'status', repoDir, 'ws.typo'], testDir);
       assert.notStrictEqual(result.exitCode, 0, 'Should fail for non-existent field');
       assert.match(result.stderr, /not found/i, 'Should mention field not found');
     });
@@ -516,7 +513,7 @@ describe('end-to-end workflow', () => {
       await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'status-err-tree@1.0.0'], testDir);
 
       // Path points to a tree (inputs), not a dataset
-      const result = await runE3Command(['status', repoDir, 'ws.inputs'], testDir);
+      const result = await runE3Command(['dataset', 'status', repoDir, 'ws.inputs'], testDir);
       assert.notStrictEqual(result.exitCode, 0, 'Should fail when path points to tree');
       assert.match(result.stderr, /tree, not a dataset/, 'Should mention tree vs dataset');
     });
@@ -544,7 +541,7 @@ describe('end-to-end workflow', () => {
       await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'fail-test@1.0.0'], testDir);
 
       // Run - should report failure but not crash
-      const startResult = await runE3Command(['start', repoDir, 'ws'], testDir);
+      const startResult = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
       // The CLI should exit with non-zero or report failure
       // Either the exit code is non-zero, or the output mentions failure
@@ -579,7 +576,7 @@ describe('end-to-end workflow', () => {
       await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'concurrent-test@1.0.0'], testDir);
 
       // Start dataflow in background (task sleeps 5s — plenty of time)
-      const startProc = spawnE3Command(['start', repoDir, 'ws'], testDir);
+      const startProc = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
       // Wait until the CLI has actually started the task (look for [START] in output).
       // This ensures the dataflow lock is held and the task is running.
@@ -593,7 +590,7 @@ describe('end-to-end workflow', () => {
       const newValuePath = join(testDir, 'val.east');
       writeFileSync(newValuePath, '42');
       const setResult = await runE3Command(
-        ['set', repoDir, 'ws.inputs.x', newValuePath],
+        ['dataset', 'set', repoDir, 'ws.x', newValuePath],
         testDir
       );
       assert.strictEqual(setResult.exitCode, 0, `set during start should succeed: ${setResult.stderr}`);
@@ -603,7 +600,7 @@ describe('end-to-end workflow', () => {
       assert.strictEqual(startResult.exitCode, 0, `start failed: ${startResult.stderr}\n${startResult.stdout}`);
 
       // Verify the input was updated to the concurrent-set value
-      const getInputResult = await runE3Command(['get', repoDir, 'ws.inputs.x'], testDir);
+      const getInputResult = await runE3Command(['dataset', 'get', repoDir, 'ws.x'], testDir);
       assert.strictEqual(getInputResult.exitCode, 0, `get input failed: ${getInputResult.stderr}`);
       assert.ok(getInputResult.stdout.includes('42'), `Input should be 42, got: ${getInputResult.stdout}`);
 
@@ -612,10 +609,10 @@ describe('end-to-end workflow', () => {
       // (Reactive re-execution within a single start is tested at the unit level
       // in dataflow-orchestration.spec.ts; the LocalOrchestrator will gain that
       // capability in a future change.)
-      const start2 = await runE3Command(['start', repoDir, 'ws'], testDir);
+      const start2 = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
       assert.strictEqual(start2.exitCode, 0, `second start failed: ${start2.stderr}\n${start2.stdout}`);
 
-      const getOutput = await runE3Command(['get', repoDir, 'ws.tasks.slow.output'], testDir);
+      const getOutput = await runE3Command(['dataset', 'get', repoDir, 'ws.slow'], testDir);
       assert.strictEqual(getOutput.exitCode, 0, `get output failed: ${getOutput.stderr}`);
       assert.ok(getOutput.stdout.includes('42'), `Output should be 42 after re-run, got: ${getOutput.stdout}`);
     });
@@ -646,7 +643,7 @@ describe('end-to-end workflow', () => {
       const valuePath = join(testDir, 'val.east');
       writeFileSync(valuePath, '999');
       const setResult = await runE3Command(
-        ['set', repoDir, 'ws.tasks.double.output', valuePath],
+        ['dataset', 'set', repoDir, 'ws.double', valuePath],
         testDir
       );
       assert.notStrictEqual(setResult.exitCode, 0, 'set on task output should fail');
@@ -681,7 +678,7 @@ describe('end-to-end workflow', () => {
       const valuePath = join(testDir, 'val.east');
       writeFileSync(valuePath, '0');
       const setResult = await runE3Command(
-        ['set', repoDir, 'ws.tasks.double.function_ir', valuePath],
+        ['dataset', 'set', repoDir, 'ws.tasks.double.function_ir', valuePath],
         testDir
       );
       assert.notStrictEqual(setResult.exitCode, 0, 'set on function_ir should fail');
@@ -706,13 +703,13 @@ describe('end-to-end workflow', () => {
       const valuePath = join(testDir, 'val.east');
       writeFileSync(valuePath, '42');
       const setResult = await runE3Command(
-        ['set', repoDir, 'ws.inputs.x', valuePath],
+        ['dataset', 'set', repoDir, 'ws.x', valuePath],
         testDir
       );
       assert.strictEqual(setResult.exitCode, 0, `set on input should succeed: ${setResult.stderr}`);
 
       // Verify the value was set
-      const getResult = await runE3Command(['get', repoDir, 'ws.inputs.x'], testDir);
+      const getResult = await runE3Command(['dataset', 'get', repoDir, 'ws.x'], testDir);
       assert.ok(getResult.stdout.includes('42'), `Input should be 42, got: ${getResult.stdout}`);
     });
   });
@@ -752,7 +749,7 @@ describe('end-to-end workflow', () => {
       assert.ok(existsSync(inputRefPath), `Input ref file should exist at ${inputRefPath}`);
 
       // Verify input has a value (not unassigned)
-      const getResult = await runE3Command(['get', repoDir, 'ws.inputs.x'], testDir);
+      const getResult = await runE3Command(['dataset', 'get', repoDir, 'ws.x'], testDir);
       assert.ok(getResult.stdout.includes('10'), `Input default should be 10, got: ${getResult.stdout}`);
     });
 
@@ -774,14 +771,14 @@ describe('end-to-end workflow', () => {
       // Set a new value
       const valuePath = join(testDir, 'val.east');
       writeFileSync(valuePath, '99');
-      await runE3Command(['set', repoDir, 'ws.inputs.x', valuePath], testDir);
+      await runE3Command(['dataset', 'set', repoDir, 'ws.x', valuePath], testDir);
 
       // Ref file should be updated (different content)
       const refAfter = readFileSync(inputRefPath);
       assert.ok(!refBefore.equals(refAfter), 'Ref file content should change after set');
 
       // Verify new value
-      const getResult = await runE3Command(['get', repoDir, 'ws.inputs.x'], testDir);
+      const getResult = await runE3Command(['dataset', 'get', repoDir, 'ws.x'], testDir);
       assert.ok(getResult.stdout.includes('99'), `Input should be 99, got: ${getResult.stdout}`);
     });
 
@@ -807,24 +804,24 @@ describe('end-to-end workflow', () => {
 
       // Before start, task output status should be unset
       const statusBefore = await runE3Command(
-        ['status', repoDir, 'ws.tasks.double.output'],
+        ['dataset', 'status', repoDir, 'ws.double'],
         testDir
       );
       assert.match(statusBefore.stdout, /unset/, 'Task output should be unset before start');
 
       // Run start
-      const startResult = await runE3Command(['start', repoDir, 'ws'], testDir);
+      const startResult = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
       assert.strictEqual(startResult.exitCode, 0, `start failed: ${startResult.stderr}\n${startResult.stdout}`);
 
       // After start, task output should be set with correct value
       const statusAfter = await runE3Command(
-        ['status', repoDir, 'ws.tasks.double.output'],
+        ['dataset', 'status', repoDir, 'ws.double'],
         testDir
       );
       assert.match(statusAfter.stdout, /Status: set/, 'Task output should be set after start');
 
       // Verify value: 10 * 2 = 20
-      const getResult = await runE3Command(['get', repoDir, 'ws.tasks.double.output'], testDir);
+      const getResult = await runE3Command(['dataset', 'get', repoDir, 'ws.double'], testDir);
       assert.ok(getResult.stdout.includes('20'), `Output should be 20, got: ${getResult.stdout}`);
 
       // Output ref file should exist

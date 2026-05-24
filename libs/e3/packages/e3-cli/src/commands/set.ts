@@ -7,11 +7,14 @@
  * e3 set command - Set dataset value from file
  *
  * Usage:
- *   e3 set . ws.path.to.dataset ./data.beast2
- *   e3 set . ws.path.to.dataset ./data.east
- *   e3 set . ws.path.to.dataset ./data.json --type ".Integer"
- *   e3 set . ws.path.to.dataset ./data.csv --type ".Array .Struct [{name: \"name\", type: .String}, {name: \"value\", type: .Integer}]"
- *   e3 set https://server/repos/myrepo ws.path.to.dataset ./data.east
+ *   e3 dataset set . ws.name ./data.beast2
+ *   e3 dataset set . ws.name ./data.east
+ *   e3 dataset set . ws.name ./data.json --type ".Integer"
+ *   e3 dataset set . ws.name ./data.csv --type-file schema.east
+ *   e3 dataset set https://server/repos/myrepo ws.name ./data.east
+ *
+ * Paths use the flat form `<ws>.<name>`. The resolver maps `<name>` to
+ * its storage location automatically.
  */
 
 import { readFile } from 'fs/promises';
@@ -30,16 +33,11 @@ import {
   parseInferred,
   toEastTypeValue,
 } from '@elaraai/east';
-import { parseRepoLocation, parseDatasetPath, formatError, exitError } from '../utils.js';
+import { parseRepoLocation, formatError, exitError } from '../utils.js';
+import { resolveDatasetPath } from '../path-resolver.js';
 
 /**
  * Parse a type specification in .east format.
- * Types are represented as EastTypeValue variants.
- *
- * Examples:
- *   ".Integer" -> variant("Integer", null)
- *   ".Array .Integer" -> variant("Array", variant("Integer", null))
- *   ".Struct [{name: \"x\", type: .Integer}]" -> variant("Struct", [{name: "x", type: variant("Integer", null)}])
  */
 function parseTypeSpec(typeSpec: string): EastTypeValue {
   const parser = parseFor(EastTypeType);
@@ -57,20 +55,23 @@ export async function setCommand(
   repoArg: string,
   pathSpec: string,
   filePath: string,
-  options: { type?: string } = {}
+  options: { type?: string; typeFile?: string } = {}
 ): Promise<void> {
   try {
-    const location = await parseRepoLocation(repoArg);
-    const { ws, path } = parseDatasetPath(pathSpec);
-
-    if (path.length === 0) {
-      exitError('Path must include at least one field (e.g., ws.field)');
+    if (options.type && options.typeFile) {
+      exitError('Specify either --type or --type-file, not both');
     }
 
-    // Parse type specification if provided
+    const location = await parseRepoLocation(repoArg);
+    const { ws, path } = await resolveDatasetPath(location, pathSpec);
+
+    // Parse type specification if provided (inline or from file)
     let providedType: EastTypeValue | undefined;
     if (options.type) {
       providedType = parseTypeSpec(options.type);
+    } else if (options.typeFile) {
+      const typeContent = (await readFile(options.typeFile)).toString('utf-8');
+      providedType = parseTypeSpec(typeContent);
     }
 
     // Read and decode the file based on extension
@@ -82,7 +83,6 @@ export async function setCommand(
 
     switch (ext) {
       case '.beast2': {
-        // Beast2 is self-describing, type spec is optional (for override)
         const decoded = decodeBeast2(fileContent);
         value = decoded.value;
         type = providedType ?? decoded.type;
@@ -91,7 +91,6 @@ export async function setCommand(
       case '.east': {
         const content = fileContent.toString('utf-8');
         if (providedType) {
-          // Parse with provided type for stricter validation
           const parser = parseFor(providedType);
           const result = parser(content);
           if (!result.success) {
@@ -100,10 +99,7 @@ export async function setCommand(
           value = result.value;
           type = providedType;
         } else {
-          // Use parseInferred for type inference from .east syntax
           const [parsedType, parsedValue] = parseInferred(content);
-          // parseInferred returns EastType, but we need EastTypeValue
-          // Use toEastTypeValue to convert
           value = parsedValue;
           type = toEastTypeValue(parsedType);
         }
@@ -111,7 +107,7 @@ export async function setCommand(
       }
       case '.json': {
         if (!providedType) {
-          exitError('JSON files require --type flag. Example: --type ".Integer"');
+          exitError('JSON files require --type or --type-file. Example: --type ".Integer"');
         }
         const content = fileContent.toString('utf-8');
         const jsonValue = JSON.parse(content);
@@ -122,9 +118,8 @@ export async function setCommand(
       }
       case '.csv': {
         if (!providedType) {
-          exitError('CSV files require --type flag. Example: --type ".Array .Struct [{name: \\"name\\", type: .String}]"');
+          exitError('CSV files require --type or --type-file. Example: --type-file schema.east');
         }
-        // CSV expects .Array .Struct [...] - check the variant type
         if (providedType.type !== 'Array') {
           exitError('CSV files require an Array type. Example: --type ".Array .Struct [...]"');
         }
@@ -145,7 +140,6 @@ export async function setCommand(
       const storage = new LocalStorage();
       await workspaceSetDataset(storage, location.path, ws, path, value, type);
     } else {
-      // Remote: encode value to BEAST2 and send
       const encoder = encodeBeast2For(type);
       const beast2Data = encoder(value);
       await datasetSetRemote(

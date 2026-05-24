@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, FloatType, BooleanType, IntegerType, VectorType, variant, example } from "@elaraai/east";
+import { East, FloatType, BooleanType, IntegerType, VectorType, variant, example, some, none } from "@elaraai/east";
 import { SimAnneal } from "@elaraai/east-py-datascience";
 
 export const simannealOptimizeAssignment = example({
@@ -60,12 +60,12 @@ export const simannealOptimizeAssignment = example({
         const initial = $.let(variant("int_array", East.Vector.fromArray([0n, 0n, 0n])), SimAnneal.Types.DiscreteStateType);
 
         const config = $.let({
-            t_max: variant("some", 100.0),
-            t_min: variant("some", 0.01),
-            steps: variant("some", 1000n),
-            updates: variant("none", null),
-            auto_schedule: variant("none", null),
-            random_state: variant("some", 42n),
+            t_max: some(100.0),
+            t_min: some(0.01),
+            steps: some(1000n),
+            updates: none,
+            auto_schedule: none,
+            random_state: some(42n),
         }, SimAnneal.Types.ConfigType);
 
         const result = $.let(SimAnneal.optimize(initial, energy, move, config));
@@ -107,12 +107,12 @@ export const simannealOptimizePermutation = example({
         const initial = $.let(East.Vector.fromArray([0n, 1n, 2n, 3n]));
 
         const config = $.let({
-            t_max: variant("some", 1000.0),
-            t_min: variant("some", 0.1),
-            steps: variant("some", 5000n),
-            updates: variant("none", null),
-            auto_schedule: variant("none", null),
-            random_state: variant("some", 42n),
+            t_max: some(1000.0),
+            t_min: some(0.1),
+            steps: some(5000n),
+            updates: none,
+            auto_schedule: none,
+            random_state: some(42n),
         }, SimAnneal.Types.ConfigType);
 
         const result = $.let(SimAnneal.optimizePermutation(initial, energy, config));
@@ -159,12 +159,12 @@ export const simannealOptimizeSubset = example({
         const initial = $.let(East.Vector.fromArray([false, false, false, false, false, false]));
 
         const config = $.let({
-            t_max: variant("some", 500.0),
-            t_min: variant("some", 0.1),
-            steps: variant("some", 3000n),
-            updates: variant("none", null),
-            auto_schedule: variant("none", null),
-            random_state: variant("some", 42n),
+            t_max: some(500.0),
+            t_min: some(0.1),
+            steps: some(3000n),
+            updates: none,
+            auto_schedule: none,
+            random_state: some(42n),
         }, SimAnneal.Types.ConfigType);
 
         const result = $.let(SimAnneal.optimizeSubset(initial, energy, config));

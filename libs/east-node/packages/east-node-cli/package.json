@@ -28,8 +28,8 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/elaraai/east-node.git",
-    "directory": "packages/east-node-cli"
+    "url": "git+https://github.com/elaraai/east-workspace.git",
+    "directory": "libs/east-node/packages/east-node-cli"
   },
   "keywords": [
     "east",
@@ -39,7 +39,7 @@
     "ir"
   ],
   "author": "Elara AI Pty Ltd",
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "AGPL-3.0-or-later",
   "type": "module",
   "engines": {
     "node": ">=22.0.0"

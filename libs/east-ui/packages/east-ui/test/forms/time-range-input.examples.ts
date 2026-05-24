@@ -31,10 +31,7 @@ export const timeRangeInputReactive = example({
             }));
             return Stack.VStack([
                 TimeRangeInput.Root(start, end, { step: 15n, onChange }),
-                Text.Root(East.str`${start} – ${end} (minutes since midnight)`, {
-                    textStyle: "body-sm",
-                    color: "fg.muted",
-                }),
+                Text.Presets.MonoLabel(East.str`MIN · ${start} → ${end}`),
             ], { gap: "3", align: "flex-start" });
         }));
     }),

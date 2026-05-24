@@ -69,7 +69,7 @@ describe("match function", () => {
     });
 
     test("should handle variant with null value", () => {
-        const v = variant("none", null);
+        const v = none;
         const result = match(v, {
             none: () => "nothing",
             some: (value: any) => `value: ${value}`,

@@ -12,7 +12,6 @@ from east.runtime.platform import GenericPlatformFunction
 
 from east_py_datascience.simulation._simulation_eastc import (
     simulation_run_capsule,
-    simulation_run_trajectories_capsule,
 )
 
 simulation_impl = [
@@ -22,13 +21,6 @@ simulation_impl = [
         type="sync",
         fn=None,
         c_factory=simulation_run_capsule,
-    ),
-    GenericPlatformFunction(
-        name="simulation_run_trajectories",
-        type_parameters=["R", "E"],
-        type="sync",
-        fn=None,
-        c_factory=simulation_run_trajectories_capsule,
     ),
 ]
 

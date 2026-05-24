@@ -42,7 +42,7 @@ export function toChakraTagsInput(value: TagsInputValue): TagsInputRootProps {
         allowOverflow: getSomeorUndefined(value.allowOverflow),
         size: sizeTag,
         variant: variantTag,
-        colorPalette,
+        colorPalette: colorPalette ?? "brand",
     };
 }
 

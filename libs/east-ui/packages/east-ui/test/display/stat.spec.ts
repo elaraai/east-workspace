@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Stat, Text } from "@elaraai/east-ui";
+import { Stat, Format } from "@elaraai/east-ui";
 import * as ex from "./stat.examples.js";
 
 describeEast("Stat", (test) => {
@@ -12,36 +12,46 @@ describeEast("Stat", (test) => {
         statBasic: ex.statBasic,
         statHelpText: ex.statHelpText,
         statIndicators: ex.statIndicators,
-        statRichValues: ex.statRichValues,
+        statFormatted: ex.statFormatted,
     });
 
     // =========================================================================
     // Basic Creation
     // =========================================================================
 
-    test("creates stat with label and value", $ => {
-        const stat = $.let(Stat.Root("Revenue", Text.Root("$45,231")));
+    test("creates stat with label and numeric value", $ => {
+        const stat = $.let(Stat.Root("Revenue", 45231));
 
         $(Assert.equal(stat.unwrap().unwrap("Stat").label, "Revenue"));
-        $(Assert.equal(stat.unwrap().unwrap("Stat").value.unwrap().unwrap("Text").value, "$45,231"));
+        $(Assert.equal(stat.unwrap().unwrap("Stat").value.unwrap("Float"), 45231.0));
+        $(Assert.equal(stat.unwrap().unwrap("Stat").format.hasTag("none"), true));
         $(Assert.equal(stat.unwrap().unwrap("Stat").helpText.hasTag("none"), true));
         $(Assert.equal(stat.unwrap().unwrap("Stat").indicator.hasTag("none"), true));
     });
 
-    test("creates stat with expression values", $ => {
-        const stat = $.let(Stat.Root(
-            "Users",
-            Text.Root("1,234")
-        ));
+    test("creates stat with a string value", $ => {
+        const stat = $.let(Stat.Root("Status", "Operational"));
 
-        $(Assert.equal(stat.unwrap().unwrap("Stat").label, "Users"));
-        $(Assert.equal(stat.unwrap().unwrap("Stat").value.unwrap().unwrap("Text").value, "1,234"));
+        $(Assert.equal(stat.unwrap().unwrap("Stat").value.unwrap("String"), "Operational"));
     });
 
-    test("creates stat with numeric-like value", $ => {
-        const stat = $.let(Stat.Root("Count", Text.Root("42")));
+    test("creates stat with an integer value", $ => {
+        const stat = $.let(Stat.Root("Count", 42n));
 
-        $(Assert.equal(stat.unwrap().unwrap("Stat").value.unwrap().unwrap("Text").value, "42"));
+        $(Assert.equal(stat.unwrap().unwrap("Stat").value.unwrap("Integer"), 42n));
+    });
+
+    // =========================================================================
+    // Format
+    // =========================================================================
+
+    test("creates stat with a currency format", $ => {
+        const stat = $.let(Stat.Root("ARR", 1842500, {
+            format: Format.Currency({ currency: "AUD", compact: "short" }),
+        }));
+
+        $(Assert.equal(stat.unwrap().unwrap("Stat").format.hasTag("some"), true));
+        $(Assert.equal(stat.unwrap().unwrap("Stat").format.unwrap("some").hasTag("currency"), true));
     });
 
     // =========================================================================
@@ -49,7 +59,7 @@ describeEast("Stat", (test) => {
     // =========================================================================
 
     test("creates stat with help text", $ => {
-        const stat = $.let(Stat.Root("Total Users", Text.Root("1,234"), {
+        const stat = $.let(Stat.Root("Total Users", 1234, {
             helpText: "From last month",
         }));
 
@@ -58,11 +68,12 @@ describeEast("Stat", (test) => {
     });
 
     test("creates stat with trend help text", $ => {
-        const stat = $.let(Stat.Root("Growth", Text.Root("+23.36%"), {
+        const stat = $.let(Stat.Root("Growth", 0.2336, {
+            format: Format.Percent({ maximumFractionDigits: 2n }),
             helpText: "Compared to last week",
         }));
 
-        $(Assert.equal(stat.unwrap().unwrap("Stat").value.unwrap().unwrap("Text").value, "+23.36%"));
+        $(Assert.equal(stat.unwrap().unwrap("Stat").value.unwrap("Float"), 0.2336));
         $(Assert.equal(stat.unwrap().unwrap("Stat").helpText.unwrap("some"), "Compared to last week"));
     });
 
@@ -71,7 +82,7 @@ describeEast("Stat", (test) => {
     // =========================================================================
 
     test("creates stat with up indicator", $ => {
-        const stat = $.let(Stat.Root("Revenue", Text.Root("$45,231"), {
+        const stat = $.let(Stat.Root("Revenue", 45231, {
             indicator: "up",
         }));
 
@@ -80,19 +91,11 @@ describeEast("Stat", (test) => {
     });
 
     test("creates stat with down indicator", $ => {
-        const stat = $.let(Stat.Root("Bounce Rate", Text.Root("32.5%"), {
+        const stat = $.let(Stat.Root("Bounce Rate", 0.325, {
             indicator: "down",
         }));
 
         $(Assert.equal(stat.unwrap().unwrap("Stat").indicator.unwrap("some").direction.hasTag("down"), true));
-    });
-
-    test("creates stat with StatIndicator helper", $ => {
-        const stat = $.let(Stat.Root("Growth", Text.Root("+15%"), {
-            indicator: "up",
-        }));
-
-        $(Assert.equal(stat.unwrap().unwrap("Stat").indicator.unwrap("some").direction.hasTag("up"), true));
     });
 
     // =========================================================================
@@ -100,60 +103,33 @@ describeEast("Stat", (test) => {
     // =========================================================================
 
     test("creates stat with all options", $ => {
-        const stat = $.let(Stat.Root("Revenue", Text.Root("$45,231"), {
+        const stat = $.let(Stat.Root("Revenue", 45231, {
+            format: Format.Currency({ currency: "USD", maximumFractionDigits: 0n }),
             helpText: "+20.1% from last month",
             indicator: "up",
         }));
 
         $(Assert.equal(stat.unwrap().unwrap("Stat").label, "Revenue"));
-        $(Assert.equal(stat.unwrap().unwrap("Stat").value.unwrap().unwrap("Text").value, "$45,231"));
+        $(Assert.equal(stat.unwrap().unwrap("Stat").value.unwrap("Float"), 45231.0));
         $(Assert.equal(stat.unwrap().unwrap("Stat").helpText.unwrap("some"), "+20.1% from last month"));
         $(Assert.equal(stat.unwrap().unwrap("Stat").indicator.unwrap("some").direction.hasTag("up"), true));
     });
 
-    test("creates revenue stat with positive trend", $ => {
-        const stat = $.let(Stat.Root("Monthly Revenue", Text.Root("$123,456"), {
-            helpText: "+12.5%",
-            indicator: "up",
-        }));
-
-        $(Assert.equal(stat.unwrap().unwrap("Stat").label, "Monthly Revenue"));
-        $(Assert.equal(stat.unwrap().unwrap("Stat").helpText.unwrap("some"), "+12.5%"));
-    });
-
     test("creates user stat with negative trend", $ => {
-        const stat = $.let(Stat.Root("Active Users", Text.Root("892"), {
+        const stat = $.let(Stat.Root("Active Users", 892, {
             helpText: "-5.2% from yesterday",
             indicator: "down",
         }));
 
-        $(Assert.equal(stat.unwrap().unwrap("Stat").value.unwrap().unwrap("Text").value, "892"));
+        $(Assert.equal(stat.unwrap().unwrap("Stat").value.unwrap("Float"), 892.0));
         $(Assert.equal(stat.unwrap().unwrap("Stat").indicator.unwrap("some").direction.hasTag("down"), true));
     });
 
-    test("creates conversion rate stat", $ => {
-        const stat = $.let(Stat.Root("Conversion Rate", Text.Root("3.24%"), {
-            helpText: "Goal: 4%",
-        }));
-
-        $(Assert.equal(stat.unwrap().unwrap("Stat").label, "Conversion Rate"));
-        $(Assert.equal(stat.unwrap().unwrap("Stat").helpText.unwrap("some"), "Goal: 4%"));
-    });
-
     test("creates simple count stat", $ => {
-        const stat = $.let(Stat.Root("Total Orders", Text.Root("1,567")));
+        const stat = $.let(Stat.Root("Total Orders", 1567));
 
         $(Assert.equal(stat.unwrap().unwrap("Stat").label, "Total Orders"));
-        $(Assert.equal(stat.unwrap().unwrap("Stat").value.unwrap().unwrap("Text").value, "1,567"));
+        $(Assert.equal(stat.unwrap().unwrap("Stat").value.unwrap("Float"), 1567.0));
         $(Assert.equal(stat.unwrap().unwrap("Stat").helpText.hasTag("none"), true));
-    });
-
-    test("creates percentage stat with indicator", $ => {
-        const stat = $.let(Stat.Root("Satisfaction", Text.Root("98.5%"), {
-            indicator: "up",
-        }));
-
-        $(Assert.equal(stat.unwrap().unwrap("Stat").value.unwrap().unwrap("Text").value, "98.5%"));
-        $(Assert.equal(stat.unwrap().unwrap("Stat").indicator.unwrap("some").direction.hasTag("up"), true));
     });
 }, {   platformFns: TestImpl,});

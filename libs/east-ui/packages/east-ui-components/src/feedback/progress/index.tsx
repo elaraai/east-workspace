@@ -21,15 +21,21 @@ export type ProgressValue = ValueTypeOf<typeof Progress.Types.Progress>;
 export function toChakraProgress(value: ProgressValue): ProgressRootProps {
     const style = getSomeorUndefined(value.style);
     const indeterminate = getSomeorUndefined(value.indeterminate) ?? false;
+    const tone = style ? getSomeorUndefined(style.tone)?.type : undefined;
+    const sizeTag = style ? getSomeorUndefined(style.size)?.type : undefined;
+    const sizeAllowed: ProgressRootProps["size"] = sizeTag === "xs" || sizeTag === "sm" || sizeTag === "md"
+        ? sizeTag
+        : undefined;
     return {
         value: indeterminate ? null : value.value,
         min: getSomeorUndefined(value.min),
         max: getSomeorUndefined(value.max),
-        colorPalette: style ? getSomeorUndefined(style.colorPalette)?.type : undefined,
-        size: style ? getSomeorUndefined(style.size)?.type : undefined,
+        size: sizeAllowed,
         variant: style ? (getSomeorUndefined(style.variant)?.type as ProgressRootProps["variant"]) : undefined,
         striped: style ? getSomeorUndefined(style.striped) : undefined,
         animated: style ? getSomeorUndefined(style.animated) : undefined,
+        // Drive recipe sentiment via Chakra's variant routing.
+        ...(tone !== undefined ? { ["sentiment"]: tone } as Record<string, string> : {}),
     };
 }
 

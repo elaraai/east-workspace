@@ -40,7 +40,6 @@ export type {
 export {
     Text, Code, Heading, Link, Highlight, Mark, List, CodeBlock,
     Numeric, Note,
-    NumericFormatType,
 } from "./typography/index.js";
 
 // Layout
@@ -57,11 +56,11 @@ export type { ButtonLabelInput, ButtonOptions } from "./buttons/index.js";
 export { Input, Checkbox, RadioGroup, RadioCardGroup, TimeScaleControl, TimeRangeInput, DateRangeInput, Switch, Select, Combobox, Slider, Field, FileUpload, Textarea, TagsInput } from "./forms/index.js";
 
 // Feedback
-export { Progress, ProgressCircle, Alert, Banner, EmptyState, Spinner, Skeleton, Status, Toast } from "./feedback/index.js";
+export { Progress, Banner, EmptyState, Skeleton, Status } from "./feedback/index.js";
 
 // Navigation
-export { Breadcrumb, NavList, NavListType, NavListStyleType, NavListOrientationType, NavSectionType, NavItemType } from "./navigation/index.js";
-export type { NavListStyle, NavListOrientationLiteral, NavSectionInput, NavItemInput } from "./navigation/index.js";
+export { Breadcrumb, NavList, NavListType, NavSectionType, NavItemType } from "./navigation/index.js";
+export type { NavListStyle, NavSectionInput, NavItemInput } from "./navigation/index.js";
 
 // Display
 export { Badge, Tag, Avatar, Stat, Icon, MetricChip, EditableChip, Kbd, Meter, SegmentedMeter, BarStrip, AvatarGroup, type IconName } from "./display/index.js";
@@ -76,10 +75,10 @@ export { DataList, Matrix, Pagination, Table, TreeView, Gantt, Planner } from ".
 export { Chart, Sparkline } from "./charts/index.js";
 
 // Disclosure
-export { Accordion, Carousel, Collapsible, Disclosure, OptionList, SegmentGroup, Steps, Tabs, Timeline } from "./disclosure/index.js";
+export { Accordion, Carousel, Collapsible, Disclosure, OptionList, SegmentGroup, Tabs } from "./disclosure/index.js";
 
 // Overlays
-export { Tooltip, Menu, Dialog, dialog_open, Drawer, drawer_open, Popover, HoverCard, ActionBar, ToggleTip, CoachMark, CommandPalette } from "./overlays/index.js";
+export { Tooltip, Menu, Dialog, dialog_open, Drawer, drawer_open, Popover, HoverCard, ActionBar, ToggleTip, CommandPalette } from "./overlays/index.js";
 export { Hotkey, HotkeyType } from "./platform/hotkey/index.js";
 
 // Reactive (selective re-rendering)
@@ -99,4 +98,10 @@ export {
 
 // Platform (state management - signatures only)
 // For e3 dataset bindings, use Data.bind from @elaraai/e3-ui
-export { State, Clipboard, Download, Share } from "./platform/index.js";
+export { State, SliceApplyImpl, sliceDimensions, sliceFields, sliceMatches, sliceBreakdown, sliceSeries, SLICE_SERIES_PALETTE, Clipboard, Download, Share } from "./platform/index.js";
+export {
+    Slice,
+    SliceSummaryType, SliceRangePickerType, SliceFilterType,
+    SliceLegendType, SliceBreakdownPickerType,
+    SliceSearchType, SliceSearchMatchType,
+} from "./slice/index.js";

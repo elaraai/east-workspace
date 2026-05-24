@@ -56,7 +56,7 @@ export const EastChakraRadioCardGroup = memo(function EastChakraRadioCardGroup({
         <ChakraRadioCard.Root
             value={localValue}
             onValueChange={handleChange}
-            colorPalette={colorPalette}
+            colorPalette={colorPalette ?? "brand"}
             size={size}
             disabled={groupDisabled}
             required={required}

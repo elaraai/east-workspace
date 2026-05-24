@@ -212,6 +212,142 @@ function buildTextVisualStyle(style: TextStyle): ExprType<TextVisualStyleType> {
     }, TextVisualStyleType);
 }
 
+// ============================================================================
+// Style Presets — recurring typographic patterns from the design spec
+// ============================================================================
+
+const EYEBROW_STYLE: TextStyle = {
+    textStyle: "code-sm",
+    fontFamily: "mono",
+    fontWeight: "semibold",
+    letterSpacing: "0.14em",
+    textTransform: "uppercase",
+    color: "fg.muted",
+};
+
+const EYEBROW_SM_STYLE: TextStyle = {
+    textStyle: "code-sm",
+    fontFamily: "mono",
+    fontWeight: "semibold",
+    letterSpacing: "0.18em",
+    textTransform: "uppercase",
+    color: "fg.muted",
+};
+
+const MONO_SM_STYLE: TextStyle = {
+    textStyle: "code-sm",
+    fontFamily: "mono",
+    fontVariantNumeric: "tabular-nums",
+    color: "fg.muted",
+};
+
+const MONO_LABEL_STYLE: TextStyle = {
+    textStyle: "code-md",
+    fontFamily: "mono",
+    fontWeight: "semibold",
+    letterSpacing: "0.12em",
+    textTransform: "uppercase",
+};
+
+const META_SM_STYLE: TextStyle = {
+    textStyle: "label-sm",
+    fontFamily: "mono",
+    fontWeight: "medium",
+    letterSpacing: "0.12em",
+    textTransform: "uppercase",
+    color: "fg.muted",
+};
+
+const LEAD_STYLE: TextStyle = {
+    textStyle: "body-lg",
+    lineHeight: "1.625",
+    color: "fg.subtle",
+};
+
+const MONO_KPI_STYLE: TextStyle = {
+    textStyle: "mono-kpi",
+};
+
+/**
+ * Mono uppercase eyebrow — section labels, status words, frame eyebrows.
+ * 11 px / 600 / 0.14 em uppercase / `fg.muted`. Override any field via the
+ * `style` arg (e.g. pass `{ color: "fg" }` for the strong-ink variant).
+ */
+function createEyebrow(
+    value: SubtypeExprOrValue<StringType>,
+    style?: TextStyle,
+): ExprType<UIComponentType> {
+    return createText(value, { ...EYEBROW_STYLE, ...style });
+}
+
+/**
+ * Small eyebrow — sidebar group headers, dense section markers.
+ * 9.5 px / 600 / 0.18 em uppercase / `fg.muted`.
+ */
+function createEyebrowSm(
+    value: SubtypeExprOrValue<StringType>,
+    style?: TextStyle,
+): ExprType<UIComponentType> {
+    return createText(value, { ...EYEBROW_SM_STYLE, ...style });
+}
+
+/**
+ * Inline mono — counts, IDs, schema keys, freshness meta.
+ * 11 px mono tabular / `fg.muted`. Override `color` for tone variants.
+ */
+function createMonoSm(
+    value: SubtypeExprOrValue<StringType>,
+    style?: TextStyle,
+): ExprType<UIComponentType> {
+    return createText(value, { ...MONO_SM_STYLE, ...style });
+}
+
+/**
+ * Mono label — sidebar items, active toggle labels, dense frame headers.
+ * 12 px / 600 / 0.12 em uppercase. No default colour — caller picks per
+ * state (active vs. resting).
+ */
+function createMonoLabel(
+    value: SubtypeExprOrValue<StringType>,
+    style?: TextStyle,
+): ExprType<UIComponentType> {
+    return createText(value, { ...MONO_LABEL_STYLE, ...style });
+}
+
+/**
+ * Small meta — trailing meta inside eyebrow rows, dense table headers.
+ * 10.5 px / 500 / 0.12 em uppercase / `fg.muted`. Lighter and smaller
+ * than `Eyebrow` so it recedes alongside it.
+ */
+function createMetaSm(
+    value: SubtypeExprOrValue<StringType>,
+    style?: TextStyle,
+): ExprType<UIComponentType> {
+    return createText(value, { ...META_SM_STYLE, ...style });
+}
+
+/**
+ * Lead — section / page-introduction prose. Larger body text in
+ * `fg.subtle` with relaxed line-height — the `mode-lede` pattern.
+ */
+function createLead(
+    value: SubtypeExprOrValue<StringType>,
+    style?: TextStyle,
+): ExprType<UIComponentType> {
+    return createText(value, { ...LEAD_STYLE, ...style });
+}
+
+/**
+ * Mono KPI — the big-number numeric display. 24 px mono tabular-nums
+ * with semibold weight and tight letter-spacing.
+ */
+function createMonoKpi(
+    value: SubtypeExprOrValue<StringType>,
+    style?: TextStyle,
+): ExprType<UIComponentType> {
+    return createText(value, { ...MONO_KPI_STYLE, ...style });
+}
+
 /**
  * Text component for displaying styled text content.
  *
@@ -223,6 +359,11 @@ function buildTextVisualStyle(style: TextStyle): ExprType<TextVisualStyleType> {
  * Raw `fontSize` is **not** a public prop on Text — use the semantic
  * `textStyle` token (e.g. `"body-md"`, `"mono-kpi"`) instead. Migration
  * table lives on `TextStyle`'s JSDoc.
+ *
+ * `Text.Presets.*` provides opinionated style presets for the recurring
+ * typographic patterns from the design spec (eyebrows, mono runs, labels).
+ * Each preset accepts the same `style` arg as `Text.Root` and merges over
+ * the preset values — caller wins.
  *
  * @example
  * ```ts
@@ -236,10 +377,24 @@ function buildTextVisualStyle(style: TextStyle): ExprType<TextVisualStyleType> {
  *         fontWeight: "bold",
  *     });
  * });
+ *
+ * // Eyebrow preset — mono uppercase 11 px / 0.14 em / fg.muted
+ * Text.Presets.Eyebrow("SELECTED · TAB1");
+ * // Override the colour while keeping the preset shape
+ * Text.Presets.Eyebrow("OPEN", { color: "fg" });
  * ```
  */
 export const Text = {
     Root: createText,
+    Presets: {
+        Eyebrow: createEyebrow,
+        EyebrowSm: createEyebrowSm,
+        MonoSm: createMonoSm,
+        MonoLabel: createMonoLabel,
+        MetaSm: createMetaSm,
+        Lead: createLead,
+        MonoKpi: createMonoKpi,
+    },
     Types: {
         Text: TextType,
         Style: TextVisualStyleType,

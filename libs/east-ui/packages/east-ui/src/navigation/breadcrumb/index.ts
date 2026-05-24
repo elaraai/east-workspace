@@ -9,14 +9,15 @@ import {
     East,
     ArrayType,
     variant,
+    some,
+    none,
 } from "@elaraai/east";
 
-import { ColorSchemeType } from "../../style.js";
 import { UIComponentType } from "../../component.js";
-import { BreadcrumbVariantType, BreadcrumbSizeType, BreadcrumbItemType, BreadcrumbRootType, BreadcrumbStyleType, type BreadcrumbStyle } from "./types.js";
+import { BreadcrumbItemType, BreadcrumbRootType, BreadcrumbStyleType, type BreadcrumbStyle } from "./types.js";
 
 // Re-export types
-export { BreadcrumbVariantType, BreadcrumbSizeType, BreadcrumbItemType, BreadcrumbRootType, BreadcrumbStyleType, type BreadcrumbStyle, type BreadcrumbSizeLiteral } from "./types.js";
+export { BreadcrumbItemType, BreadcrumbRootType, BreadcrumbStyleType, type BreadcrumbStyle } from "./types.js";
 
 
 // ============================================================================
@@ -24,26 +25,28 @@ export { BreadcrumbVariantType, BreadcrumbSizeType, BreadcrumbItemType, Breadcru
 // ============================================================================
 
 /**
- * Creates a Breadcrumb component with items and optional styling.
+ * Creates a Breadcrumb component with items and an optional run anchor.
  *
  * @param items - Array of breadcrumb item configurations
- * @param style - Optional styling configuration
+ * @param style - Optional styling configuration (`runAnchor`)
  * @returns An East expression representing the breadcrumb component
+ *
+ * @remarks
+ * Fixed mono style per the bsys Breadcrumb spec: brand-d links, a mono
+ * `/` separator in ink-4, current page non-link in ink weight 600. Pass
+ * `runAnchor` to pin the crumb to a specific run (vertical rule + `run #N`).
  *
  * @example
  * ```ts
- * import { East } from "@elaraai/east";
+ * import { East, variant } from "@elaraai/east";
  * import { Breadcrumb, UIComponentType } from "@elaraai/east-ui";
  *
- * const example = East.function([], UIComponentType, $ => {
+ * const example = East.function([], UIComponentType, (_$) => {
  *     return Breadcrumb.Root([
- *         { label: "Home", current: variant("none", null), onClick: variant("some", myClickFn) },
- *         { label: "Products", current: variant("none", null), onClick: variant("some", myClickFn) },
- *         { label: "Widget", current: variant("some", true), onClick: variant("none", null) },
- *     ], {
- *         variant: "plain",
- *         size: "md",
- *     });
+ *         { label: "SE region", current: variant("none", null), onClick: variant("none", null) },
+ *         { label: "wk of Sep 16", current: variant("none", null), onClick: variant("none", null) },
+ *         { label: "Roster builder", current: variant("some", true), onClick: variant("none", null) },
+ *     ], { runAnchor: "run #42" });
  * });
  * ```
  */
@@ -51,37 +54,15 @@ function createBreadcrumb(
     items: SubtypeExprOrValue<ArrayType<BreadcrumbItemType>>,
     style?: BreadcrumbStyle
 ): ExprType<UIComponentType> {
-    const variantValue = style?.variant
-        ? (typeof style.variant === "string"
-            ? East.value(variant(style.variant, null), BreadcrumbVariantType)
-            : style.variant)
-        : undefined;
-
-    const sizeValue = style?.size
-        ? (typeof style.size === "string"
-            ? East.value(variant(style.size, null), BreadcrumbSizeType)
-            : style.size)
-        : undefined;
-
-    const colorPaletteValue = style?.colorPalette
-        ? (typeof style.colorPalette === "string"
-            ? East.value(variant(style.colorPalette, null), ColorSchemeType)
-            : style.colorPalette)
-        : undefined;
-
-    const hasStyle = variantValue !== undefined || sizeValue !== undefined || colorPaletteValue !== undefined;
-
-    const styleValue = hasStyle
+    const styleValue = style?.runAnchor !== undefined
         ? East.value({
-            variant: variantValue ? variant("some", variantValue) : variant("none", null),
-            size: sizeValue ? variant("some", sizeValue) : variant("none", null),
-            colorPalette: colorPaletteValue ? variant("some", colorPaletteValue) : variant("none", null),
+            runAnchor: some(style.runAnchor),
         }, BreadcrumbStyleType)
         : undefined;
 
     return East.value(variant("Breadcrumb", {
         items: items,
-        style: styleValue ? variant("some", styleValue) : variant("none", null),
+        style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
 
@@ -97,10 +78,10 @@ function createBreadcrumb(
  */
 export const Breadcrumb = {
     /**
-     * Creates a Breadcrumb component with items and optional styling.
+     * Creates a Breadcrumb component with items and an optional run anchor.
      *
      * @param items - Array of breadcrumb item configurations
-     * @param style - Optional styling configuration
+     * @param style - Optional styling configuration (`runAnchor`)
      * @returns An East expression representing the breadcrumb component
      *
      * @example
@@ -108,15 +89,11 @@ export const Breadcrumb = {
      * import { East, variant } from "@elaraai/east";
      * import { Breadcrumb, UIComponentType } from "@elaraai/east-ui";
      *
-     * const example = East.function([], UIComponentType, $ => {
+     * const example = East.function([], UIComponentType, (_$) => {
      *     return Breadcrumb.Root([
-     *         { label: "Home", current: variant("none", null), onClick: variant("some", myClickFn) },
-     *         { label: "Products", current: variant("none", null), onClick: variant("some", myClickFn) },
-     *         { label: "Widget", current: variant("some", true), onClick: variant("none", null) },
-     *     ], {
-     *         variant: "plain",
-     *         size: "md",
-     *     });
+     *         { label: "SE region", current: variant("none", null), onClick: variant("none", null) },
+     *         { label: "Roster builder", current: variant("some", true), onClick: variant("none", null) },
+     *     ], { runAnchor: "run #42" });
      * });
      * ```
      */
@@ -125,33 +102,19 @@ export const Breadcrumb = {
         /**
          * East StructType for Breadcrumb component data.
          *
-         * @remarks
-         * Visual fields (variant, size, colorPalette) live in `style` per
-         * 0.
-         *
          * @property items - Array of breadcrumb items
          * @property style - Optional visual-only style sub-struct (see `Style`)
          */
         Root: BreadcrumbRootType,
         /**
-         * East StructType holding every visual field for a Breadcrumb.
+         * East StructType holding the visual fields for a Breadcrumb.
          *
-         * @remarks
-         * Mirror of `BreadcrumbStyleType` from `./types.js`.
-         *
-         * @property variant - Visual variant (underline or plain)
-         * @property size - Size of the breadcrumb (sm, md, lg)
-         * @property colorPalette - Colour scheme for the breadcrumb
+         * @property runAnchor - Optional trailing run anchor text
          */
         Style: BreadcrumbStyleType,
         /**
          * Type for a single breadcrumb item.
          */
         Item: BreadcrumbItemType,
-        /**
-         * Variant type for breadcrumb visual style.
-         */
-        Variant: BreadcrumbVariantType,
-        Size: BreadcrumbSizeType,
     },
 } as const;

@@ -15,9 +15,9 @@ import {
 
 import { TextStyleType } from "../../style.js";
 import { UIComponentType } from "../../component.js";
+import { TickFormatType } from "../../charts/types.js";
 import {
     NumericType,
-    NumericFormatType,
     NumericSentimentType,
     NumericVisualStyleType,
     type NumericStyle,
@@ -27,7 +27,6 @@ import {
 // Re-export types
 export {
     NumericType,
-    NumericFormatType,
     NumericSentimentType,
     NumericVisualStyleType,
     type NumericStyle,
@@ -99,18 +98,19 @@ function buildNumericVisualStyle(
  *
  * @remarks
  * Bundles mono + tabular-nums + locale-aware `Intl.NumberFormat` + optional
- * colour-by-sentiment. Default `textStyle` is `"mono-kpi"` (mono font +
- * tabular digits + display sizing). `sentiment` drives the default colour;
- * override via `style.color` for branded tints.
+ * colour-by-sentiment. Default `textStyle` is an inline 14px tabular mono run
+ * that sits in body text; opt into a hero size with `textStyle: "mono-kpi"`.
+ * `sentiment` drives the default colour; override via `style.color` for
+ * branded tints.
  *
  * @example
  * ```ts
- * import { East, variant } from "@elaraai/east";
- * import { Numeric, NumericFormatType, UIComponentType } from "@elaraai/east-ui";
+ * import { East } from "@elaraai/east";
+ * import { Numeric, Format, UIComponentType } from "@elaraai/east-ui";
  *
  * const example = East.function([], UIComponentType, $ => {
  *     return Numeric.Root(1842500, {
- *         format: East.value(variant("Compact", { display: variant("short", null) }), NumericFormatType),
+ *         format: Format.Currency({ currency: "AUD", compact: "short" }),
  *         sentiment: "positive",
  *         showSign: true,
  *     });
@@ -121,7 +121,7 @@ export const Numeric = {
     Root: createNumeric,
     Types: {
         Numeric: NumericType,
-        Format: NumericFormatType,
+        Format: TickFormatType,
         Sentiment: NumericSentimentType,
         Style: NumericVisualStyleType,
     },

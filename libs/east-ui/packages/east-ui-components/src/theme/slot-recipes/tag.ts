@@ -1,0 +1,101 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ */
+
+/**
+ * Tag slot recipe — pattern_spec/spec.css `.chip` chrome.
+ *
+ * Slots:
+ *  - `root` — outer container (inline-flex + padding + border).
+ *  - `label` — text content (body 12 / weight 500).
+ *  - `closeTrigger` — the trailing × dismiss button.
+ *
+ * Default `variant="outline"` is the spec base chip; `brand` / `dashed`
+ * variants follow the spec `.chip.brand` / `.chip.dashed`.
+ *
+ * @packageDocumentation
+ */
+
+import { defineSlotRecipe } from "@chakra-ui/react";
+
+export const tagSlotRecipe = defineSlotRecipe({
+    className: "elara-tag",
+    slots: ["root", "label", "closeTrigger", "startElement", "endElement"],
+    base: {
+        root: {
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "{spacing.1}",
+            fontFamily: "body",
+            fontWeight: "medium",
+            lineHeight: "1",
+            borderRadius: "{radii.sm}",
+            borderWidth: "1px",
+            paddingX: "{spacing.2}",
+            paddingY: "{spacing.1}",
+            whiteSpace: "nowrap",
+        },
+        label: {
+            lineHeight: "1",
+        },
+        closeTrigger: {
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "fg.muted",
+            cursor: "pointer",
+            _hover: { color: "fg" },
+        },
+    },
+    variants: {
+        variant: {
+            outline: {
+                root: {
+                    background: "bg.surface",
+                    borderColor: "border.strong",
+                    color: "{colors.brand.700}",
+                },
+            },
+            brand: {
+                root: {
+                    background: "bg.brand.subtle",
+                    borderColor: "border.brand",
+                    color: "{colors.brand.800}",
+                },
+            },
+            subtle: {
+                root: {
+                    background: "bg.subtle",
+                    borderColor: "transparent",
+                    color: "fg",
+                },
+            },
+            dashed: {
+                root: {
+                    background: "bg.surface",
+                    borderStyle: "dashed",
+                    borderColor: "border.strong",
+                    color: "fg.muted",
+                },
+            },
+            solid: {
+                root: {
+                    background: "{colors.brand.600}",
+                    borderColor: "{colors.brand.600}",
+                    color: "white",
+                },
+                closeTrigger: { color: "white", _hover: { color: "white" } },
+            },
+        },
+        size: {
+            sm: { root: { fontSize: "11px", paddingX: "{spacing.2}", paddingY: "2px" } },
+            md: { root: { fontSize: "{fontSizes.xs}", paddingX: "10px", paddingY: "{spacing.1}" } },
+            lg: { root: { fontSize: "13px", paddingX: "{spacing.3}", paddingY: "{spacing.1}" } },
+        },
+    },
+    defaultVariants: {
+        variant: "outline",
+        size: "md",
+    },
+});

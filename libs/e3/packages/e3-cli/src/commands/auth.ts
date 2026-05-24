@@ -52,10 +52,15 @@ async function openBrowser(url: string): Promise<boolean> {
 
 /**
  * Create the auth command group.
+ *
+ * Includes login/logout/status/token/whoami all nested under `e3 auth`.
  */
 export function createAuthCommand(): Command {
   const auth = new Command('auth')
     .description('Authentication commands');
+
+  auth.addCommand(createLoginCommand());
+  auth.addCommand(createLogoutCommand());
 
   // e3 auth status - List all saved credentials
   auth

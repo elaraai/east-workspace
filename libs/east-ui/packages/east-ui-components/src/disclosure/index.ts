@@ -54,20 +54,6 @@ export {
 } from "./show-more";
 
 export {
-    EastChakraSteps,
-    toChakraSteps,
-    type StepsValue,
-    type EastChakraStepsProps,
-} from "./steps";
-
-export {
-    EastChakraTimeline,
-    toChakraTimeline,
-    type TimelineValue,
-    type EastChakraTimelineProps,
-} from "./timeline";
-
-export {
     EastChakraOptionList,
     type OptionListValue,
     type EastChakraOptionListProps,

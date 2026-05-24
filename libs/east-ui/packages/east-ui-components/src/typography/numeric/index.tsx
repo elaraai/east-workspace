@@ -13,6 +13,7 @@ import { Box, Text as ChakraText } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Numeric } from "@elaraai/east-ui";
 import { getSomeorUndefined } from "../../utils";
+import { formatTick } from "./format-tick";
 
 const numericEqual = equalFor(Numeric.Types.Numeric);
 
@@ -21,110 +22,6 @@ export type NumericValue = ValueTypeOf<typeof Numeric.Types.Numeric>;
 
 export interface EastChakraNumericProps {
     value: NumericValue;
-}
-
-interface ResolvedFormat {
-    intlOptions: Intl.NumberFormatOptions;
-    unitSuffix?: string | undefined;
-}
-
-/**
- * Resolves a NumericFormatType variant into `Intl.NumberFormat` options.
- */
-function resolveFormat(value: NumericValue): ResolvedFormat {
-    const formatOpt = getSomeorUndefined(value.format);
-    if (!formatOpt) {
-        return { intlOptions: {} };
-    }
-
-    switch (formatOpt.type) {
-        case "Number": {
-            const cfg = formatOpt.value as {
-                minimumFractionDigits?: { type: "none" } | { type: "some"; value: bigint };
-                maximumFractionDigits?: { type: "none" } | { type: "some"; value: bigint };
-                signDisplay?: { type: "none" } | { type: "some"; value: { type: Intl.NumberFormatOptions["signDisplay"] } };
-            };
-            return {
-                intlOptions: {
-                    style: "decimal",
-                    minimumFractionDigits: someNumber(cfg.minimumFractionDigits),
-                    maximumFractionDigits: someNumber(cfg.maximumFractionDigits),
-                    signDisplay: someSign(cfg.signDisplay),
-                },
-            };
-        }
-        case "Currency": {
-            const cfg = formatOpt.value as {
-                currency: { type: string };
-                display?: { type: "none" } | { type: "some"; value: { type: Intl.NumberFormatOptions["currencyDisplay"] } };
-                compact?: { type: "none" } | { type: "some"; value: { type: Intl.NumberFormatOptions["compactDisplay"] } };
-                minimumFractionDigits?: { type: "none" } | { type: "some"; value: bigint };
-                maximumFractionDigits?: { type: "none" } | { type: "some"; value: bigint };
-            };
-            return {
-                intlOptions: {
-                    style: "currency",
-                    currency: cfg.currency.type,
-                    currencyDisplay: cfg.display?.type === "some" ? cfg.display.value.type as Intl.NumberFormatOptions["currencyDisplay"] : undefined,
-                    notation: cfg.compact?.type === "some" ? "compact" : undefined,
-                    compactDisplay: cfg.compact?.type === "some" ? cfg.compact.value.type as Intl.NumberFormatOptions["compactDisplay"] : undefined,
-                    minimumFractionDigits: someNumber(cfg.minimumFractionDigits),
-                    maximumFractionDigits: someNumber(cfg.maximumFractionDigits),
-                },
-            };
-        }
-        case "Percent": {
-            const cfg = formatOpt.value as {
-                minimumFractionDigits?: { type: "none" } | { type: "some"; value: bigint };
-                maximumFractionDigits?: { type: "none" } | { type: "some"; value: bigint };
-                signDisplay?: { type: "none" } | { type: "some"; value: { type: Intl.NumberFormatOptions["signDisplay"] } };
-            };
-            return {
-                intlOptions: {
-                    style: "percent",
-                    minimumFractionDigits: someNumber(cfg.minimumFractionDigits),
-                    maximumFractionDigits: someNumber(cfg.maximumFractionDigits),
-                    signDisplay: someSign(cfg.signDisplay),
-                },
-            };
-        }
-        case "Compact": {
-            const cfg = formatOpt.value as {
-                display?: { type: "none" } | { type: "some"; value: { type: Intl.NumberFormatOptions["compactDisplay"] } };
-            };
-            return {
-                intlOptions: {
-                    notation: "compact",
-                    compactDisplay: cfg.display?.type === "some" ? cfg.display.value.type as Intl.NumberFormatOptions["compactDisplay"] : undefined,
-                },
-            };
-        }
-        case "Unit": {
-            const cfg = formatOpt.value as {
-                unit: { type: string };
-                display?: { type: "none" } | { type: "some"; value: { type: Intl.NumberFormatOptions["unitDisplay"] } };
-            };
-            return {
-                intlOptions: {
-                    style: "unit",
-                    unit: cfg.unit.type,
-                    unitDisplay: cfg.display?.type === "some" ? cfg.display.value.type as Intl.NumberFormatOptions["unitDisplay"] : undefined,
-                },
-            };
-        }
-    }
-
-    return { intlOptions: {} };
-}
-
-function someNumber(opt?: { type: "none" } | { type: "some"; value: bigint }): number | undefined {
-    if (!opt || opt.type === "none") return undefined;
-    return Number(opt.value);
-}
-
-function someSign(opt?: { type: "none" } | { type: "some"; value: { type: Intl.NumberFormatOptions["signDisplay"] } }): Intl.NumberFormatOptions["signDisplay"] | undefined {
-    if (!opt || opt.type === "none") return undefined;
-    return opt.value.type;
 }
 
 function sentimentColour(sentimentTag: string | undefined): string | undefined {
@@ -137,8 +34,9 @@ function sentimentColour(sentimentTag: string | undefined): string | undefined {
 }
 
 /**
- * Renders an East UI Numeric value. Default `textStyle` is `mono-kpi`
- * (mono font + tabular-nums + display sizing). Leading `+` / `−` are split
+ * Renders an East UI Numeric value. Default `textStyle` is an inline 14px
+ * tabular mono run (`mono.lg`); opt into a hero size via `style.textStyle`
+ * (e.g. `"mono-kpi"`). Leading `+` / `−` are split
  * into a separate span when `style.signColor` is set so they can be tinted
  * independently of the digit run.
  */
@@ -153,14 +51,12 @@ export const EastChakraNumeric = memo(function EastChakraNumeric({ value }: East
         const signColor = style ? getSomeorUndefined(style.signColor) : undefined;
         const opacity = style ? getSomeorUndefined(style.opacity) : undefined;
 
-        const { intlOptions } = resolveFormat(value);
-        const formatter = new Intl.NumberFormat(undefined, {
-            ...(showSign && !intlOptions.signDisplay ? { signDisplay: "exceptZero" } : {}),
-            ...intlOptions,
-        });
-
-        const formatted = formatter.format(value.value);
+        const formatted = formatTick(value.value, getSomeorUndefined(value.format), showSign);
         const tintedColor = color ?? sentimentColour(sentimentTag);
+        // Inline-friendly default: a 14px tabular mono run that sits in body
+        // text. Hero KPIs opt into a display size via `style.textStyle`
+        // (e.g. "mono-kpi").
+        const resolvedTextStyle = textStyleTag ?? "mono.lg";
 
         // If the caller wants the sign glyph tinted separately AND the formatted
         // string leads with a sign, split it so we can colour the sign span on
@@ -172,7 +68,7 @@ export const EastChakraNumeric = memo(function EastChakraNumeric({ value }: East
             return (
                 <ChakraText
                     as="span"
-                    textStyle={textStyleTag ?? "mono-kpi"}
+                    textStyle={resolvedTextStyle}
                     fontVariantNumeric="tabular-nums"
                     color={tintedColor}
                     bg={background}
@@ -186,7 +82,7 @@ export const EastChakraNumeric = memo(function EastChakraNumeric({ value }: East
         return (
             <ChakraText
                 as="span"
-                textStyle={textStyleTag ?? "mono-kpi"}
+                textStyle={resolvedTextStyle}
                 fontVariantNumeric="tabular-nums"
                 color={tintedColor}
                 bg={background}

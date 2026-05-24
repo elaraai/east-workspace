@@ -7,8 +7,7 @@ export default defineConfig({
   plugins: [
     react(),
     exampleSourcesPlugin({
-      include: '**/*.examples.ts',
-      cwd: path.resolve(__dirname, '../east-ui/test'),
+      testDir: path.resolve(__dirname, '../east-ui/test'),
     }),
   ],
   base: '/east-ui/',
@@ -35,5 +34,12 @@ export default defineConfig({
   server: {
     port: 3000,
     host: true,
+    /* pnpm hoists fontsource woff2 payloads to the workspace-root
+     * `node_modules/.pnpm/...` tree, which sits above the package root.
+     * Vite's fs.allow check rejects that path by default — extend to the
+     * monorepo root so the brand fonts load over the dev server. */
+    fs: {
+      allow: [path.resolve(__dirname, '../../../../')],
+    },
   },
 });

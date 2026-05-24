@@ -7,6 +7,8 @@ import { memo, useMemo, useCallback } from "react";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import {
     Accordion as ChakraAccordion,
+    Box,
+    useSlotRecipe,
     type AccordionRootProps,
     type AccordionItemProps,
 } from "@chakra-ui/react";
@@ -28,13 +30,18 @@ export type AccordionItemValue = ValueTypeOf<typeof Accordion.Types.Item>;
  * Derive visual Chakra props from the `style` sub-struct + main-level
  * config.  State (`value` / `defaultValue`) and behaviour (`onValueChange`)
  * are read from main in the component body.
+ *
+ * @remarks
+ * The East-side `AccordionVariantType` (`enclosed` / `plain` / `subtle`) is
+ * intentionally NOT forwarded to Chakra. bsys §Accordion defines a single
+ * shape; the slot recipe applies it as base styles. Forwarding the variant
+ * would let Chakra's defaults override our base treatment.
  */
 export function toChakraAccordionRoot(value: AccordionValue): AccordionRootProps {
     const style = getSomeorUndefined(value.style);
     return {
         multiple: getSomeorUndefined(value.multiple),
         collapsible: getSomeorUndefined(value.collapsible),
-        variant: style ? getSomeorUndefined(style.variant)?.type : undefined,
         size: style ? (getSomeorUndefined(style.size)?.type as AccordionRootProps["size"]) : undefined,
     };
 }
@@ -68,6 +75,8 @@ export const EastChakraAccordionItem = memo(function EastChakraAccordionItem({
     borderColor,
 }: EastChakraAccordionItemProps) {
     const props = useMemo(() => toChakraAccordionItem(value), [value]);
+    const styles = useSlotRecipe({ key: "accordion" })();
+    const meta = getSomeorUndefined(value.meta);
 
     return (
         <ChakraAccordion.Item
@@ -78,11 +87,9 @@ export const EastChakraAccordionItem = memo(function EastChakraAccordionItem({
                 {...(triggerBackground !== undefined ? { bg: triggerBackground } : {})}
                 {...(triggerHoverBackground !== undefined ? { _hover: { bg: triggerHoverBackground } } : {})}
             >
-                <EastChakraComponent
-                    value={value.trigger}
-                    storageKey={`${storageKey}.trigger`}
-                />
                 <ChakraAccordion.ItemIndicator />
+                <Box as="span" css={styles.itemTitle}>{value.title}</Box>
+                {meta !== undefined && <Box as="span" css={styles.itemMeta}>{meta}</Box>}
             </ChakraAccordion.ItemTrigger>
             <ChakraAccordion.ItemContent bg={contentBackground}>
                 {value.content.map((child, index) => (

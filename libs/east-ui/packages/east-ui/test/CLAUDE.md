@@ -1,36 +1,21 @@
-# East UI compliance tests
+# east-ui test suite — UI-specific rules
 
-This test suite is self-hosted and runs on an East platform providing basic test functionality.
-It exists separately to the unit tests in ../src for the purpose of testing both this and other East runtimes.
-
-Each test can be serialized to IR and executed on any runtime providing the minimal test platform.
-This acts as a compliance suite we can use to help implement East runtimes in other languages - for example those targetting fast, static compilation.
-
-## Import methodology
-
-**Tests import from the published package name, not relative paths.** This ensures tests exercise the same public API that external consumers use.
-
-```ts
-// ✅ CORRECT: Import from package names (including self-reference to @elaraai/east-ui)
-import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { East, IntegerType, NullType, example } from "@elaraai/east";
-import { Button, Text, Stack, Reactive, State, UIComponentType } from "@elaraai/east-ui";
-
-// ❌ WRONG: Never use relative imports to ../src — tests should exercise the public API
-import { Button } from "../../src/index.js";
-```
-
-East UI uses Node/TypeScript "package self-reference": `@elaraai/east-ui` resolves through this package's own `exports` map in `package.json`. `npm run build` must have produced `dist/src/index.js` at least once for the resolver to find it.
-
-Tests are run with `tsx` directly from TypeScript (not compiled to JS first). The `@elaraai/east-node-std` import resolves through the package's `dist/` output, so `npm run build` must be run before tests.
+The general `*.spec.ts` ↔ `*.examples.ts` pattern is documented in
+[`../../../../../docs/conventions/EXAMPLES_AUTHORING.md`](../../../../../docs/conventions/EXAMPLES_AUTHORING.md).
+Read that first. This file only covers what's different for east-ui.
 
 ## Test platform
 
-Tests use `TestImpl` which only provides `testPass` and `testFail` platform implementations. It does NOT include State or other UI platform implementations. This means:
+Tests use `TestImpl` (only `testPass` / `testFail` implementations). It
+does NOT include `State` or other UI platform implementations:
 
-- Examples that use `State.read`, `State.write`, `State.has` etc. will still compile and register as tests
-- The State calls inside `Reactive.Root` are wrapped in a precompiled function body that is NOT executed during testing — only the outer function is evaluated
-- The test verifies that the example compiles and produces valid East IR, not that the State interactions work at runtime
+- Examples that use `State.read`, `State.write`, `State.has` still
+  compile and register as tests.
+- The State calls inside `Reactive.Root` are wrapped in a precompiled
+  function body that is **not** executed during testing — only the outer
+  function is evaluated.
+- The test verifies that the example compiles and produces valid East
+  IR, not that the State interactions work at runtime.
 
 ```ts
 describeEast("Button", (test) => {
@@ -38,194 +23,131 @@ describeEast("Button", (test) => {
 }, { platformFns: TestImpl });
 ```
 
-## Examples system
+## Imports
 
-Each spec file should have a companion `*.examples.ts` file (e.g. `button.spec.ts` → `button.examples.ts`). Examples serve two purposes: they are tested as part of the test suite, and they are extracted into a search index for AI agent context.
-
-### Examples ↔ TypeDoc `@example` parity
-
-Every `@example` block shown in TypeDoc (factory functions like `Button.Root`, and the `Xxx.Root` property JSDoc inside the exported namespace object) MUST have a matching entry in the corresponding `test/<cat>/<comp>.examples.ts` file. This is **the same rule codified in [`../STANDARDS.md`](../STANDARDS.md#typedoc-documentation-standards)** — repeated here so it is visible from the test suite perspective:
-
-- If you add an `@example` in `src/.../index.ts`, you MUST add the same construction as an `example()` export in `test/.../.examples.ts` (so it compiles + runs as part of the suite and the example-search index).
-- If you rename / remove / migrate the API and that changes the `@example` body, update both places in lockstep. The test suite is the enforcement mechanism — a stale `@example` that would no longer type-check is a bug.
-- The TypeDoc-required level of coverage on public exports is load-bearing:
-    - Factory functions (`Xxx.Root`) carry `@param` / `@returns` / `@remarks` / `@example` (the `@example` shows inline with `East.function(...)`, not a `@see` reference).
-    - East types (`XxxType`, `XxxStyleType`, `XxxVariantType`) carry `@property` tags for every field / variant tag — TypeDoc cannot see inline `StructType({ ... })` comments.
-    - TS interfaces (`XxxStyle`, `XxxOptions`) carry per-field JSDoc for editor hover at call-sites.
-    - The `Xxx.Types.*` properties on the namespace object carry their own JSDoc block (TypeDoc treats them as distinct exports).
-
-When adding a new example to the `.examples.ts` file, always check whether it should also appear in the corresponding `Xxx.Root` JSDoc so the TypeDoc output is not thinner than what the test suite covers.
-
-### Writing UI examples
-
-**Imports**: Use `@elaraai/east` for East primitives and `../../src/index.js` for UI components:
+Use **package self-reference**. `@elaraai/east-ui` resolves through this
+package's own `exports` map. `make build` must have produced
+`dist/src/index.js` for resolution to work.
 
 ```ts
+import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { East, IntegerType, NullType, example } from "@elaraai/east";
-import { Button, Text, Stack, Stat, Reactive, State, UIComponentType } from "../../src/index.js";
+import { Button, Text, Stack, Reactive, State, UIComponentType } from "@elaraai/east-ui";
 ```
 
-**Structure**: Each example is an exported `const` using the `example()` helper:
+## TypeDoc ↔ examples parity (HARD RULE)
 
-```ts
-export const buttonBasic = example({
-    keywords: ["Button", "Root", "label", "basic", "create"],
-    description: "Create a simple button with a text label",
-    fn: East.function([], UIComponentType, ($) => {
-        return Button.Root("Click me");
-    }),
-    inputs: [],
-});
-```
+Every `@example` block shown in TypeDoc (factory functions like
+`Button.Root`, the `Xxx.Root` property JSDoc inside namespace objects)
+MUST have a matching entry in the corresponding
+`test/<cat>/<comp>.examples.ts` file. This is the same rule codified in
+[`../STANDARDS.md`](../STANDARDS.md#typedoc-documentation-standards).
 
-**Fields**:
-- `keywords`: Component names, method names, style properties, concepts. Used for search indexing.
-- `description`: Human-readable, used as the test name.
-- `fn`: An `East.function()` call — the same thing users would write.
-- `inputs`: Arguments to call `fn` with. Use `[]` for zero-arg functions.
-- `returns`: **Omit for UI examples.** `UIComponentType` is a recursive variant type that cannot be represented as a plain JS literal. When `returns` is omitted, `Assert.examples` calls `$(ex.fn(...ex.inputs))` as a statement which works because `$()` accepts any `Expr` type.
+- Add an `@example` in `src/.../index.ts` → add the same construction
+  as an `example()` export in `test/.../.examples.ts`.
+- Rename / remove / migrate an API → update both places in lockstep.
+- TypeDoc-required coverage on public exports:
+  - Factory functions (`Xxx.Root`) carry `@param` / `@returns` /
+    `@remarks` / `@example` inline.
+  - East types (`XxxType`, `XxxStyleType`, `XxxVariantType`) carry
+    `@property` tags for every field / variant tag.
+  - TS interfaces (`XxxStyle`, `XxxOptions`) carry per-field JSDoc.
+  - The `Xxx.Types.*` properties on the namespace object carry their
+    own JSDoc.
 
-### Rules for writing UI examples
+## UI example rules (delta from EXAMPLES_AUTHORING.md)
 
-1. **Always omit `returns` for UI component examples.** The `UIComponentType` recursive variant cannot have a JavaScript literal representation. The test framework will still evaluate the function and verify it compiles.
+1. **Omit `returns` for `UIComponentType`.** The recursive variant
+   cannot be a JS literal. The framework still evaluates the function
+   and verifies it compiles.
 
-2. **Use `$.let` and `$.const` with explicit East type arguments:**
+2. **All `State.*` usage MUST be inside `Reactive.Root`'s inner
+   function.** Otherwise the outer function becomes async (State
+   functions are `optional: true`) and the analyzer fails with
+   `AsyncFunction body returns type UIComponentType`.
+
    ```ts
-   const count = $.let(State.read([IntegerType], "counter"), IntegerType);  // good
-   const count = $.let(State.read([IntegerType], "counter"));               // bad - missing type
-   ```
-
-3. **Use Reactive.Root for interactive examples.** `Reactive.Root` produces a server-side precompiled, client-executed function that re-renders when state dependencies change. This is best practice for real-world UI code:
-   ```ts
-   export const buttonReactiveCounter = example({
-       keywords: ["Button", "onClick", "Reactive", "State", "counter"],
-       description: "Reactive counter with increment/decrement buttons",
-       fn: East.function([], UIComponentType, (_$) => {
-           return Reactive.Root(East.function([], UIComponentType, $ => {
-               // All State usage goes HERE, inside Reactive.Root
-               $.if(State.has("counter").not(), $ => {
-                   $(State.write([IntegerType], "counter", 0n));
-               });
-               const count = $.let(State.read([IntegerType], "counter"), IntegerType);
-               // ... build and return UI
-           }));
-       }),
-       inputs: [],
-   });
-   ```
-
-4. **CRITICAL: All State/platform function usage MUST be inside `Reactive.Root`'s inner function body.** State functions (`State.read`, `State.write`, `State.has`) are marked `optional: true`, which causes any function that uses them to become async. If State calls appear in the outer example `fn` body, the function becomes an `AsyncFunction` and the test analyzer fails with:
-   ```
-   AsyncFunction body returns type UIComponentType
-   ```
-   The fix is to ensure the outer `fn` only calls `Reactive.Root(...)` and all State usage is inside the inner `East.function`:
-   ```ts
-   // ✅ CORRECT: State inside Reactive.Root
+   // CORRECT
    fn: East.function([], UIComponentType, (_$) => {
        return Reactive.Root(East.function([], UIComponentType, $ => {
+           $.if(State.has("counter").not(), $ => {
+               $(State.write([IntegerType], "counter", 0n));
+           });
            const count = $.let(State.read([IntegerType], "counter"), IntegerType);
-           // ...
+           // ... build and return UI
        }));
    }),
 
-   // ❌ WRONG: State in outer fn body — causes async promotion error
+   // WRONG — State in outer fn body → async promotion error
    fn: East.function([], UIComponentType, ($) => {
-       $.if(State.has("counter").not(), $ => {
-           $(State.write([IntegerType], "counter", 0n));
-       });
        const count = $.let(State.read([IntegerType], "counter"), IntegerType);
-       return Reactive.Root(East.function([], UIComponentType, $ => {
-           // ...
-       }));
+       return Reactive.Root(/* ... */);
    }),
    ```
 
-5. **Store function closures in `$.const()` or `$.let()`.** Callback functions (e.g., onClick handlers) must be stored in East block variables, not bare JavaScript `const`:
+3. **Store callback closures in `$.const` (or `$.let`).** Bare JS `const`
+   isn't tracked by the East block builder.
+
    ```ts
-   // ✅ CORRECT: Callback stored in $.const
+   // CORRECT
    const increment = $.const(East.function([], NullType, $ => {
        const current = $.let(State.read([IntegerType], "counter"), IntegerType);
        $(State.write([IntegerType], "counter", current.add(1n)));
    }));
    Button.Root("+", { onClick: increment });
 
-   // ❌ WRONG: Bare const — not tracked by East block builder
+   // WRONG — not tracked
    const increment = East.function([], NullType, $ => { ... });
    ```
 
-6. **One example per concept.** Cover each component API method or style property with a focused example. Don't combine unrelated operations.
-
-7. **Include realistic use cases.** Examples are shown to AI agents as documentation. Make them practical — show common UI patterns like forms, data displays, interactive controls.
-
-8. **Use string literals for style properties.** The `SubtypeExprOrValue` pattern allows string shorthand:
+4. **Use string literals for style properties.** `SubtypeExprOrValue`
+   accepts string shorthand:
    ```ts
    Button.Root("Save", { variant: "solid", colorPalette: "blue", size: "md" });
    ```
 
-### Wiring examples into spec files
+5. **Wire with `Assert.examples()` using named keys** — never pass the
+   module object directly:
+   ```ts
+   import * as ex from "./button.examples.js";
 
-In the spec file, import the examples and use `Assert.examples()` to register them as tests. **Use named keys, not the module object directly:**
+   describeEast("Button", (test) => {
+       Assert.examples(test, {
+           buttonBasic: ex.buttonBasic,
+           buttonSolidVariant: ex.buttonSolidVariant,
+           buttonReactiveCounter: ex.buttonReactiveCounter,
+       });
+       // ... tests
+   }, { platformFns: TestImpl });
+   ```
 
-```ts
-import * as ex from "./button.examples.js";
+## Example patterns by component category
 
-describeEast("Button", (test) => {
-    // ✅ CORRECT: Named keys for each example
-    Assert.examples(test, {
-        buttonBasic: ex.buttonBasic,
-        buttonSolidVariant: ex.buttonSolidVariant,
-        buttonDangerOutline: ex.buttonDangerOutline,
-        buttonReactiveCounter: ex.buttonReactiveCounter,
-    });
+### Leaf component (Button, Text, Badge, Tag)
 
-    // ... existing tests follow ...
-}, { platformFns: TestImpl });
-```
-
-**Do NOT pass the module object directly:**
-```ts
-// ❌ WRONG
-Assert.examples(test, ex);
-```
-
-Place `Assert.examples()` calls **before the related test section** so examples appear grouped with their corresponding tests.
-
-### How `Assert.examples()` works
-
-Defined in `platforms.spec.ts` on the `assertEast` object. For each example:
-- If `returns` is defined: calls `fn(...inputs)`, stores result in `$.let`, asserts `equal(result, returns)`
-- If `returns` is undefined: calls `$(fn(...inputs))` as a statement (works for any return type including `UIComponentType`)
-
-### Example patterns by component category
-
-**Simple leaf component** (Button, Text, Badge, Tag, etc.):
 ```ts
 export const badgeBasic = example({
     keywords: ["Badge", "Root", "label", "create"],
     description: "Create a simple badge",
-    fn: East.function([], UIComponentType, ($) => {
-        return Badge.Root("New");
-    }),
+    fn: East.function([], UIComponentType, ($) => Badge.Root("New")),
     inputs: [],
 });
 ```
 
-**Container component** (Stack, Box, Card, Grid, etc.):
+### Container component (Stack, Box, Card, Grid)
+
 ```ts
 export const stackWithGap = example({
     keywords: ["Stack", "HStack", "gap", "layout"],
     description: "Create a horizontal stack with gap spacing",
-    fn: East.function([], UIComponentType, ($) => {
-        return Stack.HStack([
-            Text.Root("Left"),
-            Text.Root("Right"),
-        ], { gap: "4" });
-    }),
+    fn: East.function([], UIComponentType, ($) =>
+        Stack.HStack([Text.Root("Left"), Text.Root("Right")], { gap: "4" })),
     inputs: [],
 });
 ```
 
-**Interactive component with Reactive.Root** (forms, buttons with callbacks):
+### Interactive (Reactive.Root)
+
 ```ts
 export const checkboxReactive = example({
     keywords: ["Checkbox", "Reactive", "State", "onChange", "interactive"],
@@ -246,41 +168,3 @@ export const checkboxReactive = example({
     inputs: [],
 });
 ```
-
-### Files that need examples
-
-The following spec files need companion `*.examples.ts` files:
-
-- `buttons/button.spec.ts` → `buttons/button.examples.ts` (done)
-- `collections/data-list.spec.ts` → `collections/data-list.examples.ts`
-- `container/card.spec.ts` → `container/card.examples.ts`
-- `disclosure/accordion.spec.ts` → `disclosure/accordion.examples.ts`
-- `display/avatar.spec.ts` → `display/avatar.examples.ts`
-- `display/badge.spec.ts` → `display/badge.examples.ts`
-- `display/stat.spec.ts` → `display/stat.examples.ts`
-- `display/tag.spec.ts` → `display/tag.examples.ts`
-- `feedback/alert.spec.ts` → `feedback/alert.examples.ts`
-- `feedback/progress.spec.ts` → `feedback/progress.examples.ts`
-- `forms/checkbox.spec.ts` → `forms/checkbox.examples.ts`
-- `forms/input.spec.ts` → `forms/input.examples.ts`
-- `forms/select.spec.ts` → `forms/select.examples.ts`
-- `forms/slider.spec.ts` → `forms/slider.examples.ts`
-- `forms/switch.spec.ts` → `forms/switch.examples.ts`
-- `layout/box.spec.ts` → `layout/box.examples.ts`
-- `layout/grid.spec.ts` → `layout/grid.examples.ts`
-- `layout/separator.spec.ts` → `layout/separator.examples.ts`
-- `layout/splitter.spec.ts` → `layout/splitter.examples.ts`
-- `layout/stack.spec.ts` → `layout/stack.examples.ts`
-- `typography/text.spec.ts` → `typography/text.examples.ts`
-- `component.spec.ts` → `component.examples.ts`
-- `style.spec.ts` → `style.examples.ts`
-
-### Workflow for adding examples to a new spec file
-
-1. Read the spec file thoroughly to understand every tested component API
-2. Create the `*.examples.ts` file with `@elaraai/east` and `../../src/index.js` imports
-3. For each component method/style, create an `example()` export — omit `returns` for UI examples
-4. Include at least one `Reactive.Root` example per interactive component (buttons, forms, inputs)
-5. In the spec file: add `import * as ex from "./<name>.examples.js";`
-6. Add `Assert.examples(test, { key: ex.key, ... })` calls before each relevant test section
-7. Run `npm run build && npm run test` to verify

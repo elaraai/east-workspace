@@ -28,6 +28,7 @@ describeEast("Diff", (test) => {
         policyOverlayEditor: ex.policyOverlayEditor,
         rosterTableEditorOverlay: ex.rosterTableEditorOverlay,
         regionalPricingOverlayDrift: ex.regionalPricingOverlayDrift,
+        rosterOverlayDrift: ex.rosterOverlayDrift,
         policyStagedPatchEditor: ex.policyStagedPatchEditor,
         rosterStagedPatchEditor: ex.rosterStagedPatchEditor,
     });

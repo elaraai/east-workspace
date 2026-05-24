@@ -15,8 +15,6 @@ import { UIComponentType } from "../../component.js";
 import { IconType } from "../../display/icon/types.js";
 import {
     NavListType,
-    NavListStyleType,
-    NavListOrientationType,
     NavSectionType,
     NavItemType,
     type NavListStyle,
@@ -25,12 +23,9 @@ import {
 
 export {
     NavListType,
-    NavListStyleType,
-    NavListOrientationType,
     NavSectionType,
     NavItemType,
     type NavListStyle,
-    type NavListOrientationLiteral,
     type NavSectionInput,
     type NavItemInput,
 } from "./types.js";
@@ -40,12 +35,12 @@ export {
 // ============================================================================
 
 /**
- * Creates a `NavList` — grouped section navigation list for use
- * inside panels (settings sub-nav, in-drawer navigation, in-card
- * section tabs).
+ * Creates a `NavList` — grouped top-level navigation rendered as the
+ * bsys Sidebar recipe (mono uppercase rows, brand-tint active with a
+ * 3 px brand-d left rule, paper-2 card chrome).
  *
  * @param sections - Array of sections, each with optional label + items
- * @param style - Optional styling + behaviour configuration
+ * @param style - Optional behaviour configuration (`onSelect`)
  * @returns An East expression representing the NavList
  *
  * @remarks
@@ -55,7 +50,7 @@ export {
  *
  * @example
  * ```ts
- * import { East, BooleanType, NullType, StringType } from "@elaraai/east";
+ * import { East, NullType, StringType } from "@elaraai/east";
  * import { NavList, Reactive, State, UIComponentType } from "@elaraai/east-ui";
  *
  * const example = East.function([], UIComponentType, (_$) => {
@@ -82,36 +77,6 @@ function createNavList(
     sections: NavSectionInput[],
     style?: NavListStyle,
 ): ExprType<UIComponentType> {
-    const orientationValue = style?.orientation
-        ? (typeof style.orientation === "string"
-            ? East.value(variant(style.orientation, null), NavListOrientationType)
-            : style.orientation)
-        : undefined;
-
-    const hasStyle = !!style && (
-        orientationValue !== undefined ||
-        style.sectionLabelColor !== undefined ||
-        style.itemColor !== undefined ||
-        style.itemHoverBackground !== undefined ||
-        style.activeColor !== undefined ||
-        style.activeBackground !== undefined ||
-        style.activeIndicatorColor !== undefined ||
-        style.badgeBackground !== undefined ||
-        style.badgeColor !== undefined
-    );
-
-    const styleValue = hasStyle ? East.value({
-        orientation: orientationValue ? some(orientationValue) : none,
-        sectionLabelColor: style!.sectionLabelColor !== undefined ? some(style!.sectionLabelColor) : none,
-        itemColor: style!.itemColor !== undefined ? some(style!.itemColor) : none,
-        itemHoverBackground: style!.itemHoverBackground !== undefined ? some(style!.itemHoverBackground) : none,
-        activeColor: style!.activeColor !== undefined ? some(style!.activeColor) : none,
-        activeBackground: style!.activeBackground !== undefined ? some(style!.activeBackground) : none,
-        activeIndicatorColor: style!.activeIndicatorColor !== undefined ? some(style!.activeIndicatorColor) : none,
-        badgeBackground: style!.badgeBackground !== undefined ? some(style!.badgeBackground) : none,
-        badgeColor: style!.badgeColor !== undefined ? some(style!.badgeColor) : none,
-    }, NavListStyleType) : undefined;
-
     const sectionsExpr = East.value(
         sections.map(s => East.value({
             label: s.label !== undefined ? some(s.label) : none,
@@ -140,7 +105,6 @@ function createNavList(
     return East.value(variant("NavList", {
         sections: sectionsExpr,
         onSelect: style?.onSelect ? some(style.onSelect) : none,
-        style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
 
@@ -148,21 +112,18 @@ interface NavListNamespace {
     Root: typeof createNavList;
     Types: {
         NavList: typeof NavListType;
-        Style: typeof NavListStyleType;
-        Orientation: typeof NavListOrientationType;
         Section: typeof NavSectionType;
         Item: typeof NavItemType;
     };
 }
 
 /**
- * `NavList` namespace — grouped in-panel navigation primitive.
+ * `NavList` namespace — grouped top-level navigation primitive.
  *
  * @remarks
  * Use `NavList.Root(sections, options?)`. Access IR types via
- * `NavList.Types.NavList`, `NavList.Types.Style`,
- * `NavList.Types.Section`, `NavList.Types.Item`,
- * `NavList.Types.Orientation`.
+ * `NavList.Types.NavList`, `NavList.Types.Section`,
+ * `NavList.Types.Item`.
  */
 export const NavList: NavListNamespace = {
     /**
@@ -175,30 +136,8 @@ export const NavList: NavListNamespace = {
          *
          * @property sections - Array of sections, each with optional label + items
          * @property onSelect - Callback fired with the selected item's `key`
-         * @property style - Optional visual style sub-struct
          */
         NavList: NavListType,
-        /**
-         * East StructType holding visual fields for `NavList`.
-         *
-         * @property orientation - Layout direction
-         * @property sectionLabelColor - Section heading text colour
-         * @property itemColor - Inactive item text colour
-         * @property itemHoverBackground - Hover background colour
-         * @property activeColor - Active item text colour
-         * @property activeBackground - Active item background colour
-         * @property activeIndicatorColor - Active-item left-stripe colour
-         * @property badgeBackground - Badge fill colour
-         * @property badgeColor - Badge text colour
-         */
-        Style: NavListStyleType,
-        /**
-         * Orientation variant for `NavList` layout.
-         *
-         * @property horizontal - Items laid out in a row
-         * @property vertical - Items laid out in a column
-         */
-        Orientation: NavListOrientationType,
         /**
          * East StructType for an individual section.
          *

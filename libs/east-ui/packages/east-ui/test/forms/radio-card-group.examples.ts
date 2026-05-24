@@ -31,7 +31,7 @@ export const radioCardGroupHorizontal = example({
                 { value: "monthly", label: "Monthly", description: "$49 / mo" },
                 { value: "yearly", label: "Yearly", description: "$490 / yr (save 16%)" },
             ],
-            { orientation: "horizontal", colorPalette: "blue" },
+            { orientation: "horizontal" },
         );
     }),
     inputs: [],
@@ -55,7 +55,7 @@ export const radioCardGroupReactive = example({
                         { value: "team", label: "Team", description: "Up to 50 users" },
                         { value: "business", label: "Business", description: "Unlimited" },
                     ],
-                    { onChange, colorPalette: "blue" },
+                    { onChange },
                 ),
                 Text.Root(East.str`Selected plan: ${plan}`, { textStyle: "body-sm", color: "fg.muted" }),
             ], { gap: "3", align: "flex-start" });

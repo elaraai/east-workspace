@@ -1,95 +1,144 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with
+code in this repository.
 
-## What This Repo Is
+## What this repo is
 
-This is the **East monorepo** — a pnpm workspace containing all open-source East language packages. It replaces the previous multi-repo setup.
+The **East monorepo** — a pnpm + uv + cmake workspace containing all
+open-source East language packages. Formed by combining several previously
+independent repos.
 
-## Repo Layout
+## Repo layout
 
 All libraries live under `libs/`:
 
 ```
 libs/
-├── east/          # Core language — @elaraai/east
-├── east-node/     # Node.js platform — east-node-std, east-node-io, east-node-cli
-├── east-c/        # C runtime (CMake)
-├── east-py/       # Python runtime + datascience types (uv workspace)
-├── e3/            # Execution engine — e3-types, e3, e3-core, e3-api-client, e3-cli, e3-api-server
-├── east-ui/       # UI components — east-ui, east-ui-components, e3-ui-components
-└── east-plugin/   # VS Code extension
+├── east/                # Core language — @elaraai/east
+├── east-node/           # Node.js platform — east-node-std, east-node-io, east-node-cli
+├── east-c/              # C runtime (CMake)
+├── east-py/             # Python runtime + datascience + I/O (uv workspace)
+├── e3/                  # Execution engine — e3-types, e3, e3-core, e3-api-client, e3-cli, e3-api-server, e3-api-tests
+├── east-ui/             # UI components — east-ui, east-ui-components, e3-ui, e3-ui-components, showcases, east-ui-extension (VS Code extension)
+└── east-claude-plugin/  # Claude Code plugin — skills (symlinked from libs), hooks, MCP search server, project scaffold + install scripts
 ```
 
-Root config files:
-- `pnpm-workspace.yaml` — defines all workspace packages
-- `package.json` — root scripts (pnpm -r build/test/lint across workspaces)
-- `.npmrc` — pnpm config (auto-install-peers, public-hoist-pattern)
-- `docker-compose.yml` — test services (Postgres, MySQL, MongoDB, Redis, MinIO, FTP, SFTP, httpbin)
+Top-level (non-`libs/`):
+- `docker/` — `images/` (published `ghcr.io/elaraai/{e3,east-node}` runtime images), `services/` (test-backend compose), `tests/` (image validation)
+- `scripts/` — monorepo release tooling (`publish-npm.mjs`, `set-*-version.mjs`, …)
+- `.claude-plugin/marketplace.json` — marketplace root; lists the `east` plugin with `source: ./libs/east-claude-plugin`
+
+Root config:
+- `pnpm-workspace.yaml` — workspace package globs
+- `package.json` — root scripts (`pnpm -r build/test/lint`)
+- `.npmrc` — pnpm config
+- `docker/services/docker-compose.yml` — test services (Postgres, MySQL, MongoDB, Redis, MinIO, FTP, SFTP, httpbin)
 - `Makefile` — top-level orchestration
 - `east.code-workspace` — VS Code multi-root workspace
 
-**e3-cloud** (east-aws) is closed source and lives in a separate repo (`elaraai/e3-cloud`).
+`e3-cloud` (east-aws) is closed source — separate repo `elaraai/e3-cloud`.
 
 ## Commands
 
-All operations use `make` from the root, or `pnpm` directly.
+Always use `make` (not `npm run`). See
+[`docs/conventions/MAKEFILE_TARGETS.md`](docs/conventions/MAKEFILE_TARGETS.md)
+for the full target list. Quick reference:
 
 ```bash
-# Setup
-make install            # pnpm install + uv sync (east-py) + cmake (east-c)
-
-# Build / Test / Lint (pnpm runs workspace scripts in topological order)
-make build              # Build all TS packages
-make test               # Run all TS tests
-make lint               # Lint all packages
-
-# Docker services (needed for east-node and east-py integration tests)
-make services-up        # Start Postgres, Redis, etc.
-make services-down      # Stop services
-make services-status    # Show service status
-
-# Test IR export (needed before east-py compliance tests)
-make test-export        # Export IR from east, east-node, east-py
-
-# Full test run
-make test-all           # services-up + test-export + test + east-c tests + east-py tests + services-down
-
-# Clean
-make clean              # Remove all build artifacts
+make install            # one-shot setup
+make build              # build all TS packages
+make test               # run all TS tests
+make lint               # lint all packages
+make services-up        # Docker services for integration tests
+make test-all           # services + test-export + all test suites
+make clean
 ```
 
-Each lib also has its own Makefile for working within that directory:
+Each lib has its own `Makefile` mirroring these targets:
 
 ```bash
-cd libs/east && make build     # Build just east
-cd libs/east && make test      # Test just east
-cd libs/e3 && make help        # Show available targets
+cd libs/east && make build
+cd libs/e3 && make help
 ```
 
-## Dependency Management
+## Plugin skills (DO NOT EDIT WITHOUT INTENT)
 
-- **TypeScript packages**: pnpm workspaces with `workspace:*` protocol. Cross-package deps are local symlinks — no registry needed for development.
-- **Python packages** (east-py): uv workspace, self-contained under `libs/east-py/`
-- **C packages** (east-c): CMake, self-contained under `libs/east-c/`
+The following `SKILL.md` files back Claude Code plugin skills
+(`east:east`, `east:e3`, `east:east-ui`, `east:e3-ui`,
+`east:east-node-std`, `east:east-node-io`, `east:east-py-datascience`).
+Editing them changes plugin behaviour — coordinate before touching. The
+plugin (`libs/east-claude-plugin/skills/<name>/SKILL.md`) holds **symlinks**
+to these files, so the lib copy is the single source of truth; the search
+index (`libs/east-claude-plugin/index.json`) is regenerated from each lib's
+`*.examples.ts` and must be re-run when these change (see the
+`plugin-artifacts` workflow).
 
-When publishing to npm, pnpm automatically replaces `workspace:*` with the actual version.
+- `libs/east/SKILL.md`
+- `libs/e3/SKILL.md`
+- `libs/east-ui/packages/east-ui/SKILL.md`
+- `libs/east-ui/packages/e3-ui/SKILL.md`
+- `libs/east-node/packages/east-node-std/SKILL.md`
+- `libs/east-node/packages/east-node-io/SKILL.md`
+- `libs/east-py/packages/east-py-datascience/SKILL.md`
 
-## Dependency Order
+One further skill, `east:east-project`, is **plugin-native** (not a lib API):
+its `SKILL.md` lives in the plugin at
+`libs/east-claude-plugin/skills/east-project/SKILL.md` and covers project
+scaffolding + lifecycle. It invokes the bundled scaffolders via the
+`east-scaffold` command (the plugin's `bin/` is added to `PATH` on install).
 
-pnpm's `-r run <script>` runs workspace packages in topological order (deps before dependents) automatically, but for reference:
+## Workspace conventions
 
-1. **east** — core language, no `@elaraai` deps
+These docs hold rules that apply across multiple libs. Per the project
+naming convention, they use `SCREAMING_SNAKE_CASE.md` to signal
+"system-type, don't delete".
+
+- [`docs/conventions/EAST_TS_INTEROP.md`](docs/conventions/EAST_TS_INTEROP.md)
+  — `isValueOf`, `compareFor`, `variant()`, `$.let`/`$.const` rules.
+- [`docs/conventions/EXAMPLES_AUTHORING.md`](docs/conventions/EXAMPLES_AUTHORING.md)
+  — the `*.spec.ts` ↔ `*.examples.ts` pattern.
+- [`docs/conventions/PYTHON_OPTIONAL_DEPS.md`](docs/conventions/PYTHON_OPTIONAL_DEPS.md)
+  — `find_spec` + lazy import guard pattern.
+- [`docs/conventions/MAKEFILE_TARGETS.md`](docs/conventions/MAKEFILE_TARGETS.md)
+  — canonical `make` targets.
+- [`docs/conventions/SKILLS_STANDARD.md`](docs/conventions/SKILLS_STANDARD.md)
+  — mandatory structure for `SKILL.md` + reference/example files.
+
+## Dependency management
+
+- **TypeScript packages**: pnpm workspaces with `workspace:*`. Cross-package
+  deps are local symlinks — no registry needed for development. pnpm
+  rewrites `workspace:*` to actual versions at publish time.
+- **Python packages** (east-py): uv workspace, self-contained under
+  `libs/east-py/`.
+- **C packages** (east-c): CMake, self-contained under `libs/east-c/`.
+
+## Dependency order
+
+pnpm topologically orders workspace scripts automatically. For reference:
+
+1. **east** — core, no `@elaraai` deps
 2. **east-node** — depends on east
 3. **east-c** — no `@elaraai` deps
 4. **east-py** — east-py-datascience depends on east, east-node-std
 5. **e3** — depends on east, east-node-std
 6. **east-ui** — depends on east, east-node-std, e3-*
 
-## Key Conventions
+## Standards
+
+Each lib has its own `STANDARDS.md` for mandatory dev standards (TypeDoc,
+testing, code quality). CLAUDE.md files MUST reference STANDARDS.md, not
+duplicate it.
+
+## Key conventions
 
 - Node 22 (`.nvmrc`), pnpm 10.x (`packageManager` in package.json)
-- `make build`, `make test`, `make lint` work in every lib directory
-- `@elaraai/*` packages use `"beta"` dist-tag for pre-releases, `"latest"` for stable
-- Per-lib CLAUDE.md files have package-specific instructions
-- GitHub Actions: per-lib test workflows with `paths` filters, single publish workflow
+- `make build` / `make test` / `make lint` work in every lib directory
+- `@elaraai/*` packages use `"beta"` dist-tag for pre-releases,
+  `"latest"` for stable
+- Per-lib CLAUDE.md has package-specific orientation; package-level
+  CLAUDE.md is stub-or-detailed depending on whether unique guidance
+  exists
+- GitHub Actions: per-lib test workflows with `paths` filters; single
+  publish workflow

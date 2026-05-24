@@ -21,26 +21,31 @@ import {
   LocalStorage,
 } from '@elaraai/e3-core';
 import { decodeBeast2 } from '@elaraai/east';
-import { resolveRepo, parsePackageSpec, formatError, exitError } from '../utils.js';
+import { resolveRepo, parsePackageSpec, formatError, exitError, shortHash } from '../utils.js';
 
 /**
- * Parse task specifier: pkg/task or pkg@version/task
+ * Parse task specifier: `pkg.task` or `pkg@version.task`.
+ *
+ * The task name is the segment after the last `.`. Everything before is the
+ * package ref (with optional `@version`). Scoped names containing a `.` in
+ * the package or task portion are not supported.
  */
-function parseTaskSpec(spec: string): { name: string; version: string; task: string } {
-  const slashIndex = spec.indexOf('/');
-  if (slashIndex === -1) {
+export function parseTaskSpec(spec: string): { name: string; version: string; task: string } {
+  const dotIndex = spec.lastIndexOf('.');
+  if (dotIndex === -1) {
     throw new Error(
-      `Invalid task specifier: ${spec}. Expected format: pkg/task or pkg@version/task`
+      `Invalid task specifier: '${spec}'. Expected format: pkg.task or pkg@version.task`,
     );
   }
 
-  const pkgPart = spec.slice(0, slashIndex);
-  const task = spec.slice(slashIndex + 1);
+  const pkgPart = spec.slice(0, dotIndex);
+  const task = spec.slice(dotIndex + 1);
 
+  if (!pkgPart) {
+    throw new Error(`Invalid task specifier: '${spec}'. Package name cannot be empty.`);
+  }
   if (!task) {
-    throw new Error(
-      `Invalid task specifier: ${spec}. Task name cannot be empty.`
-    );
+    throw new Error(`Invalid task specifier: '${spec}'. Task name cannot be empty.`);
   }
 
   const { name, version } = parsePackageSpec(pkgPart);
@@ -95,7 +100,7 @@ export async function runCommand(
 
       const hash = await objectWrite(repoPath, data);
       inputHashes.push(hash);
-      console.log(`  Input: ${inputPath} -> ${hash.slice(0, 8)}...`);
+      console.log(`  Input: ${inputPath} -> ${shortHash(hash)}`);
     }
 
     // Execute the task

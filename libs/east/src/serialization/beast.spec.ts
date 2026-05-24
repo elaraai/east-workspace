@@ -12,7 +12,7 @@ import {
 } from "../types.js";
 import { encodeBeastValueFor, decodeBeastValueFor } from "./beast.js";
 import { equalFor, lessFor } from "../comparison.js";
-import { variant } from "../containers/variant.js";
+import { some, none } from "../containers/variant.js";
 
 // =============================================================================
 // Byte ordering utilities (memcmp simulation)
@@ -255,9 +255,9 @@ describe("Beast v1: Variant type", () => {
       some: IntegerType,
     });
     testRoundTripAndOrdering(type, [
-      variant("none", null),
-      variant("some", 0n),
-      variant("some", 1n),
+      none,
+      some(0n),
+      some(1n),
     ]);
   });
 });

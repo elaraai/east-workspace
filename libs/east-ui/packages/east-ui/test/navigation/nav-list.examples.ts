@@ -61,29 +61,12 @@ export const navListWithIcons = example({
         return NavList.Root([
             {
                 items: [
-                    { key: "dashboard", label: "Dashboard", icon: { prefix: "fas", name: "gauge" } },
+                    { key: "dashboard", label: "Dashboard", icon: { prefix: "fas", name: "gauge" }, active: true },
                     { key: "orders", label: "Orders", icon: { prefix: "fas", name: "list" }, badge: "12" },
                     { key: "settings", label: "Settings", icon: { prefix: "fas", name: "gear" } },
                 ],
             },
         ]);
-    }),
-    inputs: [],
-});
-
-export const navListHorizontal = example({
-    keywords: ["NavList", "orientation", "horizontal"],
-    description: "Horizontal layout — toolbar-style sub-nav",
-    fn: East.function([], UIComponentType, (_$) => {
-        return NavList.Root([
-            {
-                items: [
-                    { key: "all", label: "All", active: true },
-                    { key: "active", label: "Active" },
-                    { key: "archived", label: "Archived" },
-                ],
-            },
-        ], { orientation: "horizontal" });
     }),
     inputs: [],
 });
@@ -108,34 +91,10 @@ export const navListReactive = example({
                             { key: "billing", label: "Billing", active: active.equals("billing"), badge: "Trial" },
                         ],
                     },
-                ], { onSelect, activeIndicatorColor: "blue.500" }),
+                ], { onSelect }),
                 Text.Root(East.str`Selected: ${active}`, { textStyle: "body-sm", color: "fg.muted" }),
             ], { gap: "3", align: "flex-start" });
         }));
-    }),
-    inputs: [],
-});
-
-export const navListColours = example({
-    keywords: ["NavList", "colour", "color", "escape", "hatches"],
-    description: "Explicit colour overrides for active state and section labels",
-    fn: East.function([], UIComponentType, (_$) => {
-        return NavList.Root([
-            {
-                label: "Branded nav",
-                items: [
-                    { key: "one", label: "Option one", active: true },
-                    { key: "two", label: "Option two" },
-                    { key: "three", label: "Option three" },
-                ],
-            },
-        ], {
-            sectionLabelColor: "blue.700",
-            activeColor: "blue.700",
-            activeBackground: "blue.50",
-            activeIndicatorColor: "blue.500",
-            itemHoverBackground: "blue.50",
-        });
     }),
     inputs: [],
 });

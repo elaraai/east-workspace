@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>East UI · Frame & trust — Pattern spec</title>
+<link rel="stylesheet" href="./colors_and_type.css">
+<link rel="stylesheet" href="./spec.css">
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<script src="./charts.js" defer></script>
+<style>
+  .nav-back {
+    display: flex; gap: 14px; align-items: baseline;
+    padding: 12px 0 18px;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 28px;
+    font-family: var(--font-mono); font-size: 11px;
+    letter-spacing: 0.12em; text-transform: uppercase;
+  }
+  .nav-back a { color: var(--ink-4); text-decoration: none; }
+  .nav-back a:hover { color: var(--brand-d); }
+  .nav-back .sep { color: var(--rule-strong); }
+  .nav-back .here { color: var(--ink); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <nav class="nav-back" aria-label="Pattern spec categories">
+    <a href="./index.html">← Index</a>
+    <span class="sep">·</span>
+    <a href="./observe.html">Observe</a>
+    <span class="sep">·</span>
+    <a href="./decide.html">Decide</a>
+    <span class="sep">·</span>
+    <a href="./configure.html">Configure</a>
+    <span class="sep">·</span>
+    <a href="./frame-trust.html" class="here">Trust</a>
+    <span class="sep">·</span>
+  </nav>
+
+  <main>
+
+  <section id="mode-trust" class="mode">
+    <div class="mode-head">
+      <span class="mode-id">§ 2.6</span>
+      <h2>Trust</h2>
+      <span class="anchor-tag">Anchor · <span class="pat">Trust<span class="ns">.</span>Journal</span></span>
+    </div>
+    <p class="mode-lede">The connective tissue. Every decision the operator takes, every model output that gets cited, every roster that gets published — they all carry provenance. Trust mode is where the system answers <em>who, when, on what basis, with what assumptions</em>. Without it, every other mode is just opinion.</p>
+
+    <h4 style="margin: 36px 0 12px; font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4);">Trust contract</h4>
+    <div class="frame">
+      <ol style="padding: 18px 22px 18px 40px; margin: 0; font-size: 13.5px; line-height: 1.7; color: var(--ink);">
+        <li><strong>Every output is stamped.</strong> A <span class="mono">Trust<span class="ns">.</span>Stamp</span> shows model version, run time, input hash, and confidence band. No headless numbers.</li>
+        <li><strong>Every change is journaled.</strong> A <span class="mono">Trust<span class="ns">.</span>Journal</span> entry captures the actor, the rationale, the diff, and the run it was made against. Append-only.</li>
+        <li><strong>Staleness, partiality, and drift are surfaced — not hidden.</strong> Banners fire when a source goes stale, a feed drops, or the world has changed since the operator last looked.</li>
+        <li><strong>Communication is part of the system.</strong> Handoffs, message-stubs, and reviewer comments live in the same surface as the decision.</li>
+        <li><strong>Permission is positive.</strong> If an operator can't take an action, the gate explains <em>why</em> and routes to whomever can.</li>
+      </ol>
+    </div>
+
+    <!-- ANCHOR · DECISION JOURNAL -->
+    <article id="decision-journal" class="pattern">
+      <div class="pattern-head">
+        <span class="pattern-name">Trust<span class="ns">.</span>Journal</span>
+        <span class="pattern-anchor">Anchor</span>
+      </div>
+      <p class="pattern-blurb">Append-only log of every consequential change. Each entry is timestamped, attributed, and linked to the run, diff, and rationale. The system's memory of what happened, who decided it, and why.</p>
+      <div class="frame">
+        <div class="eyebrow-row"><span class="lbl">Decision journal · SE region</span><span class="meta muted">142 entries · 7 this week · <a class="btn-link" href="#">filter →</a></span></div>
+        <div class="journal">
+          <div class="je entry-published">
+            <div class="je-rail"><span class="je-dot pub"></span></div>
+            <div class="je-body">
+              <div class="je-head">
+                <span class="je-actor">Patel <span class="muted">·</span> Ops Manager</span>
+                <span class="je-time">Sep 14 · 16:42</span>
+              </div>
+              <div class="je-action"><span class="je-verb">published</span> roster · wk of Sep 16 · SE</div>
+              <div class="je-meta">
+                <span class="num">7 ops</span> · <span class="num">214h staffed</span> · <span class="num pos">−$8k vs baseline</span> · run <span class="mono">#42</span> · diff <span class="mono">#df-3211</span>
+              </div>
+              <div class="je-rationale">"Accepted model recommendation. Cho's hours are at OT cap; will need to revisit Wed if forecast holds. Personal-leave flag for Patel pre-applied."</div>
+              <div class="je-links">
+                <a class="btn-link" href="#audittrail">audit →</a>
+                <span class="muted">·</span>
+                <a class="btn-link" href="#">view roster →</a>
+                <span class="muted">·</span>
+                <a class="btn-link" href="#">copy permalink</a>
+              </div>
+            </div>
+          </div>
+
+          <div class="je">
+            <div class="je-rail"><span class="je-dot model"></span></div>
+            <div class="je-body">
+              <div class="je-head">
+                <span class="je-actor">Model <span class="muted">·</span> staffing-v3.2.1</span>
+                <span class="je-time">Sep 14 · 16:31</span>
+              </div>
+              <div class="je-action"><span class="je-verb">issued</span> recommendation · accept-runner-up</div>
+              <div class="je-meta">
+                conf <span class="num">0.78</span> · <span class="num pos">−$8k OT</span> · runner-up Δ <span class="num">$1.2k</span> · run <span class="mono">#42</span>
+              </div>
+              <div class="je-rationale muted">Triggered by demand spike + Patel personal-leave; baseline rejected (OT cap breach Thu).</div>
+              <div class="je-links">
+                <a class="btn-link" href="#briefing">briefing →</a>
+                <span class="muted">·</span>
+                <a class="btn-link" href="#">why-this-rec</a>
+              </div>
+            </div>
+          </div>
+
+          <div class="je">
+            <div class="je-rail"><span class="je-dot edit"></span></div>
+            <div class="je-body">
+              <div class="je-head">
+                <span class="je-actor">Patel <span class="muted">·</span> Ops Manager</span>
+                <span class="je-time">Sep 14 · 16:18</span>
+              </div>
+              <div class="je-action"><span class="je-verb">flagged</span> Patel personal-leave · Wed Sep 18</div>
+              <div class="je-meta">
+                judgement-gap · <span class="mono">model-blind-input</span> · forced model rerun
+              </div>
+              <div class="je-links">
+                <a class="btn-link" href="#">view input →</a>
+              </div>
+            </div>
+          </div>
+
+          <div class="je">
+            <div class="je-rail"><span class="je-dot config"></span></div>
+            <div class="je-body">
+              <div class="je-head">
+                <span class="je-actor">Singh <span class="muted">·</span> Workforce Lead</span>
+                <span class="je-time">Sep 12 · 09:04</span>
+              </div>
+              <div class="je-action"><span class="je-verb">changed</span> SLA target · <span class="num">0.92 → 0.95</span></div>
+              <div class="je-meta">
+                applied to · SE region · effective Sep 16 · <span class="num">+$22k</span> est. cost impact
+              </div>
+              <div class="je-rationale">"Quarterly review — contract renewal pushed SE-region SLA to 0.95. Applies for the rest of FY."</div>
+              <div class="je-links">
+                <a class="btn-link" href="#">diff →</a>
+                <span class="muted">·</span>
+                <a class="btn-link" href="#">approval thread</a>
+              </div>
+            </div>
+          </div>
+
+          <div class="je">
+            <div class="je-rail"><span class="je-dot drift"></span></div>
+            <div class="je-body">
+              <div class="je-head">
+                <span class="je-actor">System <span class="muted">·</span> drift-monitor</span>
+                <span class="je-time">Sep 11 · 23:00</span>
+              </div>
+              <div class="je-action"><span class="je-verb">detected</span> forecast drift · SE · <span class="num neg">+8% MAPE</span></div>
+              <div class="je-meta">
+                3-day rolling · threshold <span class="num">5%</span> · <a class="btn-link" href="#">recalibration scheduled</a>
+              </div>
+            </div>
+          </div>
+
+          <div class="je je-fold">
+            <a class="btn-link" href="#">12 earlier entries this week ▾</a>
+          </div>
+        </div>
+      </div>
+
+
+    </article>
+
+    <article id="audittrail" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Trust<span class="ns">.</span>AuditTrail</span></div>
+      <p class="pattern-blurb">Linear chain of every state-touching event behind a single output. Each row: timestamp · actor · event · diff. Append-only; the legal record.</p>
+      <div class="frame">
+        <div class="eyebrow-row"><span class="lbl">Audit · run #42</span><span class="meta muted">14 events · <a class="btn-link" href="#">export CSV</a></span></div>
+        <div class="audit">
+          <div class="ar"><span class="at">16:42:01</span><span class="aa">Patel</span><span class="av">published</span><span class="ax">roster · diff #df-3211</span></div>
+          <div class="ar"><span class="at">16:41:58</span><span class="aa">Patel</span><span class="av">accepted</span><span class="ax">recommendation · run #42</span></div>
+          <div class="ar"><span class="at">16:31:04</span><span class="aa">model</span><span class="av">issued</span><span class="ax">staffing-v3.2.1 · conf 0.78</span></div>
+          <div class="ar"><span class="at">16:30:51</span><span class="aa">system</span><span class="av">computed</span><span class="ax">input hash sha256:7c4f…ab21</span></div>
+          <div class="ar"><span class="at">16:30:48</span><span class="aa">system</span><span class="av">snapshot</span><span class="ax">forecast.v3 · 2m old</span></div>
+          <div class="ar"><span class="at">16:30:48</span><span class="aa">system</span><span class="av">snapshot</span><span class="ax">roster.db · 14m old</span></div>
+          <div class="ar"><span class="at">16:18:22</span><span class="aa">Patel</span><span class="av">flagged</span><span class="ax">personal-leave Wed Sep 18</span></div>
+          <div class="ar"><span class="at">16:18:00</span><span class="aa">Patel</span><span class="av">opened</span><span class="ax">roster builder</span></div>
+          <div class="ar"><span class="at">15:42:11</span><span class="aa">model</span><span class="av">issued</span><span class="ax">recommendation run #41 (superseded)</span></div>
+          <div class="ar"><span class="at">14:00:00</span><span class="aa">system</span><span class="av">trigger</span><span class="ax">scheduled run · weekly cadence</span></div>
+        </div>
+      </div>
+
+    </article>
+
+    <section class="family-intro">
+      <h3 class="family-title">Trust.*</h3>
+      <p class="family-desc">Provenance, projected onto four surface densities. The Chip fits next to a number, the Footer fits across the bottom of a card, the Stamp fits inside an expansion, and the AuditTrail fits when forensic work is the whole job. One <span class="mono">Provenance</span> object, four projections — a Chip can always expand to a Stamp; a Stamp links to its Trail.</p>
+    </section>
+
+    <article id="trust-chip" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Trust<span class="ns">.</span>Chip</span></div>
+      <p class="pattern-blurb">Compact provenance chip. Shows model version + freshness + status dot. Inline anywhere a model output appears. Hover/click reveals the full <span class="mono">Trust<span class="ns">.</span>Stamp</span>.</p>
+      <div class="frame pad-18">
+        <div class="row gap-3" style="flex-wrap: wrap; align-items: center;">
+          <span class="trust-chip"><span class="tc-dot ok"></span><span class="tc-label">staffing-v3.2.1</span><span class="tc-meta">12m ago</span></span>
+          <span class="trust-chip"><span class="tc-dot warn"></span><span class="tc-label">forecast-v2.4</span><span class="tc-meta">3h · ▲ stale</span></span>
+          <span class="trust-chip"><span class="tc-dot bad"></span><span class="tc-label">demand-feed</span><span class="tc-meta">offline 4h</span></span>
+          <span class="trust-chip"><span class="tc-dot human"></span><span class="tc-label">human · Patel</span><span class="tc-meta">override</span></span>
+          <span class="trust-chip ghost"><span class="tc-dot"></span><span class="tc-label">conf 0.78</span><span class="tc-meta">band ±$1.2k</span></span>
+        </div>
+        <div class="diff-meta-row" style="margin-top: 12px;">
+          <span class="muted">Status dot</span>
+          <span><span class="tc-dot ok"></span> live · fresh</span>
+          <span class="muted">·</span>
+          <span><span class="tc-dot warn"></span> stale</span>
+          <span class="muted">·</span>
+          <span><span class="tc-dot bad"></span> broken</span>
+          <span class="muted">·</span>
+          <span><span class="tc-dot human"></span> human-edited</span>
+        </div>
+      </div>
+
+    </article>
+
+    <article id="trust-footer" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Trust<span class="ns">.</span>Footer</span></div>
+      <p class="pattern-blurb">Slim attribution strip at the bottom of any consequential surface. Last-resort signature: who built this view, what version, when. Always present, never decorative.</p>
+      <div class="frame pad-18">
+        <div class="trust-foot">
+          <span class="muted">staffing-v3.2.1 · run <span class="mono">#42</span> · forecast.v3 + roster.db + contracts.v2.1 · last refreshed <span class="num">12m</span> ago</span>
+          <span style="margin-left: auto;"><a class="btn-link" href="#trust-stamp">full provenance →</a></span>
+        </div>
+      </div>
+
+    </article>
+
+    <article id="permission-gate" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Trust<span class="ns">.</span>PermissionGate</span></div>
+      <p class="pattern-blurb">Inline block when an operator can't take an action. Names the scope, names the holder, and offers the route — never just "you can't".</p>
+      <div class="frame pad-18">
+        <div class="row gap-3" style="flex-wrap: wrap;">
+          <div class="gate" style="flex: 1; min-width: 280px;">
+            <div class="gate-icon">⚿</div>
+            <div class="gate-body">
+              <div class="gate-title">Publishing roster requires <span class="mono">workforce-lead</span></div>
+              <div class="gate-text muted">You have <span class="mono">ops-manager</span> · NE region. SE-region publish is held by <strong>Singh</strong>.</div>
+              <div class="gate-actions">
+                <a class="btn-link" href="#communicate-handoff">request approval →</a>
+                <span class="muted">·</span>
+                <a class="btn-link" href="#">view roles</a>
+              </div>
+            </div>
+          </div>
+          <div class="gate scope" style="flex: 1; min-width: 280px;">
+            <div class="gate-icon">◇</div>
+            <div class="gate-body">
+              <div class="gate-title">Out of scope · this view is <span class="mono">SE</span></div>
+              <div class="gate-text muted">You can read SE rosters but only edit NE. Switch context to act.</div>
+              <div class="gate-actions">
+                <a class="btn-link" href="#">switch to NE →</a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </article>
+
+    <article id="trust-stamp" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Trust<span class="ns">.</span>Stamp</span></div>
+      <p class="pattern-blurb">Full provenance card. Expanded form of <span class="mono">Trust<span class="ns">.</span>Chip</span>. Shows version, run id, input hash, training-data version, confidence band, and the chain of prior runs. Every output is reachable to its stamp.</p>
+      <div class="frame pad-18">
+        <div class="stamp-card">
+          <div class="stamp-head">
+            <span class="cap-eyebrow">Provenance</span>
+            <span class="muted" style="margin-left: auto; font-family: var(--font-mono); font-size: 10px;">issued Sep 14 · 16:31:04 UTC</span>
+          </div>
+          <table class="kv stamp-kv">
+            <tr><td>Model</td><td><span class="mono">staffing-v3.2.1</span> · trained 2024-08-12</td></tr>
+            <tr><td>Run</td><td><span class="mono">#42</span> · <a class="btn-link" href="#audittrail">trail →</a></td></tr>
+            <tr><td>Input hash</td><td><span class="mono">sha256:7c4f…ab21</span> <a class="btn-link" href="#">verify</a></td></tr>
+            <tr><td>Sources</td><td>forecast.v3 (2m) · roster.db (14m) · contracts.v2.1 (manual) <a class="btn-link" href="#sourcelibrary">5 more →</a></td></tr>
+            <tr><td>Assumptions</td><td>SLA <span class="num">0.95</span> · OT cap <span class="num">$10k</span> · band <span class="num">±10%</span></td></tr>
+            <tr><td>Confidence</td><td><span class="num">0.78</span> · band <span class="num">$1.2k</span> · cohort <span class="num">n=58</span></td></tr>
+            <tr><td>Lineage</td><td><a class="btn-link" href="#">run #41</a> → <strong>#42</strong> → <a class="btn-link" href="#">#43 (pending)</a></td></tr>
+            <tr><td>Permalink</td><td><span class="mono">elara://run/42</span> <a class="btn-link" href="#">copy</a></td></tr>
+          </table>
+        </div>
+      </div>
+
+    </article>
+
+    <section class="family-intro">
+      <h3 class="family-title">Banner.*</h3>
+      <p class="family-desc">Banners answer one question for the operator before they act: <em>what shifted, what's degraded, what's aged out</em>. Three voices — ChangeSinceLastVisit, Partial, Stale — sharing one slot at the top of every surface. One banner shows at a time; if multiple trigger, they stack (max three visible, rest behind a count). Banners describe state; the operator decides what to do.</p>
+    </section>
+
+    <article id="banner-changesince" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Banner<span class="ns">.</span>ChangeSinceLastVisit</span></div>
+      <p class="pattern-blurb">Fires when the world has materially changed since the operator's last session. Not "what's new on the dashboard" — "what shifted out from under you while you were away".</p>
+      <div class="frame pad-18">
+        <div class="bn bn-change">
+          <span class="bn-icon">⏵</span>
+          <span class="bn-body">
+            <strong>3 things changed since you last looked (Mon)</strong>
+            <ul class="bn-list">
+              <li>Forecast revised <span class="num neg">+14%</span> · driver: regional event added <a class="btn-link" href="#">view</a></li>
+              <li>Cho's availability changed · sick-leave Wed–Fri <a class="btn-link" href="#">view</a></li>
+              <li>SLA target updated · <span class="num">0.92 → 0.95</span> by Singh <a class="btn-link" href="#">view</a></li>
+            </ul>
+          </span>
+          <span class="bn-actions"><a class="btn-link" href="#">dismiss all</a></span>
+        </div>
+      </div>
+
+    </article>
+
+    <article id="banner-partial" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Banner<span class="ns">.</span>Partial</span></div>
+      <p class="pattern-blurb">Fires when one of the model's required inputs is missing or degraded. Recommendations still surface but flagged as partial — the gap is named.</p>
+      <div class="frame pad-18">
+        <div class="bn bn-partial">
+          <span class="bn-icon">◐</span>
+          <span class="bn-body">
+            <strong>Partial run · operator-preferences offline</strong> — model fell back to last-known snapshot from 4 days ago.
+            <span class="bn-meta muted">2 of 7 sources · confidence reduced by 0.08 · cohort sample halved</span>
+          </span>
+          <span class="bn-actions"><a class="btn-link" href="#sourcelibrary">sources →</a><span class="muted">·</span><a class="btn-link" href="#">re-run when restored</a></span>
+        </div>
+      </div>
+
+    </article>
+
+    <article id="banner-stale" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Banner<span class="ns">.</span>Stale</span></div>
+      <p class="pattern-blurb">Fires when a source feeding the current view has gone past its freshness threshold. Doesn't block — but the operator must see it before they act.</p>
+      <div class="frame pad-18">
+        <div class="bn bn-stale">
+          <span class="bn-icon">▲</span>
+          <span class="bn-body">
+            <strong>Forecast feed is 3h old</strong> — threshold is 1h. Last refresh failed at 13:42 (timeout).
+            <span class="bn-meta muted">recommendation in this view used the stale snapshot</span>
+          </span>
+          <span class="bn-actions"><a class="btn-link" href="#">refresh now</a><span class="muted">·</span><a class="btn-link" href="#">investigate</a></span>
+        </div>
+      </div>
+
+    </article>
+
+    <article id="communicate-handoff" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Communicate<span class="ns">.</span>Handoff</span></div>
+      <p class="pattern-blurb">Structured pass-the-baton card. Used when an operator routes a decision to a reviewer, peer, or successor shift. Carries the question, the working set, and the deadline.</p>
+      <div class="frame pad-18">
+        <div class="handoff">
+          <div class="ho-head">
+            <span class="cap-eyebrow">Handoff · pending review</span>
+            <span class="muted" style="margin-left: auto; font-family: var(--font-mono); font-size: 11px;">due Mon 09:00 · 14h</span>
+          </div>
+          <div class="ho-q">Approve runner-up over baseline? <span class="num">−$8k OT</span> upside, <span class="num">0.78</span> confidence — needs your sign-off due to OT-cap proximity.</div>
+          <div class="handoff-baton">
+            <div class="baton-actor from">
+              <span class="ba-lbl">from</span>
+              <span class="ba-name">Patel</span>
+              <span class="ba-role">Ops Manager · SE region</span>
+              <span class="ba-status">authored · Sep 14 · 16:38</span>
+            </div>
+            <div class="baton-mid"><span class="baton-arrow">→</span></div>
+            <div class="baton-actor to">
+              <span class="ba-lbl">to</span>
+              <span class="ba-name">Singh</span>
+              <span class="ba-role">Workforce Lead</span>
+              <span class="ba-status">notified · awaiting sign-off</span>
+            </div>
+          </div>
+          <div class="ho-attached">
+            <span class="cap-eyebrow muted">attached</span>
+            <a class="btn-link" href="#briefing">briefing · run #42</a>
+            <span class="muted">·</span>
+            <a class="btn-link" href="#">diff #df-3211</a>
+            <span class="muted">·</span>
+            <a class="btn-link" href="#audittrail">trail</a>
+          </div>
+          <div class="ho-actions">
+            <button class="btn">Decline</button>
+            <button class="btn">Comment</button>
+            <button class="btn primary">Approve &amp; publish</button>
+          </div>
+        </div>
+      </div>
+
+    </article>
+
+    <article id="communicate-annotate" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Communicate<span class="ns">.</span>Annotate</span></div>
+      <p class="pattern-blurb">Operator notes attached to a closed case or surface. The "what we learned in the room that the model can't see" channel — captured to the audit trail so context outlives the case.</p>
+      <div class="frame">
+        <div class="eyebrow-row"><span class="lbl">Annotation · case #NE-2024-0902</span><span class="meta muted">drafted by you · attached to audit on submit</span></div>
+        <div class="annotate-card">
+          <div class="ann-eyebrow">What did we learn?</div>
+          <div class="ann-input">Patel's weekend-pref isn't really a soft pref — it's a hard family-care obligation. Don't bias toward weekend swaps for him next quarter even if hours look fine.</div>
+          <div class="annotate-tags">
+            <span class="annotate-tag active">private context</span>
+            <span class="annotate-tag">override reason</span>
+            <span class="annotate-tag">handoff note</span>
+            <span class="annotate-tag">post-mortem</span>
+          </div>
+        </div>
+        <footer class="diff-foot">
+          <span class="cap-eyebrow muted">visible to · you · audit · handoff recipients</span>
+          <span class="actions">
+            <button class="btn-discard">Save private</button>
+            <button class="btn-apply">✓ Submit annotation</button>
+          </span>
+        </footer>
+      </div>
+    </article>
+
+    <article id="communicate-message" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Communicate<span class="ns">.</span>Message</span></div>
+      <p class="pattern-blurb">Pre-staged outbound message attached to a decision. Drafted by the system from the diff + rationale; operator edits and sends. The "tell affected people" surface — never separate from the decision that produced it.</p>
+      <div class="frame">
+        <div class="eyebrow-row"><span class="lbl">Outbound · auto-drafted from run #42</span><span class="meta muted">2 recipients · <a class="btn-link" href="#">change channel</a></span></div>
+        <div class="msg">
+          <div class="msg-hdr">
+            <span class="msg-to"><span class="muted">to</span> Cho · Rivera</span>
+            <span class="msg-channel"><span class="muted">via</span> SMS + email</span>
+          </div>
+          <div class="msg-subj">Roster change · wk of Sep 16</div>
+          <div class="msg-body">
+            Hi Cho — your Wed shift moved from 14:00–22:00 to 06:00–14:00 to cover demand spike. Total hours unchanged. Confirmed by Patel (manager). Personal-leave flag applied for Patel that day. Reply OK to confirm or flag any conflict.
+            <div class="msg-stamp muted">— sent by Patel · attached to <a class="btn-link" href="#audittrail">run #42</a></div>
+          </div>
+        </div>
+        <div class="diff-meta-row">
+          <span class="cap-eyebrow muted">drafted from</span><span>diff #df-3211</span><span class="muted">·</span><span>rationale field</span>
+          <span class="muted" style="margin-left: auto;"><a class="btn-link" href="#">edit draft →</a></span>
+        </div>
+      </div>
+
+    </article>
+
+    <article id="header" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Header</span></div>
+      <p class="pattern-blurb">Top frame on every workspace surface. Carries the surface name, the run anchor (<span class="mono">Trust<span class="ns">.</span>Stamp</span>), the breadcrumb back to the journal, and primary actions. Every screen starts with this — it's how the operator knows where they are and what they're looking at.</p>
+      <div class="frame">
+        <div class="hd">
+          <div class="hd-l">
+            <span class="hd-crumb"><a href="#">SE region</a> <span class="muted">/</span> <a href="#">wk of Sep 16</a> <span class="muted">/</span></span>
+            <h3 class="hd-title">Roster builder</h3>
+            <span class="hd-sub">edit · 3 dirty · run <span class="mono">#42</span></span>
+          </div>
+          <div class="hd-r">
+            <span class="trust-chip">
+              <span class="tc-dot ok"></span>
+              <span class="tc-label">staffing-v3.2.1</span>
+              <span class="tc-meta">conf 0.78 · 12m ago</span>
+            </span>
+            <button class="btn">↻ Re-run</button>
+            <button class="btn primary">Review diff</button>
+          </div>
+        </div>
+        <div class="hd-context">
+          <span class="cap-eyebrow muted">context</span>
+          <span class="ctx-pill"><span class="muted">SLA</span> <span class="num">0.95</span></span>
+          <span class="ctx-pill"><span class="muted">OT cap</span> <span class="num">$10k</span></span>
+          <span class="ctx-pill"><span class="muted">forecast</span> <span class="num">+14%</span></span>
+          <span class="ctx-pill warn"><span class="muted">leave</span> <span class="num">2 flagged</span></span>
+          <span class="muted" style="margin-left: auto; font-family: var(--font-mono); font-size: 11px;"><a class="btn-link" href="#assumptions-bar">edit assumptions →</a></span>
+        </div>
+      </div>
+
+    </article>
+
+  </section>
+
+  </main>
+</div>
+
+</body>
+</html>

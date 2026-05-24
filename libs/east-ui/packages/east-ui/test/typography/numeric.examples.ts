@@ -2,10 +2,10 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, variant, example } from "@elaraai/east";
+import { East, example } from "@elaraai/east";
 import {
     Numeric,
-    NumericFormatType,
+    Format,
     Stack,
     UIComponentType,
 } from "@elaraai/east-ui";
@@ -15,13 +15,14 @@ export const numericKpi = example({
     description: "KPI tiles — current vs baseline currency values, compact notation",
     fn: East.function([], UIComponentType, (_$) => {
         const usd = (n: number) => Numeric.Root(n, {
-            format: East.value(variant("Currency", {
-                currency: variant("USD", null),
-                display: variant("some", variant("symbol", null)),
-                compact: variant("some", variant("short", null)),
-                minimumFractionDigits: variant("some", 2n),
-                maximumFractionDigits: variant("some", 2n),
-            }), NumericFormatType),
+            textStyle: "mono-kpi",
+            format: Format.Currency({
+                currency: "USD",
+                display: "symbol",
+                compact: "short",
+                minimumFractionDigits: 2n,
+                maximumFractionDigits: 2n,
+            }),
         });
         return Stack.HStack([usd(1842500), usd(2072500)], { gap: "6", align: "baseline" });
     }),
@@ -34,11 +35,7 @@ export const numericPercent = example({
     fn: East.function([], UIComponentType, (_$) => {
         const pct = (n: number, sentiment: "positive" | "negative" | "neutral") =>
             Numeric.Root(n, {
-                format: East.value(variant("Percent", {
-                    minimumFractionDigits: variant("none", null),
-                    maximumFractionDigits: variant("some", 0n),
-                    signDisplay: variant("some", variant("exceptZero", null)),
-                }), NumericFormatType),
+                format: Format.Percent({ maximumFractionDigits: 0n, signDisplay: "exceptZero" }),
                 sentiment,
                 showSign: true,
             });
@@ -56,9 +53,7 @@ export const numericCompact = example({
     description: "Compact notation — 1.24M / 384K for dashboards",
     fn: East.function([], UIComponentType, (_$) => {
         const compact = (n: number) => Numeric.Root(n, {
-            format: East.value(variant("Compact", {
-                display: variant("some", variant("short", null)),
-            }), NumericFormatType),
+            format: Format.Compact({ display: "short" }),
         });
         return Stack.HStack([compact(1_240_000), compact(384_000)], { gap: "6", align: "baseline" });
     }),
@@ -70,12 +65,35 @@ export const numericUnit = example({
     description: "Unit-carrying values with locale-aware suffix",
     fn: East.function([], UIComponentType, (_$) => {
         const unit = (n: number, u: "kilogram" | "celsius") => Numeric.Root(n, {
-            format: East.value(variant("Unit", {
-                unit: variant(u, null),
-                display: variant("some", variant("short", null)),
-            }), NumericFormatType),
+            format: Format.Unit({ unit: u, display: "short" }),
         });
         return Stack.HStack([unit(12, "kilogram"), unit(42.5, "celsius")], { gap: "6", align: "baseline" });
+    }),
+    inputs: [],
+});
+
+export const numericScientific = example({
+    keywords: ["Numeric", "Root", "scientific", "engineering", "notation"],
+    description: "Scientific and engineering notation for large magnitudes",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Stack.HStack([
+            Numeric.Root(60221408, { format: Format.Scientific() }),
+            Numeric.Root(60221408, { format: Format.Engineering() }),
+        ], { gap: "6", align: "baseline" });
+    }),
+    inputs: [],
+});
+
+export const numericDateTime = example({
+    keywords: ["Numeric", "Root", "date", "time", "datetime", "timestamp"],
+    description: "Epoch-millisecond timestamps rendered as date / time / datetime",
+    fn: East.function([], UIComponentType, (_$) => {
+        const ts = 1716249600000;
+        return Stack.HStack([
+            Numeric.Root(ts, { format: Format.Date("YYYY-MM-DD") }),
+            Numeric.Root(ts, { format: Format.Time("HH:mm") }),
+            Numeric.Root(ts, { format: Format.DateTime("YYYY-MM-DD HH:mm:ss") }),
+        ], { gap: "6", align: "baseline" });
     }),
     inputs: [],
 });

@@ -4,10 +4,9 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""C-level DES engine with pure-C event loop and pthread parallelism.
+"""C-level DES engine with pure-C event loop.
 
 The entire event loop (heap operations + east_call) runs without the GIL.
-Trajectories run in parallel via pthreads.
 """
 
 from cpython.pycapsule cimport PyCapsule_New
@@ -23,7 +22,6 @@ from east cimport _eastc
 
 cdef extern from *:
     """
-    #include <pthread.h>
     #include <stdio.h>
     #include <stdlib.h>
     #include <string.h>
@@ -215,43 +213,7 @@ cdef extern from *:
         return eval_ok(result);
     }
 
-    /* ── Trajectory worker (runs without GIL) ─────────────────────── */
-
-    typedef struct {
-        EastValue *initial_state;
-        EastValue *initial_events;
-        EastCompiledFn *compiled;
-        int64_t max_events;
-        int64_t end_date_ms;
-        int has_end_date;
-        EastType *output_type;
-        PlatformRegistry *platform;
-        BuiltinRegistry *builtins;
-        EvalResult result;
-    } TrajectoryWork;
-
-    static void *trajectory_worker(void *arg) {
-        TrajectoryWork *w = (TrajectoryWork *)arg;
-        east_set_thread_context(w->platform, w->builtins);
-        w->result = des_run_single(
-            w->initial_state, w->initial_events, w->compiled,
-            w->max_events, w->end_date_ms, w->has_end_date,
-            w->output_type);
-        return NULL;
-    }
     """
-    ctypedef struct TrajectoryWork:
-        _eastc.EastValue *initial_state
-        _eastc.EastValue *initial_events
-        _eastc.EastCompiledFn *compiled
-        int64_t max_events
-        int64_t end_date_ms
-        int has_end_date
-        _eastc.EastType *output_type
-        _eastc.PlatformRegistry *platform
-        _eastc.BuiltinRegistry *builtins
-        _eastc.EvalResult result
-
     _eastc.EvalResult des_run_single(
         _eastc.EastValue *state,
         _eastc.EastValue *initial_events,
@@ -260,13 +222,6 @@ cdef extern from *:
         int64_t end_date_ms,
         int has_end_date,
         _eastc.EastType *output_type) nogil
-
-    void *trajectory_worker(void *arg) nogil
-
-    ctypedef unsigned long pthread_t
-    int pthread_create(pthread_t *thread, void *attr,
-                       void *(*start_routine)(void*), void *arg) nogil
-    int pthread_join(pthread_t thread, void **retval) nogil
 
 
 # ─── simulation_run ─────────────────────────────────────────────────────
@@ -325,147 +280,15 @@ cdef _eastc.EvalResult _simulation_run_impl(
     return result
 
 
-# ─── simulation_run_trajectories (parallel) ─────────────────────────────
-
-cdef _eastc.EvalResult _simulation_run_trajectories_impl(
-        _eastc.EastValue **args, size_t num_args,
-        _eastc.EastType **input_types, size_t num_input_types,
-        _eastc.EastType *output_type) noexcept with gil:
-
-    cdef _eastc.EvalResult err
-    err.status = _eastc.EVAL_ERROR
-    err.value = NULL
-    err.label = NULL
-    err.error_message = NULL
-    err.locations = NULL
-    err.num_locations = 0
-
-    if num_args < 4:
-        err.error_message = strdup(b"simulation_run_trajectories requires 4 arguments")
-        return err
-
-    cdef _eastc.EastValue *state = args[0]
-    cdef _eastc.EastValue *initial_events = args[1]
-    cdef _eastc.EastValue *fn_val = args[2]
-    cdef _eastc.EastValue *config = args[3]
-
-    if fn_val.kind != _eastc.EAST_VAL_FUNCTION:
-        err.error_message = strdup(b"simulation_run_trajectories: third arg must be a function")
-        return err
-
-    cdef _eastc.EastCompiledFn *compiled = fn_val.data.function.compiled
-    cdef _eastc.EastValue *opt_val
-
-    # Extract config
-    cdef int64_t num_trajectories = 1
-    opt_val = _eastc.east_struct_get_field(config, "trajectories")
-    if opt_val != NULL and opt_val.kind == _eastc.EAST_VAL_INTEGER:
-        num_trajectories = opt_val.data.integer
-
-    cdef int64_t max_events = 100000
-    opt_val = _eastc.east_struct_get_field(config, "max_events")
-    if opt_val != NULL and opt_val.kind == _eastc.EAST_VAL_VARIANT:
-        if opt_val.data.variant.value != NULL and opt_val.data.variant.value.kind == _eastc.EAST_VAL_INTEGER:
-            max_events = opt_val.data.variant.value.data.integer
-
-    cdef int64_t end_date_ms = 0
-    cdef int has_end_date = 0
-    opt_val = _eastc.east_struct_get_field(config, "end_date")
-    if opt_val != NULL and opt_val.kind == _eastc.EAST_VAL_VARIANT:
-        if opt_val.data.variant.value != NULL and opt_val.data.variant.value.kind == _eastc.EAST_VAL_DATETIME:
-            end_date_ms = opt_val.data.variant.value.data.datetime
-            has_end_date = 1
-
-    # Get trajectory result element type
-    cdef _eastc.EastType *traj_elem_type = NULL
-    cdef _eastc.EastType *arr_type = NULL
-    if output_type != NULL and output_type.kind == _eastc.EAST_TYPE_STRUCT:
-        if output_type.data.struct_.num_fields > 0:
-            arr_type = output_type.data.struct_.fields[0].type
-            if arr_type != NULL and arr_type.kind == _eastc.EAST_TYPE_ARRAY:
-                traj_elem_type = arr_type.data.element
-    if traj_elem_type == NULL:
-        traj_elem_type = &_eastc.east_null_type
-
-    # Allocate work items
-    cdef int64_t i
-    cdef TrajectoryWork *work = <TrajectoryWork*>malloc(num_trajectories * sizeof(TrajectoryWork))
-    cdef pthread_t *threads = <pthread_t*>malloc(num_trajectories * sizeof(pthread_t))
-    if work == NULL or threads == NULL:
-        free(work)
-        free(threads)
-        err.error_message = strdup(b"simulation_run_trajectories: out of memory")
-        return err
-
-    for i in range(num_trajectories):
-        work[i].initial_state = state
-        work[i].initial_events = initial_events
-        work[i].compiled = compiled
-        work[i].max_events = max_events
-        work[i].end_date_ms = end_date_ms
-        work[i].has_end_date = has_end_date
-        work[i].output_type = traj_elem_type
-        work[i].platform = compiled.platform
-        work[i].builtins = compiled.builtins
-
-    # Release GIL and run trajectories in parallel
-    with nogil:
-        for i in range(num_trajectories):
-            pthread_create(&threads[i], NULL, trajectory_worker, &work[i])
-        for i in range(num_trajectories):
-            pthread_join(threads[i], NULL)
-
-    free(threads)
-
-    # Collect results
-    cdef _eastc.EastValue *trajectories_arr = _eastc.east_array_new(traj_elem_type)
-    cdef int64_t j
-    cdef _eastc.EvalResult first_err
-
-    for i in range(num_trajectories):
-        if work[i].result.status != _eastc.EVAL_OK and work[i].result.status != _eastc.EVAL_RETURN:
-            for j in range(num_trajectories):
-                if j != i and (work[j].result.status == _eastc.EVAL_OK or work[j].result.status == _eastc.EVAL_RETURN):
-                    if work[j].result.value != NULL:
-                        _eastc.east_value_release(work[j].result.value)
-            _eastc.east_value_release(trajectories_arr)
-            first_err = work[i].result
-            free(work)
-            return first_err
-        _eastc.east_array_push(trajectories_arr, work[i].result.value)
-        _eastc.east_value_release(work[i].result.value)
-
-    free(work)
-
-    # Build result struct
-    cdef const char **field_names = <const char**>malloc(1 * sizeof(const char*))
-    cdef _eastc.EastValue **field_values = <_eastc.EastValue**>malloc(1 * sizeof(_eastc.EastValue*))
-    field_names[0] = "trajectories"
-    field_values[0] = trajectories_arr
-    cdef _eastc.EastValue *result = _eastc.east_struct_new(field_names, field_values, 1, output_type)
-    free(field_names)
-    free(field_values)
-
-    return _eastc.eval_ok(result)
-
-
-# ─── Generic factories ──────────────────────────────────────────────────
+# ─── Generic factory ────────────────────────────────────────────────────
 
 cdef _eastc.PlatformFn _simulation_run_factory(
         _eastc.EastType **type_params, size_t num_type_params) noexcept with gil:
     return _simulation_run_impl
-
-cdef _eastc.PlatformFn _simulation_trajectories_factory(
-        _eastc.EastType **type_params, size_t num_type_params) noexcept with gil:
-    return _simulation_run_trajectories_impl
 
 
 # ─── PyCapsule exports ──────────────────────────────────────────────────
 
 simulation_run_capsule = PyCapsule_New(
     <void*>_simulation_run_factory, "east_generic_factory", NULL
-)
-
-simulation_run_trajectories_capsule = PyCapsule_New(
-    <void*>_simulation_trajectories_factory, "east_generic_factory", NULL
 )

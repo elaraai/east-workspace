@@ -11,7 +11,7 @@ describeEast("Progress", (test) => {
     Assert.examples(test, {
         progressBasic: ex.progressBasic,
         progressLabeled: ex.progressLabeled,
-        progressColors: ex.progressColors,
+        progressTones: ex.progressTones,
         progressSizes: ex.progressSizes,
         progressStriped: ex.progressStriped,
         progressRange: ex.progressRange,
@@ -81,13 +81,13 @@ describeEast("Progress", (test) => {
     // Style — visual presets + colour slots
     // =========================================================================
 
-    test("creates progress with style.variant + colorPalette + size", $ => {
+    test("creates progress with style.variant + tone + size", $ => {
         const p = $.let(Progress.Root(50.0, {
-            style: { variant: "subtle", colorPalette: "blue", size: "md" },
+            style: { variant: "subtle", tone: "pos", size: "md" },
         }));
         const s = p.unwrap().unwrap("Progress").style.unwrap("some");
         $(Assert.equal(s.variant.unwrap("some").hasTag("subtle"), true));
-        $(Assert.equal(s.colorPalette.unwrap("some").hasTag("blue"), true));
+        $(Assert.equal(s.tone.unwrap("some").hasTag("pos"), true));
         $(Assert.equal(s.size.unwrap("some").hasTag("md"), true));
     });
 

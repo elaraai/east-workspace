@@ -74,7 +74,14 @@ export function ui<
 ): TaskDef {
   const derived = deriveManifest(fn);
   const inputPaths: TreePath[] = inputs.map(i => i.path);
-  const paths = dedupePaths([...inputPaths, ...derived.paths]);
+  const seen = new Set<string>();
+  const paths: TreePath[] = [];
+  for (const p of [...inputPaths, ...derived.paths]) {
+    const k = p.map(s => `${s.type}:${s.value}`).join('/');
+    if (seen.has(k)) continue;
+    seen.add(k);
+    paths.push(p);
+  }
   return task(name, inputs as any, fn as any, {
     runner: options?.runner ?? ['east-c', 'run'],
     kind: 'ui',
@@ -82,18 +89,3 @@ export function ui<
   });
 }
 
-function pathKey(p: TreePath): string {
-    return p.map(s => `${s.type}:${s.value}`).join('/');
-}
-
-function dedupePaths(paths: TreePath[]): TreePath[] {
-    const seen = new Set<string>();
-    const result: TreePath[] = [];
-    for (const p of paths) {
-        const k = pathKey(p);
-        if (seen.has(k)) continue;
-        seen.add(k);
-        result.push(p);
-    }
-    return result;
-}

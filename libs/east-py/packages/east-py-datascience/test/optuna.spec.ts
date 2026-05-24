@@ -9,7 +9,7 @@
  * Tests use describeEast following east-node conventions.
  * Tests export IR for Python to run (exportOnly: true).
  */
-import { ArrayType, East, FloatType, variant } from "@elaraai/east";
+import { ArrayType, East, FloatType, variant, some, none } from "@elaraai/east";
 import { describeEast, Assert } from "@elaraai/east-node-std";
 import { Optuna, NamedParamType, ParamSpaceType } from "@elaraai/east-py-datascience";
 import * as ex from "./optuna.examples.js";
@@ -37,19 +37,19 @@ describeEast("Optuna platform functions", (test) => {
             {
                 name: "x",
                 kind: variant("float", null),
-                low: variant("some", 0.0),
-                high: variant("some", 5.0),
-                choices: variant("none", null),
+                low: some(0.0),
+                high: some(5.0),
+                choices: none,
             },
         ], ArrayType(ParamSpaceType));
 
         // Config
         const config = $.let({
-            direction: variant("some", variant("minimize", null)),
+            direction: some(variant("minimize", null)),
             n_trials: 30n,
-            random_state: variant("some", 42n),
-            pruner: variant("none", null),
-            initial_params: variant("none", null),
+            random_state: some(42n),
+            pruner: none,
+            initial_params: none,
         });
 
         // Run optimization
@@ -81,18 +81,18 @@ describeEast("Optuna platform functions", (test) => {
             {
                 name: "n",
                 kind: variant("int", null),
-                low: variant("some", 0.0),
-                high: variant("some", 10.0),
-                choices: variant("none", null),
+                low: some(0.0),
+                high: some(10.0),
+                choices: none,
             },
         ], ArrayType(ParamSpaceType));
 
         const config = $.let({
-            direction: variant("some", variant("minimize", null)),
+            direction: some(variant("minimize", null)),
             n_trials: 20n,
-            random_state: variant("some", 123n),
-            pruner: variant("none", null),
-            initial_params: variant("none", null),
+            random_state: some(123n),
+            pruner: none,
+            initial_params: none,
         });
 
         const result = $.let(Optuna.optimize(search_space, objective, config));
@@ -134,9 +134,9 @@ describeEast("Optuna platform functions", (test) => {
             {
                 name: "category",
                 kind: variant("categorical", null),
-                low: variant("none", null),
-                high: variant("none", null),
-                choices: variant("some", [
+                low: none,
+                high: none,
+                choices: some([
                     variant("string", "best"),
                     variant("string", "good"),
                     variant("string", "bad"),
@@ -145,11 +145,11 @@ describeEast("Optuna platform functions", (test) => {
         ], ArrayType(ParamSpaceType));
 
         const config = $.let({
-            direction: variant("some", variant("minimize", null)),
+            direction: some(variant("minimize", null)),
             n_trials: 15n,
-            random_state: variant("some", 42n),
-            pruner: variant("none", null),
-            initial_params: variant("none", null),
+            random_state: some(42n),
+            pruner: none,
+            initial_params: none,
         });
 
         const result = $.let(Optuna.optimize(search_space, objective, config));
@@ -174,18 +174,18 @@ describeEast("Optuna platform functions", (test) => {
             {
                 name: "x",
                 kind: variant("float", null),
-                low: variant("some", 0.0),
-                high: variant("some", 10.0),
-                choices: variant("none", null),
+                low: some(0.0),
+                high: some(10.0),
+                choices: none,
             },
         ], ArrayType(ParamSpaceType));
 
         const config = $.let({
-            direction: variant("some", variant("maximize", null)),
+            direction: some(variant("maximize", null)),
             n_trials: 20n,
-            random_state: variant("some", 42n),
-            pruner: variant("none", null),
-            initial_params: variant("none", null),
+            random_state: some(42n),
+            pruner: none,
+            initial_params: none,
         });
 
         const result = $.let(Optuna.optimize(search_space, objective, config));
@@ -215,16 +215,16 @@ describeEast("Optuna platform functions", (test) => {
             {
                 name: "x",
                 kind: variant("float", null),
-                low: variant("some", 0.0),
-                high: variant("some", 5.0),
-                choices: variant("none", null),
+                low: some(0.0),
+                high: some(5.0),
+                choices: none,
             },
             {
                 name: "y",
                 kind: variant("float", null),
-                low: variant("some", 0.0),
-                high: variant("some", 5.0),
-                choices: variant("none", null),
+                low: some(0.0),
+                high: some(5.0),
+                choices: none,
             },
         ], ArrayType(ParamSpaceType));
 
@@ -236,11 +236,11 @@ describeEast("Optuna platform functions", (test) => {
 
         // Config with initial params
         const config = $.let({
-            direction: variant("some", variant("minimize", null)),
+            direction: some(variant("minimize", null)),
             n_trials: 10n,
-            random_state: variant("some", 42n),
-            pruner: variant("none", null),
-            initial_params: variant("some", init_params),
+            random_state: some(42n),
+            pruner: none,
+            initial_params: some(init_params),
         });
 
         const result = $.let(Optuna.optimize(search_space, objective, config));

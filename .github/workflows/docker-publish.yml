@@ -1,0 +1,262 @@
+name: Build and Push Docker Images
+
+on:
+  push:
+    tags: ['v*']
+    paths:
+      - 'docker/**'
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: 'Release channel'
+        required: true
+        default: 'beta'
+        type: choice
+        options:
+          - beta    # Use beta versions from npm
+          - latest  # Use latest stable versions from npm
+      push:
+        description: 'Push images to registry'
+        required: true
+        default: true
+        type: boolean
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  test:
+    name: Run tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Run tests (quick)
+        run: bash docker/tests/test-docker-builds.sh
+
+  build-east-node:
+    name: Build east-node (AGPL)
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Get package versions
+        id: versions
+        run: |
+          CHANNEL="${{ inputs.release_type || 'beta' }}"
+          echo "channel=${CHANNEL}" >> $GITHUB_OUTPUT
+
+          # Query npm for versions based on channel
+          if [[ "$CHANNEL" == "beta" ]]; then
+            EAST_VERSION=$(npm view @elaraai/east dist-tags.beta 2>/dev/null || npm view @elaraai/east version)
+            EAST_NODE_STD_VERSION=$(npm view @elaraai/east-node-std dist-tags.beta 2>/dev/null || npm view @elaraai/east-node-std version)
+            EAST_NODE_IO_VERSION=$(npm view @elaraai/east-node-io dist-tags.beta 2>/dev/null || npm view @elaraai/east-node-io version)
+            EAST_NODE_CLI_VERSION=$(npm view @elaraai/east-node-cli dist-tags.beta 2>/dev/null || npm view @elaraai/east-node-cli version)
+            EAST_UI_VERSION=$(npm view @elaraai/east-ui dist-tags.beta 2>/dev/null || npm view @elaraai/east-ui version)
+          else
+            EAST_VERSION=$(npm view @elaraai/east version)
+            EAST_NODE_STD_VERSION=$(npm view @elaraai/east-node-std version)
+            EAST_NODE_IO_VERSION=$(npm view @elaraai/east-node-io version)
+            EAST_NODE_CLI_VERSION=$(npm view @elaraai/east-node-cli version)
+            EAST_UI_VERSION=$(npm view @elaraai/east-ui version)
+          fi
+
+          echo "east=${EAST_VERSION}" >> $GITHUB_OUTPUT
+          echo "east_node_std=${EAST_NODE_STD_VERSION}" >> $GITHUB_OUTPUT
+          echo "east_node_io=${EAST_NODE_IO_VERSION}" >> $GITHUB_OUTPUT
+          echo "east_node_cli=${EAST_NODE_CLI_VERSION}" >> $GITHUB_OUTPUT
+          echo "east_ui=${EAST_UI_VERSION}" >> $GITHUB_OUTPUT
+
+          echo "Package versions (${CHANNEL}):"
+          echo "  @elaraai/east: ${EAST_VERSION}"
+          echo "  @elaraai/east-node-std: ${EAST_NODE_STD_VERSION}"
+          echo "  @elaraai/east-node-io: ${EAST_NODE_IO_VERSION}"
+          echo "  @elaraai/east-node-cli: ${EAST_NODE_CLI_VERSION}"
+          echo "  @elaraai/east-ui: ${EAST_UI_VERSION}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/elaraai/east-node
+          tags: |
+            type=ref,event=tag
+            type=raw,value=${{ steps.versions.outputs.channel }},enable=true
+            type=raw,value=latest,enable=${{ inputs.release_type == 'latest' || github.ref_type == 'tag' }}
+            type=sha,prefix=
+
+      - name: Build and push east-node
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/images/Dockerfile.east-node
+          push: ${{ github.event_name != 'pull_request' && (github.event.inputs.push != 'false') }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            EAST_VERSION=${{ steps.versions.outputs.east }}
+            EAST_NODE_STD_VERSION=${{ steps.versions.outputs.east_node_std }}
+            EAST_NODE_IO_VERSION=${{ steps.versions.outputs.east_node_io }}
+            EAST_NODE_CLI_VERSION=${{ steps.versions.outputs.east_node_cli }}
+            EAST_UI_VERSION=${{ steps.versions.outputs.east_ui }}
+
+  build-e3:
+    name: Build e3 (BSL + AGPL)
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Get package versions
+        id: versions
+        run: |
+          CHANNEL="${{ inputs.release_type || 'beta' }}"
+          echo "channel=${CHANNEL}" >> $GITHUB_OUTPUT
+
+          # Query npm for versions based on channel
+          if [[ "$CHANNEL" == "beta" ]]; then
+            # Node.js packages
+            EAST_VERSION=$(npm view @elaraai/east dist-tags.beta 2>/dev/null || npm view @elaraai/east version)
+            EAST_NODE_STD_VERSION=$(npm view @elaraai/east-node-std dist-tags.beta 2>/dev/null || npm view @elaraai/east-node-std version)
+            EAST_NODE_IO_VERSION=$(npm view @elaraai/east-node-io dist-tags.beta 2>/dev/null || npm view @elaraai/east-node-io version)
+            EAST_NODE_CLI_VERSION=$(npm view @elaraai/east-node-cli dist-tags.beta 2>/dev/null || npm view @elaraai/east-node-cli version)
+            EAST_UI_VERSION=$(npm view @elaraai/east-ui dist-tags.beta 2>/dev/null || npm view @elaraai/east-ui version)
+            # e3 packages
+            E3_VERSION=$(npm view @elaraai/e3 dist-tags.beta 2>/dev/null || npm view @elaraai/e3 version)
+            E3_TYPES_VERSION=$(npm view @elaraai/e3-types dist-tags.beta 2>/dev/null || npm view @elaraai/e3-types version)
+            E3_CORE_VERSION=$(npm view @elaraai/e3-core dist-tags.beta 2>/dev/null || npm view @elaraai/e3-core version)
+            E3_CLI_VERSION=$(npm view @elaraai/e3-cli dist-tags.beta 2>/dev/null || npm view @elaraai/e3-cli version)
+            E3_API_CLIENT_VERSION=$(npm view @elaraai/e3-api-client dist-tags.beta 2>/dev/null || npm view @elaraai/e3-api-client version)
+            E3_API_SERVER_VERSION=$(npm view @elaraai/e3-api-server dist-tags.beta 2>/dev/null || npm view @elaraai/e3-api-server version)
+          else
+            # Node.js packages
+            EAST_VERSION=$(npm view @elaraai/east version)
+            EAST_NODE_STD_VERSION=$(npm view @elaraai/east-node-std version)
+            EAST_NODE_IO_VERSION=$(npm view @elaraai/east-node-io version)
+            EAST_NODE_CLI_VERSION=$(npm view @elaraai/east-node-cli version)
+            EAST_UI_VERSION=$(npm view @elaraai/east-ui version)
+            # e3 packages
+            E3_VERSION=$(npm view @elaraai/e3 version)
+            E3_TYPES_VERSION=$(npm view @elaraai/e3-types version)
+            E3_CORE_VERSION=$(npm view @elaraai/e3-core version)
+            E3_CLI_VERSION=$(npm view @elaraai/e3-cli version)
+            E3_API_CLIENT_VERSION=$(npm view @elaraai/e3-api-client version)
+            E3_API_SERVER_VERSION=$(npm view @elaraai/e3-api-server version)
+          fi
+
+          # Output versions
+          echo "east=${EAST_VERSION}" >> $GITHUB_OUTPUT
+          echo "east_node_std=${EAST_NODE_STD_VERSION}" >> $GITHUB_OUTPUT
+          echo "east_node_io=${EAST_NODE_IO_VERSION}" >> $GITHUB_OUTPUT
+          echo "east_node_cli=${EAST_NODE_CLI_VERSION}" >> $GITHUB_OUTPUT
+          echo "east_ui=${EAST_UI_VERSION}" >> $GITHUB_OUTPUT
+          echo "e3=${E3_VERSION}" >> $GITHUB_OUTPUT
+          echo "e3_types=${E3_TYPES_VERSION}" >> $GITHUB_OUTPUT
+          echo "e3_core=${E3_CORE_VERSION}" >> $GITHUB_OUTPUT
+          echo "e3_cli=${E3_CLI_VERSION}" >> $GITHUB_OUTPUT
+          echo "e3_api_client=${E3_API_CLIENT_VERSION}" >> $GITHUB_OUTPUT
+          echo "e3_api_server=${E3_API_SERVER_VERSION}" >> $GITHUB_OUTPUT
+
+          echo "Package versions (${CHANNEL}):"
+          echo "  @elaraai/east: ${EAST_VERSION}"
+          echo "  @elaraai/east-node-std: ${EAST_NODE_STD_VERSION}"
+          echo "  @elaraai/east-node-io: ${EAST_NODE_IO_VERSION}"
+          echo "  @elaraai/east-node-cli: ${EAST_NODE_CLI_VERSION}"
+          echo "  @elaraai/east-ui: ${EAST_UI_VERSION}"
+          echo "  @elaraai/e3: ${E3_VERSION}"
+          echo "  @elaraai/e3-types: ${E3_TYPES_VERSION}"
+          echo "  @elaraai/e3-core: ${E3_CORE_VERSION}"
+          echo "  @elaraai/e3-cli: ${E3_CLI_VERSION}"
+          echo "  @elaraai/e3-api-client: ${E3_API_CLIENT_VERSION}"
+          echo "  @elaraai/e3-api-server: ${E3_API_SERVER_VERSION}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/elaraai/e3
+          tags: |
+            type=ref,event=tag
+            type=raw,value=${{ steps.versions.outputs.channel }},enable=true
+            type=raw,value=latest,enable=${{ inputs.release_type == 'latest' || github.ref_type == 'tag' }}
+            type=sha,prefix=
+
+      - name: Build and push e3
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/images/Dockerfile.e3
+          push: ${{ github.event_name != 'pull_request' && (github.event.inputs.push != 'false') }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            EAST_VERSION=${{ steps.versions.outputs.east }}
+            EAST_NODE_STD_VERSION=${{ steps.versions.outputs.east_node_std }}
+            EAST_NODE_IO_VERSION=${{ steps.versions.outputs.east_node_io }}
+            EAST_NODE_CLI_VERSION=${{ steps.versions.outputs.east_node_cli }}
+            EAST_UI_VERSION=${{ steps.versions.outputs.east_ui }}
+            E3_VERSION=${{ steps.versions.outputs.e3 }}
+            E3_TYPES_VERSION=${{ steps.versions.outputs.e3_types }}
+            E3_CORE_VERSION=${{ steps.versions.outputs.e3_core }}
+            E3_CLI_VERSION=${{ steps.versions.outputs.e3_cli }}
+            E3_API_CLIENT_VERSION=${{ steps.versions.outputs.e3_api_client }}
+            E3_API_SERVER_VERSION=${{ steps.versions.outputs.e3_api_server }}
+            EAST_PY_CACHEBUST=${{ github.run_id }}

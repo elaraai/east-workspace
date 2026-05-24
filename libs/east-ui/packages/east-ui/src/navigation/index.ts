@@ -7,12 +7,9 @@ export { Breadcrumb } from "./breadcrumb/index.js";
 export {
     NavList,
     NavListType,
-    NavListStyleType,
-    NavListOrientationType,
     NavSectionType,
     NavItemType,
     type NavListStyle,
-    type NavListOrientationLiteral,
     type NavSectionInput,
     type NavItemInput,
 } from "./nav-list/index.js";

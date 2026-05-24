@@ -6,7 +6,7 @@
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { East, FloatType, NullType, variant } from "@elaraai/east";
 import { TreePathType } from "@elaraai/e3-types";
-import { Reactive, Stat, Text, Button, UIComponentType } from "@elaraai/east-ui";
+import { Reactive, Stat, Button, UIComponentType } from "@elaraai/east-ui";
 import { Data } from "@elaraai/e3-ui";
 import * as ex from "./data.examples.js";
 
@@ -30,7 +30,7 @@ describeEast("Data", (test) => {
         const root = $.let(Reactive.Root(East.function([], UIComponentType, $ => {
             const bound = $.let(Data.bind([FloatType], path));
             const value = $.let(bound.read());
-            return Stat.Root("X", Text.Root(East.print(value)));
+            return Stat.Root("X", East.print(value));
         })));
         $(Assert.equal(root.unwrap().getTag(), "ReactiveComponent"));
     });

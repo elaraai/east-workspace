@@ -53,7 +53,7 @@ export const fileUploadInteractive = example({
                     maxFiles: 5,
                     onFileAccept,
                 }),
-                Text.Root(East.str`Accepted ${East.print(value)} files`),
+                Text.Presets.MonoLabel(East.str`ACCEPTED · ${value} FILES`),
             ], { gap: "3", align: "stretch", width: "100%" });
         }));
     }),
@@ -79,7 +79,7 @@ export const fileUploadOnFileReject = example({
                     maxFileSize: 100000,
                     onFileReject,
                 }),
-                Text.Root(East.str`Rejected ${East.print(value)} files`),
+                Text.Presets.MonoLabel(East.str`REJECTED · ${value} FILES`),
             ], { gap: "3", align: "stretch", width: "100%" });
         }));
     }),

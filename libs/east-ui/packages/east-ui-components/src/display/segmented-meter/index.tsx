@@ -23,11 +23,11 @@ const THICKNESS_PX: Record<string, string> = {
 };
 
 const TONE_FILL: Record<string, string> = {
-    success: "green.500",
-    warning: "orange.500",
-    danger: "red.500",
-    info: "blue.500",
-    neutral: "gray.400",
+    success: "fg.success",
+    warning: "fg.warning",
+    danger:  "fg.danger",
+    info:    "fg.info",
+    neutral: "fg.muted",
 };
 
 export interface EastChakraSegmentedMeterProps {
@@ -70,7 +70,7 @@ export const EastChakraSegmentedMeter = memo(function EastChakraSegmentedMeter({
             {segments.map((seg: typeof segments[number], i: number) => {
                 const toneTag = getSomeorUndefined(seg.tone)?.type;
                 const color = getSomeorUndefined(seg.color)
-                    ?? (toneTag ? TONE_FILL[toneTag] : "blue.500");
+                    ?? (toneTag ? TONE_FILL[toneTag] : "fg.info");
                 const segLabel = getSomeorUndefined(seg.label);
                 return (
                     <Box

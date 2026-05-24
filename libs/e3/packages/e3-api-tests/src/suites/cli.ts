@@ -176,19 +176,17 @@ export function cliTests(
         assert.strictEqual(result.exitCode, 0, `Deploy failed: ${result.stderr}`);
         assert.match(result.stdout, new RegExp(`Deployed workflow-pkg@1.0.0 to workspace: ${wsName}`));
 
-        // List recursive with details
-        result = await runE3Command(['list', remoteUrl, wsName, '-r', '-l'], workDir, { env });
-        assert.strictEqual(result.exitCode, 0, `List -r -l failed: ${result.stderr}`);
-        assert.match(result.stdout, /inputs/, 'Should list inputs');
-        // Tree entries should appear with (tree) marker
-        assert.match(result.stdout, /\(tree\)/, 'Should show tree entries');
+        // List with details
+        result = await runE3Command(['dataset', 'list', remoteUrl, wsName, '-l'], workDir, { env });
+        assert.strictEqual(result.exitCode, 0, `List -l failed: ${result.stderr}`);
+        assert.match(result.stdout, /value/, 'Should list input dataset');
         // Datasets should show status columns (set/unset)
         assert.match(result.stdout, /unset|set/, 'Datasets should show status');
 
-        // List recursive paths only
-        result = await runE3Command(['list', remoteUrl, wsName, '-r'], workDir, { env });
-        assert.strictEqual(result.exitCode, 0, `List -r failed: ${result.stderr}`);
-        assert.match(result.stdout, /\.inputs\./, 'Should list input paths');
+        // List paths only
+        result = await runE3Command(['dataset', 'list', remoteUrl, wsName], workDir, { env });
+        assert.strictEqual(result.exitCode, 0, `List failed: ${result.stderr}`);
+        assert.match(result.stdout, /\bvalue\b/, 'Should list input paths');
 
         // Clean up
         await runE3Command(['workspace', 'remove', remoteUrl, wsName], workDir, { env });
@@ -207,11 +205,11 @@ export function cliTests(
         await runE3Command(['workspace', 'deploy', remoteUrl, wsName, 'exec-cli-pkg@1.0.0'], workDir, { env });
 
         // Execute
-        const startResult = await runE3Command(['start', remoteUrl, wsName], workDir, { env });
+        const startResult = await runE3Command(['dataflow', 'run', remoteUrl, wsName], workDir, { env });
         assert.strictEqual(startResult.exitCode, 0, `Start failed: ${startResult.stderr}`);
 
         // Show logs
-        const logsResult = await runE3Command(['logs', remoteUrl, `${wsName}.compute`], workDir, { env });
+        const logsResult = await runE3Command(['task', 'logs', remoteUrl, `${wsName}.compute`], workDir, { env });
         assert.strictEqual(logsResult.exitCode, 0, `Logs failed: ${logsResult.stderr}`);
         assert.match(logsResult.stdout, /Task:/);
 

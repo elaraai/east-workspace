@@ -1,0 +1,1869 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>East UI · Configure — Pattern spec</title>
+<link rel="stylesheet" href="./colors_and_type.css">
+<link rel="stylesheet" href="./spec.css">
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<script src="./charts.js" defer></script>
+<style>
+  .nav-back {
+    display: flex; gap: 14px; align-items: baseline;
+    padding: 12px 0 18px;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 28px;
+    font-family: var(--font-mono); font-size: 11px;
+    letter-spacing: 0.12em; text-transform: uppercase;
+  }
+  .nav-back a { color: var(--ink-4); text-decoration: none; }
+  .nav-back a:hover { color: var(--brand-d); }
+  .nav-back .sep { color: var(--rule-strong); }
+  .nav-back .here { color: var(--ink); font-weight: 600; }
+
+  /* ---- Sortable + filterable column headers (Planner / Gantt left side) ---- */
+  .lhs-headers {
+    display: grid;
+    gap: 4px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--rule-strong);
+    font-family: var(--font-mono);
+    font-size: 10px; font-weight: 600;
+    letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--ink-4);
+    align-items: center;
+    background: var(--paper-2);
+  }
+  .lhs-headers.planner { grid-template-columns: minmax(0, 1fr) 50px 50px; }
+  .lhs-headers.gantt   { grid-template-columns: minmax(0, 1fr) 70px; }
+
+  .lhs-cells {
+    display: grid;
+    gap: 4px;
+    padding: 10px;
+    align-items: center;
+    border-right: 1px solid var(--rule);
+    font-size: 11px;
+  }
+  .lhs-cells.planner { grid-template-columns: minmax(0, 1fr) 50px 50px; }
+  .lhs-cells.gantt   { grid-template-columns: minmax(0, 1fr) 70px; }
+  .lhs-cells .mono, .lhs-cells .num { font-size: 11px; }
+  .lhs-cells .num   { text-align: left; }
+
+  .col-h {
+    display: inline-flex; align-items: center; gap: 4px;
+    min-width: 0;
+  }
+  .col-h.end { justify-content: flex-end; }
+  .col-icons {
+    display: inline-flex; align-items: center; gap: 3px;
+    margin-left: auto;
+  }
+  .col-h.end .col-icons { margin-left: 0; }
+  .col-i {
+    display: inline-flex; align-items: center; gap: 1px;
+    cursor: pointer;
+    color: var(--ink-4);
+    line-height: 1;
+    opacity: 0.4;
+    letter-spacing: 0; text-transform: none;
+  }
+  .col-i:hover { opacity: 0.7; }
+  .col-i.active { opacity: 1; }
+  .col-i.sort.active { color: var(--brand-dd); }
+  .col-i.filter.active { color: var(--brand-d); }
+  .col-i sup {
+    font-family: var(--font-mono);
+    font-size: 8px; font-weight: 700;
+    margin-left: 1px;
+    letter-spacing: 0;
+    line-height: 1;
+  }
+
+  /* ---- Gantt dependency lines (HTML, not SVG) ---- */
+  .gantt-deps {
+    position: absolute;
+    left: calc(220px + 12px);
+    right: 12px;
+    top: 0; bottom: 0;
+    pointer-events: none;
+    z-index: 10;
+  }
+  .gd-v, .gd-h { position: absolute; background: var(--ink-3); }
+  .gd-v { width: 1px; }
+  .gd-h { height: 1px; }
+  .gd-v.warn, .gd-h.warn { background: var(--warn); }
+  .gd-v.dashed {
+    width: 0; background: transparent;
+    border-left: 1.5px dashed var(--warn);
+  }
+  .gd-h.dashed {
+    height: 0; background: transparent;
+    border-top: 1.5px dashed var(--warn);
+  }
+  .gd-arrow {
+    position: absolute;
+    display: block;
+    overflow: visible;
+  }
+  .gd-arrow .gd-arrow-fill { fill: var(--ink-3); }
+  .gd-arrow.warn .gd-arrow-fill { fill: var(--warn); }
+  .gd-label {
+    position: absolute;
+    font-family: var(--font-mono);
+    font-size: 9px; font-weight: 700;
+    letter-spacing: 0.08em;
+    white-space: nowrap;
+    background: var(--paper);
+    padding: 1px 5px;
+    color: var(--warn);
+    border: 1px solid var(--warn);
+    border-radius: 1px;
+  }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <nav class="nav-back" aria-label="Pattern spec categories">
+    <a href="./index.html">← Index</a>
+    <span class="sep">·</span>
+    <a href="./observe.html">Observe</a>
+    <span class="sep">·</span>
+    <a href="./decide.html">Decide</a>
+    <span class="sep">·</span>
+    <a href="./configure.html" class="here">Configure</a>
+    <span class="sep">·</span>
+    <a href="./frame-trust.html">Trust</a>
+  </nav>
+
+  <main>
+
+  <section id="mode-configure" class="mode">
+    <div class="mode-head">
+      <span class="mode-id">§ 2.5</span>
+      <h2>Configure</h2>
+      <span class="anchor-tag">Anchor · <span class="pat">Input<span class="ns">.</span>Assumptions</span></span>
+    </div>
+    <p class="mode-lede">The write surface. Where assumptions get changed, parameters tuned, sources connected, rosters built. Configure mode is where the model's inputs live — and every change here is a diff that must clear <span class="mono">Compare</span> before it commits.</p>
+
+    <h4 style="margin: 36px 0 12px; font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4);">Configure-mode contract</h4>
+    <div class="frame">
+      <ol style="padding: 18px 22px 18px 40px; margin: 0; font-size: 13.5px; line-height: 1.7; color: var(--ink);">
+        <li><strong>Assumptions are visible at the top.</strong> Every write surface starts with an <span class="mono">InputBand</span> — the operator can never edit blind.</li>
+        <li><strong>Guardrails fire at the source.</strong> If a value violates a constraint, the banner appears next to the input — not at apply time.</li>
+        <li><strong>Every input is <span class="mono">Diff</span>-able.</strong> Dirty state is visually distinct (brand-tint); discard returns to baseline.</li>
+        <li><strong>Sums are checked, not assumed.</strong> Wherever rows must total, render a <span class="mono">Validation<span class="ns">.</span>Sum</span>.</li>
+        <li><strong>No silent renormalisation.</strong> If the system would adjust the user's number, it shows the proposed correction first.</li>
+      </ol>
+    </div>
+
+    <!-- ANCHOR · ASSUMPTIONS BAR -->
+    <article id="assumptions-bar" class="pattern">
+      <div class="pattern-head">
+        <span class="pattern-name">Input<span class="ns">.</span>Assumptions</span>
+        <span class="pattern-anchor">Anchor</span>
+      </div>
+      <p class="pattern-blurb">
+        The horizontal strip of named knobs that sits above any write surface. Surfaces the assumptions the run was made under. Click any cell to edit; dirty cells render brand-tint. Re-run is explicit.
+      </p>
+      <div class="frame">
+        <header class="diff-head">
+          <div class="diff-title">Assumptions · scenario "SE Q4 holiday push"</div>
+          <div class="diff-sub">5 inputs · 2 dirty · last run <span class="num">14m</span> ago</div>
+        </header>
+        <div class="input-band">
+          <div class="ib-cell">
+            <span class="ib-label">Region</span>
+            <span class="ib-val">SE <span class="chev">▾</span></span>
+          </div>
+          <div class="ib-cell dirty">
+            <span class="ib-label">Forecast Δ</span>
+            <span class="ib-val">+12% <span class="chev">▾</span></span>
+          </div>
+          <div class="ib-cell">
+            <span class="ib-label">Horizon</span>
+            <span class="ib-val">2 wks <span class="chev">▾</span></span>
+          </div>
+          <div class="ib-cell dirty">
+            <span class="ib-label">OT cap</span>
+            <span class="ib-val">$10k <span class="chev">▾</span></span>
+          </div>
+          <div class="ib-cell">
+            <span class="ib-label">Risk preset</span>
+            <span class="ib-val">balanced <span class="chev">▾</span></span>
+          </div>
+        </div>
+        <footer class="diff-foot">
+          <span>2 dirty inputs · re-run will rebuild the recommendation</span>
+          <span class="actions">
+            <button class="btn-discard">↺ Reset to baseline</button>
+            <button class="btn-apply">▶ Re-run model</button>
+          </span>
+        </footer>
+      </div>
+
+    </article>
+
+    <article id="calendar-heatmap" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Input<span class="ns">.</span>Calendar</span></div>
+      <p class="pattern-blurb">Day-of-week × week grid coloured by intensity. Used for forecast, demand, OT exposure. Click any cell to drill.</p>
+      <div class="frame">
+        <div class="eyebrow-row"><span class="lbl">Forecasted demand · SE region · Sep–Oct</span><span class="meta">low → high</span></div>
+        <div class="cal-heat">
+          <div class="cal-h"></div>
+          <div class="cal-h">Mon</div><div class="cal-h">Tue</div><div class="cal-h">Wed</div>
+          <div class="cal-h">Thu</div><div class="cal-h">Fri</div><div class="cal-h">Sat</div><div class="cal-h">Sun</div>
+
+          <div class="cal-row-label">W37</div>
+          <div class="cal-cell h0">−</div><div class="cal-cell h1">102</div><div class="cal-cell h1">110</div>
+          <div class="cal-cell h2">128</div><div class="cal-cell h3">152</div><div class="cal-cell h3">168</div><div class="cal-cell h2">141</div>
+
+          <div class="cal-row-label">W38</div>
+          <div class="cal-cell h1">98</div><div class="cal-cell h1">104</div><div class="cal-cell h2">122</div>
+          <div class="cal-cell h2 selected">131</div><div class="cal-cell h3">156</div><div class="cal-cell h4">189</div><div class="cal-cell h3">162</div>
+
+          <div class="cal-row-label">W39</div>
+          <div class="cal-cell h1">96</div><div class="cal-cell h2">118</div><div class="cal-cell h2">125</div>
+          <div class="cal-cell h3">144</div><div class="cal-cell h4">182</div><div class="cal-cell h4">204</div><div class="cal-cell h4">177</div>
+
+          <div class="cal-row-label">W40</div>
+          <div class="cal-cell h1">93</div><div class="cal-cell h2">115</div><div class="cal-cell h3">147</div>
+          <div class="cal-cell h3">158</div><div class="cal-cell h4">196</div><div class="cal-cell h4">219</div><div class="cal-cell h4">191</div>
+        </div>
+        <div class="diff-meta-row">
+          <span>Selected · <span class="num">Thu W38</span></span>
+          <span class="muted">·</span>
+          <span>predicted <span class="num">131</span> · last yr <span class="num">112</span> · <span class="deltapill up" style="font-size: 10px; padding: 1px 6px;">▲ +17%</span></span>
+          <span class="muted" style="margin-left: auto;"><a class="btn-link" href="#">Open day →</a></span>
+        </div>
+      </div>
+
+    </article>
+
+    <article id="presetpicker" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Input<span class="ns">.</span>Presets</span></div>
+      <p class="pattern-blurb">Three-up grid of named scenario presets. Snaps the entire <span class="mono">InputBand</span> to a pre-baked configuration.</p>
+      <div class="frame">
+        <div class="eyebrow-row"><span class="lbl">Risk preset</span><span class="meta muted">also adjusts: SLA target · OT cap · confidence band</span></div>
+        <div class="preset-grid">
+          <div class="preset">
+            <div class="pr-name">Conservative</div>
+            <div class="pr-desc">SLA 0.98 · OT cap +20% · prefer low-conf decisions deferred</div>
+          </div>
+          <div class="preset active">
+            <div class="pr-name">Balanced ●</div>
+            <div class="pr-desc">SLA 0.95 · OT cap base · default confidence threshold</div>
+          </div>
+          <div class="preset">
+            <div class="pr-name">Aggressive</div>
+            <div class="pr-desc">SLA 0.90 · OT cap −15% · accept lower-conf moves for upside</div>
+          </div>
+        </div>
+        <div class="spec-note" style="padding: 10px 18px;">
+          Switching preset shows a <span class="mono">Stat<span class="ns">.</span>Compare<span class="ns">.</span>View</span> of every parameter that will change before applying.
+        </div>
+      </div>
+
+    </article>
+
+    <article id="banner-guardrail" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Validation<span class="ns">.</span>Guardrail</span></div>
+      <p class="pattern-blurb">Inline warning when an input violates a hard constraint. Fires at source — not at apply time. Tells the operator what will be clamped and why.</p>
+      <div class="frame pad-18">
+        <div class="banner guard">
+          <span class="b-glyph">⚠</span>
+          <div>
+            <span class="banner-title">Max consecutive days exceeds policy</span>
+            <div style="margin-top: 4px; font-size: 12.5px;">You entered <span class="num">7</span>; policy max is <span class="num">6</span>. The value will be clamped to <span class="num">6</span> on apply. <a class="btn-link" href="#">Why this rule? →</a></div>
+          </div>
+        </div>
+        <div class="banner guard" style="margin-top: 12px;">
+          <span class="b-glyph">⚠</span>
+          <div>
+            <span class="banner-title">OT cap below predicted spend</span>
+            <div style="margin-top: 4px; font-size: 12.5px;">Cap of <span class="num">$10k</span> is below the <span class="num">$13k</span> predicted under current forecast. Apply will succeed, but the model will route the gap to <span class="mono">UnassignedTray</span>.</div>
+          </div>
+        </div>
+      </div>
+
+    </article>
+
+    <article id="sumcheck" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Validation<span class="ns">.</span>Sum</span></div>
+      <p class="pattern-blurb">Renders next to any group of inputs that must total to a known target. Live-updates as the operator types.</p>
+      <div class="frame pad-18">
+        <div class="row gap-3" style="align-items: center; flex-wrap: wrap;">
+          <span style="font-size: 13px; color: var(--ink-2);">Allocation across regions:</span>
+          <span class="sumcheck ok">✓ totals 100%</span>
+          <span class="muted" style="font-size: 12px;">·</span>
+          <span class="sumcheck bad">✗ short 8% · expected 100%, got 92%</span>
+          <span class="muted" style="font-size: 12px;">·</span>
+          <span class="sumcheck bad">✗ over by $2.3k · cap $10k</span>
+        </div>
+        <div class="spec-note" style="margin-top: 12px;">Always shows the gap, signed and with units. Never just "invalid".</div>
+      </div>
+
+    </article>
+
+    <article id="roster" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Collections<span class="ns">.</span>Roster</span></div>
+      <p class="pattern-blurb">The roster surface. Editable mode shows drag handles on every shift, ghost overlays for the model's proposed moves, and click-to-add empty cells; read-only mode (published rosters, audit views, side-by-side compare) drops the handles, dirty state, and toolbar — same chassis, same grid, no edit affordances.</p>
+      <div class="frame">
+        <div class="eyebrow-row"><span class="lbl">Edit roster · SE region · wk of Sep 16</span><span class="meta muted">3 dirty · 1 new · 2 ghost · <a class="btn-link" href="#">show diff →</a></span></div>
+        <div class="board-toolbar">
+          <span class="cap-eyebrow">Tools</span>
+          <button class="board-tool active">✎ Edit</button>
+          <button class="board-tool">+ Add shift</button>
+          <button class="board-tool">⌂ Constraints</button>
+          <span class="cap-eyebrow muted" style="margin-left: auto;">drag handles ⠿ · click empty cell to add</span>
+        </div>
+        <div class="board-grid editable">
+          <div class="bg-h">Operator</div>
+          <div class="bg-h">Mon</div><div class="bg-h">Tue</div><div class="bg-h">Wed</div>
+          <div class="bg-h">Thu</div><div class="bg-h">Fri</div><div class="bg-h">Sat</div><div class="bg-h">Sun</div>
+
+          <div class="bg-name">⠿ Patel<span style="display: block; font-family: var(--font-mono); font-size: 10px; color: var(--ink-4); margin-top: 2px;">38h → <span class="num neg">30h</span></span></div>
+          <div class="bg-cell"><span class="shift-chip"><span class="grip">⠿</span>8h</span></div>
+          <div class="bg-cell"><span class="shift-chip"><span class="grip">⠿</span>8h</span></div>
+          <div class="bg-cell"><span class="shift-chip dirty"><span class="grip">⠿</span>8h ▸ —</span></div>
+          <div class="bg-cell off"></div>
+          <div class="bg-cell"><span class="shift-chip"><span class="grip">⠿</span>6h</span></div>
+          <div class="bg-cell"><span class="shift-chip dirty"><span class="grip">⠿</span>8h ▸ —</span></div>
+          <div class="bg-cell off"></div>
+
+          <div class="bg-name">⠿ Cho<span style="display: block; font-family: var(--font-mono); font-size: 10px; color: var(--ink-4); margin-top: 2px;">26h → <span class="num pos">38h</span></span></div>
+          <div class="bg-cell"><span class="shift-chip"><span class="grip">⠿</span>8h</span></div>
+          <div class="bg-cell"><span class="shift-chip"><span class="grip">⠿</span>6h</span></div>
+          <div class="bg-cell"><span class="shift-chip new"><span class="grip">⠿</span>+8h</span></div>
+          <div class="bg-cell selected"><span class="shift-chip"><span class="grip">⠿</span>8h</span></div>
+          <div class="bg-cell off"></div>
+          <div class="bg-cell"><span class="shift-chip new"><span class="grip">⠿</span>+8h</span></div>
+          <div class="bg-cell off"><span class="shift-chip ghost">+ ghost 4h</span></div>
+
+          <div class="bg-name">⠿ Rivera<span style="display: block; font-family: var(--font-mono); font-size: 10px; color: var(--ink-4); margin-top: 2px;">32h</span></div>
+          <div class="bg-cell"><span class="shift-chip"><span class="grip">⠿</span>8h</span></div>
+          <div class="bg-cell"><span class="shift-chip"><span class="grip">⠿</span>8h</span></div>
+          <div class="bg-cell"><span class="shift-chip"><span class="grip">⠿</span>8h</span></div>
+          <div class="bg-cell"><span class="shift-chip"><span class="grip">⠿</span>8h</span></div>
+          <div class="bg-cell off"></div>
+          <div class="bg-cell off"><span class="shift-chip ghost">+ ghost 6h</span></div>
+          <div class="bg-cell off"></div>
+
+          <div class="bg-name">⠿ Okafor<span style="display: block; font-family: var(--font-mono); font-size: 10px; color: var(--ink-4); margin-top: 2px;">24h</span></div>
+          <div class="bg-cell off"></div>
+          <div class="bg-cell"><span class="shift-chip"><span class="grip">⠿</span>6h</span></div>
+          <div class="bg-cell"><span class="shift-chip"><span class="grip">⠿</span>6h</span></div>
+          <div class="bg-cell"><span class="shift-chip"><span class="grip">⠿</span>6h</span></div>
+          <div class="bg-cell"><span class="shift-chip"><span class="grip">⠿</span>6h</span></div>
+          <div class="bg-cell off"></div>
+          <div class="bg-cell off"></div>
+        </div>
+        <div class="diff-meta-row">
+          <span><span class="num">3</span> dirty · <span class="num pos">1</span> new · <span class="num">2</span> model-ghost · selected · <span class="num">Cho · Thu 8h</span></span>
+          <span class="muted" style="margin-left: auto;">⌫ delete · ⌥-drag duplicate · ⏎ accept ghost</span>
+        </div>
+        <footer class="diff-foot">
+          <span><span class="num pos">−$8k OT</span> · <span class="num">0 SLA risk</span> · 2 ghost shifts pending</span>
+          <span class="actions">
+            <button class="btn-discard">↺ Reset</button>
+            <button class="btn-apply">✓ Review diff</button>
+          </span>
+        </footer>
+      </div>
+
+    </article>
+
+    <article id="valuematrix" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Collections<span class="ns">.</span>Matrix</span></div>
+      <p class="pattern-blurb">Generic row × column grid primitive. Cells are rendered via a slot — anything from a single weight bar to multi-segment splits, vertical capacity bars, badges, or icons. Row headers can be rich (avatar + name + sub). Configurable: orientation, brush selection, drag-resize segments, emphasis ring, corner overlays. <span class="mono">ValueMatrixEditor</span>, capacity heatmaps, allocation grids, and eligibility tables are all configurations of this.</p>
+
+      <!-- Config 1: Heat-grid (booked / free) with rich row headers -->
+      <div class="frame">
+        <div class="eyebrow-row"><span class="lbl">Config · heat-grid · rich row headers · booked / free segments</span><span class="meta muted"><span class="mono">Matrix root</span> · cell renders horizontal weight bar</span></div>
+        <div class="mx" style="grid-template-columns: 180px repeat(5, 1fr);">
+          <div class="mx-h"></div>
+          <div class="mx-h col-date"><span class="dow">Mon</span><span class="dt">Apr 22</span></div>
+          <div class="mx-h col-date"><span class="dow">Tue</span><span class="dt">Apr 23</span></div>
+          <div class="mx-h col-date"><span class="dow">Wed</span><span class="dt">Apr 24</span></div>
+          <div class="mx-h col-date"><span class="dow">Thu</span><span class="dt">Apr 25</span></div>
+          <div class="mx-h col-date"><span class="dow">Fri</span><span class="dt">Apr 26</span></div>
+
+          <div class="mx-rh rich"><span class="mx-avatar">AC</span><span><span class="mx-rh-name">Alice Chen</span><span class="mx-rh-sub">Senior PM</span></span></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked label-hidden" style="width: 45%;"></span><span class="seg free" style="width: 55%;"></span></div></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked label-hidden" style="width: 70%;"></span><span class="seg free" style="width: 30%;"></span></div></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked label-hidden" style="width: 85%;"></span><span class="seg free" style="width: 15%;"></span></div></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked label-hidden" style="width: 60%;"></span><span class="seg free" style="width: 40%;"></span></div></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked label-hidden" style="width: 30%;"></span><span class="seg free" style="width: 70%;"></span></div></div>
+
+          <div class="mx-rh rich"><span class="mx-avatar">BM</span><span><span class="mx-rh-name">Bob Martinez</span><span class="mx-rh-sub">Designer</span></span></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked label-hidden" style="width: 35%;"></span><span class="seg free" style="width: 65%;"></span></div></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked label-hidden" style="width: 60%;"></span><span class="seg free" style="width: 40%;"></span></div></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked label-hidden" style="width: 30%;"></span><span class="seg free" style="width: 70%;"></span></div></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked label-hidden" style="width: 75%;"></span><span class="seg free" style="width: 25%;"></span></div></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked label-hidden" style="width: 50%;"></span><span class="seg free" style="width: 50%;"></span></div></div>
+        </div>
+        <div class="mx-legend"><span><span class="swatch booked"></span>Booked</span><span><span class="swatch free"></span>Free</span></div>
+      </div>
+
+      <!-- Config 2: Multi-segment drag-resize with labels -->
+      <div class="frame" style="margin-top: 14px;">
+        <div class="eyebrow-row"><span class="lbl">Config · multi-segment · drag-resize</span><span class="meta muted">three categories per cell · internal boundaries draggable · slack auto-fills remainder · labels suppressed under <span class="mono">minLabelSize</span></span></div>
+        <div class="mx" style="grid-template-columns: 100px repeat(3, 1fr);">
+          <div class="mx-h"></div>
+          <div class="mx-h">Design</div>
+          <div class="mx-h">Development</div>
+          <div class="mx-h">QA</div>
+
+          <div class="mx-rh">Sprint 1</div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg committed" style="width: 50%;">50%<span class="resize-handle"></span></span><span class="seg pending" style="width: 30%;">30%<span class="resize-handle"></span></span><span class="seg slack" style="width: 20%;">20%</span></div></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg committed" style="width: 70%;">70%<span class="resize-handle"></span></span><span class="seg pending" style="width: 20%;">20%<span class="resize-handle"></span></span><span class="seg slack" style="width: 10%;"></span></div></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg committed" style="width: 30%;">30%<span class="resize-handle"></span></span><span class="seg pending" style="width: 40%;">40%<span class="resize-handle"></span></span><span class="seg slack" style="width: 30%;">30%</span></div></div>
+
+          <div class="mx-rh">Sprint 2</div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg committed" style="width: 45%;">45%<span class="resize-handle"></span></span><span class="seg pending" style="width: 35%;">35%<span class="resize-handle"></span></span><span class="seg slack" style="width: 20%;">20%</span></div></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg committed" style="width: 80%;">80%<span class="resize-handle"></span></span><span class="seg pending" style="width: 15%;"></span><span class="seg slack" style="width: 5%;"></span></div></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg committed" style="width: 25%;">25%<span class="resize-handle"></span></span><span class="seg pending" style="width: 35%;">35%<span class="resize-handle"></span></span><span class="seg slack" style="width: 40%;">40%</span></div></div>
+        </div>
+        <div class="mx-legend"><span><span class="swatch committed"></span>Committed</span><span><span class="swatch pending"></span>Pending</span><span><span class="swatch slack"></span>Slack</span></div>
+      </div>
+
+      <!-- Config 3: Vertical orientation -->
+      <div class="frame" style="margin-top: 14px;">
+        <div class="eyebrow-row"><span class="lbl">Config · vertical orientation · stacked capacity bar</span><span class="meta muted">drag bar top to rebalance utilization vs free capacity</span></div>
+        <div class="mx" style="grid-template-columns: 100px repeat(5, 1fr);">
+          <div class="mx-h"></div>
+          <div class="mx-h col-date"><span class="dow">Mon</span><span class="dt">Apr 22</span></div>
+          <div class="mx-h col-date"><span class="dow">Tue</span><span class="dt">Apr 23</span></div>
+          <div class="mx-h col-date"><span class="dow">Wed</span><span class="dt">Apr 24</span></div>
+          <div class="mx-h col-date"><span class="dow">Thu</span><span class="dt">Apr 25</span></div>
+          <div class="mx-h col-date"><span class="dow">Fri</span><span class="dt">Apr 26</span></div>
+
+          <div class="mx-rh">Team A</div>
+          <div class="mx-cell vert"><div class="mx-bar"><span class="seg booked" style="height: 70%;"></span></div></div>
+          <div class="mx-cell vert"><div class="mx-bar"><span class="seg booked" style="height: 55%;"></span></div></div>
+          <div class="mx-cell vert"><div class="mx-bar"><span class="seg booked" style="height: 90%;"></span></div></div>
+          <div class="mx-cell vert"><div class="mx-bar"><span class="seg booked" style="height: 65%;"></span></div></div>
+          <div class="mx-cell vert"><div class="mx-bar"><span class="seg booked" style="height: 45%;"></span></div></div>
+
+          <div class="mx-rh">Team B</div>
+          <div class="mx-cell vert"><div class="mx-bar"><span class="seg booked" style="height: 50%;"></span></div></div>
+          <div class="mx-cell vert"><div class="mx-bar"><span class="seg booked" style="height: 75%;"></span></div></div>
+          <div class="mx-cell vert"><div class="mx-bar"><span class="seg booked" style="height: 40%;"></span></div></div>
+          <div class="mx-cell vert"><div class="mx-bar"><span class="seg booked" style="height: 85%;"></span></div></div>
+          <div class="mx-cell vert"><div class="mx-bar"><span class="seg booked" style="height: 60%;"></span></div></div>
+        </div>
+        <div class="mx-legend"><span><span class="swatch booked"></span>Used capacity</span><span><span class="swatch free"></span>Available</span></div>
+      </div>
+
+      <!-- Config 4: Cell overlays + emphasis ring -->
+      <div class="frame" style="margin-top: 14px;">
+        <div class="eyebrow-row"><span class="lbl">Config · rich cell overlays · emphasis ring</span><span class="meta muted">corner badges · inline icons · center text · <span class="mono">emphasisColor</span> drives ring</span></div>
+        <div class="mx" style="grid-template-columns: 180px repeat(3, 1fr);">
+          <div class="mx-h"></div>
+          <div class="mx-h col-date"><span class="dow">Mon</span><span class="dt">Apr 22</span></div>
+          <div class="mx-h col-date"><span class="dow">Tue</span><span class="dt">Apr 23</span></div>
+          <div class="mx-h col-date"><span class="dow">Wed</span><span class="dt">Apr 24</span></div>
+
+          <div class="mx-rh rich"><span class="mx-avatar">AC</span><span><span class="mx-rh-name">Alice Chen</span><span class="mx-rh-sub">PM</span></span></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked" style="width: 80%;">6.4h</span><span class="seg free" style="width: 20%;"></span></div><span class="ov tr alert">!</span></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked" style="width: 50%;">4h</span><span class="seg free" style="width: 50%;"></span></div><span class="ov tr team">⌘</span></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked" style="width: 100%;">9h</span></div><span class="ov tr ot">OT</span></div>
+
+          <div class="mx-rh rich"><span class="mx-avatar">BM</span><span><span class="mx-rh-name">Bob Martinez</span><span class="mx-rh-sub">Design</span></span></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked" style="width: 35%;"></span><span class="seg free" style="width: 65%;"></span></div></div>
+          <div class="mx-cell emphasis"><div class="mx-bar"><span class="seg atrisk" style="width: 100%;"></span></div></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked" style="width: 60%;"></span><span class="seg free" style="width: 40%;"></span></div></div>
+        </div>
+        <div class="mx-legend"><span><span class="swatch booked"></span>Booked</span><span><span class="swatch free"></span>Free</span><span><span class="swatch atrisk"></span>At risk</span></div>
+      </div>
+
+      <!-- Config 5: Numeric editable (legacy ValueMatrixEditor) -->
+      <div class="frame" style="margin-top: 14px;">
+        <div class="eyebrow-row"><span class="lbl">Config · numeric editable · row & column totals</span><span class="meta muted">cells render as <span class="mono">&lt;input&gt;</span> · dirty state · sum row + sum col</span></div>
+        <div class="mx" style="grid-template-columns: 110px repeat(4, 1fr) 90px;">
+          <div class="mx-h"></div>
+          <div class="mx-h">Wk 1</div><div class="mx-h">Wk 2</div><div class="mx-h">Wk 3</div><div class="mx-h">Wk 4</div>
+          <div class="mx-h">Row Σ</div>
+
+          <div class="mx-rh">NE</div>
+          <div class="mx-cell mx-num"><input value="600" /></div>
+          <div class="mx-cell mx-num"><input value="650" /></div>
+          <div class="mx-cell mx-num"><input value="700" /></div>
+          <div class="mx-cell mx-num"><input value="600" /></div>
+          <div class="mx-cell mx-num total"><input value="2,550" readonly /></div>
+
+          <div class="mx-rh">SE</div>
+          <div class="mx-cell mx-num"><input value="900" /></div>
+          <div class="mx-cell mx-num dirty"><input value="1,200" /></div>
+          <div class="mx-cell mx-num dirty"><input value="1,400" /></div>
+          <div class="mx-cell mx-num"><input value="850" /></div>
+          <div class="mx-cell mx-num total"><input value="4,350" readonly /></div>
+
+          <div class="mx-rh">MW</div>
+          <div class="mx-cell mx-num"><input value="500" /></div>
+          <div class="mx-cell mx-num"><input value="550" /></div>
+          <div class="mx-cell mx-num"><input value="600" /></div>
+          <div class="mx-cell mx-num"><input value="450" /></div>
+          <div class="mx-cell mx-num total"><input value="2,100" readonly /></div>
+
+          <div class="mx-rh">Col Σ</div>
+          <div class="mx-cell mx-num total"><input value="2,000" readonly /></div>
+          <div class="mx-cell mx-num total"><input value="2,400" readonly /></div>
+          <div class="mx-cell mx-num total"><input value="2,700" readonly /></div>
+          <div class="mx-cell mx-num total"><input value="1,900" readonly /></div>
+          <div class="mx-cell mx-num total"><input value="9,000" readonly /></div>
+        </div>
+        <div class="row gap-3" style="padding: 10px 14px; align-items: center;">
+          <span class="sumcheck ok">✓ within $10,000 cap</span>
+          <span class="cap-eyebrow muted" style="margin-left: auto;">2 dirty cells · <a class="btn-link" href="#">show diff →</a></span>
+        </div>
+      </div>
+
+      <!-- Config 6: Brush selection -->
+      <div class="frame" style="margin-top: 14px;">
+        <div class="eyebrow-row"><span class="lbl">Config · brush selection</span><span class="meta muted">drag across cells to multi-select · <span class="mono">selected</span> drives highlight · <span class="mono">onChange</span> syncs back</span></div>
+        <div class="mx" style="grid-template-columns: 180px repeat(4, 1fr);">
+          <div class="mx-h"></div>
+          <div class="mx-h col-date"><span class="dow">Mon</span><span class="dt">Apr 22</span></div>
+          <div class="mx-h col-date"><span class="dow">Tue</span><span class="dt">Apr 23</span></div>
+          <div class="mx-h col-date"><span class="dow">Wed</span><span class="dt">Apr 24</span></div>
+          <div class="mx-h col-date"><span class="dow">Thu</span><span class="dt">Apr 25</span></div>
+
+          <div class="mx-rh rich"><span class="mx-avatar">AC</span><span><span class="mx-rh-name">Alice Chen</span><span class="mx-rh-sub">PM</span></span></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked" style="width: 100%;"></span></div></div>
+          <div class="mx-cell brushed"><div class="mx-bar"><span class="seg booked" style="width: 100%;"></span></div></div>
+          <div class="mx-cell brushed"><div class="mx-bar"><span class="seg booked" style="width: 100%;"></span></div></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked" style="width: 100%;"></span></div></div>
+
+          <div class="mx-rh rich"><span class="mx-avatar">BM</span><span><span class="mx-rh-name">Bob Martinez</span><span class="mx-rh-sub">Design</span></span></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked" style="width: 100%;"></span></div></div>
+          <div class="mx-cell brushed"><div class="mx-bar"><span class="seg booked" style="width: 100%;"></span></div></div>
+          <div class="mx-cell brushed"><div class="mx-bar"><span class="seg booked" style="width: 100%;"></span></div></div>
+          <div class="mx-cell"><div class="mx-bar"><span class="seg booked" style="width: 100%;"></span></div></div>
+        </div>
+        <div class="diff-meta-row"><span>Selected · <span class="num">4 cells</span> · Tue–Wed × Alice + Bob</span><span class="muted" style="margin-left: auto;">⌫ clear · ⏎ apply</span></div>
+      </div>
+
+    </article>
+    <article id="sensitivity" class="pattern pattern-moved">
+      <div class="pattern-head"><span class="pattern-name">Stat<span class="ns">.</span>Sensitivity</span><span class="pattern-anchor" style="background: var(--paper-2); color: var(--ink-3);">Defined in Observe</span></div>
+      <p class="pattern-blurb">Tornado chart of how the target metric moves as each input is perturbed ±X. The same primitive Observe uses for "what's load-bearing" — Configure embeds it after a re-run so the operator can see which assumptions actually moved the recommendation. <a class="btn-link" href="./observe.html#stat-sensitivity">See full spec in Observe →</a></p>
+    </article>
+
+    <article id="cline" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Collections<span class="ns">.</span>Line</span></div>
+      <p class="pattern-blurb">A value-over-axis editor — a sequence of (axis-position, value) points connected by a polyline, each point draggable. Use when an input or lever is meaningfully axis-shaped (time, distance, scenario stage) and a single end-state value would hide the path. Optional uncertainty band shades around the line; the leftmost handle can be locked when it represents "today" or another fixed observation.</p>
+
+      <div class="frame">
+        <div class="eyebrow-row">
+          <span class="lbl">AI adoption pace · 3-year ramp · today → Y3</span>
+          <span class="meta muted">drag a year handle to redraw the ramp · band shows leadership's ±12 pt uncertainty</span>
+        </div>
+
+        <div class="cline">
+          <div class="cline-name">
+            <span class="lbl">AI adoption pace</span>
+            <span class="desc">% of advisory workforce using AI</span>
+          </div>
+          <div class="cline-edit">
+            <span class="cline-y" style="top: 8%;">100%</span>
+            <span class="cline-y" style="top: 48%;">50%</span>
+            <span class="cline-y" style="top: 88%;">0%</span>
+            <div class="cline-row-rule" style="top: 8%;"></div>
+            <div class="cline-row-rule" style="top: 48%;"></div>
+            <div class="cline-row-rule" style="top: 88%;"></div>
+            <div class="cline-col-rule" style="left: 38%;"></div>
+            <div class="cline-col-rule" style="left: 65%;"></div>
+            <div class="cline-col-rule" style="left: 92%;"></div>
+
+            <svg class="cline-line" preserveAspectRatio="none" viewBox="0 0 100 100">
+              <polygon points="10,70 38,52 65,38 92,28 92,48 65,58 38,68 10,75" fill="var(--brand-d)" fill-opacity="0.12"/>
+              <polyline points="10,70 38,60 65,48 92,38" fill="none" stroke="var(--brand-d)" stroke-width="1.5" vector-effect="non-scaling-stroke"/>
+            </svg>
+
+            <span class="cline-handle start" style="left: 10%; top: 70%;"></span>
+            <span class="cline-hval" style="left: 10%; top: 70%;">23%</span>
+            <span class="cline-handle" style="left: 38%; top: 60%;"></span>
+            <span class="cline-hval" style="left: 38%; top: 60%;">35%</span>
+            <span class="cline-handle" style="left: 65%; top: 48%;"></span>
+            <span class="cline-hval" style="left: 65%; top: 48%;">50%</span>
+            <span class="cline-handle" style="left: 92%; top: 38%;"></span>
+            <span class="cline-hval" style="left: 92%; top: 38%;">62%</span>
+
+            <span class="cline-x" style="left: 10%;">today</span>
+            <span class="cline-x" style="left: 38%;">Y1</span>
+            <span class="cline-x" style="left: 65%;">Y2</span>
+            <span class="cline-x" style="left: 92%;">Y3</span>
+          </div>
+          <div class="cline-summary">
+            <span class="big">23 → 62%</span>
+            <span class="delta pos">+39 pts · 3y</span>
+            <span class="muted">band ±12 pts</span>
+          </div>
+        </div>
+
+        <div class="cline">
+          <div class="cline-name">
+            <span class="lbl">Capacity demand</span>
+            <span class="desc">share AI substitutes</span>
+          </div>
+          <div class="cline-edit">
+            <span class="cline-y" style="top: 8%;">0%</span>
+            <span class="cline-y" style="top: 48%;">−30%</span>
+            <span class="cline-y" style="top: 88%;">−60%</span>
+            <div class="cline-row-rule" style="top: 8%;"></div>
+            <div class="cline-row-rule" style="top: 48%;"></div>
+            <div class="cline-row-rule" style="top: 88%;"></div>
+            <div class="cline-col-rule" style="left: 38%;"></div>
+            <div class="cline-col-rule" style="left: 65%;"></div>
+            <div class="cline-col-rule" style="left: 92%;"></div>
+
+            <svg class="cline-line" preserveAspectRatio="none" viewBox="0 0 100 100">
+              <polygon points="10,8 38,28 65,55 92,76 92,86 65,73 38,46 10,18" fill="var(--neg)" fill-opacity="0.10"/>
+              <polyline points="10,8 38,32 65,56 92,82" fill="none" stroke="color-mix(in oklch, var(--neg) 70%, var(--ink))" stroke-width="1.5" vector-effect="non-scaling-stroke"/>
+            </svg>
+
+            <span class="cline-handle start" style="left: 10%; top: 8%;"></span>
+            <span class="cline-hval" style="left: 10%; top: 8%;">0</span>
+            <span class="cline-handle neg" style="left: 38%; top: 32%;"></span>
+            <span class="cline-hval" style="left: 38%; top: 32%;">−18</span>
+            <span class="cline-handle neg" style="left: 65%; top: 56%;"></span>
+            <span class="cline-hval" style="left: 65%; top: 56%;">−36</span>
+            <span class="cline-handle neg" style="left: 92%; top: 82%;"></span>
+            <span class="cline-hval" style="left: 92%; top: 82%;">−52</span>
+
+            <span class="cline-x" style="left: 10%;">today</span>
+            <span class="cline-x" style="left: 38%;">Y1</span>
+            <span class="cline-x" style="left: 65%;">Y2</span>
+            <span class="cline-x" style="left: 92%;">Y3</span>
+          </div>
+          <div class="cline-summary">
+            <span class="big">0 → −52%</span>
+            <span class="delta">non-linear ramp</span>
+            <span class="muted">band ±10 pts</span>
+          </div>
+        </div>
+
+        <div class="diff-meta-row" style="margin-top: 12px;">
+          <span class="cap-eyebrow muted">contrast</span>
+          <span class="muted"><span class="mono">Lever.Slider</span> authors a <em>single</em> value with bounds; <span class="mono">Collections.Line</span> authors the <em>path</em>. Use Line whenever the consumer (an optimiser, a forecast, an animation) cares about the trajectory and not just the end-state.</span>
+        </div>
+      </div>
+
+    </article>
+
+    <article id="cgrid" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Collections<span class="ns">.</span>Grid</span></div>
+      <p class="pattern-blurb">A row × column heatmap-style table with an optional drill into a third dimension. Each cell shows a single number tinted by intensity; selecting a cell opens a stable detail panel below the grid that travels with the selection. Distinct from <span class="mono">Collections.Matrix</span> (which renders cells via a free slot and has no built-in drill convention) — Grid trades flexibility for a single coherent reading.</p>
+
+      <div class="frame">
+        <div class="eyebrow-row">
+          <span class="lbl">Time allocation · level × task × capability</span>
+          <span class="meta muted">click any cell to drill into its third-dimension split · only one cell selected at a time</span>
+        </div>
+
+        <div class="cgrid">
+          <table>
+            <thead>
+              <tr>
+                <th>Level</th>
+                <th>Lead-gen</th>
+                <th>Proposal</th>
+                <th>Delivery</th>
+                <th>PMO</th>
+                <th>Execution</th>
+                <th>Specialist</th>
+                <th>Feedback</th>
+                <th>Support</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td class="role">Partner</td>           <td class="num heat-4">35%</td><td class="num heat-3">22%</td><td class="num heat-2">10%</td><td class="num heat-1">4%</td><td class="num heat-1">3%</td><td class="num heat-2">12%</td><td class="num heat-2">12%</td><td class="num heat-0">2%</td></tr>
+              <tr><td class="role">Director</td>          <td class="num heat-3">18%</td><td class="num heat-3">24%</td><td class="num heat-3">22%</td><td class="num heat-2">10%</td><td class="num heat-2">8%</td><td class="num heat-2">10%</td><td class="num heat-1">6%</td><td class="num heat-0">2%</td></tr>
+              <tr><td class="role">Associate Director</td><td class="num heat-2">8%</td> <td class="num heat-3">18%</td><td class="num selected">32%</td><td class="num heat-2">14%</td><td class="num heat-2">14%</td><td class="num heat-2">8%</td><td class="num heat-1">4%</td><td class="num heat-0">2%</td></tr>
+              <tr><td class="role">Manager</td>           <td class="num heat-1">3%</td> <td class="num heat-2">10%</td><td class="num heat-4">38%</td><td class="num heat-3">20%</td><td class="num heat-3">20%</td><td class="num heat-1">4%</td><td class="num heat-1">3%</td><td class="num heat-0">2%</td></tr>
+              <tr><td class="role">Senior Consultant</td> <td class="num heat-0">1%</td> <td class="num heat-1">6%</td> <td class="num heat-4">36%</td><td class="num heat-2">12%</td><td class="num heat-4">38%</td><td class="num heat-1">3%</td><td class="num heat-0">2%</td><td class="num heat-0">2%</td></tr>
+              <tr><td class="role">Consultant</td>        <td class="num heat-0">0%</td> <td class="num heat-1">3%</td> <td class="num heat-4">30%</td><td class="num heat-2">8%</td> <td class="num heat-4">52%</td><td class="num heat-0">2%</td><td class="num heat-0">2%</td><td class="num heat-0">3%</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="cgrid-drill">
+          <div class="cgrid-drill-head">
+            <span class="crumb">
+              <span class="pick">Associate Director</span> × <span class="pick">Delivery</span> · capability split
+            </span>
+            <span class="total">cell <span class="num">32%</span> of AD time · <span class="num">14,800</span> hrs / year</span>
+          </div>
+
+          <div class="cgrid-bar">
+            <span class="seg c-1" style="flex: 42;" title="Risk advisory · 42%">Risk advisory</span>
+            <span class="seg c-2" style="flex: 28;" title="M&amp;A integration · 28%">M&amp;A int.</span>
+            <span class="seg c-3" style="flex: 18;" title="Tech advisory · 18%">Tech</span>
+            <span class="seg c-4" style="flex: 8;" title="Sector specialism · 8%">Sect.</span>
+            <span class="seg c-5" style="flex: 4;" title="Other · 4%"></span>
+          </div>
+
+          <div class="cgrid-legend">
+            <div class="li"><span class="sw c-1"></span><span>Risk advisory</span><span class="pct">42%</span><span class="hours">6,220 h</span></div>
+            <div class="li"><span class="sw c-2"></span><span>M&amp;A integration</span><span class="pct">28%</span><span class="hours">4,140 h</span></div>
+            <div class="li"><span class="sw c-3"></span><span>Tech advisory</span><span class="pct">18%</span><span class="hours">2,660 h</span></div>
+            <div class="li"><span class="sw c-4"></span><span>Sector specialism</span><span class="pct">8%</span><span class="hours">1,180 h</span></div>
+            <div class="li"><span class="sw c-5"></span><span>Other</span><span class="pct">4%</span><span class="hours">600 h</span></div>
+          </div>
+
+          <div class="diff-meta-row" style="margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--rule);">
+            <span class="cap-eyebrow muted">attribution</span>
+            <span class="muted">capability split fed by <span class="trust-chip" style="vertical-align: -3px;"><span class="tc-dot ok"></span><span class="tc-label">timesheet-rollup-v2</span></span></span>
+            <span class="muted" style="margin-left: auto;"><a class="btn-link" href="#">re-allocate →</a></span>
+          </div>
+        </div>
+
+        <div class="diff-meta-row" style="margin-top: 12px;">
+          <span class="cap-eyebrow muted">contrast</span>
+          <span class="muted"><span class="mono">Collections.Matrix</span> renders cells via a free slot — you can put anything in them but you author the drill convention per-host. <span class="mono">Collections.Grid</span> bakes the drill in: cells are a single tinted number, selection is exclusive, the detail panel is part of the chassis.</span>
+        </div>
+      </div>
+
+    </article>
+
+    <article id="sourcelibrary" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Collections<span class="ns">.</span>Library</span></div>
+      <p class="pattern-blurb">A draggable palette of things that get assigned into <span class="mono">Collections.Roster</span> (or any grid surface): people, assets, vehicles, rooms. Each item carries a primary identity plus configurable secondary dimensions (role, skills, hours, certifications, location) that are filterable, groupable, and visible on the card. Drag a card onto a Roster cell to assign; ⌥-drag to duplicate; cards dim when filtered out instead of disappearing so the user keeps a stable mental map.</p>
+
+      <!-- Config 1: People library -->
+      <div class="frame">
+        <div class="eyebrow-row"><span class="lbl">People · SE region · 12 of 18 visible</span><span class="meta muted">drag to roster · ⌥-drag duplicate</span></div>
+        <div class="lib-toolbar">
+          <input class="lib-search" placeholder="Search name, skill, cert…" />
+          <span class="lib-sep"></span>
+          <span class="cap-eyebrow">Group by</span>
+          <span class="lib-seg">
+            <button class="lib-seg-btn active">Role</button>
+            <button class="lib-seg-btn">Team</button>
+            <button class="lib-seg-btn">Skill</button>
+            <button class="lib-seg-btn">None</button>
+          </span>
+          <span class="cap-eyebrow muted" style="margin-left: auto;">Secondary</span>
+          <span class="lib-seg">
+            <button class="lib-seg-btn active">Hours</button>
+            <button class="lib-seg-btn active">Skills</button>
+            <button class="lib-seg-btn">Cert</button>
+            <button class="lib-seg-btn">Location</button>
+          </span>
+        </div>
+
+        <div class="lib-group-head"><span class="cap-eyebrow">Senior · 4</span><span class="muted cap-eyebrow">avg <span class="num">31h</span> / 40 cap</span></div>
+        <div class="lib-grid">
+          <div class="lib-card">
+            <span class="lib-grip">⠿</span>
+            <span class="lib-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-3.3 0-8 1.7-8 5v1a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-1c0-3.3-4.7-5-8-5z"/></svg></span>
+            <div class="lib-id">
+              <span class="lib-name">Patel, R.</span>
+              <span class="lib-tag role">Senior SE</span>
+            </div>
+            <div class="lib-hours"><span class="lib-hours-fill" style="width: 95%;"></span><span class="num">38h</span></div>
+            <div class="lib-skills">
+              <span class="lib-skill">React</span><span class="lib-skill">Node</span><span class="lib-skill">+3</span>
+            </div>
+          </div>
+          <div class="lib-card">
+            <span class="lib-grip">⠿</span>
+            <span class="lib-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-3.3 0-8 1.7-8 5v1a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-1c0-3.3-4.7-5-8-5z"/></svg></span>
+            <div class="lib-id">
+              <span class="lib-name">Cho, J.</span>
+              <span class="lib-tag role">Senior SE</span>
+            </div>
+            <div class="lib-hours"><span class="lib-hours-fill" style="width: 65%;"></span><span class="num">26h</span></div>
+            <div class="lib-skills">
+              <span class="lib-skill">Go</span><span class="lib-skill">SQL</span><span class="lib-skill">+2</span>
+            </div>
+          </div>
+          <div class="lib-card placed">
+            <span class="lib-grip">⠿</span>
+            <span class="lib-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-3.3 0-8 1.7-8 5v1a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-1c0-3.3-4.7-5-8-5z"/></svg></span>
+            <div class="lib-id">
+              <span class="lib-name">Rivera, M.</span>
+              <span class="lib-tag role">Senior SE</span>
+            </div>
+            <div class="lib-hours"><span class="lib-hours-fill" style="width: 80%;"></span><span class="num">32h</span></div>
+            <div class="lib-skills">
+              <span class="lib-skill">React</span><span class="lib-skill">Py</span>
+            </div>
+            <span class="lib-flag">on roster</span>
+          </div>
+          <div class="lib-card dim">
+            <span class="lib-grip">⠿</span>
+            <span class="lib-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-3.3 0-8 1.7-8 5v1a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-1c0-3.3-4.7-5-8-5z"/></svg></span>
+            <div class="lib-id">
+              <span class="lib-name">Okafor, S.</span>
+              <span class="lib-tag role">Senior SE</span>
+            </div>
+            <div class="lib-hours"><span class="lib-hours-fill warn" style="width: 100%;"></span><span class="num neg">40h</span></div>
+            <div class="lib-skills"><span class="lib-skill">Go</span></div>
+            <span class="lib-flag warn">at cap</span>
+          </div>
+        </div>
+
+        <div class="lib-group-head"><span class="cap-eyebrow">Mid · 5</span><span class="muted cap-eyebrow">avg <span class="num">22h</span> / 40 cap</span></div>
+        <div class="lib-grid">
+          <div class="lib-card">
+            <span class="lib-grip">⠿</span>
+            <span class="lib-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-3.3 0-8 1.7-8 5v1a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-1c0-3.3-4.7-5-8-5z"/></svg></span>
+            <div class="lib-id">
+              <span class="lib-name">Nguyen, T.</span>
+              <span class="lib-tag role mid">Mid SE</span>
+            </div>
+            <div class="lib-hours"><span class="lib-hours-fill" style="width: 50%;"></span><span class="num">20h</span></div>
+            <div class="lib-skills"><span class="lib-skill">React</span><span class="lib-skill">CSS</span></div>
+          </div>
+          <div class="lib-card">
+            <span class="lib-grip">⠿</span>
+            <span class="lib-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-3.3 0-8 1.7-8 5v1a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-1c0-3.3-4.7-5-8-5z"/></svg></span>
+            <div class="lib-id">
+              <span class="lib-name">Kim, A.</span>
+              <span class="lib-tag role mid">Mid SE</span>
+            </div>
+            <div class="lib-hours"><span class="lib-hours-fill" style="width: 55%;"></span><span class="num">22h</span></div>
+            <div class="lib-skills"><span class="lib-skill">Go</span><span class="lib-skill">k8s</span></div>
+          </div>
+          <div class="lib-card unavail">
+            <span class="lib-grip">⠿</span>
+            <span class="lib-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-3.3 0-8 1.7-8 5v1a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-1c0-3.3-4.7-5-8-5z"/></svg></span>
+            <div class="lib-id">
+              <span class="lib-name">Liu, D.</span>
+              <span class="lib-tag role mid">Mid SE</span>
+            </div>
+            <div class="lib-hours"><span class="lib-hours-fill" style="width: 0%;"></span><span class="num muted">leave</span></div>
+            <div class="lib-skills"><span class="lib-skill">Py</span></div>
+            <span class="lib-flag">PTO Mar 4–8</span>
+          </div>
+        </div>
+
+        <div class="lib-foot">
+          <span class="cap-eyebrow muted">6 hidden by filter · <a class="btn-link" href="#">show all</a></span>
+          <span class="cap-eyebrow muted" style="margin-left: auto;">+ Add person</span>
+        </div>
+      </div>
+
+      <!-- Config 2: Asset library (different primary identity, different secondary dims) -->
+      <div class="frame" style="margin-top: 14px;">
+        <div class="eyebrow-row"><span class="lbl">Config · assets · same chassis · different secondary dims</span><span class="meta muted">primary <span class="mono">name + class</span> · secondary <span class="mono">capacity · range · cert</span></span></div>
+        <div class="lib-toolbar compact">
+          <span class="cap-eyebrow">Group by</span>
+          <span class="lib-seg">
+            <button class="lib-seg-btn active">Class</button>
+            <button class="lib-seg-btn">Depot</button>
+            <button class="lib-seg-btn">None</button>
+          </span>
+          <span class="cap-eyebrow muted" style="margin-left: auto;">Secondary</span>
+          <span class="lib-seg">
+            <button class="lib-seg-btn active">Capacity</button>
+            <button class="lib-seg-btn active">Range</button>
+            <button class="lib-seg-btn">Cert</button>
+          </span>
+        </div>
+        <div class="lib-group-head"><span class="cap-eyebrow">Class · Box truck · 3</span></div>
+        <div class="lib-grid">
+          <div class="lib-card asset">
+            <span class="lib-grip">⠿</span>
+            <span class="lib-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="7" width="12" height="9" rx="1"/><path d="M14 10h5l3 3v3h-8z"/><circle cx="6" cy="18" r="1.6" fill="currentColor" stroke="none"/><circle cx="18" cy="18" r="1.6" fill="currentColor" stroke="none"/></svg></span>
+            <div class="lib-id">
+              <span class="lib-name">BT-014</span>
+              <span class="lib-tag role">26ft box</span>
+            </div>
+            <div class="lib-skills">
+              <span class="lib-skill">cap <span class="num">10t</span></span>
+              <span class="lib-skill">range <span class="num">300mi</span></span>
+              <span class="lib-skill">CDL-B</span>
+            </div>
+          </div>
+          <div class="lib-card asset">
+            <span class="lib-grip">⠿</span>
+            <span class="lib-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="7" width="12" height="9" rx="1"/><path d="M14 10h5l3 3v3h-8z"/><circle cx="6" cy="18" r="1.6" fill="currentColor" stroke="none"/><circle cx="18" cy="18" r="1.6" fill="currentColor" stroke="none"/></svg></span>
+            <div class="lib-id">
+              <span class="lib-name">BT-018</span>
+              <span class="lib-tag role">26ft box</span>
+            </div>
+            <div class="lib-skills">
+              <span class="lib-skill">cap <span class="num">10t</span></span>
+              <span class="lib-skill">range <span class="num">300mi</span></span>
+              <span class="lib-skill">CDL-B</span>
+            </div>
+          </div>
+          <div class="lib-card asset placed">
+            <span class="lib-grip">⠿</span>
+            <span class="lib-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="7" width="12" height="9" rx="1"/><path d="M14 10h5l3 3v3h-8z"/><circle cx="6" cy="18" r="1.6" fill="currentColor" stroke="none"/><circle cx="18" cy="18" r="1.6" fill="currentColor" stroke="none"/></svg></span>
+            <div class="lib-id">
+              <span class="lib-name">BT-022</span>
+              <span class="lib-tag role">26ft box</span>
+            </div>
+            <div class="lib-skills">
+              <span class="lib-skill">cap <span class="num">10t</span></span>
+              <span class="lib-skill">range <span class="num">300mi</span></span>
+            </div>
+            <span class="lib-flag">in service</span>
+          </div>
+        </div>
+      </div>
+
+    </article>
+
+    <article id="workbench" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Collections<span class="ns">.</span>Workbench</span></div>
+      <p class="pattern-blurb">Assembly surface for <strong>product-blending and batching</strong> decisions — pulling proportions from many sources into one or more targets. Sources can be raw lots, intermediates, recipe components, fuel cuts, feed streams, ingredient SKUs — anything where the arrangement is <em>what proportion of what</em>. Pairs with <span class="mono">Collections<span class="ns">.</span>Library</span> on the left and a live composition for each Target on the right; a compact flow strip between them shows what's been drawn from where. <strong>One pattern, three render modes:</strong> <span class="mono">single</span> (N=1, focus), <span class="mono">compare</span> (N=2, side-by-side with auto diff), <span class="mono">portfolio</span> (N≥3, horizontal scroll — day-plan / shift-plan).</p>
+
+      <div class="frame">
+        <div class="eyebrow-row"><span class="lbl">Workbench · target <span class="mono">BLEND-318</span> · cap 40,000 u</span><span class="meta muted">3 sources · 14,000 u headroom · obj: <span class="mono">min cost · Grade ≥ A · respect pins</span></span></div>
+        <div class="workbench">
+          <!-- Sources column · embedded Collections.Library -->
+          <div class="wb-sources">
+            <div class="wb-col-head">
+              <span class="cap-eyebrow">Sources</span>
+              <span class="muted" style="font-family: var(--font-mono); font-size: 10.5px;">28 of 142 visible</span>
+            </div>
+            <div class="wb-filters">
+              <span class="chip brand">Class A</span>
+              <span class="chip">Site 3</span>
+              <span class="chip">Q2</span>
+              <span class="chip dashed">+ filter</span>
+            </div>
+            <div class="lib-grid">
+              <div class="lib-card asset placed">
+                <span class="lib-grip">⋿</span>
+                <span class="lib-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 7l-9-5-9 5v10l9 5 9-5V7zM12 4.3L18.3 8 12 11.7 5.7 8 12 4.3zM5 9.5l6 3.5v7L5 16.5v-7zm14 7L13 20v-7l6-3.5v7z"/></svg></span>
+                <div class="lib-id">
+                  <span class="lib-name">SRC-204</span>
+                  <span class="lib-tag role">Class A · Site 3</span>
+                </div>
+                <div class="lib-skills">
+                  <span class="lib-skill"><span class="num">12,000</span> u avail</span>
+                  <span class="lib-skill">Q2-24</span>
+                </div>
+                <span class="lib-flag">in use</span>
+              </div>
+              <div class="lib-card asset placed">
+                <span class="lib-grip">⋿</span>
+                <span class="lib-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 7l-9-5-9 5v10l9 5 9-5V7zM12 4.3L18.3 8 12 11.7 5.7 8 12 4.3zM5 9.5l6 3.5v7L5 16.5v-7zm14 7L13 20v-7l6-3.5v7z"/></svg></span>
+                <div class="lib-id">
+                  <span class="lib-name">SRC-217</span>
+                  <span class="lib-tag role">Class A · Site 1</span>
+                </div>
+                <div class="lib-skills">
+                  <span class="lib-skill"><span class="num">6,000</span> u avail</span>
+                  <span class="lib-skill">Q2-24</span>
+                </div>
+                <span class="lib-flag">in use</span>
+              </div>
+              <div class="lib-card asset placed">
+                <span class="lib-grip">⋿</span>
+                <span class="lib-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 7l-9-5-9 5v10l9 5 9-5V7zM12 4.3L18.3 8 12 11.7 5.7 8 12 4.3zM5 9.5l6 3.5v7L5 16.5v-7zm14 7L13 20v-7l6-3.5v7z"/></svg></span>
+                <div class="lib-id">
+                  <span class="lib-name">SRC-228</span>
+                  <span class="lib-tag role">Class B · Site 4</span>
+                </div>
+                <div class="lib-skills">
+                  <span class="lib-skill"><span class="num">2,000</span> u avail</span>
+                  <span class="lib-skill">Q4-23</span>
+                </div>
+                <span class="lib-flag">in use</span>
+              </div>
+              <div class="lib-card asset">
+                <span class="lib-grip">⋿</span>
+                <span class="lib-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 7l-9-5-9 5v10l9 5 9-5V7zM12 4.3L18.3 8 12 11.7 5.7 8 12 4.3zM5 9.5l6 3.5v7L5 16.5v-7zm14 7L13 20v-7l6-3.5v7z"/></svg></span>
+                <div class="lib-id">
+                  <span class="lib-name">SRC-114</span>
+                  <span class="lib-tag role">Class A · Site 3</span>
+                </div>
+                <div class="lib-skills">
+                  <span class="lib-skill"><span class="num">22,000</span> u avail</span>
+                  <span class="lib-skill">Q2-24</span>
+                </div>
+              </div>
+              <div class="lib-card asset">
+                <span class="lib-grip">⋿</span>
+                <span class="lib-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 7l-9-5-9 5v10l9 5 9-5V7zM12 4.3L18.3 8 12 11.7 5.7 8 12 4.3zM5 9.5l6 3.5v7L5 16.5v-7zm14 7L13 20v-7l6-3.5v7z"/></svg></span>
+                <div class="lib-id">
+                  <span class="lib-name">SRC-309</span>
+                  <span class="lib-tag role">Class A · Site 2</span>
+                </div>
+                <div class="lib-skills">
+                  <span class="lib-skill"><span class="num">14,000</span> u avail</span>
+                  <span class="lib-skill">Q2-24</span>
+                </div>
+              </div>
+              <div class="lib-card asset unavail">
+                <span class="lib-grip">⋿</span>
+                <span class="lib-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 7l-9-5-9 5v10l9 5 9-5V7zM12 4.3L18.3 8 12 11.7 5.7 8 12 4.3zM5 9.5l6 3.5v7L5 16.5v-7zm14 7L13 20v-7l6-3.5v7z"/></svg></span>
+                <div class="lib-id">
+                  <span class="lib-name">SRC-072</span>
+                  <span class="lib-tag role">Class A · Site 3</span>
+                </div>
+                <div class="lib-skills">
+                  <span class="lib-skill"><span class="num">9,000</span> u avail</span>
+                  <span class="lib-skill">Q4-22</span>
+                </div>
+                <span class="lib-flag warn">forbidden</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Flow strip · Sankey-style proportional connectors -->
+          <div class="wb-flow" aria-label="Flow from sources to target">
+            <svg viewBox="0 0 120 360" preserveAspectRatio="none">
+              <path d="M 0 60  C 60 60, 60 180, 120 180" stroke="var(--brand)" stroke-width="14" fill="none" opacity="0.55"/>
+              <path d="M 0 130 C 60 130, 60 220, 120 220" stroke="var(--brand)" stroke-width="8" fill="none" opacity="0.55"/>
+              <path d="M 0 200 C 60 200, 60 240, 120 240" stroke="var(--brand)" stroke-width="3" fill="none" opacity="0.55"/>
+            </svg>
+          </div>
+
+          <!-- Target column · the live composition -->
+          <div class="wb-target">
+            <div class="wb-col-head">
+              <span class="cap-eyebrow">Target · <span class="mono">BLEND-318</span></span>
+              <span class="dot ok"></span>
+            </div>
+            <div class="wb-target-meta">
+              <span><span class="muted">total</span> <span class="num">26,000 u</span></span>
+              <span class="muted">·</span>
+              <span><span class="muted">headroom</span> <span class="num">14,000 u</span></span>
+              <span class="muted">·</span>
+              <span><span class="muted">grade</span> <span class="num pos">A−</span></span>
+            </div>
+
+            <div class="wb-stack" aria-label="Composition vs capacity">
+              <div class="wb-stack-bar">
+                <span class="wb-stack-seg s-1" style="flex: 12;"   title="SRC-204 · 12,000 u · 30%"><span>SRC-204</span></span>
+                <span class="wb-stack-seg s-2" style="flex: 8;"    title="SRC-217 · 8,000 u · 20%"><span>SRC-217</span></span>
+                <span class="wb-stack-seg s-3" style="flex: 6;"    title="SRC-228 · 6,000 u · 15%"><span>228</span></span>
+                <span class="wb-stack-seg headroom" style="flex: 14;" title="Headroom · 14,000 u · 35%"><span>headroom</span></span>
+              </div>
+              <div class="wb-stack-ticks">
+                <span class="muted">0</span>
+                <span class="muted">10k</span>
+                <span class="muted">20k</span>
+                <span class="muted">30k</span>
+                <span class="muted">40k</span>
+              </div>
+            </div>
+
+            <div class="wb-row">
+              <div class="wb-row-name">
+                <span class="num">SRC-204</span>
+                <span class="muted">Class A · Site 3</span>
+              </div>
+              <div class="wb-row-slider"><div class="wb-track"><span class="wb-fill" style="width: 60%;"></span><span class="wb-thumb" style="left: 60%;"></span></div></div>
+              <div class="wb-row-vals"><span class="num">12,000 u</span> <span class="muted">46%</span></div>
+              <button class="wb-pin pinned" title="Pinned"><i class="fa-solid fa-thumbtack"></i></button>
+            </div>
+            <div class="wb-row">
+              <div class="wb-row-name">
+                <span class="num">SRC-217</span>
+                <span class="muted">Class A · Site 1</span>
+              </div>
+              <div class="wb-row-slider"><div class="wb-track"><span class="wb-fill" style="width: 38%;"></span><span class="wb-thumb" style="left: 38%;"></span></div></div>
+              <div class="wb-row-vals"><span class="num">8,000 u</span> <span class="muted">31%</span></div>
+              <button class="wb-pin" title="Pin amount"><i class="fa-solid fa-thumbtack"></i></button>
+            </div>
+            <div class="wb-row dirty">
+              <div class="wb-row-name">
+                <span class="num">SRC-228</span>
+                <span class="muted">Class B · Site 4</span>
+              </div>
+              <div class="wb-row-slider"><div class="wb-track"><span class="wb-fill" style="width: 28%;"></span><span class="wb-thumb" style="left: 28%;"></span></div></div>
+              <div class="wb-row-vals"><span class="num">6,000 u</span> <span class="muted">23%</span></div>
+              <button class="wb-pin" title="Pin amount"><i class="fa-solid fa-thumbtack"></i></button>
+            </div>
+            <div class="wb-row empty">
+              <div class="wb-row-name muted">drop a source here</div>
+            </div>
+
+            <div class="wb-rollup">
+              <div class="wb-roll-row"><span class="muted">predicted grade</span><span class="num">A−</span><span class="trust-chip"><span class="tc-dot ok"></span><span class="tc-label">blend-v2.1</span></span></div>
+              <div class="wb-roll-row"><span class="muted">cost / unit</span><span class="num">$3.42</span><span class="trust-chip"><span class="tc-dot ok"></span><span class="tc-label">cost-v1.4</span></span></div>
+              <div class="wb-roll-row"><span class="muted">spec X (interp.)</span><span class="num">3.62</span><span class="muted">band 3.55–3.68</span></div>
+            </div>
+          </div>
+        </div>
+
+        <footer class="diff-foot">
+          <span class="cap-eyebrow muted">objective</span>
+          <span><span class="mono">min cost</span> · <span class="mono">Grade ≥ A</span> · <span class="mono">respect pins</span></span>
+          <span class="actions">
+            <button class="btn">Reset</button>
+            <button class="btn"><i class="fa-solid fa-wand-magic-sparkles"></i> Optimise</button>
+            <button class="btn primary">Apply blend</button>
+          </span>
+        </footer>
+      </div>
+
+      <!-- ============================================
+           Mode 2 · COMPARE (N=2) — independent candidates, shared sources
+           ============================================ -->
+      <div class="frame" style="margin-top: 14px;">
+        <div class="eyebrow-row">
+          <span class="lbl">Compare · two candidate blends · same source pool · independent</span>
+          <span class="meta muted">
+            <span style="display:inline-block;width:8px;height:8px;background:var(--brand-d);border-radius:50%;vertical-align:1px;"></span>
+            <span class="mono">A</span> &nbsp;
+            <span style="display:inline-block;width:8px;height:8px;background:var(--warn);border-radius:50%;vertical-align:1px;"></span>
+            <span class="mono">B</span>
+            &nbsp; · diff at foot
+          </span>
+        </div>
+        <div class="workbench compare">
+
+          <!-- Shared Sources column — same chassis as Single, lib-card based -->
+          <div class="wb-sources">
+            <div class="wb-col-head">
+              <span class="cap-eyebrow">Sources</span>
+              <span class="muted" style="font-family: var(--font-mono); font-size: 10.5px;">shared pool</span>
+            </div>
+            <div class="wb-filters">
+              <span class="chip brand">Class A</span>
+              <span class="chip">Site 3</span>
+              <span class="chip dashed">+</span>
+            </div>
+            <div class="lib-grid">
+              <div class="lib-card asset placed t-12">
+                <span class="lib-grip">⋿</span>
+                <span class="lib-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 7l-9-5-9 5v10l9 5 9-5V7zM12 4.3L18.3 8 12 11.7 5.7 8 12 4.3zM5 9.5l6 3.5v7L5 16.5v-7zm14 7L13 20v-7l6-3.5v7z"/></svg></span>
+                <div class="lib-id">
+                  <span class="lib-name">SRC-204</span>
+                  <span class="lib-tag role">Class A · Site 3</span>
+                </div>
+                <div class="lib-skills">
+                  <span class="lib-skill"><span class="num">4,000</span> u avail</span>
+                  <span class="lib-skill">Q2-24</span>
+                </div>
+                <span class="lib-flag"><span class="a">A</span><span class="b">B</span></span>
+              </div>
+              <div class="lib-card asset placed t-1">
+                <span class="lib-grip">⋿</span>
+                <span class="lib-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 7l-9-5-9 5v10l9 5 9-5V7zM12 4.3L18.3 8 12 11.7 5.7 8 12 4.3zM5 9.5l6 3.5v7L5 16.5v-7zm14 7L13 20v-7l6-3.5v7z"/></svg></span>
+                <div class="lib-id">
+                  <span class="lib-name">SRC-217</span>
+                  <span class="lib-tag role">Class A · Site 1</span>
+                </div>
+                <div class="lib-skills">
+                  <span class="lib-skill"><span class="num">4,000</span> u avail</span>
+                  <span class="lib-skill">Q2-24</span>
+                </div>
+                <span class="lib-flag">A</span>
+              </div>
+              <div class="lib-card asset placed t-2">
+                <span class="lib-grip">⋿</span>
+                <span class="lib-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 7l-9-5-9 5v10l9 5 9-5V7zM12 4.3L18.3 8 12 11.7 5.7 8 12 4.3zM5 9.5l6 3.5v7L5 16.5v-7zm14 7L13 20v-7l6-3.5v7z"/></svg></span>
+                <div class="lib-id">
+                  <span class="lib-name">SRC-309</span>
+                  <span class="lib-tag role">Class A · Site 2</span>
+                </div>
+                <div class="lib-skills">
+                  <span class="lib-skill"><span class="num">6,000</span> u avail</span>
+                  <span class="lib-skill">Q2-24</span>
+                </div>
+                <span class="lib-flag">B</span>
+              </div>
+              <div class="lib-card asset placed t-2">
+                <span class="lib-grip">⋿</span>
+                <span class="lib-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 7l-9-5-9 5v10l9 5 9-5V7zM12 4.3L18.3 8 12 11.7 5.7 8 12 4.3zM5 9.5l6 3.5v7L5 16.5v-7zm14 7L13 20v-7l6-3.5v7z"/></svg></span>
+                <div class="lib-id">
+                  <span class="lib-name">SRC-228</span>
+                  <span class="lib-tag role">Class B · Site 4</span>
+                </div>
+                <div class="lib-skills">
+                  <span class="lib-skill"><span class="num">2,000</span> u avail</span>
+                  <span class="lib-skill">Q4-23</span>
+                </div>
+                <span class="lib-flag">B</span>
+              </div>
+              <div class="lib-card asset">
+                <span class="lib-grip">⋿</span>
+                <span class="lib-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 7l-9-5-9 5v10l9 5 9-5V7zM12 4.3L18.3 8 12 11.7 5.7 8 12 4.3zM5 9.5l6 3.5v7L5 16.5v-7zm14 7L13 20v-7l6-3.5v7z"/></svg></span>
+                <div class="lib-id">
+                  <span class="lib-name">SRC-114</span>
+                  <span class="lib-tag role">Class A · Site 3</span>
+                </div>
+                <div class="lib-skills">
+                  <span class="lib-skill"><span class="num">22,000</span> u avail</span>
+                  <span class="lib-skill">Q2-24</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Target A — independent candidate -->
+          <div class="wb-target t-1">
+            <div class="wb-col-head">
+              <span class="cap-eyebrow"><span class="target-tag">A</span> &nbsp; <span class="mono">BLEND-318a</span></span>
+              <span class="dot ok"></span>
+            </div>
+            <div class="wb-target-meta">
+              <span><span class="muted">total</span> <span class="num">14,000 u</span></span>
+              <span class="muted">·</span>
+              <span><span class="muted">obj</span> <span class="num">min cost</span></span>
+            </div>
+            <div class="wb-stack" aria-label="Composition vs capacity">
+              <div class="wb-stack-bar">
+                <span class="wb-stack-seg s-1" style="flex: 8;" title="SRC-204 · 8,000 u · 20%"><span>SRC-204</span></span>
+                <span class="wb-stack-seg s-2" style="flex: 6;" title="SRC-217 · 6,000 u · 15%"><span>217</span></span>
+                <span class="wb-stack-seg headroom" style="flex: 26;" title="Headroom · 26,000 u · 65%"><span>headroom</span></span>
+              </div>
+            </div>
+            <div class="wb-row">
+              <div class="wb-row-name"><span class="num">SRC-204</span><span class="muted">Site 3</span></div>
+              <div class="wb-row-slider"><div class="wb-track"><span class="wb-fill" style="width: 56%;"></span><span class="wb-thumb" style="left: 56%;"></span></div></div>
+              <div class="wb-row-vals"><span class="num">8,000</span> <span class="muted">57%</span></div>
+              <button class="wb-pin pinned" title="Pinned"><i class="fa-solid fa-thumbtack"></i></button>
+            </div>
+            <div class="wb-row">
+              <div class="wb-row-name"><span class="num">SRC-217</span><span class="muted">Site 1</span></div>
+              <div class="wb-row-slider"><div class="wb-track"><span class="wb-fill" style="width: 42%;"></span><span class="wb-thumb" style="left: 42%;"></span></div></div>
+              <div class="wb-row-vals"><span class="num">6,000</span> <span class="muted">43%</span></div>
+              <button class="wb-pin" title="Pin"><i class="fa-solid fa-thumbtack"></i></button>
+            </div>
+            <div class="wb-rollup">
+              <div class="wb-roll-row"><span class="muted">grade</span><span class="num">A−</span><span class="trust-chip"><span class="tc-dot ok"></span><span class="tc-label">blend-v2.1</span></span></div>
+              <div class="wb-roll-row"><span class="muted">cost / unit</span><span class="num">$3.42</span><span class="trust-chip"><span class="tc-dot ok"></span><span class="tc-label">cost-v1.4</span></span></div>
+              <div class="wb-roll-row"><span class="muted">spec X</span><span class="num">3.62</span><span class="muted">band 3.55–3.68</span></div>
+            </div>
+          </div>
+
+          <!-- Target B — independent candidate -->
+          <div class="wb-target t-2">
+            <div class="wb-col-head">
+              <span class="cap-eyebrow"><span class="target-tag">B</span> &nbsp; <span class="mono">BLEND-318b</span></span>
+              <span class="dot warn"></span>
+            </div>
+            <div class="wb-target-meta">
+              <span><span class="muted">total</span> <span class="num">12,000 u</span></span>
+              <span class="muted">·</span>
+              <span><span class="muted">obj</span> <span class="num">max grade</span></span>
+            </div>
+            <div class="wb-stack" aria-label="Composition vs capacity">
+              <div class="wb-stack-bar">
+                <span class="wb-stack-seg s-1" style="flex: 4;" title="SRC-204 · 4,000 u · 10%"><span>204</span></span>
+                <span class="wb-stack-seg s-4" style="flex: 6;" title="SRC-309 · 6,000 u · 15%"><span>SRC-309</span></span>
+                <span class="wb-stack-seg s-5" style="flex: 2;" title="SRC-228 · 2,000 u · 5%"></span>
+                <span class="wb-stack-seg headroom" style="flex: 28;" title="Headroom · 28,000 u · 70%"><span>headroom</span></span>
+              </div>
+            </div>
+            <div class="wb-row">
+              <div class="wb-row-name"><span class="num">SRC-204</span><span class="muted">Site 3</span></div>
+              <div class="wb-row-slider"><div class="wb-track"><span class="wb-fill" style="width: 28%;"></span><span class="wb-thumb" style="left: 28%;"></span></div></div>
+              <div class="wb-row-vals"><span class="num">4,000</span> <span class="muted">33%</span></div>
+              <button class="wb-pin" title="Pin"><i class="fa-solid fa-thumbtack"></i></button>
+            </div>
+            <div class="wb-row">
+              <div class="wb-row-name"><span class="num">SRC-309</span><span class="muted">Site 2</span></div>
+              <div class="wb-row-slider"><div class="wb-track"><span class="wb-fill" style="width: 50%;"></span><span class="wb-thumb" style="left: 50%;"></span></div></div>
+              <div class="wb-row-vals"><span class="num">6,000</span> <span class="muted">50%</span></div>
+              <button class="wb-pin pinned" title="Pinned"><i class="fa-solid fa-thumbtack"></i></button>
+            </div>
+            <div class="wb-row">
+              <div class="wb-row-name"><span class="num">SRC-228</span><span class="muted">Site 4</span></div>
+              <div class="wb-row-slider"><div class="wb-track"><span class="wb-fill" style="width: 16%;"></span><span class="wb-thumb" style="left: 16%;"></span></div></div>
+              <div class="wb-row-vals"><span class="num">2,000</span> <span class="muted">17%</span></div>
+              <button class="wb-pin" title="Pin"><i class="fa-solid fa-thumbtack"></i></button>
+            </div>
+            <div class="wb-rollup">
+              <div class="wb-roll-row"><span class="muted">grade</span><span class="num pos">A</span><span class="trust-chip"><span class="tc-dot ok"></span><span class="tc-label">blend-v2.1</span></span></div>
+              <div class="wb-roll-row"><span class="muted">cost / unit</span><span class="num">$3.61</span><span class="trust-chip"><span class="tc-dot ok"></span><span class="tc-label">cost-v1.4</span></span></div>
+              <div class="wb-roll-row"><span class="muted">spec X</span><span class="num">3.59</span><span class="muted">band 3.55–3.68</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stat.Compare diff at foot — scoped to rollup -->
+        <div class="wb-diff">
+          <div class="wb-diff-head">
+            <span>metric</span>
+            <span>target A</span>
+            <span>target B</span>
+            <span>Δ (B − A)</span>
+          </div>
+          <div class="wb-diff-row">
+            <span class="metric">grade</span>
+            <span class="val t-1">A−</span>
+            <span class="val t-2">A</span>
+            <span class="delta pos">+1 step</span>
+          </div>
+          <div class="wb-diff-row">
+            <span class="metric">cost / unit</span>
+            <span class="val t-1">$3.42</span>
+            <span class="val t-2">$3.61</span>
+            <span class="delta neg">+$0.19</span>
+          </div>
+          <div class="wb-diff-row">
+            <span class="metric">spec X</span>
+            <span class="val t-1">3.62</span>
+            <span class="val t-2">3.59</span>
+            <span class="delta">−0.03</span>
+          </div>
+          <div class="wb-diff-row">
+            <span class="metric">capacity used</span>
+            <span class="val t-1">14,000 / 40,000 u</span>
+            <span class="val t-2">12,000 / 40,000 u</span>
+            <span class="delta">−2,000 u</span>
+          </div>
+        </div>
+
+        <footer class="diff-foot">
+          <span class="cap-eyebrow muted">compare</span>
+          <span>A wins on cost · B wins on grade · pick by today's objective</span>
+          <span class="actions">
+            <button class="btn">Discard B</button>
+            <button class="btn"><i class="fa-solid fa-wand-magic-sparkles"></i> Optimise both</button>
+            <button class="btn primary">Apply A</button>
+          </span>
+        </footer>
+      </div>
+
+    </article>
+
+    <article id="schematic" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Collections<span class="ns">.</span>Schematic</span></div>
+      <p class="pattern-blurb">A 2D coordinate canvas for placing real-world entities — tanks, bays, lines, nodes, cells, fixtures — in space, plus arbitrary annotation shapes (zones, walkways, rooms) authored from the same data layer. <strong>Read-only by default</strong>: appearance comes from the linked <span class="mono">Collections<span class="ns">.</span>Library</span> entry; position and live metrics are owned here. Each placed item carries inline status &amp; metric pills so the schematic reads at a glance.</p>
+
+      <div class="frame">
+        <div class="eyebrow-row">
+          <span class="lbl">Schematic · Site 3 · Hall B · 8 items</span>
+          <span class="meta muted">
+            <span class="mono">read-only</span> · live · last refresh <span class="num">12s</span> ago · <a class="btn-link" href="#sourcelibrary">edit library →</a>
+          </span>
+        </div>
+
+        <div class="schematic">
+          <div class="sch-canvas">
+            <!-- Annotation shapes — zones, walkways, markers.
+                 Authored from the same data layer as items + edges. -->
+            <div class="sch-shape rect dashed" style="left: 4px; top: 4px; width: 614px; height: 96px;">
+              <span class="sch-shape-label">Fermentation Hall · Hall B</span>
+            </div>
+            <div class="sch-shape rect dashed tinted" style="left: 622px; top: 4px; width: 130px; height: 96px;">
+              <span class="sch-shape-label">QA Cell</span>
+            </div>
+            <div class="sch-shape walkway" style="left: 4px; top: 148px; width: 748px; height: 22px;">
+              <span class="sch-shape-label">Aisle 3 · 1.6 m walkway</span>
+            </div>
+            <div class="sch-shape rect dashed" style="left: 440px; top: 178px; width: 296px; height: 92px;">
+              <span class="sch-shape-label">Dispatch</span>
+            </div>
+            <div class="sch-shape circle" style="left: 392px; top: 152px; width: 14px; height: 14px;"></div>
+
+            <!-- Edges connect handle-to-handle in a 760×360 px coord system -->
+            <svg class="sch-conn" width="760" height="360" viewBox="0 0 760 360">
+              <g>
+                <!-- flow: TANK-04/05/06 → LINE-2 top handles (vertical) -->
+                <path class="edge flow emphasized" d="M 86 88 V 200"/>
+                <path class="edge flow" d="M 238 88 V 200"/>
+                <path class="edge flow" d="M 390 88 V 200"/>
+
+                <!-- flow: LINE-2 → XFER-1 → BAY-OUT (horizontal) -->
+                <path class="edge flow" d="M 436 221 H 448"/>
+                <polygon class="edge-end" points="444,217 444,225 450,221"/>
+
+                <path class="edge flow" d="M 556 221 H 568"/>
+                <polygon class="edge-end" points="564,217 564,225 570,221"/>
+
+                <!-- signal: QA-1 → BAY-OUT (smoothstep bezier) -->
+                <path class="edge signal" d="M 684 88 C 684 130 642 130 642 185"/>
+                <polygon class="edge-end" points="638,181 646,181 642,189"/>
+
+                <!-- Junction dots at LINE-2 top handles -->
+                <circle class="junction emphasized" cx="86"  cy="200" r="3"/>
+                <circle class="junction" cx="238" cy="200" r="3"/>
+                <circle class="junction" cx="390" cy="200" r="3"/>
+              </g>
+            </svg>
+
+            <!-- Row 1 · 4 fermenters + 1 QA hold -->
+            <div class="sch-item kind-tank s-ok selected" style="left: 16px; top: 16px; width: 140px;">
+              <span class="sch-icon">
+                <svg viewBox="0 0 16 16" fill="none">
+                  <ellipse cx="8" cy="3" rx="5" ry="1.4" stroke="currentColor" stroke-width="1.2"/>
+                  <path d="M3 3v10c0 .83 2.24 1.4 5 1.4s5-.57 5-1.4V3" stroke="currentColor" stroke-width="1.2"/>
+                  <path d="M3 7c0 .83 2.24 1.4 5 1.4s5-.57 5-1.4v6c0 .83-2.24 1.4-5 1.4s-5-.57-5-1.4V7z" fill="currentColor" opacity="0.28"/>
+                </svg>
+              </span>
+              <div class="sch-head">
+                <span class="sch-name">TANK-04</span>
+                <span class="sch-dot ok"></span>
+              </div>
+              <div class="sch-sub">fermenter · <span class="num">40 kL</span></div>
+              <div class="sch-fill">
+                <div class="sch-fill-track"><span class="sch-fill-bar" style="width: 72%;"></span></div>
+                <div class="sch-fill-val">28.8 <span class="muted">kL</span></div>
+              </div>
+              <span class="sch-handle handle-top"></span>
+              <span class="sch-handle handle-bottom emphasized"></span>
+              <span class="sch-handle handle-left"></span>
+              <span class="sch-handle handle-right"></span>
+              <button class="sch-expand" title="Details"><i class="fa-solid fa-chevron-right"></i></button>
+            </div>
+
+            <div class="sch-item kind-tank s-warn" style="left: 168px; top: 16px; width: 140px;">
+              <span class="sch-icon">
+                <svg viewBox="0 0 16 16" fill="none">
+                  <ellipse cx="8" cy="3" rx="5" ry="1.4" stroke="currentColor" stroke-width="1.2"/>
+                  <path d="M3 3v10c0 .83 2.24 1.4 5 1.4s5-.57 5-1.4V3" stroke="currentColor" stroke-width="1.2"/>
+                  <path d="M3 4.5c0 .83 2.24 1.4 5 1.4s5-.57 5-1.4v8.5c0 .83-2.24 1.4-5 1.4s-5-.57-5-1.4V4.5z" fill="currentColor" opacity="0.28"/>
+                </svg>
+              </span>
+              <div class="sch-head">
+                <span class="sch-name">TANK-05</span>
+                <span class="sch-dot warn"></span>
+              </div>
+              <div class="sch-sub">fermenter · <span class="num">40 kL</span></div>
+              <div class="sch-fill">
+                <div class="sch-fill-track"><span class="sch-fill-bar" style="width: 92%;"></span></div>
+                <div class="sch-fill-val">36.8 <span class="muted">kL</span></div>
+              </div>
+              <span class="sch-handle handle-bottom connected"></span>
+            </div>
+
+            <div class="sch-item kind-tank s-ok" style="left: 320px; top: 16px; width: 140px;">
+              <span class="sch-icon">
+                <svg viewBox="0 0 16 16" fill="none">
+                  <ellipse cx="8" cy="3" rx="5" ry="1.4" stroke="currentColor" stroke-width="1.2"/>
+                  <path d="M3 3v10c0 .83 2.24 1.4 5 1.4s5-.57 5-1.4V3" stroke="currentColor" stroke-width="1.2"/>
+                  <path d="M3 9c0 .83 2.24 1.4 5 1.4s5-.57 5-1.4v4c0 .83-2.24 1.4-5 1.4s-5-.57-5-1.4V9z" fill="currentColor" opacity="0.28"/>
+                </svg>
+              </span>
+              <div class="sch-head">
+                <span class="sch-name">TANK-06</span>
+                <span class="sch-dot ok"></span>
+              </div>
+              <div class="sch-sub">fermenter · <span class="num">40 kL</span></div>
+              <div class="sch-fill">
+                <div class="sch-fill-track"><span class="sch-fill-bar" style="width: 51%;"></span></div>
+                <div class="sch-fill-val">20.4 <span class="muted">kL</span></div>
+              </div>
+              <span class="sch-handle handle-bottom connected"></span>
+            </div>
+
+            <div class="sch-item kind-tank s-idle" style="left: 472px; top: 16px; width: 140px;">
+              <span class="sch-icon">
+                <svg viewBox="0 0 16 16" fill="none">
+                  <ellipse cx="8" cy="3" rx="5" ry="1.4" stroke="currentColor" stroke-width="1.2"/>
+                  <path d="M3 3v10c0 .83 2.24 1.4 5 1.4s5-.57 5-1.4V3" stroke="currentColor" stroke-width="1.2"/>
+                </svg>
+              </span>
+              <div class="sch-head">
+                <span class="sch-name">TANK-07</span>
+                <span class="sch-dot idle"></span>
+              </div>
+              <div class="sch-sub">fermenter · <span class="num">60 kL</span></div>
+              <div class="sch-fill">
+                <div class="sch-fill-track"></div>
+                <div class="sch-fill-val">empty</div>
+              </div>
+              <span class="sch-handle handle-bottom"></span>
+            </div>
+
+            <div class="sch-item kind-bay s-ok" style="left: 624px; top: 16px; width: 120px;">
+              <span class="sch-icon">
+                <svg viewBox="0 0 16 16" fill="none">
+                  <circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.2"/>
+                  <circle cx="8" cy="8" r="6" fill="currentColor" opacity="0.18"/>
+                  <path d="M8 5v3.2l2 1.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                </svg>
+              </span>
+              <div class="sch-head">
+                <span class="sch-name">QA-1</span>
+                <span class="sch-dot ok"></span>
+              </div>
+              <div class="sch-sub">qa hold · <span class="num">8h</span></div>
+              <div class="sch-fill">
+                <div class="sch-fill-track"><span class="sch-fill-bar" style="width: 50%;"></span></div>
+                <div class="sch-fill-val">4h <span class="muted">left</span></div>
+              </div>
+              <span class="sch-handle handle-bottom signal"></span>
+            </div>
+
+            <!-- Row 2 · Trunk: LINE-2 → XFER-1 → BAY-OUT -->
+            <div class="sch-item kind-line s-live" style="left: 16px; top: 200px; width: 420px;">
+              <span class="sch-icon">
+                <svg viewBox="0 0 16 16" fill="none">
+                  <path d="M1.5 8h13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                  <circle cx="4" cy="8" r="1.6" fill="currentColor"/>
+                  <circle cx="12" cy="8" r="1.6" fill="currentColor"/>
+                </svg>
+              </span>
+              <div class="sch-head">
+                <span class="sch-name">LINE-2 <span class="muted">pack</span></span>
+                <span class="sch-dot live"></span>
+              </div>
+              <div class="sch-sub">sku-241</div>
+              <div class="sch-fill">
+                <div class="sch-fill-val"><span style="font-weight: 700;">1,800</span> <span class="muted">u/h</span></div>
+              </div>
+              <span class="sch-handle handle-top emphasized" style="left: 70px;"></span>
+              <span class="sch-handle handle-top connected" style="left: 222px;"></span>
+              <span class="sch-handle handle-top connected" style="left: 374px;"></span>
+              <span class="sch-handle handle-right connected"></span>
+            </div>
+
+            <div class="sch-item kind-node s-ok" style="left: 448px; top: 196px; width: 108px;">
+              <span class="sch-icon">
+                <svg viewBox="0 0 16 16" fill="none">
+                  <path d="M8 1.5l6.5 6.5L8 14.5 1.5 8 8 1.5z" stroke="currentColor" stroke-width="1.2"/>
+                  <path d="M8 1.5l6.5 6.5L8 14.5 1.5 8 8 1.5z" fill="currentColor" opacity="0.18"/>
+                  <path d="M5 8h6M9 6l2 2-2 2" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </span>
+              <div class="sch-head">
+                <span class="sch-name">XFER-1</span>
+                <span class="sch-dot ok"></span>
+              </div>
+              <div class="sch-sub"><span class="num">200</span> u/min</div>
+              <span class="sch-handle handle-left connected"></span>
+              <span class="sch-handle handle-right connected"></span>
+            </div>
+
+            <div class="sch-item kind-bay s-ok" style="left: 568px; top: 185px; width: 148px;">
+              <span class="sch-icon">
+                <svg viewBox="0 0 16 16" fill="none">
+                  <rect x="2" y="3.5" width="12" height="9" stroke="currentColor" stroke-width="1.2"/>
+                  <rect x="2" y="3.5" width="12" height="9" fill="currentColor" opacity="0.14"/>
+                  <path d="M5 3.5v9M8 3.5v9M11 3.5v9" stroke="currentColor" stroke-width="0.9" opacity="0.7"/>
+                </svg>
+              </span>
+              <div class="sch-head">
+                <span class="sch-name">BAY-OUT</span>
+                <span class="sch-dot ok"></span>
+              </div>
+              <div class="sch-sub">pallets · <span class="num">5 slots</span></div>
+              <div class="sch-fill">
+                <div class="sch-fill-track"><span class="sch-fill-bar" style="width: 60%;"></span></div>
+                <div class="sch-fill-val">3 <span class="muted">/ 5</span></div>
+              </div>
+              <span class="sch-handle handle-left connected"></span>
+              <span class="sch-handle handle-top signal"></span>
+            </div>
+
+            <!-- Scale ribbon -->
+            <div class="sch-scale">
+              <span class="mono">0</span><span class="sch-rule"></span><span class="mono">10 m</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="diff-meta-row">
+          <span class="cap-eyebrow muted">live</span>
+          <span class="muted">model feed · refresh <span class="mono">12s</span> · status from <span class="trust-chip" style="vertical-align: -3px;"><span class="tc-dot ok"></span><span class="tc-label">plant-ops-v1.4</span></span></span>
+        </div>
+      </div>
+
+    </article>
+      <div class="pattern-head"><span class="pattern-name">Cause<span class="ns">.</span>SupplyDemand</span></div>
+      <p class="pattern-blurb">Per-day overlay of staffing supply against forecasted demand. Red bars are shortage; thin dashed line is demand target.</p>
+      <div class="frame">
+        <div class="eyebrow-row"><span class="lbl">Supply vs demand · SE · wk of Sep 16</span><span class="meta">staffed-hours / demand-hours</span></div>
+        <div class="supply-demand">
+          <div class="sd-row">
+            <span class="sd-label">Mon</span>
+            <div class="sd-bar"><span class="demand" style="width: 60%;"></span><span class="supply" style="width: 60%;"></span></div>
+            <span class="sd-num">42 / 42</span>
+          </div>
+          <div class="sd-row">
+            <span class="sd-label">Tue</span>
+            <div class="sd-bar"><span class="demand" style="width: 64%;"></span><span class="supply" style="width: 64%;"></span></div>
+            <span class="sd-num">45 / 45</span>
+          </div>
+          <div class="sd-row">
+            <span class="sd-label">Wed</span>
+            <div class="sd-bar"><span class="demand" style="width: 70%;"></span><span class="supply" style="width: 70%;"></span></div>
+            <span class="sd-num">48 / 48</span>
+          </div>
+          <div class="sd-row">
+            <span class="sd-label">Thu</span>
+            <div class="sd-bar"><span class="demand" style="width: 78%;"></span><span class="supply short" style="width: 62%;"></span></div>
+            <span class="sd-num"><span class="num neg">52 / 56</span></span>
+          </div>
+          <div class="sd-row">
+            <span class="sd-label">Fri</span>
+            <div class="sd-bar"><span class="demand" style="width: 88%;"></span><span class="supply short" style="width: 70%;"></span></div>
+            <span class="sd-num"><span class="num neg">58 / 64</span></span>
+          </div>
+          <div class="sd-row">
+            <span class="sd-label">Sat</span>
+            <div class="sd-bar"><span class="demand" style="width: 95%;"></span><span class="supply short" style="width: 75%;"></span></div>
+            <span class="sd-num"><span class="num neg">62 / 70</span></span>
+          </div>
+          <div class="sd-row">
+            <span class="sd-label">Sun</span>
+            <div class="sd-bar"><span class="demand" style="width: 75%;"></span><span class="supply" style="width: 75%;"></span></div>
+            <span class="sd-num">54 / 54</span>
+          </div>
+        </div>
+        <div class="diff-meta-row">
+          <span><span class="num neg">−18h</span> shortfall · Thu–Sat</span>
+          <span class="muted">·</span>
+          <span>drives current recommendation</span>
+          <span class="muted" style="margin-left: auto;"><a class="btn-link" href="#briefing">See briefing →</a></span>
+        </div>
+      </div>
+
+    </article>
+
+    <article id="swap-request" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Communicate<span class="ns">.</span>Swap</span></div>
+      <p class="pattern-blurb">Atomic two-person shift swap with reason and approval state. Initiated by an operator; routed to the affected counter-party.</p>
+      <div class="frame pad-18">
+        <div class="swap-card">
+          <div class="swap-side">
+            <div class="sw-eyebrow">From</div>
+            <div class="sw-name">Patel</div>
+            <div class="sw-shift">Wed 09-18 · 14:00–22:00 · 8h</div>
+          </div>
+          <div class="swap-mid">⇌</div>
+          <div class="swap-side">
+            <div class="sw-eyebrow">To</div>
+            <div class="sw-name">Cho</div>
+            <div class="sw-shift">Wed 09-18 · 14:00–22:00 · 8h</div>
+          </div>
+        </div>
+        <div class="annotate-card" style="margin-top: 12px; border-radius: 4px; border: 1px solid var(--rule);">
+          <div class="ann-eyebrow">Reason</div>
+          <div class="ann-input">Patel personal-leave flag — model surfaced as judgement-gap on Mon Briefing.</div>
+        </div>
+        <div class="row gap-3" style="margin-top: 12px; align-items: center;">
+          <span class="cap-eyebrow muted">routes to · Cho · approval required</span>
+          <span class="row gap-2" style="margin-left: auto;">
+            <button class="btn btn-override">Override · assign anyway</button>
+            <button class="btn">Modify · edit terms</button>
+            <button class="btn primary">Apply · send swap request</button>
+          </span>
+        </div>
+      </div>
+
+    </article>
+
+    <article id="unassigned-tray" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Collections<span class="ns">.</span>UnassignedTray</span></div>
+      <p class="pattern-blurb">Where shifts go when the model can't place them within constraints. The "what we couldn't solve" tray — never auto-hidden.</p>
+      <div class="frame">
+        <div class="eyebrow-row"><span class="lbl">Unassigned · 4 shifts · 22h total</span><span class="meta muted">surfaces when model exhausts placement options</span></div>
+        <div class="tray">
+          <span class="tray-chip">Thu 14:00–22:00 · 8h</span>
+          <span class="tray-chip">Fri 06:00–14:00 · 8h</span>
+          <span class="tray-chip">Sat 10:00–14:00 · 4h</span>
+          <span class="tray-chip">Sun 18:00–20:00 · 2h</span>
+        </div>
+        <div class="diff-meta-row">
+          <span>Reasons · <span class="num">2</span> hit OT cap · <span class="num">1</span> exceeded max-consec · <span class="num">1</span> no eligible operator</span>
+          <span class="muted" style="margin-left: auto;"><a class="btn-link" href="#">Loosen constraints →</a></span>
+        </div>
+      </div>
+
+    </article>
+
+    <article id="planner" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Collections<span class="ns">.</span>Planner</span></div>
+      <p class="pattern-blurb">Row × abstract-slot grid. Left side carries table cells (resource identity, capacity, role); right side is a numeric-slot timeline that can hold single-slot or span events. Used for shift rosters, queue assignments, capacity allocations — anywhere "slot N on row M" is the placement primitive. Compare with <span class="mono">Collections<span class="ns">.</span>Gantt</span> (datetime-axis); Planner's axis is abstract <span class="mono">FloatType</span>.</p>
+      <div class="frame">
+        <div class="eyebrow-row">
+          <span class="lbl">Roster · week of Sep 09 – Sep 15</span>
+          <span class="meta">7 operators · slots <span class="num" style="color: var(--ink); font-weight: 600;">0 – 7</span> · <span class="num pos" style="font-weight: 600;">▲ 3 swaps pending</span></span>
+        </div>
+        <div style="display: grid; grid-template-columns: 220px 1fr; border-bottom: 1px solid var(--rule-strong); background: var(--paper-2);">
+          <div class="lhs-headers planner" style="border-right: 1px solid var(--rule);">
+            <span class="col-h">operator<span class="col-icons"><span class="col-i sort active" title="Sorted ascending"><svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true"><path d="M4 1.5l3 4H1z" fill="currentColor"/></svg><sup>1</sup></span></span></span>
+            <span class="col-h">hrs<span class="col-icons"><span class="col-i sort active" title="Sorted descending"><svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true"><path d="M4 6.5L1 2.5h6z" fill="currentColor"/></svg><sup>2</sup></span></span></span>
+            <span class="col-h end">role<span class="col-icons"><span class="col-i filter active" title="Filter active"><svg width="9" height="9" viewBox="0 0 10 10" aria-hidden="true"><path d="M1 1.5h8L6 5v3.5L4 9.5V5L1 1.5z" fill="currentColor"/></svg></span></span></span>
+          </div>
+          <div>
+            <div style="display: grid; grid-template-columns: repeat(7, 1fr); padding: 8px 0; font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4);">
+              <span style="text-align: center;">Mon</span><span style="text-align: center;">Tue</span><span style="text-align: center;">Wed</span><span style="text-align: center;">Thu</span><span style="text-align: center;">Fri</span><span style="text-align: center;">Sat</span><span style="text-align: center;">Sun</span>
+            </div>
+          </div>
+        </div>
+        <div class="planner-stack" style="position: relative;">
+        <!-- Row 1: full week of regular shifts -->
+        <div style="display: grid; grid-template-columns: 220px 1fr; border-bottom: 1px solid var(--rule); min-height: 48px;">
+          <div class="lhs-cells planner">
+            <span class="mono">a.patel</span>
+            <span class="num">40</span>
+            <span class="cap-eyebrow muted" style="text-align: right;">snr</span>
+          </div>
+          <div style="position: relative; display: grid; grid-template-columns: repeat(7, 1fr); align-items: center;">
+            <div style="grid-column: 1 / 6; height: 22px; margin: 0 3px; background: #3a7780; border-radius: 2px; display: flex; align-items: center; padding: 0 8px; color: white; font-family: var(--font-mono); font-size: 11px; font-weight: 600;">day · 09:00 – 17:00</div>
+          </div>
+        </div>
+        <!-- Row 2: split shifts with swap pending -->
+        <div style="display: grid; grid-template-columns: 220px 1fr; border-bottom: 1px solid var(--rule); min-height: 48px;">
+          <div class="lhs-cells planner">
+            <span class="mono">m.cho</span>
+            <span class="num">32</span>
+            <span class="cap-eyebrow muted" style="text-align: right;">mid</span>
+          </div>
+          <div style="position: relative; display: grid; grid-template-columns: repeat(7, 1fr); align-items: center;">
+            <div style="grid-column: 1 / 4; height: 22px; margin: 0 3px; background: #3a7780; border-radius: 2px; display: flex; align-items: center; padding: 0 8px; color: white; font-family: var(--font-mono); font-size: 11px; font-weight: 600;">day</div>
+            <div style="grid-column: 5 / 8; height: 22px; margin: 0 3px; background: #b8862d; opacity: 0.85; border-radius: 2px; border: 1px dashed #8a6420; display: flex; align-items: center; padding: 0 8px; color: white; font-family: var(--font-mono); font-size: 11px; font-weight: 600;">swap → r.diaz · pending</div>
+          </div>
+        </div>
+        <!-- Row 3: night-only -->
+        <div style="display: grid; grid-template-columns: 220px 1fr; border-bottom: 1px solid var(--rule); min-height: 48px;">
+          <div class="lhs-cells planner">
+            <span class="mono">r.diaz</span>
+            <span class="num">24</span>
+            <span class="cap-eyebrow muted" style="text-align: right;">jr</span>
+          </div>
+          <div style="position: relative; display: grid; grid-template-columns: repeat(7, 1fr); align-items: center;">
+            <div style="grid-column: 2 / 5; height: 22px; margin: 0 3px; background: #2b4b55; border-radius: 2px; display: flex; align-items: center; padding: 0 8px; color: white; font-family: var(--font-mono); font-size: 11px; font-weight: 600;">night · 22:00 – 06:00</div>
+            <div style="grid-column: 5 / 6; height: 22px; margin: 0 3px; background: var(--paper-2); border: 1px dashed var(--rule-strong); border-radius: 2px; display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 11px; color: var(--ink-4);">+ add</div>
+          </div>
+        </div>
+        <!-- Row 4: unassigned (capacity gap) -->
+        <div style="display: grid; grid-template-columns: 220px 1fr; min-height: 48px; background: rgba(184, 90, 74, 0.04);">
+          <div class="lhs-cells planner">
+            <span class="mono" style="color: var(--neg);">— unfilled</span>
+            <span class="num neg">8</span>
+            <span class="cap-eyebrow" style="color: var(--neg); text-align: right;">gap</span>
+          </div>
+          <div style="position: relative; display: grid; grid-template-columns: repeat(7, 1fr); align-items: center;">
+            <div style="grid-column: 6 / 8; height: 22px; margin: 0 3px; background: var(--neg); opacity: 0.7; border-radius: 2px; display: flex; align-items: center; padding: 0 8px; color: white; font-family: var(--font-mono); font-size: 11px; font-weight: 600;">2 shifts · no candidate</div>
+          </div>
+        </div>
+          <!-- swap dependency: m.cho's pending swap → r.diaz night bar.
+               Always enter target from LEFT with an h-stub adjoining its left vertical edge. -->
+          <div class="gantt-deps" aria-hidden="true" style="left: 220px; right: 0;">
+            <!-- h-stub LEFT adjoining swap bar's left edge (at x=57.1%, y=72) -->
+            <div class="gd-h dashed" style="left: 54%; top: 72px; width: 3.1%;"></div>
+            <!-- drop into gap above r.diaz -->
+            <div class="gd-v dashed" style="left: 54%; top: 72px; height: 24px;"></div>
+            <!-- run LEFT in row-2/3 gap, clear of night bar -->
+            <div class="gd-h dashed" style="left: 12%; top: 96px; width: 42%;"></div>
+            <!-- drop into r.diaz row, in the empty Mon area (left of night bar) -->
+            <div class="gd-v dashed" style="left: 12%; top: 96px; height: 24px;"></div>
+            <!-- h-stub RIGHT entering night bar's left edge (at x=14.3%, y=120) -->
+            <div class="gd-h dashed" style="left: 12%; top: 120px; width: 2.3%;"></div>
+            <svg class="gd-arrow warn right" width="7" height="10" viewBox="0 0 7 10" style="left: calc(14.3% - 7px); top: 115px;"><path class="gd-arrow-fill" d="M0 0 L7 5 L0 10 z"/></svg>
+            <div class="gd-label" style="left: 28%; top: 86px;">SWAP · pending</div>
+          </div>
+        </div>
+        <div class="diff-meta-row">
+          <span class="cap-eyebrow">Slot snap</span>
+          <span style="margin-left: 8px;" class="muted">stepSize <span class="mono" style="color: var(--ink);">1.0</span> · drag a bar edge to resize, drag the body to move, double-click an empty cell to add</span>
+        </div>
+      </div>
+
+    </article>
+
+    <article id="gantt" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Collections<span class="ns">.</span>Gantt</span></div>
+      <p class="pattern-blurb">Datetime-axis row × time grid. Left side carries table cells (workstream, owner, status); right side is a real calendar timeline carrying tasks (date-range bars with progress) and milestones (single-point diamond markers). Compare with <span class="mono">Collections<span class="ns">.</span>Planner</span> (abstract slot axis); Gantt's axis is <span class="mono">DateTimeType</span> with real calendar weeks.</p>
+      <div class="frame">
+        <div class="eyebrow-row">
+          <span class="lbl">Project · procure-2024 rebuild</span>
+          <span class="meta">3 workstreams · <span class="num pos" style="font-weight: 600;">42% complete</span> · 2 milestones <span class="sep">·</span> due <span class="num" style="color: var(--ink); font-weight: 600;">Nov 30</span></span>
+        </div>
+        <div style="display: grid; grid-template-columns: 220px 1fr; border-bottom: 1px solid var(--rule-strong); background: var(--paper-2);">
+          <div class="lhs-headers gantt" style="border-right: 1px solid var(--rule);">
+            <span class="col-h">workstream<span class="col-icons"><span class="col-i sort active" title="Sorted ascending"><svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true"><path d="M4 1.5l3 4H1z" fill="currentColor"/></svg></span><span class="col-i filter active" title="2 filters"><svg width="9" height="9" viewBox="0 0 10 10" aria-hidden="true"><path d="M1 1.5h8L6 5v3.5L4 9.5V5L1 1.5z" fill="currentColor"/></svg></span></span></span>
+            <span class="col-h end">owner<span class="col-icons"><span class="col-i filter" title="Filter"><svg width="9" height="9" viewBox="0 0 10 10" aria-hidden="true"><path d="M1 1.5h8L6 5v3.5L4 9.5V5L1 1.5z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg></span></span></span>
+          </div>
+          <div>
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); padding: 8px 0; font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4);">
+              <span style="text-align: center;">Sep</span><span style="text-align: center;">Oct</span><span style="text-align: center;">Nov</span><span style="text-align: center;">Dec</span>
+            </div>
+          </div>
+        </div>
+        <div class="gantt-stack" style="position: relative;">
+        <!-- Row 1: completed workstream (Sep → mid-Oct) -->
+        <div style="display: grid; grid-template-columns: 220px 1fr; border-bottom: 1px solid var(--rule); min-height: 56px;">
+          <div class="lhs-cells gantt">
+            <span class="mono">infra-upgrade</span>
+            <span class="mono muted" style="text-align: right;">d.park</span>
+          </div>
+          <div style="position: relative; padding: 14px 0;">
+            <div style="position: relative; height: 26px; margin: 0 12px;">
+              <div style="position: absolute; left: 2%; width: 36%; top: 0; bottom: 0; background: var(--paper-2); border: 1px solid #2f7a5b; border-radius: 2px;">
+                <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 100%; background: #2f7a5b;"></div>
+                <span style="position: absolute; inset: 0; display: flex; align-items: center; padding: 0 8px; color: white; font-family: var(--font-mono); font-size: 11px; font-weight: 600; z-index: 1;">infra · 100%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- Row 2: in-progress data-pipeline (mid-Oct → mid-Nov) with milestone at the freeze -->
+        <div style="display: grid; grid-template-columns: 220px 1fr; border-bottom: 1px solid var(--rule); min-height: 56px;">
+          <div class="lhs-cells gantt">
+            <span class="mono">data-pipeline</span>
+            <span class="mono muted" style="text-align: right;">r.chen</span>
+          </div>
+          <div style="position: relative; padding: 14px 0;">
+            <div style="position: relative; height: 26px; margin: 0 12px;">
+              <div style="position: absolute; left: 40%; width: 30%; top: 0; bottom: 0; background: var(--paper-2); border: 1px solid #3a7780; border-radius: 2px; overflow: hidden;">
+                <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 58%; background: #3a7780;"></div>
+                <span style="position: absolute; inset: 0; display: flex; align-items: center; padding: 0 8px; font-family: var(--font-mono); font-size: 11px; font-weight: 600; z-index: 1;"><span style="color: white;">pipeline</span><span style="margin-left: auto; color: var(--ink);">58%</span></span>
+              </div>
+              <!-- milestone diamond at schema freeze -->
+              <span style="position: absolute; left: 60%; top: 50%; transform: translate(-50%, -50%) rotate(45deg); width: 14px; height: 14px; background: var(--warn); border: 2px solid var(--paper);"></span>
+              <span style="position: absolute; left: 60%; top: 30px; transform: translateX(-50%); font-family: var(--font-mono); font-size: 10px; font-weight: 600; color: var(--warn); white-space: nowrap;">m1 · schema freeze</span>
+            </div>
+          </div>
+        </div>
+        <!-- Row 3: at-risk ui-rebuild (early Nov → end Dec) -->
+        <div style="display: grid; grid-template-columns: 220px 1fr; border-bottom: 1px solid var(--rule); min-height: 56px;">
+          <div class="lhs-cells gantt">
+            <span class="mono">ui-rebuild</span>
+            <span class="mono muted" style="text-align: right;">a.lee</span>
+          </div>
+          <div style="position: relative; padding: 14px 0;">
+            <div style="position: relative; height: 26px; margin: 0 12px;">
+              <div style="position: absolute; left: 56%; width: 38%; top: 0; bottom: 0; background: var(--paper-2); border: 1px solid #b85a4a; border-radius: 2px; overflow: hidden;">
+                <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 18%; background: #b85a4a;"></div>
+                <span style="position: absolute; inset: 0; display: flex; align-items: center; padding: 0 8px; font-family: var(--font-mono); font-size: 11px; font-weight: 600; z-index: 1;"><span style="color: var(--ink);">ui-rebuild · at-risk</span><span style="margin-left: auto; color: var(--ink);">18%</span></span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- Row 4: release milestone -->
+        <div style="display: grid; grid-template-columns: 220px 1fr; border-bottom: 1px solid var(--rule); min-height: 48px;">
+          <div class="lhs-cells gantt">
+            <span class="mono">release</span>
+            <span class="mono muted" style="text-align: right;">—</span>
+          </div>
+          <div style="position: relative; padding: 14px 0;">
+            <div style="position: relative; height: 18px; margin: 0 12px;">
+              <span style="position: absolute; left: 92%; top: 50%; transform: translate(-50%, -50%) rotate(45deg); width: 14px; height: 14px; background: var(--brand-d); border: 2px solid var(--paper);"></span>
+              <span style="position: absolute; left: 92%; top: 22px; transform: translateX(-50%); font-family: var(--font-mono); font-size: 10px; font-weight: 600; color: var(--brand-d); white-space: nowrap;">m2 · go-live</span>
+            </div>
+          </div>
+        </div>
+        <!-- dependency arrows overlaid on the row stack (HTML, not SVG — deterministic per-pixel) -->
+        <div class="gantt-deps" aria-hidden="true">
+          <!-- A: infra-upgrade END (38%, 28) → data-pipeline START (40%, 84): clean finish-to-start.
+               Horizontal stub leaving right edge → drop → horizontal stub entering left edge. -->
+          <div class="gd-h" style="left: 38%; top: 28px; width: 1%;"></div>
+          <div class="gd-v" style="left: 39%; top: 28px; height: 56px;"></div>
+          <div class="gd-h" style="left: 39%; top: 84px; width: 1%;"></div>
+                    <svg class="gd-arrow right" width="7" height="10" viewBox="0 0 7 10" style="left: calc(40% - 7px); top: 79px;"><path class="gd-arrow-fill" d="M0 0 L7 5 L0 10 z"/></svg>
+          <!-- B: m1 schema-freeze (60%, 84) → ui-rebuild START (56%, 140): BACKWARD slip — successor started before predecessor's milestone.
+               Routing: drop into the padding gap between rows 2/3 (y=114), sidestep LEFT past successor leading edge, drop to row 3 center, push RIGHT into bar. -->
+          <div class="gd-v dashed" style="left: 60%; top: 84px; height: 36px;"></div>
+          <div class="gd-h dashed" style="left: 54%; top: 120px; width: 6%;"></div>
+          <div class="gd-v dashed" style="left: 54%; top: 120px; height: 20px;"></div>
+          <div class="gd-h dashed" style="left: 54%; top: 140px; width: 1.5%;"></div>
+                    <svg class="gd-arrow warn right" width="7" height="10" viewBox="0 0 7 10" style="left: calc(56% - 7px); top: 135px;"><path class="gd-arrow-fill" d="M0 0 L7 5 L0 10 z"/></svg>
+          <div class="gd-label" style="left: 40%; top: 114px;">SLIP · 2D</div>
+        </div>
+        </div>
+        <div class="diff-meta-row">
+          <span class="cap-eyebrow">Today</span>
+          <span style="margin-left: 8px;" class="muted">vertical "now" line drops at <span class="mono" style="color: var(--ink);">Oct 15</span> · drag a task edge to reschedule (snaps to <span class="mono">dragStep</span>) · dependency arrows turn <span style="color: var(--warn); font-weight: 600;">amber-dashed</span> when a successor slips behind its predecessor</span>
+        </div>
+      </div>
+
+    </article>
+
+    </section>
+
+  </main>
+</div>
+
+</body>
+</html>

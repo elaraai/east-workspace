@@ -34,9 +34,8 @@ export function EastErrorDisplay({ title, message, stack }: EastErrorDisplayProp
                                 fontSize="xs"
                                 mt="2"
                                 p="2"
-                                bg="red.50"
-                                _dark={{ bg: "red.900" }}
-                                borderRadius="md"
+                                layerStyle="banner.error"
+                                borderRadius="sm"
                                 maxHeight="200px"
                                 overflow="auto"
                             >

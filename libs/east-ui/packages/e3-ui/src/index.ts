@@ -9,6 +9,7 @@
  * Provides:
  * - `Data.bind` — workspace-scoped reactive dataset binding.
  * - `Diff` — review pending changes for any combination of bindings.
+ * - `Ontology` — graph editor over an `OntologyType`-bound dataset.
  * - `DataManifestType` — manifest type for reads/writes metadata.
  *
  * The author-side `ui()` factory lives at `@elaraai/e3-ui/ui` because it
@@ -36,3 +37,16 @@ export {
     DiffStyleType,
     type DiffOptions,
 } from './diff.js';
+export {
+    Ontology,
+    OntologyComponent,
+    OntologyPayloadType,
+    OntologyStyleType,
+    type OntologyOptions,
+    NodeKindType,
+    LinkKindType,
+    NodeType,
+    LinkType,
+    OntologyMetadataType,
+    OntologyType,
+} from './ontology.js';

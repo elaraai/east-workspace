@@ -62,7 +62,7 @@ export const DataTaskPreview = memo(function DataTaskPreview({
         <Box height="100%" display="flex" flexDirection="column" overflow="hidden">
             <Flex
                 px={4} py={2}
-                borderBottom="1px solid" borderColor="gray.200" bg="white"
+                borderBottom="1px solid" borderColor="border.subtle" bg="bg.surface"
                 align="center" justify="flex-end" flexShrink={0}
             >
                 <SegmentGroup.Root

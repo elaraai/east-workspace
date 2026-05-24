@@ -33,7 +33,6 @@ const PKGS = [
   'libs/east-ui/packages/east-ui-components/package.json',
   'libs/east-ui/packages/e3-ui/package.json',
   'libs/east-ui/packages/e3-ui-components/package.json',
-  'libs/east-ui/packages/e3-ui-showcase/package.json',
 ];
 
 for (const rel of PKGS) {

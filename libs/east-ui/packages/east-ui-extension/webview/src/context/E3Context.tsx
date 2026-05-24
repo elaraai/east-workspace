@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { createContext, useContext, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 
 // Discriminated union for selection state
 export type Selection =
@@ -17,7 +17,7 @@ interface E3ContextValue {
     repoPath: string;
     selection: Selection;
     setSelection: (selection: Selection) => void;
-    sidebarVisible: boolean;
+    sidebarCollapsed: boolean;
     toggleSidebar: () => void;
 }
 
@@ -29,20 +29,38 @@ interface E3ProviderProps {
     children: ReactNode;
 }
 
+/** bsys Sidebar recipe: collapse state persists to localStorage per user. */
+const SIDEBAR_KEY = 'east-ui-extension.sidebar-collapsed';
+
 export function E3Provider({ apiUrl, repoPath, children }: E3ProviderProps) {
     const [selection, setSelection] = useState<Selection>({ type: 'none' });
-    const [sidebarVisible, setSidebarVisible] = useState(true);
+    const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
+        try { return localStorage.getItem(SIDEBAR_KEY) === 'true'; } catch { return false; }
+    });
+
+    const toggleSidebar = useCallback(() => {
+        setSidebarCollapsed(prev => {
+            const next = !prev;
+            try { localStorage.setItem(SIDEBAR_KEY, String(next)); } catch { /* ignore */ }
+            return next;
+        });
+    }, []);
+
+    /* bsys Sidebar recipe: `[` toggles collapse globally, except while typing. */
+    useEffect(() => {
+        function onKey(e: KeyboardEvent) {
+            if (e.key !== '[') return;
+            const t = e.target as HTMLElement | null;
+            if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+            toggleSidebar();
+        }
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [toggleSidebar]);
 
     return (
         <E3Context.Provider
-            value={{
-                apiUrl,
-                repoPath,
-                selection,
-                setSelection,
-                sidebarVisible,
-                toggleSidebar: () => setSidebarVisible((prev) => !prev),
-            }}
+            value={{ apiUrl, repoPath, selection, setSelection, sidebarCollapsed, toggleSidebar }}
         >
             {children}
         </E3Context.Provider>

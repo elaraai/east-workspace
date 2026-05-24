@@ -4,7 +4,7 @@
  */
 
 import { memo, useMemo } from "react";
-import { Box } from "@chakra-ui/react";
+import { Box, useRecipe } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Note } from "@elaraai/east-ui";
 import { getSomeorUndefined } from "../../utils";
@@ -31,6 +31,8 @@ interface VariantDefaults {
     paddingStart: string;
 }
 
+/* Default accent ↦ `border.brand` per pattern_spec/spec.css `.banner.solid`
+ * + `.ho-q` (3 px brand-d left rule). Narrative falls back to muted border. */
 const VARIANT_DEFAULTS: Record<NoteVariantTag, VariantDefaults> = {
     narrative: {
         borderLeftStyle: "dashed",
@@ -40,15 +42,16 @@ const VARIANT_DEFAULTS: Record<NoteVariantTag, VariantDefaults> = {
     },
     callout: {
         borderLeftStyle: "solid",
-        accentColor: "colorPalette.solid",
+        accentColor: "border.brand",
         bodyColor: "fg",
-        background: "colorPalette.subtle",
+        background: "bg.canvas",
         paddingStart: "3",
     },
     quote: {
         borderLeftStyle: "solid",
-        accentColor: "border.subtle",
-        bodyColor: "fg.subtle",
+        accentColor: "border.brand",
+        bodyColor: "fg.muted",
+        background: "bg.canvas",
         fontStyle: "italic",
         paddingStart: "4",
     },
@@ -66,7 +69,21 @@ const VARIANT_DEFAULTS: Record<NoteVariantTag, VariantDefaults> = {
  * Style overrides (color / background / borderColor / accentColor /
  * emphasis) win over the variant defaults.
  */
+/* IR variant ↦ note-recipe accent. */
+const VARIANT_TO_ACCENT: Record<NoteVariantTag, "brand" | "warning" | "danger" | "success" | "muted"> = {
+    narrative: "muted",
+    callout:   "brand",
+    quote:     "brand",
+};
+
 export const EastChakraNote = memo(function EastChakraNote({ value, storageKey }: EastChakraNoteProps) {
+    /* Consume the single-part `note` recipe upstream — base padding +
+     * border-left + accent flow from `theme/recipes/note.ts`. */
+    const recipe = useRecipe({ key: "note" });
+    const variantTag = value.variant.type as NoteVariantTag;
+    const accent = VARIANT_TO_ACCENT[variantTag];
+    const recipeStyles = recipe({ accent });
+
     const computed = useMemo(() => {
         const variantTag = value.variant.type as NoteVariantTag;
         const defaults = VARIANT_DEFAULTS[variantTag];
@@ -107,13 +124,14 @@ export const EastChakraNote = memo(function EastChakraNote({ value, storageKey }
         <Box
             as="blockquote"
             role={computed.variantTag === "callout" ? "note" : undefined}
+            css={recipeStyles}
             borderLeftWidth={borderWidth}
             borderLeftStyle={d.borderLeftStyle}
             borderLeftColor={computed.accentColor ?? d.accentColor}
             borderColor={computed.borderColor}
             borderWidth={computed.borderColor ? "1px" : undefined}
-            bg={computed.background ?? d.background}
-            color={computed.color ?? d.bodyColor}
+            {...(computed.background ?? d.background ? { bg: computed.background ?? d.background } : {})}
+            {...(computed.color ?? d.bodyColor ? { color: computed.color ?? d.bodyColor } : {})}
             fontStyle={d.fontStyle}
             fontWeight={fontWeight}
             ps={d.paddingStart}

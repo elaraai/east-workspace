@@ -323,10 +323,11 @@ export function VirtualizedLogViewer({ content, tabs }: VirtualizedLogViewerProp
             <Box position="relative" flex="1" minHeight={0}>
                 <Box
                     ref={parentRef}
+                    layerStyle="surface.log.dark"
                     height="100%"
                     overflow="auto"
-                    bg="gray.900"
                     borderBottomRadius="md"
+                    borderTopWidth="0"
                     fontFamily="mono"
                     fontSize="sm"
                     color="gray.100"
@@ -398,7 +399,7 @@ export function VirtualizedLogViewer({ content, tabs }: VirtualizedLogViewerProp
                         onClick={scrollToBottom}
                     >
                         <Badge
-                            colorPalette="blue"
+                            variant="brand"
                             px={3}
                             py={1}
                             borderRadius="full"

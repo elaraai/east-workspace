@@ -61,7 +61,7 @@ interface LabelProps {
 
 export function Label({ children }: LabelProps) {
   return (
-    <Text fontSize="sm" fontWeight={500} color="text.primary" mb={2}>
+    <Text fontSize="sm" fontWeight={500} color="fg" mb={2}>
       {children}
     </Text>
   );
@@ -122,10 +122,12 @@ export function DateSegment({ segment }: DateSegmentProps) {
   const { state } = context;
   const { segmentProps } = useDateSegment(segment, state, ref);
   
-  // Get theme tokens for dynamic styling
+  // Get theme tokens for dynamic styling. Semantic tokens (`bg.subtle`,
+  // `fg.subtle`, `fg`) anchor against the canonical Elara system; the
+  // gray.* fallback values match the spec focus chrome.
   const [bgSecondary, textTertiary, textPrimary, focusBg, focusText, focusBorder] = useToken(
     'colors',
-    ['bg.secondary', 'text.tertiary', 'text.primary', 'gray.100', 'gray.800', 'gray.400']
+    ['bg.subtle', 'fg.subtle', 'fg', 'gray.100', 'gray.800', 'gray.400']
   );
 
   return (

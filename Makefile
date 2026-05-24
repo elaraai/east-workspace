@@ -50,11 +50,16 @@ install: check-deps
 # ── Build ────────────────────────────────────────────────────────────
 
 ## Build everything: east-c native, east-py (incl. native Cython
-## extensions built by scikit-build-core during install), all TS packages.
+## extensions built by scikit-build-core during install), all TS packages,
+## then regenerate the Claude plugin search index + hook/MCP bundle (the
+## committed artifacts CI verifies — keeps local search in sync with
+## *.examples.ts).
 build: check-deps
 	$(MAKE) -C $(CURDIR)/libs/east-c build
 	$(MAKE) -C $(CURDIR)/libs/east-py install
 	pnpm build
+	pnpm --filter '@elaraai/east-claude-plugin' run generate-index
+	pnpm --filter '@elaraai/east-claude-plugin' run bundle
 
 ## Link all CLIs globally (e3, e3-api-server, east-node, east-py, east-c)
 link:
@@ -64,6 +69,7 @@ link:
 	$(MAKE) -C $(CURDIR)/libs/east-c install-cli
 	$(MAKE) -C $(CURDIR)/libs/east-py install-cli
 	$(MAKE) -C $(CURDIR)/libs/east-ui extension-install
+	@e3 completion install || echo "Note: run 'e3 completion install' manually to enable tab completion"
 
 # ── Test / Lint (via Turbo) ──────────────────────────────────────────
 
@@ -87,15 +93,15 @@ lint: check-deps
 
 ## Start test services (Postgres, MySQL, MongoDB, Redis, MinIO, FTP, SFTP, httpbin)
 services-up:
-	@docker compose --profile services up -d --wait 2>&1 | tail -1
+	@docker compose -f docker/services/docker-compose.yml --profile services up -d --wait 2>&1 | tail -1
 
 ## Stop test services
 services-down:
-	@docker compose --profile services down -v 2>&1 | tail -1
+	@docker compose -f docker/services/docker-compose.yml --profile services down -v 2>&1 | tail -1
 
 ## Show test services status
 services-status:
-	docker compose --profile services ps
+	docker compose -f docker/services/docker-compose.yml --profile services ps
 
 # ── Test IR Export ────────────────────────────────────────────────────
 
@@ -115,7 +121,8 @@ test-all: services-up test-export
 	@exit_code=0; \
 	echo ""; \
 	echo "=== TypeScript ==="; \
-	EAST_QUIET=1 pnpm -r run test 2>&1 | tail -5 || exit_code=1; \
+	EAST_QUIET=1 pnpm -r --no-bail run test > /tmp/east-ts-test.log 2>&1 || exit_code=1; \
+	tail -12 /tmp/east-ts-test.log; \
 	echo ""; \
 	echo "=== east-c ==="; \
 	EAST_QUIET=1 $(MAKE) --no-print-directory -C $(CURDIR)/libs/east-c test-all || exit_code=1; \

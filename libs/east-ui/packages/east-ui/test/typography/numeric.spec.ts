@@ -3,9 +3,8 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { East, variant } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Numeric, NumericFormatType } from "@elaraai/east-ui";
+import { Numeric, Format } from "@elaraai/east-ui";
 import * as ex from "./numeric.examples.js";
 
 describeEast("Numeric", (test) => {
@@ -14,6 +13,8 @@ describeEast("Numeric", (test) => {
         numericPercent: ex.numericPercent,
         numericCompact: ex.numericCompact,
         numericUnit: ex.numericUnit,
+        numericScientific: ex.numericScientific,
+        numericDateTime: ex.numericDateTime,
     });
 
     // =========================================================================
@@ -38,47 +39,39 @@ describeEast("Numeric", (test) => {
     // Format (on main)
     // =========================================================================
 
-    test("creates numeric with Currency format", $ => {
+    test("creates numeric with currency format", $ => {
         const n = $.let(Numeric.Root(1842500, {
-            format: East.value(variant("Currency", {
-                currency: variant("USD", null),
-                display: variant("none", null),
-                compact: variant("some", variant("short", null)),
-                minimumFractionDigits: variant("none", null),
-                maximumFractionDigits: variant("none", null),
-            }), NumericFormatType),
+            format: Format.Currency({ currency: "USD", compact: "short" }),
         }));
-        $(Assert.equal(n.unwrap().unwrap("Numeric").format.unwrap("some").hasTag("Currency"), true));
+        $(Assert.equal(n.unwrap().unwrap("Numeric").format.unwrap("some").hasTag("currency"), true));
     });
 
-    test("creates numeric with Percent format", $ => {
+    test("creates numeric with percent format", $ => {
         const n = $.let(Numeric.Root(0.98, {
-            format: East.value(variant("Percent", {
-                minimumFractionDigits: variant("none", null),
-                maximumFractionDigits: variant("some", 0n),
-                signDisplay: variant("none", null),
-            }), NumericFormatType),
+            format: Format.Percent({ maximumFractionDigits: 0n }),
         }));
-        $(Assert.equal(n.unwrap().unwrap("Numeric").format.unwrap("some").hasTag("Percent"), true));
+        $(Assert.equal(n.unwrap().unwrap("Numeric").format.unwrap("some").hasTag("percent"), true));
     });
 
-    test("creates numeric with Compact format", $ => {
+    test("creates numeric with compact format", $ => {
         const n = $.let(Numeric.Root(1240000, {
-            format: East.value(variant("Compact", {
-                display: variant("some", variant("short", null)),
-            }), NumericFormatType),
+            format: Format.Compact({ display: "short" }),
         }));
-        $(Assert.equal(n.unwrap().unwrap("Numeric").format.unwrap("some").hasTag("Compact"), true));
+        $(Assert.equal(n.unwrap().unwrap("Numeric").format.unwrap("some").hasTag("compact"), true));
     });
 
-    test("creates numeric with Unit format", $ => {
+    test("creates numeric with unit format", $ => {
         const n = $.let(Numeric.Root(12, {
-            format: East.value(variant("Unit", {
-                unit: variant("kilogram", null),
-                display: variant("some", variant("short", null)),
-            }), NumericFormatType),
+            format: Format.Unit({ unit: "kilogram", display: "short" }),
         }));
-        $(Assert.equal(n.unwrap().unwrap("Numeric").format.unwrap("some").hasTag("Unit"), true));
+        $(Assert.equal(n.unwrap().unwrap("Numeric").format.unwrap("some").hasTag("unit"), true));
+    });
+
+    test("creates numeric with datetime format", $ => {
+        const n = $.let(Numeric.Root(1716249600000, {
+            format: Format.DateTime("YYYY-MM-DD HH:mm"),
+        }));
+        $(Assert.equal(n.unwrap().unwrap("Numeric").format.unwrap("some").hasTag("datetime"), true));
     });
 
     // =========================================================================

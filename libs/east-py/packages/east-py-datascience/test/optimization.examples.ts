@@ -37,7 +37,6 @@ export const optimizationCoordinate = example({
             order: variant('some', variant('sequential', null)),
             random_state: variant('some', 42n),
             mode: variant('some', variant('coordinate', null)),
-            workers: variant('none', null),
         });
 
         const result = $.let(Optimization.iterative(objective, spaces, config));
@@ -86,7 +85,6 @@ export const optimizationIncremental = example({
             order: variant('some', variant('sequential', null)),
             random_state: variant('some', 42n),
             mode: variant('none', null),
-            workers: variant('none', null),
         });
 
         const result = $.let(Optimization.iterativeIncremental(
@@ -140,7 +138,6 @@ export const optimizationGrouped = example({
             order: variant('some', variant('sequential', null)),
             random_state: variant('some', 42n),
             mode: variant('none', null),
-            workers: variant('none', null),
         });
 
         const result = $.let(Optimization.iterativeGrouped(
@@ -189,7 +186,6 @@ export const optimizationSwap = example({
             order: variant('some', variant('random', null)),
             random_state: variant('some', 42n),
             mode: variant('some', variant('swap', null)),
-            workers: variant('none', null),
         });
 
         const result = $.let(Optimization.iterative(objective, spaces, config));

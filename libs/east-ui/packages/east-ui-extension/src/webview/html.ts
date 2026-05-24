@@ -19,7 +19,7 @@ export function generateWebviewHtml(
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}' 'wasm-unsafe-eval'; img-src ${cspSource} data:; font-src ${cspSource}; connect-src ${serverUrl} ${cspSource};">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}' 'wasm-unsafe-eval'; img-src ${cspSource} data:; font-src ${cspSource} data:; connect-src ${serverUrl} ${cspSource};">
     <title>East UI Preview</title>
 </head>
 <body>

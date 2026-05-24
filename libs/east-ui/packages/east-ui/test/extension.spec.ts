@@ -4,17 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import {
-    East,
-    StructType,
-    StringType,
-    IntegerType,
-    OptionType,
-    encodeBeast2For,
-    decodeBeast2For,
-    equalFor,
-    variant,
-} from "@elaraai/east";
+import { East, StructType, StringType, IntegerType, OptionType, encodeBeast2For, decodeBeast2For, equalFor, some } from "@elaraai/east";
 import { EastUI, UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./extension.examples.js";
 
@@ -56,7 +46,7 @@ describeEast("EastUI.component (extension API)", (test) => {
         const original = {
             label: "Visits",
             value: 42n,
-            accent: variant("some", "#488e97"),
+            accent: some("#488e97"),
         };
         const payload = encodeBeast2For(Schema)(original);
         const decoded = decodeBeast2For(Schema)(payload);

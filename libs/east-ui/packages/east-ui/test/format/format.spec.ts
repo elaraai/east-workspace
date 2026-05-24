@@ -5,22 +5,8 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Format } from "@elaraai/east-ui";
-import * as ex from "./format.examples.js";
 
 describeEast("Format", (test) => {
-    Assert.examples(test, {
-        formatNumberBasic: ex.formatNumberBasic,
-        formatCurrencyAud: ex.formatCurrencyAud,
-        formatPercent: ex.formatPercent,
-        formatCompact: ex.formatCompact,
-        formatUnit: ex.formatUnit,
-        formatScientific: ex.formatScientific,
-        formatEngineering: ex.formatEngineering,
-        formatDate: ex.formatDate,
-        formatTime: ex.formatTime,
-        formatDateTime: ex.formatDateTime,
-    });
-
     test("Number round-trips fraction-digit + sign-display fields", $ => {
         const f = $.let(Format.Number({
             minimumFractionDigits: 1n,

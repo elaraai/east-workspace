@@ -51,11 +51,11 @@ export async function testInputMutation(): Promise<ScenarioResult> {
     await runE3Command(['workspace', 'deploy', repoDir, 'ws', `${pkg.name}@${pkg.version}`], testDir);
 
     // First execution
-    let result = await runE3Command(['start', repoDir, 'ws'], testDir);
+    let result = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
     assert(result.exitCode === 0, `first start failed: ${result.stderr}`);
 
     // Get first output
-    const firstGet = await runE3Command(['get', repoDir, 'ws.tasks.double.output'], testDir);
+    const firstGet = await runE3Command(['dataset', 'get', repoDir, 'ws.double'], testDir);
     assert(firstGet.exitCode === 0, `first get failed: ${firstGet.stderr}`);
     const firstOutput = firstGet.stdout.trim();
 
@@ -68,15 +68,15 @@ export async function testInputMutation(): Promise<ScenarioResult> {
     writeFileSync(newValuePath, printer(newValue));
 
     // Set the new input value
-    const setResult = await runE3Command(['set', repoDir, `ws.inputs.${inputInfo.name}`, newValuePath], testDir);
+    const setResult = await runE3Command(['dataset', 'set', repoDir, `ws.${inputInfo.name}`, newValuePath], testDir);
     assert(setResult.exitCode === 0, `set failed: ${setResult.stderr}`);
 
     // Re-execute
-    result = await runE3Command(['start', repoDir, 'ws'], testDir);
+    result = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
     assert(result.exitCode === 0, `second start failed: ${result.stderr}`);
 
     // Get second output
-    const secondGet = await runE3Command(['get', repoDir, 'ws.tasks.double.output'], testDir);
+    const secondGet = await runE3Command(['dataset', 'get', repoDir, 'ws.double'], testDir);
     assert(secondGet.exitCode === 0, `second get failed: ${secondGet.stderr}`);
     const secondOutput = secondGet.stdout.trim();
 

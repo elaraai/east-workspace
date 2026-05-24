@@ -100,7 +100,7 @@ describe('OIDC authentication', () => {
     it('completes login with E3_AUTH_AUTO_APPROVE', async () => {
       // Run login (auto-approve enabled via process.env in beforeEach)
       const result = await runE3Command(
-        ['login', '--no-browser', serverUrl],
+        ['auth', 'login', '--no-browser', serverUrl],
         tempDir,
         { env: authEnv() }
       );
@@ -120,7 +120,7 @@ describe('OIDC authentication', () => {
     it('shows auth status after login', async () => {
       // Login first
       await runE3Command(
-        ['login', '--no-browser', serverUrl],
+        ['auth', 'login', '--no-browser', serverUrl],
         tempDir,
         { env: authEnv() }
       );
@@ -139,14 +139,14 @@ describe('OIDC authentication', () => {
     it('can logout after login', async () => {
       // Login
       await runE3Command(
-        ['login', '--no-browser', serverUrl],
+        ['auth', 'login', '--no-browser', serverUrl],
         tempDir,
         { env: authEnv() }
       );
 
       // Logout
       const result = await runE3Command(
-        ['logout', serverUrl],
+        ['auth', 'logout', serverUrl],
         tempDir,
         { env: authEnv() }
       );
@@ -164,7 +164,7 @@ describe('OIDC authentication', () => {
     it('allows repo status after login', async () => {
       // Login first
       await runE3Command(
-        ['login', '--no-browser', serverUrl],
+        ['auth', 'login', '--no-browser', serverUrl],
         tempDir,
         { env: authEnv() }
       );
@@ -184,7 +184,7 @@ describe('OIDC authentication', () => {
     it('allows workspace operations after login', async () => {
       // Login
       await runE3Command(
-        ['login', '--no-browser', serverUrl],
+        ['auth', 'login', '--no-browser', serverUrl],
         tempDir,
         { env: authEnv() }
       );
@@ -268,7 +268,7 @@ describe('OIDC authentication', () => {
 
       // Login with short expiry
       const loginResult = await runE3Command(
-        ['login', '--no-browser', shortExpiryUrl],
+        ['auth', 'login', '--no-browser', shortExpiryUrl],
         tempDir,
         { env: authEnv() }
       );

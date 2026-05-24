@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { East, example } from "@elaraai/east";
-import { Badge, Button, Card, Heading, Stack, Text, UIComponentType } from "@elaraai/east-ui";
+import { Badge, Button, Card, Stack, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const cardBasic = example({
     keywords: ["Card", "Root", "basic"],
@@ -17,29 +17,30 @@ export const cardBasic = example({
 });
 
 export const cardHeader = example({
-    keywords: ["Card", "Root", "header", "Heading"],
-    description: "Card with header component",
+    keywords: ["Card", "Root", "header", "eyebrow"],
+    description: "Card with a bare-string eyebrow header",
     fn: East.function([], UIComponentType, (_$) => {
         return Card.Root([
-            Text.Root("Card content goes here. This card has a heading in the header."),
+            Text.Root("Card content goes here. The header is the mono eyebrow strip."),
         ], {
-            header: Heading.Root("Card Title"),
+            header: "Run summary",
         });
     }),
     inputs: [],
 });
 
-export const cardHeaderDesc = example({
-    keywords: ["Card", "Root", "header", "description", "Stack"],
-    description: "Full header with title and description",
+export const cardHeaderTitle = example({
+    keywords: ["Card", "Header", "eyebrow", "title", "description"],
+    description: "Header with eyebrow + brand title + description",
     fn: East.function([], UIComponentType, (_$) => {
         return Card.Root([
             Text.Root("The main content area of the card."),
         ], {
-            header: Stack.VStack([
-                Heading.Root("Featured Article", { textStyle: "heading-md" }),
-                Text.Root("A brief summary of what this card contains", { color: "fg.muted" }),
-            ], { gap: "1", align: "flex-start" }),
+            header: Card.Header({
+                eyebrow: "Featured",
+                title: "Featured Article",
+                description: "A brief summary of what this card contains",
+            }),
         });
     }),
     inputs: [],
@@ -47,12 +48,12 @@ export const cardHeaderDesc = example({
 
 export const cardFooter = example({
     keywords: ["Card", "Root", "footer", "Button", "actions"],
-    description: "Card with action buttons in footer",
+    description: "Card with action buttons in the footer",
     fn: East.function([], UIComponentType, (_$) => {
         return Card.Root([
             Text.Root("This card has action buttons placed in the footer area."),
         ], {
-            header: Heading.Root("Actions Card"),
+            header: Card.Header({ title: "Actions Card" }),
             footer: Stack.HStack([
                 Button.Root("Cancel", { style: { variant: "outline", size: "sm" } }),
                 Button.Root("Save", { style: { variant: "solid", colorPalette: "blue", size: "sm" } }),
@@ -62,61 +63,17 @@ export const cardFooter = example({
     inputs: [],
 });
 
-export const cardElevated = example({
-    keywords: ["Card", "Root", "variant", "elevated", "shadow"],
-    description: "Card with shadow elevation",
-    fn: East.function([], UIComponentType, (_$) => {
-        return Card.Root([
-            Text.Root("This card has a shadow effect for visual depth."),
-        ], {
-            header: Heading.Root("Elevated Style"),
-            footer: Button.Root("Learn More", { style: { variant: "solid", colorPalette: "blue", size: "sm" } }),
-            variant: "elevated",
-        });
-    }),
-    inputs: [],
-});
-
-export const cardOutline = example({
-    keywords: ["Card", "Root", "variant", "outline", "border"],
-    description: "Card with border outline",
-    fn: East.function([], UIComponentType, (_$) => {
-        return Card.Root([
-            Text.Root("A card with a visible border outline."),
-        ], {
-            header: Heading.Root("Outline Style"),
-            variant: "outline",
-        });
-    }),
-    inputs: [],
-});
-
-export const cardSubtle = example({
-    keywords: ["Card", "Root", "variant", "subtle"],
-    description: "Card with subtle background",
-    fn: East.function([], UIComponentType, (_$) => {
-        return Card.Root([
-            Text.Root("A card with a subtle background color."),
-        ], {
-            header: Heading.Root("Subtle Style"),
-            variant: "subtle",
-        });
-    }),
-    inputs: [],
-});
-
 export const cardDimensions = example({
     keywords: ["Card", "Root", "height", "overflow", "dimensions"],
-    description: "Fixed height and min/max constraints",
+    description: "Fixed height and scroll overflow",
     fn: East.function([], UIComponentType, (_$) => {
         return Card.Root([
             Text.Root("This card has a fixed height of 200px and will scroll if content overflows."),
             Text.Root("The dimension properties allow precise control over card sizing."),
         ], {
-            header: Heading.Root("Sized Card"),
+            header: "Sized card",
             height: "200px",
             overflow: "auto",
-            variant: "outline",
         });
     }),
     inputs: [],
@@ -130,16 +87,14 @@ export const cardFlexible = example({
             Card.Root([
                 Text.Root("This card uses flex: 1 to fill available space."),
             ], {
-                header: Heading.Root("Flex Card 1"),
+                header: "Flex card 1",
                 flex: "1",
-                variant: "outline",
             }),
             Card.Root([
                 Text.Root("Both cards share the space equally."),
             ], {
-                header: Heading.Root("Flex Card 2"),
+                header: "Flex card 2",
                 flex: "1",
-                variant: "outline",
             }),
         ], { gap: "4", width: "100%" });
     }),
@@ -147,7 +102,7 @@ export const cardFlexible = example({
 });
 
 export const cardMultiple = example({
-    keywords: ["Card", "Root", "Badge", "Heading", "rich content"],
+    keywords: ["Card", "Root", "Badge", "rich content"],
     description: "Card with multiple child components",
     fn: East.function([], UIComponentType, (_$) => {
         return Card.Root([
@@ -157,46 +112,31 @@ export const cardMultiple = example({
             ], { gap: "2" }),
             Text.Root("This card demonstrates how multiple components can be nested inside a card body."),
         ], {
-            header: Stack.VStack([
-                Heading.Root("Action Required", { textStyle: "heading-md" }),
-                Text.Root("Please review and respond", { color: "fg.muted" }),
-            ], { gap: "1", align: "flex-start" }),
+            header: Card.Header({ eyebrow: "Action required", title: "Please review and respond" }),
             footer: Stack.HStack([
                 Button.Root("Accept", { style: { variant: "solid", colorPalette: "green", size: "sm" } }),
                 Button.Root("Decline", { style: { variant: "outline", colorPalette: "red", size: "sm" } }),
             ], { gap: "2" }),
-            variant: "elevated",
         });
     }),
     inputs: [],
 });
 
-export const cardSizes = example({
-    keywords: ["Card", "Root", "size", "sm", "md", "lg"],
-    description: "Available sizes: sm, md, lg",
-    fn: East.function([], UIComponentType, (_$) => {
-        return Stack.VStack([
-            Card.Root([Text.Root("Small card")], { header: Heading.Root("Small", { textStyle: "heading-sm" }), size: "sm", variant: "outline" }),
-            Card.Root([Text.Root("Medium card")], { header: Heading.Root("Medium", { textStyle: "heading-md" }), size: "md", variant: "outline" }),
-            Card.Root([Text.Root("Large card")], { header: Heading.Root("Large", { textStyle: "heading-lg" }), size: "lg", variant: "outline" }),
-        ], { gap: "4", align: "stretch", width: "100%" });
-    }),
-    inputs: [],
-});
-
 export const cardWithCompoundHeader = example({
-    keywords: ["Card", "Header", "Title", "Description", "Actions"],
-    description: "Composed card with Card.Header + title + description + trailing actions",
+    keywords: ["Card", "Header", "eyebrow", "title", "meta"],
+    description: "Header with eyebrow + title + trailing meta, action in the footer",
     fn: East.function([], UIComponentType, (_$) => {
         return Card.Root([
             Text.Root("Scenario vs baseline — per-plan week comparison."),
         ], {
             header: Card.Header({
+                eyebrow: "Forecast · SE region",
                 title: "Per plan week",
-                description: "Scenario vs baseline",
+                meta: "14s ago",
+            }),
+            footer: Card.Footer([Text.Root("Last synced 14:32")], {
                 actions: Card.Actions([Button.Root("Export", { style: { variant: "subtle" } })]),
             }),
-            style: { variant: "elevated" },
         });
     }),
     inputs: [],
@@ -211,7 +151,6 @@ export const cardLoading = example({
         ], {
             header: Card.Header({ title: "Run summary" }),
             state: "loading",
-            style: { variant: "elevated" },
         });
     }),
     inputs: [],
@@ -224,7 +163,7 @@ export const cardEmpty = example({
         return Card.Root([
             Text.Root("Original content — replaced by EmptyState when empty."),
         ], {
-            header: Card.Header({ title: "Scenarios" }),
+            header: "Scenarios",
             state: "empty",
         });
     }),
@@ -238,7 +177,7 @@ export const cardError = example({
         return Card.Root([
             Text.Root("Original content — replaced by error alert."),
         ], {
-            header: Card.Header({ title: "Run summary" }),
+            header: "Run summary",
             state: "error",
         });
     }),
@@ -252,22 +191,8 @@ export const cardPermissionDenied = example({
         return Card.Root([
             Text.Root("Sensitive content."),
         ], {
-            header: Card.Header({ title: "Admin panel" }),
+            header: "Admin panel",
             state: "permission-denied",
-        });
-    }),
-    inputs: [],
-});
-
-export const cardElevationOverlay = example({
-    keywords: ["Card", "style", "elevation", "overlay"],
-    description: "Card with the overlay elevation — stronger shadow via style.elevation",
-    fn: East.function([], UIComponentType, (_$) => {
-        return Card.Root([
-            Text.Root("This card has the overlay elevation — a stronger shadow."),
-        ], {
-            header: Card.Header({ title: "Overlay elevation" }),
-            style: { elevation: "overlay", background: "white" },
         });
     }),
     inputs: [],
@@ -288,7 +213,6 @@ export const cardWithSections = example({
             ], { title: "Actions" }),
         ], {
             header: Card.Header({ title: "Commit approval" }),
-            style: { variant: "outline" },
         });
     }),
     inputs: [],

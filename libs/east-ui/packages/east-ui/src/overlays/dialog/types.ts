@@ -198,6 +198,8 @@ export interface DialogStyle {
     motionPreset?: SubtypeExprOrValue<DialogMotionPresetType> | DialogMotionPresetLiteral;
     /** ARIA role */
     role?: SubtypeExprOrValue<DialogRoleType> | DialogRoleLiteral;
+    /** Mono uppercase eyebrow naming the irreversibility (e.g. "Confirm · cannot be undone") */
+    eyebrow?: SubtypeExprOrValue<StringType>;
     /** Dialog title */
     title?: SubtypeExprOrValue<StringType>;
     /** Dialog description */

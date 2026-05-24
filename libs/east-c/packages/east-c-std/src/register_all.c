@@ -12,6 +12,5 @@ void east_std_register_all(PlatformRegistry *reg)
     east_std_register_time(reg);
     east_std_register_random(reg);
     east_std_register_fetch(reg);
-    east_std_register_parallel(reg);
     east_std_register_test(reg);
 }

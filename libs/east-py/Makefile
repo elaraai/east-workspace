@@ -8,7 +8,7 @@
 .PHONY: install install-cli test test-east-py test-east-py-std test-east-py-io test-east-py-datascience \
         reinstall-east-py reinstall-east-py-std reinstall-east-py-io reinstall-east-py-datascience build-deps \
         test-export lint lint-headers lint-headers-fix format typecheck check \
-        clean build help
+        vendor build-wheels clean build help
 
 # ── Setup ─────────────────────────────────────────────────────────────
 
@@ -28,9 +28,12 @@ install: build-deps
 
 ## Build deps for the no-build-isolation flow. scikit-build-core is the build
 ## backend; cython + numpy are needed at build time by the CMakeLists.
+## ninja is the CMake generator: under --no-build-isolation scikit-build-core
+## won't auto-provision it, and with no system ninja it would otherwise cache an
+## ephemeral build-env ninja path that breaks editable rebuilds.
 ## setuptools is for sloppy 3rd-party packages (e.g. access-parser) that need
 ## it at build time but don't declare it in their pyproject.toml.
-BUILD_DEPS = scikit-build-core cython numpy setuptools
+BUILD_DEPS = scikit-build-core cython numpy setuptools ninja
 
 build-deps:
 	@test -d .venv || uv venv
@@ -138,6 +141,30 @@ build:
 	cd packages/east-py-datascience && pnpm run build
 	uv build --package east-py-datascience
 
+# ── Native wheel packaging (release-parity, local) ────────────────────
+
+## Stage east-c (+ east-py .pxd) into each Cython package's _vendor/ so it
+## builds without the monorepo — the same staging the release workflow does
+## before cibuildwheel / sdist. A no-op for normal dev builds (the CMakeLists
+## prefer the monorepo when present); _vendor/ is gitignored.
+vendor:
+	python3 scripts/vendor-native.py --package packages/east-py
+	python3 scripts/vendor-native.py --package packages/east-py-datascience --with-east-py-pxd
+
+## Build manylinux wheels locally for the Cython packages (east-py,
+## east-py-datascience) via cibuildwheel — the exact path the release runs on
+## Linux, so isolation bugs surface here instead of in CI. Requires Docker.
+## Override the target interpreter with e.g. CIBW_BUILD=cp312-manylinux_x86_64.
+CIBW ?= uvx --from 'cibuildwheel<3' cibuildwheel
+CIBW_BUILD ?= cp311-manylinux_x86_64
+# Drop any in-tree .so from the container copy so the wheel only ships freshly
+# built extensions (the host tree — and your editable install — is untouched).
+export CIBW_BEFORE_BUILD = find {project} -name '*.cpython-*.so' -delete
+export CIBW_SKIP = *-musllinux_*
+build-wheels: vendor
+	cd packages/east-py && CIBW_BUILD="$(CIBW_BUILD)" $(CIBW) --platform linux --output-dir "$(CURDIR)/dist-wheels"
+	cd packages/east-py-datascience && CIBW_BUILD="$(CIBW_BUILD)" $(CIBW) --platform linux --output-dir "$(CURDIR)/dist-wheels"
+
 # Native Cython extensions are built automatically by scikit-build-core when
 # packages are installed (see each package's pyproject.toml +
 # CMakeLists.txt). The standalone `build-cython*` and `build-eastc` targets
@@ -148,8 +175,9 @@ build:
 
 ## Clean build artifacts (everything scikit-build-core or pytest generated)
 clean:
-	rm -rf .venv uv.lock dist/
+	rm -rf .venv uv.lock dist/ dist-wheels/
 	find packages -name "build" -type d -not -path "*/node_modules/*" -exec rm -rf {} + 2>/dev/null || true
+	find packages -name "_vendor" -type d -exec rm -rf {} + 2>/dev/null || true
 	find packages -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
 	find packages -name "*.egg-info" -type d -exec rm -rf {} + 2>/dev/null || true
 	find packages -name ".pytest_cache" -type d -exec rm -rf {} + 2>/dev/null || true
@@ -183,6 +211,8 @@ help:
 	@echo "  check             - Run lint + typecheck + test"
 	@echo ""
 	@echo "  build             - Build wheels for all packages"
+	@echo "  vendor            - Stage east-c (+ east-py .pxd) into _vendor/ for packaged builds"
+	@echo "  build-wheels      - Build manylinux wheels locally via cibuildwheel (needs Docker)"
 	@echo "  reinstall-east-py - Force-rebuild east-py via scikit-build-core"
 	@echo "  reinstall-east-py-std - Force-rebuild east-py-std"
 	@echo "  reinstall-east-py-io - Force-rebuild east-py-io"

@@ -16,8 +16,7 @@ import {
     none,
 } from "@elaraai/east";
 
-import { SizeType, OverflowType } from "../../style.js";
-import { ElevationType } from "../../style/visual.js";
+import { OverflowType } from "../../style.js";
 import { UIComponentType } from "../../component.js";
 import {
     StateValueType,
@@ -30,19 +29,13 @@ import { Stack } from "../../layout/stack/index.js";
 import { Separator } from "../../layout/separator/index.js";
 import {
     CardStyleType,
-    CardVariantType,
-    CardVariant,
     type CardStyle,
-    type CardVariantLiteral,
 } from "./types.js";
 
 // Re-export types
 export {
     CardStyleType,
-    CardVariantType,
-    CardVariant,
     type CardStyle,
-    type CardVariantLiteral,
 } from "./types.js";
 
 // ============================================================================
@@ -96,14 +89,15 @@ export type CardType = typeof CardType;
  * factory boundary; the explicit `style` object takes precedence when both
  * are supplied.
  *
- * @property header - Optional header UIComponent (use `Card.Header(...)` for the composed shape)
+ * @property header - Optional header — a bare string renders as the mono eyebrow,
+ *   or use `Card.Header({ eyebrow, title, meta, description })` for the composed shape
  * @property footer - Optional footer UIComponent (use `Card.Footer(...)` for the composed shape)
  * @property state - Runtime state literal or expression — drives the fallback-body contract
  * @property style - Optional visual-only style (preferred shape)
  */
 export interface CardOptions extends CardStyle {
-    /** Optional header component. Use `Card.Header(...)` to compose title + actions. */
-    header?: ExprType<UIComponentType>;
+    /** Optional header. A bare string becomes the mono eyebrow; use `Card.Header(...)` for eyebrow + title + meta. */
+    header?: string | ExprType<UIComponentType>;
     /** Optional footer component. Use `Card.Footer(...)` to compose content + actions. */
     footer?: ExprType<UIComponentType>;
     /** Runtime state — `"ready" | "loading" | "empty" | "error" | "stale" | "disabled" | "permission-denied"`. */
@@ -125,21 +119,6 @@ export interface CardOptions extends CardStyle {
  * @returns An East expression representing the style sub-struct
  */
 function buildCardStyle(style: CardStyle): ExprType<CardStyleType> {
-    const variantValue = style.variant
-        ? (typeof style.variant === "string"
-            ? East.value(variant(style.variant as CardVariantLiteral, null), CardVariantType)
-            : style.variant)
-        : undefined;
-    const sizeValue = style.size
-        ? (typeof style.size === "string"
-            ? East.value(variant(style.size, null), SizeType)
-            : style.size)
-        : undefined;
-    const elevationValue = style.elevation
-        ? (typeof style.elevation === "string"
-            ? East.value(variant(style.elevation, null), ElevationType)
-            : style.elevation)
-        : undefined;
     const overflowValue = style.overflow
         ? (typeof style.overflow === "string"
             ? East.value(variant(style.overflow, null), OverflowType)
@@ -147,9 +126,6 @@ function buildCardStyle(style: CardStyle): ExprType<CardStyleType> {
         : undefined;
 
     return East.value({
-        variant: variantValue ? some(variantValue) : none,
-        size: sizeValue ? some(sizeValue) : none,
-        elevation: elevationValue ? some(elevationValue) : none,
         height: style.height !== undefined ? some(style.height) : none,
         minHeight: style.minHeight !== undefined ? some(style.minHeight) : none,
         maxHeight: style.maxHeight !== undefined ? some(style.maxHeight) : none,
@@ -175,12 +151,13 @@ function buildCardStyle(style: CardStyle): ExprType<CardStyleType> {
  * @returns An East expression representing the Card component
  *
  * @remarks
- * Card is the canonical state-contract consumer: the optional `state`
- * drives the renderer's fallback body for loading / empty / error / stale /
- * disabled / permission-denied — see `libs/east-ui-components/src/container/card/index.tsx`
- * for the dispatch table. All visual fields (variant, size, elevation,
- * dimensions, colour slots) now live in `style: {...}`; flat
- * fields on the top-level options bag continue to work as a migration aid.
+ * Card is the one container shape (bsys Frame): 1px rule, 10px radius, paper
+ * fill, no shadow. The optional `state` drives the renderer's fallback body for
+ * loading / empty / error / stale / disabled / permission-denied — see
+ * `libs/east-ui-components/src/container/card/index.tsx` for the dispatch table.
+ * A bare-string `header` renders as the mono eyebrow; `Card.Header(...)` composes
+ * the eyebrow + brand title + meta. Layout / dimension fields and colour escape
+ * hatches live in `style: {...}`; flat fields continue to work as a shorthand.
  *
  * @example
  * ```ts
@@ -190,10 +167,10 @@ function buildCardStyle(style: CardStyle): ExprType<CardStyleType> {
  * const example = East.function([], UIComponentType, $ => {
  *     return Card.Root([Text.Root("Body copy")], {
  *         header: Card.Header({
+ *             eyebrow: "Forecast · SE region",
  *             title: "Per plan week",
- *             description: "Scenario vs baseline",
+ *             meta: "14s ago",
  *         }),
- *         style: { variant: "elevated", elevation: "raised" },
  *     });
  * });
  * ```
@@ -211,9 +188,6 @@ function createCard(
             hasFlat = true;
         }
     };
-    copy("variant");
-    copy("size");
-    copy("elevation");
     copy("height");
     copy("minHeight");
     copy("maxHeight");
@@ -238,8 +212,12 @@ function createCard(
         ? East.value(variant(options.state, null), StateValueType)
         : options?.state as ExprType<StateValueType> | undefined;
 
+    const headerComp = typeof options?.header === "string"
+        ? CardHeader({ eyebrow: options.header })
+        : options?.header;
+
     return East.value(variant("Card", {
-        header: options?.header ? some(options.header) : none,
+        header: headerComp ? some(headerComp) : none,
         body: children,
         footer: options?.footer ? some(options.footer) : none,
         state: stateValue ? some(stateValue) : none,
@@ -377,67 +355,88 @@ export function CardActions(
 }
 
 /**
- * TypeScript options bag for `Card.Header`.
+ * TypeScript options bag for `Card.Header` — the bsys Frame eyebrow-row.
  *
- * @property title - Card title (string wrapped in `Card.Title`, or an existing UIComp)
- * @property description - Optional secondary description
- * @property actions - Optional trailing action row (e.g. `Card.Actions([...])`)
- * @property eyebrow - Optional small uppercase label above the title
+ * @remarks
+ * All text styling is applied by the helper; pass plain strings. The eyebrow +
+ * meta render as the mono eyebrow-row (label left, meta right); the optional
+ * brand-font title + description sit below it inside the header region.
+ *
+ * @property eyebrow - Mono uppercase label naming the pattern (left of the row)
+ * @property meta - Optional trailing meta (run anchor, freshness) on the right
+ * @property title - Optional brand-font card title rendered below the eyebrow
+ * @property description - Optional secondary description below the title
  */
 export interface CardHeaderOptions {
-    /** Card title. Strings are wrapped in `Card.Title`. */
-    title?: string | ExprType<UIComponentType>;
-    /** Optional secondary description line. */
-    description?: TextInput;
-    /** Optional trailing action row — typically `Card.Actions([...])`. */
-    actions?: ExprType<UIComponentType>;
-    /** Optional small uppercase label rendered above the title. */
+    /** Mono uppercase eyebrow label (left). Strings are styled automatically. */
     eyebrow?: TextInput;
+    /** Optional trailing meta on the right of the eyebrow row. */
+    meta?: TextInput;
+    /** Optional brand-font card title rendered below the eyebrow. */
+    title?: string | ExprType<UIComponentType>;
+    /** Optional secondary description line below the title. */
+    description?: TextInput;
 }
 
 /**
- * Creates a composed card header — eyebrow + title + description on the left,
- * optional actions on the right.
+ * Creates a composed card header — the bsys Frame eyebrow-row (mono label +
+ * optional trailing meta) with an optional brand-font title + description below.
  *
- * @param options - Options bag (at least one of `title` / `description` / `actions` expected)
+ * @param options - Options bag (`eyebrow` / `meta` / `title` / `description`)
  * @returns An East expression representing the header
+ *
+ * @remarks
+ * Callers pass plain strings only; this helper owns all text styling. The
+ * renderer adds the strip chrome (paper-2 fill, bottom hairline, padding).
  *
  * @example
  * ```ts
  * Card.Header({
+ *     eyebrow: "Forecast · SE region",
  *     title: "Per plan week",
- *     description: "Scenario vs baseline",
- *     actions: Card.Actions([Button.Root("Export")]),
+ *     meta: "14s ago",
  * });
  * ```
  */
 export function CardHeader(options: CardHeaderOptions): ExprType<UIComponentType> {
-    const leftChildren: Array<ExprType<UIComponentType>> = [];
-    if (options.eyebrow !== undefined) {
-        leftChildren.push(Text.Root(typeof options.eyebrow === "string" ? options.eyebrow : "", {
-            textStyle: "label-sm",
-            color: "fg.muted",
-            textTransform: "uppercase",
-        }));
+    const children: Array<ExprType<UIComponentType>> = [];
+
+    // Eyebrow / meta carry no textStyle: they inherit the 11px mono size from
+    // the renderer header strip so the eyebrow row hits the spec 11px exactly,
+    // while the title's own heading textStyle overrides size + family.
+    if (options.eyebrow !== undefined || options.meta !== undefined) {
+        const eyebrowComp = options.eyebrow !== undefined
+            ? (typeof options.eyebrow === "string"
+                ? Text.Root(options.eyebrow, { fontWeight: "semibold", textTransform: "uppercase", letterSpacing: "0.18em", color: "fg" })
+                : options.eyebrow as ExprType<UIComponentType>)
+            : Text.Root("", { fontWeight: "semibold", textTransform: "uppercase", letterSpacing: "0.18em", color: "fg" });
+        if (options.meta !== undefined) {
+            const metaComp = typeof options.meta === "string"
+                ? Text.Root(options.meta, { fontWeight: "medium", textTransform: "uppercase", letterSpacing: "0.12em", color: "fg.muted" })
+                : options.meta as ExprType<UIComponentType>;
+            children.push(Stack.HStack([eyebrowComp, metaComp], {
+                gap: "3",
+                align: "center",
+                justify: "space-between",
+                width: "full",
+            }));
+        } else {
+            children.push(eyebrowComp);
+        }
     }
+
     if (options.title !== undefined) {
-        leftChildren.push(CardTitle(options.title));
+        children.push(typeof options.title === "string"
+            ? Heading.Root(options.title, { textStyle: "heading-lg" })
+            : options.title);
     }
     if (options.description !== undefined) {
-        leftChildren.push(CardDescription(options.description));
+        children.push(CardDescription(options.description));
     }
-    const left = leftChildren.length === 1
-        ? leftChildren[0]!
-        : Stack.VStack(leftChildren, { gap: "0", align: "stretch" });
 
-    if (options.actions !== undefined) {
-        return Stack.HStack([left, options.actions], {
-            gap: "3",
-            align: "center",
-            justify: "space-between",
-        });
-    }
-    return left;
+    return children.length === 1
+        ? children[0]!
+        : Stack.VStack(children, { gap: "1", align: "stretch" });
 }
 
 /**
@@ -643,12 +642,6 @@ export const Card = {
      * @param options - Optional `placement`
      */
     Actions: CardActions,
-    /**
-     * Helper to create a CardVariant expression (`elevated` / `outline` / `subtle`).
-     *
-     * @param v - The variant literal
-     */
-    Variant: CardVariant,
     Types: {
         /**
          * East StructType for a Card component value — the serialisable IR
@@ -671,16 +664,12 @@ export const Card = {
          * East StructType holding every visual field for a Card.
          *
          * @remarks
-         * Mirror of `CardStyleType` from `./types.js`. Covers visual
-         * presets (`variant`, `size`, `elevation`), layout / dimension
-         * fields, overflow, and the full set of colour slots
-         * (`background`, `borderColor`, `headerBackground`,
-         * `footerBackground`, `accentColor`) that renderers apply
-         * alongside state-driven overrides.
+         * Mirror of `CardStyleType` from `./types.js`. Layout / dimension
+         * fields, overflow, and the colour escape hatches (`background`,
+         * `borderColor`, `headerBackground`, `footerBackground`,
+         * `accentColor`) — the card has one shape, so there are no preset,
+         * size, or shadow fields.
          *
-         * @property variant - Visual preset — `elevated` / `outline` / `subtle`
-         * @property size - Card size token
-         * @property elevation - Shadow elevation token
          * @property height - CSS height
          * @property minHeight - CSS min-height
          * @property maxHeight - CSS max-height
@@ -696,18 +685,5 @@ export const Card = {
          * @property accentColor - Left-edge accent stripe colour
          */
         Style: CardStyleType,
-        /**
-         * East VariantType for the Card visual preset.
-         *
-         * @remarks
-         * Mirror of `CardVariantType` from `./types.js`. Used as the value
-         * type of `CardStyleType.variant`; consumers can construct a
-         * variant expression via `Card.Variant("elevated")`.
-         *
-         * @property elevated - Raised card with prominent shadow
-         * @property outline - Default — 1px border + subtle shadow
-         * @property subtle - Flat card with background tint, no shadow
-         */
-        Variant: CardVariantType,
     },
 } as const;

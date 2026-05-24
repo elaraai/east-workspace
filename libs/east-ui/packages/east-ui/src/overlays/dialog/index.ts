@@ -57,12 +57,14 @@ export type { DialogSizeLiteral, DialogPlacementLiteral, DialogScrollBehaviorLit
 export const DialogType: StructType<{
     trigger: UIComponentType,
     body: ArrayType<UIComponentType>,
+    eyebrow: OptionType<StringType>,
     title: OptionType<StringType>,
     description: OptionType<StringType>,
     style: OptionType<DialogStyleType>,
 }> = StructType({
     trigger: UIComponentType,
     body: ArrayType(UIComponentType),
+    eyebrow: OptionType(StringType),
     title: OptionType(StringType),
     description: OptionType(StringType),
     style: OptionType(DialogStyleType),
@@ -92,11 +94,13 @@ export type DialogType = typeof DialogType;
  */
 export const DialogOpenInputType: StructType<{
     body: ArrayType<UIComponentType>,
+    eyebrow: OptionType<StringType>,
     title: OptionType<StringType>,
     description: OptionType<StringType>,
     style: OptionType<DialogStyleType>,
 }> = StructType({
     body: ArrayType(UIComponentType),
+    eyebrow: OptionType(StringType),
     title: OptionType(StringType),
     description: OptionType(StringType),
     style: OptionType(DialogStyleType),
@@ -179,6 +183,7 @@ function createDialog(
     return East.value(variant("Dialog", {
         trigger: trigger,
         body: body,
+        eyebrow: style?.eyebrow !== undefined ? variant("some", style.eyebrow) : variant("none", null),
         title: style?.title !== undefined ? variant("some", style.title) : variant("none", null),
         description: style?.description !== undefined ? variant("some", style.description) : variant("none", null),
         style: hasStyle

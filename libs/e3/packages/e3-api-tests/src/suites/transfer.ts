@@ -94,11 +94,11 @@ export function transferTests(
           result = await runE3Command(['workspace', 'deploy', remoteUrl, wsName, 'transfer-l2r-pkg@1.0.0'], workDir, { env });
           assert.strictEqual(result.exitCode, 0, `Deploy failed: stdout=${result.stdout}, stderr=${result.stderr}`);
 
-          result = await runE3Command(['start', remoteUrl, wsName], workDir, { env });
+          result = await runE3Command(['dataflow', 'run', remoteUrl, wsName], workDir, { env });
           assert.strictEqual(result.exitCode, 0, `Start failed: stdout=${result.stdout}, stderr=${result.stderr}`);
 
           // 5. Check output (10 * 2 = 20)
-          result = await runE3Command(['get', remoteUrl, `${wsName}.tasks.compute.output`], workDir, { env });
+          result = await runE3Command(['dataset', 'get', remoteUrl, `${wsName}.compute`], workDir, { env });
           assert.strictEqual(result.exitCode, 0, `Get failed: ${result.stderr}`);
           assert.match(result.stdout, /20/);
 
@@ -139,11 +139,11 @@ export function transferTests(
           result = await runE3Command(['workspace', 'deploy', localRepo, wsName, 'transfer-r2l-pkg@1.0.0'], workDir);
           assert.strictEqual(result.exitCode, 0, `Deploy failed: ${result.stderr}`);
 
-          result = await runE3Command(['start', localRepo, wsName], workDir);
+          result = await runE3Command(['dataflow', 'run', localRepo, wsName], workDir);
           assert.strictEqual(result.exitCode, 0, `Start failed: ${result.stderr}`);
 
           // 5. Check output (10 * 2 = 20)
-          result = await runE3Command(['get', localRepo, `${wsName}.tasks.compute.output`], workDir);
+          result = await runE3Command(['dataset', 'get', localRepo, `${wsName}.compute`], workDir);
           assert.strictEqual(result.exitCode, 0, `Get failed: ${result.stderr}`);
           assert.match(result.stdout, /20/);
         } finally {
@@ -177,15 +177,15 @@ export function transferTests(
           // 3. Modify input value (change 10 to 25)
           const valueFile = join(ctx.tempDir, `value-${Date.now()}.east`);
           writeFileSync(valueFile, '25');
-          result = await runE3Command(['set', localRepo, `${wsName}.inputs.value`, valueFile], workDir);
+          result = await runE3Command(['dataset', 'set', localRepo, `${wsName}.value`, valueFile], workDir);
           assert.strictEqual(result.exitCode, 0, `Set failed: ${result.stderr}`);
 
           // 4. Execute to populate output
-          result = await runE3Command(['start', localRepo, wsName], workDir);
+          result = await runE3Command(['dataflow', 'run', localRepo, wsName], workDir);
           assert.strictEqual(result.exitCode, 0, `Start failed: ${result.stderr}`);
 
           // Verify local output (25 * 2 = 50)
-          result = await runE3Command(['get', localRepo, `${wsName}.tasks.compute.output`], workDir);
+          result = await runE3Command(['dataset', 'get', localRepo, `${wsName}.compute`], workDir);
           assert.strictEqual(result.exitCode, 0, `Get local output failed: ${result.stderr}`);
           assert.match(result.stdout, /50/);
 
@@ -225,15 +225,15 @@ export function transferTests(
           assert.strictEqual(result.exitCode, 0, `Remote deploy failed: ${result.stderr}`);
 
           // Input should be 25 (preserved from workspace)
-          result = await runE3Command(['get', remoteUrl, `${remoteWsName}.inputs.value`], workDir, { env });
+          result = await runE3Command(['dataset', 'get', remoteUrl, `${remoteWsName}.value`], workDir, { env });
           assert.strictEqual(result.exitCode, 0, `Get remote input failed: ${result.stderr}`);
           assert.match(result.stdout, /25/);
 
           // Execute and verify output
-          result = await runE3Command(['start', remoteUrl, remoteWsName], workDir, { env });
+          result = await runE3Command(['dataflow', 'run', remoteUrl, remoteWsName], workDir, { env });
           assert.strictEqual(result.exitCode, 0, `Remote start failed: ${result.stderr}`);
 
-          result = await runE3Command(['get', remoteUrl, `${remoteWsName}.tasks.compute.output`], workDir, { env });
+          result = await runE3Command(['dataset', 'get', remoteUrl, `${remoteWsName}.compute`], workDir, { env });
           assert.strictEqual(result.exitCode, 0, `Get remote output failed: ${result.stderr}`);
           assert.match(result.stdout, /50/);
 
@@ -270,11 +270,11 @@ export function transferTests(
           // 3. Modify input value (change 10 to 30)
           const valueFile = join(ctx.tempDir, `value-remote-${Date.now()}.east`);
           writeFileSync(valueFile, '30');
-          result = await runE3Command(['set', remoteUrl, `${wsName}.inputs.value`, valueFile], workDir, { env });
+          result = await runE3Command(['dataset', 'set', remoteUrl, `${wsName}.value`, valueFile], workDir, { env });
           assert.strictEqual(result.exitCode, 0, `Set failed: ${result.stderr}`);
 
           // 4. Execute to populate output
-          result = await runE3Command(['start', remoteUrl, wsName], workDir, { env });
+          result = await runE3Command(['dataflow', 'run', remoteUrl, wsName], workDir, { env });
           assert.strictEqual(result.exitCode, 0, `Start failed: ${result.stderr}`);
 
           // 5. Export workspace (version is auto-generated)
@@ -301,15 +301,15 @@ export function transferTests(
           assert.strictEqual(result.exitCode, 0, `Local deploy failed: ${result.stderr}`);
 
           // Input should be 30 (preserved from workspace)
-          result = await runE3Command(['get', localRepo, `${localWsName}.inputs.value`], workDir);
+          result = await runE3Command(['dataset', 'get', localRepo, `${localWsName}.value`], workDir);
           assert.strictEqual(result.exitCode, 0, `Get local input failed: ${result.stderr}`);
           assert.match(result.stdout, /30/);
 
           // Execute and verify output
-          result = await runE3Command(['start', localRepo, localWsName], workDir);
+          result = await runE3Command(['dataflow', 'run', localRepo, localWsName], workDir);
           assert.strictEqual(result.exitCode, 0, `Local start failed: ${result.stderr}`);
 
-          result = await runE3Command(['get', localRepo, `${localWsName}.tasks.compute.output`], workDir);
+          result = await runE3Command(['dataset', 'get', localRepo, `${localWsName}.compute`], workDir);
           assert.strictEqual(result.exitCode, 0, `Get local output failed: ${result.stderr}`);
           assert.match(result.stdout, /60/); // 30 * 2 = 60
 
@@ -349,18 +349,18 @@ export function transferTests(
           // Modify inputs: a=20, b=3 -> left=23, right=60 -> merge=83
           const aFile = join(ctx.tempDir, `a-${Date.now()}.east`);
           writeFileSync(aFile, '20');
-          result = await runE3Command(['set', localRepo1, `${ws1}.inputs.a`, aFile], workDir);
+          result = await runE3Command(['dataset', 'set', localRepo1, `${ws1}.a`, aFile], workDir);
           assert.strictEqual(result.exitCode, 0);
 
           const bFile = join(ctx.tempDir, `b-${Date.now()}.east`);
           writeFileSync(bFile, '3');
-          result = await runE3Command(['set', localRepo1, `${ws1}.inputs.b`, bFile], workDir);
+          result = await runE3Command(['dataset', 'set', localRepo1, `${ws1}.b`, bFile], workDir);
           assert.strictEqual(result.exitCode, 0);
 
-          result = await runE3Command(['start', localRepo1, ws1], workDir);
+          result = await runE3Command(['dataflow', 'run', localRepo1, ws1], workDir);
           assert.strictEqual(result.exitCode, 0, `Local 1 start failed: ${result.stderr}`);
 
-          result = await runE3Command(['get', localRepo1, `${ws1}.tasks.merge.output`], workDir);
+          result = await runE3Command(['dataset', 'get', localRepo1, `${ws1}.merge`], workDir);
           assert.strictEqual(result.exitCode, 0);
           assert.match(result.stdout, /83/, 'Initial local execution should produce 83');
 
@@ -388,10 +388,10 @@ export function transferTests(
           result = await runE3Command(['workspace', 'deploy', remoteUrl, wsRemote, diamondSnapshotRef], workDir, { env });
           assert.strictEqual(result.exitCode, 0);
 
-          result = await runE3Command(['start', remoteUrl, wsRemote], workDir, { env });
+          result = await runE3Command(['dataflow', 'run', remoteUrl, wsRemote], workDir, { env });
           assert.strictEqual(result.exitCode, 0, `Remote start failed: ${result.stderr}`);
 
-          result = await runE3Command(['get', remoteUrl, `${wsRemote}.tasks.merge.output`], workDir, { env });
+          result = await runE3Command(['dataset', 'get', remoteUrl, `${wsRemote}.merge`], workDir, { env });
           assert.strictEqual(result.exitCode, 0);
           assert.match(result.stdout, /83/, 'Remote execution should produce 83');
 
@@ -412,18 +412,18 @@ export function transferTests(
           assert.strictEqual(result.exitCode, 0);
 
           // Check preserved inputs
-          result = await runE3Command(['get', localRepo2, `${ws2}.inputs.a`], workDir);
+          result = await runE3Command(['dataset', 'get', localRepo2, `${ws2}.a`], workDir);
           assert.strictEqual(result.exitCode, 0);
           assert.match(result.stdout, /20/, 'Input a should be preserved as 20');
 
-          result = await runE3Command(['get', localRepo2, `${ws2}.inputs.b`], workDir);
+          result = await runE3Command(['dataset', 'get', localRepo2, `${ws2}.b`], workDir);
           assert.strictEqual(result.exitCode, 0);
           assert.match(result.stdout, /3/, 'Input b should be preserved as 3');
 
-          result = await runE3Command(['start', localRepo2, ws2], workDir);
+          result = await runE3Command(['dataflow', 'run', localRepo2, ws2], workDir);
           assert.strictEqual(result.exitCode, 0, `Local 2 start failed: ${result.stderr}`);
 
-          result = await runE3Command(['get', localRepo2, `${ws2}.tasks.merge.output`], workDir);
+          result = await runE3Command(['dataset', 'get', localRepo2, `${ws2}.merge`], workDir);
           assert.strictEqual(result.exitCode, 0);
           assert.match(result.stdout, /83/, 'Round-trip should preserve data integrity');
 
@@ -458,11 +458,11 @@ export function transferTests(
           result = await runE3Command(['workspace', 'deploy', localRepo1, wsName, 'logs-pkg@1.0.0'], workDir);
           assert.strictEqual(result.exitCode, 0, `Deploy failed: ${result.stderr}`);
 
-          result = await runE3Command(['start', localRepo1, wsName], workDir);
+          result = await runE3Command(['dataflow', 'run', localRepo1, wsName], workDir);
           assert.strictEqual(result.exitCode, 0, `Start failed: ${result.stderr}`);
 
           // Verify output exists (10 * 2 = 20)
-          result = await runE3Command(['get', localRepo1, `${wsName}.tasks.compute.output`], workDir);
+          result = await runE3Command(['dataset', 'get', localRepo1, `${wsName}.compute`], workDir);
           assert.strictEqual(result.exitCode, 0, `Get output failed: ${result.stderr}`);
           assert.match(result.stdout, /20/);
 
@@ -491,11 +491,11 @@ export function transferTests(
           assert.strictEqual(result.exitCode, 0, `Deploy 2 failed: ${result.stderr}`);
 
           // 6. Execute in repo 2 - should be a cache hit
-          result = await runE3Command(['start', localRepo2, ws2Name], workDir);
+          result = await runE3Command(['dataflow', 'run', localRepo2, ws2Name], workDir);
           assert.strictEqual(result.exitCode, 0, `Start 2 failed: ${result.stderr}`);
 
           // Verify output is correct
-          result = await runE3Command(['get', localRepo2, `${ws2Name}.tasks.compute.output`], workDir);
+          result = await runE3Command(['dataset', 'get', localRepo2, `${ws2Name}.compute`], workDir);
           assert.strictEqual(result.exitCode, 0, `Get output 2 failed: ${result.stderr}`);
           assert.match(result.stdout, /20/);
         } finally {
@@ -525,7 +525,7 @@ export function transferTests(
           result = await runE3Command(['workspace', 'deploy', localRepo, wsName, 'remote-logs-pkg@1.0.0'], workDir);
           assert.strictEqual(result.exitCode, 0);
 
-          result = await runE3Command(['start', localRepo, wsName], workDir);
+          result = await runE3Command(['dataflow', 'run', localRepo, wsName], workDir);
           assert.strictEqual(result.exitCode, 0);
 
           // 2. Export workspace with logs
@@ -562,10 +562,10 @@ export function transferTests(
             result = await runE3Command(['workspace', 'deploy', localRepo2, ws2Name, importedPkgRef], workDir);
             assert.strictEqual(result.exitCode, 0);
 
-            result = await runE3Command(['start', localRepo2, ws2Name], workDir);
+            result = await runE3Command(['dataflow', 'run', localRepo2, ws2Name], workDir);
             assert.strictEqual(result.exitCode, 0);
 
-            result = await runE3Command(['get', localRepo2, `${ws2Name}.tasks.compute.output`], workDir);
+            result = await runE3Command(['dataset', 'get', localRepo2, `${ws2Name}.compute`], workDir);
             assert.strictEqual(result.exitCode, 0);
             assert.match(result.stdout, /20/);
           } finally {
@@ -600,10 +600,10 @@ export function transferTests(
 
           const valueFile = join(ctx.tempDir, `value-${Date.now()}.east`);
           writeFileSync(valueFile, '25');
-          result = await runE3Command(['set', localRepo1, `${wsName}.inputs.value`, valueFile], workDir);
+          result = await runE3Command(['dataset', 'set', localRepo1, `${wsName}.value`, valueFile], workDir);
           assert.strictEqual(result.exitCode, 0);
 
-          result = await runE3Command(['start', localRepo1, wsName], workDir);
+          result = await runE3Command(['dataflow', 'run', localRepo1, wsName], workDir);
           assert.strictEqual(result.exitCode, 0, `Start failed: ${result.stderr}`);
 
           // 2. Export workspace
@@ -615,21 +615,21 @@ export function transferTests(
 
           // 3. Use workspace import into second local repo
           const destWs = `ws-dest-${Date.now()}`;
-          result = await runE3Command(['workspace', 'import', localRepo2, destWs, exportZip], workDir);
+          result = await runE3Command(['workspace', 'deploy', localRepo2, destWs, '--from-zip', exportZip], workDir);
           assert.strictEqual(result.exitCode, 0, `Workspace import failed: stdout=${result.stdout}, stderr=${result.stderr}`);
           assert.match(result.stdout, /Imported ws-import-snap@/);
           assert.match(result.stdout, /Deployed to workspace/);
 
           // 4. Verify preserved input value
-          result = await runE3Command(['get', localRepo2, `${destWs}.inputs.value`], workDir);
+          result = await runE3Command(['dataset', 'get', localRepo2, `${destWs}.value`], workDir);
           assert.strictEqual(result.exitCode, 0, `Get input failed: ${result.stderr}`);
           assert.match(result.stdout, /25/);
 
           // 5. Execute and verify output (25 * 2 = 50)
-          result = await runE3Command(['start', localRepo2, destWs], workDir);
+          result = await runE3Command(['dataflow', 'run', localRepo2, destWs], workDir);
           assert.strictEqual(result.exitCode, 0, `Start dest failed: ${result.stderr}`);
 
-          result = await runE3Command(['get', localRepo2, `${destWs}.tasks.compute.output`], workDir);
+          result = await runE3Command(['dataset', 'get', localRepo2, `${destWs}.compute`], workDir);
           assert.strictEqual(result.exitCode, 0, `Get output failed: ${result.stderr}`);
           assert.match(result.stdout, /50/);
         } finally {
@@ -658,11 +658,11 @@ export function transferTests(
           result = await runE3Command(['workspace', 'deploy', localRepo, wsName, 'ws-import-remote-pkg@1.0.0'], workDir);
           assert.strictEqual(result.exitCode, 0);
 
-          result = await runE3Command(['start', localRepo, wsName], workDir);
+          result = await runE3Command(['dataflow', 'run', localRepo, wsName], workDir);
           assert.strictEqual(result.exitCode, 0, `Start failed: ${result.stderr}`);
 
           // Verify local output (10 * 2 = 20)
-          result = await runE3Command(['get', localRepo, `${wsName}.tasks.compute.output`], workDir);
+          result = await runE3Command(['dataset', 'get', localRepo, `${wsName}.compute`], workDir);
           assert.strictEqual(result.exitCode, 0);
           assert.match(result.stdout, /20/);
 
@@ -675,16 +675,16 @@ export function transferTests(
 
           // 3. Use workspace import to remote
           const destWs = `ws-dest-remote-${Date.now()}`;
-          result = await runE3Command(['workspace', 'import', remoteUrl, destWs, exportZip], workDir, { env });
+          result = await runE3Command(['workspace', 'deploy', remoteUrl, destWs, '--from-zip', exportZip], workDir, { env });
           assert.strictEqual(result.exitCode, 0, `Workspace import failed: stdout=${result.stdout}, stderr=${result.stderr}`);
           assert.match(result.stdout, /Imported ws-import-remote-snap@/);
           assert.match(result.stdout, /Deployed to workspace/);
 
           // 4. Execute on remote — execution history should allow cache hit
-          result = await runE3Command(['start', remoteUrl, destWs], workDir, { env });
+          result = await runE3Command(['dataflow', 'run', remoteUrl, destWs], workDir, { env });
           assert.strictEqual(result.exitCode, 0, `Remote start failed: ${result.stderr}`);
 
-          result = await runE3Command(['get', remoteUrl, `${destWs}.tasks.compute.output`], workDir, { env });
+          result = await runE3Command(['dataset', 'get', remoteUrl, `${destWs}.compute`], workDir, { env });
           assert.strictEqual(result.exitCode, 0, `Get remote output failed: ${result.stderr}`);
           assert.match(result.stdout, /20/);
 
@@ -718,19 +718,19 @@ export function transferTests(
           // Set custom inputs: a=20, b=3
           const aFile = join(ctx.tempDir, `a-${Date.now()}.east`);
           writeFileSync(aFile, '20');
-          result = await runE3Command(['set', localRepo1, `${wsName}.inputs.a`, aFile], workDir);
+          result = await runE3Command(['dataset', 'set', localRepo1, `${wsName}.a`, aFile], workDir);
           assert.strictEqual(result.exitCode, 0);
 
           const bFile = join(ctx.tempDir, `b-${Date.now()}.east`);
           writeFileSync(bFile, '3');
-          result = await runE3Command(['set', localRepo1, `${wsName}.inputs.b`, bFile], workDir);
+          result = await runE3Command(['dataset', 'set', localRepo1, `${wsName}.b`, bFile], workDir);
           assert.strictEqual(result.exitCode, 0);
 
-          result = await runE3Command(['start', localRepo1, wsName], workDir);
+          result = await runE3Command(['dataflow', 'run', localRepo1, wsName], workDir);
           assert.strictEqual(result.exitCode, 0, `Start failed: ${result.stderr}`);
 
           // Verify: left=23, right=60, merge=83
-          result = await runE3Command(['get', localRepo1, `${wsName}.tasks.merge.output`], workDir);
+          result = await runE3Command(['dataset', 'get', localRepo1, `${wsName}.merge`], workDir);
           assert.strictEqual(result.exitCode, 0);
           assert.match(result.stdout, /83/);
 
@@ -743,23 +743,23 @@ export function transferTests(
 
           // 3. Workspace import into second local repo
           const destWs = `ws-diamond-dest-${Date.now()}`;
-          result = await runE3Command(['workspace', 'import', localRepo2, destWs, exportZip], workDir);
+          result = await runE3Command(['workspace', 'deploy', localRepo2, destWs, '--from-zip', exportZip], workDir);
           assert.strictEqual(result.exitCode, 0, `Workspace import failed: stdout=${result.stdout}, stderr=${result.stderr}`);
 
           // 4. Verify inputs preserved
-          result = await runE3Command(['get', localRepo2, `${destWs}.inputs.a`], workDir);
+          result = await runE3Command(['dataset', 'get', localRepo2, `${destWs}.a`], workDir);
           assert.strictEqual(result.exitCode, 0);
           assert.match(result.stdout, /20/, 'Input a should be preserved as 20');
 
-          result = await runE3Command(['get', localRepo2, `${destWs}.inputs.b`], workDir);
+          result = await runE3Command(['dataset', 'get', localRepo2, `${destWs}.b`], workDir);
           assert.strictEqual(result.exitCode, 0);
           assert.match(result.stdout, /3/, 'Input b should be preserved as 3');
 
           // 5. Execute and verify merge output
-          result = await runE3Command(['start', localRepo2, destWs], workDir);
+          result = await runE3Command(['dataflow', 'run', localRepo2, destWs], workDir);
           assert.strictEqual(result.exitCode, 0, `Start dest failed: ${result.stderr}`);
 
-          result = await runE3Command(['get', localRepo2, `${destWs}.tasks.merge.output`], workDir);
+          result = await runE3Command(['dataset', 'get', localRepo2, `${destWs}.merge`], workDir);
           assert.strictEqual(result.exitCode, 0);
           assert.match(result.stdout, /83/, 'Diamond merge should produce 83');
         } finally {
@@ -788,7 +788,7 @@ export function transferTests(
           result = await runE3Command(['workspace', 'deploy', localRepo1, wsName, 'ws-import-idemp@1.0.0'], workDir);
           assert.strictEqual(result.exitCode, 0);
 
-          result = await runE3Command(['start', localRepo1, wsName], workDir);
+          result = await runE3Command(['dataflow', 'run', localRepo1, wsName], workDir);
           assert.strictEqual(result.exitCode, 0);
 
           result = await runE3Command(
@@ -799,18 +799,18 @@ export function transferTests(
 
           // 2. First workspace import
           const destWs = `ws-idemp-dest-${Date.now()}`;
-          result = await runE3Command(['workspace', 'import', localRepo2, destWs, exportZip], workDir);
+          result = await runE3Command(['workspace', 'deploy', localRepo2, destWs, '--from-zip', exportZip], workDir);
           assert.strictEqual(result.exitCode, 0, `First import failed: stdout=${result.stdout}, stderr=${result.stderr}`);
 
           // 3. Second workspace import — should succeed (idempotent)
-          result = await runE3Command(['workspace', 'import', localRepo2, destWs, exportZip], workDir);
+          result = await runE3Command(['workspace', 'deploy', localRepo2, destWs, '--from-zip', exportZip], workDir);
           assert.strictEqual(result.exitCode, 0, `Second import failed (not idempotent): stdout=${result.stdout}, stderr=${result.stderr}`);
 
           // 4. Verify data still correct after double import
-          result = await runE3Command(['start', localRepo2, destWs], workDir);
+          result = await runE3Command(['dataflow', 'run', localRepo2, destWs], workDir);
           assert.strictEqual(result.exitCode, 0, `Start after double import failed: ${result.stderr}`);
 
-          result = await runE3Command(['get', localRepo2, `${destWs}.tasks.compute.output`], workDir);
+          result = await runE3Command(['dataset', 'get', localRepo2, `${destWs}.compute`], workDir);
           assert.strictEqual(result.exitCode, 0);
           assert.match(result.stdout, /20/); // 10 * 2 = 20 (default input)
         } finally {

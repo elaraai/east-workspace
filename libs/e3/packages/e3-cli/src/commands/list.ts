@@ -4,351 +4,228 @@
  */
 
 /**
- * e3 list command - List workspaces or tree contents
+ * e3 list command - List workspaces or dataset paths in a workspace
  *
  * Usage:
- *   e3 list .                    # List all workspaces
- *   e3 list . ws                 # List root tree of workspace
- *   e3 list . ws -r              # All descendant dataset paths
- *   e3 list . ws -l              # Immediate children with type/status/size
- *   e3 list . ws -r -l           # All descendants with type/status/size
+ *   e3 list .              # List all workspaces
+ *   e3 list . ws           # List all dataset paths in workspace (flat form)
+ *   e3 list . ws -l        # Same, with type/kind/status/size columns
  */
 
 import {
   workspaceList,
-  workspaceListTree,
   workspaceGetState,
   workspaceGetTree,
   LocalStorage,
   type TreeNode,
-  type TreeLeafNode,
 } from '@elaraai/e3-core';
 import {
   workspaceList as workspaceListRemote,
-  datasetList as datasetListRemote,
-  datasetListAt as datasetListAtRemote,
   datasetListRecursive as datasetListRecursiveRemote,
-  datasetListRecursivePaths as datasetListRecursivePathsRemote,
-  datasetListWithStatus as datasetListWithStatusRemote,
   type ListEntry,
 } from '@elaraai/e3-api-client';
-import { printFor, EastTypeType } from '@elaraai/east';
-import { parseRepoLocation, parseDatasetPath, formatError, exitError } from '../utils.js';
+import { printFor, EastTypeType, type EastTypeValue } from '@elaraai/east';
+import { parseRepoLocation, formatError, exitError } from '../utils.js';
 import { formatSize } from '../format.js';
 
 const printTypeValue = printFor(EastTypeType);
 
 interface ListOptions {
-  recursive?: boolean;
   long?: boolean;
 }
 
-/** Flatten tree nodes to collect leaf paths. */
-function collectPaths(nodes: TreeNode[], prefix: string, result: string[]): void {
-  for (const node of nodes) {
-    const path = prefix ? `${prefix}.${node.name}` : `.${node.name}`;
-    if (node.kind === 'dataset') {
-      result.push(path);
-    } else if (node.kind === 'tree') {
-      collectPaths(node.children, path, result);
-    }
-  }
-}
-
-/** Info for tabular display. */
-interface TableRow {
+interface Row {
   name: string;
+  kind: 'input' | 'task' | 'other';
   type: string;
   status: string;
   size: string;
 }
 
-/** Derive status string from a tree leaf node. */
-function leafStatus(node: TreeLeafNode): string {
-  if (node.refType === undefined) return '-';
-  if (node.refType === 'unassigned') return 'unset';
-  if (node.refType === 'null') return 'null';
-  return 'set';
-}
-
-/** Derive size string from a tree leaf node. */
-function leafSize(node: TreeLeafNode): string {
-  if (node.refType === 'unassigned') return '-';
-  if (node.refType === 'null') return '0 B';
-  if (node.size !== undefined) return formatSize(node.size);
-  return '-';
-}
-
-/** Format type from a tree leaf node. */
-function leafType(node: TreeLeafNode): string {
-  if (!node.datasetType) return '-';
+/**
+ * List workspaces (no path) or flat dataset paths in a workspace.
+ */
+export async function listCommand(repoArg: string, pathSpec: string | undefined, options: ListOptions): Promise<void> {
   try {
-    return printTypeValue(node.datasetType);
-  } catch {
-    return '?';
+    const location = await parseRepoLocation(repoArg);
+    const long = options.long ?? false;
+
+    if (!pathSpec) {
+      await listWorkspaces(location);
+      return;
+    }
+
+    const ws = pathSpec;
+    const rows = location.type === 'local'
+      ? await collectRowsLocal(location.path, ws)
+      : await collectRowsRemote(location.baseUrl, location.repo, ws, location.token);
+
+    if (rows.length === 0) {
+      console.log('(empty)');
+      return;
+    }
+
+    rows.sort((a, b) => a.name.localeCompare(b.name));
+
+    if (long) {
+      printTable(rows);
+    } else {
+      for (const row of rows) {
+        console.log(row.name);
+      }
+    }
+  } catch (err) {
+    exitError(formatError(err));
   }
 }
 
-/** Flatten tree to table rows (recursive), including tree entries. */
-function collectRows(nodes: TreeNode[], prefix: string, result: TableRow[]): void {
-  for (const node of nodes) {
-    const path = prefix ? `${prefix}.${node.name}` : `.${node.name}`;
-    if (node.kind === 'dataset') {
-      result.push({
-        name: path,
-        type: leafType(node),
-        status: leafStatus(node),
-        size: leafSize(node),
-      });
-    } else if (node.kind === 'tree') {
-      result.push({ name: path, type: '(tree)', status: '-', size: '-' });
-      collectRows(node.children, path, result);
+async function listWorkspaces(location: Awaited<ReturnType<typeof parseRepoLocation>>): Promise<void> {
+  if (location.type === 'local') {
+    const storage = new LocalStorage();
+    const workspaces = await workspaceList(storage, location.path);
+    if (workspaces.length === 0) {
+      console.log('No workspaces');
+      return;
+    }
+    for (const ws of workspaces) {
+      const state = await workspaceGetState(storage, location.path, ws);
+      if (state) {
+        console.log(`${ws}  (${state.packageName}@${state.packageVersion})`);
+      } else {
+        console.log(`${ws}  (not deployed)`);
+      }
+    }
+    return;
+  }
+
+  const workspaces = await workspaceListRemote(location.baseUrl, location.repo, { token: location.token });
+  if (workspaces.length === 0) {
+    console.log('No workspaces');
+    return;
+  }
+  for (const ws of workspaces) {
+    if (ws.deployed && ws.packageName.type === 'some' && ws.packageVersion.type === 'some') {
+      console.log(`${ws.name}  (${ws.packageName.value}@${ws.packageVersion.value})`);
+    } else {
+      console.log(`${ws.name}  (not deployed)`);
     }
   }
 }
 
-/** Collect immediate children as rows (both datasets and trees). */
-function collectImmediateRows(nodes: TreeNode[], prefix: string, result: TableRow[]): void {
-  for (const node of nodes) {
-    if (node.kind === 'dataset') {
-      result.push({
-        name: node.name,
-        type: leafType(node),
-        status: leafStatus(node),
-        size: leafSize(node),
-      });
-    } else if (node.kind === 'tree') {
-      result.push({ name: node.name, type: '(tree)', status: '-', size: '-' });
+async function collectRowsLocal(repoPath: string, ws: string): Promise<Row[]> {
+  const storage = new LocalStorage();
+  const tree = await workspaceGetTree(storage, repoPath, ws, [], {
+    includeTypes: true,
+    includeStatus: true,
+  });
+  const rows: Row[] = [];
+  for (const top of tree) {
+    if (top.kind !== 'tree') continue;
+    if (top.name !== 'inputs' && top.name !== 'tasks') continue;
+    if (top.name === 'inputs') {
+      for (const leaf of top.children) {
+        if (leaf.kind !== 'dataset') continue;
+        rows.push(leafToRow(ws, leaf.name, 'input', leaf));
+      }
+    } else {
+      for (const child of top.children) {
+        if (child.kind === 'dataset') {
+          // flat task output: tasks/<name>
+          rows.push(leafToRow(ws, child.name, 'task', child));
+        } else if (child.kind === 'tree') {
+          // customTask output: tasks/<name>/output
+          for (const leaf of child.children) {
+            if (leaf.kind !== 'dataset' || leaf.name !== 'output') continue;
+            rows.push(leafToRow(ws, child.name, 'task', leaf));
+          }
+        }
+      }
     }
   }
+  return rows;
 }
 
-/** Convert a ListEntry variant to a table row. */
-function entryToRow(entry: ListEntry, usePath: boolean): TableRow {
-  if (entry.type === 'tree') {
-    const name = usePath ? entry.value.path : entry.value.path.split('.').pop()!;
-    return { name, type: '(tree)', status: '-', size: '-' };
+async function collectRowsRemote(baseUrl: string, repo: string, ws: string, token: string): Promise<Row[]> {
+  const items = await datasetListRecursiveRemote(baseUrl, repo, ws, [], { token });
+  const rows: Row[] = [];
+  for (const item of items) {
+    if (item.type !== 'dataset') continue;
+    const segments = item.value.path.split('.').filter(s => s.length > 0);
+    if (segments.length !== 2) continue;
+    const [head, name] = segments;
+    if (head !== 'inputs' && head !== 'tasks') continue;
+    const kind = head === 'inputs' ? 'input' : 'task';
+    rows.push(remoteEntryToRow(ws, name!, kind, item));
   }
+  return rows;
+}
 
-  // entry.type === 'dataset'
-  const item = entry.value;
-  let typeStr: string;
-  try {
-    typeStr = printTypeValue(item.type);
-  } catch {
-    typeStr = '?';
-  }
+function leafToRow(ws: string, name: string, kind: 'input' | 'task', node: TreeNode & { kind: 'dataset' }): Row {
+  return {
+    name: `${ws}.${name}`,
+    kind,
+    type: node.datasetType ? safePrintType(node.datasetType) : '-',
+    status: leafStatus(node.refType),
+    size: leafSize(node.refType, node.size),
+  };
+}
 
+function remoteEntryToRow(ws: string, name: string, kind: 'input' | 'task', entry: ListEntry & { type: 'dataset' }): Row {
+  const v = entry.value;
+  const hasHash = v.hash.type === 'some';
+  const hasSize = v.size.type === 'some';
   let status: string;
   let size: string;
-  if (item.hash.type === 'none' && item.size.type === 'none') {
+  if (!hasHash && !hasSize) {
     status = 'unset';
     size = '-';
-  } else if (item.size.type === 'some' && item.size.value === 0n) {
-    status = 'null';
+  } else if (hasSize && v.size.value === 0n) {
+    status = 'set';
     size = '0 B';
   } else {
     status = 'set';
-    size = item.size.type === 'some' ? formatSize(Number(item.size.value)) : '-';
+    size = hasSize ? formatSize(Number(v.size.value)) : '-';
   }
-
   return {
-    name: usePath ? item.path : item.path.split('.').pop()!,
-    type: typeStr,
+    name: `${ws}.${name}`,
+    kind,
+    type: safePrintType(v.type),
     status,
     size,
   };
 }
 
-/** Print rows as a padded table. */
-function printTable(rows: TableRow[], nameHeader: string): void {
-  if (rows.length === 0) {
-    console.log('(empty)');
-    return;
-  }
+function leafStatus(refType: string | undefined): string {
+  if (refType === undefined) return '-';
+  if (refType === 'unassigned') return 'unset';
+  if (refType === 'null') return 'set';
+  return 'set';
+}
 
-  // Calculate column widths
-  const nameWidth = Math.max(nameHeader.length, ...rows.map(r => r.name.length));
-  const typeWidth = Math.max(4, ...rows.map(r => r.type.length));
-  const statusWidth = Math.max(6, ...rows.map(r => r.status.length));
-  const sizeWidth = Math.max(4, ...rows.map(r => r.size.length));
+function leafSize(refType: string | undefined, size: number | undefined): string {
+  if (refType === 'unassigned') return '-';
+  if (refType === 'null') return '0 B';
+  if (size !== undefined) return formatSize(size);
+  return '-';
+}
 
-  // Print header
-  console.log(
-    `${nameHeader.padEnd(nameWidth)}  ${('TYPE').padEnd(typeWidth)}  ${('STATUS').padEnd(statusWidth)}  ${('SIZE').padEnd(sizeWidth)}`
-  );
-
-  // Print rows
-  for (const row of rows) {
-    console.log(
-      `${row.name.padEnd(nameWidth)}  ${row.type.padEnd(typeWidth)}  ${row.status.padEnd(statusWidth)}  ${row.size.padEnd(sizeWidth)}`
-    );
+function safePrintType(type: EastTypeValue): string {
+  try {
+    return printTypeValue(type);
+  } catch {
+    return '?';
   }
 }
 
-/**
- * List workspaces or tree contents at a path.
- */
-export async function listCommand(repoArg: string, pathSpec: string | undefined, options: ListOptions): Promise<void> {
-  try {
-    const location = await parseRepoLocation(repoArg);
-    const recursive = options.recursive ?? false;
-    const long = options.long ?? false;
-
-    // If no path, list workspaces
-    if (!pathSpec) {
-      if (location.type === 'local') {
-        const storage = new LocalStorage();
-        const workspaces = await workspaceList(storage, location.path);
-
-        if (workspaces.length === 0) {
-          console.log('No workspaces');
-          return;
-        }
-
-        for (const ws of workspaces) {
-          const state = await workspaceGetState(storage, location.path, ws);
-          if (state) {
-            console.log(`${ws}  (${state.packageName}@${state.packageVersion})`);
-          } else {
-            console.log(`${ws}  (not deployed)`);
-          }
-        }
-      } else {
-        // Remote: list workspaces
-        const workspaces = await workspaceListRemote(
-          location.baseUrl,
-          location.repo,
-          { token: location.token }
-        );
-
-        if (workspaces.length === 0) {
-          console.log('No workspaces');
-          return;
-        }
-
-        for (const ws of workspaces) {
-          if (ws.deployed && ws.packageName.type === 'some' && ws.packageVersion.type === 'some') {
-            console.log(`${ws.name}  (${ws.packageName.value}@${ws.packageVersion.value})`);
-          } else {
-            console.log(`${ws.name}  (not deployed)`);
-          }
-        }
-      }
-      return;
-    }
-
-    // Parse path
-    const { ws, path } = parseDatasetPath(pathSpec);
-
-    // -r -l: recursive with details
-    if (recursive && long) {
-      if (location.type === 'local') {
-        const storage = new LocalStorage();
-        const nodes = await workspaceGetTree(storage, location.path, ws, path, {
-          includeTypes: true,
-          includeStatus: true,
-        });
-        const rows: TableRow[] = [];
-        const prefix = path.length > 0 ? '.' + path.map(s => s.value).join('.') : '';
-        collectRows(nodes, prefix, rows);
-        printTable(rows, 'PATH');
-      } else {
-        const items = await datasetListRecursiveRemote(
-          location.baseUrl, location.repo, ws, path,
-          { token: location.token }
-        );
-        const rows = items.map(item => entryToRow(item, true));
-        printTable(rows, 'PATH');
-      }
-      return;
-    }
-
-    // -r: recursive paths only
-    if (recursive) {
-      if (location.type === 'local') {
-        const storage = new LocalStorage();
-        const nodes = await workspaceGetTree(storage, location.path, ws, path, {
-          includeTypes: false,
-          includeStatus: false,
-        });
-        const paths: string[] = [];
-        const prefix = path.length > 0 ? '.' + path.map(s => s.value).join('.') : '';
-        collectPaths(nodes, prefix, paths);
-        if (paths.length === 0) {
-          console.log('(empty)');
-          return;
-        }
-        for (const p of paths) {
-          console.log(p);
-        }
-      } else {
-        const paths = await datasetListRecursivePathsRemote(
-          location.baseUrl, location.repo, ws, path,
-          { token: location.token }
-        );
-        if (paths.length === 0) {
-          console.log('(empty)');
-          return;
-        }
-        for (const p of paths) {
-          console.log(p);
-        }
-      }
-      return;
-    }
-
-    // -l: immediate children with details
-    if (long) {
-      if (location.type === 'local') {
-        const storage = new LocalStorage();
-        const nodes = await workspaceGetTree(storage, location.path, ws, path, {
-          maxDepth: 0,
-          includeTypes: true,
-          includeStatus: true,
-        });
-        const rows: TableRow[] = [];
-        collectImmediateRows(nodes, '', rows);
-        printTable(rows, 'NAME');
-      } else {
-        const items = await datasetListWithStatusRemote(
-          location.baseUrl, location.repo, ws, path,
-          { token: location.token }
-        );
-        const rows = items.map(item => entryToRow(item, false));
-        printTable(rows, 'NAME');
-      }
-      return;
-    }
-
-    // Default: list field names (unchanged)
-    let fields: string[];
-    if (location.type === 'local') {
-      const storage = new LocalStorage();
-      fields = await workspaceListTree(storage, location.path, ws, path);
-    } else {
-      if (path.length === 0) {
-        fields = await datasetListRemote(
-          location.baseUrl, location.repo, ws,
-          { token: location.token }
-        );
-      } else {
-        fields = await datasetListAtRemote(
-          location.baseUrl, location.repo, ws, path,
-          { token: location.token }
-        );
-      }
-    }
-
-    if (fields.length === 0) {
-      console.log('(empty)');
-      return;
-    }
-
-    for (const field of fields) {
-      console.log(field);
-    }
-  } catch (err) {
-    exitError(formatError(err));
+function printTable(rows: Row[]): void {
+  const nameW = Math.max(4, ...rows.map(r => r.name.length));
+  const kindW = Math.max(4, ...rows.map(r => r.kind.length));
+  const typeW = Math.max(4, ...rows.map(r => r.type.length));
+  const statusW = Math.max(6, ...rows.map(r => r.status.length));
+  const sizeW = Math.max(4, ...rows.map(r => r.size.length));
+  const pad = (s: string, w: number) => s.padEnd(w);
+  console.log(`${pad('PATH', nameW)}  ${pad('KIND', kindW)}  ${pad('TYPE', typeW)}  ${pad('STATUS', statusW)}  ${pad('SIZE', sizeW)}`);
+  for (const r of rows) {
+    console.log(`${pad(r.name, nameW)}  ${pad(r.kind, kindW)}  ${pad(r.type, typeW)}  ${pad(r.status, statusW)}  ${pad(r.size, sizeW)}`);
   }
 }

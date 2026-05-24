@@ -36,7 +36,7 @@ import {
     EastTypeOf,
     RecursiveType,
 } from "./types.js";
-import { variant } from "./containers/variant.js";
+import { variant, some, none } from "./containers/variant.js";
 
 // Force node test to show full stack traces for easier debugging
 Error.stackTraceLimit = Infinity
@@ -244,8 +244,8 @@ describe("isValueOf", () => {
 
     test("should validate variant values", () => {
         const type = VariantType({ none: NullType, some: IntegerType });
-        assert.strictEqual(isValueOf(variant("none", null), type), true);
-        assert.strictEqual(isValueOf(variant("some", 42n), type), true);
+        assert.strictEqual(isValueOf(none, type), true);
+        assert.strictEqual(isValueOf(some(42n), type), true);
         assert.strictEqual(isValueOf(variant("other", null), type), false); // wrong tag
     });
 

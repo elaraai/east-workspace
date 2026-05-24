@@ -11,9 +11,6 @@ describeEast("Tabs", (test) => {
     Assert.examples(test, {
         tabsBasic: ex.tabsBasic,
         tabsLine: ex.tabsLine,
-        tabsEnclosed: ex.tabsEnclosed,
-        tabsOutline: ex.tabsOutline,
-        tabsSubtle: ex.tabsSubtle,
         tabsFitted: ex.tabsFitted,
         tabsSizes: ex.tabsSizes,
         tabsWithDisabled: ex.tabsWithDisabled,
@@ -172,9 +169,9 @@ describeEast("Tabs", (test) => {
     test("creates tabs with TabsVariant helper", $ => {
         const tabs = $.let(Tabs.Root([
             Tabs.Item("a", "A", [Text.Root("A")]),
-        ], { style: { variant: Tabs.Variant("enclosed") } }));
+        ], { style: { variant: Tabs.Variant("plain") } }));
         $(Assert.equal(
-            tabs.unwrap().unwrap("Tabs").style.unwrap("some").variant.unwrap("some").hasTag("enclosed"),
+            tabs.unwrap().unwrap("Tabs").style.unwrap("some").variant.unwrap("some").hasTag("plain"),
             true,
         ));
     });

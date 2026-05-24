@@ -2,24 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import {
-    East,
-    IntegerType,
-    NullType,
-    StringType,
-    DateTimeType,
-    BlobType,
-    FunctionType,
-    AsyncFunctionType,
-    StructType,
-    OptionType,
-    ArrayType,
-    SetType,
-    DictType,
-    VariantType,
-    RecursiveType,
-    variant,
-} from "../src/index.js";
+import { East, IntegerType, NullType, StringType, DateTimeType, BlobType, FunctionType, AsyncFunctionType, StructType, OptionType, ArrayType, SetType, DictType, VariantType, RecursiveType, variant, some, none } from "../src/index.js";
 import { describeEast as describe, assertEast as assert } from "./platforms.spec.js";
 import * as ex from "./function.examples.js";
 
@@ -269,7 +252,7 @@ await describe("Function", (test) => {
 
         // Create a some variant with a function
         const someTransform = $.const(
-            variant("some", East.function([IntegerType], IntegerType, ($, x) => x.multiply(3n))),
+            some(East.function([IntegerType], IntegerType, ($, x) => x.multiply(3n))),
             MaybeTransformType
         );
 
@@ -291,7 +274,7 @@ await describe("Function", (test) => {
         const MaybeTransformType = OptionType(FunctionType([IntegerType], IntegerType));
 
         // Create a none variant
-        const noTransform = $.const(variant("none", null), MaybeTransformType);
+        const noTransform = $.const(none, MaybeTransformType);
 
         // Match on the variant - should take the none branch
         const result = $.let(0n);
@@ -589,7 +572,7 @@ await describe("Function", (test) => {
 
         // Some case with a sum function
         const someSum = $.const(
-            variant("some", East.function([ListType], IntegerType, ($, list) => {
+            some(East.function([ListType], IntegerType, ($, list) => {
                 const sum = $.let(0n);
                 const current = $.let(list, ListType);
                 $.while(true, ($, label) => {
@@ -1608,7 +1591,7 @@ await describe("Function", (test) => {
         const MaybeIntType = VariantType({ some: IntegerType, none: NullType });
         const FnType = FunctionType([], IntegerType);
 
-        const maybeVal = $.const(variant("some", 42n), MaybeIntType);
+        const maybeVal = $.const(some(42n), MaybeIntType);
 
         const extract = $.let(East.function([], IntegerType, (_$) => {
             return maybeVal.match({

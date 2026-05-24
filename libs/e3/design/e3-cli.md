@@ -2,95 +2,141 @@
 
 This document specifies the e3 command-line interface.
 
-All commands take a repository path as the first argument (`.` for current directory).
+Every command that takes a `<repo>` argument accepts either a local filesystem path or an `http(s)://` URL — the transport is detected from the argument shape. Where the `<repo>` positional is optional (`[repo]`), it falls back to the `E3_REPO` environment variable, then to `.` (cwd). We never split commands by transport (no `e3 server …` etc.).
 
 ## Repository
 
 ```bash
-e3 init <repo>                              # Create new repository
-e3 status <repo>                            # Show installed packages, workspaces
-e3 gc <repo>                                # Remove unreferenced objects
+e3 repo create <repo>                           # Create a new repository
+e3 repo status <repo>                           # Show packages + workspaces
+e3 repo gc <repo> [--dry-run]                   # Remove unreferenced objects
+e3 repo remove <repo> [-r]                      # Remove repository (-r removes workspaces first)
+e3 repo list <server-url>                       # List repositories on a server
 ```
 
 ## Packages
 
 ```bash
-e3 package add <repo> <name>[@<ver>]        # Fetch from registry + import
-e3 package import <repo> <path.zip>         # Import from local .zip
-e3 package export <repo> <pkg>[@<ver>] <path.zip>  # Export to .zip
-e3 package remove <repo> <pkg>[@<ver>]      # Remove package
-e3 package list <repo>                      # List installed packages
+e3 package import <repo> <path.zip>             # Import package from local .zip
+e3 package export <repo> <pkg>[@<ver>] <path.zip>
+e3 package list <repo>                          # List installed packages
+e3 package remove <repo> <pkg>[@<ver>]
 ```
 
 ## Workspaces
 
 ```bash
-e3 workspace create <repo> <name>           # Create empty workspace
-e3 workspace deploy <repo> <ws> <pkg>[@<ver>]  # Deploy package to workspace
-e3 workspace export <repo> <ws> <path.zip>  # Export workspace as package
-    [--name <pkg>] [--version <ver>]        # Default: <pkg>@<ver>-<hash>
-e3 workspace import <repo> <ws> <path.zip>  # Import package zip into workspace
-e3 workspace list <repo>                    # List workspaces
-e3 workspace remove <repo> <ws>             # Remove workspace
+e3 workspace create <repo> <name>
+e3 workspace deploy <repo> <ws> <pkg>[@<ver>]
+e3 workspace deploy <repo> <ws> --from-zip <path.zip>   # Import + create + deploy
+e3 workspace export <repo> <ws> <path.zip>
+e3 workspace list <repo>
+e3 workspace remove <repo> <ws>
+e3 workspace status <repo> <ws>                 # Tasks, datasets, locks
 ```
+
+`workspace deploy --from-zip` replaces the standalone `workspace import` command. Same three-step behaviour (package import + workspace create + deploy), but framed under the verb the user is actually performing.
 
 ## Datasets
 
-```bash
-e3 dataset get <repo> <ws> <path>           # Print dataset value
-e3 dataset set <repo> <ws> <path> <file>    # Set dataset from file
-e3 dataset list <repo> <ws>                 # List datasets in workspace
-```
-
-## Execution
+Dataset paths use the flat form `<ws>.<name>`. The CLI resolves `<name>` against inputs and task outputs in the workspace tree. The on-disk storage form (`<ws>/inputs/<name>`, `<ws>/tasks/<name>/output`) is internal.
 
 ```bash
-e3 run <repo> <task> <inputs...> -o <out>   # Ad-hoc task execution
-e3 start <repo> <ws> [--filter <pattern>]   # Run dataflows in workspace
-e3 start <repo> <ws> --watch                # Watch mode - re-run on changes
+e3 dataset get <repo> <ws.name> [-f east|json|beast2]
+e3 dataset set <repo> <ws.name> <file> [--type <spec>] [--type-file <path>]
+e3 dataset list <repo> <ws> [-l]                # -l adds kind/type/status/size columns
+e3 dataset status <repo> <ws.name>              # Detail for a single dataset
+e3 dataset find <repo> <ws> <pattern>           # Substring or glob (`*`, `?`)
 ```
 
-## Inspection
+Errors include `did you mean` suggestions when a name doesn't resolve:
+
+```
+Error: 'dev.gret' not found in workspace 'dev'. Did you mean:
+  dev.greet  (task-output)
+```
+
+`--type-file <path>` reads a `.east` type specification from a file — friendlier than escaping a nested type spec on the shell line.
+
+## Tasks
 
 ```bash
-e3 logs <repo> [<task_hash>] [--follow]     # View execution logs
-e3 view <repo> <path>                       # TUI data viewer
-e3 convert <path> [--format east|json]      # Convert between formats
+e3 task list <repo> <ws>                        # List tasks with execution status
+e3 task logs <repo> <ws.task> [--follow]        # View / follow logs
 ```
 
-## Registry
+## Dataflow
 
 ```bash
-e3 registry add <repo> <url>                # Add registry
-e3 registry remove <repo> <url>             # Remove registry
-e3 registry list <repo>                     # List registries
-e3 publish <repo> <pkg>[@<ver>]             # Publish to registry
-e3 search <repo> <query>                    # Search registries
+e3 dataflow run <repo> <ws> [--filter <p>] [--concurrency <n>] [--force]
 ```
+
+After a successful run, output paths are printed in flat form so the user can read them without re-discovering the structure:
+
+```
+Outputs:
+  dev.greet  String  14 B
+  dev.shout  String  16 B
+```
+
+## Ad-hoc task execution
+
+```bash
+e3 run <repo> <pkg.task> <inputs...> -o <out>
+e3 run <repo> <pkg@1.0.0.task> <in.beast2> -o <out.beast2>
+```
+
+Task spec separator is `.`, matching the dotted path convention everywhere else in the CLI.
+
+## Watch
+
+```bash
+e3 watch <source.ts> <repo> <ws> [--start] [--abort-on-change]
+```
+
+The source file is the first argument — the thing the user is editing leads.
+
+## Authentication
+
+```bash
+e3 auth login <server>                          # OAuth2 device flow
+e3 auth logout <server>
+e3 auth status                                  # All saved credentials
+e3 auth token <server>                          # Print bearer token (curl integration)
+e3 auth whoami [server]
+```
+
+## Utilities
+
+```bash
+e3 convert <input> [--from <fmt>] [--to <fmt>] [-o <out>] [--type <spec>]
+e3 completion {bash|zsh|fish}                   # Print installable completion script
+```
+
+Tab completion delegates dynamic candidates (workspace names, dataset paths, package names) to a hidden `e3 __complete <cword> <words...>` handler. Static parts (subcommand names, flag names, enum values) are baked into the shell script.
 
 ## Examples
 
 ```bash
-# Setup
-$ e3 init .
-$ e3 package add . east-python
-$ e3 package import . ~/dev/my-pkg/dist/my-pkg-1.0.0.zip
+# Bootstrap a project
+$ e3 repo create .
+$ e3 workspace deploy . dev --from-zip /tmp/hello.zip
+$ e3 dataset set . dev.name name.east
+$ e3 dataflow run . dev
 
-# Create workspace and run
-$ e3 workspace create . production
-$ e3 workspace deploy . production my-pkg@1.0.0
-$ e3 start . production
-$ e3 dataset get . production outputs/predict
+# Read the result (flat form — no .tasks.X.output ceremony)
+$ e3 dataset get . dev.greet
 
-# Update data and rerun
-$ e3 dataset set . production inputs/sales ./new_sales.beast2
-$ e3 start . production
+# Re-run after editing
+$ e3 dataset set . dev.name newname.east
+$ e3 dataflow run . dev
 
-# Export workspace state for colleague
-$ e3 workspace export . production ./handoff.zip
-# Creates my-pkg-1.0.0-a3f8b2c1.zip (includes package + current data)
-
-# Colleague imports and works with your exact state
-$ e3 package import . ./handoff.zip
-$ e3 workspace deploy . analysis my-pkg@1.0.0-a3f8b2c1
+# With E3_REPO set, drop the repo arg
+$ export E3_REPO=.
+$ e3 dataset get dev.greet
+$ e3 dataflow run dev
 ```
+
+## Design notes
+
+See `e3-cli-dx-refactor.md` for the rationale behind the current command tree and the path-resolution model.

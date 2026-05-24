@@ -3,57 +3,87 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { East, IntegerType, NullType, variant, example } from "@elaraai/east";
-import { Button, Reactive, Stack, State, Style, Tag, UIComponentType } from "@elaraai/east-ui";
+import { Reactive, Stack, State, Style, Tag, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const tagBasic = example({
-    keywords: ["Tag", "Root", "basic", "categorization"],
-    description: "Categorization labels",
+    keywords: ["Tag", "Root", "basic", "filter", "chip"],
+    description: "Filter / category chips — outline default, brand when active, dashed for empty",
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.HStack([
-            Tag.Root("React"),
-            Tag.Root("TypeScript", { colorPalette: "blue" }),
-            Tag.Root("Chakra UI", { colorPalette: "teal" }),
-        ], { gap: "2" });
-    }),
-    inputs: [],
-});
-
-export const tagClosable = example({
-    keywords: ["Tag", "Root", "closable", "removable"],
-    description: "Tags with close button",
-    fn: East.function([], UIComponentType, (_$) => {
-        return Stack.HStack([
-            Tag.Root("Removable", { closable: true, colorPalette: "red" }),
-            Tag.Root("Delete me", { closable: true, colorPalette: "orange" }),
-            Tag.Root("Click X", { closable: true, colorPalette: "blue" }),
+            Tag.Root("region · SE"),
+            Tag.Root("cohort · selected", { variant: "brand" }),
+            Tag.Root("+ add filter", { variant: "dashed" }),
         ], { gap: "2" });
     }),
     inputs: [],
 });
 
 export const tagVariants = example({
-    keywords: ["Tag", "Root", "variant", "solid", "subtle", "outline"],
-    description: "Solid, subtle, and outline",
+    keywords: ["Tag", "Root", "variant", "outline", "brand", "subtle", "solid", "dashed"],
+    description: "Spec variants — outline (default), brand, subtle, solid, dashed",
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.HStack([
-            Tag.Root("Solid", { variant: "solid", colorPalette: "cyan" }),
-            Tag.Root("Subtle", { variant: "subtle", colorPalette: "cyan" }),
-            Tag.Root("Outline", { variant: "outline", colorPalette: "cyan" }),
+            Tag.Root("Outline", { variant: "outline" }),
+            Tag.Root("Brand", { variant: "brand" }),
+            Tag.Root("Subtle", { variant: "subtle" }),
+            Tag.Root("Solid", { variant: "solid" }),
+            Tag.Root("Dashed", { variant: "dashed" }),
+        ], { gap: "2", wrap: "wrap" });
+    }),
+    inputs: [],
+});
+
+export const tagClosable = example({
+    keywords: ["Tag", "Root", "closable", "removable"],
+    description: "Filter chips set by the operator — always carry a removable ×",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Stack.HStack([
+            Tag.Root("region · SE", { closable: true, variant: "brand" }),
+            Tag.Root("status · active", { closable: true, variant: "brand" }),
+            Tag.Root("after 2026-04-01", { closable: true, variant: "brand" }),
         ], { gap: "2" });
     }),
     inputs: [],
 });
 
-export const tagCustom = example({
-    keywords: ["Tag", "Root", "opacity", "background", "color", "custom"],
-    description: "Opacity and custom colors",
+export const tagDynamic = example({
+    keywords: ["Tag", "Root", "ifElse", "dynamic", "variant", "Style"],
+    description: "Variant resolved dynamically — true → brand, false → outline",
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.VStack([
             Stack.HStack([
-                Tag.Root("100%", { colorPalette: "green", variant: "solid" }),
-                Tag.Root("75%", { colorPalette: "green", variant: "solid", opacity: 0.75 }),
-                Tag.Root("50%", { colorPalette: "green", variant: "solid", opacity: 0.5 }),
-                Tag.Root("25%", { colorPalette: "green", variant: "solid", opacity: 0.25 }),
+                Tag.Root("True → brand", {
+                    variant: East.value(true).ifElse(
+                        () => variant("brand", null),
+                        () => variant("outline", null)
+                    ),
+                }),
+                Tag.Root("False → outline", {
+                    variant: East.value(false).ifElse(
+                        () => variant("brand", null),
+                        () => variant("outline", null)
+                    ),
+                }),
+            ], { gap: "2" }),
+            Stack.HStack([
+                Tag.Root("Style.StyleVariant solid", { variant: Style.StyleVariant("solid") }),
+                Tag.Root("Style.StyleVariant outline", { variant: Style.StyleVariant("outline") }),
+            ], { gap: "2" }),
+        ], { gap: "3", align: "flex-start" });
+    }),
+    inputs: [],
+});
+
+export const tagCustom = example({
+    keywords: ["Tag", "Root", "background", "color", "custom", "escape", "opacity"],
+    description: "Opacity ramp on a brand tag, plus colour escape hatches",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Stack.VStack([
+            Stack.HStack([
+                Tag.Root("100%", { variant: "brand" }),
+                Tag.Root("75%", { variant: "brand", opacity: 0.75 }),
+                Tag.Root("50%", { variant: "brand", opacity: 0.5 }),
+                Tag.Root("25%", { variant: "brand", opacity: 0.25 }),
             ], { gap: "2" }),
             Stack.HStack([
                 Tag.Root("Custom", { background: "#e74c3c", color: "white" }),
@@ -65,66 +95,14 @@ export const tagCustom = example({
     inputs: [],
 });
 
-export const tagDynamic = example({
-    keywords: ["Tag", "Root", "ifElse", "dynamic", "variant", "Style"],
-    description: "Variant changing based on condition",
-    fn: East.function([], UIComponentType, (_$) => {
-        return Stack.VStack([
-            Stack.HStack([
-                Tag.Root("True -> solid", {
-                    variant: East.value(true).ifElse(
-                        () => variant("solid", null),
-                        () => variant("outline", null)
-                    ),
-                    colorPalette: "blue",
-                }),
-                Tag.Root("False -> outline", {
-                    variant: East.value(false).ifElse(
-                        () => variant("solid", null),
-                        () => variant("outline", null)
-                    ),
-                    colorPalette: "blue",
-                }),
-            ], { gap: "2" }),
-            Stack.HStack([
-                Tag.Root("Style.StyleVariant solid", {
-                    variant: Style.StyleVariant("solid"),
-                    colorPalette: "green",
-                }),
-                Tag.Root("Style.StyleVariant outline", {
-                    variant: Style.StyleVariant("outline"),
-                    colorPalette: "green",
-                }),
-            ], { gap: "2" }),
-        ], { gap: "3", align: "flex-start" });
-    }),
-    inputs: [],
-});
-
 export const tagBorder = example({
     keywords: ["Tag", "Root", "borderWidth", "borderStyle", "borderRadius"],
-    description: "Custom borders and border radius",
+    description: "Border style variations — outlined, pill, dashed",
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.HStack([
-            Tag.Root("Bordered", {
-                borderWidth: "thin",
-                borderStyle: "solid",
-                borderColor: "purple.400",
-                colorPalette: "purple",
-            }),
-            Tag.Root("Pill", {
-                borderRadius: "full",
-                colorPalette: "cyan",
-                variant: "solid",
-                padding: "2",
-            }),
-            Tag.Root("Dashed", {
-                borderWidth: "medium",
-                borderStyle: "dashed",
-                borderColor: "orange.400",
-                colorPalette: "orange",
-                variant: "subtle",
-            }),
+            Tag.Root("Outlined", { variant: "outline" }),
+            Tag.Root("Pill", { variant: "brand", borderRadius: "full", padding: "2" }),
+            Tag.Root("Dashed", { variant: "dashed" }),
         ], { gap: "2" });
     }),
     inputs: [],
@@ -132,25 +110,19 @@ export const tagBorder = example({
 
 export const tagBoxModel = example({
     keywords: ["Tag", "Root", "padding", "width", "overflow"],
-    description: "Padding, width, and overflow",
+    description: "Padding, fixed width, full-rounded — all in brand subtle",
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.HStack([
-            Tag.Root("Extra Padding", {
-                padding: "3",
-                colorPalette: "blue",
-                variant: "subtle",
-            }),
+            Tag.Root("Extra Padding", { padding: "3", variant: "subtle" }),
             Tag.Root("Fixed Width Tag With Longer Text", {
                 width: "120px",
                 overflow: "hidden",
-                colorPalette: "red",
-                variant: "outline",
+                variant: "subtle",
             }),
             Tag.Root("Rounded Tag", {
+                variant: "brand",
                 borderRadius: "full",
                 padding: "2",
-                background: "#667eea",
-                color: "white",
             }),
         ], { gap: "2" });
     }),
@@ -159,7 +131,7 @@ export const tagBoxModel = example({
 
 export const tagOnCloseInteractive = example({
     keywords: ["Tag", "Reactive", "State", "interactive", "onClose", "closable"],
-    description: "Closable Tag whose onClose increments a reactive counter",
+    description: "Closable tag whose onClose increments a reactive counter",
     fn: East.function([], UIComponentType, (_$) => {
         return Reactive.Root(East.function([], UIComponentType, $ => {
             const bind = $.let(State.bind([IntegerType], "tag_close_count", 0n));
@@ -168,9 +140,9 @@ export const tagOnCloseInteractive = example({
                 const cur = $.let(bind.read());
                 $(bind.write(cur.add(1n)));
             }));
-            return Stack.HStack([
-                Tag.Root("Click X to close", { closable: true, colorPalette: "red", variant: "solid", onClose }),
-                Tag.Root(East.str`Closed ${East.print(value)} times`, { colorPalette: "gray" }),
+            return Stack.VStack([
+                Tag.Root("Click × to close", { closable: true, variant: "brand", onClose }),
+                Text.Presets.MonoLabel(East.str`CLOSED · ${value}`),
             ], { gap: "3", align: "center" });
         }));
     }),

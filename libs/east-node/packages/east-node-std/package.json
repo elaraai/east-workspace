@@ -24,19 +24,19 @@
     "CLA.md"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "rm -rf dist && tsc",
     "package": "npm run build && mkdir -p .package && npm pack --pack-destination .package",
     "test": "npm run build && node --enable-source-maps --test-reporter=spec --test 'dist/test/**/*.spec.js'",
     "test:check": "tsc -p tsconfig.test.json",
     "test:coverage": "npm run build && node --enable-source-maps --test-reporter=spec --test --experimental-test-coverage 'dist/test/**/*.spec.js'",
-    "test:export": "npm run build && EXPORT_TEST_IR=/tmp/east-node-std npm test 2>&1 | grep 'Exported test IR'",
+    "test:export": "npm run build && rm -rf /tmp/east-node-std && EXPORT_TEST_IR=/tmp/east-node-std npm test 2>&1 | grep 'Exported test IR'",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/elaraai/east-node.git",
-    "directory": "packages/east-node-std"
+    "url": "git+https://github.com/elaraai/east-workspace.git",
+    "directory": "libs/east-node/packages/east-node-std"
   },
   "keywords": [
     "east",
@@ -46,7 +46,7 @@
     "runtime"
   ],
   "author": "Elara AI Pty Ltd",
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "AGPL-3.0-or-later",
   "type": "module",
   "engines": {
     "node": ">=22.0.0"

@@ -119,6 +119,12 @@ export const EastChakraCarousel = memo(function EastChakraCarousel({ value, stor
                             variant="outline"
                             size="sm"
                             rounded="full"
+                            /* Force square shape — Chakra's default button
+                             * recipe sets `min-width: sizes.9` (36 px) on
+                             * size=sm which makes IconButton render as a
+                             * 36×28 oval. Override here keeps it 28×28. */
+                            minW="28px"
+                            boxSize="28px"
                             {...(controlColor !== undefined ? { color: controlColor } : {})}
                             {...(controlBackground !== undefined ? { bg: controlBackground } : {})}
                         >
@@ -131,6 +137,8 @@ export const EastChakraCarousel = memo(function EastChakraCarousel({ value, stor
                             variant="outline"
                             size="sm"
                             rounded="full"
+                            minW="28px"
+                            boxSize="28px"
                             {...(controlColor !== undefined ? { color: controlColor } : {})}
                             {...(controlBackground !== undefined ? { bg: controlBackground } : {})}
                         >

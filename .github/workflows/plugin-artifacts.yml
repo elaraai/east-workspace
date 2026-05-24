@@ -1,0 +1,70 @@
+name: Plugin Artifacts
+
+# Verifies the Claude Code plugin's generated artifacts are committed-and-current.
+# Replaces the old cross-repo update-skills workflow — skills are now symlinks
+# to the in-tree lib SKILL.md files (no copying), and the search index + hook
+# bundle are regenerated locally from the monorepo (no repo cloning).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'libs/**/SKILL.md'
+      - 'libs/**/*.examples.ts'
+      - 'libs/east-claude-plugin/hooks/**'
+      - 'libs/east-claude-plugin/lib/**'
+      - 'libs/east-claude-plugin/mcp/**'
+      - 'libs/east-claude-plugin/scripts/generate-index.ts'
+      - 'libs/east-claude-plugin/index.config.json'
+      - 'libs/east-claude-plugin/index.static.json'
+      - '.github/workflows/plugin-artifacts.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'libs/**/SKILL.md'
+      - 'libs/**/*.examples.ts'
+      - 'libs/east-claude-plugin/hooks/**'
+      - 'libs/east-claude-plugin/lib/**'
+      - 'libs/east-claude-plugin/mcp/**'
+      - 'libs/east-claude-plugin/scripts/generate-index.ts'
+      - 'libs/east-claude-plugin/index.config.json'
+      - 'libs/east-claude-plugin/index.static.json'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check-artifacts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Regenerate search index
+        run: pnpm --filter '@elaraai/east-claude-plugin' run generate-index
+
+      - name: Regenerate hook/MCP bundle
+        run: pnpm --filter '@elaraai/east-claude-plugin' run bundle
+
+      - name: Fail if artifacts are stale
+        run: |
+          if ! git diff --quiet -- libs/east-claude-plugin/index.json libs/east-claude-plugin/.build; then
+            echo "::error::Plugin artifacts are out of date. Run:"
+            echo "  pnpm --filter '@elaraai/east-claude-plugin' run generate-index"
+            echo "  pnpm --filter '@elaraai/east-claude-plugin' run bundle"
+            echo "and commit libs/east-claude-plugin/index.json + .build/."
+            git --no-pager diff --stat -- libs/east-claude-plugin/index.json libs/east-claude-plugin/.build
+            exit 1
+          fi
+          echo "Plugin artifacts are current."

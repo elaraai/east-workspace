@@ -19,8 +19,8 @@ import {
     variant,
 } from "@elaraai/east";
 
-import { SizeType, ColorSchemeType } from "../../style.js";
-import type { SizeLiteral, ColorSchemeLiteral } from "../../style.js";
+import { SizeType } from "../../style.js";
+import type { SizeLiteral } from "../../style.js";
 
 // ============================================================================
 // Progress Variant Type (visual preset — lives under style)
@@ -48,6 +48,34 @@ export function ProgressVariant(v: ProgressVariantLiteral): ExprType<ProgressVar
 }
 
 // ============================================================================
+// Progress Tone Type — bsys `.bar` only allows brand / pos / neg.
+// ============================================================================
+
+/**
+ * Tone variant for Progress fill colour. Bsys `.bar` restricts fill to
+ * `brand` / `pos` / `neg` — no hue picker.
+ *
+ * @property brand - Default brand teal fill
+ * @property pos - Success / on-track fill (`fg.success`)
+ * @property neg - Failure / off-spec fill (`fg.danger`)
+ */
+export const ProgressToneType = VariantType({
+    brand: NullType,
+    pos: NullType,
+    neg: NullType,
+});
+
+export type ProgressToneType = typeof ProgressToneType;
+
+/** String literal type for progress tone values. */
+export type ProgressToneLiteral = "brand" | "pos" | "neg";
+
+/** Helper to create progress tone values. */
+export function ProgressTone(t: ProgressToneLiteral): ExprType<ProgressToneType> {
+    return East.value(variant(t, null), ProgressToneType);
+}
+
+// ============================================================================
 // Progress Style Type
 // ============================================================================
 
@@ -55,7 +83,7 @@ export function ProgressVariant(v: ProgressVariantLiteral): ExprType<ProgressVar
  * Visual-only style struct for Progress.
  *
  * @property variant - Visual preset (outline / subtle)
- * @property colorPalette - Chakra palette
+ * @property tone - Fill tone (brand / pos / neg) — bsys-restricted
  * @property size - Size preset
  * @property striped - Cosmetic stripes on the fill
  * @property animated - Animate the stripes
@@ -65,7 +93,7 @@ export function ProgressVariant(v: ProgressVariantLiteral): ExprType<ProgressVar
  */
 export const ProgressStyleType = StructType({
     variant: OptionType(ProgressVariantType),
-    colorPalette: OptionType(ColorSchemeType),
+    tone: OptionType(ProgressToneType),
     size: OptionType(SizeType),
     striped: OptionType(BooleanType),
     animated: OptionType(BooleanType),
@@ -119,8 +147,8 @@ export type ProgressType = typeof ProgressType;
 export interface ProgressStyle {
     /** Visual preset (outline / subtle) */
     variant?: SubtypeExprOrValue<ProgressVariantType> | ProgressVariantLiteral;
-    /** Chakra palette */
-    colorPalette?: SubtypeExprOrValue<ColorSchemeType> | ColorSchemeLiteral;
+    /** Fill tone (brand / pos / neg) — bsys-restricted; replaces hue palette picker */
+    tone?: SubtypeExprOrValue<ProgressToneType> | ProgressToneLiteral;
     /** Size preset */
     size?: SubtypeExprOrValue<SizeType> | SizeLiteral;
     /** Cosmetic stripes on the fill */

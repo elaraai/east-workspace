@@ -3,17 +3,16 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { East, ArrayType, NullType, OptionType, StringType, example, none } from "@elaraai/east";
-import { Badge, Reactive, Stack, State, TagsInput, Text, UIComponentType } from "@elaraai/east-ui";
+import { Reactive, Stack, State, TagsInput, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const tagsInputBasic = example({
-    keywords: ["TagsInput", "Root", "label", "placeholder", "max", "colorPalette"],
+    keywords: ["TagsInput", "Root", "label", "placeholder", "max"],
     description: "Multi-tag entry control",
     fn: East.function([], UIComponentType, (_$) => {
         return TagsInput.Root(["react", "typescript"], {
             label: "Technologies",
             placeholder: "Add tag...",
             max: 5,
-            colorPalette: "blue",
         });
     }),
     inputs: [],
@@ -33,10 +32,9 @@ export const tagsInputInteractive = example({
             return Stack.VStack([
                 TagsInput.Root(tags, {
                     placeholder: "Add tag...",
-                    colorPalette: "purple",
                     onChange,
                 }),
-                Badge.Root(East.str`${tags.size()} tags`, { colorPalette: "purple" }),
+                Text.Presets.MonoLabel(East.str`${tags.size()} TAGS`),
             ], { gap: "3", align: "stretch" });
         }));
     }),
@@ -78,7 +76,6 @@ export const tagsInputOnHighlightChange = example({
             return Stack.VStack([
                 TagsInput.Root(["alpha", "beta", "gamma"], {
                     placeholder: "Use arrow keys to highlight…",
-                    colorPalette: "teal",
                     onHighlightChange,
                 }),
                 Text.Root(East.str`Highlighted: ${hi.match({

@@ -39,9 +39,8 @@ export const timeScaleControlReactive = example({
                 TimeScaleControl.Root(scale, {
                     availableScales: ["day", "week", "month", "quarter", "year"],
                     onChange,
-                    colorPalette: "blue",
                 }),
-                Text.Root(scale.getTag(), { textStyle: "body-sm", color: "fg.muted" }),
+                Text.Presets.MonoLabel(East.str`SCALE · ${scale.getTag()}`),
             ], { gap: "3", align: "flex-start" });
         }));
     }),

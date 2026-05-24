@@ -31,17 +31,16 @@ import {
 /**
  * Variant types for Tabs visual style.
  *
- * @property line - Tabs with an underline indicator
- * @property subtle - Light background on selected tab
- * @property enclosed - Tabs with bordered container
- * @property outline - Outlined tabs
+ * @remarks
+ * bsys §Tabs (design/index.html L1224) is unambiguous — underline-style
+ * tabs only. The historical `subtle` / `enclosed` / `outline` variants
+ * have been removed; use `SegmentGroup` for boxed segmented controls.
+ *
+ * @property line - Tabs with an underline indicator (bsys default)
  * @property plain - No visible styling
  */
 export const TabsVariantType = VariantType({
     line: NullType,
-    subtle: NullType,
-    enclosed: NullType,
-    outline: NullType,
     plain: NullType,
 });
 
@@ -53,7 +52,7 @@ export type TabsVariantType = typeof TabsVariantType;
 /**
  * String literal type for tabs variant values.
  */
-export type TabsVariantLiteral = "line" | "subtle" | "enclosed" | "outline" | "plain";
+export type TabsVariantLiteral = "line" | "plain";
 
 /**
  * Helper function to create tabs variant values.
@@ -162,7 +161,7 @@ export type TabsSizeLiteral = "sm" | "md" | "lg";
  * the tab list background, active-tab indicator, active / inactive trigger
  * colour, and content background.
  *
- * @property variant - Visual variant (line / subtle / enclosed / outline / plain)
+ * @property variant - Visual variant (line / plain)
  * @property size - Size token (sm / md / lg)
  * @property orientation - Layout direction (horizontal / vertical)
  * @property activationMode - Keyboard activation behaviour (automatic / manual)
@@ -211,7 +210,7 @@ export type TabsStyleType = typeof TabsStyleType;
  * the main options object passed to `Tabs.Root`, not here.
  */
 export interface TabsStyle {
-    /** Visual variant (line / subtle / enclosed / outline / plain) */
+    /** Visual variant (line / plain) */
     variant?: SubtypeExprOrValue<TabsVariantType> | TabsVariantLiteral;
     /** Size of the tabs (sm / md / lg) */
     size?: SubtypeExprOrValue<TabsSizeType> | TabsSizeLiteral;

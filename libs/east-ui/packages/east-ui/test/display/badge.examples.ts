@@ -7,41 +7,56 @@ import { Badge, Button, Reactive, Stack, State, UIComponentType } from "@elaraai
 
 export const badgeBasic = example({
     keywords: ["Badge", "Root", "basic", "label"],
-    description: "Status labels and counts",
+    description: "Outlined micro-labels for taxonomic markers (NEW, BETA, PRO)",
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.HStack([
             Badge.Root("New"),
-            Badge.Root("Beta", { colorPalette: "purple" }),
-            Badge.Root("Pro", { colorPalette: "blue" }),
+            Badge.Root("Beta"),
+            Badge.Root("Pro"),
         ], { gap: "2" });
     }),
     inputs: [],
 });
 
 export const badgeVariants = example({
-    keywords: ["Badge", "Root", "variant", "solid", "subtle", "outline"],
-    description: "Solid, subtle, and outline",
+    keywords: ["Badge", "Root", "variant", "brand", "outline", "ok", "warn", "danger"],
+    description: "Spec variants — outline (default), brand-tinted, and status hues",
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.HStack([
-            Badge.Root("Solid", { variant: "solid", colorPalette: "green" }),
-            Badge.Root("Subtle", { variant: "subtle", colorPalette: "green" }),
-            Badge.Root("Outline", { variant: "outline", colorPalette: "green" }),
-        ], { gap: "2" });
+            Badge.Root("Outline", { variant: "outline" }),
+            Badge.Root("Brand", { variant: "brand" }),
+            Badge.Root("OK", { variant: "ok" }),
+            Badge.Root("Warn", { variant: "warn" }),
+            Badge.Root("Danger", { variant: "danger" }),
+        ], { gap: "2", wrap: "wrap" });
+    }),
+    inputs: [],
+});
+
+export const badgeCountCallout = example({
+    keywords: ["Badge", "Root", "count", "callout", "pill"],
+    description: "Spec pills — count (paper-3) and callout (brand-d), radius-full",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Stack.HStack([
+            Badge.Root("17", { variant: "count" }),
+            Badge.Root("128", { variant: "count" }),
+            Badge.Root("NEW", { variant: "callout" }),
+        ], { gap: "2", wrap: "wrap" });
     }),
     inputs: [],
 });
 
 export const badgeColors = example({
-    keywords: ["Badge", "Root", "colorPalette", "red", "orange", "yellow", "green", "blue", "purple"],
-    description: "Various color palettes",
+    keywords: ["Badge", "Root", "colorPalette", "escape", "custom"],
+    description: "Colour escape hatches — bypass recipe defaults for one-off taxonomy",
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.HStack([
-            Badge.Root("Red", { colorPalette: "red", variant: "solid" }),
-            Badge.Root("Orange", { colorPalette: "orange", variant: "solid" }),
-            Badge.Root("Yellow", { colorPalette: "yellow", variant: "solid" }),
-            Badge.Root("Green", { colorPalette: "green", variant: "solid" }),
-            Badge.Root("Blue", { colorPalette: "blue", variant: "solid" }),
-            Badge.Root("Purple", { colorPalette: "purple", variant: "solid" }),
+            Badge.Root("Custom BG", { background: "#ff6b6b", color: "white" }),
+            Badge.Root("Dark", { background: "#1a1a2e", color: "#eee" }),
+            Badge.Root("Gradient", {
+                background: "linear-gradient(90deg, #667eea 0%, #764ba2 100%)",
+                color: "white",
+            }),
         ], { gap: "2", wrap: "wrap" });
     }),
     inputs: [],
@@ -49,73 +64,40 @@ export const badgeColors = example({
 
 export const badgeCustom = example({
     keywords: ["Badge", "Root", "opacity", "background", "color", "custom"],
-    description: "Opacity and custom colors",
+    description: "Opacity ramp on a brand badge",
     fn: East.function([], UIComponentType, (_$) => {
-        return Stack.VStack([
-            Stack.HStack([
-                Badge.Root("100%", { colorPalette: "blue", variant: "solid" }),
-                Badge.Root("75%", { colorPalette: "blue", variant: "solid", opacity: 0.75 }),
-                Badge.Root("50%", { colorPalette: "blue", variant: "solid", opacity: 0.5 }),
-                Badge.Root("25%", { colorPalette: "blue", variant: "solid", opacity: 0.25 }),
-            ], { gap: "2" }),
-            Stack.HStack([
-                Badge.Root("Custom BG", { background: "#ff6b6b", color: "white" }),
-                Badge.Root("Gradient", { background: "linear-gradient(90deg, #667eea 0%, #764ba2 100%)", color: "white" }),
-                Badge.Root("Dark", { background: "#1a1a2e", color: "#eee" }),
-            ], { gap: "2" }),
-        ], { gap: "3", align: "flex-start" });
+        return Stack.HStack([
+            Badge.Root("100%", { variant: "brand" }),
+            Badge.Root("75%", { variant: "brand", opacity: 0.75 }),
+            Badge.Root("50%", { variant: "brand", opacity: 0.5 }),
+            Badge.Root("25%", { variant: "brand", opacity: 0.25 }),
+        ], { gap: "2" });
     }),
     inputs: [],
 });
 
 export const badgeFixedWidth = example({
-    keywords: ["Badge", "Root", "width", "justifyContent", "fixed"],
-    description: "Equal-width badges with centered text using justifyContent",
+    keywords: ["Badge", "Root", "width", "justifyContent", "count"],
+    description: "Equal-width count badges with centred mono numerals",
     fn: East.function([], UIComponentType, (_$) => {
-        return Stack.VStack([
-            Stack.HStack([
-                Badge.Root("3", { width: "48px", justifyContent: "center", variant: "solid", colorPalette: "blue" }),
-                Badge.Root("12", { width: "48px", justifyContent: "center", variant: "solid", colorPalette: "blue" }),
-                Badge.Root("0.9", { width: "48px", justifyContent: "center", variant: "solid", colorPalette: "blue" }),
-                Badge.Root("128", { width: "48px", justifyContent: "center", variant: "solid", colorPalette: "blue" }),
-            ], { gap: "1" }),
-            Stack.HStack([
-                Badge.Root("3", { width: "48px", justifyContent: "center", variant: "outline", colorPalette: "green" }),
-                Badge.Root("12", { width: "48px", justifyContent: "center", variant: "outline", colorPalette: "green" }),
-                Badge.Root("0.9", { width: "48px", justifyContent: "center", variant: "outline", colorPalette: "green" }),
-                Badge.Root("128", { width: "48px", justifyContent: "center", variant: "outline", colorPalette: "green" }),
-            ], { gap: "1" }),
-        ], { gap: "2", align: "flex-start" });
+        return Stack.HStack([
+            Badge.Root("3", { width: "48px", justifyContent: "center" }),
+            Badge.Root("12", { width: "48px", justifyContent: "center" }),
+            Badge.Root("128", { width: "48px", justifyContent: "center" }),
+            Badge.Root("4.2K", { width: "48px", justifyContent: "center" }),
+        ], { gap: "1" });
     }),
     inputs: [],
 });
 
 export const badgeBorder = example({
-    keywords: ["Badge", "Root", "borderWidth", "borderStyle", "borderColor"],
-    description: "Custom borders with width, style, and color",
+    keywords: ["Badge", "Root", "borderWidth", "borderStyle", "borderRadius"],
+    description: "Custom border styles — solid, dashed, fully rounded",
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.HStack([
-            Badge.Root("Outlined", {
-                borderWidth: "thin",
-                borderStyle: "solid",
-                borderColor: "blue.400",
-                colorPalette: "blue",
-            }),
-            Badge.Root("Dashed", {
-                borderWidth: "medium",
-                borderStyle: "dashed",
-                borderColor: "red.400",
-                variant: "subtle",
-                colorPalette: "red",
-            }),
-            Badge.Root("Rounded", {
-                borderWidth: "thin",
-                borderStyle: "solid",
-                borderColor: "green.400",
-                borderRadius: "full",
-                colorPalette: "green",
-                variant: "solid",
-            }),
+            Badge.Root("Solid", { variant: "outline" }),
+            Badge.Root("Dashed", { variant: "outline", borderStyle: "dashed" }),
+            Badge.Root("Pill", { variant: "brand", borderRadius: "full" }),
         ], { gap: "2" });
     }),
     inputs: [],
@@ -123,26 +105,19 @@ export const badgeBorder = example({
 
 export const badgeBoxModel = example({
     keywords: ["Badge", "Root", "padding", "width", "borderRadius"],
-    description: "Padding, margin, and dimension controls",
+    description: "Padding, fixed-width, and large-radius escape hatches",
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.HStack([
-            Badge.Root("Padded", {
-                padding: "3",
-                colorPalette: "purple",
-                variant: "subtle",
-            }),
+            Badge.Root("Padded", { variant: "brand", padding: "3" }),
             Badge.Root("Wide", {
+                variant: "outline",
                 width: "120px",
-                colorPalette: "teal",
-                variant: "solid",
                 justifyContent: "flex-start",
-                alignItems: "flex-start",
             }),
-            Badge.Root("Custom", {
+            Badge.Root("Rounded", {
+                variant: "brand",
                 padding: "2",
                 borderRadius: "lg",
-                background: "#2d3748",
-                color: "white",
             }),
         ], { gap: "2" });
     }),
@@ -151,7 +126,7 @@ export const badgeBoxModel = example({
 
 export const badgeInteractive = example({
     keywords: ["Badge", "Reactive", "State", "interactive", "counter"],
-    description: "Badge whose value increments from a counter",
+    description: "Reactive count badge — increments via Button.onClick",
     fn: East.function([], UIComponentType, (_$) => {
         return Reactive.Root(East.function([], UIComponentType, $ => {
             const counter = $.let(State.bind([IntegerType], "badge_counter", 0n));
@@ -161,7 +136,7 @@ export const badgeInteractive = example({
                 $(counter.write(cur.add(1n)));
             }));
             return Stack.VStack([
-                Badge.Root(East.str`${East.print(value)}`, { colorPalette: "blue", variant: "solid" }),
+                Badge.Root(East.str`${East.print(value)}`),
                 Button.Root("Increment", { onClick: inc }),
             ], { gap: "3", align: "center" });
         }));

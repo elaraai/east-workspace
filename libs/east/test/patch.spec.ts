@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, ArrayType, IntegerType, StringType, NullType, SetType, DictType, StructType, VariantType, variant, FloatType, BooleanType, DateTimeType, SortedSet, RefType, ref, RecursiveType } from "../src/index.js";
+import { East, ArrayType, IntegerType, StringType, NullType, SetType, DictType, StructType, VariantType, variant, FloatType, BooleanType, DateTimeType, SortedSet, RefType, ref, RecursiveType, some, none } from "../src/index.js";
 import type { ValueTypeOf } from "../src/index.js";
 import { describeEast as describe, assertEast as assert } from "./platforms.spec.js";
 import { generateFuzzTestCases } from "../src/patch/fuzz.js";
@@ -1205,9 +1205,9 @@ await describe("Patch - E2E All Types", (test) => {
 
     test("E2E: Variant patch-compose-invert roundtrip", $ => {
         const OptionType = VariantType({ some: IntegerType, none: NullType });
-        const v1 = $.const(variant("some", 10n), OptionType);
-        const v2 = $.const(variant("some", 20n), OptionType);
-        const v3 = $.const(variant("none", null), OptionType);
+        const v1 = $.const(some(10n), OptionType);
+        const v2 = $.const(some(20n), OptionType);
+        const v3 = $.const(none, OptionType);
 
         const p1 = $.const(East.diff(v1, v2));
         const p2 = $.const(East.diff(v2, v3));
@@ -1737,20 +1737,20 @@ await describe("Patch - E2E All Types", (test) => {
         // Build: [{ id: 1, tags: ["a"], scores: {"x": 1.0} }] → [{ id: 2, tags: ["b"], scores: {} }] → none
         const v1 = $.const({
             value: { id: 1n, tags: ["a"], scores: new Map([["x", 1.0]]) },
-            next: variant("some", {
+            next: some({
                 value: { id: 2n, tags: ["b"], scores: new Map<string, number>() },
-                next: variant("none", null)
+                next: none
             })
         }, ListType);
 
         // Change head and add element to middle
         const v2 = $.const({
             value: { id: 10n, tags: ["a", "updated"], scores: new Map([["x", 2.0], ["y", 3.0]]) },
-            next: variant("some", {
+            next: some({
                 value: { id: 2n, tags: ["b", "c"], scores: new Map([["z", 9.9]]) },
-                next: variant("some", {
+                next: some({
                     value: { id: 3n, tags: [], scores: new Map<string, number>() },
-                    next: variant("none", null)
+                    next: none
                 })
             })
         }, ListType);
@@ -1758,7 +1758,7 @@ await describe("Patch - E2E All Types", (test) => {
         // Truncate to single element
         const v3 = $.const({
             value: { id: 100n, tags: [], scores: new Map<string, number>() },
-            next: variant("none", null)
+            next: none
         }, ListType);
 
         const p1 = $.const(East.diff(v1, v2));

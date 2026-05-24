@@ -7,8 +7,5 @@ export {
     Card,
     CardType,
     CardStyleType,
-    CardVariantType,
-    CardVariant,
     type CardStyle,
-    type CardVariantLiteral,
 } from "./card/index.js";

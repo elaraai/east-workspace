@@ -68,7 +68,7 @@ describe('signal handling', () => {
 
       // Start the slow task
       const startTime = Date.now();
-      const proc = spawnE3Command(['start', repoDir, 'ws'], testDir);
+      const proc = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
       // Wait for task to start (watch for [START] in output)
       await new Promise(resolve => setTimeout(resolve, 1000));
@@ -127,7 +127,7 @@ describe('signal handling', () => {
       await runE3Command(['workspace', 'create', repoDir, 'ws'], testDir);
       await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'slow-test-2@1.0.0'], testDir);
 
-      const proc = spawnE3Command(['start', repoDir, 'ws'], testDir);
+      const proc = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
       // Wait for task to start
       await new Promise(resolve => setTimeout(resolve, 1000));
@@ -169,7 +169,7 @@ describe('signal handling', () => {
       await runE3Command(['workspace', 'create', repoDir, 'ws'], testDir);
       await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'slow-test-persist@1.0.0'], testDir);
 
-      const proc = spawnE3Command(['start', repoDir, 'ws'], testDir);
+      const proc = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
       // Wait for task to start and state to be created
       await new Promise(resolve => setTimeout(resolve, 1500));
@@ -218,7 +218,7 @@ describe('signal handling', () => {
       await runE3Command(['workspace', 'create', repoDir, 'ws'], testDir);
       await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'slow-test-rapid@1.0.0'], testDir);
 
-      const proc = spawnE3Command(['start', repoDir, 'ws'], testDir);
+      const proc = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
       // Wait for task to start and state to be created
       await new Promise(resolve => setTimeout(resolve, 1500));
@@ -275,7 +275,7 @@ describe('signal handling', () => {
       await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'slow-test-restart@1.0.0'], testDir);
 
       // Start and kill the first execution
-      const proc1 = spawnE3Command(['start', repoDir, 'ws'], testDir);
+      const proc1 = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
       await new Promise(resolve => setTimeout(resolve, 1500));
       proc1.kill('SIGKILL');
       await proc1.result;
@@ -284,7 +284,7 @@ describe('signal handling', () => {
       await new Promise(resolve => setTimeout(resolve, 200));
 
       // Start a new execution - should work without --force
-      const proc2 = spawnE3Command(['start', repoDir, 'ws'], testDir);
+      const proc2 = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
       // Wait for it to start
       await new Promise(resolve => setTimeout(resolve, 1500));
@@ -328,7 +328,7 @@ describe('signal handling', () => {
       await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'lock-test@1.0.0'], testDir);
 
       // Start a slow task
-      const startProc = spawnE3Command(['start', repoDir, 'ws'], testDir);
+      const startProc = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
       // Wait for task to start
       await new Promise(resolve => setTimeout(resolve, 500));
@@ -371,7 +371,7 @@ describe('signal handling', () => {
       await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'lock-test-2@1.0.0'], testDir);
 
       // Start a slow task
-      const startProc = spawnE3Command(['start', repoDir, 'ws'], testDir);
+      const startProc = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
       // Wait for task to start
       await new Promise(resolve => setTimeout(resolve, 500));
@@ -414,13 +414,13 @@ describe('signal handling', () => {
       await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'lock-test-3@1.0.0'], testDir);
 
       // Start first dataflow
-      const startProc1 = spawnE3Command(['start', repoDir, 'ws'], testDir);
+      const startProc1 = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
       // Wait for task to start
       await new Promise(resolve => setTimeout(resolve, 500));
 
       // Try to start another dataflow - should fail with lock error
-      const startResult2 = await runE3Command(['start', repoDir, 'ws'], testDir);
+      const startResult2 = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
       // Should fail with lock error message
       const output = startResult2.stdout + startResult2.stderr;

@@ -37,7 +37,7 @@ describe('task operations - basic repository functionality', () => {
     assert.strictEqual(initResult.exitCode, 0, `repo create failed: ${initResult.stderr}`);
 
     // List workspaces (should be empty initially)
-    const listResult = await runE3Command(['list', repoDir], testDir);
+    const listResult = await runE3Command(['workspace', 'list', repoDir], testDir);
     assert.strictEqual(listResult.exitCode, 0, `list failed: ${listResult.stderr}`);
 
     // Output should indicate no workspaces or be empty
@@ -60,7 +60,7 @@ describe('task operations - basic repository functionality', () => {
     await runE3Command(['repo', 'create', repoDir], testDir);
 
     // Try to get non-existent path - requires a workspace.path format
-    const getResult = await runE3Command(['get', repoDir, 'nonexistent.path'], testDir);
+    const getResult = await runE3Command(['dataset', 'get', repoDir, 'nonexistent.path'], testDir);
 
     // Should fail gracefully
     assert.notStrictEqual(getResult.exitCode, 0);
@@ -78,7 +78,7 @@ describe('task operations - basic repository functionality', () => {
     await runE3Command(['repo', 'create', repoDir], testDir);
 
     // Try to get with invalid workspace.path format (workspace doesn't exist)
-    const getResult = await runE3Command(['get', repoDir, 'invalid-ws.path'], testDir);
+    const getResult = await runE3Command(['dataset', 'get', repoDir, 'invalid-ws.path'], testDir);
 
     // Should fail gracefully
     assert.notStrictEqual(getResult.exitCode, 0);
@@ -112,7 +112,7 @@ describe('task operations - basic repository functionality', () => {
   it('help commands work', async () => {
     // Test that help commands exit successfully
     // Top-level commands
-    const topCommands = ['start', 'get', 'list', 'convert'];
+    const topCommands = ['dataflow', 'run', 'convert'];
     // Subcommands under repo, package, workspace
     const subCommands = [
       ['repo', 'create'],

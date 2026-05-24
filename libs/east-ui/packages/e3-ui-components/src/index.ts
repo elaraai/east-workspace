@@ -11,6 +11,7 @@
 // =============================================================================
 import './platform/bind-runtime.js';      // → registerPlatformImplementation(BindPlatform)
 import './diff/index.js';                 // → implementUIComponent(Diff.Component, EastChakraDiff)
+import './ontology/index.js';             // → implementUIComponent(Ontology.Component, EastChakraOntology)
 
 // Platform — reactive dataset cache, runtime, and React hooks for Data.bind
 export * from './platform/index.js';
@@ -23,6 +24,9 @@ export * from './hooks/index.js';
 
 // Diff renderer — registers itself against the Diff extension on import.
 export { EastChakraDiff, type EastChakraDiffProps } from './diff/index.js';
+
+// Ontology renderer — registers itself against the Ontology extension on import.
+export { EastChakraOntology, type EastChakraOntologyProps } from './ontology/index.js';
 
 // Components
 export { ErrorBoundary, type ErrorBoundaryProps } from './components/ErrorBoundary.js';

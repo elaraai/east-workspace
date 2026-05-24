@@ -2,8 +2,8 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, BooleanType, NullType, variant, example } from "@elaraai/east";
-import { Badge, Checkbox, Reactive, Stack, State, UIComponentType } from "@elaraai/east-ui";
+import { East, BooleanType, NullType, example } from "@elaraai/east";
+import { Checkbox, Reactive, Stack, State, Status, UIComponentType } from "@elaraai/east-ui";
 
 export const checkboxBasic = example({
     keywords: ["Checkbox", "Root", "label", "indeterminate", "disabled"],
@@ -11,7 +11,7 @@ export const checkboxBasic = example({
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.VStack([
             Checkbox.Root(false, { label: "Accept terms" }),
-            Checkbox.Root(true, { label: "Checked option", colorPalette: "blue" }),
+            Checkbox.Root(true, { label: "Checked option" }),
             Checkbox.Root(false, { label: "Indeterminate", indeterminate: true }),
             Checkbox.Root(false, { label: "Disabled", disabled: true }),
         ], { gap: "3", align: "flex-start" });
@@ -24,9 +24,9 @@ export const checkboxSizes = example({
     description: "Size variations: sm, md, lg",
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.HStack([
-            Checkbox.Root(true, { label: "Small", size: "sm", colorPalette: "blue" }),
-            Checkbox.Root(true, { label: "Medium", size: "md", colorPalette: "blue" }),
-            Checkbox.Root(true, { label: "Large", size: "lg", colorPalette: "blue" }),
+            Checkbox.Root(true, { label: "Small", size: "sm" }),
+            Checkbox.Root(true, { label: "Medium", size: "md" }),
+            Checkbox.Root(true, { label: "Large", size: "lg" }),
         ], { gap: "4" });
     }),
     inputs: [],
@@ -46,12 +46,11 @@ export const checkboxInteractive = example({
             return Stack.VStack([
                 Checkbox.Root(checked, {
                     label: "Click me!",
-                    colorPalette: "blue",
                     onChange,
                 }),
-                Badge.Root(
-                    checked.ifElse(_$ => "Checked!", _$ => "Unchecked"),
-                    { colorPalette: checked.ifElse(_$ => variant("green", null), _$ => variant("gray", null)) }
+                checked.ifElse(
+                    _$ => Status.Root("Checked", { value: "success" }),
+                    _$ => Status.Root("Unchecked", { value: "neutral" }),
                 ),
             ], { gap: "3", align: "flex-start" });
         }));

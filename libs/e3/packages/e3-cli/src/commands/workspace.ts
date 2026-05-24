@@ -58,22 +58,45 @@ export const workspaceCommand = {
 
   /**
    * Deploy a package to a workspace.
+   *
+   * Two modes:
+   *   - With `pkgSpec`: deploy an already-imported package by name[@version].
+   *   - With `--from-zip <path>`: import the zip first, create the workspace if
+   *     missing, then deploy. Replaces the legacy `workspace import` command.
    */
-  async deploy(repoArg: string, ws: string, pkgSpec: string): Promise<void> {
+  async deploy(
+    repoArg: string,
+    ws: string,
+    pkgSpec: string | undefined,
+    options: { fromZip?: string } = {},
+  ): Promise<void> {
     try {
+      if (!pkgSpec && !options.fromZip) {
+        exitError('Provide a package spec (e.g. hello@1.0.0) or --from-zip <path>');
+      }
+      if (pkgSpec && options.fromZip) {
+        exitError('Provide either a package spec or --from-zip, not both');
+      }
+
       const location = await parseRepoLocation(repoArg);
-      const { name, version } = parsePackageSpec(pkgSpec);
+
+      // --from-zip mode: import then deploy
+      if (options.fromZip) {
+        await deployFromZip(location, ws, options.fromZip);
+        return;
+      }
+
+      const { name, version } = parsePackageSpec(pkgSpec!);
 
       if (location.type === 'local') {
         const storage = new LocalStorage();
         await workspaceDeploy(storage, location.path, ws, name, version);
       } else {
-        // Remote API accepts packageRef string (name@version)
         const packageRef = version === 'latest' ? name : `${name}@${version}`;
         await workspaceDeployRemote(location.baseUrl, location.repo, ws, packageRef, { token: location.token });
       }
 
-      console.log(`Deployed ${name}@${version} to workspace: ${ws}`);
+      console.log(`Deployed ${pkgSpec} to workspace: ${ws}`);
     } catch (err) {
       exitError(formatError(err));
     }
@@ -122,66 +145,6 @@ export const workspaceCommand = {
     }
   },
 
-  /**
-   * Import a package zip into a workspace (creates workspace if needed).
-   */
-  async import(repoArg: string, ws: string, zipPath: string): Promise<void> {
-    try {
-      const location = await parseRepoLocation(repoArg);
-
-      let name: string;
-      let version: string;
-      let packageHash: string;
-      let objectCount: number;
-
-      if (location.type === 'local') {
-        const storage = new LocalStorage();
-
-        // Import the package
-        const result = await packageImport(storage, location.path, zipPath);
-        name = result.name;
-        version = result.version;
-        packageHash = result.packageHash;
-        objectCount = result.objectCount;
-
-        // Create workspace (ignore if already exists)
-        try {
-          await workspaceCreate(storage, location.path, ws);
-        } catch (err) {
-          if (!(err instanceof WorkspaceExistsError)) throw err;
-        }
-
-        // Deploy
-        await workspaceDeploy(storage, location.path, ws, name, version);
-      } else {
-        // Remote import
-        const zipBytes = readFileSync(zipPath);
-        const result = await packageImportRemote(location.baseUrl, location.repo, new Uint8Array(zipBytes), { token: location.token });
-        name = result.name;
-        version = result.version;
-        packageHash = result.packageHash;
-        objectCount = Number(result.objectCount);
-
-        // Create workspace (ignore if already exists)
-        try {
-          await workspaceCreateRemote(location.baseUrl, location.repo, ws, { token: location.token });
-        } catch (err) {
-          if (!(err instanceof ApiError && err.code === 'workspace_exists')) throw err;
-        }
-
-        // Deploy
-        const packageRef = `${name}@${version}`;
-        await workspaceDeployRemote(location.baseUrl, location.repo, ws, packageRef, { token: location.token });
-      }
-
-      console.log(`Imported ${name}@${version}`);
-      console.log(`  Package hash: ${packageHash.slice(0, 12)}...`);
-      console.log(`  Objects: ${objectCount}`);
-      console.log(`Deployed to workspace: ${ws}`);
-    } catch (err) {
-      exitError(formatError(err));
-    }
-  },
 
   /**
    * List workspaces.
@@ -373,9 +336,66 @@ export const workspaceCommand = {
 };
 
 /**
+ * Import a zip, ensure the workspace exists, and deploy.
+ *
+ * Used by `workspace deploy --from-zip`.
+ */
+async function deployFromZip(
+  location: Awaited<ReturnType<typeof parseRepoLocation>>,
+  ws: string,
+  zipPath: string,
+): Promise<void> {
+  let name: string;
+  let version: string;
+  let packageHash: string;
+  let objectCount: number;
+
+  if (location.type === 'local') {
+    const storage = new LocalStorage();
+    const result = await packageImport(storage, location.path, zipPath);
+    name = result.name;
+    version = result.version;
+    packageHash = result.packageHash;
+    objectCount = result.objectCount;
+
+    try {
+      await workspaceCreate(storage, location.path, ws);
+    } catch (err) {
+      if (!(err instanceof WorkspaceExistsError)) throw err;
+    }
+    await workspaceDeploy(storage, location.path, ws, name, version);
+  } else {
+    const zipBytes = readFileSync(zipPath);
+    const result = await packageImportRemote(
+      location.baseUrl, location.repo, new Uint8Array(zipBytes),
+      { token: location.token },
+    );
+    name = result.name;
+    version = result.version;
+    packageHash = result.packageHash;
+    objectCount = Number(result.objectCount);
+
+    try {
+      await workspaceCreateRemote(location.baseUrl, location.repo, ws, { token: location.token });
+    } catch (err) {
+      if (!(err instanceof ApiError && err.code === 'workspace_exists')) throw err;
+    }
+    await workspaceDeployRemote(
+      location.baseUrl, location.repo, ws, `${name}@${version}`,
+      { token: location.token },
+    );
+  }
+
+  console.log(`Imported ${name}@${version}`);
+  console.log(`  Package hash: ${packageHash.slice(0, 12)}...`);
+  console.log(`  Objects: ${objectCount}`);
+  console.log(`Deployed to workspace: ${ws}`);
+}
+
+/**
  * Convert remote task status to local format.
  */
- 
+
 function convertTaskStatus(status: any): WorkspaceStatusResult['tasks'][0]['status'] {
   switch (status.type) {
     case 'up-to-date':

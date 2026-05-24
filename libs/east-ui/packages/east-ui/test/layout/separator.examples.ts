@@ -33,13 +33,26 @@ export const separatorVertical = example({
     inputs: [],
 });
 
-export const separatorSolid = example({
-    keywords: ["Separator", "Root", "variant", "solid"],
-    description: "Solid line separator",
+export const separatorSubtle = example({
+    keywords: ["Separator", "Root", "variant", "subtle"],
+    description: "Default subtle hairline (rule)",
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.VStack([
             Text.Root("Above"),
-            Separator.Root({ variant: "solid" }),
+            Separator.Root({ variant: "subtle" }),
+            Text.Root("Below"),
+        ], { gap: "3", width: "100%" });
+    }),
+    inputs: [],
+});
+
+export const separatorStrong = example({
+    keywords: ["Separator", "Root", "variant", "strong"],
+    description: "Strong hairline (rule-strong)",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Stack.VStack([
+            Text.Root("Above"),
+            Separator.Root({ variant: "strong" }),
             Text.Root("Below"),
         ], { gap: "3", width: "100%" });
     }),
@@ -48,7 +61,7 @@ export const separatorSolid = example({
 
 export const separatorDashed = example({
     keywords: ["Separator", "Root", "variant", "dashed"],
-    description: "Dashed line separator",
+    description: "Dashed hairline (rule-strong)",
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.VStack([
             Text.Root("Above"),
@@ -59,27 +72,14 @@ export const separatorDashed = example({
     inputs: [],
 });
 
-export const separatorDotted = example({
-    keywords: ["Separator", "Root", "variant", "dotted"],
-    description: "Dotted line separator",
+export const separatorBrand = example({
+    keywords: ["Separator", "Root", "variant", "brand"],
+    description: "Brand hairline",
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.VStack([
             Text.Root("Above"),
-            Separator.Root({ variant: "dotted" }),
+            Separator.Root({ variant: "brand" }),
             Text.Root("Below"),
-        ], { gap: "3", width: "100%" });
-    }),
-    inputs: [],
-});
-
-export const separatorSizes = example({
-    keywords: ["Separator", "Root", "size", "sm", "md", "lg"],
-    description: "Small, medium, and large sizes",
-    fn: East.function([], UIComponentType, (_$) => {
-        return Stack.VStack([
-            Stack.HStack([Text.Root("Small:"), Separator.Root({ size: "sm" })], { gap: "2", width: "100%" }),
-            Stack.HStack([Text.Root("Medium:"), Separator.Root({ size: "md" })], { gap: "2", width: "100%" }),
-            Stack.HStack([Text.Root("Large:"), Separator.Root({ size: "lg" })], { gap: "2", width: "100%" }),
         ], { gap: "3", width: "100%" });
     }),
     inputs: [],
@@ -98,28 +98,14 @@ export const separatorLabeled = example({
     inputs: [],
 });
 
-export const separatorColored = example({
-    keywords: ["Separator", "Root", "color"],
-    description: "Custom color separators",
-    fn: East.function([], UIComponentType, (_$) => {
-        return Stack.VStack([
-            Separator.Root({ color: "blue.400" }),
-            Separator.Root({ color: "green.400" }),
-            Separator.Root({ color: "red.400" }),
-        ], { gap: "4", width: "100%" });
-    }),
-    inputs: [],
-});
-
 export const separatorFormDivider = example({
-    keywords: ["Separator", "Root", "label", "color", "form"],
+    keywords: ["Separator", "Root", "label", "form"],
     description: "Labeled divider for form sections",
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.VStack([
             Text.Root("Personal Information"),
             Separator.Root({
                 label: "Contact Details",
-                color: "gray.400",
             }),
             Text.Root("Email and Phone fields..."),
         ], { gap: "3", width: "100%" });
@@ -165,7 +151,7 @@ export const separatorWithEyebrow = example({
             Separator.Root({
                 label: "Cross-phase decisions",
                 align: "center",
-                variant: "solid",
+                variant: "subtle",
             }),
             Text.Root("Phase 2 — Deliver"),
         ], { gap: "3", align: "stretch" });

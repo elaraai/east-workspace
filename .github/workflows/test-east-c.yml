@@ -74,7 +74,7 @@ jobs:
         run: make test-east-c
 
       - name: Start test services (for std tests)
-        run: docker compose --profile services up -d --wait
+        run: docker compose -f docker/services/docker-compose.yml --profile services up -d --wait
 
       - name: Run east-c-std compliance tests
         working-directory: libs/east-c
@@ -82,4 +82,4 @@ jobs:
 
       - name: Stop test services
         if: always()
-        run: docker compose --profile services down -v
+        run: docker compose -f docker/services/docker-compose.yml --profile services down -v

@@ -10,6 +10,8 @@ package-lock.json
 
 # Build output
 dist/
+dist-examples/
+dist-design/
 build/
 build-asan/
 build-debug/
@@ -74,10 +76,9 @@ tools/emsdk/
 
 # Data files (in test dirs)
 *.csv
-*.json
-!package.json
-!tsconfig.json
-!pnpm-workspace.yaml
+
+# Per-user local settings (never commit)
+**/.claude/settings.local.json
 
 # IDEs
 .vscode/

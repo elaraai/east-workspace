@@ -131,9 +131,9 @@ export const comboboxInteractive = example({
                     Combobox.Item("fig", "Fig"),
                     Combobox.Item("grape", "Grape"),
                 ], { placeholder: "Search fruits...", onChange }),
-                Text.Root(East.str`Selected: ${East.greater(selected.length(), 0n).ifElse(
+                Text.Presets.MonoLabel(East.str`SELECTED · ${East.greater(selected.length(), 0n).ifElse(
                     _$ => selected,
-                    _$ => "(none)"
+                    _$ => "(NONE)"
                 )}`),
             ], { gap: "3", align: "stretch" });
         }));
@@ -161,9 +161,9 @@ export const comboboxInteractiveMulti = example({
                     Combobox.Item("solid", "Solid"),
                     Combobox.Item("ember", "Ember"),
                 ], { placeholder: "Search frameworks...", multiple: true, onChangeMultiple }),
-                Text.Root(East.str`Selected: ${East.greater(selected.length(), 0n).ifElse(
+                Text.Presets.MonoLabel(East.str`SELECTED · ${East.greater(selected.length(), 0n).ifElse(
                     _$ => selected.stringJoin(", "),
-                    _$ => "(none)"
+                    _$ => "(NONE)"
                 )}`),
             ], { gap: "3", align: "stretch" });
         }));
@@ -187,7 +187,7 @@ export const comboboxOnInputValueChange = example({
                     Combobox.Item("b", "Banana"),
                     Combobox.Item("c", "Cherry"),
                 ], { placeholder: "Type anything…", onInputValueChange }),
-                Text.Root(East.str`Last typed: ${last}`),
+                Text.Presets.MonoLabel(East.str`LAST TYPED · ${last}`),
             ], { gap: "3", align: "stretch" });
         }));
     }),
@@ -210,7 +210,7 @@ export const comboboxOnOpenChange = example({
                     Combobox.Item("a", "Apple"),
                     Combobox.Item("b", "Banana"),
                 ], { placeholder: "Open me…", onOpenChange }),
-                Text.Root(East.str`Toggled ${East.print(value)} times`),
+                Text.Presets.MonoLabel(East.str`TOGGLED · ${value}`),
             ], { gap: "3", align: "stretch" });
         }));
     }),

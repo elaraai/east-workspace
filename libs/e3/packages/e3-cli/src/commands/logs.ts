@@ -29,13 +29,13 @@ import {
   taskLogs as taskLogsRemote,
   ApiError,
 } from '@elaraai/e3-api-client';
-import { parseRepoLocation, formatError, exitError } from '../utils.js';
+import { parseRepoLocation, formatError, exitError, HASH_DISPLAY_WIDTH } from '../utils.js';
 
 /**
- * Format a hash for display (abbreviated).
+ * Format a hash for display (abbreviated to `HASH_DISPLAY_WIDTH`).
  */
 function abbrev(hash: string): string {
-  return hash.slice(0, 8);
+  return hash.slice(0, HASH_DISPLAY_WIDTH);
 }
 
 /**

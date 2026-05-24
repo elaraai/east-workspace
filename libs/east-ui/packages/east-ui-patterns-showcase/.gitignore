@@ -1,8 +1,0 @@
-node_modules
-dist
-.vite
-*.log
-data/feedback.db
-data/feedback.db-shm
-data/feedback.db-wal
-.DS_Store

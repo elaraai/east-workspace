@@ -32,6 +32,7 @@ import { EastChakraScatterChart } from "./charts/scatter";
 import { EastChakraPieChart } from "./charts/pie";
 import { EastChakraRadarChart } from "./charts/radar";
 import { EastChakraComposedChart } from "./charts/composed";
+import { EastVisxChart } from "./charts/spec";
 import { EastChakraBox } from "./layout/box";
 import { EastChakraFlex } from "./layout/flex";
 import { EastChakraStack } from "./layout/stack";
@@ -47,8 +48,6 @@ import { EastChakraTabs } from "./disclosure/tabs";
 import { EastChakraSegmentGroup } from "./disclosure/segment-group";
 import { EastChakraCollapsible } from "./disclosure/collapsible";
 import { EastChakraDisclosure } from "./disclosure/show-more";
-import { EastChakraSteps } from "./disclosure/steps";
-import { EastChakraTimeline } from "./disclosure/timeline";
 import { EastChakraOptionList } from "./disclosure/option-list";
 import { EastChakraDataList } from "./collections/data-list";
 import { EastChakraMatrix } from "./collections/matrix";
@@ -65,6 +64,14 @@ import { EastChakraTag } from "./display/tag";
 import { EastChakraAvatar } from "./display/avatar";
 import { EastChakraStat } from "./display/stat";
 import { EastChakraMetricChip } from "./display/metric-chip";
+import { EastChakraSliceSummary } from "./slice/summary";
+import { EastChakraSliceRange } from "./slice/range";
+import { EastChakraSliceFilter } from "./slice/filter";
+import { EastChakraSliceLegend } from "./slice/legend";
+import { EastChakraSliceBreakdown } from "./slice/breakdown";
+import { EastChakraSliceSearch } from "./slice/search";
+import { EastChakraSliceCohort } from "./slice/cohort";
+import { EastChakraSliceFrame } from "./slice/frame";
 import { EastChakraEditableChip } from "./display/editable-chip";
 import { EastChakraKbd } from "./display/kbd";
 import { EastChakraMeter } from "./display/meter";
@@ -91,7 +98,7 @@ import {
     EastChakraTagsInput,
     EastChakraFileUpload,
 } from "./forms";
-import { EastChakraAlert, EastChakraProgress, EastChakraEmptyState, EastChakraSpinner, EastChakraSkeleton, EastChakraStatus, EastChakraBanner, EastChakraProgressCircle } from "./feedback";
+import { EastChakraProgress, EastChakraEmptyState, EastChakraSkeleton, EastChakraStatus, EastChakraBanner } from "./feedback";
 import { EastChakraCard } from "./container";
 import {
     EastChakraTooltip,
@@ -102,7 +109,6 @@ import {
     EastChakraDrawer,
     EastChakraActionBar,
     EastChakraToggleTip,
-    EastChakraCoachMark,
     EastChakraCommandPalette,
 } from "./overlays";
 import { EastChakraHotkey } from "./platform/hotkey";
@@ -183,11 +189,8 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
 
             // Feedback
             Progress: (v) => <EastChakraProgress value={v} />,
-            ProgressCircle: (v) => <EastChakraProgressCircle value={v} />,
-            Alert: (v) => <EastChakraAlert value={v} storageKey={childKey(storageKey, "Alert")} />,
             Banner: (v) => <EastChakraBanner value={v} storageKey={childKey(storageKey, "Banner")} />,
             EmptyState: (v) => <EastChakraEmptyState value={v} storageKey={childKey(storageKey, "EmptyState")} />,
-            Spinner: (v) => <EastChakraSpinner value={v} />,
             Skeleton: (v) => <EastChakraSkeleton value={v} />,
             Status: (v) => <EastChakraStatus value={v} storageKey={childKey(storageKey, "Status")} />,
 
@@ -208,6 +211,16 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             SegmentedMeter: (v) => <EastChakraSegmentedMeter value={v} storageKey={childKey(storageKey, "SegmentedMeter")} />,
             BarStrip: (v) => <EastChakraBarStrip value={v} storageKey={childKey(storageKey, "BarStrip")} />,
             AvatarGroup: (v) => <EastChakraAvatarGroup value={v} />,
+
+            // Slice
+            SliceSummary: (v) => <EastChakraSliceSummary value={v} />,
+            SliceRange: (v) => <EastChakraSliceRange value={v} />,
+            SliceFilter: (v) => <EastChakraSliceFilter value={v} />,
+            SliceLegend: (v) => <EastChakraSliceLegend value={v} />,
+            SliceBreakdown: (v) => <EastChakraSliceBreakdown value={v} />,
+            SliceSearch: (v) => <EastChakraSliceSearch value={v} />,
+            SliceCohort: (v) => <EastChakraSliceCohort value={v} />,
+            SliceFrame: (v) => <EastChakraSliceFrame value={v as never} storageKey={childKey(storageKey, "SliceFrame")} />,
 
             // Container
             Card: (v) => <EastChakraCard value={v} storageKey={storageKey} />,
@@ -230,6 +243,7 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             PieChart: (v) => <EastChakraPieChart value={v} />,
             RadarChart: (v) => <EastChakraRadarChart value={v} />,
             ComposedChart: (v) => <EastChakraComposedChart value={v} />,
+            VisxChart: (v) => <EastVisxChart value={v} />,
 
             TreeView: (v) => <EastChakraTreeView value={v} storageKey={childKey(storageKey, "TreeView")} />,
 
@@ -240,8 +254,6 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             SegmentGroup: (v) => <EastChakraSegmentGroup value={v} storageKey={childKey(storageKey, "SegmentGroup")} />,
             Collapsible: (v) => <EastChakraCollapsible value={v} storageKey={childKey(storageKey, "Collapsible")} />,
             Disclosure: (v) => <EastChakraDisclosure value={v} storageKey={childKey(storageKey, "Disclosure")} />,
-            Steps: (v) => <EastChakraSteps value={v} storageKey={childKey(storageKey, "Steps")} />,
-            Timeline: (v) => <EastChakraTimeline value={v} storageKey={childKey(storageKey, "Timeline")} />,
             OptionList: (v) => <EastChakraOptionList value={v} storageKey={childKey(storageKey, "OptionList")} />,
 
             // Overlays
@@ -253,7 +265,6 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             Drawer: (v) => <EastChakraDrawer value={v} storageKey={childKey(storageKey, "Drawer")} />,
             ActionBar: (v) => <EastChakraActionBar value={v} />,
             ToggleTip: (v) => <EastChakraToggleTip value={v} storageKey={childKey(storageKey, "ToggleTip")} />,
-            CoachMark: (v) => <EastChakraCoachMark value={v} storageKey={childKey(storageKey, "CoachMark")} />,
             CommandPalette: (v) => <EastChakraCommandPalette value={v} />,
             Hotkey: (v) => <EastChakraHotkey value={v} />,
 

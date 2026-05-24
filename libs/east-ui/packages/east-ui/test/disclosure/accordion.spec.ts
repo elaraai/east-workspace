@@ -12,38 +12,35 @@ describeEast("Accordion", (test) => {
         accordionBasic: ex.accordionBasic,
         accordionMultiple: ex.accordionMultiple,
         accordionCollapsible: ex.accordionCollapsible,
-        accordionEnclosed: ex.accordionEnclosed,
-        accordionSubtle: ex.accordionSubtle,
-        accordionPlain: ex.accordionPlain,
+        accordionFaq: ex.accordionFaq,
         accordionInteractive: ex.accordionInteractive,
         accordionGridTrigger: ex.accordionGridTrigger,
         accordionReactiveMulti: ex.accordionReactiveMulti,
     });
 
     // =========================================================================
-    // Accordion.Item — string trigger coerced to Text.Root
+    // Accordion.Item — title + optional meta
     // =========================================================================
 
-    test("creates item with string trigger (coerced to Text.Root)", $ => {
+    test("creates item with title", $ => {
         const item = $.let(Accordion.Item("item-1", "Section 1", [
             Text.Root("Content for section 1"),
         ]));
         $(Assert.equal(item.value, "item-1"));
-        $(Assert.equal(item.trigger.unwrap().unwrap("Text").value, "Section 1"));
+        $(Assert.equal(item.title, "Section 1"));
+        $(Assert.equal(item.meta.hasTag("none"), true));
         $(Assert.equal(item.disabled.hasTag("none"), true));
     });
 
-    test("creates item with rich UIComp trigger", $ => {
+    test("creates item with trailing meta", $ => {
         const item = $.let(Accordion.Item(
             "rich",
-            Text.Root("Rich Trigger", { fontWeight: "bold" }),
+            "Shift rules",
             [Text.Root("Body")],
+            { meta: "4 fields" },
         ));
-        $(Assert.equal(item.trigger.unwrap().unwrap("Text").value, "Rich Trigger"));
-        $(Assert.equal(
-            item.trigger.unwrap().unwrap("Text").style.unwrap("some").fontWeight.unwrap("some").hasTag("bold"),
-            true,
-        ));
+        $(Assert.equal(item.title, "Shift rules"));
+        $(Assert.equal(item.meta.unwrap("some"), "4 fields"));
     });
 
     test("creates item with multiple children", $ => {
@@ -56,7 +53,7 @@ describeEast("Accordion", (test) => {
             ]
         ));
         $(Assert.equal(item.value, "item-2"));
-        $(Assert.equal(item.trigger.unwrap().unwrap("Text").value, "Section 2"));
+        $(Assert.equal(item.title, "Section 2"));
     });
 
     test("creates disabled item", $ => {
@@ -250,6 +247,6 @@ describeEast("Accordion", (test) => {
             Text.Root("Line 3"),
         ]));
         $(Assert.equal(item.value, "nested"));
-        $(Assert.equal(item.trigger.unwrap().unwrap("Text").value, "Nested Content"));
+        $(Assert.equal(item.title, "Nested Content"));
     });
 }, { platformFns: TestImpl });

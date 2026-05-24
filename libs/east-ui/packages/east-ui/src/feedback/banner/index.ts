@@ -22,19 +22,27 @@ import { SizeType } from "../../style.js";
 import { IconType } from "../../display/icon/types.js";
 import { Text } from "../../typography/text/index.js";
 import {
-    AlertStatusType,
-    AlertVariantType,
-    type AlertStatusLiteral,
-} from "../alert/types.js";
+    BannerStatusType,
+    type BannerStatusLiteral,
+} from "./status-type.js";
 import {
     BannerStyleType,
+    BannerVariantType,
     type BannerStyle,
 } from "./types.js";
 
 // Re-export types
 export {
+    BannerStatusType,
+    BannerStatus,
+    type BannerStatusLiteral,
+} from "./status-type.js";
+export {
     BannerStyleType,
+    BannerVariantType,
+    BannerVariant,
     type BannerStyle,
+    type BannerVariantLiteral,
 } from "./types.js";
 
 // ============================================================================
@@ -43,10 +51,10 @@ export {
 
 /**
  * Standalone mirror of the inline `Banner` variant in `component.ts`.
- * Reuses `AlertStatusType` for semantic classification.
+ * Reuses `BannerStatusType` for semantic classification.
  */
 export const BannerType: StructType<{
-    status: AlertStatusType,
+    status: BannerStatusType,
     title: UIComponentType,
     description: OptionType<UIComponentType>,
     actions: OptionType<UIComponentType>,
@@ -56,7 +64,7 @@ export const BannerType: StructType<{
     onDismiss: OptionType<FunctionType<[], NullType>>,
     style: OptionType<BannerStyleType>,
 }> = StructType({
-    status: AlertStatusType,
+    status: BannerStatusType,
     title: UIComponentType,
     description: OptionType(UIComponentType),
     actions: OptionType(UIComponentType),
@@ -73,12 +81,15 @@ export type BannerType = typeof BannerType;
 // Paired-icon map (shared with Alert / Status)
 // ============================================================================
 
-const PAIRED_ICONS: Record<AlertStatusLiteral, { prefix: "fas"; name: string }> = {
+const PAIRED_ICONS: Record<BannerStatusLiteral, { prefix: "fas"; name: string }> = {
     info: { prefix: "fas", name: "circle-info" },
     warning: { prefix: "fas", name: "triangle-exclamation" },
     success: { prefix: "fas", name: "circle-check" },
     error: { prefix: "fas", name: "circle-xmark" },
     neutral: { prefix: "fas", name: "circle" },
+    change: { prefix: "fas", name: "circle-check" },
+    guard: { prefix: "fas", name: "shield-halved" },
+    stale: { prefix: "fas", name: "clock-rotate-left" },
 };
 
 // ============================================================================
@@ -141,13 +152,13 @@ export interface BannerOptions {
  * ```
  */
 function createBannerRoot(
-    status: AlertStatusLiteral | SubtypeExprOrValue<AlertStatusType>,
+    status: BannerStatusLiteral | SubtypeExprOrValue<BannerStatusType>,
     title: BannerInput,
     options?: BannerOptions,
 ): ExprType<UIComponentType> {
     const statusValue = typeof status === "string"
-        ? East.value(variant(status, null), AlertStatusType)
-        : status as ExprType<AlertStatusType>;
+        ? East.value(variant(status, null), BannerStatusType)
+        : status as ExprType<BannerStatusType>;
 
     const titleExpr: ExprType<UIComponentType> = typeof title === "string"
         ? Text.Root(title)
@@ -203,7 +214,7 @@ function createBannerRoot(
 function buildBannerStyle(style: BannerStyle): ExprType<BannerStyleType> {
     const variantValue = style.variant
         ? (typeof style.variant === "string"
-            ? East.value(variant(style.variant, null), AlertVariantType)
+            ? East.value(variant(style.variant, null), BannerVariantType)
             : style.variant)
         : undefined;
     const sizeValue = style.size
@@ -275,7 +286,7 @@ export const Banner = {
          * @property error - Error / failure
          * @property neutral - Default / idle
          */
-        Status: AlertStatusType,
+        Status: BannerStatusType,
         /**
          * East StructType holding every visual field for a Banner.
          *

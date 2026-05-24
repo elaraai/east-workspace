@@ -20,7 +20,6 @@ export * from "./crypto.js";
 export * from "./time.js";
 export * from "./fetch.js";
 export * from "./random.js";
-export * from "./parallel.js";
 
 // Import implementations for combined export
 import { ConsoleImpl } from "./console.js";
@@ -30,7 +29,6 @@ import { CryptoImpl } from "./crypto.js";
 import { TimeImpl } from "./time.js";
 import { FetchImpl } from "./fetch.js";
 import { RandomImpl } from "./random.js";
-import { ParallelImpl } from "./parallel.js";
 import { TestImpl } from "./test.js";
 
 /**
@@ -61,7 +59,6 @@ export const NodePlatform = [
     ...TimeImpl,
     ...FetchImpl,
     ...RandomImpl,
-    ...ParallelImpl,
     ...TestImpl,
 ];
 

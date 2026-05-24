@@ -3,16 +3,16 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
-import { Badge, Button, Highlight, HoverCard, Reactive, Stack, State, Stat, Text, UIComponentType } from "@elaraai/east-ui";
+import { Button, Format, Reactive, Stack, State, Stat, UIComponentType } from "@elaraai/east-ui";
 
 export const statBasic = example({
     keywords: ["Stat", "Root", "basic", "metrics"],
-    description: "Key metrics display",
+    description: "Key metrics display — scalar values with formats",
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.HStack([
-            Stat.Root("Revenue", Text.Root("$45,231")),
-            Stat.Root("Users", Text.Root("1,234")),
-            Stat.Root("Orders", Text.Root("567")),
+            Stat.Root("Revenue", 45231, { format: Format.Currency({ currency: "USD", maximumFractionDigits: 0n }) }),
+            Stat.Root("Users", 1234, { format: Format.Number() }),
+            Stat.Root("Orders", 567, { format: Format.Number() }),
         ], { gap: "8" });
     }),
     inputs: [],
@@ -23,8 +23,8 @@ export const statHelpText = example({
     description: "Additional context",
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.HStack([
-            Stat.Root("Total Sales", Text.Root("$12,345"), { helpText: "Last 30 days" }),
-            Stat.Root("New Users", Text.Root("89"), { helpText: "This week" }),
+            Stat.Root("Total Sales", 12345, { format: Format.Currency({ currency: "USD", maximumFractionDigits: 0n }), helpText: "Last 30 days" }),
+            Stat.Root("New Users", 89, { format: Format.Number(), helpText: "This week" }),
         ], { gap: "8" });
     }),
     inputs: [],
@@ -35,29 +35,22 @@ export const statIndicators = example({
     description: "Trend direction",
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.HStack([
-            Stat.Root("Growth", Text.Root("+23.36%"), { helpText: "vs last month", indicator: "up" }),
-            Stat.Root("Bounce Rate", Text.Root("-12.5%"), { helpText: "vs yesterday", indicator: "down" }),
+            Stat.Root("Growth", 0.2336, { format: Format.Percent({ maximumFractionDigits: 2n, signDisplay: "exceptZero" }), helpText: "vs last month", indicator: "up" }),
+            Stat.Root("Bounce Rate", -0.125, { format: Format.Percent({ maximumFractionDigits: 1n, signDisplay: "exceptZero" }), helpText: "vs yesterday", indicator: "down" }),
         ], { gap: "8" });
     }),
     inputs: [],
 });
 
-export const statRichValues = example({
-    keywords: ["Stat", "Root", "Badge", "HoverCard", "Highlight", "rich"],
-    description: "Values can be any UI component — badges, hover cards, highlighted text",
+export const statFormatted = example({
+    keywords: ["Stat", "Root", "Format", "currency", "compact", "unit", "datetime"],
+    description: "Numeric values formatted via Format — currency, compact, unit, datetime",
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.HStack([
-            Stat.Root("Status", Badge.Root("Operational", { variant: "solid", colorPalette: "green" })),
-            Stat.Root("Owner", HoverCard.Root(
-                Text.Root("@jane", { color: "blue.500" }),
-                [
-                    Stack.VStack([
-                        Text.Root("Jane Smith", { fontWeight: "bold" }),
-                        Text.Root("Senior Engineer — Platform Team", { textStyle: "body-sm" }),
-                    ], { gap: "1" }),
-                ],
-            )),
-            Stat.Root("Query", Highlight.Root("SELECT * FROM users", ["SELECT", "FROM"])),
+            Stat.Root("ARR", 1842500, { format: Format.Currency({ currency: "AUD", compact: "short" }) }),
+            Stat.Root("Requests", 1240000, { format: Format.Compact({ display: "short" }) }),
+            Stat.Root("Throughput", 42.5, { format: Format.Unit({ unit: "kilometerPerHour", display: "short" }) }),
+            Stat.Root("Last sync", 1716249600000, { format: Format.DateTime("YYYY-MM-DD HH:mm") }),
         ], { gap: "8" });
     }),
     inputs: [],
@@ -75,7 +68,7 @@ export const statInteractive = example({
                 $(counter.write(cur.add(1n)));
             }));
             return Stack.VStack([
-                Stat.Root("Clicks", Text.Root(East.print(value))),
+                Stat.Root("Clicks", value, { format: Format.Number() }),
                 Button.Root("Click me", { onClick: inc }),
             ], { gap: "3", align: "stretch" });
         }));

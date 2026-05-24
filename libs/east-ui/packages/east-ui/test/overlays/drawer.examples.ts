@@ -2,8 +2,8 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, BooleanType, IntegerType, NullType, variant, example } from "@elaraai/east";
-import { Badge, Button, Drawer, Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui";
+import { East, BooleanType, IntegerType, NullType, variant, example, some, none } from "@elaraai/east";
+import { Button, Drawer, Reactive, Stack, State, Status, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const drawerRight = example({
     keywords: ["Drawer", "Root", "placement", "end", "right"],
@@ -14,7 +14,7 @@ export const drawerRight = example({
             [
                 Stack.VStack([
                     Text.Root("This is a drawer panel that slides in from the side."),
-                    Text.Root("Great for navigation, settings, or detailed content.", { color: "gray.500" }),
+                    Text.Root("Great for navigation, settings, or detailed content.", { color: "fg.muted" }),
                 ], { gap: "4" }),
             ],
             { title: "Drawer Title", description: "Slide-in panel", placement: "end", size: "md" }
@@ -69,12 +69,12 @@ export const drawerInteractive = example({
                     [
                         Stack.VStack([
                             Text.Root("This drawer counts how many times it's been opened."),
-                            Badge.Root(East.str`Times opened: ${openCount}`, { colorPalette: "purple", size: "lg" }),
+                            Status.Root(Text.Root(East.str`OPENED · ${East.print(openCount)} TIMES`), { value: "info" }),
                         ], { gap: "4" }),
                     ],
                     { title: "Interactive Drawer", placement: "end", onOpenChange }
                 ),
-                Badge.Root(East.str`Drawer opened: ${openCount} times`, { colorPalette: "purple", variant: "solid" }),
+                Status.Root(Text.Root(East.str`DRAWER OPENED · ${East.print(openCount)} TIMES`), { value: "info" }),
             ], { gap: "3", align: "flex-start" });
         }));
     }),
@@ -83,21 +83,21 @@ export const drawerInteractive = example({
 
 export const drawerProgrammatic = example({
     keywords: ["Drawer", "open", "programmatic", "onClick"],
-    description: "Drawer.open() without trigger",
+    description: "Drawer.open() without trigger — defaults to brand-d primary button",
     fn: East.function([], UIComponentType, (_$) => {
         return Button.Root("Open Drawer Programmatically", {
-            style: { variant: "solid", colorPalette: "purple" },
+            style: { variant: "solid" },
             onClick: East.function([], NullType, $ => {
                 $(Drawer.open(East.value({
                     body: [
                         Stack.VStack([
-                            Text.Root("This drawer was opened programmatically using Drawer.open()!"),
-                            Text.Root("Great for navigation, notifications, or dynamic content.", { color: "gray.500" }),
+                            Text.Root("This drawer was opened programmatically using Drawer.open()."),
+                            Text.Root("Great for navigation, notifications, or dynamic content.", { color: "fg.muted" }),
                         ], { gap: "4" }),
                     ],
-                    title: variant("some", "Programmatic Drawer"),
-                    description: variant("some", "Opened via Drawer.open()"),
-                    style: variant("none", null),
+                    title: some("Programmatic Drawer"),
+                    description: some("Opened via Drawer.open()"),
+                    style: none,
                 }, Drawer.Types.OpenInput)));
             }),
         });

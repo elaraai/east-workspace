@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, StructType, variant, VariantType, FloatType, DateTimeType, BlobType, SetType, DictType, RecursiveType, ref, RefType } from "../src/index.js";
+import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, StructType, variant, VariantType, FloatType, DateTimeType, BlobType, SetType, DictType, RecursiveType, ref, RefType, some, none } from "../src/index.js";
 import { EastTypeType, toEastTypeValue } from "../src/type_of_type.js";
 import { printFor as eastPrintFor } from "../src/serialization/east.js";
 import { toJSONFor as eastToJSONFor } from "../src/serialization/json.js";
@@ -110,8 +110,8 @@ await describe("String", (test) => {
         $(assert.equal(East.print(East.value({ a: 1n, b: true })), "(a=1, b=true)"));
 
         // Variant
-        $(assert.equal(East.print(East.value(variant("none", null))), ".none"));
-        $(assert.equal(East.print(East.value(variant("some", 42n))), ".some 42"));
+        $(assert.equal(East.print(East.value(none)), ".none"));
+        $(assert.equal(East.print(East.value(some(42n))), ".some 42"));
 
         // Recursive type - linked list
         const LinkedListType = RecursiveType(list => VariantType({
@@ -283,9 +283,9 @@ await describe("String", (test) => {
         $(assert.equal(East.value("(a=1, b=true,)").parse(StructType({ a: IntegerType, b: BooleanType })), { a: 1n, b: true }));
 
         // Variant - success cases
-        $(assert.equal(East.value(".none null").parse(VariantType({ none: NullType, some: IntegerType })), variant("none", null)));
-        $(assert.equal(East.value(".none").parse(VariantType({ none: NullType, some: IntegerType })), variant("none", null)));
-        $(assert.equal(East.value(".some 42").parse(VariantType({ none: NullType, some: IntegerType })), variant("some", 42n)));
+        $(assert.equal(East.value(".none null").parse(VariantType({ none: NullType, some: IntegerType })), none));
+        $(assert.equal(East.value(".none").parse(VariantType({ none: NullType, some: IntegerType })), none));
+        $(assert.equal(East.value(".some 42").parse(VariantType({ none: NullType, some: IntegerType })), some(42n)));
 
         // Recursive type - linked list
         const LinkedListType = RecursiveType(list => VariantType({
@@ -973,8 +973,8 @@ await describe("String", (test) => {
         $(assert.equal(printJson(East.value({ name: "Alice", age: 30n })), "{\"name\":\"Alice\",\"age\":\"30\"}")); // Normal case
 
         // Variant - {"type": "caseName", "value": ...}
-        $(assert.equal(printJson(East.value(variant("none", null))), "{\"type\":\"none\",\"value\":null}")); // Edge case: nullary variant (null payload)
-        $(assert.equal(printJson(East.value(variant("some", 42n))), "{\"type\":\"some\",\"value\":\"42\"}")); // Normal case: variant with data
+        $(assert.equal(printJson(East.value(none)), "{\"type\":\"none\",\"value\":null}")); // Edge case: nullary variant (null payload)
+        $(assert.equal(printJson(East.value(some(42n))), "{\"type\":\"some\",\"value\":\"42\"}")); // Normal case: variant with data
         $(assert.equal(printJson(East.value(variant("ok", "success"))), "{\"type\":\"ok\",\"value\":\"success\"}")); // Normal case
         $(assert.equal(printJson(East.value(variant("error", "failure"))), "{\"type\":\"error\",\"value\":\"failure\"}")); // Normal case
 
@@ -1122,8 +1122,8 @@ await describe("String", (test) => {
         $(assert.equal(East.value("{\"name\":\"Alice\",\"age\":\"30\"}").parseJson(StructType({ name: StringType, age: IntegerType })), { name: "Alice", age: 30n })); // Normal case
 
         // Variant - {"type": "caseName", "value": ...}
-        $(assert.equal(East.value("{\"type\":\"none\",\"value\":null}").parseJson(VariantType({ none: NullType, some: IntegerType })), variant("none", null))); // Edge case: nullary variant (null payload)
-        $(assert.equal(East.value("{\"type\":\"some\",\"value\":\"42\"}").parseJson(VariantType({ none: NullType, some: IntegerType })), variant("some", 42n))); // Normal case: variant with data
+        $(assert.equal(East.value("{\"type\":\"none\",\"value\":null}").parseJson(VariantType({ none: NullType, some: IntegerType })), none)); // Edge case: nullary variant (null payload)
+        $(assert.equal(East.value("{\"type\":\"some\",\"value\":\"42\"}").parseJson(VariantType({ none: NullType, some: IntegerType })), some(42n))); // Normal case: variant with data
         $(assert.equal(East.value("{\"type\":\"ok\",\"value\":\"success\"}").parseJson(VariantType({ ok: StringType, error: StringType })), variant("ok", "success"))); // Normal case
         $(assert.equal(East.value("{\"type\":\"error\",\"value\":\"failure\"}").parseJson(VariantType({ ok: StringType, error: StringType })), variant("error", "failure"))); // Normal case
 

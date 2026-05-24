@@ -48,7 +48,7 @@ import {
 import {
     registerReactiveTracker,
     registerPlatformImplementation,
-} from "@elaraai/east-ui-components";
+} from "@elaraai/east-ui-components/platform";
 import type { TreePath } from "@elaraai/e3-types";
 
 import {

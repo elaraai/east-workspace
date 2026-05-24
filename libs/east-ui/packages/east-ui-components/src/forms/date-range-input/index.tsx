@@ -147,8 +147,8 @@ export const EastChakraDateRangeInput = memo(function EastChakraDateRangeInput({
         fontSize,
         opacity: disabled ? 0.6 : 1,
         _focusWithin: focusBorderColor
-            ? { borderColor: focusBorderColor, boxShadow: `0 0 0 1px ${focusBorderColor}` }
-            : { borderColor: "blue.500", boxShadow: "0 0 0 1px var(--chakra-colors-blue-500)" },
+            ? { borderColor: focusBorderColor }
+            : { borderColor: "brand.500" },
     } as const;
 
     const renderField = (

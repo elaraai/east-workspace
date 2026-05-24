@@ -4,8 +4,7 @@ version = "1.0.0b0"
 description = "Python runtime for the East programming language"
 readme = "README.md"
 requires-python = ">=3.11"
-license = "LicenseRef-Proprietary"
-license-files = ["LICENSE.md"]
+license = { file = "LICENSE.md" }
 authors = [
     {name = "East Contributors", email = "east@example.com"}
 ]
@@ -61,20 +60,21 @@ build-backend = "scikit_build_core.build"
 cmake.version = ">=3.18"
 cmake.build-type = "Release"
 wheel.packages = ["east"]
-# Editable installs (pip install -e .) rebuild incrementally when sources
-# change. Re-importing picks up the new .so without an explicit reinstall.
-# build-dir keeps the cmake build tree in-tree so incremental builds work
-# across reinstalls (default is a temp dir that gets purged).
-editable.rebuild = true
-# Silence the per-import "Running cmake --build" message — it's noise
-# during normal use and pollutes captured stdout when downstream packages
-# invoke `python -c "import east; ..."` from their own CMakeLists.
+# Built once by `uv sync` (which installs the build toolchain for that step,
+# then prunes it to keep the runtime venv lean), so the extension is NOT
+# rebuilt at import time — that would re-run cmake/ninja after the toolchain is
+# gone, against a dead CMAKE_MAKE_PROGRAM path. Re-run `make reinstall-east-py`
+# (or `make build-cython`) to pick up native source edits.
+# build-dir keeps the cmake build tree in-tree so reinstalls stay incremental.
+editable.rebuild = false
 editable.verbose = false
 build-dir = "build/{wheel_tag}"
 
 # Include .pxd files in the wheel + sdist so downstream packages
 # (east-py-std, east-py-datascience) can `cimport east._eastc` etc.
-sdist.include = ["east/**/*.pxd", "east/**/*.pyx", "east/py.typed"]
+# _vendor/ holds east-c source staged by scripts/vendor-native.py so the
+# sdist builds without the monorepo (PyPI install / cibuildwheel container).
+sdist.include = ["east/**/*.pxd", "east/**/*.pyx", "east/py.typed", "_vendor/**"]
 wheel.exclude = ["east/**/*.c"]
 
 [tool.pytest.ini_options]

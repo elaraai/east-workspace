@@ -11,6 +11,7 @@ import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Stat } from "@elaraai/east-ui";
 import { EastChakraComponent } from "../../component";
 import { getSomeorUndefined } from "../../utils";
+import { formatTick } from "../../typography/numeric/format-tick";
 
 const statEqual = equalFor(Stat.Types.Stat);
 
@@ -28,10 +29,13 @@ const SIZE_MAP: Record<string, "sm" | "md" | "lg"> = {
     lg: "lg",
 };
 
+/* Sentiment colours route through the muted spec palette
+ * (pattern_spec/colors_and_type.css `--pos / --neg / --warn / --info`)
+ * via the `fg.{success,danger,muted}` semantic tokens. */
 const SENTIMENT_PALETTE: Record<string, string> = {
-    positive: "green.500",
-    negative: "red.500",
-    neutral: "gray.500",
+    positive: "fg.success",
+    negative: "fg.danger",
+    neutral:  "fg.muted",
 };
 
 /**
@@ -59,6 +63,24 @@ export const EastChakraStat = memo(function EastChakraStat({ value, storageKey }
     const indicator = useMemo(() => getSomeorUndefined(value.indicator), [value.indicator]);
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
 
+    // The value is a scalar `LiteralValueType` variant; numeric tags run
+    // through the shared tick formatter, strings render verbatim.
+    const formattedValue = useMemo(() => {
+        const v = value.value as { type: string; value: unknown };
+        const formatOpt = getSomeorUndefined(value.format);
+        switch (v.type) {
+            case "Float":
+            case "Integer":
+                return formatTick(Number(v.value as number | bigint), formatOpt);
+            case "DateTime":
+                return formatTick(new Date(v.value as Date).getTime(), formatOpt);
+            case "String":
+                return v.value as string;
+            default:
+                return String(v.value);
+        }
+    }, [value.value, value.format]);
+
     const direction = indicator ? indicator.direction.type : undefined;
     const sentiment = indicator ? getSomeorUndefined(indicator.sentiment)?.type : undefined;
     const explicitIcon = indicator ? getSomeorUndefined(indicator.icon) : undefined;
@@ -84,7 +106,7 @@ export const EastChakraStat = memo(function EastChakraStat({ value, storageKey }
                 )}
             </HStack>
             <ChakraStat.ValueText color={valueColor}>
-                <EastChakraComponent value={value.value} storageKey={`${storageKey}.value`} />
+                {formattedValue}
             </ChakraStat.ValueText>
             {baseline && (
                 <Box mt="0.5">

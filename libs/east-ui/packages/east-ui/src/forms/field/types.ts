@@ -99,6 +99,7 @@ export const FieldStyleType = StructType({
     orientation: OptionType(FieldOrientationType),
     labelColor: OptionType(StringType),
     helperTextColor: OptionType(StringType),
+    schemaKey: OptionType(StringType),
     requiredIndicatorColor: OptionType(StringType),
     errorColor: OptionType(StringType),
     warningColor: OptionType(StringType),
@@ -185,6 +186,9 @@ export interface FieldStyle {
     labelColor?: SubtypeExprOrValue<StringType>;
     /** Explicit text colour for the helper line. */
     helperTextColor?: SubtypeExprOrValue<StringType>;
+    /** Schema path key (e.g. `sla.target`) rendered as a mono small line
+     * beneath the label, per bsys Field spec. */
+    schemaKey?: SubtypeExprOrValue<StringType>;
     /** Explicit colour for the `*` next to required labels. */
     requiredIndicatorColor?: SubtypeExprOrValue<StringType>;
     /** Explicit text colour for the error line. */

@@ -3,16 +3,18 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { East, BooleanType, IntegerType, NullType, example } from "@elaraai/east";
-import { Button, Icon, Reactive, Stack, State, Text, ToggleTip, UIComponentType } from "@elaraai/east-ui";
+import { IconButton, Reactive, Stack, State, Text, ToggleTip, UIComponentType } from "@elaraai/east-ui";
 
 export const toggleTipBasic = example({
     keywords: ["ToggleTip", "Root", "Icon", "accessible", "click"],
-    description: "Click-activated tooltip (accessible)",
+    description: "Click-activated tip with a circular ink-4 ring affordance",
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.HStack([
             Text.Root("What is this?"),
             ToggleTip.Root(
-                Icon.Root("fas", "question-circle", { size: "sm", color: "gray.500" }),
+                IconButton.Root("fas", "circle-info", "What is this", {
+                    style: { variant: "ghost", size: "xs", color: "fg.muted" },
+                }),
                 "ToggleTip is an accessible alternative to hover tooltips. Click to toggle!",
                 { placement: "top", hasArrow: true }
             ),
@@ -22,11 +24,13 @@ export const toggleTipBasic = example({
 });
 
 export const toggleTipInfo = example({
-    keywords: ["ToggleTip", "Root", "info", "help", "Button"],
-    description: "Help button with toggle tip",
+    keywords: ["ToggleTip", "Root", "info", "help"],
+    description: "Help affordance — circular ink-4 ring",
     fn: East.function([], UIComponentType, (_$) => {
         return ToggleTip.Root(
-            Button.Root("?", { style: { variant: "outline", size: "sm" } }),
+            IconButton.Root("fas", "circle-info", "Help", {
+                style: { variant: "ghost", size: "xs", color: "fg.muted" },
+            }),
             "Click the info button for help. This is useful for touch and keyboard users.",
             { placement: "bottom" }
         );
@@ -47,12 +51,14 @@ export const toggleTipInteractive = example({
             }));
             return Stack.VStack([
                 ToggleTip.Root(
-                    Button.Root("Toggle me"),
+                    IconButton.Root("fas", "circle-info", "Toggle me", {
+                        style: { variant: "ghost", size: "xs", color: "fg.muted" },
+                    }),
                     "ToggleTip content",
                     { placement: "top", onOpenChange },
                 ),
-                Text.Root(East.str`Toggled ${East.print(value)} times`),
-            ], { gap: "3", align: "stretch" });
+                Text.Presets.MonoLabel(East.str`TOGGLED · ${East.print(value)}`),
+            ], { gap: "3", align: "flex-start" });
         }));
     }),
     inputs: [],

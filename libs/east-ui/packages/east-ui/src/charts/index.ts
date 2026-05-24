@@ -119,6 +119,9 @@ import { PieChartType, PieSliceType } from "./pie/index.js";
 import { RadarChartType } from "./radar/index.js";
 import { ComposedChartType, ComposedSeriesType } from "./composed/index.js";
 
+// visx-primitive chart layer (recursive ChartSpec) — exposed as Chart.Spec.
+import { ChartSpec } from "./spec/index.js";
+
 // ============================================================================
 // Chart Namespace
 // ============================================================================
@@ -557,6 +560,8 @@ export const Chart = {
      * ```
      */
     Radar: createRadarChart,
+    /** Composable visx-primitive chart layer — `Chart.Spec.{frame,series,…}` + `Chart.Spec.Types.*`. */
+    Spec: ChartSpec,
     /**
      * Creates a Composed chart component combining multiple chart types.
      *

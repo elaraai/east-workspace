@@ -192,11 +192,6 @@ Task → What do you need?
         └─ Data → East.Blob.encodeBeast(value, 'v2'), blob.decodeBeast(type, 'v2')
 ```
 
-## Reference Documentation
-
-- **[API Reference](./reference/api.md)** - Complete function signatures, types, and arguments
-- **[Examples](./reference/examples.md)** - Working code examples by use case
-
 ## Type System Summary
 
 | Type | `ValueTypeOf<Type>` | Mutability |

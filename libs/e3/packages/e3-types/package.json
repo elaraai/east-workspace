@@ -16,11 +16,11 @@
     "types"
   ],
   "author": "Elara AI",
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "AGPL-3.0-or-later",
   "repository": {
     "type": "git",
-    "url": "https://github.com/elaraai/e3",
-    "directory": "packages/e3-types"
+    "url": "git+https://github.com/elaraai/east-workspace.git",
+    "directory": "libs/e3/packages/e3-types"
   },
   "peerDependencies": {
     "@elaraai/east": "workspace:*"

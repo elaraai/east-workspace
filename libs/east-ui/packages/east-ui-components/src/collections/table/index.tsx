@@ -114,7 +114,10 @@ export interface EastChakraTableProps {
     enableMultiSort?: boolean;
     /** Maximum number of sort columns */
     maxSortColumns?: number;
-    /** Loading delay before showing row content (ms) */
+    /** Loading delay before showing row content (ms). Defaults to 0 — rows
+     * come from an in-memory East value, so there's nothing to fetch and the
+     * skeleton is purely cosmetic. Set a positive delay only when the row data
+     * is genuinely async (e.g. server-side pagination). */
     loadingDelay?: number;
     /** Enable column resizing */
     enableColumnResizing?: boolean;
@@ -139,12 +142,12 @@ interface TablePersistedState {
 export const EastChakraTable = memo(function EastChakraTable({
     value,
     height = "100%",
-    rowHeight = 48,
+    rowHeight = 36,
     overscan = 8,
     onSortChange,
     enableMultiSort = true,
     maxSortColumns = 5,
-    loadingDelay = 200,
+    loadingDelay = 0,
     enableColumnResizing: enableColumnResizingProp,
     storageKey,
 }: EastChakraTableProps) {
@@ -192,15 +195,19 @@ export const EastChakraTable = memo(function EastChakraTable({
     // Density token — `compact` | `comfortable` | `cozy`. Translates to
     // a row-height + cell-padding pair used by every body row.
     const densityTag = getSomeorUndefined(value.density)?.type;
-    const densityRowHeight = densityTag === "compact" ? 32
-        : densityTag === "comfortable" ? 56
-        : 48; // cozy / default
-    const densityCellPadX = densityTag === "compact" ? "8px"
-        : densityTag === "comfortable" ? "20px"
-        : "12px";
-    const densityCellPadY = densityTag === "compact" ? "4px"
-        : densityTag === "comfortable" ? "12px"
-        : "8px";
+    // Density → recipe size variant (drives cell/header padding via the
+    // `table` slot recipe) + a row height for the virtualizer. compact→sm,
+    // cozy/default→md, comfortable→lg; an explicit `style.size` is honoured
+    // when no density is set.
+    const tableSize: "sm" | "md" | "lg" = densityTag === "compact" ? "sm"
+        : densityTag === "comfortable" ? "lg"
+        : ((props.size as "sm" | "md" | "lg" | undefined) ?? "md");
+    const densityRowHeight = tableSize === "sm" ? 32 : tableSize === "lg" ? 56 : 36;
+    // Group / footer cells sit outside the recipe's cell/columnHeader slots and
+    // set padding via raw inline `style` (no token resolution there), so these
+    // are px mirrors of the size-variant spacing tokens (8/4 · 14/10 · 16/12).
+    const densityCellPadX = tableSize === "sm" ? "8px" : tableSize === "lg" ? "16px" : "14px";
+    const densityCellPadY = tableSize === "sm" ? "4px" : tableSize === "lg" ? "12px" : "10px";
 
     // Expandable rows — `value.expandedContent` is a `(rowIndex) =>
     // UIComponent` callback. When defined, an extra toggle column is
@@ -224,7 +231,6 @@ export const EastChakraTable = memo(function EastChakraTable({
     // Row state management for loading indicators
     const [rowStateManager] = useState(() => new RowStateManager());
     const [rowStates, setRowStates] = useState<Map<RowKey, RowState>>(new Map());
-    const visibleRowsRef = useRef<Set<RowKey>>(new Set());
 
     // Subscribe to row state changes
     useEffect(() => {
@@ -596,8 +602,6 @@ export const EastChakraTable = memo(function EastChakraTable({
             currentVisible.add(item.index);
         });
 
-        const prevVisible = visibleRowsRef.current;
-
         // Find rows that need loading
         const load: RowKey[] = [];
         currentVisible.forEach(key => {
@@ -607,25 +611,19 @@ export const EastChakraTable = memo(function EastChakraTable({
             }
         });
 
-        // Find rows that left viewport
-        const unload: RowKey[] = [];
-        prevVisible.forEach(key => {
-            if (!currentVisible.has(key)) {
-                unload.push(key);
-            }
-        });
-
-        // Process state changes
+        // Once a row has loaded it stays loaded — we do NOT unload rows that
+        // leave the viewport. `measureElement` re-renders the virtualizer on
+        // every scroll/measure, so unloading would churn a row back to skeleton
+        // (and in a static, non-scrolling view it never settles). The
+        // `RowStateManager.cleanup()` cap bounds memory for very large tables.
         if (load.length > 0) {
-            rowStateManager.markRowsLoading(load);
-            load.forEach(key => rowStateManager.scheduleLoaded(key, loadingDelay));
+            if (loadingDelay > 0) {
+                rowStateManager.markRowsLoading(load);
+                load.forEach(key => rowStateManager.scheduleLoaded(key, loadingDelay));
+            } else {
+                rowStateManager.markRowsLoaded(load);
+            }
         }
-
-        if (unload.length > 0) {
-            rowStateManager.markRowsUnloaded(unload);
-        }
-
-        visibleRowsRef.current = currentVisible;
     }, [virtualItems, rowStateManager, loadingDelay]);
 
     // Get sort index for a column (1-based)
@@ -654,7 +652,7 @@ export const EastChakraTable = memo(function EastChakraTable({
             position: isPinned ? 'sticky' : 'relative',
             width: column.getSize(),
             zIndex: isPinned ? 1 : 0,
-            backgroundColor: isPinned ? 'var(--chakra-colors-bg-panel, white)' : undefined,
+            backgroundColor: isPinned ? 'var(--chakra-colors-bg-canvas, #fafafa)' : undefined,
         };
     };
 
@@ -668,6 +666,7 @@ export const EastChakraTable = memo(function EastChakraTable({
         >
             <ChakraTable.Root
                 {...props}
+                size={tableSize}
                 style={{
                     ...columnSizeVars,
                     width: hasFrozen ? table.getCenterTotalSize() + frozenPanelWidth : '100%',
@@ -675,7 +674,7 @@ export const EastChakraTable = memo(function EastChakraTable({
                     tableLayout: 'fixed',
                 }}
             >
-                <ChakraTable.Header style={{ display: 'block' }} position="sticky" top={0} zIndex={2} bg="bg.panel">
+                <ChakraTable.Header style={{ display: 'block' }} position="sticky" top={0} zIndex={2} bg="bg.canvas">
                     {/* Column-group row — rendered above the column headers when
                         `value.columnGroups` is defined. Each group spans the
                         columns whose keys it lists, computed via CSS `calc()`
@@ -704,12 +703,12 @@ export const EastChakraTable = memo(function EastChakraTable({
                                         return (
                                             <ChakraTable.ColumnHeader
                                                 key={`group-${gi}`}
+                                                bg={headerBackground}
+                                                color={headerColor}
                                                 style={{
                                                     width: `calc(${widthCalc})`,
                                                     minWidth: `calc(${widthCalc})`,
                                                     flex: groupsRowGrows ? `${groupKeys.length} 1 0%` : "none",
-                                                    background: headerBackground,
-                                                    color: headerColor,
                                                     borderColor,
                                                     paddingLeft: densityCellPadX,
                                                     paddingRight: densityCellPadX,
@@ -738,11 +737,11 @@ export const EastChakraTable = memo(function EastChakraTable({
                             {expandedContentFn && (
                                 <ChakraTable.ColumnHeader
                                     key="expand-toggle-col-header"
+                                    bg={headerBackground}
+                                    color={headerColor}
                                     style={{
                                         width: "32px",
                                         flex: "none",
-                                        background: headerBackground,
-                                        color: headerColor,
                                         borderColor,
                                         paddingLeft: 0,
                                         paddingRight: 0,
@@ -755,11 +754,11 @@ export const EastChakraTable = memo(function EastChakraTable({
                             {selectionMode && (
                                 <ChakraTable.ColumnHeader
                                     key="selection-col-header"
+                                    bg={headerBackground}
+                                    color={headerColor}
                                     style={{
                                         width: "40px",
                                         flex: "none",
-                                        background: headerBackground,
-                                        color: headerColor,
                                         borderColor,
                                         paddingLeft: 0,
                                         paddingRight: 0,
@@ -799,28 +798,29 @@ export const EastChakraTable = memo(function EastChakraTable({
                                 return (
                                     <ChakraTable.ColumnHeader
                                         key={header.id}
-                                        _hover={{ bg: 'bg.muted' }}
+                                        bg={headerBackground}
+                                        color={headerColor}
+                                        // Reveal the pin / sort controls only on header-cell
+                                        // hover; an actively pinned / sorted column keeps them
+                                        // visible (handled by the controls' own opacity below).
+                                        _hover={{ bg: headerBackground ?? 'bg.muted', "& .col-controls": { opacity: 1 } }}
                                         transition="background 0.2s"
                                         style={{
                                             width: `var(--header-${header.id}-size)`,
                                             flex: hasFrozen ? 'none' : (columnSizing[header.id] || header.column.columnDef.meta?.width) ? 'none' : 1,
                                             ...pinningStyles,
                                             zIndex: isPinned ? 3 : undefined,
-                                            background: headerBackground,
-                                            color: headerColor,
                                             borderColor: borderColor,
-                                            paddingLeft: densityCellPadX,
-                                            paddingRight: densityCellPadX,
-                                            paddingTop: densityCellPadY,
-                                            paddingBottom: densityCellPadY,
+                                            // padding comes from the `table` slot recipe (size variant)
                                         }}
                                         position={isPinned ? "sticky" : "relative"}
                                     >
                                         <HStack justify="space-between" width="100%" pr={enableColumnResizing ? "4px" : "0"}>
-                                            <Text fontSize="sm" fontWeight="semibold" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" flex="1">
+                                            <Text textStyle="caption.eyebrow" color={headerColor} lineHeight="1" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" flex="1">
                                                 {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
                                             </Text>
-                                            <HStack gap={0} flexShrink={0} alignItems="center">
+                                            <HStack className="col-controls" gap={0} flexShrink={0} alignItems="center"
+                                                opacity={isPinned || isSorted ? 1 : 0} transition="opacity 0.15s">
                                                 {/* Pin toggle — always visible */}
                                                 <Box
                                                     as="button"
@@ -948,7 +948,11 @@ export const EastChakraTable = memo(function EastChakraTable({
                                 style={{
                                     display: 'flex',
                                     width: '100%',
-                                    height: `${effectiveRowHeight}px`,
+                                    // minHeight (not a fixed height) so a row with wrapping
+                                    // cell content (e.g. a tags column) grows to fit instead
+                                    // of clipping into the next row; `measureElement` reports
+                                    // the true height back to the virtualizer.
+                                    minHeight: `${effectiveRowHeight}px`,
                                     cursor: (onRowClickFn || onRowDoubleClickFn) ? 'pointer' : undefined,
                                     background: "transparent",
                                     boxShadow: isSelected && selectedBorderColor
@@ -1039,10 +1043,7 @@ export const EastChakraTable = memo(function EastChakraTable({
                                         display: 'flex',
                                         alignItems: 'center',
                                         overflow: 'hidden',
-                                        paddingLeft: densityCellPadX,
-                                        paddingRight: densityCellPadX,
-                                        paddingTop: densityCellPadY,
-                                        paddingBottom: densityCellPadY,
+                                        // padding comes from the `table` slot recipe (size variant)
                                         borderColor,
                                         // Transparent cell bg so the wrapper-div's
                                         // zebra / status / selected bg shows through.

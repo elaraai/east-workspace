@@ -5,7 +5,7 @@
     "version": "0.0.50",
     "type": "module",
     "publisher": "ElaraAI",
-    "license": "SEE LICENSE IN LICENSE",
+    "license": "AGPL-3.0-or-later",
     "engines": {
         "vscode": "^1.85.0"
     },
@@ -25,7 +25,8 @@
     ],
     "repository": {
         "type": "git",
-        "url": "https://github.com/elaraai/east-ui"
+        "url": "git+https://github.com/elaraai/east-workspace.git",
+        "directory": "libs/east-ui/packages/east-ui-extension"
     },
     "icon": "Elara_AI_Mark.png",
     "main": "./dist/extension.cjs",

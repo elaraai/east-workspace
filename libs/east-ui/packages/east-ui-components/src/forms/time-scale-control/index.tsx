@@ -69,7 +69,7 @@ export const EastChakraTimeScaleControl = memo(function EastChakraTimeScaleContr
         <SegmentGroup.Root
             value={localScale}
             onValueChange={handleChange}
-            colorPalette={colorPalette}
+            colorPalette={colorPalette ?? "brand"}
             size={size}
             disabled={disabled}
             // Chakra v3 SegmentGroup doesn't have an explicit `variant`

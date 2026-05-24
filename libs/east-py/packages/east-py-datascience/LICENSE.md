@@ -1,6 +1,6 @@
-# Licensing
-
 Copyright (c) 2025 Elara AI Pty Ltd
+
+# Dual License — AGPL-3.0 (TypeScript) / BSL 1.1 (Python)
 
 This package contains both TypeScript and Python code with different licenses:
 

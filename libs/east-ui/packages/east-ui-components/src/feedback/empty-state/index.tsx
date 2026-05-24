@@ -31,6 +31,7 @@ export interface EastChakraEmptyStateProps {
 export const EastChakraEmptyState = memo(function EastChakraEmptyState({ value, storageKey }: EastChakraEmptyStateProps) {
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
     const icon = useMemo(() => getSomeorUndefined(value.icon), [value.icon]);
+    const glyph = useMemo(() => getSomeorUndefined(value.glyph), [value.glyph]);
     const description = useMemo(() => getSomeorUndefined(value.description), [value.description]);
     const actions = useMemo(() => getSomeorUndefined(value.actions), [value.actions]);
 
@@ -46,9 +47,23 @@ export const EastChakraEmptyState = memo(function EastChakraEmptyState({ value, 
             {...(color !== undefined ? { color } : {})}
             {...(background !== undefined ? { bg: background } : {})}
             {...(borderColor !== undefined ? { borderColor, borderWidth: "1px" } : {})}
+            colorPalette="brand"
+            paddingInline="28px"
+            paddingBlock="36px"
         >
             <ChakraEmptyState.Content>
-                {icon ? (
+                {glyph !== undefined ? (
+                    <ChakraBox
+                        fontFamily="mono"
+                        fontSize="36px"
+                        letterSpacing="0.1em"
+                        color={iconColor ?? "border.strong"}
+                        mb="3"
+                        lineHeight="1"
+                    >
+                        {glyph}
+                    </ChakraBox>
+                ) : icon ? (
                     <ChakraEmptyState.Indicator
                         {...(iconColor !== undefined ? { color: iconColor } : {})}
                     >
@@ -58,14 +73,14 @@ export const EastChakraEmptyState = memo(function EastChakraEmptyState({ value, 
                     </ChakraEmptyState.Indicator>
                 ) : null}
                 <ChakraBox>
-                    <ChakraEmptyState.Title>
+                    <ChakraEmptyState.Title fontSize="15px" fontWeight="semibold">
                         <EastChakraComponent
                             value={value.title}
                             storageKey={`${storageKey ?? ""}.title`}
                         />
                     </ChakraEmptyState.Title>
                     {description ? (
-                        <ChakraEmptyState.Description>
+                        <ChakraEmptyState.Description fontSize="13.5px" color="fg.subtle">
                             <EastChakraComponent
                                 value={description}
                                 storageKey={`${storageKey ?? ""}.description`}

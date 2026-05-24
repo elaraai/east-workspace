@@ -5,7 +5,8 @@
 import { match, type option } from "@elaraai/east";
 
 
-export const getSomeorUndefined = <T,>(opt: option<T>): T | undefined => {
+export const getSomeorUndefined = <T,>(opt: option<T> | undefined): T | undefined => {
+    if (opt == null) return undefined;
     return match(opt, {
         some: (value) => value,
     }, undefined);

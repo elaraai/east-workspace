@@ -30,7 +30,7 @@ export function toChakraTag(value: TagValue): TagRootProps {
     const margin = getSomeorUndefined(style.margin);
 
     return {
-        variant: getSomeorUndefined(style.variant)?.type,
+        variant: getSomeorUndefined(style.variant)?.type as TagRootProps["variant"] | undefined,
         colorPalette: getSomeorUndefined(style.colorPalette)?.type,
         size: getSomeorUndefined(style.size)?.type,
         opacity: getSomeorUndefined(style.opacity),

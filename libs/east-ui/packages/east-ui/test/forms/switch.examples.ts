@@ -2,8 +2,8 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, BooleanType, NullType, variant, example } from "@elaraai/east";
-import { Badge, Reactive, Stack, State, Switch, UIComponentType } from "@elaraai/east-ui";
+import { East, BooleanType, NullType, example } from "@elaraai/east";
+import { Reactive, Stack, State, Status, Switch, UIComponentType } from "@elaraai/east-ui";
 
 export const switchBasic = example({
     keywords: ["Switch", "Root", "label", "toggle", "disabled"],
@@ -11,8 +11,8 @@ export const switchBasic = example({
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.VStack([
             Switch.Root(false, { label: "Notifications" }),
-            Switch.Root(true, { label: "Dark mode", colorPalette: "blue" }),
-            Switch.Root(false, { label: "Feature flag", colorPalette: "green" }),
+            Switch.Root(true, { label: "Dark mode" }),
+            Switch.Root(false, { label: "Feature flag" }),
             Switch.Root(false, { label: "Disabled", disabled: true }),
         ], { gap: "3", align: "flex-start" });
     }),
@@ -24,9 +24,9 @@ export const switchSizes = example({
     description: "Size variations: sm, md, lg",
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.HStack([
-            Switch.Root(true, { label: "SM", size: "sm", colorPalette: "green" }),
-            Switch.Root(true, { label: "MD", size: "md", colorPalette: "green" }),
-            Switch.Root(true, { label: "LG", size: "lg", colorPalette: "green" }),
+            Switch.Root(true, { label: "SM", size: "sm" }),
+            Switch.Root(true, { label: "MD", size: "md" }),
+            Switch.Root(true, { label: "LG", size: "lg" }),
         ], { gap: "4" });
     }),
     inputs: [],
@@ -46,15 +46,11 @@ export const switchInteractive = example({
             return Stack.VStack([
                 Switch.Root(enabled, {
                     label: "Enable feature",
-                    colorPalette: "green",
                     onChange,
                 }),
-                Badge.Root(
-                    enabled.ifElse(_$ => "Feature ON", _$ => "Feature OFF"),
-                    {
-                        colorPalette: enabled.ifElse(_$ => variant("green", null), _$ => variant("red", null)),
-                        variant: "solid",
-                    }
+                enabled.ifElse(
+                    _$ => Status.Root("Feature on", { value: "success" }),
+                    _$ => Status.Root("Feature off", { value: "neutral" }),
                 ),
             ], { gap: "3", align: "flex-start" });
         }));

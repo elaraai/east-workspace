@@ -27,7 +27,7 @@ export function toChakraSwitch(value: SwitchValue): SwitchRootProps {
     return {
         checked: value.checked,
         disabled: getSomeorUndefined(value.disabled),
-        colorPalette,
+        colorPalette: colorPalette ?? "brand",
         size,
     };
 }

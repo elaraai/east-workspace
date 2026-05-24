@@ -1,6 +1,7 @@
 {
   "name": "e3-integration-tests",
   "version": "0.0.2-beta.46",
+  "license": "BUSL-1.1",
   "private": true,
   "type": "module",
   "description": "Integration tests for e3 - tests CLI and runner together",
@@ -16,9 +17,9 @@
     "@elaraai/e3-api-tests": "workspace:*",
     "@elaraai/e3-cli": "workspace:*",
     "@elaraai/e3-core": "workspace:*",
-    "@elaraai/e3-types": "workspace:0.0.2-beta.54",
+    "@elaraai/e3-types": "workspace:*",
     "@elaraai/east": "workspace:*",
-    "@elaraai/east-node-std": "workspace:0.0.1-beta.40"
+    "@elaraai/east-node-std": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

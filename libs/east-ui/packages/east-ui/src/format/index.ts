@@ -296,10 +296,10 @@ export const Format = {
      * @example
      * ```ts
      * import { East } from "@elaraai/east";
-     * import { Format } from "@elaraai/east-ui";
+     * import { Numeric, Format, UIComponentType } from "@elaraai/east-ui";
      *
-     * const fmt = East.function([], Format.Types.Tick, _$ =>
-     *     Format.Number({ minimumFractionDigits: 2n, maximumFractionDigits: 2n }),
+     * const ui = East.function([], UIComponentType, _$ =>
+     *     Numeric.Root(1234.5, { format: Format.Number({ minimumFractionDigits: 2n, maximumFractionDigits: 2n }) }),
      * );
      * ```
      */
@@ -314,10 +314,10 @@ export const Format = {
      * @example
      * ```ts
      * import { East } from "@elaraai/east";
-     * import { Format } from "@elaraai/east-ui";
+     * import { Numeric, Format, UIComponentType } from "@elaraai/east-ui";
      *
-     * const fmt = East.function([], Format.Types.Tick, _$ =>
-     *     Format.Currency({ currency: "AUD", compact: "short" }),
+     * const ui = East.function([], UIComponentType, _$ =>
+     *     Numeric.Root(1842500, { format: Format.Currency({ currency: "AUD", compact: "short" }) }),
      * );
      * ```
      */

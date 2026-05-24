@@ -16,5 +16,11 @@ packages:
   - "libs/east-ui/packages/*"
   - "libs/east-ui/packages/east-ui-extension/webview"
 
-  # east-plugin — VS Code extension
-  - "libs/east-plugin"
+  # east-claude-plugin — Claude Code plugin (skills, hooks, MCP search)
+  - "libs/east-claude-plugin"
+
+  # east-diagnostics — East-aware diagnostic rules (editor + agent + CI)
+  - "libs/east-diagnostics"
+
+  # eslint-plugin-east — ESLint surface for the east-diagnostics rules
+  - "libs/eslint-plugin-east"

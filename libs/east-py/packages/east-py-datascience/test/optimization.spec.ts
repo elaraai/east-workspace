@@ -63,7 +63,6 @@ describeEast("Optimization platform functions", (test) => {
             order: variant('some', variant('sequential', null)),
             random_state: variant('some', 42n),
             mode: variant('none', null),
-            workers: variant('none', null),
         });
 
         const result = $.let(Optimization.iterative(
@@ -101,7 +100,6 @@ describeEast("Optimization platform functions", (test) => {
             order: variant('some', variant('random', null)),
             random_state: variant('some', 123n),
             mode: variant('none', null),
-            workers: variant('none', null),
         });
 
         const result1 = $.let(Optimization.iterative(objective, spaces, config));
@@ -136,7 +134,6 @@ describeEast("Optimization platform functions", (test) => {
             order: variant('none', null),
             random_state: variant('none', null),
             mode: variant('none', null),
-            workers: variant('none', null),
         });
 
         const result = $.let(Optimization.iterative(objective, spaces, config));
@@ -175,7 +172,6 @@ describeEast("Optimization platform functions", (test) => {
             order: variant('some', variant('sequential', null)),
             random_state: variant('none', null),
             mode: variant('none', null),
-            workers: variant('none', null),
         });
 
         const result = $.let(Optimization.iterative(objective, spaces, config));
@@ -226,7 +222,6 @@ describeEast("Optimization platform functions", (test) => {
             order: variant('some', variant('random', null)),
             random_state: variant('some', 42n),
             mode: variant('some', variant('swap', null)),
-            workers: variant('none', null),
         });
 
         const result = $.let(Optimization.iterative(objective, spaces, config));
@@ -267,7 +262,6 @@ describeEast("Optimization platform functions", (test) => {
             order: variant('some', variant('sequential', null)),
             random_state: variant('none', null),
             mode: variant('some', variant('swap', null)),
-            workers: variant('none', null),
         });
 
         const result = $.let(Optimization.iterative(objective, spaces, config));
@@ -307,7 +301,6 @@ describeEast("Optimization platform functions", (test) => {
             order: variant('some', variant('random', null)),
             random_state: variant('some', 99n),
             mode: variant('some', variant('swap', null)),
-            workers: variant('none', null),
         });
 
         const result1 = $.let(Optimization.iterative(objective, spaces, config));
@@ -348,7 +341,6 @@ describeEast("Optimization platform functions", (test) => {
             order: variant('some', variant('random', null)),
             random_state: variant('some', 42n),
             mode: variant('some', variant('swap', null)),
-            workers: variant('none', null),
         });
 
         const result = $.let(Optimization.iterative(objective, spaces, config));
@@ -393,7 +385,6 @@ describeEast("Optimization platform functions", (test) => {
             order: variant('some', variant('sequential', null)),
             random_state: variant('some', 42n),
             mode: variant('none', null),
-            workers: variant('none', null),
         });
 
         const result = $.let(Optimization.iterativeIncremental(
@@ -430,7 +421,6 @@ describeEast("Optimization platform functions", (test) => {
             order: variant('some', variant('sequential', null)),
             random_state: variant('none', null),
             mode: variant('some', variant('swap', null)),
-            workers: variant('none', null),
         });
 
         const result = $.let(Optimization.iterativeIncremental(
@@ -440,47 +430,6 @@ describeEast("Optimization platform functions", (test) => {
         $(Assert.equal(result.success, true));
         // Optimal: [0, 2, 1] → 0*1 + 1*2 + 2*3 = 8.0
         $(Assert.equal(result.best_objective, East.value(8.0)));
-    });
-
-    test("incremental with parallel workers", $ => {
-        // Same task-worker problem, but with workers: 2
-        const skill = $.let([
-            [3.0, 1.0, 2.0],
-            [1.0, 3.0, 2.0],
-            [2.0, 2.0, 3.0],
-        ]);
-
-        const elementObjective = East.function(
-            [VectorType(IntegerType), IntegerType], FloatType,
-            ($, assignments, taskIdx) => {
-                const worker = $.let(assignments.get(taskIdx));
-                return $.return(skill.get(taskIdx).get(worker));
-            }
-        );
-
-        const spaces = $.let([
-            new BigInt64Array([0n, 1n, 2n]),
-            new BigInt64Array([0n, 1n, 2n]),
-            new BigInt64Array([0n, 1n, 2n]),
-        ]);
-
-        const config = $.let({
-            iterations: variant('some', 10n),
-            samples: variant('some', 4n),
-            initial: variant('some', variant('random', null)),
-            order: variant('some', variant('sequential', null)),
-            random_state: variant('some', 42n),
-            mode: variant('none', null),
-            workers: variant('some', 2n),
-        });
-
-        const result = $.let(Optimization.iterativeIncremental(
-            elementObjective, spaces, config,
-        ));
-
-        $(Assert.equal(result.success, true));
-        // Optimal: 3+3+3 = 9.0
-        $(Assert.equal(result.best_objective, East.value(9.0)));
     });
 
     test("incremental matches non-incremental result", $ => {
@@ -526,7 +475,6 @@ describeEast("Optimization platform functions", (test) => {
             order: variant('some', variant('sequential', null)),
             random_state: variant('none', null),
             mode: variant('none', null),
-            workers: variant('none', null),
         });
 
         const fullResult = $.let(Optimization.iterative(fullObjective, spaces, config));
@@ -565,7 +513,6 @@ describeEast("Optimization platform functions", (test) => {
             order: variant('some', variant('sequential', null)),
             random_state: variant('some', 42n),
             mode: variant('none', null),
-            workers: variant('none', null),
         });
 
         const result = $.let(Optimization.iterativeGrouped(
@@ -611,7 +558,6 @@ describeEast("Optimization platform functions", (test) => {
             order: variant('some', variant('sequential', null)),
             random_state: variant('some', 42n),
             mode: variant('none', null),
-            workers: variant('none', null),
         });
 
         const result = $.let(Optimization.iterativeGrouped(
@@ -667,51 +613,12 @@ describeEast("Optimization platform functions", (test) => {
             order: variant('some', variant('sequential', null)),
             random_state: variant('none', null),
             mode: variant('none', null),
-            workers: variant('none', null),
         });
 
         const fullResult = $.let(Optimization.iterative(fullObjective, spaces, config));
         const groupResult = $.let(Optimization.iterativeGrouped(groupObjective, spaces, config));
 
         $(Assert.equal(fullResult.best_objective, groupResult.best_objective));
-    });
-
-    test("grouped with parallel workers", $ => {
-        const shiftCosts = $.let([10.0, 20.0, 15.0]);
-        const nSlots = East.value(3n);
-
-        const groupObjective = East.function(
-            [VectorType(IntegerType), IntegerType], FloatType,
-            ($, assignments, workerId) => {
-                const cost = $.let(0.0);
-                $.for(East.Array.range(0n, nSlots), ($, slot) => {
-                    $.if(East.equal(assignments.get(slot), workerId), $ => {
-                        $.assign(cost, cost.add(shiftCosts.get(slot)));
-                    });
-                });
-                return $.return(cost.negate());
-            }
-        );
-
-        const workers = East.Vector.fromArray([0n, 1n]);
-        const spaces = $.let([workers, workers, workers]);
-
-        const config = $.let({
-            iterations: variant('some', 10n),
-            samples: variant('some', 4n),
-            initial: variant('some', variant('random', null)),
-            order: variant('some', variant('sequential', null)),
-            random_state: variant('some', 42n),
-            mode: variant('none', null),
-            workers: variant('some', 2n),
-        });
-
-        const result = $.let(Optimization.iterativeGrouped(
-            groupObjective, spaces, config,
-        ));
-
-        $(Assert.equal(result.success, true));
-        $(Assert.equal(result.best_objective, East.value(-45.0)));
     });
 
 }, { exportOnly: true });

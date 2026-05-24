@@ -11,6 +11,7 @@
   "files": [
     "dist/src",
     "!dist/src/**/*.spec.*",
+    "scripts/postinstall.cjs",
     "README.md",
     "LICENSE"
   ],
@@ -19,7 +20,8 @@
     "test": "npm run build && node --enable-source-maps --test-reporter=spec --test 'dist/src/**/*.spec.js'",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "dev": "pnpm run build && node --enable-source-maps dist/src/cli.js"
+    "dev": "pnpm run build && node --enable-source-maps dist/src/cli.js",
+    "postinstall": "node scripts/postinstall.cjs"
   },
   "keywords": [
     "east",
@@ -27,11 +29,11 @@
     "cli",
     "execution-engine"
   ],
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "BUSL-1.1",
   "repository": {
     "type": "git",
-    "url": "https://github.com/elaraai/e3",
-    "directory": "packages/e3-cli"
+    "url": "git+https://github.com/elaraai/east-workspace.git",
+    "directory": "libs/e3/packages/e3-cli"
   },
   "dependencies": {
     "@elaraai/e3": "workspace:*",

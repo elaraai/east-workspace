@@ -1,47 +1,40 @@
-# CLAUDE.md
+# east-py
 
-This file provides guidance to Claude Code when working with code in this repository.
+Python runtime for the East language, plus data-science and I/O platform
+functions. uv workspace; self-contained under `libs/east-py/`.
 
-## Project Overview
+## Packages
 
-This is a Python monorepo for the East programming language, containing:
+| Package | Purpose |
+|---|---|
+| `packages/east-py` | Core Python runtime — type system, IR compiler, 212+ builtins, serialization. See `packages/east-py/CLAUDE.md` for architecture. |
+| `packages/east-py-std` | Standard platform functions (console, fs, path, crypto, time, random). |
+| `packages/east-py-io` | I/O platform functions — SQL/NoSQL databases, S3, file formats, compression. |
+| `packages/east-py-datascience` | ML and optimization platform functions (XGBoost, Optuna, PyMC, SHAP, etc.). |
+| `packages/east-py-cli` | Command-line entry point. |
 
-- **east-py**: Core Python runtime - type system, IR compiler, 212+ builtins, serialization
-- **east-py-io**: I/O platform functions - S3, SQL/NoSQL databases, file formats, compression
-
-## Repository Structure
-
-```
-east-py/
-├── packages/
-│   ├── east-py/          # Core runtime (see packages/east-py/CLAUDE.md)
-│   └── east-py-io/       # I/O functions
-├── pyproject.toml        # Workspace configuration
-└── Makefile             # Root build commands
-```
-
-## Development Commands
+## Commands
 
 ```bash
-make install             # Install all dependencies
-make test                # Run all tests
-make test-east-py        # Run east-py tests only
-make test-east-py-io     # Run east-py-io tests only
-make lint                # Run linter on all packages
-make typecheck           # Type check all packages
-make check               # Run all quality checks
+make install       # uv sync (run once after pulling)
+make test          # All Python tests
+make lint          # ruff lint
+make typecheck     # mypy
+make check         # lint + typecheck + test
 ```
 
-## Workspace Configuration
+See `../../docs/conventions/MAKEFILE_TARGETS.md` for the full target list.
 
-This is a uv workspace. Key points:
+## Workspace
 
-- Single `uv.lock` at root for all packages
-- east-py-io depends on east-py via `{ workspace = true }`
-- Use `uv run --package <name>` to run commands in specific package context
+uv workspace, single `uv.lock` at this lib's root. Cross-package deps use
+`{ workspace = true }` in each `pyproject.toml`.
 
-## Package-Specific Documentation
+## See also
 
-For detailed architecture and coding guidance:
-- **east-py**: See `packages/east-py/CLAUDE.md`
-- **east-py-io**: See `packages/east-py-io/README.md`
+- `../../docs/conventions/PYTHON_OPTIONAL_DEPS.md` — declaring optional
+  native deps and the `find_spec` + lazy-import guard pattern.
+- `packages/east-py-datascience/SKILL.md` — matches the
+  `east:east-py-datascience` plugin skill — **DO NOT EDIT casually**.
+- `packages/east-py/CLAUDE.md` — core runtime architecture
+  (homoiconic type system, layer map, Cython acceleration).

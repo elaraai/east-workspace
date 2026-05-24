@@ -11,7 +11,7 @@ import {
     ArrayType, SetType, DictType, StructType, VariantType, RefType,
     VectorType, OptionType,
 } from "../types.js";
-import { variant } from "../containers/variant.js";
+import { variant, some, none } from "../containers/variant.js";
 import { SortedSet } from "../containers/sortedset.js";
 import { SortedMap } from "../containers/sortedmap.js";
 import { ref } from "../containers/ref.js";
@@ -427,8 +427,8 @@ describe("prunePatchFor: Variant", () => {
 
     test("OptionType: none → some kept", () => {
         const T = OptionType(IntegerType);
-        const before = variant("none", null);
-        const p = diffFor(T)(before, variant("some", 42n));
+        const before = none;
+        const p = diffFor(T)(before, some(42n));
         const pruned = prunePatchFor(T)(p, () => true);
         const result = applyFor(T)(before, pruned);
         assert.equal(result.type, "some");
@@ -437,16 +437,16 @@ describe("prunePatchFor: Variant", () => {
 
     test("OptionType: none → some pruned", () => {
         const T = OptionType(IntegerType);
-        const before = variant("none", null);
-        const p = diffFor(T)(before, variant("some", 42n));
+        const before = none;
+        const p = diffFor(T)(before, some(42n));
         const pruned = prunePatchFor(T)(p, () => false);
         assert.equal(pruned.type, "unchanged");
     });
 
     test("OptionType: some → none kept", () => {
         const T = OptionType(IntegerType);
-        const before = variant("some", 5n);
-        const p = diffFor(T)(before, variant("none", null));
+        const before = some(5n);
+        const p = diffFor(T)(before, none);
         const pruned = prunePatchFor(T)(p, () => true);
         const result = applyFor(T)(before, pruned);
         assert.equal(result.type, "none");
@@ -454,8 +454,8 @@ describe("prunePatchFor: Variant", () => {
 
     test("OptionType: some(a) → some(b) prune-all collapses", () => {
         const T = OptionType(IntegerType);
-        const before = variant("some", 1n);
-        const p = diffFor(T)(before, variant("some", 2n));
+        const before = some(1n);
+        const p = diffFor(T)(before, some(2n));
         const pruned = prunePatchFor(T)(p, () => false);
         assert.equal(pruned.type, "unchanged");
     });
@@ -529,7 +529,7 @@ describe("prunePatchFor: round-trip across types", () => {
         ["Set",         SetType(StringType),                  new SortedSet<string>(["a"], compareFor(StringType)),
                                                               new SortedSet<string>(["a", "b"], compareFor(StringType))],
         ["Variant",     VariantType({ x: IntegerType }),      variant("x", 1n),                      variant("x", 2n)],
-        ["Option",      OptionType(IntegerType),              variant("none", null),                 variant("some", 1n)],
+        ["Option",      OptionType(IntegerType),              none,                 some(1n)],
         ["Ref<Int>",    RefType(IntegerType),                 ref(1n),                               ref(2n)],
     ];
 

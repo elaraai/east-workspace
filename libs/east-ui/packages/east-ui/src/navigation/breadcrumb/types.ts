@@ -12,66 +12,7 @@ import {
     ArrayType,
     NullType,
     FunctionType,
-    VariantType,
 } from "@elaraai/east";
-
-import { ColorSchemeType } from "../../style.js";
-import type { ColorSchemeLiteral } from "../../style.js";
-
-// ============================================================================
-// Breadcrumb Variant Type
-// ============================================================================
-
-/**
- * Breadcrumb variant type for visual styling.
- *
- * @property underline - Underlined links with color palette
- * @property plain - Plain text links that highlight on hover
- */
-export const BreadcrumbVariantType = VariantType({
-    underline: NullType,
-    plain: NullType,
-});
-
-/**
- * Type representing breadcrumb variant values.
- */
-export type BreadcrumbVariantType = typeof BreadcrumbVariantType;
-
-/**
- * String literal type for breadcrumb variant values.
- */
-export type BreadcrumbVariantLiteral = "underline" | "plain";
-
-// ============================================================================
-// Breadcrumb Size Type
-// ============================================================================
-
-/**
- * Size options for Breadcrumb component.
- *
- * @remarks
- * Chakra UI Breadcrumb supports sm, md, lg sizes (not xs).
- *
- * @property sm - Small breadcrumb
- * @property md - Medium breadcrumb (default)
- * @property lg - Large breadcrumb
- */
-export const BreadcrumbSizeType = VariantType({
-    sm: NullType,
-    md: NullType,
-    lg: NullType,
-});
-
-/**
- * Type representing breadcrumb size values.
- */
-export type BreadcrumbSizeType = typeof BreadcrumbSizeType;
-
-/**
- * String literal type for breadcrumb size values.
- */
-export type BreadcrumbSizeLiteral = "sm" | "md" | "lg";
 
 // ============================================================================
 // Breadcrumb Item Type
@@ -81,7 +22,7 @@ export type BreadcrumbSizeLiteral = "sm" | "md" | "lg";
  * Type for a single breadcrumb item.
  *
  * @property label - The display text for this breadcrumb item
- * @property current - Whether this item represents the current page
+ * @property current - Whether this item represents the current page (non-link, ink, weight 600)
  * @property onClick - Optional click handler for navigation
  */
 export const BreadcrumbItemType = StructType({
@@ -102,14 +43,11 @@ export type BreadcrumbItemType = typeof BreadcrumbItemType;
 /**
  * Visual-only style struct for Breadcrumb.
  *
- * @property variant - Visual variant (underline or plain)
- * @property size - Size of the breadcrumb (sm, md, lg)
- * @property colorPalette - Colour scheme for the breadcrumb
+ * @property runAnchor - Optional trailing run anchor text (e.g. `run #42`),
+ *   rendered after a vertical rule to pin the crumb to a specific run
  */
 export const BreadcrumbStyleType = StructType({
-    variant: OptionType(BreadcrumbVariantType),
-    size: OptionType(BreadcrumbSizeType),
-    colorPalette: OptionType(ColorSchemeType),
+    runAnchor: OptionType(StringType),
 });
 
 /** Type alias for the Breadcrumb style struct. */
@@ -137,12 +75,10 @@ export type BreadcrumbRootType = typeof BreadcrumbRootType;
 
 /**
  * TypeScript interface for Breadcrumb style options.
+ *
+ * @property runAnchor - Optional trailing run anchor text (e.g. `run #42`)
  */
 export interface BreadcrumbStyle {
-    /** Visual variant (underline or plain) */
-    variant?: SubtypeExprOrValue<BreadcrumbVariantType> | BreadcrumbVariantLiteral;
-    /** Size of the breadcrumb */
-    size?: SubtypeExprOrValue<BreadcrumbSizeType> | BreadcrumbSizeLiteral;
-    /** Color scheme for the breadcrumb */
-    colorPalette?: SubtypeExprOrValue<ColorSchemeType> | ColorSchemeLiteral;
+    /** Optional trailing run anchor text (e.g. `run #42`), pinned after a vertical rule. */
+    runAnchor?: SubtypeExprOrValue<StringType>;
 }

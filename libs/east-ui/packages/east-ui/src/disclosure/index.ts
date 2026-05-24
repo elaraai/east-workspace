@@ -52,19 +52,6 @@ export {
 } from "./show-more/index.js";
 
 export {
-    Steps,
-    StepsType,
-    StepItemType,
-    StepsStyleType,
-    StepStatusType,
-    StepStatus,
-    type StepsStyle,
-    type StepsOptions,
-    type StepItemOptions,
-    type StepStatusLiteral,
-} from "./steps/index.js";
-
-export {
     Tabs,
     TabsType,
     TabsItemType,
@@ -82,16 +69,6 @@ export {
     type TabsOptions,
     type TabsItemOptions,
 } from "./tabs/index.js";
-
-export {
-    Timeline,
-    TimelineType,
-    TimelineItemType,
-    TimelineStyleType,
-    type TimelineStyle,
-    type TimelineOptions,
-    type TimelineItemOptions,
-} from "./timeline/index.js";
 
 export {
     OptionList,

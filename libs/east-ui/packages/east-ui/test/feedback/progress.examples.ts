@@ -16,39 +16,37 @@ export const progressBasic = example({
 
 export const progressLabeled = example({
     keywords: ["Progress", "Root", "label", "valueText"],
-    description: "Progress with label and value text",
+    description: "Progress with mono uppercase label and value text",
     fn: East.function([], UIComponentType, (_$) => {
         return Progress.Root(75.0, {
-            label: "Upload Progress",
+            label: "Upload progress",
             valueText: "75%",
         });
     }),
     inputs: [],
 });
 
-export const progressColors = example({
-    keywords: ["Progress", "Root", "colorPalette"],
-    description: "Different color palettes via style.colorPalette",
+export const progressTones = example({
+    keywords: ["Progress", "Root", "tone", "brand", "pos", "neg"],
+    description: "Spec tones — brand (default), pos (on-track), neg (off-spec)",
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.VStack([
-            Progress.Root(80.0, { label: "Blue", style: { colorPalette: "blue" } }),
-            Progress.Root(60.0, { label: "Green", style: { colorPalette: "green" } }),
-            Progress.Root(40.0, { label: "Orange", style: { colorPalette: "orange" } }),
-            Progress.Root(20.0, { label: "Red", style: { colorPalette: "red" } }),
+            Progress.Root(80.0, { label: "Brand", style: { tone: "brand" } }),
+            Progress.Root(60.0, { label: "Pos",   style: { tone: "pos" } }),
+            Progress.Root(20.0, { label: "Neg",   style: { tone: "neg" } }),
         ], { gap: "4", align: "stretch", width: "100%" });
     }),
     inputs: [],
 });
 
 export const progressSizes = example({
-    keywords: ["Progress", "Root", "size"],
-    description: "Available sizes via style.size",
+    keywords: ["Progress", "Root", "size", "xs", "sm", "md"],
+    description: "Available sizes via style.size — xs / sm / md (no lg per spec)",
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.VStack([
-            Progress.Root(50.0, { style: { size: "xs", colorPalette: "blue" } }),
-            Progress.Root(50.0, { style: { size: "sm", colorPalette: "blue" } }),
-            Progress.Root(50.0, { style: { size: "md", colorPalette: "blue" } }),
-            Progress.Root(50.0, { style: { size: "lg", colorPalette: "blue" } }),
+            Progress.Root(50.0, { style: { size: "xs" } }),
+            Progress.Root(50.0, { style: { size: "sm" } }),
+            Progress.Root(50.0, { style: { size: "md" } }),
         ], { gap: "4", align: "stretch", width: "100%" });
     }),
     inputs: [],
@@ -59,8 +57,8 @@ export const progressStriped = example({
     description: "Striped pattern for visual emphasis",
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.VStack([
-            Progress.Root(65.0, { style: { striped: true, colorPalette: "blue" } }),
-            Progress.Root(45.0, { style: { striped: true, animated: true, colorPalette: "green" } }),
+            Progress.Root(65.0, { style: { striped: true } }),
+            Progress.Root(45.0, { style: { striped: true, animated: true, tone: "pos" } }),
         ], { gap: "4", align: "stretch", width: "100%" });
     }),
     inputs: [],
@@ -73,9 +71,7 @@ export const progressRange = example({
         return Progress.Root(7.5, {
             min: 0,
             max: 10,
-            label: "Rating",
-            valueText: "7.5 / 10",
-            style: { colorPalette: "purple" },
+            label: "Rating 7.5 / 10",
         });
     }),
     inputs: [],
@@ -88,7 +84,6 @@ export const progressIndeterminate = example({
         return Progress.Root(0.0, {
             indeterminate: true,
             label: "Solver running…",
-            style: { colorPalette: "blue" },
         });
     }),
     inputs: [],
@@ -99,11 +94,10 @@ export const progressWithETA = example({
     description: "Progress with an estimated duration + startedAt drives an ETA label in the renderer",
     fn: East.function([], UIComponentType, (_$) => {
         return Progress.Root(42.0, {
-            label: "Solver running",
+            label: "Solver running 42%",
             estimatedDuration: 120n,
             startedAt: new Date("2026-01-01T09:00:00Z"),
             showValue: true,
-            style: { colorPalette: "blue" },
         });
     }),
     inputs: [],
@@ -120,9 +114,9 @@ export const progressInteractive = example({
                 $(bind.write(next));
             }));
             return Stack.VStack([
-                Progress.Root(value, { min: 0, max: 100, style: { colorPalette: "blue", striped: true } }),
-                Slider.Root(value, { min: 0, max: 100, colorPalette: "blue", onChange }),
-                Text.Root(East.str`Progress: ${East.print(value)}%`),
+                Progress.Root(value, { min: 0, max: 100, style: { striped: true } }),
+                Slider.Root(value, { min: 0, max: 100, onChange }),
+                Text.Presets.MonoLabel(East.str`PROGRESS · ${East.print(value)}%`),
             ], { gap: "3", align: "stretch" });
         }));
     }),

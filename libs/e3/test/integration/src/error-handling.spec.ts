@@ -83,7 +83,7 @@ describe('error handling', () => {
 
     // Login (auto-approve enabled via process.env in beforeEach)
     const loginResult = await runE3Command(
-      ['login', '--no-browser', serverUrl],
+      ['auth', 'login', '--no-browser', serverUrl],
       tempDir,
       { env: authEnv() }
     );

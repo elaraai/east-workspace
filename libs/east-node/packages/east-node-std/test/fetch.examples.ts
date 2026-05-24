@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, BooleanType, IntegerType, variant, example } from "@elaraai/east";
+import { East, BooleanType, IntegerType, variant, example, none } from "@elaraai/east";
 import { Fetch, FetchRequestConfig } from "@elaraai/east-node-std";
 
 export const fetchGet = example({
@@ -46,7 +46,7 @@ export const fetchRequest = example({
             url: "http://localhost:8085/get",
             method: variant("GET", null),
             headers: new Map<string, string>(),
-            body: variant("none", null),
+            body: none,
         }, FetchRequestConfig);
         const response = $.let(Fetch.request(config));
         return response.status;

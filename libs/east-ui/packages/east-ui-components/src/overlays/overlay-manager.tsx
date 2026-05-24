@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { createContext, useContext, useState, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
 import { type PlatformFunction } from "@elaraai/east/internal";
 import { dialog_open, drawer_open } from "@elaraai/east-ui";
 import { DialogContent, type DialogOpenInputValue } from "./dialog/index.js";
@@ -136,12 +136,22 @@ interface ProgrammaticDialogProps {
 }
 
 function ProgrammaticDialog({ value, onClose }: ProgrammaticDialogProps) {
+    // Mount closed, then open after commit. Under StrictMode the dialog machine
+    // is mounted twice; if it is born open both instances call preventBodyScroll
+    // and the second early-returns without a cleanup, leaking the body scroll-lock
+    // (overflow/pointer-events) after close. Settling closed first means only the
+    // single surviving instance ever locks the body.
+    const [open, setOpen] = useState(false);
+    useEffect(() => { setOpen(true); }, []);
+    const handleClose = useCallback(() => setOpen(false), []);
+    const handleExitComplete = useCallback(() => onClose(), [onClose]);
     return (
         <DialogContent
             value={value}
             storageKey="programmatic-dialog"
-            open={true}
-            onClose={onClose}
+            open={open}
+            onClose={handleClose}
+            onExitComplete={handleExitComplete}
         />
     );
 }
@@ -156,12 +166,18 @@ interface ProgrammaticDrawerProps {
 }
 
 function ProgrammaticDrawer({ value, onClose }: ProgrammaticDrawerProps) {
+    // Mount closed, then open after commit — see ProgrammaticDialog for why.
+    const [open, setOpen] = useState(false);
+    useEffect(() => { setOpen(true); }, []);
+    const handleClose = useCallback(() => setOpen(false), []);
+    const handleExitComplete = useCallback(() => onClose(), [onClose]);
     return (
         <DrawerContent
             value={value}
             storageKey="programmatic-drawer"
-            open={true}
-            onClose={onClose}
+            open={open}
+            onClose={handleClose}
+            onExitComplete={handleExitComplete}
         />
     );
 }

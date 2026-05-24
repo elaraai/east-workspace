@@ -6,9 +6,12 @@
 /**
  * Input recipe — enforces the canonical input shape.
  *
- *  - 6 px radius, 9×12 padding, 1px gray-300 border.
+ *  - 4 px radius (spec `--r-sm`), 1 px subtle border.
  *  - Focus: brand-500 border + 3 px brand-tinted box-shadow.
- *  - Error: red-500 border. Helper text becomes red.
+ *  - Error: muted-danger border. Helper text becomes danger ink.
+ *  - Variant `numeric` switches font to mono + right-align (used inside
+ *    parameter forms, matrix cells, KPI inputs).
+ *  - Variant `dirty` highlights uncommitted edits (matrix dirty cells).
  *  - Always paired with a static `<label>` above. No floating labels.
  *
  * @packageDocumentation
@@ -20,45 +23,75 @@ export const inputRecipe = defineRecipe({
     className: "elara-input",
     base: {
         fontFamily: "body",
-        fontSize: "{fontSizes.lg}",  // 14px
+        fontSize: "{fontSizes.sm}",   // 14 px
         background: "bg.surface",
         color: "fg",
-        borderRadius: "md",           // 6px
+        borderRadius: "{radii.sm}",    // 4 px (spec)
         borderWidth: "1px",
-        borderColor: "border.strong",
-        paddingX: "3",                // 12px
-        paddingY: "2.5",              // ~10px → 36px tall hit-target
+        borderColor: "border.subtle",  // gray.200 (spec rule)
+        paddingX: "{spacing.3}",       // 12 px
+        paddingY: "{spacing.2}",       // 8 px → ~32 px hit-target with 14 px body
         outline: "none",
-        transitionProperty: "border-color, box-shadow",
+        transitionProperty: "border-color, box-shadow, background",
         transitionDuration: "{durations.fast}",
         transitionTimingFunction: "{easings.out}",
         _placeholder: { color: "fg.subtle" },
-        _hover: { borderColor: "{colors.gray.400}" },
+        _hover: { borderColor: "border.strong" },
         _focusVisible: {
             borderColor: "{colors.brand.500}",
-            boxShadow: "{shadows.focus}",
+            boxShadow: "none",
         },
         _invalid: {
-            borderColor: "{colors.status.danger}",
+            borderColor: "fg.danger",
             _focusVisible: {
-                borderColor: "{colors.status.danger}",
-                boxShadow: "0 0 0 3px rgba(239, 68, 68, 0.25)",
+                borderColor: "fg.danger",
+                boxShadow: "none",
             },
         },
         _disabled: {
-            background: "bg.muted",
+            background: "bg.subtle",
             color: "fg.muted",
             cursor: "not-allowed",
         },
     },
     variants: {
+        variant: {
+            default: {},
+            /** Mono + right-aligned for numeric form rows. */
+            numeric: {
+                fontFamily: "mono",
+                textAlign: "right",
+                fontVariantNumeric: "tabular-nums",
+                fontFeatureSettings: '"tnum"',
+            },
+            /** Uncommitted edit — spec `.mx-num.dirty` */
+            dirty: {
+                background: "warning.subtle.strong",
+                boxShadow: "inset 2px 0 0 {colors.fg.warning}",
+                fontWeight: "semibold",
+                color: "fg",
+            },
+            /** Borderless variant for command-palette input strips. */
+            flushed: {
+                borderWidth: "0",
+                borderRadius: "0",
+                paddingX: "0",
+                borderBottomWidth: "1px",
+                borderBottomColor: "border.subtle",
+                _focusVisible: {
+                    borderBottomColor: "{colors.brand.500}",
+                    boxShadow: "none",
+                },
+            },
+        },
         size: {
-            sm: { fontSize: "{fontSizes.md}" /* 13 */, paddingX: "2.5", paddingY: "2" },
-            md: { fontSize: "{fontSizes.lg}" /* 14 */, paddingX: "3",   paddingY: "2.5" },
-            lg: { fontSize: "{fontSizes.xl}" /* 16 */, paddingX: "4",   paddingY: "3" },
+            sm: { fontSize: "{fontSizes.xs}" /* 12 */, paddingX: "{spacing.2}", paddingY: "{spacing.1}" },
+            md: { fontSize: "{fontSizes.sm}" /* 14 */, paddingX: "{spacing.3}", paddingY: "{spacing.2}" },
+            lg: { fontSize: "{fontSizes.md}" /* 16 */, paddingX: "{spacing.4}", paddingY: "{spacing.3}" },
         },
     },
     defaultVariants: {
+        variant: "default",
         size: "md",
     },
 });

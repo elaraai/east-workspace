@@ -129,12 +129,15 @@ function timestamp(): string {
 }
 
 /**
- * Watch a TypeScript file and auto-deploy on changes
+ * Watch a TypeScript file and auto-deploy on changes.
+ *
+ * Argument order matches the "thing you're focused on" being first:
+ *   e3 watch <source> <repo> <workspace>
  */
 export async function watchCommand(
+  sourceFile: string,
   repoArg: string,
   workspace: string,
-  sourceFile: string,
   options: WatchOptions
 ): Promise<void> {
   const repoPath = resolveRepo(repoArg);

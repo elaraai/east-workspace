@@ -62,12 +62,14 @@ export interface DrawerContentProps {
     open?: boolean;
     /** Additional onClose handler (for programmatic drawers) */
     onClose?: () => void;
+    /** Fires once Ark UI's close transition is fully complete (programmatic drawers use it to unmount only after body-lock cleanup runs) */
+    onExitComplete?: () => void;
 }
 
 /**
  * Shared drawer content component used by both trigger-based and programmatic drawers.
  */
-export function DrawerContent({ value, storageKey, trigger, open, onClose }: DrawerContentProps) {
+export function DrawerContent({ value, storageKey, trigger, open, onClose, onExitComplete: onExitCompleteCallback }: DrawerContentProps) {
     const props = useMemo(() => toChakraDrawer(value), [value]);
     const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -93,7 +95,10 @@ export function DrawerContent({ value, storageKey, trigger, open, onClose }: Dra
         if (onExitCompleteFn) {
             queueMicrotask(() => onExitCompleteFn());
         }
-    }, [onExitCompleteFn]);
+        if (onExitCompleteCallback) {
+            onExitCompleteCallback();
+        }
+    }, [onExitCompleteFn, onExitCompleteCallback]);
 
     const toggleFullscreen = useCallback(() => {
         setIsFullscreen(prev => !prev);
@@ -109,7 +114,7 @@ export function DrawerContent({ value, storageKey, trigger, open, onClose }: Dra
             placement={props.placement}
             contained={props.contained}
             onOpenChange={handleOpenChange}
-            onExitComplete={onExitCompleteFn ? handleExitComplete : undefined}
+            onExitComplete={onExitCompleteFn || onExitCompleteCallback ? handleExitComplete : undefined}
         >
             {trigger && (
                 <ChakraDrawer.Trigger asChild>

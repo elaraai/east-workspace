@@ -29,7 +29,7 @@
     "test": "npm run build && node --enable-source-maps --test-reporter=spec --test 'dist/test/**/*.spec.js'",
     "test:check": "tsc -p tsconfig.test.json",
     "test:coverage": "npm run build && node --enable-source-maps --test-reporter=spec --test --experimental-test-coverage 'dist/test/**/*.spec.js'",
-    "test:export": "npm run build && EXPORT_TEST_IR=/tmp/east-node-io npm test 2>&1 | grep 'Exported test IR'",
+    "test:export": "npm run build && rm -rf /tmp/east-node-io && EXPORT_TEST_IR=/tmp/east-node-io npm test 2>&1 | grep 'Exported test IR'",
     "test:integration": "npm run test:docker:up && npm test && npm run test:docker:down",
     "test:docker:up": "docker-compose up -d && npm run test:wait",
     "test:docker:down": "docker-compose down -v",
@@ -41,8 +41,8 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/elaraai/east-node.git",
-    "directory": "packages/east-node-io"
+    "url": "git+https://github.com/elaraai/east-workspace.git",
+    "directory": "libs/east-node/packages/east-node-io"
   },
   "keywords": [
     "east",
@@ -60,7 +60,7 @@
     "platform"
   ],
   "author": "Elara AI Pty Ltd",
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "AGPL-3.0-or-later",
   "type": "module",
   "engines": {
     "node": ">=22.0.0"

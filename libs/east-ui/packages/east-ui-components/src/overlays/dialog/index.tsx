@@ -4,7 +4,7 @@
  */
 
 import { memo, useMemo, useCallback, type ReactNode } from "react";
-import { Dialog as ChakraDialog, Portal, CloseButton } from "@chakra-ui/react";
+import { Dialog as ChakraDialog, Portal, Box as ChakraBox } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Dialog } from "@elaraai/east-ui";
 import { getSomeorUndefined } from "../../utils";
@@ -12,6 +12,16 @@ import { EastChakraComponent } from "../../component";
 
 // Pre-define equality function at module level
 const dialogEqual = equalFor(Dialog.Types.Dialog);
+
+const DIALOG_SIZE_MAX: Record<string, string> = {
+    xs: "320px",
+    sm: "400px",
+    md: "480px",
+    lg: "640px",
+    xl: "800px",
+    cover: "calc(100vw - 32px)",
+    full: "100vw",
+};
 
 /** East Dialog value type */
 export type DialogValue = ValueTypeOf<typeof Dialog.Types.Dialog>;
@@ -63,15 +73,17 @@ export interface DialogContentProps {
     open?: boolean;
     /** Additional onClose handler (for programmatic dialogs) */
     onClose?: () => void;
+    /** Fires once Ark UI's close transition is fully complete (programmatic dialogs use it to unmount only after body-lock cleanup runs) */
+    onExitComplete?: () => void;
 }
 
 /**
  * Shared dialog content component used by both trigger-based and programmatic dialogs.
  */
-export function DialogContent({ value, storageKey, trigger, open, onClose }: DialogContentProps) {
+export function DialogContent({ value, storageKey, trigger, open, onClose, onExitComplete: onExitCompleteCallback }: DialogContentProps) {
     const props = useMemo(() => toChakraDialog(value), [value]);
 
-    // Extract title and description from value
+    const eyebrow = useMemo(() => getSomeorUndefined(value.eyebrow), [value.eyebrow]);
     const title = useMemo(() => getSomeorUndefined(value.title), [value.title]);
     const description = useMemo(() => getSomeorUndefined(value.description), [value.description]);
 
@@ -95,7 +107,10 @@ export function DialogContent({ value, storageKey, trigger, open, onClose }: Dia
         if (onExitCompleteFn) {
             queueMicrotask(() => onExitCompleteFn());
         }
-    }, [onExitCompleteFn]);
+        if (onExitCompleteCallback) {
+            onExitCompleteCallback();
+        }
+    }, [onExitCompleteFn, onExitCompleteCallback]);
 
     const handleEscapeKeyDown = useCallback(() => {
         if (onEscapeKeyDownFn) {
@@ -118,7 +133,7 @@ export function DialogContent({ value, storageKey, trigger, open, onClose }: Dia
             motionPreset={props.motionPreset}
             role={props.role}
             onOpenChange={onOpenChangeFn || onClose ? handleOpenChange : undefined}
-            onExitComplete={onExitCompleteFn ? handleExitComplete : undefined}
+            onExitComplete={onExitCompleteFn || onExitCompleteCallback ? handleExitComplete : undefined}
             onEscapeKeyDown={onEscapeKeyDownFn ? handleEscapeKeyDown : undefined}
             onInteractOutside={onInteractOutsideFn ? handleInteractOutside : undefined}
         >
@@ -130,23 +145,26 @@ export function DialogContent({ value, storageKey, trigger, open, onClose }: Dia
             <Portal>
                 <ChakraDialog.Backdrop />
                 <ChakraDialog.Positioner>
-                    <ChakraDialog.Content>
-                        <ChakraDialog.CloseTrigger asChild>
-                            <CloseButton />
-                        </ChakraDialog.CloseTrigger>
-                        {title && (
-                            <ChakraDialog.Header>
-                                <ChakraDialog.Title>{title}</ChakraDialog.Title>
-                            </ChakraDialog.Header>
+                    <ChakraDialog.Content maxW={DIALOG_SIZE_MAX[(props.size as string) ?? "md"] ?? "480px"}>
+                        {eyebrow && (
+                            <ChakraBox
+                                fontFamily="mono"
+                                fontSize="10px"
+                                fontWeight="600"
+                                letterSpacing="0.18em"
+                                textTransform="uppercase"
+                                color="fg.muted"
+                            >
+                                {eyebrow}
+                            </ChakraBox>
                         )}
-                        <ChakraDialog.Body>
-                            {description && (
-                                <ChakraDialog.Description mb="4">{description}</ChakraDialog.Description>
-                            )}
-                            {value.body.map((child, index) => (
-                                <EastChakraComponent key={index} value={child} storageKey={`${storageKey}.${index}`} />
-                            ))}
-                        </ChakraDialog.Body>
+                        {title && <ChakraDialog.Title>{title}</ChakraDialog.Title>}
+                        {description && (
+                            <ChakraDialog.Description>{description}</ChakraDialog.Description>
+                        )}
+                        {value.body.map((child, index) => (
+                            <EastChakraComponent key={index} value={child} storageKey={`${storageKey}.${index}`} />
+                        ))}
                     </ChakraDialog.Content>
                 </ChakraDialog.Positioner>
             </Portal>
@@ -165,10 +183,11 @@ export const EastChakraDialog = memo(function EastChakraDialog({ value, storageK
     // Convert DialogValue to DialogOpenInputValue format (without trigger)
     const openInputValue = useMemo((): DialogOpenInputValue => ({
         body: value.body,
+        eyebrow: value.eyebrow,
         title: value.title,
         description: value.description,
         style: value.style,
-    }), [value.body, value.title, value.description, value.style]);
+    }), [value.body, value.eyebrow, value.title, value.description, value.style]);
 
     return (
         <DialogContent

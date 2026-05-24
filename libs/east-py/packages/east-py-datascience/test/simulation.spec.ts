@@ -9,9 +9,9 @@
  * Tests use describeEast following east-node conventions.
  * Tests export IR for Python to run (exportOnly: true).
  */
-import { East, StructType, VariantType, ArrayType, FloatType, IntegerType, DateTimeType, variant } from "@elaraai/east";
+import { East, StructType, VariantType, ArrayType, FloatType, IntegerType, DateTimeType, variant, some, none } from "@elaraai/east";
 import { describeEast, Assert } from "@elaraai/east-node-std";
-import { Simulation, SimulationConfigType, SimulationTrajectoriesConfigType } from "@elaraai/east-py-datascience";
+import { Simulation, SimulationConfigType } from "@elaraai/east-py-datascience";
 import * as ex from "./simulation.examples.js";
 
 // Shared types for basic tests
@@ -28,7 +28,7 @@ const SimpleProcessResult = StructType({
 
 describeEast("Simulation platform functions", (test) => {
 
-    Assert.examples(test, { simulationRun: ex.simulationRun, simulationTrajectories: ex.simulationTrajectories });
+    Assert.examples(test, { simulationRun: ex.simulationRun });
 
     test("basic event processing", $ => {
         // Simple handler: income adds to cash, expense subtracts
@@ -58,8 +58,8 @@ describeEast("Simulation platform functions", (test) => {
         ], ArrayType(SimpleScheduledEvent));
 
         const config = $.let({
-            max_events: variant("none", null),
-            end_date: variant("none", null),
+            max_events: none,
+            end_date: none,
         }, SimulationConfigType);
 
         const result = $.let(Simulation.run(
@@ -104,8 +104,8 @@ describeEast("Simulation platform functions", (test) => {
         ], ArrayType(SimpleScheduledEvent));
 
         const config = $.let({
-            max_events: variant("none", null),
-            end_date: variant("none", null),
+            max_events: none,
+            end_date: none,
         }, SimulationConfigType);
 
         const result = $.let(Simulation.run(
@@ -146,8 +146,8 @@ describeEast("Simulation platform functions", (test) => {
 
         // end_date = Jan 6 => only first 2 events processed
         const config = $.let({
-            max_events: variant("none", null),
-            end_date: variant("some", new Date("2025-01-06")),
+            max_events: none,
+            end_date: some(new Date("2025-01-06")),
         }, SimulationConfigType);
 
         const result = $.let(Simulation.run(
@@ -158,52 +158,6 @@ describeEast("Simulation platform functions", (test) => {
         // 100 + 10 + 20 = 130 (third event at Jan 10 is after end_date)
         $(Assert.equal(result.final_state.cash, East.value(130.0)));
         $(Assert.equal(result.events_processed, 2n));
-    });
-
-    test("Monte Carlo trajectories", $ => {
-        // Deterministic handler — all trajectories should give the same result
-        const process = East.function(
-            [SimpleResources, DateTimeType, SimpleEvents],
-            SimpleProcessResult,
-            ($, state, _date, event) => {
-                const emptyEvents = $.let([] as const, ArrayType(SimpleScheduledEvent));
-                return $.return(event.match({
-                    income: ($, amount) => ({
-                        state: { cash: state.cash.add(amount) },
-                        events: emptyEvents,
-                    }),
-                    expense: ($, amount) => ({
-                        state: { cash: state.cash.subtract(amount) },
-                        events: emptyEvents,
-                    }),
-                }));
-            }
-        );
-
-        const initial_state = $.let({ cash: 0.0 });
-        const initial_events = $.let([
-            { date: $.let(new Date("2025-01-01")), event: $.let(variant("income", 100.0), SimpleEvents) },
-            { date: $.let(new Date("2025-01-02")), event: $.let(variant("expense", 25.0), SimpleEvents) },
-        ], ArrayType(SimpleScheduledEvent));
-
-        const config = $.let({
-            trajectories: 3n,
-            seed: variant("some", 42n),
-            max_events: variant("none", null),
-            end_date: variant("none", null),
-        }, SimulationTrajectoriesConfigType);
-
-        const result = $.let(Simulation.runTrajectories(
-            [SimpleResources, SimpleEvents],
-            initial_state, initial_events, process, config,
-        ));
-
-        // 3 trajectories, all deterministic => same result
-        $(Assert.equal(result.trajectories.length(), 3n));
-        $(Assert.equal(result.trajectories.get(0n).events_processed, 2n));
-        $(Assert.equal(result.trajectories.get(0n).final_state.cash, East.value(75.0)));
-        $(Assert.equal(result.trajectories.get(1n).final_state.cash, East.value(75.0)));
-        $(Assert.equal(result.trajectories.get(2n).final_state.cash, East.value(75.0)));
     });
 
     test("collect events in state (event log)", $ => {
@@ -251,8 +205,8 @@ describeEast("Simulation platform functions", (test) => {
         ], ArrayType(LogScheduledEvent));
 
         const config = $.let({
-            max_events: variant("none", null),
-            end_date: variant("none", null),
+            max_events: none,
+            end_date: none,
         }, SimulationConfigType);
 
         const result = $.let(Simulation.run(

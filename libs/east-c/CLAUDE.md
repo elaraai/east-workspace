@@ -1,10 +1,11 @@
 # east-c
 
 C port of the East language runtime. Two packages:
-- `packages/east-c/` — Core runtime (types, values, IR, compiler, builtins, serialization)
-- `packages/east-c-std/` — Standard platform functions (console, fs, path, crypto, time, random, fetch, test)
 
-## Build & Test
+- `packages/east-c/` — Core runtime (types, values, IR, compiler, builtins, serialization).
+- `packages/east-c-std/` — Standard platform functions (console, fs, path, crypto, time, random, fetch, test).
+
+## Commands
 
 ```bash
 make build    # Build both packages
@@ -12,52 +13,44 @@ make test     # Run unit tests (ctest)
 make clean    # Remove build directory
 ```
 
-Or manually:
-```bash
-mkdir build && cd build && cmake .. && make -j$(nproc)
-ctest --output-on-failure
-```
+See `../../docs/conventions/MAKEFILE_TARGETS.md` for the full target list.
 
-## Compliance Tests
+## Compliance tests
 
-IR JSON test files are exported from the TypeScript `east` project and live in `/tmp/east-test-ir/`.
+IR JSON test files are exported from the TypeScript `east` package and live in `/tmp/east-test-ir/`.
 
 ```bash
-# Generate IR files (from ../east):
-cd ../east && npm run test:export
+# Export IR from the TS side first (from the workspace root)
+make test-export
 
-# Run all compliance tests:
-make compliance                                # east-c core (uses /tmp/east-test-ir)
-make compliance-std                            # east-c-std (uses /tmp/east-node-std)
-make compliance-all                            # both
+# Then run compliance tests
+make compliance        # east-c core
+make compliance-std    # east-c-std
+make compliance-all    # both
 
-# Run a single compliance test:
+# Run a single compliance test
 ./build/packages/east-c/test_compliance /tmp/east-test-ir/Array.json
 ```
 
-Current status: **1601 passed, 0 failed, 0 crashed** (out of 51 IR files, with Beast2 round-trip)
-
 ## Architecture
 
-- C11 standard, CMake build system
-- Reference counting for memory management (EastValue, EastType)
-- Tree-walking interpreter (not code generation)
-- int64_t for integers (no bigint)
-- Async preserved in IR but executed synchronously
+- C11, CMake.
+- Reference counting for memory management (`EastValue`, `EastType`).
+- Tree-walking interpreter (not code generation).
+- `int64_t` for integers (no bigint).
+- Async preserved in IR but executed synchronously.
 
-## Reference Implementations
+## Reference implementations
 
-- TypeScript: `../east` (core), `../east-node/packages/east-node-std` (platform)
-- Python: `../east-py` (core + platform in one package)
+- TypeScript: `../east` (core), `../east-node/packages/east-node-std` (platform).
+- Python: `../east-py` (core + platform in one package).
 
-## Key Files
+## Key files
 
-- `packages/east-c/include/east/` — All public headers
-- `packages/east-c/src/` — Core implementation
-- `packages/east-c/src/builtins/` — Builtin operations (integer, float, string, array, etc.)
-- `packages/east-c/src/serialization/` — JSON, Beast2, CSV, East text format
-- `packages/east-c/src/type_of_type.c` — IR JSON decoder (EastValue IR tree -> IRNode)
-- `packages/east-c/tests/` — Unit tests and compliance test runner
-- `packages/east-c-std/` — Platform functions (console, fs, path, crypto, time, random, fetch, test)
-- `packages/east-c/scripts/` — Compliance runner, leak checker, profiler
-- `packages/east-c-std/scripts/` — Std compliance runner
+- `packages/east-c/include/east/` — public headers.
+- `packages/east-c/src/` — core implementation.
+- `packages/east-c/src/builtins/` — builtin operations.
+- `packages/east-c/src/serialization/` — JSON, Beast2, CSV, East text.
+- `packages/east-c/src/type_of_type.c` — IR JSON decoder.
+- `packages/east-c/tests/` — unit tests and compliance runner.
+- `packages/east-c-std/` — platform functions.

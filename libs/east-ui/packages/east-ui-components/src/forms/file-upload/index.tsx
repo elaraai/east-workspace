@@ -4,7 +4,7 @@
  */
 
 import { memo, useMemo, useCallback } from "react";
-import { FileUpload as ChakraFileUpload, type FileUploadRootProps } from "@chakra-ui/react";
+import { Box, FileUpload as ChakraFileUpload, type FileUploadRootProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { FileUpload } from "@elaraai/east-ui";
 import { getSomeorUndefined } from "../../utils";
@@ -100,10 +100,21 @@ export const EastChakraFileUpload = memo(function EastChakraFileUpload({ value }
             {label && <ChakraFileUpload.Label>{label}</ChakraFileUpload.Label>}
             <ChakraFileUpload.Dropzone>
                 <ChakraFileUpload.DropzoneContent>
-                    <ChakraFileUpload.Trigger>
-                        {triggerText ?? "Choose files"}
-                    </ChakraFileUpload.Trigger>
-                    {dropzoneText && <span>{dropzoneText}</span>}
+                    <Box
+                        as="i"
+                        className="fa-solid fa-arrow-up-from-bracket"
+                        fontSize="20px"
+                        color="fg.muted"
+                        mb="1"
+                    />
+                    <Box fontSize="sm" color="fg">
+                        <ChakraFileUpload.Trigger asChild>
+                            <Box as="span" color="link" cursor="pointer" textDecoration="underline" textUnderlineOffset="2px">
+                                {triggerText ?? "Choose files"}
+                            </Box>
+                        </ChakraFileUpload.Trigger>
+                        {dropzoneText && <Box as="span" ml="2">{dropzoneText}</Box>}
+                    </Box>
                 </ChakraFileUpload.DropzoneContent>
             </ChakraFileUpload.Dropzone>
             <ChakraFileUpload.ItemGroup>

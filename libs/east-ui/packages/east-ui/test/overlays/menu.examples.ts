@@ -3,14 +3,14 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { East, example } from "@elaraai/east";
-import { Button, Menu, UIComponentType } from "@elaraai/east-ui";
+import { Button, IconButton, Menu, UIComponentType } from "@elaraai/east-ui";
 
 export const menuBasic = example({
-    keywords: ["Menu", "Root", "Item", "Separator", "dropdown"],
-    description: "Simple dropdown menu",
+    keywords: ["Menu", "Root", "Item", "Separator", "dropdown", "kebab"],
+    description: "Kebab-trigger menu — canonical row-end overflow",
     fn: East.function([], UIComponentType, (_$) => {
         return Menu.Root(
-            Button.Root("Open Menu"),
+            IconButton.Root("fas", "ellipsis", "More", { style: { variant: "ghost", size: "sm" } }),
             [
                 Menu.Item("view", "View"),
                 Menu.Item("edit", "Edit"),
@@ -23,11 +23,11 @@ export const menuBasic = example({
 });
 
 export const menuDisabled = example({
-    keywords: ["Menu", "Root", "Item", "disabled"],
-    description: "Some items are disabled",
+    keywords: ["Menu", "Root", "Item", "disabled", "kebab"],
+    description: "Kebab trigger with some disabled items",
     fn: East.function([], UIComponentType, (_$) => {
         return Menu.Root(
-            Button.Root("Options", { style: { variant: "outline" } }),
+            IconButton.Root("fas", "ellipsis", "Options", { style: { variant: "ghost", size: "sm" } }),
             [
                 Menu.Item("new", "New File"),
                 Menu.Item("save", "Save", true),

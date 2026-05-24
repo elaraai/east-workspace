@@ -53,7 +53,8 @@ build-backend = "scikit_build_core.build"
 cmake.version = ">=3.18"
 cmake.build-type = "Release"
 wheel.packages = ["east_py_std"]
-editable.rebuild = true
+# built once by `uv sync`, not at import time — see east-py/pyproject.toml.
+editable.rebuild = false
 editable.verbose = false
 build-dir = "build/{wheel_tag}"
 sdist.include = ["east_py_std/**/*.pxd", "east_py_std/**/*.pyx"]

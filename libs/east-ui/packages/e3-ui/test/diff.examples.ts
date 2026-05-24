@@ -38,12 +38,13 @@ import {
     VariantType,
     NullType,
     PatchType,
+    diffFor,
     some,
     variant,
     example,
 } from "@elaraai/east";
 import {
-    Card, Stack, Slider, Input, Switch, Select, Text, Toast, Button,
+    Card, Stack, Slider, Input, Switch, Select, Text, Button,
     Reactive, Table, UIComponentType,
 } from "@elaraai/east-ui";
 import { Data, Diff } from "@elaraai/e3-ui";
@@ -252,12 +253,6 @@ export const serviceConfigForm = example({
 
                     Diff.Root({
                         bindings: [svcName.binding, replicas.binding, autoScale.binding, region.binding, deployAfter.binding],
-                        onCommitted: some(East.function([], NullType, $ => {
-                            $(Toast.emit(Toast.make("success", "Service config saved", { duration: 4000n })));
-                        })),
-                        onDiscarded: some(East.function([], NullType, $ => {
-                            $(Toast.emit(Toast.make("info", "Discarded pending changes", { duration: 3000n })));
-                        })),
                     }),
                 ], { gap: "4", align: "stretch" }),
             ]);
@@ -422,7 +417,7 @@ export const featureFlagsEditor = example({
                 Stack.VStack([
                     Text.Root("Feature flags", { textStyle: "heading-md" }),
                     Text.Root("Toggle flags to stage changes; Diff card below shows the set delta."),
-                    Stack.HStack([
+                    Stack.VStack([
                         Text.Root("dark_mode", { textStyle: "label-sm" }),
                         Switch.Root(flagsRead.has("dark_mode"), {
                             onChange: East.function([BooleanType], NullType, ($, isOn) => {
@@ -432,7 +427,7 @@ export const featureFlagsEditor = example({
                             }),
                         }),
                     ], { gap: "3", justify: "space-between" }),
-                    Stack.HStack([
+                    Stack.VStack([
                         Text.Root("experiments", { textStyle: "label-sm" }),
                         Switch.Root(flagsRead.has("experiments"), {
                             onChange: East.function([BooleanType], NullType, ($, isOn) => {
@@ -442,7 +437,7 @@ export const featureFlagsEditor = example({
                             }),
                         }),
                     ], { gap: "3", justify: "space-between" }),
-                    Stack.HStack([
+                    Stack.VStack([
                         Text.Root("notifications", { textStyle: "label-sm" }),
                         Switch.Root(flagsRead.has("notifications"), {
                             onChange: East.function([BooleanType], NullType, ($, isOn) => {
@@ -452,7 +447,7 @@ export const featureFlagsEditor = example({
                             }),
                         }),
                     ], { gap: "3", justify: "space-between" }),
-                    Stack.HStack([
+                    Stack.VStack([
                         Text.Root("analytics", { textStyle: "label-sm" }),
                         Switch.Root(flagsRead.has("analytics"), {
                             onChange: East.function([BooleanType], NullType, ($, isOn) => {
@@ -462,7 +457,7 @@ export const featureFlagsEditor = example({
                             }),
                         }),
                     ], { gap: "3", justify: "space-between" }),
-                    Stack.HStack([
+                    Stack.VStack([
                         Text.Root("ai_assist", { textStyle: "label-sm" }),
                         Switch.Root(flagsRead.has("ai_assist"), {
                             onChange: East.function([BooleanType], NullType, ($, isOn) => {
@@ -500,7 +495,7 @@ export const regionalPricingEditor = example({
                 Stack.VStack([
                     Text.Root("Regional pricing", { textStyle: "heading-md" }),
                     Text.Root("Edit per-region prices; Diff card below tracks pending updates."),
-                    Stack.HStack([
+                    Stack.VStack([
                         Text.Root("AU", { textStyle: "label-sm" }),
                         Input.Float(pricesRead.get("AU", East.function([StringType], FloatType, _$ => 0.0)), {
                             min: 0.0, max: 99999.0, step: 0.05,
@@ -511,7 +506,7 @@ export const regionalPricingEditor = example({
                             }),
                         }),
                     ], { gap: "3", justify: "space-between" }),
-                    Stack.HStack([
+                    Stack.VStack([
                         Text.Root("US", { textStyle: "label-sm" }),
                         Input.Float(pricesRead.get("US", East.function([StringType], FloatType, _$ => 0.0)), {
                             min: 0.0, max: 99999.0, step: 0.05,
@@ -522,7 +517,7 @@ export const regionalPricingEditor = example({
                             }),
                         }),
                     ], { gap: "3", justify: "space-between" }),
-                    Stack.HStack([
+                    Stack.VStack([
                         Text.Root("EU", { textStyle: "label-sm" }),
                         Input.Float(pricesRead.get("EU", East.function([StringType], FloatType, _$ => 0.0)), {
                             min: 0.0, max: 99999.0, step: 0.05,
@@ -533,7 +528,7 @@ export const regionalPricingEditor = example({
                             }),
                         }),
                     ], { gap: "3", justify: "space-between" }),
-                    Stack.HStack([
+                    Stack.VStack([
                         Text.Root("JP", { textStyle: "label-sm" }),
                         Input.Float(pricesRead.get("JP", East.function([StringType], FloatType, _$ => 0.0)), {
                             min: 0.0, max: 99999.0, step: 0.05,
@@ -654,19 +649,19 @@ export const mergeConflictDemo = example({
                         + "3. Click Apply on the Diff card — the merge tool detects drift and fires "
                         + "the orange chooser row.",
                     ),
-                    Stack.HStack([
+                    Stack.VStack([
                         Text.Root("Server (live cache):", { textStyle: "label-sm" }),
-                        Text.Root(East.str`${serverValue}`, { textStyle: "body-sm" }),
+                        Text.Root(East.str`${serverValue}`),
                     ], { gap: "2" }),
-                    Stack.HStack([
+                    Stack.VStack([
                         Text.Root("Your staged value:", { textStyle: "label-sm" }),
-                        Text.Root(East.str`${stagedValue}`, { textStyle: "body-sm" }),
+                        Text.Root(East.str`${stagedValue}`),
                     ], { gap: "2" }),
                     Slider.Root(stagedValue, {
                         min: 30.0, max: 60.0, step: 1.0,
                         onChangeEnd: ($, v) => $(staged.write(v)),
                     }),
-                    Stack.HStack([
+                    Stack.VStack([
                         Button.Root("Simulate concurrent edit (server ← 42)", {
                             onClick: $ => $(direct.write(42.0)),
                         }),
@@ -827,6 +822,28 @@ export const regionalPricesDriftPatchInput = e3.input(
     ])),
 );
 
+// Roster overlay drift — a patch over the array-of-structs source. Built with
+// `diffFor` (base matches the bound source, so ops are clean) so the Diff card
+// exercises its nested grouping: binding → array index → struct field. Only
+// the `rate` of entries 0 and 1 change, producing `[0] → rate`, `[1] → rate`.
+const rosterDriftBase = [
+    { id: "alice",   name: "Alice Chen",    rate: 32.50, shiftLength: 8n },
+    { id: "bob",     name: "Bob Romero",    rate: 28.00, shiftLength: 8n },
+    { id: "charlie", name: "Charlie Patel", rate: 35.75, shiftLength: 10n },
+    { id: "diana",   name: "Diana Wallace", rate: 30.25, shiftLength: 8n },
+];
+const rosterDriftEdited = [
+    { id: "alice",   name: "Alice Chen",    rate: 6.00,  shiftLength: 8n },
+    { id: "bob",     name: "Bob Romero",    rate: 29.00, shiftLength: 8n },
+    { id: "charlie", name: "Charlie Patel", rate: 35.75, shiftLength: 10n },
+    { id: "diana",   name: "Diana Wallace", rate: 30.25, shiftLength: 8n },
+];
+export const rosterDriftPatchInput = e3.input(
+    "roster_drift_patch",
+    PatchType(RosterArrayType),
+    diffFor(RosterArrayType)(rosterDriftBase, rosterDriftEdited),
+);
+
 /**
  * Single-Float overlay editor — Slider edits go to `max_weekly_hours_patch`,
  * the Diff card surfaces the patch against the source.
@@ -891,6 +908,41 @@ export const regionalPricingOverlayDrift = example({
                         + "one clean replace (EU 44.95 → 39.95). Apply would throw ConflictError on "
                         + "the stale ops; this example exists to show what the Diff renderer surfaces "
                         + "when a server-stored patch has drifted from its source.",
+                    ),
+                    Diff.Root({
+                        bindings: [view.binding],
+                        hideUnchanged: some(true),
+                    }),
+                ], { gap: "5", align: "stretch" }),
+            ]);
+        }));
+    }),
+    inputs: [],
+});
+
+/**
+ * Roster overlay drift — array-of-structs patch surfaced by the Diff card,
+ * exercising nested grouping (binding → `[index]` → struct field). The patch
+ * touches only `rate` on the first two entries, so the card renders
+ * `ROSTER → [0] → rate`, `[1] → rate`.
+ */
+export const rosterOverlayDrift = example({
+    keywords: ["Diff", "overlay", "roster", "array", "nested", "patch"],
+    description: "Overlay-mode roster patch — Diff card surfaces nested array-element field changes",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const view = $.let(Data.bind(
+                [RosterArrayType],
+                rosterInput.path,
+                { mode: "direct", patch: rosterDriftPatchInput.path },
+            ));
+            return Card.Root([
+                Stack.VStack([
+                    Text.Root("Roster — overlay patch (nested)", { textStyle: "heading-md" }),
+                    Text.Root(
+                        "The patch changes the hourly rate of the first two roster entries. The "
+                        + "Diff card groups each change under its array index, demonstrating the "
+                        + "binding → [index] → field nesting.",
                     ),
                     Diff.Root({
                         bindings: [view.binding],

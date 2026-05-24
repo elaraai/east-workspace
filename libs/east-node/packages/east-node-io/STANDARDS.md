@@ -341,16 +341,16 @@ All East Node functionality MUST be thoroughly tested using East code.
 
 **Requirements:**
 - One test file per module/feature: `src/modulename.spec.ts` (co-located with source)
-- Import `describeEast` and `Test` from `./test.js`
+- Import `describeEast` and `Assert` from `./test.js`
 - Test bodies MUST be written in East code using the `$` block builder
-- Use `Test.equal()`, `Test.greater()`, etc. for assertions
+- Use `Assert.equal()`, `Assert.greater()`, etc. for assertions
 - Pass platform function implementations via `{ platformFns: ModuleImpl }`
 
 **Example:**
 
 ```typescript
 import { East } from "@elaraai/east";
-import { describeEast, Test } from "./test.js";
+import { describeEast, Assert } from "./test.js";
 import { Time, TimeImpl } from "./time.js";
 
 await describeEast("Time platform functions", (test) => {
@@ -358,7 +358,7 @@ await describeEast("Time platform functions", (test) => {
         const timestamp = $.let(Time.now());
 
         // Should be a reasonable timestamp (after 2020)
-        $(Test.greater(timestamp, 1577836800000n)); // Jan 1, 2020
+        $(Assert.greater(timestamp, 1577836800000n)); // Jan 1, 2020
     });
 
     test("sleep pauses execution", $ => {
@@ -369,7 +369,7 @@ await describeEast("Time platform functions", (test) => {
         const elapsed = $.let(end.subtract(start));
 
         // Should have slept at least 90ms (allowing for some timing variance)
-        $(Test.greaterEqual(elapsed, 90n));
+        $(Assert.greaterEqual(elapsed, 90n));
     });
 }, { platformFns: TimeImpl });
 ```
@@ -379,7 +379,7 @@ await describeEast("Time platform functions", (test) => {
 **MUST test:**
 - **Basic operations**: Core functionality with typical inputs
 - **Edge cases**: Boundary conditions, empty inputs, zero values
-- **Error conditions**: Operations that should throw (use `Test.throws()`)
+- **Error conditions**: Operations that should throw (use `Assert.throws()`)
 - **Platform-specific behavior**: Node.js-specific constraints or features
 
 **Example coverage:**
@@ -387,17 +387,17 @@ await describeEast("Time platform functions", (test) => {
 ```typescript
 test("basic operation", $ => {
     const result = $.let(Path.join(["foo", "bar"]));
-    $(Test.equal(result.contains("/"), true));
+    $(Assert.equal(result.contains("/"), true));
 });
 
 test("edge case - empty array", $ => {
     const result = $.let(Path.join([]));
-    $(Test.equal(result, "."));
+    $(Assert.equal(result, "."));
 });
 
 test("error condition", $ => {
     // Test that division by zero throws
-    $(Test.throws(East.value(1n).divide(0n)));
+    $(Assert.throws(East.value(1n).divide(0n)));
 });
 ```
 
@@ -417,16 +417,16 @@ test("error condition", $ => {
 
 **Available assertions:**
 ```typescript
-$(Test.equal(actual, expected))              // Deep equality
-$(Test.notEqual(actual, expected))           // Deep inequality
-$(Test.is(actual, expected))                 // Reference equality
-$(Test.less(actual, expected))               // Less than
-$(Test.lessEqual(actual, expected))          // Less than or equal
-$(Test.greater(actual, expected))            // Greater than
-$(Test.greaterEqual(actual, expected))       // Greater than or equal
-$(Test.between(actual, min, max))            // Range check (inclusive)
-$(Test.throws(expression))                   // Expects error
-$(Test.throws(expression, /pattern/))        // Expects error matching pattern
+$(Assert.equal(actual, expected))              // Deep equality
+$(Assert.notEqual(actual, expected))           // Deep inequality
+$(Assert.is(actual, expected))                 // Reference equality
+$(Assert.less(actual, expected))               // Less than
+$(Assert.lessEqual(actual, expected))          // Less than or equal
+$(Assert.greater(actual, expected))            // Greater than
+$(Assert.greaterEqual(actual, expected))       // Greater than or equal
+$(Assert.between(actual, min, max))            // Range check (inclusive)
+$(Assert.throws(expression))                   // Expects error
+$(Assert.throws(expression, /pattern/))        // Expects error matching pattern
 ```
 
 **Best practices:**

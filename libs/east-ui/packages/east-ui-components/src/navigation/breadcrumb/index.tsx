@@ -4,7 +4,7 @@
  */
 
 import { Fragment, memo, useMemo, useCallback } from "react";
-import { Breadcrumb as ChakraBreadcrumb } from "@chakra-ui/react";
+import { Breadcrumb as ChakraBreadcrumb, Box } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Breadcrumb } from "@elaraai/east-ui";
 import { getSomeorUndefined } from "../../utils";
@@ -67,31 +67,32 @@ const EastChakraBreadcrumbItem = memo(function EastChakraBreadcrumbItem({ value 
  */
 export const EastChakraBreadcrumb = memo(function EastChakraBreadcrumb({ value }: EastChakraBreadcrumbProps) {
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
-    const variant = useMemo(
-        () => (style ? getSomeorUndefined(style.variant)?.type : undefined),
-        [style],
-    );
-    const size = useMemo(
-        () => (style ? getSomeorUndefined(style.size)?.type : undefined),
-        [style],
-    );
-    const colorPalette = useMemo(
-        () => (style ? getSomeorUndefined(style.colorPalette)?.type : undefined),
-        [style],
-    );
+    const runAnchor = useMemo(() => (style ? getSomeorUndefined(style.runAnchor) : undefined), [style]);
     return (
-        <ChakraBreadcrumb.Root
-            variant={variant}
-            size={size}
-            colorPalette={colorPalette}
-        >
+        <ChakraBreadcrumb.Root>
             <ChakraBreadcrumb.List>
                 {value.items.map((item, index) => (
                     <Fragment key={index}>
-                        {index > 0 && <ChakraBreadcrumb.Separator />}
+                        {index > 0 && <ChakraBreadcrumb.Separator>/</ChakraBreadcrumb.Separator>}
                         <EastChakraBreadcrumbItem value={item} />
                     </Fragment>
                 ))}
+                {runAnchor !== undefined && (
+                    <Box
+                        as="span"
+                        fontFamily="mono"
+                        fontSize="11px"
+                        letterSpacing="0.06em"
+                        color="gray.500"
+                        marginInlineStart="12px"
+                        paddingInlineStart="12px"
+                        borderInlineStartWidth="1px"
+                        borderInlineStartStyle="solid"
+                        borderInlineStartColor="gray.200"
+                    >
+                        run <Box as="span" color="brand.900" fontWeight="600">{runAnchor.replace(/^run\s+/i, "")}</Box>
+                    </Box>
+                )}
             </ChakraBreadcrumb.List>
         </ChakraBreadcrumb.Root>
     );

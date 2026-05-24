@@ -6,7 +6,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
-import { variant } from '../containers/variant.js';
+import { variant, some, none } from '../containers/variant.js';
 import { fuzzerTest } from '../fuzz.js';
 
 import {
@@ -348,8 +348,8 @@ describe('Json encoding/decoding of EAST values', () => {
             some: DateTimeType,
         });
         const decoded = [
-            variant("none", null),
-            variant("some", new Date("2022-06-29T13:43:00.123+00:00")),
+            none,
+            some(new Date("2022-06-29T13:43:00.123+00:00")),
         ];
         const encoded = [
             { type: "none", value: null },

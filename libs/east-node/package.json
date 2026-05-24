@@ -15,7 +15,8 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/elaraai/east-node.git"
+    "url": "git+https://github.com/elaraai/east-workspace.git",
+    "directory": "libs/east-node"
   },
   "keywords": [
     "east",
@@ -25,7 +26,7 @@
     "runtime"
   ],
   "author": "Elara AI Pty Ltd",
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "AGPL-3.0-or-later",
   "engines": {
     "node": ">=22.0.0"
   },

@@ -37,9 +37,9 @@ export const selectInteractive = example({
                     Select.Item("cherry", "Cherry"),
                     Select.Item("date", "Date"),
                 ], { placeholder: "Pick a fruit", onChange }),
-                Text.Root(East.str`Selected: ${East.greater(selected.length(), 0n).ifElse(
+                Text.Presets.MonoLabel(East.str`SELECTED · ${East.greater(selected.length(), 0n).ifElse(
                     _$ => selected,
-                    _$ => "(none)"
+                    _$ => "(NONE)"
                 )}`),
             ], { gap: "3", align: "stretch" });
         }));
@@ -64,9 +64,9 @@ export const selectInteractiveMulti = example({
                     Select.Item("angular", "Angular"),
                     Select.Item("svelte", "Svelte"),
                 ], { placeholder: "Pick frameworks", multiple: true, onChangeMultiple }),
-                Text.Root(East.str`Selected: ${East.greater(selected.length(), 0n).ifElse(
+                Text.Presets.MonoLabel(East.str`SELECTED · ${East.greater(selected.length(), 0n).ifElse(
                     _$ => selected.stringJoin(", "),
-                    _$ => "(none)",
+                    _$ => "(NONE)",
                 )}`),
             ], { gap: "3", align: "stretch" });
         }));
@@ -90,7 +90,7 @@ export const selectOnOpenChange = example({
                     Select.Item("a", "Apple"),
                     Select.Item("b", "Banana"),
                 ], { placeholder: "Open me…", onOpenChange }),
-                Text.Root(East.str`Toggled ${East.print(value)} times`),
+                Text.Presets.MonoLabel(East.str`TOGGLED · ${value}`),
             ], { gap: "3", align: "stretch" });
         }));
     }),

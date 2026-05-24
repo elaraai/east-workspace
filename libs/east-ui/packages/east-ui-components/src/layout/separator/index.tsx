@@ -30,8 +30,6 @@ export function toChakraSeparator(value: SeparatorValue): SeparatorProps {
     return {
         orientation: style ? getSomeorUndefined(style.orientation)?.type : undefined,
         variant: style ? getSomeorUndefined(style.variant)?.type : undefined,
-        size: style ? getSomeorUndefined(style.size)?.type : undefined,
-        borderColor: style ? getSomeorUndefined(style.color) : undefined,
     };
 }
 

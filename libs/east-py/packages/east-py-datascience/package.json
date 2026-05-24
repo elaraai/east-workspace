@@ -22,14 +22,14 @@
     "build": "tsc",
     "test": "npm run build && node --enable-source-maps --test-reporter=spec --test 'dist/test/**/*.spec.js' 'dist/src/**/*.spec.js'",
     "test:coverage": "npm run build && node --enable-source-maps --test-reporter=spec --test --experimental-test-coverage 'dist/test/**/*.spec.js' 'dist/src/**/*.spec.js'",
-    "test:export": "npm run build && EXPORT_TEST_IR=/tmp/east-py-datascience node --enable-source-maps --test-reporter=spec --test 'dist/test/**/*.spec.js'",
+    "test:export": "npm run build && rm -rf /tmp/east-py-datascience && EXPORT_TEST_IR=/tmp/east-py-datascience node --enable-source-maps --test-reporter=spec --test 'dist/test/**/*.spec.js'",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/elaraai/east-py.git",
-    "directory": "packages/east-py-datascience"
+    "url": "git+https://github.com/elaraai/east-workspace.git",
+    "directory": "libs/east-py/packages/east-py-datascience"
   },
   "keywords": [
     "east",
@@ -41,7 +41,7 @@
     "pynomad"
   ],
   "author": "Elara AI Pty Ltd",
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "SEE LICENSE IN LICENSE.md",
   "type": "module",
   "engines": {
     "node": ">=22.0.0"

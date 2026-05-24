@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { variant } from "../containers/variant.js";
+import { variant, some, none } from "../containers/variant.js";
 import { SortedMap } from "../containers/sortedmap.js";
 import { SortedSet } from "../containers/sortedset.js";
 import {
@@ -1166,37 +1166,37 @@ describe("OptionType (none / some) conflicts", () => {
   const T = VariantType({ none: NullType, some: IntegerType });
 
   test("none → some(x) vs none → some(y) is a whole-variant replace conflict at root", () => {
-    const baseV = variant("none", null);
-    const a = diffFor(T)(baseV, variant("some", 5n));
-    const b = diffFor(T)(baseV, variant("some", 9n));
+    const baseV = none;
+    const a = diffFor(T)(baseV, some(5n));
+    const b = diffFor(T)(baseV, some(9n));
     const conflicts = detectConflictsFor(T)(a, b);
     assert.equal(conflicts.length, 1);
     assert.equal(conflicts[0]!.path, "");
-    assert.deepEqual(conflicts[0]!.valueA, variant("replace", { before: baseV, after: variant("some", 5n) }));
-    assert.deepEqual(conflicts[0]!.valueB, variant("replace", { before: baseV, after: variant("some", 9n) }));
-    const merged = mergeWithResolutionsFor(T)(a, b, new Map([["", { type: "manual", value: variant("some", 7n) as any }]]));
-    assertMergeApplies(T, baseV, merged, variant("some", 7n) as any);
+    assert.deepEqual(conflicts[0]!.valueA, variant("replace", { before: baseV, after: some(5n) }));
+    assert.deepEqual(conflicts[0]!.valueB, variant("replace", { before: baseV, after: some(9n) }));
+    const merged = mergeWithResolutionsFor(T)(a, b, new Map([["", { type: "manual", value: some(7n) as any }]]));
+    assertMergeApplies(T, baseV, merged, some(7n) as any);
   });
 
   test("some(x) → some(y) vs some(x) → some(z) — same-tag conflict at @some with replace ops", () => {
-    const baseV = variant("some", 1n);
-    const a = diffFor(T)(baseV, variant("some", 5n));
-    const b = diffFor(T)(baseV, variant("some", 9n));
+    const baseV = some(1n);
+    const a = diffFor(T)(baseV, some(5n));
+    const b = diffFor(T)(baseV, some(9n));
     const conflicts = detectConflictsFor(T)(a, b);
     assert.equal(conflicts.length, 1);
     assert.equal(conflicts[0]!.path, "@some");
     assert.deepEqual(conflicts[0]!.valueA, variant("replace", { before: 1n, after: 5n }));
     assert.deepEqual(conflicts[0]!.valueB, variant("replace", { before: 1n, after: 9n }));
     const merged = mergeWithResolutionsFor(T)(a, b, new Map([["@some", { type: "keepA" }]]));
-    assertMergeApplies(T, baseV, merged, variant("some", 5n) as any);
+    assertMergeApplies(T, baseV, merged, some(5n) as any);
   });
 
   test("some(x) → none vs some(x) → some(y) — mixed replace+patch conflict at root", () => {
-    const baseV = variant("some", 1n);
+    const baseV = some(1n);
     // a: cross-tag → emitted as `replace` arm.
     // b: same-tag → emitted as `patch` arm (case-tagged sub-patch).
-    const a = diffFor(T)(baseV, variant("none", null));
-    const b = diffFor(T)(baseV, variant("some", 9n));
+    const a = diffFor(T)(baseV, none);
+    const b = diffFor(T)(baseV, some(9n));
     assert.equal(a.type, "replace");
     assert.equal(b.type, "patch");
     const conflicts = detectConflictsFor(T)(a, b);
@@ -1206,7 +1206,7 @@ describe("OptionType (none / some) conflicts", () => {
     assert.deepEqual(conflicts[0]!.valueA, a);
     assert.deepEqual(conflicts[0]!.valueB, b);
     const merged = mergeWithResolutionsFor(T)(a, b, new Map([["", { type: "keepB" }]]));
-    assertMergeApplies(T, baseV, merged, variant("some", 9n) as any);
+    assertMergeApplies(T, baseV, merged, some(9n) as any);
   });
 });
 

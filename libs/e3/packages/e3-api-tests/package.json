@@ -28,11 +28,11 @@
     "tests",
     "compliance"
   ],
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "BUSL-1.1",
   "repository": {
     "type": "git",
-    "url": "https://github.com/elaraai/e3",
-    "directory": "packages/e3-api-tests"
+    "url": "git+https://github.com/elaraai/east-workspace.git",
+    "directory": "libs/e3/packages/e3-api-tests"
   },
   "dependencies": {
     "@elaraai/e3": "workspace:*",

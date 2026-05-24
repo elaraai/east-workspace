@@ -672,9 +672,12 @@ export function createTickFormatter(
             return chart.formatNumber(options) as TickFormatter;
         },
         unit: (opts) => {
+            // The East `UnitType` enum uses camelCase tags (`kilometerPerHour`),
+            // but `Intl.NumberFormat` requires the hyphenated unit identifier
+            // (`kilometer-per-hour`).
             const options: Intl.NumberFormatOptions = {
                 style: "unit",
-                unit: opts.unit.type,
+                unit: (opts.unit.type as string).replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase(),
             };
             const display = getSomeorUndefined(opts.display);
 

@@ -1,6 +1,7 @@
 {
   "name": "@elaraai/east-ui-showcase",
   "version": "0.0.1-beta.6",
+  "license": "AGPL-3.0-or-later",
   "private": true,
   "description": "Showcase and development app for East UI components",
   "type": "module",
@@ -32,6 +33,7 @@
     "eslint-plugin-react-hooks": "^5.0.0",
     "fast-glob": "^3.3.3",
     "highlight.js": "^11.10.0",
+    "playwright": "^1.49.0",
     "prettier": "^3.3.0",
     "tsx": "^4.19.2",
     "typescript": "~5.9.2",

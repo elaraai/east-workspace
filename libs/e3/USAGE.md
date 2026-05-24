@@ -62,16 +62,16 @@ e3 workspace create . dev
 e3 workspace deploy . dev hello@1.0.0
 
 # Execute the dataflow
-e3 start . dev
+e3 dataflow run . dev
 
 # Check the output
-e3 get . dev.tasks.greet.output
+e3 dataset get . dev.greet
 # Output: "Hello, World!"
 
 # Change the input and re-run
-e3 set . dev.inputs.name name.east  # file containing: "Alice"
-e3 start . dev
-e3 get . dev.tasks.greet.output
+e3 dataset set . dev.name name.east  # file containing: "Alice"
+e3 dataflow run . dev
+e3 dataset get . dev.greet
 # Output: "Hello, Alice!"
 ```
 
@@ -103,7 +103,7 @@ A computation that reads input datasets and produces an output dataset. Tasks ar
 
 ### Dataflow
 
-The DAG of tasks and their dependencies. When you run `e3 start`, tasks execute in dependency order. Cached results are reused when inputs haven't changed.
+The DAG of tasks and their dependencies. When you run `e3 dataflow run`, tasks execute in dependency order. Cached results are reused when inputs haven't changed.
 
 ### Content Addressing
 
@@ -118,7 +118,7 @@ All objects (IR, data, results) are stored by SHA256 hash. This enables:
 
 ### `e3.input(name, type, defaultValue?)`
 
-Defines an input dataset at `.inputs.${name}`.
+Defines an input dataset. CLI users address it as `<ws>.${name}`; the on-disk storage path is `<ws>/inputs/${name}` but you never have to type that — the resolver handles the mapping.
 
 ```typescript
 import { StringType, IntegerType, ArrayType } from '@elaraai/east';
@@ -244,68 +244,109 @@ e3 package remove <repo> <pkg>           # Remove a package
 ### Workspace Commands
 
 ```bash
-e3 workspace create <repo> <name>              # Create empty workspace
-e3 workspace deploy <repo> <ws> <pkg[@ver]>    # Deploy package to workspace
-e3 workspace export <repo> <ws> <zipPath>      # Export workspace as package
-e3 workspace import <repo> <ws> <zipPath>      # Import package zip into workspace
-e3 workspace list <repo>                       # List workspaces
-e3 workspace remove <repo> <ws>                # Remove workspace
-e3 workspace status <repo> <ws>                # Show workspace status (tasks, datasets)
+e3 workspace create <repo> <name>                            # Create empty workspace
+e3 workspace deploy <repo> <ws> <pkg>[@<ver>]                # Deploy a package
+e3 workspace deploy <repo> <ws> --from-zip <path.zip>        # Import + create + deploy in one shot
+e3 workspace export <repo> <ws> <zip>                        # Export workspace as a package
+e3 workspace list <repo>                                     # List workspaces
+e3 workspace remove <repo> <ws>                              # Remove workspace
+e3 workspace status <repo> <ws>                              # Detailed status (tasks, datasets, locks)
 ```
 
-### Data Commands
+### Dataset Commands
+
+Dataset paths use the flat form `<ws>.<name>`. The CLI resolves `<name>` against the workspace's inputs and task outputs automatically — no `.tasks.X.output` or `.inputs.X` ceremony.
 
 ```bash
-e3 list <repo> [path]                          # List tree contents
-e3 list <repo> <path> -r                       # All dataset paths recursively
-e3 list <repo> <path> -l                       # Immediate children with type/status/size
-e3 list <repo> <path> -r -l                    # All datasets with type/status/size
-e3 get <repo> <path> [-f east|json|beast2]     # Get dataset value
-e3 set <repo> <path> <file> [--type <spec>]    # Set dataset from file
+e3 dataset get <repo> <ws.name> [-f east|json|beast2]
+e3 dataset set <repo> <ws.name> <file> [--type <spec>] [--type-file <path>]
+e3 dataset list <repo> <ws> [-l]                 # List paths (with -l for type/status/size table)
+e3 dataset status <repo> <ws.name>               # Kind, type, status, size for one dataset
+e3 dataset find <repo> <ws> <pattern>            # Substring or glob (`*`, `?`) match
 ```
 
-Path format: `workspace.path.to.dataset`
+Examples:
 
 ```bash
-e3 get . dev.inputs.name           # Get input value
-e3 get . dev.tasks.greet.output    # Get task output
-e3 set . dev.inputs.name data.east # Set input from file
+e3 dataset get . dev.name             # Read an input
+e3 dataset get . dev.greet            # Read a task output
+e3 dataset set . dev.name data.east   # Set an input from a file
+e3 dataset find . dev '*output*'      # Find names matching a glob
 ```
 
-### Execution Commands
+The resolver gives `did you mean` suggestions on typos:
+
+```
+$ e3 dataset get . dev.gret
+Error: 'dev.gret' not found in workspace 'dev'. Did you mean:
+  dev.greet  (task-output)
+```
+
+`--type-file <path>` accepts a `.east` schema file in place of an inline `--type` string — handy when the type spec is too complex to escape on the shell.
+
+### Task Commands
 
 ```bash
-# Execute dataflow in workspace
-e3 start <repo> <ws> [--filter <pattern>] [--concurrency <n>] [--force]
-
-# Run a single task ad-hoc (outside workspace)
-e3 run <repo> <pkg/task> [inputs...] -o <output>
-
-# Watch and auto-deploy on changes
-e3 watch <repo> <ws> <source.ts> [--start] [--abort-on-change]
-
-# View task logs
-e3 logs <repo> <path> [--follow]
+e3 task list <repo> <ws>                         # Tasks in workspace with execution status
+e3 task logs <repo> <ws.task> [--follow]         # Stream a task's logs
 ```
 
-**Cancellation:** Running executions can be cancelled via the API using `dataflowCancel()` from `@elaraai/e3-api-client`, or by pressing Ctrl-C when using the CLI. In watch mode, use `--abort-on-change` to automatically cancel when files change.
-
-### Utility Commands
+### Dataflow Commands
 
 ```bash
-# Convert between formats
-e3 convert [input] [--from <fmt>] [--to <fmt>] [-o <output>] [--type <spec>]
+e3 dataflow run <repo> <ws> [--filter <pattern>] [--concurrency <n>] [--force]
 ```
+
+After a successful run, the CLI prints the resolved task output paths so you can read them straight away without having to walk the tree:
+
+```
+Summary: 2 executed, 0 cached
+Outputs:
+  dev.greet  String  14 B
+  dev.shout  String  16 B
+```
+
+### Ad-hoc Run
+
+```bash
+e3 run <repo> <pkg.task> <inputs...> -o <out>
+e3 run <repo> <pkg@1.0.0.task> <in.beast2> -o <out.beast2>
+```
+
+Task spec uses dots: `pkg.task` (or `pkg@version.task`). Slashes are no longer accepted.
+
+### Watch / Live Development
+
+```bash
+e3 watch <source.ts> <repo> <ws> [--start] [--abort-on-change]
+```
+
+The source file is the first argument — that's the thing you're editing, the rest is plumbing.
+
+**Cancellation:** Press Ctrl-C in a running `e3 dataflow run` to abort it. In watch mode, `--abort-on-change` cancels in-flight runs when files change.
+
+### Utilities
+
+```bash
+e3 convert [input] [--from <fmt>] [--to <fmt>] [-o <out>] [--type <spec>]
+e3 completion install            # Detect $SHELL and wire up tab completion
+e3 completion uninstall          # Undo
+e3 completion {bash|zsh|fish}    # Print the raw script if you'd rather install it yourself
+```
+
+`e3 completion install` is the recommended way — it edits the right rc file once, idempotently. After install, restart your shell (or `source ~/.bashrc` / `source ~/.zshrc`).
+
+Completion covers subcommands, flag names, format enums, workspace names, and dataset paths. Dynamic lookups go through a hidden `e3 __complete` handler.
 
 ### Authentication Commands
 
 For remote servers that require authentication:
 
 ```bash
-e3 login <server>                 # Log in using OAuth2 Device Flow
-e3 logout <server>                # Log out and clear credentials
-e3 auth status                    # List all saved credentials
-e3 auth token <server>            # Print access token (for curl/debugging)
+e3 auth login <server>            # OAuth2 device-flow login
+e3 auth logout <server>           # Clear saved credentials
+e3 auth status                    # List saved credentials
+e3 auth token <server>            # Print access token (curl integration)
 e3 auth whoami [server]           # Show current identity
 ```
 
@@ -436,10 +477,10 @@ deploy: import
 	e3 workspace create . $(WORKSPACE) || true
 	e3 workspace deploy . $(WORKSPACE) $(PACKAGE_NAME)@$(PACKAGE_VERSION)
 
-start: deploy
-	e3 start . $(WORKSPACE)
+run: deploy
+	e3 dataflow run . $(WORKSPACE)
 
-all: start
+all: run
 
 clean:
 	rm -rf dist /tmp/pkg.zip
@@ -454,7 +495,7 @@ clean:
 The fastest development workflow uses `e3 watch`:
 
 ```bash
-e3 watch . dev ./src/index.ts --start
+e3 watch ./src/index.ts . dev --start
 ```
 
 This:
@@ -467,7 +508,7 @@ This:
 Use `--abort-on-change` to cancel running executions when you save:
 
 ```bash
-e3 watch . dev ./src/index.ts --start --abort-on-change
+e3 watch ./src/index.ts . dev --start --abort-on-change
 ```
 
 ### Manual Workflow
@@ -476,16 +517,15 @@ e3 watch . dev ./src/index.ts --start --abort-on-change
 # Build and export
 npm run build && npm run main
 
-# Import and deploy
-e3 package import . /tmp/pkg.zip
-e3 workspace deploy . dev myapp@1.0.0
+# Deploy in one step
+e3 workspace deploy . dev --from-zip /tmp/pkg.zip
 
 # Run
-e3 start . dev
+e3 dataflow run . dev
 
 # Check results
 e3 workspace status . dev
-e3 get . dev.tasks.mytask.output
+e3 dataset get . dev.mytask
 ```
 
 ### Caching
@@ -497,7 +537,7 @@ Tasks are cached by content hash. A task only re-runs when:
 Changing one task doesn't invalidate unrelated tasks. Use `--force` to bypass cache:
 
 ```bash
-e3 start . dev --force
+e3 dataflow run . dev --force
 ```
 
 ---

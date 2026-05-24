@@ -145,7 +145,7 @@ jobs:
         run: pnpm --filter='@elaraai/east-node-io...' run build
 
       - name: Start test services
-        run: docker compose --profile services up -d --wait
+        run: docker compose -f docker/services/docker-compose.yml --profile services up -d --wait
 
       - name: Export test IR from east-node-io
         run: pnpm --filter=@elaraai/east-node-io run test:export
@@ -166,7 +166,7 @@ jobs:
 
       - name: Stop test services
         if: always()
-        run: docker compose --profile services down -v
+        run: docker compose -f docker/services/docker-compose.yml --profile services down -v
 
   test-east-py-datascience:
     name: Test east-py-datascience

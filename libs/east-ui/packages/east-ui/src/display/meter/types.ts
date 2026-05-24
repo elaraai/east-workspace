@@ -5,6 +5,7 @@
 
 import {
     type SubtypeExprOrValue,
+    BooleanType,
     FloatType,
     NullType,
     OptionType,
@@ -67,6 +68,7 @@ export const MeterStyleType = StructType({
     fillColor: OptionType(StringType),
     trackColor: OptionType(StringType),
     labelColor: OptionType(StringType),
+    showValue: OptionType(BooleanType),
 });
 
 /** Type alias for the Meter style struct. */
@@ -109,4 +111,6 @@ export interface MeterOptions {
     trackColor?: SubtypeExprOrValue<StringType>;
     /** Explicit label text colour override. */
     labelColor?: SubtypeExprOrValue<StringType>;
+    /** Whether to render the trailing mono percent. Default `true` (spec: never a bar alone). */
+    showValue?: SubtypeExprOrValue<BooleanType>;
 }

@@ -2,8 +2,8 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, StructType, VariantType, ArrayType, FloatType, IntegerType, DateTimeType, variant, example } from "@elaraai/east";
-import { Simulation, SimulationConfigType, SimulationTrajectoriesConfigType } from "@elaraai/east-py-datascience";
+import { East, StructType, VariantType, ArrayType, FloatType, IntegerType, DateTimeType, variant, none, example } from "@elaraai/east";
+import { Simulation, SimulationConfigType } from "@elaraai/east-py-datascience";
 
 // Production line state: WIP at each station, completed count
 const ProductionState = StructType({
@@ -113,8 +113,8 @@ export const simulationRun = example({
         ], ArrayType(ProductionScheduledEvent));
 
         const config = $.let({
-            max_events: variant("none", null),
-            end_date: variant("none", null),
+            max_events: none,
+            end_date: none,
         }, SimulationConfigType);
 
         const result = $.let(Simulation.run(
@@ -129,69 +129,3 @@ export const simulationRun = example({
     returns: 8n,
 });
 
-// Simple resources for trajectories example
-const InvState = StructType({ stock: IntegerType, orders_filled: IntegerType });
-const InvEvents = VariantType({
-    demand: IntegerType,
-    restock: IntegerType,
-});
-const InvScheduledEvent = StructType({ date: DateTimeType, event: InvEvents });
-const InvProcessResult = StructType({
-    state: InvState,
-    events: ArrayType(InvScheduledEvent),
-});
-
-export const simulationTrajectories = example({
-    keywords: ["simulation", "runTrajectories", "Monte Carlo", "inventory", "replenishment", "stochastic", "demand"],
-    description: "Run Monte Carlo trajectories of an inventory replenishment policy under deterministic demand",
-    fn: East.function([], IntegerType, ($) => {
-        // Inventory handler: demand decreases stock, restock increases it
-        const process = East.function(
-            [InvState, DateTimeType, InvEvents],
-            InvProcessResult,
-            ($, state, _date, event) => {
-                const emptyEvents = $.let([] as const, ArrayType(InvScheduledEvent));
-                return $.return(event.match({
-                    demand: ($, units) => ({
-                        state: {
-                            stock: state.stock.subtract(units),
-                            orders_filled: state.orders_filled.add(1n),
-                        },
-                        events: emptyEvents,
-                    }),
-                    restock: ($, units) => ({
-                        state: {
-                            stock: state.stock.add(units),
-                            orders_filled: state.orders_filled,
-                        },
-                        events: emptyEvents,
-                    }),
-                }));
-            }
-        );
-
-        const initial_state = $.let({ stock: 100n, orders_filled: 0n });
-        const initial_events = $.let([
-            { date: new Date("2025-01-01"), event: variant("demand", 20n) },
-            { date: new Date("2025-01-05"), event: variant("restock", 50n) },
-            { date: new Date("2025-01-10"), event: variant("demand", 30n) },
-        ], ArrayType(InvScheduledEvent));
-
-        const config = $.let({
-            trajectories: 5n,
-            seed: variant("some", 42n),
-            max_events: variant("none", null),
-            end_date: variant("none", null),
-        }, SimulationTrajectoriesConfigType);
-
-        const result = $.let(Simulation.runTrajectories(
-            [InvState, InvEvents],
-            initial_state, initial_events, process, config,
-        ));
-
-        // 5 trajectories run
-        return result.trajectories.length();
-    }),
-    inputs: [],
-    returns: 5n,
-});

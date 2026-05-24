@@ -1,0 +1,49 @@
+name: Test diagnostics
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "libs/east/**"
+      - "libs/east-diagnostics/**"
+      - "libs/eslint-plugin-east/**"
+      - "libs/east-claude-plugin/**"
+      - ".github/workflows/test-diagnostics.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "libs/east/**"
+      - "libs/east-diagnostics/**"
+      - "libs/eslint-plugin-east/**"
+      - "libs/east-claude-plugin/**"
+      - ".github/workflows/test-diagnostics.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      # `...` pulls in workspace dependencies (east, east-diagnostics) so the
+      # rule engine + its types are built before the consumers' tests run.
+      - name: Build packages
+        run: pnpm --filter='@elaraai/east-diagnostics...' --filter='@elaraai/eslint-plugin-east...' --filter='@elaraai/east-claude-plugin...' run build
+
+      - name: Run tests
+        run: pnpm --filter=@elaraai/east-diagnostics --filter=@elaraai/eslint-plugin-east --filter=@elaraai/east-claude-plugin run test

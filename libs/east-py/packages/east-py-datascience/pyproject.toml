@@ -98,7 +98,7 @@ dev = [
 ]
 
 [build-system]
-requires = ["scikit-build-core>=0.10", "cython>=3.0.0"]
+requires = ["scikit-build-core>=0.10", "cython>=3.0.0", "numpy>=1.26.0"]
 build-backend = "scikit_build_core.build"
 
 # scikit-build-core drives the build via CMakeLists.txt at this package's
@@ -110,10 +110,13 @@ build-backend = "scikit_build_core.build"
 cmake.version = ">=3.18"
 cmake.build-type = "Release"
 wheel.packages = ["src/east_py_datascience"]
-editable.rebuild = true
+# built once by `uv sync`, not at import time — see east-py/pyproject.toml.
+editable.rebuild = false
 editable.verbose = false
 build-dir = "build/{wheel_tag}"
-sdist.include = ["src/east_py_datascience/**/*.pxd", "src/east_py_datascience/**/*.pyx"]
+# _vendor/ holds east-c + east-py .pxd staged by scripts/vendor-native.py so
+# the sdist builds without the monorepo (PyPI install / cibuildwheel container).
+sdist.include = ["src/east_py_datascience/**/*.pxd", "src/east_py_datascience/**/*.pyx", "_vendor/**"]
 wheel.exclude = ["src/east_py_datascience/**/*.c"]
 
 [tool.pytest.ini_options]

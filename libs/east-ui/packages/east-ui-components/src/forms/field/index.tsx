@@ -4,7 +4,7 @@
  */
 
 import { memo, useMemo } from "react";
-import { Field as ChakraField, type FieldRootProps } from "@chakra-ui/react";
+import { Box, Field as ChakraField, type FieldRootProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Field } from "@elaraai/east-ui";
 import { getSomeorUndefined } from "../../utils";
@@ -41,10 +41,28 @@ export const EastChakraField = memo(function EastChakraField({ value, storageKey
     const props = useMemo(() => toChakraField(value), [value]);
     const helperText = useMemo(() => getSomeorUndefined(value.helperText), [value.helperText]);
     const errorText = useMemo(() => getSomeorUndefined(value.errorText), [value.errorText]);
+    const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
+    const schemaKey = useMemo(() => style ? getSomeorUndefined(style.schemaKey) : undefined, [style]);
 
     return (
         <ChakraField.Root {...props}>
-            <ChakraField.Label>{value.label}</ChakraField.Label>
+            <ChakraField.Label>
+                {value.label}
+                {schemaKey && (
+                    <Box
+                        as="span"
+                        ml="2"
+                        fontFamily="mono"
+                        fontSize="11px"
+                        fontWeight="500"
+                        letterSpacing="0"
+                        textTransform="none"
+                        color="fg.muted"
+                    >
+                        {schemaKey}
+                    </Box>
+                )}
+            </ChakraField.Label>
             <EastChakraComponent value={value.control} storageKey={`${storageKey}.control`} />
             {helperText && <ChakraField.HelperText>{helperText}</ChakraField.HelperText>}
             {errorText && <ChakraField.ErrorText>{errorText}</ChakraField.ErrorText>}

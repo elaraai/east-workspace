@@ -4,10 +4,17 @@
  */
 
 import { memo, useCallback, useMemo } from "react";
-import { Box, Flex, Text } from "@chakra-ui/react";
+import { Box, Flex, Text, useSlotRecipe } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { library, type IconName, type IconPrefix } from "@fortawesome/fontawesome-svg-core";
+import { fas } from "@fortawesome/free-solid-svg-icons";
+import { far } from "@fortawesome/free-regular-svg-icons";
+import { fab } from "@fortawesome/free-brands-svg-icons";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { NavList } from "@elaraai/east-ui";
 import { getSomeorUndefined } from "../../utils";
+
+library.add(fas, far, fab);
 
 const navListEqual = equalFor(NavList.Types.NavList);
 
@@ -18,22 +25,13 @@ export interface EastChakraNavListProps {
 }
 
 /**
- * Renders an East UI NavList — grouped section nav with optional
- * section labels, per-item icon and badge, active highlighting.
+ * Renders an East UI NavList as the bsys Sidebar recipe — mono uppercase
+ * rows, brand-tint active state with a 3 px brand-d left rule, paper-2
+ * card chrome.
  */
 export const EastChakraNavList = memo(function EastChakraNavList({ value }: EastChakraNavListProps) {
-    const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
-    const orientationTag = style ? getSomeorUndefined(style.orientation)?.type : undefined;
-    const isHorizontal = orientationTag === "horizontal";
-
-    const sectionLabelColor = style ? getSomeorUndefined(style.sectionLabelColor) : undefined;
-    const itemColor = style ? getSomeorUndefined(style.itemColor) : undefined;
-    const itemHoverBackground = style ? getSomeorUndefined(style.itemHoverBackground) : undefined;
-    const activeColor = style ? getSomeorUndefined(style.activeColor) : undefined;
-    const activeBackground = style ? getSomeorUndefined(style.activeBackground) : undefined;
-    const activeIndicatorColor = style ? getSomeorUndefined(style.activeIndicatorColor) : undefined;
-    const badgeBackground = style ? getSomeorUndefined(style.badgeBackground) : undefined;
-    const badgeColor = style ? getSomeorUndefined(style.badgeColor) : undefined;
+    const recipe = useSlotRecipe({ key: "navList" });
+    const styles = recipe();
 
     const onSelectFn = useMemo(() => getSomeorUndefined(value.onSelect), [value.onSelect]);
 
@@ -54,95 +52,35 @@ export const EastChakraNavList = memo(function EastChakraNavList({ value }: East
                 as="button"
                 role="button"
                 onClick={() => handleSelect(item.key)}
-                align="center"
-                gap="2"
-                px="3"
-                py="2"
-                width={isHorizontal ? "auto" : "full"}
-                borderRadius="sm"
-                bg={active ? (activeBackground ?? "bg.subtle") : "transparent"}
-                color={active ? activeColor : itemColor}
-                fontSize="sm"
-                fontWeight={active ? "medium" : "normal"}
-                cursor="pointer"
-                position="relative"
-                transition="background 120ms ease"
-                _hover={{ bg: active ? (activeBackground ?? "bg.subtle") : (itemHoverBackground ?? "bg.subtle") }}
+                css={styles.item}
                 aria-current={active ? "page" : undefined}
             >
-                {active && activeIndicatorColor && !isHorizontal && (
-                    <Box
-                        position="absolute"
-                        left="0"
-                        top="1"
-                        bottom="1"
-                        width="2px"
-                        bg={activeIndicatorColor}
-                        borderRadius="sm"
-                    />
-                )}
                 {icon && (
-                    <Box as="span" display="inline-flex" alignItems="center" justifyContent="center" width="4" height="4">
-                        <i className={`${icon.prefix} fa-${icon.name}`} />
+                    <Box as="span" css={styles.itemIcon}>
+                        <FontAwesomeIcon icon={[icon.prefix as IconPrefix, icon.name as IconName]} />
                     </Box>
                 )}
-                <Text flex="1" textAlign="left" lineClamp={1}>{item.label}</Text>
+                <Text as="span" css={styles.itemText}>{item.label}</Text>
                 {badge && (
-                    <Box
-                        as="span"
-                        bg={badgeBackground ?? "bg.muted"}
-                        color={badgeColor ?? "fg.muted"}
-                        fontSize="xs"
-                        fontWeight="medium"
-                        borderRadius="full"
-                        px="2"
-                        py="0.5"
-                        minWidth="5"
-                        textAlign="center"
-                    >
-                        {badge}
-                    </Box>
+                    <Box as="span" css={styles.badge}>{badge}</Box>
                 )}
             </Flex>
         );
     };
 
-    const Container = isHorizontal ? Flex : Box;
-    const containerProps = isHorizontal
-        ? { gap: "1" as const, flexWrap: "wrap" as const }
-        : {};
-
     return (
-        <Container {...containerProps} role="navigation" width={isHorizontal ? "auto" : "full"}>
+        <Box css={styles.root} role="navigation">
             {value.sections.map((section, sectionIdx) => {
                 const label = getSomeorUndefined(section.label);
                 return (
-                    <Box key={`${label ?? "_"}-${sectionIdx}`} mb={isHorizontal ? "0" : "3"}>
-                        {label && !isHorizontal && (
-                            <Text
-                                fontSize="xs"
-                                fontWeight="medium"
-                                color={sectionLabelColor ?? "fg.muted"}
-                                px="3"
-                                py="1"
-                                textTransform="uppercase"
-                                letterSpacing="wide"
-                            >
-                                {label}
-                            </Text>
+                    <Box key={`${label ?? "_"}-${sectionIdx}`} css={styles.group}>
+                        {label && (
+                            <Text as="div" css={styles.groupLabel}>{label}</Text>
                         )}
-                        {isHorizontal ? (
-                            <Flex gap="1" flexWrap="wrap">
-                                {section.items.map(renderItem)}
-                            </Flex>
-                        ) : (
-                            <Box>
-                                {section.items.map(renderItem)}
-                            </Box>
-                        )}
+                        {section.items.map(renderItem)}
                     </Box>
                 );
             })}
-        </Container>
+        </Box>
     );
 }, (prev, next) => navListEqual(prev.value, next.value));

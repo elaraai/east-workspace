@@ -1,0 +1,4 @@
+# Plugin runtime artifacts: committed (the marketplace copies them as-is, no
+# install-time build) but generated — keep them out of diffs and language stats.
+libs/east-claude-plugin/.build/**     linguist-generated=true -diff
+libs/east-claude-plugin/index.json    linguist-generated=true -diff

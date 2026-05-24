@@ -44,7 +44,6 @@ export { CodeBlockType, CodeBlockVisualStyleType, type CodeBlockStyle } from "./
 export { Numeric } from "./numeric/index.js";
 export {
     NumericType,
-    NumericFormatType,
     NumericSentimentType,
     NumericVisualStyleType,
     type NumericStyle,

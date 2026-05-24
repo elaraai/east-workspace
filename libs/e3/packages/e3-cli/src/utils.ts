@@ -8,10 +8,40 @@
  */
 
 import { resolve } from 'path';
+
+/** Character width used when truncating object hashes for display. */
+export const HASH_DISPLAY_WIDTH = 12;
+
+/** Truncate a hash to `HASH_DISPLAY_WIDTH` chars with a trailing ellipsis. */
+export function shortHash(hash: string): string {
+  return `${hash.slice(0, HASH_DISPLAY_WIDTH)}...`;
+}
+
 import { repoGet } from '@elaraai/e3-core';
 import { parseDatasetPath, parsePackageRef } from '@elaraai/e3-types';
 import { ApiError } from '@elaraai/e3-api-client';
 import { getValidToken } from './credentials.js';
+
+/**
+ * Resolve the `<repo>` positional argument with fallback to `E3_REPO` env var
+ * then `.` (cwd). Used by every command that accepts a repository argument so
+ * users in a current directory can drop the leading `.`.
+ */
+export function defaultRepoArg(arg: string | undefined): string {
+  if (arg && arg.length > 0) return arg;
+  return process.env.E3_REPO ?? '.';
+}
+
+/**
+ * Wrap a command handler whose first parameter is `<repo>` so that the
+ * Commander action callback can pass `string | undefined` and the handler
+ * still sees a fully-resolved repo string.
+ */
+export function withDefaultRepo<A extends unknown[]>(
+  handler: (repo: string, ...args: A) => void | Promise<void>,
+) {
+  return (repo: string | undefined, ...args: A) => handler(defaultRepoArg(repo), ...args);
+}
 
 // Re-export for convenience
 export { parseDatasetPath, parsePackageRef };

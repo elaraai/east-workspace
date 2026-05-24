@@ -1090,7 +1090,7 @@ await describe("Array", (test) => {
 
     test("encodeCsv - optional field some", $ => {
         const T = StructType({ value: VariantType({ none: NullType, some: StringType }) });
-        const arr = $.let([{ value: variant("some", "hello") }], ArrayType(T));
+        const arr = $.let([{ value: some("hello") }], ArrayType(T));
 
         const result = $.let(arr.encodeCsv());
 
@@ -1099,7 +1099,7 @@ await describe("Array", (test) => {
 
     test("encodeCsv - optional field none", $ => {
         const T = StructType({ value: VariantType({ none: NullType, some: StringType }) });
-        const arr = $.let([{ value: variant("none", null) }], ArrayType(T));
+        const arr = $.let([{ value: none }], ArrayType(T));
 
         const result = $.let(arr.encodeCsv());
 
@@ -1162,7 +1162,7 @@ await describe("Array", (test) => {
 
     test("encodeCsv - custom null string", $ => {
         const T = StructType({ value: VariantType({ none: NullType, some: StringType }) });
-        const arr = $.let([{ value: variant("none", null) }], ArrayType(T));
+        const arr = $.let([{ value: none }], ArrayType(T));
 
         const result = $.let(arr.encodeCsv({ nullString: "NULL" }));
 
@@ -1207,8 +1207,8 @@ await describe("Array", (test) => {
     test("CSV round-trip - optional fields", $ => {
         const T = StructType({ name: StringType, nickname: VariantType({ none: NullType, some: StringType }) });
         const original = $.let([
-            { name: "Alice", nickname: variant("some", "Ali") },
-            { name: "Bob", nickname: variant("none", null) },
+            { name: "Alice", nickname: some("Ali") },
+            { name: "Bob", nickname: none },
         ], ArrayType(T));
 
         const encoded = $.let(original.encodeCsv());

@@ -30,7 +30,7 @@ export function toChakraAvatar(value: AvatarValue): AvatarRootProps {
 
     return {
         size: getSomeorUndefined(style.size)?.type,
-        variant: getSomeorUndefined(style.variant)?.type,
+        variant: getSomeorUndefined(style.variant)?.type as AvatarRootProps["variant"] | undefined,
         colorPalette: getSomeorUndefined(style.colorPalette)?.type,
         opacity: getSomeorUndefined(style.opacity),
         borderRadius: getSomeorUndefined(style.borderRadius),

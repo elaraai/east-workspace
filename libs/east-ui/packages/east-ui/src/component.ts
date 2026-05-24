@@ -79,11 +79,9 @@ import { TagsInputRootType } from "./forms/tags-input/types.js";
 
 // Feedback
 import { ProgressType } from "./feedback/progress/types.js";
-import { ProgressCircleType } from "./feedback/progress-circle/types.js";
-import { AlertStatusType, AlertStyleType } from "./feedback/alert/types.js";
+import { BannerStatusType } from "./feedback/banner/status-type.js";
 import { BannerStyleType } from "./feedback/banner/types.js";
 import { EmptyStateStyleType } from "./feedback/empty-state/types.js";
-import { SpinnerType } from "./feedback/spinner/types.js";
 import { SkeletonType } from "./feedback/skeleton/types.js";
 import { StatusValueType, StatusStyleType } from "./feedback/status/types.js";
 
@@ -106,6 +104,16 @@ import { StatusTokenType } from "./style/interaction.js";
 import { CardStyleType } from "./container/card/types.js";
 import { StateValueType } from "./contracts/states.js";
 import { StatIndicatorType, StatStyleType } from "./display/stat/types.js";
+import { TickFormatType } from "./charts/types.js";
+import { SliceSummaryType } from "./slice/summary/types.js";
+import { SliceRangePickerType } from "./slice/range/types.js";
+import { SliceFilterType } from "./slice/filter/types.js";
+import { SliceLegendType } from "./slice/legend/types.js";
+import { SliceBreakdownPickerType } from "./slice/breakdown/types.js";
+import { SliceSearchType } from "./slice/search/types.js";
+import { SliceCohortPickerType } from "./slice/cohort/types.js";
+import { SliceBindType } from "./platform/slice/index.js";
+import { SliceAffordanceType } from "./contracts/slice-affordances.js";
 import { IconType } from "./display/icon/types.js";
 
 // Collections
@@ -164,6 +172,7 @@ import { ScatterChartType } from "./charts/scatter/types.js";
 import { PieChartType } from "./charts/pie/types.js";
 import { RadarChartType } from "./charts/radar/types.js";
 import { ComposedChartType } from "./charts/composed/types.js";
+import { ChartSpecType } from "./charts/spec/index.js";
 
 // Disclosure
 import { AccordionStyleType } from "./disclosure/accordion/types.js";
@@ -172,8 +181,6 @@ import { TabsStyleType } from "./disclosure/tabs/types.js";
 import { SegmentGroupStyleType } from "./disclosure/segment-group/types.js";
 import { CollapsibleStyleType } from "./disclosure/collapsible/types.js";
 import { DisclosureStyleType } from "./disclosure/show-more/types.js";
-import { StepsStyleType, StepStatusType } from "./disclosure/steps/types.js";
-import { TimelineStyleType } from "./disclosure/timeline/types.js";
 import { OptionListStyleType } from "./disclosure/option-list/types.js";
 
 // Overlays
@@ -186,7 +193,6 @@ import { PopoverStyleType } from "./overlays/popover/types.js";
 import { HoverCardStyleType } from "./overlays/hover-card/types.js";
 import { ActionBarItemType, ActionBarStyleType } from "./overlays/action-bar/types.js";
 import { ToggleTipStyleType } from "./overlays/toggle-tip/types.js";
-import { CoachMarkStyleType } from "./overlays/coach-mark/types.js";
 import { CommandPaletteType } from "./overlays/command-palette/types.js";
 import { HotkeyType } from "./platform/hotkey/index.js";
 
@@ -222,7 +228,6 @@ import { HotkeyType } from "./platform/hotkey/index.js";
  * @property Slider - Slider component for numeric range selection (leaf)
  * @property Field - Field component for form control wrappers (container with control)
  * @property Progress - Progress component for showing completion (leaf)
- * @property Alert - Alert component for feedback messages (leaf)
  * @property Badge - Badge component for labels and counts (leaf)
  * @property Tag - Tag component for categorization (leaf)
  * @property Avatar - Avatar component for user images (leaf)
@@ -413,29 +418,14 @@ export const UIComponentType = RecursiveType(node => VariantType({
 
     // Feedback
     Progress: ProgressType,
-    ProgressCircle: ProgressCircleType,
-
-    /**
-     * Alert — semantic feedback surface with rich content + paired icon.
-     */
-    Alert: StructType({
-        status: AlertStatusType,
-        title: OptionType(node),
-        description: OptionType(node),
-        body: OptionType(ArrayType(node)),
-        actions: OptionType(node),
-        icon: OptionType(IconType),
-        closable: OptionType(BooleanType),
-        showIcon: OptionType(BooleanType),
-        onClose: OptionType(FunctionType([], NullType)),
-        style: OptionType(AlertStyleType),
-    }),
 
     /**
      * Banner — full-width page-level feedback surface with paired icon.
+     * Covers all in-flow status callouts; replaces the deleted Alert + Toast
+     * primitives (bsys spec collapses them into one).
      */
     Banner: StructType({
-        status: AlertStatusType,
+        status: BannerStatusType,
         title: node,
         description: OptionType(node),
         actions: OptionType(node),
@@ -446,7 +436,6 @@ export const UIComponentType = RecursiveType(node => VariantType({
         style: OptionType(BannerStyleType),
     }),
 
-    Spinner: SpinnerType,
     Skeleton: SkeletonType,
 
     /**
@@ -466,6 +455,7 @@ export const UIComponentType = RecursiveType(node => VariantType({
      */
     EmptyState: StructType({
         icon: OptionType(IconType),
+        glyph: OptionType(StringType),
         title: node,
         description: OptionType(node),
         actions: OptionType(node),
@@ -482,7 +472,8 @@ export const UIComponentType = RecursiveType(node => VariantType({
     Avatar: AvatarType,
     Stat: StructType({
         label: StringType,
-        value: node,
+        value: LiteralValueType,
+        format: OptionType(TickFormatType),
         helpText: OptionType(StringType),
         baseline: OptionType(node),
         delta: OptionType(node),
@@ -533,6 +524,34 @@ export const UIComponentType = RecursiveType(node => VariantType({
         style: OptionType(BarStripStyleType),
     }),
     AvatarGroup: AvatarGroupType,
+
+    // Slice — typed-narrowing UI family (bound to the Slice platform)
+    SliceSummary: SliceSummaryType,
+    SliceRange: SliceRangePickerType,
+    SliceFilter: SliceFilterType,
+    SliceLegend: SliceLegendType,
+    SliceBreakdown: SliceBreakdownPickerType,
+    SliceSearch: SliceSearchType,
+    SliceCohort: SliceCohortPickerType,
+    /**
+     * SliceFrame — the container that houses a slice consumer. Three zones:
+     * a one-row eyebrow (compact affordances left, `meta` right), an unpadded
+     * `body` (the consumer visual — Table / Chart / Stat / anything), and a
+     * `footer` (`derived` count by default, a `custom` node, or `hidden`). The
+     * author lists which affordances the eyebrow mounts via `affordances`; the
+     * renderer places each by kind (`filter`/`breakdown`/`cohort` left,
+     * `search`/`range` right) in the given order. An empty `affordances` array
+     * renders no eyebrow (the Embed case).
+     */
+    SliceFrame: StructType({
+        slice: SliceBindType,
+        body: node,
+        affordances: ArrayType(SliceAffordanceType),
+        meta: OptionType(node),
+        footer: VariantType({ derived: NullType, hidden: NullType, custom: node }),
+        collapsible: BooleanType,
+        defaultCollapsed: BooleanType,
+    }),
 
     // Container
     Card: StructType({
@@ -593,6 +612,8 @@ export const UIComponentType = RecursiveType(node => VariantType({
     PieChart: PieChartType,
     RadarChart: RadarChartType,
     ComposedChart: ComposedChartType,
+    /** visx-primitive chart tree (recursive ChartSpec). Backs `Slice.Chart.*`. */
+    VisxChart: ChartSpecType,
 
     TreeView: StructType({
         nodes: ArrayType(RecursiveType(inner => VariantType({
@@ -800,7 +821,8 @@ export const UIComponentType = RecursiveType(node => VariantType({
     Accordion: StructType({
         items: ArrayType(StructType({
             value: StringType,
-            trigger: node,
+            title: StringType,
+            meta: OptionType(StringType),
             content: ArrayType(node),
             disabled: OptionType(BooleanType),
         })),
@@ -897,37 +919,6 @@ export const UIComponentType = RecursiveType(node => VariantType({
     }),
 
     /**
-     * Steps — ordered process indicator with per-step status. `title` /
-     * `description` on items are UIComp. Reuses `StepStatusType` with
-     * Timeline.
-     */
-    Steps: StructType({
-        items: ArrayType(StructType({
-            title: node,
-            description: OptionType(node),
-            icon: OptionType(IconType),
-            status: StepStatusType,
-        })),
-        activeIndex: OptionType(IntegerType),
-        style: OptionType(StepsStyleType),
-    }),
-
-    /**
-     * Timeline — ordered list of time-stamped events. Reuses StepStatusType.
-     */
-    Timeline: StructType({
-        items: ArrayType(StructType({
-            title: node,
-            timestamp: OptionType(DateTimeType),
-            description: OptionType(node),
-            indicator: OptionType(IconType),
-            badgeLabel: OptionType(StringType),
-            status: StepStatusType,
-        })),
-        style: OptionType(TimelineStyleType),
-    }),
-
-    /**
      * OptionList — keyboard-navigable list of selectable options.
      */
     OptionList: StructType({
@@ -959,6 +950,7 @@ export const UIComponentType = RecursiveType(node => VariantType({
     Dialog: StructType({
         trigger: node,
         body: ArrayType(node),
+        eyebrow: OptionType(StringType),
         title: OptionType(StringType),
         description: OptionType(StringType),
         style: OptionType(DialogStyleType),
@@ -999,20 +991,6 @@ export const UIComponentType = RecursiveType(node => VariantType({
         style: OptionType(ToggleTipStyleType),
     }),
 
-    /**
-     * CoachMark — single one-shot inline hint that wraps a target child
-     * and anchors a popover to it. `target` is the wrapped UIComponent
-     * the popover points at.
-     */
-    CoachMark: StructType({
-        target: node,
-        title: StringType,
-        body: StringType,
-        showOnce: OptionType(StringType),
-        dismissible: OptionType(BooleanType),
-        onDismiss: OptionType(FunctionType([], NullType)),
-        style: OptionType(CoachMarkStyleType),
-    }),
     CommandPalette: CommandPaletteType,
     Hotkey: HotkeyType,
 

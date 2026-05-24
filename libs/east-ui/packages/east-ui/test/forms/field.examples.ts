@@ -13,12 +13,22 @@ export const fieldBasic = example({
             Field.StringInput(
                 "Email",
                 "",
-                { helperText: "We'll never share your email.", placeholder: "you@example.com" }
+                {
+                    schemaKey: "user.email",
+                    helperText: "We'll never share your email.",
+                    placeholder: "you@example.com",
+                }
             ),
             Field.StringInput(
                 "Password",
                 "",
-                { required: true, errorText: "Password is required", invalid: true, placeholder: "Enter password" }
+                {
+                    schemaKey: "user.password",
+                    required: true,
+                    errorText: "Password is required",
+                    invalid: true,
+                    placeholder: "Enter password",
+                }
             ),
         ], { gap: "4", align: "stretch", width: "100%" });
     }),
@@ -37,6 +47,7 @@ export const fieldInteractive = example({
             }));
             return Stack.VStack([
                 Field.StringInput("Email", value, {
+                    schemaKey: "user.email",
                     helperText: "Type to update the bound state",
                     placeholder: "you@example.com",
                     onChange,

@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { East, ArrayType, NullType, StringType, example } from "@elaraai/east";
-import { Accordion, Badge, Box, Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui";
+import { Accordion, Box, Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const accordionBasic = example({
     keywords: ["Accordion", "Root", "Item", "basic", "collapsible"],
@@ -69,9 +69,9 @@ export const accordionCollapsible = example({
     inputs: [],
 });
 
-export const accordionEnclosed = example({
-    keywords: ["Accordion", "Root", "Item", "variant", "enclosed", "bordered"],
-    description: "Bordered accordion style",
+export const accordionFaq = example({
+    keywords: ["Accordion", "Root", "Item", "faq", "settings"],
+    description: "Profile settings — three collapsible sections",
     fn: East.function([], UIComponentType, (_$) => {
         return Box.Root([
             Accordion.Root([
@@ -86,49 +86,6 @@ export const accordionEnclosed = example({
                 ]),
             ], {
                 collapsible: true,
-                style: { variant: "enclosed" },
-            }),
-        ], { width: "100%" });
-    }),
-    inputs: [],
-});
-
-export const accordionSubtle = example({
-    keywords: ["Accordion", "Root", "Item", "variant", "subtle"],
-    description: "Light background styling",
-    fn: East.function([], UIComponentType, (_$) => {
-        return Box.Root([
-            Accordion.Root([
-                Accordion.Item("faq-1", "How do I reset my password?", [
-                    Box.Root([Text.Root("Click on 'Forgot Password' on the login page and follow the instructions sent to your email.")], { padding: "4" }),
-                ]),
-                Accordion.Item("faq-2", "Can I change my username?", [
-                    Box.Root([Text.Root("Yes, go to Settings > Profile > Edit Username.")], { padding: "4" }),
-                ]),
-            ], {
-                collapsible: true,
-                style: { variant: "subtle" },
-            }),
-        ], { width: "100%" });
-    }),
-    inputs: [],
-});
-
-export const accordionPlain = example({
-    keywords: ["Accordion", "Root", "Item", "variant", "plain"],
-    description: "No visible borders",
-    fn: East.function([], UIComponentType, (_$) => {
-        return Box.Root([
-            Accordion.Root([
-                Accordion.Item("topic-1", "Getting Started", [
-                    Box.Root([Text.Root("Learn the basics of using our platform.")], { padding: "4" }),
-                ]),
-                Accordion.Item("topic-2", "Advanced Features", [
-                    Box.Root([Text.Root("Explore powerful features for advanced users.")], { padding: "4" }),
-                ]),
-            ], {
-                collapsible: true,
-                style: { variant: "plain" },
             }),
         ], { width: "100%" });
     }),
@@ -141,7 +98,7 @@ export const accordionInteractive = example({
     fn: East.function([], UIComponentType, (_$) => {
         return Reactive.Root(East.function([], UIComponentType, $ => {
             const expandedBind = $.let(State.bind([ArrayType(StringType)], "accordion_expanded", []));
-            const expanded = $.let(expandedBind.read());
+            const expanded = $.let(expandedBind.read(), ArrayType(StringType));
 
             const onValueChange = $.const(East.function(
                 [ArrayType(StringType)],
@@ -167,14 +124,9 @@ export const accordionInteractive = example({
                         multiple: true,
                         collapsible: true,
                         onValueChange,
-                        style: { variant: "enclosed" },
                     }),
                 ], { width: "100%" }),
-                Badge.Root(
-                    East.str`Expanded: ${expanded.size()}`,
-                    { colorPalette: "green", variant: "solid" }
-                ),
-                Text.Root(East.str`Sections expanded: ${expanded.size()}`),
+                Text.Presets.Eyebrow(East.str`EXPANDED · ${expanded.size()}`),
             ], { gap: "3", align: "stretch" });
         }));
     }),
@@ -182,41 +134,30 @@ export const accordionInteractive = example({
 });
 
 // -----------------------------------------------------------------------------
-// Plan 1.9 new examples
+// Rich-trigger examples — bsys grammar: status = dot + word, counts = mono numeral
 // -----------------------------------------------------------------------------
 
 export const accordionGridTrigger = example({
-    keywords: ["Accordion", "Root", "Item", "trigger", "rich", "Stack", "mockup"],
-    description: "Rich HStack accordion trigger with status dot, metric, and badge (shift-optimiser mockup)",
+    keywords: ["Accordion", "Root", "Item", "title", "meta", "count"],
+    description: "Accordion headers with title + trailing meta count (shift-optimiser mockup)",
     fn: East.function([], UIComponentType, (_$) => {
         return Box.Root([
             Accordion.Root([
                 Accordion.Item(
                     "red-vintage",
-                    Stack.HStack([
-                        Text.Root("🔴"),
-                        Text.Root("Red Vintage", { fontWeight: "semibold" }),
-                        Text.Root("3,200 kg", { color: "fg.muted" }),
-                        Text.Root("17–23 Mar", { color: "fg.muted" }),
-                        Badge.Root("On track", { colorPalette: "green", variant: "subtle" }),
-                    ], { gap: "3", align: "center" }),
+                    "Red Vintage",
                     [Box.Root([Text.Root("Detail panel — per-block schedule, assumptions, guardrails.")], { padding: "4" })],
+                    { meta: "3,200 kg · 17–23 Mar" },
                 ),
                 Accordion.Item(
                     "white-sauv",
-                    Stack.HStack([
-                        Text.Root("⚪"),
-                        Text.Root("White Sauvignon", { fontWeight: "semibold" }),
-                        Text.Root("1,800 kg", { color: "fg.muted" }),
-                        Text.Root("17–23 Mar", { color: "fg.muted" }),
-                        Badge.Root("Watching", { colorPalette: "yellow", variant: "subtle" }),
-                    ], { gap: "3", align: "center" }),
+                    "White Sauvignon",
                     [Box.Root([Text.Root("White Sauv detail panel.")], { padding: "4" })],
+                    { meta: "1,800 kg · 17–23 Mar" },
                 ),
             ], {
                 multiple: true,
                 collapsible: true,
-                style: { variant: "enclosed" },
             }),
         ], { width: "100%" });
     }),
@@ -224,46 +165,39 @@ export const accordionGridTrigger = example({
 });
 
 export const accordionReactiveMulti = example({
-    keywords: ["Accordion", "Root", "Reactive", "State", "multiple", "controlled"],
-    description: "Reactive multi-open accordion with a live counter badge on the trigger",
+    keywords: ["Accordion", "Root", "Reactive", "State", "multiple", "controlled", "count"],
+    description: "Reactive multi-open accordion with mono-numeral counts on each trigger",
     fn: East.function([], UIComponentType, (_$) => {
         return Reactive.Root(East.function([], UIComponentType, $ => {
             const bind = $.let(State.bind([ArrayType(StringType)], "accordion_reactive_multi", []));
-            const expanded = $.let(bind.read());
+            const expanded = $.let(bind.read(), ArrayType(StringType));
             const onValueChange = $.const(East.function([ArrayType(StringType)], NullType, ($, next) => {
                 $(bind.write(next));
             }));
             return Accordion.Root([
                 Accordion.Item(
                     "recipe",
-                    Stack.HStack([
-                        Text.Root("Recipe"),
-                        Badge.Root("12 inputs", { colorPalette: "blue", variant: "subtle" }),
-                    ], { gap: "2", align: "center" }),
+                    "Recipe",
                     [Box.Root([Text.Root("Recipe detail")], { padding: "4" })],
+                    { meta: "12 inputs" },
                 ),
                 Accordion.Item(
                     "schedule",
-                    Stack.HStack([
-                        Text.Root("Schedule"),
-                        Badge.Root("3 conflicts", { colorPalette: "orange", variant: "subtle" }),
-                    ], { gap: "2", align: "center" }),
+                    "Schedule",
                     [Box.Root([Text.Root("Schedule detail")], { padding: "4" })],
+                    { meta: "3 conflicts" },
                 ),
                 Accordion.Item(
                     "cost",
-                    Stack.HStack([
-                        Text.Root("Cost"),
-                        Badge.Root(East.str`${expanded.size()} open`, { colorPalette: "green", variant: "subtle" }),
-                    ], { gap: "2", align: "center" }),
+                    "Cost",
                     [Box.Root([Text.Root("Cost detail")], { padding: "4" })],
+                    { meta: East.str`${East.print(expanded.size())} open` },
                 ),
             ], {
                 multiple: true,
                 collapsible: true,
                 value: expanded,
                 onValueChange,
-                style: { variant: "enclosed" },
             });
         }));
     }),

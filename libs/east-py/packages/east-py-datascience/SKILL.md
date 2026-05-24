@@ -134,8 +134,7 @@ Task → What do you need?
     │   └─ Diagnostics → .diagnostics(), .posteriorPredictiveCheck()
     │
     ├─ Simulation (economic ontology simulation via DES)
-    │   ├─ Single run → .run([R, E], initialState, initialEvents, process, config)
-    │   └─ Monte Carlo → .runTrajectories([R, E], initialState, initialEvents, process, config)
+    │   └─ Single run → .run([R, E], initialState, initialEvents, process, config)
     │
     └─ Shap (model explainability)
         ├─ Create → .treeExplainerCreate() (XGBoost only), .kernelExplainerCreate() (any model)
@@ -151,11 +150,6 @@ Task → What do you need?
 | `MatrixType` | `ArrayType(ArrayType(FloatType))` | 2D array of floats (e.g., `[[1.0, 2.0], [3.0, 4.0]]`) |
 | `LabelVectorType` | `ArrayType(IntegerType)` | Class labels as integers (e.g., `[0n, 1n, 0n, 2n]`) |
 | `ModelBlobType` | `BlobType` | Serialized model (opaque, pass to predict functions) |
-
-## Reference Documentation
-
-- **[API Reference](./reference/api.md)** - Complete function signatures, types, and config options
-- **[Examples](./reference/examples.md)** - Working code examples by use case
 
 ## Available Modules
 
@@ -178,7 +172,7 @@ Task → What do you need?
 | Optimization | `import { Optimization } from "@elaraai/east-py-datascience"` | Iterative coordinate descent optimization |
 | GoogleOr | `import { GoogleOr } from "@elaraai/east-py-datascience"` | OR-Tools: CP-SAT, routing, LP/MIP, graph algorithms |
 | PyMC | `import { PyMC } from "@elaraai/east-py-datascience"` | Bayesian regression, hierarchical models, multi-layer estimation |
-| Simulation | `import { Simulation } from "@elaraai/east-py-datascience"` | Economic ontology simulation via DES (single run, Monte Carlo trajectories) |
+| Simulation | `import { Simulation } from "@elaraai/east-py-datascience"` | Economic ontology simulation via DES |
 
 ## Accessing Types
 

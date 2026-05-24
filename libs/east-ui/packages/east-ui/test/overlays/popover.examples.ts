@@ -23,7 +23,7 @@ export const popoverChart = example({
     description: "Rich content with area chart",
     fn: East.function([], UIComponentType, (_$) => {
         return Popover.Root(
-            Button.Root("View Stats", { style: { variant: "solid", colorPalette: "blue" } }),
+            Button.Root("View Stats", { style: { variant: "solid" } }),
             [
                 Chart.Area(
                     [
@@ -34,7 +34,7 @@ export const popoverChart = example({
                         { day: "Fri", value: 200 },
                     ],
                     {
-                        value: { color: "blue.solid" },
+                        value: { color: "brand.500" },
                     },
                     {
                         xAxis: { dataKey: "day" },
@@ -70,8 +70,8 @@ export const popoverInteractive = example({
                         onOpenChange,
                     },
                 ),
-                Text.Root(East.str`Toggled ${East.print(value)} times`),
-            ], { gap: "3", align: "stretch" });
+                Text.Presets.MonoLabel(East.str`TOGGLED · ${East.print(value)}`),
+            ], { gap: "3", align: "flex-start" });
         }));
     }),
     inputs: [],

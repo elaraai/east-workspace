@@ -35,7 +35,9 @@ export const EastChakraAvatarGroup = memo(function EastChakraAvatarGroup({ value
     const overflowCount = avatars.length - visibleCount;
 
     return (
-        <ChakraAvatarGroup size={size} borderColor={borderColor}>
+        // `spaceX` overrides Chakra's hardcoded -3 (-12px) overlap, which crushes
+        // small (22px) avatars to slivers; -1.5 (-6px) reads as a clean stack.
+        <ChakraAvatarGroup size={size ?? "xs"} spaceX="-1.5" borderColor={borderColor ?? "bg.surface"}>
             {avatars.slice(0, visibleCount).map((av: typeof avatars[number], i: number) => {
                 const props = toChakraAvatar(av);
                 const src = getSomeorUndefined(av.src);

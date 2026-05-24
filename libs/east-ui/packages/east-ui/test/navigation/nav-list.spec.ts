@@ -13,9 +13,7 @@ describeEast("NavList", (test) => {
         navListBasic: ex.navListBasic,
         navListGrouped: ex.navListGrouped,
         navListWithIcons: ex.navListWithIcons,
-        navListHorizontal: ex.navListHorizontal,
         navListReactive: ex.navListReactive,
-        navListColours: ex.navListColours,
     });
 
     test("sections array round-trips", $ => {
@@ -72,26 +70,8 @@ describeEast("NavList", (test) => {
         $(Assert.equal(r.unwrap().unwrap("NavList").onSelect.hasTag("some"), true));
     });
 
-    test("orientation + colour overrides round-trip via style", $ => {
-        const r = $.let(NavList.Root([{ items: [{ key: "x", label: "X" }] }], {
-            orientation: "horizontal",
-            sectionLabelColor: "blue.700",
-            activeColor: "blue.700",
-            activeBackground: "blue.50",
-            activeIndicatorColor: "blue.500",
-            itemHoverBackground: "blue.50",
-        }));
-        const style = $.let(r.unwrap().unwrap("NavList").style.unwrap("some"));
-        $(Assert.equal(style.orientation.unwrap("some").hasTag("horizontal"), true));
-        $(Assert.equal(style.sectionLabelColor.unwrap("some"), "blue.700"));
-        $(Assert.equal(style.activeColor.unwrap("some"), "blue.700"));
-        $(Assert.equal(style.activeBackground.unwrap("some"), "blue.50"));
-        $(Assert.equal(style.activeIndicatorColor.unwrap("some"), "blue.500"));
-        $(Assert.equal(style.itemHoverBackground.unwrap("some"), "blue.50"));
-    });
-
-    test("style absent when no visual fields set", $ => {
+    test("onSelect absent when not provided", $ => {
         const r = $.let(NavList.Root([{ items: [{ key: "x", label: "X" }] }]));
-        $(Assert.equal(r.unwrap().unwrap("NavList").style.hasTag("none"), true));
+        $(Assert.equal(r.unwrap().unwrap("NavList").onSelect.hasTag("none"), true));
     });
 }, { platformFns: TestImpl });

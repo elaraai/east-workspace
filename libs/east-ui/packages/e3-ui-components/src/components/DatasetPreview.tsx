@@ -97,9 +97,9 @@ export const DatasetPreview = memo(function DatasetPreview({
 
     if (isOversized) {
         return (
-            <Flex height="100%" direction="column" align="center" justify="center" bg="yellow.50" gap={3} p={6}>
-                <Text fontSize="lg" color="yellow.700" fontWeight="bold">Value too large to display</Text>
-                <Text color="yellow.600" fontSize="sm">
+            <Flex height="100%" direction="column" align="center" justify="center" layerStyle="banner.stale" borderRadius="0" gap={3} p={6}>
+                <Text fontSize="lg" color="fg.warning" fontWeight="bold">Value too large to display</Text>
+                <Text color="fg.muted" fontSize="sm">
                     The data is {formatSize(sizeBytes)}, which exceeds the {formatSize(sizeLimit)} display limit.
                 </Text>
                 <DownloadButton onClick={download} label="Download value" />
@@ -112,8 +112,8 @@ export const DatasetPreview = memo(function DatasetPreview({
 
     return (
         <Flex direction="column" height="100%" overflow="hidden">
-            <Flex px={4} py={2} justify="flex-end" flexShrink={0} borderBottom="1px solid" borderColor="gray.100">
-                <Text fontSize="xs" color="gray.500" mr={2} alignSelf="center">{formatSize(sizeBytes)}</Text>
+            <Flex px={4} py={2} justify="flex-end" flexShrink={0} borderBottom="1px solid" borderColor="border.subtle">
+                <Text fontSize="xs" color="fg.muted" mr={2} alignSelf="center">{formatSize(sizeBytes)}</Text>
                 <DownloadButton onClick={download} />
             </Flex>
             <Box flex={1} overflow="auto" p="4" minHeight={0}>

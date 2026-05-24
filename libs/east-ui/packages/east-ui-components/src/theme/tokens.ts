@@ -16,12 +16,16 @@ import { defineTokens } from "@chakra-ui/react";
 
 /* ─── Fonts ────────────────────────────────────────────────────────────── */
 
+/* Variable-font names ("X Variable") come first — those are the names
+ * registered by the `@fontsource-variable/*` packages imported for side
+ * effects in `theme/index.ts`. Non-variable family names follow as
+ * fallback for any environment that loads the static .woff2 separately. */
 export const FONT_BRAND =
-    '"DM Sans", system-ui, -apple-system, BlinkMacSystemFont, sans-serif';
+    '"DM Sans Variable", "DM Sans", system-ui, -apple-system, BlinkMacSystemFont, sans-serif';
 export const FONT_BODY =
-    '"Inter Tight", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+    '"Inter Tight Variable", "Inter Tight", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
 export const FONT_MONO =
-    '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
+    '"JetBrains Mono Variable", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
 
 /* ─── Colour scales ────────────────────────────────────────────────────── */
 
@@ -67,6 +71,17 @@ export const tokens = defineTokens({
     colors: {
         brand: brandScale,
         gray:  grayScale,
+        // Brand tint — used for selected rows, branded chips, brand banners,
+        // pulse rings (per pattern_spec/spec.css `--brand-tint`).
+        brandTint: { value: "#e8f6f7" },
+        // Brand heatmap scale — calendars, density heatmaps.
+        brandHeat: {
+            "0": { value: "#e8f0f0" },
+            "1": { value: "#c0dadc" },
+            "2": { value: "#88b8bd" },
+            "3": { value: "#4d8e95" },
+            "4": { value: "#2b4b55" },
+        },
         // Accent series — chart palette only. Order is canonical.
         accent: {
             brand:  { value: "#488e97" },
@@ -78,16 +93,30 @@ export const tokens = defineTokens({
             pink:   { value: "#ec4899" },
             slate:  { value: "#6b8080" },
         },
-        // Status — used in product surfaces for "live", error, success.
+        // Overlay tints — semi-transparent ink for backdrops + scroll thumbs.
+        // Anchored to brand-900 so they read cool, never warm.
+        overlay: {
+            backdrop:    { value: "rgba(17, 27, 34, 0.40)" },   // dialog backdrop
+            scrollThumb: { value: "rgba(17, 27, 34, 0.30)" },   // scroll-area thumb
+            highlight:   { value: "rgba(255, 255, 255, 0.30)" }, // on-image highlight
+        },
+        // Status — muted "document-print" hues per pattern_spec/spec.css.
+        // (`--pos #2f7a5b, --neg #b85a4a, --warn #b8862d, --info #3a7780`.)
+        // `*Subtle` are the spec banner tints (very-low-opacity overlays).
+        // Vibrant Tailwind hues kept under `*Bright` for chart-series use.
         status: {
-            success: { value: "#22c55e" },
-            danger:  { value: "#ef4444" },
-            warning: { value: "#f97316" },
-            info:    { value: "#3b82f6" },
-            // Darker tones for inline numeric readability on white at 12 px.
-            successInk: { value: "#15803d" },
-            dangerInk:  { value: "#b91c1c" },
-            warningInk: { value: "#c2410c" },
+            pos:  { value: "#2f7a5b" },
+            neg:  { value: "#b85a4a" },
+            warn: { value: "#b8862d" },
+            info: { value: "#3a7780" },
+            posSubtle:  { value: "rgba(47, 122, 91, 0.06)" },
+            negSubtle:  { value: "rgba(184, 90, 74, 0.06)" },
+            warnSubtle: { value: "rgba(184, 134, 45, 0.08)" },
+            warnSubtleStrong: { value: "rgba(184, 134, 45, 0.14)" },
+            infoSubtle: { value: "rgba(91, 110, 135, 0.08)" },
+            successBright: { value: "#22c55e" },
+            dangerBright:  { value: "#ef4444" },
+            warningBright: { value: "#f97316" },
         },
     },
     radii: {
@@ -144,26 +173,25 @@ export const tokens = defineTokens({
         inOut:  { value: "cubic-bezier(0.65, 0, 0.35, 1)" },
     },
     fontWeights: {
-        normal:   { value: "400" },
-        medium:   { value: "500" },
-        semibold: { value: "600" },
-        bold:     { value: "700" },
+        normal:    { value: "400" },
+        medium:    { value: "500" },
+        semibold:  { value: "600" },
+        bold:      { value: "700" },
+        extrabold: { value: "800" },
     },
     fontSizes: {
-        // Used directly by textStyles; rarely needed at the inline level.
-        "2xs": { value: "10px" },
-        xs:    { value: "11px" },
-        sm:    { value: "12px" },
-        md:    { value: "13px" },
-        lg:    { value: "14px" },
-        xl:    { value: "16px" },
-        "2xl": { value: "18px" },
-        "3xl": { value: "20px" },
-        "4xl": { value: "24px" },
-        "5xl": { value: "30px" },
-        "6xl": { value: "36px" },
-        "7xl": { value: "48px" },
-        "8xl": { value: "60px" },
+        // Aligned to pattern_spec/colors_and_type.css. Each tier carries the
+        // px value the spec assigns (`--fs-xs: 12px` through `--fs-6xl: 60px`).
+        xs:    { value: "12px" },
+        sm:    { value: "14px" },
+        md:    { value: "16px" },
+        lg:    { value: "18px" },
+        xl:    { value: "20px" },
+        "2xl": { value: "24px" },
+        "3xl": { value: "30px" },
+        "4xl": { value: "36px" },
+        "5xl": { value: "48px" },
+        "6xl": { value: "60px" },
     },
     lineHeights: {
         tight:   { value: "1.25" },
@@ -179,6 +207,8 @@ export const tokens = defineTokens({
         normal:  { value: "0" },
         wide:    { value: "0.02em" },
         wider:   { value: "0.06em" },
-        widest:  { value: "0.12em" },  // eyebrow
+        widest:  { value: "0.12em" },   // eyebrow
+        wider2:  { value: "0.16em" },   // mode-id, table headerCell, scope label
+        widest2: { value: "0.18em" },   // caption.eyebrow, cell label, sc-eyebrow
     },
 });

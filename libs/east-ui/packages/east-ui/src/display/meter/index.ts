@@ -76,7 +76,8 @@ function buildMeterStyle(options: MeterOptions | undefined): ExprType<MeterStyle
         || options.borderRadius !== undefined
         || options.fillColor !== undefined
         || options.trackColor !== undefined
-        || options.labelColor !== undefined;
+        || options.labelColor !== undefined
+        || options.showValue !== undefined;
     if (!hasAny) return undefined;
 
     const thicknessValue = options.thickness !== undefined
@@ -91,6 +92,7 @@ function buildMeterStyle(options: MeterOptions | undefined): ExprType<MeterStyle
         fillColor: options.fillColor !== undefined ? some(options.fillColor) : none,
         trackColor: options.trackColor !== undefined ? some(options.trackColor) : none,
         labelColor: options.labelColor !== undefined ? some(options.labelColor) : none,
+        showValue: options.showValue !== undefined ? some(options.showValue) : none,
     }, MeterStyleType);
 }
 

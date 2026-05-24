@@ -7,14 +7,17 @@
  * e3 status command - Show dataset status detail
  *
  * Usage:
- *   e3 status . ws.path.to.dataset
- *   e3 status https://server/repos/myrepo ws.path.to.dataset
+ *   e3 dataset status . ws.name
+ *   e3 dataset status https://server/repos/myrepo ws.name
+ *
+ * Paths use the flat form `<ws>.<name>`.
  */
 
 import { workspaceGetDatasetStatus, LocalStorage } from '@elaraai/e3-core';
 import { datasetGetStatus as datasetGetStatusRemote } from '@elaraai/e3-api-client';
 import { printFor, EastTypeType, isVariant, toEastTypeValue, type EastTypeValue } from '@elaraai/east';
-import { parseRepoLocation, parseDatasetPath, formatError, exitError } from '../utils.js';
+import { parseRepoLocation, formatError, exitError } from '../utils.js';
+import { resolveDatasetPath } from '../path-resolver.js';
 import { formatSize } from '../format.js';
 
 /**
@@ -26,25 +29,20 @@ export async function datasetStatusCommand(
 ): Promise<void> {
   try {
     const location = await parseRepoLocation(repoArg);
-    const { ws, path } = parseDatasetPath(pathSpec);
+    const { ws, path, kind } = await resolveDatasetPath(location, pathSpec);
 
-    if (path.length === 0) {
-      exitError('Path must include at least one field (e.g., ws.field)');
-    }
-
-    const pathStr = '.' + path.map(s => s.value).join('.');
     const printType = printFor(EastTypeType);
 
     if (location.type === 'local') {
       const storage = new LocalStorage();
       const result = await workspaceGetDatasetStatus(storage, location.path, ws, path);
 
-      // Convert type to EastTypeValue if needed
       const typeValue: EastTypeValue = isVariant(result.datasetType)
         ? result.datasetType as EastTypeValue
         : toEastTypeValue(result.datasetType);
 
-      console.log(`Path:   ${pathStr}`);
+      console.log(`Path:   ${pathSpec}`);
+      console.log(`Kind:   ${kind}`);
       console.log(`Type:   ${printType(typeValue)}`);
 
       if (result.refType === 'unassigned') {
@@ -67,7 +65,8 @@ export async function datasetStatusCommand(
         { token: location.token }
       );
 
-      console.log(`Path:   ${detail.path}`);
+      console.log(`Path:   ${pathSpec}`);
+      console.log(`Kind:   ${kind}`);
       console.log(`Type:   ${printType(detail.type)}`);
 
       if (detail.hash.type === 'none' && detail.size.type === 'none') {

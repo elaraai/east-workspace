@@ -19,15 +19,20 @@ import {
   LocalStorage,
   LocalOrchestrator,
   FileStateStore,
+  workspaceGetTree,
   type TaskCompletedCallback,
+  type TreeNode,
 } from '@elaraai/e3-core';
 import {
   dataflowStart as dataflowStartRemote,
   dataflowExecution as dataflowExecutionRemote,
+  datasetListRecursive as datasetListRecursiveRemote,
   type DataflowEvent,
   type DataflowExecutionState,
 } from '@elaraai/e3-api-client';
-import { parseRepoLocation, formatError, exitError } from '../utils.js';
+import { type EastTypeValue } from '@elaraai/east';
+import { parseRepoLocation, formatError, exitError, type RepoLocation } from '../utils.js';
+import { formatSize } from '../format.js';
 
 /** Polling interval for remote execution (ms) */
 const POLL_INTERVAL = 500;
@@ -148,6 +153,10 @@ async function executeLocal(
     duration: result.duration,
   });
 
+  if (result.success) {
+    await printOutputs({ type: 'local', path: repoPath }, ws);
+  }
+
   if (!result.success) {
     // Get failed task details from state store
     const state = await stateStore.read(repoPath, ws, handle.id);
@@ -227,6 +236,10 @@ async function executeRemote(
           skipped: Number(summary.skipped),
           duration: summary.duration,
         });
+      }
+
+      if (lastStatus === 'completed') {
+        await printOutputs({ type: 'remote', baseUrl, repo, token }, ws);
       }
 
       break;
@@ -330,6 +343,81 @@ function printFailedTasks(tasks: TaskCompletedCallback[]): void {
       console.log(`  ${task.name}: ${task.error}`);
     }
   }
+}
+
+/**
+ * After a successful dataflow run, list task outputs as flat paths so the user
+ * can copy them straight into a follow-up `e3 dataset get` without having to
+ * walk the tree themselves.
+ *
+ * Inputs are intentionally omitted — they were set by the user, not produced
+ * by the run.
+ */
+async function printOutputs(location: RepoLocation, ws: string): Promise<void> {
+  try {
+    const rows: { name: string; size: string }[] = [];
+
+    if (location.type === 'local') {
+      const storage = new LocalStorage();
+      const tree = await workspaceGetTree(storage, location.path, ws, [], {
+        includeTypes: true,
+        includeStatus: true,
+      });
+      for (const node of collectTaskOutputNodes(tree)) {
+        rows.push({
+          name: `${ws}.${node.name}`,
+          size: formatLeafSize(node.refType, node.size),
+        });
+      }
+    } else {
+      const items = await datasetListRecursiveRemote(
+        location.baseUrl, location.repo, ws, [],
+        { token: location.token },
+      );
+      for (const item of items) {
+        if (item.type !== 'dataset') continue;
+        const segments = item.value.path.split('.').filter(s => s.length > 0);
+        if (segments.length !== 2 || segments[0] !== 'tasks') continue;
+        const v = item.value;
+        const refTypeStr = v.hash.type === 'none' && v.size.type === 'none'
+          ? 'unassigned'
+          : v.size.type === 'some' && v.size.value === 0n ? 'null' : 'value';
+        rows.push({
+          name: `${ws}.${segments[1]!}`,
+          size: refTypeStr === 'value' && v.size.type === 'some'
+            ? formatSize(Number(v.size.value))
+            : refTypeStr === 'null' ? '0 B' : '-',
+        });
+      }
+    }
+
+    if (rows.length === 0) return;
+
+    rows.sort((a, b) => a.name.localeCompare(b.name));
+    const nameW = Math.max(...rows.map(r => r.name.length));
+    console.log('');
+    console.log('Outputs:');
+    for (const r of rows) {
+      console.log(`  ${r.name.padEnd(nameW)}  ${r.size}`);
+    }
+  } catch {
+    // Don't fail the run because we couldn't print outputs.
+  }
+}
+
+/** Collect task-output leaves from a workspace tree (collapsed by workspaceGetTree). */
+function collectTaskOutputNodes(nodes: TreeNode[]): Array<TreeNode & { kind: 'dataset'; datasetType?: EastTypeValue; refType?: string; size?: number }> {
+  const tasksBranch = nodes.find(n => n.kind === 'tree' && n.name === 'tasks');
+  if (!tasksBranch || tasksBranch.kind !== 'tree') return [];
+  return tasksBranch.children.filter(n => n.kind === 'dataset') as Array<TreeNode & { kind: 'dataset' }>;
+}
+
+/** Format the size column based on ref state. */
+function formatLeafSize(refType: string | undefined, size: number | undefined): string {
+  if (refType === 'unassigned') return '-';
+  if (refType === 'null') return '0 B';
+  if (size !== undefined) return formatSize(size);
+  return '-';
 }
 
 function sleep(ms: number): Promise<void> {

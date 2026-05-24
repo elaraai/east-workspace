@@ -70,7 +70,7 @@ export async function testConcurrentWritesDuringExecution(): Promise<ScenarioRes
     await runE3Command(['workspace', 'deploy', repoDir, 'ws', `${pkg.name}@${pkg.version}`], testDir);
 
     // Start execution in background (don't await)
-    const startPromise = runE3Command(['start', repoDir, 'ws'], testDir);
+    const startPromise = runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
     // Blast concurrent writes while start is running
     const writePromises: Promise<any>[] = [];
@@ -80,7 +80,7 @@ export async function testConcurrentWritesDuringExecution(): Promise<ScenarioRes
 
       // Fire off set commands without waiting
       writePromises.push(
-        runE3Command(['set', repoDir, 'ws.inputs.x', valuePath], testDir)
+        runE3Command(['dataset', 'set', repoDir, 'ws.x', valuePath], testDir)
       );
     }
 
@@ -93,7 +93,7 @@ export async function testConcurrentWritesDuringExecution(): Promise<ScenarioRes
     const writeFailures = writeResults.filter(r => r.exitCode !== 0).length;
 
     // Get final output
-    const getResult = await runE3Command(['get', repoDir, 'ws.tasks.compute.output'], testDir);
+    const getResult = await runE3Command(['dataset', 'get', repoDir, 'ws.compute'], testDir);
 
     removeTestDir(testDir);
 
@@ -167,7 +167,7 @@ export async function testMultipleSimultaneousStarts(): Promise<ScenarioResult> 
 
     // Fire off 5 start commands simultaneously
     const startPromises = Array.from({ length: 5 }, () =>
-      runE3Command(['start', repoDir, 'ws'], testDir!)
+      runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir!)
     );
 
     const results = await Promise.all(startPromises);
@@ -179,7 +179,7 @@ export async function testMultipleSimultaneousStarts(): Promise<ScenarioResult> 
     const lockErrors = results.filter(r => r.exitCode !== 0 && isLockError(r)).length;
 
     // Verify final state is consistent
-    const getResult = await runE3Command(['get', repoDir, 'ws.tasks.double.output'], testDir);
+    const getResult = await runE3Command(['dataset', 'get', repoDir, 'ws.double'], testDir);
 
     removeTestDir(testDir);
 
@@ -308,7 +308,7 @@ export async function testRapidSetStartCycles(): Promise<ScenarioResult> {
     const otherErrors = results.filter(r => !r.success && !r.lockError);
 
     // Final state check
-    const getResult = await runE3Command(['get', repoDir, 'ws.tasks.double.output'], testDir);
+    const getResult = await runE3Command(['dataset', 'get', repoDir, 'ws.double'], testDir);
 
     removeTestDir(testDir);
 
@@ -402,9 +402,9 @@ export async function testInterleavedMultiWorkspace(): Promise<ScenarioResult> {
     const ops: Promise<any>[] = [];
     for (let i = 0; i < 5; i++) {
       // Random workspace operations
-      ops.push(runE3Command(['start', repoDir, 'ws1'], testDir));
-      ops.push(runE3Command(['start', repoDir, 'ws2'], testDir));
-      ops.push(runE3Command(['start', repoDir, 'ws3'], testDir));
+      ops.push(runE3Command(['dataflow', 'run', repoDir, 'ws1'], testDir));
+      ops.push(runE3Command(['dataflow', 'run', repoDir, 'ws2'], testDir));
+      ops.push(runE3Command(['dataflow', 'run', repoDir, 'ws3'], testDir));
     }
 
     const results = await Promise.all(ops);
@@ -414,9 +414,9 @@ export async function testInterleavedMultiWorkspace(): Promise<ScenarioResult> {
     const lockErrors = results.filter(r => r.exitCode !== 0 && isLockError(r)).length;
 
     // Verify each workspace has valid output
-    const get1 = await runE3Command(['get', repoDir, 'ws1.tasks.double.output'], testDir);
-    const get2 = await runE3Command(['get', repoDir, 'ws2.tasks.double.output'], testDir);
-    const get3 = await runE3Command(['get', repoDir, 'ws3.tasks.double.output'], testDir);
+    const get1 = await runE3Command(['dataset', 'get', repoDir, 'ws1.double'], testDir);
+    const get2 = await runE3Command(['dataset', 'get', repoDir, 'ws2.double'], testDir);
+    const get3 = await runE3Command(['dataset', 'get', repoDir, 'ws3.double'], testDir);
 
     removeTestDir(testDir);
 

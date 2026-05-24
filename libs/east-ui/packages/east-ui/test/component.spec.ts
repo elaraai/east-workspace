@@ -11,7 +11,7 @@ import {
     Badge,
     Separator,
     Stat,
-    Alert,
+    Banner,
     Progress,
     Tag,
     UIComponentType,
@@ -38,9 +38,9 @@ describeEast("UIComponentType - Nested Components", (test) => {
                     // Stats row: HStack with multiple stats
                     Stack.HStack(
                         [
-                            Stat.Root("Revenue", Text.Root("$45,231"), { indicator: "up" }),
-                            Stat.Root("Users", Text.Root("1,234")),
-                            Stat.Root("Orders", Text.Root("156"), { indicator: "down" }),
+                            Stat.Root("Revenue", "$45,231", { indicator: "up" }),
+                            Stat.Root("Users", "1,234"),
+                            Stat.Root("Orders", "156", { indicator: "down" }),
                         ],
                         { gap: "6" }
                     ),
@@ -48,8 +48,8 @@ describeEast("UIComponentType - Nested Components", (test) => {
                     // Content section: Box with alert and progress
                     Box.Root(
                         [
-                            Alert.Root("info", { title: "Welcome back!" }),
-                            Progress.Root(75.0, { style: { colorPalette: "blue" } })
+                            Banner.Root("info", "Welcome back!"),
+                            Progress.Root(75.0, { style: { tone: "brand" } })
                         ],
                         { padding: Box.Padding({ top: "4", right: "4", bottom: "4", left: "4" }) }
                     ),

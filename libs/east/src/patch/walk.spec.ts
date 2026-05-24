@@ -12,7 +12,7 @@ import {
     VectorType, OptionType,
     FunctionType,
 } from "../types.js";
-import { variant } from "../containers/variant.js";
+import { variant, some, none } from "../containers/variant.js";
 import { SortedSet } from "../containers/sortedset.js";
 import { SortedMap } from "../containers/sortedmap.js";
 import { ref } from "../containers/ref.js";
@@ -588,20 +588,20 @@ describe("walkPatch: Variant", () => {
 
     test("OptionType: none → some(value) emits a tag-change leaf", () => {
         const T = OptionType(IntegerType);
-        const c = capture(T, variant("none", null), variant("some", 42n));
+        const c = capture(T, none, some(42n));
         assert.equal(c.leaves.length, 1);
         assert.equal(c.leaves[0]!.op, "update");
     });
 
     test("OptionType: some(a) → some(b) emits leaf at @some path for primitive payload", () => {
         const T = OptionType(IntegerType);
-        const c = capture(T, variant("some", 1n), variant("some", 2n));
+        const c = capture(T, some(1n), some(2n));
         assert.ok(c.leaves.length >= 1);
     });
 
     test("OptionType: some → none emits a tag-change leaf", () => {
         const T = OptionType(IntegerType);
-        const c = capture(T, variant("some", 5n), variant("none", null));
+        const c = capture(T, some(5n), none);
         assert.equal(c.leaves.length, 1);
         assert.equal(c.leaves[0]!.op, "update");
     });

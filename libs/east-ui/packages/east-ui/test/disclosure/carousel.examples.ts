@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
-import { Badge, Box, Carousel, Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui";
+import { Box, Carousel, Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const carouselBasic = example({
     keywords: ["Carousel", "Root", "showControls", "showIndicators", "basic"],
@@ -174,10 +174,7 @@ export const carouselInteractive = example({
                         onIndexChange,
                     }),
                 ], { width: "100%" }),
-                Badge.Root(
-                    East.str`Current slide: ${currentIndex.add(1n)} of 4`,
-                    { colorPalette: "blue", variant: "solid" }
-                ),
+                Text.Presets.Eyebrow(East.str`CURRENT · ${currentIndex.add(1n)} OF 4`),
             ], { gap: "3", align: "stretch" });
         }));
     }),

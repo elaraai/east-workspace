@@ -45,7 +45,7 @@ export const EastChakraToggleTip = memo(function EastChakraToggleTip({ value, st
             onOpenChange={onOpenChangeFn ? handleOpenChange : undefined}
         >
             <ChakraPopover.Trigger asChild>
-                <span>
+                <span style={{ display: "inline-flex" }}>
                     <EastChakraComponent value={value.trigger} storageKey={`${storageKey}.trigger`} />
                 </span>
             </ChakraPopover.Trigger>

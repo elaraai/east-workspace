@@ -4,61 +4,14 @@
  */
 
 import {
-    type ExprType,
     type SubtypeExprOrValue,
-    East,
-    NullType,
     OptionType,
     StructType,
     StringType,
-    VariantType,
-    variant,
 } from "@elaraai/east";
 
-import { SizeType, OverflowType } from "../../style.js";
-import type { SizeLiteral, OverflowLiteral } from "../../style.js";
-import { ElevationType } from "../../style/visual.js";
-import type { ElevationLiteral } from "../../style/visual.js";
-
-// ============================================================================
-// Card Variant Type
-// ============================================================================
-
-/**
- * Variant types for Card visual style.
- *
- * @property elevated - Card with shadow/elevation
- * @property outline - Card with border outline
- * @property subtle - Card with subtle background
- */
-export const CardVariantType = VariantType({
-    /** Card with shadow/elevation */
-    elevated: NullType,
-    /** Card with border outline */
-    outline: NullType,
-    /** Card with subtle background */
-    subtle: NullType,
-});
-
-/**
- * Type representing the CardVariant structure.
- */
-export type CardVariantType = typeof CardVariantType;
-
-/**
- * String literal type for card variant values.
- */
-export type CardVariantLiteral = "elevated" | "outline" | "subtle";
-
-/**
- * Helper function to create card variant values.
- *
- * @param v - The variant string ("elevated", "outline", "subtle")
- * @returns An East expression representing the card variant
- */
-export function CardVariant(v: "elevated" | "outline" | "subtle"): ExprType<CardVariantType> {
-    return East.value(variant(v, null), CardVariantType);
-}
+import { OverflowType } from "../../style.js";
+import type { OverflowLiteral } from "../../style.js";
 
 // ============================================================================
 // Card Style Type
@@ -67,8 +20,11 @@ export function CardVariant(v: "elevated" | "outline" | "subtle"): ExprType<Card
 /**
  * Type for Card style properties.
  *
- * @property variant - Visual variant (elevated, outline, subtle)
- * @property size - Size of the card
+ * @remarks
+ * The card is the one container shape (bsys Frame): 1px rule, 10px radius,
+ * paper fill, no shadow. Style fields are layout / dimension only plus colour
+ * escape hatches — there are no shape or shadow variants.
+ *
  * @property height - Height (Chakra UI size token or CSS value)
  * @property minHeight - Min height (Chakra UI size token or CSS value)
  * @property maxHeight - Max height (Chakra UI size token or CSS value)
@@ -77,11 +33,13 @@ export function CardVariant(v: "elevated" | "outline" | "subtle"): ExprType<Card
  * @property maxWidth - Max width (Chakra UI size token or CSS value)
  * @property flex - Flex property for grow/shrink behavior
  * @property overflow - Overflow behavior (visible, hidden, scroll, auto)
+ * @property background - Card background colour escape hatch
+ * @property borderColor - Border colour escape hatch
+ * @property headerBackground - Background applied to the header strip
+ * @property footerBackground - Background applied to the footer strip
+ * @property accentColor - Left-edge accent stripe colour
  */
 export const CardStyleType = StructType({
-    variant: OptionType(CardVariantType),
-    size: OptionType(SizeType),
-    elevation: OptionType(ElevationType),
     height: OptionType(StringType),
     minHeight: OptionType(StringType),
     maxHeight: OptionType(StringType),
@@ -109,8 +67,6 @@ export type CardStyleType = typeof CardStyleType;
 /**
  * TypeScript interface for Card style options.
  *
- * @property variant - Visual variant (elevated, outline, subtle)
- * @property size - Size of the card
  * @property height - Height (Chakra UI size token or CSS value)
  * @property minHeight - Min height (Chakra UI size token or CSS value)
  * @property maxHeight - Max height (Chakra UI size token or CSS value)
@@ -119,14 +75,13 @@ export type CardStyleType = typeof CardStyleType;
  * @property maxWidth - Max width (Chakra UI size token or CSS value)
  * @property flex - Flex property for grow/shrink behavior
  * @property overflow - Overflow behavior (visible, hidden, scroll, auto)
+ * @property background - Card background colour escape hatch
+ * @property borderColor - Border colour escape hatch
+ * @property headerBackground - Background applied to the header strip
+ * @property footerBackground - Background applied to the footer strip
+ * @property accentColor - Left / top accent stripe colour
  */
 export interface CardStyle {
-    /** Visual variant (elevated, outline, subtle) */
-    variant?: SubtypeExprOrValue<CardVariantType> | CardVariantLiteral;
-    /** Size of the card */
-    size?: SubtypeExprOrValue<SizeType> | SizeLiteral;
-    /** Shadow elevation token */
-    elevation?: SubtypeExprOrValue<ElevationType> | ElevationLiteral;
     /** Height (Chakra UI size token or CSS value) */
     height?: SubtypeExprOrValue<StringType>;
     /** Min height (Chakra UI size token or CSS value) */

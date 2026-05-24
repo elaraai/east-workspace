@@ -4,7 +4,7 @@
  */
 
 import { memo, useMemo, useState } from "react";
-import { Box as ChakraBox, Button as ChakraButton } from "@chakra-ui/react";
+import { Box as ChakraBox, chakra, useSlotRecipe } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Disclosure } from "@elaraai/east-ui";
 import { getSomeorUndefined } from "../../utils";
@@ -28,6 +28,11 @@ export interface EastChakraDisclosureProps {
  * that toggles to "show less" when expanded.
  */
 export const EastChakraDisclosure = memo(function EastChakraDisclosure({ value, storageKey }: EastChakraDisclosureProps) {
+    /* Consume the `showMore` slot recipe — trigger + content chrome flows
+     * from `theme/slot-recipes/showMore.ts`. */
+    const recipe = useSlotRecipe({ key: "showMore" });
+    const styles = recipe({});
+
     const [open, setOpen] = useState(false);
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
 
@@ -42,6 +47,7 @@ export const EastChakraDisclosure = memo(function EastChakraDisclosure({ value, 
     return (
         <ChakraBox>
             <ChakraBox
+                css={styles.content}
                 {...(color !== undefined ? { color } : {})}
                 style={open ? undefined : {
                     display: "-webkit-box",
@@ -52,17 +58,15 @@ export const EastChakraDisclosure = memo(function EastChakraDisclosure({ value, 
             >
                 <EastChakraComponent value={value.text} storageKey={`${storageKey ?? ""}.text`} />
             </ChakraBox>
-            <ChakraButton
-                variant="plain"
-                size="sm"
+            <chakra.button
+                type="button"
+                css={styles.trigger}
                 onClick={() => setOpen(v => !v)}
                 {...(triggerColor !== undefined ? { color: triggerColor } : {})}
                 mt="1"
-                p="0"
-                fontWeight="medium"
             >
                 {open ? lessLabel : moreLabel}
-            </ChakraButton>
+            </chakra.button>
         </ChakraBox>
     );
 }, (prev, next) => disclosureEqual(prev.value, next.value) && prev.storageKey === next.storageKey);

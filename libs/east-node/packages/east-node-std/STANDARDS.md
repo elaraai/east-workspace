@@ -341,16 +341,16 @@ All East Node functionality MUST be thoroughly tested using East code.
 
 **Requirements:**
 - One test file per module/feature: `src/modulename.spec.ts` (co-located with source)
-- Import `describeEast` and `Test` from `./test.js`
+- Import `describeEast` and `Assert` from `./test.js`
 - Test bodies MUST be written in East code using the `$` block builder
-- Use `Test.equal()`, `Test.greater()`, etc. for assertions
+- Use `Assert.equal()`, `Assert.greater()`, etc. for assertions
 - Pass platform function implementations via `{ platformFns: ModuleImpl }`
 
 **Example:**
 
 ```typescript
 import { East } from "@elaraai/east";
-import { describeEast, Test } from "./test.js";
+import { describeEast, Assert } from "./test.js";
 import { Time, TimeImpl } from "./time.js";
 
 await describeEast("Time platform functions", (test) => {
@@ -379,7 +379,7 @@ await describeEast("Time platform functions", (test) => {
 **MUST test:**
 - **Basic operations**: Core functionality with typical inputs
 - **Edge cases**: Boundary conditions, empty inputs, zero values
-- **Error conditions**: Operations that should throw (use `Test.throws()`)
+- **Error conditions**: Operations that should throw (use `Assert.throws()`)
 - **Platform-specific behavior**: Node.js-specific constraints or features
 
 **Example coverage:**

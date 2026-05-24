@@ -11,9 +11,8 @@
  * - E (Events): user-defined variant where each case is an economic activity
  * - Process handler: defines how events affect resources (match dispatch)
  *
- * Two entry points:
+ * Entry point:
  * - `simulation_run`: single deterministic run
- * - `simulation_run_trajectories`: Monte Carlo with multiple seeds
  *
  * @packageDocumentation
  */
@@ -84,39 +83,6 @@ export const SimulationResultType = StructType({
 });
 
 // ============================================================================
-// Monte Carlo Types
-// ============================================================================
-
-/**
- * Configuration for Monte Carlo simulation trajectories.
- */
-export const SimulationTrajectoriesConfigType = StructType({
-    /** Number of trajectories to run (required) */
-    trajectories: IntegerType,
-    /** Base RNG seed — trajectory i uses seed + i */
-    seed: OptionType(IntegerType),
-    /** Safety limit on events per trajectory (default: 100000) */
-    max_events: OptionType(IntegerType),
-    /** Stop processing events after this date */
-    end_date: OptionType(DateTimeType),
-});
-
-/**
- * Result of Monte Carlo simulation trajectories.
- */
-export const SimulationTrajectoriesResultType = StructType({
-    /** Array of per-trajectory results */
-    trajectories: ArrayType(StructType({
-        /** Final resource state */
-        final_state: "R",
-        /** Number of events processed */
-        events_processed: IntegerType,
-        /** Date of last event processed */
-        final_date: DateTimeType,
-    })),
-});
-
-// ============================================================================
 // Platform Functions
 // ============================================================================
 
@@ -161,34 +127,6 @@ export const simulation_run = East.genericPlatform(
     SimulationResultType
 );
 
-/**
- * Run Monte Carlo simulation trajectories.
- *
- * Each trajectory runs the same DES engine with a different RNG seed
- * (base_seed + trajectory_index), enabling stochastic scenario analysis.
- *
- * @example
- * ```ts
- * const result = $.let(Simulation.runTrajectories(
- *     [Resources, Events],
- *     initialState, initialEvents, stochasticProcess,
- *     { trajectories: 100n, seed: variant('some', 42n), max_events: variant('none', null), end_date: variant('none', null) },
- * ));
- * result.trajectories.get(0n).final_state.cash
- * ```
- */
-export const simulation_run_trajectories = East.genericPlatform(
-    "simulation_run_trajectories",
-    ["R", "E"],
-    [
-        "R",                                    // initial_state
-        ArrayType(ScheduledEventType),          // initial_events
-        ProcessFnType,                          // process handler
-        SimulationTrajectoriesConfigType,       // config
-    ],
-    SimulationTrajectoriesResultType
-);
-
 // ============================================================================
 // Grouped Export
 // ============================================================================
@@ -201,10 +139,6 @@ export const SimulationTypes = {
     ConfigType: SimulationConfigType,
     /** Single run result */
     ResultType: SimulationResultType,
-    /** Monte Carlo configuration */
-    TrajectoriesConfigType: SimulationTrajectoriesConfigType,
-    /** Monte Carlo result */
-    TrajectoriesResultType: SimulationTrajectoriesResultType,
 } as const;
 
 /**
@@ -277,67 +211,6 @@ export const Simulation = {
      * ```
      */
     run: simulation_run,
-
-    /**
-     * Run Monte Carlo simulation trajectories.
-     *
-     * Each trajectory runs the same DES engine with a different RNG seed
-     * (base_seed + trajectory_index), enabling stochastic scenario analysis.
-     * Use this when the process handler uses Random functions — each trajectory
-     * gets a deterministic but distinct seed.
-     *
-     * @example
-     * ```ts
-     * import { East, StructType, VariantType, ArrayType, FloatType, DateTimeType, variant } from "@elaraai/east";
-     * import { Simulation, SimulationTrajectoriesConfigType } from "@elaraai/east-py-datascience";
-     *
-     * const Resources = StructType({ cash: FloatType });
-     * const Events = VariantType({ income: FloatType, expense: FloatType });
-     * const ScheduledEvent = StructType({ date: DateTimeType, event: Events });
-     * const ProcessResult = StructType({ state: Resources, events: ArrayType(ScheduledEvent) });
-     *
-     * const simulate = East.function([], Simulation.Types.TrajectoriesResultType, ($) => {
-     *     const process = East.function(
-     *         [Resources, DateTimeType, Events],
-     *         ProcessResult,
-     *         ($, state, date, event) => {
-     *             const empty = $.let([] as const, ArrayType(ScheduledEvent));
-     *             return $.return(event.match({
-     *                 income: ($, amount) => ({
-     *                     state: { cash: state.cash.add(amount) },
-     *                     events: empty,
-     *                 }),
-     *                 expense: ($, amount) => ({
-     *                     state: { cash: state.cash.subtract(amount) },
-     *                     events: empty,
-     *                 }),
-     *             }));
-     *         }
-     *     );
-     *
-     *     const initialState = $.let({ cash: 1000.0 });
-     *     const initialEvents = $.let([
-     *         { date: $.let(new Date("2025-01-01")), event: $.let(variant("income", 500.0), Events) },
-     *         { date: $.let(new Date("2025-01-15")), event: $.let(variant("expense", 200.0), Events) },
-     *     ], ArrayType(ScheduledEvent));
-     *     const config = $.let({
-     *         trajectories: 100n,
-     *         seed: variant("some", 42n),
-     *         max_events: variant("none", null),
-     *         end_date: variant("some", new Date("2025-12-31")),
-     *     }, SimulationTrajectoriesConfigType);
-     *
-     *     const result = $.let(Simulation.runTrajectories(
-     *         [Resources, Events],
-     *         initialState, initialEvents, process, config,
-     *     ));
-     *     // result.trajectories.length() => 100n
-     *     // result.trajectories.get(0n).final_state.cash
-     *     return $.return(result);
-     * });
-     * ```
-     */
-    runTrajectories: simulation_run_trajectories,
 
     /**
      * Type definitions for simulation functions.

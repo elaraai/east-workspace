@@ -38,13 +38,17 @@ export const EastChakraTooltip = memo(function EastChakraTooltip({ value, storag
     return (
         <ChakraTooltip.Root positioning={placement ? { placement } : undefined}>
             <ChakraTooltip.Trigger asChild>
-                <span>
+                <span style={{ display: "inline-flex" }}>
                     <EastChakraComponent value={value.trigger} storageKey={`${storageKey}.trigger`} />
                 </span>
             </ChakraTooltip.Trigger>
             <ChakraTooltip.Positioner>
                 <ChakraTooltip.Content>
-                    {hasArrow && <ChakraTooltip.Arrow />}
+                    {hasArrow && (
+                        <ChakraTooltip.Arrow>
+                            <ChakraTooltip.ArrowTip />
+                        </ChakraTooltip.Arrow>
+                    )}
                     {value.content}
                 </ChakraTooltip.Content>
             </ChakraTooltip.Positioner>

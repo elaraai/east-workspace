@@ -33,3 +33,7 @@ export {
 export {
     StateValueType, type StateValueLiteral, StateValue,
 } from "./states.js";
+
+export {
+    SliceAffordanceType, type SliceAffordanceLiteral, SliceAffordance,
+} from "./slice-affordances.js";

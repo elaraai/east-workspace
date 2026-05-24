@@ -9,6 +9,7 @@ import {
     East,
     OptionType,
     StructType,
+    StringType,
     variant,
     some,
     none,
@@ -45,12 +46,14 @@ export {
  */
 export const EmptyStateType: StructType<{
     icon: OptionType<IconType>,
+    glyph: OptionType<StringType>,
     title: UIComponentType,
     description: OptionType<UIComponentType>,
     actions: OptionType<UIComponentType>,
     style: OptionType<EmptyStateStyleType>,
 }> = StructType({
     icon: OptionType(IconType),
+    glyph: OptionType(StringType),
     title: UIComponentType,
     description: OptionType(UIComponentType),
     actions: OptionType(UIComponentType),
@@ -77,8 +80,10 @@ type EmptyStateInput =
  * @property style - Optional visual-only style
  */
 export interface EmptyStateOptions {
-    /** Optional leading Font Awesome icon */
+    /** Optional leading Font Awesome icon (off-spec escape hatch) */
     icon?: { prefix: string; name: string } | SubtypeExprOrValue<IconType>;
+    /** Spec-preferred mono glyph string (e.g. `"·   ·   ·"` / `"+ + +"`) — renders at 36px mono with letter-spacing 0.1em, colour `border.strong`. When set, takes precedence over `icon`. */
+    glyph?: SubtypeExprOrValue<StringType>;
     /** Optional description (rich or string) */
     description?: EmptyStateInput;
     /** Optional trailing action(s) (rich; typically a Button or HStack) */
@@ -142,6 +147,7 @@ function createEmptyStateRoot(
 
     return East.value(variant("EmptyState", {
         icon: iconValue ? some(iconValue) : none,
+        glyph: options?.glyph !== undefined ? some(options.glyph) : none,
         title: titleExpr,
         description: descriptionValue ? some(descriptionValue) : none,
         actions: actionsValue ? some(actionsValue) : none,

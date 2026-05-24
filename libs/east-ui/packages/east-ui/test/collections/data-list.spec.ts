@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { East, OptionType, StringType, variant } from "@elaraai/east";
+import { East, OptionType, StringType, variant, some } from "@elaraai/east";
 import { DataList, Text, UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./data-list.examples.js";
 
@@ -243,7 +243,7 @@ describeEast("DataList", (test) => {
     // =========================================================================
 
     test("handles match branches with different item counts as items arg", $ => {
-        const opt = $.let(East.value(variant("some", "predicted"), OptionType(StringType)), OptionType(StringType));
+        const opt = $.let(East.value(some("predicted"), OptionType(StringType)), OptionType(StringType));
 
         const list = $.let(DataList.Root(
             opt.match({
@@ -263,7 +263,7 @@ describeEast("DataList", (test) => {
     });
 
     test("handles match branches returning whole DataList components", $ => {
-        const opt = $.let(East.value(variant("some", "predicted"), OptionType(StringType)), OptionType(StringType));
+        const opt = $.let(East.value(some("predicted"), OptionType(StringType)), OptionType(StringType));
 
         const list = $.let(
             opt.match({

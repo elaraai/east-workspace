@@ -2,22 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import {
-  East,
-  NullType,
-  BooleanType,
-  IntegerType,
-  FloatType,
-  StringType,
-  DateTimeType,
-  BlobType,
-  ArrayType,
-  SetType,
-  DictType,
-  StructType,
-  VariantType,
-  variant,
-} from "../src/index.js";
+import { East, NullType, BooleanType, IntegerType, FloatType, StringType, DateTimeType, BlobType, ArrayType, SetType, DictType, StructType, VariantType, variant, some, none } from "../src/index.js";
 import { describeEast as describe, assertEast as assert } from "./platforms.spec.js";
 import * as ex from "./blob.examples.js";
 
@@ -625,7 +610,7 @@ await describe("Blob (Beast v1)", (test) => {
     });
 
     // None case
-    const noneVal = $.let(variant("none", null), OptionType);
+    const noneVal = $.let(none, OptionType);
     const encodedNone = $.let(East.Blob.encodeBeast(noneVal, 'v1'));
 
     // Exact byte verification
@@ -644,7 +629,7 @@ await describe("Blob (Beast v1)", (test) => {
     $(assert.equal(decodedNone, noneVal));
 
     // Some case
-    const someVal = $.let(variant("some", 42n), OptionType);
+    const someVal = $.let(some(42n), OptionType);
     const encodedSome = $.let(East.Blob.encodeBeast(someVal, 'v1'));
 
     // Exact byte verification

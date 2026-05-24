@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { variant } from './containers/variant.js';
+import { variant, some, none } from './containers/variant.js';
 import { compareFor, equalFor, greaterEqualFor, greaterFor, isFor, lessEqualFor, lessFor, notEqualFor } from './comparison.js';
 import { ArrayType, AsyncFunctionType, BlobType, BooleanType, DateTimeType, DictType, type EastType, FloatType, FunctionType, IntegerType, MatrixType, NeverType, NullType, RecursiveType, SetType, StringType, StructType, type ValueTypeOf, VariantType, VectorType } from './types.js';
 import { matrix } from './containers/matrix.js';
@@ -168,9 +168,9 @@ describe('Comparison of EAST values', () => {
         });
 
         const values: (variant<"none", null> | variant<"some", bigint>)[] = [
-            variant("none", null),
-            variant("some", 0n),
-            variant("some", 1n),
+            none,
+            some(0n),
+            some(1n),
         ];
 
         run(type, values);
@@ -387,10 +387,10 @@ describe('Comparison of EAST values', () => {
         const lessCompare = lessFor(type);
         const compareCompare = compareFor(type);
 
-        const v1 = variant('none', null);
-        const v2 = variant('none', null);
-        const v3 = variant('some', 5n);
-        const v4 = variant('some', 10n);
+        const v1 = none;
+        const v2 = none;
+        const v3 = some(5n);
+        const v4 = some(10n);
 
         // Same type and value
         assert.equal(equalCompare(v1, v2), true);

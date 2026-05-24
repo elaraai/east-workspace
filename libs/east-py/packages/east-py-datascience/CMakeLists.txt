@@ -16,18 +16,40 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # ────────────────────────────────────────────────────────────────────────
-# Locate the monorepo root (marker: pnpm-workspace.yaml)
+# Resolve native sources. Dev builds run inside the monorepo (sibling
+# libs/east-c + east-py). Packaged builds — a PyPI sdist or a cibuildwheel
+# container — have no monorepo, so fall back to the copies staged under
+# _vendor/ by scripts/vendor-native.py.
 # ────────────────────────────────────────────────────────────────────────
 set(_search_dir "${CMAKE_CURRENT_LIST_DIR}")
 while(NOT EXISTS "${_search_dir}/pnpm-workspace.yaml")
     get_filename_component(_parent "${_search_dir}" DIRECTORY)
     if(_parent STREQUAL _search_dir)
-        message(FATAL_ERROR
-            "Could not locate monorepo root from ${CMAKE_CURRENT_LIST_DIR}.")
+        set(_search_dir "")
+        break()
     endif()
     set(_search_dir "${_parent}")
 endwhile()
-set(MONOREPO_ROOT "${_search_dir}")
+
+if(_search_dir)
+    set(EAST_C_DIR "${_search_dir}/libs/east-c/packages/east-c")
+    get_filename_component(EAST_PY_PXD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../east-py" ABSOLUTE)
+else()
+    set(EAST_C_DIR "${CMAKE_CURRENT_SOURCE_DIR}/_vendor/east-c")
+    set(EAST_PY_PXD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/_vendor/east-py")
+endif()
+if(NOT EXISTS "${EAST_C_DIR}/CMakeLists.txt")
+    message(FATAL_ERROR
+        "east-c source not found at ${EAST_C_DIR}. For a packaged build run "
+        "scripts/vendor-native.py --package <this package> first.")
+endif()
+if(NOT EXISTS "${EAST_PY_PXD_DIR}/east/_eastc.pxd")
+    message(FATAL_ERROR
+        "east-py .pxd not found at ${EAST_PY_PXD_DIR}/east/. For a packaged "
+        "build run scripts/vendor-native.py --with-east-py-pxd first.")
+endif()
+message(STATUS "east-c source: ${EAST_C_DIR}")
+message(STATUS "east-py .pxd:  ${EAST_PY_PXD_DIR}")
 
 # ────────────────────────────────────────────────────────────────────────
 # Native deps: PCRE2 (required by east-c) + east-c.
@@ -51,7 +73,7 @@ set(EAST_USE_MIMALLOC OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 
 add_subdirectory(
-    ${MONOREPO_ROOT}/libs/east-c/packages/east-c
+    ${EAST_C_DIR}
     ${CMAKE_BINARY_DIR}/_deps/east-c
     EXCLUDE_FROM_ALL
 )
@@ -69,13 +91,6 @@ execute_process(
 )
 if(NOT _cython_check EQUAL 0)
     message(FATAL_ERROR "Cython is required but not importable from ${Python_EXECUTABLE}")
-endif()
-
-# east-py .pxd files are source artifacts — reference the sibling package
-# directly so this package can build without east-py installed first.
-get_filename_component(EAST_PY_PXD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../east-py" ABSOLUTE)
-if(NOT EXISTS "${EAST_PY_PXD_DIR}/east/_eastc.pxd")
-    message(FATAL_ERROR "east-py source not found at ${EAST_PY_PXD_DIR} — expected sibling workspace package.")
 endif()
 
 # ────────────────────────────────────────────────────────────────────────
@@ -106,7 +121,7 @@ foreach(pyx ${PYX_FILES})
 
     Python_add_library(${name} MODULE WITH_SOABI ${c_file})
     target_include_directories(${name} PRIVATE
-        ${MONOREPO_ROOT}/libs/east-c/packages/east-c/include
+        ${EAST_C_DIR}/include
         ${Python_NumPy_INCLUDE_DIRS}
         ${EAST_PY_PXD_DIR}
     )

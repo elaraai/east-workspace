@@ -56,7 +56,7 @@ export async function testDivisionByZero(): Promise<ScenarioResult> {
     await runE3Command(['workspace', 'deploy', repoDir, 'ws', `${pkg.name}@${pkg.version}`], testDir);
 
     // This should fail gracefully
-    const startResult = await runE3Command(['start', repoDir, 'ws'], testDir);
+    const startResult = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
     // Either exit code is non-zero OR output mentions error/fail
     const output = (startResult.stdout + startResult.stderr).toLowerCase();
@@ -119,7 +119,7 @@ export async function testArrayOutOfBounds(): Promise<ScenarioResult> {
     await runE3Command(['workspace', 'create', repoDir, 'ws'], testDir);
     await runE3Command(['workspace', 'deploy', repoDir, 'ws', `${pkg.name}@${pkg.version}`], testDir);
 
-    const startResult = await runE3Command(['start', repoDir, 'ws'], testDir);
+    const startResult = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
     const output = (startResult.stdout + startResult.stderr).toLowerCase();
     const indicatesFailure = startResult.exitCode !== 0 ||
@@ -179,7 +179,7 @@ export async function testCustomTaskFailure(): Promise<ScenarioResult> {
     await runE3Command(['workspace', 'create', repoDir, 'ws'], testDir);
     await runE3Command(['workspace', 'deploy', repoDir, 'ws', `${pkg.name}@${pkg.version}`], testDir);
 
-    const startResult = await runE3Command(['start', repoDir, 'ws'], testDir);
+    const startResult = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
     const output = (startResult.stdout + startResult.stderr).toLowerCase();
     const indicatesFailure = startResult.exitCode !== 0 ||
@@ -242,11 +242,11 @@ export async function testNaNHandling(): Promise<ScenarioResult> {
     await runE3Command(['workspace', 'deploy', repoDir, 'ws', `${pkg.name}@${pkg.version}`], testDir);
 
     // This should succeed - NaN is a valid float value
-    const startResult = await runE3Command(['start', repoDir, 'ws'], testDir);
+    const startResult = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
     assert(startResult.exitCode === 0, `NaN handling should succeed: ${startResult.stderr}`);
 
     // Output should contain NaN representation
-    const getResult = await runE3Command(['get', repoDir, 'ws.tasks.use_nan.output'], testDir);
+    const getResult = await runE3Command(['dataset', 'get', repoDir, 'ws.use_nan'], testDir);
     assert(getResult.exitCode === 0, `get should succeed: ${getResult.stderr}`);
 
     removeTestDir(testDir);
@@ -300,10 +300,10 @@ export async function testInfinityHandling(): Promise<ScenarioResult> {
     await runE3Command(['workspace', 'create', repoDir, 'ws'], testDir);
     await runE3Command(['workspace', 'deploy', repoDir, 'ws', `${pkg.name}@${pkg.version}`], testDir);
 
-    const startResult = await runE3Command(['start', repoDir, 'ws'], testDir);
+    const startResult = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
     assert(startResult.exitCode === 0, `Infinity handling should succeed: ${startResult.stderr}`);
 
-    const getResult = await runE3Command(['get', repoDir, 'ws.tasks.use_inf.output'], testDir);
+    const getResult = await runE3Command(['dataset', 'get', repoDir, 'ws.use_inf'], testDir);
     assert(getResult.exitCode === 0, `get should succeed: ${getResult.stderr}`);
 
     removeTestDir(testDir);
@@ -357,10 +357,10 @@ export async function testEmptyStringHandling(): Promise<ScenarioResult> {
     await runE3Command(['workspace', 'create', repoDir, 'ws'], testDir);
     await runE3Command(['workspace', 'deploy', repoDir, 'ws', `${pkg.name}@${pkg.version}`], testDir);
 
-    const startResult = await runE3Command(['start', repoDir, 'ws'], testDir);
+    const startResult = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
     assert(startResult.exitCode === 0, `Empty string should succeed: ${startResult.stderr}`);
 
-    const getResult = await runE3Command(['get', repoDir, 'ws.tasks.use_empty.output'], testDir);
+    const getResult = await runE3Command(['dataset', 'get', repoDir, 'ws.use_empty'], testDir);
     assert(getResult.exitCode === 0, `get should succeed: ${getResult.stderr}`);
     assert(getResult.stdout.includes('0'), `Empty string length should be 0: ${getResult.stdout}`);
 
@@ -414,10 +414,10 @@ export async function testEmptyArrayHandling(): Promise<ScenarioResult> {
     await runE3Command(['workspace', 'create', repoDir, 'ws'], testDir);
     await runE3Command(['workspace', 'deploy', repoDir, 'ws', `${pkg.name}@${pkg.version}`], testDir);
 
-    const startResult = await runE3Command(['start', repoDir, 'ws'], testDir);
+    const startResult = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
     assert(startResult.exitCode === 0, `Empty array should succeed: ${startResult.stderr}`);
 
-    const getResult = await runE3Command(['get', repoDir, 'ws.tasks.use_empty_arr.output'], testDir);
+    const getResult = await runE3Command(['dataset', 'get', repoDir, 'ws.use_empty_arr'], testDir);
     assert(getResult.exitCode === 0, `get should succeed: ${getResult.stderr}`);
     assert(getResult.stdout.includes('0'), `Empty array length should be 0: ${getResult.stdout}`);
 

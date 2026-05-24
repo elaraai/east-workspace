@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, FloatType, BooleanType, ArrayType, variant, example } from "@elaraai/east";
+import { East, FloatType, BooleanType, ArrayType, variant, example, some, none } from "@elaraai/east";
 import { Optuna, Sklearn, XGBoost } from "@elaraai/east-py-datascience";
 
 export const optunaTuneXgboost = example({
@@ -30,22 +30,22 @@ export const optunaTuneXgboost = example({
                 const depth = $.let(params.get(1n).value.unwrap('int'));
 
                 const config = $.let({
-                    n_estimators: variant('some', 50n),
-                    max_depth: variant('some', depth),
-                    learning_rate: variant('some', lr),
-                    min_child_weight: variant('none', null),
-                    subsample: variant('none', null),
-                    colsample_bytree: variant('none', null),
-                    reg_alpha: variant('none', null),
-                    reg_lambda: variant('none', null),
-                    gamma: variant('none', null),
-                    random_state: variant('some', 42n),
-                    n_jobs: variant('none', null),
-                    sample_weight: variant('none', null),
-                    categorical_features: variant('none', null),
-                    categorical_n: variant('none', null),
-                    max_cat_to_onehot: variant('none', null),
-                    max_cat_threshold: variant('none', null),
+                    n_estimators: some(50n),
+                    max_depth: some(depth),
+                    learning_rate: some(lr),
+                    min_child_weight: none,
+                    subsample: none,
+                    colsample_bytree: none,
+                    reg_alpha: none,
+                    reg_lambda: none,
+                    gamma: none,
+                    random_state: some(42n),
+                    n_jobs: none,
+                    sample_weight: none,
+                    categorical_features: none,
+                    categorical_n: none,
+                    max_cat_to_onehot: none,
+                    max_cat_threshold: none,
                 });
 
                 const model = $.let(XGBoost.trainRegressor(X_train, y_train, config));
@@ -62,25 +62,25 @@ export const optunaTuneXgboost = example({
             {
                 name: "learning_rate",
                 kind: variant("log_uniform", null),
-                low: variant("some", 0.01),
-                high: variant("some", 0.5),
-                choices: variant("none", null),
+                low: some(0.01),
+                high: some(0.5),
+                choices: none,
             },
             {
                 name: "max_depth",
                 kind: variant("int", null),
-                low: variant("some", 2.0),
-                high: variant("some", 6.0),
-                choices: variant("none", null),
+                low: some(2.0),
+                high: some(6.0),
+                choices: none,
             },
         ], ArrayType(Optuna.Types.ParamSpaceType));
 
         const config = $.let({
-            direction: variant("some", variant("minimize", null)),
+            direction: some(variant("minimize", null)),
             n_trials: 15n,
-            random_state: variant("some", 42n),
-            pruner: variant("none", null),
-            initial_params: variant("none", null),
+            random_state: some(42n),
+            pruner: none,
+            initial_params: none,
         });
 
         const result = $.let(Optuna.optimize(search_space, objective, config));
@@ -115,25 +115,25 @@ export const optunaOptimizeMixed = example({
             {
                 name: "batch_size",
                 kind: variant("int", null),
-                low: variant("some", 20.0),
-                high: variant("some", 80.0),
-                choices: variant("none", null),
+                low: some(20.0),
+                high: some(80.0),
+                choices: none,
             },
             {
                 name: "temperature",
                 kind: variant("float", null),
-                low: variant("some", 150.0),
-                high: variant("some", 200.0),
-                choices: variant("none", null),
+                low: some(150.0),
+                high: some(200.0),
+                choices: none,
             },
         ], ArrayType(Optuna.Types.ParamSpaceType));
 
         const config = $.let({
-            direction: variant("some", variant("minimize", null)),
+            direction: some(variant("minimize", null)),
             n_trials: 30n,
-            random_state: variant("some", 42n),
-            pruner: variant("none", null),
-            initial_params: variant("none", null),
+            random_state: some(42n),
+            pruner: none,
+            initial_params: none,
         });
 
         const result = $.let(Optuna.optimize(search_space, objective, config));
@@ -187,9 +187,9 @@ export const optunaOptimizeCategorical = example({
             {
                 name: "shift_pattern",
                 kind: variant("categorical", null),
-                low: variant("none", null),
-                high: variant("none", null),
-                choices: variant("some", [
+                low: none,
+                high: none,
+                choices: some([
                     variant("string", "single_shift"),
                     variant("string", "two_shift"),
                     variant("string", "three_shift"),
@@ -198,18 +198,18 @@ export const optunaOptimizeCategorical = example({
             {
                 name: "staffing_level",
                 kind: variant("int", null),
-                low: variant("some", 5.0),
-                high: variant("some", 20.0),
-                choices: variant("none", null),
+                low: some(5.0),
+                high: some(20.0),
+                choices: none,
             },
         ], ArrayType(Optuna.Types.ParamSpaceType));
 
         const config = $.let({
-            direction: variant("some", variant("minimize", null)),
+            direction: some(variant("minimize", null)),
             n_trials: 30n,
-            random_state: variant("some", 42n),
-            pruner: variant("none", null),
-            initial_params: variant("none", null),
+            random_state: some(42n),
+            pruner: none,
+            initial_params: none,
         });
 
         const result = $.let(Optuna.optimize(search_space, objective, config));

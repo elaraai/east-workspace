@@ -93,11 +93,6 @@ const compiled = East.compileAsync(
 );
 ```
 
-## Reference Documentation
-
-- **[API Reference](./reference/api.md)** - Complete function signatures, types, and arguments for all modules
-- **[Examples](./reference/examples.md)** - Working code examples by use case
-
 ## Available Modules
 
 | Module | Import | Purpose |

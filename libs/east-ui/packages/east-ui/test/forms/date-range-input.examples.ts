@@ -42,10 +42,7 @@ export const dateRangeInputReactive = example({
             }));
             return Stack.VStack([
                 DateRangeInput.Root(start, end, { precision: "date", onChange }),
-                Text.Root(East.str`${start} → ${end}`, {
-                    textStyle: "body-sm",
-                    color: "fg.muted",
-                }),
+                Text.Presets.MonoLabel(East.str`${start} → ${end}`),
             ], { gap: "3", align: "flex-start" });
         }));
     }),

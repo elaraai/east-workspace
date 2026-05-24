@@ -138,9 +138,12 @@ export interface AccordionStyle {
 /**
  * TypeScript options bag for `Accordion.Item`.
  *
+ * @property meta - Optional trailing meta (field/dirty count), right-aligned in the header
  * @property disabled - Whether this item is disabled
  */
 export interface AccordionItemOptions {
+    /** Optional trailing meta (field/dirty count) shown right-aligned in the header. */
+    meta?: SubtypeExprOrValue<StringType>;
     /** Whether this item is disabled — renderer blocks interaction */
     disabled?: SubtypeExprOrValue<BooleanType>;
 }

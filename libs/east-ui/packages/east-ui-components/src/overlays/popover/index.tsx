@@ -48,16 +48,20 @@ export const EastChakraPopover = memo(function EastChakraPopover({ value, storag
             onOpenChange={onOpenChangeFn ? handleOpenChange : undefined}
         >
             <ChakraPopover.Trigger asChild>
-                <span>
+                <span style={{ display: "inline-flex" }}>
                     <EastChakraComponent value={value.trigger} storageKey={`${storageKey}.trigger`} />
                 </span>
             </ChakraPopover.Trigger>
             <Portal>
                 <ChakraPopover.Positioner>
-                    <ChakraPopover.Content>
-                        {hasArrow && <ChakraPopover.Arrow />}
-                        <ChakraPopover.Body p="1">
-                            {title && <ChakraPopover.Title fontWeight="medium">{title}</ChakraPopover.Title>}
+                    <ChakraPopover.Content padding="14px 16px" minW="240px" maxW="360px" fontSize="13px">
+                        {hasArrow && (
+                            <ChakraPopover.Arrow>
+                                <ChakraPopover.ArrowTip />
+                            </ChakraPopover.Arrow>
+                        )}
+                        <ChakraPopover.Body>
+                            {title && <ChakraPopover.Title>{title}</ChakraPopover.Title>}
                             {description && <ChakraPopover.Description>{description}</ChakraPopover.Description>}
                             {value.body.map((child, index) => (
                                 <EastChakraComponent key={index} value={child} storageKey={`${storageKey}.${index}`} />

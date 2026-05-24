@@ -29,22 +29,16 @@ export type CardValue = ValueTypeOf<typeof Card.Types.Card>;
  * Convert an East UI Card value's `style` sub-struct into Chakra CardRootProps.
  *
  * @remarks
- * Visual presets (`variant` / `size`) map straight onto Chakra's root. Layout
- * / dimension fields pass through via Chakra's style-prop system. Colour
- * slots (`background`, `borderColor`) and the accent stripe are spread onto
- * the root in the renderer body rather than here so they can coexist with
- * state-driven overrides (e.g. `disabled` opacity).
+ * Layout / dimension fields pass through via Chakra's style-prop system. Colour
+ * slots (`background`, `borderColor`) and the accent stripe are spread onto the
+ * root in the renderer body rather than here so they can coexist with
+ * state-driven overrides (e.g. `disabled` opacity). The card has one shape —
+ * no preset or shadow props.
  */
 export function toChakraCard(value: CardValue): CardRootProps {
     const style = getSomeorUndefined(value.style);
-    const size = style ? (getSomeorUndefined(style.size)?.type as CardRootProps["size"]) : undefined;
 
     return {
-        variant: style ? getSomeorUndefined(style.variant)?.type : undefined,
-        // Default to "sm" — modern enterprise UIs (Linear / Stripe / Notion) use
-        // dense cards, not Chakra's generous "md" default. Callers can override
-        // via `style.size`.
-        size: size ?? "sm",
         height: style ? getSomeorUndefined(style.height) : undefined,
         minHeight: style ? getSomeorUndefined(style.minHeight) : undefined,
         maxHeight: style ? getSomeorUndefined(style.maxHeight) : undefined,
@@ -158,62 +152,65 @@ export const EastChakraCard = memo(function EastChakraCard({ value, storageKey }
     const headerBackground = style ? getSomeorUndefined(style.headerBackground) : undefined;
     const footerBackground = style ? getSomeorUndefined(style.footerBackground) : undefined;
     const accentColor = style ? getSomeorUndefined(style.accentColor) : undefined;
-    const elevation = style ? getSomeorUndefined(style.elevation)?.type : undefined;
-
-    const elevationShadowMap: Record<string, string | undefined> = {
-        flat: "none",
-        raised: "sm",
-        overlay: "md",
-        floating: "lg",
-        modal: "xl",
-    };
-    const elevationShadow = elevation ? elevationShadowMap[elevation] : undefined;
 
     const isDisabled = stateTag === "disabled";
     const isStale = stateTag === "stale";
     const hasFallbackBody = stateTag === "loading" || stateTag === "empty"
         || stateTag === "error" || stateTag === "permission-denied";
 
-    // Modern-enterprise defaults: always a subtle 1px border, subtle xs shadow
-    // by default when no explicit elevation, snug header/body padding, hairline
-    // separator between header and body.
-    const defaultShadow = elevationShadow ?? "0 1px 2px rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.06)";
-    const defaultBorderColor = borderColor ?? "border.muted";
+    // The one container shape: 1px subtle border, 10px radius, no shadow.
+    const defaultBorderColor = borderColor ?? "border.subtle";
 
     return (
         <ChakraCard.Root
             {...props}
+            borderRadius="10px"
             borderColor={defaultBorderColor}
             borderWidth="1px"
+            overflow="hidden"
             {...(background !== undefined ? { bg: background } : {})}
-            boxShadow={defaultShadow}
             {...(accentColor !== undefined ? { borderLeftWidth: "3px", borderLeftColor: accentColor } : {})}
             aria-disabled={isDisabled || undefined}
             opacity={isDisabled ? 0.5 : undefined}
             position={isStale ? "relative" : undefined}
         >
+            {/* Header — bsys eyebrow-row: paper-2 fill, 12×18, bottom hairline.
+                Card.Header supplies the styled eyebrow / title / meta content. */}
             {header && (
                 <ChakraCard.Header
-                    py="2"
-                    px="3"
+                    paddingY="12px"
+                    paddingX="18px"
                     borderBottomWidth="1px"
                     borderBottomColor={defaultBorderColor}
-                    {...(headerBackground !== undefined ? { bg: headerBackground } : {})}
+                    bg={headerBackground ?? "bg.canvas"}
+                    display="flex"
+                    flexDirection="column"
+                    gap="1"
+                    fontFamily="mono"
+                    fontSize="11px"
                 >
                     <EastChakraComponent value={header} storageKey={`${storageKey}.header`} />
                 </ChakraCard.Header>
             )}
             {isStale && (
-                <ChakraAlert.Root status="warning" variant="subtle" borderRadius="0">
-                    <ChakraAlert.Indicator>
+                <ChakraBox layerStyle="banner.stale" borderRadius="0" display="flex" alignItems="center" gap="2">
+                    <ChakraBox as="span" color="fg.warning">
                         <FontAwesomeIcon icon={faClock} />
-                    </ChakraAlert.Indicator>
-                    <ChakraAlert.Content>
-                        <ChakraAlert.Title>Stale data</ChakraAlert.Title>
-                    </ChakraAlert.Content>
-                </ChakraAlert.Root>
+                    </ChakraBox>
+                    <ChakraBox fontWeight="semibold" fontSize="sm">Stale data</ChakraBox>
+                </ChakraBox>
             )}
-            <ChakraCard.Body py="3" px="3" opacity={isStale ? 0.6 : undefined}>
+            {/* Body — bsys Frame body: 18px padding, flex column so multiple
+                children get breathing room rather than stacking flush. */}
+            <ChakraCard.Body
+                paddingTop="18px"
+                paddingBottom="18px"
+                paddingX="20px"
+                display="flex"
+                flexDirection="column"
+                gap="3"
+                opacity={isStale ? 0.6 : undefined}
+            >
                 {hasFallbackBody ? (
                     renderStateFallback(stateTag)
                 ) : (
@@ -222,13 +219,17 @@ export const EastChakraCard = memo(function EastChakraCard({ value, storageKey }
                     ))
                 )}
             </ChakraCard.Body>
+            {/* Footer — bsys Frame footer: 10×18, top hairline, paper-2 fill. */}
             {footer && (
                 <ChakraCard.Footer
-                    py="2"
-                    px="3"
+                    paddingY="10px"
+                    paddingX="18px"
                     borderTopWidth="1px"
                     borderTopColor={defaultBorderColor}
-                    {...(footerBackground !== undefined ? { bg: footerBackground } : {})}
+                    bg={footerBackground ?? "bg.canvas"}
+                    display="flex"
+                    alignItems="center"
+                    gap="3"
                 >
                     <EastChakraComponent value={footer} storageKey={`${storageKey}.footer`} />
                 </ChakraCard.Footer>

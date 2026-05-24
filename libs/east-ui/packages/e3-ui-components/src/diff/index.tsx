@@ -30,17 +30,14 @@
  */
 
 import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { Box, Button, Flex, HStack, Heading, Input as ChakraInput, Text } from "@chakra-ui/react";
+import { Box, Flex, HStack, Input as ChakraInput, Text, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
     faCheck,
-    faCheckCircle,
     faMinus,
     faPen,
     faPlus,
-    faRotateLeft,
     faServer,
-    faShieldHalved,
     faTriangleExclamation,
     faUser,
     faXmark,
@@ -373,87 +370,68 @@ function deriveBindings(
 
 type IconKind = "insert" | "delete" | "update" | "unchanged" | "conflict";
 
-const OP_ICON_PALETTE: Record<IconKind, { bg: string; color: string; icon: any; size?: string }> = {
-    insert:    { bg: "green.50",  color: "green.700",  icon: faPlus  },
-    delete:    { bg: "red.50",    color: "red.700",    icon: faMinus },
-    update:    { bg: "yellow.50", color: "yellow.700", icon: faPen, size: "9px" },
-    unchanged: { bg: "gray.100",  color: "gray.500",   icon: faEquals, size: "9px" },
-    conflict:  { bg: "orange.100",color: "orange.700", icon: faTriangleExclamation, size: "9px" },
+/* Op glyph — a bare semantic mark in the column gutter; the +/− value chips
+ * and row context carry the rest. No tinted circle. */
+const OP_GLYPH: Record<IconKind, { color: string; icon: any }> = {
+    insert:    { color: "fg.success", icon: faPlus },
+    delete:    { color: "fg.danger",  icon: faMinus },
+    update:    { color: "fg.muted",   icon: faPen },
+    unchanged: { color: "fg.subtle",  icon: faEquals },
+    conflict:  { color: "fg.warning", icon: faTriangleExclamation },
 };
 
 function OpIcon({ kind, size = "20px" }: { kind: IconKind; size?: string }) {
-    const p = OP_ICON_PALETTE[kind];
+    const p = OP_GLYPH[kind];
     return (
         <Box
             display="inline-flex"
             alignItems="center"
             justifyContent="center"
             width={size}
-            height={size}
-            borderRadius="full"
-            bg={p.bg}
             color={p.color}
             flexShrink={0}
-            fontSize={p.size ?? "10px"}
+            fontSize="11px"
         >
             <FontAwesomeIcon icon={p.icon} />
         </Box>
     );
 }
 
-type ChipTone = "brand" | "green" | "red" | "yellow" | "orange" | "gray";
-
-const CHIP_PALETTE: Record<ChipTone, { bg: string; color: string; border: string }> = {
-    brand:  { bg: "brand.50",  color: "brand.700",  border: "#cdebe8" },
-    green:  { bg: "green.50",  color: "green.700",  border: "#b7ebc9" },
-    red:    { bg: "red.50",    color: "red.700",    border: "#f4c8c8" },
-    yellow: { bg: "yellow.50", color: "yellow.700", border: "#f5e2a8" },
-    orange: { bg: "orange.50", color: "orange.700", border: "#fdd5b4" },
-    gray:   { bg: "gray.100",  color: "gray.600",   border: "gray.200" },
-};
-
-function Chip({ tone, children, fontSize = "12px" }: { tone: ChipTone; children: React.ReactNode; fontSize?: string }) {
-    const p = CHIP_PALETTE[tone];
+/* Value chip — neutral `.chip` (paper + rule-strong border, mono numerals).
+ * The +/− glyph carries the only colour; the chip itself stays neutral. */
+function Chip({ children, fontSize = "12px" }: { children: React.ReactNode; fontSize?: string }) {
+    const chip = useRecipe({ key: "chip" });
     return (
-        <Box
-            display="inline-flex"
-            alignItems="center"
-            gap="6px"
-            borderRadius="full"
-            px="10px"
-            py="3px"
-            fontSize={fontSize}
-            fontWeight={500}
-            border="1px solid"
-            borderColor={p.border}
-            bg={p.bg}
-            color={p.color}
-            lineHeight="1.4"
-            fontVariantNumeric="tabular-nums"
-            fontFamily="mono"
-        >
+        <Box as="span" css={chip({ numeric: true })} fontSize={fontSize}>
             {children}
         </Box>
     );
 }
 
-const ACTION_BTN_TONE = {
-    accept: { color: "brand.700", bg: "brand.50",  borderColor: "#cdebe8" },
-    reject: { color: "red.700",   bg: "red.50",    borderColor: "red.100" },
-} as const;
+type StatusTone = "success" | "warning" | "danger" | "info" | "neutral" | "brand";
 
+/* Dot + WORD status flag — spec `.status` (never a tinted pill). */
+function StatusFlag({ tone, label }: { tone: StatusTone; label: string }) {
+    const status = useSlotRecipe({ key: "status" });
+    const s = status({ status: tone, size: "sm" });
+    return (
+        <Box as="span" css={s.root}>
+            <Box as="span" css={s.indicator} />
+            <Box as="span" css={s.label}>{label}</Box>
+        </Box>
+    );
+}
+
+/* Per-row discard — ghost icon button (spec `.btn.ghost`). */
 function ActionBtn({
-    icon, on, tone, title, onClick, disabled, size = "32px",
+    icon, title, onClick, disabled, size = "28px",
 }: {
     icon: any;
-    on?: boolean;
-    tone?: "accept" | "reject";
     title: string;
     onClick?: () => void;
     disabled?: boolean;
     size?: string;
 }) {
-    const onColors = ACTION_BTN_TONE[tone ?? "reject"];
     return (
         <Box
             as="button"
@@ -462,19 +440,18 @@ function ActionBtn({
             onClick={disabled ? undefined : onClick}
             width={size}
             height={size}
-            borderRadius="md"
-            border="1px solid"
-            borderColor={on ? onColors.borderColor : "gray.200"}
-            bg={on ? onColors.bg : "white"}
-            color={on ? onColors.color : "gray.500"}
+            borderRadius="4px"
+            border="0"
+            bg="transparent"
+            color="fg.subtle"
             display="inline-flex"
             alignItems="center"
             justifyContent="center"
             cursor={disabled ? "not-allowed" : "pointer"}
             opacity={disabled ? 0.5 : 1}
-            fontSize="13px"
+            fontSize="12px"
             transition="all 100ms ease"
-            _hover={{ color: "gray.900", borderColor: "gray.300" }}
+            _hover={{ color: "fg", bg: "bg.muted" }}
         >
             <FontAwesomeIcon icon={icon} />
         </Box>
@@ -500,29 +477,20 @@ const DiffRow = memo(function DiffRow({ row, depth, bindingPathStr, showActions,
             display="grid"
             gridTemplateColumns="28px 1fr auto"
             alignItems="center"
-            px="24px"
+            px="18px"
             py={metrics.rowPadY}
-            pl={`${24 + depth * metrics.indentStep}px`}
+            pl={`${18 + depth * metrics.indentStep}px`}
             gap="16px"
             borderBottomWidth="1px"
-            borderBottomColor="gray.200"
-            bg="transparent"
-            position="relative"
-            _hover={{ bg: "gray.50/55" }}
-            _before={{
-                content: '""',
-                position: "absolute" as const,
-                left: 0, top: 0, bottom: 0,
-                width: "3px",
-                bg: "brand.500",
-            }}
+            borderBottomColor="border.subtle"
+            _hover={{ bg: "bg.canvas" }}
         >
             <OpIcon kind={row.op === "unchanged" ? "unchanged" : row.op} size={metrics.opIconSize} />
             <Flex direction="column" minW={0} gap="2px">
                 <Text
                     fontSize={metrics.labelFontSize}
                     fontWeight={500}
-                    color={row.stale ? "orange.900" : "gray.900"}
+                    color={row.stale ? "fg.warning" : "fg"}
                     overflow="hidden"
                     textOverflow="ellipsis"
                     whiteSpace="nowrap"
@@ -530,7 +498,7 @@ const DiffRow = memo(function DiffRow({ row, depth, bindingPathStr, showActions,
                     {row.label}
                 </Text>
                 {row.stale && (
-                    <Text fontSize="11px" color="orange.700" fontWeight={500}>
+                    <Text fontSize="11px" color="fg.warning" fontWeight={500}>
                         <FontAwesomeIcon icon={faTriangleExclamation} />{" "}
                         {row.stale.actual === undefined
                             ? "stale — source no longer has this entry"
@@ -546,17 +514,17 @@ const DiffRow = memo(function DiffRow({ row, depth, bindingPathStr, showActions,
             <HStack gap="16px" align="center">
                 <HStack gap="6px" wrap="wrap">
                     {row.before !== undefined && (
-                        <Chip tone="red" fontSize={metrics.chipFontSize}><FontAwesomeIcon icon={faMinus} /> {formatLeafValue(row.leafType, row.before)}</Chip>
+                        <Chip fontSize={metrics.chipFontSize}><Box as="span" color="fg.danger"><FontAwesomeIcon icon={faMinus} /></Box> {formatLeafValue(row.leafType, row.before)}</Chip>
                     )}
                     {row.before !== undefined && row.after !== undefined && (
-                        <Box as="span" color="gray.500" fontSize="11px"><FontAwesomeIcon icon={faArrowRight} /></Box>
+                        <Box as="span" color="fg.subtle" fontSize="11px"><FontAwesomeIcon icon={faArrowRight} /></Box>
                     )}
                     {row.after !== undefined && (
-                        <Chip tone="green" fontSize={metrics.chipFontSize}><FontAwesomeIcon icon={faPlus} /> {formatLeafValue(row.leafType, row.after)}</Chip>
+                        <Chip fontSize={metrics.chipFontSize}><Box as="span" color="fg.success"><FontAwesomeIcon icon={faPlus} /></Box> {formatLeafValue(row.leafType, row.after)}</Chip>
                     )}
                 </HStack>
                 {showActions && (
-                    <ActionBtn icon={faXmark} title="Discard this change" tone="reject" onClick={handleDiscard} size={metrics.actionBtnSize} />
+                    <ActionBtn icon={faXmark} title="Discard this change" onClick={handleDiscard} size={metrics.actionBtnSize} />
                 )}
             </HStack>
         </Box>
@@ -587,22 +555,19 @@ const ConflictRow = memo(function ConflictRow({ row, depth, bindingPathStr, serv
     return (
         <Box
             display="block"
-            px="21px"
+            px="18px"
             py={metrics.rowPadY}
-            pr="24px"
-            pl={`${21 + depth * metrics.indentStep}px`}
-            bg="orange.50"
-            borderLeft="3px solid"
-            borderLeftColor="orange.500"
+            pl={`${18 + depth * metrics.indentStep}px`}
+            bg="warning.subtle"
             borderBottomWidth="1px"
-            borderBottomColor="gray.200"
+            borderBottomColor="border.subtle"
         >
             <Box display="grid" gridTemplateColumns="28px 1fr" alignItems="center" gap="16px">
                 <OpIcon kind="conflict" size={metrics.opIconSize} />
                 <Flex direction="column" minW={0} gap="2px">
-                    <Text fontSize={metrics.labelFontSize} fontWeight={500} color="gray.900">
+                    <Text fontSize={metrics.labelFontSize} fontWeight={500} color="fg">
                         {row.label}
-                        <Text as="span" color="orange.700" fontWeight={500} ml="6px">· conflict</Text>
+                        <Text as="span" color="fg.warning" fontWeight={500} ml="6px">· conflict</Text>
                     </Text>
                 </Flex>
             </Box>
@@ -614,7 +579,7 @@ const ConflictRow = memo(function ConflictRow({ row, depth, bindingPathStr, serv
                 p="12px"
                 bg="white"
                 border="1px solid"
-                borderColor="orange.100"
+                borderColor="fg.warning"
                 borderRadius="md"
                 role="radiogroup"
                 aria-label={`Resolve ${row.path || "(root)"}`}
@@ -661,22 +626,22 @@ function ChooserOption({
             as="button"
             onClick={onClick}
             border="1px solid"
-            borderColor={selected ? "brand.500" : "gray.200"}
+            borderColor={selected ? "border.brand" : "border.subtle"}
             borderRadius="md"
             px="12px"
             py="10px"
-            bg={selected ? "brand.50" : "white"}
+            bg={selected ? "bg.brand.subtle" : "bg.surface"}
             cursor="pointer"
             textAlign="left"
             transition="border-color 100ms ease"
-            _hover={{ borderColor: selected ? "brand.500" : "gray.300" }}
+            _hover={{ borderColor: selected ? "border.brand" : "border.strong" }}
         >
             <Box
                 fontFamily="mono"
                 fontSize="10px"
                 textTransform="uppercase"
                 letterSpacing="0.06em"
-                color="gray.500"
+                color="fg.muted"
                 mb="6px"
             >
                 <FontAwesomeIcon icon={icon} /> {label}
@@ -685,7 +650,7 @@ function ChooserOption({
                 fontFamily="mono"
                 fontSize="13px"
                 fontWeight={600}
-                color={muted ? "gray.500" : "gray.900"}
+                color={muted ? "fg.muted" : "fg"}
             >
                 {value}
             </Box>
@@ -711,22 +676,22 @@ function ManualOption({
     return (
         <Box
             border="1px solid"
-            borderColor={selected ? "brand.500" : "gray.200"}
+            borderColor={selected ? "border.brand" : "border.subtle"}
             borderRadius="md"
             px="12px"
             py="10px"
-            bg={selected ? "brand.50" : "white"}
+            bg={selected ? "bg.brand.subtle" : "bg.surface"}
             cursor="text"
             textAlign="left"
             transition="border-color 100ms ease"
-            _hover={{ borderColor: selected ? "brand.500" : "gray.300" }}
+            _hover={{ borderColor: selected ? "border.brand" : "border.strong" }}
         >
             <Box
                 fontFamily="mono"
                 fontSize="10px"
                 textTransform="uppercase"
                 letterSpacing="0.06em"
-                color="gray.500"
+                color="fg.muted"
                 mb="6px"
             >
                 <FontAwesomeIcon icon={faPen} /> Manual
@@ -765,7 +730,7 @@ function ManualEditor({
                 fontFamily="mono"
                 fontSize="13px"
                 fontWeight={600}
-                color="gray.900"
+                color="fg"
                 bg="transparent"
                 border="0"
                 cursor="pointer"
@@ -913,30 +878,49 @@ interface GroupHeaderProps {
 }
 
 const GroupHeader = memo(function GroupHeader({ node, depth, bindingPathStr, showActions, onDiscardAll, metrics }: GroupHeaderProps) {
+    const eyebrow = useSlotRecipe({ key: "eyebrowRow" });
+    const es = eyebrow({});
     const handleDiscardAll = useCallback(
         () => onDiscardAll(bindingPathStr, node.subtreeLeafPaths),
         [onDiscardAll, bindingPathStr, node.subtreeLeafPaths],
     );
+
+    // Depth-0 group = the binding's section header → a full eyebrow-row.
+    if (depth === 0) {
+        return (
+            <Box css={es.root}>
+                <Box css={es.lbl}>{node.label}</Box>
+                <Box css={es.meta} gap="10px">
+                    <Box as="span">{node.leafCount} change{node.leafCount === 1 ? "" : "s"}</Box>
+                    {showActions && (
+                        <ActionBtn icon={faXmark} title="Discard all changes here" onClick={handleDiscardAll} size={metrics.actionBtnSize} />
+                    )}
+                </Box>
+            </Box>
+        );
+    }
+
+    // Nested struct/array group → a quieter indented mono label row. No op
+    // column: the label sits at the row indent so child leaves (whose icon
+    // starts one step further in) read as nested beneath it.
     return (
         <Box
             display="grid"
-            gridTemplateColumns="28px 1fr auto"
+            gridTemplateColumns="1fr auto"
             alignItems="center"
-            px="24px"
+            px="18px"
             py={metrics.rowPadY}
-            pl={`${24 + depth * metrics.indentStep}px`}
+            pl={`${18 + depth * metrics.indentStep}px`}
             gap="16px"
-            bg={depth === 0 ? "gray.50" : "transparent"}
             borderBottomWidth="1px"
-            borderBottomColor="gray.200"
+            borderBottomColor="border.subtle"
         >
-            <OpIcon kind="update" size={metrics.opIconSize} />
-            <HStack gap="8px" color="gray.700" fontSize={metrics.labelFontSize} fontWeight={500}>
-                <Text as="span" color="gray.900" fontWeight={600}>{node.label}</Text>
-                <Text as="span" color="gray.500">· {node.leafCount} change{node.leafCount === 1 ? "" : "s"}</Text>
+            <HStack gap="6px" minW={0}>
+                <Text as="span" fontFamily="mono" fontSize="11px" fontWeight={600} letterSpacing="0.08em" textTransform="uppercase" color="fg.muted" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">{node.label}</Text>
+                <Text as="span" fontFamily="mono" fontSize="10px" color="fg.subtle">· {node.leafCount}</Text>
             </HStack>
             {showActions && (
-                <ActionBtn icon={faXmark} title="Discard all changes here" tone="reject" onClick={handleDiscardAll} size={metrics.actionBtnSize} />
+                <ActionBtn icon={faXmark} title="Discard all changes here" onClick={handleDiscardAll} size={metrics.actionBtnSize} />
             )}
         </Box>
     );
@@ -970,6 +954,11 @@ const EastChakraDiff = memo(function EastChakraDiff({ value }: EastChakraDiffPro
     const onDiscardedFn = getOpt(value.onDiscarded) as (() => void) | undefined;
     const density = resolveDensity(value.density);
     const metrics = DENSITY_METRICS[density];
+
+    const eyebrow = useSlotRecipe({ key: "eyebrowRow" });
+    const es = eyebrow({});
+    const commit = useSlotRecipe({ key: "commitBar" });
+    const cs = commit({});
 
     // Subscribe — every binding's source path always; patch path when present.
     // Both StagedStore and ReactiveDatasetCache may carry the in-flight change,
@@ -1226,7 +1215,7 @@ const EastChakraDiff = memo(function EastChakraDiff({ value }: EastChakraDiffPro
     // Workspace not configured — diagnostic only visible to devs.
     if (!cache.getConfig().workspace) {
         return (
-            <Box bg="red.50" color="red.700" border="1px solid" borderColor="red.300" borderRadius="md" p="12px" fontFamily="mono" fontSize="xs">
+            <Box layerStyle="banner.error" borderRadius="md" p="12px" fontFamily="mono" fontSize="xs">
                 Diff renderer requires a configured workspace on the ReactiveDatasetCache.
             </Box>
         );
@@ -1236,16 +1225,17 @@ const EastChakraDiff = memo(function EastChakraDiff({ value }: EastChakraDiffPro
     if (visibleBindings.length === 0) {
         return (
             <Box
-                bg="white"
-                border="1px solid"
-                borderColor="gray.200"
-                borderRadius="lg"
-                p="32px"
+                layerStyle="frame"
+                p="28px"
                 textAlign="center"
-                color="gray.500"
-                fontSize="14px"
+                color="fg.subtle"
+                fontFamily="mono"
+                fontSize="11px"
+                fontWeight="600"
+                letterSpacing="0.12em"
+                textTransform="uppercase"
             >
-                No staged edits to review.
+                No staged edits to review
             </Box>
         );
     }
@@ -1272,83 +1262,46 @@ const EastChakraDiff = memo(function EastChakraDiff({ value }: EastChakraDiffPro
 
     return (
         <Box
-            bg="white"
-            border="1px solid"
-            borderColor={inConflictMode ? "orange.500" : "gray.200"}
-            borderRadius="lg"
-            overflow="hidden"
+            layerStyle="frame"
             fontFamily="body"
+            borderColor={inConflictMode ? "fg.warning" : "border.strong"}
         >
-            {/* Header */}
-            <Flex
-                align="flex-start"
-                justify="space-between"
-                px="24px"
-                py="18px"
-                borderBottomWidth="1px"
-                borderBottomColor="gray.200"
-                gap="24px"
-            >
-                <Box minW={0}>
-                    <Heading as="h2" fontSize="18px" fontWeight={700} letterSpacing="-0.01em" m={0}>
-                        Pending changes
-                    </Heading>
-                    <Text fontSize="13px" color="gray.600" mt="4px">
-                        <Text as="span" color="gray.900" fontWeight={500}>
-                            {visibleBindings.length} staged binding{visibleBindings.length === 1 ? "" : "s"}
-                        </Text>
-                        {" · "}
-                        {totalLeaves} leaves pending
-                        {inConflictMode && (
-                            <Text as="span" color="orange.700" fontWeight={500} ml="8px">
-                                · <FontAwesomeIcon icon={faTriangleExclamation} /> server moved during your edit
-                            </Text>
-                        )}
-                    </Text>
+            {/* Header — single eyebrow-row: label · counts · status flag. */}
+            <Box css={es.root}>
+                <Box css={es.lbl}>Pending changes</Box>
+                <Box css={es.meta} gap="0">
+                    <Box as="span">{visibleBindings.length} staged</Box>
+                    <Box as="span" css={es.sep}>·</Box>
+                    <Box as="span">{totalLeaves} change{totalLeaves === 1 ? "" : "s"}</Box>
+                    <Box as="span" css={es.sep}>·</Box>
+                    {inConflictMode
+                        ? <StatusFlag tone={allConflictsResolved ? "success" : "danger"} label={allConflictsResolved ? "Ready" : `${conflicts!.length} conflict${conflicts!.length === 1 ? "" : "s"}`} />
+                        : hasStaleLeaves
+                        ? <StatusFlag tone="warning" label={`${staleLeafCount} stale`} />
+                        : <StatusFlag tone="success" label="No conflicts" />}
                 </Box>
-            </Flex>
+            </Box>
 
-            {/* Summary */}
-            <Flex
-                align="center"
-                gap="8px"
-                px="24px"
-                py="14px"
-                bg={inConflictMode ? "orange.50" : "gray.50"}
-                borderBottomWidth="1px"
-                borderBottomColor={inConflictMode ? "orange.100" : "gray.200"}
-                fontSize="13px"
-            >
-                {inConflictMode ? (
-                    <>
-                        <Text as="span" color="orange.700">
-                            <FontAwesomeIcon icon={faTriangleExclamation} />{" "}
-                            <Text as="span" fontWeight={600}>{conflicts!.length} conflict{conflicts!.length === 1 ? "" : "s"}</Text>{" "}
-                            to resolve
-                        </Text>
-                        <Box w="1px" h="14px" bg="gray.200" />
-                        <Text color="gray.600">
-                            <Text as="span" fontWeight={600} color="gray.900">{totalLeaves - conflicts!.length}</Text> non-conflicting · auto-merge
-                        </Text>
-                        <Box flex="1" />
-                        <Chip tone={allConflictsResolved ? "green" : "orange"}>
-                            <FontAwesomeIcon icon={allConflictsResolved ? faShieldHalved : faShieldHalved} />{" "}
-                            {allConflictsResolved ? "Ready to apply" : "Apply blocked"}
-                        </Chip>
-                    </>
-                ) : (
-                    <>
-                        <Text color="gray.600"><Text as="span" fontWeight={600} color="gray.900">{totalLeaves}</Text> leaves</Text>
-                        <Box w="1px" h="14px" bg="gray.200" />
-                        <Text color="gray.600">
-                            <FontAwesomeIcon icon={faPen} color="var(--chakra-colors-yellow-700)" />{" "}
-                            <Text as="span" fontWeight={600} color="gray.900">{totalLeaves}</Text> updates
-                        </Text>
-                        <Box flex="1" />
-                        <Chip tone="green"><FontAwesomeIcon icon={faCheck} /> No conflicts</Chip>
-                    </>
-                )}
-            </Flex>
+            {inConflictMode && (
+                <Box
+                    display="flex"
+                    alignItems="center"
+                    gap="8px"
+                    px="18px"
+                    py="10px"
+                    bg="warning.subtle"
+                    borderBottomWidth="1px"
+                    borderBottomColor="border.subtle"
+                    fontFamily="mono"
+                    fontSize="11px"
+                    letterSpacing="0.04em"
+                    textTransform="uppercase"
+                    color="fg.warning"
+                >
+                    <FontAwesomeIcon icon={faTriangleExclamation} />
+                    Server moved during your edit — resolve {resolvedCount}/{conflicts!.length} before applying.
+                </Box>
+            )}
 
             {/* Body */}
             <Box py="4px">
@@ -1370,79 +1323,43 @@ const EastChakraDiff = memo(function EastChakraDiff({ value }: EastChakraDiffPro
                 ))}
             </Box>
 
-            {/* Footer */}
-            <Flex
-                align="center"
-                justify="space-between"
-                px="24px"
-                py="16px"
-                bg="gray.50"
-                borderTopWidth="1px"
-                borderTopColor="gray.200"
-                fontSize="13px"
-                color="gray.600"
-            >
-                {inConflictMode ? (
-                    <Text>
-                        <Text as="span" color={allConflictsResolved ? "green.700" : "orange.700"} fontWeight={600}>
-                            {resolvedCount} of {conflicts!.length}
-                        </Text>{" "}
-                        conflicts {allConflictsResolved ? "resolved" : "pending resolution"}.
-                    </Text>
-                ) : (
-                    <Text>
-                        <Text as="span" color="gray.900" fontWeight={600}>{totalLeaves} change{totalLeaves === 1 ? "" : "s"}</Text>{" "}
-                        · clean merge
-                    </Text>
-                )}
-                <HStack gap="8px">
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        color="red.700"
-                        borderColor="red.100"
-                        bg="transparent"
-                        _hover={{ bg: "red.50", borderColor: "red.100" }}
-                        onClick={onDiscardAll}
-                    >
-                        <FontAwesomeIcon icon={faRotateLeft} /> Discard all
-                    </Button>
-                    {(() => {
-                        const isDisabled = committing
-                            || (inConflictMode && !allConflictsResolved)
-                            || hasStaleLeaves
-                            || totalLeaves === 0;
-                        const label = inConflictMode && !allConflictsResolved
-                            ? "Apply (resolve conflicts first)"
-                            : hasStaleLeaves
-                            ? `Apply blocked — ${staleLeafCount} stale change${staleLeafCount === 1 ? "" : "s"}`
-                            : `Apply ${totalLeaves} change${totalLeaves === 1 ? "" : "s"}`;
-                        const icon = inConflictMode && allConflictsResolved ? faCheckCircle
-                            : hasStaleLeaves ? faTriangleExclamation
-                            : faCheck;
-                        return (
-                            <Button
-                                size="sm"
-                                bg={isDisabled ? "gray.100" : "brand.500"}
-                                color={isDisabled ? "gray.400" : "white"}
-                                borderColor={isDisabled ? "gray.200" : "brand.500"}
-                                cursor={isDisabled ? "not-allowed" : "pointer"}
-                                opacity={isDisabled ? 0.7 : 1}
-                                _hover={isDisabled
-                                    ? { bg: "gray.100", borderColor: "gray.200" }
-                                    : { bg: "brand.700", borderColor: "brand.700" }}
-                                disabled={isDisabled}
-                                onClick={onApply}
-                                title={hasStaleLeaves
-                                    ? "Some pending changes are stale relative to the current source. Discard or re-edit them before applying."
-                                    : undefined}
+            {/* Footer — commit bar (hidden in read-only mode). */}
+            {interactive && (() => {
+                const applyDisabled = committing
+                    || (inConflictMode && !allConflictsResolved)
+                    || hasStaleLeaves
+                    || totalLeaves === 0;
+                const applyLabel = inConflictMode && !allConflictsResolved
+                    ? "Resolve conflicts"
+                    : `Apply ${totalLeaves} change${totalLeaves === 1 ? "" : "s"}`;
+                return (
+                    <Box css={cs.root}>
+                        <Box css={cs.draft}>
+                            {inConflictMode ? (
+                                <><Box as="span" css={cs.pending}>{resolvedCount}/{conflicts!.length}</Box> resolved</>
+                            ) : hasStaleLeaves ? (
+                                <>Apply blocked · <Box as="span" css={cs.pending}>{staleLeafCount} stale</Box></>
+                            ) : (
+                                <><Box as="span" css={cs.pending}>{totalLeaves} change{totalLeaves === 1 ? "" : "s"}</Box> · clean merge</>
+                            )}
+                        </Box>
+                        <Box css={cs.btnRow}>
+                            <Box as="button" css={cs.btnDanger} onClick={onDiscardAll}>
+                                Discard all
+                            </Box>
+                            <Box
+                                as="button"
+                                css={cs.btnPrimary}
+                                aria-disabled={applyDisabled}
+                                onClick={applyDisabled ? undefined : onApply}
+                                title={hasStaleLeaves ? "Discard or re-edit the stale changes before applying." : undefined}
                             >
-                                <FontAwesomeIcon icon={icon} /> {label}
-                            </Button>
-                        );
-                    })()}
-                </HStack>
-            </Flex>
+                                {applyLabel}
+                            </Box>
+                        </Box>
+                    </Box>
+                );
+            })()}
         </Box>
     );
 }, (prev, next) => diffValueEqual(prev.value, next.value));

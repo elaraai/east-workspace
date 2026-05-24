@@ -6,8 +6,13 @@
 import {
     type ExprType,
     type SubtypeExprOrValue,
+    type EastType,
     East,
+    Expr,
+    FloatType,
+    IntegerType,
     StringType,
+    LiteralValueType,
     OptionType,
     StructType,
     variant,
@@ -17,6 +22,7 @@ import {
 
 import { SizeType } from "../../style.js";
 import { UIComponentType } from "../../component.js";
+import { TickFormatType } from "../../charts/types.js";
 import { IconType } from "../icon/types.js";
 import {
     StatIndicatorType,
@@ -53,7 +59,8 @@ export {
  * recursive graph.
  *
  * @property label - Label text for the metric
- * @property value - Primary value (any UIComponent)
+ * @property value - Primary value — a scalar (Integer / Float / String)
+ * @property format - Optional `Format` / tick descriptor applied to a numeric value
  * @property helpText - Optional caption beneath the value
  * @property baseline - Optional secondary baseline line (UIComponent)
  * @property delta - Optional delta / change pill (UIComponent)
@@ -63,7 +70,8 @@ export {
  */
 const StatType: StructType<{
     label: StringType,
-    value: UIComponentType,
+    value: LiteralValueType,
+    format: OptionType<TickFormatType>,
     helpText: OptionType<StringType>,
     baseline: OptionType<UIComponentType>,
     delta: OptionType<UIComponentType>,
@@ -72,7 +80,8 @@ const StatType: StructType<{
     style: OptionType<StatStyleType>,
 }> = StructType({
     label: StringType,
-    value: UIComponentType,
+    value: LiteralValueType,
+    format: OptionType(TickFormatType),
     helpText: OptionType(StringType),
     baseline: OptionType(UIComponentType),
     delta: OptionType(UIComponentType),
@@ -183,9 +192,11 @@ function buildIndicator(
  * and optional trend / baseline / delta / info slots.
  *
  * @param label - Metric label
- * @param value - Primary value (UIComponent — strings auto-wrap via caller)
+ * @param value - Primary value — a scalar (number / bigint / string or an
+ *   East `Float` / `Integer` / `String` expression). Pass `style.format` to
+ *   format a numeric value.
  * @param style - Optional content slots (`helpText` / `baseline` / `delta` /
- *   `info` / `indicator`) + visual style fields (see {@link StatStyle})
+ *   `info` / `indicator`), `format`, + visual style fields (see {@link StatStyle})
  * @returns An East expression of type `UIComponentType`
  *
  * @remarks
@@ -217,15 +228,22 @@ function buildIndicator(
  */
 function createStat(
     label: SubtypeExprOrValue<StringType>,
-    value: SubtypeExprOrValue<UIComponentType>,
+    value: SubtypeExprOrValue<FloatType | IntegerType | StringType>,
     style?: StatStyle,
 ): ExprType<UIComponentType> {
     const indicatorValue = buildIndicator(style?.indicator);
     const styleValue = buildStatStyle(style);
 
+    // Wrap the scalar value as a LiteralValueType, tagged by its East type
+    // (Integer / Float / String) — mirrors the Table cell-value pattern.
+    const valueExpr = East.value(value as any);
+    const valueTag = (Expr.type(valueExpr) as EastType).type;
+    const valueLiteral = variant(valueTag as any, valueExpr as any);
+
     return East.value(variant("Stat", {
         label,
-        value,
+        value: valueLiteral,
+        format: style?.format !== undefined ? some(style.format) : none,
         helpText: style?.helpText !== undefined ? some(style.helpText) : none,
         baseline: style?.baseline !== undefined ? some(style.baseline as SubtypeExprOrValue<UIComponentType>) : none,
         delta: style?.delta !== undefined ? some(style.delta as SubtypeExprOrValue<UIComponentType>) : none,
@@ -268,10 +286,11 @@ export const Stat: StatNamespace = {
      * @example
      * ```ts
      * import { East } from "@elaraai/east";
-     * import { Stat, Text, UIComponentType } from "@elaraai/east-ui";
+     * import { Stat, Format, UIComponentType } from "@elaraai/east-ui";
      *
      * const example = East.function([], UIComponentType, $ => {
-     *     return Stat.Root("Error rate", Text.Root("0.42%"), {
+     *     return Stat.Root("Error rate", 0.0042, {
+     *         format: Format.Percent({ maximumFractionDigits: 2n }),
      *         helpText: "−0.08 pp vs last week",
      *         indicator: { direction: "down", sentiment: "positive" },
      *     });

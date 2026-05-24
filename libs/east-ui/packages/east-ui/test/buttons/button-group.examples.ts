@@ -16,8 +16,8 @@ export const buttonGroupPrevNext = example({
     fn: East.function([], UIComponentType, (_$) => {
         return ButtonGroup.Root(
             [
-                Button.Root("◀ Prev", { style: { variant: "outline", size: "md" } }),
-                Button.Root("Next ▶", { style: { variant: "outline", size: "md" } }),
+                Button.Root("Prev", { style: { variant: "outline", size: "md" } }),
+                Button.Root("Next", { style: { variant: "outline", size: "md" } }),
             ],
             { style: { attached: true } },
         );

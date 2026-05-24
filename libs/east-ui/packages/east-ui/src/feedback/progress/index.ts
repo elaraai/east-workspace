@@ -17,12 +17,14 @@ import {
     none,
 } from "@elaraai/east";
 
-import { SizeType, ColorSchemeType } from "../../style.js";
+import { SizeType } from "../../style.js";
 import { UIComponentType } from "../../component.js";
 import {
     ProgressType,
     ProgressVariantType,
     ProgressVariant,
+    ProgressToneType,
+    ProgressTone,
     ProgressStyleType,
     type ProgressStyle,
 } from "./types.js";
@@ -32,9 +34,12 @@ export {
     ProgressType,
     ProgressVariantType,
     ProgressVariant,
+    ProgressToneType,
+    ProgressTone,
     ProgressStyleType,
     type ProgressStyle,
     type ProgressVariantLiteral,
+    type ProgressToneLiteral,
 } from "./types.js";
 
 // ============================================================================
@@ -90,7 +95,7 @@ export interface ProgressOptions {
  *
  * const p = East.function([], UIComponentType, _$ =>
  *     Progress.Root(60.0, {
- *         style: { colorPalette: "green", size: "md", striped: true },
+ *         style: { tone: "pos", size: "md", striped: true },
  *     }),
  * );
  * ```
@@ -121,10 +126,10 @@ function buildProgressStyle(style: ProgressStyle): ExprType<ProgressStyleType> {
             ? East.value(variant(style.variant, null), ProgressVariantType)
             : style.variant)
         : undefined;
-    const colorPaletteValue = style.colorPalette
-        ? (typeof style.colorPalette === "string"
-            ? East.value(variant(style.colorPalette, null), ColorSchemeType)
-            : style.colorPalette)
+    const toneValue = style.tone
+        ? (typeof style.tone === "string"
+            ? East.value(variant(style.tone, null), ProgressToneType)
+            : style.tone)
         : undefined;
     const sizeValue = style.size
         ? (typeof style.size === "string"
@@ -134,7 +139,7 @@ function buildProgressStyle(style: ProgressStyle): ExprType<ProgressStyleType> {
 
     return East.value({
         variant: variantValue ? some(variantValue) : none,
-        colorPalette: colorPaletteValue ? some(colorPaletteValue) : none,
+        tone: toneValue ? some(toneValue) : none,
         size: sizeValue ? some(sizeValue) : none,
         striped: style.striped !== undefined ? some(style.striped) : none,
         animated: style.animated !== undefined ? some(style.animated) : none,
@@ -156,11 +161,12 @@ export const Progress = {
      *
      * @example
      * ```ts
-     * Progress.Root(60.0, { style: { colorPalette: "green" } });
+     * Progress.Root(60.0, { style: { tone: "pos" } });
      * ```
      */
     Root: createProgress,
     Variant: ProgressVariant,
+    Tone: ProgressTone,
     Types: {
         /**
          * East StructType for a Progress value — the serialisable IR shape.
@@ -204,8 +210,8 @@ export const Progress = {
          * fill, and label.
          *
          * @property variant - Visual preset (outline / subtle)
-         * @property colorPalette - Colour palette token
-         * @property size - Size preset (xs / sm / md / lg)
+         * @property tone - Fill tone (brand / pos / neg) — bsys-restricted
+         * @property size - Size preset (xs / sm / md)
          * @property striped - Cosmetic stripes on the fill
          * @property animated - Animate the stripes
          * @property trackColor - Background track colour

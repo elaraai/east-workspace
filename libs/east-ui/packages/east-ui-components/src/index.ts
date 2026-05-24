@@ -9,6 +9,12 @@
  * @packageDocumentation
  */
 
+/* The self-hosted brand fonts live in a separate subpath
+ * (`@elaraai/east-ui-components/fonts`) so app entry points opt in with a
+ * single side-effect import — keeping the main `system` entry CSS-free so
+ * Node test runners (which lack a CSS loader) can still import this
+ * module transitively. See README / CLAUDE.md for the consumer pattern. */
+
 // Canonical Elara Chakra v3 system — wrap your root in `<ChakraProvider value={system}>`.
 export {
     system,
@@ -237,10 +243,6 @@ export {
 
 // Feedback
 export {
-    EastChakraAlert,
-    toChakraAlert,
-    type AlertValue,
-    type EastChakraAlertProps,
     EastChakraProgress,
     toChakraProgress,
     type ProgressValue,
@@ -248,10 +250,6 @@ export {
     EastChakraEmptyState,
     type EmptyStateValue,
     type EastChakraEmptyStateProps,
-    EastChakraSpinner,
-    toChakraSpinner,
-    type SpinnerValue,
-    type EastChakraSpinnerProps,
     EastChakraSkeleton,
     type SkeletonValue,
     type EastChakraSkeletonProps,
@@ -261,13 +259,6 @@ export {
     EastChakraBanner,
     type BannerValue,
     type EastChakraBannerProps,
-    EastChakraProgressCircle,
-    toChakraProgressCircle,
-    type ProgressCircleValue,
-    type EastChakraProgressCircleProps,
-    Toaster,
-    toaster,
-    type ToastValue,
 } from "./feedback/index.js";
 
 // Container
@@ -322,6 +313,10 @@ export {
     // State implementation (for compilation)
     StateImpl,
     StateRuntime,
+
+    // Slice implementations (auto-register on import)
+    SliceImpl,
+    SliceApplyImpl,
 
     // Clipboard implementation (auto-registers on import)
     ClipboardImpl,

@@ -69,12 +69,12 @@ export async function testLargeArrays(): Promise<ScenarioResult> {
     await runE3Command(['workspace', 'create', repoDir, 'ws'], testDir);
     await runE3Command(['workspace', 'deploy', repoDir, 'ws', `${pkg.name}@${pkg.version}`], testDir);
 
-    const startResult = await runE3Command(['start', repoDir, 'ws'], testDir);
+    const startResult = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
     if (startResult.exitCode !== 0) {
       throw new Error(`start failed: ${startResult.stderr}`);
     }
 
-    const getResult = await runE3Command(['get', repoDir, 'ws.tasks.stringify_array.output'], testDir);
+    const getResult = await runE3Command(['dataset', 'get', repoDir, 'ws.stringify_array'], testDir);
     const output = getResult.stdout.trim();
 
     // Verify output contains expected array size
@@ -143,12 +143,12 @@ export async function testLargeStrings(): Promise<ScenarioResult> {
     await runE3Command(['workspace', 'create', repoDir, 'ws'], testDir);
     await runE3Command(['workspace', 'deploy', repoDir, 'ws', `${pkg.name}@${pkg.version}`], testDir);
 
-    const startResult = await runE3Command(['start', repoDir, 'ws'], testDir);
+    const startResult = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
     if (startResult.exitCode !== 0) {
       throw new Error(`start failed: ${startResult.stderr}`);
     }
 
-    const getResult = await runE3Command(['get', repoDir, 'ws.tasks.string_info.output'], testDir);
+    const getResult = await runE3Command(['dataset', 'get', repoDir, 'ws.string_info'], testDir);
     const output = getResult.stdout.trim();
 
     // Verify output contains expected string length
@@ -232,12 +232,12 @@ export async function testNestedStructures(): Promise<ScenarioResult> {
     await runE3Command(['workspace', 'create', repoDir, 'ws'], testDir);
     await runE3Command(['workspace', 'deploy', repoDir, 'ws', `${pkg.name}@${pkg.version}`], testDir);
 
-    const startResult = await runE3Command(['start', repoDir, 'ws'], testDir);
+    const startResult = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
     if (startResult.exitCode !== 0) {
       throw new Error(`start failed: ${startResult.stderr}`);
     }
 
-    const getResult = await runE3Command(['get', repoDir, 'ws.tasks.matrix_info.output'], testDir);
+    const getResult = await runE3Command(['dataset', 'get', repoDir, 'ws.matrix_info'], testDir);
     const output = getResult.stdout.trim();
 
     // Verify output contains expected row count
@@ -347,13 +347,13 @@ export async function testDeepDAG(): Promise<ScenarioResult> {
     await runE3Command(['workspace', 'create', repoDir, 'ws'], testDir);
     await runE3Command(['workspace', 'deploy', repoDir, 'ws', `${pkg.name}@${pkg.version}`], testDir);
 
-    const startResult = await runE3Command(['start', repoDir, 'ws'], testDir);
+    const startResult = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
     if (startResult.exitCode !== 0) {
       throw new Error(`start failed: ${startResult.stderr}`);
     }
 
     // Get the stringified initial value
-    const initResult = await runE3Command(['get', repoDir, 'ws.tasks.stringify_init.output'], testDir);
+    const initResult = await runE3Command(['dataset', 'get', repoDir, 'ws.stringify_init'], testDir);
     const initString = JSON.parse(initResult.stdout.trim()) as string;
 
     // Compute expected output by applying the transformations
@@ -369,7 +369,7 @@ export async function testDeepDAG(): Promise<ScenarioResult> {
 
     // Check the final task output
     const lastTaskName = `step_${depth - 1}`;
-    const getResult = await runE3Command(['get', repoDir, `ws.tasks.${lastTaskName}.output`], testDir);
+    const getResult = await runE3Command(['dataset', 'get', repoDir, `ws.${lastTaskName}`], testDir);
     const output = getResult.stdout.trim();
 
     // Verify exact output match (output is JSON-encoded)
@@ -483,13 +483,13 @@ export async function testWideDAG(): Promise<ScenarioResult> {
     await runE3Command(['workspace', 'create', repoDir, 'ws'], testDir);
     await runE3Command(['workspace', 'deploy', repoDir, 'ws', `${pkg.name}@${pkg.version}`], testDir);
 
-    const startResult = await runE3Command(['start', repoDir, 'ws'], testDir);
+    const startResult = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
     if (startResult.exitCode !== 0) {
       throw new Error(`start failed: ${startResult.stderr}`);
     }
 
     // Get the stringified initial value
-    const initResult = await runE3Command(['get', repoDir, 'ws.tasks.stringify_init.output'], testDir);
+    const initResult = await runE3Command(['dataset', 'get', repoDir, 'ws.stringify_init'], testDir);
     const initString = JSON.parse(initResult.stdout.trim()) as string;
 
     // Compute expected output: p0: X | p1: X | p2: X | ... | pN-1: X
@@ -500,7 +500,7 @@ export async function testWideDAG(): Promise<ScenarioResult> {
 
     // Check the final merge task output
     const lastMergeName = `merge_${width - 1}`;
-    const getResult = await runE3Command(['get', repoDir, `ws.tasks.${lastMergeName}.output`], testDir);
+    const getResult = await runE3Command(['dataset', 'get', repoDir, `ws.${lastMergeName}`], testDir);
     const output = getResult.stdout.trim();
 
     // Verify exact output match (output is JSON-encoded)
@@ -622,13 +622,13 @@ export async function testDiamondChain(): Promise<ScenarioResult> {
     await runE3Command(['workspace', 'create', repoDir, 'ws'], testDir);
     await runE3Command(['workspace', 'deploy', repoDir, 'ws', `${pkg.name}@${pkg.version}`], testDir);
 
-    const startResult = await runE3Command(['start', repoDir, 'ws'], testDir);
+    const startResult = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
     if (startResult.exitCode !== 0) {
       throw new Error(`start failed: ${startResult.stderr}`);
     }
 
     // Get the stringified initial value
-    const initResult = await runE3Command(['get', repoDir, 'ws.tasks.stringify_init.output'], testDir);
+    const initResult = await runE3Command(['dataset', 'get', repoDir, 'ws.stringify_init'], testDir);
     const initString = JSON.parse(initResult.stdout.trim()) as string;
 
     // Compute expected output by applying diamond transformations
@@ -640,7 +640,7 @@ export async function testDiamondChain(): Promise<ScenarioResult> {
     }
 
     const lastMergeName = `d${diamonds - 1}_merge`;
-    const getResult = await runE3Command(['get', repoDir, `ws.tasks.${lastMergeName}.output`], testDir);
+    const getResult = await runE3Command(['dataset', 'get', repoDir, `ws.${lastMergeName}`], testDir);
     const output = getResult.stdout.trim();
 
     // Verify exact output match (output is JSON-encoded)

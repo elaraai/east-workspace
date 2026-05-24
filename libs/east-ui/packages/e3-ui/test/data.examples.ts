@@ -20,7 +20,7 @@ export const dataBindFloat = example({
         return Reactive.Root(East.function([], UIComponentType, $ => {
             const thresh = $.let(Data.bind([FloatType], thresholdInput.path));
             const value = $.let(thresh.read());
-            return Stat.Root("Threshold", Text.Root(East.print(value)));
+            return Stat.Root("Threshold", value);
         }));
     }),
     inputs: [],
@@ -69,7 +69,7 @@ export const dataBindStringReset = example({
                 $(name.write(""));
             }));
             return Stack.VStack([
-                Stat.Root("Name", Text.Root(value)),
+                Stat.Root("Name", value),
                 Button.Root("Reset", { style: { variant: "outline" }, onClick: reset }),
             ], { gap: "3", align: "stretch" });
         }));
@@ -101,7 +101,7 @@ export const dataBindStagedFloat = example({
         return Reactive.Root(East.function([], UIComponentType, $ => {
             const thresh = $.let(Data.bind([FloatType], thresholdInput.path, { mode: "staged" }));
             const value = $.let(thresh.read(), FloatType);
-            return Stat.Root("Threshold (live)", Text.Root(East.print(value)));
+            return Stat.Root("Threshold (live)", value);
         }));
     }),
     inputs: [],
@@ -158,8 +158,8 @@ export const dataBindStagedOriginalVsRead = example({
             const live = $.let(thresh.read(), FloatType);
             const server = $.let(thresh.source(), FloatType);
             return Stack.VStack([
-                Stat.Root("Server", Text.Root(East.print(server))),
-                Stat.Root("Live (with stage)", Text.Root(East.print(live))),
+                Stat.Root("Server", server),
+                Stat.Root("Live (with stage)", live),
             ], { gap: "3", align: "stretch" });
         }));
     }),

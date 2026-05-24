@@ -54,7 +54,7 @@ export const EastChakraScrollArea = memo(function EastChakraScrollArea({ value, 
                     orientation="vertical"
                     style={{ display: "flex", userSelect: "none", touchAction: "none", padding: "2px", background: trackColor, width: "8px" }}
                 >
-                    <RadixScrollArea.Thumb style={{ flex: 1, background: thumbColor ?? "rgba(0,0,0,0.3)", borderRadius: "4px" }} />
+                    <RadixScrollArea.Thumb style={{ flex: 1, background: thumbColor ?? "var(--chakra-colors-overlay-scroll-thumb)", borderRadius: "4px" }} />
                 </RadixScrollArea.Scrollbar>
             )}
             {showHorizontal && (
@@ -62,7 +62,7 @@ export const EastChakraScrollArea = memo(function EastChakraScrollArea({ value, 
                     orientation="horizontal"
                     style={{ display: "flex", userSelect: "none", touchAction: "none", padding: "2px", background: trackColor, height: "8px", flexDirection: "column" }}
                 >
-                    <RadixScrollArea.Thumb style={{ flex: 1, background: thumbColor ?? "rgba(0,0,0,0.3)", borderRadius: "4px" }} />
+                    <RadixScrollArea.Thumb style={{ flex: 1, background: thumbColor ?? "var(--chakra-colors-overlay-scroll-thumb)", borderRadius: "4px" }} />
                 </RadixScrollArea.Scrollbar>
             )}
             <RadixScrollArea.Corner />

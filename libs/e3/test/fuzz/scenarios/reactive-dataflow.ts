@@ -87,14 +87,14 @@ export async function testReactiveSetDuringChain(): Promise<ScenarioResult> {
     const newValue = random.int(2, 100);
 
     // Start execution and concurrently mutate the input
-    const startPromise = runE3Command(['start', repoDir, 'ws'], testDir);
+    const startPromise = runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
     // Random delay to vary timing of the mutation
     await randomDelay(100);
 
     const valuePath = join(testDir, 'new_value.east');
     writeFileSync(valuePath, `${newValue}`);
-    const setPromise = runE3Command(['set', repoDir, 'ws.inputs.x', valuePath], testDir);
+    const setPromise = runE3Command(['dataset', 'set', repoDir, 'ws.x', valuePath], testDir);
 
     const [startResult, setResult] = await Promise.all([startPromise, setPromise]);
 
@@ -106,7 +106,7 @@ export async function testReactiveSetDuringChain(): Promise<ScenarioResult> {
     }
 
     // Read final output
-    const getResult = await runE3Command(['get', repoDir, 'ws.tasks.C.output'], testDir);
+    const getResult = await runE3Command(['dataset', 'get', repoDir, 'ws.C'], testDir);
     const output = parseInt(getResult.stdout.trim(), 10);
 
     removeTestDir(testDir);
@@ -205,13 +205,13 @@ export async function testReactiveDiamondConsistency(): Promise<ScenarioResult> 
     const newValue = random.int(2, 100);
 
     // Start execution and concurrently mutate the input
-    const startPromise = runE3Command(['start', repoDir, 'ws'], testDir);
+    const startPromise = runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
     await randomDelay(50);
 
     const valuePath = join(testDir, 'new_value.east');
     writeFileSync(valuePath, `${newValue}`);
-    const setPromise = runE3Command(['set', repoDir, 'ws.inputs.x', valuePath], testDir);
+    const setPromise = runE3Command(['dataset', 'set', repoDir, 'ws.x', valuePath], testDir);
 
     const [startResult, setResult] = await Promise.all([startPromise, setPromise]);
 
@@ -223,7 +223,7 @@ export async function testReactiveDiamondConsistency(): Promise<ScenarioResult> 
     }
 
     // Read final output
-    const getResult = await runE3Command(['get', repoDir, 'ws.tasks.merge.output'], testDir);
+    const getResult = await runE3Command(['dataset', 'get', repoDir, 'ws.merge'], testDir);
     const output = parseInt(getResult.stdout.trim(), 10);
 
     removeTestDir(testDir);
@@ -311,7 +311,7 @@ export async function testConcurrentSetDifferentDatasets(): Promise<ScenarioResu
     await runE3Command(['workspace', 'deploy', repoDir, 'ws', `${pkg.name}@${pkg.version}`], testDir);
 
     // Initial execution
-    const initStart = await runE3Command(['start', repoDir, 'ws'], testDir);
+    const initStart = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
     if (initStart.exitCode !== 0) {
       throw new Error(`Initial start failed: stdout=${initStart.stdout}, stderr=${initStart.stderr}`);
     }
@@ -328,11 +328,11 @@ export async function testConcurrentSetDifferentDatasets(): Promise<ScenarioResu
     // Small random delay between the two sets for variety
     const setXPromise = (async () => {
       await randomDelay(10);
-      return runE3Command(['set', repoDir, 'ws.inputs.x', xPath], testDir!);
+      return runE3Command(['dataset', 'set', repoDir, 'ws.x', xPath], testDir!);
     })();
     const setYPromise = (async () => {
       await randomDelay(10);
-      return runE3Command(['set', repoDir, 'ws.inputs.y', yPath], testDir!);
+      return runE3Command(['dataset', 'set', repoDir, 'ws.y', yPath], testDir!);
     })();
 
     const [setXResult, setYResult] = await Promise.all([setXPromise, setYPromise]);
@@ -345,14 +345,14 @@ export async function testConcurrentSetDifferentDatasets(): Promise<ScenarioResu
     }
 
     // Re-execute with new values
-    const reStart = await runE3Command(['start', repoDir, 'ws'], testDir);
+    const reStart = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
     if (reStart.exitCode !== 0) {
       throw new Error(`Re-start failed: stdout=${reStart.stdout}, stderr=${reStart.stderr}`);
     }
 
     // Read outputs
-    const getA = await runE3Command(['get', repoDir, 'ws.tasks.double_x.output'], testDir);
-    const getB = await runE3Command(['get', repoDir, 'ws.tasks.triple_y.output'], testDir);
+    const getA = await runE3Command(['dataset', 'get', repoDir, 'ws.double_x'], testDir);
+    const getB = await runE3Command(['dataset', 'get', repoDir, 'ws.triple_y'], testDir);
 
     const outputA = parseInt(getA.stdout.trim(), 10);
     const outputB = parseInt(getB.stdout.trim(), 10);
@@ -438,14 +438,14 @@ export async function testReactiveRapidMutations(): Promise<ScenarioResult> {
     const values = Array.from({ length: numMutations }, (_, i) => i + 1);
 
     // Start execution in background
-    const startPromise = runE3Command(['start', repoDir, 'ws'], testDir);
+    const startPromise = runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
     // Fire rapid mutations with small random delays
     const setPromises = values.map(async (v) => {
       await randomDelay(20);
       const valuePath = join(testDir!, `value_${v}.east`);
       writeFileSync(valuePath, `${v}`);
-      return runE3Command(['set', repoDir, 'ws.inputs.x', valuePath], testDir!);
+      return runE3Command(['dataset', 'set', repoDir, 'ws.x', valuePath], testDir!);
     });
 
     const [startResult, ...setResults] = await Promise.all([startPromise, ...setPromises]);
@@ -463,7 +463,7 @@ export async function testReactiveRapidMutations(): Promise<ScenarioResult> {
     }
 
     // Read final output
-    const getResult = await runE3Command(['get', repoDir, 'ws.tasks.double.output'], testDir);
+    const getResult = await runE3Command(['dataset', 'get', repoDir, 'ws.double'], testDir);
     const output = parseInt(getResult.stdout.trim(), 10);
 
     removeTestDir(testDir);
@@ -549,7 +549,7 @@ export async function testConcurrentStartsWithSharedInput(): Promise<ScenarioRes
     // Fire concurrent starts with random delays
     const startPromises = Array.from({ length: numStarts }, async () => {
       await randomDelay(30);
-      return runE3Command(['start', repoDir, 'ws'], testDir!);
+      return runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir!);
     });
 
     // Fire concurrent sets with random delays
@@ -558,7 +558,7 @@ export async function testConcurrentStartsWithSharedInput(): Promise<ScenarioRes
       await randomDelay(30);
       const valuePath = join(testDir!, `value_${i}.east`);
       writeFileSync(valuePath, `${v}`);
-      return runE3Command(['set', repoDir, 'ws.inputs.x', valuePath], testDir!);
+      return runE3Command(['dataset', 'set', repoDir, 'ws.x', valuePath], testDir!);
     });
 
     const allResults = await Promise.all([...startPromises, ...setPromises]);
@@ -575,7 +575,7 @@ export async function testConcurrentStartsWithSharedInput(): Promise<ScenarioRes
     const setFailures = setResults.filter(r => r.exitCode !== 0);
 
     // Read final output
-    const getResult = await runE3Command(['get', repoDir, 'ws.tasks.double.output'], testDir);
+    const getResult = await runE3Command(['dataset', 'get', repoDir, 'ws.double'], testDir);
     const output = parseInt(getResult.stdout.trim(), 10);
 
     removeTestDir(testDir);

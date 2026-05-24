@@ -37,13 +37,13 @@ export const EastChakraMenu = memo(function EastChakraMenu({ value, storageKey }
     return (
         <ChakraMenu.Root positioning={placement ? { placement } : undefined}>
             <ChakraMenu.Trigger asChild>
-                <span>
+                <span style={{ display: "inline-flex" }}>
                     <EastChakraComponent value={value.trigger} storageKey={`${storageKey}.trigger`} />
                 </span>
             </ChakraMenu.Trigger>
             <Portal>
                 <ChakraMenu.Positioner>
-                    <ChakraMenu.Content>
+                    <ChakraMenu.Content minW="220px" padding="4px" fontSize="13px">
                         {value.items.map((item, index) =>
                             match(item, {
                                 Item: (v) => (

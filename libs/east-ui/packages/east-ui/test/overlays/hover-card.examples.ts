@@ -10,7 +10,7 @@ export const hoverCardProfile = example({
     description: "Rich preview on hover",
     fn: East.function([], UIComponentType, (_$) => {
         return HoverCard.Root(
-            Text.Root("@johndoe", { color: "blue.500", fontWeight: "medium" }),
+            Text.Root("@johndoe", { color: "link", fontWeight: "medium" }),
             [
                 Stack.HStack([
                     Avatar.Root({ name: "John Doe", size: "lg" }),
@@ -65,8 +65,8 @@ export const hoverCardInteractive = example({
                     [Text.Root("HoverCard content shown on hover")],
                     { onOpenChange },
                 ),
-                Text.Root(East.str`Toggled ${East.print(value)} times`),
-            ], { gap: "3", align: "stretch" });
+                Text.Presets.MonoLabel(East.str`TOGGLED · ${East.print(value)}`),
+            ], { gap: "3", align: "flex-start" });
         }));
     }),
     inputs: [],

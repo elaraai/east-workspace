@@ -12,8 +12,8 @@ await describe("Variant", (test) => {
     });
 
     test("Variant equality and type merging", $ => {
-        $(assert.equal(East.value(true).ifElse(_$ => variant("some", 42n), _$ => variant("none", null)), variant("some", 42n)));
-        $(assert.equal(East.value(false).ifElse(_$ => variant("some", 42n), _$ => variant("none", null)), variant("none", null)));
+        $(assert.equal(East.value(true).ifElse(_$ => some(42n), _$ => none), some(42n)));
+        $(assert.equal(East.value(false).ifElse(_$ => some(42n), _$ => none), none));
     });
 
     assert.examples(test, {
@@ -29,8 +29,8 @@ await describe("Variant", (test) => {
             $.return(ret);
         }));
 
-        $(assert.equal(f(variant("some", 42n)), 42n));
-        $(assert.equal(f(variant("none", null)), 0n));
+        $(assert.equal(f(some(42n)), 42n));
+        $(assert.equal(f(none), 0n));
     });
 
     assert.examples(test, {
@@ -44,8 +44,8 @@ await describe("Variant", (test) => {
             $.return(ret);
         }));
 
-        $(assert.equal(f(variant("some", 42n)), 42n));
-        $(assert.equal(f(variant("none", null)), 0n));
+        $(assert.equal(f(some(42n)), 42n));
+        $(assert.equal(f(none), 0n));
     });
 
     assert.examples(test, {
@@ -61,8 +61,8 @@ await describe("Variant", (test) => {
     });
 
     test("Expressions", $ => {
-        const v1 = $.let(variant("some", 42n), OptionType(IntegerType));
-        const v2 = $.let(variant("none", null), OptionType(IntegerType));
+        const v1 = $.let(some(42n), OptionType(IntegerType));
+        const v2 = $.let(none, OptionType(IntegerType));
 
         $(assert.equal(Expr.match(v1, { some: ($, data) => data, none: () => 0n }), 42n));
         $(assert.equal(Expr.match(v2, { some: ($, data) => data, none: () => 0n }), 0n));
@@ -128,50 +128,50 @@ await describe("Variant", (test) => {
 
     test("Comparisons", $ => {
         // Equality tests
-        $(assert.equal(East.value(variant("none", null)), variant("none", null)));
-        $(assert.equal(East.value(variant("some", 42n)), variant("some", 42n)));
-        $(assert.notEqual(East.value(variant("some", 42n)), variant("some", 43n)));
+        $(assert.equal(East.value(none), none));
+        $(assert.equal(East.value(some(42n)), some(42n)));
+        $(assert.notEqual(East.value(some(42n)), some(43n)));
 
         // Same tag, different values - ordering tests
-        $(assert.less(East.value(variant("some", 10n)), variant("some", 20n)));
-        $(assert.greater(East.value(variant("some", 20n)), variant("some", 10n)));
+        $(assert.less(East.value(some(10n)), some(20n)));
+        $(assert.greater(East.value(some(20n)), some(10n)));
 
         // Less than or equal / Greater than or equal
-        $(assert.lessEqual(East.value(variant("none", null)), variant("none", null)))
-        $(assert.lessEqual(East.value(variant("some", 10n)), variant("some", 20n)))
-        $(assert.greaterEqual(East.value(variant("some", 42n)), variant("some", 42n)))
-        $(assert.greaterEqual(East.value(variant("some", 20n)), variant("some", 10n)))
+        $(assert.lessEqual(East.value(none), none))
+        $(assert.lessEqual(East.value(some(10n)), some(20n)))
+        $(assert.greaterEqual(East.value(some(42n)), some(42n)))
+        $(assert.greaterEqual(East.value(some(20n)), some(10n)))
 
         // East.is, East.equal, East.less methods
-        $(assert.equal(East.is(East.value(variant("some", 42n)), variant("some", 42n)), true));
-        $(assert.equal(East.is(East.value(variant("some", 42n)), variant("some", 43n)), false));
-        $(assert.equal(East.equal(East.value(variant("some", 42n)), variant("some", 42n)), true));
-        $(assert.equal(East.equal(East.value(variant("some", 42n)), variant("some", 43n)), false));
-        $(assert.equal(East.notEqual(East.value(variant("some", 42n)), variant("some", 43n)), true));
-        $(assert.equal(East.less(East.value(variant("some", 10n)), variant("some", 20n)), true));
-        $(assert.equal(East.greater(East.value(variant("some", 20n)), variant("some", 10n)), true));
-        $(assert.equal(East.lessEqual(East.value(variant("some", 10n)), variant("some", 20n)), true));
-        $(assert.equal(East.greaterEqual(East.value(variant("some", 20n)), variant("some", 10n)), true));
+        $(assert.equal(East.is(East.value(some(42n)), some(42n)), true));
+        $(assert.equal(East.is(East.value(some(42n)), some(43n)), false));
+        $(assert.equal(East.equal(East.value(some(42n)), some(42n)), true));
+        $(assert.equal(East.equal(East.value(some(42n)), some(43n)), false));
+        $(assert.equal(East.notEqual(East.value(some(42n)), some(43n)), true));
+        $(assert.equal(East.less(East.value(some(10n)), some(20n)), true));
+        $(assert.equal(East.greater(East.value(some(20n)), some(10n)), true));
+        $(assert.equal(East.lessEqual(East.value(some(10n)), some(20n)), true));
+        $(assert.equal(East.greaterEqual(East.value(some(20n)), some(10n)), true));
 
         // Instance method tests
-        $(assert.equal(East.value(variant("some", 42n)).equals(variant("some", 42n)), true));
-        $(assert.equal(East.value(variant("some", 42n)).equals(variant("some", 43n)), false));
-        $(assert.equal(East.value(variant("some", 42n)).notEquals(variant("some", 43n)), true));
-        $(assert.equal(East.value(variant("some", 42n)).notEquals(variant("some", 42n)), false));
+        $(assert.equal(East.value(some(42n)).equals(some(42n)), true));
+        $(assert.equal(East.value(some(42n)).equals(some(43n)), false));
+        $(assert.equal(East.value(some(42n)).notEquals(some(43n)), true));
+        $(assert.equal(East.value(some(42n)).notEquals(some(42n)), false));
 
         // TODO: Add cross-type variant comparison tests once universal comparison functions are available
     });
 
     test("Equality method aliases", $ => {
         // Test short aliases (eq, ne)
-        $(assert.equal(East.value(variant("some", 42n)).eq(variant("some", 42n)), true));
-        $(assert.equal(East.value(variant("some", 42n)).eq(variant("some", 43n)), false));
-        $(assert.equal(East.value(variant("some", 42n)).ne(variant("some", 43n)), true));
-        $(assert.equal(East.value(variant("some", 42n)).ne(variant("some", 42n)), false));
+        $(assert.equal(East.value(some(42n)).eq(some(42n)), true));
+        $(assert.equal(East.value(some(42n)).eq(some(43n)), false));
+        $(assert.equal(East.value(some(42n)).ne(some(43n)), true));
+        $(assert.equal(East.value(some(42n)).ne(some(42n)), false));
 
         // Test medium aliases (equal, notEqual)
-        $(assert.equal(East.value(variant("some", 42n)).equal(variant("some", 42n)), true));
-        $(assert.equal(East.value(variant("some", 42n)).notEqual(variant("some", 43n)), true));
+        $(assert.equal(East.value(some(42n)).equal(some(42n)), true));
+        $(assert.equal(East.value(some(42n)).notEqual(some(43n)), true));
     });
 
     // ─── Deep-As narrow → wide variant coercion ───────────────────────────

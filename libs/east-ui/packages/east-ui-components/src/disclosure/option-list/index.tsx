@@ -4,7 +4,7 @@
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Box as ChakraBox, Stack as ChakraStack, VStack as ChakraVStack } from "@chakra-ui/react";
+import { Box as ChakraBox, useSlotRecipe } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { OptionList } from "@elaraai/east-ui";
 import { getSomeorUndefined } from "../../utils";
@@ -29,6 +29,13 @@ export interface EastChakraOptionListProps {
  * dispatched through `EastChakraComponent`.
  */
 export const EastChakraOptionList = memo(function EastChakraOptionList({ value, storageKey }: EastChakraOptionListProps) {
+    /* Consume the `optionList` slot recipe — root / item / itemText /
+     * itemDescription styles flow from `theme/slot-recipes/optionList.ts`.
+     * Renderer-side inline-style overrides via `value.style` are layered
+     * on top via the `*Override` props below. */
+    const recipe = useSlotRecipe({ key: "optionList" });
+    const styles = recipe({});
+
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
     const onSelectFn = useMemo(() => getSomeorUndefined(value.onSelect), [value.onSelect]);
 
@@ -87,14 +94,10 @@ export const EastChakraOptionList = memo(function EastChakraOptionList({ value, 
     }, [onSelectFn]);
 
     return (
-        <ChakraVStack
+        <ChakraBox
             ref={listRef}
             role="listbox"
-            align="stretch"
-            gap="0"
-            borderWidth="1px"
-            borderRadius="md"
-            overflow="hidden"
+            css={styles.root}
             onKeyDown={handleKeyDown}
             {...(borderColor !== undefined ? { borderColor } : {})}
         >
@@ -119,48 +122,39 @@ export const EastChakraOptionList = memo(function EastChakraOptionList({ value, 
                         data-selected={isSelected ? "" : undefined}
                         onClick={onClick}
                         onKeyDown={onRowKey}
-                        cursor={row.disabled ? "not-allowed" : "pointer"}
-                        opacity={row.disabled ? 0.55 : 1}
-                        px="3"
-                        py="2"
-                        borderTopWidth={index > 0 ? "1px" : "0"}
-                        {...(borderColor !== undefined ? { borderTopColor: borderColor } : {})}
+                        css={styles.item}
                         {...(itemColor !== undefined ? { color: itemColor } : {})}
-                        _hover={{ bg: itemHoverBg ?? "bg.muted" }}
-                        _selected={{
-                            bg: selectedBg ?? "blue.subtle",
-                            fontWeight: "medium",
-                            boxShadow: "inset 3px 0 0 var(--chakra-colors-blue-solid)",
-                        }}
-                        _focusVisible={{ outline: "2px solid", outlineColor: "blue.focusRing", outlineOffset: "-2px" }}
+                        {...(itemHoverBg !== undefined ? { _hover: { bg: itemHoverBg } } : {})}
+                        {...(selectedBg !== undefined ? { _selected: { bg: selectedBg } } : {})}
+                        _focusVisible={{ outline: "2px solid", outlineColor: "border.brand", outlineOffset: "-2px" }}
                     >
-                        <ChakraStack direction="row" align="center" gap="3">
-                            <ChakraBox flex="1">
+                        <ChakraBox flex="1" minWidth="0">
+                            <ChakraBox css={styles.itemText}>
                                 <EastChakraComponent
                                     value={row.label}
                                     storageKey={`${storageKey ?? ""}.options.${index}.label`}
                                 />
-                                {row.description ? (
-                                    <ChakraBox fontSize="xs" color="fg.muted" mt="0.5">
-                                        <EastChakraComponent
-                                            value={row.description}
-                                            storageKey={`${storageKey ?? ""}.options.${index}.description`}
-                                        />
-                                    </ChakraBox>
-                                ) : null}
                             </ChakraBox>
-                            {row.trailing ? (
-                                <ChakraBox>
+                            {row.description ? (
+                                <ChakraBox css={styles.itemDescription}>
                                     <EastChakraComponent
-                                        value={row.trailing}
-                                        storageKey={`${storageKey ?? ""}.options.${index}.trailing`}
+                                        value={row.description}
+                                        storageKey={`${storageKey ?? ""}.options.${index}.description`}
                                     />
                                 </ChakraBox>
                             ) : null}
-                        </ChakraStack>
+                        </ChakraBox>
+                        {row.trailing ? (
+                            <ChakraBox css={styles.itemIndicator}>
+                                <EastChakraComponent
+                                    value={row.trailing}
+                                    storageKey={`${storageKey ?? ""}.options.${index}.trailing`}
+                                />
+                            </ChakraBox>
+                        ) : null}
                     </ChakraBox>
                 );
             })}
-        </ChakraVStack>
+        </ChakraBox>
     );
 }, (prev, next) => optionListEqual(prev.value, next.value) && prev.storageKey === next.storageKey);

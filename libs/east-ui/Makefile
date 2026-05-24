@@ -1,9 +1,25 @@
 # east-ui — UI packages and VS Code extension
 # Dependencies are managed by pnpm from the monorepo root.
 
-.PHONY: build test lint dev clean extension extension-install extension-uninstall examples help
+## Discover every example pathKey by walking `packages/east-ui/test/`.
+## A file at `test/buttons/button.examples.ts` becomes the key `buttons/button`,
+## which maps 1:1 to `make east-ui-examples-html-buttons/button`. Re-evaluated
+## each `make` invocation, so newly added example files appear without edits.
+EAST_UI_EXAMPLE_KEYS := $(shell find packages/east-ui/test -name '*.examples.ts' 2>/dev/null \
+                              | sed -e 's|^packages/east-ui/test/||' -e 's|\.examples\.ts$$||')
 
-## Build all packages (in dependency order)
+## Discover e3-ui example keys — top-level `packages/e3-ui/test/<key>.examples.ts`
+## files (e3-task-bound components: ontology, diff, ...). Each maps 1:1 to
+## `make e3-ui-examples-html-<key>`, rendered by the e3-ui-components snapshot
+## harness (seeds a dataset cache from each example's e3.input defaults).
+E3_UI_EXAMPLE_KEYS := $(shell find packages/e3-ui/test -maxdepth 1 -name '*.examples.ts' 2>/dev/null \
+                             | sed -e 's|^packages/e3-ui/test/||' -e 's|\.examples\.ts$$||')
+
+.PHONY: build test lint showcase design design-html-all probe-slice probe-collections clean extension extension-install extension-uninstall examples \
+        east-ui-examples-html-all $(EAST_UI_EXAMPLE_KEYS:%=east-ui-examples-html-%) \
+        e3-ui-examples-html-all $(E3_UI_EXAMPLE_KEYS:%=e3-ui-examples-html-%) help
+
+## Build all packages (in dependency `order)
 build:
 	pnpm run build
 
@@ -16,12 +32,93 @@ lint:
 	pnpm run lint
 
 ## Run the showcase dev server
-dev:
-	rm -rf ./packages/east-ui-showcase/node_modules/.vite && pnpm run dev
+showcase:
+	pnpm --filter @elaraai/east-ui --filter @elaraai/east-ui-components run build && rm -rf ./packages/east-ui-showcase/node_modules/.vite && pnpm run dev
+
+## Render every `.pattern` and `.bsys` element from `design/*.html` in headless
+## Chromium and write one PNG per element to
+## `packages/east-ui-showcase/dist-design/` (gitignored).
+##
+## First run downloads the Chromium binary (~150 MB). Subsequent runs are
+## just the snapshot pass.
+design-html-all:
+	pnpm --filter @elaraai/east-ui-showcase exec playwright install chromium
+	pnpm --filter @elaraai/east-ui-showcase exec tsx scripts/snapshot-design.ts
+
+## Pixel-perfect audit of the Slice.Edit popover — opens each editor case in the
+## snapshot harness and dumps the popover's computed CSS (content / head / body /
+## foot + value-control) to diff against `design/slice.html#slice-edit`.
+## Reads from the built renderer, so run `make build` (or the package build) first.
+probe-slice:
+	pnpm --filter @elaraai/east-ui-components exec playwright install chromium
+	pnpm --filter @elaraai/east-ui-components exec tsx scripts/probe-slice.ts
+
+## Pixel audit of the Collections.Table / Gantt / Planner examples — renders
+## single examples (waiting for virtualized rows to load past skeleton),
+## screenshots each to dist-examples/probe-coll-*.png, and dumps the table
+## header/cell/row + bar computed CSS to diff against the bsys "Rows & tables"
+## spec + `configure__pattern__{gantt,planner}`. Run the package build first.
+probe-collections:
+	pnpm --filter @elaraai/east-ui-components exec playwright install chromium
+	pnpm --filter @elaraai/east-ui-components exec tsx scripts/probe-collections.ts
+
+## Serve `design/` statically over HTTP for visual / spec review. Lists every
+## routable IPv4 interface up front so a remote browser (Tailscale, LAN, etc.)
+## can pick the right address.
+design:
+	@port=5174; \
+	echo "Serving design/ at:"; \
+	echo "  http://localhost:$$port"; \
+	ip -4 -o addr show scope global 2>/dev/null \
+	    | awk '{print $$4}' | cut -d/ -f1 \
+	    | sed "s|.*|  http://&:$$port|"; \
+	echo ""; \
+	npx --yes serve@latest design -l $$port --no-clipboard --no-port-switching
 
 ## Rebuild only the example-source packages (east-ui + e3-ui)
 examples:
 	pnpm --filter @elaraai/east-ui --filter @elaraai/e3-ui run build
+
+## Snapshot every east-ui example into a standalone HTML file via headless
+## Playwright.
+##
+## Produces one self-contained .html per example under
+## `packages/east-ui-showcase/dist-examples/` — each file opens directly in
+## any browser and contains the rendered DOM with all stylesheets inlined.
+## Used for offline visual inspection / spec-alignment review.
+##
+## First run downloads the Chromium binary (~150 MB). Subsequent runs are
+## just the snapshot pass (~30-60 s).
+east-ui-examples-html-all:
+	pnpm --filter @elaraai/east-ui-components exec playwright install chromium
+	pnpm --filter @elaraai/east-ui-components run snapshot
+
+## Snapshot a single east-ui example source file. Usage:
+##   make east-ui-examples-html-disclosure/tabs
+## The suffix after `east-ui-examples-html-` matches a discovered pathKey from
+## `packages/east-ui/test/<pathKey>.examples.ts` (e.g. buttons/button,
+## container/card, charts/area). Tab-completes from the auto-derived list.
+$(EAST_UI_EXAMPLE_KEYS:%=east-ui-examples-html-%): east-ui-examples-html-%:
+	pnpm --filter @elaraai/east-ui-components exec playwright install chromium
+	pnpm --filter @elaraai/east-ui-components exec tsx scripts/snapshot.ts --file=$*
+
+## Snapshot every e3-task-bound east-ui example (ontology, diff, ...) to a
+## paired .html + .png under `packages/e3-ui-components/dist-examples/`. The
+## harness seeds a reactive-dataset cache from each example's e3.input
+## defaults, then renders via the same Playwright capture east-ui uses.
+##
+## First run downloads the Chromium binary (~150 MB).
+e3-ui-examples-html-all:
+	pnpm --filter @elaraai/e3-ui-components exec playwright install chromium
+	pnpm --filter @elaraai/e3-ui-components run snapshot
+
+## Snapshot a single e3-ui example file. Usage:
+##   make e3-ui-examples-html-ontology
+## The suffix matches a discovered key from
+## `packages/e3-ui/test/<key>.examples.ts` (e.g. ontology, diff).
+$(E3_UI_EXAMPLE_KEYS:%=e3-ui-examples-html-%): e3-ui-examples-html-%:
+	pnpm --filter @elaraai/e3-ui-components exec playwright install chromium
+	pnpm --filter @elaraai/e3-ui-components exec tsx scripts/snapshot.ts --file=$*
 
 ## Build and package the VSCode extension
 extension:
@@ -63,8 +160,12 @@ help:
 	@echo "  build             - Build all packages"
 	@echo "  test              - Run tests"
 	@echo "  lint              - Run linters"
-	@echo "  dev               - Run showcase dev server"
-	@echo "  examples          - Rebuild east-ui + e3-ui (example sources)"
+	@echo "  showcase          - Run showcase dev server"
+	@echo "  design            - Serve design/ statically on :5174 (lists all routable IPs)"
+	@echo "  design-html-all   - Snapshot every .pattern / .bsys in design/*.html to dist-design/"
+	@echo "  examples              - Rebuild east-ui + e3-ui (example sources)"
+	@echo "  east-ui-examples-html-all     - Snapshot every east-ui example to standalone HTML"
+	@echo "  east-ui-examples-html-<pathKey> - Snapshot a single example (e.g. east-ui-examples-html-disclosure/tabs)"
 	@echo "  extension         - Build and package VS Code extension"
 	@echo "  extension-install - Install VS Code extension"
 	@echo "  extension-uninstall - Uninstall VS Code extension"

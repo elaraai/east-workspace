@@ -1,50 +1,149 @@
-# @elaraai/e3-ui
+# East UI
 
-e3 + UI bridge — Data bindings, `ui()` task, manifest.
+> UI component library for the East language
 
-Provides three things to East UI code that needs to read and write workspace
-data via the e3 dataflow engine:
+[![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE.md)
+[![Node Version](https://img.shields.io/badge/node-%3E%3D22.0.0-brightgreen.svg)](https://nodejs.org)
 
-- **`Data.bind([T], path)`** — workspace-scoped dataset binding inside
-  `Reactive.Root`. Returns `{ read, write, has }` closures. Resolves the
-  workspace from the `DataProvider` context at runtime.
-- **`ui(name, inputs, fn, options?)`** — first-class UI task built on top of
-  `e3.task()`. Sets `kind: "ui"` and encodes a binding manifest that declares
-  which datasets the UI reads and which inputs it can write to.
-- **`DataManifestType`** + **`encodeManifest`** / **`decodeManifest`** —
-  beast2-encoded manifest stored in the task's `metadata` blob, used by the
-  browser for preloading and visual editing tooling.
+**East UI** provides typed UI component definitions for the [East language](https://github.com/elaraai/east-workspace/tree/main/libs/east). Components return data structures describing UI layouts rather than rendering directly, enabling portability across different rendering environments.
 
-## Install
+## Packages
+
+| Package | Description | npm |
+|---------|-------------|-----|
+| [@elaraai/east-ui](packages/east-ui) | Core UI component definitions | [![npm](https://img.shields.io/npm/v/@elaraai/east-ui)](https://www.npmjs.com/package/@elaraai/east-ui) |
+| [@elaraai/east-ui-components](packages/east-ui-components) | React rendering with Chakra UI | [![npm](https://img.shields.io/npm/v/@elaraai/east-ui-components)](https://www.npmjs.com/package/@elaraai/east-ui-components) |
+| [east-ui-preview](packages/east-ui-extension) | VSCode extension for live preview | [Marketplace](https://marketplace.visualstudio.com/items?itemName=ElaraAI.east-ui-preview) |
+
+## Features
+
+- **Layout** - Box, Stack, Grid, Splitter, Separator
+- **Typography** - Text, Code, Heading, Link, Highlight, Mark, List, CodeBlock
+- **Buttons** - Button, IconButton with variants
+- **Forms** - Input, Select, Checkbox, Switch, Slider, Textarea, TagsInput, FileUpload
+- **Collections** - Table, DataList, TreeView
+- **Charts** - Area, Bar, Line, Pie, Radar, Scatter, Sparkline, BarList, BarSegment
+- **Display** - Badge, Tag, Avatar, Stat, Icon
+- **Feedback** - Alert, Progress
+- **Disclosure** - Accordion, Tabs, Carousel
+- **Overlays** - Dialog, Drawer, Popover, Tooltip, Menu, HoverCard, ToggleTip, ActionBar
+
+## Quick Start
 
 ```bash
-npm install @elaraai/e3-ui
+npm install @elaraai/east-ui @elaraai/east
 ```
 
-## Example
+```typescript
+import { East } from "@elaraai/east";
+import { Stack, Text, Button, UIComponentType } from "@elaraai/east-ui";
 
-```ts
-import e3 from '@elaraai/e3';
-import { East, FloatType, NullType } from '@elaraai/east';
-import { Reactive, Slider, Stat, Stack } from '@elaraai/east-ui';
-import { ui, Data } from '@elaraai/e3-ui';
+const MyComponent = East.function([], UIComponentType, () => {
+    return Stack.Root([
+        Text.Root("Hello, World!", { fontSize: "xl", fontWeight: "bold" }),
+        Button.Root("Click Me", { variant: "solid", colorPalette: "blue" }),
+    ], { gap: "4" });
+});
+```
 
-const threshold = e3.input('threshold', FloatType, 100.0);
+## Development
 
-const dashboard = ui('dashboard', [threshold], East.function([FloatType], UIComponentType, ($, _t) => {
-    return Reactive.Root(East.function([], UIComponentType, $ => {
-        const thresh = $.let(Data.bind([FloatType], threshold.path));
-        const value = $.let(thresh.read());
-        return Stack.VStack([
-            Stat.Root('Threshold', value),
-            Slider.Root(value, { min: 0, max: 200, onChange: thresh.write }),
-        ]);
-    }));
-}), { writes: [threshold] });
+```bash
+# Install dependencies
+npm install
+
+# Build all packages
+npm run build
+
+# Run tests
+npm test
+
+# Run linter
+npm run lint
+```
+
+## Claude Code plugin
+
+The East ecosystem also ships a [Claude Code](https://claude.com/claude-code) plugin — East language skills, example search, and preemptive diagnostics for East code — installed separately from the `elaraai` marketplace:
+
+```text
+# Inside Claude Code
+/plugin marketplace add elaraai/east-workspace
+/plugin install east@elaraai
+```
+
+```bash
+# From a terminal
+claude plugin marketplace add elaraai/east-workspace
+claude plugin install east@elaraai
 ```
 
 ## License
 
-Dual-licensed under AGPL-3.0 and a commercial license. See [LICENSE.md](./LICENSE.md).
+Dual-licensed:
+- **Open Source**: [AGPL-3.0](LICENSE.md) - Free for open source use
+- **Commercial**: Available for proprietary use - contact support@elara.ai
 
-Contributions require a signed CLA — see [CLA.md](./CLA.md) and [CONTRIBUTING.md](./CONTRIBUTING.md).
+
+<!-- Ecosystem — keep in sync with docs/snippets/ECOSYSTEM.md -->
+
+### Ecosystem
+
+- **[East](https://github.com/elaraai/east-workspace/tree/main/libs/east)**: Statically typed, expression-based language with serializable IR. Run portable logic across TypeScript, Python, C, and other runtimes.
+  - [@elaraai/east](https://www.npmjs.com/package/@elaraai/east): Core language SDK with type system, expressions, and reference JS compiler
+
+- **[East Node](https://github.com/elaraai/east-workspace/tree/main/libs/east-node)**: Node.js platform functions for I/O, databases, and system operations.
+  - [@elaraai/east-node-std](https://www.npmjs.com/package/@elaraai/east-node-std): Console, FileSystem, Fetch, Crypto, Time, Path, Random
+  - [@elaraai/east-node-io](https://www.npmjs.com/package/@elaraai/east-node-io): SQLite, PostgreSQL, MySQL, MongoDB, Redis, S3, FTP, SFTP, XLSX, XML, compression
+  - [@elaraai/east-node-cli](https://www.npmjs.com/package/@elaraai/east-node-cli): CLI for running East IR programs in Node.js
+
+- **[East C](https://github.com/elaraai/east-workspace/tree/main/libs/east-c)**: C11 native runtime for executing East IR. Tarballed for `linux-x64` and `linux-arm64`, attached to each GitHub Release.
+  - `east-c`: Core runtime — type system, IR interpreter, 200+ builtins, serialization (Beast2, JSON, CSV, East text)
+  - `east-c-std`: Console, FileSystem, Fetch, Crypto, Time, Path, Random
+  - `east-c-cli`: CLI for running East IR programs natively
+
+- **[East Python](https://github.com/elaraai/east-workspace/tree/main/libs/east-py)**: Python runtime, standard platform, I/O, and data-science platform functions. Published to PyPI.
+  - [east-py](https://pypi.org/project/east-py/): Core Python runtime — type system, IR compiler, 212+ builtins, Cython-accelerated hot paths
+  - [east-py-std](https://pypi.org/project/east-py-std/): Console, FileSystem, Fetch, Crypto, Time, Path, Random
+  - [east-py-io](https://pypi.org/project/east-py-io/): SQLite, PostgreSQL, MySQL, MongoDB, Redis, S3, FTP, SFTP, XLSX, XML, compression
+  - [east-py-cli](https://pypi.org/project/east-py-cli/): CLI for running East IR programs in Python
+  - [east-py-datascience](https://pypi.org/project/east-py-datascience/) (PyPI) + [@elaraai/east-py-datascience](https://www.npmjs.com/package/@elaraai/east-py-datascience) (npm): Optimization (MADS, Optuna, ALNS, GoogleOR), ML (XGBoost, LightGBM, NGBoost, PyTorch, Lightning, GP), Bayesian inference (PyMC), explainability (SHAP), conformal prediction (MAPIE)
+
+- **[East UI](https://github.com/elaraai/east-workspace/tree/main/libs/east-ui)**: Typed UI component definitions and React renderer, plus VS Code preview.
+  - [@elaraai/east-ui](https://www.npmjs.com/package/@elaraai/east-ui): 50+ typed UI components for layouts, forms, charts, tables, dialogs
+  - [@elaraai/east-ui-components](https://www.npmjs.com/package/@elaraai/east-ui-components): React renderer with Chakra UI v3 styling
+  - [@elaraai/e3-ui](https://www.npmjs.com/package/@elaraai/e3-ui): e3 + UI bridge — Data bindings, `e3.ui()` task, manifest
+  - [@elaraai/e3-ui-components](https://www.npmjs.com/package/@elaraai/e3-ui-components): React Query hooks and preview components for the e3 API
+  - [east-ui-preview](https://marketplace.visualstudio.com/items?itemName=ElaraAI.east-ui-preview): VS Code extension for live East UI component preview
+
+- **[e3 — East Execution Engine](https://github.com/elaraai/east-workspace/tree/main/libs/e3)**: Durable execution engine for running East pipelines at scale. Git-like content-addressable storage, automatic memoization, reactive dataflow, real-time monitoring.
+  - [@elaraai/e3](https://www.npmjs.com/package/@elaraai/e3): SDK for authoring e3 packages with typed tasks and pipelines
+  - [@elaraai/e3-core](https://www.npmjs.com/package/@elaraai/e3-core): Object store, dataflow orchestrator, execution state
+  - [@elaraai/e3-types](https://www.npmjs.com/package/@elaraai/e3-types): Shared type definitions for e3 packages
+  - [@elaraai/e3-cli](https://www.npmjs.com/package/@elaraai/e3-cli): `e3 repo`, `e3 package`, `e3 workspace`, `e3 start`, `e3 watch`, `e3 logs` commands
+  - [@elaraai/e3-api-client](https://www.npmjs.com/package/@elaraai/e3-api-client): HTTP client for remote e3 repositories
+  - [@elaraai/e3-api-server](https://www.npmjs.com/package/@elaraai/e3-api-server): REST API server for e3 repositories
+  - [@elaraai/e3-api-tests](https://www.npmjs.com/package/@elaraai/e3-api-tests): Shared API compliance test suites
+
+## Links
+
+- **Live Showcase**: [https://elaraai.github.io/east-ui/](https://elaraai.github.io/east-ui/)
+- **Website**: [https://elaraai.com/](https://elaraai.com/)
+- **East Repository**: [https://github.com/elaraai/east-workspace/tree/main/libs/east](https://github.com/elaraai/east-workspace/tree/main/libs/east)
+- **Issues**: [https://github.com/elaraai/east-workspace/issues](https://github.com/elaraai/east-workspace/issues)
+- **Email**: support@elara.ai
+
+
+<!-- About Elara — keep in sync with docs/snippets/ABOUT_ELARA.md -->
+
+## About Elara
+
+East is developed by [Elara AI Pty Ltd](https://elaraai.com/), an AI-powered platform that creates economic digital twins of businesses that optimize performance. Elara combines business objectives, decisions and data to help organizations make data-driven decisions across operations, purchasing, sales and customer engagement, and project and investment planning. East powers the computational layer of Elara solutions, enabling the expression of complex business logic and data in a simple, type-safe and portable language.
+
+---
+
+*Developed by [Elara AI Pty Ltd](https://elaraai.com/).*
+
+---
+
+*Developed by [Elara AI Pty Ltd](https://elaraai.com/) - Powering the computational layer of AI-driven business optimization.*

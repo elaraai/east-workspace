@@ -61,6 +61,11 @@ Thumbs.db
 tmp/
 *.log
 
+# Native sources staged by scripts/vendor-native.py for packaged builds
+_vendor/
+# Local cibuildwheel output (make build-wheels)
+dist-wheels/
+
 # Cython generated C files
 *_cy.c
 *_eastc.c

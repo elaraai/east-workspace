@@ -7,15 +7,32 @@
  * e3 get command - Get dataset value
  *
  * Usage:
- *   e3 get . ws.path.to.dataset
- *   e3 get . ws.path.to.dataset -f json
- *   e3 get https://server/repos/myrepo ws.path.to.dataset
+ *   e3 dataset get . ws.name
+ *   e3 dataset get . ws.name -f json
+ *   e3 dataset get https://server/repos/myrepo ws.name
+ *
+ * Paths use the flat form `<ws>.<name>`. The resolver maps `<name>` to
+ * its storage location (input or task output) automatically.
  */
 
-import { workspaceGetDatasetHash, datasetRead, LocalStorage } from '@elaraai/e3-core';
+import { datasetRead, workspaceGetDatasetHash, LocalStorage } from '@elaraai/e3-core';
 import { datasetGet as datasetGetRemote } from '@elaraai/e3-api-client';
 import { printFor, toJSONFor, decodeBeast2, toEastTypeValue, isVariant, type EastTypeValue } from '@elaraai/east';
-import { parseRepoLocation, parseDatasetPath, formatError, exitError } from '../utils.js';
+import { parseRepoLocation, formatError, exitError } from '../utils.js';
+import { resolveDatasetPath } from '../path-resolver.js';
+
+/** Supported output formats for `e3 dataset get`. */
+export type GetFormat = 'east' | 'json' | 'beast2';
+
+const GET_FORMATS: readonly GetFormat[] = ['east', 'json', 'beast2'];
+
+export function parseGetFormat(value: string | undefined): GetFormat {
+  if (value === undefined) return 'east';
+  if ((GET_FORMATS as readonly string[]).includes(value)) {
+    return value as GetFormat;
+  }
+  throw new Error(`Unknown format: '${value}'. Use one of: ${GET_FORMATS.join(', ')}`);
+}
 
 /**
  * Get dataset value at a path.
@@ -27,25 +44,18 @@ export async function getCommand(
 ): Promise<void> {
   try {
     const location = await parseRepoLocation(repoArg);
-    const { ws, path } = parseDatasetPath(pathSpec);
-
-    if (path.length === 0) {
-      exitError('Path must include at least one field (e.g., ws.field)');
-    }
-
-    const format = options.format ?? 'east';
+    const { ws, path } = await resolveDatasetPath(location, pathSpec);
+    const format = parseGetFormat(options.format);
 
     let type: EastTypeValue;
     let value: unknown;
 
     if (location.type === 'local') {
       const storage = new LocalStorage();
-
-      // Get the hash first, then read with type info
       const { refType, hash } = await workspaceGetDatasetHash(storage, location.path, ws, path);
 
       if (refType === 'unassigned') {
-        exitError('Dataset is unassigned (pending task output)');
+        exitError(`'${pathSpec}' is unassigned (no value has been set or produced yet)`);
       }
 
       if (refType === 'null' || hash === null) {
@@ -53,13 +63,10 @@ export async function getCommand(
         return;
       }
 
-      // Read the dataset to get both value and type
       const dataset = await datasetRead(storage, location.path, hash);
-      // Convert EastType to EastTypeValue if necessary
       type = isVariant(dataset.type) ? dataset.type as EastTypeValue : toEastTypeValue(dataset.type);
       value = dataset.value;
     } else {
-      // Remote: get raw BEAST2 bytes and decode
       const { data: beast2Data } = await datasetGetRemote(
         location.baseUrl,
         location.repo,
@@ -68,7 +75,6 @@ export async function getCommand(
         { token: location.token }
       );
 
-      // Decode BEAST2 to get type and value
       const decoded = decodeBeast2(beast2Data);
       type = decoded.type;
       value = decoded.value;

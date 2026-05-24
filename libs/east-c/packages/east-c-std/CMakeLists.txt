@@ -6,7 +6,6 @@ add_library(east-c-std
     src/time_ops.c
     src/random.c
     src/fetch.c
-    src/parallel.c
     src/test.c
     src/register_all.c
 )

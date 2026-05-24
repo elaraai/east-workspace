@@ -29,13 +29,14 @@ export const headingStandardSizes = example({
 });
 
 export const headingExtendedSizes = example({
-    keywords: ["Heading", "Root", "textStyle", "display-sm", "display-md", "display-lg"],
+    keywords: ["Heading", "Root", "textStyle", "display-sm", "display-md", "display-lg", "display-xl"],
     description: "Display textStyles for large page titles",
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.VStack([
             Heading.Root("Display Small", { textStyle: "display-sm" }),
             Heading.Root("Display Medium", { textStyle: "display-md" }),
             Heading.Root("Display Large", { textStyle: "display-lg" }),
+            Heading.Root("Display Extra Large", { textStyle: "display-xl" }),
         ], { gap: "2", align: "flex-start" });
     }),
     inputs: [],
@@ -46,7 +47,7 @@ export const headingSemanticLevels = example({
     description: "HTML heading elements h1-h6",
     fn: East.function([], UIComponentType, (_$) => {
         return Stack.VStack([
-            Heading.Root("H1 - Main Title", { as: "h1", textStyle: "display-sm" }),
+            Heading.Root("H1 - Main Title", { as: "h1", textStyle: "display-xl" }),
             Heading.Root("H2 - Section", { as: "h2", textStyle: "heading-lg" }),
             Heading.Root("H3 - Subsection", { as: "h3", textStyle: "heading-md" }),
             Heading.Root("H4 - Minor", { as: "h4", textStyle: "heading-sm" }),

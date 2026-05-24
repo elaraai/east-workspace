@@ -17,20 +17,19 @@
 
 import type { Plugin, ViteDevServer } from "vite";
 import * as ts from "typescript";
-import fg from "fast-glob";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { format } from "prettier";
 import hljs from "highlight.js/lib/core";
 import typescriptLang from "highlight.js/lib/languages/typescript";
+import { discoverExampleFiles } from "./discover-example-files";
 
 hljs.registerLanguage("typescript", typescriptLang);
 
 export interface ExampleSourcesOptions {
-    /** Glob(s) matching example source files, relative to `cwd`. */
-    include: string | string[];
-    /** Base directory for glob resolution and key generation. */
-    cwd: string;
+    /** Absolute path to the test root — the directory containing
+     *  `<category>/<component>.examples.ts` files. */
+    testDir: string;
 }
 
 const VIRTUAL_ID = "virtual:example-sources";
@@ -120,20 +119,14 @@ async function extractAndFormat(filePath: string, code: string): Promise<Record<
 }
 
 async function buildMap(opts: ExampleSourcesOptions): Promise<Record<string, Record<string, CapturedSource>>> {
-    const files = await fg(opts.include, { cwd: opts.cwd, absolute: true });
+    const discovered = await discoverExampleFiles({ testDir: opts.testDir });
     const sources: Record<string, Record<string, CapturedSource>> = {};
 
-    for (const file of files) {
-        const code = await fs.readFile(file, "utf8");
-        const extracted = await extractAndFormat(file, code);
+    for (const { filePath, pathKey } of discovered) {
+        const code = await fs.readFile(filePath, "utf8");
+        const extracted = await extractAndFormat(filePath, code);
         if (Object.keys(extracted).length === 0) continue;
-
-        const key = path
-            .relative(opts.cwd, file)
-            .replace(/\\/g, "/")
-            .replace(/\.examples\.tsx?$/, "")
-            .replace(/\.tsx?$/, "");
-        sources[key] = extracted;
+        sources[pathKey] = extracted;
     }
     return sources;
 }
@@ -157,11 +150,13 @@ export function exampleSourcesPlugin(opts: ExampleSourcesOptions): Plugin {
 
         configureServer(devServer) {
             server = devServer;
-            const onChange = async (file: string) => {
+            const onChange = (file: string) => {
                 if (!server) return;
+                /* `file` is absolute, normalised by chokidar. Reload only when a
+                 * matched example file changed (vs. unrelated files in the same
+                 * watch tree). */
                 const abs = path.resolve(file);
-                const matches = await fg(opts.include, { cwd: opts.cwd, absolute: true });
-                if (matches.includes(abs)) {
+                if (abs.startsWith(opts.testDir) && abs.endsWith(".examples.ts")) {
                     const mod = server.moduleGraph.getModuleById(RESOLVED_ID);
                     if (mod) server.reloadModule(mod);
                 }

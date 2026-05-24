@@ -22,7 +22,7 @@ import {
   BlobType,
   OptionType,
 } from '../types.js';
-import { variant } from '../containers/variant.js';
+import { some, none } from '../containers/variant.js';
 import { SortedMap } from '../containers/sortedmap.js';
 
 const encoder = new TextEncoder();
@@ -164,7 +164,7 @@ describe('decodeCsvFor', () => {
       const csv = encoder.encode("value\nhello");
       const result = decode(csv);
 
-      assert.deepEqual(result, [{ value: variant("some", "hello") }]);
+      assert.deepEqual(result, [{ value: some("hello") }]);
     });
 
     test('should parse optional string as none when empty', () => {
@@ -176,7 +176,7 @@ describe('decodeCsvFor', () => {
       const csv = encoder.encode("value\n\n");
       const result = decode(csv);
 
-      assert.deepEqual(result, [{ value: variant("none", null) }]);
+      assert.deepEqual(result, [{ value: none }]);
     });
 
     test('should use custom nullStrings', () => {
@@ -188,9 +188,9 @@ describe('decodeCsvFor', () => {
       const result = decode(csv);
 
       assert.deepEqual(result, [
-        { value: variant("some", "hello") },
-        { value: variant("none", null) },
-        { value: variant("none", null) },
+        { value: some("hello") },
+        { value: none },
+        { value: none },
       ]);
     });
 
@@ -202,7 +202,7 @@ describe('decodeCsvFor', () => {
       const csv = encoder.encode("name\nAlice");
       const result = decode(csv);
 
-      assert.deepEqual(result, [{ name: "Alice", age: variant("none", null) }]);
+      assert.deepEqual(result, [{ name: "Alice", age: none }]);
     });
   });
 
@@ -538,7 +538,7 @@ describe('encodeCsvFor', () => {
       const T = StructType({ value: OptionType(StringType) });
       const encode = encodeCsvFor(T);
 
-      const result = encode([{ value: variant("some", "hello") }]);
+      const result = encode([{ value: some("hello") }]);
 
       assert.equal(decoder.decode(result), "value\r\nhello");
     });
@@ -547,7 +547,7 @@ describe('encodeCsvFor', () => {
       const T = StructType({ value: OptionType(StringType) });
       const encode = encodeCsvFor(T);
 
-      const result = encode([{ value: variant("none", null) }]);
+      const result = encode([{ value: none }]);
 
       assert.equal(decoder.decode(result), "value\r\n");
     });
@@ -557,7 +557,7 @@ describe('encodeCsvFor', () => {
       const config = csvSerializeOptionsToValue({ nullString: "NULL" });
       const encode = encodeCsvFor(T, config);
 
-      const result = encode([{ value: variant("none", null) }]);
+      const result = encode([{ value: none }]);
 
       assert.equal(decoder.decode(result), "value\r\nNULL");
     });
@@ -662,8 +662,8 @@ describe('CSV round-trip', () => {
     const decode = decodeCsvFor(T);
 
     const original = [
-      { name: "Alice", nickname: variant("some", "Ali") },
-      { name: "Bob", nickname: variant("none", null) },
+      { name: "Alice", nickname: some("Ali") },
+      { name: "Bob", nickname: none },
     ];
 
     const encoded = encode(original);

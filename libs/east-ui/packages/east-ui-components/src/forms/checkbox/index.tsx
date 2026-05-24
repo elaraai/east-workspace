@@ -28,7 +28,7 @@ export function toChakraCheckbox(value: CheckboxValue): CheckboxRootProps {
     return {
         checked: indeterminate ? "indeterminate" : value.checked,
         disabled: getSomeorUndefined(value.disabled),
-        colorPalette,
+        colorPalette: colorPalette ?? "brand",
         size,
     };
 }

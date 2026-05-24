@@ -21,7 +21,6 @@ import {
 
 import { UIComponentType } from "../../component.js";
 import { SizeType } from "../../style.js";
-import { Text } from "../../typography/text/index.js";
 import {
     AccordionStyleType,
     AccordionVariantType,
@@ -53,24 +52,26 @@ export {
  * `equalFor` / `ValueTypeOf`.
  *
  * @remarks
- * `trigger` is a UIComponentType — strings passed at the factory boundary
- * are coerced to `Text.Root(s)`. Same container pattern as
- * `Button.Types.Button` / `List.Types.List` / `Note.Types.Note` in earlier
- * plans.
+ * The trigger is the bsys Accordion header: a mono uppercase `title` plus an
+ * optional `meta` (field/dirty count) right-aligned. The renderer owns all
+ * trigger styling — the caller supplies plain strings only.
  *
  * @property value - Unique identifier for the item
- * @property trigger - Header/trigger content (UIComp)
+ * @property title - Mono uppercase section title (left of the trigger row)
+ * @property meta - Optional trailing meta (field/dirty count), right-aligned
  * @property content - Array of child UI components shown when expanded
  * @property disabled - Per-item disabled flag
  */
 export const AccordionItemType: StructType<{
     value: StringType,
-    trigger: UIComponentType,
+    title: StringType,
+    meta: OptionType<StringType>,
     content: ArrayType<UIComponentType>,
     disabled: OptionType<BooleanType>,
 }> = StructType({
     value: StringType,
-    trigger: UIComponentType,
+    title: StringType,
+    meta: OptionType(StringType),
     content: ArrayType(UIComponentType),
     disabled: OptionType(BooleanType),
 });
@@ -123,38 +124,34 @@ export type AccordionType = typeof AccordionType;
 // Accordion Item Factory
 // ============================================================================
 
-type AccordionItemTriggerInput =
-    | string
-    | ExprType<UIComponentType>
-    | SubtypeExprOrValue<UIComponentType>;
-
 /**
- * Creates an Accordion item with a rich trigger and content children.
+ * Creates an Accordion item — a mono uppercase `title` header with optional
+ * trailing `meta`, plus collapsible content children.
  *
  * @param value - Unique identifier for this item
- * @param trigger - String (coerced to `Text.Root(s)`) or any UIComponentType
+ * @param title - Section title (mono uppercase; styled by the renderer)
  * @param content - Array of child UI components for the collapsible content
- * @param options - Optional per-item configuration (`disabled`)
+ * @param options - Optional per-item configuration (`meta`, `disabled`)
  * @returns An East expression representing the accordion item
  *
  * @remarks
- * `trigger` is a UIComp — strings coerce to `Text.Root(s)` at the factory
- * boundary, so the common case stays ergonomic.
+ * The bsys Accordion header is a mono uppercase title plus an optional
+ * right-aligned `meta` (field/dirty count). The caller supplies plain string
+ * expressions; the renderer owns all trigger styling so the header can't drift
+ * off-brand.
  *
  * @example
  * ```ts
  * import { East } from "@elaraai/east";
- * import { Accordion, Stack, Text, Badge, UIComponentType } from "@elaraai/east-ui";
+ * import { Accordion, Text, UIComponentType } from "@elaraai/east-ui";
  *
- * const richTrigger = East.function([], UIComponentType, _$ =>
+ * const example = East.function([], UIComponentType, _$ =>
  *     Accordion.Root([
  *         Accordion.Item(
- *             "inputs",
- *             Stack.HStack([
- *                 Text.Root("Inputs"),
- *                 Badge.Root("3", { colorPalette: "blue" }),
- *             ], { gap: "2" }),
- *             [Text.Root("Three inputs are defined…")],
+ *             "shift-rules",
+ *             "Shift rules",
+ *             [Text.Root("Open section content.")],
+ *             { meta: "4 fields" },
  *         ),
  *     ]),
  * );
@@ -162,17 +159,14 @@ type AccordionItemTriggerInput =
  */
 function createAccordionItem(
     value: SubtypeExprOrValue<StringType>,
-    trigger: AccordionItemTriggerInput,
+    title: SubtypeExprOrValue<StringType>,
     content: SubtypeExprOrValue<ArrayType<UIComponentType>>,
     options?: AccordionItemOptions,
 ): ExprType<AccordionItemType> {
-    const triggerExpr: ExprType<UIComponentType> = typeof trigger === "string"
-        ? Text.Root(trigger)
-        : trigger as ExprType<UIComponentType>;
-
     return East.value({
         value,
-        trigger: triggerExpr,
+        title,
+        meta: options?.meta !== undefined ? some(options.meta) : none,
         content,
         disabled: options?.disabled !== undefined ? some(options.disabled) : none,
     }, AccordionItemType);
@@ -321,21 +315,22 @@ export const Accordion = {
      * Creates an Accordion item.
      *
      * @param value - Unique identifier for the item
-     * @param trigger - String (coerced to `Text.Root(s)`) or UIComponentType
+     * @param title - Section title (mono uppercase; styled by the renderer)
      * @param content - Array of child UI components shown when expanded
-     * @param options - Per-item options (`disabled`)
+     * @param options - Per-item options (`meta`, `disabled`)
      * @returns An East expression representing the Accordion item
      *
      * @example
      * ```ts
      * import { East } from "@elaraai/east";
-     * import { Accordion, Stack, Text, Badge, UIComponentType } from "@elaraai/east-ui";
+     * import { Accordion, Text, UIComponentType } from "@elaraai/east-ui";
      *
      * const ex = East.function([], UIComponentType, _$ =>
      *     Accordion.Item(
      *         "inputs",
-     *         Stack.HStack([Text.Root("Inputs"), Badge.Root("3")]),
+     *         "Inputs",
      *         [Text.Root("Three inputs are defined…")],
+     *         { meta: "3 fields" },
      *     ),
      * );
      * ```

@@ -147,6 +147,7 @@ jobs:
           node scripts/set-npm-version.mjs "${NEW_VERSION}"
           node scripts/set-python-version.mjs "${NEW_VERSION}"
           node scripts/set-vsix-version.mjs "${NEW_VERSION}"
+          node scripts/set-plugin-version.mjs "${NEW_VERSION}"
           PEP440=$(node -e "import('./scripts/set-python-version.mjs').then(m => process.stdout.write(m.semverToPep440('${NEW_VERSION}')))")
           echo "pep440=${PEP440}" >> $GITHUB_OUTPUT
           echo "vsix_version=$(node -p "require('./libs/east-ui/packages/east-ui-extension/package.json').version")" >> $GITHUB_OUTPUT
@@ -163,7 +164,7 @@ jobs:
           retention-days: 7
 
   # ────────────────────────────────────────────────────────────────────────
-  # 2. publish-npm: 18 @elaraai/* packages via pnpm -r publish.
+  # 2. publish-npm: the public @elaraai/* packages via scripts/publish-npm.mjs.
   # ────────────────────────────────────────────────────────────────────────
   publish-npm:
     needs: prepare
@@ -245,7 +246,7 @@ jobs:
 
   # ────────────────────────────────────────────────────────────────────────
   # 4a. publish-pypi-pure: pure-Python wheels (east-py-std, east-py-io,
-  #     east-py-cli, east-py-datascience) via uv build.
+  #     east-py-cli) via uv build.
   # ────────────────────────────────────────────────────────────────────────
   publish-pypi-pure:
     needs: prepare
@@ -254,7 +255,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pkg: [east-py-std, east-py-io, east-py-cli, east-py-datascience]
+        pkg: [east-py-std, east-py-io, east-py-cli]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -264,14 +265,18 @@ jobs:
         run: uv python install 3.11
       - name: Build sdist + wheel
         working-directory: libs/east-py/packages/${{ matrix.pkg }}
-        run: uv build --sdist --wheel
+        # --out-dir dist: uv otherwise writes to the uv workspace root
+        # (libs/east-py/dist), where the upload step below wouldn't find it.
+        run: uv build --sdist --wheel --out-dir dist
       - uses: actions/upload-artifact@v4
         with:
           name: pypi-${{ matrix.pkg }}
           path: libs/east-py/packages/${{ matrix.pkg }}/dist/*
 
   # ────────────────────────────────────────────────────────────────────────
-  # 4b. publish-pypi-cython-wheels: cibuildwheel for east-py (Cython).
+  # 4b. publish-pypi-cython-wheels: cibuildwheel for the Cython packages
+  #     (east-py, east-py-datascience). Both link east-c and compile .pyx via
+  #     their scikit-build-core CMakeLists, so both need per-platform wheels.
   # ────────────────────────────────────────────────────────────────────────
   publish-pypi-cython-wheels:
     needs: prepare
@@ -280,29 +285,49 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-13, macos-14, windows-latest]
+        pkg:
+          - { name: east-py, dir: libs/east-py/packages/east-py }
+          - { name: east-py-datascience, dir: libs/east-py/packages/east-py-datascience }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with: { name: version-bump }
+      # On Linux cibuildwheel builds inside a manylinux container that only
+      # sees the package dir — stage east-c (+ east-py .pxd) into _vendor/ so
+      # the CMakeLists fallback finds them. macOS/Windows build natively in the
+      # full checkout, where the monorepo is already on disk.
+      - name: Vendor native deps
+        if: runner.os == 'Linux'
+        run: >-
+          python3 libs/east-py/scripts/vendor-native.py
+          --package ${{ matrix.pkg.dir }}
+          ${{ matrix.pkg.name == 'east-py-datascience' && '--with-east-py-pxd' || '' }}
       - uses: pypa/cibuildwheel@v2
         with:
-          package-dir: libs/east-py/packages/east-py
+          package-dir: ${{ matrix.pkg.dir }}
         env:
           CIBW_BUILD: "cp311-* cp312-* cp313-*"
           CIBW_SKIP: "*-musllinux_*"
       - uses: actions/upload-artifact@v4
         with:
-          name: pypi-east-py-${{ matrix.os }}
+          name: pypi-${{ matrix.pkg.name }}-${{ matrix.os }}
           path: ./wheelhouse/*.whl
 
   # ────────────────────────────────────────────────────────────────────────
-  # 4c. publish-pypi-cython-sdist: sdist for east-py.
+  # 4c. publish-pypi-cython-sdist: sdists for the Cython packages
+  #     (east-py, east-py-datascience).
   # ────────────────────────────────────────────────────────────────────────
   publish-pypi-cython-sdist:
     needs: prepare
     if: ${{ !inputs.skip_pypi }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pkg:
+          - { name: east-py, dir: libs/east-py/packages/east-py }
+          - { name: east-py-datascience, dir: libs/east-py/packages/east-py-datascience }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -310,13 +335,22 @@ jobs:
       - uses: astral-sh/setup-uv@v3
       - name: Set up Python 3.11
         run: uv python install 3.11
+      # Stage east-c (+ east-py .pxd) into _vendor/ so the sdist is
+      # self-contained and installable without the monorepo.
+      - name: Vendor native deps
+        run: >-
+          python3 libs/east-py/scripts/vendor-native.py
+          --package ${{ matrix.pkg.dir }}
+          ${{ matrix.pkg.name == 'east-py-datascience' && '--with-east-py-pxd' || '' }}
       - name: Build sdist
-        working-directory: libs/east-py/packages/east-py
-        run: uv build --sdist
+        working-directory: ${{ matrix.pkg.dir }}
+        # --out-dir dist: uv otherwise writes to the uv workspace root
+        # (libs/east-py/dist), where the upload step below wouldn't find it.
+        run: uv build --sdist --out-dir dist
       - uses: actions/upload-artifact@v4
         with:
-          name: pypi-east-py-sdist
-          path: libs/east-py/packages/east-py/dist/*.tar.gz
+          name: pypi-${{ matrix.pkg.name }}-sdist
+          path: ${{ matrix.pkg.dir }}/dist/*.tar.gz
 
   # ────────────────────────────────────────────────────────────────────────
   # 4d. publish-pypi-upload: gather all dists, upload via PyPI trusted publishing.
