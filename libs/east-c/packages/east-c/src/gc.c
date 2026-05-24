@@ -173,8 +173,7 @@ static void gc_traverse(EastValue *v, gc_visit_fn visit, void *ctx, bool include
         break;
 
     case EAST_VAL_FUNCTION:
-        if (include_closures && v->data.function.compiled &&
-            v->data.function.compiled->captures) {
+        if (include_closures && v->data.function.compiled && v->data.function.compiled->captures) {
             EnvVisitCtx ectx = {.visit = visit, .ctx = ctx};
             for (Environment *env = v->data.function.compiled->captures; env != NULL;
                  env = env->parent) {

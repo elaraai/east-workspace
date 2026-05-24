@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { East, DateTimeType, StringType, IntegerType, ArrayType, StructType, variant, some, none, example } from "@elaraai/east";
-import { Box, Chart, Reactive, Separator, Slice, Stack, Table, Text, UIComponentType } from "@elaraai/east-ui";
+import { Box, Reactive, Separator, Slice, Stack, Table, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const sliceSummary = example({
     keywords: ["Slice", "Summary", "results", "filters", "clear"],

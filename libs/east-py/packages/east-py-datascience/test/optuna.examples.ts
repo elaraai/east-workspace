@@ -95,7 +95,7 @@ export const optunaTuneXgboost = example({
 export const optunaOptimizeMixed = example({
     keywords: ["optuna", "optimize", "mixed", "integer", "float", "chemical process", "yield", "batch size", "temperature"],
     description: "Tune batch size (int) and processing temperature (float) for a chemical process yield function",
-    fn: East.function([FloatType], BooleanType, ($, baseline_yield) => {
+    fn: East.function([FloatType], BooleanType, ($, _baseline_yield) => {
         // Yield model: peak at batch_size=50, temperature=175.0
         // yield = baseline - 0.01*(batch-50)^2 - 0.005*(temp-175)^2
         const objective = $.const(East.function(

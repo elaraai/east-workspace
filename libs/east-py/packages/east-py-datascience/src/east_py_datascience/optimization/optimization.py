@@ -80,8 +80,8 @@ IterativeResultType = StructType(
 
 from east_py_datascience.optimization._optimization_eastc import (
     optimization_iterative_capsule,
-    optimization_iterative_incremental_capsule,  # incremental per-element variant
     optimization_iterative_grouped_capsule,  # group-based per-value variant
+    optimization_iterative_incremental_capsule,  # incremental per-element variant
 )
 
 optimization_impl = [

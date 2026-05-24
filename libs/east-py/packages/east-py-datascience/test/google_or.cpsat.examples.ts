@@ -2,13 +2,13 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, FloatType, BooleanType, IntegerType, variant, example } from "@elaraai/east";
+import { East, BooleanType, IntegerType, variant, example } from "@elaraai/east";
 import { GoogleOr } from "@elaraai/east-py-datascience";
 
 export const cpsatScheduleJobs = example({
     keywords: ["google or", "cpsat", "cpsatSolve", "scheduling", "no overlap", "interval", "makespan", "constraint programming"],
     description: "Schedule jobs on a single machine with no-overlap constraints, minimize makespan",
-    fn: East.function([IntegerType], BooleanType, ($, n_jobs) => {
+    fn: East.function([IntegerType], BooleanType, ($, _n_jobs) => {
         // 3 jobs with durations 3, 5, 2. Schedule on one machine with no overlap.
         // Minimize makespan (= max end time).
         // Optimal: jobs packed tightly, makespan = 3 + 5 + 2 = 10

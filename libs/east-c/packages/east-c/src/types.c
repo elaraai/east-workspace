@@ -404,13 +404,14 @@ EastType *east_variant_type(const char **names, EastType **types, size_t count)
     // case-name. Cleaned up in the type destructor alongside `cases`.
     if (count > 0) {
         size_t cap = 2;
-        while (cap < count * 2) cap <<= 1;
-        struct EastVariantCaseSlot *slots =
-            calloc(cap, sizeof(struct EastVariantCaseSlot));
+        while (cap < count * 2)
+            cap <<= 1;
+        struct EastVariantCaseSlot *slots = calloc(cap, sizeof(struct EastVariantCaseSlot));
         for (size_t i = 0; i < count; i++) {
             uint32_t nh = hash_string(cases[i].name);
             size_t probe = (size_t)nh & (cap - 1);
-            while (slots[probe].name != NULL) probe = (probe + 1) & (cap - 1);
+            while (slots[probe].name != NULL)
+                probe = (probe + 1) & (cap - 1);
             slots[probe].name = cases[i].name;
             slots[probe].name_hash = nh;
             slots[probe].idx = i;

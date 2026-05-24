@@ -32,14 +32,16 @@ static int g_tests_failed = 0;
 /*  Test platform functions                                            */
 /* ------------------------------------------------------------------ */
 
-static EvalResult plat_test_pass(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult plat_test_pass(EastValue **args, size_t num_args, EastType **input_types,
+                                 size_t num_input_types, EastType *output_type)
 {
     (void)args;
     (void)num_args;
     return eval_ok(east_null());
 }
 
-static EvalResult plat_test_fail(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult plat_test_fail(EastValue **args, size_t num_args, EastType **input_types,
+                                 size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     const char *message = "";
@@ -49,7 +51,8 @@ static EvalResult plat_test_fail(EastValue **args, size_t num_args, EastType **i
     return eval_error(message);
 }
 
-static EvalResult plat_describe(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult plat_describe(EastValue **args, size_t num_args, EastType **input_types,
+                                size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
 
@@ -93,7 +96,8 @@ static EvalResult plat_describe(EastValue **args, size_t num_args, EastType **in
     return eval_ok(east_null());
 }
 
-static EvalResult plat_test(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult plat_test(EastValue **args, size_t num_args, EastType **input_types,
+                            size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
 

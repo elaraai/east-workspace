@@ -93,7 +93,8 @@ static void rng_ensure_init(void)
  * Platform Functions
  * ======================================================================== */
 
-static EvalResult random_seed(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult random_seed(EastValue **args, size_t num_args, EastType **input_types,
+                              size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     int64_t seed = args[0]->data.integer;
@@ -101,7 +102,8 @@ static EvalResult random_seed(EastValue **args, size_t num_args, EastType **inpu
     return eval_ok(east_null());
 }
 
-static EvalResult random_uniform(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult random_uniform(EastValue **args, size_t num_args, EastType **input_types,
+                                 size_t num_input_types, EastType *output_type)
 {
     (void)args;
     (void)num_args;
@@ -109,7 +111,8 @@ static EvalResult random_uniform(EastValue **args, size_t num_args, EastType **i
     return eval_ok(east_float(rng_next()));
 }
 
-static EvalResult random_normal(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult random_normal(EastValue **args, size_t num_args, EastType **input_types,
+                                size_t num_input_types, EastType *output_type)
 {
     (void)args;
     (void)num_args;
@@ -126,7 +129,8 @@ static EvalResult random_normal(EastValue **args, size_t num_args, EastType **in
     return eval_ok(east_float(u * sqrt(-2.0 * log(s) / s)));
 }
 
-static EvalResult random_range(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult random_range(EastValue **args, size_t num_args, EastType **input_types,
+                               size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     rng_ensure_init();
@@ -143,7 +147,8 @@ static EvalResult random_range(EastValue **args, size_t num_args, EastType **inp
     return eval_ok(east_integer(result));
 }
 
-static EvalResult random_exponential(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult random_exponential(EastValue **args, size_t num_args, EastType **input_types,
+                                     size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     rng_ensure_init();
@@ -157,7 +162,8 @@ static EvalResult random_exponential(EastValue **args, size_t num_args, EastType
     return eval_ok(east_float(-log(1.0 - u) / lambda_rate));
 }
 
-static EvalResult random_weibull(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult random_weibull(EastValue **args, size_t num_args, EastType **input_types,
+                                 size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     rng_ensure_init();
@@ -171,7 +177,8 @@ static EvalResult random_weibull(EastValue **args, size_t num_args, EastType **i
     return eval_ok(east_float(pow(-log(1.0 - u), 1.0 / shape_k)));
 }
 
-static EvalResult random_pareto(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult random_pareto(EastValue **args, size_t num_args, EastType **input_types,
+                                size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     rng_ensure_init();
@@ -185,7 +192,8 @@ static EvalResult random_pareto(EastValue **args, size_t num_args, EastType **in
     return eval_ok(east_float(pow(1.0 - u, -1.0 / alpha)));
 }
 
-static EvalResult random_log_normal(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult random_log_normal(EastValue **args, size_t num_args, EastType **input_types,
+                                    size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     rng_ensure_init();
@@ -209,7 +217,8 @@ static EvalResult random_log_normal(EastValue **args, size_t num_args, EastType 
     return eval_ok(east_float(exp(mu + sigma * z)));
 }
 
-static EvalResult random_irwin_hall(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult random_irwin_hall(EastValue **args, size_t num_args, EastType **input_types,
+                                    size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     rng_ensure_init();
@@ -226,7 +235,8 @@ static EvalResult random_irwin_hall(EastValue **args, size_t num_args, EastType 
     return eval_ok(east_float(sum));
 }
 
-static EvalResult random_bates(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult random_bates(EastValue **args, size_t num_args, EastType **input_types,
+                               size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     rng_ensure_init();
@@ -243,7 +253,8 @@ static EvalResult random_bates(EastValue **args, size_t num_args, EastType **inp
     return eval_ok(east_float(sum / (double)n));
 }
 
-static EvalResult random_bernoulli(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult random_bernoulli(EastValue **args, size_t num_args, EastType **input_types,
+                                   size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     rng_ensure_init();
@@ -252,7 +263,8 @@ static EvalResult random_bernoulli(EastValue **args, size_t num_args, EastType *
     return eval_ok(east_integer(rng_next() < p ? 1 : 0));
 }
 
-static EvalResult random_binomial(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult random_binomial(EastValue **args, size_t num_args, EastType **input_types,
+                                  size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     rng_ensure_init();
@@ -271,7 +283,8 @@ static EvalResult random_binomial(EastValue **args, size_t num_args, EastType **
     return eval_ok(east_integer(count));
 }
 
-static EvalResult random_geometric(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult random_geometric(EastValue **args, size_t num_args, EastType **input_types,
+                                   size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     rng_ensure_init();
@@ -285,7 +298,8 @@ static EvalResult random_geometric(EastValue **args, size_t num_args, EastType *
     return eval_ok(east_integer((int64_t)ceil(log(1.0 - u) / log(1.0 - p))));
 }
 
-static EvalResult random_poisson(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult random_poisson(EastValue **args, size_t num_args, EastType **input_types,
+                                 size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     rng_ensure_init();

@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, StructType, VariantType, ArrayType, FloatType, IntegerType, DateTimeType, variant, none, example } from "@elaraai/east";
+import { East, StructType, VariantType, ArrayType, IntegerType, DateTimeType, variant, none, example } from "@elaraai/east";
 import { Simulation, SimulationConfigType } from "@elaraai/east-py-datascience";
 
 // Production line state: WIP at each station, completed count

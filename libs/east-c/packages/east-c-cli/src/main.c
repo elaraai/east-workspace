@@ -359,8 +359,8 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
     if (snapshot_out_path) {
         char cli_ver[128];
         snprintf(cli_ver, sizeof(cli_ver), "east-c-cli %s", EAST_CLI_VERSION);
-        if (snapshot_write(snapshot_out_path, ir_path, input_files, (size_t)num_inputs,
-                           packages, (size_t)num_packages, cli_ver) != 0) {
+        if (snapshot_write(snapshot_out_path, ir_path, input_files, (size_t)num_inputs, packages,
+                           (size_t)num_packages, cli_ver) != 0) {
             fprintf(stderr, "Error: failed to write snapshot to %s\n", snapshot_out_path);
             return 1;
         }
@@ -394,10 +394,9 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
         format_file_size(ir_path, sz, sizeof(sz));
         fprintf(stderr, "Running: %s  (%s)\n", ir_path, sz);
         if (num_packages > 0) {
-            size_t total_fns = hashmap_count(platform->functions) +
-                               hashmap_count(platform->generic_functions);
-            fprintf(stderr, "Platform: %d package(s), %zu function(s)\n",
-                    num_packages, total_fns);
+            size_t total_fns =
+                hashmap_count(platform->functions) + hashmap_count(platform->generic_functions);
+            fprintf(stderr, "Platform: %d package(s), %zu function(s)\n", num_packages, total_fns);
             for (int i = 0; i < num_packages; i++) {
                 fprintf(stderr, "  - %s\n", packages[i]);
             }
@@ -709,8 +708,7 @@ static int cmd_convert(const char *in_path, const char *out_path, const char *ty
         type = east_beast2_extract_type(data, len);
         free(data);
     } else {
-        fprintf(stderr,
-                "Error: --type is required for .%s input (only .beast2 self-describes)\n",
+        fprintf(stderr, "Error: --type is required for .%s input (only .beast2 self-describes)\n",
                 format_name(in_fmt));
         return 1;
     }

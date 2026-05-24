@@ -192,11 +192,11 @@ jobs:
         working-directory: libs/east-py
         run: uv sync --all-extras --all-packages
       - name: Build
-        run: pnpm --filter='@elaraai/*' run build
+        run: pnpm build
       - name: Lint
-        run: pnpm --filter='@elaraai/*' run lint
+        run: pnpm lint
       - name: Test
-        run: pnpm --filter='@elaraai/*' run test
+        run: pnpm test
       - name: Publish (skip already-published)
         run: |
           node scripts/publish-npm.mjs \

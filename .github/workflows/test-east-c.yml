@@ -39,19 +39,15 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - name: Build east (for IR export)
-        run: pnpm --filter='@elaraai/east...' run build
-
-      - name: Export test IR from east
-        run: pnpm --filter=@elaraai/east run test:export
+      - name: Build and export east test IR
+        working-directory: libs/east
+        run: make test-export
         env:
           EXPORT_TEST_IR: /tmp/east-test-ir
 
-      - name: Build east-node (for std IR export)
-        run: pnpm --filter='@elaraai/east-node-std...' run build
-
-      - name: Export test IR from east-node-std
-        run: pnpm --filter=@elaraai/east-node-std run test:export
+      - name: Build east-node and export std test IR
+        working-directory: libs/east-node
+        run: make build && make test-export-std
         env:
           EXPORT_TEST_IR: /tmp/east-node-std
 

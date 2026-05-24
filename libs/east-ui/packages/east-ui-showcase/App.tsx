@@ -30,7 +30,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-    Box, Container, Flex, Heading, IconButton, Input, InputGroup, Kbd, Text, useSlotRecipe,
+    Box, Flex, Heading, Input, InputGroup, Kbd, Text, useSlotRecipe,
 } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faMagnifyingGlass, faChevronLeft, faChevronRight } from "@fortawesome/free-solid-svg-icons";
@@ -65,9 +65,6 @@ function useSidebarCollapsed(): [boolean, () => void] {
     }, [toggle]);
     return [collapsed, toggle];
 }
-
-/** Outer max content width per the Main recipe. */
-const MAX_CONTENT_W = "1480px";
 
 export function App() {
     const [search, setSearch] = useState("");

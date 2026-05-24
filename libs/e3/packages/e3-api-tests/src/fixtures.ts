@@ -369,7 +369,7 @@ export async function createWideParallelPackageZip(
   tempDir: string,
   name: string,
   version: string,
-  taskCount: number = 6
+  _taskCount: number = 6
 ): Promise<string> {
   mkdirSync(tempDir, { recursive: true });
 

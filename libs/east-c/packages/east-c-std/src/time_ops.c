@@ -14,7 +14,8 @@
 #include <string.h>
 #include <stdio.h>
 
-static EvalResult time_now(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult time_now(EastValue **args, size_t num_args, EastType **input_types,
+                           size_t num_input_types, EastType *output_type)
 {
     (void)args;
     (void)num_args;
@@ -25,7 +26,8 @@ static EvalResult time_now(EastValue **args, size_t num_args, EastType **input_t
     return eval_ok(east_integer(millis));
 }
 
-static EvalResult time_sleep(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult time_sleep(EastValue **args, size_t num_args, EastType **input_types,
+                             size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     int64_t millis = args[0]->data.integer;
@@ -36,7 +38,9 @@ static EvalResult time_sleep(EastValue **args, size_t num_args, EastType **input
     return eval_ok(east_null());
 }
 
-static EvalResult time_get_timezone_offset(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult time_get_timezone_offset(EastValue **args, size_t num_args,
+                                           EastType **input_types, size_t num_input_types,
+                                           EastType *output_type)
 {
     (void)num_args;
     int64_t epoch_ms = args[0]->data.datetime;

@@ -16,9 +16,10 @@ import shutil
 import tarfile
 import tempfile
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
+from east.serialization.json import decode_json_for, encode_json_for
 from east.types.types import (
     ArrayType,
     DateTimeType,
@@ -26,8 +27,6 @@ from east.types.types import (
     StringType,
     StructType,
 )
-from east.serialization.json import decode_json_for, encode_json_for
-
 
 SNAPSHOT_FORMAT_VERSION = 1
 
@@ -82,7 +81,7 @@ def write_snapshot(
 
     manifest = {
         "version": SNAPSHOT_FORMAT_VERSION,
-        "created_at": datetime.now(timezone.utc),
+        "created_at": datetime.now(UTC),
         "runtime": {"impl": "east-py", "cli": cli_version},
         "ir": ir_archive_name,
         "inputs": input_archive_names,

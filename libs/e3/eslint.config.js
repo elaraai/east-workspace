@@ -25,7 +25,7 @@ const baseRules = {
 const testRules = {
   ...tseslint.configs.recommended.rules,
   '@typescript-eslint/no-explicit-any': 'off',
-  '@typescript-eslint/no-unused-vars': ['warn', { 'argsIgnorePattern': '^_', 'varsIgnorePattern': '^_' }],
+  '@typescript-eslint/no-unused-vars': ['warn', { 'argsIgnorePattern': '^[$_]', 'varsIgnorePattern': '^[$_]' }],
   '@typescript-eslint/explicit-function-return-type': 'off',
   '@typescript-eslint/no-unnecessary-type-constraint': 'off',
   '@typescript-eslint/no-floating-promises': 'off',
@@ -148,6 +148,27 @@ export default [
   },
   {
     files: ['test/integration/src/**/*.spec.ts'],
+    languageOptions: {
+      parser: tsparser,
+      parserOptions: {
+        project: true
+      }
+    },
+    plugins: {
+      '@typescript-eslint': tseslint,
+      'headers': headers
+    },
+    rules: {
+      ...testRules,
+      'headers/header-format': ['error', {
+        source: 'string',
+        content: bslHeader
+      }]
+    }
+  },
+  // e3-api-tests: entire package is test helpers/suites (BSL 1.1)
+  {
+    files: ['packages/e3-api-tests/src/**/*.ts'],
     languageOptions: {
       parser: tsparser,
       parserOptions: {

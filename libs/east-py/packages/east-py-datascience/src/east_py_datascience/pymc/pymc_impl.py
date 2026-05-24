@@ -617,7 +617,7 @@ def pymc_train_multi_layer_impl(
                 n_feat = X_layer.shape[1]
                 n_targ = Y_layer.shape[1]
 
-                prior_spec = named_priors.get(spec["parameter"], None)
+                prior_spec = named_priors.get(spec["parameter"])
                 beta = _build_prior(pm, spec["parameter"], prior_spec, shape=(n_feat, n_targ))
 
                 # Apply mask if provided

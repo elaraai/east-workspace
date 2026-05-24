@@ -108,8 +108,7 @@ void beast2_encode_value(ByteBuffer *buf, EastValue *value, EastType *type, Beas
             return;
         }
         write_varint(buf, (uint64_t)ci);
-        beast2_encode_value(buf, value->data.variant.value, type->data.variant.cases[ci].type,
-                            ctx);
+        beast2_encode_value(buf, value->data.variant.value, type->data.variant.cases[ci].type, ctx);
         break;
     }
 

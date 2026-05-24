@@ -18,7 +18,8 @@
 #include <dirent.h>
 #include <errno.h>
 
-static EvalResult fs_read_file(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult fs_read_file(EastValue **args, size_t num_args, EastType **input_types,
+                               size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     const char *path = args[0]->data.string.data;
@@ -52,7 +53,8 @@ static EvalResult fs_read_file(EastValue **args, size_t num_args, EastType **inp
     return eval_ok(result);
 }
 
-static EvalResult fs_write_file(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult fs_write_file(EastValue **args, size_t num_args, EastType **input_types,
+                                size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     const char *path = args[0]->data.string.data;
@@ -67,7 +69,8 @@ static EvalResult fs_write_file(EastValue **args, size_t num_args, EastType **in
     return eval_ok(east_null());
 }
 
-static EvalResult fs_append_file(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult fs_append_file(EastValue **args, size_t num_args, EastType **input_types,
+                                 size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     const char *path = args[0]->data.string.data;
@@ -82,7 +85,8 @@ static EvalResult fs_append_file(EastValue **args, size_t num_args, EastType **i
     return eval_ok(east_null());
 }
 
-static EvalResult fs_delete_file(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult fs_delete_file(EastValue **args, size_t num_args, EastType **input_types,
+                                 size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     const char *path = args[0]->data.string.data;
@@ -90,7 +94,8 @@ static EvalResult fs_delete_file(EastValue **args, size_t num_args, EastType **i
     return eval_ok(east_null());
 }
 
-static EvalResult fs_exists(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult fs_exists(EastValue **args, size_t num_args, EastType **input_types,
+                            size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     const char *path = args[0]->data.string.data;
@@ -98,7 +103,8 @@ static EvalResult fs_exists(EastValue **args, size_t num_args, EastType **input_
     return eval_ok(east_boolean(stat(path, &st) == 0));
 }
 
-static EvalResult fs_is_file(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult fs_is_file(EastValue **args, size_t num_args, EastType **input_types,
+                             size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     const char *path = args[0]->data.string.data;
@@ -109,7 +115,8 @@ static EvalResult fs_is_file(EastValue **args, size_t num_args, EastType **input
     return eval_ok(east_boolean(S_ISREG(st.st_mode)));
 }
 
-static EvalResult fs_is_directory(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult fs_is_directory(EastValue **args, size_t num_args, EastType **input_types,
+                                  size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     const char *path = args[0]->data.string.data;
@@ -120,7 +127,8 @@ static EvalResult fs_is_directory(EastValue **args, size_t num_args, EastType **
     return eval_ok(east_boolean(S_ISDIR(st.st_mode)));
 }
 
-static EvalResult fs_create_directory(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult fs_create_directory(EastValue **args, size_t num_args, EastType **input_types,
+                                      size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     const char *path = args[0]->data.string.data;
@@ -147,7 +155,8 @@ static EvalResult fs_create_directory(EastValue **args, size_t num_args, EastTyp
     return eval_ok(east_null());
 }
 
-static EvalResult fs_read_directory(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult fs_read_directory(EastValue **args, size_t num_args, EastType **input_types,
+                                    size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     const char *path = args[0]->data.string.data;
@@ -172,7 +181,8 @@ static EvalResult fs_read_directory(EastValue **args, size_t num_args, EastType 
     return eval_ok(arr);
 }
 
-static EvalResult fs_read_file_bytes(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult fs_read_file_bytes(EastValue **args, size_t num_args, EastType **input_types,
+                                     size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     const char *path = args[0]->data.string.data;
@@ -205,7 +215,8 @@ static EvalResult fs_read_file_bytes(EastValue **args, size_t num_args, EastType
     return eval_ok(result);
 }
 
-static EvalResult fs_write_file_bytes(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult fs_write_file_bytes(EastValue **args, size_t num_args, EastType **input_types,
+                                      size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     const char *path = args[0]->data.string.data;

@@ -22,8 +22,6 @@ import {
     variant,
     type EastType,
     type ExprType,
-    type SubtypeExprOrValue,
-    type ValueTypeOf,
 } from '@elaraai/east';
 import { TreePathType, DatasetStatusType, type TreePath } from '@elaraai/e3-types';
 

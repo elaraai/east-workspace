@@ -66,12 +66,21 @@ static char *read_whole_file(const char *path, size_t *out_len)
 {
     FILE *f = fopen(path, "rb");
     if (!f) return NULL;
-    if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return NULL; }
+    if (fseek(f, 0, SEEK_END) != 0) {
+        fclose(f);
+        return NULL;
+    }
     long n = ftell(f);
-    if (n < 0) { fclose(f); return NULL; }
+    if (n < 0) {
+        fclose(f);
+        return NULL;
+    }
     rewind(f);
     char *buf = malloc((size_t)n + 1);
-    if (!buf) { fclose(f); return NULL; }
+    if (!buf) {
+        fclose(f);
+        return NULL;
+    }
     size_t got = fread(buf, 1, (size_t)n, f);
     fclose(f);
     buf[got] = '\0';
@@ -110,9 +119,8 @@ static void rmdir_flat(const char *dir)
 /*  Manifest construction / extraction                                 */
 /* ------------------------------------------------------------------ */
 
-static EastValue *build_manifest(const char *ir_archive_name,
-                                 const char **input_archive_names, size_t num_inputs,
-                                 const char **packages, size_t num_packages,
+static EastValue *build_manifest(const char *ir_archive_name, const char **input_archive_names,
+                                 size_t num_inputs, const char **packages, size_t num_packages,
                                  const char *cli_version_str)
 {
     /* runtime substruct */
@@ -192,10 +200,8 @@ static int tar_write_file_from_path(mtar_t *tar, const char *name, const char *p
     return rc;
 }
 
-int snapshot_write(const char *out_path,
-                   const char *ir_path,
-                   const char **input_paths, size_t num_inputs,
-                   const char **packages, size_t num_packages,
+int snapshot_write(const char *out_path, const char *ir_path, const char **input_paths,
+                   size_t num_inputs, const char **packages, size_t num_packages,
                    const char *cli_version_str)
 {
     /* Derive archive names for IR + inputs, preserving the original extension. */
@@ -243,14 +249,16 @@ int snapshot_write(const char *out_path,
     if (mtar_close(&tar) != MTAR_ESUCCESS) rc = -1;
 
     if (input_archive_names) {
-        for (size_t i = 0; i < num_inputs; i++) free(input_archive_names[i]);
+        for (size_t i = 0; i < num_inputs; i++)
+            free(input_archive_names[i]);
         free(input_archive_names);
     }
     return rc;
 
 fail:
     if (input_archive_names) {
-        for (size_t i = 0; i < num_inputs; i++) free(input_archive_names[i]);
+        for (size_t i = 0; i < num_inputs; i++)
+            free(input_archive_names[i]);
         free(input_archive_names);
     }
     return -1;
@@ -271,7 +279,10 @@ static char *extract_entry_to_dir(mtar_t *tar, const mtar_header_t *h, const cha
     buf[h->size] = '\0';
 
     char *out_path = malloc(strlen(dir) + 1 + strlen(h->name) + 1);
-    if (!out_path) { free(buf); return NULL; }
+    if (!out_path) {
+        free(buf);
+        return NULL;
+    }
     sprintf(out_path, "%s/%s", dir, h->name);
 
     if (write_whole_file(out_path, buf, h->size) != 0) {
@@ -408,11 +419,13 @@ void snapshot_extract_free(SnapshotExtract *ex)
     if (!ex) return;
     free(ex->ir_path);
     if (ex->input_paths) {
-        for (size_t i = 0; i < ex->num_inputs; i++) free(ex->input_paths[i]);
+        for (size_t i = 0; i < ex->num_inputs; i++)
+            free(ex->input_paths[i]);
         free(ex->input_paths);
     }
     if (ex->packages) {
-        for (size_t i = 0; i < ex->num_packages; i++) free(ex->packages[i]);
+        for (size_t i = 0; i < ex->num_packages; i++)
+            free(ex->packages[i]);
         free(ex->packages);
     }
     if (ex->_extract_dir) {

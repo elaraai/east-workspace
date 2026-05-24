@@ -15,20 +15,18 @@
 #include <stddef.h>
 
 typedef struct {
-    char *ir_path;           /* absolute path to extracted IR file */
-    char **input_paths;      /* absolute paths to extracted input files */
+    char *ir_path;      /* absolute path to extracted IR file */
+    char **input_paths; /* absolute paths to extracted input files */
     size_t num_inputs;
-    char **packages;         /* package names from manifest */
+    char **packages; /* package names from manifest */
     size_t num_packages;
-    char *_extract_dir;      /* owned temp dir to clean up */
+    char *_extract_dir; /* owned temp dir to clean up */
 } SnapshotExtract;
 
 /* Write a snapshot to `out_path`. Returns 0 on success, non-zero on failure.
  * Uses CLI version string for the manifest runtime.cli field. */
-int snapshot_write(const char *out_path,
-                   const char *ir_path,
-                   const char **input_paths, size_t num_inputs,
-                   const char **packages, size_t num_packages,
+int snapshot_write(const char *out_path, const char *ir_path, const char **input_paths,
+                   size_t num_inputs, const char **packages, size_t num_packages,
                    const char *cli_version_str);
 
 /* Extract a snapshot into a fresh temp dir. Caller must call

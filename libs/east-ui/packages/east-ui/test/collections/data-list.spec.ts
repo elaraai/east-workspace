@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { East, OptionType, StringType, variant, some } from "@elaraai/east";
+import { East, OptionType, StringType, some } from "@elaraai/east";
 import { DataList, Text, UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./data-list.examples.js";
 

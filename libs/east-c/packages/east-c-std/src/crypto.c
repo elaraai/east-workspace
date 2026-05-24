@@ -216,7 +216,8 @@ static int read_urandom(uint8_t *buf, size_t len)
  * Platform Functions
  * ======================================================================== */
 
-static EvalResult crypto_random_bytes(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult crypto_random_bytes(EastValue **args, size_t num_args, EastType **input_types,
+                                      size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     int64_t length = args[0]->data.integer;
@@ -240,7 +241,8 @@ static EvalResult crypto_random_bytes(EastValue **args, size_t num_args, EastTyp
     return eval_ok(result);
 }
 
-static EvalResult crypto_hash_sha256(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult crypto_hash_sha256(EastValue **args, size_t num_args, EastType **input_types,
+                                     size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     const uint8_t *data = (const uint8_t *)args[0]->data.string.data;
@@ -259,7 +261,9 @@ static EvalResult crypto_hash_sha256(EastValue **args, size_t num_args, EastType
     return eval_ok(east_string(hex));
 }
 
-static EvalResult crypto_hash_sha256_bytes(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult crypto_hash_sha256_bytes(EastValue **args, size_t num_args,
+                                           EastType **input_types, size_t num_input_types,
+                                           EastType *output_type)
 {
     (void)num_args;
     const uint8_t *data = args[0]->data.blob.data;
@@ -271,7 +275,8 @@ static EvalResult crypto_hash_sha256_bytes(EastValue **args, size_t num_args, Ea
     return eval_ok(east_blob(digest, SHA256_DIGEST_SIZE));
 }
 
-static EvalResult crypto_uuid(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult crypto_uuid(EastValue **args, size_t num_args, EastType **input_types,
+                              size_t num_input_types, EastType *output_type)
 {
     (void)args;
     (void)num_args;

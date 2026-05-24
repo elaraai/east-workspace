@@ -47,7 +47,7 @@ export function useReflow(signature: string): {
         const overflow = row.scrollWidth > row.clientWidth + 0.5;
         setMeasuring(false);
         setStacked(overflow);
-    });
+    }, [measuring]);
 
     // While measuring we render in one row (to test the fit), so the caller
     // should lay out inline whenever `measuring || !stacked`.

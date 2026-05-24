@@ -260,7 +260,7 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({
             start: minSlot,
             end: maxSlot,
         };
-    }, [value.rows, style]);
+    }, [value.rows, value.minSlot, value.maxSlot]);
 
     // Generate slot positions
     const slots = useMemo(() => {

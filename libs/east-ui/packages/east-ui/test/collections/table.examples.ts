@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, ArrayType, IntegerType, LiteralValueType, NullType, StringType, StructType, variant, example } from "@elaraai/east";
+import { East, ArrayType, IntegerType, NullType, StringType, StructType, example } from "@elaraai/east";
 import { Badge, Box, Pagination, Reactive, Stack, State, Style, Table, Tag, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const tableBasic = example({

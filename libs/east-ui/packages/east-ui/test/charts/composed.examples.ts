@@ -4,7 +4,7 @@
  */
 
 import { East, IntegerType, NullType, example } from "@elaraai/east";
-import { Box, Button, Chart, Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui";
+import { Box, Button, Chart, Reactive, Stack, State, UIComponentType } from "@elaraai/east-ui";
 
 export const composedBasic = example({
     keywords: ["Chart", "Composed", "bar", "line", "combo"],

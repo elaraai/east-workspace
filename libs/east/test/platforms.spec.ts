@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import util from "node:util";
 import { test as testNode, describe as describeNode } from "node:test";
 import { writeFileSync, mkdirSync } from "node:fs";
-import { join, basename } from "node:path";
+import { join } from "node:path";
 import { ArrayType, AsyncFunctionType, East, Expr, get_location, IntegerType, printLocations, IRType, NullType, StringType, StructType, toJSONFor, type SubtypeExprOrValue } from "../src/index.js";
 import { valueOrExprToAstTyped } from "../src/expr/ast.js";
 import { SourceMap, with_source_map } from "../src/location.js";
@@ -132,7 +132,6 @@ export function describeEast(
     // Back-compat: third arg can be extraPlatform array or options object
     const opts: DescribeEastOptions = Array.isArray(options) ? { extraPlatform: options } : (options ?? {});
 
-    let currentTestName = "";
     const tests: Array<{ name: string, body: ($: BlockBuilder<NullType>) => void }> = [];
 
     // Collect all test names and bodies
@@ -152,7 +151,6 @@ export function describeEast(
     const suiteFunction = East.asyncFunction([], NullType, $ => {
         $(describe.call($, suiteName, East.asyncFunction([], NullType, $ => {
             for (const { name, body } of tests) {
-                currentTestName = name;
                 const testBody = with_source_map(new SourceMap(), () =>
                     East.asyncFunction([], NullType, body)
                 );

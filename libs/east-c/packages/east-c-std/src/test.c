@@ -12,7 +12,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-static EvalResult test_pass(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult test_pass(EastValue **args, size_t num_args, EastType **input_types,
+                            size_t num_input_types, EastType *output_type)
 {
     (void)args;
     (void)num_args;
@@ -20,14 +21,16 @@ static EvalResult test_pass(EastValue **args, size_t num_args, EastType **input_
     return eval_ok(east_null());
 }
 
-static EvalResult test_fail(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult test_fail(EastValue **args, size_t num_args, EastType **input_types,
+                            size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     const char *message = args[0]->data.string.data;
     return eval_error(message);
 }
 
-static EvalResult test_impl(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult test_impl(EastValue **args, size_t num_args, EastType **input_types,
+                            size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     EastValue *name = args[0];
@@ -49,7 +52,8 @@ static EvalResult test_impl(EastValue **args, size_t num_args, EastType **input_
     return eval_ok(east_null());
 }
 
-static EvalResult describe_impl(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult describe_impl(EastValue **args, size_t num_args, EastType **input_types,
+                                size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     EastValue *name = args[0];

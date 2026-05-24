@@ -47,11 +47,9 @@ jobs:
       - name: Install Node.js dependencies
         run: pnpm install
 
-      - name: Build east (for IR export)
-        run: pnpm --filter='@elaraai/east...' run build
-
-      - name: Export test IR from east
-        run: pnpm --filter=@elaraai/east run test:export
+      - name: Build and export east test IR
+        working-directory: libs/east
+        run: make test-export
         env:
           EXPORT_TEST_IR: /tmp/east-test-ir
 
@@ -98,11 +96,13 @@ jobs:
       - name: Install Node.js dependencies
         run: pnpm install
 
-      - name: Build east-node-std (for IR export)
-        run: pnpm --filter='@elaraai/east-node-std...' run build
+      - name: Build east (dependency)
+        working-directory: libs/east
+        run: make build
 
-      - name: Export test IR from east-node-std
-        run: pnpm --filter=@elaraai/east-node-std run test:export
+      - name: Build east-node and export std test IR
+        working-directory: libs/east-node
+        run: make build && make test-export-std
         env:
           EXPORT_TEST_IR: /tmp/east-node-std
 
@@ -141,14 +141,20 @@ jobs:
       - name: Install Node.js dependencies
         run: pnpm install
 
-      - name: Build east-node-io (for IR export)
-        run: pnpm --filter='@elaraai/east-node-io...' run build
+      - name: Build east (dependency)
+        working-directory: libs/east
+        run: make build
+
+      - name: Build east-node
+        working-directory: libs/east-node
+        run: make build
 
       - name: Start test services
         run: docker compose -f docker/services/docker-compose.yml --profile services up -d --wait
 
       - name: Export test IR from east-node-io
-        run: pnpm --filter=@elaraai/east-node-io run test:export
+        working-directory: libs/east-node
+        run: make test-export-io
         timeout-minutes: 5
         env:
           EXPORT_TEST_IR: /tmp/east-node-io
@@ -192,8 +198,17 @@ jobs:
       - name: Install Node.js dependencies
         run: pnpm install
 
+      - name: Build east (dependency)
+        working-directory: libs/east
+        run: make build
+
+      - name: Build east-node (dependency)
+        working-directory: libs/east-node
+        run: make build
+
       - name: Build east-py-datascience
-        run: pnpm --filter='@elaraai/east-py-datascience...' run build
+        working-directory: libs/east-py/packages/east-py-datascience
+        run: make build
 
       - name: Install C build dependencies
         run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev

@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, BooleanType, IntegerType, NullType, variant, example, some, none } from "@elaraai/east";
+import { East, BooleanType, IntegerType, NullType, example, some, none } from "@elaraai/east";
 import { Button, Drawer, Reactive, Stack, State, Status, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const drawerRight = example({

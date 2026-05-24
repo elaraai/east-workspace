@@ -46,7 +46,8 @@
 
 static _Thread_local EastType *s_input_type = NULL;
 static _Thread_local EastType *s_result_type = NULL;
-static EvalResult parallel_map_impl(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type);
+static EvalResult parallel_map_impl(EastValue **args, size_t num_args, EastType **input_types,
+                                    size_t num_input_types, EastType *output_type);
 
 PlatformFn east_std_parallel_map_factory(EastType **tp, size_t num_tp)
 {
@@ -236,7 +237,8 @@ static int read_worker_payload(int read_fd, uint8_t **out_result_bytes, size_t *
 /*  parallel_map implementation                                        */
 /* ================================================================== */
 
-static EvalResult parallel_map_impl(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult parallel_map_impl(EastValue **args, size_t num_args, EastType **input_types,
+                                    size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     EastValue *array = args[0];

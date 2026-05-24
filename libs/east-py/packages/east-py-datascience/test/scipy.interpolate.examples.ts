@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, BooleanType, IntegerType, variant, example } from "@elaraai/east";
+import { East, IntegerType, variant, example } from "@elaraai/east";
 import { Scipy } from "@elaraai/east-py-datascience";
 
 export const scipyInterpolate = example({

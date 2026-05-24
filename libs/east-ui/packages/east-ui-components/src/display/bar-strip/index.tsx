@@ -54,7 +54,7 @@ export const EastChakraBarStrip = memo(function EastChakraBarStrip({ value, stor
         else if (sortTag === "desc") arr.sort((a, b) => Number(b.value) - Number(a.value));
         if (maxItems !== undefined) arr = arr.slice(0, Number(maxItems));
         return arr;
-    }, [value.items, sortTag, maxItems]);
+    }, [value, sortTag, maxItems]);
 
     const peakValue = useMemo(() => {
         let m = 0;

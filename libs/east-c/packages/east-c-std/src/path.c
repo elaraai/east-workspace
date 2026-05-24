@@ -13,7 +13,8 @@
 #include <limits.h>
 #include <unistd.h>
 
-static EvalResult path_join(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult path_join(EastValue **args, size_t num_args, EastType **input_types,
+                            size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     EastValue *segments = args[0];
@@ -56,7 +57,8 @@ static EvalResult path_join(EastValue **args, size_t num_args, EastType **input_
     return eval_ok(result);
 }
 
-static EvalResult path_resolve(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult path_resolve(EastValue **args, size_t num_args, EastType **input_types,
+                               size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     const char *path = args[0]->data.string.data;
@@ -86,7 +88,8 @@ static EvalResult path_resolve(EastValue **args, size_t num_args, EastType **inp
     return eval_ok(east_string(path));
 }
 
-static EvalResult path_dirname(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult path_dirname(EastValue **args, size_t num_args, EastType **input_types,
+                               size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     const char *path = args[0]->data.string.data;
@@ -113,7 +116,8 @@ static EvalResult path_dirname(EastValue **args, size_t num_args, EastType **inp
     return eval_ok(east_string_len(path, dir_len));
 }
 
-static EvalResult path_basename(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult path_basename(EastValue **args, size_t num_args, EastType **input_types,
+                                size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     const char *path = args[0]->data.string.data;
@@ -135,7 +139,8 @@ static EvalResult path_basename(EastValue **args, size_t num_args, EastType **in
     return eval_ok(east_string(last_slash + 1));
 }
 
-static EvalResult path_extname(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult path_extname(EastValue **args, size_t num_args, EastType **input_types,
+                               size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     const char *path = args[0]->data.string.data;

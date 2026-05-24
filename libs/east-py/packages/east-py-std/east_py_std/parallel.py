@@ -90,7 +90,7 @@ def _worker(
 
 
 def _parallel_map_factory(
-    platform: "list[PlatformFunction] | None", T: Any, R: Any
+    platform: list[PlatformFunction] | None, T: Any, R: Any  # noqa: N803
 ) -> Any:
     """Returns the parallel_map implementation specialised for type
     parameters [T, R]. Factory signature is `(platform_list, *type_params)`

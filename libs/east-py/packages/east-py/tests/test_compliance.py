@@ -165,8 +165,8 @@ def main():
     # ProcessPoolExecutor reuses workers, causing ML libraries (PyTorch, sklearn,
     # XGBoost) loaded by early tasks to corrupt state for later ones. A fresh process
     # per file avoids this entirely.
-    import subprocess
     import re
+    import subprocess
 
     platform_flags: list[str] = []
     for mod_name in (platform_modules or []):

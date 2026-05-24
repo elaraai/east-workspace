@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, IntegerType, NullType, example, variant } from "@elaraai/east";
+import { East, IntegerType, NullType, example } from "@elaraai/east";
 import { Button, Flex, Reactive, Stack, State, Style, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const flexBasic = example({

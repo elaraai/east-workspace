@@ -69,8 +69,8 @@ export const EastChakraDateRangeInput = memo(function EastChakraDateRangeInput({
     const precision = (getSomeorUndefined(value.precision)?.type as Precision | undefined) ?? "date";
     const presets = getSomeorUndefined(value.presets);
 
-    const startDate = value.startValue instanceof Date ? value.startValue : new Date(value.startValue);
-    const endDate = value.endValue instanceof Date ? value.endValue : new Date(value.endValue);
+    const startDate = useMemo(() => value.startValue instanceof Date ? value.startValue : new Date(value.startValue), [value.startValue]);
+    const endDate = useMemo(() => value.endValue instanceof Date ? value.endValue : new Date(value.endValue), [value.endValue]);
 
     const [localStart, setLocalStart] = useState<DateTimeBits>(() => dateToBits(startDate));
     const [localEnd, setLocalEnd] = useState<DateTimeBits>(() => dateToBits(endDate));

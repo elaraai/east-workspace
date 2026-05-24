@@ -17,7 +17,7 @@
 
 import { memo, useMemo } from 'react';
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
-import { Box, HStack, Text, VStack } from '@chakra-ui/react';
+import { Box, Text, VStack } from '@chakra-ui/react';
 import type { ComponentType } from 'react';
 import {
     FiTarget, FiBarChart, FiCheckCircle, FiSettings, FiBox,

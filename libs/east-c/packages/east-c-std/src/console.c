@@ -9,7 +9,8 @@
 #include <east/eval_result.h>
 #include <stdio.h>
 
-static EvalResult console_log(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult console_log(EastValue **args, size_t num_args, EastType **input_types,
+                              size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     printf("%s\n", args[0]->data.string.data);
@@ -17,7 +18,8 @@ static EvalResult console_log(EastValue **args, size_t num_args, EastType **inpu
     return eval_ok(east_null());
 }
 
-static EvalResult console_error(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult console_error(EastValue **args, size_t num_args, EastType **input_types,
+                                size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     fprintf(stderr, "%s\n", args[0]->data.string.data);
@@ -25,7 +27,8 @@ static EvalResult console_error(EastValue **args, size_t num_args, EastType **in
     return eval_ok(east_null());
 }
 
-static EvalResult console_write(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult console_write(EastValue **args, size_t num_args, EastType **input_types,
+                                size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     printf("%s", args[0]->data.string.data);

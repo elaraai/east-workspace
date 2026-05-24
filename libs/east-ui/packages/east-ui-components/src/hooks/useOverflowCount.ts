@@ -78,7 +78,7 @@ export function useOverflowCount(count: number): {
         }
         setMeasuring(false);
         setVisibleCount(n);
-    });
+    }, [measuring]);
 
     return { rowRef, visibleCount, measuring };
 }

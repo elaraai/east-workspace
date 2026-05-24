@@ -66,7 +66,8 @@ static size_t east_curl_write_cb(void *ptr, size_t size, size_t nmemb, void *use
  * fetch_get: HTTP GET, return response body as string
  * ======================================================================== */
 
-static EvalResult fetch_get(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult fetch_get(EastValue **args, size_t num_args, EastType **input_types,
+                            size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     const char *url = args[0]->data.string.data;
@@ -101,7 +102,8 @@ static EvalResult fetch_get(EastValue **args, size_t num_args, EastType **input_
  * fetch_get_bytes: HTTP GET, return response body as blob
  * ======================================================================== */
 
-static EvalResult fetch_get_bytes(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult fetch_get_bytes(EastValue **args, size_t num_args, EastType **input_types,
+                                  size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     const char *url = args[0]->data.string.data;
@@ -136,7 +138,8 @@ static EvalResult fetch_get_bytes(EastValue **args, size_t num_args, EastType **
  * fetch_post: HTTP POST, return response body as string
  * ======================================================================== */
 
-static EvalResult fetch_post(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult fetch_post(EastValue **args, size_t num_args, EastType **input_types,
+                             size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     const char *url = args[0]->data.string.data;
@@ -221,7 +224,8 @@ static size_t east_curl_header_cb(char *buffer, size_t size, size_t nitems, void
     return total;
 }
 
-static EvalResult fetch_request(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult fetch_request(EastValue **args, size_t num_args, EastType **input_types,
+                                size_t num_input_types, EastType *output_type)
 {
     (void)num_args;
     EastValue *config = args[0];
@@ -328,28 +332,32 @@ static EvalResult fetch_request(EastValue **args, size_t num_args, EastType **in
  * Stub implementations when cURL is not available
  * ======================================================================== */
 
-static EvalResult fetch_get(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult fetch_get(EastValue **args, size_t num_args, EastType **input_types,
+                            size_t num_input_types, EastType *output_type)
 {
     (void)args;
     (void)num_args;
     return eval_ok(east_string(""));
 }
 
-static EvalResult fetch_get_bytes(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult fetch_get_bytes(EastValue **args, size_t num_args, EastType **input_types,
+                                  size_t num_input_types, EastType *output_type)
 {
     (void)args;
     (void)num_args;
     return eval_ok(east_blob(NULL, 0));
 }
 
-static EvalResult fetch_post(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult fetch_post(EastValue **args, size_t num_args, EastType **input_types,
+                             size_t num_input_types, EastType *output_type)
 {
     (void)args;
     (void)num_args;
     return eval_ok(east_string(""));
 }
 
-static EvalResult fetch_request(EastValue **args, size_t num_args, EastType **input_types, size_t num_input_types, EastType *output_type)
+static EvalResult fetch_request(EastValue **args, size_t num_args, EastType **input_types,
+                                size_t num_input_types, EastType *output_type)
 {
     (void)args;
     (void)num_args;

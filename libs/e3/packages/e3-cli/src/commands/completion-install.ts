@@ -96,7 +96,7 @@ function resolveShell(shell: string | undefined): SupportedShell {
  * Both bash and zsh paths short-circuit if the marker is already present, so
  * re-running this command is a no-op.
  */
-export async function installCommand(options: InstallOptions = {}): Promise<void> {
+export function installCommand(options: InstallOptions = {}): void {
   try {
     const shell = resolveShell(options.shell);
     const target = rcPath(shell);
@@ -132,7 +132,7 @@ export function installToFile(shell: SupportedShell, target: string): string {
 /**
  * Uninstall completion for the chosen (or detected) shell.
  */
-export async function uninstallCommand(options: UninstallOptions = {}): Promise<void> {
+export function uninstallCommand(options: UninstallOptions = {}): void {
   try {
     const shell = resolveShell(options.shell);
     const target = rcPath(shell);

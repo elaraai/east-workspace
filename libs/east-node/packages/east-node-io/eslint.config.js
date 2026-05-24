@@ -54,7 +54,7 @@ export default [
     rules: {
       ...tseslint.configs.recommended.rules,
       '@typescript-eslint/no-explicit-any': 'off',
-      '@typescript-eslint/no-unused-vars': ['warn', { 'argsIgnorePattern': '^_', 'varsIgnorePattern': '^_' }],
+      '@typescript-eslint/no-unused-vars': ['warn', { 'argsIgnorePattern': '^[$_]', 'varsIgnorePattern': '^[$_]' }],
       '@typescript-eslint/explicit-function-return-type': 'off',
       '@typescript-eslint/no-unnecessary-type-constraint': 'off',
       '@typescript-eslint/no-floating-promises': 'error',
@@ -82,7 +82,7 @@ export default [
     rules: {
       ...tseslint.configs.recommended.rules,
       '@typescript-eslint/no-explicit-any': 'off',
-      '@typescript-eslint/no-unused-vars': ['warn', { 'argsIgnorePattern': '^_', 'varsIgnorePattern': '^_' }],
+      '@typescript-eslint/no-unused-vars': ['warn', { 'argsIgnorePattern': '^[$_]', 'varsIgnorePattern': '^[$_]' }],
       '@typescript-eslint/explicit-function-return-type': 'off',
       '@typescript-eslint/no-unnecessary-type-constraint': 'off',
       '@typescript-eslint/no-floating-promises': 'off',  // Allow floating promises in test files
