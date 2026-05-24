@@ -109,10 +109,6 @@ jobs:
         env:
           EXPORT_TEST_IR: /tmp/east-node-std
 
-      - name: Stop test services
-        if: always()
-        run: docker compose -f docker/services/docker-compose.yml --profile services down -v
-
       - name: Install C build dependencies
         run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
 
@@ -123,6 +119,10 @@ jobs:
       - name: Run east-py-std compliance tests
         working-directory: libs/east-py
         run: make test-east-py-std
+
+      - name: Stop test services
+        if: always()
+        run: docker compose -f docker/services/docker-compose.yml --profile services down -v
 
   test-east-py-io:
     name: Test east-py-io
