@@ -12,6 +12,7 @@
     "dependencies": {
         "@chakra-ui/react": "^3.30.0",
         "@elaraai/e3-api-client": "workspace:*",
+        "@elaraai/e3-types": "workspace:*",
         "@elaraai/e3-ui-components": "workspace:*",
         "@elaraai/east": "workspace:*",
         "@elaraai/east-ui": "workspace:*",

@@ -1034,6 +1034,9 @@ importers:
       '@elaraai/e3-api-client':
         specifier: workspace:*
         version: link:../../../../e3/packages/e3-api-client
+      '@elaraai/e3-types':
+        specifier: workspace:*
+        version: link:../../../../e3/packages/e3-types
       '@elaraai/e3-ui-components':
         specifier: workspace:*
         version: link:../../e3-ui-components
