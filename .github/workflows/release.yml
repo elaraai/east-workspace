@@ -191,12 +191,61 @@ jobs:
       - name: Install Python deps
         working-directory: libs/east-py
         run: uv sync --all-extras --all-packages
-      - name: Build
-        run: pnpm build
-      - name: Lint
-        run: pnpm lint
-      - name: Test
-        run: pnpm test
+      - name: Build east
+        working-directory: libs/east
+        run: make build
+      - name: Build east-node
+        working-directory: libs/east-node
+        run: make build
+      - name: Build e3
+        working-directory: libs/e3
+        run: make build
+      - name: Build east-ui
+        working-directory: libs/east-ui
+        run: make build
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+      - name: Lint east
+        working-directory: libs/east
+        run: make lint
+      - name: Lint east-node
+        working-directory: libs/east-node
+        run: make lint
+      - name: Lint east-py
+        working-directory: libs/east-py
+        run: make lint && make typecheck
+      - name: Lint e3
+        working-directory: libs/e3
+        run: make lint
+      - name: Lint east-ui
+        working-directory: libs/east-ui
+        run: make lint
+      - name: Start test services
+        run: docker compose -f docker/services/docker-compose.yml --profile services up -d --wait
+      - name: Test east
+        working-directory: libs/east
+        run: make test
+      - name: Test east-node
+        working-directory: libs/east-node
+        run: make test
+      - name: Link e3 CLI
+        working-directory: libs/e3
+        run: make link
+      - name: Install East runners
+        run: |
+          pnpm --filter=@elaraai/east-node-cli exec east-node --version || true
+          cd libs/east-py && make install-cli
+      - name: Test e3
+        working-directory: libs/e3
+        run: make test
+      - name: Test east-ui
+        working-directory: libs/east-ui
+        run: make test
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+      - name: Stop test services
+        if: always()
+        run: docker compose -f docker/services/docker-compose.yml --profile services down -v
       - name: Publish (skip already-published)
         run: |
           node scripts/publish-npm.mjs \
@@ -233,7 +282,16 @@ jobs:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: |
           pnpm exec vsce publish --no-dependencies --packagePath *.vsix \
-            ${{ needs.prepare.outputs.is_prerelease == 'true' && '--pre-release' || '' }}
+            ${{ needs.prepare.outputs.is_prerelease == 'true' && '--pre-release' || '' }} || {
+            ERR=$?
+            VSIX_VERSION="${{ needs.prepare.outputs.vsix_version }}"
+            if pnpm exec vsce show ElaraAI.east-ui --json 2>/dev/null \
+              | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); process.exit(d.versions?.some(v=>v.version==='${VSIX_VERSION}')?0:1)"; then
+              echo "Version ${VSIX_VERSION} already published, skipping."
+            else
+              exit $ERR
+            fi
+          }
       - name: Upload VSIX artifact
         uses: actions/upload-artifact@v4
         with:
@@ -448,8 +506,8 @@ jobs:
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
           git add -A
-          git commit -m "chore: release v${VERSION}"
-          git tag "v${VERSION}"
+          git diff --staged --quiet || git commit -m "chore: release v${VERSION}"
+          git tag "v${VERSION}" 2>/dev/null || echo "Tag v${VERSION} already exists, skipping."
           git push origin HEAD --tags
 
       - name: Download release assets
@@ -468,8 +526,12 @@ jobs:
           if [[ "${{ needs.prepare.outputs.is_prerelease }}" == "true" ]]; then
             PRE_FLAG="--prerelease"
           fi
-          gh release create "v${VERSION}" \
-            --title "v${VERSION}" \
-            --generate-notes \
-            $PRE_FLAG \
-            release-assets/*
+          if gh release view "v${VERSION}" >/dev/null 2>&1; then
+            echo "Release v${VERSION} already exists, skipping creation."
+          else
+            gh release create "v${VERSION}" \
+              --title "v${VERSION}" \
+              --generate-notes \
+              $PRE_FLAG \
+              release-assets/*
+          fi
