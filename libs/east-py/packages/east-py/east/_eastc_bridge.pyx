@@ -20,8 +20,10 @@ from libc.stdint cimport int64_t, uint8_t, uintptr_t
 from libc.stdlib cimport free, malloc, calloc
 from libc.string cimport memcpy, strdup
 
+cimport numpy as cnp
+
 cdef extern from "numpy/arrayobject.h":
-    void *PyArray_DATA(object arr)
+    void *PyArray_DATA(cnp.ndarray arr) nogil
 
 from east cimport _eastc
 
@@ -601,7 +603,7 @@ cdef object _c_vector_to_py(_eastc.EastValue *val, _eastc.EastType *c_type):
     cdef size_t byte_count = n * dtype.itemsize
     data = np.empty(n, dtype=dtype)
     if byte_count > 0:
-        memcpy(PyArray_DATA(data), val.data.vector.data, byte_count)
+        memcpy(PyArray_DATA(<cnp.ndarray>data), val.data.vector.data, byte_count)
     return EastVector(py_elem_type, data)
 
 
@@ -615,7 +617,7 @@ cdef object _c_matrix_to_py(_eastc.EastValue *val, _eastc.EastType *c_type):
     cdef size_t byte_count = count * dtype.itemsize
     data = np.empty(count, dtype=dtype)
     if byte_count > 0:
-        memcpy(PyArray_DATA(data), val.data.matrix.data, byte_count)
+        memcpy(PyArray_DATA(<cnp.ndarray>data), val.data.matrix.data, byte_count)
     data = data.reshape(rows, cols)
     return EastMatrix(py_elem_type, data, rows, cols)
 
@@ -1075,7 +1077,7 @@ cdef _eastc.EastValue* _py_vector_to_c(object val, _eastc.EastType *c_type) exce
     byte_count = n * data.dtype.itemsize
     if byte_count > 0:
         data = np.ascontiguousarray(data)
-        memcpy(vec.data.vector.data, PyArray_DATA(data), byte_count)
+        memcpy(vec.data.vector.data, PyArray_DATA(<cnp.ndarray>data), byte_count)
 
     return vec
 
@@ -1092,7 +1094,7 @@ cdef _eastc.EastValue* _py_matrix_to_c(object val, _eastc.EastType *c_type) exce
     byte_count = count * data.dtype.itemsize
     if byte_count > 0:
         data = np.ascontiguousarray(data)
-        memcpy(mat.data.matrix.data, PyArray_DATA(data), byte_count)
+        memcpy(mat.data.matrix.data, PyArray_DATA(<cnp.ndarray>data), byte_count)
 
     return mat
 
