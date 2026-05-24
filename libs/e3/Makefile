@@ -14,7 +14,8 @@ build:
 ## Run all tests
 test:
 	@echo "Running tests..."
-	pnpm -r --filter='./packages/*' --filter='./test/*' run test
+	pnpm -r --filter='./packages/*' run test
+	pnpm -r --filter='./test/*' run test
 
 ## Run all linters
 lint:
