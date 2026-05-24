@@ -12,9 +12,9 @@ import { eastRules } from "../src/rule.js";
 
 const projDir = join(process.cwd(), "test-fixtures", "proj");
 const rule = eastRules as unknown as Rule.RuleModule;
+const linter = new Linter({ configType: "flat" });
 
-function lint(fixture: string) {
-  const linter = new Linter({ configType: "flat" });
+function lint(fixture: string, ruleConfig: unknown = "warn") {
   const file = join(projDir, fixture);
   const code = readFileSync(file, "utf-8");
   return linter.verify(
@@ -27,7 +27,7 @@ function lint(fixture: string) {
         parserOptions: { project: join(projDir, "tsconfig.json"), tsconfigRootDir: projDir },
       },
       plugins: { east: { rules: { "east-rules": rule } } },
-      rules: { "east/east-rules": "warn" },
+      rules: { "east/east-rules": ruleConfig as never },
     },
     file,
   );
@@ -48,23 +48,7 @@ test("eslint-plugin-east: silent on good.ts", () => {
 });
 
 test("eslint-plugin-east: `disabled` option suppresses a rule", () => {
-  const linter = new Linter({ configType: "flat" });
-  const file = join(projDir, "bad.ts");
-  const code = readFileSync(file, "utf-8");
-  const messages = linter.verify(
-    code,
-    {
-      files: ["**/*.ts"],
-      languageOptions: {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        parser: tsParser as any,
-        parserOptions: { project: join(projDir, "tsconfig.json"), tsconfigRootDir: projDir },
-      },
-      plugins: { east: { rules: { "east-rules": rule } } },
-      rules: { "east/east-rules": ["warn", { disabled: ["prefer-some-none"] }] },
-    },
-    file,
-  );
+  const messages = lint("bad.ts", ["warn", { disabled: ["prefer-some-none"] }]);
   const text = messages.map((m) => m.message).join("\n");
   assert.doesNotMatch(text, /prefer-some-none/);
   assert.match(text, /no-redundant-east-cast/);
