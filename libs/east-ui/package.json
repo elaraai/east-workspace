@@ -9,8 +9,8 @@
   ],
   "scripts": {
     "build": "pnpm --filter @elaraai/east-ui run build && pnpm --filter @elaraai/e3-ui run build && pnpm --filter @elaraai/east-ui-components run build && pnpm --filter @elaraai/e3-ui-components run build && pnpm --filter east-ui-preview run build && pnpm --filter @elaraai/east-ui-showcase run build && pnpm --filter @elaraai/e3-ui-showcase run build && pnpm --filter east-ui-preview-webview run build",
-    "test": "pnpm -r run test",
-    "lint": "pnpm -r run lint",
+    "test": "pnpm -r --filter='./packages/*' --filter='./packages/east-ui-extension/webview' run test",
+    "lint": "pnpm -r --filter='./packages/*' --filter='./packages/east-ui-extension/webview' run lint",
     "dev": "pnpm --filter @elaraai/east-ui-showcase run dev",
     "version:extension:patch": "pnpm --filter east-ui-preview version patch --no-git-tag-version",
     "version:extension:minor": "pnpm --filter east-ui-preview version minor --no-git-tag-version",
