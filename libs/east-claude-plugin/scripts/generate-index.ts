@@ -50,7 +50,6 @@ interface IndexStats {
 
 interface IndexOutput {
     version: number;
-    generated: string;
     stats: IndexStats;
     entries: IndexEntry[];
 }
@@ -488,7 +487,6 @@ function main(): void {
     // Build output
     const output: IndexOutput = {
         version: 1,
-        generated: new Date().toISOString(),
         stats: {
             totalEntries: entries.length,
             totalFiles: fileCount.size,
