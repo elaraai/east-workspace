@@ -10,7 +10,7 @@
   THE DECISION  Observe -> Decide -> Configure -> Trust
   THE PLATFORM  Access (web app + agent) · The model (economic ontology) · Engine · Runtimes
 -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 961" font-family="'Inter Tight', system-ui, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="1441.5" viewBox="0 0 1000 961" font-family="'Inter Tight', system-ui, sans-serif">
   <defs>
     <style>
       .eyebrow { font-family:'JetBrains Mono', ui-monospace, monospace; font-size:11px; font-weight:600; letter-spacing:0.18em; }
