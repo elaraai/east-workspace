@@ -1,0 +1,65 @@
+{
+  "name": "@elaraai/east-node-std",
+  "version": "1.0.0",
+  "description": "East Node - Node.js platform integration for East language",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./platform": {
+      "types": "./dist/src/platform.d.ts",
+      "default": "./dist/src/platform.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/src",
+    "!dist/**/*.spec.*",
+    "README.md",
+    "LICENSE.md",
+    "CONTRIBUTING.md",
+    "CLA.md"
+  ],
+  "scripts": {
+    "build": "rm -rf dist && tsc",
+    "package": "npm run build && mkdir -p .package && npm pack --pack-destination .package",
+    "test": "npm run build && node --enable-source-maps --test-reporter=spec --test 'dist/test/**/*.spec.js'",
+    "test:check": "tsc -p tsconfig.test.json",
+    "test:coverage": "npm run build && node --enable-source-maps --test-reporter=spec --test --experimental-test-coverage 'dist/test/**/*.spec.js'",
+    "test:export": "npm run build && rm -rf /tmp/east-node-std && EXPORT_TEST_IR=/tmp/east-node-std npm test 2>&1 | grep 'Exported test IR'",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/elaraai/east-workspace.git",
+    "directory": "libs/east-node/packages/east-node-std"
+  },
+  "keywords": [
+    "east",
+    "elara",
+    "node",
+    "platform",
+    "runtime"
+  ],
+  "author": "Elara AI Pty Ltd",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.1",
+    "@typescript-eslint/eslint-plugin": "^8.42.0",
+    "@typescript-eslint/parser": "^8.42.0",
+    "eslint": "^9.34.0",
+    "eslint-plugin-headers": "^1.3.3",
+    "typescript": "~5.9.2"
+  },
+  "peerDependencies": {
+    "@elaraai/east": "workspace:*"
+  }
+}

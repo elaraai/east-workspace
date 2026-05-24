@@ -1,0 +1,108 @@
+{
+  "name": "@elaraai/e3-ui-components",
+  "version": "1.0.0",
+  "description": "React Query hooks and preview components for the e3 API",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "LICENSE.md",
+    "CONTRIBUTING.md",
+    "CLA.md"
+  ],
+  "sideEffects": [
+    "./dist/platform/dataset-runtime.js",
+    "./src/platform/dataset-runtime.ts",
+    "./dist/platform/staged-runtime.js",
+    "./src/platform/staged-runtime.ts",
+    "./dist/diff/index.js",
+    "./src/diff/index.tsx",
+    "./dist/ontology/index.js",
+    "./src/ontology/index.tsx"
+  ],
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test": "node --import tsx --test test/*.spec.ts test/**/*.spec.ts",
+    "snapshot": "tsx scripts/snapshot.ts"
+  },
+  "peerDependencies": {
+    "@chakra-ui/react": "^3.0.0",
+    "@elaraai/e3-api-client": "workspace:*",
+    "@elaraai/e3-types": "workspace:*",
+    "@elaraai/e3-ui": "workspace:*",
+    "@elaraai/east": "workspace:*",
+    "@elaraai/east-ui": "workspace:*",
+    "@elaraai/east-ui-components": "workspace:*",
+    "@tanstack/react-query": "^5.62.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@fortawesome/fontawesome-svg-core": "^7.1.0",
+    "@fortawesome/free-solid-svg-icons": "^7.1.0",
+    "@fortawesome/react-fontawesome": "^3.1.1",
+    "@tanstack/react-virtual": "^3.11.2",
+    "@xyflow/react": "^12.10.1",
+    "cytoscape": "^3.30.0",
+    "cytoscape-cose-bilkent": "^4.1.0",
+    "react-icons": "^5.4.0",
+    "use-local-storage-state": "^19.5.0"
+  },
+  "devDependencies": {
+    "@chakra-ui/react": "^3.0.0",
+    "@elaraai/e3": "workspace:*",
+    "@elaraai/e3-api-client": "workspace:*",
+    "@elaraai/e3-types": "workspace:*",
+    "@elaraai/e3-ui": "workspace:*",
+    "@elaraai/east": "workspace:*",
+    "@elaraai/east-ui": "workspace:*",
+    "@elaraai/east-ui-components": "workspace:*",
+    "@tanstack/react-query": "^5.62.0",
+    "@types/cytoscape": "^3.21.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.42.0",
+    "@typescript-eslint/parser": "^8.42.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "eslint": "^9.34.0",
+    "eslint-plugin-headers": "^1.3.3",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "playwright": "^1.49.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "~5.9.2",
+    "vite": "^6.0.0",
+    "vite-plugin-dts": "^4.3.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/elaraai/east-workspace.git",
+    "directory": "libs/east-ui/packages/e3-ui-components"
+  },
+  "keywords": [
+    "east",
+    "elara",
+    "e3",
+    "react",
+    "hooks"
+  ],
+  "author": "Elara AI Pty Ltd",
+  "license": "AGPL-3.0-or-later",
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

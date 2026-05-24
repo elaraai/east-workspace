@@ -1,0 +1,39 @@
+{
+  "name": "e3-monorepo",
+  "version": "0.0.2-beta.46",
+  "private": true,
+  "description": "East Execution Engine - Monorepo for e3 packages",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "test/fuzz",
+    "test/integration"
+  ],
+  "scripts": {
+    "build": "pnpm --filter @elaraai/e3-types run build && pnpm --filter @elaraai/e3 run build && pnpm --filter @elaraai/e3-core run build && pnpm --filter @elaraai/e3-api-client run build && pnpm --filter @elaraai/e3-cli run build && pnpm --filter @elaraai/e3-api-server run build && pnpm --filter @elaraai/e3-api-tests run build && pnpm --filter e3-integration-tests run build && pnpm --filter e3-fuzz run build",
+    "test": "pnpm -r run test",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "fuzz": "pnpm --filter e3-fuzz run fuzz",
+    "fuzz:quick": "pnpm --filter e3-fuzz run fuzz:quick",
+    "fuzz:stress": "pnpm --filter e3-fuzz run fuzz:stress"
+  },
+  "keywords": [
+    "east",
+    "e3",
+    "execution-engine",
+    "monorepo"
+  ],
+  "license": "BUSL-1.1",
+  "dependencies": {
+    "@elaraai/east": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.47.0",
+    "@typescript-eslint/parser": "^8.47.0",
+    "eslint": "^9.0.0",
+    "eslint-plugin-headers": "^1.3.3",
+    "typescript": "^5.6.0"
+  }
+}

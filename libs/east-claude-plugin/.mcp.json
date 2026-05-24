@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "east": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/.build/mcp/server.js"]
+    }
+  }
+}

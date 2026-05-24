@@ -1,0 +1,238 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ */
+
+import { memo, useMemo, useCallback } from "react";
+import { usePersistedState } from "../../hooks/usePersistedState";
+import {
+    TreeView as ChakraTreeView,
+    createTreeCollection,
+} from "@chakra-ui/react";
+import { equalFor, match, some, none, type OptionType, type VariantType, type ValueTypeOf } from "@elaraai/east";
+import { TreeView, Icon } from "@elaraai/east-ui";
+import { getSomeorUndefined } from "../../utils";
+import { EastChakraIcon } from "../../display/icon";
+
+// Pre-define equality function at module level
+const treeViewRootEqual = equalFor(TreeView.Types.Root);
+
+/** East TreeView Root value type */
+export type TreeViewRootValue = ValueTypeOf<typeof TreeView.Types.Root>;
+
+/** East TreeNode value type */
+export type TreeNodeValue = ValueTypeOf<typeof TreeView.Types.Node>;
+export type TreeVariantNodeValue = ValueTypeOf<VariantType<{
+    Item: typeof TreeView.Types.ItemNode,
+    Branch: typeof TreeView.Types.BranchNode;
+}>>
+
+
+
+/** Icon option value type */
+type IconOptionValue = ValueTypeOf<OptionType<typeof Icon.Types.Icon>>;
+
+/** Tree node interface for Chakra collection */
+interface TreeNode {
+    value: string;
+    label: string;
+    indicator?: IconOptionValue;
+    disabled?: boolean;
+    children: TreeNode[];
+}
+
+/**
+ * Converts East TreeNode values to TreeNode interface recursively.
+ */
+function convertNodes(nodes: TreeVariantNodeValue[]): TreeNode[] {
+    return nodes.map(node => match(node, {
+        Item: (item) => ({
+            value: item.value,
+            label: item.label,
+            indicator: item.indicator,
+            children: [],
+        }),
+        Branch: (branch) => ({
+            value: branch.value,
+            label: branch.label,
+            indicator: branch.indicator,
+            disabled: getSomeorUndefined(branch.disabled) ?? false,
+            children: convertNodes(branch.children),
+        }),
+    }));
+}
+
+interface TreeViewPersistedState {
+    expandedValues: string[];
+    selectedValues: string[];
+}
+
+export interface EastChakraTreeViewProps {
+    value: TreeViewRootValue;
+    /** Storage key for persisting expanded/selected state in localStorage. Omit for ephemeral state. */
+    storageKey: string;
+}
+
+/**
+ * Renders an East UI TreeView value using Chakra UI TreeView components.
+ */
+export const EastChakraTreeView = memo(function EastChakraTreeView({ value, storageKey }: EastChakraTreeViewProps) {
+    const style = getSomeorUndefined(value.style);
+    const label = getSomeorUndefined(value.label);
+    const defaultExpandedValue = getSomeorUndefined(value.defaultExpandedValue);
+    const defaultSelectedValue = getSomeorUndefined(value.defaultSelectedValue);
+    const selectionMode = getSomeorUndefined(value.selectionMode);
+
+    const itemColor = style ? getSomeorUndefined(style.itemColor) : undefined;
+    const itemHoverBackground = style ? getSomeorUndefined(style.itemHoverBackground) : undefined;
+    const selectedBackground = style ? getSomeorUndefined(style.selectedBackground) : undefined;
+    const selectedColor = style ? getSomeorUndefined(style.selectedColor) : undefined;
+    const caretColor = style ? getSomeorUndefined(style.caretColor) : undefined;
+    const connectorColor = style ? getSomeorUndefined(style.connectorColor) : undefined;
+
+    // Persisted state for expanded/selected
+    const { state: persistedState, setState: setPersistedState } = usePersistedState<TreeViewPersistedState>(
+        storageKey,
+        { expandedValues: defaultExpandedValue ?? [], selectedValues: defaultSelectedValue ?? [] },
+    );
+
+    // Extract callbacks — now on main struct per §0.10
+    const onExpandedChangeFn = useMemo(() => getSomeorUndefined(value.onExpandedChange), [value.onExpandedChange]);
+    const onSelectionChangeFn = useMemo(() => getSomeorUndefined(value.onSelectionChange), [value.onSelectionChange]);
+    const onFocusChangeFn = useMemo(() => getSomeorUndefined(value.onFocusChange), [value.onFocusChange]);
+
+    const handleExpandedChange = useCallback((details: { expandedValue: string[] }) => {
+        setPersistedState(prev => ({ ...prev, expandedValues: details.expandedValue }));
+        if (onExpandedChangeFn) {
+            queueMicrotask(() => onExpandedChangeFn(details.expandedValue));
+        }
+    }, [onExpandedChangeFn, setPersistedState]);
+
+    const handleSelectionChange = useCallback((details: { selectedValue: string[] }) => {
+        setPersistedState(prev => ({ ...prev, selectedValues: details.selectedValue }));
+        if (onSelectionChangeFn) {
+            queueMicrotask(() => onSelectionChangeFn(details.selectedValue));
+        }
+    }, [onSelectionChangeFn, setPersistedState]);
+
+    const handleFocusChange = useCallback((details: { focusedValue: string | null }) => {
+        if (onFocusChangeFn) {
+            // Convert to Option type using East helpers
+            const optionValue = details.focusedValue !== null
+                ? some(details.focusedValue)
+                : none;
+            queueMicrotask(() => onFocusChangeFn(optionValue));
+        }
+    }, [onFocusChangeFn]);
+
+    // Convert East nodes to TreeNode interface
+    const nodes = useMemo(() => convertNodes(value.nodes), [value.nodes]);
+
+    // Create tree collection
+    const collection = useMemo(() => createTreeCollection<TreeNode>({
+        nodeToValue: (node) => node.value,
+        nodeToString: (node) => node.label,
+        rootNode: {
+            value: "ROOT",
+            label: "ROOT",
+            children: nodes,
+        },
+    }), [nodes]);
+
+    return (
+        <ChakraTreeView.Root
+            collection={collection}
+            size={style ? getSomeorUndefined(style.size)?.type : undefined}
+            variant={style ? getSomeorUndefined(style.variant)?.type : undefined}
+            selectionMode={selectionMode?.type}
+            expandedValue={persistedState.expandedValues}
+            selectedValue={persistedState.selectedValues}
+            aria-label={label}
+            onExpandedChange={handleExpandedChange}
+            onSelectionChange={handleSelectionChange}
+            onFocusChange={onFocusChangeFn ? handleFocusChange : undefined}
+            color={itemColor}
+            css={{
+                "& [data-part='item']:hover": itemHoverBackground ? { background: itemHoverBackground } : undefined,
+                "& [data-part='item'][data-selected]": (selectedBackground || selectedColor) ? {
+                    ...(selectedBackground ? { background: selectedBackground } : {}),
+                    ...(selectedColor ? { color: selectedColor } : {}),
+                } : undefined,
+                "& [data-part='branch-indicator']": caretColor ? { color: caretColor } : undefined,
+                "& [data-part='branch-content']": connectorColor ? { borderColor: connectorColor } : undefined,
+            }}
+        >
+            <ChakraTreeView.Tree>
+                {collection.rootNode.children.map((node, index) => (
+                    <TreeNodeRenderer key={node.value} node={node} indexPath={[index]} />
+                ))}
+            </ChakraTreeView.Tree>
+        </ChakraTreeView.Root>
+    );
+}, (prev, next) => treeViewRootEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
+
+interface TreeNodeRendererProps {
+    node: TreeNode;
+    indexPath: number[];
+}
+
+/**
+ * Renders the indicator icon if present.
+ */
+function IndicatorIcon({ indicator }: { indicator: IconOptionValue }) {
+    const iconValue = getSomeorUndefined(indicator);
+    if (!iconValue) return null;
+    return <EastChakraIcon value={iconValue} />;
+}
+
+/**
+ * Recursively renders tree nodes as Branch or Item based on children.
+ */
+function TreeNodeRenderer({ node, indexPath }: TreeNodeRendererProps) {
+    const hasChildren = node.children.length > 0;
+
+    if (hasChildren) {
+        return (
+            <ChakraTreeView.NodeProvider node={node} indexPath={indexPath}>
+                <ChakraTreeView.Branch>
+                    <ChakraTreeView.BranchControl>
+                        <ChakraTreeView.BranchIndicator />
+                        {node.indicator && <IndicatorIcon indicator={node.indicator} />}
+                        <ChakraTreeView.BranchText>{node.label}</ChakraTreeView.BranchText>
+                    </ChakraTreeView.BranchControl>
+                    <ChakraTreeView.BranchContent>
+                        {node.children.map((child, childIndex) => (
+                            <TreeNodeRenderer
+                                key={child.value}
+                                node={child}
+                                indexPath={[...indexPath, childIndex]}
+                            />
+                        ))}
+                    </ChakraTreeView.BranchContent>
+                </ChakraTreeView.Branch>
+            </ChakraTreeView.NodeProvider>
+        );
+    }
+
+    return (
+        <ChakraTreeView.NodeProvider node={node} indexPath={indexPath}>
+            <ChakraTreeView.Item>
+                {node.indicator && <IndicatorIcon indicator={node.indicator} />}
+                <ChakraTreeView.ItemText>{node.label}</ChakraTreeView.ItemText>
+            </ChakraTreeView.Item>
+        </ChakraTreeView.NodeProvider>
+    );
+}
+
+/**
+ * Converts an East UI TreeView Root value to props object.
+ * Note: TreeView requires a collection, so this just extracts style props.
+ */
+export function toChakraTreeViewRoot(value: TreeViewRootValue) {
+    const style = getSomeorUndefined(value.style);
+    return {
+        size: style ? getSomeorUndefined(style.size)?.type : undefined,
+        variant: style ? getSomeorUndefined(style.variant)?.type : undefined,
+        selectionMode: getSomeorUndefined(value.selectionMode)?.type,
+    };
+}

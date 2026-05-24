@@ -1,0 +1,855 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>East UI · Decide — Pattern spec</title>
+<link rel="stylesheet" href="./colors_and_type.css">
+<link rel="stylesheet" href="./spec.css">
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<script src="./charts.js" defer></script>
+<style>
+  .nav-back {
+    display: flex; gap: 14px; align-items: baseline;
+    padding: 12px 0 18px;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 28px;
+    font-family: var(--font-mono); font-size: 11px;
+    letter-spacing: 0.12em; text-transform: uppercase;
+  }
+  .nav-back a { color: var(--ink-4); text-decoration: none; }
+  .nav-back a:hover { color: var(--brand-d); }
+  .nav-back .sep { color: var(--rule-strong); }
+  .nav-back .here { color: var(--ink); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <nav class="nav-back" aria-label="Pattern spec categories">
+    <a href="./index.html">← Index</a>
+    <span class="sep">·</span>
+    <a href="./observe.html">Observe</a>
+    <span class="sep">·</span>
+    <a href="./decide.html" class="here">Decide</a>
+    <span class="sep">·</span>
+    <a href="./configure.html">Configure</a>
+    <span class="sep">·</span>
+    <a href="./frame-trust.html">Trust</a>
+  </nav>
+
+  <main>
+
+  <section id="mode-decide" class="mode">
+    <div class="mode-head">
+      <span class="mode-id">§ 2.3</span>
+      <h2>Decide</h2>
+      <span class="anchor-tag">Anchor · <span class="pat">Decision<span class="ns">.</span>Queue</span> · <span class="pat">Scenario<span class="ns">.</span>Briefing</span></span>
+    </div>
+    <p class="mode-lede">The argument the system is making, in one slot. Stakes-tagged. Judgement-prompted. Reference-anchored. Captured to audit on commit.</p>
+
+    <!-- DECIDE.QUEUE -->
+    <article id="decision-queue" class="pattern">
+      <div class="pattern-head">
+        <span class="pattern-name">Decision<span class="ns">.</span>Queue</span>
+        <span class="pattern-anchor">Anchor</span>
+      </div>
+      <p class="pattern-blurb">
+        The queue of decisions waiting on the user — the entry surface for Decide. Sorted by urgency; routine items collapse with a single bulk-accept affordance. Each row opens its <span class="mono">Scenario<span class="ns">.</span>Briefing</span> Briefing.
+      </p>
+
+      <div class="frame">
+        <div class="eyebrow-row">
+          <span class="lbl">Decisions waiting</span>
+          <span class="meta">
+            <span class="num" style="color: var(--ink); font-weight: 600;">7</span> decisions
+            <span class="sep">·</span>
+            <span class="num" style="color: var(--neg); font-weight: 600;">3</span> past SLA
+            <span style="margin-left: 14px;"><button class="btn compact">Filter ▾</button></span>
+          </span>
+        </div>
+
+        <!-- row 1 -->
+        <div style="display: grid; grid-template-columns: 130px 1fr 90px auto; gap: 16px; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--rule);">
+          <div class="status"><span class="dot error"></span>overdue 2h</div>
+          <div style="font-size: 13.5px;"><strong>Reorder</strong> <span class="muted">·</span> <span class="mono">SKU-001</span> <span class="muted">·</span> 2k units</div>
+          <div class="num text-r" style="font-weight: 600;">$42k</div>
+          <div class="row gap-2">
+            <button class="btn primary compact">Apply</button>
+            <button class="btn compact">Modify</button>
+            <button class="btn ghost compact">Override</button>
+          </div>
+        </div>
+
+        <!-- row 2 -->
+        <div style="display: grid; grid-template-columns: 130px 1fr 90px auto; gap: 16px; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--rule);">
+          <div class="status"><span class="dot warn"></span>due 4pm</div>
+          <div style="font-size: 13.5px;"><strong>Promo</strong> <span class="muted">·</span> Easter clearance early-end</div>
+          <div class="num text-r" style="font-weight: 600;">$128k</div>
+          <div class="row gap-2">
+            <button class="btn primary compact">Apply</button>
+            <button class="btn compact">Modify</button>
+            <button class="btn ghost compact">Override</button>
+          </div>
+        </div>
+
+        <!-- routine collapse -->
+        <div style="padding: 8px 18px;">
+          <div style="display: grid; grid-template-columns: 130px 1fr 90px; gap: 16px; align-items: center; padding: 6px 0; font-size: 13px; color: var(--ink-3);">
+            <div class="status"><span class="dot ring"></span>routine</div>
+            <div><span class="mono">SKU-014</span> <span class="muted">· Reorder</span></div>
+            <div class="num text-r muted">$1.2k</div>
+          </div>
+          <div style="display: grid; grid-template-columns: 130px 1fr 90px; gap: 16px; align-items: center; padding: 6px 0; font-size: 13px; color: var(--ink-3);">
+            <div class="status"><span class="dot ring"></span>routine</div>
+            <div><span class="mono">SKU-018</span> <span class="muted">· Reorder</span></div>
+            <div class="num text-r muted">$0.8k</div>
+          </div>
+          <div style="display: grid; grid-template-columns: 130px 1fr 90px; gap: 16px; align-items: center; padding: 6px 0 12px; font-size: 13px; color: var(--ink-3);">
+            <div class="status"><span class="dot ring"></span>routine</div>
+            <div><span class="mono">SKU-022</span> <span class="muted">· Reorder</span></div>
+            <div class="num text-r muted">$0.4k</div>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: var(--paper-2); border: 1px dashed var(--rule-strong); border-radius: 6px; margin: 4px 0 10px 146px;">
+            <span class="cap-eyebrow">3 routine</span>
+            <span class="muted">·</span>
+            <span class="num">$2.4k</span> <span class="muted">total</span>
+            <span style="margin-left: auto;"><button class="btn primary compact">Accept all</button></span>
+          </div>
+        </div>
+      </div>
+
+    </article>
+
+    <article id="whatiflist" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Decision<span class="ns">.</span>Alternatives</span></div>
+      <p class="pattern-blurb">
+        Sibling to <span class="mono">Decision<span class="ns">.</span>Queue</span> — speculative variants already simulated alongside the recommendation. Each row shows the assumption being perturbed (from → to) and the predicted outcome delta. <span class="mono">Apply</span> commits to that variant; <span class="mono">Open</span> spawns it into a fresh <span class="mono">CaseTab</span> for further work.
+      </p>
+
+      <div class="frame">
+        <div class="eyebrow-row">
+          <span class="lbl">Variants to explore</span>
+          <span class="meta">
+            <span class="num" style="color: var(--ink); font-weight: 600;">3</span> suggested
+            <span class="sep">·</span>
+            <a class="btn-link" href="#">+ new from selection</a>
+            <span style="margin-left: 14px;"><button class="btn compact">Filter ▾</button></span>
+          </span>
+        </div>
+
+        <!-- row 1 -->
+        <div style="display: grid; grid-template-columns: 130px 1fr 200px auto; gap: 16px; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--rule);">
+          <div class="status"><span class="dot ring"></span>perturb</div>
+          <div style="font-size: 13.5px;">If <strong>SE forecast</strong> were <span class="mono" style="color: var(--ink-3); text-decoration: line-through;">+14%</span> <span class="muted">→</span> <span class="mono" style="color: var(--brand-dd); font-weight: 600;">+10%</span></div>
+          <div class="num text-r" style="font-weight: 600;">+$58k <span class="num pos" style="font-weight: 500;">−28%</span></div>
+          <div class="row gap-2">
+            <button class="btn primary compact">Apply</button>
+            <button class="btn compact">Open</button>
+            <button class="btn ghost compact">Dismiss</button>
+          </div>
+        </div>
+
+        <!-- row 2 -->
+        <div style="display: grid; grid-template-columns: 130px 1fr 200px auto; gap: 16px; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--rule);">
+          <div class="status"><span class="dot ring"></span>perturb</div>
+          <div style="font-size: 13.5px;">If <strong>Cho's hard cap</strong> were <span class="mono" style="color: var(--ink-3); text-decoration: line-through;">40h</span> <span class="muted">→</span> <span class="mono" style="color: var(--brand-dd); font-weight: 600;">36h</span></div>
+          <div class="num text-r" style="font-weight: 600;">+$62k <span class="muted" style="font-weight: 500;">4 shifts</span></div>
+          <div class="row gap-2">
+            <button class="btn primary compact">Apply</button>
+            <button class="btn compact">Open</button>
+            <button class="btn ghost compact">Dismiss</button>
+          </div>
+        </div>
+
+        <!-- row 3 -->
+        <div style="display: grid; grid-template-columns: 130px 1fr 200px auto; gap: 16px; align-items: center; padding: 14px 18px;">
+          <div class="status"><span class="dot ring"></span>defer</div>
+          <div style="font-size: 13.5px;">If we <strong>acted</strong> <span class="mono" style="color: var(--ink-3); text-decoration: line-through;">today</span> <span class="muted">→</span> <span class="mono" style="color: var(--brand-dd); font-weight: 600;">+7d</span></div>
+          <div class="num text-r" style="font-weight: 600;">+$32k <span class="num neg" style="font-weight: 500;">miss window</span></div>
+          <div class="row gap-2">
+            <button class="btn primary compact">Apply</button>
+            <button class="btn compact">Open</button>
+            <button class="btn ghost compact">Dismiss</button>
+          </div>
+        </div>
+
+        <div class="diff-meta-row" style="border-top: 1px solid var(--rule);"><span><span class="mono">Apply</span> commits the variant · <span class="mono">Open</span> spawns a case tab to keep exploring</span><span class="muted" style="margin-left: auto;">⌥⏎ apply selected · ⌥O open in new tab</span></div>
+      </div>
+
+    </article>
+
+    <article id="briefing" class="pattern">
+      <div class="pattern-head">
+        <span class="pattern-name">Scenario<span class="ns">.</span>Briefing</span>
+        <span class="pattern-anchor">Anchor</span>
+      </div>
+      <p class="pattern-blurb">
+        Reworked anchor. Hero number leads. Evidence becomes typed chips, not bullets. Confidence is decomposed. Judgement gates the commit. References move to a side rail. The commit cluster docks to the bottom edge so the primary action is always reachable.
+      </p>
+
+      <div class="frame">
+        <div class="bf2">
+          <!-- ===== eyebrow / meta ===== -->
+          <div class="eyebrow-row">
+            <span class="lbl">Recommendation</span>
+            <span class="meta">
+              <span class="cap-eyebrow">procurement run · 09-14 · model v3.4</span>
+              <span class="sep">·</span>
+              <span class="cap-eyebrow">caseN <span class="mono">CASE-2241</span></span>
+              <span style="margin-left: 14px;"><a class="btn-link" href="#auditbutton">audit →</a></span>
+            </span>
+          </div>
+
+          <!-- ===== HERO band ===== -->
+          <div class="bf2-hero">
+            <div class="bf2-hero-main">
+              <h3 class="bf2-title">Move 3 SE shifts from Patel → Cho</h3>
+              <div class="bf2-stakes">
+                <span class="stakes-tag mid">REVERSIBLE</span>
+                <span class="bf2-chip">radius <span class="num">3 people</span></span>
+                <span class="bf2-chip">deadline <span class="num">Fri 16:00</span></span>
+                <span class="bf2-chip">window <span class="num">8 wks</span></span>
+              </div>
+            </div>
+            <div class="bf2-hero-nums">
+              <div class="bf2-num-primary">
+                <div class="cap-eyebrow muted">Predicted uplift</div>
+                <div class="bf2-big pos">+$80k</div>
+              </div>
+              <div class="bf2-num-secondary">
+                <div class="cap-eyebrow muted">If wrong</div>
+                <div class="bf2-mid">−$8k <span class="cap-eyebrow muted" style="font-weight: 500; letter-spacing: 0;">12% chance</span></div>
+                <div class="cap-eyebrow muted" style="margin-top: 2px;">OT recovers in 1 wk</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ===== two-column body ===== -->
+          <div class="bf2-body">
+            <div class="bf2-main">
+
+              <!-- Because: typed evidence chips -->
+              <section class="briefing-slot">
+                <div class="cap-eyebrow slot-label">Why this is recommended</div>
+                <div class="bf2-evidence">
+                  <div class="bf2-evi">
+                    <span class="bf2-evi-tag">forecast</span>
+                    <span class="bf2-evi-fact">SE region <span class="num pos">+14%</span></span>
+                    <span class="bf2-evi-sub">next 2 wks · holiday-demand driver</span>
+                  </div>
+                  <a class="bf2-evi" href="#supplydemand">
+                    <span class="bf2-evi-tag">capacity</span>
+                    <span class="bf2-evi-fact">Cho <span class="num">+12h</span> slack</span>
+                    <span class="bf2-evi-sub">Patel at 38h of 40 · headroom available</span>
+                  </a>
+                  <a class="bf2-evi" href="#reference-similar">
+                    <span class="bf2-evi-tag">track</span>
+                    <span class="bf2-evi-fact"><span class="num">5 / 5</span> similar moves</span>
+                    <span class="bf2-evi-sub">reduced OT without SLA breach</span>
+                  </a>
+                </div>
+              </section>
+
+              <hr class="rule-hairline"/>
+
+              <!-- Confidence breakdown -->
+              <section class="briefing-slot">
+                <div class="row gap-3" style="margin-bottom: 8px; align-items: baseline;">
+                  <span class="cap-eyebrow slot-label">Model confidence</span>
+                  <span class="num" style="font-weight: 600; color: var(--ink);">82%</span>
+                  <span class="cap-eyebrow muted">±$6k</span>
+                  <span class="cap-eyebrow muted" style="margin-left: auto;"><a class="btn-link" href="#uncertainty-badge">what drives this →</a></span>
+                </div>
+                <div class="bf2-conf">
+                  <span class="bf2-conf-seg" style="flex: 0.95; background: var(--brand-d);" title="data quality"></span>
+                  <span class="bf2-conf-seg" style="flex: 0.78; background: var(--brand);" title="similar-case fit"></span>
+                  <span class="bf2-conf-seg" style="flex: 0.72; background: var(--brand-l);" title="model recency"></span>
+                </div>
+                <div class="bf2-conf-key">
+                  <span><span class="bf2-conf-dot" style="background: var(--brand-d);"></span>data quality <span class="num muted">95%</span></span>
+                  <span><span class="bf2-conf-dot" style="background: var(--brand);"></span>similar-case fit <span class="num muted">78%</span></span>
+                  <span><span class="bf2-conf-dot" style="background: var(--brand-l);"></span>model recency <span class="num muted">72%</span></span>
+                </div>
+              </section>
+
+              <hr class="rule-hairline"/>
+
+              <!-- Inline runner-up -->
+              <section class="briefing-slot">
+                <div class="bf2-runnerup">
+                  <span class="cap-eyebrow slot-label">Runner-up</span>
+                  <span style="font-size: 13.5px;"><strong>Hire 1 contractor</strong></span>
+                  <span class="num">+$48k</span>
+                  <span class="muted" style="font-size: 12px;">slower · 2 wk LT · cost lock-in</span>
+                  <span style="margin-left: auto;" class="row gap-2">
+                    <a class="btn-link" href="#diffview">compare →</a>
+                    <a class="btn-link" href="#alternativeslist">all 3 →</a>
+                  </span>
+                </div>
+              </section>
+
+              <hr class="rule-hairline"/>
+
+              <!-- Judgement — gates commit -->
+              <section class="briefing-slot bf2-judg">
+                <div class="row gap-3" style="margin-bottom: 8px; align-items: baseline;">
+                  <span class="cap-eyebrow slot-label" style="color: var(--warn-dd, var(--warn));">Required before commit</span>
+                  <span class="cap-eyebrow muted" style="margin-left: auto;">human-only signal · model can't see this</span>
+                </div>
+                <div class="bf2-judg-prompt">
+                  <span class="bf2-judg-q">Has Cho been told this is on the table?</span>
+                  <span class="row gap-2" style="margin-left: auto;">
+                    <button class="btn compact bf2-judg-btn">Yes</button>
+                    <button class="btn compact bf2-judg-btn">No</button>
+                    <button class="btn compact bf2-judg-btn">Don't know</button>
+                  </span>
+                </div>
+                <div class="bf2-judg-branch">
+                  <span class="cap-eyebrow muted">If <span class="mono">No</span>: commit becomes <span class="mono">Notify Cho first</span>; recommendation stands.</span>
+                </div>
+              </section>
+
+              <!-- Don't know — small, demoted -->
+              <section class="briefing-slot" style="padding-top: 8px;">
+                <div class="bf2-unknowns">
+                  <span class="cap-eyebrow muted slot-label">Model can't see</span>
+                  <span class="muted" style="font-size: 12px;">· Patel personal-leave flag (weekend pref, Mar)</span>
+                </div>
+              </section>
+            </div>
+
+            <!-- ===== references rail ===== -->
+            <aside class="bf2-rail">
+              <div class="cap-eyebrow slot-label" style="margin-bottom: 10px;">Similar past decisions</div>
+              <a class="bf2-ref" href="#reference-similar">
+                <span class="bf2-ref-meta">Mar 2024 · NE</span>
+                <span class="num" style="font-weight: 600;">−$6k OT, 0 SLA</span>
+                <span class="bf2-ref-sim"><span class="bf2-ref-bar"><span class="bf2-ref-bar-fill" style="width: 95%;"></span></span><span class="cap-eyebrow muted">95% sim</span></span>
+              </a>
+              <a class="bf2-ref" href="#reference-similar">
+                <span class="bf2-ref-meta">Jan 2024 · SE</span>
+                <span class="num" style="font-weight: 600;">−$11k OT, 0 SLA</span>
+                <span class="bf2-ref-sim"><span class="bf2-ref-bar"><span class="bf2-ref-bar-fill" style="width: 88%;"></span></span><span class="cap-eyebrow muted">88% sim</span></span>
+              </a>
+              <a class="bf2-ref" href="#reference-similar">
+                <span class="bf2-ref-meta">Nov 2023 · MW</span>
+                <span class="num" style="font-weight: 600;">−$4k OT, 1 SLA</span>
+                <span class="bf2-ref-sim"><span class="bf2-ref-bar"><span class="bf2-ref-bar-fill" style="width: 82%;"></span></span><span class="cap-eyebrow muted">82% sim</span></span>
+              </a>
+              <a class="btn-link" href="#reference-peers" style="margin-top: 6px;">all peers →</a>
+            </aside>
+          </div>
+
+          <!-- ===== sticky commit bar ===== -->
+          <footer class="bf2-foot">
+            <div class="bf2-foot-status">
+              <span class="dot warn"></span>
+              <span class="cap-eyebrow">Answer the judgement question to enable apply</span>
+            </div>
+            <div class="row gap-2" style="margin-left: auto;">
+              <a class="btn-link" href="#">Why this?</a>
+              <button class="btn">Override</button>
+              <button class="btn">Modify</button>
+              <button class="btn primary" disabled style="opacity: 0.45; cursor: not-allowed;">Apply</button>
+            </div>
+          </footer>
+        </div>
+      </div>
+
+    </article>
+
+    <article id="whatchanged" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Scenario<span class="ns">.</span>Diff</span></div>
+      <p class="pattern-blurb">Same case, model re-run. The lede is the <em>delta</em> — old recommendation vs new, side by side, plus the inputs that drove the flip.</p>
+
+      <div class="frame">
+        <div class="eyebrow-row">
+          <span class="lbl">Δ vs last run</span>
+          <span class="meta">
+            <span class="cap-eyebrow">09-14 vs 09-13 · model v3.4</span>
+            <span class="sep">·</span>
+            <span class="num" style="color: var(--ink); font-weight: 600;">3</span> inputs changed
+          </span>
+        </div>
+
+        <!-- BEFORE · NOW hero -->
+        <div style="display: grid; grid-template-columns: 1fr 56px 1fr; align-items: stretch; padding: 0; border-bottom: 1px solid var(--rule);">
+          <div style="padding: 18px 20px; background: var(--paper-2);">
+            <div class="cap-eyebrow muted" style="margin-bottom: 8px;">Before · 09-13</div>
+            <div style="font-size: 17px; font-weight: 600; color: var(--ink-3); text-decoration: line-through; text-decoration-color: var(--ink-4); margin-bottom: 6px;">Move 5 shifts Patel → Cho</div>
+            <div class="row gap-3" style="font-size: 12px;">
+              <span class="cap-eyebrow muted">uplift <span class="num" style="color: var(--ink-3);">+$140k</span></span>
+              <span class="cap-eyebrow muted">conf <span class="num" style="color: var(--ink-3);">79%</span></span>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 22px; color: var(--ink-4); background: var(--paper-2); border-left: 1px solid var(--rule); border-right: 1px solid var(--rule);">→</div>
+          <div style="padding: 18px 20px; background: var(--brand-tint);">
+            <div class="cap-eyebrow" style="color: var(--brand-dd); margin-bottom: 8px;">Now · 09-14 · recommended</div>
+            <div style="font-size: 17px; font-weight: 600; color: var(--ink); margin-bottom: 6px;">Move <span style="color: var(--brand-dd);">3</span> shifts Patel → Cho</div>
+            <div class="row gap-3" style="font-size: 12px;">
+              <span class="cap-eyebrow">uplift <span class="num pos">+$80k</span></span>
+              <span class="cap-eyebrow">conf <span class="num">82% <span class="num pos" style="font-weight: 500;">↑3pp</span></span></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- What drove the change -->
+        <div class="diff-meta-row" style="border-bottom: 1px solid var(--rule); padding: 10px 18px;">
+          <span class="cap-eyebrow">What drove the change</span>
+        </div>
+
+        <!-- driver rows, same pivot pattern as Decision.Alternatives -->
+        <div style="display: grid; grid-template-columns: 130px 1fr 200px; gap: 16px; align-items: center; padding: 12px 18px; border-bottom: 1px solid var(--rule);">
+          <div class="status"><span class="dot warn"></span>forecast</div>
+          <div style="font-size: 13.5px;"><strong>SE region</strong> <span class="mono" style="color: var(--ink-3); text-decoration: line-through;">+14%</span> <span class="muted">→</span> <span class="mono" style="color: var(--brand-dd); font-weight: 600;">+12%</span> <span class="muted" style="font-size: 12px;">weekend-pref flag updated</span></div>
+          <div class="num text-r" style="font-weight: 600;">−$60k uplift</div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 130px 1fr 200px; gap: 16px; align-items: center; padding: 12px 18px; border-bottom: 1px solid var(--rule);">
+          <div class="status"><span class="dot warn"></span>availability</div>
+          <div style="font-size: 13.5px;"><strong>Patel cap</strong> <span class="mono" style="color: var(--ink-3); text-decoration: line-through;">40h</span> <span class="muted">→</span> <span class="mono" style="color: var(--brand-dd); font-weight: 600;">36h</span> <span class="muted" style="font-size: 12px;">user-set</span></div>
+          <div class="num text-r" style="font-weight: 600;">2 shifts unfeasible</div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 130px 1fr 200px; gap: 16px; align-items: center; padding: 12px 18px; border-bottom: 1px solid var(--rule);">
+          <div class="status"><span class="dot ring"></span>model</div>
+          <div style="font-size: 13.5px;"><strong>weight tuning</strong> <span class="muted">recency boost</span> <span class="mono" style="color: var(--ink-3); text-decoration: line-through;">0.6</span> <span class="muted">→</span> <span class="mono" style="color: var(--brand-dd); font-weight: 600;">0.7</span></div>
+          <div class="num text-r" style="font-weight: 600;">+3pp conf</div>
+        </div>
+
+        <!-- Stayed the same -->
+        <div class="diff-meta-row" style="padding: 10px 18px; color: var(--ink-3);">
+          <span class="cap-eyebrow muted">Unchanged</span>
+          <span style="margin-left: 12px;">Cho remains best swap candidate · SLA risk profile · all guardrails</span>
+        </div>
+
+        <!-- footer -->
+        <div class="diff-meta-row" style="border-top: 1px solid var(--rule); padding: 12px 18px;">
+          <span><a class="btn-link" href="#diffview">Open in Diff<span class="ns">.</span>View →</a></span>
+          <span class="row gap-2" style="margin-left: auto;">
+            <button class="btn compact">Keep old</button>
+            <button class="btn primary compact">Adopt new</button>
+          </span>
+        </div>
+      </div>
+
+    </article>
+
+    <article id="alternativeslist" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Scenario<span class="ns">.</span>Ranked</span></div>
+      <p class="pattern-blurb">Ranked stack of options the model evaluated. Two zones per row — left shows downside if wrong, right shows upside; rows share a zero anchor so magnitudes are directly comparable. Recommended row gets a brand-tinted background and rule on the left edge.</p>
+
+      <div class="cap-eyebrow muted" style="margin: 14px 0 6px;">Horizontal · default for wide canvases</div>
+      <div class="frame">
+        <div class="eyebrow-row"><span class="lbl">Alternatives</span><span class="meta">3 evaluated · sorted by uplift · range <span class="mono">−$140k → +$80k</span></span></div>
+
+        <div class="alt2-head">
+          <div class="alt2-head-side l">If wrong</div>
+          <div class="alt2-head-mid"></div>
+          <div class="alt2-head-side r">Uplift</div>
+        </div>
+
+        <div class="alt2-row rec">
+          <div class="alt2-rank">1</div>
+          <div class="alt2-info">
+            <div class="alt2-name">Move 3 shifts Patel → Cho</div>
+            <div class="alt2-meta"><span class="alt-rec-pill">RECOMMENDED</span><span class="num">82%</span> conf · low · reversible</div>
+          </div>
+          <div class="alt2-bars">
+            <div class="alt2-side l"><span class="alt2-bar neg" style="width: 5.7%;"></span><span class="alt2-val l">−$8k</span></div>
+            <div class="alt2-zero"></div>
+            <div class="alt2-side r"><span class="alt2-bar pos" style="width: 100%;"></span><span class="alt2-val r">+$80k</span></div>
+          </div>
+        </div>
+
+        <div class="alt2-row">
+          <div class="alt2-rank">2</div>
+          <div class="alt2-info">
+            <div class="alt2-name">Hire 1 contractor</div>
+            <div class="alt2-meta"><span class="num">71%</span> conf · 2 wk lead time · cost lock-in</div>
+          </div>
+          <div class="alt2-bars">
+            <div class="alt2-side l"><span class="alt2-bar neg" style="width: 10.7%;"></span><span class="alt2-val l">−$15k</span></div>
+            <div class="alt2-zero"></div>
+            <div class="alt2-side r"><span class="alt2-bar pos" style="width: 60%;"></span><span class="alt2-val r">+$48k</span></div>
+          </div>
+        </div>
+
+        <div class="alt2-row">
+          <div class="alt2-rank">3</div>
+          <div class="alt2-info">
+            <div class="alt2-name">Do nothing</div>
+            <div class="alt2-meta neg">SLA breach wk 2</div>
+          </div>
+          <div class="alt2-bars">
+            <div class="alt2-side l"><span class="alt2-bar neg" style="width: 100%;"></span><span class="alt2-val l">−$140k</span></div>
+            <div class="alt2-zero"></div>
+            <div class="alt2-side r"></div>
+          </div>
+        </div>
+
+        <div class="diff-meta-row"><span>Each side scaled to its column max independently · zero anchor shared</span><span class="muted" style="margin-left: auto;"><a class="btn-link" href="#">deep dive →</a></span></div>
+      </div>
+
+      <div class="cap-eyebrow muted" style="margin: 18px 0 6px;">Vertical · sidebar / narrow rail</div>
+      <div class="frame" style="max-width: 360px;">
+        <div class="eyebrow-row"><span class="lbl">Alternatives</span><span class="meta">3 evaluated</span></div>
+        <div class="altv-stack">
+          <div class="altv-card rec">
+            <div class="altv-head"><span class="altv-rank">1</span><span class="alt-rec-pill">RECOMMENDED</span></div>
+            <div class="altv-name">Move 3 shifts Patel → Cho</div>
+            <div class="altv-bars">
+              <div class="altv-bar"><span class="altv-bar-lbl">Uplift</span><div class="altv-track"><span class="altv-fill pos" style="width: 100%;"></span></div><span class="num pos">+$80k</span></div>
+              <div class="altv-bar"><span class="altv-bar-lbl">If wrong</span><div class="altv-track"><span class="altv-fill neg" style="width: 5.7%;"></span></div><span class="num">−$8k</span></div>
+              <div class="altv-bar"><span class="altv-bar-lbl">Confidence</span><div class="altv-track"><span class="altv-fill brand" style="width: 82%;"></span></div><span class="num">82%</span></div>
+            </div>
+          </div>
+          <div class="altv-card">
+            <div class="altv-head"><span class="altv-rank">2</span></div>
+            <div class="altv-name">Hire 1 contractor</div>
+            <div class="altv-bars">
+              <div class="altv-bar"><span class="altv-bar-lbl">Uplift</span><div class="altv-track"><span class="altv-fill pos" style="width: 60%;"></span></div><span class="num pos">+$48k</span></div>
+              <div class="altv-bar"><span class="altv-bar-lbl">If wrong</span><div class="altv-track"><span class="altv-fill neg" style="width: 10.7%;"></span></div><span class="num">−$15k</span></div>
+              <div class="altv-bar"><span class="altv-bar-lbl">Confidence</span><div class="altv-track"><span class="altv-fill brand" style="width: 71%;"></span></div><span class="num">71%</span></div>
+            </div>
+          </div>
+          <div class="altv-card">
+            <div class="altv-head"><span class="altv-rank">3</span></div>
+            <div class="altv-name">Do nothing</div>
+            <div class="altv-bars">
+              <div class="altv-bar"><span class="altv-bar-lbl">Uplift</span><div class="altv-track"></div><span class="num muted">$0</span></div>
+              <div class="altv-bar"><span class="altv-bar-lbl">If wrong</span><div class="altv-track"><span class="altv-fill neg" style="width: 100%;"></span></div><span class="num neg">−$140k</span></div>
+              <div class="altv-bar"><span class="altv-bar-lbl">Confidence</span><div class="altv-track"></div><span class="num muted">—</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </article>
+
+    <article id="rec-vs-runnerup" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Scenario<span class="ns">.</span>Versus</span></div>
+      <p class="pattern-blurb">Side-by-side mini-Roots. Highlights the deciding margin and what would flip the choice.</p>
+      <div class="frame">
+        <div class="rvr-grid">
+          <div class="rvr-cell rec">
+            <div class="cap-eyebrow" style="color: var(--brand-dd); margin-bottom: 6px;">Recommended <span style="margin-left: 6px;">▎</span></div>
+            <div class="num" style="font-family: var(--font-brand); font-size: 22px; font-weight: 600; color: var(--ink);">Move 3 shifts</div>
+            <div class="num pos" style="margin-top: 4px;">+$80k</div>
+            <div class="cap-eyebrow muted" style="margin-top: 8px;">82% conf · reversible · 0 SLA risk</div>
+          </div>
+          <div class="rvr-cell">
+            <div class="cap-eyebrow" style="margin-bottom: 6px;">Runner-up</div>
+            <div class="num" style="font-family: var(--font-brand); font-size: 22px; font-weight: 600; color: var(--ink);">Hire contractor</div>
+            <div class="num" style="margin-top: 4px;">+$48k</div>
+            <div class="cap-eyebrow muted" style="margin-top: 8px;">71% conf · 2 wk LT · cost lock-in</div>
+          </div>
+        </div>
+        <div class="spec-note rvr-foot">
+          <span class="k">Margin:</span> +$32k, 11pp confidence. <span class="muted">Would flip if forecast revised &lt; 8% or contractor LT &lt; 1 wk.</span>
+        </div>
+      </div>
+
+    </article>
+
+    <article id="commit-approval" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Commit<span class="ns">.</span>Approval</span></div>
+      <p class="pattern-blurb">When stakes require a second signature. Routes to the named approver with full briefing context attached.</p>
+      <div class="frame">
+        <div class="eyebrow-row"><span class="lbl">Awaiting approval</span><span class="meta">routed <span class="num">14m ago</span></span></div>
+        <div class="pad-18">
+          <div class="row gap-3" style="align-items: center;">
+            <div style="width: 40px; height: 40px; border-radius: 50%; background: var(--brand-tint); color: var(--brand-dd); display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-weight: 600;">DP</div>
+            <div style="flex: 1;">
+              <div style="color: var(--ink);"><strong>D. Park</strong> · Ops Lead</div>
+              <div class="cap-eyebrow muted">2nd signature on shift moves &gt; 2 people</div>
+            </div>
+            <span class="row gap-2">
+              <button class="btn">Recall</button>
+              <button class="btn">Add note</button>
+            </span>
+          </div>
+          <div class="cap-eyebrow muted" style="margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--rule);">
+            Approver sees · full Briefing · your judgement-prompt answers · stakes line · audit-trail link
+          </div>
+        </div>
+      </div>
+
+    </article>
+
+    <article id="commit-bar" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Commit<span class="ns">.</span>Bar</span></div>
+      <p class="pattern-blurb">The actions row. <strong>Override · Modify · Apply</strong> is the canonical hierarchy. Right-aligned.</p>
+      <div class="frame">
+        <div class="briefing-foot">
+          <span class="cap-eyebrow muted">v3.4 · 241 cases · <a class="btn-link" href="#">audit →</a></span>
+          <span class="row gap-2" style="margin-left: auto;">
+            <a class="btn-link" href="#">Why this?</a>
+            <button class="btn">Override</button>
+            <button class="btn">Modify</button>
+            <button class="btn primary">Apply</button>
+          </span>
+        </div>
+      </div>
+
+    </article>
+
+    <article id="commit-batch" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Commit<span class="ns">.</span>BatchBar</span></div>
+      <p class="pattern-blurb">When the queue contains many small recs, a sticky bar to apply N at once with shared confirmation.</p>
+      <div class="frame">
+        <div class="briefing-foot" style="background: var(--brand-tint); border-top: 1px solid var(--brand-d);">
+          <span class="cap-eyebrow"><span class="num" style="color: var(--ink); font-weight: 600;">12</span> selected · <span class="num pos">+$240k</span> total uplift</span>
+          <span class="row gap-2" style="margin-left: auto;">
+            <button class="btn">Clear</button>
+            <button class="btn">Modify all</button>
+            <button class="btn primary">Apply 12</button>
+          </span>
+        </div>
+      </div>
+
+    </article>
+
+    <article id="commit-confirm" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Commit<span class="ns">.</span>Confirm</span></div>
+      <p class="pattern-blurb">Typed-confirm dialog for irreversible actions. User must type a phrase that names what's being done.</p>
+      <div class="frame pad-18">
+        <div style="max-width: 460px; margin: 0 auto; border: 1px solid var(--rule-strong); border-radius: 8px; padding: 20px; background: var(--paper);">
+          <div class="row gap-2" style="align-items: baseline; margin-bottom: 10px;">
+            <span class="stakes-tag crit">IRREVERSIBLE</span>
+            <strong style="color: var(--ink);">Confirm: cancel order #4821</strong>
+          </div>
+          <div style="font-size: 13px; color: var(--ink-2); line-height: 1.5; margin-bottom: 14px;">
+            Cancellation cannot be undone. Vendor charges <span class="num">$2,400</span> restocking fee.
+          </div>
+          <div class="cap-eyebrow" style="margin-bottom: 6px;">Type <span class="mono" style="color: var(--ink);">cancel order 4821</span> to confirm</div>
+          <div style="border: 1px solid var(--rule-strong); border-radius: 4px; padding: 8px 10px; font-family: var(--font-mono); color: var(--ink-3); background: var(--paper-2);">cancel order 4821<span style="color: var(--brand-d); animation: blink 1s infinite;">|</span></div>
+          <div class="row gap-2" style="margin-top: 14px; justify-content: flex-end;">
+            <button class="btn">Cancel</button>
+            <button class="btn primary" style="background: var(--neg); border-color: var(--neg);">Confirm</button>
+          </div>
+        </div>
+      </div>
+
+    </article>
+
+    <article id="commit-draft" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Commit<span class="ns">.</span>DraftBar</span></div>
+      <p class="pattern-blurb">For multi-step decisions: queue them as a draft, review the bundle, commit together. Reduces commit anxiety.</p>
+      <div class="frame">
+        <div class="briefing-foot">
+          <span class="cap-eyebrow"><span class="num" style="color: var(--ink); font-weight: 600;">3</span> in draft · ready to review</span>
+          <span class="row gap-2" style="margin-left: auto;">
+            <button class="btn">Discard</button>
+            <button class="btn">Add another</button>
+            <button class="btn primary">Review &amp; commit</button>
+          </span>
+        </div>
+      </div>
+
+    </article>
+
+    <article id="judgement-gap" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Judgement<span class="ns">.</span>Gap</span></div>
+      <p class="pattern-blurb">Inline acknowledgement that the model didn't have a piece of context. Quiet — not an alarm.</p>
+      <div class="frame pad-18">
+        <div style="border-left: 2px solid var(--rule-strong); padding: 4px 12px; color: var(--ink-3); font-size: 13px;">
+          Model didn't have access to <span class="mono" style="color: var(--ink);">team-leave-calendar</span>. <a class="btn-link" href="#">Connect →</a>
+        </div>
+      </div>
+
+    </article>
+
+    <article id="judgement-inject" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Judgement<span class="ns">.</span>Inject</span></div>
+      <p class="pattern-blurb">"Tell the model X" — a structured override that becomes a constraint on the next run.</p>
+      <div class="frame pad-18">
+        <div class="cap-eyebrow" style="margin-bottom: 8px;">Add a constraint</div>
+        <div class="row gap-2" style="flex-wrap: wrap;">
+          <span class="chip"><span class="cap-eyebrow">field</span> <span class="mono" style="margin-left: 6px;">patel.weekend</span></span>
+          <span class="chip"><span class="cap-eyebrow">op</span> <span class="mono" style="margin-left: 6px;">≠</span></span>
+          <span class="chip"><span class="cap-eyebrow">value</span> <span class="mono" style="margin-left: 6px;">true</span></span>
+          <span class="chip"><span class="cap-eyebrow">until</span> <span class="mono" style="margin-left: 6px;">2024-04-30</span></span>
+          <button class="btn compact primary" style="margin-left: auto;">Inject &amp; rerun</button>
+        </div>
+      </div>
+
+    </article>
+
+    <article id="judgement-knowledge" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Judgement<span class="ns">.</span>KnowledgePanel</span></div>
+      <p class="pattern-blurb">A small surface for the user to type private context the model doesn't see. Persists with the case.</p>
+      <div class="frame">
+        <div class="eyebrow-row"><span class="lbl">What I know that the model doesn't</span><span class="meta muted">private · attached to this case</span></div>
+        <div class="pad-18">
+          <div style="border: 1px solid var(--rule); border-radius: 4px; padding: 10px 12px; background: var(--paper); min-height: 60px;">
+            <span class="muted" style="font-size: 13px;">Patel mentioned a sick parent on Friday — would prefer not to add weekend shifts this month.</span>
+          </div>
+          <div class="row gap-2" style="margin-top: 8px;">
+            <span class="cap-eyebrow muted">visible to · you, model (next run), audit</span>
+            <button class="btn compact" style="margin-left: auto;">Save note</button>
+          </div>
+        </div>
+      </div>
+
+    </article>
+
+    <article id="judgement-prompt" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Judgement<span class="ns">.</span>Prompt</span></div>
+      <p class="pattern-blurb">A single question the model can't answer. Capture: yes/no/don't-know + optional note. Captured response is part of audit.</p>
+      <div class="frame pad-18">
+        <div class="judgement-prompt" style="background: var(--paper-2); padding: 14px 16px; border-radius: 6px;">
+          <span class="prompt-q">Has Cho been told this is on the table?</span>
+          <span class="row gap-2" style="margin-left: auto;">
+            <button class="btn compact">Yes</button>
+            <button class="btn compact">No</button>
+            <button class="btn compact muted">Don't know</button>
+          </span>
+        </div>
+        <div class="cap-eyebrow muted" style="margin-top: 8px;">Optional note · captured to audit alongside the answer</div>
+      </div>
+
+    </article>
+
+    <article id="reference-base" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Reference<span class="ns">.</span>Base</span></div>
+      <p class="pattern-blurb">Base rate: how often this category of action succeeds at all. Calibrates expectation.</p>
+      <div class="frame pad-18">
+        <div class="cap-eyebrow" style="margin-bottom: 6px;">Shift reallocation — base rate</div>
+        <div class="num" style="font-family: var(--font-brand); font-size: 32px; font-weight: 700; color: var(--ink);">82%</div>
+        <div class="num muted" style="font-size: 12px; margin-top: 4px;">reduce OT without SLA breach · n=124, last 18mo</div>
+      </div>
+
+    </article>
+
+    <article id="reference-lesson" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Reference<span class="ns">.</span>Lesson</span></div>
+      <p class="pattern-blurb">Captured wisdom from a past case — promoted to a learnable note attached to similar future cases.</p>
+      <div class="frame">
+        <div class="eyebrow-row"><span class="lbl">Lesson · Mar 2024</span><span class="meta muted">attached to · shift-reallocation</span></div>
+        <div class="pad-18">
+          <div style="font-size: 13px; color: var(--ink-2); line-height: 1.5;">
+            "Watch for personal-leave conflicts <span class="num">2 weeks</span> ahead — model can't see the team calendar. Last time we hit this we apologised twice."
+          </div>
+          <div class="cap-eyebrow muted" style="margin-top: 10px;">— D. Park, Ops · 4 cases tagged similar</div>
+        </div>
+      </div>
+
+    </article>
+
+    <article id="reference-novelty" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Reference<span class="ns">.</span>Novelty</span></div>
+      <p class="pattern-blurb">"This case is unusual" — flag when similarity to past cases is low. Asks for extra judgement.</p>
+      <div class="frame pad-18">
+        <div style="border: 1px solid var(--warn); background: rgba(212, 167, 79, 0.08); border-radius: 6px; padding: 12px 14px;">
+          <div class="row gap-2" style="align-items: baseline;">
+            <span class="dot warn"></span>
+            <strong style="color: var(--ink);">Unusual case</strong>
+            <span class="cap-eyebrow muted" style="margin-left: auto;">closest match: 41% similar</span>
+          </div>
+          <div style="font-size: 13px; color: var(--ink-2); margin-top: 6px;">No comparable shift move in last 24 months for this team size + skill mix. Recommend human-in-loop review.</div>
+        </div>
+      </div>
+
+    </article>
+
+    <article id="reference-peers" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Reference<span class="ns">.</span>Peers</span></div>
+      <p class="pattern-blurb">What other operators decided in cases like this. Decision distribution.</p>
+      <div class="frame pad-18">
+        <div class="cap-eyebrow" style="margin-bottom: 8px;">Peers · last 12 months · 38 similar cases</div>
+        <div style="display: flex; gap: 1px; height: 28px; border-radius: 4px; overflow: hidden;">
+          <div style="flex: 28; background: var(--brand-d); display: flex; align-items: center; justify-content: center; color: white; font-family: var(--font-mono); font-size: 11px;">28 moved shifts</div>
+          <div style="flex: 7; background: var(--ink-4); display: flex; align-items: center; justify-content: center; color: white; font-family: var(--font-mono); font-size: 11px;">7 hired</div>
+          <div style="flex: 3; background: var(--rule-strong); color: var(--ink); display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 11px;">3 nothing</div>
+        </div>
+      </div>
+
+    </article>
+
+    <article id="reference-similar" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Reference<span class="ns">.</span>Similar</span></div>
+      <p class="pattern-blurb">Past decisions like this one — surfaced with similarity score and outcome at a glance.</p>
+      <div class="frame pad-18 row gap-3" style="flex-wrap: wrap;">
+        <a class="ref-card" href="#">
+          <div class="cap-eyebrow muted">Mar 2024 · NE region</div>
+          <div class="num" style="color: var(--ink); font-weight: 600;">−$6k OT, 0 SLA</div>
+          <div class="cap-eyebrow muted"><span class="num pos">95%</span> similar</div>
+        </a>
+        <a class="ref-card" href="#">
+          <div class="cap-eyebrow muted">Jan 2024 · SE region</div>
+          <div class="num" style="color: var(--ink); font-weight: 600;">−$11k OT, 0 SLA</div>
+          <div class="cap-eyebrow muted"><span class="num pos">88%</span> similar</div>
+        </a>
+        <a class="ref-card" href="#">
+          <div class="cap-eyebrow muted">Nov 2023 · MW region</div>
+          <div class="num" style="color: var(--ink); font-weight: 600;">−$4k OT, 1 SLA</div>
+          <div class="cap-eyebrow muted"><span class="num">82%</span> similar</div>
+        </a>
+      </div>
+
+    </article>
+
+    <article id="stakes-radius" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Stakes<span class="ns">.</span>Scope</span></div>
+      <p class="pattern-blurb">The blast radius of the decision — who and what is affected if it goes wrong. Pairs with <span class="mono">Stakes<span class="ns">.</span>Tag</span>: tag answers <em>how severe</em>, scope answers <em>how far</em>. Renders as a compact icon-keyed strip; each axis is independently clickable to drill into the affected set.</p>
+      <div class="frame">
+        <div class="eyebrow-row"><span class="lbl">Scope</span><span class="meta">5 axes · click to drill</span></div>
+        <div class="scope-grid">
+          <button class="scope-axis">
+            <span class="scope-glyph">○</span>
+            <span class="scope-lbl">people</span>
+            <span class="scope-val"><span class="num">3</span></span>
+            <span class="scope-detail">Patel · Cho · Riggs</span>
+          </button>
+          <button class="scope-axis">
+            <span class="scope-glyph">□</span>
+            <span class="scope-lbl">teams</span>
+            <span class="scope-val"><span class="num">1</span></span>
+            <span class="scope-detail">SE-shift</span>
+          </button>
+          <button class="scope-axis">
+            <span class="scope-glyph">▷</span>
+            <span class="scope-lbl">window</span>
+            <span class="scope-val"><span class="num">14d</span></span>
+            <span class="scope-detail">Sep 16 – Sep 30</span>
+          </button>
+          <button class="scope-axis emphasized">
+            <span class="scope-glyph">$</span>
+            <span class="scope-lbl">$ exposure</span>
+            <span class="scope-val"><span class="num pos">+$92k</span> / <span class="num neg">−$8k</span></span>
+            <span class="scope-detail">upside · downside</span>
+          </button>
+          <button class="scope-axis warn">
+            <span class="scope-glyph">!</span>
+            <span class="scope-lbl">downstream</span>
+            <span class="scope-val"><span class="num">2 SLAs</span></span>
+            <span class="scope-detail">1 customer · FedEx-tier</span>
+          </button>
+        </div>
+        <div class="diff-meta-row"><span>Order is fixed: people → teams → window → $ → downstream. Empty axes render dimmed, not omitted.</span></div>
+      </div>
+
+    </article>
+
+    <article id="stakes-tag" class="pattern">
+      <div class="pattern-head"><span class="pattern-name">Stakes<span class="ns">.</span>Tag</span></div>
+      <p class="pattern-blurb">One-word stakes label. Drives downstream behaviour — irreversible decisions require typed-confirm; high-stakes require approver.</p>
+      <div class="frame pad-18 row gap-2" style="flex-wrap: wrap;">
+        <span class="stakes-tag low">REVERSIBLE</span>
+        <span class="stakes-tag mid">SOFT-COMMIT</span>
+        <span class="stakes-tag high">HARD-COMMIT</span>
+        <span class="stakes-tag crit">IRREVERSIBLE</span>
+      </div>
+
+    </article>
+
+  </section>
+
+  </main>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,165 @@
+[project]
+name = "east-py-datascience"
+version = "1.0.0"
+description = "East Data Science - ML/optimization platform functions for East Python runtime"
+readme = "README.md"
+license = { file = "LICENSE.md" }
+requires-python = ">=3.11"
+dependencies = [
+    "east-py",
+    "numpy>=2.0.0",
+]
+
+[tool.uv.sources]
+east-py = { workspace = true }
+
+[project.optional-dependencies]
+mads = ["PyNomadBBO>=4.4.0"]
+optuna = ["optuna>=4.0.0"]
+simanneal = ["simanneal>=0.5.0"]
+sklearn = [
+    "scikit-learn>=1.4.0,<1.6.0",
+    "skl2onnx>=1.17.0",
+    "onnxruntime>=1.18.0",
+    "cloudpickle>=3.0.0",
+]
+scipy = [
+    "scipy>=1.12.0",
+    "cloudpickle>=3.0.0",
+]
+xgboost = [
+    "xgboost>=2.1.0",
+    "cloudpickle>=3.0.0",
+]
+lightgbm = [
+    "lightgbm>=4.3.0",
+    "cloudpickle>=3.0.0",
+]
+ngboost = [
+    "ngboost>=0.5.0",
+    "cloudpickle>=3.0.0",
+]
+shap = [
+    "shap>=0.45.0",
+    "cloudpickle>=3.0.0",
+]
+torch = [
+    "torch>=2.4.0",
+    "cloudpickle>=3.0.0",
+]
+gp = [
+    "scikit-learn>=1.4.0,<1.6.0",
+    "cloudpickle>=3.0.0",
+]
+lightning = [
+    "torch>=2.4.0",
+    "pytorch-lightning>=2.2.0",
+    "cloudpickle>=3.0.0",
+]
+mapie = [
+    "mapie>=1.2.0",
+    "cloudpickle>=3.0.0",
+]
+alns = [
+    "alns>=6.0.0",
+]
+google-or = [
+    "ortools>=9.9",
+]
+pymc = [
+    "pymc>=5.0.0",
+    "arviz>=0.15.0",
+    "cloudpickle>=3.0.0",
+]
+all = [
+    "PyNomadBBO>=4.4.0",
+    "optuna>=4.0.0",
+    "simanneal>=0.5.0",
+    "scikit-learn>=1.4.0,<1.6.0",
+    "skl2onnx>=1.17.0",
+    "onnxruntime>=1.18.0",
+    "scipy>=1.12.0",
+    "xgboost>=2.1.0",
+    "lightgbm>=4.3.0",
+    "ngboost>=0.5.0",
+    "shap>=0.45.0",
+    "torch>=2.4.0",
+    "pytorch-lightning>=2.2.0",
+    "mapie>=1.2.0",
+    "alns>=6.0.0",
+    "ortools>=9.9",
+    "pymc>=5.0.0",
+    "arviz>=0.15.0",
+    "cloudpickle>=3.0.0",
+]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+]
+
+[build-system]
+requires = ["scikit-build-core>=0.10", "cython>=3.0.0", "numpy>=1.26.0"]
+build-backend = "scikit_build_core.build"
+
+# scikit-build-core drives the build via CMakeLists.txt at this package's
+# root. The 2 .pyx files under src/east_py_datascience link against east-c
+# (built fresh by this package's CMakeLists). east-py must be installed
+# before this package builds — Cython resolves `cimport east._eastc` via
+# sys.path.
+[tool.scikit-build]
+cmake.version = ">=3.18"
+cmake.build-type = "Release"
+wheel.packages = ["src/east_py_datascience"]
+# built once by `uv sync`, not at import time — see east-py/pyproject.toml.
+editable.rebuild = false
+editable.verbose = false
+build-dir = "build/{wheel_tag}"
+# _vendor/ holds east-c + east-py .pxd staged by scripts/vendor-native.py so
+# the sdist builds without the monorepo (PyPI install / cibuildwheel container).
+sdist.include = ["src/east_py_datascience/**/*.pxd", "src/east_py_datascience/**/*.pyx", "_vendor/**"]
+wheel.exclude = ["src/east_py_datascience/**/*.c"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+filterwarnings = [
+    "ignore::UserWarning:torch.cuda",
+    "ignore:.*num_workers.*:UserWarning",
+    "ignore::sklearn.exceptions.ConvergenceWarning",
+    "ignore:.*feature names.*:UserWarning",
+    "ignore::DeprecationWarning:sklearn",
+]
+
+[tool.mypy]
+python_version = "3.11"
+disallow_untyped_defs = false
+
+# External optional dependencies - no stubs or incomplete stubs
+[[tool.mypy.overrides]]
+module = ["numpy", "numpy.*", "scipy", "scipy.*", "sklearn", "sklearn.*", "PyNomad", "optuna", "optuna.*", "simanneal", "skl2onnx", "skl2onnx.*", "onnxruntime", "cloudpickle", "xgboost", "xgboost.*", "lightgbm", "lightgbm.*", "ngboost", "ngboost.*", "shap", "shap.*", "torch", "torch.*", "pytorch_lightning", "pytorch_lightning.*", "lightning", "lightning.*", "onnx", "onnx.*", "mapie", "mapie.*", "alns", "alns.*", "ortools", "ortools.*", "pymc", "pymc.*", "arviz", "arviz.*", "pytensor", "pytensor.*"]
+ignore_missing_imports = true
+
+# Our modules using optional dependencies - verify via tests not static analysis
+[[tool.mypy.overrides]]
+module = [
+    "east_py_datascience.mads.*",
+    "east_py_datascience.optuna.*",
+    "east_py_datascience.simanneal.*",
+    "east_py_datascience.sklearn.*",
+    "east_py_datascience.scipy.*",
+    "east_py_datascience.xgboost.*",
+    "east_py_datascience.lightgbm.*",
+    "east_py_datascience.ngboost.*",
+    "east_py_datascience.shap.*",
+    "east_py_datascience.torch.*",
+    "east_py_datascience.gp.*",
+    "east_py_datascience.lightning.*",
+    "east_py_datascience.mapie.*",
+    "east_py_datascience.alns.*",
+    "east_py_datascience.optimization.*",
+    "east_py_datascience.google_or.*",
+    "east_py_datascience.pymc.*",
+    "east_py_datascience.simulation.*",
+    "east_py_datascience.types",
+]
+ignore_errors = true

@@ -1,0 +1,882 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>East UI · Slice — Pattern spec</title>
+<link rel="stylesheet" href="./colors_and_type.css">
+<link rel="stylesheet" href="./spec.css">
+<script type="module" src="./charts-visx.js"></script>
+<style>
+  .nav-back {
+    display: flex; gap: 14px; align-items: baseline;
+    padding: 12px 0 18px;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 28px;
+    font-family: var(--font-mono); font-size: 11px;
+    letter-spacing: 0.12em; text-transform: uppercase;
+  }
+  .nav-back a { color: var(--ink-4); text-decoration: none; }
+  .nav-back a:hover { color: var(--brand-d); }
+  .nav-back .sep { color: var(--rule-strong); }
+  .nav-back .here { color: var(--ink); font-weight: 600; }
+
+  /* Density-pair layout: two columns inside one frame, the
+     "Compact" and "Focused" drawings side by side. Used in every
+     Slice.* article that has two genuinely-different densities. */
+  .density-pair {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0;
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    overflow: hidden;
+    background: var(--paper);
+  }
+  .density-pair > .density {
+    padding: 16px 18px;
+    display: flex; flex-direction: column; gap: 12px;
+    min-width: 0;
+  }
+  .density-pair > .density + .density { border-top: 1px solid var(--rule); }
+  .density-pair .density-head {
+    font-family: var(--font-mono); font-size: 9.5px;
+    font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--ink-4);
+  }
+  .density-pair .density-note {
+    font-family: var(--font-body); font-size: 11.5px;
+    line-height: 1.5; color: var(--ink-3);
+  }
+
+  /* Slice.Frame anatomy diagram */
+  .sf-anatomy {
+    border: 1px solid var(--rule-strong); border-radius: 4px;
+    background: var(--paper); overflow: hidden;
+    font-family: var(--font-mono); font-size: 11px;
+  }
+  .sf-zone {
+    padding: 12px 16px; display: grid; align-items: center;
+    grid-template-columns: 140px 1fr 180px;
+    gap: 14px; min-height: 44px;
+  }
+  .sf-zone + .sf-zone { border-top: 1px solid var(--rule); }
+  .sf-zone .lbl {
+    font-size: 9.5px; font-weight: 600; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--ink-3);
+  }
+  .sf-zone .content {
+    color: var(--ink-2); font-size: 11.5px;
+  }
+  .sf-zone .dim {
+    text-align: right; color: var(--ink-4); font-size: 10px;
+    letter-spacing: 0.04em;
+  }
+  .sf-zone.body { min-height: 80px; background: var(--paper-2); }
+  .sf-zone.footer { background: var(--paper-2); min-height: 36px; }
+
+  /* Fixed-grid backdrop for the per-affordance demos below (Filter, Breakdown),
+     just to show each affordance's own compact rendering — its chips + the
+     within-affordance +M more. The real Slice.Frame eyebrow is a reflowing bar
+     (see Slice.Frame · Zone rules), not this fixed two-zone grid. */
+  .compact-eyebrow {
+    border: 1px solid var(--rule-strong); border-radius: 3px;
+    background: var(--paper);
+    padding: 8px 12px;
+    display: grid; grid-template-columns: minmax(0, 1fr) 200px; gap: 12px;
+    align-items: center;
+  }
+  .compact-eyebrow.no-search { grid-template-columns: minmax(0, 1fr); }
+  .compact-eyebrow .filters {
+    display: flex; align-items: center; gap: 6px;
+    flex-wrap: nowrap; min-width: 0; overflow: hidden;
+  }
+  .search {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 10px; border: 1px solid var(--rule-strong);
+    border-radius: 4px; background: var(--paper);
+    font-family: var(--font-mono); font-size: 11px;
+    color: var(--ink-3); width: 100%; box-sizing: border-box;
+  }
+  .filter-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 4px 9px 4px 11px;
+    border: 1px solid var(--brand-d); border-radius: 9999px;
+    background: var(--brand-tint);
+    font-family: var(--font-mono); font-size: 10.5px;
+    color: var(--brand-dd); font-weight: 600; white-space: nowrap;
+    line-height: 1;
+  }
+  .filter-chip > * { line-height: 1; }
+  .filter-chip .field { color: var(--brand-d); font-weight: 500; }
+  .filter-chip .op { color: var(--ink-4); margin: 0 1px; }
+  .add-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 4px 9px; border: 1px dashed var(--rule-strong);
+    border-radius: 9999px;
+    font-family: var(--font-mono); font-size: 10.5px;
+    color: var(--ink-4); font-weight: 600;
+    line-height: 1;
+  }
+  .add-chip > * { line-height: 1; }
+  .more-chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 4px 9px 4px 11px;
+    border: 1px solid var(--brand-d); border-radius: 9999px;
+    background: var(--paper);
+    font-family: var(--font-mono); font-size: 10.5px;
+    color: var(--brand-dd); font-weight: 700;
+    line-height: 1;
+  }
+  .more-chip > * { line-height: 1; }
+  .cohort-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px;
+    border: 1px solid var(--brand-d); border-radius: 4px;
+    background: var(--brand-tint);
+    font-family: var(--font-mono); font-size: 11px;
+    color: var(--brand-dd); font-weight: 600;
+  }
+  .cohort-pill .count { color: var(--brand-d); font-weight: 500; margin-left: 2px; }
+
+  /* Slice.Edit popover mock */
+  .popover-stage {
+    position: relative;
+    background: var(--paper-2);
+    border: 1px dashed var(--rule-strong);
+    border-radius: 4px;
+    padding: 32px 28px 40px;
+    min-height: 520px;
+    display: flex; flex-direction: column;
+    align-items: center;
+  }
+  .popover-stage .trigger {
+    position: relative; z-index: 1; margin-bottom: 14px;
+  }
+  .popover {
+    position: relative;
+    width: 380px;
+    background: var(--paper);
+    border: 1px solid var(--rule-strong);
+    border-radius: 4px;
+    box-shadow: var(--shadow-md);
+    z-index: 2;
+  }
+  .popover::before {
+    content: ""; position: absolute; top: -7px; left: 50%; margin-left: -6px;
+    width: 12px; height: 12px;
+    background: var(--paper);
+    border-top: 1px solid var(--rule-strong);
+    border-left: 1px solid var(--rule-strong);
+    transform: rotate(45deg);
+  }
+  .popover-head {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--rule);
+    display: flex; align-items: center; gap: 10px;
+    font-family: var(--font-mono); font-size: 10.5px;
+    color: var(--ink); font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+  .popover-head .x {
+    margin-left: auto;
+    width: 18px; height: 18px;
+    display: inline-flex; align-items: center; justify-content: center;
+    color: var(--ink-4); cursor: pointer;
+    border-radius: 3px;
+  }
+  .popover-body {
+    padding: 12px 14px;
+    max-height: 50vh; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .popover-foot {
+    padding: 10px 14px;
+    border-top: 1px solid var(--rule);
+    background: var(--paper-2);
+    display: flex; align-items: center; gap: 8px;
+    font-family: var(--font-mono); font-size: 11px;
+  }
+  .popover-foot .save {
+    color: var(--brand-d); text-decoration: none;
+  }
+  .popover-foot .actions { margin-left: auto; display: inline-flex; gap: 6px; }
+
+  /* Predicate builder rows for the cohort edit popover */
+  .pred-row {
+    display: grid;
+    grid-template-columns: 28px 1fr;
+    gap: 8px; align-items: center;
+    font-family: var(--font-mono); font-size: 11px;
+  }
+  .pred-row .conj {
+    font-size: 9.5px; letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--ink-4); text-align: right;
+  }
+  .pred-row .clause {
+    padding: 6px 8px;
+    background: var(--paper-2);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    color: var(--ink-2);
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  }
+  .pred-row .clause .field { color: var(--brand-dd); font-weight: 600; }
+  .pred-row .clause .op    { color: var(--ink-4); }
+  .pred-row .clause .val   { color: var(--ink); font-weight: 600; }
+
+  /* +M more list rows inside a popover */
+  .more-row {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    gap: 10px; align-items: center;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--rule);
+    font-family: var(--font-mono); font-size: 11px;
+  }
+  .more-row:last-child { border-bottom: 0; }
+  .more-row .filter-chip { font-size: 10px; }
+  .more-row .edit {
+    color: var(--brand-d); cursor: pointer;
+    font-size: 10px; letter-spacing: 0.06em;
+  }
+  .more-row .x {
+    color: var(--ink-4); cursor: pointer; padding: 0 4px;
+  }
+
+  /* Eyebrow → trigger arrow for the cohort edit example */
+  .annot {
+    font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--ink-4); padding: 0 6px;
+  }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <nav class="nav-back" aria-label="Pattern spec categories">
+    <a href="./index.html">← Index</a>
+    <span class="sep">·</span>
+    <a href="./observe.html">Observe</a>
+    <span class="sep">·</span>
+    <a href="./slice.html" class="here">Slice</a>
+    <span class="sep">·</span>
+    <a href="./decide.html">Decide</a>
+    <span class="sep">·</span>
+    <a href="./configure.html">Configure</a>
+    <span class="sep">·</span>
+    <a href="./frame-trust.html">Trust</a>
+  </nav>
+
+  <main>
+
+  <section id="mode-slice" class="mode">
+    <div class="mode-head">
+      <span class="mode-id">§ 2.2</span>
+      <h2>Slice</h2>
+      <span class="anchor-tag">Anchors · <span class="pat">Slice<span class="ns">.</span>Frame</span> · <span class="pat">Slice<span class="ns">.</span>Edit</span></span>
+    </div>
+    <p class="mode-lede">
+      The data-narrowing primitive. One <span class="mono">SliceHandle&lt;T&gt;</span> per data domain, bound once at the surface boundary; affordances around it write, consumers around it read narrowed data through <span class="mono">Slice.apply.where</span>. Slice doesn't render anything that <em>shows</em> the data — that's the consumer's job (Table, Chart, Stat). The architectural rules live in <a class="btn-link" href="./index.html#brand-system">§1.5c · Slice composition</a>; this document specifies each affordance, the container that holds them, and the shared edit overlay.
+    </p>
+
+    <!-- ============================================
+         Slice.Frame — the container
+         ============================================ -->
+    <article id="slice-frame" class="pattern">
+      <div class="pattern-head">
+        <span class="pattern-name">Slice<span class="ns">.</span>Frame</span>
+        <span class="pattern-anchor">Anchor</span>
+      </div>
+      <p class="pattern-blurb">
+        The card that holds a slice-bound visual. A frame role specialised for slice consumption — same chassis as <a class="btn-link" href="./index.html#brand-system">§1.5b · Frame</a>, but with a fixed three-zone anatomy and an opinionated derived-count footer. Every slice consumer (Table, Chart, Stat) is wrapped in one; if there is more than one slice on a page, there is more than one Slice.Frame. The author fills the body slot with the visual; the eyebrow and footer take care of slice chrome.
+      </p>
+
+      <div class="frame">
+        <div class="eyebrow-row">
+          <span class="lbl">Anatomy</span>
+          <span class="meta muted">three zones · eyebrow is a reflowing affordance bar (inline → stacked labelled rows), collapsible · body may wrap</span>
+        </div>
+
+        <div class="pad-18">
+          <!-- A real Slice.Frame instance: eyebrow chips + search · body table · derived footer.
+               Reads exactly like the markup engineering would write at the use site. -->
+          <div style="display: grid; grid-template-columns: 80px 1fr; gap: 16px; align-items: start;">
+
+            <!-- Annotation column: lines pointing at each zone -->
+            <div style="display: flex; flex-direction: column; gap: 0; font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); padding-top: 12px;">
+              <div style="height: 44px; display: flex; align-items: center; justify-content: flex-end;">Eyebrow</div>
+              <div style="flex: 1; min-height: 160px; display: flex; align-items: center; justify-content: flex-end;">Body</div>
+              <div style="height: 38px; display: flex; align-items: center; justify-content: flex-end;">Footer</div>
+            </div>
+
+            <!-- The actual Slice.Frame card -->
+            <div style="border: 1px solid var(--rule-strong); border-radius: 4px; background: var(--paper); overflow: hidden; display: flex; flex-direction: column;">
+
+              <!-- Eyebrow · reflowing affordance bar. Inline form shown (icon-led
+                   blocks); stacks to labelled rows when narrow; collapsible. -->
+              <div style="display: flex; align-items: center; gap: 16px; padding: 8px 12px; border-bottom: 1px solid var(--rule); height: 44px; box-sizing: border-box;">
+                <!-- The affordance blocks (filter · split · range), each icon-led -->
+                <div style="flex: 1; min-width: 0; display: flex; align-items: center; gap: 16px; flex-wrap: nowrap; overflow: hidden;">
+                  <span style="display: inline-flex; align-items: center; gap: 6px;">
+                    <i class="fa-solid fa-filter" style="font-size: 10px; color: var(--ink-4);"></i>
+                    <span class="filter-chip"><span class="field">event</span><span class="op">=</span>checkout<i class="fa-solid fa-xmark" style="font-size: 9px; margin-left: 3px;"></i></span>
+                    <span class="more-chip">+12 more <i class="fa-solid fa-chevron-down" style="font-size: 8px;"></i></span>
+                    <span class="add-chip"><i class="fa-solid fa-plus" style="font-size: 9px;"></i><span>filter</span></span>
+                  </span>
+                  <span style="display: inline-flex; align-items: center; gap: 6px;">
+                    <i class="fa-solid fa-layer-group" style="font-size: 10px; color: var(--ink-4);"></i>
+                    <span class="filter-chip">Region<i class="fa-solid fa-xmark" style="font-size: 9px; margin-left: 3px;"></i></span>
+                  </span>
+                  <span style="display: inline-flex; align-items: center; gap: 6px;">
+                    <i class="fa-solid fa-calendar" style="font-size: 10px; color: var(--ink-4);"></i>
+                    <span class="filter-chip">last 30 days<i class="fa-solid fa-chevron-down" style="font-size: 8px; margin-left: 3px;"></i></span>
+                  </span>
+                </div>
+                <!-- Meta (freshness chip) + collapse toggle, pinned right -->
+                <span style="display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0;">
+                  <span class="trust-chip"><span class="tc-dot ok"></span><span class="tc-label">events-v2.1</span><span class="tc-meta">12s</span></span>
+                  <i class="fa-solid fa-chevron-up" style="font-size: 11px; color: var(--ink-4);"></i>
+                </span>
+              </div>
+
+              <!-- Body · the consumer visual. Here: a small Collections.Table -->
+              <div style="background: var(--paper); min-height: 160px;">
+                <!-- Column headers -->
+                <div style="display: grid; grid-template-columns: 110px 1fr 130px 90px; gap: 0; padding: 8px 14px; background: var(--paper-2); border-bottom: 1px solid var(--rule); font-family: var(--font-mono); font-size: 9.5px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-4);">
+                  <span style="display: inline-flex; align-items: center; gap: 4px;">timestamp <i class="fa-solid fa-arrow-down" style="font-size: 9px; color: var(--brand-d);"></i></span>
+                  <span>user_id</span>
+                  <span style="display: inline-flex; align-items: center; gap: 4px; color: var(--brand-dd);">event <i class="fa-solid fa-filter" style="font-size: 9px;"></i></span>
+                  <span style="text-align: right; display: inline-flex; align-items: center; gap: 4px; justify-content: flex-end; color: var(--brand-dd);">basket <i class="fa-solid fa-filter" style="font-size: 9px;"></i></span>
+                </div>
+                <!-- Rows -->
+                <div style="display: grid; grid-template-columns: 110px 1fr 130px 90px; gap: 0; padding: 8px 14px; border-bottom: 1px solid var(--rule); font-family: var(--font-mono); font-size: 11px; color: var(--ink-2);">
+                  <span style="color: var(--ink-3);">Dec 19 14:32</span>
+                  <span style="color: var(--ink);">usr_e98c4a</span>
+                  <span>checkout</span>
+                  <span style="text-align: right; color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums;">£128.40</span>
+                </div>
+                <div style="display: grid; grid-template-columns: 110px 1fr 130px 90px; gap: 0; padding: 8px 14px; border-bottom: 1px solid var(--rule); font-family: var(--font-mono); font-size: 11px; color: var(--ink-2);">
+                  <span style="color: var(--ink-3);">Dec 19 13:08</span>
+                  <span style="color: var(--ink);">usr_a172bf</span>
+                  <span>checkout</span>
+                  <span style="text-align: right; color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums;">£72.50</span>
+                </div>
+                <div style="display: grid; grid-template-columns: 110px 1fr 130px 90px; gap: 0; padding: 8px 14px; border-bottom: 1px solid var(--rule); font-family: var(--font-mono); font-size: 11px; color: var(--ink-2);">
+                  <span style="color: var(--ink-3);">Dec 19 11:51</span>
+                  <span style="color: var(--ink);">usr_4d09e2</span>
+                  <span>checkout</span>
+                  <span style="text-align: right; color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums;">£204.10</span>
+                </div>
+                <div style="display: grid; grid-template-columns: 110px 1fr 130px 90px; gap: 0; padding: 8px 14px; font-family: var(--font-mono); font-size: 11px; color: var(--ink-2);">
+                  <span style="color: var(--ink-3);">Dec 18 22:14</span>
+                  <span style="color: var(--ink);">usr_7b3f01</span>
+                  <span>checkout</span>
+                  <span style="text-align: right; color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums;">£54.00</span>
+                </div>
+              </div>
+
+              <!-- Footer · derived count -->
+              <div style="padding: 9px 14px; border-top: 1px solid var(--rule); background: var(--paper-2); display: flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-4); height: 38px; box-sizing: border-box;">
+                <span style="color: var(--ink); font-weight: 600;">4,218</span>
+                <span>rows · narrowed from 12,840 ·</span>
+                <span style="color: var(--pos); font-weight: 600;">−67%</span>
+                <span style="margin-left: auto;">page 1 of 85</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="spec-note" style="margin-top: 14px;">
+            <span class="k">Zone rules:</span>
+            <strong>Eyebrow</strong> — a reflowing affordance bar. Each listed affordance is an icon-led, labelled block (<span class="mono">Filter</span> · <span class="mono">Split</span> · <span class="mono">Cohort</span> · <span class="mono">Range</span> · <span class="mono">Search</span>), in the order given — no placement-by-kind. When the blocks fit, they sit in one inline row (min height <span class="mono">44 px</span>); when they don't, the bar <strong>reflows to stacked labelled rows</strong> (a fixed mono-label gutter + the affordance's controls) — nothing is hidden behind a menu, every affordance stays visible and one click from editing. Derived meta (freshness chip, count) and the collapse toggle pin to the right. The bar is <strong>collapsible</strong> (<span class="mono">collapsible</span>, default on): the chevron folds the eyebrow to a one-line summary of the active narrowing and back. The only per-affordance overflow is <em>within</em> a block — a Filter with too many clauses collapses its tail to <span class="mono">+M more</span> (its own list). Padding <span class="mono">8 / 12 px</span>.
+            <strong>Body</strong> — the consumer renders here. The frame supplies no padding; the consumer manages its own gutters. Body content may wrap to multiple rows; a body wrap never re-flows the chrome.
+            <strong>Footer</strong> — derived count by default, supplied by the frame from <span class="mono">Slice.apply.where(...).length</span>. Author can override with a custom node (Slice.Summary, Provenance, paging). Hide with <span class="mono">footer={none}</span>; never display "0 rows" without context. Footer height <span class="mono">38 px</span> · <span class="mono">paper-2</span> background.
+          </div>
+        </div>
+      </div>
+
+      <div class="pattern-footer">
+        <div>
+          <div class="pattern-section-title">Slots</div>
+          <table class="pattern-table">
+            <thead><tr><th>Slot</th><th>Shape</th><th>Required</th><th>Purpose</th></tr></thead>
+            <tbody>
+              <tr><td class="name">slice</td>          <td class="shape"><span class="mono">SliceHandle&lt;T&gt;</span></td><td class="req">yes</td><td>The shared narrowing handle every affordance writes to and the body reads.</td></tr>
+              <tr><td class="name">affordances</td>  <td class="shape"><span class="mono">("filter"|"split"|"cohort"|"range"|"search")[]</span></td><td class="req">—</td><td>The eyebrow affordances, in order — labelled blocks in the reflowing bar. Typically <span class="mono">["filter","search"]</span> for a Table, <span class="mono">["breakdown"]</span> for a Chart. Each is rendered in compact density. Omit / <span class="mono">[]</span> for a chrome-less body.</td></tr>
+              <tr><td class="name">meta</td>         <td class="shape">slot</td><td class="req">no</td><td>Eyebrow meta — freshness chip, secondary actions — pinned right of the bar.</td></tr>
+              <tr><td class="name">collapsible</td>  <td class="shape"><span class="mono">boolean</span></td><td class="req">no</td><td>Offer the chevron that folds the eyebrow to a one-line active-narrowing summary. Default <span class="mono">true</span>.</td></tr>
+              <tr><td class="name">defaultCollapsed</td><td class="shape"><span class="mono">boolean</span></td><td class="req">no</td><td>Start collapsed (e.g. for a dense dashboard tile). Default <span class="mono">false</span>.</td></tr>
+              <tr><td class="name">body</td>           <td class="shape">slot</td><td class="req">yes</td><td>The consumer visual. The frame passes <span class="mono">slice</span> down so the visual calls <span class="mono">Slice.apply.where</span> itself.</td></tr>
+              <tr><td class="name">footer</td>         <td class="shape">slot</td><td class="req">no</td><td>Derived-count by default; author may override with a custom node. Set to <span class="mono">none</span> to hide.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p class="spec-note">
+          <span class="k">Invariants:</span>
+          <strong>One Slice.Frame per slice.</strong> If two slices share a page, they get two frames. The page Header (page-wide <span class="mono">Scope.*</span>) is not part of the frame chassis.
+          <strong>The frame never grows or shrinks when an affordance opens an editor.</strong> Editing happens in a <span class="mono">Slice.Edit</span> popover over the body; the chassis stays the same height. This is non-negotiable — see the next pattern.
+          <strong>The body reads slice; the body doesn't author slice.</strong> A Table inside a Slice.Frame may render sort arrows that write to <span class="mono">slice.setSort</span>, but it never opens a filter editor on its own — that's the eyebrow's job. The body produces clicks; the eyebrow houses the affordances that consume them.
+          <strong>Variants:</strong>
+          <span class="mono">Slice.Frame.Compare</span> — two side-by-side frames sharing one slice with different ranges (see <span class="mono">Stat.Comparison</span>).
+          <span class="mono">Slice.Frame.Embed</span> — chrome-less variant for embedding inside another container (no eyebrow, no footer; only the body slot survives). Used when the parent owns the slice affordances.
+        </p>
+      </div>
+    </article>
+
+    <!-- ============================================
+         Slice.Edit — the shared popover
+         ============================================ -->
+    <article id="slice-edit" class="pattern">
+      <div class="pattern-head">
+        <span class="pattern-name">Slice<span class="ns">.</span>Edit</span>
+        <span class="pattern-anchor">Anchor</span>
+      </div>
+      <p class="pattern-blurb">
+        The single overlay shape used everywhere a compact slice affordance needs more room to edit. Anchored to its trigger, fixed width, scrolls internally, dismisses on Apply / Cancel / Esc / click-outside. Replaces every "expanding inline panel" pattern — the eyebrow never expands to host the editor and the body never shifts. <strong>One overlay shape across six interactions</strong>: edit a filter predicate · open the filter <span class="mono">+M more</span> list · edit a breakdown dimension · open the breakdown <span class="mono">+M more</span> list · edit a cohort predicate · pick a custom range.
+      </p>
+
+      <div class="frame">
+        <div class="eyebrow-row">
+          <span class="lbl">Anatomy · cohort edit</span>
+          <span class="meta muted">trigger → popover anchored to it · body fixed below stays put</span>
+        </div>
+
+        <div class="pad-18">
+          <!-- Stage with a compact pill trigger and an open popover -->
+          <div class="popover-stage">
+            <!-- Trigger -->
+            <div class="trigger">
+              <span class="cohort-pill">
+                <i class="fa-solid fa-users" style="font-size: 10px;"></i>
+                Power users
+                <span class="count">· 2,418</span>
+                <i class="fa-solid fa-pen" style="font-size: 9px; margin-left: 4px; opacity: 0.7;"></i>
+              </span>
+            </div>
+
+            <!-- Popover (sits beneath the trigger as a normal-flow child) -->
+            <div class="popover">
+              <div class="popover-head">
+                <span>Edit cohort · <span style="color: var(--brand-dd); font-weight: 700;">Power users</span></span>
+                <span class="x"><i class="fa-solid fa-xmark" style="font-size: 10px;"></i></span>
+              </div>
+              <div class="popover-body">
+                <div class="pred-row">
+                  <span class="conj">WHEN</span>
+                  <span class="clause"><span class="field">page_views_30d</span><span class="op">≥</span><span class="val">20</span></span>
+                </div>
+                <div class="pred-row">
+                  <span class="conj">AND</span>
+                  <span class="clause"><span class="field">sessions_30d</span><span class="op">≥</span><span class="val">10</span></span>
+                </div>
+                <div class="pred-row">
+                  <span class="conj">AND</span>
+                  <span class="clause"><span class="field">plan_tier</span><span class="op">in</span><span class="val">pro, enterprise</span></span>
+                </div>
+                <span class="add-chip" style="align-self: flex-start; margin-top: 2px;"><i class="fa-solid fa-plus" style="font-size: 9px;"></i><span>clause</span></span>
+
+                <div style="margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--rule); font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-4); line-height: 1.5;">
+                  <span style="color: var(--ink-3);">Resolves to</span>
+                  <span style="color: var(--ink); font-weight: 700;">2,418 users</span>
+                  <span style="margin-left: 8px;">re-evaluated <span class="mono" style="color: var(--ink-3);">every 10 min</span></span>
+                </div>
+              </div>
+              <div class="popover-foot">
+                <a href="#" class="save">Remove cohort</a>
+                <span class="actions">
+                  <button class="btn compact">Cancel</button>
+                  <button class="btn primary compact">Apply</button>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div class="spec-note" style="margin-top: 14px;">
+            <span class="k">Anatomy:</span>
+            <strong>Head</strong> — one row, mono label naming the edit target, close × right.
+            <strong>Body</strong> — the editor. Max-height <span class="mono">50vh</span>; only the body scrolls (head + foot stay pinned). Padding <span class="mono">12 / 14 px</span>; gap <span class="mono">10 px</span> between clauses.
+            <strong>Foot</strong> — left slot for the contextual link (<span class="mono">Save as cohort →</span> for Filter/Breakdown, <span class="mono">Remove cohort</span> for Cohort edit, omitted for Search/Range/<span class="mono">+M more</span> lists). Right cluster is the action grammar — see the table below.
+            <strong>Anchoring</strong> — popover sits directly below the trigger by default; flips above if the trigger is near the viewport bottom. Arrow points at the trigger. Width <span class="mono">320 px</span> default · <span class="mono">360 – 480 px</span> for predicate editors; never auto-fits.
+            <strong>Dismissal</strong> — Esc · click outside · Apply · Cancel. Apply commits the edit through the slice handle; Cancel discards. The body underneath the popover does <strong>not</strong> redraw until Apply.
+          </div>
+        </div>
+      </div>
+
+      <div class="pattern-footer">
+        <div>
+          <div class="pattern-section-title">Action grammar · per edit case</div>
+          <table class="pattern-table">
+            <thead><tr><th>Edit case</th><th>Trigger</th><th>Foot · left</th><th>Foot · right</th></tr></thead>
+            <tbody>
+              <tr>
+                <td class="name">Filter · edit clause</td>
+                <td>Filter chip click</td>
+                <td><span class="mono">—</span> (omitted)</td>
+                <td><span class="mono">Cancel</span> · <span class="mono">Apply</span></td>
+              </tr>
+              <tr>
+                <td class="name">Filter · <span class="mono">+M more</span></td>
+                <td><span class="mono">+M more</span> chip</td>
+                <td><span class="mono">Save as cohort →</span></td>
+                <td><span class="mono">Clear all</span> · <span class="mono">Done</span></td>
+              </tr>
+              <tr>
+                <td class="name">Breakdown · edit dim</td>
+                <td>Breakdown chip click</td>
+                <td><span class="mono">—</span></td>
+                <td><span class="mono">Cancel</span> · <span class="mono">Apply</span></td>
+              </tr>
+              <tr>
+                <td class="name">Breakdown · <span class="mono">+M more</span></td>
+                <td><span class="mono">+M more</span> chip</td>
+                <td><span class="mono">—</span></td>
+                <td><span class="mono">Done</span></td>
+              </tr>
+              <tr>
+                <td class="name">Cohort · edit</td>
+                <td>Cohort pill click</td>
+                <td><span class="mono">Remove cohort</span> <span class="muted">(danger link)</span></td>
+                <td><span class="mono">Cancel</span> · <span class="mono">Apply</span></td>
+              </tr>
+              <tr>
+                <td class="name">Range · custom</td>
+                <td>Range pill click</td>
+                <td><span class="mono">Clear compare</span></td>
+                <td><span class="mono">Cancel</span> · <span class="mono">Apply</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p class="spec-note">
+          <span class="k">Invariants:</span>
+          <strong>One popover shape.</strong> Every Slice.Edit case uses the same head + body + foot anatomy. Only the foot's action grammar varies — listed above.
+          <strong>Never resizes the parent.</strong> The popover floats over content; opening it does not push the body down. If the popover is taller than the viewport, the body scrolls internally; the chassis below stays in place.
+          <strong>Body underneath is non-interactive while open.</strong> Click outside dismisses. We do not scrim or grey the body — the operator can still see what they're narrowing — but pointer events on the body are gated until dismissal (or Apply commits).
+          <strong>Apply is the only commit path.</strong> Edits aren't persisted to the slice handle on every keystroke. Esc / Cancel / click-outside discards. This avoids a half-edited filter writing intermediate states to the consumer.
+          <strong>Save as cohort</strong> is the only escape hatch for "this filter set is becoming a cohort." It appears in the Filter foot when ≥ 2 clauses are active; clicking opens a small overlay-on-overlay to name and save.
+        </p>
+      </div>
+    </article>
+
+    <!-- ============================================
+         Slice.Filter — compact + focused
+         ============================================ -->
+    <article id="slice-filter" class="pattern">
+      <div class="pattern-head">
+        <span class="pattern-name">Slice<span class="ns">.</span>Filter</span>
+      </div>
+      <p class="pattern-blurb">
+        Faceted filters that compose into a <span class="mono">Patch</span> over the slice handle. Active clauses render as brand-tinted chips; dashed "+ filter" chip opens the field/op/value builder in a <span class="mono">Slice.Edit</span> popover. Two densities: <strong>compact</strong> for use in a Slice.Frame eyebrow, <strong>focused</strong> for the standalone configuration surface.
+      </p>
+
+      <div class="density-pair">
+        <div class="density">
+          <div class="density-head">Compact · in a frame eyebrow</div>
+          <div class="density-note">One row, never wraps. 4-chip inline cap with overflow → <span class="mono">+M more</span> opening Slice.Edit. The eyebrow's right zone owns the search.</div>
+          <div class="compact-eyebrow">
+            <div class="filters">
+              <span class="filter-chip"><span class="field">event</span><span class="op">=</span>checkout<i class="fa-solid fa-xmark" style="font-size: 9px; margin-left: 3px;"></i></span>
+              <span class="filter-chip"><span class="field">basket</span><span class="op">≥</span>£50<i class="fa-solid fa-xmark" style="font-size: 9px; margin-left: 3px;"></i></span>
+              <span class="more-chip">+13 more <i class="fa-solid fa-chevron-down" style="font-size: 8px;"></i></span>
+              <span class="add-chip"><i class="fa-solid fa-plus" style="font-size: 9px;"></i><span>filter</span></span>
+            </div>
+            <span class="search">
+              <i class="fa-solid fa-magnifying-glass" style="font-size: 10px; color: var(--ink-4);"></i>
+              <span style="color: var(--ink-4); flex: 1;">Search events…</span>
+              <span style="padding: 1px 5px; background: var(--paper-2); border: 1px solid var(--rule); border-radius: 2px; font-size: 9px; color: var(--ink-4); font-weight: 600;">/</span>
+            </span>
+          </div>
+          <div class="density-note" style="font-size: 10.5px; font-family: var(--font-mono); letter-spacing: 0.04em; color: var(--ink-4); padding-top: 4px;">At this width the compress ladder kicks in: chip labels truncate (full → field/value only), and the inline cap drops to 2. Same compact pattern at full Slice.Frame width would show 4 chips before <span class="mono">+M more</span>.</div>
+        </div>
+        <div class="density">
+          <div class="density-head">Focused · standalone</div>
+          <div class="density-note">Same chip rail, plus a summary footer with the resolved count and a Save view link. Use only when filters are the surface, not a control on top of one.</div>
+          <div class="frame pad-18" style="margin: 0;">
+            <div class="row gap-2" style="flex-wrap: wrap;">
+              <span class="chip brand">scenario = procurement v3 <span class="x">×</span></span>
+              <span class="chip brand">region in EU,NA <span class="x">×</span></span>
+              <span class="chip">date = last 30d</span>
+              <span class="chip dashed">+ add filter</span>
+            </div>
+            <div class="row between" style="margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--rule);">
+              <span class="cap-eyebrow">Showing <span class="num" style="color: var(--ink);">1,284</span> events</span>
+              <a class="btn-link" href="#">Save view →</a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pattern-footer">
+        <p class="spec-note">
+          <span class="k">Overflow:</span> inline cap <span class="mono">4 chips</span>; 5th+ collapses to one <span class="mono">+M more</span> chip → <span class="mono">Slice.Edit</span> popover with the full list, per-row × and edit, footer <span class="mono">Save as cohort →</span> + <span class="mono">Clear all</span>. Collapsed clauses stay semantically active. In a half-width column the cap drops to 2 (compress ladder, see <a class="btn-link" href="./index.html#brand-system">§1.5c</a>).
+          <span class="k">Editing:</span> chip click opens <span class="mono">Slice.Edit</span> anchored to that chip; the editor lets the user change op or value (not field — that needs a new chip). Apply commits; Cancel discards.
+        </p>
+      </div>
+    </article>
+
+    <!-- ============================================
+         Slice.Search — compact + focused
+         ============================================ -->
+    <article id="slice-search" class="pattern">
+      <div class="pattern-head">
+        <span class="pattern-name">Slice<span class="ns">.</span>Search</span>
+      </div>
+      <p class="pattern-blurb">Typeahead text search over the slice dimension. Different shape from <span class="mono">Slice.Filter</span> (which is faceted predicate) — Search ranks matches and narrows to the chosen row. Compact form lives in the right zone of a Slice.Frame eyebrow; focused form is the open dropdown with results.</p>
+
+      <div class="density-pair">
+        <div class="density">
+          <div class="density-head">Compact · closed input</div>
+          <div class="density-note">One row in the eyebrow's right zone. Magnifier glyph + placeholder + <span class="mono">/</span> kbd hint. Click or <span class="mono">/</span> opens the focused dropdown anchored below.</div>
+          <span class="search" style="width: auto;">
+            <i class="fa-solid fa-magnifying-glass" style="font-size: 10px; color: var(--ink-4);"></i>
+            <span style="color: var(--ink-4); flex: 1;">Search events…</span>
+            <span style="padding: 1px 5px; background: var(--paper-2); border: 1px solid var(--rule); border-radius: 2px; font-size: 9px; color: var(--ink-4); font-weight: 600;">/</span>
+          </span>
+        </div>
+        <div class="density">
+          <div class="density-head">Focused · open dropdown</div>
+          <div class="density-note">Active input + ranked matches. Up to 8 matches inline; past the cap a footer reads "Showing 8 of N. Refine your query." Selecting a row commits via <span class="mono">slice.select</span>.</div>
+          <div class="frame" style="margin: 0;">
+            <div style="padding: 10px 14px; border-bottom: 1px solid var(--rule);">
+              <div style="display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--brand-d); border-radius: 4px; background: var(--paper);">
+                <i class="fa-solid fa-magnifying-glass" style="font-size: 10px; color: var(--brand-d);"></i>
+                <span style="font-family: var(--font-body); font-size: 13px; color: var(--ink);">SKU-00<span style="background: var(--brand-tint); color: var(--brand-dd);">1</span><span style="color: var(--brand-d);">▌</span></span>
+              </div>
+            </div>
+            <div>
+              <div class="cap-eyebrow muted" style="padding: 8px 14px;">4 matches</div>
+              <div style="display: grid; grid-template-columns: 110px 1fr auto; gap: 12px; align-items: baseline; padding: 8px 14px; border-top: 1px solid var(--rule); background: var(--brand-tint);">
+                <span class="mono" style="font-weight: 600; font-size: 11px;"><span style="background: rgba(72,142,151,0.18); padding: 1px 3px; border-radius: 2px;">SKU-001</span></span>
+                <span style="font-size: 12px; color: var(--ink);">Industrial fan</span>
+                <span class="cap-eyebrow muted">demand-spike</span>
+              </div>
+              <div style="display: grid; grid-template-columns: 110px 1fr auto; gap: 12px; align-items: baseline; padding: 8px 14px; border-top: 1px solid var(--rule);">
+                <span class="mono" style="font-size: 11px;">SKU-00<span style="background: rgba(72,142,151,0.18); padding: 1px 3px; border-radius: 2px;">1</span>2</span>
+                <span style="font-size: 12px; color: var(--ink-3);">Switching unit</span>
+                <span class="cap-eyebrow muted">09-12</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pattern-footer">
+        <p class="spec-note">
+          <span class="k">Overflow:</span> cap <span class="mono">8 matches</span>. Past cap, a single footer row reads "Showing 8 of N. Refine your query." — no scroll. Relevance ranking is host-controlled.
+          <span class="k">Compact ↔ focused:</span> the focused dropdown is anchored to the compact input as a <span class="mono">Slice.Edit</span>-shaped popover. Esc / click-outside / commit dismisses. The dropdown's foot omits "Save as cohort" — search is a navigation affordance, not a filter.
+        </p>
+      </div>
+    </article>
+
+    <!-- ============================================
+         Slice.Range — single density (no compact/focused split)
+         ============================================ -->
+    <article id="slice-range" class="pattern">
+      <div class="pattern-head">
+        <span class="pattern-name">Slice<span class="ns">.</span>Range</span>
+      </div>
+      <p class="pattern-blurb">Time-range picker with preset chips and an optional compare window. <strong>Single density</strong> — Range is always a single pill in the Header (or focused use); the preset list opens in a Slice.Edit popover. There is no separate "compact" drawing.</p>
+
+      <div class="frame">
+        <div class="eyebrow-row">
+          <span class="lbl">Pill · click to open picker</span>
+          <span class="meta muted">Header / Scope use · always one pill</span>
+        </div>
+        <div class="pad-18" style="display: flex; align-items: center; gap: 12px;">
+          <span style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border: 1px solid var(--rule-strong); border-radius: 4px; background: var(--paper); font-family: var(--font-mono); font-size: 11px; color: var(--ink); font-weight: 600;">
+            <i class="fa-solid fa-calendar" style="font-size: 10px; color: var(--ink-4);"></i>
+            <span>Aug 14 → Sep 13</span>
+            <span style="color: var(--ink-4); font-weight: 500; margin-left: 4px;">30d</span>
+            <i class="fa-solid fa-chevron-down" style="font-size: 8px; color: var(--ink-4); margin-left: 4px;"></i>
+          </span>
+          <span class="muted" style="font-family: var(--font-mono); font-size: 11px;">compare: <span style="color: var(--ink);">prev 30d</span></span>
+        </div>
+        <hr class="rule" />
+        <div class="pad-18">
+          <div class="cap-eyebrow muted" style="margin-bottom: 6px;">Picker · opens as a Slice.Edit popover</div>
+          <div class="row gap-2" style="flex-wrap: wrap;">
+            <span class="chip">Today</span>
+            <span class="chip">7d</span>
+            <span class="chip brand">30d</span>
+            <span class="chip">90d</span>
+            <span class="chip">YTD</span>
+            <span class="chip dashed">Custom…</span>
+          </div>
+          <div class="cap-eyebrow muted" style="margin-top: 10px;">Compare with</div>
+          <div class="row gap-2" style="flex-wrap: wrap; margin-top: 6px;">
+            <span class="chip"><span class="muted">— none</span></span>
+            <span class="chip brand">Previous 30d <span class="x">×</span></span>
+            <span class="chip">Previous year</span>
+          </div>
+          <div class="cap-eyebrow muted" style="margin-top: 10px;">Resolves to <span class="num" style="color: var(--ink);">Jul 15 – Aug 13, 2025</span></div>
+        </div>
+      </div>
+
+      <div class="pattern-footer">
+        <p class="spec-note">
+          <span class="k">No compact density.</span> Range is one pill at every size. The picker contents live inside a Slice.Edit popover anchored to the pill.
+          <span class="k">Overflow:</span> n/a — preset list is fixed (7 entries). Custom range is a date input pair inside the popover.
+        </p>
+      </div>
+    </article>
+
+    <!-- ============================================
+         Slice.Breakdown — compact + focused
+         ============================================ -->
+    <article id="slice-breakdown" class="pattern">
+      <div class="pattern-head">
+        <span class="pattern-name">Slice<span class="ns">.</span>Breakdown</span>
+      </div>
+      <p class="pattern-blurb">Split a metric by a dimension — "break down events by country / utm_source / plan_tier". Produces N series from one. Compact form goes in a Chart frame's eyebrow as "Split by: …"; focused form is the dimensions + resulting-series + roll-up surface.</p>
+
+      <div class="density-pair">
+        <div class="density">
+          <div class="density-head">Compact · in a chart-frame eyebrow</div>
+          <div class="density-note">"Split by" label + active dimension chips + add-chip. Editing a chip opens Slice.Edit; <span class="mono">+ dimension</span> opens the field picker.</div>
+          <div class="compact-eyebrow" style="grid-template-columns: 1fr;">
+            <div class="filters">
+              <span style="font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-3); margin-right: 4px;">Split by</span>
+              <span class="filter-chip"><span class="field">country</span><i class="fa-solid fa-xmark" style="font-size: 9px; margin-left: 3px;"></i></span>
+              <span class="filter-chip"><span class="field">device</span><i class="fa-solid fa-xmark" style="font-size: 9px; margin-left: 3px;"></i></span>
+              <span class="add-chip"><i class="fa-solid fa-plus" style="font-size: 9px;"></i><span>dimension</span></span>
+            </div>
+          </div>
+        </div>
+        <div class="density">
+          <div class="density-head">Focused · standalone</div>
+          <div class="density-note">Full DIMENSIONS + RESULTING SERIES + ROLL-UP. Used as a Configure surface, not on top of a chart.</div>
+          <div class="frame" style="margin: 0;">
+            <div class="pad-18">
+              <div class="cap-eyebrow muted" style="margin-bottom: 6px;">Dimensions</div>
+              <div class="row gap-2" style="flex-wrap: wrap;">
+                <span class="chip brand">country <span class="x">×</span></span>
+                <span class="chip">utm_source</span>
+                <span class="chip">plan_tier</span>
+                <span class="chip dashed">+ add</span>
+              </div>
+            </div>
+            <hr class="rule" />
+            <div class="pad-18">
+              <div class="cap-eyebrow muted" style="margin-bottom: 6px;">Resulting series · top 5 of 7</div>
+              <div class="row gap-3" style="flex-wrap: wrap;">
+                <span class="chip"><span class="dot brand"></span>US <span class="num muted">4,128</span></span>
+                <span class="chip"><span class="dot ok"></span>UK <span class="num muted">2,712</span></span>
+                <span class="chip"><span class="dot warn"></span>DE <span class="num muted">1,840</span></span>
+                <span class="chip dashed"><span class="muted">+ 4 more</span></span>
+              </div>
+            </div>
+            <div class="diff-meta-row">
+              <span class="cap-eyebrow">Roll-up</span>
+              <span style="margin-left: 8px; font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-3);">top-N · group rest into "other"</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pattern-footer">
+        <p class="spec-note">
+          <span class="k">Overflow:</span> hard cap <span class="mono">3 dimensions</span>. No <span class="mono">+M more</span> collapse — the renderer rejects more with a warning. Past three dims, the chart can't render legibly.
+          <span class="k">Resulting series</span> live in <span class="mono">Slice.Legend</span>, not here. Breakdown authors which series exist; Legend renders them.
+        </p>
+      </div>
+    </article>
+
+    <!-- ============================================
+         Slice.Cohort — compact + focused (focused = Slice.Edit)
+         ============================================ -->
+    <article id="slice-cohort" class="pattern">
+      <div class="pattern-head">
+        <span class="pattern-name">Slice<span class="ns">.</span>Cohort</span>
+      </div>
+      <p class="pattern-blurb">Saved-segment pill. The compact form is the only thing that appears inline — a single brand-tinted pill in the Header (Scope.Cohort role) or the eyebrow. The focused form — predicate editor with clauses + Apply/Remove — lives <strong>entirely inside Slice.Edit</strong>, never inline. This is the headline shift: cohort edits no longer push the body down.</p>
+
+      <div class="density-pair">
+        <div class="density">
+          <div class="density-head">Compact · pill in Header / eyebrow</div>
+          <div class="density-note">One pill with the cohort name + the resolved count. Click opens Slice.Edit. Sidebar lists saved cohorts as a separate concern.</div>
+          <span class="cohort-pill" style="align-self: flex-start;">
+            <i class="fa-solid fa-users" style="font-size: 10px;"></i>
+            Power users
+            <span class="count">· 2,418</span>
+            <i class="fa-solid fa-pen" style="font-size: 9px; margin-left: 4px; opacity: 0.7;"></i>
+          </span>
+        </div>
+        <div class="density">
+          <div class="density-head">Focused · inside Slice.Edit (never inline)</div>
+          <div class="density-note">The predicate editor lives in the popover. Same anatomy as the Slice.Edit example above. The cohort article does not draw an inline editor — that would re-flow the body.</div>
+          <div style="padding: 10px 12px; background: var(--paper-2); border: 1px dashed var(--rule-strong); border-radius: 3px; font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-3); line-height: 1.5;">
+            See <a class="btn-link" href="#slice-edit" style="color: var(--brand-d);">Slice.Edit · cohort edit</a> for the editor anatomy. The focused state is <em>never</em> inline; opening it never resizes the parent.
+          </div>
+        </div>
+      </div>
+
+      <div class="pattern-footer">
+        <p class="spec-note">
+          <span class="k">Overflow:</span> 1 cohort active per surface. Saved cohorts list lives in the Sidebar (see <a class="btn-link" href="./index.html#brand-system">Sidebar recipe</a>) — vertical, scrolls in its own region, never collapsed.
+          <span class="k">Editing:</span> always in <span class="mono">Slice.Edit</span>. Inline predicate editors are forbidden — they shove the body and break the no-resize rule.
+        </p>
+      </div>
+    </article>
+
+    <!-- ============================================
+         Slice.Legend — single density (inline only)
+         ============================================ -->
+    <article id="slice-legend" class="pattern">
+      <div class="pattern-head">
+        <span class="pattern-name">Slice<span class="ns">.</span>Legend</span>
+      </div>
+      <p class="pattern-blurb">Inline rail of swatch + label + value + visibility toggle for a chart. <strong>Single density</strong> — Legend is always a horizontal row beneath its chart; it has no compact pill form. Overflow aggregates excess series into a single "Others" line.</p>
+
+      <div class="frame pad-18">
+        <div style="display: flex; gap: 16px; flex-wrap: wrap; font-family: var(--font-mono); font-size: 10.5px;">
+          <span style="display: inline-flex; align-items: center; gap: 6px; color: var(--ink);"><span style="width: 14px; height: 3px; background: var(--brand-d); border-radius: 1px;"></span><span style="font-weight: 600;">enterprise</span><span style="color: var(--ink-4); font-weight: 500;">42.1%</span><i class="fa-solid fa-eye" style="font-size: 9px; color: var(--brand-d);"></i></span>
+          <span style="display: inline-flex; align-items: center; gap: 6px; color: var(--ink);"><span style="width: 14px; height: 3px; background: #2b4b55; border-radius: 1px;"></span><span style="font-weight: 600;">pro</span><span style="color: var(--ink-4); font-weight: 500;">28.4%</span><i class="fa-solid fa-eye" style="font-size: 9px; color: var(--brand-d);"></i></span>
+          <span style="display: inline-flex; align-items: center; gap: 6px; color: var(--ink);"><span style="width: 14px; height: 3px; background: #5ce5e5; border-radius: 1px;"></span><span style="font-weight: 600;">growth</span><span style="color: var(--ink-4); font-weight: 500;">14.8%</span><i class="fa-solid fa-eye" style="font-size: 9px; color: var(--brand-d);"></i></span>
+          <span style="display: inline-flex; align-items: center; gap: 6px; color: var(--ink);"><span style="width: 14px; height: 3px; background: #3a7780; border-radius: 1px;"></span><span style="font-weight: 600;">team</span><span style="color: var(--ink-4); font-weight: 500;">6.3%</span><i class="fa-solid fa-eye" style="font-size: 9px; color: var(--brand-d);"></i></span>
+          <span style="display: inline-flex; align-items: center; gap: 6px; color: var(--ink);"><span style="width: 14px; height: 3px; background: #94f9f9; border-radius: 1px;"></span><span style="font-weight: 600;">solo</span><span style="color: var(--ink-4); font-weight: 500;">3.2%</span><i class="fa-solid fa-eye" style="font-size: 9px; color: var(--brand-d);"></i></span>
+          <span style="display: inline-flex; align-items: center; gap: 6px; color: var(--ink);"><span style="width: 14px; height: 3px; background: #79f8f8; border-radius: 1px;"></span><span style="font-weight: 600;">trial</span><span style="color: var(--ink-4); font-weight: 500;">1.6%</span><i class="fa-solid fa-eye" style="font-size: 9px; color: var(--brand-d);"></i></span>
+          <span style="display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); padding: 2px 8px; border: 1px dashed var(--rule-strong); border-radius: 9999px;">
+            <span style="width: 14px; height: 0; border-top: 2px dashed var(--ink-4); border-radius: 1px;"></span>
+            <span style="font-weight: 700;">Others</span>
+            <span style="color: var(--ink-4); font-weight: 500;">3.6% · 44 series</span>
+            <i class="fa-solid fa-chevron-down" style="font-size: 8px; color: var(--ink-4); margin-left: 2px;"></i>
+          </span>
+        </div>
+      </div>
+
+      <div class="pattern-footer">
+        <p class="spec-note">
+          <span class="k">Overflow:</span> cap <span class="mono">6 series</span> inline. Series 7+ collapse into one <strong>"Others"</strong> entry — and the chart aggregates those series into one dashed <span class="mono">ink-4</span> line. Click <span class="mono">Others</span> to expand the legend; the chart un-aggregates. This is the <em>only</em> Slice.* that aggregates data on overflow.
+          <span class="k">No compact density.</span> Legend is always inline beneath the chart it labels. The body wrapping rule applies — legend rows may wrap to multiple lines when narrow.
+        </p>
+      </div>
+    </article>
+
+    <!-- ============================================
+         Slice.Summary — recipe
+         ============================================ -->
+    <article id="slice-summary" class="pattern">
+      <div class="pattern-head">
+        <span class="pattern-name">Slice<span class="ns">.</span>Summary</span>
+        <span class="pattern-recipe">Recipe</span>
+      </div>
+      <p class="pattern-blurb">A one-line recipe composing the slice's active narrowings into a single inline summary. Used as a footer in a Slice.Frame, or as page-context in a Header. Not a primitive — a composition of count + filter chips + clear-all link.</p>
+      <div class="frame pad-18">
+        <span class="num" style="font-weight: 600;">1,284</span> results
+        <span class="muted"> · </span>
+        <span class="num">3</span> filters
+        <span class="muted"> · </span>
+        <a class="btn-link" href="#">clear all</a>
+      </div>
+    </article>
+
+  </section>
+
+  </main>
+</div>
+
+</body>
+</html>

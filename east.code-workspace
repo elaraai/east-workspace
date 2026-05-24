@@ -1,0 +1,117 @@
+{
+	"folders": [
+		{
+			"name": "east",
+			"path": "libs/east"
+		},
+		{
+			"name": "east-node",
+			"path": "libs/east-node"
+		},
+		{
+			"name": "east-c",
+			"path": "libs/east-c"
+		},
+		{
+			"name": "east-py",
+			"path": "libs/east-py"
+		},
+		{
+			"name": "e3",
+			"path": "libs/e3"
+		},
+		{
+			"name": "east-ui",
+			"path": "libs/east-ui"
+		},
+		{
+			"name": "east-claude-plugin",
+			"path": "libs/east-claude-plugin"
+		}
+	],
+	"tasks": {
+		"version": "2.0.0",
+		"tasks": [
+			{
+				"label": "build all",
+				"type": "shell",
+				"command": "make build",
+				"options": {
+					"cwd": "${workspaceFolder:root}"
+				},
+				"group": "build",
+				"problemMatcher": []
+			},
+			{
+				"label": "test all",
+				"type": "shell",
+				"command": "make test",
+				"options": {
+					"cwd": "${workspaceFolder:root}"
+				},
+				"group": "test",
+				"problemMatcher": []
+			},
+			{
+				"label": "east: make build",
+				"type": "shell",
+				"command": "make build",
+				"options": {
+					"cwd": "${workspaceFolder:east}"
+				},
+				"group": "build",
+				"problemMatcher": []
+			},
+			{
+				"label": "east-node: make build",
+				"type": "shell",
+				"command": "make build",
+				"options": {
+					"cwd": "${workspaceFolder:east-node}"
+				},
+				"group": "build",
+				"problemMatcher": []
+			},
+			{
+				"label": "east-c: make build",
+				"type": "shell",
+				"command": "make build",
+				"options": {
+					"cwd": "${workspaceFolder:east-c}"
+				},
+				"group": "build",
+				"problemMatcher": []
+			},
+			{
+				"label": "east-py: make build",
+				"type": "shell",
+				"command": "make build",
+				"options": {
+					"cwd": "${workspaceFolder:east-py}"
+				},
+				"group": "build",
+				"problemMatcher": []
+			},
+			{
+				"label": "e3: make build",
+				"type": "shell",
+				"command": "make build",
+				"options": {
+					"cwd": "${workspaceFolder:e3}"
+				},
+				"group": "build",
+				"problemMatcher": []
+			},
+			{
+				"label": "east-ui: make build",
+				"type": "shell",
+				"command": "make build",
+				"options": {
+					"cwd": "${workspaceFolder:east-ui}"
+				},
+				"group": "build",
+				"problemMatcher": []
+			}
+		]
+	}
+}

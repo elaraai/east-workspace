@@ -1,0 +1,28 @@
+{
+  "name": "e3-integration-tests",
+  "version": "0.0.2-beta.46",
+  "license": "BUSL-1.1",
+  "private": true,
+  "type": "module",
+  "description": "Integration tests for e3 - tests CLI and runner together",
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && node --enable-source-maps --test-reporter=spec --test-concurrency=1 --test 'dist/**/*.spec.js'",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@elaraai/e3": "workspace:*",
+    "@elaraai/e3-api-client": "workspace:*",
+    "@elaraai/e3-api-server": "workspace:*",
+    "@elaraai/e3-api-tests": "workspace:*",
+    "@elaraai/e3-cli": "workspace:*",
+    "@elaraai/e3-core": "workspace:*",
+    "@elaraai/e3-types": "workspace:*",
+    "@elaraai/east": "workspace:*",
+    "@elaraai/east-node-std": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}

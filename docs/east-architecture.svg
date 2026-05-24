@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  East — decision-platform placemat. Editorial infographic (not an app mock):
+  grouping uses a few zone-frames + one dark "model" band, never a card per item.
+  Visual language follows libs/east-ui/design (colors_and_type.css + spec.css):
+    type   DM Sans (display) · Inter Tight (body) · JetBrains Mono (eyebrow/label)
+    ink    #111b22 .. #9bb0b0   paper #fff/#f8fafa/#f1f5f5
+    brand  teal #488e97/#3a7780/#2b4b55, used sparingly as accent; brand-tint #e8f6f7
+  Two actors bracket the stack (business users consume, top · developers build, base).
+  THE DECISION  Observe -> Decide -> Configure -> Trust
+  THE PLATFORM  Access (web app + agent) · The model (economic ontology) · Engine · Runtimes
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="1441.5" viewBox="0 0 1000 961" font-family="'Inter Tight', system-ui, sans-serif">
+  <defs>
+    <style>
+      .eyebrow { font-family:'JetBrains Mono', ui-monospace, monospace; font-size:11px; font-weight:600; letter-spacing:0.18em; }
+      .label   { font-family:'JetBrains Mono', ui-monospace, monospace; font-size:11px; font-weight:500; letter-spacing:0.1em; }
+      .pkg     { font-family:'JetBrains Mono', ui-monospace, monospace; font-size:11px; font-weight:500; letter-spacing:0.04em; fill:#3a7780; }
+      .display { font-family:'DM Sans', system-ui, sans-serif; font-weight:700; letter-spacing:-0.015em; }
+      .h       { font-family:'DM Sans', system-ui, sans-serif; font-size:17px; font-weight:600; letter-spacing:-0.01em; fill:#111b22; }
+      .b       { font-size:12.5px; fill:#4a5f5f; }
+      .bw      { font-size:11.5px; fill:#7d9a98; }
+      .step    { font-family:'JetBrains Mono', ui-monospace, monospace; font-size:11px; font-weight:600; fill:#9bb0b0; letter-spacing:0.06em; }
+    </style>
+    <marker id="chev" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M1,1 L6,5 L1,9" fill="none" stroke="#9bb0b0" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1000" height="961" fill="#ffffff"/>
+
+  <!-- ===== Masthead ===== -->
+  <text x="56" y="46" class="eyebrow" fill="#3a7780">ELARA · A DECISION PLATFORM</text>
+  <text x="56" y="78" class="display" font-size="27" fill="#111b22">Better business decisions, end to end.</text>
+  <text x="56" y="100" class="b" font-size="13.5">The evidence to apply judgement to — and the platform engineers build it on.</text>
+  <line x1="56" y1="120" x2="944" y2="120" stroke="#e2e8e8" stroke-width="1"/>
+
+  <!-- ===== Actor: business users ===== -->
+  <rect x="56" y="136" width="888" height="38" rx="8" fill="#e8f6f7"/>
+  <text x="80" y="160" class="label" fill="#2b4b55">BUSINESS USERS</text>
+  <text x="214" y="160" class="b" fill="#2b4b55">Front-line teams &amp; decision-makers — they observe, decide, and ask in plain language.</text>
+
+  <!-- ===== 1 · THE DECISION ===== -->
+  <text x="56" y="204" class="eyebrow" fill="#3a7780">THE DECISION</text>
+  <text x="172" y="204" class="label" fill="#9bb0b0">what you do</text>
+  <rect x="56" y="216" width="888" height="126" rx="12" fill="#ffffff" stroke="#e2e8e8"/>
+  <g>
+    <text x="80" y="246" class="step">01</text>
+    <text x="80" y="272" class="h">Observe</text>
+    <text x="80" y="294" class="b">See the current state —</text>
+    <text x="80" y="311" class="b">the evidence, not charts.</text>
+
+    <text x="296" y="246" class="step">02</text>
+    <text x="296" y="272" class="h">Decide</text>
+    <text x="296" y="294" class="b">Weigh options, reasoning,</text>
+    <text x="296" y="311" class="b">and stakes — override always.</text>
+
+    <text x="512" y="246" class="step">03</text>
+    <text x="512" y="272" class="h">Configure</text>
+    <text x="512" y="294" class="b">Tune the objectives, policies,</text>
+    <text x="512" y="311" class="b">and assumptions behind it.</text>
+
+    <text x="728" y="246" class="step" fill="#3a7780">04</text>
+    <text x="728" y="272" class="h">Trust</text>
+    <line x1="728" y1="282" x2="772" y2="282" stroke="#488e97" stroke-width="1.5"/>
+    <text x="728" y="294" class="b">Journal &amp; audit trail —</text>
+    <text x="728" y="311" class="b">provenance on every output.</text>
+
+    <line x1="266" y1="268" x2="280" y2="268" stroke="#9bb0b0" marker-end="url(#chev)"/>
+    <line x1="482" y1="268" x2="496" y2="268" stroke="#9bb0b0" marker-end="url(#chev)"/>
+    <line x1="698" y1="268" x2="712" y2="268" stroke="#9bb0b0" marker-end="url(#chev)"/>
+  </g>
+
+  <!-- ===== 2 · THE PLATFORM ===== -->
+  <text x="56" y="370" class="eyebrow" fill="#3a7780">THE PLATFORM</text>
+  <text x="172" y="370" class="label" fill="#9bb0b0">what engineers and agents build</text>
+  <rect x="56" y="382" width="888" height="509" rx="12" fill="#f8fafa" stroke="#e2e8e8"/>
+
+  <!-- ACCESS row: render a UI · ask an agent · serve an API -->
+  <text x="80" y="412" class="label" fill="#6b8080">ACCESS</text>
+  <g>
+    <text x="80" y="434" class="h">Render</text>
+    <text x="80" y="454" class="b">Typed components — tables, charts,</text>
+    <text x="80" y="470" class="b">forms, Gantt — reactive, wired to</text>
+    <text x="80" y="486" class="b">live data; provenance built in.</text>
+    <text x="80" y="507" class="pkg">east-ui · e3-ui</text>
+
+    <line x1="346" y1="418" x2="346" y2="507" stroke="#e2e8e8" stroke-width="1"/>
+    <text x="372" y="434" class="h">Ask</text>
+    <text x="372" y="454" class="b">Ask in plain language; the agent</text>
+    <text x="372" y="470" class="b">runs the right functions and</text>
+    <text x="372" y="486" class="b">answers with cited evidence.</text>
+    <text x="372" y="507" class="pkg">e3-agent</text>
+
+    <line x1="638" y1="418" x2="638" y2="507" stroke="#e2e8e8" stroke-width="1"/>
+    <text x="664" y="434" class="h">Serve</text>
+    <text x="664" y="454" class="b">A typed REST API — drive runs,</text>
+    <text x="664" y="470" class="b">read datasets, and integrate</text>
+    <text x="664" y="486" class="b">remote clients &amp; services.</text>
+    <text x="664" y="507" class="pkg">e3-api-server · e3-api-client</text>
+  </g>
+
+  <!-- THE MODEL: the hub. Header stacked on the left; entities as nodes on the
+       right, with the relationship verbs beneath them. -->
+  <rect x="80" y="523" width="840" height="132" rx="10" fill="#111b22"/>
+  <!-- left: stacked header -->
+  <text x="104" y="549" class="eyebrow" fill="#5fb6ac">THE MODEL</text>
+  <text x="104" y="575" class="display" font-size="18" fill="#ffffff">Economic ontology</text>
+  <text x="104" y="595" class="bw">the typed model of</text>
+  <text x="104" y="611" class="bw">the business</text>
+  <line x1="372" y1="541" x2="372" y2="637" stroke="#2b4b55" stroke-width="1"/>
+  <!-- right: entity nodes — .chip atom (body font, 4px radius, faint tint) -->
+  <g font-family="'Inter Tight', system-ui, sans-serif" font-size="12" font-weight="500" fill="#c2fcfc">
+    <rect x="404" y="547" width="80" height="24" rx="4" fill="rgba(95,182,172,0.10)" stroke="#3a7780"/>
+    <text x="444" y="563" text-anchor="middle">Objectives</text>
+    <rect x="494" y="547" width="74" height="24" rx="4" fill="rgba(95,182,172,0.10)" stroke="#3a7780"/>
+    <text x="531" y="563" text-anchor="middle">Processes</text>
+    <rect x="578" y="547" width="74" height="24" rx="4" fill="rgba(95,182,172,0.10)" stroke="#3a7780"/>
+    <text x="615" y="563" text-anchor="middle">Resources</text>
+    <rect x="662" y="547" width="44" height="24" rx="4" fill="rgba(95,182,172,0.10)" stroke="#3a7780"/>
+    <text x="684" y="563" text-anchor="middle">Data</text>
+
+    <rect x="404" y="581" width="74" height="24" rx="4" fill="rgba(95,182,172,0.10)" stroke="#3a7780"/>
+    <text x="441" y="597" text-anchor="middle">Decisions</text>
+    <rect x="488" y="581" width="44" height="24" rx="4" fill="rgba(95,182,172,0.10)" stroke="#3a7780"/>
+    <text x="510" y="597" text-anchor="middle">KPIs</text>
+    <rect x="542" y="581" width="68" height="24" rx="4" fill="rgba(95,182,172,0.10)" stroke="#3a7780"/>
+    <text x="576" y="597" text-anchor="middle">Policies</text>
+  </g>
+  <!-- right: relationship verbs (the edges) -->
+  <text x="404" y="633" class="label" fill="#5fb6ac">RELATED BY</text>
+  <text x="496" y="633" class="bw">drives · produces · constrains · measures · simulates</text>
+
+  <!-- ENGINE row: interact (primitives) -> integrate -> reason -> compute. All East libraries. -->
+  <text x="80" y="685" class="label" fill="#6b8080">ENGINE</text>
+  <g>
+    <text x="80" y="709" class="h">Interact</text>
+    <text x="80" y="731" class="b">HTTP, files, time, crypto,</text>
+    <text x="80" y="748" class="b">random — on every runtime.</text>
+    <text x="80" y="769" class="pkg">east-node/py/c-std</text>
+
+    <line x1="276" y1="693" x2="276" y2="769" stroke="#e2e8e8" stroke-width="1"/>
+    <text x="296" y="709" class="h">Integrate</text>
+    <text x="296" y="731" class="b">Pull the real world in:</text>
+    <text x="296" y="748" class="b">SQL, NoSQL, S3, files.</text>
+    <text x="296" y="769" class="pkg">east-node-io · east-py-io</text>
+
+    <line x1="492" y1="693" x2="492" y2="769" stroke="#e2e8e8" stroke-width="1"/>
+    <text x="512" y="709" class="h">Reason</text>
+    <text x="512" y="731" class="b">Optimization, ML,</text>
+    <text x="512" y="748" class="b">Bayesian, simulation.</text>
+    <text x="512" y="769" class="pkg">east-py-datascience</text>
+
+    <line x1="708" y1="693" x2="708" y2="769" stroke="#e2e8e8" stroke-width="1"/>
+    <text x="728" y="709" class="h">Compute</text>
+    <text x="728" y="731" class="b">Run it durably and</text>
+    <text x="728" y="748" class="b">reproducibly.</text>
+    <text x="728" y="769" class="pkg">e3 · the execution engine</text>
+  </g>
+
+  <!-- EAST: the substrate the model &amp; engine stand on — the foundation, at
+       the base. Left = "no new language"; right = the portable-IR story. -->
+  <rect x="80" y="785" width="840" height="90" rx="10" fill="#e8f6f7" stroke="#cfe6e6"/>
+  <text x="104" y="809" class="eyebrow" fill="#3a7780">PORTABLE BY DEFAULT</text>
+  <text x="104" y="841" class="display" font-size="22" fill="#111b22">East</text>
+  <text x="104" y="860" class="b" fill="#2b4b55">no new language to learn</text>
+  <line x1="300" y1="797" x2="300" y2="855" stroke="#bcdedd" stroke-width="1"/>
+  <text x="328" y="817" class="b" fill="#2b4b55">Write typed TypeScript — it compiles to one portable IR where every value <tspan font-weight="600">and function</tspan></text>
+  <text x="328" y="837" class="b" fill="#2b4b55">serializes, so logic and data move between runtimes unchanged. One model, every runtime:</text>
+  <text x="328" y="861" class="pkg" font-size="12">TypeScript (east) · Python (east-py) · native C (east-c)</text>
+
+  <!-- ===== Actor: developers ===== -->
+  <rect x="56" y="907" width="888" height="38" rx="8" fill="#e8f6f7"/>
+  <text x="80" y="931" class="label" fill="#2b4b55">DEVELOPERS · CODING AGENTS</text>
+  <text x="300" y="931" class="b" fill="#2b4b55">build &amp; evolve it —
+    <tspan class="pkg" font-size="12">e3-cli · east-diagnostics · east-claude-plugin</tspan>
+  </text>
+</svg>

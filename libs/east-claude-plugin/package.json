@@ -1,0 +1,27 @@
+{
+  "name": "@elaraai/east-claude-plugin",
+  "version": "0.0.1",
+  "license": "AGPL-3.0-or-later",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "bundle": "esbuild hooks/prompt-submit.ts hooks/session-start.ts hooks/subagent-start.ts hooks/pre-agent.ts hooks/pre-write.ts hooks/diagnose.ts daemon/server.ts status/report.ts mcp/server.ts --bundle --format=esm --platform=node --outdir=.build --external:typescript",
+    "generate-index": "npm run build && node dist/scripts/generate-index.js --base-dir ..",
+    "test": "npm run build && npm run bundle && node --enable-source-maps --test-reporter=spec --test 'dist/test/**/*.spec.js'"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "@elaraai/east-diagnostics": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "minisearch": "^7.1.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.1",
+    "esbuild": "^0.27.3",
+    "typescript": "~5.9.2",
+    "zod": "^3.0.0"
+  }
+}

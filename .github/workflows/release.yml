@@ -1,0 +1,545 @@
+name: Release
+
+# Unified release for the entire monorepo.
+# All @elaraai/* npm packages, all 5 east-py PyPI packages, the VSCode extension,
+# and the native east-c binaries ship under one root-package.json version.
+#
+# VS Marketplace doesn't accept semver pre-release labels (e.g. 1.0.0-beta.0),
+# so for `pre*` release_types the VSIX gets a plain patch bump on its own track
+# and is published with --pre-release. See scripts/set-vsix-version.mjs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: "Release type (ignored if force_version is set)"
+        required: true
+        default: "prerelease"
+        type: choice
+        options:
+          - prerelease
+          - prepatch
+          - preminor
+          - premajor
+          - patch
+          - minor
+          - major
+      force_version:
+        description: "Retry mode: publish exactly this version (e.g. 1.0.0-beta.5). Required if any skip_* is set."
+        required: false
+        default: ""
+        type: string
+      dry_run:
+        description: "Dry run (build everything, skip all publishes + tag/push)"
+        required: false
+        default: true
+        type: boolean
+      skip_npm:
+        description: "Skip npm publish (retry: requires force_version)"
+        required: false
+        default: false
+        type: boolean
+      skip_vsix:
+        description: "Skip VSCode extension publish (retry: requires force_version)"
+        required: false
+        default: false
+        type: boolean
+      skip_pypi:
+        description: "Skip PyPI publish (retry: requires force_version)"
+        required: false
+        default: false
+        type: boolean
+      skip_c_native:
+        description: "Skip native C binary build + release-asset attach (retry: requires force_version)"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────
+  # 1. prepare: bump root version, propagate to all manifests, upload as artifact.
+  #    Downstream jobs download this artifact so every job sees identical manifests
+  #    without re-running the bump (which would be non-deterministic across jobs).
+  # ────────────────────────────────────────────────────────────────────────
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+      pep440: ${{ steps.bump.outputs.pep440 }}
+      vsix_version: ${{ steps.bump.outputs.vsix_version }}
+      npm_tag: ${{ steps.bump.outputs.npm_tag }}
+      is_prerelease: ${{ steps.bump.outputs.is_prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate inputs
+        run: |
+          FORCE="${{ inputs.force_version }}"
+          ANY_SKIP=false
+          if [[ "${{ inputs.skip_npm }}" == "true" || "${{ inputs.skip_vsix }}" == "true" || "${{ inputs.skip_pypi }}" == "true" || "${{ inputs.skip_c_native }}" == "true" ]]; then
+            ANY_SKIP=true
+          fi
+          if [[ "$ANY_SKIP" == "true" && -z "$FORCE" ]]; then
+            echo "::error::skip_* inputs require force_version to be set (otherwise manifests would drift from what was published)."
+            exit 1
+          fi
+          if [[ -n "$FORCE" && ! "$FORCE" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$ ]]; then
+            echo "::error::force_version '${FORCE}' is not a valid semver (X.Y.Z or X.Y.Z-{alpha,beta,rc}.N)."
+            exit 1
+          fi
+
+      - name: Preflight — VSCE PAT valid
+        if: ${{ !inputs.skip_vsix && !inputs.dry_run }}
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          if [[ -z "$VSCE_PAT" ]]; then
+            echo "::error::VSCE_PAT secret is empty. Set it in repo secrets or skip_vsix=true."
+            exit 1
+          fi
+          npx --yes @vscode/vsce@latest verify-pat ElaraAI
+
+      - name: Preflight — npm auth (OIDC reachable)
+        if: ${{ !inputs.skip_npm && !inputs.dry_run }}
+        run: |
+          # OIDC token exchange happens at publish time; nothing to verify here except
+          # that the registry is reachable. Catches DNS/network outages before wasting a build.
+          curl -sSf https://registry.npmjs.org/-/ping > /dev/null
+
+      - name: Preflight — PyPI registry reachable
+        if: ${{ !inputs.skip_pypi && !inputs.dry_run }}
+        run: |
+          curl -sSf https://upload.pypi.org/ > /dev/null || true
+          curl -sSf https://pypi.org/ > /dev/null
+
+      - name: Compute target version
+        id: bump
+        run: |
+          FORCE="${{ inputs.force_version }}"
+          if [[ -n "$FORCE" ]]; then
+            npm version "$FORCE" --no-git-tag-version --allow-same-version
+            NEW_VERSION="$FORCE"
+            echo "Retry mode: using force_version=${NEW_VERSION}"
+          elif [[ "${{ inputs.release_type }}" == pre* ]]; then
+            npm version "${{ inputs.release_type }}" --preid=beta --no-git-tag-version
+            NEW_VERSION=$(node -p "require('./package.json').version")
+          else
+            npm version "${{ inputs.release_type }}" --no-git-tag-version
+            NEW_VERSION=$(node -p "require('./package.json').version")
+          fi
+
+          if [[ "$NEW_VERSION" == *"-"* ]]; then
+            echo "npm_tag=beta" >> $GITHUB_OUTPUT
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "npm_tag=latest" >> $GITHUB_OUTPUT
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+          fi
+
+          echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+          make set-version VERSION="${NEW_VERSION}"
+          PEP440=$(node -e "import('./scripts/set-python-version.mjs').then(m => process.stdout.write(m.semverToPep440('${NEW_VERSION}')))")
+          echo "pep440=${PEP440}" >> $GITHUB_OUTPUT
+          echo "vsix_version=$(node -p "require('./libs/east-ui/packages/east-ui-extension/package.json').version")" >> $GITHUB_OUTPUT
+
+      - name: Upload bumped manifests
+        uses: actions/upload-artifact@v4
+        with:
+          name: version-bump
+          path: |
+            package.json
+            libs/**/package.json
+            libs/east-py/packages/*/pyproject.toml
+          retention-days: 7
+
+  # ────────────────────────────────────────────────────────────────────────
+  # 2. publish-npm: the public @elaraai/* packages via scripts/publish-npm.mjs.
+  # ────────────────────────────────────────────────────────────────────────
+  publish-npm:
+    needs: prepare
+    if: ${{ !inputs.skip_npm }}
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: version-bump }
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+          registry-url: "https://registry.npmjs.org"
+      - name: Install
+        run: pnpm install
+      - name: Upgrade npm for trusted publishing
+        run: npm install -g npm@latest
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+      - name: Build WASM
+        working-directory: libs/east-c
+        run: make wasm
+      - uses: astral-sh/setup-uv@v3
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+      - name: Install Python deps
+        working-directory: libs/east-py
+        run: uv sync --all-extras --all-packages
+      - name: Build east
+        working-directory: libs/east
+        run: make build
+      - name: Build east-node
+        working-directory: libs/east-node
+        run: make build
+      - name: Build e3
+        working-directory: libs/e3
+        run: make build
+      - name: Build east-ui
+        working-directory: libs/east-ui
+        run: make build
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+      - name: Lint east
+        working-directory: libs/east
+        run: make lint
+      - name: Lint east-node
+        working-directory: libs/east-node
+        run: make lint
+      - name: Lint east-py
+        working-directory: libs/east-py
+        run: make lint && make typecheck
+      - name: Lint e3
+        working-directory: libs/e3
+        run: make lint
+      - name: Lint east-ui
+        working-directory: libs/east-ui
+        run: make lint
+      - name: Start test services
+        run: docker compose -f docker/services/docker-compose.yml --profile services up -d --wait
+      - name: Test east
+        working-directory: libs/east
+        run: make test
+      - name: Test east-node
+        working-directory: libs/east-node
+        run: make test
+      - name: Link e3 CLI
+        working-directory: libs/e3
+        run: make link
+      - name: Install East runners
+        run: |
+          pnpm --filter=@elaraai/east-node-cli exec east-node --version || true
+          cd libs/east-py && make install-cli
+      - name: Test e3
+        working-directory: libs/e3
+        run: make test
+      - name: Test east-ui
+        working-directory: libs/east-ui
+        run: make test
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+      - name: Stop test services
+        if: always()
+        run: docker compose -f docker/services/docker-compose.yml --profile services down -v
+      - name: Publish (skip already-published)
+        run: |
+          node scripts/publish-npm.mjs \
+            "${{ needs.prepare.outputs.npm_tag }}" \
+            ${{ inputs.dry_run && '--dry-run' || '' }}
+
+  # ────────────────────────────────────────────────────────────────────────
+  # 3. publish-vsix: build + (optionally) publish the VSCode extension.
+  # ────────────────────────────────────────────────────────────────────────
+  publish-vsix:
+    needs: prepare
+    if: ${{ !inputs.skip_vsix }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: version-bump }
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+      - name: Install
+        run: pnpm install
+      - name: Build extension + webview
+        run: pnpm --filter=east-ui-preview --filter=east-ui-preview-webview run build
+      - name: Package VSIX
+        working-directory: libs/east-ui/packages/east-ui-extension
+        run: pnpm exec vsce package --no-dependencies
+      - name: Publish to VS Marketplace
+        if: ${{ !inputs.dry_run }}
+        working-directory: libs/east-ui/packages/east-ui-extension
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          pnpm exec vsce publish --no-dependencies --packagePath *.vsix \
+            ${{ needs.prepare.outputs.is_prerelease == 'true' && '--pre-release' || '' }} || {
+            ERR=$?
+            VSIX_VERSION="${{ needs.prepare.outputs.vsix_version }}"
+            if pnpm exec vsce show ElaraAI.east-ui --json 2>/dev/null \
+              | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); process.exit(d.versions?.some(v=>v.version==='${VSIX_VERSION}')?0:1)"; then
+              echo "Version ${VSIX_VERSION} already published, skipping."
+            else
+              exit $ERR
+            fi
+          }
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vsix
+          path: libs/east-ui/packages/east-ui-extension/*.vsix
+
+  # ────────────────────────────────────────────────────────────────────────
+  # 4a. publish-pypi-pure: pure-Python wheels (east-py-std, east-py-io,
+  #     east-py-cli) via uv build.
+  # ────────────────────────────────────────────────────────────────────────
+  publish-pypi-pure:
+    needs: prepare
+    if: ${{ !inputs.skip_pypi }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pkg: [east-py-std, east-py-io, east-py-cli]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: version-bump }
+      - uses: astral-sh/setup-uv@v3
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+      - name: Build sdist + wheel
+        working-directory: libs/east-py/packages/${{ matrix.pkg }}
+        # --out-dir dist: uv otherwise writes to the uv workspace root
+        # (libs/east-py/dist), where the upload step below wouldn't find it.
+        run: uv build --sdist --wheel --out-dir dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pypi-${{ matrix.pkg }}
+          path: libs/east-py/packages/${{ matrix.pkg }}/dist/*
+
+  # ────────────────────────────────────────────────────────────────────────
+  # 4b. publish-pypi-cython-wheels: cibuildwheel for the Cython packages
+  #     (east-py, east-py-datascience). Both link east-c and compile .pyx via
+  #     their scikit-build-core CMakeLists, so both need per-platform wheels.
+  # ────────────────────────────────────────────────────────────────────────
+  publish-pypi-cython-wheels:
+    needs: prepare
+    if: ${{ !inputs.skip_pypi }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-13, macos-14, windows-latest]
+        pkg:
+          - { name: east-py, dir: libs/east-py/packages/east-py }
+          - { name: east-py-datascience, dir: libs/east-py/packages/east-py-datascience }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: version-bump }
+      # On Linux cibuildwheel builds inside a manylinux container that only
+      # sees the package dir — stage east-c (+ east-py .pxd) into _vendor/ so
+      # the CMakeLists fallback finds them. macOS/Windows build natively in the
+      # full checkout, where the monorepo is already on disk.
+      - name: Vendor native deps
+        if: runner.os == 'Linux'
+        run: >-
+          python3 libs/east-py/scripts/vendor-native.py
+          --package ${{ matrix.pkg.dir }}
+          ${{ matrix.pkg.name == 'east-py-datascience' && '--with-east-py-pxd' || '' }}
+      - uses: pypa/cibuildwheel@v2
+        with:
+          package-dir: ${{ matrix.pkg.dir }}
+        env:
+          CIBW_BUILD: "cp311-* cp312-* cp313-*"
+          CIBW_SKIP: "*-musllinux_*"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pypi-${{ matrix.pkg.name }}-${{ matrix.os }}
+          path: ./wheelhouse/*.whl
+
+  # ────────────────────────────────────────────────────────────────────────
+  # 4c. publish-pypi-cython-sdist: sdists for the Cython packages
+  #     (east-py, east-py-datascience).
+  # ────────────────────────────────────────────────────────────────────────
+  publish-pypi-cython-sdist:
+    needs: prepare
+    if: ${{ !inputs.skip_pypi }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pkg:
+          - { name: east-py, dir: libs/east-py/packages/east-py }
+          - { name: east-py-datascience, dir: libs/east-py/packages/east-py-datascience }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: version-bump }
+      - uses: astral-sh/setup-uv@v3
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+      # Stage east-c (+ east-py .pxd) into _vendor/ so the sdist is
+      # self-contained and installable without the monorepo.
+      - name: Vendor native deps
+        run: >-
+          python3 libs/east-py/scripts/vendor-native.py
+          --package ${{ matrix.pkg.dir }}
+          ${{ matrix.pkg.name == 'east-py-datascience' && '--with-east-py-pxd' || '' }}
+      - name: Build sdist
+        working-directory: ${{ matrix.pkg.dir }}
+        # --out-dir dist: uv otherwise writes to the uv workspace root
+        # (libs/east-py/dist), where the upload step below wouldn't find it.
+        run: uv build --sdist --out-dir dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pypi-${{ matrix.pkg.name }}-sdist
+          path: ${{ matrix.pkg.dir }}/dist/*.tar.gz
+
+  # ────────────────────────────────────────────────────────────────────────
+  # 4d. publish-pypi-upload: gather all dists, upload via PyPI trusted publishing.
+  # ────────────────────────────────────────────────────────────────────────
+  publish-pypi-upload:
+    needs: [publish-pypi-pure, publish-pypi-cython-wheels, publish-pypi-cython-sdist]
+    if: ${{ !inputs.skip_pypi && !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist-staging
+          pattern: pypi-*
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist-staging
+          skip-existing: true
+
+  # ────────────────────────────────────────────────────────────────────────
+  # 5. publish-c-native: linux-x64 + linux-arm64 + macos-arm64 + macos-x64 binary tarballs.
+  # ────────────────────────────────────────────────────────────────────────
+  publish-c-native:
+    needs: prepare
+    if: ${{ !inputs.skip_c_native }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,    target: linux-x64   }
+          - { os: ubuntu-24.04-arm, target: linux-arm64 }
+          - { os: macos-latest,     target: macos-arm64 }
+          - { os: macos-13,         target: macos-x64   }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: version-bump }
+      - name: Install build deps (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
+      - name: Install build deps (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake || true
+      - name: Build
+        working-directory: libs/east-c
+        run: make build
+      - name: Stage tarball
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          TARGET="${{ matrix.target }}"
+          STAGE="east-c-${VERSION}-${TARGET}"
+          mkdir -p "$STAGE"/{bin,lib,include}
+          cp libs/east-c/build/packages/east-c-cli/east-c "$STAGE/bin/"
+          cp libs/east-c/build/packages/east-c/libeast-c.a "$STAGE/lib/" 2>/dev/null || true
+          cp libs/east-c/build/packages/east-c-std/libeast-c-std.a "$STAGE/lib/" 2>/dev/null || true
+          cp -r libs/east-c/packages/east-c/include/east "$STAGE/include/"
+          cp libs/east-c/LICENSE "$STAGE/" 2>/dev/null || cp LICENSE "$STAGE/" 2>/dev/null || true
+          cp libs/east-c/README.md "$STAGE/" 2>/dev/null || true
+          tar -czf "${STAGE}.tar.gz" "$STAGE"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: c-native-${{ matrix.target }}
+          path: east-c-*.tar.gz
+
+  # ────────────────────────────────────────────────────────────────────────
+  # 6. finalize: on success, commit + tag + push, create GitHub Release with
+  #    VSIX + C binaries attached. Skipped entirely on dry run.
+  # ────────────────────────────────────────────────────────────────────────
+  finalize:
+    needs: [prepare, publish-npm, publish-vsix, publish-pypi-upload, publish-c-native]
+    if: >-
+      ${{ !inputs.dry_run &&
+          needs.prepare.result == 'success' &&
+          (needs.publish-npm.result == 'success' || needs.publish-npm.result == 'skipped') &&
+          (needs.publish-vsix.result == 'success' || needs.publish-vsix.result == 'skipped') &&
+          (needs.publish-pypi-upload.result == 'success' || needs.publish-pypi-upload.result == 'skipped') &&
+          (needs.publish-c-native.result == 'success' || needs.publish-c-native.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Generate app token
+        uses: actions/create-github-app-token@v1
+        id: app-token
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      - uses: actions/download-artifact@v4
+        with: { name: version-bump }
+
+      - name: Configure git
+        run: |
+          git config user.name "elara-ci[bot]"
+          git config user.email "elara-ci[bot]@users.noreply.github.com"
+
+      - name: Commit + tag + push
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          git add -A
+          git diff --staged --quiet || git commit -m "chore: release v${VERSION}"
+          git tag "v${VERSION}" 2>/dev/null || echo "Tag v${VERSION} already exists, skipping."
+          git push origin HEAD --tags
+
+      - name: Download release assets
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          pattern: "{vsix,c-native-*}"
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          PRE_FLAG=""
+          if [[ "${{ needs.prepare.outputs.is_prerelease }}" == "true" ]]; then
+            PRE_FLAG="--prerelease"
+          fi
+          if gh release view "v${VERSION}" >/dev/null 2>&1; then
+            echo "Release v${VERSION} already exists, skipping creation."
+          else
+            gh release create "v${VERSION}" \
+              --title "v${VERSION}" \
+              --generate-notes \
+              $PRE_FLAG \
+              release-assets/*
+          fi

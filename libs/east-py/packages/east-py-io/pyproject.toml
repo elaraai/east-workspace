@@ -1,0 +1,180 @@
+[project]
+name = "east-py-io"
+version = "1.0.0"
+description = "I/O platform functions for East programming language (Python)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE.md" }
+authors = [
+    {name = "Elara AI", email = "info@elara.ai"}
+]
+keywords = ["east", "platform", "io", "s3", "sqlite", "postgresql", "mysql", "access", "mdb", "redis", "mongodb", "xlsx", "xml", "ftp", "sftp", "gzip", "tar", "zip"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: Other/Proprietary License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Interpreters",
+]
+
+dependencies = [
+    "east-py",
+]
+
+[tool.uv.sources]
+east-py = { workspace = true }
+east-py-std = { workspace = true }
+
+[project.optional-dependencies]
+# Individual feature extras
+s3 = ["boto3>=1.35.0"]
+sqlite = ["apsw>=3.49.0"]
+postgres = ["asyncpg>=0.30.0"]
+mysql = ["aiomysql>=0.2.0"]
+access = ["access-parser>=0.0.4"]
+redis = ["redis>=5.2.0"]
+mongodb = ["motor>=3.6.0"]
+xlsx = ["openpyxl>=3.1.0"]
+xml = ["defusedxml>=0.7.0"]
+ftp = ["aioftp>=0.24.0"]
+sftp = ["asyncssh>=2.18.0"]
+# Convenience extras
+sql = [
+    "apsw>=3.49.0",
+    "asyncpg>=0.30.0",
+    "aiomysql>=0.2.0",
+    "access-parser>=0.0.4",
+]
+nosql = [
+    "redis>=5.2.0",
+    "motor>=3.6.0",
+]
+transfer = [
+    "aioftp>=0.24.0",
+    "asyncssh>=2.18.0",
+]
+format = [
+    "openpyxl>=3.1.0",
+    "defusedxml>=0.7.0",
+]
+# Install everything
+all = [
+    "boto3>=1.35.0",
+    "apsw>=3.49.0",
+    "asyncpg>=0.30.0",
+    "aiomysql>=0.2.0",
+    "access-parser>=0.0.4",
+    "redis>=5.2.0",
+    "motor>=3.6.0",
+    "openpyxl>=3.1.0",
+    "defusedxml>=0.7.0",
+    "aioftp>=0.24.0",
+    "asyncssh>=2.18.0",
+]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=5.0.0",
+    "pytest-asyncio>=0.23.0",
+    "mypy>=1.11.0",
+    "ruff>=0.6.0",
+    "boto3-stubs[s3]>=1.35.0",  # Type stubs for boto3
+    "types-redis>=4.6.0",  # Type stubs for redis
+    "motor-stubs>=1.7.0",  # Type stubs for motor
+    "types-openpyxl>=3.1.0",  # Type stubs for openpyxl
+    "east-py-std",  # Required for test_compliance.py (console_impl)
+]
+
+[project.urls]
+Homepage = "https://github.com/elaraai/east-py"
+Documentation = "https://github.com/elaraai/east-py/tree/main/packages/east-py-io"
+Repository = "https://github.com/elaraai/east-py"
+Issues = "https://github.com/elaraai/east-py/issues"
+
+[build-system]
+requires = ["scikit-build-core>=0.10", "cython>=3.0.0"]
+build-backend = "scikit_build_core.build"
+
+# east-py-io has no native code today — the CMakeLists.txt is a placeholder
+# so the same scikit-build-core flow that handles east-py / east-py-std
+# applies here too. Future native code (e.g. accelerated decoders linked
+# against east-c) drops in by following the east-py-std/CMakeLists.txt
+# template.
+[tool.scikit-build]
+cmake.version = ">=3.18"
+cmake.build-type = "Release"
+wheel.packages = ["east_py_io"]
+# built once by `uv sync`, not at import time — see east-py/pyproject.toml.
+editable.rebuild = false
+editable.verbose = false
+build-dir = "build/{wheel_tag}"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+asyncio_mode = "auto"
+addopts = "--verbose"
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = false
+warn_unused_configs = true
+disallow_untyped_defs = false
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["east", "east.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+    "boto3",
+    "boto3.*",
+    "botocore",
+    "botocore.*",
+    "aioftp",
+    "aioftp.*",
+    "asyncssh",
+    "asyncssh.*",
+    "motor",
+    "motor.*",
+    "defusedxml",
+    "defusedxml.*",
+    "asyncpg",
+    "asyncpg.*",
+    "aiomysql",
+    "aiomysql.*",
+    "redis",
+    "redis.*",
+    "openpyxl",
+    "openpyxl.*",
+    "access_parser",
+    "access_parser.*",
+]
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "SIM",  # flake8-simplify
+]
+ignore = [
+    "E501",   # Line too long (handled by formatter)
+    "E402",   # Module level import not at top of file (needed for lazy imports)
+    "N803",   # Argument name should be lowercase (X is standard ML convention)
+    "N806",   # Variable in function should be lowercase (X_np is standard ML convention)
+]

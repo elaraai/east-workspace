@@ -1,0 +1,103 @@
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.npm
+.yarn/
+package-lock.json
+
+# Build output
+dist/
+dist-examples/
+dist-design/
+build/
+build-asan/
+build-debug/
+build-wasm/
+coverage/
+htmlcov/
+*.tsbuildinfo
+.cache/
+.temp/
+tmp/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+.eggs/
+develop-eggs/
+downloads/
+eggs/
+lib/
+lib64/
+!libs/east-claude-plugin/lib/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+.installed.cfg
+.Python
+.venv/
+venv/
+env/
+ENV/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.hypothesis/
+.dmypy.json
+dmypy.json
+.coverage
+*.cover
+MANIFEST
+
+# Cython
+*_cy.c
+_eastc_bridge.c
+*_eastc.c
+_platform_bridge.c
+
+# C / CMake
+tools/emsdk/
+
+# East-specific
+*.beast
+*.avro
+.e3/
+.package/
+/east-py/
+
+# Data files (in test dirs)
+*.csv
+
+# Per-user local settings (never commit)
+**/.claude/settings.local.json
+
+# IDEs
+.vscode/
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# VS Code extension
+*.vsix
+
+# Env
+.env
+*.log
+*.tmp
+
+# Local registry (no longer needed but just in case)
+.npmrc

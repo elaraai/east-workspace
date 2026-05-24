@@ -1,0 +1,111 @@
+[project]
+name = "east-py-monorepo"
+version = "0.1.0"
+description = "East programming language Python implementations"
+requires-python = ">=3.11"
+license = { file = "LICENSE.md" }
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=5.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-subtests>=0.11.0",
+    "mypy>=1.11.0",
+    "ruff>=0.6.0",
+    "pre-commit>=3.8.0",
+]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = false
+warn_unused_configs = true
+disallow_untyped_defs = false
+check_untyped_defs = true
+mypy_path = "packages/east-py:packages/east-py-std:packages/east-py-io:packages/east-py-datascience/src"
+disable_error_code = [
+    "no-any-return",
+    "has-type",
+    "override",
+    "attr-defined",
+    "arg-type",
+    "typeddict-item",
+    "assignment",
+    "no-redef",
+    "call-overload",
+    "index",
+    "union-attr",
+]
+
+[[tool.mypy.overrides]]
+module = ["sortedcontainers", "sortedcontainers.*"]
+ignore_missing_imports = true
+
+# Cython extension modules (.so) — no .pyi stubs available
+[[tool.mypy.overrides]]
+module = [
+    "east._platform_bridge",
+    "east._eastc_bridge",
+    "east.runtime._compiler_eastc",
+    "east.serialization._json_eastc",
+    "east.serialization._csv_eastc",
+    "east.serialization._beast2_eastc",
+    "east.serialization._east_text_eastc",
+    "east.types._values_cy",
+    "east.types._ordering_cy",
+    "east.serialization._binary_utils_cy",
+]
+ignore_missing_imports = true
+
+# Optional I/O dependencies - installed based on user needs
+[[tool.mypy.overrides]]
+module = [
+    "boto3",
+    "boto3.*",
+    "botocore",
+    "botocore.*",
+    "asyncssh",
+    "asyncssh.*",
+    "aioftp",
+    "aioftp.*",
+    "asyncpg",
+    "asyncpg.*",
+    "aiomysql",
+    "aiomysql.*",
+    "redis",
+    "redis.*",
+    "motor",
+    "motor.*",
+    "openpyxl",
+    "openpyxl.*",
+]
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "SIM",  # flake8-simplify
+]
+ignore = [
+    "E501",   # Line too long (handled by formatter)
+    "E402",   # Module level import not at top of file (needed for lazy imports)
+    "N803",   # Argument name should be lowercase (X is standard ML convention)
+    "N806",   # Variable in function should be lowercase (X_np is standard ML convention)
+    "N802",   # Function name should be lowercase (Type constructors use PascalCase)
+    "N812",   # Lowercase imported as non-lowercase (F for torch.nn.functional is standard)
+    "B904",   # raise ... from err (would require many manual fixes)
+]

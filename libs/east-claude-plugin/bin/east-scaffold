@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# east-scaffold — create a new East/e3 project from the bundled scaffold scripts.
+#
+# Exposed on PATH by Claude Code (it adds <plugin>/bin to PATH), so the
+# east-project skill — and humans — can run it without knowing the plugin's
+# cache path.
+#
+# Usage:
+#   east-scaffold e3   [project-name|.]   # BSL-1.1, Node + Python, durable execution
+#   east-scaffold east [project-name|.]   # AGPL-3.0, Node-only
+
+set -e
+
+KIND="${1:-}"
+shift || true
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+SCAFFOLD="$HERE/../scripts/scaffold"
+
+case "$KIND" in
+  e3)   exec bash "$SCAFFOLD/e3.sh" "$@" ;;
+  east) exec bash "$SCAFFOLD/east.sh" "$@" ;;
+  *)
+    echo "Usage: east-scaffold {e3|east} [project-name|.]" >&2
+    echo "  e3   — BSL-1.1 project (Node + Python, e3 durable execution)" >&2
+    echo "  east — AGPL-3.0 project (Node-only)" >&2
+    exit 1
+    ;;
+esac

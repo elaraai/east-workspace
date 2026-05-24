@@ -1,0 +1,27 @@
+name: Version Drift Check
+
+on:
+  pull_request:
+    paths:
+      - "**/package.json"
+      - "**/pyproject.toml"
+      - "scripts/set-npm-version.mjs"
+      - "scripts/set-python-version.mjs"
+      - "scripts/set-vsix-version.mjs"
+      - "scripts/check-version-drift.mjs"
+      - ".github/workflows/version-drift.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check version alignment
+        run: make check-version

@@ -1,0 +1,39 @@
+{
+  "name": "@elaraai/eslint-plugin-east",
+  "version": "0.0.1",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "description": "ESLint plugin surfacing East-specific idiom diagnostics (the east-diagnostics rule set) in the editor and CI.",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "files": ["dist/src"],
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && node --enable-source-maps --test-reporter=spec --test 'dist/test/**/*.spec.js'"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "peerDependencies": {
+    "eslint": ">=9.0.0",
+    "typescript": ">=5.0.0"
+  },
+  "dependencies": {
+    "@elaraai/east-diagnostics": "workspace:*",
+    "@typescript-eslint/utils": "^8.42.0"
+  },
+  "devDependencies": {
+    "@elaraai/east": "workspace:*",
+    "@types/node": "^22.18.1",
+    "@typescript-eslint/parser": "^8.42.0",
+    "eslint": "^9.34.0",
+    "typescript": "~5.9.2"
+  }
+}

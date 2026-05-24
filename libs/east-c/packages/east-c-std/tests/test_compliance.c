@@ -1,0 +1,332 @@
+/*
+ * Compliance test runner for east-c-std.
+ *
+ * Loads TypeScript-exported IR JSON files and executes them to verify
+ * cross-implementation compatibility of standard platform functions.
+ *
+ * Usage: test_std_compliance <path-to-ir.json>
+ *
+ * To generate test IR files:
+ *   cd ../east-node && npm run test:export
+ */
+
+#include <east/east.h>
+#include <east/eval_result.h>
+#include <east/type_of_type.h>
+#include <east_std/east_std.h>
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+/* ------------------------------------------------------------------ */
+/*  Test counters                                                      */
+/* ------------------------------------------------------------------ */
+
+static int g_tests_run = 0;
+static int g_tests_passed = 0;
+static int g_tests_failed = 0;
+
+/* ------------------------------------------------------------------ */
+/*  Test platform functions                                            */
+/* ------------------------------------------------------------------ */
+
+static EvalResult plat_test_pass(EastValue **args, size_t num_args, EastType **input_types,
+                                 size_t num_input_types, EastType *output_type)
+{
+    (void)args;
+    (void)num_args;
+    return eval_ok(east_null());
+}
+
+static EvalResult plat_test_fail(EastValue **args, size_t num_args, EastType **input_types,
+                                 size_t num_input_types, EastType *output_type)
+{
+    (void)num_args;
+    const char *message = "";
+    if (num_args > 0 && args[0] && args[0]->kind == EAST_VAL_STRING) {
+        message = args[0]->data.string.data;
+    }
+    return eval_error(message);
+}
+
+static EvalResult plat_describe(EastValue **args, size_t num_args, EastType **input_types,
+                                size_t num_input_types, EastType *output_type)
+{
+    (void)num_args;
+
+    const char *name = "";
+    if (num_args > 0 && args[0] && args[0]->kind == EAST_VAL_STRING) {
+        name = args[0]->data.string.data;
+    }
+
+    printf("\xe2\x96\xb6 %s\n", name);
+
+    int failed_before = g_tests_failed;
+
+    struct timespec dt0, dt1;
+    clock_gettime(CLOCK_MONOTONIC, &dt0);
+
+    /* Call the body function (second argument) */
+    if (num_args > 1 && args[1] && args[1]->kind == EAST_VAL_FUNCTION) {
+        EastCompiledFn *body = args[1]->data.function.compiled;
+        EvalResult r = east_call(body, NULL, 0);
+        if (r.status == EVAL_ERROR) {
+            g_tests_run++;
+            g_tests_failed++;
+            printf("  \xe2\x9c\x96 describe \"%s\": %s\n", name,
+                   r.error_message ? r.error_message : "?");
+            eval_result_free(&r);
+        } else {
+            if (r.value) east_value_release(r.value);
+            eval_result_free(&r);
+        }
+    }
+
+    clock_gettime(CLOCK_MONOTONIC, &dt1);
+    double desc_ms = (dt1.tv_sec - dt0.tv_sec) * 1000.0 + (dt1.tv_nsec - dt0.tv_nsec) / 1e6;
+
+    if (g_tests_failed > failed_before) {
+        printf("\xe2\x9c\x96 %s (%.6fms)\n", name, desc_ms);
+    } else {
+        printf("\xe2\x9c\x94 %s (%.6fms)\n", name, desc_ms);
+    }
+
+    return eval_ok(east_null());
+}
+
+static EvalResult plat_test(EastValue **args, size_t num_args, EastType **input_types,
+                            size_t num_input_types, EastType *output_type)
+{
+    (void)num_args;
+
+    const char *name = "";
+    if (num_args > 0 && args[0] && args[0]->kind == EAST_VAL_STRING) {
+        name = args[0]->data.string.data;
+    }
+
+    g_tests_run++;
+
+    struct timespec tt0, tt1;
+    clock_gettime(CLOCK_MONOTONIC, &tt0);
+
+    /* Call the body function (second argument) */
+    int failed = 0;
+    const char *err_msg = NULL;
+    const char *err_file = NULL;
+    long err_line = 0, err_col = 0;
+
+    if (num_args > 1 && args[1] && args[1]->kind == EAST_VAL_FUNCTION) {
+        EastCompiledFn *body = args[1]->data.function.compiled;
+        EvalResult r = east_call(body, NULL, 0);
+        if (r.status == EVAL_ERROR) {
+            failed = 1;
+            if (r.error_message) err_msg = strdup(r.error_message);
+            if (r.locations && r.num_locations > 0) {
+                if (r.locations[0].filename) err_file = strdup(r.locations[0].filename);
+                err_line = (long)r.locations[0].line;
+                err_col = (long)r.locations[0].column;
+            }
+        }
+        if (r.value) east_value_release(r.value);
+        eval_result_free(&r);
+    }
+
+    clock_gettime(CLOCK_MONOTONIC, &tt1);
+    double test_ms = (tt1.tv_sec - tt0.tv_sec) * 1000.0 + (tt1.tv_nsec - tt0.tv_nsec) / 1e6;
+
+    if (failed) {
+        g_tests_failed++;
+        printf("  \xe2\x9c\x96 %s (%.6fms)\n", name, test_ms);
+        printf("    %s\n", err_msg ? err_msg : "?");
+        if (err_file) {
+            printf("    at %s:%ld:%ld\n", err_file, err_line, err_col);
+            free((void *)err_file);
+        }
+        free((void *)err_msg);
+    } else {
+        g_tests_passed++;
+        printf("  \xe2\x9c\x94 %s (%.6fms)\n", name, test_ms);
+    }
+
+    return eval_ok(east_null());
+}
+
+/* ------------------------------------------------------------------ */
+/*  File loading                                                       */
+/* ------------------------------------------------------------------ */
+
+static char *read_file(const char *path, size_t *out_len)
+{
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        fprintf(stderr, "Cannot open file: %s\n", path);
+        return NULL;
+    }
+
+    fseek(f, 0, SEEK_END);
+    long len = ftell(f);
+    fseek(f, 0, SEEK_SET);
+
+    char *buf = malloc((size_t)len + 1);
+    if (!buf) {
+        fclose(f);
+        return NULL;
+    }
+
+    size_t rd = fread(buf, 1, (size_t)len, f);
+    buf[rd] = '\0';
+    fclose(f);
+
+    if (out_len) *out_len = rd;
+    return buf;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Main                                                               */
+/* ------------------------------------------------------------------ */
+
+int main(int argc, char **argv)
+{
+    if (argc < 2) {
+        fprintf(stderr, "Usage: %s <ir-json-file>\n", argv[0]);
+        return 1;
+    }
+
+    const char *json_path = argv[1];
+
+    /* Initialize type descriptors */
+    east_type_of_type_init();
+
+    /* Register builtins */
+    BuiltinRegistry *builtins = builtin_registry_new();
+    east_register_all_builtins(builtins);
+
+    /* Register standard library platform functions first */
+    PlatformRegistry *platform = platform_registry_new();
+    east_std_register_all(platform);
+
+    /* Override test harness functions (east_std stubs don't run tests) */
+    platform_registry_add(platform, "testPass", plat_test_pass, false);
+    platform_registry_add(platform, "testFail", plat_test_fail, false);
+    platform_registry_add(platform, "describe", plat_describe, true);
+    platform_registry_add(platform, "test", plat_test, true);
+
+    /* Stage 1: Read JSON file */
+    struct timespec t0, t1;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+
+    size_t json_len = 0;
+    char *json = read_file(json_path, &json_len);
+    if (!json) return 1;
+
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    double load_ms = (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_nsec - t0.tv_nsec) / 1e6;
+    printf("Load: %.1f ms (%.1f MB)\n", load_ms, json_len / (1024.0 * 1024.0));
+
+    /* Stage 2: Decode JSON. The exported fixture is wrapped:
+     *   { "ir": <IRNode>, "source_map": { "stacks": ... } }
+     * Mirror packages/east-c/tests/test_compliance.c — build a wrapper
+     * struct type, decode into it, then extract the `ir` field. (Decoding
+     * into east_ir_type directly fails because the variant decoder rejects
+     * the outer object's shape.) */
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+
+    EastType *loc_struct = east_struct_type(
+        (const char *[]){"filename", "line", "column"},
+        (EastType *[]){&east_string_type, &east_integer_type, &east_integer_type}, 3);
+    EastType *loc_arr = east_array_type(loc_struct);
+    EastType *stacks_arr = east_array_type(loc_arr);
+    EastType *sm_type = east_struct_type((const char *[]){"stacks"}, (EastType *[]){stacks_arr}, 1);
+    EastType *wrapper_type = east_struct_type((const char *[]){"ir", "source_map"},
+                                              (EastType *[]){east_ir_type, sm_type}, 2);
+
+    EastValue *wrapper_val = east_json_decode(json, wrapper_type);
+    free(json);
+
+    east_type_release(loc_struct);
+    east_type_release(loc_arr);
+    east_type_release(stacks_arr);
+    east_type_release(sm_type);
+    east_type_release(wrapper_type);
+
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    double decode_ms = (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_nsec - t0.tv_nsec) / 1e6;
+    printf("Decode: %.1f ms\n", decode_ms);
+
+    if (!wrapper_val) {
+        fprintf(stderr, "Failed to decode JSON as IR\n");
+        return 1;
+    }
+
+    /* Struct fields are sorted alphabetically: ir=0, source_map=1 */
+    EastValue *ir_val = east_struct_get_field_idx(wrapper_val, 0);
+
+    /* Stage 3: Convert EastValue variant tree to IRNode */
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+
+    IRNode *ir = east_ir_from_value(ir_val);
+    east_value_release(wrapper_val);
+
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    double convert_ms = (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_nsec - t0.tv_nsec) / 1e6;
+    printf("Convert: %.1f ms\n", convert_ms);
+
+    if (!ir) {
+        fprintf(stderr, "Failed to convert IR value to IR node\n");
+        return 1;
+    }
+
+    /* Stage 4: Compile and execute */
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+
+    IRNode *body = ir;
+    if (ir->kind == IR_ASYNC_FUNCTION || ir->kind == IR_FUNCTION) {
+        body = ir->data.function.body;
+    }
+
+    EastCompiledFn *fn = east_compile(body, platform, builtins);
+    if (!fn) {
+        fprintf(stderr, "Failed to compile IR\n");
+        ir_node_release(ir);
+        return 1;
+    }
+
+    /* Extract the filename from path for display */
+    const char *fname = strrchr(json_path, '/');
+    fname = fname ? fname + 1 : json_path;
+    printf("\n%s:\n", fname);
+
+    EvalResult result = east_call(fn, NULL, 0);
+
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    double exec_ms = (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_nsec - t0.tv_nsec) / 1e6;
+
+    if (result.status == EVAL_ERROR) {
+        fprintf(stderr, "\nFATAL ERROR: %s\n",
+                result.error_message ? result.error_message : "unknown");
+        if (result.locations && result.num_locations > 0) {
+            fprintf(stderr, "  at %s:%ld:%ld\n",
+                    result.locations[0].filename ? result.locations[0].filename : "?",
+                    (long)result.locations[0].line, (long)result.locations[0].column);
+        }
+    }
+
+    printf("\xe2\x84\xb9 tests %d\n", g_tests_run);
+    printf("\nResults: %d/%d passed", g_tests_passed, g_tests_run);
+    if (g_tests_failed > 0) {
+        printf(" (%d failed)", g_tests_failed);
+    }
+    printf("\nExecute: %.1f ms\n", exec_ms);
+
+    /* Cleanup */
+    if (result.value) east_value_release(result.value);
+    eval_result_free(&result);
+    east_compiled_fn_free(fn);
+    ir_node_release(ir);
+    platform_registry_free(platform);
+    builtin_registry_free(builtins);
+
+    return g_tests_failed > 0 ? 1 : 0;
+}

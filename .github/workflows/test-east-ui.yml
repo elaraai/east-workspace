@@ -1,0 +1,67 @@
+name: Test east-ui
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "libs/east-ui/**"
+      - "libs/east/**"
+      - "libs/east-node/**"
+      - "libs/e3/**"
+      - ".github/workflows/test-east-ui.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "libs/east-ui/**"
+      - "libs/east/**"
+      - "libs/east-node/**"
+      - "libs/e3/**"
+      - ".github/workflows/test-east-ui.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build east (dependency)
+        working-directory: libs/east
+        run: make build
+
+      - name: Build east-node (dependency)
+        working-directory: libs/east-node
+        run: make build
+
+      - name: Build e3 (dependency)
+        working-directory: libs/e3
+        run: make build
+
+      - name: Build east-ui packages
+        working-directory: libs/east-ui
+        run: make build
+
+      - name: Lint
+        working-directory: libs/east-ui
+        run: make lint
+
+      - name: Run tests
+        working-directory: libs/east-ui
+        run: make test

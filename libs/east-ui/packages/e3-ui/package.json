@@ -1,0 +1,80 @@
+{
+  "name": "@elaraai/e3-ui",
+  "version": "1.0.0",
+  "description": "e3 + UI bridge — Data bindings, ui() task, manifest",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./ui": {
+      "types": "./dist/src/ui.d.ts",
+      "default": "./dist/src/ui.js"
+    },
+    "./examples/data": {
+      "types": "./dist/test/data.examples.d.ts",
+      "default": "./dist/test/data.examples.js"
+    },
+    "./examples/diff": {
+      "types": "./dist/test/diff.examples.d.ts",
+      "default": "./dist/test/diff.examples.js"
+    },
+    "./examples/ontology": {
+      "types": "./dist/test/ontology.examples.d.ts",
+      "default": "./dist/test/ontology.examples.js"
+    }
+  },
+  "files": [
+    "dist/src",
+    "dist/test/**/*.examples.*",
+    "!dist/**/*.spec.*",
+    "README.md",
+    "CONTRIBUTING.md",
+    "CLA.md",
+    "LICENSE.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint .",
+    "test": "node --enable-source-maps --test-reporter=spec --test 'dist/test/**/*.spec.js'"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/elaraai/east-workspace.git",
+    "directory": "libs/east-ui/packages/e3-ui"
+  },
+  "keywords": [
+    "east",
+    "elara",
+    "e3",
+    "ui",
+    "data",
+    "bindings"
+  ],
+  "author": "Elara AI Pty Ltd",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "@elaraai/e3-types": "workspace:*"
+  },
+  "peerDependencies": {
+    "@elaraai/e3": "workspace:*",
+    "@elaraai/east": "workspace:*",
+    "@elaraai/east-ui": "workspace:*"
+  },
+  "devDependencies": {
+    "@elaraai/e3": "workspace:*",
+    "@elaraai/east-node-std": "workspace:*",
+    "@types/node": "^22",
+    "@typescript-eslint/eslint-plugin": "^8",
+    "@typescript-eslint/parser": "^8",
+    "eslint": "^9",
+    "typescript": "~5.9.2"
+  }
+}

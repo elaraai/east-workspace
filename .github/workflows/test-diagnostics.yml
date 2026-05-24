@@ -1,0 +1,57 @@
+name: Test diagnostics
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "libs/east/**"
+      - "libs/east-diagnostics/**"
+      - "libs/eslint-plugin-east/**"
+      - "libs/east-claude-plugin/**"
+      - ".github/workflows/test-diagnostics.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "libs/east/**"
+      - "libs/east-diagnostics/**"
+      - "libs/eslint-plugin-east/**"
+      - "libs/east-claude-plugin/**"
+      - ".github/workflows/test-diagnostics.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build east (dependency)
+        working-directory: libs/east
+        run: make build
+
+      - name: Build and test east-diagnostics
+        working-directory: libs/east-diagnostics
+        run: make build && make test
+
+      - name: Build and test eslint-plugin-east
+        working-directory: libs/eslint-plugin-east
+        run: make build && make test
+
+      - name: Build and test east-claude-plugin
+        working-directory: libs/east-claude-plugin
+        run: make build && make test

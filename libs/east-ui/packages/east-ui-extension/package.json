@@ -1,0 +1,91 @@
+{
+    "name": "east-ui-preview",
+    "displayName": "East UI Preview",
+    "description": "Browse e3 repositories and preview task outputs as East UI components",
+    "version": "1.0.0",
+    "type": "module",
+    "publisher": "ElaraAI",
+    "license": "AGPL-3.0-or-later",
+    "engines": {
+        "vscode": "^1.85.0"
+    },
+    "extensionKind": [
+        "workspace"
+    ],
+    "categories": [
+        "Visualization",
+        "Other"
+    ],
+    "keywords": [
+        "east",
+        "ui",
+        "preview",
+        "e3",
+        "components"
+    ],
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/elaraai/east-workspace.git",
+        "directory": "libs/east-ui/packages/east-ui-extension"
+    },
+    "icon": "Elara_AI_Mark.png",
+    "main": "./dist/extension.cjs",
+    "contributes": {
+        "commands": [
+            {
+                "command": "east-ui.openPreview",
+                "title": "Open Repository",
+                "category": "East UI"
+            }
+        ],
+        "configuration": {
+            "title": "East UI Preview",
+            "properties": {
+                "east-ui.e3.port": {
+                    "type": "number",
+                    "default": 3001,
+                    "description": "Port for the e3 API server"
+                },
+                "east-ui.e3.lastRepositoryPath": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Last used e3 repository path (auto-saved)"
+                }
+            }
+        }
+    },
+    "activationEvents": [
+        "onCommand:east-ui.openPreview"
+    ],
+    "scripts": {
+        "build": "pnpm run typecheck && pnpm run build:extension && pnpm run build:webview",
+        "build:extension": "esbuild src/extension.ts --bundle --outfile=dist/extension.cjs --external:vscode --format=cjs --platform=node --target=node22",
+        "typecheck": "tsc --noEmit",
+        "build:webview": "cd webview && pnpm run build",
+        "watch": "pnpm run build:extension -- --watch",
+        "package": "vsce package --no-dependencies",
+        "publish": "vsce publish",
+        "test": "echo 'No tests yet'",
+        "lint": "eslint ."
+    },
+    "dependencies": {
+        "@elaraai/e3-api-server": "workspace:*",
+        "get-port": "^7.1.0"
+    },
+    "devDependencies": {
+        "@elaraai/e3-api-client": "workspace:*",
+        "@elaraai/e3-ui-components": "workspace:*",
+        "@elaraai/east": "workspace:*",
+        "@elaraai/east-ui": "workspace:*",
+        "@elaraai/east-ui-components": "workspace:*",
+        "@types/node": "^22.0.0",
+        "@types/vscode": "^1.85.0",
+        "@typescript-eslint/eslint-plugin": "^8.32.1",
+        "@typescript-eslint/parser": "^8.32.1",
+        "@vscode/vsce": "^3.9.1",
+        "esbuild": "^0.24.0",
+        "eslint": "^9.27.0",
+        "eslint-plugin-headers": "^1.2.2",
+        "typescript": "^5.7.0"
+    }
+}

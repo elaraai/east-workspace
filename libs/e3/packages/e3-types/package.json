@@ -1,0 +1,34 @@
+{
+  "name": "@elaraai/e3-types",
+  "version": "1.0.0",
+  "description": "Shared type definitions for e3 (East Execution Engine)",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
+  },
+  "keywords": [
+    "east",
+    "e3",
+    "types"
+  ],
+  "author": "Elara AI",
+  "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/elaraai/east-workspace.git",
+    "directory": "libs/e3/packages/e3-types"
+  },
+  "peerDependencies": {
+    "@elaraai/east": "workspace:*"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.47.0",
+    "@typescript-eslint/parser": "^8.47.0",
+    "eslint-plugin-headers": "^1.3.3",
+    "typescript": "^5.7.2"
+  }
+}

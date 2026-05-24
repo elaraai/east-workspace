@@ -1,0 +1,425 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Licensed under BSL 1.1. See LICENSE for details.
+ */
+
+import * as path from 'node:path';
+import { Hono } from 'hono';
+import { cors } from 'hono/cors';
+import { serve, type ServerType } from '@hono/node-server';
+import { LocalStorage, RepoAlreadyExistsError, RepoNotFoundError, InMemoryTransferBackend } from '@elaraai/e3-core';
+import type { StorageBackend, TransferBackend } from '@elaraai/e3-core';
+import { createAuthMiddleware, type AuthConfig } from './middleware/auth.js';
+import { createOidcProvider, type OidcProvider, type OidcConfig } from './auth/index.js';
+import { sendError, sendSuccessWithStatus, sendSuccess } from './beast2.js';
+import { StringType, NullType, variant, ArrayType } from '@elaraai/east';
+import { errorToVariant } from './errors.js';
+import { createPackageRoutes } from './routes/packages.js';
+import { createWorkspaceRoutes } from './routes/workspaces.js';
+import { createDatasetRoutes } from './routes/datasets.js';
+import { createTaskRoutes } from './routes/tasks.js';
+import { createExecutionRoutes } from './routes/executions.js';
+import { createRepositoryRoutes } from './routes/repository.js';
+import { createObjectRoutes } from './routes/objects.js';
+import { createTransferRoutes } from './routes/transfer.js';
+import { createPackageTransferRoutes } from './routes/package-transfer.js';
+import { createDataEndpoints } from './routes/data.js';
+
+export type { AuthConfig } from './middleware/auth.js';
+export type { OidcConfig } from './auth/index.js';
+
+/**
+ * Server configuration options.
+ *
+ * Must specify exactly one of:
+ * - reposDir: Multi-repo mode - serves multiple repositories from subdirectories
+ * - singleRepoPath: Single-repo mode - serves a single repository at /repos/default
+ */
+export interface ServerConfig {
+  /** Directory containing repositories (multi-repo mode) */
+  reposDir?: string;
+  /** Path to a single repository (single-repo mode, access via /repos/default) */
+  singleRepoPath?: string;
+  /** HTTP port (default: 3000) */
+  port?: number;
+  /** Bind address (default: "localhost") */
+  host?: string;
+  /** Enable CORS for cross-origin requests (default: false) */
+  cors?: boolean;
+  /** Optional JWT authentication config (for external JWKS validation) */
+  auth?: AuthConfig;
+  /** Optional OIDC provider config (enables built-in auth server) */
+  oidc?: OidcConfig;
+}
+
+/**
+ * Server instance handle.
+ */
+export interface Server {
+  /** Start the server */
+  start(): Promise<void>;
+  /** Stop the server */
+  stop(): Promise<void>;
+  /** The underlying HTTP server */
+  readonly httpServer: ServerType;
+  /** The port the server is listening on */
+  readonly port: number;
+}
+
+/**
+ * Create an e3 API server.
+ *
+ * The server operates in multi-repo mode, serving multiple repositories
+ * from subdirectories of the configured reposDir.
+ *
+ * URL structure:
+ * - GET /api/repos - List available repositories
+ * - /api/repos/:repo/... - Repository-specific endpoints
+ *
+ * @param config - Server configuration
+ * @returns Server instance
+ */
+export async function createServer(config: ServerConfig): Promise<Server> {
+  const { reposDir, singleRepoPath, port = 3000, host = 'localhost', cors: enableCors = false, auth, oidc } = config;
+
+  // Validate config: exactly one of reposDir or singleRepoPath must be specified
+  if (reposDir && singleRepoPath) {
+    throw new Error('Cannot specify both reposDir and singleRepoPath');
+  }
+  if (!reposDir && !singleRepoPath) {
+    throw new Error('Must specify either reposDir or singleRepoPath');
+  }
+
+  const isSingleRepoMode = !!singleRepoPath;
+
+  // Single storage instance shared across all requests
+  // Pass reposDir for multi-repo mode to enable storage.repos.* operations
+  const storage: StorageBackend = new LocalStorage(isSingleRepoMode ? undefined : reposDir);
+
+  // Helper to compute repo path from repo name
+  // In single-repo mode, middleware validates 'default' before routes are called
+  const getRepoPath = (repoName: string): string => {
+    if (isSingleRepoMode) {
+      // Middleware ensures repoName === 'default' before we get here
+      return singleRepoPath!;
+    }
+    return path.join(reposDir!, repoName);
+  };
+
+  const app = new Hono();
+
+  // Enable CORS if configured
+  if (enableCors) {
+    app.use('*', cors({ origin: '*' }));
+    // Allow Private Network Access (required for extension webviews on WiFi)
+    app.use('*', async (c, next) => {
+      await next();
+      if (c.req.header('Access-Control-Request-Private-Network') === 'true') {
+        c.header('Access-Control-Allow-Private-Network', 'true');
+      }
+    });
+  }
+
+  // Create OIDC provider if configured (built-in auth server)
+  let oidcProvider: OidcProvider | undefined;
+  if (oidc) {
+    oidcProvider = createOidcProvider(oidc);
+    // Mount OIDC routes at root (/.well-known/*, /oauth2/*, /device)
+    app.route('/', oidcProvider.routes);
+  }
+
+  // Transfer backend for presigned URL object transfer
+  const transferBackend: TransferBackend = new InMemoryTransferBackend({
+    baseUrl: '',
+    storage,
+    getRepoPath,
+  });
+
+  // Data routes (no auth — capability-URL pattern via UUID)
+  // Must be mounted BEFORE auth middleware so they bypass JWT validation.
+  // In cloud deployments these URLs are S3 presigned URLs that reject auth headers.
+  const pkgTransfer = createPackageTransferRoutes(storage, getRepoPath, transferBackend);
+  const dsTransfer = createTransferRoutes(storage, getRepoPath, transferBackend);
+  const dataEndpoints = createDataEndpoints(transferBackend, storage, getRepoPath);
+  app.route('/api/uploads', dataEndpoints.uploads);
+  app.route('/api/downloads', dataEndpoints.downloads);
+
+  // Apply auth middleware to all repo-specific routes if configured
+  // If OIDC is enabled but auth is not separately configured, use OIDC keys for validation
+  if (auth) {
+    const authMiddleware = await createAuthMiddleware(auth);
+    app.use('/api/repos/:repo/*', authMiddleware);
+  } else if (oidcProvider) {
+    // Use the OIDC provider's keys for JWT validation
+    const authMiddleware = await createAuthMiddleware({
+      jwksUrl: `${oidc!.baseUrl}/.well-known/jwks.json`,
+      issuer: oidc!.baseUrl,
+      audience: oidc!.baseUrl,
+      // Provide keys directly to avoid HTTP fetch to self
+      _internalKeys: oidcProvider.keys,
+    });
+    app.use('/api/repos/:repo/*', authMiddleware);
+  }
+
+  // Single-repo mode: validate repo name and handle disabled operations
+  // Runs AFTER auth middleware (so unauthorized users get 401, not 404/405)
+  // Uses JSON error responses with HTTP error status codes because middleware
+  // cannot know the BEAST2 success type expected by the handler.
+  if (isSingleRepoMode) {
+    // Block repo-level PUT (create) and DELETE (remove) in single-repo mode
+    app.put('/api/repos/:repo', (c) => {
+      return c.json({
+        error: 'method_not_allowed',
+        message: 'Repository creation is disabled in single-repo mode'
+      }, 405);
+    });
+
+    app.delete('/api/repos/:repo', (c) => {
+      const repo = c.req.param('repo');
+      if (repo === 'default') {
+        return c.json({
+          error: 'method_not_allowed',
+          message: 'Repository deletion is disabled in single-repo mode'
+        }, 405);
+      }
+      return c.json({ error: 'not_found', message: `Repository '${repo}' not found` }, 404);
+    });
+
+    // Validate repo name for all sub-routes
+    app.use('/api/repos/:repo/*', async (c, next) => {
+      const repo = c.req.param('repo');
+      if (repo !== 'default') {
+        return c.json({ error: 'not_found', message: `Repository '${repo}' not found` }, 404);
+      }
+      await next();
+    });
+  }
+
+  // Validate repository exists and is accessible before processing requests (multi-repo mode only)
+  // In single-repo mode, this is handled by the middleware above
+  // Skip validation for PUT/DELETE on /api/repos/:repo (repo create/remove)
+  // Skip validation for /api/repos/:repo/delete/* (repo deletion status - repo may already be deleted)
+  // Uses JSON error responses with HTTP 404 because middleware cannot know
+  // the BEAST2 success type expected by the handler.
+  if (!isSingleRepoMode) {
+    app.use('/api/repos/:repo/*', async (c, next) => {
+      // Skip validation for repo create/remove operations at the repo level
+      // These operate on repos that may not exist yet (PUT) or are being deleted (DELETE)
+      const method = c.req.method;
+      const reqPath = c.req.path;
+      // Check if this is the base repo path (no subpath after repo name)
+      const repoPathMatch = reqPath.match(/^\/api\/repos\/[^/]+$/);
+      if (repoPathMatch && (method === 'PUT' || method === 'DELETE')) {
+        await next();
+        return;
+      }
+
+      // Skip validation for delete status endpoint (repo may already be deleted)
+      const deleteStatusMatch = reqPath.match(/^\/api\/repos\/[^/]+\/delete\/[^/]+$/);
+      if (deleteStatusMatch) {
+        await next();
+        return;
+      }
+
+      const repo = c.req.param('repo')!;
+
+      // Check repo metadata for status
+      const metadata = await storage.repos.getMetadata(repo);
+      if (!metadata) {
+        return c.json({ error: 'not_found', message: `Repository '${repo}' not found` }, 404);
+      }
+
+      // If repo is in 'deleting' state, treat as not found for most operations
+      // Exception: status endpoint shows 'deleting' state (but we still check repo exists above)
+      const statusMatch = reqPath.match(/^\/api\/repos\/[^/]+\/status$/);
+      if (metadata.status === 'deleting' && !statusMatch) {
+        return c.json({ error: 'not_found', message: `Repository '${repo}' not found` }, 404);
+      }
+
+      // Also validate the repo structure (for backwards compat with repos without metadata)
+      const repoPath = getRepoPath(repo);
+      try {
+        await storage.validateRepository(repoPath);
+      } catch (err) {
+        if (err instanceof RepoNotFoundError) {
+          return c.json({ error: 'not_found', message: `Repository '${repo}' not found` }, 404);
+        }
+        throw err;
+      }
+
+      await next();
+    });
+  }
+
+  // GET /api/repos - List available repositories
+  app.get('/api/repos', async () => {
+    if (isSingleRepoMode) {
+      return sendSuccess(ArrayType(StringType), ['default']);
+    }
+    try {
+      const repos = await storage.repos.list();
+      return sendSuccess(ArrayType(StringType), repos);
+    } catch (err) {
+      return sendError(ArrayType(StringType), errorToVariant(err));
+    }
+  });
+
+  // PUT /api/repos/:repo - Create a new repository (multi-repo mode only)
+  // Note: Single-repo mode handler is registered earlier and takes precedence
+  if (!isSingleRepoMode) {
+    app.put('/api/repos/:repo', async (c) => {
+      const repo = c.req.param('repo');
+
+      try {
+        // Check if repo exists and is in 'deleting' state
+        const existing = await storage.repos.getMetadata(repo);
+        if (existing) {
+          if (existing.status === 'deleting') {
+            return sendError(StringType, variant('internal', { message: `Repository '${repo}' cleanup in progress, try later` }));
+          }
+          return sendError(StringType, variant('internal', { message: `Repository '${repo}' already exists` }));
+        }
+
+        await storage.repos.create(repo);
+        return sendSuccessWithStatus(StringType, repo, 201);
+      } catch (err) {
+        if (err instanceof RepoAlreadyExistsError) {
+          return sendError(StringType, variant('internal', { message: `Repository '${repo}' already exists` }));
+        }
+        return sendError(StringType, errorToVariant(err));
+      }
+    });
+
+    // DELETE /api/repos/:repo - Remove a repository (async, multi-repo mode only)
+    // Uses the resumable deletion pattern:
+    // 1. Mark repo as 'deleting' (atomic tombstone)
+    // 2. Delete refs synchronously (fast)
+    // 3. Delete objects in batches
+    // 4. Remove repo metadata
+    // Note: For cloud (e3-aws), step 3 would be async via GC
+    app.delete('/api/repos/:repo', async (c) => {
+      const repo = c.req.param('repo');
+
+      try {
+        // Check if repo exists
+        const existing = await storage.repos.getMetadata(repo);
+        if (!existing) {
+          return sendError(NullType, variant('repository_not_found', { repo }));
+        }
+
+        // If already deleting, return success (idempotent)
+        if (existing.status === 'deleting') {
+          return sendSuccess(NullType, null);
+        }
+
+        // 1. Atomically mark as 'deleting'
+        await storage.repos.setStatus(repo, 'deleting', 'active');
+
+        // 2. Delete refs synchronously (fast for local storage)
+        let cursor: string | undefined;
+        do {
+          const result = await storage.repos.deleteRefsBatch(repo, cursor);
+          cursor = result.status === 'continue' ? result.cursor : undefined;
+        } while (cursor);
+
+        // 3. Delete objects in batches (for local storage, this is synchronous)
+        cursor = undefined;
+        do {
+          const result = await storage.repos.deleteObjectsBatch(repo, cursor);
+          cursor = result.status === 'continue' ? result.cursor : undefined;
+        } while (cursor);
+
+        // 4. Remove repo metadata/directory
+        await storage.repos.remove(repo);
+
+        return sendSuccess(NullType, null);
+      } catch (err) {
+        if (err instanceof RepoNotFoundError) {
+          return sendError(NullType, variant('repository_not_found', { repo }));
+        }
+        return sendError(NullType, errorToVariant(err));
+      }
+    });
+
+  }
+
+  // Mount repository-specific routes
+  // Each route file creates a sub-app that uses getRepoPath to resolve the repo
+
+  // Repository status and GC: /api/repos/:repo/status, /api/repos/:repo/gc
+  app.route('/api/repos/:repo', createRepositoryRoutes(storage, getRepoPath));
+
+  // Package transfer routes: repo-level import/export + package-level export trigger
+  app.route('/api/repos/:repo', pkgTransfer.repoApi);
+  app.route('/api/repos/:repo/packages', pkgTransfer.pkgApi);
+
+  // Package routes: /api/repos/:repo/packages/*
+  app.route('/api/repos/:repo/packages', createPackageRoutes(storage, getRepoPath));
+
+  // Workspace routes: /api/repos/:repo/workspaces/*
+  app.route('/api/repos/:repo/workspaces', createWorkspaceRoutes(storage, getRepoPath, transferBackend));
+
+  // Dataset transfer auth routes (init + commit) mount alongside dataset routes
+  app.route('/api/repos/:repo/workspaces/:ws/datasets', dsTransfer.api);
+
+  // Dataset routes: /api/repos/:repo/workspaces/:ws/datasets/*
+  app.route('/api/repos/:repo/workspaces/:ws/datasets', createDatasetRoutes(storage, getRepoPath, transferBackend));
+
+  // Task routes: /api/repos/:repo/workspaces/:ws/tasks/*
+  app.route('/api/repos/:repo/workspaces/:ws/tasks', createTaskRoutes(storage, getRepoPath));
+
+  // Execution/Dataflow routes: /api/repos/:repo/workspaces/:ws/dataflow/*
+  app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(storage, getRepoPath));
+
+  // Object routes: /api/repos/:repo/objects/:hash
+  app.route('/api/repos/:repo/objects', createObjectRoutes(storage, getRepoPath));
+
+  let httpServer: ServerType | null = null;
+  let actualPort = port;
+
+  const server: Server = {
+    async start() {
+      return new Promise((resolve) => {
+        httpServer = serve({
+          fetch: app.fetch,
+          port,
+          hostname: host,
+        }, (info) => {
+          actualPort = info.port;
+          resolve();
+        });
+      });
+    },
+
+    async stop() {
+      return new Promise((resolve, reject) => {
+        if (!httpServer) {
+          resolve();
+          return;
+        }
+        // Force close all connections immediately
+        (httpServer as unknown as { closeAllConnections(): void }).closeAllConnections();
+        httpServer.close((err) => {
+          if (err) {
+            reject(err);
+          } else {
+            resolve();
+          }
+        });
+      });
+    },
+
+    get httpServer() {
+      if (!httpServer) {
+        throw new Error('Server not started');
+      }
+      return httpServer;
+    },
+
+    get port() {
+      return actualPort;
+    },
+  };
+
+  return server;
+}

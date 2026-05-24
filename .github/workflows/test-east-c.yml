@@ -1,0 +1,81 @@
+name: Test east-c
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "libs/east-c/**"
+      - "libs/east/**"
+      - "libs/east-node/**"
+      - ".github/workflows/test-east-c.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "libs/east-c/**"
+      - "libs/east/**"
+      - "libs/east-node/**"
+      - ".github/workflows/test-east-c.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-east-c:
+    name: Test east-c (native)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build and export east test IR
+        working-directory: libs/east
+        run: make test-export
+        env:
+          EXPORT_TEST_IR: /tmp/east-test-ir
+
+      - name: Build east-node and export std test IR
+        working-directory: libs/east-node
+        run: make build && make test-export-std
+        env:
+          EXPORT_TEST_IR: /tmp/east-node-std
+
+      - name: Install C build dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
+
+      - name: Install uv (for clang-format via uv tool — used by `make lint`)
+        uses: astral-sh/setup-uv@v3
+
+      - name: Build east-c
+        working-directory: libs/east-c
+        run: make build
+
+      - name: Lint east-c (clang-format)
+        working-directory: libs/east-c
+        run: make lint
+
+      - name: Run east-c compliance tests
+        working-directory: libs/east-c
+        run: make test-east-c
+
+      - name: Start test services (for std tests)
+        run: docker compose -f docker/services/docker-compose.yml --profile services up -d --wait
+
+      - name: Run east-c-std compliance tests
+        working-directory: libs/east-c
+        run: make test-east-c-std
+
+      - name: Stop test services
+        if: always()
+        run: docker compose -f docker/services/docker-compose.yml --profile services down -v

@@ -1,0 +1,36 @@
+{
+  "name": "east-node-monorepo",
+  "version": "0.0.1-beta.6",
+  "private": true,
+  "description": "East Node - Node.js platform integration for East language",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "pnpm --filter @elaraai/east-node-std run build && pnpm --filter @elaraai/east-node-io run build && pnpm --filter @elaraai/east-node-cli run build",
+    "test": "pnpm --filter @elaraai/east-node-std run test && pnpm --filter @elaraai/east-node-io run test && pnpm --filter @elaraai/east-node-cli run test",
+    "lint": "pnpm --filter @elaraai/east-node-std run lint && pnpm --filter @elaraai/east-node-io run lint && pnpm --filter @elaraai/east-node-cli run lint",
+    "link:cli": "pnpm --filter @elaraai/east-node-cli link --global",
+    "unlink:cli": "pnpm unlink --global @elaraai/east-node-cli"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/elaraai/east-workspace.git",
+    "directory": "libs/east-node"
+  },
+  "keywords": [
+    "east",
+    "elara",
+    "node",
+    "platform",
+    "runtime"
+  ],
+  "author": "Elara AI Pty Ltd",
+  "license": "AGPL-3.0-or-later",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "@elaraai/east": "workspace:*"
+  }
+}

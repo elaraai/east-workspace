@@ -1,0 +1,173 @@
+{
+  "name": "@elaraai/east-ui",
+  "version": "1.0.0",
+  "description": "East UI - UI components for East language",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./internal": {
+      "types": "./dist/src/internal.d.ts",
+      "default": "./dist/src/internal.js"
+    },
+    "./examples/buttons": {
+      "types": "./dist/test/buttons/button.examples.d.ts",
+      "default": "./dist/test/buttons/button.examples.js"
+    },
+    "./examples/format": {
+      "types": "./dist/test/format/format.examples.d.ts",
+      "default": "./dist/test/format/format.examples.js"
+    },
+    "./examples/platform": {
+      "types": "./dist/test/platform/platform.examples.d.ts",
+      "default": "./dist/test/platform/platform.examples.js"
+    },
+    "./examples/patterns/*": {
+      "types": "./dist/test/patterns/*.examples.d.ts",
+      "default": "./dist/test/patterns/*.examples.js"
+    },
+    "./examples/buttons/*": {
+      "types": "./dist/test/buttons/*.examples.d.ts",
+      "default": "./dist/test/buttons/*.examples.js"
+    },
+    "./examples/typography": {
+      "types": "./dist/test/typography/index.d.ts",
+      "default": "./dist/test/typography/index.js"
+    },
+    "./examples/layout": {
+      "types": "./dist/test/layout/index.d.ts",
+      "default": "./dist/test/layout/index.js"
+    },
+    "./examples/container": {
+      "types": "./dist/test/container/card.examples.d.ts",
+      "default": "./dist/test/container/card.examples.js"
+    },
+    "./examples/display": {
+      "types": "./dist/test/display/index.d.ts",
+      "default": "./dist/test/display/index.js"
+    },
+    "./examples/feedback": {
+      "types": "./dist/test/feedback/index.d.ts",
+      "default": "./dist/test/feedback/index.js"
+    },
+    "./examples/forms": {
+      "types": "./dist/test/forms/index.d.ts",
+      "default": "./dist/test/forms/index.js"
+    },
+    "./examples/navigation/*": {
+      "types": "./dist/test/navigation/*.examples.d.ts",
+      "default": "./dist/test/navigation/*.examples.js"
+    },
+    "./examples/navigation": {
+      "types": "./dist/test/navigation/breadcrumb.examples.d.ts",
+      "default": "./dist/test/navigation/breadcrumb.examples.js"
+    },
+    "./examples/disclosure": {
+      "types": "./dist/test/disclosure/index.d.ts",
+      "default": "./dist/test/disclosure/index.js"
+    },
+    "./examples/overlays": {
+      "types": "./dist/test/overlays/index.d.ts",
+      "default": "./dist/test/overlays/index.js"
+    },
+    "./examples/collections": {
+      "types": "./dist/test/collections/index.d.ts",
+      "default": "./dist/test/collections/index.js"
+    },
+    "./examples/charts": {
+      "types": "./dist/test/charts/index.d.ts",
+      "default": "./dist/test/charts/index.js"
+    },
+    "./examples/typography/*": {
+      "types": "./dist/test/typography/*.examples.d.ts",
+      "default": "./dist/test/typography/*.examples.js"
+    },
+    "./examples/layout/*": {
+      "types": "./dist/test/layout/*.examples.d.ts",
+      "default": "./dist/test/layout/*.examples.js"
+    },
+    "./examples/display/*": {
+      "types": "./dist/test/display/*.examples.d.ts",
+      "default": "./dist/test/display/*.examples.js"
+    },
+    "./examples/feedback/*": {
+      "types": "./dist/test/feedback/*.examples.d.ts",
+      "default": "./dist/test/feedback/*.examples.js"
+    },
+    "./examples/forms/*": {
+      "types": "./dist/test/forms/*.examples.d.ts",
+      "default": "./dist/test/forms/*.examples.js"
+    },
+    "./examples/disclosure/*": {
+      "types": "./dist/test/disclosure/*.examples.d.ts",
+      "default": "./dist/test/disclosure/*.examples.js"
+    },
+    "./examples/overlays/*": {
+      "types": "./dist/test/overlays/*.examples.d.ts",
+      "default": "./dist/test/overlays/*.examples.js"
+    },
+    "./examples/collections/*": {
+      "types": "./dist/test/collections/*.examples.d.ts",
+      "default": "./dist/test/collections/*.examples.js"
+    },
+    "./examples/charts/*": {
+      "types": "./dist/test/charts/*.examples.d.ts",
+      "default": "./dist/test/charts/*.examples.js"
+    }
+  },
+  "files": [
+    "dist/src",
+    "dist/test/**/*.examples.*",
+    "dist/test/**/index.*",
+    "!dist/src/**/*.spec.*",
+    "README.md",
+    "LICENSE.md",
+    "CONTRIBUTING.md",
+    "CLA.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "package": "npm run build && mkdir -p .package && npm pack --pack-destination .package",
+    "prepublishOnly": "npm run lint && npm run test",
+    "example": "node --enable-source-maps dist/examples/example.js",
+    "test": "npm run build && npm run lint && node --enable-source-maps --test-reporter=spec --test 'dist/test/**/*.spec.js' 'dist/src/**/*.spec.js'",
+    "test:coverage": "npm run build && npm run lint && node --enable-source-maps --test-reporter=spec --test --experimental-test-coverage 'dist/test/**/*.spec.js' 'dist/src/**/*.spec.js'",
+    "test:export": "npm run build && npm run lint && rm -rf /tmp/east-ui-tests && EXPORT_TEST_IR=/tmp/east-ui-tests npm test 2>&1 | grep 'Exported test IR'",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/elaraai/east-workspace.git",
+    "directory": "libs/east-ui/packages/east-ui"
+  },
+  "keywords": [
+    "east",
+    "elara",
+    "ui",
+    "components"
+  ],
+  "author": "Elara AI Pty Ltd",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "devDependencies": {
+    "@elaraai/east-node-std": "workspace:*",
+    "@fortawesome/fontawesome-common-types": "^7.1.0",
+    "@types/node": "^22.18.1",
+    "@typescript-eslint/eslint-plugin": "^8.42.0",
+    "@typescript-eslint/parser": "^8.42.0",
+    "eslint": "^9.34.0",
+    "eslint-plugin-headers": "^1.3.3",
+    "tsx": "^4.19.2",
+    "typescript": "~5.9.2"
+  },
+  "peerDependencies": {
+    "@elaraai/east": "workspace:*"
+  }
+}

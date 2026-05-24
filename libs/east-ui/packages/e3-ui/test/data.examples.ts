@@ -1,0 +1,167 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ */
+
+import { East, FloatType, FunctionType, IntegerType, NullType, StringType, PatchType, variant, example } from "@elaraai/east";
+import { Reactive, Slider, Stack, Stat, Text, Input, Button, UIComponentType } from "@elaraai/east-ui";
+import { Data } from "@elaraai/e3-ui";
+import * as e3 from "@elaraai/e3";
+
+export const thresholdInput      = e3.input('threshold',       FloatType, 50.0);
+export const thresholdPatchInput = e3.input('threshold_patch', PatchType(FloatType), variant("unchanged", null));
+export const countInput          = e3.input('count', IntegerType, 0n);
+export const nameInput           = e3.input('name',  StringType,  '');
+
+export const dataBindFloat = example({
+    keywords: ["Data", "bind", "Reactive", "Float", "dataset", "read"],
+    description: "Bind to a Float dataset and display its current value",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const thresh = $.let(Data.bind([FloatType], thresholdInput.path));
+            const value = $.let(thresh.read());
+            return Stat.Root("Threshold", value);
+        }));
+    }),
+    inputs: [],
+});
+
+export const dataBindSliderWriteback = example({
+    keywords: ["Data", "bind", "Reactive", "Slider", "onChange", "write", "interactive"],
+    description: "Slider whose value is bound to a dataset — onChange writes back",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const thresh = $.let(Data.bind([FloatType], thresholdInput.path));
+            const value = $.let(thresh.read());
+            return Slider.Root(value, { 
+                min: 0, 
+                max: 100, 
+                onChangeEnd: thresh.writeAndStart, 
+                disabled: thresh.status().hasTag('stale') 
+            });
+
+        }));
+    }),
+    inputs: [],
+});
+
+export const dataBindInteger = example({
+    keywords: ["Data", "bind", "Integer", "Input", "write", "interactive"],
+    description: "Integer dataset bound to a number input with writeback",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const count = $.let(Data.bind([IntegerType], countInput.path));
+            const value = $.let(count.read());
+            return Input.Integer(value, { onChange: count.write });
+        }));
+    }),
+    inputs: [],
+});
+
+export const dataBindStringReset = example({
+    keywords: ["Data", "bind", "String", "callback", "Button", "reset", "write"],
+    description: "String dataset with a reset button that writes an empty string",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const name = $.let(Data.bind([StringType], nameInput.path));
+            const value = $.let(name.read());
+            const reset = $.const(East.function([], NullType, $ => {
+                $(name.write(""));
+            }));
+            return Stack.VStack([
+                Stat.Root("Name", value),
+                Button.Root("Reset", { style: { variant: "outline" }, onClick: reset }),
+            ], { gap: "3", align: "stretch" });
+        }));
+    }),
+    inputs: [],
+});
+
+export const dataBindHasGuard = example({
+    keywords: ["Data", "bind", "has", "guard", "conditional", "Reactive"],
+    description: "Use has() to gate UI on whether a dataset has been written",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const thresh = $.let(Data.bind([FloatType], thresholdInput.path));
+            const ready = $.let(thresh.has());
+            const message = $.let("(no data)");
+            $.if(ready, $ => {
+                $.assign(message, East.print(thresh.read()));
+            });
+            return Text.Root(message);
+        }));
+    }),
+    inputs: [],
+});
+
+export const dataBindStagedFloat = example({
+    keywords: ["Data", "bindStaged", "Reactive", "Float", "buffered", "transactional"],
+    description: "Stage edits to a Float dataset; read returns overlay (buffered or server)",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const thresh = $.let(Data.bind([FloatType], thresholdInput.path, { mode: "staged" }));
+            const value = $.let(thresh.read(), FloatType);
+            return Stat.Root("Threshold (live)", value);
+        }));
+    }),
+    inputs: [],
+});
+
+export const dataBindStagedSliderWrite = example({
+    keywords: ["Data", "bindStaged", "Slider", "write", "buffer", "interactive"],
+    description: "Slider whose onChange writes to the staged buffer instead of the server",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const thresh = $.let(Data.bind([FloatType], thresholdInput.path, { mode: "staged" }));
+            const value = $.let(thresh.read(), FloatType);
+            return Slider.Root(value, {
+                min: 0,
+                max: 100,
+                onChange: thresh.write,
+            });
+        }));
+    }),
+    inputs: [],
+});
+
+export const dataBindStagedCommitDiscard = example({
+    keywords: ["Data", "bindStaged", "commit", "discard", "pending", "transactional"],
+    description: "Two buttons that commit or discard the staged buffer for a path",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const thresh = $.let(Data.bind([FloatType], thresholdInput.path, { mode: "staged" }));
+            const commit = $.const(East.function([], NullType, $ => {
+                $(thresh.commit());
+            }), FunctionType([], NullType));
+            const discard = $.const(East.function([], NullType, $ => {
+                $(thresh.discard());
+            }), FunctionType([], NullType));
+            return Stack.VStack([
+                Text.Root("Pending edits"),
+                Button.Root("Commit", { onClick: commit }),
+                Button.Root("Discard", {
+                    style: { variant: "outline" },
+                    onClick: discard,
+                }),
+            ], { gap: "3", align: "stretch" });
+        }));
+    }),
+    inputs: [],
+});
+
+export const dataBindStagedOriginalVsRead = example({
+    keywords: ["Data", "bindStaged", "original", "read", "overlay", "diff"],
+    description: "Show server snapshot (original) and overlay (read) side by side",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const thresh = $.let(Data.bind([FloatType], thresholdInput.path, { mode: "staged", patch: thresholdPatchInput.path }));
+            const live = $.let(thresh.read(), FloatType);
+            const server = $.let(thresh.source(), FloatType);
+            return Stack.VStack([
+                Stat.Root("Server", server),
+                Stat.Root("Live (with stage)", live),
+            ], { gap: "3", align: "stretch" });
+        }));
+    }),
+    inputs: [],
+});
