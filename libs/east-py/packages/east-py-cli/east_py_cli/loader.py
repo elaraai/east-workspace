@@ -77,9 +77,9 @@ def load_ir(file_path: Path) -> Any:
             data = f.read()
 
         # Try wrapper format first: {ir, source_map} (exported by TS test suite)
-        LocationType = StructType({"column": IntegerType, "filename": StringType, "line": IntegerType})  # noqa: N806
-        SourceMapType = StructType({"stacks": ArrayType(ArrayType(LocationType))})  # noqa: N806
-        WrapperType = StructType({"ir": IRType, "source_map": SourceMapType})  # noqa: N806
+        LocationType = StructType([("column", IntegerType), ("filename", StringType), ("line", IntegerType)])  # noqa: N806
+        SourceMapType = StructType([("stacks", ArrayType(ArrayType(LocationType)))])  # noqa: N806
+        WrapperType = StructType([("ir", IRType), ("source_map", SourceMapType)])  # noqa: N806
         try:
             wrapper = decode_json_for(WrapperType)(data)
             return wrapper.ir

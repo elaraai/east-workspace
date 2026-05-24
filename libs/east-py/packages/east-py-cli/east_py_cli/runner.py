@@ -66,7 +66,7 @@ def run_program(
 
     t1 = perf_counter()
 
-    handle = compiled._eastc_handle
+    handle = compiled._eastc_handle  # type: ignore[attr-defined]
     input_types = handle.get_input_types()
     output_type = handle.get_output_type()
 
