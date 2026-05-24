@@ -19,7 +19,7 @@ test:
 ## Run all linters
 lint:
 	@echo "Linting all packages..."
-	pnpm -r --filter='./packages/*' run lint
+	pnpm run lint
 
 ## Clean build artifacts
 clean:

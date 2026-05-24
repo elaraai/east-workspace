@@ -3,16 +3,19 @@ packages:
   - "libs/east"
 
   # east-node — Node.js platform
+  - "libs/east-node"
   - "libs/east-node/packages/*"
 
   # east-py — Python runtime (TypeScript types package only)
   - "libs/east-py/packages/east-py-datascience"
 
   # e3 — execution engine
+  - "libs/e3"
   - "libs/e3/packages/*"
   - "libs/e3/test/*"
 
   # east-ui — UI components
+  - "libs/east-ui"
   - "libs/east-ui/packages/*"
   - "libs/east-ui/packages/east-ui-extension/webview"
 
