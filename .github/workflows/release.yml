@@ -414,7 +414,13 @@ jobs:
   # ────────────────────────────────────────────────────────────────────────
   finalize:
     needs: [prepare, publish-npm, publish-vsix, publish-pypi-upload, publish-c-native]
-    if: ${{ !inputs.dry_run && always() && needs.prepare.result == 'success' }}
+    if: >-
+      ${{ !inputs.dry_run &&
+          needs.prepare.result == 'success' &&
+          (needs.publish-npm.result == 'success' || needs.publish-npm.result == 'skipped') &&
+          (needs.publish-vsix.result == 'success' || needs.publish-vsix.result == 'skipped') &&
+          (needs.publish-pypi-upload.result == 'success' || needs.publish-pypi-upload.result == 'skipped') &&
+          (needs.publish-c-native.result == 'success' || needs.publish-c-native.result == 'skipped') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
