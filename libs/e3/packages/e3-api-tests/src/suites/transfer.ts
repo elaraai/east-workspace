@@ -62,8 +62,8 @@ export function transferTests(
     return Object.assign(ctx, { remoteUrl, workDir });
   };
 
-  describe('transfer', { concurrency: true }, () => {
-    describe('package transfer', { concurrency: true }, () => {
+  describe('transfer', { concurrency: false }, () => {
+    describe('package transfer', { concurrency: false }, () => {
       it('exports package from local repo and imports to remote', async (t) => {
         const ctx = await withTransfer(t);
         const { remoteUrl, workDir } = ctx;
@@ -152,7 +152,7 @@ export function transferTests(
       });
     });
 
-    describe('workspace transfer', { concurrency: true }, () => {
+    describe('workspace transfer', { concurrency: false }, () => {
       it('exports workspace from local repo and imports as package to remote', async (t) => {
         const ctx = await withTransfer(t);
         const { remoteUrl, workDir } = ctx;
@@ -321,7 +321,7 @@ export function transferTests(
       });
     });
 
-    describe('round-trip', { concurrency: true }, () => {
+    describe('round-trip', { concurrency: false }, () => {
       it('round-trip local -> remote -> local preserves data integrity', async (t) => {
         const ctx = await withTransfer(t);
         const { remoteUrl, workDir } = ctx;
@@ -436,7 +436,7 @@ export function transferTests(
       });
     });
 
-    describe('execution logs', { concurrency: true }, () => {
+    describe('execution logs', { concurrency: false }, () => {
       it('exports workspace with execution logs and imports them', async (t) => {
         const ctx = await withTransfer(t);
         const { workDir } = ctx;
@@ -577,7 +577,7 @@ export function transferTests(
       });
     });
 
-    describe('workspace import', { concurrency: true }, () => {
+    describe('workspace import', { concurrency: false }, () => {
       it('imports workspace zip to local repo with preserved datasets', async (t) => {
         const ctx = await withTransfer(t);
         const { workDir } = ctx;
@@ -820,7 +820,7 @@ export function transferTests(
       });
     });
 
-    describe('error handling', { concurrency: true }, () => {
+    describe('error handling', { concurrency: false }, () => {
       it('returns error when exporting non-existent package', async (t) => {
         const ctx = await withTransfer(t);
         const { remoteUrl, workDir } = ctx;

@@ -50,7 +50,7 @@ export function workspaceTests(setup: TestSetup<TestContext>): void {
     return ctx;
   };
 
-  describe('workspaces', { concurrency: true }, () => {
+  describe('workspaces', { concurrency: false }, () => {
     it('workspaceList returns empty initially', async (t) => {
       const ctx = await setup(t);
       const opts = await ctx.opts();
@@ -90,7 +90,7 @@ export function workspaceTests(setup: TestSetup<TestContext>): void {
       assert.strictEqual(workspaces.length, 0);
     });
 
-    describe('with deployed package', { concurrency: true }, () => {
+    describe('with deployed package', { concurrency: false }, () => {
       it('workspaceGet returns deployed state', async (t) => {
         const ctx = await withDeployedPackage(t);
         const opts = await ctx.opts();

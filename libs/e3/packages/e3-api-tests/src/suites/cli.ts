@@ -45,8 +45,8 @@ export function cliTests(
     return Object.assign(c, { packageZipPath });
   };
 
-  describe('cli', { concurrency: true }, () => {
-    describe('repo commands', { concurrency: true }, () => {
+  describe('cli', { concurrency: false }, () => {
+    describe('repo commands', { concurrency: false }, () => {
       it('repo status via remote URL', async (t) => {
         const { remoteUrl, workDir } = await withCli(t);
         const result = await runE3Command(['repo', 'status', remoteUrl], workDir, { env: getCredentialsEnv() });
@@ -87,7 +87,7 @@ export function cliTests(
       });
     });
 
-    describe('workspace commands', { concurrency: true }, () => {
+    describe('workspace commands', { concurrency: false }, () => {
       it('workspace list via remote URL', async (t) => {
         const { remoteUrl, workDir } = await withCli(t);
         const result = await runE3Command(['workspace', 'list', remoteUrl], workDir, { env: getCredentialsEnv() });
@@ -124,7 +124,7 @@ export function cliTests(
       });
     });
 
-    describe('package commands', { concurrency: true }, () => {
+    describe('package commands', { concurrency: false }, () => {
       it('package list via remote URL', async (t) => {
         const { remoteUrl, workDir } = await withCliPackage(t);
         const result = await runE3Command(['package', 'list', remoteUrl], workDir, { env: getCredentialsEnv() });
@@ -155,7 +155,7 @@ export function cliTests(
       });
     });
 
-    describe('full workflow via CLI', { concurrency: true }, () => {
+    describe('full workflow via CLI', { concurrency: false }, () => {
       it('imports package, creates workspace, deploys, and lists recursively', async (t) => {
         const ctx = await withCli(t);
         const { remoteUrl, workDir } = ctx;

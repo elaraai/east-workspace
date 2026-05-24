@@ -46,7 +46,7 @@ export function platformTests(setup: TestSetup<TestContext>): void {
     return ctx;
   };
 
-  describe('platform functions', { concurrency: true }, () => {
+  describe('platform functions', { concurrency: false }, () => {
     it('repoStatus platform function compiles and runs', async (t) => {
       const ctx = await withPackage(t);
 

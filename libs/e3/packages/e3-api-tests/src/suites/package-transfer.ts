@@ -45,7 +45,7 @@ export function packageTransferTests(setup: TestSetup<TestContext>): void {
     return Object.assign(ctx, { packageZip });
   };
 
-  describe('package-transfer', { concurrency: true }, () => {
+  describe('package-transfer', { concurrency: false }, () => {
     it('import via transfer flow round-trips', async (t) => {
       const ctx = await withPackageZip(t);
       const opts = await ctx.opts();

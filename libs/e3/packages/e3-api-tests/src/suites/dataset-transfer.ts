@@ -49,7 +49,7 @@ export function datasetTransferTests(setup: TestSetup<TestContext>): void {
     return ctx;
   };
 
-  describe('dataset transfer', { concurrency: true }, () => {
+  describe('dataset transfer', { concurrency: false }, () => {
     it('large dataset SET uses transfer flow and round-trips', async (t) => {
       const ctx = await withStringPackage(t);
       const opts = await ctx.opts();

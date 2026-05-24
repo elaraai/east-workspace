@@ -32,7 +32,7 @@ import type { TestSetup } from '../setup.js';
  * @param setup - Factory that creates a fresh test context per test
  */
 export function repositoryTests(setup: TestSetup<TestContext>): void {
-  describe('repository', { concurrency: true }, () => {
+  describe('repository', { concurrency: false }, () => {
     it('repoStatus returns repository info', async (t) => {
       const ctx = await setup(t);
       const opts = await ctx.opts();

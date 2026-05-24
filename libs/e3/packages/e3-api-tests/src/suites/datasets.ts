@@ -53,7 +53,7 @@ export function datasetTests(setup: TestSetup<TestContext>): void {
     return ctx;
   };
 
-  describe('datasets', { concurrency: true }, () => {
+  describe('datasets', { concurrency: false }, () => {
     it('datasetList returns field names', async (t) => {
       const ctx = await withStringPackage(t);
       const opts = await ctx.opts();
@@ -265,7 +265,7 @@ export function datasetTests(setup: TestSetup<TestContext>): void {
       assert.ok(inputItem2.value.size.value > 0n, 'updated input size should be positive');
     });
 
-    describe('writable enforcement', { concurrency: true }, () => {
+    describe('writable enforcement', { concurrency: false }, () => {
       it('datasetSet rejects write to task output', async (t) => {
         const ctx = await setup(t);
         const opts = await ctx.opts();
@@ -357,7 +357,7 @@ export function datasetTests(setup: TestSetup<TestContext>): void {
       });
     });
 
-    describe('input change propagation', { concurrency: true }, () => {
+    describe('input change propagation', { concurrency: false }, () => {
       it('output reflects input after execution', async (t) => {
         const ctx = await setup(t);
         const opts = await ctx.opts();

@@ -113,8 +113,8 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
   const withLogPag = withDeployed(setup, createPackageZip, 'logpag-pkg', 'logpag-ws');
   const withEvtPag = withDeployed(setup, createDiamondPackageZip, 'evtpag-pkg', 'evtpag-ws');
 
-  describe('dataflow', { concurrency: true }, () => {
-    describe('simple execution', { concurrency: true }, () => {
+  describe('dataflow', { concurrency: false }, () => {
+    describe('simple execution', { concurrency: false }, () => {
       it('dataflowExecute runs tasks and returns result (blocking)', async (t) => {
         const ctx = await withSimpleExec(t);
         const opts = await ctx.opts();
@@ -219,7 +219,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
       });
     });
 
-    describe('diamond dependency execution', { concurrency: true }, () => {
+    describe('diamond dependency execution', { concurrency: false }, () => {
       it('executes diamond dependency graph correctly', async (t) => {
         const ctx = await withDiamond(t);
         const opts = await ctx.opts();
@@ -279,7 +279,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
       });
     });
 
-    describe('failed execution', { concurrency: true }, () => {
+    describe('failed execution', { concurrency: false }, () => {
       it('dataflowExecute returns failure result when task fails', async (t) => {
         const ctx = await withFailing(t);
         const opts = await ctx.opts();
@@ -343,8 +343,8 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
       });
     });
 
-    describe('parallel task failures', { concurrency: true }, () => {
-      describe('mixed success/failure', { concurrency: true }, () => {
+    describe('parallel task failures', { concurrency: false }, () => {
+      describe('mixed success/failure', { concurrency: false }, () => {
         it('parallel tasks with mixed success/failure complete without stalling', async (t) => {
           const ctx = await withMixed(t);
           const opts = await ctx.opts();
@@ -402,7 +402,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         });
       });
 
-      describe('diamond with upstream failure', { concurrency: true }, () => {
+      describe('diamond with upstream failure', { concurrency: false }, () => {
         it('diamond with upstream failure skips dependents', async (t) => {
           const ctx = await withFailingDiamond(t);
           const opts = await ctx.opts();
@@ -444,7 +444,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         });
       });
 
-      describe('wide parallel execution', { concurrency: true }, () => {
+      describe('wide parallel execution', { concurrency: false }, () => {
         it('wide parallel execution completes correctly', async (t) => {
           const ctx = await withWideParallel(t);
           const opts = await ctx.opts();
@@ -651,7 +651,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
       });
     });
 
-    describe('execution not found', { concurrency: true }, () => {
+    describe('execution not found', { concurrency: false }, () => {
       it('taskLogs returns execution_not_found for never-executed task', async (t) => {
         const ctx = await withNoExec(t);
         const opts = await ctx.opts();
@@ -692,7 +692,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
       });
     });
 
-    describe('workspace error handling', { concurrency: true }, () => {
+    describe('workspace error handling', { concurrency: false }, () => {
       it('dataflowExecute returns error for non-existent workspace', async (t) => {
         const ctx = await setup(t);
         const opts = await ctx.opts();
@@ -742,7 +742,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
       });
     });
 
-    describe('cache behavior', { concurrency: true }, () => {
+    describe('cache behavior', { concurrency: false }, () => {
       it('second execution uses cached results', async (t) => {
         const ctx = await withCache(t);
         const opts = await ctx.opts();
@@ -773,7 +773,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
       });
     });
 
-    describe('task filter', { concurrency: true }, () => {
+    describe('task filter', { concurrency: false }, () => {
       it('filter runs only the specified task', async (t) => {
         const ctx = await withFilter(t);
         const opts = await ctx.opts();
@@ -810,7 +810,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
       });
     });
 
-    describe('dependency graph', { concurrency: true }, () => {
+    describe('dependency graph', { concurrency: false }, () => {
       it('dataflowGraph returns correct structure', async (t) => {
         const ctx = await withGraph(t);
         const opts = await ctx.opts();
@@ -839,7 +839,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
       });
     });
 
-    describe('log pagination', { concurrency: true }, () => {
+    describe('log pagination', { concurrency: false }, () => {
       it('taskLogs supports offset and limit', async (t) => {
         const ctx = await withLogPag(t);
         const opts = await ctx.opts();
@@ -875,7 +875,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
       });
     });
 
-    describe('event pagination', { concurrency: true }, () => {
+    describe('event pagination', { concurrency: false }, () => {
       it('dataflowExecution supports event offset and limit', async (t) => {
         const ctx = await withEvtPag(t);
         const opts = await ctx.opts();

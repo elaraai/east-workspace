@@ -38,7 +38,7 @@ export function packageTests(setup: TestSetup<TestContext>): void {
     return Object.assign(ctx, { packageZip });
   };
 
-  describe('packages', { concurrency: true }, () => {
+  describe('packages', { concurrency: false }, () => {
     it('packageList returns empty initially', async (t) => {
       const ctx = await setup(t);
       const opts = await ctx.opts();
