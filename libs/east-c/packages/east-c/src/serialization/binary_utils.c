@@ -5,7 +5,7 @@
  * encoding/decoding for variable-length integer representation.
  */
 
-#include "east/serialization.h"
+#include "binary_utils.h"
 
 #include <stdlib.h>
 #include <string.h>

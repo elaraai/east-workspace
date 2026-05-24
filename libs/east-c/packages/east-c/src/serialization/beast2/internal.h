@@ -10,6 +10,7 @@
 #define BEAST2_INTERNAL_H
 
 #include "east/serialization.h"
+#include "../binary_utils.h"
 #include "east/types.h"
 #include "east/values.h"
 #include "east/compiler.h"

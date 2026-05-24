@@ -80,10 +80,4 @@ typedef int (*Beast2HandleAllocFn)(EastValue *fn_value, void *user_data);
 ByteBuffer *east_beast2_encode_full_with_handles(EastValue *value, EastType *type,
                                                  Beast2HandleAllocFn alloc_fn, void *user_data);
 
-// Binary utilities
-void write_varint(ByteBuffer *buf, uint64_t val);
-uint64_t read_varint(const uint8_t *data, size_t *offset);
-void write_zigzag(ByteBuffer *buf, int64_t val);
-int64_t read_zigzag(const uint8_t *data, size_t *offset);
-
 #endif
