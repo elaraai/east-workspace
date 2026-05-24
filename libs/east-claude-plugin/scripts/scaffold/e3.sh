@@ -58,12 +58,12 @@ create_project() {
     "lint": "eslint ."
   },
   "dependencies": {
-    "@elaraai/east": "beta",
-    "@elaraai/east-node-std": "beta",
-    "@elaraai/east-node-io": "beta",
-    "@elaraai/east-py-datascience": "beta",
-    "@elaraai/e3": "beta",
-    "@elaraai/e3-types": "beta"
+    "@elaraai/east": "latest",
+    "@elaraai/east-node-std": "latest",
+    "@elaraai/east-node-io": "latest",
+    "@elaraai/east-py-datascience": "latest",
+    "@elaraai/e3": "latest",
+    "@elaraai/e3-types": "latest"
   },
   "devDependencies": {
     "@types/node": "^22",
@@ -83,11 +83,11 @@ description = "$DISPLAY_NAME"
 requires-python = ">=3.11"
 version = "0.1.0"
 dependencies = [
-  "east-py @ git+https://github.com/elaraai/east-py@main#subdirectory=packages/east-py",
-  "east-py-std @ git+https://github.com/elaraai/east-py@main#subdirectory=packages/east-py-std",
-  "east-py-io @ git+https://github.com/elaraai/east-py@main#subdirectory=packages/east-py-io",
-  "east-py-datascience @ git+https://github.com/elaraai/east-py@main#subdirectory=packages/east-py-datascience",
-  "east-py-cli @ git+https://github.com/elaraai/east-py@main#subdirectory=packages/east-py-cli",
+  "east-py",
+  "east-py-std",
+  "east-py-io",
+  "east-py-datascience",
+  "east-py-cli",
   "pytest",
   "pytest-subtests",
 ]
@@ -342,13 +342,11 @@ install:
 	uv sync
 
 update:
-	npm install -g @elaraai/e3-cli@beta
+	npm install -g @elaraai/e3-cli@latest
 	e3 completion install 2>/dev/null || true
 	npm update \$\$(grep -roh '"@elaraai/[^"]*"' --include='package.json' . | tr -d '"' | sort -u | tr '\n' ' ')
-	rm -rf ~/.cache/uv/git-v0
 	uv lock --upgrade-package east-py --upgrade-package east-py-std --upgrade-package east-py-io --upgrade-package east-py-cli --upgrade-package east-py-datascience
-	uv sync --reinstall-package east-py --reinstall-package east-py-std --reinstall-package east-py-io --reinstall-package east-py-cli --reinstall-package east-py-datascience
-	uv sync --all-extras --all-packages
+	uv sync
 
 build:
 	npm run build

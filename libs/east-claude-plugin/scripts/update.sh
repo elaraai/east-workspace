@@ -40,7 +40,7 @@ fi
 
 # Update e3 CLI
 log_info "Updating Node.js packages..."
-npm install -g @elaraai/e3-cli@beta && log_success "e3-cli updated" || log_warn "Failed to update e3-cli"
+npm install -g @elaraai/e3-cli@latest && log_success "e3-cli updated" || log_warn "Failed to update e3-cli"
 
 # Update all @elaraai packages found in local package.json files
 log_info "Updating @elaraai packages..."
@@ -49,7 +49,7 @@ npm update $(grep -roh '"@elaraai/[^"]*"' --include='package.json' . | tr -d '"'
 # Update Python CLI if uv is available
 if command -v uv &> /dev/null; then
     log_info "Updating Python packages..."
-    uv tool upgrade east-py && log_success "east-py updated" || log_warn "Failed to update east-py"
+    uv tool upgrade east-py-cli && log_success "east-py-cli updated" || log_warn "Failed to update east-py-cli"
 else
     log_warn "uv not found, skipping Python CLI update"
 fi

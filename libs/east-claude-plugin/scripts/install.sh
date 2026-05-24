@@ -117,12 +117,12 @@ install_node() {
 install_node_clis() {
     source_nvm
 
-    log_info "Installing @elaraai/east-node-cli@beta..."
-    npm install -g @elaraai/east-node-cli@beta
+    log_info "Installing @elaraai/east-node-cli..."
+    npm install -g @elaraai/east-node-cli@latest
     log_success "east-node CLI installed"
 
-    log_info "Installing @elaraai/e3-cli@beta..."
-    npm install -g @elaraai/e3-cli@beta
+    log_info "Installing @elaraai/e3-cli..."
+    npm install -g @elaraai/e3-cli@latest
     log_success "e3-cli installed"
 
     # Wire up shell tab completion (idempotent; undo with `e3 completion uninstall`)
@@ -141,7 +141,7 @@ install_python_cli() {
     log_info "Installing east-py CLI..."
 
     # Install east-py-cli from the monorepo subdirectory
-    uv tool install east-py-cli --from "git+https://github.com/elaraai/east-py.git#subdirectory=packages/east-py-cli"
+    uv tool install east-py-cli
 
     log_success "east-py CLI installed"
 }

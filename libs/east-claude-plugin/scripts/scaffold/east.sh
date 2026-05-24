@@ -54,9 +54,9 @@ create_project() {
     "lint": "eslint ."
   },
   "dependencies": {
-    "@elaraai/east": "beta",
-    "@elaraai/east-node-std": "beta",
-    "@elaraai/east-node-io": "beta"
+    "@elaraai/east": "latest",
+    "@elaraai/east-node-std": "latest",
+    "@elaraai/east-node-io": "latest"
   },
   "devDependencies": {
     "@types/node": "^22",

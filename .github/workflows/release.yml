@@ -182,11 +182,6 @@ jobs:
         run: pnpm install
       - name: Upgrade npm for trusted publishing
         run: npm install -g npm@latest
-      - name: Setup Emscripten
-        uses: mymindstorm/setup-emsdk@v14
-      - name: Build WASM
-        working-directory: libs/east-c
-        run: make wasm
       - uses: astral-sh/setup-uv@v3
       - name: Set up Python 3.11
         run: uv python install 3.11
@@ -272,6 +267,20 @@ jobs:
           cache: "pnpm"
       - name: Install
         run: pnpm install
+      - name: Build east
+        working-directory: libs/east
+        run: make build
+      - name: Build east-node
+        working-directory: libs/east-node
+        run: make build
+      - name: Build e3
+        working-directory: libs/e3
+        run: make build
+      - name: Build east-ui
+        working-directory: libs/east-ui
+        run: make build
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
       - name: Build extension + webview
         run: pnpm --filter=east-ui-preview --filter=east-ui-preview-webview run build
       - name: Package VSIX
@@ -359,7 +368,7 @@ jobs:
           python3 libs/east-py/scripts/vendor-native.py
           --package ${{ matrix.pkg.dir }}
           ${{ matrix.pkg.name == 'east-py-datascience' && '--with-east-py-pxd' || '' }}
-      - uses: pypa/cibuildwheel@v2
+      - uses: pypa/cibuildwheel@v3.4.1
         with:
           package-dir: ${{ matrix.pkg.dir }}
         env:

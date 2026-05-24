@@ -10,11 +10,11 @@ on:
       release_type:
         description: 'Release channel'
         required: true
-        default: 'beta'
+        default: 'latest'
         type: choice
         options:
-          - beta    # Use beta versions from npm
           - latest  # Use latest stable versions from npm
+          - beta    # Use beta versions from npm
       push:
         description: 'Push images to registry'
         required: true
@@ -64,7 +64,7 @@ jobs:
       - name: Get package versions
         id: versions
         run: |
-          CHANNEL="${{ inputs.release_type || 'beta' }}"
+          CHANNEL="${{ inputs.release_type || 'latest' }}"
           echo "channel=${CHANNEL}" >> $GITHUB_OUTPUT
 
           # Query npm for versions based on channel
@@ -155,7 +155,7 @@ jobs:
       - name: Get package versions
         id: versions
         run: |
-          CHANNEL="${{ inputs.release_type || 'beta' }}"
+          CHANNEL="${{ inputs.release_type || 'latest' }}"
           echo "channel=${CHANNEL}" >> $GITHUB_OUTPUT
 
           # Query npm for versions based on channel

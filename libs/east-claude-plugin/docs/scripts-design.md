@@ -119,7 +119,7 @@ cd my-project
 # Install project dependencies (npm + python)
 make install
 
-# Update @elaraai/* packages to latest beta
+# Update @elaraai/* packages to latest
 make refresh
 
 # Or directly:
