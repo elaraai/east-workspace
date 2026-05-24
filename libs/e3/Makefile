@@ -14,12 +14,12 @@ build:
 ## Run all tests
 test:
 	@echo "Running tests..."
-	pnpm run test
+	pnpm -r --filter='./packages/*' --filter='./test/*' run test
 
 ## Run all linters
 lint:
 	@echo "Linting all packages..."
-	pnpm run lint
+	pnpm -r --filter='./packages/*' run lint
 
 ## Clean build artifacts
 clean:
