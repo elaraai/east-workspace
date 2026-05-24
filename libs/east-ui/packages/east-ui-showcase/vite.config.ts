@@ -10,7 +10,7 @@ export default defineConfig({
       testDir: path.resolve(__dirname, '../east-ui/test'),
     }),
   ],
-  base: '/east-ui/',
+  base: '/east-workspace/',
   define: {
     'process.env': {},
     'process.argv': '[]',
