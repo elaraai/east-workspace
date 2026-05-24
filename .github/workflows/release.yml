@@ -349,7 +349,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-13, macos-14]
+        os: [ubuntu-latest, macos-14]
         pkg:
           - { name: east-py, dir: libs/east-py/packages/east-py }
           - { name: east-py-datascience, dir: libs/east-py/packages/east-py-datascience }
@@ -360,8 +360,8 @@ jobs:
         with: { name: version-bump }
       # On Linux cibuildwheel builds inside a manylinux container that only
       # sees the package dir — stage east-c (+ east-py .pxd) into _vendor/ so
-      # the CMakeLists fallback finds them. macOS/Windows build natively in the
-      # full checkout, where the monorepo is already on disk.
+      # the CMakeLists fallback finds them. macOS builds natively in the full
+      # checkout where the monorepo is already on disk.
       - name: Vendor native deps
         if: runner.os == 'Linux'
         run: >-
@@ -374,6 +374,8 @@ jobs:
         env:
           CIBW_BUILD: "cp311-* cp312-* cp313-*"
           CIBW_SKIP: "*-musllinux_*"
+          # macos-14 is Apple Silicon (arm64); also cross-compile Intel wheels.
+          CIBW_ARCHS_MACOS: "arm64 x86_64"
       - uses: actions/upload-artifact@v4
         with:
           name: pypi-${{ matrix.pkg.name }}-${{ matrix.os }}
@@ -449,8 +451,8 @@ jobs:
         include:
           - { os: ubuntu-latest,    target: linux-x64   }
           - { os: ubuntu-24.04-arm, target: linux-arm64 }
-          - { os: macos-latest,     target: macos-arm64 }
-          - { os: macos-13,         target: macos-x64   }
+          - { os: macos-14,         target: macos-arm64 }
+          - { os: macos-14,         target: macos-x64,  cmake_arch: x86_64 }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -464,7 +466,11 @@ jobs:
         run: brew install cmake || true
       - name: Build
         working-directory: libs/east-c
-        run: make build
+        run: |
+          mkdir -p build && cd build
+          ARCH_FLAG="${{ matrix.cmake_arch && format('-DCMAKE_OSX_ARCHITECTURES={0}', matrix.cmake_arch) || '' }}"
+          cmake .. $ARCH_FLAG
+          cmake --build . -j$(nproc 2>/dev/null || sysctl -n hw.logicalcpu)
       - name: Stage tarball
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
