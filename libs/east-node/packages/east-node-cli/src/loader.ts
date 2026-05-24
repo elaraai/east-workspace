@@ -18,7 +18,7 @@ import {
     AsyncEastIR,
     type EastTypeValue,
 } from '@elaraai/east';
-import type { PlatformFunction, IR, ValueTypeOf, SourceMap } from '@elaraai/east/internal';
+import type { PlatformFunction, IR, ValueTypeOf } from '@elaraai/east/internal';
 
 const require = createRequire(import.meta.url);
 

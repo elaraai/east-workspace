@@ -1,7 +1,7 @@
 # e3 — East Execution Engine
 # Dependencies are managed by pnpm from the monorepo root.
 
-.PHONY: all build test lint clean dev fuzz fuzz-quick fuzz-stress fuzz-build help
+.PHONY: all build test lint clean dev link fuzz fuzz-quick fuzz-stress fuzz-build help
 
 # Default target
 all: build
@@ -35,6 +35,10 @@ dev: build
 	@echo ""
 	@echo "To run the CLI:"
 	@echo "  cd packages/e3-cli && pnpm run dev"
+
+## Link e3 CLI globally so 'e3' is available in PATH
+link:
+	cd packages/e3-cli && pnpm link --global
 
 ## Build fuzz tests
 fuzz-build:
