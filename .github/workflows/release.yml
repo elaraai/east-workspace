@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       release_type:
-        description: "Release type (ignored if force_version is set)"
+        description: "Release type"
         required: true
         default: "prerelease"
         type: choice
@@ -24,35 +24,10 @@ on:
           - patch
           - minor
           - major
-      force_version:
-        description: "Retry mode: publish exactly this version (e.g. 1.0.0-beta.5). Required if any skip_* is set."
-        required: false
-        default: ""
-        type: string
       dry_run:
         description: "Dry run (build everything, skip all publishes + tag/push)"
         required: false
         default: true
-        type: boolean
-      skip_npm:
-        description: "Skip npm publish (retry: requires force_version)"
-        required: false
-        default: false
-        type: boolean
-      skip_vsix:
-        description: "Skip VSCode extension publish (retry: requires force_version)"
-        required: false
-        default: false
-        type: boolean
-      skip_pypi:
-        description: "Skip PyPI publish (retry: requires force_version)"
-        required: false
-        default: false
-        type: boolean
-      skip_c_native:
-        description: "Skip native C binary build + release-asset attach (retry: requires force_version)"
-        required: false
-        default: false
         type: boolean
 
 concurrency:
@@ -79,42 +54,26 @@ jobs:
         with:
           node-version: 22
 
-      - name: Validate inputs
-        run: |
-          FORCE="${{ inputs.force_version }}"
-          ANY_SKIP=false
-          if [[ "${{ inputs.skip_npm }}" == "true" || "${{ inputs.skip_vsix }}" == "true" || "${{ inputs.skip_pypi }}" == "true" || "${{ inputs.skip_c_native }}" == "true" ]]; then
-            ANY_SKIP=true
-          fi
-          if [[ "$ANY_SKIP" == "true" && -z "$FORCE" ]]; then
-            echo "::error::skip_* inputs require force_version to be set (otherwise manifests would drift from what was published)."
-            exit 1
-          fi
-          if [[ -n "$FORCE" && ! "$FORCE" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$ ]]; then
-            echo "::error::force_version '${FORCE}' is not a valid semver (X.Y.Z or X.Y.Z-{alpha,beta,rc}.N)."
-            exit 1
-          fi
-
       - name: Preflight — VSCE PAT valid
-        if: ${{ !inputs.skip_vsix && !inputs.dry_run }}
+        if: ${{ !inputs.dry_run }}
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: |
           if [[ -z "$VSCE_PAT" ]]; then
-            echo "::error::VSCE_PAT secret is empty. Set it in repo secrets or skip_vsix=true."
+            echo "::error::VSCE_PAT secret is empty. Set it in repo secrets."
             exit 1
           fi
           npx --yes @vscode/vsce@latest verify-pat ElaraAI
 
       - name: Preflight — npm auth (OIDC reachable)
-        if: ${{ !inputs.skip_npm && !inputs.dry_run }}
+        if: ${{ !inputs.dry_run }}
         run: |
           # OIDC token exchange happens at publish time; nothing to verify here except
           # that the registry is reachable. Catches DNS/network outages before wasting a build.
           curl -sSf https://registry.npmjs.org/-/ping > /dev/null
 
       - name: Preflight — PyPI registry reachable
-        if: ${{ !inputs.skip_pypi && !inputs.dry_run }}
+        if: ${{ !inputs.dry_run }}
         run: |
           curl -sSf https://upload.pypi.org/ > /dev/null || true
           curl -sSf https://pypi.org/ > /dev/null
@@ -122,18 +81,12 @@ jobs:
       - name: Compute target version
         id: bump
         run: |
-          FORCE="${{ inputs.force_version }}"
-          if [[ -n "$FORCE" ]]; then
-            npm version "$FORCE" --no-git-tag-version --allow-same-version
-            NEW_VERSION="$FORCE"
-            echo "Retry mode: using force_version=${NEW_VERSION}"
-          elif [[ "${{ inputs.release_type }}" == pre* ]]; then
+          if [[ "${{ inputs.release_type }}" == pre* ]]; then
             npm version "${{ inputs.release_type }}" --preid=beta --no-git-tag-version
-            NEW_VERSION=$(node -p "require('./package.json').version")
           else
             npm version "${{ inputs.release_type }}" --no-git-tag-version
-            NEW_VERSION=$(node -p "require('./package.json').version")
           fi
+          NEW_VERSION=$(node -p "require('./package.json').version")
 
           if [[ "$NEW_VERSION" == *"-"* ]]; then
             echo "npm_tag=beta" >> $GITHUB_OUTPUT
@@ -164,7 +117,6 @@ jobs:
   # ────────────────────────────────────────────────────────────────────────
   publish-npm:
     needs: prepare
-    if: ${{ !inputs.skip_npm }}
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -254,7 +206,6 @@ jobs:
   # ────────────────────────────────────────────────────────────────────────
   publish-vsix:
     needs: prepare
-    if: ${{ !inputs.skip_vsix }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -315,7 +266,6 @@ jobs:
   # ────────────────────────────────────────────────────────────────────────
   publish-pypi-pure:
     needs: prepare
-    if: ${{ !inputs.skip_pypi }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -345,11 +295,10 @@ jobs:
   # ────────────────────────────────────────────────────────────────────────
   publish-pypi-cython-wheels:
     needs: prepare
-    if: ${{ !inputs.skip_pypi }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-13, macos-14, windows-latest]
+        os: [ubuntu-latest, macos-14]
         pkg:
           - { name: east-py, dir: libs/east-py/packages/east-py }
           - { name: east-py-datascience, dir: libs/east-py/packages/east-py-datascience }
@@ -360,8 +309,8 @@ jobs:
         with: { name: version-bump }
       # On Linux cibuildwheel builds inside a manylinux container that only
       # sees the package dir — stage east-c (+ east-py .pxd) into _vendor/ so
-      # the CMakeLists fallback finds them. macOS/Windows build natively in the
-      # full checkout, where the monorepo is already on disk.
+      # the CMakeLists fallback finds them. macOS builds natively in the full
+      # checkout where the monorepo is already on disk.
       - name: Vendor native deps
         if: runner.os == 'Linux'
         run: >-
@@ -374,6 +323,8 @@ jobs:
         env:
           CIBW_BUILD: "cp311-* cp312-* cp313-*"
           CIBW_SKIP: "*-musllinux_*"
+          # macos-14 is Apple Silicon (arm64); also cross-compile Intel wheels.
+          CIBW_ARCHS_MACOS: "arm64 x86_64"
       - uses: actions/upload-artifact@v4
         with:
           name: pypi-${{ matrix.pkg.name }}-${{ matrix.os }}
@@ -385,7 +336,6 @@ jobs:
   # ────────────────────────────────────────────────────────────────────────
   publish-pypi-cython-sdist:
     needs: prepare
-    if: ${{ !inputs.skip_pypi }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -422,7 +372,7 @@ jobs:
   # ────────────────────────────────────────────────────────────────────────
   publish-pypi-upload:
     needs: [publish-pypi-pure, publish-pypi-cython-wheels, publish-pypi-cython-sdist]
-    if: ${{ !inputs.skip_pypi && !inputs.dry_run }}
+    if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -436,21 +386,21 @@ jobs:
         with:
           packages-dir: dist-staging
           skip-existing: true
+          password: ${{ secrets.PYPI_TOKEN }}
 
   # ────────────────────────────────────────────────────────────────────────
   # 5. publish-c-native: linux-x64 + linux-arm64 + macos-arm64 + macos-x64 binary tarballs.
   # ────────────────────────────────────────────────────────────────────────
   publish-c-native:
     needs: prepare
-    if: ${{ !inputs.skip_c_native }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - { os: ubuntu-latest,    target: linux-x64   }
           - { os: ubuntu-24.04-arm, target: linux-arm64 }
-          - { os: macos-latest,     target: macos-arm64 }
-          - { os: macos-13,         target: macos-x64   }
+          - { os: macos-14,         target: macos-arm64 }
+          - { os: macos-14,         target: macos-x64,  cmake_arch: x86_64 }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -464,7 +414,11 @@ jobs:
         run: brew install cmake || true
       - name: Build
         working-directory: libs/east-c
-        run: make build
+        run: |
+          mkdir -p build && cd build
+          ARCH_FLAG="${{ matrix.cmake_arch && format('-DCMAKE_OSX_ARCHITECTURES={0}', matrix.cmake_arch) || '' }}"
+          cmake .. $ARCH_FLAG
+          cmake --build . -j$(nproc 2>/dev/null || sysctl -n hw.logicalcpu)
       - name: Stage tarball
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
@@ -492,10 +446,10 @@ jobs:
     if: >-
       ${{ !inputs.dry_run &&
           needs.prepare.result == 'success' &&
-          (needs.publish-npm.result == 'success' || needs.publish-npm.result == 'skipped') &&
-          (needs.publish-vsix.result == 'success' || needs.publish-vsix.result == 'skipped') &&
-          (needs.publish-pypi-upload.result == 'success' || needs.publish-pypi-upload.result == 'skipped') &&
-          (needs.publish-c-native.result == 'success' || needs.publish-c-native.result == 'skipped') }}
+          needs.publish-npm.result == 'success' &&
+          needs.publish-vsix.result == 'success' &&
+          needs.publish-pypi-upload.result == 'success' &&
+          needs.publish-c-native.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
