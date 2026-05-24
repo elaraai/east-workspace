@@ -6,6 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { readFileSync } from "node:fs";
+import * as ts from "typescript";
 import { Linter, type Rule } from "eslint";
 import * as tsParser from "@typescript-eslint/parser";
 import { eastRules } from "../src/rule.js";
@@ -13,6 +14,17 @@ import { eastRules } from "../src/rule.js";
 const projDir = join(process.cwd(), "test-fixtures", "proj");
 const rule = eastRules as unknown as Rule.RuleModule;
 const linter = new Linter({ configType: "flat" });
+
+// Build one TS program for both fixtures up front — avoids parser global-cache
+// issues where getSourceFile() returns undefined after linting a different file.
+const tsconfigPath = join(projDir, "tsconfig.json");
+const parsedConfig = ts.readConfigFile(tsconfigPath, ts.sys.readFile);
+const { fileNames, options: compilerOptions } = ts.parseJsonConfigFileContent(
+  parsedConfig.config,
+  ts.sys,
+  projDir,
+);
+const tsProgram = ts.createProgram(fileNames, compilerOptions);
 
 function lint(fixture: string, ruleConfig: unknown = "warn") {
   const file = join(projDir, fixture);
@@ -24,7 +36,7 @@ function lint(fixture: string, ruleConfig: unknown = "warn") {
       languageOptions: {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         parser: tsParser as any,
-        parserOptions: { project: join(projDir, "tsconfig.json"), tsconfigRootDir: projDir },
+        parserOptions: { programs: [tsProgram] },
       },
       plugins: { east: { rules: { "east-rules": rule } } },
       rules: { "east/east-rules": ruleConfig as never },
