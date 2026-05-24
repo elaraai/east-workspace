@@ -46,8 +46,17 @@ jobs:
       - name: Install Node.js dependencies
         run: pnpm install
 
+      - name: Build east (dependency)
+        working-directory: libs/east
+        run: make build
+
+      - name: Build east-node (dependency)
+        working-directory: libs/east-node
+        run: make build
+
       - name: Build e3 packages
-        run: pnpm --filter='@elaraai/e3-types...' --filter='@elaraai/e3...' --filter='@elaraai/e3-core...' --filter='@elaraai/e3-api-client...' --filter='@elaraai/e3-cli...' --filter='@elaraai/e3-api-server...' --filter='@elaraai/e3-api-tests...' run build
+        working-directory: libs/e3
+        run: make build
 
       - name: Link e3 CLI
         working-directory: libs/e3
@@ -59,7 +68,9 @@ jobs:
           cd libs/east-py && make install-cli
 
       - name: Lint
-        run: pnpm --filter=@elaraai/e3-types --filter=@elaraai/e3 --filter=@elaraai/e3-core --filter=@elaraai/e3-api-client --filter=@elaraai/e3-cli --filter=@elaraai/e3-api-server --filter=@elaraai/e3-api-tests run lint
+        working-directory: libs/e3
+        run: make lint
 
       - name: Run tests
-        run: pnpm --filter=@elaraai/e3-types --filter=@elaraai/e3 --filter=@elaraai/e3-core --filter=@elaraai/e3-api-client --filter=@elaraai/e3-cli --filter=@elaraai/e3-api-server --filter=@elaraai/e3-api-tests run test
+        working-directory: libs/e3
+        run: make test

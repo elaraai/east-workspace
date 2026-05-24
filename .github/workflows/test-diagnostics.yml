@@ -40,10 +40,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      # `...` pulls in workspace dependencies (east, east-diagnostics) so the
-      # rule engine + its types are built before the consumers' tests run.
-      - name: Build packages
-        run: pnpm --filter='@elaraai/east-diagnostics...' --filter='@elaraai/eslint-plugin-east...' --filter='@elaraai/east-claude-plugin...' run build
+      - name: Build east (dependency)
+        run: pnpm --filter='@elaraai/east' run build
 
-      - name: Run tests
-        run: pnpm --filter=@elaraai/east-diagnostics --filter=@elaraai/eslint-plugin-east --filter=@elaraai/east-claude-plugin run test
+      - name: Build and test east-diagnostics
+        working-directory: libs/east-diagnostics
+        run: make build && make test
+
+      - name: Build and test eslint-plugin-east
+        working-directory: libs/eslint-plugin-east
+        run: make build && make test
+
+      - name: Build and test east-claude-plugin
+        working-directory: libs/east-claude-plugin
+        run: make build && make test

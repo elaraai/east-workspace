@@ -35,10 +35,13 @@ jobs:
         run: pnpm install
 
       - name: Build east
-        run: pnpm --filter=@elaraai/east run build
+        working-directory: libs/east
+        run: make build
 
       - name: Lint
-        run: pnpm --filter=@elaraai/east run lint
+        working-directory: libs/east
+        run: make lint
 
       - name: Run tests
-        run: pnpm --filter=@elaraai/east run test
+        working-directory: libs/east
+        run: make test

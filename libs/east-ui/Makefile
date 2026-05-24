@@ -15,7 +15,7 @@ EAST_UI_EXAMPLE_KEYS := $(shell find packages/east-ui/test -name '*.examples.ts'
 E3_UI_EXAMPLE_KEYS := $(shell find packages/e3-ui/test -maxdepth 1 -name '*.examples.ts' 2>/dev/null \
                              | sed -e 's|^packages/e3-ui/test/||' -e 's|\.examples\.ts$$||')
 
-.PHONY: build test lint showcase design design-html-all probe-slice probe-collections clean extension extension-install extension-uninstall examples \
+.PHONY: build test lint showcase build-showcase design design-html-all probe-slice probe-collections clean extension extension-install extension-uninstall examples \
         east-ui-examples-html-all $(EAST_UI_EXAMPLE_KEYS:%=east-ui-examples-html-%) \
         e3-ui-examples-html-all $(E3_UI_EXAMPLE_KEYS:%=e3-ui-examples-html-%) help
 
@@ -34,6 +34,11 @@ lint:
 ## Run the showcase dev server
 showcase:
 	pnpm --filter @elaraai/east-ui --filter @elaraai/east-ui-components run build && rm -rf ./packages/east-ui-showcase/node_modules/.vite && pnpm run dev
+
+## Build east-ui-showcase for production deployment (used by GitHub Pages workflow)
+build-showcase:
+	pnpm --filter @elaraai/east-ui --filter @elaraai/east-ui-components run build
+	pnpm --filter @elaraai/east-ui-showcase run build
 
 ## Render every `.pattern` and `.bsys` element from `design/*.html` in headless
 ## Chromium and write one PNG per element to

@@ -135,13 +135,14 @@ test-all: services-up test-export
 
 # ── Versioning ───────────────────────────────────────────────────────
 
-## Set version across all manifests: npm (incl. root), Python, VSIX
+## Set version across all manifests: npm (incl. root), Python, VSIX, plugin
 ## Usage: make set-version VERSION=1.2.3  or  make set-version VERSION=1.2.3-beta.0
 set-version:
 	@test -n "$(VERSION)" || (echo "Usage: make set-version VERSION=x.y.z"; exit 1)
 	node scripts/set-npm-version.mjs $(VERSION)
 	node scripts/set-python-version.mjs $(VERSION)
 	node scripts/set-vsix-version.mjs $(VERSION)
+	node scripts/set-plugin-version.mjs $(VERSION)
 	node scripts/check-version-drift.mjs
 
 ## Check that all manifests are aligned (no version drift)

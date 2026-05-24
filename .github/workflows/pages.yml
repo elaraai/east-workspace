@@ -36,11 +36,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - name: Build east-ui packages
-        run: pnpm --filter='@elaraai/east-ui...' --filter='@elaraai/east-ui-components...' run build
+      - name: Build east (dependency)
+        working-directory: libs/east
+        run: make build
+
+      - name: Build east-node (dependency)
+        working-directory: libs/east-node
+        run: make build
 
       - name: Build showcase
-        run: pnpm --filter=@elaraai/east-ui-showcase run build
+        working-directory: libs/east-ui
+        run: make build-showcase
 
       - name: Setup Pages
         uses: actions/configure-pages@v4

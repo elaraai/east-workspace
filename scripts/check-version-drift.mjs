@@ -35,6 +35,8 @@ const PYPROJECTS = [
 ];
 
 const VSIX_PKG = 'libs/east-ui/packages/east-ui-extension/package.json';
+const PLUGIN_JSON = 'libs/east-claude-plugin/.claude-plugin/plugin.json';
+const MARKETPLACE_JSON = '.claude-plugin/marketplace.json';
 
 function readJsonVersion(rel) {
   return JSON.parse(fs.readFileSync(path.join(repoRoot, rel), 'utf8')).version;
@@ -68,15 +70,23 @@ if (!isPrerelease && vsixVersion !== canonical) {
   errors.push(`${VSIX_PKG}: ${vsixVersion} ≠ ${canonical} (must match on stable canonical)`);
 }
 
+const pluginVersion = readJsonVersion(PLUGIN_JSON);
+if (pluginVersion !== canonical) {
+  errors.push(`${PLUGIN_JSON}: ${pluginVersion} ≠ ${canonical}`);
+}
+
+const marketplace = JSON.parse(fs.readFileSync(path.join(repoRoot, MARKETPLACE_JSON), 'utf8'));
+const marketEntry = marketplace.plugins?.find((p) => p.name === 'east') ?? marketplace.plugins?.[0];
+if (marketEntry && marketEntry.version !== canonical) {
+  errors.push(`${MARKETPLACE_JSON} (east): ${marketEntry.version} ≠ ${canonical}`);
+}
+
 if (errors.length > 0) {
   console.error(`Version drift detected against canonical /package.json = ${canonical}:`);
   for (const e of errors) console.error(`  - ${e}`);
-  console.error(`\nFix by running:`);
-  console.error(`  node scripts/set-npm-version.mjs ${canonical}`);
-  console.error(`  node scripts/set-python-version.mjs ${canonical}`);
-  console.error(`  node scripts/set-vsix-version.mjs ${canonical}`);
+  console.error(`\nFix by running: make set-version VERSION=${canonical}`);
   process.exit(1);
 }
 
 console.log(`OK — all manifests aligned to ${canonical}`);
-console.log(`     (PEP 440: ${expectedPep440}; VSIX: ${vsixVersion}${isPrerelease ? ' [drift allowed: pre-release]' : ''})`);
+console.log(`     (PEP 440: ${expectedPep440}; VSIX: ${vsixVersion}${isPrerelease ? ' [drift allowed: pre-release]' : ''}; plugin: ${pluginVersion})`);

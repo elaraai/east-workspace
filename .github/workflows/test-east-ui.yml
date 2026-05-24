@@ -40,11 +40,26 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      - name: Build east (dependency)
+        working-directory: libs/east
+        run: make build
+
+      - name: Build east-node (dependency)
+        working-directory: libs/east-node
+        run: make build
+
+      - name: Build e3 (dependency)
+        working-directory: libs/e3
+        run: make build
+
       - name: Build east-ui packages
-        run: pnpm --filter='@elaraai/east-ui...' --filter='@elaraai/east-ui-components...' --filter='@elaraai/e3-ui-components...' run build
+        working-directory: libs/east-ui
+        run: make build
 
       - name: Lint
-        run: pnpm --filter=@elaraai/east-ui --filter=@elaraai/east-ui-components --filter=@elaraai/e3-ui-components run lint
+        working-directory: libs/east-ui
+        run: make lint
 
       - name: Run tests
-        run: pnpm --filter=@elaraai/east-ui --filter=@elaraai/east-ui-components --filter=@elaraai/e3-ui-components run test
+        working-directory: libs/east-ui
+        run: make test

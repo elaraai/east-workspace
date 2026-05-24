@@ -144,14 +144,10 @@ jobs:
           fi
 
           echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
-          node scripts/set-npm-version.mjs "${NEW_VERSION}"
-          node scripts/set-python-version.mjs "${NEW_VERSION}"
-          node scripts/set-vsix-version.mjs "${NEW_VERSION}"
-          node scripts/set-plugin-version.mjs "${NEW_VERSION}"
+          make set-version VERSION="${NEW_VERSION}"
           PEP440=$(node -e "import('./scripts/set-python-version.mjs').then(m => process.stdout.write(m.semverToPep440('${NEW_VERSION}')))")
           echo "pep440=${PEP440}" >> $GITHUB_OUTPUT
           echo "vsix_version=$(node -p "require('./libs/east-ui/packages/east-ui-extension/package.json').version")" >> $GITHUB_OUTPUT
-          node scripts/check-version-drift.mjs
 
       - name: Upload bumped manifests
         uses: actions/upload-artifact@v4

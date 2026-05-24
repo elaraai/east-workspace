@@ -36,6 +36,7 @@ downloads/
 eggs/
 lib/
 lib64/
+!libs/east-claude-plugin/lib/
 parts/
 sdist/
 var/

@@ -51,11 +51,20 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build east (dependency)
+        run: pnpm --filter='@elaraai/east' run build
+
+      - name: Build east-diagnostics (dependency)
+        working-directory: libs/east-diagnostics
+        run: make build
+
       - name: Regenerate search index
-        run: pnpm --filter '@elaraai/east-claude-plugin' run generate-index
+        working-directory: libs/east-claude-plugin
+        run: make index
 
       - name: Regenerate hook/MCP bundle
-        run: pnpm --filter '@elaraai/east-claude-plugin' run bundle
+        working-directory: libs/east-claude-plugin
+        run: make build
 
       - name: Fail if artifacts are stale
         run: |
