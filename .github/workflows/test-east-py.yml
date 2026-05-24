@@ -100,11 +100,18 @@ jobs:
         working-directory: libs/east
         run: make build
 
+      - name: Start test services
+        run: docker compose -f docker/services/docker-compose.yml --profile services up -d --wait
+
       - name: Build east-node and export std test IR
         working-directory: libs/east-node
         run: make build && make test-export-std
         env:
           EXPORT_TEST_IR: /tmp/east-node-std
+
+      - name: Stop test services
+        if: always()
+        run: docker compose -f docker/services/docker-compose.yml --profile services down -v
 
       - name: Install C build dependencies
         run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
