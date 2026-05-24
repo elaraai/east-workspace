@@ -34,13 +34,11 @@ function main() {
   for (const rel of PYPROJECTS) {
     const p = path.join(repoRoot, rel);
     const raw = fs.readFileSync(p, 'utf8');
-    const updated = raw.replace(
-      /(\[project\][\s\S]*?\nversion\s*=\s*")[^"]+(")/m,
-      `$1${pep440}$2`,
-    );
-    if (updated === raw) {
+    const pattern = /(\[project\][\s\S]*?\nversion\s*=\s*")[^"]+(")/m;
+    if (!pattern.test(raw)) {
       throw new Error(`Failed to find [project].version in ${rel}`);
     }
+    const updated = raw.replace(pattern, `$1${pep440}$2`);
     fs.writeFileSync(p, updated);
     console.log(`${rel}: ${pep440}`);
   }

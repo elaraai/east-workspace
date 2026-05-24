@@ -4,7 +4,7 @@
 # EAST_QUIET=1 — suppress passing test output (only show failures + summaries)
 # Default: verbose in sub-lib targets, quiet in test-all
 
-.PHONY: setup install build link test lint clean services-up services-down services-status test-all test-export help check-deps
+.PHONY: setup install build link test lint clean services-up services-down services-status test-all test-export set-version check-version help check-deps
 
 # ── Setup (one-time) ─────────────────────────────────────────────────
 
@@ -133,6 +133,21 @@ test-all: services-up test-export
 	$(MAKE) --no-print-directory services-down; \
 	exit $$exit_code
 
+# ── Versioning ───────────────────────────────────────────────────────
+
+## Set version across all manifests: npm (incl. root), Python, VSIX
+## Usage: make set-version VERSION=1.2.3  or  make set-version VERSION=1.2.3-beta.0
+set-version:
+	@test -n "$(VERSION)" || (echo "Usage: make set-version VERSION=x.y.z"; exit 1)
+	node scripts/set-npm-version.mjs $(VERSION)
+	node scripts/set-python-version.mjs $(VERSION)
+	node scripts/set-vsix-version.mjs $(VERSION)
+	node scripts/check-version-drift.mjs
+
+## Check that all manifests are aligned (no version drift)
+check-version:
+	node scripts/check-version-drift.mjs
+
 # ── Clean ────────────────────────────────────────────────────────────
 
 ## Remove all build artifacts
@@ -175,4 +190,6 @@ help:
 	@echo "  EAST_QUIET=1     - Only show failures + summaries (default in test-all)"
 	@echo ""
 	@echo "Maintenance:"
+	@echo "  set-version      - Bump all manifests: make set-version VERSION=1.2.3"
+	@echo "  check-version    - Verify all manifests are aligned"
 	@echo "  clean            - Remove all build artifacts"

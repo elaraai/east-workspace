@@ -17,6 +17,7 @@ if (!NEW_VERSION) {
 }
 
 const PKGS = [
+  'package.json',
   'libs/east/package.json',
   'libs/east-node/packages/east-node-std/package.json',
   'libs/east-node/packages/east-node-io/package.json',
