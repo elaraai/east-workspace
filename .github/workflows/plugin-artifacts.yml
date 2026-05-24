@@ -52,7 +52,8 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build east (dependency)
-        run: pnpm --filter='@elaraai/east' run build
+        working-directory: libs/east
+        run: make build
 
       - name: Build east-diagnostics (dependency)
         working-directory: libs/east-diagnostics
@@ -70,8 +71,7 @@ jobs:
         run: |
           if ! git diff --quiet -- libs/east-claude-plugin/index.json libs/east-claude-plugin/.build; then
             echo "::error::Plugin artifacts are out of date. Run:"
-            echo "  pnpm --filter '@elaraai/east-claude-plugin' run generate-index"
-            echo "  pnpm --filter '@elaraai/east-claude-plugin' run bundle"
+            echo "  cd libs/east-claude-plugin && make index && make build"
             echo "and commit libs/east-claude-plugin/index.json + .build/."
             git --no-pager diff --stat -- libs/east-claude-plugin/index.json libs/east-claude-plugin/.build
             exit 1

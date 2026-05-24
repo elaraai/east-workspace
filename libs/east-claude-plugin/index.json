@@ -1,15 +1,15 @@
 {
   "version": 1,
-  "generated": "2026-05-20T22:42:35.670Z",
+  "generated": "2026-05-24T05:46:33.470Z",
   "stats": {
-    "totalEntries": 1420,
-    "totalFiles": 172,
+    "totalEntries": 1422,
+    "totalFiles": 169,
     "packages": {
       "east": 486,
-      "east-node-std": 43,
+      "east-node-std": 42,
       "east-node-io": 63,
-      "east-py-datascience": 82,
-      "east-ui": 706,
+      "east-py-datascience": 81,
+      "east-ui": 710,
       "e3-ui": 33,
       "e3": 7
     }
@@ -9742,26 +9742,6 @@
       "source": "// Write and read back binary data\n// inputs: []  returns: true\nEast.asyncFunction([], BooleanType, ($) => {\n        const path = $.let(East.value(join(tmpdir(), \"ex-binary.dat\")));\n        const data = $.let(new Uint8Array([0, 1, 2, 255]));\n        $(FileSystem.writeFileBytes(path, data));\n        const read = $.let(FileSystem.readFileBytes(path));\n        return East.is(read, data);\n    })"
     },
     {
-      "id": "east-node-std:parallel.examples.ts:parallelMap",
-      "skill": "east-node-std",
-      "package": "east-node-std",
-      "file": "east-node/packages/east-node-std/test/parallel.examples.ts",
-      "suite": "",
-      "test": "Apply a function to each element of an array in parallel",
-      "keywords": [
-        "parallel",
-        "Parallel",
-        "map",
-        "concurrent",
-        "worker"
-      ],
-      "imports": [
-        "import { East, IntegerType, example } from \"@elaraai/east\";",
-        "import { Parallel } from \"@elaraai/east-node-std\";"
-      ],
-      "source": "// Apply a function to each element of an array in parallel\n// inputs: []  returns: 10n\nEast.asyncFunction([], IntegerType, ($) => {\n        const input = $.let(East.value([1n, 2n, 3n, 4n, 5n]));\n        const double = $.const(East.function([IntegerType], IntegerType, ($, x) => {\n            return x.multiply(2n);\n        }));\n        const result = $.let(Parallel.map([IntegerType, IntegerType], input, double));\n        return result.get(4n);\n    })"
-    },
-    {
       "id": "east-node-std:path.examples.ts:pathJoin",
       "skill": "east-node-std",
       "package": "east-node-std",
@@ -12093,7 +12073,7 @@
         "import { East, FloatType, BooleanType, IntegerType, VectorType, variant, example } from \"@elaraai/east\";",
         "import { Optimization } from \"@elaraai/east-py-datascience\";"
       ],
-      "source": "// Optimize shift start hours across 3 production lines to minimize inter-line idle time using coordinate descent\n// inputs: [3n]  returns: true\nEast.function([IntegerType], BooleanType, ($, n_lines) => {\n        // Objective: minimize total idle gap between consecutive lines.\n        // Each line runs 8 hours, so ideal start gap is 8 (line 0 at 0, line 1 at 8, line 2 at 16).\n        // idle = sum of |start[i] - start[i-1] - 8| for adjacent lines.\n        // Negate because Optimization.iterative maximizes.\n        const objective = $.const(East.function(\n            [VectorType(IntegerType)], FloatType,\n            ($, start_hours) => {\n                const idle_penalty = $.let(0.0);\n                $.for(East.Array.range(1n, n_lines), ($, i) => {\n                    const gap = $.let(start_hours.get(i).subtract(start_hours.get(i.subtract(1n))));\n                    const deviation = $.let(gap.subtract(8n).toFloat().abs());\n                    $.assign(idle_penalty, idle_penalty.add(deviation));\n                });\n                $.return(idle_penalty.negate());\n            }\n        ));\n\n        // Each line can start at hour 0, 4, 8, 12, 16, or 20\n        const shift_options = East.Vector.fromArray([0n, 4n, 8n, 12n, 16n, 20n]);\n        const spaces = $.let([shift_options, shift_options, shift_options]);\n\n        const config = $.let({\n            iterations: variant('some', 10n),\n            samples: variant('some', 3n),\n            initial: variant('some', variant('random', null)),\n            order: variant('some', variant('sequential', null)),\n            random_state: variant('some', 42n),\n            mode: variant('some', variant('coordinate', null)),\n            workers: variant('none', null),\n        });\n\n        const result = $.let(Optimization.iterative(objective, spaces, config));\n\n        // Optimal: lines start at 0, 8, 16 — zero idle time, objective = 0.0\n        return result.success;\n    })"
+      "source": "// Optimize shift start hours across 3 production lines to minimize inter-line idle time using coordinate descent\n// inputs: [3n]  returns: true\nEast.function([IntegerType], BooleanType, ($, n_lines) => {\n        // Objective: minimize total idle gap between consecutive lines.\n        // Each line runs 8 hours, so ideal start gap is 8 (line 0 at 0, line 1 at 8, line 2 at 16).\n        // idle = sum of |start[i] - start[i-1] - 8| for adjacent lines.\n        // Negate because Optimization.iterative maximizes.\n        const objective = $.const(East.function(\n            [VectorType(IntegerType)], FloatType,\n            ($, start_hours) => {\n                const idle_penalty = $.let(0.0);\n                $.for(East.Array.range(1n, n_lines), ($, i) => {\n                    const gap = $.let(start_hours.get(i).subtract(start_hours.get(i.subtract(1n))));\n                    const deviation = $.let(gap.subtract(8n).toFloat().abs());\n                    $.assign(idle_penalty, idle_penalty.add(deviation));\n                });\n                $.return(idle_penalty.negate());\n            }\n        ));\n\n        // Each line can start at hour 0, 4, 8, 12, 16, or 20\n        const shift_options = East.Vector.fromArray([0n, 4n, 8n, 12n, 16n, 20n]);\n        const spaces = $.let([shift_options, shift_options, shift_options]);\n\n        const config = $.let({\n            iterations: variant('some', 10n),\n            samples: variant('some', 3n),\n            initial: variant('some', variant('random', null)),\n            order: variant('some', variant('sequential', null)),\n            random_state: variant('some', 42n),\n            mode: variant('some', variant('coordinate', null)),\n        });\n\n        const result = $.let(Optimization.iterative(objective, spaces, config));\n\n        // Optimal: lines start at 0, 8, 16 — zero idle time, objective = 0.0\n        return result.success;\n    })"
     },
     {
       "id": "east-py-datascience:optimization.examples.ts:optimizationIncremental",
@@ -12116,7 +12096,7 @@
         "import { East, FloatType, BooleanType, IntegerType, VectorType, variant, example } from \"@elaraai/east\";",
         "import { Optimization } from \"@elaraai/east-py-datascience\";"
       ],
-      "source": "// Optimize task-worker assignment using incremental per-element contributions\n// inputs: []  returns: 15.0\nEast.function([], FloatType, ($) => {\n        // 5 tasks, 3 workers. skill[task][worker] = match score.\n        // Element objective: contribution of task i = skill[i][assignment[i]]\n        const skill = $.let([\n            [3.0, 1.0, 2.0],   // task 0: best with worker 0\n            [1.0, 3.0, 2.0],   // task 1: best with worker 1\n            [2.0, 2.0, 3.0],   // task 2: best with worker 2\n            [3.0, 2.0, 1.0],   // task 3: best with worker 0\n            [1.0, 2.0, 3.0],   // task 4: best with worker 2\n        ]);\n\n        const elementObjective = $.const(East.function(\n            [VectorType(IntegerType), IntegerType], FloatType,\n            ($, assignments, taskIdx) => {\n                const worker = $.let(assignments.get(taskIdx));\n                $.return(skill.get(taskIdx).get(worker));\n            }\n        ));\n\n        const spaces = $.let([\n            new BigInt64Array([0n, 1n, 2n]),\n            new BigInt64Array([0n, 1n, 2n]),\n            new BigInt64Array([0n, 1n, 2n]),\n            new BigInt64Array([0n, 1n, 2n]),\n            new BigInt64Array([0n, 1n, 2n]),\n        ]);\n\n        const config = $.let({\n            iterations: variant('some', 10n),\n            samples: variant('some', 3n),\n            initial: variant('some', variant('random', null)),\n            order: variant('some', variant('sequential', null)),\n            random_state: variant('some', 42n),\n            mode: variant('none', null),\n            workers: variant('none', null),\n        });\n\n        const result = $.let(Optimization.iterativeIncremental(\n            elementObjective, spaces, config,\n        ));\n\n        // Optimal: each task assigned to best worker -> 3+3+3+3+3 = 15.0\n        return result.best_objective;\n    })"
+      "source": "// Optimize task-worker assignment using incremental per-element contributions\n// inputs: []  returns: 15.0\nEast.function([], FloatType, ($) => {\n        // 5 tasks, 3 workers. skill[task][worker] = match score.\n        // Element objective: contribution of task i = skill[i][assignment[i]]\n        const skill = $.let([\n            [3.0, 1.0, 2.0],   // task 0: best with worker 0\n            [1.0, 3.0, 2.0],   // task 1: best with worker 1\n            [2.0, 2.0, 3.0],   // task 2: best with worker 2\n            [3.0, 2.0, 1.0],   // task 3: best with worker 0\n            [1.0, 2.0, 3.0],   // task 4: best with worker 2\n        ]);\n\n        const elementObjective = $.const(East.function(\n            [VectorType(IntegerType), IntegerType], FloatType,\n            ($, assignments, taskIdx) => {\n                const worker = $.let(assignments.get(taskIdx));\n                $.return(skill.get(taskIdx).get(worker));\n            }\n        ));\n\n        const spaces = $.let([\n            new BigInt64Array([0n, 1n, 2n]),\n            new BigInt64Array([0n, 1n, 2n]),\n            new BigInt64Array([0n, 1n, 2n]),\n            new BigInt64Array([0n, 1n, 2n]),\n            new BigInt64Array([0n, 1n, 2n]),\n        ]);\n\n        const config = $.let({\n            iterations: variant('some', 10n),\n            samples: variant('some', 3n),\n            initial: variant('some', variant('random', null)),\n            order: variant('some', variant('sequential', null)),\n            random_state: variant('some', 42n),\n            mode: variant('none', null),\n        });\n\n        const result = $.let(Optimization.iterativeIncremental(\n            elementObjective, spaces, config,\n        ));\n\n        // Optimal: each task assigned to best worker -> 3+3+3+3+3 = 15.0\n        return result.best_objective;\n    })"
     },
     {
       "id": "east-py-datascience:optimization.examples.ts:optimizationGrouped",
@@ -12139,7 +12119,7 @@
         "import { East, FloatType, BooleanType, IntegerType, VectorType, variant, example } from \"@elaraai/east\";",
         "import { Optimization } from \"@elaraai/east-py-datascience\";"
       ],
-      "source": "// Optimize slot-to-worker rostering using grouped per-value contributions\n// inputs: []  returns: -105.0\nEast.function([], FloatType, ($) => {\n        // 6 shift slots assigned to 3 workers (IDs 0-2).\n        // Each worker's cost = sum of shift costs for their assigned slots.\n        // Penalty if a worker has > 2 slots (overtime).\n        const shiftCosts = $.let([10.0, 20.0, 15.0, 25.0, 30.0, 5.0]);\n        const nSlots = East.value(6n);\n\n        const groupObjective = $.const(East.function(\n            [VectorType(IntegerType), IntegerType], FloatType,\n            ($, assignments, workerId) => {\n                const cost = $.let(0.0);\n                const count = $.let(0n);\n                $.for(East.Array.range(0n, nSlots), ($, slot) => {\n                    $.if(East.equal(assignments.get(slot), workerId), $ => {\n                        $.assign(cost, cost.add(shiftCosts.get(slot)));\n                        $.assign(count, count.add(1n));\n                    });\n                });\n                // Overtime penalty: 50 per extra slot beyond 2\n                $.if(count.greater(2n), $ => {\n                    $.assign(cost, cost.add(count.subtract(2n).toFloat().multiply(50.0)));\n                });\n                $.return(cost.negate());\n            }\n        ));\n\n        // Each slot can be assigned to worker 0, 1, or 2\n        const workers = East.Vector.fromArray([0n, 1n, 2n]);\n        const spaces = $.let([workers, workers, workers, workers, workers, workers]);\n\n        const config = $.let({\n            iterations: variant('some', 20n),\n            samples: variant('some', 5n),\n            initial: variant('some', variant('random', null)),\n            order: variant('some', variant('sequential', null)),\n            random_state: variant('some', 42n),\n            mode: variant('none', null),\n            workers: variant('none', null),\n        });\n\n        const result = $.let(Optimization.iterativeGrouped(\n            groupObjective, spaces, config,\n        ));\n\n        // Optimal: 2 slots each, no overtime. Total cost = -(10+20+15+25+30+5) = -105\n        return result.best_objective;\n    })"
+      "source": "// Optimize slot-to-worker rostering using grouped per-value contributions\n// inputs: []  returns: -105.0\nEast.function([], FloatType, ($) => {\n        // 6 shift slots assigned to 3 workers (IDs 0-2).\n        // Each worker's cost = sum of shift costs for their assigned slots.\n        // Penalty if a worker has > 2 slots (overtime).\n        const shiftCosts = $.let([10.0, 20.0, 15.0, 25.0, 30.0, 5.0]);\n        const nSlots = East.value(6n);\n\n        const groupObjective = $.const(East.function(\n            [VectorType(IntegerType), IntegerType], FloatType,\n            ($, assignments, workerId) => {\n                const cost = $.let(0.0);\n                const count = $.let(0n);\n                $.for(East.Array.range(0n, nSlots), ($, slot) => {\n                    $.if(East.equal(assignments.get(slot), workerId), $ => {\n                        $.assign(cost, cost.add(shiftCosts.get(slot)));\n                        $.assign(count, count.add(1n));\n                    });\n                });\n                // Overtime penalty: 50 per extra slot beyond 2\n                $.if(count.greater(2n), $ => {\n                    $.assign(cost, cost.add(count.subtract(2n).toFloat().multiply(50.0)));\n                });\n                $.return(cost.negate());\n            }\n        ));\n\n        // Each slot can be assigned to worker 0, 1, or 2\n        const workers = East.Vector.fromArray([0n, 1n, 2n]);\n        const spaces = $.let([workers, workers, workers, workers, workers, workers]);\n\n        const config = $.let({\n            iterations: variant('some', 20n),\n            samples: variant('some', 5n),\n            initial: variant('some', variant('random', null)),\n            order: variant('some', variant('sequential', null)),\n            random_state: variant('some', 42n),\n            mode: variant('none', null),\n        });\n\n        const result = $.let(Optimization.iterativeGrouped(\n            groupObjective, spaces, config,\n        ));\n\n        // Optimal: 2 slots each, no overtime. Total cost = -(10+20+15+25+30+5) = -105\n        return result.best_objective;\n    })"
     },
     {
       "id": "east-py-datascience:optimization.examples.ts:optimizationSwap",
@@ -12161,7 +12141,7 @@
         "import { East, FloatType, BooleanType, IntegerType, VectorType, variant, example } from \"@elaraai/east\";",
         "import { Optimization } from \"@elaraai/east-py-datascience\";"
       ],
-      "source": "// Find optimal job execution order to minimize weighted completion time using swap mode\n// inputs: []  returns: -188.0\nEast.function([], FloatType, ($) => {\n        // 4 jobs with durations and priority values.\n        // Find execution order minimizing weighted completion time.\n        const durations = $.let([10.0, 5.0, 20.0, 3.0]);\n        const values = $.let([1.0, 8.0, 2.0, 10.0]);\n\n        const objective = $.const(East.function(\n            [VectorType(IntegerType)], FloatType,\n            ($, perm) => {\n                const cumulative_time = $.let(0.0);\n                const total_cost = $.let(0.0);\n                $.for(East.Array.range(0n, East.value(4n)), ($, i) => {\n                    const job = $.let(perm.get(i));\n                    $.assign(cumulative_time, cumulative_time.add(durations.get(job)));\n                    $.assign(total_cost, total_cost.add(values.get(job).multiply(cumulative_time)));\n                });\n                // Negate to minimize (iterative maximizes)\n                $.return(total_cost.negate());\n            }\n        ));\n\n        // Each position can hold any of the 4 jobs — swap mode ensures valid permutations\n        const job_indices = East.Vector.fromArray([0n, 1n, 2n, 3n]);\n        const spaces = $.let([job_indices, job_indices, job_indices, job_indices]);\n\n        const config = $.let({\n            iterations: variant('some', 50n),\n            samples: variant('some', 10n),\n            initial: variant('some', variant('random', null)),\n            order: variant('some', variant('random', null)),\n            random_state: variant('some', 42n),\n            mode: variant('some', variant('swap', null)),\n            workers: variant('none', null),\n        });\n\n        const result = $.let(Optimization.iterative(objective, spaces, config));\n\n        // Optimal WSPT order: job3(3s), job1(5s), job0(10s), job2(20s) → cost = -188.0\n        return result.best_objective;\n    })"
+      "source": "// Find optimal job execution order to minimize weighted completion time using swap mode\n// inputs: []  returns: -188.0\nEast.function([], FloatType, ($) => {\n        // 4 jobs with durations and priority values.\n        // Find execution order minimizing weighted completion time.\n        const durations = $.let([10.0, 5.0, 20.0, 3.0]);\n        const values = $.let([1.0, 8.0, 2.0, 10.0]);\n\n        const objective = $.const(East.function(\n            [VectorType(IntegerType)], FloatType,\n            ($, perm) => {\n                const cumulative_time = $.let(0.0);\n                const total_cost = $.let(0.0);\n                $.for(East.Array.range(0n, East.value(4n)), ($, i) => {\n                    const job = $.let(perm.get(i));\n                    $.assign(cumulative_time, cumulative_time.add(durations.get(job)));\n                    $.assign(total_cost, total_cost.add(values.get(job).multiply(cumulative_time)));\n                });\n                // Negate to minimize (iterative maximizes)\n                $.return(total_cost.negate());\n            }\n        ));\n\n        // Each position can hold any of the 4 jobs — swap mode ensures valid permutations\n        const job_indices = East.Vector.fromArray([0n, 1n, 2n, 3n]);\n        const spaces = $.let([job_indices, job_indices, job_indices, job_indices]);\n\n        const config = $.let({\n            iterations: variant('some', 50n),\n            samples: variant('some', 10n),\n            initial: variant('some', variant('random', null)),\n            order: variant('some', variant('random', null)),\n            random_state: variant('some', 42n),\n            mode: variant('some', variant('swap', null)),\n        });\n\n        const result = $.let(Optimization.iterative(objective, spaces, config));\n\n        // Optimal WSPT order: job3(3s), job1(5s), job0(10s), job2(20s) → cost = -188.0\n        return result.best_objective;\n    })"
     },
     {
       "id": "east-py-datascience:optuna.examples.ts:optunaTuneXgboost",
@@ -12783,32 +12763,10 @@
         "station"
       ],
       "imports": [
-        "import { East, StructType, VariantType, ArrayType, FloatType, IntegerType, DateTimeType, variant, example, some, none } from \"@elaraai/east\";",
-        "import { Simulation, SimulationConfigType, SimulationTrajectoriesConfigType } from \"@elaraai/east-py-datascience\";"
+        "import { East, StructType, VariantType, ArrayType, FloatType, IntegerType, DateTimeType, variant, none, example } from \"@elaraai/east\";",
+        "import { Simulation, SimulationConfigType } from \"@elaraai/east-py-datascience\";"
       ],
       "source": "// Simulate a production line processing work orders through 3 sequential stations, track WIP and completion\n// inputs: []  returns: 8n\nEast.function([], IntegerType, ($) => {\n        // Process handler: route orders through stations sequentially\n        const process = East.function(\n            [ProductionState, DateTimeType, ProductionEvents],\n            ProductionProcessResult,\n            ($, state, date, event) => {\n                const emptyEvents = $.let([] as const, ArrayType(ProductionScheduledEvent));\n                return $.return(event.match({\n                    order_arrive: ($, units) => {\n                        const result = $.let({\n                            state: {\n                                wip_cutting: state.wip_cutting.add(units),\n                                wip_welding: state.wip_welding,\n                                wip_painting: state.wip_painting,\n                                completed: state.completed,\n                            },\n                            events: [{ \n                                date: date.addDays(1n), \n                                event: variant(\"cutting_done\", units) \n                            }],\n                        }, ProductionProcessResult);\n                        return result;\n                    },\n                    cutting_done: ($, units) => {\n                        const result = $.let({\n                            state: {\n                                wip_cutting: state.wip_cutting.subtract(units),\n                                wip_welding: state.wip_welding.add(units),\n                                wip_painting: state.wip_painting,\n                                completed: state.completed,\n                            },\n                            events: [{ \n                                date: date.addDays(1n), \n                                event: variant(\"welding_done\", units) \n                            }],\n                        }, ProductionProcessResult);\n                        return result;\n                    },\n                    welding_done: ($, units) => {\n                        const result = $.let({\n                            state: {\n                                wip_cutting: state.wip_cutting,\n                                wip_welding: state.wip_welding.subtract(units),\n                                wip_painting: state.wip_painting.add(units),\n                                completed: state.completed,\n                            },\n                            events: [{ \n                                date: date.addDays(1n), \n                                event: variant(\"painting_done\", units) \n                            }],\n                        }, ProductionProcessResult);\n                        return result;\n                    },\n                    painting_done: ($, units) => {\n                        const result = $.let({\n                            state: {\n                                wip_cutting: state.wip_cutting,\n                                wip_welding: state.wip_welding,\n                                wip_painting: state.wip_painting.subtract(units),\n                                completed: state.completed.add(units),\n                            },\n                            events: emptyEvents,\n                        }, ProductionProcessResult);\n                        return result;\n                    },\n                }));\n            }\n        );\n\n        const initial_state = $.let({\n            wip_cutting: 0n,\n            wip_welding: 0n,\n            wip_painting: 0n,\n            completed: 0n,\n        });\n\n        // 2 orders arrive\n        const initial_events = $.let([\n            { date: new Date(\"2025-01-01\"), event: variant(\"order_arrive\", 5n) },\n            { date: new Date(\"2025-01-02\"), event: variant(\"order_arrive\", 3n) },\n        ], ArrayType(ProductionScheduledEvent));\n\n        const config = $.let({\n            max_events: none,\n            end_date: none,\n        }, SimulationConfigType);\n\n        const result = $.let(Simulation.run(\n            [ProductionState, ProductionEvents],\n            initial_state, initial_events, process, config,\n        ));\n\n        // Both orders (5 + 3 = 8 units) should complete through all 3 stations\n        return result.final_state.completed;\n    })"
-    },
-    {
-      "id": "east-py-datascience:simulation.examples.ts:simulationTrajectories",
-      "skill": "east-py-datascience",
-      "package": "east-py-datascience",
-      "file": "east-py/packages/east-py-datascience/test/simulation.examples.ts",
-      "suite": "",
-      "test": "Run Monte Carlo trajectories of an inventory replenishment policy under deterministic demand",
-      "keywords": [
-        "simulation",
-        "runTrajectories",
-        "Monte Carlo",
-        "inventory",
-        "replenishment",
-        "stochastic",
-        "demand"
-      ],
-      "imports": [
-        "import { East, StructType, VariantType, ArrayType, FloatType, IntegerType, DateTimeType, variant, example, some, none } from \"@elaraai/east\";",
-        "import { Simulation, SimulationConfigType, SimulationTrajectoriesConfigType } from \"@elaraai/east-py-datascience\";"
-      ],
-      "source": "// Run Monte Carlo trajectories of an inventory replenishment policy under deterministic demand\n// inputs: []  returns: 5n\nEast.function([], IntegerType, ($) => {\n        // Inventory handler: demand decreases stock, restock increases it\n        const process = East.function(\n            [InvState, DateTimeType, InvEvents],\n            InvProcessResult,\n            ($, state, _date, event) => {\n                const emptyEvents = $.let([] as const, ArrayType(InvScheduledEvent));\n                return $.return(event.match({\n                    demand: ($, units) => ({\n                        state: {\n                            stock: state.stock.subtract(units),\n                            orders_filled: state.orders_filled.add(1n),\n                        },\n                        events: emptyEvents,\n                    }),\n                    restock: ($, units) => ({\n                        state: {\n                            stock: state.stock.add(units),\n                            orders_filled: state.orders_filled,\n                        },\n                        events: emptyEvents,\n                    }),\n                }));\n            }\n        );\n\n        const initial_state = $.let({ stock: 100n, orders_filled: 0n });\n        const initial_events = $.let([\n            { date: new Date(\"2025-01-01\"), event: variant(\"demand\", 20n) },\n            { date: new Date(\"2025-01-05\"), event: variant(\"restock\", 50n) },\n            { date: new Date(\"2025-01-10\"), event: variant(\"demand\", 30n) },\n        ], ArrayType(InvScheduledEvent));\n\n        const config = $.let({\n            trajectories: 5n,\n            seed: some(42n),\n            max_events: none,\n            end_date: none,\n        }, SimulationTrajectoriesConfigType);\n\n        const result = $.let(Simulation.runTrajectories(\n            [InvState, InvEvents],\n            initial_state, initial_events, process, config,\n        ));\n\n        // 5 trajectories run\n        return result.trajectories.length();\n    })"
     },
     {
       "id": "east-py-datascience:sklearn.clustering.examples.ts:sklearnGmm",
@@ -13447,7 +13405,7 @@
         "import { East, IntegerType, NullType, example } from \"@elaraai/east\";",
         "import { Button, Text, Stack, Stat, Reactive, State, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Reactive counter with increment/decrement buttons using onClick callbacks and State\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const counter = $.let(State.bind([IntegerType], \"counter\", 0n));\n            const count = $.let(counter.read());\n\n            const increment = $.const(East.function([], NullType, $ => {\n                const current = $.let(counter.read());\n                $(counter.write(current.add(1n)));\n            }));\n\n            const decrement = $.const(East.function([], NullType, $ => {\n                const current = $.let(counter.read());\n                $(counter.write(current.subtract(1n)));\n            }));\n\n            return Stack.VStack([\n                Stat.Root(\"Count\", Text.Root(East.print(count))),\n                Stack.HStack([\n                    Button.Root(\"-\", { onClick: decrement, style: { variant: \"solid\", colorPalette: \"red\" } }),\n                    Button.Root(\"+\", { onClick: increment, style: { variant: \"solid\", colorPalette: \"blue\" } }),\n                ], { gap: \"2\" }),\n            ], { gap: \"4\" });\n        }));\n    })"
+      "source": "// Reactive counter with increment/decrement buttons using onClick callbacks and State\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const counter = $.let(State.bind([IntegerType], \"counter\", 0n));\n            const count = $.let(counter.read());\n\n            const increment = $.const(East.function([], NullType, $ => {\n                const current = $.let(counter.read());\n                $(counter.write(current.add(1n)));\n            }));\n\n            const decrement = $.const(East.function([], NullType, $ => {\n                const current = $.let(counter.read());\n                $(counter.write(current.subtract(1n)));\n            }));\n\n            return Stack.VStack([\n                Stat.Root(\"Count\", East.print(count)),\n                Stack.HStack([\n                    Button.Root(\"-\", { onClick: decrement, style: { variant: \"solid\", colorPalette: \"red\" } }),\n                    Button.Root(\"+\", { onClick: increment, style: { variant: \"solid\", colorPalette: \"blue\" } }),\n                ], { gap: \"2\" }),\n            ], { gap: \"4\" });\n        }));\n    })"
     },
     {
       "id": "east-ui:button.examples.ts:buttonWithIcons",
@@ -13732,7 +13690,7 @@
       ],
       "imports": [
         "import { East, IntegerType, NullType, example } from \"@elaraai/east\";",
-        "import { IconButton, Reactive, Stack, State, Stat, Text, UIComponentType } from \"@elaraai/east-ui\";"
+        "import { IconButton, Reactive, Stack, State, Stat, UIComponentType } from \"@elaraai/east-ui\";"
       ],
       "source": "// Icon-only close affordance with required aria-label\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return IconButton.Root(\"fas\", \"xmark\", \"Close\", { style: { variant: \"ghost\" } });\n    })"
     },
@@ -13752,7 +13710,7 @@
       ],
       "imports": [
         "import { East, IntegerType, NullType, example } from \"@elaraai/east\";",
-        "import { IconButton, Reactive, Stack, State, Stat, Text, UIComponentType } from \"@elaraai/east-ui\";"
+        "import { IconButton, Reactive, Stack, State, Stat, UIComponentType } from \"@elaraai/east-ui\";"
       ],
       "source": "// Loading IconButton with a custom spinner icon swap\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return IconButton.Root(\"fas\", \"rotate\", \"Refresh\", {\n            loading: true,\n            loadingIcon: { prefix: \"fas\", name: \"spinner\" },\n            style: { variant: \"subtle\", colorPalette: \"blue\" },\n        });\n    })"
     },
@@ -13774,7 +13732,7 @@
       ],
       "imports": [
         "import { East, IntegerType, NullType, example } from \"@elaraai/east\";",
-        "import { IconButton, Reactive, Stack, State, Stat, Text, UIComponentType } from \"@elaraai/east-ui\";"
+        "import { IconButton, Reactive, Stack, State, Stat, UIComponentType } from \"@elaraai/east-ui\";"
       ],
       "source": "// Branded IconButton with hex colour escape hatches\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return IconButton.Root(\"fas\", \"rocket\", \"Deploy\", {\n            style: {\n                color: \"#ffffff\",\n                background: \"#1a2234\",\n                borderColor: \"#3d5cff\",\n                hoverBackground: \"#25345a\",\n                size: \"md\",\n            },\n        });\n    })"
     },
@@ -13796,9 +13754,9 @@
       ],
       "imports": [
         "import { East, IntegerType, NullType, example } from \"@elaraai/east\";",
-        "import { IconButton, Reactive, Stack, State, Stat, Text, UIComponentType } from \"@elaraai/east-ui\";"
+        "import { IconButton, Reactive, Stack, State, Stat, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Reactive IconButton that increments a counter on click\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const counter = $.let(State.bind([IntegerType], \"icon_button_counter\", 0n));\n            const count = $.let(counter.read());\n            const increment = $.const(East.function([], NullType, $ => {\n                const current = $.let(counter.read());\n                $(counter.write(current.add(1n)));\n            }));\n            return Stack.VStack([\n                Stat.Root(\"Clicks\", Text.Root(East.print(count))),\n                IconButton.Root(\"fas\", \"plus\", \"Increment\", {\n                    onClick: increment,\n                    style: { variant: \"solid\", colorPalette: \"blue\" },\n                }),\n            ], { gap: \"3\", align: 'flex-start' });\n        }));\n    })"
+      "source": "// Reactive IconButton that increments a counter on click\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const counter = $.let(State.bind([IntegerType], \"icon_button_counter\", 0n));\n            const count = $.let(counter.read());\n            const increment = $.const(East.function([], NullType, $ => {\n                const current = $.let(counter.read());\n                $(counter.write(current.add(1n)));\n            }));\n            return Stack.VStack([\n                Stat.Root(\"Clicks\", East.print(count)),\n                IconButton.Root(\"fas\", \"plus\", \"Increment\", {\n                    onClick: increment,\n                    style: { variant: \"solid\", colorPalette: \"blue\" },\n                }),\n            ], { gap: \"3\", align: 'flex-start' });\n        }));\n    })"
     },
     {
       "id": "east-ui:toggle.examples.ts:toggleGridlines",
@@ -17027,7 +16985,7 @@
         "import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
         "import { Badge, Gantt, Icon, Reactive, Stack, Stat, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Per-task popover coexists with \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const clicksBind = $.let(State.bind([IntegerType], \"gantt_popover_clicks\", 0n));\n            const clicks = $.let(clicksBind.read());\n\n            const onTaskClick = $.const(East.function(\n                [Gantt.Types.TaskClickEvent],\n                NullType,\n                ($, _event) => {\n                    const current = $.let(clicksBind.read(), IntegerType);\n                    $(clicksBind.write(current.add(1n)));\n                },\n            ));\n\n            return Stack.VStack([\n                Gantt.Root(\n                    [{ task: \"Status review\", start: new Date(\"2024-01-01\"), end: new Date(\"2024-01-31\") }],\n                    { task: { header: \"Task\" } },\n                    row => ({ tasks: [Gantt.Task({\n                        start: row.start,\n                        end: row.end,\n                        label: row.task,\n                        colorPalette: \"purple\",\n                        popover: Stat.Root(\n                            \"Total clicks\",\n                            Text.Root(East.str`${clicks}`, { fontWeight: \"bold\", textStyle: \"heading-md\" }),\n                            { helpText: \"Counter increments every click — popover and callback coexist.\" },\n                        ),\n                    })] }),\n                    { onTaskClick },\n                ),\n                Text.Root(East.str`Clicked ${clicks} times`, { textStyle: \"body-sm\", color: \"fg.muted\" }),\n            ], { gap: \"3\", align: \"stretch\" });\n        }));\n    })"
+      "source": "// Per-task popover coexists with \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const clicksBind = $.let(State.bind([IntegerType], \"gantt_popover_clicks\", 0n));\n            const clicks = $.let(clicksBind.read());\n\n            const onTaskClick = $.const(East.function(\n                [Gantt.Types.TaskClickEvent],\n                NullType,\n                ($, _event) => {\n                    const current = $.let(clicksBind.read(), IntegerType);\n                    $(clicksBind.write(current.add(1n)));\n                },\n            ));\n\n            return Stack.VStack([\n                Gantt.Root(\n                    [{ task: \"Status review\", start: new Date(\"2024-01-01\"), end: new Date(\"2024-01-31\") }],\n                    { task: { header: \"Task\" } },\n                    row => ({ tasks: [Gantt.Task({\n                        start: row.start,\n                        end: row.end,\n                        label: row.task,\n                        colorPalette: \"purple\",\n                        popover: Stat.Root(\n                            \"Total clicks\",\n                            East.str`${clicks}`,\n                            { helpText: \"Counter increments every click — popover and callback coexist.\" },\n                        ),\n                    })] }),\n                    { onTaskClick },\n                ),\n                Text.Root(East.str`Clicked ${clicks} times`, { textStyle: \"body-sm\", color: \"fg.muted\" }),\n            ], { gap: \"3\", align: \"stretch\" });\n        }));\n    })"
     },
     {
       "id": "east-ui:matrix.examples.ts:matrixBasic",
@@ -17262,7 +17220,7 @@
         "import { ArrayType, East, FloatType, IntegerType, NullType, StringType, example } from \"@elaraai/east\";",
         "import {"
       ],
-      "source": "// Per-cell click popover — pass a UIComponent into \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Matrix.Root(\n            [\n                { key: \"alice\", header: Text.Root(\"Alice\"), cells: {\n                    mon: {\n                        segments: [\n                            { category: \"booked\", weight: 6.0 },\n                            { category: \"free\", weight: 2.0 },\n                        ],\n                        popover: Stat.Root(\n                            \"Alice — Monday\",\n                            Text.Root(\"6 booked / 2 free\", { fontWeight: \"bold\", textStyle: \"heading-md\" }),\n                            { helpText: \"Click again to dismiss.\" },\n                        ),\n                    },\n                    tue: {\n                        segments: [{ category: \"free\", weight: 8.0 }],\n                        popover: Stat.Root(\n                            \"Alice — Tuesday\",\n                            Text.Root(\"Fully free\", { fontWeight: \"bold\", textStyle: \"heading-md\" }),\n                        ),\n                    },\n                } },\n            ],\n            [\n                { key: \"mon\", header: Text.Root(\"Mon\") },\n                { key: \"tue\", header: Text.Root(\"Tue\") },\n            ],\n            {\n                legend: [\n                    { category: \"booked\", color: \"blue.500\", label: \"Booked\" },\n                    { category: \"free\", color: \"green.300\", label: \"Free\" },\n                ],\n            },\n        );\n    })"
+      "source": "// Per-cell click popover — pass a UIComponent into \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Matrix.Root(\n            [\n                { key: \"alice\", header: Text.Root(\"Alice\"), cells: {\n                    mon: {\n                        segments: [\n                            { category: \"booked\", weight: 6.0 },\n                            { category: \"free\", weight: 2.0 },\n                        ],\n                        popover: Stat.Root(\n                            \"Alice — Monday\",\n                            \"6 booked / 2 free\",\n                            { helpText: \"Click again to dismiss.\" },\n                        ),\n                    },\n                    tue: {\n                        segments: [{ category: \"free\", weight: 8.0 }],\n                        popover: Stat.Root(\n                            \"Alice — Tuesday\",\n                            \"Fully free\",\n                        ),\n                    },\n                } },\n            ],\n            [\n                { key: \"mon\", header: Text.Root(\"Mon\") },\n                { key: \"tue\", header: Text.Root(\"Tue\") },\n            ],\n            {\n                legend: [\n                    { category: \"booked\", color: \"blue.500\", label: \"Booked\" },\n                    { category: \"free\", color: \"green.300\", label: \"Free\" },\n                ],\n            },\n        );\n    })"
     },
     {
       "id": "east-ui:matrix.examples.ts:matrixMinLabelSize",
@@ -17915,7 +17873,7 @@
         "import { East, FloatType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
         "import { Badge, Icon, Planner, Reactive, Stack, State, Stat, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Per-event popover coexists with \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const clicksBind = $.let(State.bind([IntegerType], \"planner_popover_clicks\", 0n));\n            const clicks = $.let(clicksBind.read());\n\n            const onEventClick = $.const(East.function(\n                [Planner.Types.ClickEvent],\n                NullType,\n                ($, _event) => {\n                    const current = $.let(clicksBind.read(), IntegerType);\n                    $(clicksBind.write(current.add(1n)));\n                },\n            ));\n\n            return Stack.VStack([\n                Planner.Root(\n                    [{ task: \"Status review\", owner: \"Alice\", start: 1.0, end: 4.0 }],\n                    [\"task\", \"owner\"],\n                    row => [Planner.Event({\n                        start: row.start,\n                        end: row.end,\n                        label: { value: row.task },\n                        colorPalette: \"purple\",\n                        popover: Stat.Root(\n                            \"Total clicks\",\n                            Text.Root(East.str`${clicks}`, { fontWeight: \"bold\", textStyle: \"heading-md\" }),\n                            { helpText: \"Counter increments every click — popover and callback coexist.\" },\n                        ),\n                    })],\n                    { maxSlot: 6.0, onEventClick },\n                ),\n                Text.Root(\n                    East.str`Clicked ${clicks} times`,\n                    { textStyle: \"body-sm\", color: \"fg.muted\" },\n                ),\n            ], { gap: \"3\", align: \"stretch\" });\n        }));\n    })"
+      "source": "// Per-event popover coexists with \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const clicksBind = $.let(State.bind([IntegerType], \"planner_popover_clicks\", 0n));\n            const clicks = $.let(clicksBind.read());\n\n            const onEventClick = $.const(East.function(\n                [Planner.Types.ClickEvent],\n                NullType,\n                ($, _event) => {\n                    const current = $.let(clicksBind.read(), IntegerType);\n                    $(clicksBind.write(current.add(1n)));\n                },\n            ));\n\n            return Stack.VStack([\n                Planner.Root(\n                    [{ task: \"Status review\", owner: \"Alice\", start: 1.0, end: 4.0 }],\n                    [\"task\", \"owner\"],\n                    row => [Planner.Event({\n                        start: row.start,\n                        end: row.end,\n                        label: { value: row.task },\n                        colorPalette: \"purple\",\n                        popover: Stat.Root(\n                            \"Total clicks\",\n                            East.str`${clicks}`,\n                            { helpText: \"Counter increments every click — popover and callback coexist.\" },\n                        ),\n                    })],\n                    { maxSlot: 6.0, onEventClick },\n                ),\n                Text.Root(\n                    East.str`Clicked ${clicks} times`,\n                    { textStyle: \"body-sm\", color: \"fg.muted\" },\n                ),\n            ], { gap: \"3\", align: \"stretch\" });\n        }));\n    })"
     },
     {
       "id": "east-ui:table.examples.ts:tableBasic",
@@ -20511,7 +20469,7 @@
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/display/stat.examples.ts",
       "suite": "",
-      "test": "Key metrics display",
+      "test": "Key metrics display — scalar values with formats",
       "keywords": [
         "Stat",
         "Root",
@@ -20520,9 +20478,9 @@
       ],
       "imports": [
         "import { East, IntegerType, NullType, example } from \"@elaraai/east\";",
-        "import { Badge, Button, Highlight, HoverCard, Reactive, Stack, State, Stat, Text, UIComponentType } from \"@elaraai/east-ui\";"
+        "import { Button, Format, Reactive, Stack, State, Stat, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Key metrics display\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Stack.HStack([\n            Stat.Root(\"Revenue\", Text.Root(\"$45,231\")),\n            Stat.Root(\"Users\", Text.Root(\"1,234\")),\n            Stat.Root(\"Orders\", Text.Root(\"567\")),\n        ], { gap: \"8\" });\n    })"
+      "source": "// Key metrics display — scalar values with formats\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Stack.HStack([\n            Stat.Root(\"Revenue\", 45231, { format: Format.Currency({ currency: \"USD\", maximumFractionDigits: 0n }) }),\n            Stat.Root(\"Users\", 1234, { format: Format.Number() }),\n            Stat.Root(\"Orders\", 567, { format: Format.Number() }),\n        ], { gap: \"8\" });\n    })"
     },
     {
       "id": "east-ui:stat.examples.ts:statHelpText",
@@ -20539,9 +20497,9 @@
       ],
       "imports": [
         "import { East, IntegerType, NullType, example } from \"@elaraai/east\";",
-        "import { Badge, Button, Highlight, HoverCard, Reactive, Stack, State, Stat, Text, UIComponentType } from \"@elaraai/east-ui\";"
+        "import { Button, Format, Reactive, Stack, State, Stat, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Additional context\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Stack.HStack([\n            Stat.Root(\"Total Sales\", Text.Root(\"$12,345\"), { helpText: \"Last 30 days\" }),\n            Stat.Root(\"New Users\", Text.Root(\"89\"), { helpText: \"This week\" }),\n        ], { gap: \"8\" });\n    })"
+      "source": "// Additional context\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Stack.HStack([\n            Stat.Root(\"Total Sales\", 12345, { format: Format.Currency({ currency: \"USD\", maximumFractionDigits: 0n }), helpText: \"Last 30 days\" }),\n            Stat.Root(\"New Users\", 89, { format: Format.Number(), helpText: \"This week\" }),\n        ], { gap: \"8\" });\n    })"
     },
     {
       "id": "east-ui:stat.examples.ts:statIndicators",
@@ -20560,30 +20518,31 @@
       ],
       "imports": [
         "import { East, IntegerType, NullType, example } from \"@elaraai/east\";",
-        "import { Badge, Button, Highlight, HoverCard, Reactive, Stack, State, Stat, Text, UIComponentType } from \"@elaraai/east-ui\";"
+        "import { Button, Format, Reactive, Stack, State, Stat, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Trend direction\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Stack.HStack([\n            Stat.Root(\"Growth\", Text.Root(\"+23.36%\"), { helpText: \"vs last month\", indicator: \"up\" }),\n            Stat.Root(\"Bounce Rate\", Text.Root(\"-12.5%\"), { helpText: \"vs yesterday\", indicator: \"down\" }),\n        ], { gap: \"8\" });\n    })"
+      "source": "// Trend direction\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Stack.HStack([\n            Stat.Root(\"Growth\", 0.2336, { format: Format.Percent({ maximumFractionDigits: 2n, signDisplay: \"exceptZero\" }), helpText: \"vs last month\", indicator: \"up\" }),\n            Stat.Root(\"Bounce Rate\", -0.125, { format: Format.Percent({ maximumFractionDigits: 1n, signDisplay: \"exceptZero\" }), helpText: \"vs yesterday\", indicator: \"down\" }),\n        ], { gap: \"8\" });\n    })"
     },
     {
-      "id": "east-ui:stat.examples.ts:statRichValues",
+      "id": "east-ui:stat.examples.ts:statFormatted",
       "skill": "east-ui",
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/display/stat.examples.ts",
       "suite": "",
-      "test": "Values can be any UI component — badges, hover cards, highlighted text",
+      "test": "Numeric values formatted via Format — currency, compact, unit, datetime",
       "keywords": [
         "Stat",
         "Root",
-        "Badge",
-        "HoverCard",
-        "Highlight",
-        "rich"
+        "Format",
+        "currency",
+        "compact",
+        "unit",
+        "datetime"
       ],
       "imports": [
         "import { East, IntegerType, NullType, example } from \"@elaraai/east\";",
-        "import { Badge, Button, Highlight, HoverCard, Reactive, Stack, State, Stat, Text, UIComponentType } from \"@elaraai/east-ui\";"
+        "import { Button, Format, Reactive, Stack, State, Stat, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Values can be any UI component — badges, hover cards, highlighted text\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Stack.HStack([\n            Stat.Root(\"Status\", Badge.Root(\"Operational\", { variant: \"solid\", colorPalette: \"green\" })),\n            Stat.Root(\"Owner\", HoverCard.Root(\n                Text.Root(\"@jane\", { color: \"blue.500\" }),\n                [\n                    Stack.VStack([\n                        Text.Root(\"Jane Smith\", { fontWeight: \"bold\" }),\n                        Text.Root(\"Senior Engineer — Platform Team\", { textStyle: \"body-sm\" }),\n                    ], { gap: \"1\" }),\n                ],\n            )),\n            Stat.Root(\"Query\", Highlight.Root(\"SELECT * FROM users\", [\"SELECT\", \"FROM\"])),\n        ], { gap: \"8\" });\n    })"
+      "source": "// Numeric values formatted via Format — currency, compact, unit, datetime\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Stack.HStack([\n            Stat.Root(\"ARR\", 1842500, { format: Format.Currency({ currency: \"AUD\", compact: \"short\" }) }),\n            Stat.Root(\"Requests\", 1240000, { format: Format.Compact({ display: \"short\" }) }),\n            Stat.Root(\"Throughput\", 42.5, { format: Format.Unit({ unit: \"kilometerPerHour\", display: \"short\" }) }),\n            Stat.Root(\"Last sync\", 1716249600000, { format: Format.DateTime(\"YYYY-MM-DD HH:mm\") }),\n        ], { gap: \"8\" });\n    })"
     },
     {
       "id": "east-ui:stat.examples.ts:statInteractive",
@@ -20601,9 +20560,9 @@
       ],
       "imports": [
         "import { East, IntegerType, NullType, example } from \"@elaraai/east\";",
-        "import { Badge, Button, Highlight, HoverCard, Reactive, Stack, State, Stat, Text, UIComponentType } from \"@elaraai/east-ui\";"
+        "import { Button, Format, Reactive, Stack, State, Stat, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Stat whose value increments from a counter\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const counter = $.let(State.bind([IntegerType], \"stat_counter\", 0n));\n            const value = $.let(counter.read());\n            const inc = $.const(East.function([], NullType, $ => {\n                const cur = $.let(counter.read());\n                $(counter.write(cur.add(1n)));\n            }));\n            return Stack.VStack([\n                Stat.Root(\"Clicks\", Text.Root(East.print(value))),\n                Button.Root(\"Click me\", { onClick: inc }),\n            ], { gap: \"3\", align: \"stretch\" });\n        }));\n    })"
+      "source": "// Stat whose value increments from a counter\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const counter = $.let(State.bind([IntegerType], \"stat_counter\", 0n));\n            const value = $.let(counter.read());\n            const inc = $.const(East.function([], NullType, $ => {\n                const cur = $.let(counter.read());\n                $(counter.write(cur.add(1n)));\n            }));\n            return Stack.VStack([\n                Stat.Root(\"Clicks\", value, { format: Format.Number() }),\n                Button.Root(\"Click me\", { onClick: inc }),\n            ], { gap: \"3\", align: \"stretch\" });\n        }));\n    })"
     },
     {
       "id": "east-ui:tag.examples.ts:tagBasic",
@@ -21329,185 +21288,6 @@
         "import { Status, Stack, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
       "source": "// Status with an explicit icon override that skips the paired default\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Status.Root(\"Shipping\", {\n            value: \"info\",\n            icon: { prefix: \"fas\", name: \"truck\" },\n        });\n    })"
-    },
-    {
-      "id": "east-ui:format.examples.ts:formatNumberBasic",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/format/format.examples.ts",
-      "suite": "",
-      "test": "Plain number with two decimal places",
-      "keywords": [
-        "Format",
-        "Number",
-        "tick"
-      ],
-      "imports": [
-        "import { East, example } from \"@elaraai/east\";",
-        "import { Format } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Plain number with two decimal places\n// inputs: []\nEast.function([], Format.Types.Tick, (_$) => {\n        return Format.Number({ minimumFractionDigits: 2n, maximumFractionDigits: 2n });\n    })"
-    },
-    {
-      "id": "east-ui:format.examples.ts:formatCurrencyAud",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/format/format.examples.ts",
-      "suite": "",
-      "test": "AUD currency with compact short notation",
-      "keywords": [
-        "Format",
-        "Currency",
-        "AUD",
-        "compact"
-      ],
-      "imports": [
-        "import { East, example } from \"@elaraai/east\";",
-        "import { Format } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// AUD currency with compact short notation\n// inputs: []\nEast.function([], Format.Types.Tick, (_$) => {\n        return Format.Currency({ currency: \"AUD\", compact: \"short\" });\n    })"
-    },
-    {
-      "id": "east-ui:format.examples.ts:formatPercent",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/format/format.examples.ts",
-      "suite": "",
-      "test": "Percent with one decimal place",
-      "keywords": [
-        "Format",
-        "Percent",
-        "tick"
-      ],
-      "imports": [
-        "import { East, example } from \"@elaraai/east\";",
-        "import { Format } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Percent with one decimal place\n// inputs: []\nEast.function([], Format.Types.Tick, (_$) => {\n        return Format.Percent({ maximumFractionDigits: 1n });\n    })"
-    },
-    {
-      "id": "east-ui:format.examples.ts:formatCompact",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/format/format.examples.ts",
-      "suite": "",
-      "test": "Compact short notation",
-      "keywords": [
-        "Format",
-        "Compact",
-        "short"
-      ],
-      "imports": [
-        "import { East, example } from \"@elaraai/east\";",
-        "import { Format } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Compact short notation\n// inputs: []\nEast.function([], Format.Types.Tick, (_$) => {\n        return Format.Compact({ display: \"short\" });\n    })"
-    },
-    {
-      "id": "east-ui:format.examples.ts:formatUnit",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/format/format.examples.ts",
-      "suite": "",
-      "test": "Unit format with short display",
-      "keywords": [
-        "Format",
-        "Unit",
-        "kilometerPerHour"
-      ],
-      "imports": [
-        "import { East, example } from \"@elaraai/east\";",
-        "import { Format } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Unit format with short display\n// inputs: []\nEast.function([], Format.Types.Tick, (_$) => {\n        return Format.Unit({ unit: \"kilometerPerHour\", display: \"short\" });\n    })"
-    },
-    {
-      "id": "east-ui:format.examples.ts:formatScientific",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/format/format.examples.ts",
-      "suite": "",
-      "test": "Scientific notation",
-      "keywords": [
-        "Format",
-        "Scientific"
-      ],
-      "imports": [
-        "import { East, example } from \"@elaraai/east\";",
-        "import { Format } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Scientific notation\n// inputs: []\nEast.function([], Format.Types.Tick, (_$) => {\n        return Format.Scientific();\n    })"
-    },
-    {
-      "id": "east-ui:format.examples.ts:formatEngineering",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/format/format.examples.ts",
-      "suite": "",
-      "test": "Engineering notation",
-      "keywords": [
-        "Format",
-        "Engineering"
-      ],
-      "imports": [
-        "import { East, example } from \"@elaraai/east\";",
-        "import { Format } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Engineering notation\n// inputs: []\nEast.function([], Format.Types.Tick, (_$) => {\n        return Format.Engineering();\n    })"
-    },
-    {
-      "id": "east-ui:format.examples.ts:formatDate",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/format/format.examples.ts",
-      "suite": "",
-      "test": "ISO-style date format",
-      "keywords": [
-        "Format",
-        "Date",
-        "YYYY-MM-DD"
-      ],
-      "imports": [
-        "import { East, example } from \"@elaraai/east\";",
-        "import { Format } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// ISO-style date format\n// inputs: []\nEast.function([], Format.Types.Tick, (_$) => {\n        return Format.Date(\"YYYY-MM-DD\");\n    })"
-    },
-    {
-      "id": "east-ui:format.examples.ts:formatTime",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/format/format.examples.ts",
-      "suite": "",
-      "test": "24-hour time format",
-      "keywords": [
-        "Format",
-        "Time",
-        "HH:mm"
-      ],
-      "imports": [
-        "import { East, example } from \"@elaraai/east\";",
-        "import { Format } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// 24-hour time format\n// inputs: []\nEast.function([], Format.Types.Tick, (_$) => {\n        return Format.Time(\"HH:mm\");\n    })"
-    },
-    {
-      "id": "east-ui:format.examples.ts:formatDateTime",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/format/format.examples.ts",
-      "suite": "",
-      "test": "Combined ISO date+time format",
-      "keywords": [
-        "Format",
-        "DateTime",
-        "YYYY-MM-DD HH:mm:ss"
-      ],
-      "imports": [
-        "import { East, example } from \"@elaraai/east\";",
-        "import { Format } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Combined ISO date+time format\n// inputs: []\nEast.function([], Format.Types.Tick, (_$) => {\n        return Format.DateTime(\"YYYY-MM-DD HH:mm:ss\");\n    })"
     },
     {
       "id": "east-ui:checkbox.examples.ts:checkboxBasic",
@@ -23005,38 +22785,6 @@
         "import { Reactive, Stack, State, Text, TimeScaleControl, UIComponentType } from \"@elaraai/east-ui\";"
       ],
       "source": "// All three sizes (sm / md / lg) stacked for comparison\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Stack.VStack([\n            TimeScaleControl.Root(\"day\", { availableScales: [\"day\", \"week\", \"month\"], size: \"sm\" }),\n            TimeScaleControl.Root(\"day\", { availableScales: [\"day\", \"week\", \"month\"], size: \"md\" }),\n            TimeScaleControl.Root(\"day\", { availableScales: [\"day\", \"week\", \"month\"], size: \"lg\" }),\n        ], { gap: \"3\", align: \"flex-start\" });\n    })"
-    },
-    {
-      "id": "east-ui:sales-dashboard.examples.ts:salesDashboardComplex",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/integration/sales-dashboard.examples.ts",
-      "suite": "",
-      "test": "Sales dashboard: 400 generated orders, region + category selects drive a composed chart and a rich table",
-      "keywords": [
-        "Table",
-        "Chart",
-        "Composed",
-        "Select",
-        "Reactive",
-        "State",
-        "filter",
-        "dashboard",
-        "for",
-        "loop",
-        "complex",
-        "business",
-        "Badge",
-        "Tag",
-        "VStack",
-        "rendered cells",
-        "frozen columns"
-      ],
-      "imports": [
-        "import {",
-        "import {"
-      ],
-      "source": "// Sales dashboard: 400 generated orders, region + category selects drive a composed chart and a rich table\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const regionList = $.const(\n            [\"North\", \"South\", \"East\", \"West\"],\n            ArrayType(StringType),\n        );\n        const categoryList = $.const(\n            [\"Electronics\", \"Apparel\", \"Home\", \"Food\", \"Books\"],\n            ArrayType(StringType),\n        );\n        const tierList = $.const(\n            [\n                variant(\"bronze\", null),\n                variant(\"silver\", null),\n                variant(\"gold\", null),\n                variant(\"platinum\", null),\n            ],\n            ArrayType(TierType),\n        );\n        const statusList = $.const(\n            [\n                variant(\"pending\", null),\n                variant(\"processing\", null),\n                variant(\"shipped\", null),\n                variant(\"delivered\", null),\n                variant(\"cancelled\", null),\n            ],\n            ArrayType(StatusType),\n        );\n\n        const orders = $.let([], ArrayType(OrderType));\n        $.for(East.Array.range(0n, 400n), ($, i) => {\n            const region = $.let(regionList.get(i.remainder(4n)), StringType);\n            const category = $.let(categoryList.get(i.remainder(5n)), StringType);\n            const tier = $.let(tierList.get(i.remainder(4n)), TierType);\n            const status = $.let(statusList.get(i.remainder(5n)), StatusType);\n            const month = $.let(i.remainder(12n).add(1n), IntegerType);\n            const revenue = $.let(\n                i.toFloat().multiply(137.0).remainder(48500.0).add(750.0),\n                FloatType,\n            );\n            const margin = $.let(\n                revenue.multiply(0.18).subtract(i.toFloat().remainder(900.0)),\n                FloatType,\n            );\n\n            const items = $.let([], ArrayType(StringType));\n            const nItems = $.let(i.remainder(4n).add(1n), IntegerType);\n            $.for(East.Array.range(0n, nItems), ($, j) => {\n                $(items.pushLast(East.str`SKU-${i}-${j}`));\n            });\n\n            const tags = $.let([], ArrayType(StringType));\n            $.if(i.remainder(3n).equals(0n), $ => { $(tags.pushLast(\"new\")); });\n            $.if(i.remainder(7n).equals(0n), $ => { $(tags.pushLast(\"priority\")); });\n            $.if(margin.greaterThan(3000.0), $ => { $(tags.pushLast(\"high-margin\")); });\n            $.if(tier.hasTag(\"platinum\"), $ => { $(tags.pushLast(\"vip\")); });\n            $.if(i.remainder(13n).equals(0n), $ => { $(tags.pushLast(\"backorder\")); });\n\n            const alerts = $.let([], ArrayType(AlertType));\n            $.if(status.hasTag(\"cancelled\"), $ => {\n                $(alerts.pushLast({\n                    severity: East.value(variant(\"error\", null), SeverityType),\n                    message: \"Order cancelled\",\n                }));\n            });\n            $.if(margin.lessThan(0.0), $ => {\n                $(alerts.pushLast({\n                    severity: East.value(variant(\"error\", null), SeverityType),\n                    message: \"Negative margin\",\n                }));\n            });\n            $.if(i.remainder(11n).equals(0n), $ => {\n                $(alerts.pushLast({\n                    severity: East.value(variant(\"warn\", null), SeverityType),\n                    message: \"Payment overdue\",\n                }));\n            });\n            $.if(i.remainder(17n).equals(0n), $ => {\n                $(alerts.pushLast({\n                    severity: East.value(variant(\"info\", null), SeverityType),\n                    message: \"Follow-up due\",\n                }));\n            });\n\n            $(orders.pushLast({\n                id: East.str`ORD-${i}`,\n                customer: { name: East.str`Customer ${i}`, tier },\n                region,\n                category,\n                status,\n                revenue,\n                margin,\n                items,\n                tags,\n                alerts,\n                month,\n            }));\n        });\n\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const regionBind = $.let(State.bind([StringType], \"sales_region\", \"\"));\n            const categoryBind = $.let(State.bind([StringType], \"sales_category\", \"\"));\n            const region = $.let(regionBind.read(), StringType);\n            const category = $.let(categoryBind.read(), StringType);\n\n            // Filter orders via $.for (closure over outer `orders`)\n            const filtered = $.let([], ArrayType(OrderType));\n            $.for(orders, ($, o) => {\n                const regionOk = $.let(region.length().equals(0n).ifElse(\n                    _$ => true,\n                    _$ => East.equal(o.region, region),\n                ), BooleanType);\n                const catOk = $.let(category.length().equals(0n).ifElse(\n                    _$ => true,\n                    _$ => East.equal(o.category, category),\n                ), BooleanType);\n                $.if(regionOk.and(_$ => catOk), $ => {\n                    $(filtered.pushLast(o));\n                });\n            });\n\n            // Aggregate by month (1..12) for the chart.\n            const revenueByMonth = $.let(new Map(), DictType(IntegerType, FloatType));\n            const marginByMonth = $.let(new Map(), DictType(IntegerType, FloatType));\n            const countByMonth = $.let(new Map(), DictType(IntegerType, IntegerType));\n            $.for(East.Array.range(1n, 13n), ($, m) => {\n                $(revenueByMonth.insert(m, 0.0));\n                $(marginByMonth.insert(m, 0.0));\n                $(countByMonth.insert(m, 0n));\n            });\n            $.for(filtered, ($, o) => {\n                $(revenueByMonth.update(o.month, revenueByMonth.get(o.month).add(o.revenue)));\n                $(marginByMonth.update(o.month, marginByMonth.get(o.month).add(o.margin)));\n                $(countByMonth.update(o.month, countByMonth.get(o.month).add(1n)));\n            });\n            const chartData = $.let([], ArrayType(MonthAggType));\n            $.for(East.Array.range(1n, 13n), ($, m) => {\n                $(chartData.pushLast({\n                    month: m,\n                    revenue: revenueByMonth.get(m),\n                    margin: marginByMonth.get(m),\n                    orders: countByMonth.get(m),\n                }));\n            });\n\n            const onRegionChange = $.const(East.function(\n                [StringType], NullType,\n                ($, v) => { $(regionBind.write(v)); },\n            ));\n            const onCategoryChange = $.const(East.function(\n                [StringType], NullType,\n                ($, v) => { $(categoryBind.write(v)); },\n            ));\n\n            return Stack.VStack([\n                // Filter bar\n                Stack.HStack([\n                    Select.Root(region, [\n                        Select.Item(\"\", \"All regions\"),\n                        Select.Item(\"North\", \"North\"),\n                        Select.Item(\"South\", \"South\"),\n                        Select.Item(\"East\", \"East\"),\n                        Select.Item(\"West\", \"West\"),\n                    ], { placeholder: \"Region\", onChange: onRegionChange }),\n                    Select.Root(category, [\n                        Select.Item(\"\", \"All categories\"),\n                        Select.Item(\"Electronics\", \"Electronics\"),\n                        Select.Item(\"Apparel\", \"Apparel\"),\n                        Select.Item(\"Home\", \"Home\"),\n                        Select.Item(\"Food\", \"Food\"),\n                        Select.Item(\"Books\", \"Books\"),\n                    ], { placeholder: \"Category\", onChange: onCategoryChange }),\n                    Badge.Root(\n                        East.str`${East.print(filtered.length())} orders`,\n                        { colorPalette: \"blue\", variant: \"subtle\" },\n                    ),\n                ], { gap: \"3\", align: \"center\" }),\n\n                // Composed chart: revenue bars, margin line, order count on right axis\n                Box.Root([\n                    Chart.Composed(chartData, {\n                        xAxis: { dataKey: \"month\", label: \"Month\" },\n                        series: {\n                            revenue: { type: \"bar\", color: \"teal.solid\" },\n                            margin: { type: \"line\", color: \"purple.solid\", strokeWidth: 2n, showDots: true },\n                            orders: {\n                                type: \"line\",\n                                color: \"orange.solid\",\n                                strokeWidth: 1n,\n                                strokeDasharray: \"4 3\",\n                                yAxisId: \"right\",\n                            },\n                        },\n                        yAxis: { label: \"Revenue / Margin ($)\" },\n                        yAxis2: { label: \"Orders\" },\n                        grid: { show: true },\n                        tooltip: { show: true },\n                        legend: { show: true },\n                    }),\n                ], { height: \"280px\", width: \"100%\" }),\n\n                // Rich, 400-row virtualized table with per-cell renders\n                Table.Root(\n                    filtered,\n                    {\n                        id: {\n                            header: \"Order\",\n                            width: \"110px\",\n                        },\n                        customer: {\n                            header: \"Customer\",\n                            width: \"240px\",\n                            value: v => v.name,\n                            render: East.function(\n                                [Table.Types.CellRenderContext],\n                                UIComponentType,\n                                ($, ctx) => {\n                                    const row = $.let(filtered.get(ctx.rowIndex), OrderType);\n                                    return Stack.HStack([\n                                        Text.Root(row.customer.name, { fontWeight: \"semibold\" }),\n                                        row.customer.tier.match({\n                                            bronze: _$ => Badge.Root(\"Bronze\", { colorPalette: \"orange\", variant: \"subtle\" }),\n                                            silver: _$ => Badge.Root(\"Silver\", { colorPalette: \"gray\", variant: \"subtle\" }),\n                                            gold: _$ => Badge.Root(\"Gold\", { colorPalette: \"yellow\", variant: \"solid\" }),\n                                            platinum: _$ => Badge.Root(\"Platinum\", { colorPalette: \"purple\", variant: \"solid\" }),\n                                        }),\n                                    ], { gap: \"2\", align: \"center\" });\n                                },\n                            ),\n                        },\n                        region: { header: \"Region\", width: \"110px\" },\n                        category: { header: \"Category\", width: \"130px\" },\n                        status: {\n                            header: \"Status\",\n                            width: \"130px\",\n                            value: v => v.getTag(),\n                            render: East.function(\n                                [Table.Types.CellRenderContext],\n                                UIComponentType,\n                                ($, ctx) => {\n                                    const row = $.let(filtered.get(ctx.rowIndex), OrderType);\n                                    return row.status.match({\n                                        pending: _$ => Badge.Root(\"Pending\", { colorPalette: \"gray\", variant: \"subtle\" }),\n                                        processing: _$ => Badge.Root(\"Processing\", { colorPalette: \"blue\", variant: \"subtle\" }),\n                                        shipped: _$ => Badge.Root(\"Shipped\", { colorPalette: \"purple\", variant: \"solid\" }),\n                                        delivered: _$ => Badge.Root(\"Delivered\", { colorPalette: \"green\", variant: \"solid\" }),\n                                        cancelled: _$ => Badge.Root(\"Cancelled\", { colorPalette: \"red\", variant: \"solid\" }),\n                                    });\n                                },\n                            ),\n                        },\n                        revenue: {\n                            header: \"Revenue\",\n                            width: \"130px\",\n                            render: East.function(\n                                [Table.Types.CellRenderContext],\n                                UIComponentType,\n                                ($, ctx) => {\n                                    const row = $.let(filtered.get(ctx.rowIndex), OrderType);\n                                    return Text.Root(\n                                        East.str`$${East.Float.printCommaSeperated(row.revenue, 0n)}`,\n                                        { textAlign: \"right\", fontWeight: \"medium\" },\n                                    );\n                                },\n                            ),\n                        },\n                        margin: {\n                            header: \"Margin\",\n                            width: \"140px\",\n                            render: East.function(\n                                [Table.Types.CellRenderContext],\n                                UIComponentType,\n                                ($, ctx) => {\n                                    const row = $.let(filtered.get(ctx.rowIndex), OrderType);\n                                    return row.margin.greaterThan(0.0).ifElse(\n                                        _$ => Badge.Root(\n                                            East.str`$${East.Float.printCommaSeperated(row.margin, 0n)}`,\n                                            { colorPalette: \"green\", variant: \"subtle\" },\n                                        ),\n                                        _$ => Badge.Root(\n                                            East.str`$${East.Float.printCommaSeperated(row.margin, 0n)}`,\n                                            { colorPalette: \"red\", variant: \"solid\" },\n                                        ),\n                                    );\n                                },\n                            ),\n                        },\n                        items: {\n                            header: \"Items\",\n                            width: \"220px\",\n                            value: v => v.size(),\n                            render: East.function(\n                                [Table.Types.CellRenderContext],\n                                UIComponentType,\n                                ($, ctx) => {\n                                    const row = $.let(filtered.get(ctx.rowIndex), OrderType);\n                                    return Stack.HStack(\n                                        row.items.map(($, s) => Tag.Root(s)),\n                                        { gap: \"1\", wrap: \"wrap\" },\n                                    );\n                                },\n                            ),\n                        },\n                        tags: {\n                            header: \"Tags\",\n                            width: \"220px\",\n                            value: v => v.size(),\n                            render: East.function(\n                                [Table.Types.CellRenderContext],\n                                UIComponentType,\n                                ($, ctx) => {\n                                    const row = $.let(filtered.get(ctx.rowIndex), OrderType);\n                                    return Stack.HStack(\n                                        row.tags.map(($, t) => Badge.Root(t, { colorPalette: \"cyan\", variant: \"subtle\" })),\n                                        { gap: \"1\", wrap: \"wrap\" },\n                                    );\n                                },\n                            ),\n                        },\n                        alerts: {\n                            header: \"Alerts\",\n                            width: \"260px\",\n                            value: v => v.size(),\n                            render: East.function(\n                                [Table.Types.CellRenderContext],\n                                UIComponentType,\n                                ($, ctx) => {\n                                    const row = $.let(filtered.get(ctx.rowIndex), OrderType);\n                                    return Stack.HStack(\n                                        row.alerts.map(($, a) => a.severity.match({\n                                            info: _$ => Badge.Root(a.message, { colorPalette: \"blue\", variant: \"subtle\" }),\n                                            warn: _$ => Badge.Root(a.message, { colorPalette: \"orange\", variant: \"solid\" }),\n                                            error: _$ => Badge.Root(a.message, { colorPalette: \"red\", variant: \"solid\" }),\n                                        })),\n                                        { gap: \"1\", wrap: \"wrap\" },\n                                    );\n                                },\n                            ),\n                        },\n                        month: { header: \"Month\", width: \"90px\" },\n                    },\n                    {\n                        variant: \"line\",\n                        striped: true,\n                        interactive: true,\n                        stickyHeader: true,\n                        height: \"300px\",\n                        frozen: [\"id\", \"customer\"],\n                    },\n                ),\n            ], { gap: \"4\", align: \"stretch\" });\n        }));\n    })"
     },
     {
       "id": "east-ui:box.examples.ts:boxBasic",
@@ -25184,7 +24932,7 @@
         "import {",
         "import {"
       ],
-      "source": "// Slice.bind initialises to default state — no range, no filters, no breakdown\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const UserEventType = StructType({\n            timestamp: DateTimeType,\n            country:   StringType,\n            sessions:  IntegerType,\n            sku:       StringType,\n        });\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const cfg = $.let(Slice.config(UserEventType, {\n                fields: {\n                    timestamp: { label: \"Time\"     },\n                    country:   { label: \"Country\"  },\n                    sessions:  { label: \"Sessions\" },\n                    sku:       { label: \"SKU\"      },\n                },\n                rangeFieldId:      \"timestamp\",\n                searchFieldIds:    [\"sku\", \"country\"],\n                breakdownFieldIds: [\"country\"],\n            }));\n            const slice = $.let(Slice.bind([UserEventType], \"demo.empty\", cfg));\n            const state = $.let(slice.read(), Slice.Types.State);\n            return Text.Root(East.str`Filters: ${state.filters.length()} · Cohorts: ${state.activeCohorts.size()}`);\n        }));\n    })"
+      "source": "// Slice.bind initialises to default state — no range, no filters, no breakdown\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const UserEventType = StructType({\n            timestamp: DateTimeType,\n            country:   StringType,\n            sessions:  IntegerType,\n            sku:       StringType,\n        });\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const cfg = $.let(Slice.config(UserEventType, {\n                fields: {\n                    timestamp: { label: \"Time\"     },\n                    country:   { label: \"Country\"  },\n                    sessions:  { label: \"Sessions\" },\n                    sku:       { label: \"SKU\"      },\n                },\n                rangeFieldId:      \"timestamp\",\n                searchFieldIds:    [\"sku\", \"country\"],\n                breakdownFieldIds: [\"country\"],\n            }));\n            const slice = $.let(Slice.bind([UserEventType], \"demo.empty\", cfg, Slice.state(), East.value([], ArrayType(UserEventType)), none));\n            const state = $.let(slice.read(), Slice.Types.State);\n            return Text.Root(East.str`Filters: ${state.filters.length()} · Cohorts: ${state.activeCohorts.size()}`);\n        }));\n    })"
     },
     {
       "id": "east-ui:slice.examples.ts:sliceAddIntegerPredicate",
@@ -25205,7 +24953,7 @@
         "import {",
         "import {"
       ],
-      "source": "// Typed nested predicate: variant(\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const UserEventType = StructType({\n            timestamp: DateTimeType,\n            country:   StringType,\n            sessions:  IntegerType,\n            sku:       StringType,\n        });\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const cfg = $.let(Slice.config(UserEventType, {\n                fields: {\n                    timestamp: { label: \"Time\"     },\n                    country:   { label: \"Country\"  },\n                    sessions:  { label: \"Sessions\" },\n                    sku:       { label: \"SKU\"      },\n                },\n                rangeFieldId:      \"timestamp\",\n                searchFieldIds:    [\"sku\", \"country\"],\n                breakdownFieldIds: [\"country\"],\n            }));\n            const slice = $.let(Slice.bind([UserEventType], \"demo.filter.int\", cfg));\n            const onAdd = $.const(East.function([], NullType, $ => {\n                const pred = $.const(\n                    variant(\"integer\", { fieldId: \"sessions\", op: variant(\"gte\", 10n) }),\n                    Slice.Types.Predicate,\n                );\n                $(slice.addFilter(pred));\n            }));\n            return Button.Root(\"Sessions ≥ 10\", { onClick: onAdd });\n        }));\n    })"
+      "source": "// Typed nested predicate: variant(\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const UserEventType = StructType({\n            timestamp: DateTimeType,\n            country:   StringType,\n            sessions:  IntegerType,\n            sku:       StringType,\n        });\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const cfg = $.let(Slice.config(UserEventType, {\n                fields: {\n                    timestamp: { label: \"Time\"     },\n                    country:   { label: \"Country\"  },\n                    sessions:  { label: \"Sessions\" },\n                    sku:       { label: \"SKU\"      },\n                },\n                rangeFieldId:      \"timestamp\",\n                searchFieldIds:    [\"sku\", \"country\"],\n                breakdownFieldIds: [\"country\"],\n            }));\n            const slice = $.let(Slice.bind([UserEventType], \"demo.filter.int\", cfg, Slice.state(), East.value([], ArrayType(UserEventType)), none));\n            const onAdd = $.const(East.function([], NullType, $ => {\n                const pred = $.const(\n                    variant(\"integer\", { fieldId: \"sessions\", op: variant(\"gte\", 10n) }),\n                    Slice.Types.Predicate,\n                );\n                $(slice.addFilter(pred));\n            }));\n            return Button.Root(\"Sessions ≥ 10\", { onClick: onAdd });\n        }));\n    })"
     },
     {
       "id": "east-ui:slice.examples.ts:sliceAddStringInPredicate",
@@ -25226,7 +24974,7 @@
         "import {",
         "import {"
       ],
-      "source": "// Typed nested predicate: variant(\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const UserEventType = StructType({\n            timestamp: DateTimeType,\n            country:   StringType,\n            sessions:  IntegerType,\n            sku:       StringType,\n        });\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const cfg = $.let(Slice.config(UserEventType, {\n                fields: {\n                    timestamp: { label: \"Time\"     },\n                    country:   { label: \"Country\"  },\n                    sessions:  { label: \"Sessions\" },\n                    sku:       { label: \"SKU\"      },\n                },\n                rangeFieldId:      \"timestamp\",\n                searchFieldIds:    [\"sku\", \"country\"],\n                breakdownFieldIds: [\"country\"],\n            }));\n            const slice = $.let(Slice.bind([UserEventType], \"demo.filter.str\", cfg));\n            const onAdd = $.const(East.function([], NullType, $ => {\n                const pred = $.const(\n                    variant(\"string\", {\n                        fieldId: \"country\",\n                        op:      variant(\"in\", new Set([\"US\", \"UK\", \"DE\"])),\n                    }),\n                    Slice.Types.Predicate,\n                );\n                $(slice.addFilter(pred));\n            }));\n            return Button.Root(\"Country ∈ {US, UK, DE}\", { onClick: onAdd });\n        }));\n    })"
+      "source": "// Typed nested predicate: variant(\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const UserEventType = StructType({\n            timestamp: DateTimeType,\n            country:   StringType,\n            sessions:  IntegerType,\n            sku:       StringType,\n        });\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const cfg = $.let(Slice.config(UserEventType, {\n                fields: {\n                    timestamp: { label: \"Time\"     },\n                    country:   { label: \"Country\"  },\n                    sessions:  { label: \"Sessions\" },\n                    sku:       { label: \"SKU\"      },\n                },\n                rangeFieldId:      \"timestamp\",\n                searchFieldIds:    [\"sku\", \"country\"],\n                breakdownFieldIds: [\"country\"],\n            }));\n            const slice = $.let(Slice.bind([UserEventType], \"demo.filter.str\", cfg, Slice.state(), East.value([], ArrayType(UserEventType)), none));\n            const onAdd = $.const(East.function([], NullType, $ => {\n                const pred = $.const(\n                    variant(\"string\", {\n                        fieldId: \"country\",\n                        op:      variant(\"in\", new Set([\"US\", \"UK\", \"DE\"])),\n                    }),\n                    Slice.Types.Predicate,\n                );\n                $(slice.addFilter(pred));\n            }));\n            return Button.Root(\"Country ∈ {US, UK, DE}\", { onClick: onAdd });\n        }));\n    })"
     },
     {
       "id": "east-ui:slice.examples.ts:sliceSetRangePreset",
@@ -25245,7 +24993,7 @@
         "import {",
         "import {"
       ],
-      "source": "// Activate a datetime preset range — variant(\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const UserEventType = StructType({\n            timestamp: DateTimeType,\n            country:   StringType,\n            sessions:  IntegerType,\n            sku:       StringType,\n        });\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const cfg = $.let(Slice.config(UserEventType, {\n                fields: {\n                    timestamp: { label: \"Time\"     },\n                    country:   { label: \"Country\"  },\n                    sessions:  { label: \"Sessions\" },\n                    sku:       { label: \"SKU\"      },\n                },\n                rangeFieldId:      \"timestamp\",\n                searchFieldIds:    [\"sku\", \"country\"],\n                breakdownFieldIds: [\"country\"],\n            }));\n            const slice = $.let(Slice.bind([UserEventType], \"demo.range.preset\", cfg));\n            const onClick = $.const(East.function([], NullType, $ => {\n                const r = $.const(\n                    some(variant(\"datetimePreset\", variant(\"last30d\", null))),\n                    OptionType(Slice.Types.Range),\n                );\n                $(slice.setRange(r));\n            }));\n            return Button.Root(\"Last 30 days\", { onClick });\n        }));\n    })"
+      "source": "// Activate a datetime preset range — variant(\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const UserEventType = StructType({\n            timestamp: DateTimeType,\n            country:   StringType,\n            sessions:  IntegerType,\n            sku:       StringType,\n        });\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const cfg = $.let(Slice.config(UserEventType, {\n                fields: {\n                    timestamp: { label: \"Time\"     },\n                    country:   { label: \"Country\"  },\n                    sessions:  { label: \"Sessions\" },\n                    sku:       { label: \"SKU\"      },\n                },\n                rangeFieldId:      \"timestamp\",\n                searchFieldIds:    [\"sku\", \"country\"],\n                breakdownFieldIds: [\"country\"],\n            }));\n            const slice = $.let(Slice.bind([UserEventType], \"demo.range.preset\", cfg, Slice.state(), East.value([], ArrayType(UserEventType)), none));\n            const onClick = $.const(East.function([], NullType, $ => {\n                const r = $.const(\n                    some(variant(\"datetimePreset\", variant(\"last30d\", null))),\n                    OptionType(Slice.Types.Range),\n                );\n                $(slice.setRange(r));\n            }));\n            return Button.Root(\"Last 30 days\", { onClick });\n        }));\n    })"
     },
     {
       "id": "east-ui:slice.examples.ts:sliceSetRangeCustomDateTime",
@@ -25265,7 +25013,7 @@
         "import {",
         "import {"
       ],
-      "source": "// Activate a pinned datetime range — variant(\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const UserEventType = StructType({\n            timestamp: DateTimeType,\n            country:   StringType,\n            sessions:  IntegerType,\n            sku:       StringType,\n        });\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const cfg = $.let(Slice.config(UserEventType, {\n                fields: {\n                    timestamp: { label: \"Time\"     },\n                    country:   { label: \"Country\"  },\n                    sessions:  { label: \"Sessions\" },\n                    sku:       { label: \"SKU\"      },\n                },\n                rangeFieldId:      \"timestamp\",\n                searchFieldIds:    [\"sku\", \"country\"],\n                breakdownFieldIds: [\"country\"],\n            }));\n            const slice = $.let(Slice.bind([UserEventType], \"demo.range.dt\", cfg));\n            const onClick = $.const(East.function([], NullType, $ => {\n                const r = $.const(\n                    some(variant(\"datetime\", {\n                        from: new Date(\"2025-01-01T00:00:00Z\"),\n                        to:   new Date(\"2025-03-31T23:59:59Z\"),\n                    })),\n                    OptionType(Slice.Types.Range),\n                );\n                $(slice.setRange(r));\n            }));\n            return Button.Root(\"Q1 2025\", { onClick });\n        }));\n    })"
+      "source": "// Activate a pinned datetime range — variant(\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const UserEventType = StructType({\n            timestamp: DateTimeType,\n            country:   StringType,\n            sessions:  IntegerType,\n            sku:       StringType,\n        });\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const cfg = $.let(Slice.config(UserEventType, {\n                fields: {\n                    timestamp: { label: \"Time\"     },\n                    country:   { label: \"Country\"  },\n                    sessions:  { label: \"Sessions\" },\n                    sku:       { label: \"SKU\"      },\n                },\n                rangeFieldId:      \"timestamp\",\n                searchFieldIds:    [\"sku\", \"country\"],\n                breakdownFieldIds: [\"country\"],\n            }));\n            const slice = $.let(Slice.bind([UserEventType], \"demo.range.dt\", cfg, Slice.state(), East.value([], ArrayType(UserEventType)), none));\n            const onClick = $.const(East.function([], NullType, $ => {\n                const r = $.const(\n                    some(variant(\"datetime\", {\n                        from: new Date(\"2025-01-01T00:00:00Z\"),\n                        to:   new Date(\"2025-03-31T23:59:59Z\"),\n                    })),\n                    OptionType(Slice.Types.Range),\n                );\n                $(slice.setRange(r));\n            }));\n            return Button.Root(\"Q1 2025\", { onClick });\n        }));\n    })"
     },
     {
       "id": "east-ui:slice.examples.ts:sliceSetRangeInteger",
@@ -25285,7 +25033,7 @@
         "import {",
         "import {"
       ],
-      "source": "// Activate an integer range — sessions between 5 and 100\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const UserEventType = StructType({\n            timestamp: DateTimeType,\n            country:   StringType,\n            sessions:  IntegerType,\n            sku:       StringType,\n        });\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const cfg = $.let(Slice.config(UserEventType, {\n                fields: {\n                    timestamp: { label: \"Time\"     },\n                    country:   { label: \"Country\"  },\n                    sessions:  { label: \"Sessions\" },\n                    sku:       { label: \"SKU\"      },\n                },\n                rangeFieldId:      \"timestamp\",\n                searchFieldIds:    [\"sku\", \"country\"],\n                breakdownFieldIds: [\"country\"],\n            }));\n            const slice = $.let(Slice.bind([UserEventType], \"demo.range.int\", cfg));\n            const onClick = $.const(East.function([], NullType, $ => {\n                const r = $.const(\n                    some(variant(\"integer\", { from: 5n, to: 100n })),\n                    OptionType(Slice.Types.Range),\n                );\n                $(slice.setRange(r));\n            }));\n            return Button.Root(\"Sessions 5–100\", { onClick });\n        }));\n    })"
+      "source": "// Activate an integer range — sessions between 5 and 100\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const UserEventType = StructType({\n            timestamp: DateTimeType,\n            country:   StringType,\n            sessions:  IntegerType,\n            sku:       StringType,\n        });\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const cfg = $.let(Slice.config(UserEventType, {\n                fields: {\n                    timestamp: { label: \"Time\"     },\n                    country:   { label: \"Country\"  },\n                    sessions:  { label: \"Sessions\" },\n                    sku:       { label: \"SKU\"      },\n                },\n                rangeFieldId:      \"timestamp\",\n                searchFieldIds:    [\"sku\", \"country\"],\n                breakdownFieldIds: [\"country\"],\n            }));\n            const slice = $.let(Slice.bind([UserEventType], \"demo.range.int\", cfg, Slice.state(), East.value([], ArrayType(UserEventType)), none));\n            const onClick = $.const(East.function([], NullType, $ => {\n                const r = $.const(\n                    some(variant(\"integer\", { from: 5n, to: 100n })),\n                    OptionType(Slice.Types.Range),\n                );\n                $(slice.setRange(r));\n            }));\n            return Button.Root(\"Sessions 5–100\", { onClick });\n        }));\n    })"
     },
     {
       "id": "east-ui:slice.examples.ts:sliceDefineCohort",
@@ -25305,7 +25053,7 @@
         "import {",
         "import {"
       ],
-      "source": "// Define a Power users cohort with two AND-ed typed predicates\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const UserEventType = StructType({\n            timestamp: DateTimeType,\n            country:   StringType,\n            sessions:  IntegerType,\n            sku:       StringType,\n        });\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const cfg = $.let(Slice.config(UserEventType, {\n                fields: {\n                    timestamp: { label: \"Time\"     },\n                    country:   { label: \"Country\"  },\n                    sessions:  { label: \"Sessions\" },\n                    sku:       { label: \"SKU\"      },\n                },\n                rangeFieldId:      \"timestamp\",\n                searchFieldIds:    [\"sku\", \"country\"],\n                breakdownFieldIds: [\"country\"],\n            }));\n            const slice = $.let(Slice.bind([UserEventType], \"demo.cohort\", cfg));\n            const onDefine = $.const(East.function([], NullType, $ => {\n                const cohort = $.const({\n                    id:   \"power-users\",\n                    name: \"Power users\",\n                    filters: [\n                        variant(\"integer\", { fieldId: \"sessions\", op: variant(\"gte\", 10n) }),\n                        variant(\"string\",  { fieldId: \"country\",  op: variant(\"eq\",  \"US\") }),\n                    ],\n                }, Slice.Types.Cohort);\n                $(slice.defineCohort(cohort));\n            }));\n            const onToggle = $.const(East.function([], NullType, $ => {\n                $(slice.toggleCohort(\"power-users\"));\n            }));\n            return Stack.VStack([\n                Button.Root(\"Define Power users\", { onClick: onDefine }),\n                Button.Root(\"Toggle Power users\", { onClick: onToggle }),\n            ], { gap: \"2\", align: \"stretch\" });\n        }));\n    })"
+      "source": "// Define a Power users cohort with two AND-ed typed predicates\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const UserEventType = StructType({\n            timestamp: DateTimeType,\n            country:   StringType,\n            sessions:  IntegerType,\n            sku:       StringType,\n        });\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const cfg = $.let(Slice.config(UserEventType, {\n                fields: {\n                    timestamp: { label: \"Time\"     },\n                    country:   { label: \"Country\"  },\n                    sessions:  { label: \"Sessions\" },\n                    sku:       { label: \"SKU\"      },\n                },\n                rangeFieldId:      \"timestamp\",\n                searchFieldIds:    [\"sku\", \"country\"],\n                breakdownFieldIds: [\"country\"],\n            }));\n            const slice = $.let(Slice.bind([UserEventType], \"demo.cohort\", cfg, Slice.state(), East.value([], ArrayType(UserEventType)), none));\n            const onDefine = $.const(East.function([], NullType, $ => {\n                const cohort = $.const({\n                    id:   \"power-users\",\n                    name: \"Power users\",\n                    filters: [\n                        variant(\"integer\", { fieldId: \"sessions\", op: variant(\"gte\", 10n) }),\n                        variant(\"string\",  { fieldId: \"country\",  op: variant(\"eq\",  \"US\") }),\n                    ],\n                }, Slice.Types.Cohort);\n                $(slice.defineCohort(cohort));\n            }));\n            const onToggle = $.const(East.function([], NullType, $ => {\n                $(slice.toggleCohort(\"power-users\"));\n            }));\n            return Stack.VStack([\n                Button.Root(\"Define Power users\", { onClick: onDefine }),\n                Button.Root(\"Toggle Power users\", { onClick: onToggle }),\n            ], { gap: \"2\", align: \"stretch\" });\n        }));\n    })"
     },
     {
       "id": "east-ui:slice.examples.ts:sliceSetBreakdown",
@@ -25324,7 +25072,7 @@
         "import {",
         "import {"
       ],
-      "source": "// Group by country with a top-5 limit\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const UserEventType = StructType({\n            timestamp: DateTimeType,\n            country:   StringType,\n            sessions:  IntegerType,\n            sku:       StringType,\n        });\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const cfg = $.let(Slice.config(UserEventType, {\n                fields: {\n                    timestamp: { label: \"Time\"     },\n                    country:   { label: \"Country\"  },\n                    sessions:  { label: \"Sessions\" },\n                    sku:       { label: \"SKU\"      },\n                },\n                rangeFieldId:      \"timestamp\",\n                searchFieldIds:    [\"sku\", \"country\"],\n                breakdownFieldIds: [\"country\"],\n            }));\n            const slice = $.let(Slice.bind([UserEventType], \"demo.breakdown\", cfg));\n            const onClick = $.const(East.function([], NullType, $ => {\n                const b = $.const(\n                    some({ fieldId: \"country\", limit: some(5n) }),\n                    OptionType(Slice.Types.Breakdown),\n                );\n                $(slice.setBreakdown(b));\n            }));\n            return Button.Root(\"Break by country (top 5)\", { onClick });\n        }));\n    })"
+      "source": "// Group by country with a top-5 limit\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const UserEventType = StructType({\n            timestamp: DateTimeType,\n            country:   StringType,\n            sessions:  IntegerType,\n            sku:       StringType,\n        });\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const cfg = $.let(Slice.config(UserEventType, {\n                fields: {\n                    timestamp: { label: \"Time\"     },\n                    country:   { label: \"Country\"  },\n                    sessions:  { label: \"Sessions\" },\n                    sku:       { label: \"SKU\"      },\n                },\n                rangeFieldId:      \"timestamp\",\n                searchFieldIds:    [\"sku\", \"country\"],\n                breakdownFieldIds: [\"country\"],\n            }));\n            const slice = $.let(Slice.bind([UserEventType], \"demo.breakdown\", cfg, Slice.state(), East.value([], ArrayType(UserEventType)), none));\n            const onClick = $.const(East.function([], NullType, $ => {\n                const b = $.const(\n                    some({ fieldId: \"country\", limit: some(5n) }),\n                    OptionType(Slice.Types.Breakdown),\n                );\n                $(slice.setBreakdown(b));\n            }));\n            return Button.Root(\"Break by country (top 5)\", { onClick });\n        }));\n    })"
     },
     {
       "id": "east-ui:slice.examples.ts:sliceSetSearch",
@@ -25343,7 +25091,7 @@
         "import {",
         "import {"
       ],
-      "source": "// Activate text search with setSearch(some(query)); clear with none\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const UserEventType = StructType({\n            timestamp: DateTimeType,\n            country:   StringType,\n            sessions:  IntegerType,\n            sku:       StringType,\n        });\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const cfg = $.let(Slice.config(UserEventType, {\n                fields: {\n                    timestamp: { label: \"Time\"     },\n                    country:   { label: \"Country\"  },\n                    sessions:  { label: \"Sessions\" },\n                    sku:       { label: \"SKU\"      },\n                },\n                rangeFieldId:      \"timestamp\",\n                searchFieldIds:    [\"sku\", \"country\"],\n                breakdownFieldIds: [\"country\"],\n            }));\n            const slice = $.let(Slice.bind([UserEventType], \"demo.search\", cfg));\n            const onSet = $.const(East.function([], NullType, $ => {\n                const q = $.const(some(\"SKU-001\"), OptionType(StringType));\n                $(slice.setSearch(q));\n            }));\n            const onClear = $.const(East.function([], NullType, $ => {\n                const q = $.const(none, OptionType(StringType));\n                $(slice.setSearch(q));\n            }));\n            return Stack.VStack([\n                Button.Root(\"Search SKU-001\", { onClick: onSet }),\n                Button.Root(\"Clear\", { onClick: onClear }),\n            ], { gap: \"2\", align: \"stretch\" });\n        }));\n    })"
+      "source": "// Activate text search with setSearch(some(query)); clear with none\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const UserEventType = StructType({\n            timestamp: DateTimeType,\n            country:   StringType,\n            sessions:  IntegerType,\n            sku:       StringType,\n        });\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const cfg = $.let(Slice.config(UserEventType, {\n                fields: {\n                    timestamp: { label: \"Time\"     },\n                    country:   { label: \"Country\"  },\n                    sessions:  { label: \"Sessions\" },\n                    sku:       { label: \"SKU\"      },\n                },\n                rangeFieldId:      \"timestamp\",\n                searchFieldIds:    [\"sku\", \"country\"],\n                breakdownFieldIds: [\"country\"],\n            }));\n            const slice = $.let(Slice.bind([UserEventType], \"demo.search\", cfg, Slice.state(), East.value([], ArrayType(UserEventType)), none));\n            const onSet = $.const(East.function([], NullType, $ => {\n                const q = $.const(some(\"SKU-001\"), OptionType(StringType));\n                $(slice.setSearch(q));\n            }));\n            const onClear = $.const(East.function([], NullType, $ => {\n                const q = $.const(none, OptionType(StringType));\n                $(slice.setSearch(q));\n            }));\n            return Stack.VStack([\n                Button.Root(\"Search SKU-001\", { onClick: onSet }),\n                Button.Root(\"Clear\", { onClick: onClear }),\n            ], { gap: \"2\", align: \"stretch\" });\n        }));\n    })"
     },
     {
       "id": "east-ui:slice.examples.ts:sliceSetVisible",
@@ -25362,7 +25110,7 @@
         "import {",
         "import {"
       ],
-      "source": "// Restrict the legend\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const UserEventType = StructType({\n            timestamp: DateTimeType,\n            country:   StringType,\n            sessions:  IntegerType,\n            sku:       StringType,\n        });\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const cfg = $.let(Slice.config(UserEventType, {\n                fields: {\n                    timestamp: { label: \"Time\"     },\n                    country:   { label: \"Country\"  },\n                    sessions:  { label: \"Sessions\" },\n                    sku:       { label: \"SKU\"      },\n                },\n                rangeFieldId:      \"timestamp\",\n                searchFieldIds:    [\"sku\", \"country\"],\n                breakdownFieldIds: [\"country\"],\n            }));\n            const slice = $.let(Slice.bind([UserEventType], \"demo.visible\", cfg));\n            const onClick = $.const(East.function([], NullType, $ => {\n                const v = $.const(\n                    some(new Set([\"US\", \"UK\"])),\n                    OptionType(SetType(StringType)),\n                );\n                $(slice.setVisible(v));\n            }));\n            return Button.Root(\"Show only US and UK\", { onClick });\n        }));\n    })"
+      "source": "// Restrict the legend\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const UserEventType = StructType({\n            timestamp: DateTimeType,\n            country:   StringType,\n            sessions:  IntegerType,\n            sku:       StringType,\n        });\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const cfg = $.let(Slice.config(UserEventType, {\n                fields: {\n                    timestamp: { label: \"Time\"     },\n                    country:   { label: \"Country\"  },\n                    sessions:  { label: \"Sessions\" },\n                    sku:       { label: \"SKU\"      },\n                },\n                rangeFieldId:      \"timestamp\",\n                searchFieldIds:    [\"sku\", \"country\"],\n                breakdownFieldIds: [\"country\"],\n            }));\n            const slice = $.let(Slice.bind([UserEventType], \"demo.visible\", cfg, Slice.state(), East.value([], ArrayType(UserEventType)), none));\n            const onClick = $.const(East.function([], NullType, $ => {\n                const v = $.const(\n                    some(new Set([\"US\", \"UK\"])),\n                    OptionType(SetType(StringType)),\n                );\n                $(slice.setVisible(v));\n            }));\n            return Button.Root(\"Show only US and UK\", { onClick });\n        }));\n    })"
     },
     {
       "id": "east-ui:state.examples.ts:stateReactiveCounter",
@@ -25387,85 +25135,363 @@
       "source": "// Reactive counter — State.bind exposes read / write closures and Reactive.Root re-renders on change\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const countBind = $.let(State.bind([IntegerType], \"demo.counter\", 0n));\n            const count = $.let(countBind.read());\n\n            const increment = $.const(East.function([], NullType, $ => {\n                const current = $.let(countBind.read());\n                $(countBind.write(current.add(1n)));\n            }));\n\n            return Stack.VStack([\n                Text.Root(East.str`Count: ${count}`),\n                Button.Root(\"+1\", { onClick: increment }),\n            ], { gap: \"2\", align: \"stretch\" });\n        }));\n    })"
     },
     {
-      "id": "east-ui:reactive.examples.ts:reactiveBasic",
+      "id": "east-ui:slice.examples.ts:sliceSummary",
       "skill": "east-ui",
       "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/reactive/reactive.examples.ts",
+      "file": "east-ui/packages/east-ui/test/slice/slice.examples.ts",
       "suite": "",
-      "test": "Wrap a static UI in Reactive.Root — re-renders on state changes",
+      "test": "Result / filter-count status bar bound to a slice",
       "keywords": [
-        "Reactive",
-        "Root",
-        "basic",
-        "render"
+        "Slice",
+        "Summary",
+        "results",
+        "filters",
+        "clear"
       ],
       "imports": [
-        "import { East, IntegerType, NullType, example } from \"@elaraai/east\";",
-        "import { Button, Reactive, Stack, Stat, State, Text, UIComponentType } from \"@elaraai/east-ui\";"
+        "import { East, DateTimeType, StringType, IntegerType, ArrayType, StructType, variant, some, none, example } from \"@elaraai/east\";",
+        "import { Box, Chart, Reactive, Separator, Slice, Stack, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Wrap a static UI in Reactive.Root — re-renders on state changes\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, (_$) => {\n            return Text.Root(\"Reactive content\");\n        }));\n    })"
+      "source": "// Result / filter-count status bar bound to a slice\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const EventType = StructType({ country: StringType, sessions: IntegerType });\n        const cfg = Slice.config(EventType, {\n            fields: { country: { label: \"Country\" }, sessions: { label: \"Sessions\" } },\n            searchFieldIds: [\"country\"],\n        });\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const data = $.const([\n                { country: \"US\", sessions: 42n }, { country: \"US\", sessions: 8n },\n                { country: \"UK\", sessions: 31n }, { country: \"DE\", sessions: 12n },\n            ], ArrayType(EventType));\n            const slice = $.let(Slice.bind([EventType], \"ex.slice.summary\", cfg, Slice.state({\n                filters: [\n                    variant(\"string\", { fieldId: \"country\", op: variant(\"eq\", \"US\") }),\n                    variant(\"integer\", { fieldId: \"sessions\", op: variant(\"gte\", 10n) }),\n                ],\n            }), data, none));\n            return Slice.Summary.Root(slice);\n        }));\n    })"
     },
     {
-      "id": "east-ui:reactive.examples.ts:reactiveCounter",
+      "id": "east-ui:slice.examples.ts:sliceRange",
       "skill": "east-ui",
       "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/reactive/reactive.examples.ts",
+      "file": "east-ui/packages/east-ui/test/slice/slice.examples.ts",
       "suite": "",
-      "test": "Counter that increments on click and re-renders only its subtree",
+      "test": "Preset time-range picker (Today / 7d / 30d / 90d / YTD / Custom) with compare row",
       "keywords": [
-        "Reactive",
-        "Root",
-        "State",
-        "bind",
-        "counter",
-        "interactive"
+        "Slice",
+        "Range",
+        "preset",
+        "time",
+        "compare"
       ],
       "imports": [
-        "import { East, IntegerType, NullType, example } from \"@elaraai/east\";",
-        "import { Button, Reactive, Stack, Stat, State, Text, UIComponentType } from \"@elaraai/east-ui\";"
+        "import { East, DateTimeType, StringType, IntegerType, ArrayType, StructType, variant, some, none, example } from \"@elaraai/east\";",
+        "import { Box, Chart, Reactive, Separator, Slice, Stack, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Counter that increments on click and re-renders only its subtree\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const counter = $.let(State.bind([IntegerType], \"reactiveCounter\", 0n));\n            const count = $.let(counter.read());\n            const increment = $.const(East.function([], NullType, $ => {\n                const current = $.let(counter.read());\n                $(counter.write(current.add(1n)));\n            }));\n            return Stack.VStack([\n                Stat.Root(\"Count\", Text.Root(East.print(count))),\n                Button.Root(\"Increment\", { onClick: increment, style: { variant: \"solid\", colorPalette: \"blue\" } }),\n            ], { gap: \"3\", align: \"center\" });\n        }));\n    })"
+      "source": "// Preset time-range picker (Today / 7d / 30d / 90d / YTD / Custom) with compare row\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const EventType = StructType({ timestamp: DateTimeType, sessions: IntegerType });\n        const cfg = Slice.config(EventType, {\n            fields: { timestamp: { label: \"Time\" }, sessions: { label: \"Sessions\" } },\n            rangeFieldId: \"timestamp\",\n        });\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const data = $.const([\n                { timestamp: new Date(Date.now() - 2 * 86400000), sessions: 42n },\n                { timestamp: new Date(Date.now() - 40 * 86400000), sessions: 18n },\n            ], ArrayType(EventType));\n            const slice = $.let(Slice.bind([EventType], \"ex.slice.range\", cfg, Slice.state({\n                range: some(variant(\"datetimePreset\", variant(\"last30d\", null))),\n            }), data, none));\n            return Slice.Range.Root(slice);\n        }));\n    })"
     },
     {
-      "id": "east-ui:reactive.examples.ts:reactiveNested",
+      "id": "east-ui:slice.examples.ts:sliceFilter",
       "skill": "east-ui",
       "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/reactive/reactive.examples.ts",
+      "file": "east-ui/packages/east-ui/test/slice/slice.examples.ts",
       "suite": "",
-      "test": "Two independent Reactive.Root subtrees — each re-renders independently",
+      "test": "Faceted predicate chips with a built-in add-filter builder + showing-count footer",
       "keywords": [
-        "Reactive",
-        "Root",
-        "nested",
-        "isolation",
-        "re-render"
+        "Slice",
+        "Filter",
+        "predicate",
+        "chips",
+        "facet"
       ],
       "imports": [
-        "import { East, IntegerType, NullType, example } from \"@elaraai/east\";",
-        "import { Button, Reactive, Stack, Stat, State, Text, UIComponentType } from \"@elaraai/east-ui\";"
+        "import { East, DateTimeType, StringType, IntegerType, ArrayType, StructType, variant, some, none, example } from \"@elaraai/east\";",
+        "import { Box, Chart, Reactive, Separator, Slice, Stack, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Two independent Reactive.Root subtrees — each re-renders independently\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Stack.VStack([\n            Reactive.Root(East.function([], UIComponentType, $ => {\n                const a = $.let(State.bind([IntegerType], \"reactiveNestedA\", 0n));\n                const va = $.let(a.read());\n                const inc = $.const(East.function([], NullType, $ => {\n                    const current = $.let(a.read());\n                    $(a.write(current.add(1n)));\n                }));\n                return Stack.HStack([\n                    Stat.Root(\"A\", Text.Root(East.print(va))),\n                    Button.Root(\"A++\", { onClick: inc, style: { size: \"sm\" } }),\n                ], { gap: \"2\" });\n            })),\n            Reactive.Root(East.function([], UIComponentType, $ => {\n                const b = $.let(State.bind([IntegerType], \"reactiveNestedB\", 0n));\n                const vb = $.let(b.read());\n                const inc = $.const(East.function([], NullType, $ => {\n                    const current = $.let(b.read());\n                    $(b.write(current.add(1n)));\n                }));\n                return Stack.HStack([\n                    Stat.Root(\"B\", Text.Root(East.print(vb))),\n                    Button.Root(\"B++\", { onClick: inc, style: { size: \"sm\" } }),\n                ], { gap: \"2\" });\n            })),\n        ], { gap: \"4\", align: \"stretch\" });\n    })"
+      "source": "// Faceted predicate chips with a built-in add-filter builder + showing-count footer\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const EventType = StructType({ scenario: StringType, region: StringType, sessions: IntegerType });\n        const cfg = Slice.config(EventType, {\n            fields: { scenario: { label: \"Scenario\" }, region: { label: \"Region\" }, sessions: { label: \"Sessions\" } },\n            searchFieldIds: [\"scenario\", \"region\"],\n        });\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const data = $.const([\n                { scenario: \"procurement v3\", region: \"EU\", sessions: 42n },\n                { scenario: \"procurement v3\", region: \"NA\", sessions: 18n },\n                { scenario: \"logistics\", region: \"EU\", sessions: 9n },\n            ], ArrayType(EventType));\n            const slice = $.let(Slice.bind([EventType], \"ex.slice.filter\", cfg, Slice.state({\n                filters: [\n                    variant(\"string\", { fieldId: \"scenario\", op: variant(\"eq\", \"procurement v3\") }),\n                    variant(\"integer\", { fieldId: \"sessions\", op: variant(\"gte\", 10n) }),\n                ],\n            }), data, none));\n            return Stack.VStack([\n                Text.Presets.Eyebrow(\"COMPACT · IN FRAME EYEBROW\"),\n                Slice.Filter.Root(slice, { unit: \"events\", density: \"compact\" }),\n                Separator.Root({ orientation: \"horizontal\" }),\n                Text.Presets.Eyebrow(\"FOCUSED · STANDALONE\"),\n                Slice.Filter.Root(slice, { unit: \"events\", density: \"focused\" }),\n            ], { gap: \"4\", align: \"stretch\" });\n        }));\n    })"
     },
     {
-      "id": "east-ui:reactive.examples.ts:reactiveDerived",
+      "id": "east-ui:slice.examples.ts:sliceBreakdown",
       "skill": "east-ui",
       "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/reactive/reactive.examples.ts",
+      "file": "east-ui/packages/east-ui/test/slice/slice.examples.ts",
       "suite": "",
-      "test": "Display a value derived from state — re-renders when source state changes",
+      "test": "Split-by-dimension picker — dimensions + series computed by the bound slice",
       "keywords": [
-        "Reactive",
-        "Root",
-        "State",
-        "derived",
-        "computed",
-        "double"
+        "Slice",
+        "Breakdown",
+        "dimension",
+        "series",
+        "split"
       ],
       "imports": [
-        "import { East, IntegerType, NullType, example } from \"@elaraai/east\";",
-        "import { Button, Reactive, Stack, Stat, State, Text, UIComponentType } from \"@elaraai/east-ui\";"
+        "import { East, DateTimeType, StringType, IntegerType, ArrayType, StructType, variant, some, none, example } from \"@elaraai/east\";",
+        "import { Box, Chart, Reactive, Separator, Slice, Stack, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Display a value derived from state — re-renders when source state changes\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const counter = $.let(State.bind([IntegerType], \"reactiveDerivedCounter\", 1n));\n            const count = $.let(counter.read());\n            const doubled = $.let(count.multiply(2n));\n            const inc = $.const(East.function([], NullType, $ => {\n                const current = $.let(counter.read());\n                $(counter.write(current.add(1n)));\n            }));\n            return Stack.VStack([\n                Stat.Root(\"Count\", Text.Root(East.print(count))),\n                Stat.Root(\"Doubled\", Text.Root(East.print(doubled))),\n                Button.Root(\"Increment\", { onClick: inc, style: { variant: \"solid\", colorPalette: \"purple\" } }),\n            ], { gap: \"3\", align: \"center\" });\n        }));\n    })"
+      "source": "// Split-by-dimension picker — dimensions + series computed by the bound slice\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const EventType = StructType({ country: StringType, plan_tier: StringType, sessions: IntegerType });\n        const cfg = Slice.config(EventType, {\n            fields: { country: { label: \"Country\" }, plan_tier: { label: \"plan_tier\" }, sessions: { label: \"Sessions\" } },\n            breakdownFieldIds: [\"country\", \"plan_tier\"],\n        });\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const data = $.const([\n                { country: \"US\", plan_tier: \"pro\", sessions: 12n }, { country: \"US\", plan_tier: \"free\", sessions: 8n },\n                { country: \"UK\", plan_tier: \"pro\", sessions: 5n }, { country: \"DE\", plan_tier: \"enterprise\", sessions: 3n },\n                { country: \"AU\", plan_tier: \"free\", sessions: 2n }, { country: \"FR\", plan_tier: \"pro\", sessions: 2n },\n                { country: \"NL\", plan_tier: \"free\", sessions: 1n },\n            ], ArrayType(EventType));\n            const slice = $.let(Slice.bind([EventType], \"ex.slice.breakdown\", cfg, Slice.state({\n                breakdown: some({ fieldId: \"country\", limit: none }),\n            }), data, none));\n            return Stack.VStack([\n                Text.Presets.Eyebrow(\"COMPACT · IN CHART-FRAME EYEBROW\"),\n                Slice.Breakdown.Root(slice, { density: \"compact\" }),\n                Separator.Root({ orientation: \"horizontal\" }),\n                Text.Presets.Eyebrow(\"FOCUSED · STANDALONE\"),\n                Slice.Breakdown.Root(slice, { density: \"focused\" }),\n            ], { gap: \"4\", align: \"stretch\" });\n        }));\n    })"
+    },
+    {
+      "id": "east-ui:slice.examples.ts:sliceLegend",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/slice/slice.examples.ts",
+      "suite": "",
+      "test": "Series swatch / visibility rail over the bound slice",
+      "keywords": [
+        "Slice",
+        "Legend",
+        "series",
+        "swatch",
+        "visibility"
+      ],
+      "imports": [
+        "import { East, DateTimeType, StringType, IntegerType, ArrayType, StructType, variant, some, none, example } from \"@elaraai/east\";",
+        "import { Box, Chart, Reactive, Separator, Slice, Stack, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Series swatch / visibility rail over the bound slice\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const EventType = StructType({ region: StringType, sessions: IntegerType });\n        const cfg = Slice.config(EventType, {\n            fields: { region: { label: \"Region\" }, sessions: { label: \"Sessions\" } },\n            breakdownFieldIds: [\"region\"],\n        });\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const data = $.const([\n                { region: \"EU\", sessions: 12n }, { region: \"EU\", sessions: 6n },\n                { region: \"NA\", sessions: 9n }, { region: \"APAC\", sessions: 4n },\n            ], ArrayType(EventType));\n            const slice = $.let(Slice.bind([EventType], \"ex.slice.legend\", cfg, Slice.state({\n                breakdown: some({ fieldId: \"region\", limit: none }),\n            }), data, none));\n            return Slice.Legend.Root(slice);\n        }));\n    })"
+    },
+    {
+      "id": "east-ui:slice.examples.ts:sliceSearch",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/slice/slice.examples.ts",
+      "suite": "",
+      "test": "Combobox typeahead — suggestions projected from the bound rows via toMatch",
+      "keywords": [
+        "Slice",
+        "Search",
+        "typeahead",
+        "combobox",
+        "commit"
+      ],
+      "imports": [
+        "import { East, DateTimeType, StringType, IntegerType, ArrayType, StructType, variant, some, none, example } from \"@elaraai/east\";",
+        "import { Box, Chart, Reactive, Separator, Slice, Stack, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Combobox typeahead — suggestions projected from the bound rows via toMatch\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const EventType = StructType({ sku: StringType, name: StringType, note: StringType });\n        const cfg = Slice.config(EventType, {\n            fields: { sku: { label: \"SKU\" }, name: { label: \"Name\" }, note: { label: \"Note\" } },\n            searchFieldIds: [\"sku\"],\n        });\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const data = $.const([\n                { sku: \"SKU-001\", name: \"Industrial fan\", note: \"demand-spike pattern\" },\n                { sku: \"SKU-0012\", name: \"Switching unit\", note: \"last seen 09-12\" },\n                { sku: \"SKU-0018\", name: \"Pump motor\", note: \"last seen 09-10\" },\n                { sku: \"SKU-0019\", name: \"Filter set\", note: \"last seen 09-09\" },\n                { sku: \"SKU-022\", name: \"Conveyor belt\", note: \"last seen 09-02\" },\n            ], ArrayType(EventType));\n            const toMatch = $.const(East.function([EventType], Slice.Types.SearchMatch, ($, r) =>\n                East.value({ id: r.sku, label: r.name, meta: some(r.note) }, Slice.Types.SearchMatch)));\n            const slice = $.let(Slice.bind([EventType], \"ex.slice.search\", cfg, Slice.state({\n                search: some(\"SKU-001\"),\n            }), data, some(toMatch)));\n            return Stack.VStack([\n                Text.Presets.Eyebrow(\"COMPACT · IN FRAME EYEBROW\"),\n                Slice.Search.Root(slice, { density: \"compact\" }),\n                Separator.Root({ orientation: \"horizontal\" }),\n                Text.Presets.Eyebrow(\"FOCUSED · STANDALONE\"),\n                Slice.Search.Root(slice, { recent: [\"demand-spike\", \"SKU-022\"], density: \"focused\" }),\n            ], { gap: \"4\", align: \"stretch\" });\n        }));\n    })"
+    },
+    {
+      "id": "east-ui:slice.examples.ts:sliceCohort",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/slice/slice.examples.ts",
+      "suite": "",
+      "test": "Saved-segment chips with focused-cohort predicate detail + Edit / Apply / Remove",
+      "keywords": [
+        "Slice",
+        "Cohort",
+        "segment",
+        "predicate",
+        "saved"
+      ],
+      "imports": [
+        "import { East, DateTimeType, StringType, IntegerType, ArrayType, StructType, variant, some, none, example } from \"@elaraai/east\";",
+        "import { Box, Chart, Reactive, Separator, Slice, Stack, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Saved-segment chips with focused-cohort predicate detail + Edit / Apply / Remove\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const EventType = StructType({ page_views: IntegerType, sessions: IntegerType, plan_tier: StringType });\n        const cfg = Slice.config(EventType, {\n            fields: { page_views: { label: \"Page views\" }, sessions: { label: \"Sessions\" }, plan_tier: { label: \"Plan tier\" } },\n            searchFieldIds: [\"plan_tier\"],\n        });\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const data = $.const([\n                { page_views: 40n, sessions: 18n, plan_tier: \"pro\" }, { page_views: 25n, sessions: 12n, plan_tier: \"enterprise\" },\n                { page_views: 5n, sessions: 1n, plan_tier: \"free\" }, { page_views: 30n, sessions: 11n, plan_tier: \"pro\" },\n            ], ArrayType(EventType));\n            const slice = $.let(Slice.bind([EventType], \"ex.slice.cohort\", cfg, Slice.state({\n                cohorts: [\n                    { id: \"power-users\", name: \"Power users\", filters: [\n                        variant(\"integer\", { fieldId: \"page_views\", op: variant(\"gte\", 20n) }),\n                        variant(\"integer\", { fieldId: \"sessions\", op: variant(\"gte\", 10n) }),\n                        variant(\"string\", { fieldId: \"plan_tier\", op: variant(\"in\", new Set([\"pro\", \"enterprise\"])) }),\n                    ] },\n                    { id: \"trial-paid\", name: \"Trial → paid\", filters: [variant(\"string\", { fieldId: \"plan_tier\", op: variant(\"eq\", \"pro\") })] },\n                    { id: \"churn-risk\", name: \"Churn risk\", filters: [variant(\"integer\", { fieldId: \"sessions\", op: variant(\"lt\", 2n) })] },\n                ],\n                activeCohorts: new Set([\"power-users\"]),\n            }), data, none));\n            return Slice.Cohort.Root(slice, { createdBy: \"d.park\", lastEdited: \"09-08\", reevaluateEvery: \"every 10 min\" });\n        }));\n    })"
+    },
+    {
+      "id": "east-ui:slice.examples.ts:sliceComposed",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/slice/slice.examples.ts",
+      "suite": "",
+      "test": "A Table consumer housed in a Slice.Frame — the eyebrow mounts the listed ",
+      "keywords": [
+        "Slice",
+        "Frame",
+        "Table",
+        "apply",
+        "where",
+        "narrowing",
+        "container"
+      ],
+      "imports": [
+        "import { East, DateTimeType, StringType, IntegerType, ArrayType, StructType, variant, some, none, example } from \"@elaraai/east\";",
+        "import { Box, Chart, Reactive, Separator, Slice, Stack, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A Table consumer housed in a Slice.Frame — the eyebrow mounts the listed \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const EventType = StructType({ scenario: StringType, region: StringType, sessions: IntegerType });\n        const cfg = Slice.config(EventType, {\n            fields: { scenario: { label: \"Scenario\" }, region: { label: \"Region\" }, sessions: { label: \"Sessions\" } },\n            searchFieldIds: [\"scenario\", \"region\"],\n        });\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const data = $.const([\n                { scenario: \"procurement v3\", region: \"EU\",   sessions: 42n },\n                { scenario: \"procurement v3\", region: \"NA\",   sessions: 18n },\n                { scenario: \"procurement v2\", region: \"EU\",   sessions: 31n },\n                { scenario: \"procurement v3\", region: \"APAC\", sessions: 7n },\n                { scenario: \"logistics\",      region: \"NA\",   sessions: 56n },\n                { scenario: \"procurement v3\", region: \"NA\",   sessions: 12n },\n                { scenario: \"procurement v2\", region: \"APAC\", sessions: 25n },\n                { scenario: \"procurement v3\", region: \"EU\",   sessions: 9n },\n            ], ArrayType(EventType));\n            const slice = $.let(Slice.bind([EventType], \"ex.slice.frame.table\", cfg, Slice.state({\n                filters: [\n                    variant(\"string\", { fieldId: \"scenario\", op: variant(\"eq\", \"procurement v3\") }),\n                    variant(\"integer\", { fieldId: \"sessions\", op: variant(\"gte\", 10n) }),\n                ],\n            }), data, none));\n            const filtered = $.let(Slice.apply.where([EventType], slice.read(), cfg, data));\n            return Slice.Frame.Root(slice, Table.Root(filtered, {\n                scenario: { header: \"Scenario\" },\n                region:   { header: \"Region\" },\n                sessions: { header: \"Sessions\" },\n            }), { affordances: [\"filter\", \"search\"] });\n        }));\n    })"
+    },
+    {
+      "id": "east-ui:slice.examples.ts:sliceFrameNarrow",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/slice/slice.examples.ts",
+      "suite": "",
+      "test": "A Slice.Frame in a width-constrained container — more filter chips than fit one line, so the affordance bar reflows to stacked labelled rows (nothing hidden); the filter",
+      "keywords": [
+        "Slice",
+        "Frame",
+        "narrow",
+        "overflow",
+        "compress",
+        "wrap",
+        "eyebrow"
+      ],
+      "imports": [
+        "import { East, DateTimeType, StringType, IntegerType, ArrayType, StructType, variant, some, none, example } from \"@elaraai/east\";",
+        "import { Box, Chart, Reactive, Separator, Slice, Stack, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A Slice.Frame in a width-constrained container — more filter chips than fit one line, so the affordance bar reflows to stacked labelled rows (nothing hidden); the filter\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const EventType = StructType({ scenario: StringType, region: StringType, plan_tier: StringType, sessions: IntegerType });\n        const cfg = Slice.config(EventType, {\n            fields: { scenario: { label: \"Scenario\" }, region: { label: \"Region\" }, plan_tier: { label: \"Plan tier\" }, sessions: { label: \"Sessions\" } },\n            searchFieldIds: [\"scenario\", \"region\"],\n        });\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const data = $.const([\n                { scenario: \"procurement v3\", region: \"EU\", plan_tier: \"pro\", sessions: 42n },\n                { scenario: \"procurement v3\", region: \"NA\", plan_tier: \"enterprise\", sessions: 18n },\n                { scenario: \"logistics\", region: \"EU\", plan_tier: \"free\", sessions: 9n },\n            ], ArrayType(EventType));\n            const slice = $.let(Slice.bind([EventType], \"ex.slice.frame.narrow\", cfg, Slice.state({\n                filters: [\n                    variant(\"string\", { fieldId: \"scenario\", op: variant(\"eq\", \"procurement v3\") }),\n                    variant(\"string\", { fieldId: \"region\", op: variant(\"in\", new Set([\"EU\", \"NA\"])) }),\n                    variant(\"string\", { fieldId: \"plan_tier\", op: variant(\"eq\", \"pro\") }),\n                    variant(\"integer\", { fieldId: \"sessions\", op: variant(\"gte\", 10n) }),\n                    variant(\"integer\", { fieldId: \"sessions\", op: variant(\"lt\", 100n) }),\n                    variant(\"string\", { fieldId: \"region\", op: variant(\"neq\", \"APAC\") }),\n                ],\n            }), data, none));\n            const filtered = $.let(Slice.apply.where([EventType], slice.read(), cfg, data));\n            // Constrain the width so the eyebrow can't fit six chips + search.\n            return Box.Root([\n                Slice.Frame.Root(slice, Table.Root(filtered, {\n                    scenario: { header: \"Scenario\" },\n                    region:   { header: \"Region\" },\n                    sessions: { header: \"Sessions\" },\n                }), { affordances: [\"filter\", \"search\"] }),\n            ], { width: \"520px\", maxWidth: \"520px\" });\n        }));\n    })"
+    },
+    {
+      "id": "east-ui:slice.examples.ts:sliceFrameFaceted",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/slice/slice.examples.ts",
+      "suite": "",
+      "test": "A Table consumer in a Slice.Frame mounting ",
+      "keywords": [
+        "Slice",
+        "Frame",
+        "Table",
+        "Filter",
+        "Search",
+        "Breakdown",
+        "Range",
+        "eyebrow",
+        "composed"
+      ],
+      "imports": [
+        "import { East, DateTimeType, StringType, IntegerType, ArrayType, StructType, variant, some, none, example } from \"@elaraai/east\";",
+        "import { Box, Chart, Reactive, Separator, Slice, Stack, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A Table consumer in a Slice.Frame mounting \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const EventType = StructType({\n            timestamp: DateTimeType, region: StringType, plan_tier: StringType,\n            sku: StringType, name: StringType, sessions: IntegerType,\n        });\n        const cfg = Slice.config(EventType, {\n            fields: {\n                timestamp: { label: \"Time\" }, region: { label: \"Region\" }, plan_tier: { label: \"Plan tier\" },\n                sku: { label: \"SKU\" }, name: { label: \"Name\" }, sessions: { label: \"Sessions\" },\n            },\n            searchFieldIds: [\"sku\", \"name\"],\n            breakdownFieldIds: [\"region\", \"plan_tier\"],\n            rangeFieldId: \"timestamp\",\n        });\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const data = $.const([\n                { timestamp: new Date(Date.now() - 2 * 86400000),  region: \"EU\",   plan_tier: \"pro\",        sku: \"SKU-001\", name: \"Industrial fan\", sessions: 42n },\n                { timestamp: new Date(Date.now() - 5 * 86400000),  region: \"NA\",   plan_tier: \"enterprise\", sku: \"SKU-012\", name: \"Switching unit\",  sessions: 18n },\n                { timestamp: new Date(Date.now() - 9 * 86400000),  region: \"EU\",   plan_tier: \"free\",       sku: \"SKU-018\", name: \"Pump motor\",     sessions: 9n },\n                { timestamp: new Date(Date.now() - 12 * 86400000), region: \"APAC\", plan_tier: \"pro\",        sku: \"SKU-019\", name: \"Filter set\",     sessions: 31n },\n                { timestamp: new Date(Date.now() - 18 * 86400000), region: \"NA\",   plan_tier: \"pro\",        sku: \"SKU-022\", name: \"Conveyor belt\",  sessions: 56n },\n                { timestamp: new Date(Date.now() - 25 * 86400000), region: \"APAC\", plan_tier: \"free\",       sku: \"SKU-031\", name: \"Drive shaft\",    sessions: 7n },\n            ], ArrayType(EventType));\n            const slice = $.let(Slice.bind([EventType], \"ex.slice.frame.faceted\", cfg, Slice.state({\n                range: some(variant(\"datetimePreset\", variant(\"last30d\", null))),\n                filters: [\n                    variant(\"string\", { fieldId: \"plan_tier\", op: variant(\"in\", new Set([\"pro\", \"enterprise\"])) }),\n                    variant(\"integer\", { fieldId: \"sessions\", op: variant(\"gte\", 10n) }),\n                ],\n                breakdown: some({ fieldId: \"region\", limit: none }),\n            }), data, none));\n            const filtered = $.let(Slice.apply.where([EventType], slice.read(), cfg, data));\n            return Slice.Frame.Root(slice, Table.Root(filtered, {\n                sku:       { header: \"SKU\" },\n                name:      { header: \"Name\" },\n                region:    { header: \"Region\" },\n                plan_tier: { header: \"Plan tier\" },\n                sessions:  { header: \"Sessions\" },\n            }), { affordances: [\"filter\", \"breakdown\", \"search\"] });\n        }));\n    })"
+    },
+    {
+      "id": "east-ui:slice.examples.ts:sliceFrameFull",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/slice/slice.examples.ts",
+      "suite": "",
+      "test": "A Slice.Frame mounting all five affordances (",
+      "keywords": [
+        "Slice",
+        "Frame",
+        "affordances",
+        "collapsible",
+        "filter",
+        "breakdown",
+        "cohort",
+        "range",
+        "search",
+        "stacked"
+      ],
+      "imports": [
+        "import { East, DateTimeType, StringType, IntegerType, ArrayType, StructType, variant, some, none, example } from \"@elaraai/east\";",
+        "import { Box, Chart, Reactive, Separator, Slice, Stack, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A Slice.Frame mounting all five affordances (\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const EventType = StructType({\n            timestamp: DateTimeType, region: StringType, plan_tier: StringType,\n            sku: StringType, name: StringType, sessions: IntegerType,\n        });\n        const cfg = Slice.config(EventType, {\n            fields: {\n                timestamp: { label: \"Time\" }, region: { label: \"Region\" }, plan_tier: { label: \"Plan tier\" },\n                sku: { label: \"SKU\" }, name: { label: \"Name\" }, sessions: { label: \"Sessions\" },\n            },\n            searchFieldIds: [\"sku\", \"name\"],\n            breakdownFieldIds: [\"region\", \"plan_tier\"],\n            rangeFieldId: \"timestamp\",\n        });\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const data = $.const([\n                { timestamp: new Date(Date.now() - 2 * 86400000),  region: \"EU\",   plan_tier: \"pro\",        sku: \"SKU-001\", name: \"Industrial fan\", sessions: 42n },\n                { timestamp: new Date(Date.now() - 5 * 86400000),  region: \"NA\",   plan_tier: \"enterprise\", sku: \"SKU-012\", name: \"Switching unit\",  sessions: 18n },\n                { timestamp: new Date(Date.now() - 9 * 86400000),  region: \"EU\",   plan_tier: \"free\",       sku: \"SKU-018\", name: \"Pump motor\",     sessions: 9n },\n                { timestamp: new Date(Date.now() - 12 * 86400000), region: \"APAC\", plan_tier: \"pro\",        sku: \"SKU-019\", name: \"Filter set\",     sessions: 31n },\n                { timestamp: new Date(Date.now() - 18 * 86400000), region: \"NA\",   plan_tier: \"pro\",        sku: \"SKU-022\", name: \"Conveyor belt\",  sessions: 56n },\n            ], ArrayType(EventType));\n            const slice = $.let(Slice.bind([EventType], \"ex.slice.frame.full\", cfg, Slice.state({\n                range: some(variant(\"datetimePreset\", variant(\"last30d\", null))),\n                filters: [\n                    variant(\"string\", { fieldId: \"plan_tier\", op: variant(\"in\", new Set([\"pro\", \"enterprise\"])) }),\n                    variant(\"integer\", { fieldId: \"sessions\", op: variant(\"gte\", 10n) }),\n                ],\n                breakdown: some({ fieldId: \"region\", limit: none }),\n                cohorts: [\n                    { id: \"power-users\", name: \"Power users\", filters: [variant(\"integer\", { fieldId: \"sessions\", op: variant(\"gte\", 30n) })] },\n                    { id: \"enterprise\",  name: \"Enterprise\",  filters: [variant(\"string\", { fieldId: \"plan_tier\", op: variant(\"eq\", \"enterprise\") })] },\n                ],\n                activeCohorts: new Set([\"power-users\"]),\n            }), data, none));\n            const filtered = $.let(Slice.apply.where([EventType], slice.read(), cfg, data));\n            return Slice.Frame.Root(slice, Table.Root(filtered, {\n                sku:      { header: \"SKU\" },\n                name:     { header: \"Name\" },\n                region:   { header: \"Region\" },\n                sessions: { header: \"Sessions\" },\n            }), { affordances: [\"filter\", \"breakdown\", \"cohort\", \"range\", \"search\"], collapsible: true });\n        }));\n    })"
+    },
+    {
+      "id": "east-ui:slice.examples.ts:sliceChartFrame",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/slice/slice.examples.ts",
+      "suite": "",
+      "test": "A Chart consumer housed in a Slice.Frame — the ",
+      "keywords": [
+        "Slice",
+        "Frame",
+        "Chart",
+        "Breakdown",
+        "Legend",
+        "series",
+        "container"
+      ],
+      "imports": [
+        "import { East, DateTimeType, StringType, IntegerType, ArrayType, StructType, variant, some, none, example } from \"@elaraai/east\";",
+        "import { Box, Chart, Reactive, Separator, Slice, Stack, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A Chart consumer housed in a Slice.Frame — the \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const EventType = StructType({ month: StringType, region: StringType, plan_tier: StringType, sessions: IntegerType });\n        const cfg = Slice.config(EventType, {\n            fields: { month: { label: \"Month\" }, region: { label: \"Region\" }, plan_tier: { label: \"Plan tier\" }, sessions: { label: \"Sessions\" } },\n            breakdownFieldIds: [\"region\", \"plan_tier\"],\n        });\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const data = $.const([\n                { month: \"Jan\", region: \"EU\", plan_tier: \"pro\", sessions: 30n }, { month: \"Jan\", region: \"NA\", plan_tier: \"free\", sessions: 22n }, { month: \"Jan\", region: \"APAC\", plan_tier: \"pro\", sessions: 9n },\n                { month: \"Feb\", region: \"EU\", plan_tier: \"free\", sessions: 42n }, { month: \"Feb\", region: \"NA\", plan_tier: \"pro\", sessions: 28n }, { month: \"Feb\", region: \"APAC\", plan_tier: \"free\", sessions: 14n },\n                { month: \"Mar\", region: \"EU\", plan_tier: \"pro\", sessions: 38n }, { month: \"Mar\", region: \"NA\", plan_tier: \"free\", sessions: 41n }, { month: \"Mar\", region: \"APAC\", plan_tier: \"pro\", sessions: 18n },\n                { month: \"Apr\", region: \"EU\", plan_tier: \"free\", sessions: 51n }, { month: \"Apr\", region: \"NA\", plan_tier: \"pro\", sessions: 36n }, { month: \"Apr\", region: \"APAC\", plan_tier: \"free\", sessions: 25n },\n            ], ArrayType(EventType));\n            const slice = $.let(Slice.bind([EventType], \"ex.slice.frame.chart\", cfg, Slice.state({\n                breakdown: some({ fieldId: \"region\", limit: none }),\n            }), data, none));\n            // Slice.Chart.Line pivots the narrowed rows by the active breakdown\n            // into one coloured line per value (colours assigned by the slice,\n            // matching the bundled legend) — fully data-driven, no hardcoding.\n            return Slice.Frame.Root(slice, Slice.Chart.Line(slice, { x: \"month\", value: \"sessions\", height: 150 }), { affordances: [\"breakdown\"] });\n        }));\n    })"
+    },
+    {
+      "id": "east-ui:slice.examples.ts:sliceChartBar",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/slice/slice.examples.ts",
+      "suite": "",
+      "test": "",
+      "keywords": [
+        "Slice",
+        "Chart",
+        "Bar",
+        "Breakdown",
+        "series"
+      ],
+      "imports": [
+        "import { East, DateTimeType, StringType, IntegerType, ArrayType, StructType, variant, some, none, example } from \"@elaraai/east\";",
+        "import { Box, Chart, Reactive, Separator, Slice, Stack, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const EventType = StructType({ month: StringType, region: StringType, sessions: IntegerType });\n        const cfg = Slice.config(EventType, {\n            fields: { month: { label: \"Month\" }, region: { label: \"Region\" }, sessions: { label: \"Sessions\" } },\n            breakdownFieldIds: [\"region\"],\n        });\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const data = $.const(monthRegionRows, ArrayType(EventType));\n            const slice = $.let(Slice.bind([EventType], \"ex.slice.chart.bar\", cfg, Slice.state({\n                breakdown: some({ fieldId: \"region\", limit: none }),\n            }), data, none));\n            return Slice.Frame.Root(slice, Slice.Chart.Bar(slice, { x: \"month\", value: \"sessions\", height: 150 }), { affordances: [\"breakdown\"] });\n        }));\n    })"
+    },
+    {
+      "id": "east-ui:slice.examples.ts:sliceChartArea",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/slice/slice.examples.ts",
+      "suite": "",
+      "test": "",
+      "keywords": [
+        "Slice",
+        "Chart",
+        "Area",
+        "Breakdown",
+        "series"
+      ],
+      "imports": [
+        "import { East, DateTimeType, StringType, IntegerType, ArrayType, StructType, variant, some, none, example } from \"@elaraai/east\";",
+        "import { Box, Chart, Reactive, Separator, Slice, Stack, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const EventType = StructType({ month: StringType, region: StringType, sessions: IntegerType });\n        const cfg = Slice.config(EventType, {\n            fields: { month: { label: \"Month\" }, region: { label: \"Region\" }, sessions: { label: \"Sessions\" } },\n            breakdownFieldIds: [\"region\"],\n        });\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const data = $.const(monthRegionRows, ArrayType(EventType));\n            const slice = $.let(Slice.bind([EventType], \"ex.slice.chart.area\", cfg, Slice.state({\n                breakdown: some({ fieldId: \"region\", limit: none }),\n            }), data, none));\n            return Slice.Frame.Root(slice, Slice.Chart.Area(slice, { x: \"month\", value: \"sessions\", height: 150 }), { affordances: [\"breakdown\"] });\n        }));\n    })"
+    },
+    {
+      "id": "east-ui:slice.examples.ts:sliceChartScatter",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/slice/slice.examples.ts",
+      "suite": "",
+      "test": "",
+      "keywords": [
+        "Slice",
+        "Chart",
+        "Scatter",
+        "Breakdown",
+        "points"
+      ],
+      "imports": [
+        "import { East, DateTimeType, StringType, IntegerType, ArrayType, StructType, variant, some, none, example } from \"@elaraai/east\";",
+        "import { Box, Chart, Reactive, Separator, Slice, Stack, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const EventType = StructType({ month: StringType, region: StringType, sessions: IntegerType });\n        const cfg = Slice.config(EventType, {\n            fields: { month: { label: \"Month\" }, region: { label: \"Region\" }, sessions: { label: \"Sessions\" } },\n            breakdownFieldIds: [\"region\"],\n        });\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const data = $.const(monthRegionRows, ArrayType(EventType));\n            const slice = $.let(Slice.bind([EventType], \"ex.slice.chart.scatter\", cfg, Slice.state({\n                breakdown: some({ fieldId: \"region\", limit: none }),\n            }), data, none));\n            return Slice.Frame.Root(slice, Slice.Chart.Scatter(slice, { x: \"month\", value: \"sessions\", height: 150 }), { affordances: [\"breakdown\"] });\n        }));\n    })"
+    },
+    {
+      "id": "east-ui:slice.examples.ts:sliceChartTime",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/slice/slice.examples.ts",
+      "suite": "",
+      "test": "",
+      "keywords": [
+        "Slice",
+        "Chart",
+        "Line",
+        "time",
+        "datetime",
+        "axis",
+        "xScale"
+      ],
+      "imports": [
+        "import { East, DateTimeType, StringType, IntegerType, ArrayType, StructType, variant, some, none, example } from \"@elaraai/east\";",
+        "import { Box, Chart, Reactive, Separator, Slice, Stack, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const EventType = StructType({ day: DateTimeType, region: StringType, sessions: IntegerType });\n        const cfg = Slice.config(EventType, {\n            fields: { day: { label: \"Day\" }, region: { label: \"Region\" }, sessions: { label: \"Sessions\" } },\n            breakdownFieldIds: [\"region\"],\n        });\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const data = $.const([\n                { day: new Date(\"2025-01-06\"), region: \"EU\", sessions: 30n }, { day: new Date(\"2025-01-06\"), region: \"NA\", sessions: 22n },\n                { day: new Date(\"2025-01-13\"), region: \"EU\", sessions: 42n }, { day: new Date(\"2025-01-13\"), region: \"NA\", sessions: 28n },\n                { day: new Date(\"2025-01-27\"), region: \"EU\", sessions: 38n }, { day: new Date(\"2025-01-27\"), region: \"NA\", sessions: 41n },\n                { day: new Date(\"2025-02-17\"), region: \"EU\", sessions: 51n }, { day: new Date(\"2025-02-17\"), region: \"NA\", sessions: 36n },\n            ], ArrayType(EventType));\n            const slice = $.let(Slice.bind([EventType], \"ex.slice.chart.time\", cfg, Slice.state({\n                breakdown: some({ fieldId: \"region\", limit: none }),\n            }), data, none));\n            return Slice.Frame.Root(slice, Slice.Chart.Line(slice, { x: \"day\", value: \"sessions\", xScale: \"time\", height: 150 }), { affordances: [\"breakdown\"] });\n        }));\n    })"
+    },
+    {
+      "id": "east-ui:slice.examples.ts:sliceChartLinearX",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/slice/slice.examples.ts",
+      "suite": "",
+      "test": "",
+      "keywords": [
+        "Slice",
+        "Chart",
+        "Scatter",
+        "linear",
+        "numeric",
+        "axis",
+        "xScale"
+      ],
+      "imports": [
+        "import { East, DateTimeType, StringType, IntegerType, ArrayType, StructType, variant, some, none, example } from \"@elaraai/east\";",
+        "import { Box, Chart, Reactive, Separator, Slice, Stack, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const EventType = StructType({ spend: IntegerType, region: StringType, sessions: IntegerType });\n        const cfg = Slice.config(EventType, {\n            fields: { spend: { label: \"Spend\" }, region: { label: \"Region\" }, sessions: { label: \"Sessions\" } },\n            breakdownFieldIds: [\"region\"],\n        });\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const data = $.const([\n                { spend: 10n, region: \"EU\", sessions: 12n }, { spend: 25n, region: \"EU\", sessions: 28n }, { spend: 60n, region: \"EU\", sessions: 44n }, { spend: 90n, region: \"EU\", sessions: 51n },\n                { spend: 15n, region: \"NA\", sessions: 9n }, { spend: 40n, region: \"NA\", sessions: 22n }, { spend: 70n, region: \"NA\", sessions: 33n }, { spend: 110n, region: \"NA\", sessions: 38n },\n            ], ArrayType(EventType));\n            const slice = $.let(Slice.bind([EventType], \"ex.slice.chart.linear\", cfg, Slice.state({\n                breakdown: some({ fieldId: \"region\", limit: none }),\n            }), data, none));\n            return Slice.Frame.Root(slice, Slice.Chart.Scatter(slice, { x: \"spend\", value: \"sessions\", xScale: \"linear\", height: 150 }), { affordances: [\"breakdown\"] });\n        }));\n    })"
     },
     {
       "id": "east-ui:style.examples.ts:textStyleScale",
@@ -25995,13 +26021,14 @@
         "textStyle",
         "display-sm",
         "display-md",
-        "display-lg"
+        "display-lg",
+        "display-xl"
       ],
       "imports": [
         "import { East, IntegerType, NullType, example } from \"@elaraai/east\";",
         "import { Button, Heading, Reactive, Stack, State, Style, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Display textStyles for large page titles\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Stack.VStack([\n            Heading.Root(\"Display Small\", { textStyle: \"display-sm\" }),\n            Heading.Root(\"Display Medium\", { textStyle: \"display-md\" }),\n            Heading.Root(\"Display Large\", { textStyle: \"display-lg\" }),\n        ], { gap: \"2\", align: \"flex-start\" });\n    })"
+      "source": "// Display textStyles for large page titles\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Stack.VStack([\n            Heading.Root(\"Display Small\", { textStyle: \"display-sm\" }),\n            Heading.Root(\"Display Medium\", { textStyle: \"display-md\" }),\n            Heading.Root(\"Display Large\", { textStyle: \"display-lg\" }),\n            Heading.Root(\"Display Extra Large\", { textStyle: \"display-xl\" }),\n        ], { gap: \"2\", align: \"flex-start\" });\n    })"
     },
     {
       "id": "east-ui:heading.examples.ts:headingSemanticLevels",
@@ -26024,7 +26051,7 @@
         "import { East, IntegerType, NullType, example } from \"@elaraai/east\";",
         "import { Button, Heading, Reactive, Stack, State, Style, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// HTML heading elements h1-h6\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Stack.VStack([\n            Heading.Root(\"H1 - Main Title\", { as: \"h1\", textStyle: \"display-sm\" }),\n            Heading.Root(\"H2 - Section\", { as: \"h2\", textStyle: \"heading-lg\" }),\n            Heading.Root(\"H3 - Subsection\", { as: \"h3\", textStyle: \"heading-md\" }),\n            Heading.Root(\"H4 - Minor\", { as: \"h4\", textStyle: \"heading-sm\" }),\n        ], { gap: \"2\", align: \"flex-start\" });\n    })"
+      "source": "// HTML heading elements h1-h6\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Stack.VStack([\n            Heading.Root(\"H1 - Main Title\", { as: \"h1\", textStyle: \"display-xl\" }),\n            Heading.Root(\"H2 - Section\", { as: \"h2\", textStyle: \"heading-lg\" }),\n            Heading.Root(\"H3 - Subsection\", { as: \"h3\", textStyle: \"heading-md\" }),\n            Heading.Root(\"H4 - Minor\", { as: \"h4\", textStyle: \"heading-sm\" }),\n        ], { gap: \"2\", align: \"flex-start\" });\n    })"
     },
     {
       "id": "east-ui:heading.examples.ts:headingColored",
@@ -26956,10 +26983,10 @@
         "mono-kpi"
       ],
       "imports": [
-        "import { East, variant, example, some, none } from \"@elaraai/east\";",
+        "import { East, example } from \"@elaraai/east\";",
         "import {"
       ],
-      "source": "// KPI tiles — current vs baseline currency values, compact notation\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const usd = (n: number) => Numeric.Root(n, {\n            format: East.value(variant(\"Currency\", {\n                currency: variant(\"USD\", null),\n                display: some(variant(\"symbol\", null)),\n                compact: some(variant(\"short\", null)),\n                minimumFractionDigits: some(2n),\n                maximumFractionDigits: some(2n),\n            }), NumericFormatType),\n        });\n        return Stack.HStack([usd(1842500), usd(2072500)], { gap: \"6\", align: \"baseline\" });\n    })"
+      "source": "// KPI tiles — current vs baseline currency values, compact notation\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const usd = (n: number) => Numeric.Root(n, {\n            textStyle: \"mono-kpi\",\n            format: Format.Currency({\n                currency: \"USD\",\n                display: \"symbol\",\n                compact: \"short\",\n                minimumFractionDigits: 2n,\n                maximumFractionDigits: 2n,\n            }),\n        });\n        return Stack.HStack([usd(1842500), usd(2072500)], { gap: \"6\", align: \"baseline\" });\n    })"
     },
     {
       "id": "east-ui:numeric.examples.ts:numericPercent",
@@ -26975,10 +27002,10 @@
         "sentiment"
       ],
       "imports": [
-        "import { East, variant, example, some, none } from \"@elaraai/east\";",
+        "import { East, example } from \"@elaraai/east\";",
         "import {"
       ],
-      "source": "// Percent values with positive / negative sentiment colouring\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const pct = (n: number, sentiment: \"positive\" | \"negative\" | \"neutral\") =>\n            Numeric.Root(n, {\n                format: East.value(variant(\"Percent\", {\n                    minimumFractionDigits: none,\n                    maximumFractionDigits: some(0n),\n                    signDisplay: some(variant(\"exceptZero\", null)),\n                }), NumericFormatType),\n                sentiment,\n                showSign: true,\n            });\n        return Stack.HStack([\n            pct(0.98, \"positive\"),\n            pct(-0.12, \"negative\"),\n            pct(0.00, \"neutral\"),\n        ], { gap: \"6\", align: \"baseline\" });\n    })"
+      "source": "// Percent values with positive / negative sentiment colouring\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const pct = (n: number, sentiment: \"positive\" | \"negative\" | \"neutral\") =>\n            Numeric.Root(n, {\n                format: Format.Percent({ maximumFractionDigits: 0n, signDisplay: \"exceptZero\" }),\n                sentiment,\n                showSign: true,\n            });\n        return Stack.HStack([\n            pct(0.98, \"positive\"),\n            pct(-0.12, \"negative\"),\n            pct(0.00, \"neutral\"),\n        ], { gap: \"6\", align: \"baseline\" });\n    })"
     },
     {
       "id": "east-ui:numeric.examples.ts:numericCompact",
@@ -26994,10 +27021,10 @@
         "large-number"
       ],
       "imports": [
-        "import { East, variant, example, some, none } from \"@elaraai/east\";",
+        "import { East, example } from \"@elaraai/east\";",
         "import {"
       ],
-      "source": "// Compact notation — 1.24M / 384K for dashboards\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const compact = (n: number) => Numeric.Root(n, {\n            format: East.value(variant(\"Compact\", {\n                display: some(variant(\"short\", null)),\n            }), NumericFormatType),\n        });\n        return Stack.HStack([compact(1_240_000), compact(384_000)], { gap: \"6\", align: \"baseline\" });\n    })"
+      "source": "// Compact notation — 1.24M / 384K for dashboards\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const compact = (n: number) => Numeric.Root(n, {\n            format: Format.Compact({ display: \"short\" }),\n        });\n        return Stack.HStack([compact(1_240_000), compact(384_000)], { gap: \"6\", align: \"baseline\" });\n    })"
     },
     {
       "id": "east-ui:numeric.examples.ts:numericUnit",
@@ -27014,10 +27041,51 @@
         "celsius"
       ],
       "imports": [
-        "import { East, variant, example, some, none } from \"@elaraai/east\";",
+        "import { East, example } from \"@elaraai/east\";",
         "import {"
       ],
-      "source": "// Unit-carrying values with locale-aware suffix\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const unit = (n: number, u: \"kilogram\" | \"celsius\") => Numeric.Root(n, {\n            format: East.value(variant(\"Unit\", {\n                unit: variant(u, null),\n                display: some(variant(\"short\", null)),\n            }), NumericFormatType),\n        });\n        return Stack.HStack([unit(12, \"kilogram\"), unit(42.5, \"celsius\")], { gap: \"6\", align: \"baseline\" });\n    })"
+      "source": "// Unit-carrying values with locale-aware suffix\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const unit = (n: number, u: \"kilogram\" | \"celsius\") => Numeric.Root(n, {\n            format: Format.Unit({ unit: u, display: \"short\" }),\n        });\n        return Stack.HStack([unit(12, \"kilogram\"), unit(42.5, \"celsius\")], { gap: \"6\", align: \"baseline\" });\n    })"
+    },
+    {
+      "id": "east-ui:numeric.examples.ts:numericScientific",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/typography/numeric.examples.ts",
+      "suite": "",
+      "test": "Scientific and engineering notation for large magnitudes",
+      "keywords": [
+        "Numeric",
+        "Root",
+        "scientific",
+        "engineering",
+        "notation"
+      ],
+      "imports": [
+        "import { East, example } from \"@elaraai/east\";",
+        "import {"
+      ],
+      "source": "// Scientific and engineering notation for large magnitudes\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Stack.HStack([\n            Numeric.Root(60221408, { format: Format.Scientific() }),\n            Numeric.Root(60221408, { format: Format.Engineering() }),\n        ], { gap: \"6\", align: \"baseline\" });\n    })"
+    },
+    {
+      "id": "east-ui:numeric.examples.ts:numericDateTime",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/typography/numeric.examples.ts",
+      "suite": "",
+      "test": "Epoch-millisecond timestamps rendered as date / time / datetime",
+      "keywords": [
+        "Numeric",
+        "Root",
+        "date",
+        "time",
+        "datetime",
+        "timestamp"
+      ],
+      "imports": [
+        "import { East, example } from \"@elaraai/east\";",
+        "import {"
+      ],
+      "source": "// Epoch-millisecond timestamps rendered as date / time / datetime\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const ts = 1716249600000;\n        return Stack.HStack([\n            Numeric.Root(ts, { format: Format.Date(\"YYYY-MM-DD\") }),\n            Numeric.Root(ts, { format: Format.Time(\"HH:mm\") }),\n            Numeric.Root(ts, { format: Format.DateTime(\"YYYY-MM-DD HH:mm:ss\") }),\n        ], { gap: \"6\", align: \"baseline\" });\n    })"
     },
     {
       "id": "east-ui:text.examples.ts:textBasic",
@@ -27429,7 +27497,7 @@
         "import { Data } from \"@elaraai/e3-ui\";",
         "import * as e3 from \"@elaraai/e3\";"
       ],
-      "source": "// Bind to a Float dataset and display its current value\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const thresh = $.let(Data.bind([FloatType], thresholdInput.path));\n            const value = $.let(thresh.read());\n            return Stat.Root(\"Threshold\", Text.Root(East.print(value)));\n        }));\n    })"
+      "source": "// Bind to a Float dataset and display its current value\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const thresh = $.let(Data.bind([FloatType], thresholdInput.path));\n            const value = $.let(thresh.read());\n            return Stat.Root(\"Threshold\", value);\n        }));\n    })"
     },
     {
       "id": "e3-ui:data.examples.ts:dataBindSliderWriteback",
@@ -27500,7 +27568,7 @@
         "import { Data } from \"@elaraai/e3-ui\";",
         "import * as e3 from \"@elaraai/e3\";"
       ],
-      "source": "// String dataset with a reset button that writes an empty string\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const name = $.let(Data.bind([StringType], nameInput.path));\n            const value = $.let(name.read());\n            const reset = $.const(East.function([], NullType, $ => {\n                $(name.write(\"\"));\n            }));\n            return Stack.VStack([\n                Stat.Root(\"Name\", Text.Root(value)),\n                Button.Root(\"Reset\", { style: { variant: \"outline\" }, onClick: reset }),\n            ], { gap: \"3\", align: \"stretch\" });\n        }));\n    })"
+      "source": "// String dataset with a reset button that writes an empty string\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const name = $.let(Data.bind([StringType], nameInput.path));\n            const value = $.let(name.read());\n            const reset = $.const(East.function([], NullType, $ => {\n                $(name.write(\"\"));\n            }));\n            return Stack.VStack([\n                Stat.Root(\"Name\", value),\n                Button.Root(\"Reset\", { style: { variant: \"outline\" }, onClick: reset }),\n            ], { gap: \"3\", align: \"stretch\" });\n        }));\n    })"
     },
     {
       "id": "e3-ui:data.examples.ts:dataBindHasGuard",
@@ -27546,7 +27614,7 @@
         "import { Data } from \"@elaraai/e3-ui\";",
         "import * as e3 from \"@elaraai/e3\";"
       ],
-      "source": "// Stage edits to a Float dataset; read returns overlay (buffered or server)\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const thresh = $.let(Data.bind([FloatType], thresholdInput.path, { mode: \"staged\" }));\n            const value = $.let(thresh.read(), FloatType);\n            return Stat.Root(\"Threshold (live)\", Text.Root(East.print(value)));\n        }));\n    })"
+      "source": "// Stage edits to a Float dataset; read returns overlay (buffered or server)\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const thresh = $.let(Data.bind([FloatType], thresholdInput.path, { mode: \"staged\" }));\n            const value = $.let(thresh.read(), FloatType);\n            return Stat.Root(\"Threshold (live)\", value);\n        }));\n    })"
     },
     {
       "id": "e3-ui:data.examples.ts:dataBindStagedSliderWrite",
@@ -27615,7 +27683,7 @@
         "import { Data } from \"@elaraai/e3-ui\";",
         "import * as e3 from \"@elaraai/e3\";"
       ],
-      "source": "// Show server snapshot (original) and overlay (read) side by side\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const thresh = $.let(Data.bind([FloatType], thresholdInput.path, { mode: \"staged\", patch: thresholdPatchInput.path }));\n            const live = $.let(thresh.read(), FloatType);\n            const server = $.let(thresh.source(), FloatType);\n            return Stack.VStack([\n                Stat.Root(\"Server\", Text.Root(East.print(server))),\n                Stat.Root(\"Live (with stage)\", Text.Root(East.print(live))),\n            ], { gap: \"3\", align: \"stretch\" });\n        }));\n    })"
+      "source": "// Show server snapshot (original) and overlay (read) side by side\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const thresh = $.let(Data.bind([FloatType], thresholdInput.path, { mode: \"staged\", patch: thresholdPatchInput.path }));\n            const live = $.let(thresh.read(), FloatType);\n            const server = $.let(thresh.source(), FloatType);\n            return Stack.VStack([\n                Stat.Root(\"Server\", server),\n                Stat.Root(\"Live (with stage)\", live),\n            ], { gap: \"3\", align: \"stretch\" });\n        }));\n    })"
     },
     {
       "id": "e3-ui:diff.examples.ts:workforcePolicyEditor",
