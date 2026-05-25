@@ -140,8 +140,7 @@ install_python_cli() {
 
     log_info "Installing east-py CLI..."
 
-    # Install east-py-cli from the monorepo subdirectory
-    uv tool install east-py-cli
+    uv tool install elaraai-east-py-cli
 
     log_success "east-py CLI installed"
 }

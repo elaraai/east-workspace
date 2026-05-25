@@ -49,7 +49,7 @@ npm update $(grep -roh '"@elaraai/[^"]*"' --include='package.json' . | tr -d '"'
 # Update Python CLI if uv is available
 if command -v uv &> /dev/null; then
     log_info "Updating Python packages..."
-    uv tool upgrade east-py-cli && log_success "east-py-cli updated" || log_warn "Failed to update east-py-cli"
+    uv tool upgrade elaraai-east-py-cli && log_success "elaraai-east-py-cli updated" || log_warn "Failed to update elaraai-east-py-cli"
 else
     log_warn "uv not found, skipping Python CLI update"
 fi
