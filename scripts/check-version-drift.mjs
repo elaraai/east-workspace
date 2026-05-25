@@ -24,6 +24,8 @@ const NPM_PKGS = [
   'libs/east-ui/packages/east-ui-components/package.json',
   'libs/east-ui/packages/e3-ui/package.json',
   'libs/east-ui/packages/e3-ui-components/package.json',
+  'libs/create/packages/create-east/package.json',
+  'libs/create/packages/create-e3/package.json',
 ];
 
 const PYPROJECTS = [
