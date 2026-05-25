@@ -175,15 +175,24 @@ Extend the existing job rather than replace it:
   separately (uv alternate index / official publish action).
 - Changing the e3 default runner.
 
-## Open questions
+## Decisions (resolved)
 
-1. Does the `east-c` CLI runner require zlib/bzip2, or can they be optional for
-   the runner build? (Determines the Windows-deps approach.)
-2. Track the five platform packages in the version/publish scripts, or generate
-   their manifests at release time and only track the launcher? (Leaning:
-   generate platform manifests at build, track only the launcher.)
-3. Windows arm64 east-c — defer (no `windows-arm64` runner commonly available);
-   `win32-x64` only for now.
+1. **Windows zlib/bzip2:** first check whether the CLI runner actually needs
+   them; if it does, **vendor via `FetchContent`** (same mechanism as pcre2 —
+   self-contained, no external toolchain). Make them optional only if the runner
+   genuinely doesn't use them.
+2. **Per-platform packages:** **generate each platform `package.json` at release
+   time** from the built binary; only the launcher `@elaraai/east-c-cli` is
+   tracked in `set-npm-version` / `publish-npm` / `check-version-drift`.
+3. **Windows arch:** **`win32-x64` only** for the first version; defer
+   `windows-arm64` (no commonly-available hosted runner).
+4. **First publish of the new npm names:** `@elaraai/east-c-cli` and the five
+   `@elaraai/east-c-cli-<platform>` names are brand-new. Bootstrap them with a
+   **manual first publish** (scoped npm token, as done for the `create-*`
+   packages) to establish the names + allow trusted-publishing config; CI
+   publishes versions thereafter. The launcher's `optionalDependencies` must
+   reference platform-package versions that exist, so publish the platform
+   packages before (or together with) the launcher in the bootstrap.
 
 ## Suggested PR sequencing
 
