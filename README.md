@@ -55,10 +55,22 @@ The pieces above, with links to the code — one row per lib, packages inside:
 | [`east-py`](libs/east-py) | Python runtime — [`std`](libs/east-py/packages/east-py-std), [`io`](libs/east-py/packages/east-py-io), [`cli`](libs/east-py/packages/east-py-cli), [`data-science`](libs/east-py/packages/east-py-datascience) |
 | [`e3`](libs/e3) | Durable execution engine — [`cli`](libs/e3/packages/e3-cli), [`api-server`](libs/e3/packages/e3-api-server), [`api-client`](libs/e3/packages/e3-api-client) |
 | [`east-ui`](libs/east-ui) | Typed UI — [`east-ui`](libs/east-ui/packages/east-ui), [`e3-ui`](libs/east-ui/packages/e3-ui), [`extension`](libs/east-ui/packages/east-ui-extension) |
-| [`east-claude-plugin`](libs/east-claude-plugin) | Claude Code plugin — skills, examples, scaffolding |
+| [`create`](libs/create) | Project scaffolding — `npm create @elaraai/east`, `npm create @elaraai/e3` |
+| [`east-claude-plugin`](libs/east-claude-plugin) | Claude Code plugin — skills, examples, diagnostics |
 | [`east-diagnostics`](libs/east-diagnostics) | East-aware linting — editor, agent, CI (+ [`eslint-plugin-east`](libs/eslint-plugin-east)) |
 
 Each library has its own `README.md` with installation, a quick start, and reference.
+
+## Create a project
+
+One command, cross-platform (Node 22+; e3 also uses Python via [uv](https://docs.astral.sh/uv/)):
+
+```bash
+npm create @elaraai/e3 my-solution     # BSL-1.1 · Node + Python · durable execution
+npm create @elaraai/east my-lib        # AGPL-3.0 · Node-only
+```
+
+Generated projects drive everything through npm scripts — `npm run setup`, `build`, `test`, and (e3) `start` / `watch`. Pass `.` to scaffold in place, or `-- --install` to install while scaffolding. See [`libs/create`](libs/create).
 
 ## Develop
 

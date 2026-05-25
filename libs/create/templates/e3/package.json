@@ -1,0 +1,39 @@
+{
+  "name": "@elaraai/template-e3",
+  "version": "0.0.0",
+  "private": true,
+  "description": "__DISPLAY_NAME__",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "test:ts": "node --enable-source-maps --test \"dist/**/*.spec.js\"",
+    "test:export": "cross-env EXPORT_TEST_IR=dist/test-ir node --enable-source-maps --test \"dist/**/*.spec.js\"",
+    "test:py": "uv run pytest -v",
+    "test": "npm run build && npm run test:export && npm run test:py",
+    "setup": "npm install && uv sync",
+    "deploy": "e3 repo create .repos --exist-ok && e3 workspace deploy .repos __WORKSPACE_NAME__ --from-source ./src/index.ts",
+    "start": "npm run deploy && e3 dataflow run .repos __WORKSPACE_NAME__",
+    "watch": "e3 watch ./src/index.ts .repos __WORKSPACE_NAME__ --start",
+    "lint": "eslint .",
+    "clean": "rimraf dist node_modules .venv uv.lock .repos *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@elaraai/east": "workspace:*",
+    "@elaraai/east-node-std": "workspace:*",
+    "@elaraai/east-node-io": "workspace:*",
+    "@elaraai/east-py-datascience": "workspace:*",
+    "@elaraai/e3": "workspace:*",
+    "@elaraai/e3-types": "workspace:*"
+  },
+  "devDependencies": {
+    "@elaraai/e3-cli": "workspace:*",
+    "@types/node": "^22",
+    "typescript": "^5",
+    "eslint": "^9",
+    "@typescript-eslint/eslint-plugin": "^8",
+    "@typescript-eslint/parser": "^8",
+    "cross-env": "^7",
+    "rimraf": "^6"
+  },
+  "engines": { "node": ">=22" }
+}

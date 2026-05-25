@@ -67,6 +67,7 @@ program
     new Command('create')
       .description('Create a new repository')
       .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
+      .option('--exist-ok', 'Succeed without error if the repository already exists')
       .action(withDefaultRepo(repoCommand.create))
   )
   .addCommand(
@@ -150,8 +151,9 @@ program
       .description('Deploy a package to a workspace')
       .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
       .argument('<ws>', 'Workspace name')
-      .argument('[pkg]', 'Package name[@version] (omit when using --from-zip)')
+      .argument('[pkg]', 'Package name[@version] (omit when using --from-zip / --from-source)')
       .option('--from-zip <path>', 'Import the zip and deploy (creates the workspace if needed)')
+      .option('--from-source <path>', 'Bundle a TypeScript source file into a package, then import and deploy (creates the workspace if needed)')
       .action(withDefaultRepo(workspaceCommand.deploy))
   )
   .addCommand(

@@ -1,0 +1,74 @@
+name: Test create
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "libs/create/**"
+      - ".github/workflows/test-create.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "libs/create/**"
+      - ".github/workflows/test-create.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        # Git bash on the Windows runner, so scaffold + assertions are identical across OSes.
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build scaffold-core + create-* bins
+        run: pnpm --filter @elaraai/scaffold-core --filter @elaraai/create-e3 --filter @elaraai/create-east run build
+
+      - name: Unit tests (scaffold-core)
+        run: pnpm --filter @elaraai/scaffold-core run test
+
+      # ── Scaffold smoke (no network): the bins run cross-platform and emit the
+      #    expected tree, with dotfiles renamed and tokens substituted. ──────────
+      - name: Scaffold east (smoke)
+        working-directory: ${{ runner.temp }}
+        run: |
+          node "$GITHUB_WORKSPACE/libs/create/packages/create-east/dist/index.js" smoke-east --no-install
+          test -f smoke-east/package.json
+          test -f smoke-east/.gitignore
+          test -f smoke-east/src/index.ts
+
+      - name: Scaffold e3 (smoke)
+        working-directory: ${{ runner.temp }}
+        run: |
+          node "$GITHUB_WORKSPACE/libs/create/packages/create-e3/dist/index.js" smoke-e3 --no-install
+          test -f smoke-e3/pyproject.toml
+          test -f smoke-e3/src/index.ts
+          grep -q "export default" smoke-e3/src/index.ts
+
+      # NOTE: a full "install + run the generated project's commands" e2e is
+      # intentionally omitted here. Emitted projects pin *published* @elaraai/*
+      # versions (the scaffolder rewrites workspace:* -> ^version), so that path
+      # exercises the registry packages, not this repo's code, and is better run
+      # against live builds (verdaccio) or post-release. The smoke steps above
+      # validate the create packages themselves cross-platform.

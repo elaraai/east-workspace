@@ -1,0 +1,27 @@
+{
+  "name": "@elaraai/create-east",
+  "version": "1.0.0",
+  "description": "Scaffold a new East project (AGPL-3.0, Node-only): npm create @elaraai/east",
+  "type": "module",
+  "bin": {
+    "create-east": "./dist/index.js"
+  },
+  "files": ["dist", "templates"],
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test \"dist/**/*.spec.js\""
+  },
+  "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/elaraai/east-workspace.git",
+    "directory": "libs/create/packages/create-east"
+  },
+  "engines": { "node": ">=22" },
+  "devDependencies": {
+    "@elaraai/scaffold-core": "workspace:*",
+    "@types/node": "^22",
+    "esbuild": "^0.24",
+    "typescript": "^5"
+  }
+}

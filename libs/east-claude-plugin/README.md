@@ -99,27 +99,28 @@ claude plugin marketplace update elaraai   # re-read the local source
 
 ## Project Scaffolding
 
-Create new East projects with a single command:
+Create new East projects with a single command (cross-platform, via the
+published `npm create` initializers — see [`libs/create`](../create)):
 
 **East project** (AGPL-3.0, Node.js only):
 ```bash
-curl -fsSL https://raw.githubusercontent.com/elaraai/east-workspace/main/libs/east-claude-plugin/scripts/scaffold/east.sh | bash
+npm create @elaraai/east my-project
 ```
 
 **e3 project** (BSL-1.1, Node.js + Python):
 ```bash
-curl -fsSL https://raw.githubusercontent.com/elaraai/east-workspace/main/libs/east-claude-plugin/scripts/scaffold/e3.sh | bash
+npm create @elaraai/e3 my-project
 ```
 
-| Script | License | Contents |
-|--------|---------|----------|
-| `scripts/project/east.sh` | AGPL-3.0 | east, east-node-std, east-node-io |
-| `scripts/project/e3.sh` | BSL-1.1 | Everything in east + e3, east-py-datascience |
+| Initializer | License | Contents |
+|-------------|---------|----------|
+| `@elaraai/create-east` | AGPL-3.0 | east, east-node-std, east-node-io |
+| `@elaraai/create-e3` | BSL-1.1 | Everything in east + e3, east-py-datascience |
 
 Generated projects include:
 - TypeScript configuration with strict mode
-- Makefile with `install`, `build`, `run`, `test`, `refresh` targets
-- Example East function ready to build and run
+- Cross-platform npm scripts (`setup`, `build`, `test`, `start`, `watch`)
+- Example East function / e3 task ready to build and run
 
 ## Local Installation
 

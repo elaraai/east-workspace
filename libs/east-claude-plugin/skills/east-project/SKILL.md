@@ -16,20 +16,16 @@ Scaffold and run East projects. This skill creates the skeleton, then you implem
 
 ## Scaffold
 
-The plugin ships the scaffolders on `PATH` as `east-scaffold` (Claude Code adds the plugin's `bin/` to `PATH` on install):
+Use the cross-platform `npm create` initializers (no plugin/PATH dependency, works on Windows/macOS/Linux):
 
 ```bash
-east-scaffold e3   my-project     # or '.' for the current directory
-east-scaffold east my-project
+npm create @elaraai/e3   my-project    # BSL-1.1, Node + Python, durable execution
+npm create @elaraai/east my-project    # AGPL-3.0, Node-only
+# pass '.' instead of a name to scaffold into the current directory
+# add `-- --install` to install dependencies as part of scaffolding
 ```
 
-If `east-scaffold` isn't found (plugin not installed in this environment), fall back to the curl bootstrap:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/elaraai/east-workspace/main/libs/east-claude-plugin/scripts/scaffold/e3.sh | bash -s -- my-project
-```
-
-Either way you get: `package.json`, `tsconfig.json`, `pyproject.toml` (e3 only), `src/index.ts` (a sample `e3.input` + `e3.task`), `src/main.ts` (package export), tests, and a `Makefile`.
+You get: `package.json`, `tsconfig.json`, `pyproject.toml` (e3 only), `src/index.ts` (a sample `e3.input` + `e3.task`, with the package as the default export), `src/index.spec.ts`, tests, and cross-platform npm scripts. Dependencies are pinned to the matching `@elaraai/*` release.
 
 ## Implement the logic
 
@@ -39,31 +35,32 @@ After scaffolding, edit `src/index.ts` to build the user's actual logic:
 - Dashboards / UI tasks → **east-ui** + **e3-ui** skills (`ui()`, `Data.bind`).
 - ML / optimisation tasks → **east-py-datascience** skill.
 
-## Lifecycle (generated Makefile)
+## Lifecycle (generated npm scripts)
 
 ```bash
-make install     # npm install + uv sync
-make build       # tsc
-make test        # export IR from TS, run Python compliance tests
-make start       # build → e3 repo create → workspace deploy --from-zip → dataflow run
-make watch       # e3 watch ./src/index.ts .repos <ws> --start  (live reload)
+npm run setup     # npm install + uv sync (e3); npm install (east)
+npm run build     # tsc
+npm run test      # e3: build + export IR + TS & Python tests; east: build + TS tests
+npm run deploy    # e3: repo create (--exist-ok) + workspace deploy --from-source
+npm run start     # e3: deploy, then dataflow run
+npm run watch     # e3: e3 watch ./src/index.ts .repos <ws> --start  (live reload)
 ```
 
-Under the hood `make start` uses the current e3 CLI:
+Under the hood the e3 scripts use the e3 CLI's source-deploy:
 
 ```bash
-e3 repo create .repos
-e3 workspace deploy .repos <ws> --from-zip /tmp/pkg.zip   # imports + creates ws + deploys
+e3 repo create .repos --exist-ok
+e3 workspace deploy .repos <ws> --from-source ./src/index.ts   # bundle + import + create ws + deploy
 e3 dataflow run .repos <ws>
-e3 dataset get .repos <ws>.<name>                          # read a result (flat path)
+e3 dataset get .repos <ws>.<name>                              # read a result (flat path)
 ```
 
 ## Typical flow for "create an e3 project called X that does Y"
 
-1. `east-scaffold e3 X`
+1. `npm create @elaraai/e3 X`
 2. `cd X`
 3. Edit `src/index.ts`: define inputs + tasks implementing **Y** (use the e3/east skills).
-4. `make install && make start` (or `make watch` for iteration).
+4. `npm run setup && npm run start` (or `npm run watch` for iteration).
 5. `e3 dataset get .repos <ws>.<task>` to read outputs.
 
 ## Related skills

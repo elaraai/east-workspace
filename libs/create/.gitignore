@@ -1,0 +1,5 @@
+node_modules/
+dist/
+*.tsbuildinfo
+# Template trees copied into the published create-* packages at build time.
+packages/create-*/templates/

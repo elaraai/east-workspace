@@ -55,7 +55,7 @@ export const repoCommand = {
    * Local: e3 repo create <path>
    * Remote: e3 repo create <url>  (e.g., http://server/repos/name)
    */
-  async create(repoArg: string): Promise<void> {
+  async create(repoArg: string, options: { existOk?: boolean } = {}): Promise<void> {
     try {
       const location = parseRepoForCreate(repoArg);
 
@@ -69,6 +69,10 @@ export const repoCommand = {
 
         if (!result.success) {
           if (result.alreadyExists) {
+            if (options.existOk) {
+              console.log(`e3 repository already exists at ${result.repoPath}`);
+              return;
+            }
             exitError(`e3 repository already exists at ${result.repoPath}`);
           } else {
             exitError(`Failed to create repository: ${formatError(result.error)}`);

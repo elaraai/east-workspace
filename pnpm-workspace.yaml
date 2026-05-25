@@ -19,6 +19,14 @@ packages:
   - "libs/east-ui/packages/*"
   - "libs/east-ui/packages/east-ui-extension/webview"
 
+  # create — project scaffolding (create-east, create-e3, scaffold-core).
+  # Templates under libs/create/templates are intentionally NOT workspace
+  # members: they carry workspace:* as source-of-truth text that the scaffolder
+  # rewrites to a pinned version on emit; the create e2e validates them against
+  # live code via file: links.
+  - "libs/create"
+  - "libs/create/packages/*"
+
   # east-claude-plugin — Claude Code plugin (skills, hooks, MCP search)
   - "libs/east-claude-plugin"
 

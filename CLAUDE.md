@@ -85,8 +85,8 @@ index (`libs/east-claude-plugin/index.json`) is regenerated from each lib's
 One further skill, `east:east-project`, is **plugin-native** (not a lib API):
 its `SKILL.md` lives in the plugin at
 `libs/east-claude-plugin/skills/east-project/SKILL.md` and covers project
-scaffolding + lifecycle. It invokes the bundled scaffolders via the
-`east-scaffold` command (the plugin's `bin/` is added to `PATH` on install).
+scaffolding + lifecycle. It scaffolds via the published initializers
+`npm create @elaraai/e3` / `npm create @elaraai/east` (see `libs/create`).
 
 ## Workspace conventions
 

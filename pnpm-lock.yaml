@@ -8,6 +8,47 @@ importers:
 
   .: {}
 
+  libs/create: {}
+
+  libs/create/packages/create-e3:
+    devDependencies:
+      '@elaraai/scaffold-core':
+        specifier: workspace:*
+        version: link:../scaffold-core
+      '@types/node':
+        specifier: ^22
+        version: 22.19.15
+      esbuild:
+        specifier: ^0.24
+        version: 0.24.2
+      typescript:
+        specifier: ^5
+        version: 5.9.3
+
+  libs/create/packages/create-east:
+    devDependencies:
+      '@elaraai/scaffold-core':
+        specifier: workspace:*
+        version: link:../scaffold-core
+      '@types/node':
+        specifier: ^22
+        version: 22.19.15
+      esbuild:
+        specifier: ^0.24
+        version: 0.24.2
+      typescript:
+        specifier: ^5
+        version: 5.9.3
+
+  libs/create/packages/scaffold-core:
+    devDependencies:
+      '@types/node':
+        specifier: ^22
+        version: 22.19.15
+      typescript:
+        specifier: ^5
+        version: 5.9.3
+
   libs/e3:
     dependencies:
       '@elaraai/east':

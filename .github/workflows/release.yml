@@ -157,7 +157,7 @@ jobs:
   # 3. publish-npm: the public @elaraai/* packages via scripts/publish-npm.mjs.
   # ────────────────────────────────────────────────────────────────────────
   publish-npm:
-    needs: prepare
+    needs: [prepare, cross-platform]
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -198,6 +198,8 @@ jobs:
       - name: Build east-py-datascience TypeScript
         working-directory: libs/east-py/packages/east-py-datascience
         run: pnpm run build
+      - name: Build create packages
+        run: pnpm --filter @elaraai/scaffold-core --filter @elaraai/create-e3 --filter @elaraai/create-east run build
       - name: Lint east
         working-directory: libs/east
         run: make lint
@@ -249,7 +251,7 @@ jobs:
   # 3. publish-vsix: build + (optionally) publish the VSCode extension.
   # ────────────────────────────────────────────────────────────────────────
   publish-vsix:
-    needs: prepare
+    needs: [prepare, cross-platform]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -307,12 +309,16 @@ jobs:
   #     east-py-cli) via uv build.
   # ────────────────────────────────────────────────────────────────────────
   publish-pypi-pure:
-    needs: prepare
+    needs: [prepare, cross-platform]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        pkg: [east-py-std, east-py-io, east-py-cli]
+        # east-py-std and east-py-io are temporarily omitted: they are new PyPI
+        # projects blocked by the "too many new projects created" rate limit.
+        # Restore the full list once they exist on PyPI:
+        #   pkg: [east-py-std, east-py-io, east-py-cli]
+        pkg: [east-py-cli]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -336,7 +342,7 @@ jobs:
   #     their scikit-build-core CMakeLists, so both need per-platform wheels.
   # ────────────────────────────────────────────────────────────────────────
   publish-pypi-cython-wheels:
-    needs: prepare
+    needs: [prepare, cross-platform]
     strategy:
       fail-fast: false
       matrix:
@@ -377,7 +383,7 @@ jobs:
   #     (east-py, east-py-datascience).
   # ────────────────────────────────────────────────────────────────────────
   publish-pypi-cython-sdist:
-    needs: prepare
+    needs: [prepare, cross-platform]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -466,7 +472,7 @@ jobs:
   # 5. publish-c-native: linux-x64 + linux-arm64 + macos-arm64 + macos-x64 binary tarballs.
   # ────────────────────────────────────────────────────────────────────────
   publish-c-native:
-    needs: prepare
+    needs: [prepare, cross-platform]
     strategy:
       fail-fast: false
       matrix:

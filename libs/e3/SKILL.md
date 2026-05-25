@@ -38,6 +38,8 @@ e3 repo create .
 
 # Deploy the package zip (imports + creates workspace + deploys)
 e3 workspace deploy . dev --from-zip /tmp/hello.zip
+# …or deploy straight from the TypeScript source (no manual export/zip):
+e3 workspace deploy . dev --from-source ./src/index.ts
 
 # Execute dataflow
 e3 dataflow run . dev
@@ -73,6 +75,7 @@ Task → What do you need?
 │
 ├─ Workspace
 │   ├─ Deploy (import+create+deploy) → e3 workspace deploy <repo> <ws> --from-zip <zip>
+│   ├─ Deploy from TS source         → e3 workspace deploy <repo> <ws> --from-source <src.ts>
 │   ├─ Deploy already-imported pkg   → e3 workspace deploy <repo> <ws> <pkg>[@<ver>]
 │   ├─ List workspaces               → e3 workspace list <repo>
 │   ├─ Inspect                       → e3 workspace status <repo> <ws>
@@ -182,6 +185,7 @@ Every command that takes `<repo>` accepts a local path or an `http(s)://` URL �
 
 ```bash
 e3 repo create <repo>             # Create a new repository
+e3 repo create <repo> --exist-ok  # Create, or succeed quietly if it already exists
 e3 repo status <repo>             # Show repository status
 e3 repo remove <repo> [-r]        # Remove a repository (-r to remove workspaces first)
 e3 repo gc <repo> [--dry-run]     # Garbage collect unreferenced objects
@@ -203,6 +207,7 @@ e3 package remove <repo> <pkg>           # Remove package
 e3 workspace create <repo> <name>                     # Create workspace
 e3 workspace deploy <repo> <ws> <pkg>[@<ver>]         # Deploy an imported package
 e3 workspace deploy <repo> <ws> --from-zip <zip>      # Import + create + deploy in one shot
+e3 workspace deploy <repo> <ws> --from-source <src.ts> # Bundle TS source + import + create + deploy
 e3 workspace export <repo> <ws> <zipPath>             # Export workspace as a package
 e3 workspace list <repo>                              # List workspaces
 e3 workspace status <repo> <ws>                       # Detailed status (tasks, datasets, locks)

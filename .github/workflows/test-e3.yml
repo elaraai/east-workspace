@@ -28,6 +28,10 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-14]
     runs-on: ${{ matrix.os }}
+    # Windows is not yet a target: `make install-cli` builds east-py-datascience
+    # (scikit-build-core / CMake / Cython + east-c + torch) natively, which does
+    # not yet build on Windows. Add windows-latest once that native build is
+    # ported. Cross-platform scaffolding is covered by test-create.yml.
 
     steps:
       - uses: actions/checkout@v4
