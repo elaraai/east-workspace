@@ -424,12 +424,10 @@ jobs:
           path: dist-staging
           pattern: pypi-*
           merge-multiple: true
-      - name: Install twine
-        run: pip install twine
+      - uses: astral-sh/setup-uv@v3
       - name: Upload to PyPI with per-package retry
         env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_TOKEN }}
         run: |
           set -e
           declare -A pkg_files
@@ -439,15 +437,21 @@ jobs:
             pkg_files["$pkg"]+=" $f"
           done
           failed=0
+          first=true
           for pkg in "${!pkg_files[@]}"; do
+            if [ "$first" = "true" ]; then
+              first=false
+            else
+              sleep 15
+            fi
             echo "=== Uploading $pkg ==="
             success=false
             for attempt in 1 2 3 4 5; do
-              if twine upload --skip-existing ${pkg_files[$pkg]}; then
+              if uv publish --check-url https://pypi.org/simple/ ${pkg_files[$pkg]}; then
                 success=true
                 break
               fi
-              delay=$((60 * attempt))
+              delay=$((120 * attempt))
               echo "Attempt $attempt failed for $pkg, retrying in ${delay}s..."
               sleep $delay
             done
