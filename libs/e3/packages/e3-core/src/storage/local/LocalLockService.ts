@@ -81,7 +81,7 @@ export function workspaceLockPath(repoPath: string, workspace: string): string {
 }
 
 /** Directory containing lock files for a workspace. */
-function workspaceLockDir(repoPath: string, workspace: string): string {
+function workspaceLockDir(repoPath: string, _workspace: string): string {
   return path.join(repoPath, 'workspaces');
 }
 
