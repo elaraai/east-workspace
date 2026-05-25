@@ -6,21 +6,19 @@
 /**
  * Local filesystem implementation of workspace locking.
  *
- * Provides exclusive locks on workspaces to prevent concurrent dataflow
- * executions or writes that could corrupt workspace state. Uses Linux
- * flock() for automatic lock release on process death.
+ * Provides exclusive and shared locks on workspaces using pure Node.js
+ * primitives — no external commands required (works on Linux, macOS, Windows).
  *
  * Lock mechanism:
- * - Uses flock(LOCK_EX | LOCK_NB) via the `flock` command for kernel-managed locking
- * - Lock is automatically released when the process dies (kernel handles this)
- * - Lock state stored in beast2 format using LockStateType from e3-types
- * - Holder stored as East text string (e.g., `.process (pid=1234, ...)`)
- * - Stale lock detection via bootId comparison (handles system restarts)
+ * - Exclusive: atomic O_CREAT|O_EXCL file creation (`fs.open('wx')`)
+ * - Shared: per-holder slock files (`{workspace}.{pid}.{token}.slock`)
+ * - Stale detection: process.kill(pid, 0) with /proc fallback for precise detection
+ * - Release: unlink the lock file
  */
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { spawn, type ChildProcess } from 'child_process';
+import { randomBytes } from 'crypto';
 import { encodeBeast2For, decodeBeast2For, printFor, parseInferred, variant, none, VariantType } from '@elaraai/east';
 import { LockStateType, ProcessHolderType, type LockState, type LockOperation } from '@elaraai/e3-types';
 import { WorkspaceLockError, type LockHolderInfo } from '../../errors.js';
@@ -31,21 +29,12 @@ import type { LockHandle, LockService } from '../interfaces.js';
 // Holder Encoding
 // =============================================================================
 
-/**
- * Variant type for encoding holder as East text.
- * The holder string stores `.process (...)` or other backend-specific variants.
- */
 const HolderVariantType = VariantType({
   process: ProcessHolderType,
 });
 
-/** Print a process holder to East text format */
 const printProcessHolder = printFor(HolderVariantType);
 
-/**
- * Parse an East text holder string.
- * Returns the parsed variant or null if parsing fails.
- */
 function parseHolder(holderStr: string): { type: string; value: any } | null {
   try {
     const [_type, value] = parseInferred(holderStr);
@@ -64,13 +53,9 @@ function parseHolder(holderStr: string): { type: string; value: any } | null {
  * Call release() when done to free the lock.
  */
 export interface WorkspaceLockHandle {
-  /** The resource (workspace name) this lock is for - compatible with LockHandle */
   readonly resource: string;
-  /** The workspace name this lock is for */
   readonly workspace: string;
-  /** Path to the lock file */
   readonly lockPath: string;
-  /** Release the lock. Safe to call multiple times. */
   release(): Promise<void>;
 }
 
@@ -78,37 +63,42 @@ export interface WorkspaceLockHandle {
  * Options for acquiring a workspace lock.
  */
 export interface AcquireLockOptions {
-  /**
-   * If true, wait for the lock to become available instead of failing immediately.
-   * Default: false (fail fast if locked)
-   */
+  /** If true, wait for the lock to become available. Default: false */
   wait?: boolean;
-  /**
-   * Timeout in milliseconds when wait=true. Default: 30000 (30 seconds)
-   */
+  /** Timeout in milliseconds when wait=true. Default: 30000 */
   timeout?: number;
-  /**
-   * Lock mode: 'shared' allows concurrent shared holders, 'exclusive' is mutually exclusive.
-   * Default: 'exclusive'
-   */
+  /** Lock mode. Default: 'exclusive' */
   mode?: 'shared' | 'exclusive';
 }
 
 // =============================================================================
-// Lock File Helpers
+// Lock File Paths
 // =============================================================================
 
-/**
- * Get the lock file path for a workspace.
- */
+/** Path to the exclusive lock file for a workspace. */
 export function workspaceLockPath(repoPath: string, workspace: string): string {
   return path.join(repoPath, 'workspaces', `${workspace}.lock`);
 }
 
-/**
- * Read lock state from a lock file.
- * Returns null if file doesn't exist or is invalid.
- */
+/** Directory containing lock files for a workspace. */
+function workspaceLockDir(repoPath: string, _workspace: string): string {
+  return path.join(repoPath, 'workspaces');
+}
+
+/** Path to a shared lock file for a specific holder. */
+function sharedLockPath(repoPath: string, workspace: string, pid: number, token: string): string {
+  return path.join(repoPath, 'workspaces', `${workspace}.${pid}.${token}.slock`);
+}
+
+/** Glob prefix used to find all shared lock files for a workspace. */
+function sharedLockPrefix(workspace: string): string {
+  return `${workspace}.`;
+}
+
+// =============================================================================
+// Lock File I/O
+// =============================================================================
+
 async function readLockState(lockPath: string): Promise<LockState | null> {
   try {
     const data = await fs.readFile(lockPath);
@@ -120,25 +110,16 @@ async function readLockState(lockPath: string): Promise<LockState | null> {
   }
 }
 
-/**
- * Write lock state to a lock file in beast2 format.
- */
 async function writeLockState(lockPath: string, state: LockState): Promise<void> {
   const encoder = encodeBeast2For(LockStateType);
-  const data = encoder(state);
-  await fs.writeFile(lockPath, data);
+  await fs.writeFile(lockPath, encoder(state));
 }
 
-/**
- * Convert LockState to LockHolderInfo for error display.
- */
 export function lockStateToHolderInfo(state: LockState): LockHolderInfo {
   const info: LockHolderInfo = {
     acquiredAt: state.acquiredAt.toISOString(),
     operation: state.operation.type,
   };
-
-  // Parse the holder string to extract process-specific fields
   const holder = parseHolder(state.holder);
   if (holder?.type === 'process') {
     info.pid = Number(holder.value.pid);
@@ -146,17 +127,16 @@ export function lockStateToHolderInfo(state: LockState): LockHolderInfo {
     info.startTime = Number(holder.value.startTime);
     info.command = holder.value.command;
   }
-
   return info;
 }
 
-/**
- * Check if a lock holder is still alive.
- * @param holderStr - East text-encoded holder string
- */
+// =============================================================================
+// Stale Lock Detection
+// =============================================================================
+
 export async function isLockHolderAlive(holderStr: string): Promise<boolean> {
   const holder = parseHolder(holderStr);
-  if (!holder) return true; // Can't parse - assume alive (safer)
+  if (!holder) return true; // Can't parse — assume alive
 
   if (holder.type === 'process') {
     return isProcessAlive(
@@ -166,36 +146,141 @@ export async function isLockHolderAlive(holderStr: string): Promise<boolean> {
     );
   }
 
-  // Unknown holder type - assume alive (safer default)
-  return true;
+  return true; // Unknown type — assume alive
+}
+
+/** Delete a lock file if its holder process is no longer alive. */
+async function cleanIfStale(lockPath: string): Promise<void> {
+  const state = await readLockState(lockPath);
+  if (!state) {
+    // Empty or unreadable — treat as stale
+    try { await fs.unlink(lockPath); } catch {}
+    return;
+  }
+  if (!(await isLockHolderAlive(state.holder))) {
+    try { await fs.unlink(lockPath); } catch {}
+  }
+}
+
+/** Find and clean all stale shared lock files for a workspace. */
+async function cleanStaleSharedLocks(repoPath: string, workspace: string): Promise<void> {
+  const dir = workspaceLockDir(repoPath, workspace);
+  const prefix = sharedLockPrefix(workspace);
+  let entries: string[];
+  try {
+    entries = await fs.readdir(dir);
+  } catch {
+    return;
+  }
+  const slocks = entries.filter(e => e.startsWith(prefix) && e.endsWith('.slock'));
+  await Promise.all(slocks.map(e => cleanIfStale(path.join(dir, e))));
+}
+
+/** Return paths of all live shared lock files for a workspace. */
+async function liveSharedLocks(repoPath: string, workspace: string): Promise<string[]> {
+  await cleanStaleSharedLocks(repoPath, workspace);
+  const dir = workspaceLockDir(repoPath, workspace);
+  const prefix = sharedLockPrefix(workspace);
+  try {
+    const entries = await fs.readdir(dir);
+    return entries
+      .filter(e => e.startsWith(prefix) && e.endsWith('.slock'))
+      .map(e => path.join(dir, e));
+  } catch {
+    return [];
+  }
 }
 
 // =============================================================================
 // Lock Acquisition
 // =============================================================================
 
+async function buildLockState(operation: LockOperation): Promise<{ state: LockState; holder: string }> {
+  const pid = process.pid;
+  const bootId = await getBootId();
+  const startTime = await getPidStartTime(pid);
+  const holderVariant = variant('process', {
+    pid: BigInt(pid),
+    bootId,
+    startTime: BigInt(startTime),
+    command: process.argv.join(' '),
+  });
+  const holder = printProcessHolder(holderVariant);
+  const state: LockState = {
+    operation,
+    holder,
+    acquiredAt: new Date(),
+    expiresAt: none,
+  };
+  return { state, holder };
+}
+
+/** Try once to acquire an exclusive lock. Returns lock path or null. */
+async function tryExclusiveOnce(repoPath: string, workspace: string, operation: LockOperation): Promise<string | null> {
+  const lockPath = workspaceLockPath(repoPath, workspace);
+
+  // Clean stale exclusive lock
+  await cleanIfStale(lockPath);
+
+  // Fail if any live shared locks exist
+  const shared = await liveSharedLocks(repoPath, workspace);
+  if (shared.length > 0) return null;
+
+  // Atomic create — fails with EEXIST if another process beat us
+  const { state } = await buildLockState(operation);
+  try {
+    const fd = await fs.open(lockPath, 'wx');
+    try {
+      const encoder = encodeBeast2For(LockStateType);
+      await fd.write(encoder(state));
+    } finally {
+      await fd.close();
+    }
+    return lockPath;
+  } catch (err: any) {
+    if (err.code === 'EEXIST') return null;
+    throw err;
+  }
+}
+
+/** Try once to acquire a shared lock. Returns lock path or null. */
+async function trySharedOnce(repoPath: string, workspace: string, operation: LockOperation): Promise<string | null> {
+  const exclusivePath = workspaceLockPath(repoPath, workspace);
+
+  // Clean stale exclusive lock
+  await cleanIfStale(exclusivePath);
+
+  // Fail if a live exclusive lock exists
+  const exclusiveState = await readLockState(exclusivePath);
+  if (exclusiveState && (await isLockHolderAlive(exclusiveState.holder))) {
+    return null;
+  }
+
+  // Create our shared lock file
+  const token = randomBytes(4).toString('hex');
+  const sPath = sharedLockPath(repoPath, workspace, process.pid, token);
+  const { state } = await buildLockState(operation);
+  await writeLockState(sPath, state);
+
+  // Re-check that no exclusive lock appeared between our check and our write
+  const recheckState = await readLockState(exclusivePath);
+  if (recheckState && (await isLockHolderAlive(recheckState.holder))) {
+    try { await fs.unlink(sPath); } catch {}
+    return null;
+  }
+
+  return sPath;
+}
+
+const POLL_INTERVAL_MS = 100;
+
 /**
- * Acquire an exclusive lock on a workspace.
+ * Acquire an exclusive or shared lock on a workspace.
  *
- * Uses Linux flock() for kernel-managed locking. The lock is automatically
- * released when the process exits (even on crash/kill).
+ * Uses atomic O_CREAT|O_EXCL file creation (exclusive) or per-holder slock
+ * files (shared). Works on Linux, macOS, and Windows without external commands.
  *
- * @param repoPath - Path to e3 repository
- * @param workspace - Workspace name to lock
- * @param operation - What operation is acquiring the lock
- * @param options - Lock acquisition options
- * @returns Lock handle - call release() when done
- * @throws {WorkspaceLockError} If workspace is locked by another process
- *
- * @example
- * ```typescript
- * const lock = await acquireWorkspaceLock(repoPath, 'production', { type: 'dataflow', value: null });
- * try {
- *   await dataflowExecute(repoPath, 'production', { lock });
- * } finally {
- *   await lock.release();
- * }
- * ```
+ * @throws {WorkspaceLockError} If the lock cannot be acquired
  */
 export async function acquireWorkspaceLock(
   repoPath: string,
@@ -203,215 +288,60 @@ export async function acquireWorkspaceLock(
   operation: LockOperation,
   options: AcquireLockOptions = {}
 ): Promise<WorkspaceLockHandle> {
-  const lockPath = workspaceLockPath(repoPath, workspace);
+  await fs.mkdir(path.join(repoPath, 'workspaces'), { recursive: true });
 
-  // Ensure workspaces directory exists
-  await fs.mkdir(path.dirname(lockPath), { recursive: true });
+  const isShared = options.mode === 'shared';
+  const deadline = Date.now() + (options.wait ? (options.timeout ?? 30000) : 0);
 
-  // Gather our process identification
-  const pid = process.pid;
-  const bootId = await getBootId();
-  const startTime = await getPidStartTime(pid);
-  const command = process.argv.join(' ');
-  const acquiredAt = new Date();
+  const tryOnce = isShared
+    ? () => trySharedOnce(repoPath, workspace, operation)
+    : () => tryExclusiveOnce(repoPath, workspace, operation);
 
-  // Encode holder as East text: .process (pid=..., bootId="...", ...)
-  const holderVariant = variant('process', {
-    pid: BigInt(pid),
-    bootId,
-    startTime: BigInt(startTime),
-    command,
-  });
-  const holder = printProcessHolder(holderVariant);
+  let lockPath = await tryOnce();
 
-  const lockState: LockState = {
-    operation,
-    holder,
-    acquiredAt,
-    expiresAt: none,
-  };
+  while (lockPath === null && Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+    lockPath = await tryOnce();
+  }
 
-  // Try to acquire flock via subprocess
-  // The subprocess holds the lock and we communicate with it via stdin/signals
-  const flockProcess = await tryAcquireFlock(lockPath, lockState, options);
-
-  if (!flockProcess) {
-    // Failed to acquire - read lock state to report who has it
-    const existingState = await readLockState(lockPath);
+  if (lockPath === null) {
+    const exclusivePath = workspaceLockPath(repoPath, workspace);
+    const existingState = await readLockState(exclusivePath);
     const holderInfo = existingState ? lockStateToHolderInfo(existingState) : undefined;
     throw new WorkspaceLockError(workspace, holderInfo);
   }
 
-  // Lock acquired! Create handle
   let released = false;
-
-  const handle: WorkspaceLockHandle = {
+  return {
     resource: workspace,
     workspace,
     lockPath,
     async release() {
       if (released) return;
       released = true;
-
-      // Kill the flock subprocess to release the lock
-      flockProcess.kill('SIGTERM');
-
-      // Clean up lock file (best effort)
-      try {
-        await fs.unlink(lockPath);
-      } catch {
-        // Ignore - file might already be gone
-      }
+      try { await fs.unlink(lockPath); } catch {}
     },
   };
-
-  return handle;
 }
 
-/**
- * Try to acquire flock using a subprocess.
- *
- * We spawn `flock --nonblock <lockfile> cat` which:
- * 1. Tries to acquire exclusive lock (non-blocking)
- * 2. If successful, runs `cat` which blocks reading stdin forever
- * 3. We keep the subprocess alive to hold the lock
- * 4. When we kill the subprocess, the lock is released
- *
- * Returns the subprocess if lock acquired, null if lock is held by another.
- */
-async function tryAcquireFlock(
-  lockPath: string,
-  lockState: LockState,
-  options: AcquireLockOptions
-): Promise<ChildProcess | null> {
-  // First, check if there's a stale lock we can clean up
-  // (only for exclusive mode — shared locks don't need stale checking)
-  if (options.mode !== 'shared') {
-    await checkAndCleanStaleLock(lockPath);
-  }
+// =============================================================================
+// Status Queries
+// =============================================================================
 
-  const isShared = options.mode === 'shared';
-  const args: string[] = [];
-  if (isShared) {
-    args.push('--shared');
-  }
-  if (options.wait) {
-    args.push('--timeout', String((options.timeout ?? 30000) / 1000));
-  } else {
-    args.push('--nonblock');
-  }
-  // Use 'sh -c "echo ready && cat"' as the inner command so that "ready"
-  // on stdout is a deterministic signal that flock acquired the lock and
-  // started the inner command.  `cat` then blocks on stdin to keep the
-  // subprocess (and therefore the lock) alive until we kill it.
-  args.push(lockPath, 'sh', '-c', 'echo ready && cat');
-
-  const child = spawn('flock', args, {
-    stdio: ['pipe', 'pipe', 'pipe'],
-    detached: false,
-  });
-
-  return new Promise((resolve) => {
-    let resolved = false;
-
-    // If flock fails to acquire, it exits with code 1
-    child.on('error', () => {
-      if (!resolved) {
-        resolved = true;
-        resolve(null);
-      }
-    });
-
-    child.on('exit', () => {
-      if (!resolved) {
-        resolved = true;
-        // Exit code 1 means lock is held by another
-        resolve(null);
-      }
-    });
-
-    // When flock acquires the lock, the inner command prints "ready" to
-    // stdout.  This is a deterministic signal — no timing assumptions.
-    child.stdout!.on('data', (data: Buffer) => {
-      if (!resolved && data.toString().includes('ready')) {
-        resolved = true;
-
-        // Write lock state before resolving so release() can safely unlink
-        writeLockState(lockPath, lockState)
-          .then(() => {
-            resolve(child);
-          })
-          .catch(() => {
-            // Can't write state — release the kernel lock and report failure
-            child.kill('SIGTERM');
-            resolve(null);
-          });
-      }
-    });
-  });
-}
-
-/**
- * Check if a lock file exists with stale lock state and clean it up.
- * A lock is stale if the holder process no longer exists.
- */
-async function checkAndCleanStaleLock(lockPath: string): Promise<void> {
-  const state = await readLockState(lockPath);
-  if (!state) return;
-
-  // Check if the holder is still alive
-  const alive = await isLockHolderAlive(state.holder);
-
-  if (!alive) {
-    // Stale lock - try to remove it
-    try {
-      await fs.unlink(lockPath);
-    } catch {
-      // Ignore - another process might have cleaned it up
-    }
-  }
-}
-
-/**
- * Get the lock state for a workspace.
- *
- * @param repoPath - Path to e3 repository
- * @param workspace - Workspace name to check
- * @returns Lock state if locked, null if not locked
- */
 export async function getWorkspaceLockState(
   repoPath: string,
   workspace: string
 ): Promise<LockState | null> {
   const lockPath = workspaceLockPath(repoPath, workspace);
   const state = await readLockState(lockPath);
-
   if (!state) return null;
-
-  // Check if the holder is still alive
-  const alive = await isLockHolderAlive(state.holder);
-
-  if (!alive) {
-    // Stale lock - clean it up and report as not locked
-    try {
-      await fs.unlink(lockPath);
-    } catch {
-      // Ignore
-    }
+  if (!(await isLockHolderAlive(state.holder))) {
+    try { await fs.unlink(lockPath); } catch {}
     return null;
   }
-
   return state;
 }
 
-/**
- * Get lock holder info for a workspace (for backwards compatibility).
- *
- * @param repoPath - Path to e3 repository
- * @param workspace - Workspace name to check
- * @returns Lock holder info if locked, null if not locked
- * @deprecated Use getWorkspaceLockState for full lock information
- */
 export async function getWorkspaceLockHolder(
   repoPath: string,
   workspace: string
@@ -424,13 +354,6 @@ export async function getWorkspaceLockHolder(
 // LockService Interface Implementation
 // =============================================================================
 
-/**
- * Local filesystem implementation of LockService.
- *
- * Uses flock() for kernel-managed locking with lock state
- * stored in beast2 format using LockStateType.
- * The `repo` parameter is the path to the e3 repository directory.
- */
 export class LocalLockService implements LockService {
   async acquire(
     repo: string,
@@ -438,20 +361,14 @@ export class LocalLockService implements LockService {
     operation: LockOperation,
     options?: { wait?: boolean; timeout?: number; mode?: 'shared' | 'exclusive' }
   ): Promise<LockHandle | null> {
-    const acquireOptions: AcquireLockOptions = {
-      wait: options?.wait ?? false,
-      timeout: options?.timeout,
-      mode: options?.mode ?? 'exclusive',
-    };
-
     try {
-      const handle = await acquireWorkspaceLock(repo, resource, operation, acquireOptions);
-      return {
-        resource,
-        release: () => handle.release(),
-      };
+      const handle = await acquireWorkspaceLock(repo, resource, operation, {
+        wait: options?.wait ?? false,
+        timeout: options?.timeout,
+        mode: options?.mode ?? 'exclusive',
+      });
+      return { resource, release: () => handle.release() };
     } catch {
-      // Lock couldn't be acquired
       return null;
     }
   }
