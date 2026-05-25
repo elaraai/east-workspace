@@ -23,7 +23,7 @@
   "scripts": {
     "build": "tsc",
     "package": "npm run build && mkdir -p .package && npm pack --pack-destination .package",
-    "prepublishOnly": "npm run lint && npm run test",
+    "prepublishOnly": "npm run build",
     "example": "node --enable-source-maps dist/contrib/examples/example.js",
     "example:async": "node --enable-source-maps dist/contrib/examples/async.js",
     "test": "npm run build && node --enable-source-maps --test-reporter=spec --test 'dist/test/**/*.spec.js' 'dist/src/**/*.spec.js'",

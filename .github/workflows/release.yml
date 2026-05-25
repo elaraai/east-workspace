@@ -49,6 +49,12 @@ jobs:
       npm_tag: ${{ steps.bump.outputs.npm_tag }}
       is_prerelease: ${{ steps.bump.outputs.is_prerelease }}
     steps:
+      - name: Enforce release from main
+        run: |
+          if [ "${{ github.ref }}" != "refs/heads/main" ]; then
+            echo "::error::Releases may only be run from main (got ${{ github.ref }})."
+            exit 1
+          fi
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
@@ -113,51 +119,14 @@ jobs:
           retention-days: 7
 
   # ────────────────────────────────────────────────────────────────────────
-  # 2. cross-platform: run e3 tests on macOS to catch cross-platform issues
-  #    (locking, process detection) before publishing.
-  # ────────────────────────────────────────────────────────────────────────
-  cross-platform:
-    needs: prepare
-    runs-on: macos-14
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with: { name: version-bump }
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: "pnpm"
-      - uses: astral-sh/setup-uv@v3
-      - name: Set up Python 3.11
-        run: uv python install 3.11
-      - name: Install
-        run: pnpm install
-      - name: Build east
-        working-directory: libs/east
-        run: make build
-      - name: Build east-node
-        working-directory: libs/east-node
-        run: make build
-      - name: Build e3
-        working-directory: libs/e3
-        run: make build
-      - name: Link e3 CLI
-        working-directory: libs/e3
-        run: make link
-      - name: Install East runners
-        run: |
-          pnpm --filter=@elaraai/east-node-cli exec east-node --version || true
-          cd libs/east-py && make install-cli
-      - name: Test e3
-        working-directory: libs/e3
-        run: make test
-
-  # ────────────────────────────────────────────────────────────────────────
-  # 3. publish-npm: the public @elaraai/* packages via scripts/publish-npm.mjs.
+  # Tests are NOT re-run here: main is protected and only reachable via PRs that
+  # pass the per-lib test workflows, so the release trusts main and only builds
+  # + publishes.
+  #
+  # publish-npm: the public @elaraai/* packages via scripts/publish-npm.mjs.
   # ────────────────────────────────────────────────────────────────────────
   publish-npm:
-    needs: [prepare, cross-platform]
+    needs: prepare
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -175,12 +144,6 @@ jobs:
         run: pnpm install
       - name: Upgrade npm for trusted publishing
         run: npm install -g npm@latest
-      - uses: astral-sh/setup-uv@v3
-      - name: Set up Python 3.11
-        run: uv python install 3.11
-      - name: Install Python deps
-        working-directory: libs/east-py
-        run: uv sync --all-extras --all-packages
       - name: Build east
         working-directory: libs/east
         run: make build
@@ -200,47 +163,6 @@ jobs:
         run: pnpm run build
       - name: Build create packages
         run: pnpm --filter @elaraai/scaffold-core --filter @elaraai/create-e3 --filter @elaraai/create-east run build
-      - name: Lint east
-        working-directory: libs/east
-        run: make lint
-      - name: Lint east-node
-        working-directory: libs/east-node
-        run: make lint
-      - name: Lint east-py
-        working-directory: libs/east-py
-        run: make lint && make typecheck
-      - name: Lint e3
-        working-directory: libs/e3
-        run: make lint
-      - name: Lint east-ui
-        working-directory: libs/east-ui
-        run: make lint
-      - name: Start test services
-        run: docker compose -f docker/services/docker-compose.yml --profile services up -d --wait
-      - name: Test east
-        working-directory: libs/east
-        run: make test
-      - name: Test east-node
-        working-directory: libs/east-node
-        run: make test
-      - name: Link e3 CLI
-        working-directory: libs/e3
-        run: make link
-      - name: Install East runners
-        run: |
-          pnpm --filter=@elaraai/east-node-cli exec east-node --version || true
-          cd libs/east-py && make install-cli
-      - name: Test e3
-        working-directory: libs/e3
-        run: make test
-      - name: Test east-ui
-        working-directory: libs/east-ui
-        run: make test
-        env:
-          NODE_OPTIONS: --max-old-space-size=4096
-      - name: Stop test services
-        if: always()
-        run: docker compose -f docker/services/docker-compose.yml --profile services down -v
       - name: Publish (skip already-published)
         run: |
           node scripts/publish-npm.mjs \
@@ -251,7 +173,7 @@ jobs:
   # 3. publish-vsix: build + (optionally) publish the VSCode extension.
   # ────────────────────────────────────────────────────────────────────────
   publish-vsix:
-    needs: [prepare, cross-platform]
+    needs: prepare
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -309,7 +231,7 @@ jobs:
   #     east-py-cli) via uv build.
   # ────────────────────────────────────────────────────────────────────────
   publish-pypi-pure:
-    needs: [prepare, cross-platform]
+    needs: prepare
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -342,7 +264,7 @@ jobs:
   #     their scikit-build-core CMakeLists, so both need per-platform wheels.
   # ────────────────────────────────────────────────────────────────────────
   publish-pypi-cython-wheels:
-    needs: [prepare, cross-platform]
+    needs: prepare
     strategy:
       fail-fast: false
       matrix:
@@ -383,7 +305,7 @@ jobs:
   #     (east-py, east-py-datascience).
   # ────────────────────────────────────────────────────────────────────────
   publish-pypi-cython-sdist:
-    needs: [prepare, cross-platform]
+    needs: prepare
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -416,9 +338,9 @@ jobs:
           path: ${{ matrix.pkg.dir }}/dist/*.tar.gz
 
   # ────────────────────────────────────────────────────────────────────────
-  # 4d. publish-pypi-upload: gather all dists, upload per-package with retry.
-  # Uploads each package's files as a group so one 429 (new-project rate limit)
-  # doesn't abort unrelated packages. Retries with backoff up to 5 times.
+  # 4d. publish-pypi-upload: gather all dists and upload via the official PyPA
+  # action. skip-existing makes re-runs safe; the action handles upload retries
+  # itself (no hand-rolled backoff).
   # ────────────────────────────────────────────────────────────────────────
   publish-pypi-upload:
     needs: [publish-pypi-pure, publish-pypi-cython-wheels, publish-pypi-cython-sdist]
@@ -430,49 +352,18 @@ jobs:
           path: dist-staging
           pattern: pypi-*
           merge-multiple: true
-      - uses: astral-sh/setup-uv@v3
-      - name: Upload to PyPI with per-package retry
-        env:
-          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_TOKEN }}
-        run: |
-          set -e
-          declare -A pkg_files
-          for f in dist-staging/*; do
-            [ -f "$f" ] || continue
-            pkg=$(basename "$f" | sed 's/-[0-9].*//')
-            pkg_files["$pkg"]+=" $f"
-          done
-          failed=0
-          first=true
-          for pkg in "${!pkg_files[@]}"; do
-            if [ "$first" = "true" ]; then
-              first=false
-            else
-              sleep 15
-            fi
-            echo "=== Uploading $pkg ==="
-            success=false
-            for attempt in 1 2 3 4 5; do
-              if uv publish --check-url https://pypi.org/simple/ ${pkg_files[$pkg]}; then
-                success=true
-                break
-              fi
-              delay=$((120 * attempt))
-              echo "Attempt $attempt failed for $pkg, retrying in ${delay}s..."
-              sleep $delay
-            done
-            if [ "$success" != "true" ]; then
-              echo "ERROR: $pkg failed after 5 attempts"
-              failed=1
-            fi
-          done
-          exit $failed
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist-staging
+          skip-existing: true
+          password: ${{ secrets.PYPI_TOKEN }}
 
   # ────────────────────────────────────────────────────────────────────────
   # 5. publish-c-native: linux-x64 + linux-arm64 + macos-arm64 + macos-x64 binary tarballs.
   # ────────────────────────────────────────────────────────────────────────
   publish-c-native:
-    needs: [prepare, cross-platform]
+    needs: prepare
     strategy:
       fail-fast: false
       matrix:
@@ -522,15 +413,14 @@ jobs:
   #    VSIX + C binaries attached. Skipped entirely on dry run.
   # ────────────────────────────────────────────────────────────────────────
   finalize:
-    needs: [prepare, publish-npm, publish-vsix, publish-pypi-upload, publish-c-native, cross-platform]
+    needs: [prepare, publish-npm, publish-vsix, publish-pypi-upload, publish-c-native]
     if: >-
       ${{ !inputs.dry_run &&
           needs.prepare.result == 'success' &&
           needs.publish-npm.result == 'success' &&
           needs.publish-vsix.result == 'success' &&
           needs.publish-pypi-upload.result == 'success' &&
-          needs.publish-c-native.result == 'success' &&
-          needs.cross-platform.result == 'success' }}
+          needs.publish-c-native.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
