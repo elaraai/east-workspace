@@ -1,0 +1,28 @@
+{
+  "name": "@elaraai/create-e3",
+  "version": "1.0.0",
+  "description": "Scaffold a new e3 project (BSL-1.1, Node + Python, durable execution): npm create @elaraai/e3",
+  "type": "module",
+  "bin": {
+    "create-e3": "./dist/index.js"
+  },
+  "files": ["dist", "templates"],
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test \"dist/**/*.spec.js\"",
+    "lint": "eslint ."
+  },
+  "license": "BSL-1.1",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/elaraai/east-workspace.git",
+    "directory": "libs/create/packages/create-e3"
+  },
+  "engines": { "node": ">=22" },
+  "devDependencies": {
+    "@elaraai/scaffold-core": "workspace:*",
+    "@types/node": "^22",
+    "esbuild": "^0.24",
+    "typescript": "^5"
+  }
+}

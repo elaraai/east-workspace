@@ -30,9 +30,13 @@ import {
   packageImport as packageImportRemote,
   ApiError,
 } from '@elaraai/e3-api-client';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import e3 from '@elaraai/e3';
 import { parseRepoLocation, parsePackageSpec, formatError, exitError } from '../utils.js';
 import { writeExportProgress, clearProgress } from '../format.js';
+import { loadPackageFile } from './load-package.js';
 
 export const workspaceCommand = {
   /**
@@ -68,17 +72,24 @@ export const workspaceCommand = {
     repoArg: string,
     ws: string,
     pkgSpec: string | undefined,
-    options: { fromZip?: string } = {},
+    options: { fromZip?: string; fromSource?: string } = {},
   ): Promise<void> {
     try {
-      if (!pkgSpec && !options.fromZip) {
-        exitError('Provide a package spec (e.g. hello@1.0.0) or --from-zip <path>');
+      const modes = [pkgSpec, options.fromZip, options.fromSource].filter(Boolean);
+      if (modes.length === 0) {
+        exitError('Provide a package spec (e.g. hello@1.0.0), --from-zip <path>, or --from-source <file.ts>');
       }
-      if (pkgSpec && options.fromZip) {
-        exitError('Provide either a package spec or --from-zip, not both');
+      if (modes.length > 1) {
+        exitError('Provide exactly one of: package spec, --from-zip, --from-source');
       }
 
       const location = await parseRepoLocation(repoArg);
+
+      // --from-source mode: bundle the TS source into a package, then import + deploy
+      if (options.fromSource) {
+        await deployFromSource(location, ws, options.fromSource);
+        return;
+      }
 
       // --from-zip mode: import then deploy
       if (options.fromZip) {
@@ -390,6 +401,31 @@ async function deployFromZip(
   console.log(`  Package hash: ${packageHash.slice(0, 12)}...`);
   console.log(`  Objects: ${objectCount}`);
   console.log(`Deployed to workspace: ${ws}`);
+}
+
+/**
+ * Bundle a TypeScript source file into a package, then import and deploy it via
+ * the same path as `--from-zip` (so local and remote repos both work).
+ *
+ * Used by `workspace deploy --from-source`.
+ */
+async function deployFromSource(
+  location: Awaited<ReturnType<typeof parseRepoLocation>>,
+  ws: string,
+  sourceFile: string,
+): Promise<void> {
+  const { pkg } = await loadPackageFile(path.resolve(sourceFile));
+  const tempZip = path.join(os.tmpdir(), `e3-deploy-${Date.now()}.zip`);
+  try {
+    await e3.export(pkg, tempZip);
+    await deployFromZip(location, ws, tempZip);
+  } finally {
+    try {
+      unlinkSync(tempZip);
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
 }
 
 /**
