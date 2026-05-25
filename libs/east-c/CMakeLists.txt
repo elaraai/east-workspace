@@ -70,6 +70,30 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(microtar PRIVATE -w)
 endif()
 
+# On Windows there is no system libcurl, so vendor a static curl built against
+# Schannel (Windows-native TLS — no OpenSSL). Linux/macOS use system curl
+# (see packages/east-c-std/CMakeLists.txt). HTTP(S)-only keeps it small.
+if(WIN32)
+    set(CURL_USE_SCHANNEL ON  CACHE BOOL "" FORCE)
+    set(CURL_USE_OPENSSL  OFF CACHE BOOL "" FORCE)
+    set(CURL_USE_LIBPSL   OFF CACHE BOOL "" FORCE)
+    set(USE_LIBIDN2       OFF CACHE BOOL "" FORCE)
+    set(CURL_ZLIB         OFF CACHE BOOL "" FORCE)
+    set(CURL_BROTLI       OFF CACHE BOOL "" FORCE)
+    set(CURL_ZSTD         OFF CACHE BOOL "" FORCE)
+    set(HTTP_ONLY         ON  CACHE BOOL "" FORCE)
+    set(BUILD_CURL_EXE    OFF CACHE BOOL "" FORCE)
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    set(BUILD_STATIC_LIBS ON  CACHE BOOL "" FORCE)
+    set(BUILD_TESTING     OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(
+        curl
+        GIT_REPOSITORY https://github.com/curl/curl.git
+        GIT_TAG curl-8_11_1
+    )
+    FetchContent_MakeAvailable(curl)
+endif()
+
 # Optional: mimalloc for faster small allocations
 option(EAST_USE_MIMALLOC "Use mimalloc allocator" OFF)
 if(EAST_USE_MIMALLOC)

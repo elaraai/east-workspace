@@ -14,11 +14,17 @@ target_include_directories(east-c-std PUBLIC include)
 find_package(Threads REQUIRED)
 target_link_libraries(east-c-std PUBLIC east-c PRIVATE m Threads::Threads)
 
-# Optional libcurl for fetch
-find_package(CURL QUIET)
-if(CURL_FOUND)
+# libcurl for fetch. On Windows it's vendored statically (Schannel) via the
+# top-level CMakeLists FetchContent; elsewhere use the system libcurl.
+if(WIN32 AND TARGET CURL::libcurl)
     target_link_libraries(east-c-std PRIVATE CURL::libcurl)
     target_compile_definitions(east-c-std PRIVATE EAST_HAS_CURL=1)
+else()
+    find_package(CURL QUIET)
+    if(CURL_FOUND)
+        target_link_libraries(east-c-std PRIVATE CURL::libcurl)
+        target_compile_definitions(east-c-std PRIVATE EAST_HAS_CURL=1)
+    endif()
 endif()
 
 # Compliance test runner (run via: make test-east-c-std).
