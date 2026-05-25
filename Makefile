@@ -22,6 +22,13 @@ check-deps:
 			echo "  ✓ $$1 ($$( $$1 --version 2>&1 | head -n1 ))"; \
 		fi; \
 	}; \
+	opt() { \
+		if ! command -v "$$1" >/dev/null 2>&1; then \
+			echo "  ○ $$1 — not found (optional). Install: $$2"; \
+		else \
+			echo "  ✓ $$1 ($$( $$1 --version 2>&1 | head -n1 ))"; \
+		fi; \
+	}; \
 	echo "Checking required tools..."; \
 	check uv      "curl -LsSf https://astral.sh/uv/install.sh | sh"; \
 	check pnpm    "npm install -g pnpm  (or: corepack enable && corepack prepare pnpm@latest --activate)"; \
@@ -30,6 +37,9 @@ check-deps:
 	check cc      "apt install build-essential  /  xcode-select --install"; \
 	check python3 "apt install python3  /  brew install python"; \
 	check docker  "https://docs.docker.com/engine/install/  (only needed for make services-up / test-all)"; \
+	echo "Optional (task-specific):"; \
+	opt x86_64-w64-mingw32-gcc "apt install mingw-w64  /  brew install mingw-w64  — Windows east-c cross-build"; \
+	opt wine64                 "apt install wine64  — smoke-test the Windows east-c .exe locally"; \
 	if [ $$missing -ne 0 ]; then \
 		echo ""; \
 		echo "Missing tools above. Install them and re-run."; \
