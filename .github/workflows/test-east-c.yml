@@ -45,6 +45,14 @@ jobs:
           node-version: 22
           cache: "pnpm"
 
+      # go-httpbin (below) is built with `go install`. ubuntu/windows runners
+      # ship Go, but the macos-14 (arm64) image does not — set it up explicitly
+      # on all three for a uniform, pinned toolchain.
+      - name: Use Go (for go-httpbin)
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
       - name: Install dependencies
         run: pnpm install
 
