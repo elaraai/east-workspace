@@ -1,5 +1,5 @@
 [project]
-name = "east-py-cli"
+name = "elaraai-east-py-cli"
 version = "1.0.0"
 description = "Command-line interface for running East IR programs with Python"
 readme = "README.md"

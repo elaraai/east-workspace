@@ -83,11 +83,11 @@ description = "$DISPLAY_NAME"
 requires-python = ">=3.11"
 version = "0.1.0"
 dependencies = [
-  "east-py",
-  "east-py-std",
-  "east-py-io",
-  "east-py-datascience",
-  "east-py-cli",
+  "elaraai-east-py",
+  "elaraai-east-py-std",
+  "elaraai-east-py-io",
+  "elaraai-east-py-datascience",
+  "elaraai-east-py-cli",
   "pytest",
   "pytest-subtests",
 ]
@@ -345,7 +345,7 @@ update:
 	npm install -g @elaraai/e3-cli@latest
 	e3 completion install 2>/dev/null || true
 	npm update \$\$(grep -roh '"@elaraai/[^"]*"' --include='package.json' . | tr -d '"' | sort -u | tr '\n' ' ')
-	uv lock --upgrade-package east-py --upgrade-package east-py-std --upgrade-package east-py-io --upgrade-package east-py-cli --upgrade-package east-py-datascience
+	uv lock --upgrade-package elaraai-east-py --upgrade-package elaraai-east-py-std --upgrade-package elaraai-east-py-io --upgrade-package elaraai-east-py-cli --upgrade-package elaraai-east-py-datascience
 	uv sync
 
 build:

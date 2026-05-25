@@ -67,11 +67,11 @@ if [ "$INSTALL_PYTHON" = true ]; then
         uv pip install \
             "numba>=0.58.0" \
             "llvmlite>=0.41.0" \
-            "east-py" \
-            "east-py-std" \
-            "east-py-io[all]" \
-            "east-py-datascience[all]" \
-            "east-py-cli"
+            "elaraai-east-py" \
+            "elaraai-east-py-std" \
+            "elaraai-east-py-io[all]" \
+            "elaraai-east-py-datascience[all]" \
+            "elaraai-east-py-cli"
     else
         echo "Warning: uv not found, skipping Python packages"
     fi

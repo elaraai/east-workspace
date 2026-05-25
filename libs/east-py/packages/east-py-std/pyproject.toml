@@ -1,5 +1,5 @@
 [project]
-name = "east-py-std"
+name = "elaraai-east-py-std"
 version = "1.0.0"
 description = "Standard platform functions for East programming language (Python)"
 readme = "README.md"
