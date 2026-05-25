@@ -21,8 +21,41 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Export the compliance IR once. It's plain serialized East IR — identical on
+  # every platform — so there's no reason to re-run the (Unix-only) TS export
+  # tooling on the Windows/macOS legs, where its `VAR=val node` / `/tmp` idioms
+  # don't survive npm's cmd.exe script shell. Export here, share as artifacts.
+  export-ir:
+    name: Export test IR
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+      - name: Install dependencies
+        run: pnpm install
+      - name: Export IR (east + east-node-std)
+        run: |
+          pnpm --filter @elaraai/east run test:export
+          pnpm --filter @elaraai/east-node-std run test:export
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ir-east
+          path: /tmp/east-test-ir/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ir-std
+          path: /tmp/east-node-std/
+          if-no-files-found: error
+
   test-east-c:
     name: Test east-c (${{ matrix.os }})
+    needs: export-ir
     strategy:
       fail-fast: false
       matrix:
@@ -30,39 +63,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     defaults:
       run:
-        # Git Bash on Windows, so every step (build, httpbin, compliance) uses
+        # Git Bash on Windows, so the build, httpbin, and compliance steps use
         # one shell across all three OSes.
         shell: bash
 
     steps:
       - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-
-      - name: Use Node.js 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: "pnpm"
-
-      # go-httpbin (below) is built with `go install`. ubuntu/windows runners
-      # ship Go, but the macos-14 (arm64) image does not — set it up explicitly
-      # on all three for a uniform, pinned toolchain.
-      - name: Use Go (for go-httpbin)
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.22"
-
-      - name: Install dependencies
-        run: pnpm install
-
-      # Export IR for both suites. The fetch suite's IR targets localhost:8085;
-      # export tolerates the server being absent (it only writes IR, the run
-      # below is what needs httpbin).
-      - name: Export test IR (east + east-node-std)
-        run: |
-          pnpm --filter @elaraai/east run test:export
-          pnpm --filter @elaraai/east-node-std run test:export
 
       - name: Install build deps (Linux)
         if: runner.os == 'Linux'
@@ -76,6 +82,14 @@ jobs:
         if: runner.os == 'Windows'
         run: choco install mingw --no-progress -y
 
+      # go-httpbin (below) is built with `go install`. ubuntu/windows runners
+      # ship Go, but the macos-14 (arm64) image does not — set it up explicitly
+      # on all three for a uniform, pinned toolchain.
+      - name: Use Go (for go-httpbin)
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
       - name: Build east-c
         working-directory: libs/east-c
         run: |
@@ -86,9 +100,21 @@ jobs:
           fi
           cmake --build build -j
 
+      # IR into build/ (already gitignored, transient — lives with the build
+      # output). Relative forward-slash paths work under Git Bash on Windows;
+      # an absolute /tmp or drive-letter path would not.
+      - uses: actions/download-artifact@v4
+        with:
+          name: ir-east
+          path: libs/east-c/build/ir-east
+      - uses: actions/download-artifact@v4
+        with:
+          name: ir-std
+          path: libs/east-c/build/ir-std
+
       # httpbin for the fetch compliance suite. go-httpbin is a drop-in httpbin
-      # built from source by `go install` (Go is preinstalled on every runner),
-      # so the same step works on Linux/macOS/Windows with no Docker services.
+      # built from source by `go install`, so the same step works on
+      # Linux/macOS/Windows with no Docker services.
       - name: Start httpbin (go-httpbin :8085)
         run: |
           go install github.com/mccutchen/go-httpbin/v2/cmd/go-httpbin@v2.18.3
@@ -101,11 +127,11 @@ jobs:
 
       - name: east-c compliance
         working-directory: libs/east-c
-        run: ./packages/east-c/scripts/run_compliance.sh /tmp/east-test-ir build/packages/east-c/test_compliance
+        run: ./packages/east-c/scripts/run_compliance.sh build/ir-east build/packages/east-c/test_compliance
 
       - name: east-c-std compliance
         working-directory: libs/east-c
-        run: ./packages/east-c/scripts/run_compliance.sh /tmp/east-node-std build/packages/east-c-std/test_std_compliance
+        run: ./packages/east-c/scripts/run_compliance.sh build/ir-std build/packages/east-c-std/test_std_compliance
 
   lint-east-c:
     name: Lint east-c (clang-format)
