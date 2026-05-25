@@ -5,8 +5,9 @@ requires-python = ">=3.11"
 version = "0.1.0"
 dependencies = [
   "elaraai-east-py",
-  "elaraai-east-py-std",
-  "elaraai-east-py-io",
+  # Uncomment once these are published to PyPI:
+  # "elaraai-east-py-std",
+  # "elaraai-east-py-io",
   "elaraai-east-py-datascience",
   "elaraai-east-py-cli",
   "pytest",

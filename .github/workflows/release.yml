@@ -314,7 +314,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pkg: [east-py-std, east-py-io, east-py-cli]
+        # east-py-std and east-py-io are temporarily omitted: they are new PyPI
+        # projects blocked by the "too many new projects created" rate limit.
+        # Restore the full list once they exist on PyPI:
+        #   pkg: [east-py-std, east-py-io, east-py-cli]
+        pkg: [east-py-cli]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
