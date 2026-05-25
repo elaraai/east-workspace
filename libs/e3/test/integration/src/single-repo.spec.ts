@@ -13,6 +13,7 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync } from 'node:fs';
+import * as net from 'node:net';
 import { join } from 'node:path';
 
 import e3 from '@elaraai/e3';
@@ -54,11 +55,15 @@ describe('single-repo mode', () => {
     const initResult = await runE3Command(['repo', 'create', '.'], repoDir);
     assert.strictEqual(initResult.exitCode, 0, `Failed to init repo: ${initResult.stderr}`);
 
-    // Get an available port
-    const tempServer = await createServer({ singleRepoPath: repoDir, port: 0, host: 'localhost' });
-    await tempServer.start();
-    const assignedPort = tempServer.port;
-    await tempServer.stop();
+    // Get an available port with minimal TOCTOU window
+    const assignedPort = await new Promise<number>((resolve, reject) => {
+      const probe = net.createServer();
+      probe.listen(0, () => {
+        const port = (probe.address() as net.AddressInfo).port;
+        probe.close(() => resolve(port));
+      });
+      probe.on('error', reject);
+    });
 
     serverUrl = `http://localhost:${assignedPort}`;
 
