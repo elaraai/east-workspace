@@ -54,7 +54,7 @@ create_project() {
     "build": "tsc",
     "main": "node --max-old-space-size=16000 ./dist/main.js",
     "test": "node --enable-source-maps --test 'dist/**/*.spec.js'",
-    "test:export": "EXPORT_TEST_IR=/tmp/$PROJECT_NAME-tests node --enable-source-maps --test 'dist/**/*.spec.js' 2>&1 | grep 'Exported test IR'",
+    "test:export": "EXPORT_TEST_IR=dist/test-ir node --enable-source-maps --test 'dist/**/*.spec.js' 2>&1 | grep 'Exported test IR'",
     "lint": "eslint ."
   },
   "dependencies": {
@@ -173,165 +173,99 @@ export default pkg;
 EOF
 
     cat > "$PROJECT_DIR/tests/test_unit.py" << EOF
-"""Tests that run TypeScript-exported IR tests.
+"""Run TypeScript-exported IR tests through the east-c Python bridge.
 
-This module loads IR test files exported from TypeScript via \`npm run test:export\`
-and executes them in Python to verify cross-implementation compatibility.
-
-To generate the test IR files:
-    npm run test:export
+Generate IR first:  make test:export   (or \`npm run test:export\`)
+Then run:           uv run pytest -v
 """
 
-import asyncio
+import time
 from pathlib import Path
-from typing import Any
 
-import pytest
-from east.runtime.compiler import compile, compile_async
+from east.runtime.compiler import compile_from_json
 from east.runtime.platform import PlatformFunction
-from east.serialization.json import decode_json_for
-from east.types.type_of_type import IRType
+from east.runtime._compiler_eastc import _eastc_call
 from east.types.types import FunctionType, NullType, StringType
 
-from east_py_std import platform as std_platform
-from east_py_io import platform as io_platform
+try:
+    from east_py_std import platform as std_platform
+except ImportError:
+    std_platform = []
 
-# Path where TypeScript exports test IR
-TEST_IR_DIR = Path("/tmp/$PROJECT_NAME-tests")
+try:
+    from east_py_io import platform as io_platform
+except ImportError:
+    io_platform = []
+
+TEST_IR_DIR = Path("dist/test-ir")
 
 
-def get_test_ir_files():
-    """Get list of exported test IR JSON files."""
+def _get_ir_files():
     if not TEST_IR_DIR.exists():
         return []
-    files = list(TEST_IR_DIR.glob("*.json"))
-    return sorted(files)
+    return sorted(TEST_IR_DIR.glob("*.json"))
 
 
-@pytest.fixture
-def test_platforms(subtests):
-    """Platform functions for tests - combines platform with test tracking."""
-    executed_tests = []
-    failures = []
-    current_test_stack = []
+def run_one(ir_file: Path) -> tuple[int, int]:
+    """Compile and run one IR test file. Returns (passed, failed)."""
+    data = ir_file.read_bytes()
+    is_async = b'"AsyncFunction"' in data[:100]
 
-    async def describe_impl(name: str, test_fn: Any) -> None:
-        executed_tests.append(("describe", name))
-        current_test_stack.append(("describe", name))
-        with subtests.test(msg=f"[{name}]"):
+    passed = 0
+    failed = 0
+
+    def describe_impl(name, test_fn):
+        if callable(test_fn):
             try:
-                if callable(test_fn):
-                    result = test_fn()
-                    if asyncio.iscoroutine(result):
-                        await result
-            finally:
-                current_test_stack.pop()
+                test_fn()
+            except Exception:
+                pass
 
-    async def test_impl_fn(name: str, test_fn: Any) -> None:
-        test_path = " > ".join(n for _, n in current_test_stack) + f" > {name}"
-        executed_tests.append(("test", name, test_path))
-        current_test_stack.append(("test", name))
-        with subtests.test(msg=test_path):
-            try:
-                if callable(test_fn):
-                    result = test_fn()
-                    if asyncio.iscoroutine(result):
-                        await result
-            except Exception as e:
-                failures.append({"path": test_path, "error": str(e)})
-                raise
-            finally:
-                current_test_stack.pop()
+    def test_impl(name, test_fn):
+        nonlocal passed, failed
+        try:
+            if callable(test_fn):
+                test_fn()
+            passed += 1
+        except Exception:
+            failed += 1
 
-    def test_pass_impl() -> None:
+    def test_pass():
         pass
 
-    def test_fail_impl(message: str) -> None:
-        raise AssertionError(message)
+    def test_fail(msg):
+        raise AssertionError(msg)
 
-    test_platform_fns = [
-        PlatformFunction(
-            name="describe",
-            inputs=[StringType, FunctionType([], NullType)],
-            output=NullType,
-            type="async",
-            fn=describe_impl,
-        ),
-        PlatformFunction(
-            name="test",
-            inputs=[StringType, FunctionType([], NullType)],
-            output=NullType,
-            type="async",
-            fn=test_impl_fn,
-        ),
-        PlatformFunction(
-            name="testPass",
-            inputs=[],
-            output=NullType,
-            type="sync",
-            fn=test_pass_impl,
-        ),
-        PlatformFunction(
-            name="testFail",
-            inputs=[StringType],
-            output=NullType,
-            type="sync",
-            fn=test_fail_impl,
-        ),
+    test_names = {"describe", "test", "testPass", "testFail"}
+    platform = [
+        pf for pf in std_platform if pf["name"] not in test_names
+    ] + [
+        pf for pf in io_platform if pf["name"] not in test_names
+    ] + [
+        PlatformFunction(name="describe", inputs=[StringType, FunctionType([], NullType)], output=NullType, type="sync", fn=describe_impl),
+        PlatformFunction(name="test", inputs=[StringType, FunctionType([], NullType)], output=NullType, type="sync", fn=test_impl),
+        PlatformFunction(name="testPass", inputs=[], output=NullType, type="sync", fn=test_pass),
+        PlatformFunction(name="testFail", inputs=[StringType], output=NullType, type="sync", fn=test_fail),
     ]
 
-    test_fn_names = {"describe", "test", "testPass", "testFail"}
-    combined_platform = [
-        pf for pf in std_platform if pf["name"] not in test_fn_names
-    ] + [
-        pf for pf in io_platform if pf["name"] not in test_fn_names
-    ] + test_platform_fns
-
-    return combined_platform, executed_tests, failures
+    compiled = compile_from_json(data, platform, is_async=is_async)
+    handle = compiled._eastc_handle
+    _eastc_call(handle._compiled, handle._input_types, handle._output_type, ())
+    return passed, failed
 
 
-@pytest.mark.parametrize(
-    "test_file",
-    get_test_ir_files(),
-    ids=lambda p: p.stem,
-)
-def test_typescript_exported_ir(test_file, test_platforms):
-    """Test that TypeScript-exported IR executes correctly in Python."""
-    platform_fns, executed_tests, failures = test_platforms
+# ── pytest integration ────────────────────────────────────────────────────────
 
-    with open(test_file, "rb") as f:
-        json_data = f.read()
-
-    decoder = decode_json_for(IRType)
-    ir = decoder(json_data)
-
-    is_async_ir = ir.type == "AsyncFunction"
-    compiled_test = (
-        compile_async(ir, platform_fns) if is_async_ir else compile(ir, platform_fns)
-    )
-
-    print(f"\n{test_file.stem} test cases:", flush=True)
-    if is_async_ir:
-        asyncio.run(compiled_test())
-    else:
-        compiled_test()
-
-    assert len(executed_tests) > 0, f"Test {test_file.stem} didn't execute any tests"
-
-    test_count = sum(1 for t in executed_tests if t[0] == "test")
-    if failures:
-        pytest.fail(f"{len(failures)}/{test_count} test(s) failed")
+def pytest_generate_tests(metafunc):
+    if "ir_file" in metafunc.fixturenames:
+        files = _get_ir_files()
+        metafunc.parametrize("ir_file", files, ids=[f.stem for f in files])
 
 
-def test_typescript_test_ir_directory_exists():
-    """Verify that TypeScript test IR directory exists."""
-    if not TEST_IR_DIR.exists():
-        pytest.skip(
-            f"Test IR directory {TEST_IR_DIR} not found. "
-            "Run 'npm run test:export' to generate test files."
-        )
-    files = get_test_ir_files()
-    assert len(files) > 0, f"No test IR files found in {TEST_IR_DIR}"
+def test_ir(ir_file):
+    passed, failed = run_one(ir_file)
+    assert failed == 0, f"{failed} test(s) failed in {ir_file.stem}"
+    assert passed > 0, f"No tests ran in {ir_file.stem}"
 EOF
 
     cat > "$PROJECT_DIR/Makefile" << EOF

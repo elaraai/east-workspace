@@ -11,57 +11,79 @@
  */
 
 import * as fs from 'fs/promises';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+
+const execFileAsync = promisify(execFile);
 
 /**
  * Get the current system boot ID.
  * Used for detecting stale locks/processes after system reboot.
  */
 export async function getBootId(): Promise<string> {
+  // Linux
   try {
-    const data = await fs.readFile('/proc/sys/kernel/random/boot_id', 'utf-8');
-    return data.trim();
-  } catch {
-    // Not on Linux, use a placeholder
-    return 'unknown-boot-id';
-  }
+    return (await fs.readFile('/proc/sys/kernel/random/boot_id', 'utf-8')).trim();
+  } catch {}
+  // macOS: sysctl kern.boottime → "{ sec = 1234567890, usec = 0 } ..."
+  try {
+    const { stdout } = await execFileAsync('sysctl', ['-n', 'kern.boottime']);
+    const m = stdout.match(/\bsec\s*=\s*(\d+)/);
+    if (m) return `macos-${m[1]}`;
+  } catch {}
+  return 'unknown-boot-id';
 }
 
 /**
- * Get process start time from /proc/<pid>/stat.
- * Returns the starttime field (field 22) which is jiffies since boot.
- * Used together with boot ID to uniquely identify a process (handles PID reuse).
+ * Get process start time as an opaque integer for PID-reuse detection.
+ * Returns 0 if the process doesn't exist or the platform isn't supported.
  */
 export async function getPidStartTime(pid: number): Promise<number> {
+  // Linux: /proc/<pid>/stat field 22 (starttime in jiffies since boot)
   try {
     const data = await fs.readFile(`/proc/${pid}/stat`, 'utf-8');
-    // Fields are space-separated, but comm (field 2) can contain spaces and is in parens
-    // Find the closing paren, then split the rest
     const closeParen = data.lastIndexOf(')');
     const fields = data.slice(closeParen + 2).split(' ');
-    // After the closing paren, field index 0 is state (field 3), so starttime is at index 19
-    // (field 22 - 3 = 19)
     return parseInt(fields[19], 10);
-  } catch {
-    return 0;
-  }
+  } catch {}
+  // macOS: ps -p <pid> -o lstart= → "Wed Nov  6 12:34:56 2024" or empty if dead
+  try {
+    const { stdout } = await execFileAsync('ps', ['-p', String(pid), '-o', 'lstart=']);
+    const trimmed = stdout.trim();
+    if (!trimmed) return 0;
+    const t = new Date(trimmed).getTime();
+    return isNaN(t) ? 0 : Math.floor(t / 1000);
+  } catch {}
+  return 0;
 }
 
 /**
- * Check if a process is still alive based on stored identification
+ * Check if a process is still alive based on stored identification.
+ * Falls back to process.kill(pid, 0) when /proc is unavailable (macOS, Windows).
  */
 export async function isProcessAlive(
   pid: number,
   pidStartTime: number,
   bootId: string
 ): Promise<boolean> {
-  // Different boot? Process is dead
   const currentBootId = await getBootId();
-  if (currentBootId !== bootId) return false;
 
-  // Check if PID exists and has same start time
+  // Only use boot ID comparison when both sides have real values
+  if (currentBootId !== 'unknown-boot-id' && bootId !== 'unknown-boot-id') {
+    if (currentBootId !== bootId) return false;
+  }
+
   const currentStartTime = await getPidStartTime(pid);
-  if (currentStartTime === 0) return false; // PID doesn't exist
-  if (currentStartTime !== pidStartTime) return false; // PID reused
+  if (currentStartTime !== 0) {
+    // Start time available — use it for precise PID-reuse detection
+    return currentStartTime === pidStartTime;
+  }
 
-  return true;
+  // Fallback: signal 0 checks existence without sending a signal (cross-platform)
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
 }
