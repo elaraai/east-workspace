@@ -108,6 +108,14 @@ if(EAST_USE_MIMALLOC)
     FetchContent_MakeAvailable(mimalloc)
 endif()
 
+# Windows executables default to a ~1 MB stack (vs 8 MB on Linux/macOS), which
+# the deeply-recursive patch/diff suites overflow. Reserve 16 MB for every exe.
+# Applies to both the native MinGW build and the cross-compile toolchain (WIN32
+# is set in both); must precede the add_subdirectory() target definitions.
+if(WIN32)
+    add_link_options(-Wl,--stack,16777216)
+endif()
+
 enable_testing()
 
 add_subdirectory(packages/east-c)

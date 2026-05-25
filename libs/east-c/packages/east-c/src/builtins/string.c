@@ -295,12 +295,37 @@ static int locale_init_done = 0;
 static void ensure_utf8_locale(void)
 {
     if (!locale_init_done) {
-        setlocale(LC_CTYPE, "C.UTF-8");
+        /* Whichever UTF-8 locale spelling the platform accepts makes the
+         * towupper/towlower fallback below Unicode-aware. "C.UTF-8" exists on
+         * glibc but not macOS/Windows, so try the other spellings too. */
+        if (!setlocale(LC_CTYPE, "C.UTF-8") && !setlocale(LC_CTYPE, "en_US.UTF-8") &&
+            !setlocale(LC_CTYPE, "UTF-8") && !setlocale(LC_CTYPE, ".UTF-8")) {
+            setlocale(LC_CTYPE, "");
+        }
         locale_init_done = 1;
     }
 }
 
-/* StringLowerCase / StringUpperCase — full Unicode case mapping via towlower/towupper. */
+/* ASCII and the Latin-1 Supplement (e.g. é<->É) are mapped locale-independently
+ * so the result is identical on every platform — the "C.UTF-8" locale that
+ * makes towupper/towlower handle them isn't available on macOS or Windows.
+ * Higher code points fall through to towupper/towlower (locale-dependent). */
+static uint32_t east_cp_toupper(uint32_t cp)
+{
+    if (cp < 0x80) return (cp >= 'a' && cp <= 'z') ? cp - 0x20u : cp;
+    if (cp >= 0x00E0 && cp <= 0x00FE && cp != 0x00F7) return cp - 0x20u; /* à-þ -> À-Þ */
+    if (cp == 0x00FF) return 0x0178;                                     /* ÿ -> Ÿ */
+    return (uint32_t)towupper((wint_t)cp);
+}
+static uint32_t east_cp_tolower(uint32_t cp)
+{
+    if (cp < 0x80) return (cp >= 'A' && cp <= 'Z') ? cp + 0x20u : cp;
+    if (cp >= 0x00C0 && cp <= 0x00DE && cp != 0x00D7) return cp + 0x20u; /* À-Þ -> à-þ */
+    if (cp == 0x0178) return 0x00FF;                                     /* Ÿ -> ÿ */
+    return (uint32_t)towlower((wint_t)cp);
+}
+
+/* StringLowerCase / StringUpperCase — per-code-point case mapping. */
 static EastValue *string_lower_case(EastValue **args, size_t n)
 {
     (void)n;
@@ -314,7 +339,7 @@ static EastValue *string_lower_case(EastValue **args, size_t n)
     while (s < end) {
         size_t advance;
         uint32_t cp = utf8_decode_cp(s, &advance);
-        uint32_t lc = (uint32_t)towlower((wint_t)cp);
+        uint32_t lc = east_cp_tolower(cp);
         out += utf8_encode_cp(lc, buf + out);
         s += advance;
     }
@@ -337,7 +362,7 @@ static EastValue *string_upper_case(EastValue **args, size_t n)
     while (s < end) {
         size_t advance;
         uint32_t cp = utf8_decode_cp(s, &advance);
-        uint32_t uc = (uint32_t)towupper((wint_t)cp);
+        uint32_t uc = east_cp_toupper(cp);
         out += utf8_encode_cp(uc, buf + out);
         s += advance;
     }
