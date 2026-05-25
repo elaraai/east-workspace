@@ -1137,7 +1137,7 @@ EastCompiledFn *east_compile(IRNode *ir, PlatformRegistry *platform, BuiltinRegi
     fn->platform = platform;
     if (platform) platform_registry_retain(platform);
     fn->builtins = builtins;
-    fn->fn_type = ir->type; /* function type for WASM type marshalling */
+    fn->fn_type = ir->type; /* function type for foreign-runtime type marshalling */
 
     return fn;
 }
@@ -1181,7 +1181,7 @@ EvalResult east_call(EastCompiledFn *fn, EastValue **args, size_t num_args)
     if (!fn) return eval_error("null function");
 
     /* Foreign-runtime dispatch: if the function provides a custom invoke
-     * hook (e.g. JS-callback bridge in WASM), delegate to it.  Skips the
+     * hook (e.g. a callback into an embedding host), delegate to it.  Skips the
      * IR-eval path entirely.  Set thread-locals so any nested east_call /
      * platform call from within the foreign callback can resolve them. */
     if (fn->invoke) {
@@ -1255,7 +1255,7 @@ void east_compiled_fn_free(EastCompiledFn *fn)
 {
     if (!fn) return;
 
-    /* Foreign-runtime cleanup (e.g. release JS handle in WASM bridge).
+    /* Foreign-runtime cleanup (e.g. release a handle held by an embedding host).
      * Must run before releasing IR/captures so user data can still reference
      * them if needed. */
     if (fn->invoke_release) {
