@@ -4,7 +4,7 @@ version = "1.0.0"
 description = "Python runtime for the East programming language"
 readme = "README.md"
 requires-python = ">=3.11"
-license = "BSL-1.1"
+license = { text = "BSL-1.1" }
 authors = [
     {name = "East Contributors", email = "east@example.com"}
 ]

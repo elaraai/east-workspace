@@ -15,6 +15,26 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
+import * as net from 'node:net';
+
+/**
+ * Find a free port with a minimal TOCTOU window.
+ *
+ * Binds a raw TCP socket to port 0, reads the OS-assigned port, then closes
+ * the socket. Use this instead of spinning up a full server just to probe a
+ * port — the window between close and rebind is microseconds rather than
+ * hundreds of milliseconds.
+ */
+export function getFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const probe = net.createServer();
+    probe.listen(0, () => {
+      const port = (probe.address() as net.AddressInfo).port;
+      probe.close(() => resolve(port));
+    });
+    probe.on('error', reject);
+  });
+}
 
 /**
  * Track parent temp directories for cleanup

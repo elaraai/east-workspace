@@ -17,7 +17,7 @@ import { join } from 'node:path';
 
 import { createServer, type Server } from '@elaraai/e3-api-server';
 
-import { createTestDir, removeTestDir, runE3Command } from './helpers.js';
+import { createTestDir, removeTestDir, runE3Command, getFreePort } from './helpers.js';
 
 describe('error handling', () => {
   let reposDir: string;
@@ -57,11 +57,7 @@ describe('error handling', () => {
     const initResult = await runE3Command(['repo', 'create', '.'], repoDir);
     assert.strictEqual(initResult.exitCode, 0, `Failed to init repo: ${initResult.stderr}`);
 
-    // Get an available port first
-    const tempServer = await createServer({ reposDir, port: 0, host: 'localhost' });
-    await tempServer.start();
-    const assignedPort = tempServer.port;
-    await tempServer.stop();
+    const assignedPort = await getFreePort();
 
     serverUrl = `http://localhost:${assignedPort}`;
 

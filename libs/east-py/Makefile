@@ -21,10 +21,10 @@
 ##      workspace members as up-to-date by default and skips rebuilds).
 install: build-deps
 	uv sync --all-extras --all-packages --no-build-isolation \
-		--reinstall-package east-py --refresh-package east-py \
-		--reinstall-package east-py-std --refresh-package east-py-std \
-		--reinstall-package east-py-io --refresh-package east-py-io \
-		--reinstall-package east-py-datascience --refresh-package east-py-datascience
+		--reinstall-package elaraai-east-py --refresh-package elaraai-east-py \
+		--reinstall-package elaraai-east-py-std --refresh-package elaraai-east-py-std \
+		--reinstall-package elaraai-east-py-io --refresh-package elaraai-east-py-io \
+		--reinstall-package elaraai-east-py-datascience --refresh-package elaraai-east-py-datascience
 
 ## Build deps for the no-build-isolation flow. scikit-build-core is the build
 ## backend; cython + numpy are needed at build time by the CMakeLists.
@@ -47,16 +47,16 @@ build-deps:
 ## --refresh-package: bust uv's source-tree fingerprint cache so a pyproject.toml
 ##   or CMakeLists.txt change actually triggers a rebuild.
 reinstall-east-py: build-deps
-	uv sync --all-extras --all-packages --reinstall-package east-py --refresh-package east-py --no-build-isolation
+	uv sync --all-extras --all-packages --reinstall-package elaraai-east-py --refresh-package elaraai-east-py --no-build-isolation
 
 reinstall-east-py-std: build-deps
-	uv sync --all-extras --all-packages --reinstall-package east-py-std --refresh-package east-py-std --no-build-isolation
+	uv sync --all-extras --all-packages --reinstall-package elaraai-east-py-std --refresh-package elaraai-east-py-std --no-build-isolation
 
 reinstall-east-py-io: build-deps
-	uv sync --all-extras --all-packages --reinstall-package east-py-io --refresh-package east-py-io --no-build-isolation
+	uv sync --all-extras --all-packages --reinstall-package elaraai-east-py-io --refresh-package elaraai-east-py-io --no-build-isolation
 
 reinstall-east-py-datascience: build-deps
-	uv sync --all-extras --all-packages --reinstall-package east-py-datascience --refresh-package east-py-datascience --no-build-isolation
+	uv sync --all-extras --all-packages --reinstall-package elaraai-east-py-datascience --refresh-package elaraai-east-py-datascience --no-build-isolation
 
 ## Install east-py command globally (also syncs local .venv)
 install-cli:
@@ -78,17 +78,17 @@ test-export:
 QUIET_FLAG = $(if $(EAST_QUIET),-q)
 
 test-east-py:
-	uv run --package east-py python packages/east-py/tests/test_compliance.py $(QUIET_FLAG)
+	uv run --package elaraai-east-py python packages/east-py/tests/test_compliance.py $(QUIET_FLAG)
 
 test-east-py-std:
-	uv run --package east-py-std python packages/east-py/tests/test_compliance.py --ir-dir /tmp/east-node-std -p east_py_std $(QUIET_FLAG)
+	uv run --package elaraai-east-py-std python packages/east-py/tests/test_compliance.py --ir-dir /tmp/east-node-std -p east_py_std $(QUIET_FLAG)
 
 test-east-py-io:
-	uv run --package east-py-io python packages/east-py/tests/test_compliance.py --ir-dir /tmp/east-node-io -p east_py_std -p east_py_io $(QUIET_FLAG)
+	uv run --package elaraai-east-py-io python packages/east-py/tests/test_compliance.py --ir-dir /tmp/east-node-io -p east_py_std -p east_py_io $(QUIET_FLAG)
 
 test-east-py-datascience:
 	@cd packages/east-py-datascience && pnpm run test:export
-	uv run --package east-py-datascience python packages/east-py/tests/test_compliance.py --ir-dir /tmp/east-py-datascience -p east_py_datascience $(QUIET_FLAG)
+	uv run --package elaraai-east-py-datascience python packages/east-py/tests/test_compliance.py --ir-dir /tmp/east-py-datascience -p east_py_datascience $(QUIET_FLAG)
 
 ## Run all tests
 test:
@@ -134,12 +134,12 @@ check: lint typecheck test
 
 ## Build packages
 build:
-	uv build --package east-py
-	uv build --package east-py-std
-	uv build --package east-py-io
-	uv build --package east-py-cli
+	uv build --package elaraai-east-py
+	uv build --package elaraai-east-py-std
+	uv build --package elaraai-east-py-io
+	uv build --package elaraai-east-py-cli
 	cd packages/east-py-datascience && pnpm run build
-	uv build --package east-py-datascience
+	uv build --package elaraai-east-py-datascience
 
 # ── Native wheel packaging (release-parity, local) ────────────────────
 

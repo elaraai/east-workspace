@@ -382,10 +382,37 @@ type OneShotRunResult =
   the caller, so the spec carries hashes and the runner stays
   deployment-agnostic.
 
-### 8.3 e3-api-server — registry, handler, routes
+### 8.3 e3-api-server — shared handlers (reused by east-aws), routes, registry
 
-In-memory op registry, mirroring `async-operation-state.ts` (never written to
-the repo):
+`e3-api-server` is the **shared HTTP layer**, not only the local server: its
+`index.ts` exports the handler functions `// for Lambda reuse`, and the cloud
+(`east-aws`) imports them. Handlers are framework-agnostic — they return a
+web-standard `Response` — so the local Hono `create*Routes` factories and the
+cloud's Lambda integration wrap the **same** handlers. Two shared surfaces must
+be extended:
+
+- **`ApiTypes`** (`types.ts`) — the wire-type registry. Add
+  `OneShotExecuteRequest`, `OneShotExecuteResult`, `Diagnostic`.
+- **`handlers/`** — add `handlers/one-shot.ts` (`launchOneShot` / `pollOneShot` /
+  `cancelOneShot`, returning `Response`) and re-export from `handlers/index.ts`
+  so `export * from './handlers/index.js'` carries them to east-aws.
+
+`launchOneShot` is where the pieces meet: decode `OneShotExecuteRequestType`;
+authz (caller token + dataset-read perms on `inputs`); resolve+pin each input via
+`workspaceGetDatasetHash` (a non-`value` ref ⇒ an `invalid` result, no run);
+register the op; run via an injected **`TaskRunner`**; return `{ executionId }`
+(`StructType({ executionId: StringType })`).
+
+**Runner injection is the abstraction seam.** The handler must *take* a pluggable
+`TaskRunner` (the e3-core interface), not construct one — local passes
+`LocalTaskRunner`, east-aws passes its Lambda/Fargate runner. (The dataflow
+handlers reach the runner via the local-only `orchestrator-manager`; one-shot
+skips the orchestrator, so it needs the runner injected directly.)
+
+**Async tracking is per-deployment, not shared.** Locally, launch/poll/cancel
+state is an in-memory registry mirroring `async-operation-state.ts` (whose own
+header calls it "a mock for the Step Function-based execution tracking in
+e3-aws"):
 
 ```ts
 interface OneShotOp { status: 'running' | 'done'; startedAt: Date; result?: OneShotRunResult; abort: AbortController; }
@@ -393,29 +420,30 @@ const ops = new Map<string, OneShotOp>();   // key: executionId (randomUUID)
 // createOneShotOp() → id ; completeOneShotOp(id, result) ; getOneShotOp(id) ; cancelOneShotOp(id) → abort.abort()
 ```
 
-Routes under `/repos/:repo/workspaces/:ws` (Hono, like the dataflow + GC routes):
+east-aws supplies its own tracking (Step Functions / DynamoDB) behind the same
+handler shape; the deployment-independent core is e3-core's
+`TaskRunner.runOneShot` (§8.2).
 
-- `POST /one-shot` — decode `OneShotExecuteRequestType`; authz (caller token +
-  dataset-read perms on `inputs`); resolve+pin each input via
-  `workspaceGetDatasetHash` (a non-`value` ref ⇒ an `invalid` result, no run);
-  `createOneShotOp()`; fire `runner.runOneShot(storage, repo, spec, { signal:
-  op.abort.signal })` in the background, settling into `completeOneShotOp`;
-  return `{ executionId }` (`StructType({ executionId: StringType })`) at once.
-- `GET /one-shot/:executionId` — `getOneShotOp`; running ⇒ a running marker, done
-  ⇒ `OneShotExecuteResultType` (map `OneShotRunResult` →
-  `variant('success' | 'failed' | 'invalid', …)`); unknown/evicted ⇒ 404.
-- `POST /one-shot/:executionId/cancel` — `cancelOneShotOp`; the abort signal is
-  the one threaded into `runProcess`, so it kills the process group. Returns
-  `NullType`.
+Local Hono factory `createOneShotRoutes(storage, getRepoPath, taskRunner)`,
+mounted at `/api/repos/:repo/workspaces/:ws/one-shot`, thin-wraps the handlers:
+
+- `POST /one-shot` → `launchOneShot` (fires `taskRunner.runOneShot(storage, repo,
+  spec, { signal: op.abort.signal })` in the background; returns `{ executionId }`).
+- `GET /one-shot/:executionId` → `pollOneShot` (running ⇒ running marker; done ⇒
+  `OneShotExecuteResultType` via `variant('success' | 'failed' | 'invalid', …)`;
+  unknown/evicted ⇒ 404).
+- `POST /one-shot/:executionId/cancel` → `cancelOneShot` (aborts the signal
+  threaded into `runProcess`, killing the process group); returns `NullType`.
 
 No workspace lock is taken — inputs are pinned by content hash, so one-shots run
 concurrently with each other and with a dataflow run (§6). A per-server cap on
 concurrent one-shots is the only resource guard, independent of the dataflow
 single-active-execution rule.
 
-### 8.4 e3-api-client — methods
+### 8.4 e3-api-client — HTTP methods + `Platform` registry
 
-Mirror `dataflowExecute*` (`executions.ts`), beast2 over the wire:
+The HTTP methods mirror `dataflowExecute*` (`executions.ts`), beast2 over the
+wire:
 
 ```ts
 oneShotExecuteLaunch(url, repo, ws, req: OneShotExecuteRequest, options): Promise<{ executionId: string }>;
@@ -426,16 +454,40 @@ oneShotExecuteCancel(url, repo, ws, executionId: string, options): Promise<void>
 Optionally a `oneShotExecute(...)` convenience that launches then polls to
 completion with backoff, like `dataflowExecute`.
 
+**`Platform` registry (callable from East).** Every e3 operation is *also*
+exposed as an East async platform function in `platform.ts` (`East.asyncPlatform`),
+`.implement`-ed against these HTTP methods and collected into `Platform` +
+`Platform.Types`. This is how East programs — notably **e3-ui tasks** — invoke
+e3: a UI "preview/compute" button calls `Platform.oneShotExecute` exactly as it
+calls `Platform.dataflowExecute` today. Since interactive preview/REPL is the
+headline motivation (§2), one-shot must be added here too:
+
+```ts
+export const platform_one_shot_execute = East.asyncPlatform(
+  'e3_one_shot_execute',
+  [StringType, StringType, StringType, OneShotExecuteRequestType, StringType], // url, repo, workspace, request, token
+  OneShotExecuteResultType,
+);
+// .implement(...) wraps launch + poll-to-completion (like platform_dataflow_execute);
+// then add `oneShotExecute: platform_one_shot_execute` to `Platform`, its types
+// to `Platform.Types`, and export the symbol from index.ts.
+```
+
+Cancel and standalone poll stay client-only (the HTTP methods above); the
+platform function is the run-to-completion form, matching
+`platform_dataflow_execute`.
+
 ### 8.5 Reuse vs new
 
 | Reused as-is | New |
 |---|---|
 | spawn/capture/timeout/abort mechanics (`runCommand` → `runProcess`) | compute-core extraction (`marshalInputs`, `runProcess`, `oneShotExecute`) |
-| `workspaceGetDatasetHash` (path → pinned hash) | `buildRunnerArgv` shared CLI-contract helper |
-| `ObjectStore.read` (inputs; never `write`) | `TaskRunner.runOneShot` + cloud implementations |
-| async-op registry pattern (`async-operation-state.ts`) | `OneShotExecuteRequest/Result`, `Diagnostic` East types (§5) |
-| Hono routes + `post`/`get` client helpers | 3 routes + in-memory one-shot registry; 3 client methods |
-| beast2 encode/decode (`encodeBeast2For`) | TTL/eviction for finished ops (§13) |
+| `workspaceGetDatasetHash` (path → pinned hash); `ObjectStore.read` (never `write`) | `buildRunnerArgv` shared CLI-contract helper |
+| `TaskRunner` interface + the runner-injection seam | `TaskRunner.runOneShot` + Local/cloud implementations |
+| shared handler layer (`handlers/*`, exported "for Lambda reuse") + `ApiTypes` | `handlers/one-shot.ts` (launch/poll/cancel); `ApiTypes` + `Platform.Types` entries |
+| async-op registry pattern (`async-operation-state.ts`); Hono route factories | `createOneShotRoutes` + in-memory registry (local); east-aws supplies its own tracking |
+| `e3-api-client` `post`/`get` + the `Platform` registry pattern | 3 client methods + `platform_one_shot_execute` (East-callable) |
+| beast2 codec (`encodeBeast2For`) | `OneShotExecuteRequest/Result`, `Diagnostic` East types (§5); TTL/eviction (§13) |
 
 ## 9. Caching escape hatch (future, opt-in)
 

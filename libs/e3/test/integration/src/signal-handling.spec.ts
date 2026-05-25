@@ -14,7 +14,7 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createTestDir, removeTestDir, runE3Command, spawnE3Command } from './helpers.js';
+import { createTestDir, removeTestDir, runE3Command, spawnE3Command, waitFor } from './helpers.js';
 
 // SDK imports
 import e3 from '@elaraai/e3';
@@ -70,8 +70,8 @@ describe('signal handling', () => {
       const startTime = Date.now();
       const proc = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
-      // Wait for task to start (watch for [START] in output)
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Wait for task to start
+      await waitFor(() => proc.getStdout().includes('[START]'), 10000);
 
       // Send SIGINT (Ctrl+C)
       proc.kill('SIGINT');
@@ -130,7 +130,7 @@ describe('signal handling', () => {
       const proc = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
       // Wait for task to start
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await waitFor(() => proc.getStdout().includes('[START]'), 10000);
 
       proc.kill('SIGINT');
 
@@ -172,7 +172,7 @@ describe('signal handling', () => {
       const proc = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
       // Wait for task to start and state to be created
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      await waitFor(() => proc.getStdout().includes('[START]'), 10000);
 
       // Send SIGINT
       proc.kill('SIGINT');
@@ -221,7 +221,7 @@ describe('signal handling', () => {
       const proc = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
       // Wait for task to start and state to be created
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      await waitFor(() => proc.getStdout().includes('[START]'), 10000);
 
       // Send SIGINT (triggers immediate persistence)
       proc.kill('SIGINT');
@@ -276,7 +276,7 @@ describe('signal handling', () => {
 
       // Start and kill the first execution
       const proc1 = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      await waitFor(() => proc1.getStdout().includes('[START]'), 10000);
       proc1.kill('SIGKILL');
       await proc1.result;
 
@@ -287,7 +287,7 @@ describe('signal handling', () => {
       const proc2 = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
       // Wait for it to start
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      await waitFor(() => proc2.getStdout().includes('[START]'), 10000);
 
       // Verify it's running (not blocked by stale lock)
       // The execution state should show 'running'
@@ -331,7 +331,7 @@ describe('signal handling', () => {
       const startProc = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
       // Wait for task to start
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await waitFor(() => startProc.getStdout().includes('[START]'), 10000);
 
       // Try to deploy while dataflow is running - should fail with lock error
       const deployResult = await runE3Command(
@@ -374,7 +374,7 @@ describe('signal handling', () => {
       const startProc = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
       // Wait for task to start
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await waitFor(() => startProc.getStdout().includes('[START]'), 10000);
 
       // Try to remove while dataflow is running - should fail with lock error
       const removeResult = await runE3Command(
@@ -417,7 +417,7 @@ describe('signal handling', () => {
       const startProc1 = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
       // Wait for task to start
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await waitFor(() => startProc1.getStdout().includes('[START]'), 10000);
 
       // Try to start another dataflow - should fail with lock error
       const startResult2 = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
