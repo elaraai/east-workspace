@@ -7,6 +7,7 @@
 #include "east_std/east_std.h"
 #include <east/values.h>
 #include <east/eval_result.h>
+#include <east/compat.h>
 #include <time.h>
 #include <unistd.h>
 #include <stdint.h>
@@ -20,10 +21,7 @@ static EvalResult time_now(EastValue **args, size_t num_args, EastType **input_t
     (void)args;
     (void)num_args;
 
-    struct timespec ts;
-    clock_gettime(CLOCK_REALTIME, &ts);
-    int64_t millis = (int64_t)ts.tv_sec * 1000 + (int64_t)ts.tv_nsec / 1000000;
-    return eval_ok(east_integer(millis));
+    return eval_ok(east_integer(east_realtime_millis()));
 }
 
 static EvalResult time_sleep(EastValue **args, size_t num_args, EastType **input_types,
@@ -84,8 +82,20 @@ static EvalResult time_get_timezone_offset(EastValue **args, size_t num_args,
     (void)0; /* Accept the result as-is; POSIX semantics are best-effort */
 #endif
 
-    /* Compute offset in minutes using tm_gmtoff (seconds east of UTC) */
+    /* Compute offset in minutes (seconds east of UTC). */
+#ifdef _WIN32
+    /* Windows struct tm has no tm_gmtoff. Interpret the UTC broken-down time as
+       local: mktime(utc) == epoch_sec - offset. NOTE: Windows mktime honours TZ
+       only in POSIX format, not IANA zone names, so non-system zones are
+       best-effort here. */
+    (void)local_tm;
+    struct tm utc_as_local = utc_tm;
+    utc_as_local.tm_isdst = -1;
+    int64_t offset_minutes = (int64_t)(epoch_sec - (time_t)mktime(&utc_as_local)) / 60;
+#else
+    (void)utc_tm;
     int64_t offset_minutes = local_tm.tm_gmtoff / 60;
+#endif
 
     return eval_ok(east_integer(offset_minutes));
 }

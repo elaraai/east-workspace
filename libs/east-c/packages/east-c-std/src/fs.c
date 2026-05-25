@@ -9,6 +9,7 @@
 #include <east/values.h>
 #include <east/types.h>
 #include <east/eval_result.h>
+#include <east/compat.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -146,11 +147,11 @@ static EvalResult fs_create_directory(EastValue **args, size_t num_args, EastTyp
     for (char *p = tmp + 1; *p; p++) {
         if (*p == '/') {
             *p = '\0';
-            mkdir(tmp, 0755);
+            east_mkdir(tmp);
             *p = '/';
         }
     }
-    mkdir(tmp, 0755);
+    east_mkdir(tmp);
     free(tmp);
     return eval_ok(east_null());
 }

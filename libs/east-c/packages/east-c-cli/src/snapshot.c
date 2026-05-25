@@ -17,6 +17,7 @@
 #include <east/serialization.h>
 #include <east/types.h>
 #include <east/values.h>
+#include <east/compat.h>
 
 #include <microtar.h>
 

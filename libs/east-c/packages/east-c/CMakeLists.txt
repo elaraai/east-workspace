@@ -53,8 +53,9 @@ if(EAST_USE_MIMALLOC AND NOT EMSCRIPTEN AND TARGET mimalloc-static)
 endif()
 
 # Compliance test runner (run via: make test-east-c).
-# Not built in WASM configurations — the WASM target has its own test runner.
-if(NOT EMSCRIPTEN)
+# Not built in WASM configurations — the WASM target has its own test runner —
+# nor when cross-compiling (tests run on host platforms, not the Windows .exe).
+if(NOT EMSCRIPTEN AND NOT CMAKE_CROSSCOMPILING)
     add_executable(test_compliance tests/test_compliance.c)
     target_link_libraries(test_compliance east-c)
 endif()

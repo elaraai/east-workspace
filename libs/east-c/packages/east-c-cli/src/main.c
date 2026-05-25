@@ -17,9 +17,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <sys/resource.h>
 #include <sys/stat.h>
 #include <east/hashmap.h>
+#include <east/compat.h>
 
 static double elapsed_ms(struct timespec *start, struct timespec *end)
 {
@@ -643,9 +643,7 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
     clock_gettime(CLOCK_MONOTONIC, &t5);
 
     if (verbose) {
-        struct rusage usage;
-        getrusage(RUSAGE_SELF, &usage);
-        long peak_kb = usage.ru_maxrss;
+        long peak_kb = east_peak_rss_kb();
 
         fprintf(stderr, "\nTiming:\n");
         fprintf(stderr, "  Load:      %8.1f ms\n", elapsed_ms(&t0, &t1));

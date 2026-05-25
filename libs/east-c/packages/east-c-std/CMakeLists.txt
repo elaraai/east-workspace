@@ -21,6 +21,9 @@ if(CURL_FOUND)
     target_compile_definitions(east-c-std PRIVATE EAST_HAS_CURL=1)
 endif()
 
-# Compliance test runner (run via: make test-east-c-std)
-add_executable(test_std_compliance tests/test_compliance.c)
-target_link_libraries(test_std_compliance east-c-std)
+# Compliance test runner (run via: make test-east-c-std).
+# Skipped when cross-compiling — tests run on host platforms, not the Windows .exe.
+if(NOT CMAKE_CROSSCOMPILING)
+    add_executable(test_std_compliance tests/test_compliance.c)
+    target_link_libraries(test_std_compliance east-c-std)
+endif()
