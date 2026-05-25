@@ -9,8 +9,7 @@
   "files": ["dist", "templates"],
   "scripts": {
     "build": "node build.mjs",
-    "test": "node --test \"dist/**/*.spec.js\"",
-    "lint": "eslint ."
+    "test": "node --test \"dist/**/*.spec.js\""
   },
   "license": "AGPL-3.0-or-later",
   "repository": {

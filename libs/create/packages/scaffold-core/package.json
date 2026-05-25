@@ -11,8 +11,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "node --test \"dist/**/*.spec.js\"",
-    "lint": "eslint ."
+    "test": "node --test \"dist/**/*.spec.js\""
   },
   "license": "AGPL-3.0-or-later",
   "devDependencies": {

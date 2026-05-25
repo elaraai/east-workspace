@@ -105,10 +105,11 @@ curl -fsSL https://raw.githubusercontent.com/elaraai/east-workspace/main/libs/ea
 
 ### Project: Create New Project
 
+Scaffolding is no longer a plugin script — it moved to the published `npm create`
+initializers in [`libs/create`](../../create):
+
 ```bash
-curl -fsSL https://raw.githubusercontent.com/elaraai/east-workspace/main/libs/east-claude-plugin/scripts/scaffold/new.sh | bash
-# or
-./scripts/project/new.sh my-project
+npm create @elaraai/e3 my-project     # or @elaraai/east
 ```
 
 ### Project: Install/Update Dependencies (inside project)

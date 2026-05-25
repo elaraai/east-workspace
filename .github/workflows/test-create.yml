@@ -1,0 +1,90 @@
+name: Test create
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "libs/create/**"
+      - ".github/workflows/test-create.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "libs/create/**"
+      - ".github/workflows/test-create.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        # Git bash on the Windows runner, so scaffold + assertions are identical across OSes.
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build scaffold-core + create-* bins
+        run: pnpm --filter @elaraai/scaffold-core --filter @elaraai/create-e3 --filter @elaraai/create-east run build
+
+      - name: Unit tests (scaffold-core)
+        run: pnpm --filter @elaraai/scaffold-core run test
+
+      # ── Scaffold smoke (no network): the bins run cross-platform and emit the
+      #    expected tree, with dotfiles renamed and tokens substituted. ──────────
+      - name: Scaffold east (smoke)
+        working-directory: ${{ runner.temp }}
+        run: |
+          node "$GITHUB_WORKSPACE/libs/create/packages/create-east/dist/index.js" smoke-east --no-install
+          test -f smoke-east/package.json
+          test -f smoke-east/.gitignore
+          test -f smoke-east/src/index.ts
+
+      - name: Scaffold e3 (smoke)
+        working-directory: ${{ runner.temp }}
+        run: |
+          node "$GITHUB_WORKSPACE/libs/create/packages/create-e3/dist/index.js" smoke-e3 --no-install
+          test -f smoke-e3/pyproject.toml
+          test -f smoke-e3/src/index.ts
+          grep -q "export default" smoke-e3/src/index.ts
+
+      # ── east end-to-end: scaffold, install (published deps), and run the
+      #    generated project's own commands. ─────────────────────────────────────
+      - name: east project e2e (build + test + lint)
+        working-directory: ${{ runner.temp }}
+        run: |
+          node "$GITHUB_WORKSPACE/libs/create/packages/create-east/dist/index.js" e2e-east --install
+          cd e2e-east
+          npm run build
+          npm run test
+          npm run lint
+
+      # ── e3 end-to-end: scaffold + install (published Node deps) + build + TS
+      #    tests. The deploy/dataflow exercise (which needs this PR's unreleased
+      #    e3-cli --from-source) is added once e3-cli ships — see PR checklist. ───
+      - name: e3 project e2e (build + TS tests)
+        working-directory: ${{ runner.temp }}
+        run: |
+          node "$GITHUB_WORKSPACE/libs/create/packages/create-e3/dist/index.js" e2e-e3 --no-install
+          cd e2e-e3
+          npm install
+          npm run build
+          npm run test:ts

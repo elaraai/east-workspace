@@ -25,12 +25,25 @@ concurrency:
 jobs:
   test:
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-14]
+        os: [ubuntu-latest, macos-14, windows-latest]
     runs-on: ${{ matrix.os }}
+    # Windows is informational while cross-platform issues are shaken out; the
+    # make-based pipeline + native east-py build are the likely rough edges.
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
+    defaults:
+      run:
+        # Git bash ships on the Windows runner; using it everywhere keeps the
+        # make targets and `||` / `&&` shell idioms identical across OSes.
+        shell: bash
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install make (Windows)
+        if: runner.os == 'Windows'
+        run: choco install make --no-progress
 
       - uses: pnpm/action-setup@v4
 
