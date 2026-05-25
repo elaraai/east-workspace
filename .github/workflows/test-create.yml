@@ -66,25 +66,9 @@ jobs:
           test -f smoke-e3/src/index.ts
           grep -q "export default" smoke-e3/src/index.ts
 
-      # ── east end-to-end: scaffold, install (published deps), and run the
-      #    generated project's own commands. ─────────────────────────────────────
-      - name: east project e2e (build + test + lint)
-        working-directory: ${{ runner.temp }}
-        run: |
-          node "$GITHUB_WORKSPACE/libs/create/packages/create-east/dist/index.js" e2e-east --install
-          cd e2e-east
-          npm run build
-          npm run test
-          npm run lint
-
-      # ── e3 end-to-end: scaffold + install (published Node deps) + build + TS
-      #    tests. The deploy/dataflow exercise (which needs this PR's unreleased
-      #    e3-cli --from-source) is added once e3-cli ships — see PR checklist. ───
-      - name: e3 project e2e (build + TS tests)
-        working-directory: ${{ runner.temp }}
-        run: |
-          node "$GITHUB_WORKSPACE/libs/create/packages/create-e3/dist/index.js" e2e-e3 --no-install
-          cd e2e-e3
-          npm install
-          npm run build
-          npm run test:ts
+      # NOTE: a full "install + run the generated project's commands" e2e is
+      # intentionally omitted here. Emitted projects pin *published* @elaraai/*
+      # versions (the scaffolder rewrites workspace:* -> ^version), so that path
+      # exercises the registry packages, not this repo's code, and is better run
+      # against live builds (verdaccio) or post-release. The smoke steps above
+      # validate the create packages themselves cross-platform.

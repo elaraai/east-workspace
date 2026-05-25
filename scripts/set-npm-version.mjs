@@ -9,7 +9,7 @@ const repoRoot = path.resolve(__dirname, '..');
 const NEW_VERSION = process.argv[2];
 if (!NEW_VERSION) {
   console.error('Usage: set-npm-version.mjs <semver>');
-  console.error('  Writes <semver> to all 18 publishable @elaraai/* package.json files.');
+  console.error('  Writes <semver> to every publishable @elaraai/* package.json file.');
   console.error('  Does NOT touch pyproject.toml or the VSCode extension — see:');
   console.error('    scripts/set-python-version.mjs');
   console.error('    scripts/set-vsix-version.mjs');
@@ -34,6 +34,8 @@ const PKGS = [
   'libs/east-ui/packages/east-ui-components/package.json',
   'libs/east-ui/packages/e3-ui/package.json',
   'libs/east-ui/packages/e3-ui-components/package.json',
+  'libs/create/packages/create-east/package.json',
+  'libs/create/packages/create-e3/package.json',
 ];
 
 for (const rel of PKGS) {

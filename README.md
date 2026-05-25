@@ -63,22 +63,14 @@ Each library has its own `README.md` with installation, a quick start, and refer
 
 ## Create a project
 
-Scaffold a new project with one command (cross-platform — Node 22+; the e3 type also uses Python via [uv](https://docs.astral.sh/uv/)):
+One command, cross-platform (Node 22+; e3 also uses Python via [uv](https://docs.astral.sh/uv/)):
 
 ```bash
 npm create @elaraai/e3 my-solution     # BSL-1.1 · Node + Python · durable execution
 npm create @elaraai/east my-lib        # AGPL-3.0 · Node-only
 ```
 
-Then:
-
-```bash
-cd my-solution
-npm run setup     # install Node + Python dependencies
-npm run start     # e3: deploy from source and run the dataflow  (east: npm run test)
-```
-
-Pass `.` instead of a name to scaffold into the current directory, or `-- --install` to install while scaffolding. See [`libs/create`](libs/create) for details.
+Generated projects drive everything through npm scripts — `npm run setup`, `build`, `test`, and (e3) `start` / `watch`. Pass `.` to scaffold in place, or `-- --install` to install while scaffolding. See [`libs/create`](libs/create).
 
 ## Develop
 

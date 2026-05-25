@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Publishes the 18 @elaraai/* npm packages, skipping any that are already on npm
+// Publishes the @elaraai/* npm packages, skipping any that are already on npm
 // at the current version. Makes retry-after-partial-failure safe without requiring
 // manual cherry-pick.
 //
@@ -42,6 +42,8 @@ const PKGS = [
   'libs/east-ui/packages/east-ui-components/package.json',
   'libs/east-ui/packages/e3-ui/package.json',
   'libs/east-ui/packages/e3-ui-components/package.json',
+  'libs/create/packages/create-east/package.json',
+  'libs/create/packages/create-e3/package.json',
 ];
 
 function alreadyPublished(pkgName, version) {
