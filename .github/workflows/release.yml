@@ -154,6 +154,9 @@ jobs:
         run: make build
         env:
           NODE_OPTIONS: --max-old-space-size=4096
+      - name: Build east-py-datascience TypeScript
+        working-directory: libs/east-py/packages/east-py-datascience
+        run: pnpm run build
       - name: Lint east
         working-directory: libs/east
         run: make lint
