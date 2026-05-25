@@ -42,23 +42,11 @@ Repository = "https://github.com/elaraai/east-py"
 Issues = "https://github.com/elaraai/east-py/issues"
 
 [build-system]
-requires = ["scikit-build-core>=0.10", "cython>=3.0.0"]
-build-backend = "scikit_build_core.build"
+requires = ["setuptools>=69.0.0"]
+build-backend = "setuptools.build_meta"
 
-# scikit-build-core drives the build via CMakeLists.txt at this package's
-# root. The .pyx files cimport east._eastc — Cython resolves that via
-# sys.path, so east-py must be installed before this package builds (the
-# workspace dep declared in [project.dependencies] orders this for uv).
-[tool.scikit-build]
-cmake.version = ">=3.18"
-cmake.build-type = "Release"
-wheel.packages = ["east_py_std"]
-# built once by `uv sync`, not at import time — see east-py/pyproject.toml.
-editable.rebuild = false
-editable.verbose = false
-build-dir = "build/{wheel_tag}"
-sdist.include = ["east_py_std/**/*.pxd", "east_py_std/**/*.pyx"]
-wheel.exclude = ["east_py_std/**/*.c"]
+[tool.setuptools.packages.find]
+include = ["east_py_std*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

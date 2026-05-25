@@ -93,22 +93,11 @@ Repository = "https://github.com/elaraai/east-py"
 Issues = "https://github.com/elaraai/east-py/issues"
 
 [build-system]
-requires = ["scikit-build-core>=0.10", "cython>=3.0.0"]
-build-backend = "scikit_build_core.build"
+requires = ["setuptools>=69.0.0"]
+build-backend = "setuptools.build_meta"
 
-# east-py-io has no native code today — the CMakeLists.txt is a placeholder
-# so the same scikit-build-core flow that handles east-py / east-py-std
-# applies here too. Future native code (e.g. accelerated decoders linked
-# against east-c) drops in by following the east-py-std/CMakeLists.txt
-# template.
-[tool.scikit-build]
-cmake.version = ">=3.18"
-cmake.build-type = "Release"
-wheel.packages = ["east_py_io"]
-# built once by `uv sync`, not at import time — see east-py/pyproject.toml.
-editable.rebuild = false
-editable.verbose = false
-build-dir = "build/{wheel_tag}"
+[tool.setuptools.packages.find]
+include = ["east_py_io*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
