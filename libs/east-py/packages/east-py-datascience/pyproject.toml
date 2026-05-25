@@ -6,12 +6,12 @@ readme = "README.md"
 license = { file = "LICENSE.md" }
 requires-python = ">=3.11"
 dependencies = [
-    "east-py",
+    "elaraai-east-py",
     "numpy>=2.0.0",
 ]
 
 [tool.uv.sources]
-east-py = { workspace = true }
+elaraai-east-py = { workspace = true }
 
 [project.optional-dependencies]
 mads = ["PyNomadBBO>=4.4.0"]

@@ -243,17 +243,15 @@ jobs:
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: |
-          pnpm exec vsce publish --no-dependencies --packagePath *.vsix \
-            ${{ needs.prepare.outputs.is_prerelease == 'true' && '--pre-release' || '' }} || {
-            ERR=$?
-            VSIX_VERSION="${{ needs.prepare.outputs.vsix_version }}"
-            if pnpm exec vsce show ElaraAI.east-ui --json 2>/dev/null \
-              | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); process.exit(d.versions?.some(v=>v.version==='${VSIX_VERSION}')?0:1)"; then
-              echo "Version ${VSIX_VERSION} already published, skipping."
+          OUT=$(pnpm exec vsce publish --no-dependencies --packagePath *.vsix \
+            ${{ needs.prepare.outputs.is_prerelease == 'true' && '--pre-release' || '' }} 2>&1) || {
+            if echo "$OUT" | grep -q "already exists"; then
+              echo "Version already published, skipping."
             else
-              exit $ERR
+              echo "$OUT" && exit 1
             fi
           }
+          echo "$OUT"
       - name: Upload VSIX artifact
         uses: actions/upload-artifact@v4
         with:

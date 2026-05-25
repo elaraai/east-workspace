@@ -20,11 +20,11 @@ classifiers = [
 ]
 
 dependencies = [
-    "east-py",
+    "elaraai-east-py",
 ]
 
 [tool.uv.sources]
-east-py = { workspace = true }
+elaraai-east-py = { workspace = true }
 
 [project.optional-dependencies]
 dev = [
