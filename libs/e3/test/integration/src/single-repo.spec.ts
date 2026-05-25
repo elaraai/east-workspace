@@ -13,14 +13,13 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync } from 'node:fs';
-import * as net from 'node:net';
 import { join } from 'node:path';
 
 import e3 from '@elaraai/e3';
 import { IntegerType, East } from '@elaraai/east';
 import { createServer, type Server } from '@elaraai/e3-api-server';
 
-import { createTestDir, removeTestDir, runE3Command } from './helpers.js';
+import { createTestDir, removeTestDir, runE3Command, getFreePort } from './helpers.js';
 
 describe('single-repo mode', () => {
   let repoDir: string;
@@ -55,15 +54,7 @@ describe('single-repo mode', () => {
     const initResult = await runE3Command(['repo', 'create', '.'], repoDir);
     assert.strictEqual(initResult.exitCode, 0, `Failed to init repo: ${initResult.stderr}`);
 
-    // Get an available port with minimal TOCTOU window
-    const assignedPort = await new Promise<number>((resolve, reject) => {
-      const probe = net.createServer();
-      probe.listen(0, () => {
-        const port = (probe.address() as net.AddressInfo).port;
-        probe.close(() => resolve(port));
-      });
-      probe.on('error', reject);
-    });
+    const assignedPort = await getFreePort();
 
     serverUrl = `http://localhost:${assignedPort}`;
 

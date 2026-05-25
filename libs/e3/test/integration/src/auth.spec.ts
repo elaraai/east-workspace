@@ -16,7 +16,7 @@ import { join } from 'node:path';
 
 import { createServer, type Server } from '@elaraai/e3-api-server';
 
-import { createTestDir, removeTestDir, runE3Command } from './helpers.js';
+import { createTestDir, removeTestDir, runE3Command, getFreePort } from './helpers.js';
 
 describe('OIDC authentication', () => {
   let reposDir: string;
@@ -49,18 +49,7 @@ describe('OIDC authentication', () => {
     const initResult = await runE3Command(['repo', 'create', '.'], repoDir);
     assert.strictEqual(initResult.exitCode, 0, `Failed to init repo: ${initResult.stderr}`);
 
-    // Start server with OIDC enabled
-    // First create with port 0 to get assigned port, then we'll recreate with baseUrl
-    const tempServer = await createServer({
-      reposDir,
-      port: 0,
-      host: 'localhost',
-    });
-    await tempServer.start();
-    const assignedPort = tempServer.port;
-    await tempServer.stop();
-
-    // Now create the real server with OIDC configured
+    const assignedPort = await getFreePort();
     serverUrl = `http://localhost:${assignedPort}`;
     server = await createServer({
       reposDir,
@@ -241,16 +230,7 @@ describe('OIDC authentication', () => {
       // This test needs a separate server with short token expiry
       await server.stop();
 
-      // Get a new port for the short-expiry server
-      const tempServer2 = await createServer({
-        reposDir,
-        port: 0,
-        host: 'localhost',
-      });
-      await tempServer2.start();
-      const shortExpiryPort = tempServer2.port;
-      await tempServer2.stop();
-
+      const shortExpiryPort = await getFreePort();
       const shortExpiryUrl = `http://localhost:${shortExpiryPort}`;
 
       // Start new server with very short token expiry (2 seconds)
