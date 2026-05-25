@@ -47,15 +47,17 @@ target_include_directories(east-c PUBLIC include)
 target_link_libraries(east-c PRIVATE m pcre2-8)
 target_compile_definitions(east-c PRIVATE PCRE2_CODE_UNIT_WIDTH=8)
 
-if(EAST_USE_MIMALLOC AND NOT EMSCRIPTEN AND TARGET mimalloc-static)
+if(EAST_USE_MIMALLOC AND TARGET mimalloc-static)
     target_link_libraries(east-c PUBLIC mimalloc-static)
     target_compile_definitions(east-c PUBLIC EAST_USE_MIMALLOC=1)
 endif()
 
-# Compliance test runner (run via: make test-east-c).
-# Not built in WASM configurations — the WASM target has its own test runner —
-# nor when cross-compiling (tests run on host platforms, not the Windows .exe).
-if(NOT EMSCRIPTEN AND NOT CMAKE_CROSSCOMPILING)
-    add_executable(test_compliance tests/test_compliance.c)
-    target_link_libraries(test_compliance east-c)
+# Compliance test runner (run via: make test-east-c). Built when cross-compiling
+# too, so the suite can run against the Windows binary; on Windows it needs
+# winpthreads for clock_gettime (east-c alone doesn't pull it in).
+add_executable(test_compliance tests/test_compliance.c)
+target_link_libraries(test_compliance east-c)
+if(WIN32)
+    find_package(Threads REQUIRED)
+    target_link_libraries(test_compliance Threads::Threads)
 endif()

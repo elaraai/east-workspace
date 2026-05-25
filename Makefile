@@ -124,7 +124,7 @@ test-export:
 
 # ── Full Test Run ────────────────────────────────────────────────────
 
-## Start services, run ALL tests (TS + C + WASM + Python), stop services
+## Start services, run ALL tests (TS + C + Python), stop services
 ## Requires: make setup (one-time), make install, make build
 ## Sets EAST_QUIET=1 so each runner only outputs failures + summaries.
 test-all: services-up test-export
@@ -178,9 +178,9 @@ help:
 	@echo ""
 	@echo "First time:"
 	@echo "  check-deps       - Verify required tools (uv, pnpm, cmake, cc, ...)"
-	@echo "  setup            - Install emscripten SDK (one-time)"
+	@echo "  setup            - Verify required build tools (one-time)"
 	@echo "  install          - Install deps (pnpm + uv)"
-	@echo "  build            - Build everything (east-c + WASM + east-py + TS)"
+	@echo "  build            - Build everything (east-c + east-py + TS)"
 	@echo "  link             - Link CLIs globally"
 	@echo ""
 	@echo "Development:"

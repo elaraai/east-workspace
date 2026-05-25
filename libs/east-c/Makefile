@@ -29,7 +29,7 @@ test-east-c: build
 	@./packages/east-c/scripts/run_compliance.sh
 
 test-east-c-std: build
-	@./packages/east-c-std/scripts/test_compliance.sh
+	@./packages/east-c/scripts/run_compliance.sh /tmp/east-node-std build/packages/east-c-std/test_std_compliance
 
 ## Run native tests (east-c + east-c-std)
 test: test-east-c test-east-c-std
