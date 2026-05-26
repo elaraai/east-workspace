@@ -5,9 +5,12 @@ on:
     paths:
       - "**/package.json"
       - "**/pyproject.toml"
+      - ".claude-plugin/marketplace.json"
+      - "libs/east-claude-plugin/.claude-plugin/plugin.json"
       - "scripts/set-npm-version.mjs"
       - "scripts/set-python-version.mjs"
       - "scripts/set-vsix-version.mjs"
+      - "scripts/set-plugin-version.mjs"
       - "scripts/check-version-drift.mjs"
       - ".github/workflows/version-drift.yml"
 
