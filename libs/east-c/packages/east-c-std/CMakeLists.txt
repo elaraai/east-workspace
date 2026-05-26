@@ -4,6 +4,7 @@ add_library(east-c-std
     src/path.c
     src/crypto.c
     src/time_ops.c
+    src/tzfile.c
     src/random.c
     src/fetch.c
     src/test.c

@@ -52,6 +52,16 @@ jobs:
           name: ir-std
           path: /tmp/east-node-std/
           if-no-files-found: error
+      # Vendor the IANA tz database for the Windows leg: its CRT can't resolve
+      # IANA zone names, so east-c-std reads these TZif files directly (see
+      # tzfile.c). Linux/macOS use their system tz database.
+      - name: Bundle tz database
+        run: tar -czf /tmp/zoneinfo.tar.gz -C /usr/share zoneinfo
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tzdata
+          path: /tmp/zoneinfo.tar.gz
+          if-no-files-found: error
 
   test-east-c:
     name: Test east-c (${{ matrix.os }})
@@ -114,6 +124,18 @@ jobs:
           name: ir-std
           path: libs/east-c/build/ir-std
 
+      # tz database for the Windows std leg (east-c-std reads TZif directly there).
+      - name: Fetch tz database (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/download-artifact@v4
+        with:
+          name: tzdata
+          path: libs/east-c/build/tz
+      - name: Extract tz database (Windows)
+        if: runner.os == 'Windows'
+        working-directory: libs/east-c/build/tz
+        run: tar -xzf zoneinfo.tar.gz
+
       # httpbin for the fetch compliance suite. go-httpbin is a drop-in httpbin
       # built from source by `go install`, so the same step works on
       # Linux/macOS/Windows with no Docker services.
@@ -133,7 +155,11 @@ jobs:
 
       - name: east-c-std compliance
         working-directory: libs/east-c
-        run: ./packages/east-c/scripts/run_compliance.sh build/ir-std build/packages/east-c-std/test_std_compliance
+        run: |
+          # Windows reads the vendored tz database; TZDIR is relative to this
+          # dir (the binary's cwd). Linux/macOS use their system tz.
+          if [ "$RUNNER_OS" = "Windows" ]; then export TZDIR=build/tz/zoneinfo; fi
+          ./packages/east-c/scripts/run_compliance.sh build/ir-std build/packages/east-c-std/test_std_compliance
 
   lint-east-c:
     name: Lint east-c (clang-format)

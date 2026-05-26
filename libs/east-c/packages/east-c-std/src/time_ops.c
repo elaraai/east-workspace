@@ -15,6 +15,8 @@
 #include <string.h>
 #include <stdio.h>
 
+#include "tzfile.h"
+
 static EvalResult time_now(EastValue **args, size_t num_args, EastType **input_types,
                            size_t num_input_types, EastType *output_type)
 {
@@ -43,25 +45,25 @@ static EvalResult time_get_timezone_offset(EastValue **args, size_t num_args,
     (void)num_args;
     int64_t epoch_ms = args[0]->data.datetime;
     const char *zone_name = args[1]->data.string.data;
+    time_t epoch_sec = (time_t)(epoch_ms / 1000);
 
-    /* Save and restore TZ to avoid side effects */
+#ifdef _WIN32
+    /* Windows' CRT can't resolve IANA zone names, so read the vendored tz
+     * database directly. Unknown zones fall back to UTC, matching POSIX. */
+    int64_t offset_minutes = 0;
+    east_tzfile_offset_minutes(zone_name, (int64_t)epoch_sec, &offset_minutes);
+    return eval_ok(east_integer(offset_minutes));
+#else
+    /* POSIX: resolve via TZ + the system tz database and read tm_gmtoff,
+     * saving/restoring TZ so the process environment is left untouched. */
     char *old_tz = getenv("TZ");
     char *saved_tz = old_tz ? strdup(old_tz) : NULL;
-
-    /* Set the target timezone */
     setenv("TZ", zone_name, 1);
     tzset();
 
-    /* Convert epoch milliseconds to time_t */
-    time_t epoch_sec = (time_t)(epoch_ms / 1000);
-
-    /* Get local time in the target timezone */
     struct tm local_tm;
-    struct tm utc_tm;
     localtime_r(&epoch_sec, &local_tm);
-    gmtime_r(&epoch_sec, &utc_tm);
 
-    /* Restore original TZ */
     if (saved_tz) {
         setenv("TZ", saved_tz, 1);
         free(saved_tz);
@@ -70,34 +72,8 @@ static EvalResult time_get_timezone_offset(EastValue **args, size_t num_args,
     }
     tzset();
 
-    /* Validate that the timezone was recognized by checking if localtime
-     * produced a reasonable result. POSIX treats unrecognized TZ as UTC,
-     * so if tm_gmtoff is 0 and the zone name is not UTC/GMT, it's likely invalid.
-     * However, some valid zones ARE UTC+0, so we use tm_zone for validation. */
-#ifdef __linux__
-    /* On Linux, tm_zone is set to the abbreviation. If POSIX fell back to UTC
-     * for an unknown zone, tm_gmtoff will be 0. We can't perfectly distinguish
-     * "valid UTC+0 zone" from "invalid zone treated as UTC", but this covers
-     * the common case. */
-    (void)0; /* Accept the result as-is; POSIX semantics are best-effort */
+    return eval_ok(east_integer((int64_t)local_tm.tm_gmtoff / 60));
 #endif
-
-    /* Compute offset in minutes (seconds east of UTC). */
-#ifdef _WIN32
-    /* Windows struct tm has no tm_gmtoff. Interpret the UTC broken-down time as
-       local: mktime(utc) == epoch_sec - offset. NOTE: Windows mktime honours TZ
-       only in POSIX format, not IANA zone names, so non-system zones are
-       best-effort here. */
-    (void)local_tm;
-    struct tm utc_as_local = utc_tm;
-    utc_as_local.tm_isdst = -1;
-    int64_t offset_minutes = (int64_t)(epoch_sec - (time_t)mktime(&utc_as_local)) / 60;
-#else
-    (void)utc_tm;
-    int64_t offset_minutes = local_tm.tm_gmtoff / 60;
-#endif
-
-    return eval_ok(east_integer(offset_minutes));
 }
 
 void east_std_register_time(PlatformRegistry *reg)
