@@ -108,12 +108,15 @@ if(EAST_USE_MIMALLOC)
     FetchContent_MakeAvailable(mimalloc)
 endif()
 
-# Windows executables default to a ~1 MB stack (vs 8 MB on Linux/macOS), which
-# the deeply-recursive patch/diff suites overflow. Reserve 16 MB for every exe.
-# Applies to both the native MinGW build and the cross-compile toolchain (WIN32
-# is set in both); must precede the add_subdirectory() target definitions.
+# Windows executables default to a ~1 MB stack and the deeply-recursive
+# patch/diff suites overflow it. Those suites pass on Linux/macOS at their 8 MB
+# default, so the recursion is bounded — but the x64 Windows ABI burns more
+# stack per frame (32-byte shadow space + alignment), so reserve 64 MB (8x the
+# Linux default) for plenty of headroom. Applies to both the native MinGW build
+# and the cross-compile toolchain (WIN32 is set in both); must precede the
+# add_subdirectory() target definitions.
 if(WIN32)
-    add_link_options(-Wl,--stack,16777216)
+    add_link_options(-Wl,--stack,67108864)
 endif()
 
 enable_testing()
