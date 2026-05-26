@@ -109,14 +109,15 @@ if(EAST_USE_MIMALLOC)
 endif()
 
 # Windows executables default to a ~1 MB stack and the deeply-recursive
-# patch/diff suites overflow it. Those suites pass on Linux/macOS at their 8 MB
-# default, so the recursion is bounded — but the x64 Windows ABI burns more
-# stack per frame (32-byte shadow space + alignment), so reserve 64 MB (8x the
-# Linux default) for plenty of headroom. Applies to both the native MinGW build
-# and the cross-compile toolchain (WIN32 is set in both); must precede the
+# patch/diff suites (and real East programs) overflow it. The link-time stack
+# reserve is the one mechanism Windows honors reliably (a worker thread with a
+# runtime reservation did not), so reserve 1 GiB up front. It is reserved
+# address space, not committed memory, so the cost until used is just address
+# space — trivial on 64-bit. Applies to both the native MinGW build and the
+# cross-compile toolchain (WIN32 is set in both); must precede the
 # add_subdirectory() target definitions.
 if(WIN32)
-    add_link_options(-Wl,--stack,67108864)
+    add_link_options(-Wl,--stack,1073741824)
 endif()
 
 enable_testing()

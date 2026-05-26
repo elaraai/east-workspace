@@ -58,10 +58,6 @@ jobs:
     needs: export-ir
     # Cap a runaway leg so a hung test fails the run in minutes, not hours.
     timeout-minutes: 25
-    # Generous worker-thread stack for the deeply-recursive fuzz suites on
-    # Windows (ignored on POSIX, which runs inline). See east_run_on_large_stack.
-    env:
-      EAST_STACK_MB: "1024"
     strategy:
       fail-fast: false
       matrix:

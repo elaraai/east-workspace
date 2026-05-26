@@ -40,8 +40,12 @@ for ir in "$IR_DIR"/*.json; do
     if "$TEST_BIN" "$ir"; then
         pass=$((pass + 1))
     else
+        rc=$?
         fail=$((fail + 1))
-        echo "::error::compliance suite failed: $name"
+        # Print the exit code (hex too) — on Windows a crash exits with the
+        # NTSTATUS, distinguishing a stack overflow (0xC00000FD) from other
+        # faults (e.g. access violation 0xC0000005).
+        printf '::error::compliance suite failed: %s (exit %d / 0x%x)\n' "$name" "$rc" "$rc"
     fi
 done
 

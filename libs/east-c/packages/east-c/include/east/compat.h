@@ -110,40 +110,6 @@ static inline int east_random_bytes(void *buf, size_t len)
                : -1;
 }
 
-/* Run fn(arg) on a thread with a large reserved stack and return its result.
- * Deeply-recursive East programs overflow the main thread's link-time-fixed
- * stack; a created thread's stack can be far larger and is sized at runtime.
- * The reserve (MiB) is configurable via EAST_STACK_MB (default 512) — the
- * native analogue of Node's --stack-size. Reserved, not committed, so a large
- * value is cheap. Falls back to running inline if the thread can't be created. */
-typedef struct {
-    int (*fn)(void *);
-    void *arg;
-    int ret;
-} east_stack_call;
-static DWORD WINAPI east_stack_thunk(LPVOID p)
-{
-    east_stack_call *c = (east_stack_call *)p;
-    c->ret = c->fn(c->arg);
-    return 0;
-}
-static inline int east_run_on_large_stack(int (*fn)(void *), void *arg)
-{
-    SIZE_T reserve = (SIZE_T)512 << 20;
-    const char *mb = getenv("EAST_STACK_MB");
-    if (mb && *mb) {
-        long v = atol(mb);
-        if (v > 0) reserve = (SIZE_T)v << 20;
-    }
-    east_stack_call call = {fn, arg, 0};
-    HANDLE th = CreateThread(NULL, reserve, east_stack_thunk, &call,
-                             STACK_SIZE_PARAM_IS_A_RESERVATION, NULL);
-    if (!th) return fn(arg);
-    WaitForSingleObject(th, INFINITE);
-    CloseHandle(th);
-    return call.ret;
-}
-
 #else /* !_WIN32 */
 
 #include <stdio.h>
@@ -179,13 +145,16 @@ static inline int east_random_bytes(void *buf, size_t len)
     return (n == len) ? 0 : -1;
 }
 
-/* The POSIX main-thread stack (8 MiB, grows toward the rlimit) covers current
- * needs, so run inline. */
+#endif /* _WIN32 */
+
+/* Run the program entry point. East evaluation can recurse deeply, so the
+ * binary is linked with a large stack reserve (see -Wl,--stack in the east-c
+ * CMakeLists); this simply invokes fn on that stack. A worker-thread variant
+ * for runtime stack sizing was dropped: Windows did not honor the thread stack
+ * reservation reliably, and the link-time reserve is the dependable mechanism. */
 static inline int east_run_on_large_stack(int (*fn)(void *), void *arg)
 {
     return fn(arg);
 }
-
-#endif /* _WIN32 */
 
 #endif /* EAST_COMPAT_H */
