@@ -28,7 +28,8 @@ var PACKAGE_SKILL_MAP = {
   "@elaraai/east-node-io": "east-node-io",
   "@elaraai/east-py-datascience": "east-py-datascience",
   "@elaraai/east-ui": "east-ui",
-  "@elaraai/e3": "e3"
+  "@elaraai/e3": "e3",
+  "@elaraai/e3-ui": "e3-ui"
 };
 async function findPackageJson(startDir) {
   let dir = startDir;

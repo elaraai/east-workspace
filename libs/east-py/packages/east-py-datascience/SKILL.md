@@ -5,7 +5,7 @@ description: "Data science and machine learning platform functions for the East 
 
 # East Data Science
 
-Data science and machine learning platform functions for the East language. Provides optimization, ML models, preprocessing, and explainability.
+Data science and machine learning platform functions for the East language. Provides optimization, ML models, preprocessing, and explainability. This is the platform's **Reason** layer — these models earn their place by improving a decision (a forecast or optimization that feeds a `decision`), so wire their outputs toward one.
 
 ## Quick Start
 
@@ -227,3 +227,10 @@ const config = $.let({ /* options */ });
 const result = $.let(Module.optimize(objective, x0, bounds, config));
 // result.x_best, result.f_best
 ```
+
+## Related skills
+
+- **e3** — **required to run these**: they need the Python runtime, so wrap each in an `e3.task` with a Python runner (`{ runner: ['uv','run','east-py','run','-p','east-py-datascience'] }`). They do not run on the default Node / C runtime.
+- **east** — the language for objective functions, configs, and result handling.
+- **east-ontology** — the decisions these models improve are the `decision` nodes of the business's economic ontology.
+- **east-design** — place the forecast / optimization in a decision-oriented architecture.

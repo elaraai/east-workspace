@@ -5,7 +5,7 @@ description: "e3 + UI bridge — build interactive, reactive dashboards as e3 ta
 
 # e3-ui — e3 + UI Bridge
 
-`@elaraai/e3-ui` connects [east-ui](../east-ui) components to [e3](../../../e3) workspaces. It lets you author a dashboard as a first-class e3 **UI task** whose reads and writes against workspace datasets are tracked in a manifest, so the engine knows what data the UI depends on and can re-render reactively.
+`@elaraai/e3-ui` connects **east-ui** components to **e3** workspaces. It lets you author a dashboard as a first-class e3 **UI task** whose reads and writes against workspace datasets are tracked in a manifest, so the engine knows what data the UI depends on and can re-render reactively. This is the platform's **decision-surface** layer: with staged writes, `Diff` review, and commit / discard, a view becomes a place a user commits a decision with its evidence — not a read-only report.
 
 Two entry points:
 - `@elaraai/e3-ui` — render-side, browser-safe: `Data`, `Diff`, `Ontology`, `DataManifestType`.
@@ -109,8 +109,10 @@ Tested examples live in `test/*.examples.ts`:
 | `@elaraai/e3-ui` | Render-side (browser-safe): `Data`, `Diff`, `Ontology`, `DataManifestType` |
 | `@elaraai/e3-ui/ui` | Author-side: `ui()` task factory (depends on `@elaraai/e3`) |
 
-## Related Skills
+## Related skills
 
 - **e3** — workspaces, tasks, `e3.input`, dataflow execution (the engine `ui()` builds on).
 - **east-ui** — the component library (`Reactive`, `Slider`, `Stat`, `Text`, …) that `ui()` renders.
 - **east** — the language used inside `East.function` bodies.
+- **east-ontology** — the `Ontology` editor's node/link model and the workshop method for building one.
+- **east-design** — decide where a decision surface fits in the overall solution.

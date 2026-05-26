@@ -1,6 +1,6 @@
 ---
 name: east-design
-description: "Design and architect a solution with East / e3 before writing code. Use when: (1) A developer describes a goal or problem rather than an API ('I want to build X', 'how should I structure Y', 'I have data in Z and need W') and hasn't committed to an implementation, (2) Deciding which East packages/skills a solution needs (east, e3, east-node-std, east-node-io, east-py-datascience, east-ui, e3-ui), (3) Working out the data flow — where data comes from (files, databases, S3, HTTP, APIs), how it is transformed, and where results go (datasets, exports, dashboards), (4) Producing a design document with the architecture, the skills to load, and example search terms to ground the implementation."
+description: "Design and architect a solution with East / e3 before writing code. Use when: (1) A developer describes a goal or problem rather than an API ('I want to build X', 'make/create an app that …', 'how should I structure Y', 'I have data in Z and need W', 'where do I start') and hasn't committed to an implementation — including a greenfield/empty directory before any project exists, (2) Identifying which business decision a solution should improve (East + e3 solutions are decision-oriented), (3) Deciding which East packages/skills a solution needs (east, e3, east-node-std, east-node-io, east-py-datascience, east-ui, e3-ui, east-ontology), (4) Working out the data flow — where data comes from (files, databases, S3, HTTP, APIs), how it is transformed, and where results go (datasets, exports, dashboards, decision surfaces), (5) Producing a design document with the architecture, the skills to load, and example search terms to ground the implementation."
 ---
 
 # East / e3 Solution Design
@@ -192,12 +192,16 @@ Once the developer signs off:
 
 > "I have monthly sales spreadsheets in S3 and want a dashboard that forecasts next quarter."
 
+Note the decision-first reframe — "a forecast dashboard" on its own has no decision to commit:
+
+- **Decision**: how much stock to order per SKU next quarter; "better" = fewer stockouts *and* less overstock.
+- **Evidence**: a per-SKU demand forecast *with uncertainty*, plus a recommended order quantity.
 - **Source**: XLSX in S3 → `east-node-io` (`Storage.S3` + `Format.XLSX`).
-- **Compute**: forecast → `east-py-datascience` (XGBoost/NGBoost) → Python → **e3**.
-- **Output**: dashboard → `east-ui` + `e3-ui`.
+- **Reason**: forecast → `east-py-datascience` (NGBoost for prediction intervals) → Python → **e3**.
+- **Decision surface**: dashboard showing the forecast band + recommended order, operator override → `east-ui` + `e3-ui`.
 - **Execution**: recurring + reactive + Python ⇒ **e3 project** (BSL-1.1).
-- **Searches**: `S3 storage get object`, `XLSX parse rows`, `XGBoost forecast predict`, `Chart Line Table`, `ui Data.bind dataset`.
-- **Build**: `npm create @elaraai/e3 sales-forecast` → e3 inputs (S3 config) → ingest task (east-node-io) → forecast task (east-py-datascience) → ui task (e3-ui).
+- **Searches**: `S3 storage get object`, `XLSX parse rows`, `NGBoost predict interval`, `Chart AreaRange`, `ui Data.bind commit`.
+- **Build**: `npm create @elaraai/e3 reorder-planner` → e3 inputs (S3 config) → ingest task (east-node-io) → forecast task (east-py-datascience) → decision-surface ui task (e3-ui).
 
 ## Related skills
 

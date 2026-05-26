@@ -142,3 +142,9 @@ $(Module.operation(conn, ...args));
 // 4. Close connection
 $(Module.close(conn));
 ```
+
+## Related skills
+
+- **east** — the language these platform functions plug into; compile with `East.compileAsync`.
+- **east-node-std** — Console / FileSystem / Fetch / Crypto / Time basics (this package is the database, cloud, and format layer on top).
+- **e3** — run ingest / sync as durable, cached dataflow tasks; pair with **east-ui** / **e3-ui** to surface the results.
