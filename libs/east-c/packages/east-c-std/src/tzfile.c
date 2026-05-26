@@ -18,7 +18,8 @@ static int32_t rd_i32(const unsigned char *p)
 static int64_t rd_i64(const unsigned char *p)
 {
     uint64_t v = 0;
-    for (int i = 0; i < 8; i++) v = (v << 8) | p[i];
+    for (int i = 0; i < 8; i++)
+        v = (v << 8) | p[i];
     return (int64_t)v;
 }
 
@@ -61,7 +62,8 @@ static int lookup_in_block(const unsigned char *blk, const unsigned char *end, t
     int found = -1, lo = 0, hi = (int)c.timecnt - 1;
     while (lo <= hi) {
         int mid = lo + (hi - lo) / 2;
-        int64_t t = (timew == 8) ? rd_i64(trans + (long)mid * 8) : (int64_t)rd_i32(trans + (long)mid * 4);
+        int64_t t =
+            (timew == 8) ? rd_i64(trans + (long)mid * 8) : (int64_t)rd_i32(trans + (long)mid * 4);
         if (t <= epoch) {
             found = mid;
             lo = mid + 1;
