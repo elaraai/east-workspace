@@ -167,6 +167,12 @@ The existing `if(WIN32)` blocks assume the GNU toolchain — split MinGW vs MSVC
   `clock_gettime` comes from the `compat.h` shim instead; reassess whether the
   Threads link is still needed.
 - **PCRE2** FetchContent builds under MSVC; verify.
+- **Third-party deps** (pcre2, curl, microtar) are vendored via FetchContent, so
+  no system libraries are needed. An early MSVC trial (noted in
+  `npm-runner-distribution.md`) hit `Could NOT find ZLIB` / `Could NOT find BZip2`;
+  the current tree has no `find_package(ZLIB|BZip2)` and the Windows curl block
+  disables `CURL_ZLIB/BROTLI/ZSTD`, so that looks already resolved — re-confirm
+  during bring-up rather than assuming.
 
 ## Task order (do it locally first)
 
@@ -262,9 +268,13 @@ recipe into CI only once it's green locally.
 
 ## Cross-references
 
-- `libs/east-c/docs/npm-runner-distribution.md` — the parent design (this is the
-  Windows-build prerequisite for its `win32-x64` package; supersedes its
-  "Windows east-c build" section's MinGW direction).
+- `libs/east-c/docs/npm-runner-distribution.md` — the parent design (npm launcher
+  + per-platform packages, release wiring, e3 integration). This doc is the
+  Windows-build prerequisite for its `win32-x64` package and expands that doc's
+  "Windows east-c build" section into the full MSVC plan. That section already
+  intended MSVC for the release binary; this doc adds the reason MSVC is
+  *mandatory* (the east-py in-process link) and the decision to retire the MinGW
+  build added on `feat/east-c-windows-build` for CI.
 - `libs/east-c/CLAUDE.md` — east-c architecture and commands.
 - `libs/east-py/packages/east-py-datascience/CMakeLists.txt` — how east-c is
   fetched + linked into the extension (mirrors `packages/east-py/CMakeLists.txt`).

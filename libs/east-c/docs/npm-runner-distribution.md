@@ -96,8 +96,18 @@ process.exit(spawnSync(bin, process.argv.slice(2), { stdio: "inherit" }).status 
 
 ## Windows east-c build (prerequisite for the win32-x64 package)
 
-The new `win32-x64` target needs the C build to work under MSVC on a
-`windows-latest` runner. Known issues from a trial run:
+> **Build mechanics live in [`windows-msvc-build.md`](./windows-msvc-build.md).**
+> That doc is the full plan for building Windows east-c with MSVC and establishes
+> MSVC as the *single* Windows toolchain — mandatory because
+> `east-py-datascience` links east-c **in-process**, where a MinGW-built lib
+> cannot link into MSVC-built CPython/NumPy/Torch. (A MinGW Windows build was
+> added on branch `feat/east-c-windows-build` to get the CI compliance matrix
+> running; it is retired in favour of MSVC per that doc.) The release/packaging
+> specifics in this section still apply.
+
+The `win32-x64` target needs the C build to work under MSVC on a
+`windows-latest` runner. Issues seen in an early trial run (revisit against the
+current tree — some may already be resolved):
 
 - **Missing system libs:** `Could NOT find BZip2`, `Could NOT find ZLIB`.
 - **Feature probes failing** under MSVC (`HAVE_REALPATH`, `HAVE_BUILTIN_MUL_OVERFLOW`,
