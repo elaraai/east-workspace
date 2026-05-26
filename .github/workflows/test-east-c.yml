@@ -80,9 +80,9 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install cmake || true
 
-      - name: Install MinGW (Windows)
+      - name: Set up MSVC (Windows)
         if: runner.os == 'Windows'
-        run: choco install mingw --no-progress -y
+        uses: ilammy/msvc-dev-cmd@v1
 
       # go-httpbin (below) is built with `go install`. ubuntu/windows runners
       # ship Go, but the macos-14 (arm64) image does not — set it up explicitly
@@ -96,7 +96,7 @@ jobs:
         working-directory: libs/east-c
         run: |
           if [ "$RUNNER_OS" = "Windows" ]; then
-            cmake -S . -B build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release
+            cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
           else
             cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
           fi

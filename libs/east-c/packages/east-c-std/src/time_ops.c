@@ -9,7 +9,9 @@
 #include <east/eval_result.h>
 #include <east/compat.h>
 #include <time.h>
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>

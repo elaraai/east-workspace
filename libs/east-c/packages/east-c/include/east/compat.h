@@ -9,8 +9,27 @@
 #ifndef EAST_COMPAT_H
 #define EAST_COMPAT_H
 
+#ifdef _WIN32
+/* Use the POSIX CRT names (strdup, etc.) without C4996 deprecation noise.
+ * Must precede any CRT header include (this header is force-included first on
+ * Windows via /FI from the east-c CMakeLists). */
+#  ifndef _CRT_NONSTDC_NO_WARNINGS
+#    define _CRT_NONSTDC_NO_WARNINGS
+#  endif
+#  ifndef _CRT_SECURE_NO_WARNINGS
+#    define _CRT_SECURE_NO_WARNINGS
+#  endif
+#endif
+
 #include <time.h>
 #include <stdint.h>
+
+/* printf-style format checking: kept on GCC/Clang, compiled out on MSVC. */
+#if defined(__GNUC__) || defined(__clang__)
+#  define EAST_PRINTF_FMT(fmt_idx, va_idx) __attribute__((format(printf, fmt_idx, va_idx)))
+#else
+#  define EAST_PRINTF_FMT(fmt_idx, va_idx)
+#endif
 
 #ifdef _WIN32
 
@@ -21,6 +40,26 @@
 #include <string.h>
 #include <io.h>
 #include <psapi.h>
+#include <intrin.h> /* _InterlockedExchangeAdd, _umul128 */
+
+/* GNU thread-local storage keyword -> MSVC. */
+#define __thread __declspec(thread)
+
+/* GCC/Clang atomic builtins (used for `int` ref_count inc/dec). MSVC has none;
+ * map the two we use to Interlocked ops. ref_count is 32-bit `int`, so the
+ * `long` Interlocked variant matches. _Interlocked* are full barriers, so the
+ * memory-order argument is ignored. __atomic_{add,sub}_fetch return the NEW
+ * value, while _InterlockedExchangeAdd returns the OLD (hence the +/- val). */
+#define __ATOMIC_RELAXED 0
+#define __ATOMIC_CONSUME 1
+#define __ATOMIC_ACQUIRE 2
+#define __ATOMIC_RELEASE 3
+#define __ATOMIC_ACQ_REL 4
+#define __ATOMIC_SEQ_CST 5
+#define __atomic_add_fetch(ptr, val, mo) \
+    (_InterlockedExchangeAdd((volatile long *)(ptr), (long)(val)) + (long)(val))
+#define __atomic_sub_fetch(ptr, val, mo) \
+    (_InterlockedExchangeAdd((volatile long *)(ptr), -(long)(val)) - (long)(val))
 
 /* Reentrant time conversions. MinGW does not declare gmtime_r/localtime_r;
  * gmtime/localtime use a static buffer (fine for east-c's single-threaded CLI
@@ -108,6 +147,129 @@ static inline int east_random_bytes(void *buf, size_t len)
                BCryptGenRandom(NULL, (PUCHAR)buf, (ULONG)len, BCRYPT_USE_SYSTEM_PREFERRED_RNG))
                ? 0
                : -1;
+}
+
+/* ================================================================== */
+/*  POSIX shims for east-c-std + CLI. MinGW backfilled these; MSVC does */
+/*  not. This header is force-included into every east-c/std/cli TU on  */
+/*  Windows (see /FI in the east-c CMakeLists), so the mappings apply    */
+/*  runtime-wide. Paths are treated as ANSI (UTF-8-as-ANSI), matching    */
+/*  the fopen() usage elsewhere in east-c-std; full Unicode paths would  */
+/*  require the *W APIs and UTF-8<->UTF-16 conversion.                   */
+/* ================================================================== */
+
+#include <stdio.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+
+/* <limits.h> on MSVC has no PATH_MAX. */
+#ifndef PATH_MAX
+#define PATH_MAX MAX_PATH
+#endif
+
+/* MSVC <sys/stat.h> provides struct stat / stat() but not the S_IS* macros. */
+#ifndef S_ISREG
+#define S_ISREG(m) (((m) & _S_IFMT) == _S_IFREG)
+#endif
+#ifndef S_ISDIR
+#define S_ISDIR(m) (((m) & _S_IFMT) == _S_IFDIR)
+#endif
+
+/* POSIX names -> MSVCRT equivalents (declared in <io.h>/<direct.h> included
+ * above, so these macros must follow those includes). */
+#define unlink(p)    _unlink(p)
+#define rmdir(p)     _rmdir(p)
+#define getcwd(b, n) _getcwd((b), (int)(n))
+
+/* ssize_t -> Win32 SSIZE_T (BaseTsd.h, via <windows.h>). */
+#ifndef _SSIZE_T_DEFINED
+#define _SSIZE_T_DEFINED
+typedef SSIZE_T ssize_t;
+#endif
+
+/* usleep -> Sleep (millisecond granularity is sufficient for time.sleep). */
+typedef unsigned long useconds_t;
+static inline int east_usleep(useconds_t usec)
+{
+    Sleep((DWORD)(usec / 1000));
+    return 0;
+}
+#define usleep(us) east_usleep((useconds_t)(us))
+
+/* clock_gettime: MSVC's <time.h> declares struct timespec (C11) but not
+ * clock_gettime / CLOCK_*. MONOTONIC -> QueryPerformanceCounter,
+ * REALTIME -> GetSystemTimePreciseAsFileTime. */
+#ifndef CLOCK_REALTIME
+#define CLOCK_REALTIME 0
+#endif
+#ifndef CLOCK_MONOTONIC
+#define CLOCK_MONOTONIC 1
+#endif
+static inline int east_clock_gettime(int clk, struct timespec *ts)
+{
+    if (clk == CLOCK_MONOTONIC) {
+        LARGE_INTEGER freq, ctr;
+        QueryPerformanceFrequency(&freq);
+        QueryPerformanceCounter(&ctr);
+        ts->tv_sec = (time_t)(ctr.QuadPart / freq.QuadPart);
+        ts->tv_nsec = (long)(((ctr.QuadPart % freq.QuadPart) * 1000000000LL) / freq.QuadPart);
+    } else {
+        FILETIME ft;
+        GetSystemTimePreciseAsFileTime(&ft);
+        uint64_t t = ((uint64_t)ft.dwHighDateTime << 32) | ft.dwLowDateTime;
+        t -= 11644473600ULL * 10000000ULL; /* 100ns ticks: 1601 -> 1970 epoch */
+        ts->tv_sec = (time_t)(t / 10000000ULL);
+        ts->tv_nsec = (long)((t % 10000000ULL) * 100);
+    }
+    return 0;
+}
+#define clock_gettime(clk, ts) east_clock_gettime((clk), (ts))
+
+/* dirent shim over FindFirstFileA/FindNextFileA. Callers only read d_name. */
+struct dirent {
+    char d_name[MAX_PATH];
+};
+typedef struct east_DIR {
+    HANDLE handle;
+    WIN32_FIND_DATAA find;
+    int first;
+    struct dirent entry;
+} east_DIR;
+#define DIR east_DIR
+static inline east_DIR *opendir(const char *path)
+{
+    east_DIR *d = (east_DIR *)calloc(1, sizeof(east_DIR));
+    if (!d) return NULL;
+    size_t plen = strlen(path);
+    int has_sep = (plen > 0 && (path[plen - 1] == '/' || path[plen - 1] == '\\'));
+    char pattern[MAX_PATH];
+    int n = snprintf(pattern, sizeof(pattern), "%s%s*", path, has_sep ? "" : "\\");
+    if (n < 0 || n >= (int)sizeof(pattern)) {
+        free(d);
+        return NULL;
+    }
+    d->handle = FindFirstFileA(pattern, &d->find);
+    if (d->handle == INVALID_HANDLE_VALUE) {
+        free(d);
+        return NULL;
+    }
+    d->first = 1;
+    return d;
+}
+static inline struct dirent *readdir(east_DIR *d)
+{
+    if (!d) return NULL;
+    if (!d->first && !FindNextFileA(d->handle, &d->find)) return NULL;
+    d->first = 0;
+    snprintf(d->entry.d_name, sizeof(d->entry.d_name), "%s", d->find.cFileName);
+    return &d->entry;
+}
+static inline int closedir(east_DIR *d)
+{
+    if (!d) return -1;
+    if (d->handle != INVALID_HANDLE_VALUE) FindClose(d->handle);
+    free(d);
+    return 0;
 }
 
 #else /* !_WIN32 */

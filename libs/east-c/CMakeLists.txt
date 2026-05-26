@@ -33,12 +33,15 @@ set(PCRE2_BUILD_PCRE2GREP OFF CACHE BOOL "" FORCE)
 set(PCRE2_SUPPORT_UNICODE ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(pcre2)
 
-# Silence pedantic warnings from 3rd-party PCRE2 sources
-if(TARGET pcre2-8-static)
-    target_compile_options(pcre2-8-static PRIVATE -w)
-endif()
-if(TARGET pcre2-posix-static)
-    target_compile_options(pcre2-posix-static PRIVATE -w)
+# Silence pedantic warnings from 3rd-party PCRE2 sources (GNU/Clang only; the
+# bare -w flag is not understood by MSVC).
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    if(TARGET pcre2-8-static)
+        target_compile_options(pcre2-8-static PRIVATE -w)
+    endif()
+    if(TARGET pcre2-posix-static)
+        target_compile_options(pcre2-posix-static PRIVATE -w)
+    endif()
 endif()
 
 # Fetch microtar for snapshot bundles in the CLI (ustar, no compression).
@@ -113,11 +116,26 @@ endif()
 # reserve is the one mechanism Windows honors reliably (a worker thread with a
 # runtime reservation did not), so reserve 1 GiB up front. It is reserved
 # address space, not committed memory, so the cost until used is just address
-# space — trivial on 64-bit. Applies to both the native MinGW build and the
-# cross-compile toolchain (WIN32 is set in both); must precede the
-# add_subdirectory() target definitions.
+# space — trivial on 64-bit. Must precede the add_subdirectory() target
+# definitions. Linker syntax differs: /STACK for MSVC link.exe, -Wl,--stack for
+# the GNU driver.
 if(WIN32)
-    add_link_options(-Wl,--stack,1073741824)
+    if(MSVC)
+        add_link_options(/STACK:1073741824)
+    else()
+        add_link_options(-Wl,--stack,1073741824)
+    endif()
+
+    # Force-include the compat shim into every east-c/std/cli TU so the
+    # POSIX->Win32 mappings (clock_gettime, dirent, stat, strdup, ...) apply
+    # without editing each source. Placed after the third-party FetchContent
+    # above so it affects only our targets (added below), not pcre2/curl/microtar.
+    set(_east_c_compat "${CMAKE_CURRENT_LIST_DIR}/packages/east-c/include/east/compat.h")
+    if(MSVC)
+        add_compile_options(/FI "${_east_c_compat}")
+    else()
+        add_compile_options(-include "${_east_c_compat}")
+    endif()
 endif()
 
 enable_testing()

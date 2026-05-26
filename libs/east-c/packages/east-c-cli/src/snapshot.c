@@ -4,7 +4,9 @@
  */
 #include "snapshot.h"
 
+#ifndef _WIN32
 #include <dirent.h>
+#endif
 #include <errno.h>
 #include <limits.h>
 #include <stdio.h>
@@ -12,7 +14,9 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <time.h>
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 
 #include <east/serialization.h>
 #include <east/types.h>

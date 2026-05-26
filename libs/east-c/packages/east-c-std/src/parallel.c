@@ -40,9 +40,11 @@
 #include <string.h>
 #include <stdint.h>
 #include <errno.h>
+#ifndef _WIN32
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#endif
 
 static _Thread_local EastType *s_input_type = NULL;
 static _Thread_local EastType *s_result_type = NULL;
@@ -58,6 +60,8 @@ PlatformFn east_std_parallel_map_factory(EastType **tp, size_t num_tp)
     }
     return parallel_map_impl;
 }
+
+#ifndef _WIN32 /* fork-based worker machinery; Windows uses the serial path */
 
 /* ================================================================== */
 /*  IPC helpers                                                        */
@@ -233,6 +237,8 @@ static int read_worker_payload(int read_fd, uint8_t **out_result_bytes, size_t *
     return 1;
 }
 
+#endif /* !_WIN32 */
+
 /* ================================================================== */
 /*  parallel_map implementation                                        */
 /* ================================================================== */
@@ -248,8 +254,14 @@ static EvalResult parallel_map_impl(EastValue **args, size_t num_args, EastType 
     EastType *T = s_input_type ? s_input_type : &east_null_type;
     EastType *R = s_result_type ? s_result_type : &east_null_type;
 
-    /* For small arrays, run sequentially (avoid fork overhead) */
-    if (len <= 4) {
+    /* Small arrays run sequentially to avoid fork overhead. Windows has no
+     * fork(), so ALL arrays take this in-process sequential path there. */
+#ifdef _WIN32
+    const int run_sequential = 1;
+#else
+    const int run_sequential = (len <= 4);
+#endif
+    if (run_sequential) {
         EastValue *result = east_array_new(R);
         for (size_t i = 0; i < len; i++) {
             EastValue *item = east_array_get(array, i);
@@ -268,6 +280,7 @@ static EvalResult parallel_map_impl(EastValue **args, size_t num_args, EastType 
         return eval_ok(result);
     }
 
+#ifndef _WIN32
     /* Build types */
     EastType *fn_type = east_function_type(&T, 1, R);
     EastType *array_in_type = east_array_type(T);
@@ -445,6 +458,10 @@ static EvalResult parallel_map_impl(EastValue **args, size_t num_args, EastType 
     }
 
     return eval_ok(result);
+#else
+    /* Unreachable: run_sequential is always true on Windows. */
+    return eval_error("parallel_map: unreachable");
+#endif
 }
 
 void east_std_register_parallel(PlatformRegistry *reg)
