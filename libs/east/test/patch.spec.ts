@@ -2,6 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
+import { createHash } from "node:crypto";
 import { East, ArrayType, IntegerType, StringType, NullType, SetType, DictType, StructType, VariantType, variant, FloatType, BooleanType, DateTimeType, SortedSet, RefType, ref, RecursiveType, some, none } from "../src/index.js";
 import type { ValueTypeOf } from "../src/index.js";
 import { describeEast as describe, assertEast as assert } from "./platforms.spec.js";
@@ -1887,7 +1888,13 @@ await describe("Patch - E2E All Types", (test) => {
 const fuzzTestCases = generateFuzzTestCases({ numTypes: 20, numSamples: 5 });
 
 for (const tc of fuzzTestCases) {
-    await describe(`Patch Fuzz - ${tc.typeName}`, (test) => {
+    // describeEast turns the suite name into the exported IR filename. A printed
+    // recursive type runs to hundreds of chars, and on Windows the C compliance
+    // harness can't open the resulting path (260-char MAX_PATH). Hash typeName to
+    // a short, stable id — typeNames are already unique (see seenTypes), so the
+    // truncated digest stays collision-free.
+    const typeId = createHash("sha256").update(tc.typeName).digest("hex").slice(0, 12);
+    await describe(`Patch Fuzz - ${typeId}`, (test) => {
         test("diff/apply round trip", $ => {
             // Use 'as any' to bypass TypeScript's static type checking for dynamic types
             const pairs = $.const(tc.pairs as any, tc.pairsArrayType as any);
