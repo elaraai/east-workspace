@@ -211,16 +211,11 @@ static char *read_file(const char *path, size_t *out_len)
 /*  Main                                                               */
 /* ------------------------------------------------------------------ */
 
-int main(int argc, char **argv)
+/* Runs on a large-stack worker thread (east_run_on_large_stack) so deeply
+ * recursive fuzz suites don't overflow the main thread's fixed stack. */
+static int run_suite(void *arg)
 {
-    east_init_crash_handling(); /* Windows: fail fast on a fault, never hang on WER */
-
-    if (argc < 2) {
-        fprintf(stderr, "Usage: %s <ir-json-file>\n", argv[0]);
-        return 1;
-    }
-
-    const char *json_path = argv[1];
+    const char *json_path = (const char *)arg;
 
     /* Check EAST_QUIET env var */
     {
@@ -413,4 +408,14 @@ int main(int argc, char **argv)
     builtin_registry_free(builtins);
 
     return (g_tests_failed > 0 || fatal) ? 1 : 0;
+}
+
+int main(int argc, char **argv)
+{
+    east_init_crash_handling(); /* Windows: fail fast on a fault, never hang on WER */
+    if (argc < 2) {
+        fprintf(stderr, "Usage: %s <ir-json-file>\n", argv[0]);
+        return 1;
+    }
+    return east_run_on_large_stack(run_suite, (void *)argv[1]);
 }

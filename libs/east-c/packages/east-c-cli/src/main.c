@@ -809,8 +809,18 @@ static void print_usage(const char *prog)
 /*  Main                                                               */
 /* ------------------------------------------------------------------ */
 
-int main(int argc, char **argv)
+typedef struct {
+    int argc;
+    char **argv;
+} cli_args;
+
+/* Runs on a large-stack worker thread (see east_run_on_large_stack) so deeply
+ * recursive East programs don't overflow the main thread's fixed stack. */
+static int cli_main(void *arg)
 {
+    int argc = ((cli_args *)arg)->argc;
+    char **argv = ((cli_args *)arg)->argv;
+
     if (argc < 2) {
         print_usage(argv[0]);
         return 1;
@@ -952,4 +962,11 @@ int main(int argc, char **argv)
         print_usage(argv[0]);
         return 1;
     }
+}
+
+int main(int argc, char **argv)
+{
+    east_init_crash_handling();
+    cli_args args = {argc, argv};
+    return east_run_on_large_stack(cli_main, &args);
 }

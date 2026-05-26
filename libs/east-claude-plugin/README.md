@@ -14,6 +14,8 @@ A Claude Code plugin for the East programming language ecosystem.
 | `e3` | `@elaraai/e3` | East Execution Engine - durable execution for East pipelines |
 | `e3-ui` | `@elaraai/e3-ui` | e3 + UI bridge - reactive dashboards as e3 tasks (Data.bind, ui(), Diff, Ontology) |
 | `east-project` | _(plugin-native)_ | Create + manage East/e3 projects — scaffolds via `east-scaffold`, drives the build/deploy/run lifecycle |
+| `east-design` | _(plugin-native)_ | Architect a solution before coding — discovery questions, capability→skill mapping, example searches, design doc |
+| `east-ontology` | _(plugin-native)_ | Build an Economic Ontology of a business and render it with the e3-ui Ontology editor — elicitation methodology, node/link model, `OntologyType` encoding |
 
 ## Example Search
 
