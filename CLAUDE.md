@@ -82,11 +82,20 @@ index (`libs/east-claude-plugin/index.json`) is regenerated from each lib's
 - `libs/east-node/packages/east-node-io/SKILL.md`
 - `libs/east-py/packages/east-py-datascience/SKILL.md`
 
-One further skill, `east:east-project`, is **plugin-native** (not a lib API):
-its `SKILL.md` lives in the plugin at
-`libs/east-claude-plugin/skills/east-project/SKILL.md` and covers project
-scaffolding + lifecycle. It scaffolds via the published initializers
-`npm create @elaraai/e3` / `npm create @elaraai/east` (see `libs/create`).
+Further skills are **plugin-native** (not a lib API), with `SKILL.md`
+files living in the plugin under `libs/east-claude-plugin/skills/`:
+
+- `east:east-project` (`skills/east-project/SKILL.md`) — project scaffolding
+  + lifecycle, via the published initializers `npm create @elaraai/e3` /
+  `npm create @elaraai/east` (see `libs/create`).
+- `east:east-design` (`skills/east-design/SKILL.md`) — solution architecture
+  *before* coding: discovery questions, capability→skill mapping, example
+  searches, and a design doc that hands off to `east-project` + the
+  per-package skills.
+- `east:east-ontology` (`skills/east-ontology/SKILL.md`) — build an Economic
+  Ontology of a business (resources/activities/KPIs/decisions/objectives/
+  policies) and render it with the e3-ui `Ontology` editor: elicitation
+  methodology, the node/link model, and `OntologyType` encoding.
 
 ## Workspace conventions
 

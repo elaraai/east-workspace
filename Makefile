@@ -22,6 +22,13 @@ check-deps:
 			echo "  ✓ $$1 ($$( $$1 --version 2>&1 | head -n1 ))"; \
 		fi; \
 	}; \
+	opt() { \
+		if ! command -v "$$1" >/dev/null 2>&1; then \
+			echo "  ○ $$1 — not found (optional). Install: $$2"; \
+		else \
+			echo "  ✓ $$1 ($$( $$1 --version 2>&1 | head -n1 ))"; \
+		fi; \
+	}; \
 	echo "Checking required tools..."; \
 	check uv      "curl -LsSf https://astral.sh/uv/install.sh | sh"; \
 	check pnpm    "npm install -g pnpm  (or: corepack enable && corepack prepare pnpm@latest --activate)"; \
@@ -30,6 +37,9 @@ check-deps:
 	check cc      "apt install build-essential  /  xcode-select --install"; \
 	check python3 "apt install python3  /  brew install python"; \
 	check docker  "https://docs.docker.com/engine/install/  (only needed for make services-up / test-all)"; \
+	echo "Optional (task-specific):"; \
+	opt x86_64-w64-mingw32-gcc "apt install mingw-w64  /  brew install mingw-w64  — Windows east-c cross-build"; \
+	opt wine64                 "apt install wine64  — smoke-test the Windows east-c .exe locally"; \
 	if [ $$missing -ne 0 ]; then \
 		echo ""; \
 		echo "Missing tools above. Install them and re-run."; \
@@ -114,7 +124,7 @@ test-export:
 
 # ── Full Test Run ────────────────────────────────────────────────────
 
-## Start services, run ALL tests (TS + C + WASM + Python), stop services
+## Start services, run ALL tests (TS + C + Python), stop services
 ## Requires: make setup (one-time), make install, make build
 ## Sets EAST_QUIET=1 so each runner only outputs failures + summaries.
 test-all: services-up test-export
@@ -168,9 +178,9 @@ help:
 	@echo ""
 	@echo "First time:"
 	@echo "  check-deps       - Verify required tools (uv, pnpm, cmake, cc, ...)"
-	@echo "  setup            - Install emscripten SDK (one-time)"
+	@echo "  setup            - Verify required build tools (one-time)"
 	@echo "  install          - Install deps (pnpm + uv)"
-	@echo "  build            - Build everything (east-c + WASM + east-py + TS)"
+	@echo "  build            - Build everything (east-c + east-py + TS)"
 	@echo "  link             - Link CLIs globally"
 	@echo ""
 	@echo "Development:"

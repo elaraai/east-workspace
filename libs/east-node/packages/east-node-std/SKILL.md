@@ -100,3 +100,9 @@ const method = Fetch.Types.Method;
 const config = Fetch.Types.RequestConfig;
 const response = Fetch.Types.Response;
 ```
+
+## Related skills
+
+- **east** — the language these platform functions plug into; compile with `NodePlatform`.
+- **east-node-io** — the heavier I/O layer (SQL / NoSQL, S3, FTP / SFTP, XLSX / XML, compression) when `FileSystem` / `Fetch` aren't enough.
+- **e3** — run these effects as durable, cached tasks instead of one-off scripts.

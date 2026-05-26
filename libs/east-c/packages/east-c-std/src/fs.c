@@ -9,6 +9,7 @@
 #include <east/values.h>
 #include <east/types.h>
 #include <east/eval_result.h>
+#include <east/compat.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -61,7 +62,9 @@ static EvalResult fs_write_file(EastValue **args, size_t num_args, EastType **in
     const char *content = args[1]->data.string.data;
     size_t len = args[1]->data.string.len;
 
-    FILE *f = fopen(path, "w");
+    /* Binary mode: East strings are byte-exact, so no \n -> \r\n translation
+     * (Windows text mode would corrupt the round-trip against the "rb" read). */
+    FILE *f = fopen(path, "wb");
     if (f) {
         fwrite(content, 1, len, f);
         fclose(f);
@@ -77,7 +80,7 @@ static EvalResult fs_append_file(EastValue **args, size_t num_args, EastType **i
     const char *content = args[1]->data.string.data;
     size_t len = args[1]->data.string.len;
 
-    FILE *f = fopen(path, "a");
+    FILE *f = fopen(path, "ab");
     if (f) {
         fwrite(content, 1, len, f);
         fclose(f);
@@ -146,11 +149,11 @@ static EvalResult fs_create_directory(EastValue **args, size_t num_args, EastTyp
     for (char *p = tmp + 1; *p; p++) {
         if (*p == '/') {
             *p = '\0';
-            mkdir(tmp, 0755);
+            east_mkdir(tmp);
             *p = '/';
         }
     }
-    mkdir(tmp, 0755);
+    east_mkdir(tmp);
     free(tmp);
     return eval_ok(east_null());
 }

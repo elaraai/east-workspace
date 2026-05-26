@@ -6,6 +6,7 @@
  */
 #include "east/builtins.h"
 #include "east/values.h"
+#include "east/compat.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

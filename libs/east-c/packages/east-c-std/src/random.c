@@ -9,6 +9,7 @@
 #include "east_std/east_std.h"
 #include <east/values.h>
 #include <east/eval_result.h>
+#include <east/compat.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -64,11 +65,7 @@ static double rng_next_xorshift(RNGState *rng)
 static double rng_next_urandom(void)
 {
     uint64_t val;
-    FILE *f = fopen("/dev/urandom", "rb");
-    if (!f) return 0.0;
-    size_t n = fread(&val, sizeof(val), 1, f);
-    fclose(f);
-    if (n != 1) return 0.0;
+    if (east_random_bytes(&val, sizeof(val)) != 0) return 0.0;
     /* Use upper 53 bits for [0, 1) */
     uint64_t upper53 = (val >> 11) & ((1ULL << 53) - 1);
     return (double)upper53 / (double)(1ULL << 53);

@@ -14,9 +14,9 @@ typedef struct EastSourceMap EastSourceMap;
 
 struct EastCompiledFn;
 
-/* Custom invoke hook for foreign-runtime function values (e.g. JS callbacks
- * via the WASM bridge). When set on an EastCompiledFn, east_call and IR_CALL
- * dispatch to this function instead of evaluating `ir`. */
+/* Custom invoke hook for foreign-runtime function values (e.g. a callback
+ * into an embedding host runtime). When set on an EastCompiledFn, east_call
+ * and IR_CALL dispatch to this function instead of evaluating `ir`. */
 typedef EvalResult (*EastInvokeFn)(struct EastCompiledFn *self, EastValue **args, size_t n_args);
 
 struct EastCompiledFn {
@@ -30,7 +30,7 @@ struct EastCompiledFn {
     EastType *fn_type;         // Function/AsyncFunction type (inputs + output), not owned
     EastSourceMap *source_map; // owned, for loc_id resolution at error time (may be NULL)
 
-    /* Foreign-runtime dispatch (e.g. JS callback via WASM bridge).
+    /* Foreign-runtime dispatch (e.g. a callback into an embedding host).
      * When `invoke` is non-NULL, east_call short-circuits IR evaluation and
      * delegates to it. `invoke_release` is called from east_compiled_fn_free
      * with `invoke_userdata` so the foreign runtime can free its handle.

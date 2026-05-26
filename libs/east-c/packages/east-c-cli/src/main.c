@@ -17,9 +17,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <sys/resource.h>
 #include <sys/stat.h>
 #include <east/hashmap.h>
+#include <east/compat.h>
 
 static double elapsed_ms(struct timespec *start, struct timespec *end)
 {
@@ -643,9 +643,7 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
     clock_gettime(CLOCK_MONOTONIC, &t5);
 
     if (verbose) {
-        struct rusage usage;
-        getrusage(RUSAGE_SELF, &usage);
-        long peak_kb = usage.ru_maxrss;
+        long peak_kb = east_peak_rss_kb();
 
         fprintf(stderr, "\nTiming:\n");
         fprintf(stderr, "  Load:      %8.1f ms\n", elapsed_ms(&t0, &t1));
@@ -811,8 +809,18 @@ static void print_usage(const char *prog)
 /*  Main                                                               */
 /* ------------------------------------------------------------------ */
 
-int main(int argc, char **argv)
+typedef struct {
+    int argc;
+    char **argv;
+} cli_args;
+
+/* Runs on a large-stack worker thread (see east_run_on_large_stack) so deeply
+ * recursive East programs don't overflow the main thread's fixed stack. */
+static int cli_main(void *arg)
 {
+    int argc = ((cli_args *)arg)->argc;
+    char **argv = ((cli_args *)arg)->argv;
+
     if (argc < 2) {
         print_usage(argv[0]);
         return 1;
@@ -954,4 +962,11 @@ int main(int argc, char **argv)
         print_usage(argv[0]);
         return 1;
     }
+}
+
+int main(int argc, char **argv)
+{
+    east_init_crash_handling();
+    cli_args args = {argc, argv};
+    return east_run_on_large_stack(cli_main, &args);
 }

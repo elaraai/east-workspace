@@ -21,61 +21,135 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test-east-c:
-    name: Test east-c (native)
+  # Export the compliance IR once. It's plain serialized East IR — identical on
+  # every platform — so there's no reason to re-run the (Unix-only) TS export
+  # tooling on the Windows/macOS legs, where its `VAR=val node` / `/tmp` idioms
+  # don't survive npm's cmd.exe script shell. Export here, share as artifacts.
+  export-ir:
+    name: Export test IR
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: pnpm/action-setup@v4
-
       - name: Use Node.js 22
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: "pnpm"
-
       - name: Install dependencies
         run: pnpm install
+      - name: Export IR (east + east-node-std)
+        run: |
+          pnpm --filter @elaraai/east run test:export
+          pnpm --filter @elaraai/east-node-std run test:export
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ir-east
+          path: /tmp/east-test-ir/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ir-std
+          path: /tmp/east-node-std/
+          if-no-files-found: error
 
-      - name: Build and export east test IR
-        working-directory: libs/east
-        run: make test-export
-        env:
-          EXPORT_TEST_IR: /tmp/east-test-ir
+  test-east-c:
+    name: Test east-c (${{ matrix.os }})
+    needs: export-ir
+    # Cap a runaway leg so a hung test fails the run in minutes, not hours.
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        # Git Bash on Windows, so the build, httpbin, and compliance steps use
+        # one shell across all three OSes.
+        shell: bash
 
-      - name: Build east-node and export std test IR
-        working-directory: libs/east-node
-        run: make build && make test-export-std
-        env:
-          EXPORT_TEST_IR: /tmp/east-node-std
+    steps:
+      - uses: actions/checkout@v4
 
-      - name: Install C build dependencies
+      - name: Install build deps (Linux)
+        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
 
-      - name: Install uv (for clang-format via uv tool — used by `make lint`)
-        uses: astral-sh/setup-uv@v3
+      - name: Install build deps (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake || true
+
+      - name: Install MinGW (Windows)
+        if: runner.os == 'Windows'
+        run: choco install mingw --no-progress -y
+
+      # go-httpbin (below) is built with `go install`. ubuntu/windows runners
+      # ship Go, but the macos-14 (arm64) image does not — set it up explicitly
+      # on all three for a uniform, pinned toolchain.
+      - name: Use Go (for go-httpbin)
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
 
       - name: Build east-c
         working-directory: libs/east-c
-        run: make build
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            cmake -S . -B build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release
+          else
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          fi
+          cmake --build build -j
 
-      - name: Lint east-c (clang-format)
+      # IR into build/ (already gitignored, transient — lives with the build
+      # output). Relative forward-slash paths work under Git Bash on Windows;
+      # an absolute /tmp or drive-letter path would not.
+      - uses: actions/download-artifact@v4
+        with:
+          name: ir-east
+          path: libs/east-c/build/ir-east
+      - uses: actions/download-artifact@v4
+        with:
+          name: ir-std
+          path: libs/east-c/build/ir-std
+
+      # httpbin for the fetch compliance suite. go-httpbin is a drop-in httpbin
+      # built from source by `go install`, so the same step works on
+      # Linux/macOS/Windows with no Docker services.
+      - name: Start httpbin (go-httpbin :8085)
+        run: |
+          go install github.com/mccutchen/go-httpbin/v2/cmd/go-httpbin@v2.18.3
+          "$(go env GOPATH)/bin/go-httpbin" -port 8085 &
+          for ((i = 0; i < 30; i++)); do
+            curl -sf http://localhost:8085/get >/dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -sf http://localhost:8085/get >/dev/null
+
+      - name: east-c compliance
+        working-directory: libs/east-c
+        run: ./packages/east-c/scripts/run_compliance.sh build/ir-east build/packages/east-c/test_compliance
+
+      # The fs compliance IR bakes the export host's tmpdir() (/tmp/...). On
+      # Windows the C runtime resolves that to <drive>:\tmp, absent by default,
+      # so create it — writeFile/readFile then round-trip as they do on Unix.
+      - name: Ensure temp dir exists (Windows)
+        if: runner.os == 'Windows'
+        working-directory: libs/east-c
+        shell: cmd
+        run: if not exist \tmp mkdir \tmp
+
+      - name: east-c-std compliance
+        working-directory: libs/east-c
+        run: ./packages/east-c/scripts/run_compliance.sh build/ir-std build/packages/east-c-std/test_std_compliance
+
+  lint-east-c:
+    name: Lint east-c (clang-format)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - name: Lint
         working-directory: libs/east-c
         run: make lint
-
-      - name: Run east-c compliance tests
-        working-directory: libs/east-c
-        run: make test-east-c
-
-      - name: Start test services (for std tests)
-        run: docker compose -f docker/services/docker-compose.yml --profile services up -d --wait
-
-      - name: Run east-c-std compliance tests
-        working-directory: libs/east-c
-        run: make test-east-c-std
-
-      - name: Stop test services
-        if: always()
-        run: docker compose -f docker/services/docker-compose.yml --profile services down -v

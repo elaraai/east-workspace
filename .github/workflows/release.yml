@@ -116,6 +116,8 @@ jobs:
             package.json
             libs/**/package.json
             libs/east-py/packages/*/pyproject.toml
+            .claude-plugin/marketplace.json
+            libs/east-claude-plugin/.claude-plugin/plugin.json
           retention-days: 7
 
   # ────────────────────────────────────────────────────────────────────────
