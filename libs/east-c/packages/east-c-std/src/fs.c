@@ -62,7 +62,9 @@ static EvalResult fs_write_file(EastValue **args, size_t num_args, EastType **in
     const char *content = args[1]->data.string.data;
     size_t len = args[1]->data.string.len;
 
-    FILE *f = fopen(path, "w");
+    /* Binary mode: East strings are byte-exact, so no \n -> \r\n translation
+     * (Windows text mode would corrupt the round-trip against the "rb" read). */
+    FILE *f = fopen(path, "wb");
     if (f) {
         fwrite(content, 1, len, f);
         fclose(f);
@@ -78,7 +80,7 @@ static EvalResult fs_append_file(EastValue **args, size_t num_args, EastType **i
     const char *content = args[1]->data.string.data;
     size_t len = args[1]->data.string.len;
 
-    FILE *f = fopen(path, "a");
+    FILE *f = fopen(path, "ab");
     if (f) {
         fwrite(content, 1, len, f);
         fclose(f);

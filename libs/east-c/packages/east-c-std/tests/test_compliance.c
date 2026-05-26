@@ -13,6 +13,7 @@
 #include <east/east.h>
 #include <east/eval_result.h>
 #include <east/type_of_type.h>
+#include <east/compat.h>
 #include <east_std/east_std.h>
 
 #include <stdio.h>
@@ -189,6 +190,8 @@ static char *read_file(const char *path, size_t *out_len)
 
 int main(int argc, char **argv)
 {
+    east_init_crash_handling(); /* Windows: fail fast on a fault, never hang on WER */
+
     if (argc < 2) {
         fprintf(stderr, "Usage: %s <ir-json-file>\n", argv[0]);
         return 1;

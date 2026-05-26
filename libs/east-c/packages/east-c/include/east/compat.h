@@ -90,6 +90,15 @@ static inline long east_peak_rss_kb(void)
     return 0;
 }
 
+/* A fault on Windows otherwise blocks on the Windows Error Reporting dialog,
+ * which hangs headless CI indefinitely. Suppress the dialogs so a crash
+ * terminates the process immediately (non-zero exit) and failures surface fast.
+ * (_set_abort_behavior would also help but isn't in MinGW's msvcrt import lib.) */
+static inline void east_init_crash_handling(void)
+{
+    SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
+}
+
 #else /* !_WIN32 */
 
 #include <sys/stat.h>
@@ -109,6 +118,8 @@ static inline long east_peak_rss_kb(void)
     getrusage(RUSAGE_SELF, &usage);
     return usage.ru_maxrss;
 }
+
+static inline void east_init_crash_handling(void) {}
 
 #endif /* _WIN32 */
 

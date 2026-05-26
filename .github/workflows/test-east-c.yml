@@ -56,6 +56,8 @@ jobs:
   test-east-c:
     name: Test east-c (${{ matrix.os }})
     needs: export-ir
+    # Cap a runaway leg so a hung test fails the run in minutes, not hours.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
