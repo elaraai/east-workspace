@@ -135,7 +135,10 @@ foreach(pyx ${PYX_FILES})
     if(name MATCHES "_eastc|_bridge")
         target_link_libraries(${name} PRIVATE east-c)
     endif()
-    target_link_libraries(${name} PRIVATE m)
+    # libm is part of the CRT on Windows/MSVC; link the separate libm elsewhere.
+    if(NOT WIN32)
+        target_link_libraries(${name} PRIVATE m)
+    endif()
 
     install(TARGETS ${name} LIBRARY DESTINATION "east/${install_subdir}")
 endforeach()
