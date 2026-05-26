@@ -56,7 +56,10 @@ jobs:
       # IANA zone names, so east-c-std reads these TZif files directly (see
       # tzfile.c). Linux/macOS use their system tz database.
       - name: Bundle tz database
-        run: tar -czf /tmp/zoneinfo.tar.gz -C /usr/share zoneinfo
+        # -h dereferences symlinks (alias zones like Japan -> Asia/Tokyo) into
+        # regular files, so the Windows leg never tries to create symlinks (which
+        # it can't, unprivileged) when extracting.
+        run: tar -czhf /tmp/zoneinfo.tar.gz -C /usr/share zoneinfo
       - uses: actions/upload-artifact@v4
         with:
           name: tzdata
