@@ -113,10 +113,50 @@ static int parse_offset(const unsigned char *buf, long sz, int64_t epoch, int64_
     return 0;
 }
 
+#ifdef EAST_TZDATA_EMBEDDED
+/* The vendored tz database, linked in via tzdata_embed.S (.incbin of
+ * tzdata.blob). Format: u32 count, then count × { u32 name_len, name,
+ * u32 data_len, TZif } — all u32 big-endian, like TZif itself. */
+extern const unsigned char east_tzdata_blob[];
+extern const unsigned char east_tzdata_blob_end[];
+
+static int lookup_embedded(const char *zone, int64_t epoch, int64_t *out)
+{
+    const unsigned char *p = east_tzdata_blob;
+    const unsigned char *end = east_tzdata_blob_end;
+    if (p + 4 > end) return -1;
+    uint32_t count = rd_u32(p);
+    p += 4;
+    size_t zlen = strlen(zone);
+    for (uint32_t i = 0; i < count; i++) {
+        if (p + 4 > end) return -1;
+        uint32_t nlen = rd_u32(p);
+        p += 4;
+        if (p + (size_t)nlen + 4 > end) return -1;
+        const unsigned char *name = p;
+        p += nlen;
+        uint32_t dlen = rd_u32(p);
+        p += 4;
+        if (p + dlen > end) return -1;
+        const unsigned char *data = p;
+        p += dlen;
+        if (nlen == zlen && memcmp(name, zone, zlen) == 0) {
+            return parse_offset(data, (long)dlen, epoch, out);
+        }
+    }
+    return -1;
+}
+#endif /* EAST_TZDATA_EMBEDDED */
+
 int east_tzfile_offset_minutes(const char *zone_name, int64_t epoch_sec, int64_t *out_minutes)
 {
+    if (!zone_name || !*zone_name) return -1;
+
+#ifdef EAST_TZDATA_EMBEDDED
+    return lookup_embedded(zone_name, epoch_sec, out_minutes);
+#else
     /* Reject absolute paths and traversal — the name indexes the tz tree only. */
-    if (!zone_name || !*zone_name || zone_name[0] == '/' || strstr(zone_name, "..")) return -1;
+    if (zone_name[0] == '/' || strstr(zone_name, "..")) return -1;
 
     const char *base = getenv("TZDIR");
     if (!base || !*base) base = "/usr/share/zoneinfo";
@@ -145,4 +185,5 @@ int east_tzfile_offset_minutes(const char *zone_name, int64_t epoch_sec, int64_t
     free(buf);
     fclose(f);
     return rc;
+#endif /* EAST_TZDATA_EMBEDDED */
 }

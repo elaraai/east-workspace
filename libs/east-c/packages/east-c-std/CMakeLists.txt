@@ -15,6 +15,18 @@ target_include_directories(east-c-std PUBLIC include)
 find_package(Threads REQUIRED)
 target_link_libraries(east-c-std PUBLIC east-c PRIVATE m Threads::Threads)
 
+# On Windows there is no system tz database and the CRT can't resolve IANA zone
+# names, so embed the vendored zoneinfo (tzdata.blob) into the binary via
+# .incbin and read it directly (see tzfile.c). Linux/macOS use their system tz.
+if(WIN32)
+    enable_language(ASM)
+    set(EAST_TZDATA_BLOB "${CMAKE_CURRENT_SOURCE_DIR}/src/tzdata.blob")
+    configure_file("${CMAKE_CURRENT_SOURCE_DIR}/src/tzdata_embed.S.in"
+                   "${CMAKE_CURRENT_BINARY_DIR}/tzdata_embed.S" @ONLY)
+    target_sources(east-c-std PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/tzdata_embed.S")
+    target_compile_definitions(east-c-std PRIVATE EAST_TZDATA_EMBEDDED=1)
+endif()
+
 # libcurl for fetch. On Windows it's vendored statically (Schannel) via the
 # top-level CMakeLists FetchContent; elsewhere use the system libcurl.
 if(WIN32 AND TARGET CURL::libcurl)
