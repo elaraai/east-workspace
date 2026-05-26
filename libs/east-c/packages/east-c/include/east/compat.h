@@ -15,6 +15,7 @@
 #ifdef _WIN32
 
 #include <windows.h>
+#include <bcrypt.h>
 #include <direct.h>
 #include <stdlib.h>
 #include <string.h>
@@ -99,7 +100,19 @@ static inline void east_init_crash_handling(void)
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
 }
 
+/* Cryptographically-strong random bytes. Windows has no /dev/urandom, so use
+ * the system RNG. Returns 0 on success, -1 on failure. */
+static inline int east_random_bytes(void *buf, size_t len)
+{
+    return BCRYPT_SUCCESS(
+               BCryptGenRandom(NULL, (PUCHAR)buf, (ULONG)len, BCRYPT_USE_SYSTEM_PREFERRED_RNG))
+               ? 0
+               : -1;
+}
+
 #else /* !_WIN32 */
+
+#include <stdio.h>
 
 #include <sys/stat.h>
 #include <sys/resource.h>
@@ -120,6 +133,17 @@ static inline long east_peak_rss_kb(void)
 }
 
 static inline void east_init_crash_handling(void) {}
+
+/* Cryptographically-strong random bytes from /dev/urandom. Returns 0 on
+ * success, -1 on failure. */
+static inline int east_random_bytes(void *buf, size_t len)
+{
+    FILE *f = fopen("/dev/urandom", "rb");
+    if (!f) return -1;
+    size_t n = fread(buf, 1, len, f);
+    fclose(f);
+    return (n == len) ? 0 : -1;
+}
 
 #endif /* _WIN32 */
 

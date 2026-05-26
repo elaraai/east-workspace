@@ -8,6 +8,7 @@
 #include "east_std/east_std.h"
 #include <east/values.h>
 #include <east/eval_result.h>
+#include <east/compat.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -200,16 +201,13 @@ static void sha256_compute(const uint8_t *data, size_t len, uint8_t digest[SHA25
 }
 
 /* ========================================================================
- * Utility: Read from /dev/urandom
+ * Utility: system RNG (see east_random_bytes — /dev/urandom on POSIX,
+ * BCryptGenRandom on Windows)
  * ======================================================================== */
 
 static int read_urandom(uint8_t *buf, size_t len)
 {
-    FILE *f = fopen("/dev/urandom", "rb");
-    if (!f) return -1;
-    size_t n = fread(buf, 1, len, f);
-    fclose(f);
-    return (n == len) ? 0 : -1;
+    return east_random_bytes(buf, len);
 }
 
 /* ========================================================================

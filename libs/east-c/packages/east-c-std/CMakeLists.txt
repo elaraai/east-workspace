@@ -25,6 +25,8 @@ if(WIN32)
                    "${CMAKE_CURRENT_BINARY_DIR}/tzdata_embed.S" @ONLY)
     target_sources(east-c-std PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/tzdata_embed.S")
     target_compile_definitions(east-c-std PRIVATE EAST_TZDATA_EMBEDDED=1)
+    # bcrypt for BCryptGenRandom (the Windows system RNG; no /dev/urandom).
+    target_link_libraries(east-c-std PRIVATE bcrypt)
 endif()
 
 # libcurl for fetch. On Windows it's vendored statically (Schannel) via the

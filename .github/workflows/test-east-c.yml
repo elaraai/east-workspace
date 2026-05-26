@@ -131,6 +131,15 @@ jobs:
         working-directory: libs/east-c
         run: ./packages/east-c/scripts/run_compliance.sh build/ir-east build/packages/east-c/test_compliance
 
+      # The fs compliance IR bakes the export host's tmpdir() (/tmp/...). On
+      # Windows the C runtime resolves that to <drive>:\tmp, absent by default,
+      # so create it — writeFile/readFile then round-trip as they do on Unix.
+      - name: Ensure temp dir exists (Windows)
+        if: runner.os == 'Windows'
+        working-directory: libs/east-c
+        shell: cmd
+        run: if not exist \tmp mkdir \tmp
+
       - name: east-c-std compliance
         working-directory: libs/east-c
         run: ./packages/east-c/scripts/run_compliance.sh build/ir-std build/packages/east-c-std/test_std_compliance
