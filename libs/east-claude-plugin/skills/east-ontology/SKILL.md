@@ -1,6 +1,6 @@
 ---
 name: east-ontology
-description: "Build an Economic Ontology of a business and render it with the e3-ui Ontology editor. Use when: (1) Modelling how a business creates value as a graph of resources, activities, KPIs, decisions, objectives, policies, data/systems ('map our supply chain', 'build an ontology', 'model the business'), (2) Running an ontology-elicitation workshop and turning the captured activity table into nodes + links, (3) Encoding that graph as an `OntologyType` e3.input and surfacing it via `Ontology.Root` with staged commit/discard + Diff, (4) Using the ontology to identify high-value, decision-improving AI / optimization initiatives."
+description: "Build an Economic Ontology of a business and render it with the e3-ui Ontology editor. Use when: (1) Modelling how a business creates value as a graph of resources, activities, KPIs, decisions, objectives, policies, data/systems ('map our supply chain', 'build an ontology', 'model the business', 'create a digital twin', 'what should we optimize or automate', 'where is the value created'), (2) Running an ontology-elicitation workshop and turning the captured activity table into nodes + links, (3) Encoding that graph as an `OntologyType` e3.input and surfacing it via `Ontology.Root` with staged commit/discard + Diff, (4) Using the ontology to identify high-value, decision-improving AI / optimization initiatives."
 ---
 
 # Economic Ontology

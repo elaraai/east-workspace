@@ -435,3 +435,9 @@ const live = East.function([], UIComponentType, $ => {
     ], { gap: "4" });
 });
 ```
+
+## Related skills
+
+- **east** — the language UI component bodies are written in.
+- **e3-ui** — bind components to live workspace data (`Data.bind`) and ship them as reactive `ui()` e3 tasks; pair it with east-ui whenever the UI reads, writes, or commits real data.
+- **e3** — the engine that runs UI tasks.

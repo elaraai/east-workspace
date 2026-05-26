@@ -5,7 +5,7 @@ description: "East Execution Engine (e3) - durable dataflow execution for East p
 
 # East Execution Engine (e3)
 
-e3 is a durable dataflow execution engine for East programs with content-addressable caching.
+e3 is a durable dataflow execution engine for East programs with content-addressable caching. It is the platform's **Compute** layer — and East + e3 solutions are decision-oriented: a dataflow exists to put auditable evidence behind a business decision, not to move data for its own sake.
 
 ## Quick Start
 
@@ -342,3 +342,12 @@ Tasks are cached by content hash. Re-runs only when:
 - Input values change
 
 Use `--force` to bypass: `e3 dataflow run . dev --force`
+
+## Related skills
+
+- **east** — the language for task bodies (`e3.task` runs an `East.function`).
+- **east-project** — scaffold an e3 project and drive its build / deploy / run / watch lifecycle.
+- **east-ui** + **e3-ui** — author dashboards and decision surfaces as `ui()` tasks bound to workspace datasets.
+- **east-py-datascience** — ML / optimization tasks; set a Python runner (`{ runner: ['uv','run','east-py','run','-p','east-py-datascience'] }`).
+- **east-node-io** / **east-node-std** — pull databases, storage, files, and HTTP into tasks.
+- **east-design** / **east-ontology** — plan the dataflow and model the business before building.

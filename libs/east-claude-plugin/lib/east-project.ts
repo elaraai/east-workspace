@@ -8,6 +8,7 @@ const PACKAGE_SKILL_MAP: Record<string, string> = {
   "@elaraai/east-py-datascience": "east-py-datascience",
   "@elaraai/east-ui": "east-ui",
   "@elaraai/e3": "e3",
+  "@elaraai/e3-ui": "e3-ui",
 };
 
 interface PackageJson {

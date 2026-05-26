@@ -334,3 +334,14 @@ const myFn = East.asyncFunction([StringType], NullType, ($, url) => {
 const compiled = East.compileAsync(myFn, platform);
 await compiled("https://example.com");  // await at the outer TypeScript level
 ```
+
+## Related skills
+
+East is the language inside every other skill's `East.function` bodies. East itself is pure — load the skill that matches the capability you're adding:
+
+- **east-node-std** — side effects on Node: files, HTTP (`Fetch`), crypto, time, random.
+- **east-node-io** — databases (SQL / NoSQL), S3, FTP / SFTP, XLSX / XML, compression.
+- **east-py-datascience** — optimization, ML, Bayesian inference, simulation.
+- **east-ui** — typed UI components returning `UIComponentType`.
+- **e3** — run East functions as durable, content-addressed dataflow tasks.
+- **east-design** — when you have a goal but no architecture yet (start here).
