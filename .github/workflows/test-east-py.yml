@@ -267,6 +267,11 @@ jobs:
     env:
       UV_PYTHON: "3.11"
       CMAKE_GENERATOR: Ninja
+      # Force PyTorch Lightning onto CPU. macos-14 is Apple Silicon, so "auto"
+      # would pick the MPS GPU backend, but MPS is unusable on the headless
+      # runner (allocations fail). No CI runner has a usable GPU, so CPU is the
+      # correct, deterministic choice everywhere.
+      EAST_LIGHTNING_ACCELERATOR: cpu
 
     steps:
       - uses: actions/checkout@v4
