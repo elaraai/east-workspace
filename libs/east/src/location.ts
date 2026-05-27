@@ -198,14 +198,8 @@ function capture_stack_frames(): Location[] {
   const frames: Location[] = [];
 
   for (const line of lines) {
-    // Extract "path:line:col" from a V8 stack frame. The path can contain
-    // spaces and (on Windows) a drive colon, so anchor :line:col at the end and
-    // take everything before it as the path — the parenthesized form ("at fn
-    // (path:line:col)") first, then the bare form ("at path:line:col"). Using
-    // [^\s] here would truncate paths with spaces (e.g. a checkout dir with a
-    // space), breaking relativization and making IR non-deterministic by OS.
-    const match =
-      line.match(/\((.+):(\d+):(\d+)\)\s*$/) ?? line.match(/\bat\s+(.+):(\d+):(\d+)\s*$/);
+    // Take the path before :line:col (allows spaces and a Windows drive colon).
+    const match = line.match(/\((.+):(\d+):(\d+)\)\s*$/) ?? line.match(/\bat\s+(.+):(\d+):(\d+)\s*$/);
     if (match) {
       const [, filename, lineNum, column] = match;
       // `shouldIncludeFrame` runs on the raw path so its node_modules/internal

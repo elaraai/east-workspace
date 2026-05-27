@@ -13,12 +13,12 @@
 /* Use the POSIX CRT names (strdup, etc.) without C4996 deprecation noise.
  * Must precede any CRT header include (this header is force-included first on
  * Windows via /FI from the east-c CMakeLists). */
-#  ifndef _CRT_NONSTDC_NO_WARNINGS
-#    define _CRT_NONSTDC_NO_WARNINGS
-#  endif
-#  ifndef _CRT_SECURE_NO_WARNINGS
-#    define _CRT_SECURE_NO_WARNINGS
-#  endif
+#ifndef _CRT_NONSTDC_NO_WARNINGS
+#define _CRT_NONSTDC_NO_WARNINGS
+#endif
+#ifndef _CRT_SECURE_NO_WARNINGS
+#define _CRT_SECURE_NO_WARNINGS
+#endif
 #endif
 
 #include <time.h>
@@ -26,9 +26,9 @@
 
 /* printf-style format checking: kept on GCC/Clang, compiled out on MSVC. */
 #if defined(__GNUC__) || defined(__clang__)
-#  define EAST_PRINTF_FMT(fmt_idx, va_idx) __attribute__((format(printf, fmt_idx, va_idx)))
+#define EAST_PRINTF_FMT(fmt_idx, va_idx) __attribute__((format(printf, fmt_idx, va_idx)))
 #else
-#  define EAST_PRINTF_FMT(fmt_idx, va_idx)
+#define EAST_PRINTF_FMT(fmt_idx, va_idx)
 #endif
 
 #ifdef _WIN32
@@ -56,9 +56,9 @@
 #define __ATOMIC_RELEASE 3
 #define __ATOMIC_ACQ_REL 4
 #define __ATOMIC_SEQ_CST 5
-#define __atomic_add_fetch(ptr, val, mo) \
+#define __atomic_add_fetch(ptr, val, mo)                                                           \
     (_InterlockedExchangeAdd((volatile long *)(ptr), (long)(val)) + (long)(val))
-#define __atomic_sub_fetch(ptr, val, mo) \
+#define __atomic_sub_fetch(ptr, val, mo)                                                           \
     (_InterlockedExchangeAdd((volatile long *)(ptr), -(long)(val)) - (long)(val))
 
 /* Reentrant time conversions. MinGW does not declare gmtime_r/localtime_r;
@@ -177,8 +177,8 @@ static inline int east_random_bytes(void *buf, size_t len)
 
 /* POSIX names -> MSVCRT equivalents (declared in <io.h>/<direct.h> included
  * above, so these macros must follow those includes). */
-#define unlink(p)    _unlink(p)
-#define rmdir(p)     _rmdir(p)
+#define unlink(p) _unlink(p)
+#define rmdir(p) _rmdir(p)
 #define getcwd(b, n) _getcwd((b), (int)(n))
 
 /* ssize_t -> Win32 SSIZE_T (BaseTsd.h, via <windows.h>). */
