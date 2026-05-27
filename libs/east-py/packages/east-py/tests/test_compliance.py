@@ -61,16 +61,23 @@ def run_one(ir_file: Path, out: io.StringIO | None = None, extra_platform: list 
         nonlocal passed, failed
         t0 = time.perf_counter()
         ok = True
+        err = None
         try:
             if callable(test_fn):
                 test_fn()
-        except Exception:
+        except Exception as e:
             ok = False
+            err = e
         dur = (time.perf_counter() - t0) * 1000
         if out:
             indent = "  " * depth
             mark = "[+]" if ok else "[x]"
             out.write(f"{indent}{mark} {name} ({dur:.6f}ms)\n")
+            # Print why it failed (the East testFail message or the raised
+            # exception), matching east-c's harness — otherwise the log only
+            # says which test failed, not why.
+            if not ok and err is not None:
+                out.write(f"{indent}    {err}\n")
         if ok:
             passed += 1
         else:
