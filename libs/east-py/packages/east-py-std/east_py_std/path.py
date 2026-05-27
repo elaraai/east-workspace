@@ -7,7 +7,7 @@
 Provides path operations for East programs running in Python.
 """
 
-import os
+import posixpath
 from pathlib import Path as PathLib
 
 from east.runtime.platform import PlatformFunction
@@ -22,11 +22,11 @@ def path_join_impl(segments: EastArray) -> str:
         segments: Array of path segments to join
 
     Returns:
-        Joined path with platform-specific separators
+        Joined path, using forward slashes (/) on every platform
     """
     if len(segments) == 0:
         return "."
-    return os.path.join(*segments)
+    return posixpath.join(*segments)
 
 
 def path_resolve_impl(path: str) -> str:
@@ -50,7 +50,7 @@ def path_dirname_impl(path: str) -> str:
     Returns:
         Directory portion of the path
     """
-    return os.path.dirname(path)
+    return posixpath.dirname(path)
 
 
 def path_basename_impl(path: str) -> str:
@@ -62,7 +62,7 @@ def path_basename_impl(path: str) -> str:
     Returns:
         File name portion of the path (including extension)
     """
-    return os.path.basename(path)
+    return posixpath.basename(path)
 
 
 def path_extname_impl(path: str) -> str:
@@ -74,7 +74,7 @@ def path_extname_impl(path: str) -> str:
     Returns:
         File extension including the dot (e.g., ".txt"), or empty string if none
     """
-    return os.path.splitext(path)[1]
+    return posixpath.splitext(path)[1]
 
 
 # Platform function implementations

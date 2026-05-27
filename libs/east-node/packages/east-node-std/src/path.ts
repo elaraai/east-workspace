@@ -5,12 +5,17 @@
 import { East, StringType, ArrayType } from "@elaraai/east";
 import type { PlatformFunction } from "@elaraai/east/internal";
 import { EastError } from "@elaraai/east/internal";
-import { join, resolve, dirname, basename, extname } from "node:path";
+// Pure path-string ops use POSIX (forward-slash) semantics on every OS, so an
+// East program produces identical paths on all platforms (matching east-c and
+// east-py). `resolve` stays host-native — it resolves against the real working
+// directory, so its result is inherently OS-specific.
+import { resolve } from "node:path";
+import { join, dirname, basename, extname } from "node:path/posix";
 
 /**
  * Joins path segments into a single path.
  *
- * Combines an array of path segments using the platform-specific path separator.
+ * Combines an array of path segments with a forward-slash (`/`) separator on every platform.
  * Normalizes the resulting path by resolving `.` and `..` segments. Empty segments
  * are ignored.
  *
@@ -18,14 +23,14 @@ import { join, resolve, dirname, basename, extname } from "node:path";
  * in East programs running on Node.js.
  *
  * @param segments - Array of path segments to join (e.g., ["dir", "subdir", "file.txt"])
- * @returns The joined path with platform-specific separators
+ * @returns The joined path, using forward slashes (`/`) on every platform
  *
  * @example
  * ```ts
  * const buildPath = East.function([], StringType, $ => {
  *     const segments = East.value(["home", "user", "documents", "file.txt"]);
  *     return Path.join(segments);
- *     // Returns: "home/user/documents/file.txt" (Unix) or "home\\user\\documents\\file.txt" (Windows)
+ *     // Returns: "home/user/documents/file.txt" on every platform
  * });
  * ```
  */
@@ -204,11 +209,11 @@ export const Path = {
     /**
      * Joins path segments into a single path.
      *
-     * Combines an array of path segments using the platform-specific path separator.
+     * Combines an array of path segments with a forward-slash (`/`) separator on every platform.
      * Normalizes the resulting path and ignores empty segments.
      *
      * @param segments - Array of path segments to join
-     * @returns The joined path with platform-specific separators
+     * @returns The joined path, using forward slashes (`/`) on every platform
      *
      * @example
      * ```ts
