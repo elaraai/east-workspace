@@ -21,6 +21,11 @@ classifiers = [
 
 dependencies = [
     "elaraai-east-py",
+    # zoneinfo ships no IANA tz database on Windows (and minimal Linux images),
+    # so named-zone lookups fail there. tzdata provides a pinned database, which
+    # also keeps timezone offsets identical across OSes rather than depending on
+    # the host's system zoneinfo.
+    "tzdata",
 ]
 
 [tool.uv.sources]
