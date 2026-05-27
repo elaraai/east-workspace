@@ -46,7 +46,7 @@ jobs:
           if-no-files-found: error
 
   test-east-py:
-    name: Test east-py core (${{ matrix.os }})
+    name: Test east-py (${{ matrix.os }})
     needs: export-ir
     timeout-minutes: 30
     strategy:

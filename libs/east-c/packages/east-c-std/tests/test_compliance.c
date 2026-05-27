@@ -76,8 +76,7 @@ static EvalResult plat_describe(EastValue **args, size_t num_args, EastType **in
         if (r.status == EVAL_ERROR) {
             g_tests_run++;
             g_tests_failed++;
-            printf("  [x] describe \"%s\": %s\n", name,
-                   r.error_message ? r.error_message : "?");
+            printf("  [x] describe \"%s\": %s\n", name, r.error_message ? r.error_message : "?");
             eval_result_free(&r);
         } else {
             if (r.value) east_value_release(r.value);
