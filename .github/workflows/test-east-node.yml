@@ -58,3 +58,61 @@ jobs:
       - name: Stop test services
         if: always()
         run: docker compose -f docker/services/docker-compose.yml --profile services down -v
+
+  # east-node-std on macOS + Windows. The ubuntu `test` job above already covers
+  # std (alongside io + cli, which need Docker); this adds the cross-platform std
+  # legs with native go-httpbin :8085 for fetch (no Docker off-Linux).
+  test-std:
+    name: Test east-node-std (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      # east-node-std's build is `rm -rf dist && tsc`; pnpm runs package scripts
+      # via cmd.exe on Windows by default, so force a POSIX shell for them.
+      npm_config_script_shell: bash
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Use Go (for go-httpbin)
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build east (dependency)
+        run: pnpm --filter @elaraai/east run build
+
+      - name: Start httpbin (go-httpbin :8085)
+        run: |
+          go install github.com/mccutchen/go-httpbin/v2/cmd/go-httpbin@v2.18.3
+          "$(go env GOPATH)/bin/go-httpbin" -port 8085 &
+          for ((i = 0; i < 30; i++)); do
+            curl -sf http://localhost:8085/get >/dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -sf http://localhost:8085/get >/dev/null
+
+      - name: Ensure temp dir exists (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: if not exist \tmp mkdir \tmp
+
+      - name: Test east-node-std
+        run: pnpm --filter @elaraai/east-node-std test
