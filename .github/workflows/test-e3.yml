@@ -81,6 +81,16 @@ jobs:
         working-directory: libs/e3
         run: make build
 
+      # The first `pnpm install` ran before the packages were built, so on
+      # Windows the cmd-shim for the `e3` bin couldn't be created — its target
+      # (dist/src/cli.js) didn't exist yet, and unlike POSIX symlinks a Windows
+      # cmd-shim stats its target. Re-run install now that dist exists so the
+      # integration + fuzz suites can spawn `e3`. No-op on POSIX (symlinks were
+      # already created at first install).
+      - name: Recreate workspace bin shims (Windows)
+        if: runner.os == 'Windows'
+        run: pnpm install
+
       - name: Link e3 CLI
         working-directory: libs/e3
         run: make link
