@@ -661,6 +661,16 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         .map(([name, ts]) => `${name} (${ts.status})`)
         .join(', ');
       if (stuckTasks.length > 0 && !checkAborted() && !hasFailure) {
+        // [DIAG] dump every task's status at the stuck point. runningTasks is
+        // already drained here (Promise.all above), so an arm showing
+        // `in_progress` means it is orphaned (in state, not running); both arms
+        // `completed` + merge `pending` would instead point at the readiness/VV
+        // recompute. reexec = how many reactive invalidations fired.
+        const diag = [...state.tasks.entries()]
+          .map(([name, ts]) => `${name}=${ts.status}`)
+          .join(', ');
+        // eslint-disable-next-line no-console
+        console.error(`[DIAG stuck] reexec=${state.reexecuted} running=${execution.runningTasks.size} | ${diag}`);
         throw new DataflowError(`Dataflow stuck: ${stuckTasks}`);
       }
 
