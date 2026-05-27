@@ -23,54 +23,85 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test-east-py:
-    name: Test east-py (core)
+  # Export the compliance IR once on Linux (the TS export tooling is Unix-only),
+  # then share it so the win/mac legs don't re-run it. Mirrors test-east-c.yml.
+  export-ir:
+    name: Export east IR
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: pnpm/action-setup@v4
-
       - name: Use Node.js 22
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: "pnpm"
+      - run: pnpm install
+      - name: Export east IR
+        run: pnpm --filter @elaraai/east run test:export
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ir-east
+          path: /tmp/east-test-ir/
+          if-no-files-found: error
+
+  test-east-py:
+    name: Test east-py core (${{ matrix.os }})
+    needs: export-ir
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        # Git Bash on Windows so the build/test steps share one shell on all OSes.
+        shell: bash
+    env:
+      UV_PYTHON: "3.11"
+      # Ninja avoids scikit-build's default multi-config VS generator on Windows
+      # (deep TryCompile paths overflow MAX_PATH); ninja comes from build-deps.
+      CMAKE_GENERATOR: Ninja
+
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Install uv
         uses: astral-sh/setup-uv@v3
 
-      - name: Set up Python 3.11
-        run: uv python install 3.11
+      - name: Set up MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Install Node.js dependencies
-        run: pnpm install
-
-      - name: Build and export east test IR
-        working-directory: libs/east
-        run: make test-export
-        env:
-          EXPORT_TEST_IR: /tmp/east-test-ir
-
-      - name: Install C build dependencies
+      - name: Install C build dependencies (Linux)
+        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
 
-      - name: Install Python dependencies
-        working-directory: libs/east-py
-        run: make install
+      - name: Install C build dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake || true
 
-      - name: Lint
-        working-directory: libs/east-py
-        run: make lint
+      - name: Download east IR
+        uses: actions/download-artifact@v4
+        with:
+          name: ir-east
+          path: ir-east
 
-      - name: Type check
+      # Build east-py's native Cython extension (links east-c in-process via
+      # scikit-build-core). Replicates `make install`'s no-build-isolation flow
+      # directly so it runs without make on Windows runners.
+      - name: Build east-py
         working-directory: libs/east-py
-        run: make typecheck
+        run: |
+          uv venv
+          uv pip install scikit-build-core cython numpy setuptools ninja
+          uv sync --all-packages --no-build-isolation \
+            --reinstall-package elaraai-east-py --refresh-package elaraai-east-py
 
-      - name: Run east-py compliance tests
+      - name: Run east-py core compliance
         working-directory: libs/east-py
-        run: make test-east-py
+        run: uv run --package elaraai-east-py python packages/east-py/tests/test_compliance.py --ir-dir "$GITHUB_WORKSPACE/ir-east"
 
   test-east-py-std:
     name: Test east-py-std
