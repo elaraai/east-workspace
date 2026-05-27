@@ -394,17 +394,6 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         return execution.aborted;
       };
 
-      // [TRACE] task-lifecycle ring buffer; dumped to stderr only on a stuck.
-      const __trace: string[] = [];
-      const tr = (ev: string, task: string) => {
-        __trace.push(
-          `#${__trace.length} ${ev} ${task}=${state.tasks.get(task)?.status ?? '-'} ` +
-            `run=[${[...execution.runningTasks.keys()].join(',')}] reexec=${state.reexecuted}`,
-        );
-      };
-      // expose to handleInputChanges (separate method) for INPUT-INVAL events
-      (state as unknown as { __tr?: typeof tr }).__tr = tr;
-
       while (true) {
         // Check if we're done
         if (execution.runningTasks.size === 0 && stepIsComplete(state)) {
@@ -452,7 +441,6 @@ export class LocalOrchestrator implements DataflowOrchestrator {
             });
             (mutableState.events as ExecutionEvent[]).push(deferEvent);
 
-            tr('DEFER', taskName);
             options.onTaskDeferred?.(taskName, vvCheck.conflictPath);
             continue;
           }
@@ -478,7 +466,6 @@ export class LocalOrchestrator implements DataflowOrchestrator {
                 true,
                 0
               );
-              tr('COMPLETE-CACHED', taskName);
 
               // Track task execution for DataflowRun
               const existingCached = execution.taskExecutions.get(taskName);
@@ -508,7 +495,6 @@ export class LocalOrchestrator implements DataflowOrchestrator {
 
           // Mark as started (event added by step function)
           stepTaskStarted(state, taskName);
-          tr('START', taskName);
           await this.persistState(execution, state);
           options.onTaskStart?.(taskName);
 
@@ -543,7 +529,6 @@ export class LocalOrchestrator implements DataflowOrchestrator {
                   // The reactive loop will re-execute it with the updated inputs.
                   const ts = state.tasks.get(taskName) as Mutable<TaskState> | undefined;
                   if (ts) ts.status = 'pending';
-                  tr('STALE-INVAL', taskName);
 
                   const mutableState = state as Mutable<DataflowExecutionState>;
                   mutableState.eventSeq = state.eventSeq + 1n;
@@ -577,7 +562,6 @@ export class LocalOrchestrator implements DataflowOrchestrator {
                     result.cached,
                     result.duration
                   );
-                  tr('COMPLETE', taskName);
 
                   // Track task execution for DataflowRun
                   const existing = execution.taskExecutions.get(taskName);
@@ -635,13 +619,40 @@ export class LocalOrchestrator implements DataflowOrchestrator {
               // Update state store
               await this.persistState(execution, state);
             })
-          ).finally(() => {
+          ).catch(async (err) => {
+            // The completion handler (writing the output ref, re-reading inputs,
+            // or persisting state) rejected. Without this catch the task is left
+            // in whatever status it had when the throw happened — `in_progress`
+            // if it failed before stepTaskCompleted — and the `.finally` still
+            // drops it from runningTasks. That orphans the arm (in state, not
+            // running) and the dataflow later reports a spurious "Dataflow stuck".
+            // The rejection is otherwise swallowed (a settled Promise.race keeps a
+            // handler on it), so it never surfaces. Mark the task failed with the
+            // real error instead.
+            // eslint-disable-next-line no-console
+            console.error(`[DIAG complete-error] ${taskName}:`, err);
+            const msg = err instanceof Error ? err.message : String(err);
+            await execution.mutex.runExclusive(async () => {
+              hasFailure = true;
+              try {
+                stepTaskFailed(state, taskName, msg, undefined, 0);
+                await this.persistState(execution, state);
+              } catch {
+                // best-effort — the original error above is what matters
+              }
+            });
+            options.onTaskComplete?.({
+              name: taskName,
+              cached: false,
+              state: 'error',
+              error: msg,
+              duration: 0,
+            });
+          }).finally(() => {
             execution.runningTasks.delete(taskName);
-            tr('DELETE', taskName);
           });
 
           execution.runningTasks.set(taskName, taskPromise);
-          tr('REGISTER', taskName);
         }
 
         // Wait for at least one task to complete if we can't launch more
@@ -689,8 +700,6 @@ export class LocalOrchestrator implements DataflowOrchestrator {
           .join(', ');
         // eslint-disable-next-line no-console
         console.error(`[DIAG stuck] reexec=${state.reexecuted} running=${execution.runningTasks.size} | ${diag}`);
-        // eslint-disable-next-line no-console
-        console.error(`[TRACE]\n${__trace.slice(-50).join('\n')}`);
         throw new DataflowError(`Dataflow stuck: ${stuckTasks}`);
       }
 
@@ -832,9 +841,6 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     if (changes.length > 0) {
       const mutableState = state as Mutable<DataflowExecutionState>;
       const { invalidated, events: invEvents } = stepInvalidateTasks(state, changes);
-
-      const __tr = (state as unknown as { __tr?: (ev: string, task: string) => void }).__tr;
-      for (const name of invalidated) __tr?.('INPUT-INVAL', name);
 
       // Track re-executions (tasks that were completed and are now invalidated)
       mutableState.reexecuted = state.reexecuted + BigInt(invalidated.length);
