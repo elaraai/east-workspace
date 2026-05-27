@@ -8,10 +8,14 @@ All formats (JSON, BEAST2, East text) go straight from raw bytes to C
 with no Python IR round-trip.
 """
 
-import resource
 import sys
 from pathlib import Path
 from time import perf_counter
+
+try:
+    import resource  # Unix-only (getrusage); not present on Windows
+except ImportError:  # pragma: no cover - Windows has no `resource` module
+    resource = None  # type: ignore[assignment]
 
 from east.runtime.compiler import compile_from_beast2, compile_from_east, compile_from_json
 from east.runtime.platform import PlatformFunction
@@ -134,14 +138,16 @@ def run_program(
         print(f"  Output:   {(t4 - t3) * 1000:8.1f} ms", file=sys.stderr)
         print(f"  Total:    {(t4 - t0) * 1000:8.1f} ms", file=sys.stderr)
 
-        # ru_maxrss is in KB on Linux, bytes on macOS
-        peak_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-        if sys.platform == "darwin":
-            peak_kb = peak_kb / 1024
-        print("\nMemory:", file=sys.stderr)
-        if peak_kb >= 1024:
-            print(f"  Peak RSS:  {peak_kb / 1024:8.1f} MB", file=sys.stderr)
-        else:
-            print(f"  Peak RSS:  {peak_kb:8.0f} KB", file=sys.stderr)
+        # ru_maxrss is in KB on Linux, bytes on macOS. resource is Unix-only
+        # (absent on Windows), so peak-RSS reporting is skipped there.
+        if resource is not None:
+            peak_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            if sys.platform == "darwin":
+                peak_kb = peak_kb / 1024
+            print("\nMemory:", file=sys.stderr)
+            if peak_kb >= 1024:
+                print(f"  Peak RSS:  {peak_kb / 1024:8.1f} MB", file=sys.stderr)
+            else:
+                print(f"  Peak RSS:  {peak_kb:8.0f} KB", file=sys.stderr)
 
     return result
