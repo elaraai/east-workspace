@@ -6,10 +6,10 @@ let failures = 0;
 function test(label: string, fn: () => void) {
   try {
     fn();
-    console.log(`  ✓ ${label}`);
+    console.log(`  [+] ${label}`);
   } catch (e: any) {
     failures++;
-    console.log(`  ✗ ${label}: ${e.message}`);
+    console.log(`  [x] ${label}: ${e.message}`);
   }
 }
 

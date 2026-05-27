@@ -218,9 +218,9 @@ export function describeEast(
 
             const filename = join(outputDir, `${suiteName.replace(/[^a-zA-Z0-9]/g, '_')}.json`);
             writeFileSync(filename, JSON.stringify(wrapperJSON, null, 2));
-            console.log(`✓ Exported test IR: ${filename}`);
+            console.log(`[+] Exported test IR: ${filename}`);
         } catch (err) {
-            console.error(`✗ Failed to export test IR for "${suiteName}":`, err);
+            console.error(`[x] Failed to export test IR for "${suiteName}":`, err);
         }
     }
 

@@ -62,7 +62,7 @@ static EvalResult plat_describe(EastValue **args, size_t num_args, EastType **in
         name = args[0]->data.string.data;
     }
 
-    printf("\xe2\x96\xb6 %s\n", name);
+    printf("[>] %s\n", name);
 
     int failed_before = g_tests_failed;
 
@@ -76,7 +76,7 @@ static EvalResult plat_describe(EastValue **args, size_t num_args, EastType **in
         if (r.status == EVAL_ERROR) {
             g_tests_run++;
             g_tests_failed++;
-            printf("  \xe2\x9c\x96 describe \"%s\": %s\n", name,
+            printf("  [x] describe \"%s\": %s\n", name,
                    r.error_message ? r.error_message : "?");
             eval_result_free(&r);
         } else {
@@ -89,9 +89,9 @@ static EvalResult plat_describe(EastValue **args, size_t num_args, EastType **in
     double desc_ms = (dt1.tv_sec - dt0.tv_sec) * 1000.0 + (dt1.tv_nsec - dt0.tv_nsec) / 1e6;
 
     if (g_tests_failed > failed_before) {
-        printf("\xe2\x9c\x96 %s (%.6fms)\n", name, desc_ms);
+        printf("[x] %s (%.6fms)\n", name, desc_ms);
     } else {
-        printf("\xe2\x9c\x94 %s (%.6fms)\n", name, desc_ms);
+        printf("[+] %s (%.6fms)\n", name, desc_ms);
     }
 
     return eval_ok(east_null());
@@ -139,7 +139,7 @@ static EvalResult plat_test(EastValue **args, size_t num_args, EastType **input_
 
     if (failed) {
         g_tests_failed++;
-        printf("  \xe2\x9c\x96 %s (%.6fms)\n", name, test_ms);
+        printf("  [x] %s (%.6fms)\n", name, test_ms);
         printf("    %s\n", err_msg ? err_msg : "?");
         if (err_file) {
             printf("    at %s:%ld:%ld\n", err_file, err_line, err_col);
@@ -148,7 +148,7 @@ static EvalResult plat_test(EastValue **args, size_t num_args, EastType **input_
         free((void *)err_msg);
     } else {
         g_tests_passed++;
-        printf("  \xe2\x9c\x94 %s (%.6fms)\n", name, test_ms);
+        printf("  [+] %s (%.6fms)\n", name, test_ms);
     }
 
     return eval_ok(east_null());
@@ -311,7 +311,7 @@ static int run_suite(void *arg)
         }
     }
 
-    printf("\xe2\x84\xb9 tests %d\n", g_tests_run);
+    printf("[i] tests %d\n", g_tests_run);
     printf("\nResults: %d/%d passed", g_tests_passed, g_tests_run);
     if (g_tests_failed > 0) {
         printf(" (%d failed)", g_tests_failed);

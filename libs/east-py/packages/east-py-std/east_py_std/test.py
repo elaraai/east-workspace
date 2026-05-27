@@ -57,7 +57,7 @@ def test_impl_fn(name: str, body: Any) -> None:
     dur = (time.perf_counter() - t0) * 1000
     if _out:
         indent = "  " * _depth
-        mark = "\u2714" if ok else "\u2716"
+        mark = "[+]" if ok else "[x]"
         _out.write(f"{indent}{mark} {name} ({dur:.6f}ms)\n")
     if ok:
         passed += 1
@@ -72,7 +72,7 @@ def describe_impl(name: str, body: Any) -> None:
     failed_before = failed
     _depth += 1
     if _out and _depth == 1:
-        _out.write(f"\u25b6 {name}\n")
+        _out.write(f"[>] {name}\n")
     try:
         if callable(body):
             body()
@@ -82,7 +82,7 @@ def describe_impl(name: str, body: Any) -> None:
         _depth -= 1
         if _out and _depth == 0:
             dur = (time.perf_counter() - t0) * 1000
-            mark = "\u2714" if failed == failed_before else "\u2716"
+            mark = "[+]" if failed == failed_before else "[x]"
             _out.write(f"{mark} {name} ({dur:.6f}ms)\n")
 
 

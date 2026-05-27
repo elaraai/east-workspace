@@ -477,7 +477,7 @@ export const closureSerializeStructCapture = example({
 
 export const closureSerializeDeeplyNested = example({
     keywords: ["function", "closure", "East.Blob.encodeBeast", "decodeBeast", "deeply nested", "BEAST2"],
-    description: "Serialize deeply nested closures (A→B→C→value) to BEAST2",
+    description: "Serialize deeply nested closures (A->B->C->value) to BEAST2",
     fn: East.function([], IntegerType, ($) => {
         const InnerType = FunctionType([], IntegerType);
         const MiddleType = FunctionType([], InnerType);

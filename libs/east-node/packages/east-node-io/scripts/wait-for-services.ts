@@ -81,7 +81,7 @@ async function waitForServices(): Promise<void> {
             .map(check => check.service);
 
         if (allHealthy) {
-            console.log('✓ All services are healthy and ready!');
+            console.log('[+] All services are healthy and ready!');
             return;
         }
 
@@ -94,7 +94,7 @@ async function waitForServices(): Promise<void> {
         await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
     }
 
-    console.error('✗ Timeout: Some services did not become healthy in time');
+    console.error('[x] Timeout: Some services did not become healthy in time');
     process.exit(1);
 }
 
