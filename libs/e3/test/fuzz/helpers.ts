@@ -146,6 +146,7 @@ export async function runE3Command(
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       shell: true,
+      windowsHide: true,
     });
 
     let stdout = '';

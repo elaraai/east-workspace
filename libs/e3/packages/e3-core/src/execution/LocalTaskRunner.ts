@@ -389,6 +389,7 @@ async function runCommand(
   const child = spawn(cmd, cmdArgs, {
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: true,
+    windowsHide: true,
   });
 
   // Set up event listeners IMMEDIATELY before any async work
