@@ -34,8 +34,15 @@ check-deps:
 	check pnpm    "npm install -g pnpm  (or: corepack enable && corepack prepare pnpm@latest --activate)"; \
 	check node    "https://nodejs.org/  (>=22)"; \
 	check cmake   "apt install cmake  /  brew install cmake"; \
-	check cc      "apt install build-essential  /  xcode-select --install"; \
-	check python3 "apt install python3  /  brew install python"; \
+	if uname -s 2>/dev/null | grep -qiE 'mingw|msys|cygwin'; then \
+		check python "https://www.python.org/downloads/  (>=3.11; ensure python is on PATH)"; \
+		check ninja  "winget install Ninja-build.Ninja  (or the VS 'C++ CMake tools')"; \
+		echo "  o C compiler: MSVC (VS Build Tools, 'Desktop development with C++') -- run make from a"; \
+		echo "                Developer PowerShell/Command Prompt so cl.exe + the Windows SDK are on PATH"; \
+	else \
+		check cc      "apt install build-essential  /  xcode-select --install"; \
+		check python3 "apt install python3  /  brew install python"; \
+	fi; \
 	check docker  "https://docs.docker.com/engine/install/  (only needed for make services-up / test-all)"; \
 	echo "Optional (task-specific):"; \
 	opt x86_64-w64-mingw32-gcc "apt install mingw-w64  /  brew install mingw-w64  — Windows east-c cross-build"; \
