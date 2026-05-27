@@ -370,7 +370,12 @@ jobs:
           - { os: ubuntu-24.04-arm, target: linux-arm64 }
           - { os: macos-14,         target: macos-arm64 }
           - { os: macos-14,         target: macos-x64,  cmake_arch: x86_64 }
+          - { os: windows-latest,   target: win32-x64   }
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        # Git Bash on Windows so the mkdir/cp/tar build + stage steps run on every OS.
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -381,22 +386,38 @@ jobs:
       - name: Install build deps (macOS)
         if: runner.os == 'macOS'
         run: brew install cmake || true
+      - name: Set up MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
       - name: Build
         working-directory: libs/east-c
         run: |
           mkdir -p build && cd build
-          ARCH_FLAG="${{ matrix.cmake_arch && format('-DCMAKE_OSX_ARCHITECTURES={0}', matrix.cmake_arch) || '' }}"
-          cmake .. $ARCH_FLAG
-          cmake --build . -j$(nproc 2>/dev/null || sysctl -n hw.logicalcpu)
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            # Ninja (single-config) so binaries land at build/packages/.../<name>
+            # as on Unix; needs the MSVC env set up above.
+            cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release
+            cmake --build .
+          else
+            ARCH_FLAG="${{ matrix.cmake_arch && format('-DCMAKE_OSX_ARCHITECTURES={0}', matrix.cmake_arch) || '' }}"
+            cmake .. $ARCH_FLAG
+            cmake --build . -j$(nproc 2>/dev/null || sysctl -n hw.logicalcpu)
+          fi
       - name: Stage tarball
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
           TARGET="${{ matrix.target }}"
           STAGE="east-c-${VERSION}-${TARGET}"
           mkdir -p "$STAGE"/{bin,lib,include}
-          cp libs/east-c/build/packages/east-c-cli/east-c "$STAGE/bin/"
-          cp libs/east-c/build/packages/east-c/libeast-c.a "$STAGE/lib/" 2>/dev/null || true
-          cp libs/east-c/build/packages/east-c-std/libeast-c-std.a "$STAGE/lib/" 2>/dev/null || true
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            cp libs/east-c/build/packages/east-c-cli/east-c.exe "$STAGE/bin/"
+            cp libs/east-c/build/packages/east-c/east-c.lib "$STAGE/lib/" 2>/dev/null || true
+            cp libs/east-c/build/packages/east-c-std/east-c-std.lib "$STAGE/lib/" 2>/dev/null || true
+          else
+            cp libs/east-c/build/packages/east-c-cli/east-c "$STAGE/bin/"
+            cp libs/east-c/build/packages/east-c/libeast-c.a "$STAGE/lib/" 2>/dev/null || true
+            cp libs/east-c/build/packages/east-c-std/libeast-c-std.a "$STAGE/lib/" 2>/dev/null || true
+          fi
           cp -r libs/east-c/packages/east-c/include/east "$STAGE/include/"
           cp libs/east-c/LICENSE "$STAGE/" 2>/dev/null || cp LICENSE "$STAGE/" 2>/dev/null || true
           cp libs/east-c/README.md "$STAGE/" 2>/dev/null || true
