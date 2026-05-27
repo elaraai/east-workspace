@@ -15,12 +15,22 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { promisify } from 'node:util';
+import gracefulFs from 'graceful-fs';
 import { encodeBeast2For, decodeBeast2For } from '@elaraai/east';
 import { DatasetRefType, type DatasetRef } from '@elaraai/e3-types';
 import type { DatasetRefStore } from '../interfaces.js';
 
 const encodeRef = encodeBeast2For(DatasetRefType);
 const decodeRef = decodeBeast2For(DatasetRefType);
+
+// Atomic ref writes stage to a `.partial` file then rename over the target.
+// POSIX rename-over-open always succeeds, but on Windows it fails with a
+// sharing violation (EPERM/EACCES/EBUSY) when a reader holds the destination
+// open — e.g. the orchestrator reading a dataset `.ref` while a concurrent
+// `dataset set` rewrites it. graceful-fs transparently retries rename on those
+// Windows errors (the same hardening npm relies on); a no-op on POSIX.
+const gracefulRename = promisify(gracefulFs.rename);
 
 export class LocalDatasetRefStore implements DatasetRefStore {
   /**
@@ -54,7 +64,7 @@ export class LocalDatasetRefStore implements DatasetRefStore {
     const data = encodeRef(ref);
     await fs.writeFile(stagingPath, data);
     try {
-      await fs.rename(stagingPath, filePath);
+      await gracefulRename(stagingPath, filePath);
     } catch (err) {
       // Clean up staging file on failure
       try { await fs.unlink(stagingPath); } catch { /* ignore */ }
