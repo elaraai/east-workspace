@@ -38,7 +38,9 @@ describe('LocalLockService', () => {
   describe('workspaceLockPath', () => {
     it('returns correct path', () => {
       const lockPath = workspaceLockPath('/repo', 'myws');
-      assert.strictEqual(lockPath, '/repo/workspaces/myws.lock');
+      // workspaceLockPath uses path.join (OS separator); normalize before
+      // comparing so the assertion holds on Windows too.
+      assert.strictEqual(lockPath.replace(/\\/g, '/'), '/repo/workspaces/myws.lock');
     });
   });
 
