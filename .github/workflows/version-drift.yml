@@ -1,18 +1,13 @@
 name: Version Drift Check
 
 on:
+  # Run on every PR to main with no paths filter. The previous manifest-scoped
+  # filter let a release's plugin.json drift sit undetected until a PR happened
+  # to touch a manifest; checking alignment on every PR catches latent drift
+  # before merge regardless of what the PR changes. (A drifted *release* is still
+  # blocked pre-publish by check-version-drift inside release.yml's set-version.)
   pull_request:
-    paths:
-      - "**/package.json"
-      - "**/pyproject.toml"
-      - ".claude-plugin/marketplace.json"
-      - "libs/east-claude-plugin/.claude-plugin/plugin.json"
-      - "scripts/set-npm-version.mjs"
-      - "scripts/set-python-version.mjs"
-      - "scripts/set-vsix-version.mjs"
-      - "scripts/set-plugin-version.mjs"
-      - "scripts/check-version-drift.mjs"
-      - ".github/workflows/version-drift.yml"
+    branches: [main]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
