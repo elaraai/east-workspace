@@ -39,10 +39,11 @@ jobs:
       - run: pnpm install
       # The TS export tooling is Unix-only (VAR=val node, /tmp); run it once here
       # and share via artifacts so the win/mac legs don't re-run it.
-      - name: Export IR (east + east-node-std)
+      - name: Export IR (east + east-node-std + east-py-datascience)
         run: |
           pnpm --filter @elaraai/east run test:export
           pnpm --filter @elaraai/east-node-std run test:export
+          pnpm --filter @elaraai/east-py-datascience run test:export
       - uses: actions/upload-artifact@v4
         with:
           name: ir-east
@@ -52,6 +53,11 @@ jobs:
         with:
           name: ir-std
           path: /tmp/east-node-std/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ir-datascience
+          path: /tmp/east-py-datascience/
           if-no-files-found: error
 
   test-east-py:
@@ -247,48 +253,57 @@ jobs:
         run: docker compose -f docker/services/docker-compose.yml --profile services down -v
 
   test-east-py-datascience:
-    name: Test east-py-datascience
-    runs-on: ubuntu-latest
+    name: Test east-py-datascience (${{ matrix.os }})
+    needs: export-ir
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      UV_PYTHON: "3.11"
+      CMAKE_GENERATOR: Ninja
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
-
-      - name: Use Node.js 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: "pnpm"
-
       - name: Install uv
         uses: astral-sh/setup-uv@v3
 
-      - name: Set up Python 3.11
-        run: uv python install 3.11
+      - name: Set up MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Install Node.js dependencies
-        run: pnpm install
-
-      - name: Build east (dependency)
-        working-directory: libs/east
-        run: make build
-
-      - name: Build east-node (dependency)
-        working-directory: libs/east-node
-        run: make build
-
-      - name: Build east-py-datascience
-        working-directory: libs/east-py/packages/east-py-datascience
-        run: make build
-
-      - name: Install C build dependencies
+      - name: Install C build dependencies (Linux)
+        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
 
-      - name: Install Python dependencies
-        working-directory: libs/east-py
-        run: make install
+      - name: Install C build dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake || true
 
-      - name: Run east-py-datascience tests
+      - name: Download datascience IR
+        uses: actions/download-artifact@v4
+        with:
+          name: ir-datascience
+          path: ir-datascience
+
+      # --all-extras pulls every ML/optimization backend. On Windows/macOS-arm
+      # some (e.g. PyNomadBBO, pymc) may lack wheels; fail-fast:false keeps the
+      # ubuntu leg green while the others surface exactly what's missing.
+      - name: Build east-py-datascience (+ ML extras)
         working-directory: libs/east-py
-        run: make test-east-py-datascience
+        run: |
+          uv venv
+          uv pip install scikit-build-core cython numpy setuptools ninja
+          uv sync --all-extras --all-packages --no-build-isolation \
+            --reinstall-package elaraai-east-py --refresh-package elaraai-east-py \
+            --reinstall-package elaraai-east-py-datascience --refresh-package elaraai-east-py-datascience
+
+      - name: Run east-py-datascience compliance
+        working-directory: libs/east-py
+        run: uv run --package elaraai-east-py-datascience python packages/east-py/tests/test_compliance.py --ir-dir "$GITHUB_WORKSPACE/ir-datascience" -p east_py_datascience
