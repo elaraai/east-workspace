@@ -180,7 +180,7 @@ def routing_solve_impl(
     _check_google_or_support()
     from ortools.constraint_solver import pywrapcp, routing_enums_pb2
 
-    start_time = time.monotonic()
+    start_time = time.perf_counter()
 
     # Extract model data
     distance_matrix_data = model_data.get("distance_matrix")
@@ -296,7 +296,7 @@ def routing_solve_impl(
 
     # Solve
     solution = routing.SolveWithParameters(search_params)
-    wall_time = time.monotonic() - start_time
+    wall_time = time.perf_counter() - start_time
 
     if solution is None:
         return EastStruct(

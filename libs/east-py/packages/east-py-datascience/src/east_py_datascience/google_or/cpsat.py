@@ -508,14 +508,14 @@ def _build_model_and_solve(
         solver.parameters.absolute_gap_limit = float(abs_gap)
 
     # Solve
-    start_time = time.monotonic()
+    start_time = time.perf_counter()
     if solution_callback is not None:
         solver.parameters.enumerate_all_solutions = True
         solution_callback.set_vars(vars_by_name)
         status_code = solver.solve(model, solution_callback)
     else:
         status_code = solver.solve(model)
-    wall_time = time.monotonic() - start_time
+    wall_time = time.perf_counter() - start_time
 
     return solver, vars_by_name, status_code, wall_time
 
