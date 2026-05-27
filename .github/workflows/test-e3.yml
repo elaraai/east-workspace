@@ -72,7 +72,10 @@ jobs:
       - name: Install East runners
         run: |
           pnpm --filter=@elaraai/east-node-cli exec east-node --version || true
-          cd libs/east-py && make install-cli
+          # e3 only needs the east-py CLI runner, which depends on east-py core.
+          # `make install-cli` would uv-sync --all-extras + std/io/datascience,
+          # dragging in the whole ML stack (torch, PyNomadBBO, ...) for nothing.
+          cd libs/east-py && uv tool install --force --editable packages/east-py-cli --with-editable ./packages/east-py
 
       - name: Lint
         working-directory: libs/e3
