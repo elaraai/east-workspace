@@ -3,6 +3,7 @@
 
 .PHONY: build rebuild clean install-cli \
         test test-east-c test-east-c-std test-all \
+        test-npm-verdaccio \
         leak-check leak-check-std leak-check-all \
         help lint format ensure-clang-format
 
@@ -46,6 +47,13 @@ test: test-east-c test-east-c-std
 
 ## Run all tests
 test-all: test-east-c test-east-c-std
+
+## End-to-end test of the @elaraai/east-c-cli npm distribution against a
+## local verdaccio registry. Builds the binary, publishes all 6 packages,
+## installs them in a throwaway project, invokes east-c. Validates the
+## current host's platform only (other targets need their own host).
+test-npm-verdaccio: build
+	@./scripts/test-npm-verdaccio.sh
 
 # ── Memory leak checks ──────────────────────────────────────────────
 
@@ -101,6 +109,7 @@ help:
 	@echo "  test-east-c    - Run east-c compliance tests"
 	@echo "  test-east-c-std - Run east-c-std compliance tests"
 	@echo "  test-all       - Run all compliance tests"
+	@echo "  test-npm-verdaccio - End-to-end npm publish + install via local verdaccio"
 	@echo ""
 	@echo "  leak-check     - Run memory leak checks (east-c core)"
 	@echo "  leak-check-std - Run std memory leak checks"
