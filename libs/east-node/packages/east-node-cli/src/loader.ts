@@ -7,7 +7,7 @@ import { readFileSync } from 'fs';
 import { createRequire } from 'module';
 import * as path from 'path';
 import { extname } from 'path';
-import { pathToFileURL } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import {
     IRType,
     decodeBeast2For,
@@ -68,13 +68,24 @@ export async function loadPlatform(packageName: string): Promise<PlatformFunctio
         // The loader stays platform-agnostic: any package that exports
         // `./platform` and is installed in the user's project resolves
         // here, with no hardcoded list and no extra Node flags.
-        const cliEntry = process.argv[1] ?? import.meta.url;
-        const linkedDir = path.dirname(
-            cliEntry.startsWith('file:') ? new URL(cliEntry).pathname : cliEntry,
-        );
-        const base = pathToFileURL(linkedDir + path.sep).href;
-        const resolved = import.meta.resolve(`${packageName}/platform`, base);
-        const platformModule = await import(resolved);
+        // Resolve platform packages from the LINKED CLI bin location (the
+        // user's project context pnpm's bin shim invoked us with) rather
+        // than from this file's realpath (which anchors at the monorepo
+        // source — useless for finding user-installed platforms).
+        //
+        // `process.argv[1]` preserves the linked invocation path; we feed
+        // it to `createRequire` whose `require.resolve` walks up from that
+        // base via Node's standard module resolution (exports maps honoured
+        // since Node 12+). `import.meta.resolve(spec, parent)` would be
+        // the modern equivalent but in Node 22 stable the `parent`
+        // parameter is still experimental and silently ignored — verified
+        // empirically by debug printf, which is why the previous attempt
+        // failed in a way that wasn't obvious from the API docs.
+        const cliEntry = process.argv[1] ?? fileURLToPath(import.meta.url);
+        const linkedDir = path.dirname(cliEntry);
+        const linkedRequire = createRequire(pathToFileURL(linkedDir + path.sep));
+        const resolvedPath = linkedRequire.resolve(`${packageName}/platform`);
+        const platformModule = await import(pathToFileURL(resolvedPath).href);
         const fns = platformModule.default;
 
         // Validate the export
@@ -118,12 +129,17 @@ export async function loadPlatform(packageName: string): Promise<PlatformFunctio
 export async function loadPlatformWithMetadata(packageName: string): Promise<PlatformMetadata> {
     const fns = await loadPlatform(packageName);
 
-    // Load package.json for version info
+    // Load package.json for version info — same linked-base resolution as
+    // loadPlatform, otherwise we'd resolve from the realpath and miss
+    // user-installed platform packages.
     let name = packageName;
     let version = 'unknown';
 
     try {
-        const pkgJson = require(`${packageName}/package.json`) as { name?: string; version?: string };
+        const cliEntry = process.argv[1] ?? fileURLToPath(import.meta.url);
+        const linkedDir = path.dirname(cliEntry);
+        const linkedRequire = createRequire(pathToFileURL(linkedDir + path.sep));
+        const pkgJson = linkedRequire(`${packageName}/package.json`) as { name?: string; version?: string };
         name = pkgJson.name ?? packageName;
         version = pkgJson.version ?? 'unknown';
     } catch {
