@@ -84,16 +84,32 @@ jobs:
         run: make build
 
       # The first `pnpm install` ran before any package was built, so EVERY
-      # workspace bin (e3, e3-api-server, east-node, …) failed to link —
+      # workspace bin (east-node, e3, e3-api-server, …) failed to link —
       # pnpm reads the bin target file to write the shim and the dists
-      # didn't exist yet. The warning pattern shows up on Linux as well as
-      # Windows; the earlier Windows-only gate here let east-py-defaulted
-      # tests pass on POSIX by accident (east-py lives outside pnpm bins).
-      # Re-run install now that the dists exist so every consuming package's
-      # .bin (and the workspace root's hoisted .bin) gets the symlinks the
-      # fuzz + integration suites need to spawn `east-node`, `e3`, etc.
+      # didn't exist yet. A plain second `pnpm install` reports "Already
+      # up to date" (CI defaults to --frozen-lockfile, modules state
+      # already considers itself done) and DOES NOT retry the failed
+      # shims. `--force` reinstalls and re-creates the bins.
+      #
+      # The east-py-defaulted tests previously passed on POSIX by accident
+      # — east-py is installed via `uv tool install` (system PATH),
+      # outside pnpm bins. Switching the e3 default to east-node exposed
+      # the gap, since east-node IS a pnpm-managed workspace bin.
       - name: Recreate workspace bin shims
-        run: pnpm install
+        run: pnpm install --force
+      - name: Verify east-node is on workspace .bin
+        shell: bash
+        run: |
+          # Fail fast with a clear message if the recreate didn't work,
+          # rather than chasing fuzz failures 60 lines into a test log.
+          for bin in east-node e3; do
+            if [ ! -e "node_modules/.bin/$bin" ]; then
+              echo "::error::Workspace bin missing after recreate: node_modules/.bin/$bin"
+              ls -la node_modules/.bin/ | head -40
+              exit 1
+            fi
+          done
+          echo "✓ east-node + e3 resolved on workspace .bin"
 
       - name: Link e3 CLI
         working-directory: libs/e3
