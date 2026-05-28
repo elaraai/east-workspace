@@ -100,9 +100,10 @@ jobs:
       - name: Install East runners
         run: |
           # east-node is e3's default runner — pnpm install above already
-          # placed east-node on node_modules/.bin (PATH augmentation in
-          # LocalTaskRunner adds it for spawned tasks).
-          pnpm --filter=@elaraai/east-node-cli exec east-node --version
+          # placed east-node on node_modules/.bin and LocalTaskRunner's
+          # PATH augmentation adds it for spawned tasks. The e3 suite
+          # exercises it downstream; no separate version probe needed.
+          #
           # east-py-cli + core + std for tests that pin `runner: { runtime:
           # 'east-py', ... }`. io + datascience extras are intentionally
           # omitted: their optional ML/DB deps don't build everywhere, and
