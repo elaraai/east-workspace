@@ -16,7 +16,19 @@
 import * as fs from 'fs/promises';
 import { existsSync } from 'fs';
 import * as path from 'path';
-import { spawn } from 'child_process';
+import crossSpawn from 'cross-spawn';
+import { spawn as nodeSpawn } from 'child_process';
+// On Windows, pnpm's workspace bins are `.cmd` / `.ps1` files, not real
+// executables. Node's `spawn(name, ...)` doesn't honour PATHEXT and
+// won't find `east-node.cmd` from a bare `east-node` invocation;
+// blanket `shell: true` works for that case but joins args into a
+// shell-parsed string, which then breaks commands like
+// `bash -c 'exit 42'` (the customTask path's bash wrapper). cross-spawn
+// targets exactly this gap — PATHEXT-aware resolution + correct arg
+// quoting for `.cmd`/`.bat`, passthrough for real binaries on POSIX.
+const spawn: typeof nodeSpawn = (process.platform === 'win32'
+  ? (crossSpawn as unknown as typeof nodeSpawn)
+  : nodeSpawn);
 import { tmpdir } from 'os';
 import { decodeBeast2For, variant } from '@elaraai/east';
 import { type ExecutionStatus, TaskObjectType, type TaskObject } from '@elaraai/e3-types';
@@ -443,16 +455,6 @@ async function runCommand(
     detached: true,
     windowsHide: true,
   };
-  if (process.platform === 'win32') {
-    // pnpm's bin shims on Windows are `.cmd` / `.ps1` files. Node's
-    // `spawn(name, ...)` doesn't honour PATHEXT and won't find
-    // `east-node.cmd` from a bare `east-node` lookup. `shell: true` routes
-    // through cmd.exe which does. The args we pass come from e3's IR
-    // (paths + flags only, no user-typed shell metacharacters), so the
-    // shell escaping warning in Node's docs doesn't apply here. Same
-    // pattern fuzz/helpers.ts already uses for spawning `e3` on Windows.
-    spawnOpts.shell = true;
-  }
   if (projectBins.length > 0) {
     const pathSep = process.platform === 'win32' ? ';' : ':';
     spawnOpts.env = {
