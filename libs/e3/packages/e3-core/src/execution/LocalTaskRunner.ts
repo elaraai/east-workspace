@@ -453,14 +453,31 @@ async function runCommand(
   const child = spawn(cmd, cmdArgs, spawnOpts);
 
   // Set up event listeners IMMEDIATELY before any async work
-  // to avoid missing events if the process completes quickly
+  // to avoid missing events if the process completes quickly. Capture the
+  // tail of the child's stderr so non-zero exits carry a useful diagnostic
+  // instead of just an exit code — `storage.logs` has the full log but
+  // callers (fuzz harness, e3 CLI status, ...) usually only see the error
+  // string. 64 KiB tail covers the typical stack-trace / "module not found"
+  // failures without ballooning memory on chatty tasks.
+  const STDERR_TAIL_BYTES = 64 * 1024;
+  let stderrTail = '';
+  const captureStderrTail = (chunk: string) => {
+    stderrTail = (stderrTail + chunk).slice(-STDERR_TAIL_BYTES);
+  };
+
   const resultPromise = new Promise<{ exitCode: number | null; error: string | null }>((resolve) => {
     child.on('error', (err) => {
       resolve({ exitCode: null, error: `Failed to spawn: ${err.message}` });
     });
 
     child.on('close', (code) => {
-      resolve({ exitCode: code, error: code !== 0 ? `Exit code: ${code}` : null });
+      if (code === 0) {
+        resolve({ exitCode: code, error: null });
+      } else {
+        const tail = stderrTail.trim();
+        const detail = tail ? `\nstderr:\n${tail}` : '';
+        resolve({ exitCode: code, error: `Exit code: ${code}${detail}` });
+      }
     });
   });
 
@@ -484,9 +501,11 @@ async function runCommand(
     }
   });
 
-  // Tee stderr - use storage.logs.append for log persistence
+  // Tee stderr — persist to storage.logs AND capture the tail in memory so
+  // the close-handler above can include it in the task's error message.
   child.stderr?.on('data', (data: Buffer) => {
     const str = data.toString('utf-8');
+    captureStderrTail(str);
     // Chain writes sequentially to avoid overlapping
     stderrWriteChain = stderrWriteChain.then(async () => {
       try {
