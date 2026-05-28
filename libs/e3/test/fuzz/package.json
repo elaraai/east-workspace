@@ -7,7 +7,7 @@
   "description": "Virtual Idiot - Fuzz testing for e3",
   "main": "dist/index.js",
   "bin": {
-    "e3-fuzz": "dist/index.js"
+    "e3-fuzz": "./bin/e3-fuzz.mjs"
   },
   "scripts": {
     "build": "tsc",
