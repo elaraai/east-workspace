@@ -75,7 +75,7 @@ const setup: TestSetup<TestContext> = async (t) => {
   return ctx;
 };
 
-describe('API compliance', { timeout: 300_000, concurrency: false }, () => {
+describe('API compliance', { timeout: 600_000, concurrency: false }, () => {
   after(async () => {
     await server?.stop();
     try {

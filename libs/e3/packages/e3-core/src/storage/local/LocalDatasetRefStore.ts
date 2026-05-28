@@ -121,9 +121,11 @@ export class LocalDatasetRefStore implements DatasetRefStore {
       if (entry.isDirectory()) {
         await this.walkDir(baseDir, fullPath, results);
       } else if (entry.name.endsWith('.ref') && !entry.name.includes('.partial')) {
-        // Convert filesystem path back to dataset path
-        // Remove base dir prefix, leading separator, and .ref suffix
-        const relative = path.relative(baseDir, fullPath);
+        // Convert filesystem path back to dataset path. Dataset paths are
+        // always forward-slash separated; path.relative yields backslashes on
+        // Windows, so normalize them or nested paths won't match the
+        // forward-slash keys deploy looks up (writeRefsFromPackageRecursive).
+        const relative = path.relative(baseDir, fullPath).split(path.sep).join('/');
         const datasetPath = relative.slice(0, -4); // remove .ref
         results.push(datasetPath);
       }

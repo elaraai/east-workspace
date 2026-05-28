@@ -147,7 +147,14 @@ describe('signal handling', () => {
       assert.ok(indicatesAbort, `Output should indicate abort or exit non-zero. Got exitCode=${result.exitCode}, output: ${output}`);
     });
 
-    it('persists cancelled status to disk after SIGINT', async () => {
+    // Skipped on Windows: Node's `child.kill('SIGINT')` ignores the signal arg
+    // and force-terminates the child (Node docs), so the CLI's SIGINT handler
+    // — which writes 'cancelled' to disk — never gets a chance to run. The
+    // production path (real-user Ctrl+C in a terminal) works correctly on
+    // Windows because the console driver delivers CTRL_C_EVENT directly; only
+    // the test's instrumentation can't reach it. Reaching it from a test would
+    // need `GenerateConsoleCtrlEvent` via a native helper (e.g. windows-kill).
+    it('persists cancelled status to disk after SIGINT', { skip: process.platform === 'win32' }, async () => {
       // This test verifies that after SIGINT, the execution state file
       // shows "cancelled" status - important for crash recovery.
 
@@ -195,7 +202,9 @@ describe('signal handling', () => {
       assert.strictEqual(state.status, 'cancelled', `Execution status should be 'cancelled', got '${state.status}'`);
     });
 
-    it('persists cancelled status even with rapid SIGINT+SIGKILL', async () => {
+    // Skipped on Windows for the same reason as the previous test — `child.kill('SIGINT')`
+    // can't reach the CLI's SIGINT handler from a Node-spawned child on Windows.
+    it('persists cancelled status even with rapid SIGINT+SIGKILL', { skip: process.platform === 'win32' }, async () => {
       // This test simulates an impatient user pressing Ctrl-C multiple times.
       // The cancellation should be persisted immediately on first SIGINT,
       // so even if SIGKILL follows shortly after, the status is preserved.

@@ -801,6 +801,20 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       }
 
       execution.resolveCompletion(result);
+    } catch (err) {
+      // An unexpected error escaped the execution loop (e.g. a task has an
+      // unassigned input). The success-path finalization above is skipped, so
+      // without this the run's persisted status stays 'running' forever — any
+      // client polling it (e.g. a remote `dataflow run` over the API) then hangs
+      // until timeout instead of seeing the failure. Persist a terminal 'failed'
+      // status so pollers observe the error promptly.
+      const failMsg = err instanceof Error ? err.message : String(err);
+      if (this.stateStore) {
+        await this.stateStore
+          .updateStatus(repo, state.workspace, state.id, 'failed', { error: failMsg })
+          .catch(() => { /* best effort — don't mask the original error */ });
+      }
+      throw err;
     } finally {
       // Remove abort listener to avoid leaking execution object
       execution.abortCleanup?.();

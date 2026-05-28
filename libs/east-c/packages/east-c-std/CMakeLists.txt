@@ -54,8 +54,7 @@ else()
     endif()
 endif()
 
-# Compliance test runner (run via: make test-east-c-std). Built for the
-# cross-compile target too, so the Windows std binary can be validated under
-# Wine locally; it runs natively on the Windows CI leg.
+# Compliance test runner (run via: make test-east-c-std). Built on every
+# platform and run natively, including the Windows (MSVC) CI leg.
 add_executable(test_std_compliance tests/test_compliance.c)
 target_link_libraries(test_std_compliance east-c-std)

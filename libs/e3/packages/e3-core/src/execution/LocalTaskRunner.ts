@@ -205,9 +205,21 @@ export async function taskExecute(
 
     // Step 6: Evaluate command IR to get exec args
     const outputPath = path.join(scratchDir, 'output.beast2');
+
+    // The e3 SDK's `customTask` wraps the user command in `["bash", "-c",
+    // "<cmd-with-paths-interpolated>"]`. Bash treats `\` as an escape
+    // character (e.g. `\U`, `\f`, `\b`), so a Windows backslash path mangles
+    // the command string. Normalize separators here — bash + MSYS coreutils
+    // (cp, sleep, …) accept `C:/path` form, node's `fs` is happy with either
+    // separator on Windows, and runners using these paths as plain strings
+    // (east-py, etc.) are unaffected. No-op on POSIX (`path.sep === '/'`).
+    const toForwardSlash = (p: string) => p.split(path.sep).join('/');
+    const irInputPaths = inputPaths.map(toForwardSlash);
+    const irOutputPath = toForwardSlash(outputPath);
+
     let args: string[];
     try {
-      args = await evaluateCommandIr(storage, repo, task.commandIr, inputPaths, outputPath);
+      args = await evaluateCommandIr(storage, repo, task.commandIr, irInputPaths, irOutputPath);
     } catch (err) {
       const status: ExecutionStatus = variant('error', {
         executionId,
