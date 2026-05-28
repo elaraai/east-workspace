@@ -363,22 +363,22 @@ export async function taskExecute(
 }
 
 /**
- * Walk up from `startDir` and return the first `node_modules/.bin` found,
- * or null if none exists up to the filesystem root.
- *
- * This is how npm/yarn/pnpm let `package.json` scripts resolve devDep CLIs
- * without a project-local `npm exec` prefix; replicated here so a bare
- * `e3 dataflow run` (no npm wrapper) sees the same binaries.
+ * Walk up from `startDir` and return every `node_modules/.bin` directory
+ * found, ordered from nearest to furthest. Used to prepend each to a
+ * spawned task's PATH so the runner CLI resolves no matter which level
+ * of the monorepo a binary was hoisted to — pnpm puts shared bins at the
+ * workspace root, package-local bins next to their consumer.
  *
  * Exported for testing; not part of the package's public API.
  */
-export function findNearestNodeModulesBin(startDir: string): string | null {
+export function collectNodeModulesBins(startDir: string): string[] {
+  const bins: string[] = [];
   let dir = path.resolve(startDir);
   while (true) {
     const candidate = path.join(dir, 'node_modules', '.bin');
-    if (existsSync(candidate)) return candidate;
+    if (existsSync(candidate)) bins.push(candidate);
     const parent = path.dirname(dir);
-    if (parent === dir) return null;
+    if (parent === dir) return bins;
     dir = parent;
   }
 }
@@ -422,14 +422,20 @@ async function runCommand(
   //   The VM boundary provides bulletproof containment. Best for multi-tenant.
   // Runners (`east-node`, `east-c`) are typically installed as project
   // devDeps and exposed on `node_modules/.bin`. `npm run`/`pnpm` set that
-  // up automatically; bare `e3 dataflow run` does not. Prepend the nearest
-  // `node_modules/.bin` (walking up from the repo, then process.cwd()) so
-  // the spawn finds the installed runner whichever entry point launched us.
-  const projectBin = findNearestNodeModulesBin(path.dirname(repo))
-    ?? findNearestNodeModulesBin(process.cwd());
+  // up automatically; bare `e3 dataflow run` does not. Collect every
+  // `node_modules/.bin` walking up from BOTH the repo and process.cwd()
+  // and prepend the lot (deduped) so the spawn finds the installed runner
+  // regardless of where in a monorepo the project sits — the nearest .bin
+  // often lacks the runner (it's hoisted to the workspace root), so we
+  // can't stop at the first hit.
+  const seen = new Set<string>();
+  const projectBins = [
+    ...collectNodeModulesBins(path.dirname(repo)),
+    ...collectNodeModulesBins(process.cwd()),
+  ].filter((b) => (seen.has(b) ? false : (seen.add(b), true)));
   const pathSep = process.platform === 'win32' ? ';' : ':';
-  const augmentedPath = projectBin
-    ? `${projectBin}${pathSep}${process.env.PATH ?? ''}`
+  const augmentedPath = projectBins.length > 0
+    ? `${projectBins.join(pathSep)}${pathSep}${process.env.PATH ?? ''}`
     : process.env.PATH;
   const child = spawn(cmd, cmdArgs, {
     stdio: ['ignore', 'pipe', 'pipe'],

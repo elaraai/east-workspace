@@ -9,9 +9,9 @@ import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
-import { findNearestNodeModulesBin } from './LocalTaskRunner.js';
+import { collectNodeModulesBins } from './LocalTaskRunner.js';
 
-describe('findNearestNodeModulesBin', () => {
+describe('collectNodeModulesBins', () => {
   let root: string;
 
   before(() => {
@@ -22,11 +22,17 @@ describe('findNearestNodeModulesBin', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  // Filter out any .bin dirs the walk picks up OUTSIDE our temp subtree
+  // (the walk always reaches `/` and a system-wide node_modules above the
+  // temp would otherwise leak into the assertion).
+  const within = (entries: string[], base: string) =>
+    entries.filter((b) => b.startsWith(base + path.sep));
+
   it('finds .bin in the start dir', () => {
     const proj = path.join(root, 'a');
     const bin = path.join(proj, 'node_modules', '.bin');
     mkdirSync(bin, { recursive: true });
-    assert.equal(findNearestNodeModulesBin(proj), bin);
+    assert.deepEqual(within(collectNodeModulesBins(proj), root), [bin]);
   });
 
   it('walks up to a parent .bin from a nested subdirectory (typical .repos case)', () => {
@@ -35,32 +41,22 @@ describe('findNearestNodeModulesBin', () => {
     const nested = path.join(proj, '.repos', 'workspace_id');
     mkdirSync(bin, { recursive: true });
     mkdirSync(nested, { recursive: true });
-    assert.equal(findNearestNodeModulesBin(nested), bin);
+    assert.deepEqual(within(collectNodeModulesBins(nested), root), [bin]);
   });
 
-  it('returns null when no node_modules/.bin exists between start and root', () => {
+  it('returns an empty list when no node_modules/.bin exists in the subtree', () => {
     const island = path.join(root, 'c', 'no-modules-anywhere');
     mkdirSync(island, { recursive: true });
-    // Walks up to filesystem root, finds nothing in the chain we created.
-    const result = findNearestNodeModulesBin(island);
-    // The walk reaches `/` — if the host has a system-wide node_modules
-    // there (unlikely on test runners; impossible on /), the result is
-    // that path. Be tolerant: assert it's not anything inside our temp.
-    if (result !== null) {
-      assert.ok(
-        !result.startsWith(path.join(root, 'c')),
-        'no .bin should be found inside the temp subtree',
-      );
-    }
+    assert.deepEqual(within(collectNodeModulesBins(island), root), []);
   });
 
-  it('prefers the closest .bin when multiple are on the walk-up path', () => {
+  it('collects every .bin on the walk-up path, closest first', () => {
     const outer = path.join(root, 'd');
     const inner = path.join(outer, 'inner-pkg');
     const outerBin = path.join(outer, 'node_modules', '.bin');
     const innerBin = path.join(inner, 'node_modules', '.bin');
     mkdirSync(outerBin, { recursive: true });
     mkdirSync(innerBin, { recursive: true });
-    assert.equal(findNearestNodeModulesBin(inner), innerBin);
+    assert.deepEqual(within(collectNodeModulesBins(inner), root), [innerBin, outerBin]);
   });
 });
