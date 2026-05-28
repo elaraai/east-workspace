@@ -22,8 +22,6 @@ import {
 } from '@elaraai/east';
 import type { PlatformFunction, IR, ValueTypeOf } from '@elaraai/east/internal';
 
-const require = createRequire(import.meta.url);
-
 // Decoder for IR from beast2 format (self-describing)
 const decodeIRFromBeast2 = decodeBeast2For(IRType);
 
