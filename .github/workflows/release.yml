@@ -447,8 +447,16 @@ jobs:
       - name: Stage per-platform npm package
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
-          TARGET="${{ matrix.target }}"
-          STAGE_NPM="east-c-cli-${TARGET}-${VERSION}"
+          # The publish-c-native matrix uses `macos-*` for the tarball names
+          # (the historical convention). The npm per-platform package uses
+          # `darwin-*` so the launcher's `require.resolve` finds it via
+          # `process.platform-process.arch` on a real Mac. Map here.
+          case "${{ matrix.target }}" in
+            macos-arm64) NPM_TARGET=darwin-arm64 ;;
+            macos-x64)   NPM_TARGET=darwin-x64   ;;
+            *)           NPM_TARGET="${{ matrix.target }}" ;;
+          esac
+          STAGE_NPM="east-c-cli-${NPM_TARGET}-${VERSION}"
           mkdir -p "$STAGE_NPM"
           if [ "$RUNNER_OS" = "Windows" ]; then
             cp libs/east-c/build/packages/east-c-cli/east-c.exe "$STAGE_NPM/"
@@ -457,10 +465,10 @@ jobs:
           fi
           cp libs/east-c/packages/east-c-cli/LICENSE.md "$STAGE_NPM/"
           node scripts/emit-east-c-platform-manifest.mjs \
-            --target "$TARGET" --version "$VERSION" \
+            --target "$NPM_TARGET" --version "$VERSION" \
             --out "$STAGE_NPM/package.json"
           node scripts/emit-east-c-platform-readme.mjs \
-            --target "$TARGET" --version "$VERSION" \
+            --target "$NPM_TARGET" --version "$VERSION" \
             --out "$STAGE_NPM/README.md"
           ( cd "$STAGE_NPM" && npm pack --pack-destination .. )
       - uses: actions/upload-artifact@v4
@@ -521,6 +529,11 @@ jobs:
             echo "  publish: ${NAME}@${VERSION} ← ${TGZ}"
             npm publish "$TGZ" --access public --provenance --tag "$TAG" $DRY
           done
+      - name: Inject launcher optionalDependencies (not committed; see scripts/inject-east-c-platform-deps.mjs)
+        run: |
+          node scripts/inject-east-c-platform-deps.mjs \
+            --version "${{ needs.prepare.outputs.version }}" \
+            --file libs/east-c/packages/east-c-cli/package.json
       - name: Publish launcher
         working-directory: libs/east-c/packages/east-c-cli
         run: |

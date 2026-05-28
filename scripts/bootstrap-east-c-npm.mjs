@@ -130,6 +130,19 @@ function publishDir(name, dir) {
   return r.status === 0;
 }
 
+function injectPlatformDeps(launcherDir) {
+  const r = spawnSync(
+    'node',
+    [
+      path.join(repoRoot, 'scripts/inject-east-c-platform-deps.mjs'),
+      '--version', VERSION,
+      '--file', path.join(launcherDir, 'package.json'),
+    ],
+    { stdio: 'inherit' },
+  );
+  if (r.status !== 0) throw new Error('inject-east-c-platform-deps.mjs failed');
+}
+
 let failed = 0;
 try {
   // Pre-flight: every per-platform tarball must exist.
@@ -153,14 +166,28 @@ try {
     if (!publishTarball(name, tgz)) { console.error(`  FAILED: ${name}`); failed++; }
   }
 
-  // 2. Launcher package.
+  // 2. Launcher package. The committed launcher package.json has NO
+  //    optionalDependencies (keeps pnpm-lock.yaml clean — see
+  //    inject-east-c-platform-deps.mjs for the rationale). Inject them here
+  //    so the published tarball pulls the right per-platform package on
+  //    end-user `npm install`. We revert the file in `finally` below.
   console.log('\n-- Launcher --');
   const launcherDir = path.join(repoRoot, 'libs/east-c/packages/east-c-cli');
+  injectPlatformDeps(launcherDir);
   if (!publishDir('@elaraai/east-c-cli', launcherDir)) { console.error('  FAILED: launcher'); failed++; }
 } finally {
   if (!DRY_RUN) {
     try { fs.rmSync(npmrcDir, { recursive: true, force: true }); } catch { /* ignore */ }
   }
+  // Revert the launcher's package.json so the working tree returns to its
+  // committed state (no optionalDependencies). Best-effort — only attempts
+  // if git is available.
+  try {
+    spawnSync('git', ['checkout', '--', 'libs/east-c/packages/east-c-cli/package.json'], {
+      cwd: repoRoot,
+      stdio: 'ignore',
+    });
+  } catch { /* ignore */ }
 }
 
 console.log(`\nDone${DRY_RUN ? ' (dry run)' : ''}: ${failed} failed.`);

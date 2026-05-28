@@ -31,12 +31,5 @@
   "type": "module",
   "engines": {
     "node": ">=18.0.0"
-  },
-  "optionalDependencies": {
-    "@elaraai/east-c-cli-linux-x64": "1.0.4",
-    "@elaraai/east-c-cli-linux-arm64": "1.0.4",
-    "@elaraai/east-c-cli-darwin-arm64": "1.0.4",
-    "@elaraai/east-c-cli-darwin-x64": "1.0.4",
-    "@elaraai/east-c-cli-win32-x64": "1.0.4"
   }
 }

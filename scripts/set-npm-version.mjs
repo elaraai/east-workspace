@@ -45,26 +45,12 @@ const PKGS = [
   'libs/create/packages/create-e3/package.json',
 ];
 
-// Pattern for the per-platform east-c-cli packages — they're generated at
-// release time and not tracked in PKGS, but the launcher carries them as
-// optionalDependencies that must move in lockstep with the launcher.
-const EAST_C_PLATFORM_DEP = /^@elaraai\/east-c-cli-(linux-x64|linux-arm64|darwin-arm64|darwin-x64|win32-x64)$/;
-
 for (const rel of PKGS) {
   const p = path.join(repoRoot, rel);
   const raw = fs.readFileSync(p, 'utf8');
   const pkg = JSON.parse(raw);
   const old = pkg.version;
   pkg.version = NEW_VERSION;
-  // Lockstep: any reference to a per-platform east-c-cli package follows the
-  // launcher's version (the launcher's optionalDependencies pin them exactly).
-  for (const field of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']) {
-    const deps = pkg[field];
-    if (!deps) continue;
-    for (const name of Object.keys(deps)) {
-      if (EAST_C_PLATFORM_DEP.test(name)) deps[name] = NEW_VERSION;
-    }
-  }
   const trailingNewline = raw.endsWith('\n') ? '\n' : '';
   const indent = raw.startsWith('{\n    ') ? 4 : 2;
   fs.writeFileSync(p, JSON.stringify(pkg, null, indent) + trailingNewline);

@@ -29,17 +29,18 @@ const NPM_PKGS = [
   'libs/create/packages/create-e3/package.json',
 ];
 
-// East-C per-platform packages aren't tracked in NPM_PKGS (they're generated
-// at release time from build artifacts) — but the launcher's
-// optionalDependencies pin them at the canonical version. Validate that here.
-const EAST_C_LAUNCHER = 'libs/east-c/packages/east-c-cli/package.json';
-const EAST_C_PLATFORM_DEP = /^@elaraai\/east-c-cli-(linux-x64|linux-arm64|darwin-arm64|darwin-x64|win32-x64)$/;
-
 // Plain-text VERSION files (CMake input, etc.). Same canonical version
 // as everything else.
 const TEXT_VERSION_FILES = [
   'libs/east-c/VERSION',  // baked into the east-c binary at CMake configure time
 ];
+
+// The launcher's per-platform optionalDependencies are NOT committed (they'd
+// break pnpm install --frozen-lockfile until the per-platform packages exist
+// on npm). They get injected at publish time via
+// scripts/inject-east-c-platform-deps.mjs, pinned to the canonical version.
+// So nothing to verify here — the lack of optionalDependencies in the source
+// package.json is the correct state.
 
 const PYPROJECTS = [
   'libs/east-py/packages/east-py/pyproject.toml',
@@ -73,17 +74,6 @@ const errors = [];
 for (const rel of NPM_PKGS) {
   const v = readJsonVersion(rel);
   if (v !== canonical) errors.push(`${rel}: ${v} ≠ ${canonical}`);
-}
-
-// Launcher's per-platform optionalDependencies must all equal the canonical
-// version exactly — the launcher resolves the matching platform package by
-// `@elaraai/east-c-cli-<platform>@<launcher-version>`.
-const launcherPkg = JSON.parse(fs.readFileSync(path.join(repoRoot, EAST_C_LAUNCHER), 'utf8'));
-for (const [name, spec] of Object.entries(launcherPkg.optionalDependencies ?? {})) {
-  if (!EAST_C_PLATFORM_DEP.test(name)) continue;
-  if (spec !== canonical) {
-    errors.push(`${EAST_C_LAUNCHER} optionalDependencies[${name}]: ${spec} ≠ ${canonical}`);
-  }
 }
 
 for (const rel of TEXT_VERSION_FILES) {
