@@ -330,6 +330,9 @@ importers:
       '@elaraai/east-node-cli':
         specifier: workspace:*
         version: link:../../../east-node/packages/east-node-cli
+      '@elaraai/east-node-std':
+        specifier: workspace:*
+        version: link:../../../east-node/packages/east-node-std
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15

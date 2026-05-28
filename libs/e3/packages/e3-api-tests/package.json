@@ -46,6 +46,7 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "typescript": "^5.6.0",
-    "@elaraai/east-node-cli": "workspace:*"
+    "@elaraai/east-node-cli": "workspace:*",
+    "@elaraai/east-node-std": "workspace:*"
   }
 }

@@ -104,29 +104,6 @@ jobs:
             --with-editable ./packages/east-py \
             --with-editable ./packages/east-py-std
 
-      - name: Diagnose runner availability (debug)
-        shell: bash
-        run: |
-          echo "=== workspace root .bin entries (east* / e3*) ==="
-          ls -la node_modules/.bin/ | grep -E 'east|e3' || true
-          echo
-          echo "=== workspace root @elaraai dir ==="
-          ls -la node_modules/@elaraai/ | grep -E 'east|e3' || true
-          echo
-          echo "=== east-node-std dist/src/platform.js ==="
-          ls -la node_modules/@elaraai/east-node-std/dist/src/platform.js 2>&1 || true
-          ls -la libs/east-node/packages/east-node-std/dist/src/platform.js 2>&1 || true
-          echo
-          echo "=== fuzz/.bin/east-node resolvable? ==="
-          ls -la libs/e3/test/fuzz/node_modules/.bin/east-node 2>&1 || true
-          echo
-          echo "=== can node resolve east-node-std/platform from east-node-cli dir? ==="
-          ( cd libs/east-node/packages/east-node-cli && \
-            node --eval "import('@elaraai/east-node-std/platform').then(m => console.log('OK', m.default.length, 'fns')).catch(e => console.log('FAIL:', e.code, e.message))" )
-          echo
-          echo "=== invoke east-node version (mimics what e3 does) ==="
-          libs/e3/test/fuzz/node_modules/.bin/east-node version -p @elaraai/east-node-std || echo "(non-zero exit)"
-
       - name: Lint
         working-directory: libs/e3
         run: make lint
