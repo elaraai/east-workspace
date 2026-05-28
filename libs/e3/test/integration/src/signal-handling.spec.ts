@@ -71,7 +71,7 @@ describe('signal handling', () => {
       const proc = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
       // Wait for task to start
-      await waitFor(() => proc.getStdout().includes('[START]'), 10000);
+      await waitFor(() => proc.getStdout().includes('[START]'), 30000);
 
       // Send SIGINT (Ctrl+C)
       proc.kill('SIGINT');
@@ -130,7 +130,7 @@ describe('signal handling', () => {
       const proc = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
       // Wait for task to start
-      await waitFor(() => proc.getStdout().includes('[START]'), 10000);
+      await waitFor(() => proc.getStdout().includes('[START]'), 30000);
 
       proc.kill('SIGINT');
 
@@ -179,7 +179,7 @@ describe('signal handling', () => {
       const proc = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
       // Wait for task to start and state to be created
-      await waitFor(() => proc.getStdout().includes('[START]'), 10000);
+      await waitFor(() => proc.getStdout().includes('[START]'), 30000);
 
       // Send SIGINT
       proc.kill('SIGINT');
@@ -230,7 +230,7 @@ describe('signal handling', () => {
       const proc = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
       // Wait for task to start and state to be created
-      await waitFor(() => proc.getStdout().includes('[START]'), 10000);
+      await waitFor(() => proc.getStdout().includes('[START]'), 30000);
 
       // Send SIGINT (triggers immediate persistence)
       proc.kill('SIGINT');
@@ -285,7 +285,7 @@ describe('signal handling', () => {
 
       // Start and kill the first execution
       const proc1 = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
-      await waitFor(() => proc1.getStdout().includes('[START]'), 10000);
+      await waitFor(() => proc1.getStdout().includes('[START]'), 30000);
       proc1.kill('SIGKILL');
       await proc1.result;
 
@@ -296,7 +296,7 @@ describe('signal handling', () => {
       const proc2 = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
       // Wait for it to start
-      await waitFor(() => proc2.getStdout().includes('[START]'), 10000);
+      await waitFor(() => proc2.getStdout().includes('[START]'), 30000);
 
       // Verify it's running (not blocked by stale lock)
       // The execution state should show 'running'
@@ -340,7 +340,7 @@ describe('signal handling', () => {
       const startProc = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
       // Wait for task to start
-      await waitFor(() => startProc.getStdout().includes('[START]'), 10000);
+      await waitFor(() => startProc.getStdout().includes('[START]'), 30000);
 
       // Try to deploy while dataflow is running - should fail with lock error
       const deployResult = await runE3Command(
@@ -383,7 +383,7 @@ describe('signal handling', () => {
       const startProc = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
       // Wait for task to start
-      await waitFor(() => startProc.getStdout().includes('[START]'), 10000);
+      await waitFor(() => startProc.getStdout().includes('[START]'), 30000);
 
       // Try to remove while dataflow is running - should fail with lock error
       const removeResult = await runE3Command(
@@ -426,7 +426,7 @@ describe('signal handling', () => {
       const startProc1 = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
       // Wait for task to start
-      await waitFor(() => startProc1.getStdout().includes('[START]'), 10000);
+      await waitFor(() => startProc1.getStdout().includes('[START]'), 30000);
 
       // Try to start another dataflow - should fail with lock error
       const startResult2 = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);

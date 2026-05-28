@@ -168,7 +168,10 @@ export async function runE3Command(
  */
 export async function waitFor(
   condition: () => Promise<boolean> | boolean,
-  timeoutMs: number = 5000,
+  // Ceiling, not a delay — returns as soon as the condition holds. Sized
+  // generously so a slow CI runner (Windows subprocess startup especially)
+  // doesn't trip it before the awaited condition becomes true.
+  timeoutMs: number = 30000,
   checkIntervalMs: number = 100
 ): Promise<void> {
   const startTime = Date.now();
