@@ -83,14 +83,16 @@ jobs:
         working-directory: libs/e3
         run: make build
 
-      # The first `pnpm install` ran before the packages were built, so on
-      # Windows the cmd-shim for the `e3` bin couldn't be created — its target
-      # (dist/src/cli.js) didn't exist yet, and unlike POSIX symlinks a Windows
-      # cmd-shim stats its target. Re-run install now that dist exists so the
-      # integration + fuzz suites can spawn `e3`. No-op on POSIX (symlinks were
-      # already created at first install).
-      - name: Recreate workspace bin shims (Windows)
-        if: runner.os == 'Windows'
+      # The first `pnpm install` ran before any package was built, so EVERY
+      # workspace bin (e3, e3-api-server, east-node, …) failed to link —
+      # pnpm reads the bin target file to write the shim and the dists
+      # didn't exist yet. The warning pattern shows up on Linux as well as
+      # Windows; the earlier Windows-only gate here let east-py-defaulted
+      # tests pass on POSIX by accident (east-py lives outside pnpm bins).
+      # Re-run install now that the dists exist so every consuming package's
+      # .bin (and the workspace root's hoisted .bin) gets the symlinks the
+      # fuzz + integration suites need to spawn `east-node`, `e3`, etc.
+      - name: Recreate workspace bin shims
         run: pnpm install
 
       - name: Link e3 CLI
