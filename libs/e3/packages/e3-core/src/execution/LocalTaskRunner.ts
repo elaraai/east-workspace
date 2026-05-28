@@ -428,21 +428,29 @@ async function runCommand(
   // regardless of where in a monorepo the project sits — the nearest .bin
   // often lacks the runner (it's hoisted to the workspace root), so we
   // can't stop at the first hit.
+  //
+  // Pass env ONLY when we have something to add. Without `env`, the child
+  // inherits process.env directly — exactly what we want when no augment
+  // is available (the fuzz harness spawns from inside /tmp where the walk
+  // finds nothing; the inherited PATH is the proven-working state).
   const seen = new Set<string>();
   const projectBins = [
     ...collectNodeModulesBins(path.dirname(repo)),
     ...collectNodeModulesBins(process.cwd()),
   ].filter((b) => (seen.has(b) ? false : (seen.add(b), true)));
-  const pathSep = process.platform === 'win32' ? ';' : ':';
-  const augmentedPath = projectBins.length > 0
-    ? `${projectBins.join(pathSep)}${pathSep}${process.env.PATH ?? ''}`
-    : process.env.PATH;
-  const child = spawn(cmd, cmdArgs, {
+  const spawnOpts: Parameters<typeof spawn>[2] = {
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: true,
     windowsHide: true,
-    env: { ...process.env, PATH: augmentedPath },
-  });
+  };
+  if (projectBins.length > 0) {
+    const pathSep = process.platform === 'win32' ? ';' : ':';
+    spawnOpts.env = {
+      ...process.env,
+      PATH: `${projectBins.join(pathSep)}${pathSep}${process.env.PATH ?? ''}`,
+    };
+  }
+  const child = spawn(cmd, cmdArgs, spawnOpts);
 
   // Set up event listeners IMMEDIATELY before any async work
   // to avoid missing events if the process completes quickly
