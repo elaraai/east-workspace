@@ -43,6 +43,8 @@ if (!spec) {
   process.exit(2);
 }
 
+const exeName = spec.os === 'win32' ? 'east-c.exe' : 'east-c';
+
 const manifest = {
   name: `@elaraai/east-c-cli-${target}`,
   version,
@@ -55,6 +57,13 @@ const manifest = {
   },
   os: [spec.os],
   cpu: [spec.cpu],
+  // Per-platform packages own the bin directly. npm sees this field and
+  // creates `node_modules/.bin/east-c` as a symlink to the native binary
+  // (POSIX) or a tiny `.cmd` shim that `exec`s it (Windows) — zero JS
+  // wrapper, zero node startup. Only the per-platform package matching
+  // the host's os/cpu installs (gated by the `os`/`cpu` fields above),
+  // so there's never a bin conflict between platforms.
+  bin: { 'east-c': `./${exeName}` },
   // `east-c*` covers both `east-c` (POSIX) and `east-c.exe` (Windows) without
   // having to vary `files` per target.
   files: ['east-c*', 'README.md', 'LICENSE.md'],

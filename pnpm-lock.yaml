@@ -197,6 +197,9 @@ importers:
         specifier: workspace:*
         version: link:../../../east-node/packages/east-node-std
     devDependencies:
+      '@elaraai/east-node-cli':
+        specifier: workspace:*
+        version: link:../../../east-node/packages/east-node-cli
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
@@ -324,6 +327,9 @@ importers:
         specifier: workspace:*
         version: link:../../../east
     devDependencies:
+      '@elaraai/east-node-cli':
+        specifier: workspace:*
+        version: link:../../../east-node/packages/east-node-cli
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
@@ -361,6 +367,9 @@ importers:
         specifier: workspace:*
         version: link:../../../east-node/packages/east-node-std
     devDependencies:
+      '@elaraai/east-node-cli':
+        specifier: workspace:*
+        version: link:../../../east-node/packages/east-node-cli
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
