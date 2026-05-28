@@ -5,7 +5,9 @@
 
 import { readFileSync } from 'fs';
 import { createRequire } from 'module';
+import * as path from 'path';
 import { extname } from 'path';
+import { pathToFileURL } from 'url';
 import {
     IRType,
     decodeBeast2For,
@@ -55,8 +57,24 @@ export interface PlatformMetadata {
  */
 export async function loadPlatform(packageName: string): Promise<PlatformFunction[]> {
     try {
-        // Dynamic import of the platform subpath
-        const platformModule = await import(`${packageName}/platform`);
+        // Anchor platform resolution at the LINKED CLI bin location, not at
+        // this file's realpath. pnpm's bin shim invokes us with the
+        // user-project linked path; `process.argv[1]` preserves that. By
+        // contrast, this module's `import.meta.url` is realpath'd by
+        // default, anchored at east-node-cli's source location in whichever
+        // monorepo it lives in — useless for finding user-installed
+        // platform packages.
+        //
+        // The loader stays platform-agnostic: any package that exports
+        // `./platform` and is installed in the user's project resolves
+        // here, with no hardcoded list and no extra Node flags.
+        const cliEntry = process.argv[1] ?? import.meta.url;
+        const linkedDir = path.dirname(
+            cliEntry.startsWith('file:') ? new URL(cliEntry).pathname : cliEntry,
+        );
+        const base = pathToFileURL(linkedDir + path.sep).href;
+        const resolved = import.meta.resolve(`${packageName}/platform`, base);
+        const platformModule = await import(resolved);
         const fns = platformModule.default;
 
         // Validate the export
