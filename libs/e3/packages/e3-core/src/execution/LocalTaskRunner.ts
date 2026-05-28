@@ -443,6 +443,16 @@ async function runCommand(
     detached: true,
     windowsHide: true,
   };
+  if (process.platform === 'win32') {
+    // pnpm's bin shims on Windows are `.cmd` / `.ps1` files. Node's
+    // `spawn(name, ...)` doesn't honour PATHEXT and won't find
+    // `east-node.cmd` from a bare `east-node` lookup. `shell: true` routes
+    // through cmd.exe which does. The args we pass come from e3's IR
+    // (paths + flags only, no user-typed shell metacharacters), so the
+    // shell escaping warning in Node's docs doesn't apply here. Same
+    // pattern fuzz/helpers.ts already uses for spawning `e3` on Windows.
+    spawnOpts.shell = true;
+  }
   if (projectBins.length > 0) {
     const pathSep = process.platform === 'win32' ? ';' : ':';
     spawnOpts.env = {
