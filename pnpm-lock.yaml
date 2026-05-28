@@ -396,6 +396,8 @@ importers:
         specifier: ~5.9.2
         version: 5.9.3
 
+  libs/east-c/packages/east-c-cli: {}
+
   libs/east-claude-plugin:
     dependencies:
       '@elaraai/east-diagnostics':

@@ -14,6 +14,7 @@
  */
 
 import * as fs from 'fs/promises';
+import { existsSync } from 'fs';
 import * as path from 'path';
 import { spawn } from 'child_process';
 import { tmpdir } from 'os';
@@ -362,6 +363,27 @@ export async function taskExecute(
 }
 
 /**
+ * Walk up from `startDir` and return the first `node_modules/.bin` found,
+ * or null if none exists up to the filesystem root.
+ *
+ * This is how npm/yarn/pnpm let `package.json` scripts resolve devDep CLIs
+ * without a project-local `npm exec` prefix; replicated here so a bare
+ * `e3 dataflow run` (no npm wrapper) sees the same binaries.
+ *
+ * Exported for testing; not part of the package's public API.
+ */
+export function findNearestNodeModulesBin(startDir: string): string | null {
+  let dir = path.resolve(startDir);
+  while (true) {
+    const candidate = path.join(dir, 'node_modules', '.bin');
+    if (existsSync(candidate)) return candidate;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+/**
  * Run a command and capture output
  */
 async function runCommand(
@@ -398,10 +420,22 @@ async function runCommand(
   //   allowing tracking and cleanup. Requires polling to detect orphans.
   // - Firecracker/microVMs: Complete isolation with hardware virtualization.
   //   The VM boundary provides bulletproof containment. Best for multi-tenant.
+  // Runners (`east-node`, `east-c`) are typically installed as project
+  // devDeps and exposed on `node_modules/.bin`. `npm run`/`pnpm` set that
+  // up automatically; bare `e3 dataflow run` does not. Prepend the nearest
+  // `node_modules/.bin` (walking up from the repo, then process.cwd()) so
+  // the spawn finds the installed runner whichever entry point launched us.
+  const projectBin = findNearestNodeModulesBin(path.dirname(repo))
+    ?? findNearestNodeModulesBin(process.cwd());
+  const pathSep = process.platform === 'win32' ? ';' : ':';
+  const augmentedPath = projectBin
+    ? `${projectBin}${pathSep}${process.env.PATH ?? ''}`
+    : process.env.PATH;
   const child = spawn(cmd, cmdArgs, {
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: true,
     windowsHide: true,
+    env: { ...process.env, PATH: augmentedPath },
   });
 
   // Set up event listeners IMMEDIATELY before any async work

@@ -33,9 +33,11 @@ jobs:
       run:
         shell: bash
     env:
-      # The e3 default runner is `east-py run -p east-py-std`, whose native
-      # east-py build (scikit-build-core + east-c via MSVC on Windows) uses the
-      # Ninja generator to avoid the multi-config VS generator's MAX_PATH issues.
+      # east-py-cli is installed below so tests that pin `runner: { runtime:
+      # 'east-py', ... }` can exec it. Its scikit-build-core + east-c native
+      # build (MSVC on Windows) wants Ninja over the multi-config VS generator
+      # to avoid MAX_PATH issues. (e3's default runner is now east-node, but
+      # the python build is still needed for the tests that opt into east-py.)
       CMAKE_GENERATOR: Ninja
       # pnpm runs package scripts through this shell — bash so rm -rf / single-
       # quoted globs in package scripts behave the same on Windows.
@@ -97,12 +99,14 @@ jobs:
 
       - name: Install East runners
         run: |
-          pnpm --filter=@elaraai/east-node-cli exec east-node --version || true
-          # e3's default task runner is `east-py run -p east-py-std`, so the runner
-          # needs the CLI + core + std platform (std is pure-Python, no heavy deps).
-          # io + datascience are intentionally omitted: e3's tasks never call those
-          # platforms, and their optional ML/DB extras don't build everywhere. Tasks
-          # that need another platform pass an explicit `runner:`.
+          # east-node is e3's default runner — pnpm install above already
+          # placed east-node on node_modules/.bin (PATH augmentation in
+          # LocalTaskRunner adds it for spawned tasks).
+          pnpm --filter=@elaraai/east-node-cli exec east-node --version
+          # east-py-cli + core + std for tests that pin `runner: { runtime:
+          # 'east-py', ... }`. io + datascience extras are intentionally
+          # omitted: their optional ML/DB deps don't build everywhere, and
+          # no e3 test under this matrix needs them.
           cd libs/east-py
           uv sync --all-packages
           uv tool install --force --editable packages/east-py-cli \

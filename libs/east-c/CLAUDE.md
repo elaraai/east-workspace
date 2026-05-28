@@ -1,9 +1,10 @@
 # east-c
 
-C port of the East language runtime. Two packages:
+C port of the East language runtime. Three packages:
 
 - `packages/east-c/` — Core runtime (types, values, IR, compiler, builtins, serialization).
 - `packages/east-c-std/` — Standard platform functions (console, fs, path, crypto, time, random, fetch, test).
+- `packages/east-c-cli/` — Native C CLI binary source **and** the npm launcher `@elaraai/east-c-cli`. The same directory carries both: CMake builds the binary; `package.json` + `bin/east-c.mjs` are the npm-side launcher that resolves a per-platform binary (`@elaraai/east-c-cli-<target>`) via `require.resolve` and spawns it. Per-platform packages are generated at release time, not committed. See `docs/npm-runner-distribution.md`.
 
 ## Commands
 

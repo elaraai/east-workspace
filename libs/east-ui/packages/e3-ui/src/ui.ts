@@ -13,7 +13,7 @@
  * @packageDocumentation
  */
 
-import { task, type DatasetDef, type TaskDef } from '@elaraai/e3';
+import { task, type DatasetDef, type Runner, type TaskDef } from '@elaraai/e3';
 import type { UIComponentType } from '@elaraai/east-ui';
 import type {
   EastType,
@@ -69,7 +69,7 @@ export function ui<
   inputs: [...Inputs],
   fn: CallableFunctionExpr<any, O> | CallableAsyncFunctionExpr<any, O>,
   options?: {
-    runner?: string[],
+    runner?: Runner,
   },
 ): TaskDef {
   const derived = deriveManifest(fn);
@@ -82,8 +82,11 @@ export function ui<
     seen.add(k);
     paths.push(p);
   }
+  // UI tasks default to east-c with no platforms — east-c can produce the
+  // UIComponentType value without any platform-function imports; bound
+  // Data/State reads resolve at render time, not in the runner.
   return task(name, inputs as any, fn as any, {
-    runner: options?.runner ?? ['east-c', 'run'],
+    runner: options?.runner ?? { runtime: 'east-c' } as Runner,
     kind: 'ui',
     metadata: encodeManifest({ paths }),
   });

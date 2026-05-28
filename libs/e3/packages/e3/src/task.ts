@@ -14,6 +14,7 @@
 import type { AsyncFunctionExpr, BlockBuilder, CallableAsyncFunctionExpr, CallableFunctionExpr, EastType, ExprType, FunctionExpr } from '@elaraai/east';
 import { Expr, variant, ArrayType, StringType, East, IRType, EastIR, AsyncEastIR } from '@elaraai/east';
 import type { DatasetDef, DataTreeDef, TaskDef } from './types.js';
+import { DEFAULT_RUNNER, runnerToCommand, type Runner } from './runner.js';
 
 /**
  * Helper type to extract East types from DatasetDef array.
@@ -174,13 +175,13 @@ export function task<Name extends string, Inputs extends readonly DatasetDef[], 
     | CallableFunctionExpr<ExtractDatasetTypes<Inputs>, Output>
     | AsyncFunctionExpr<ExtractDatasetTypes<Inputs>, Output>
     | CallableAsyncFunctionExpr<ExtractDatasetTypes<Inputs>, Output>,
-  config?: { runner?: string[], kind?: string, metadata?: Uint8Array },
+  config?: { runner?: Runner, kind?: string, metadata?: Uint8Array },
 ): TaskDef<Output, [variant<'field', 'tasks'>, variant<'field', Name>, variant<'field', 'output'>]>;
 export function task(
   name: string,
   inputs: DatasetDef[],
   fn: FunctionExpr<any, any> | AsyncFunctionExpr<any, any>,
-  config?: { runner?: string[], kind?: string, metadata?: Uint8Array },
+  config?: { runner?: Runner, kind?: string, metadata?: Uint8Array },
 ): TaskDef {
   // Keep the full EastIR bundle (IR + source_map) so we don't drop the
   // source map before it reaches the beast2 encoder in export.ts.
@@ -202,12 +203,19 @@ export function task(
   // Create the output dataset
   const output = createOutputDataset(name, taskTree, outputType);
 
-  // Build the command for our east-py runner
+  // Resolve the typed Runner to argv at task-definition time. The variant is
+  // SDK-only metadata: it never reaches the IR or the wire — only the
+  // resolved string array does, baked in as an East constant below. Default
+  // is east-node + east-node-std (every e3 project has Node already).
+  const argvPrefix = runnerToCommand(config?.runner ?? DEFAULT_RUNNER);
+
+  // Build the command IR. At task-execution time this East function is
+  // evaluated with the staged input/output paths and returns the final argv.
   const commandFn = East.function(
     [ArrayType(StringType), StringType],
     ArrayType(StringType),
     ($, input_paths, output_path) => {
-      const command = $.let(config?.runner ?? ['east-py', 'run', '-p', 'east-py-std'], ArrayType(StringType));
+      const command = $.let(argvPrefix, ArrayType(StringType));
 
       // Function argument paths
       const i = $.let(1n);

@@ -123,6 +123,8 @@ const count = e3.input('count', IntegerType);
 Define a task that runs an East function.
 
 ```typescript
+// Default runner is east-node + @elaraai/east-node-std — every e3 project
+// already has Node, so this resolves with no extra setup.
 const greet = e3.task(
   'greet',
   [name],  // dependencies (inputs or other task outputs)
@@ -131,12 +133,31 @@ const greet = e3.task(
   )
 );
 
-// With custom runner
+// Override with a typed runner (autocomplete + typo-safe on stock runners and
+// platforms; use `{ custom: 'name' }` for non-stock platforms; `runtime:
+// 'custom'` is the argv escape hatch).
 const pyTask = e3.task(
   'py_task',
   [input],
   East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)),
-  { runner: ['uv', 'run', 'east-py', 'run', '-p', 'east-py-std'] }
+  { runner: { runtime: 'east-py', platforms: ['east-py-std', 'east-py-datascience'] } }
+);
+
+// east-c — native binary, lowest overhead, no Python or Node runtime needed
+// past the spawn itself.
+const fast = e3.task(
+  'fast',
+  [input],
+  East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)),
+  { runner: { runtime: 'east-c', platforms: ['east-c-std'] } }
+);
+
+// Custom argv (e.g. wrapping east-py with uv):
+const wrapped = e3.task(
+  'wrapped',
+  [input],
+  East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)),
+  { runner: { runtime: 'custom', command: ['uv', 'run', 'east-py', 'run', '-p', 'east-py-std'] } }
 );
 
 // Chain tasks via .output
@@ -348,6 +369,6 @@ Use `--force` to bypass: `e3 dataflow run . dev --force`
 - **east** — the language for task bodies (`e3.task` runs an `East.function`).
 - **east-project** — scaffold an e3 project and drive its build / deploy / run / watch lifecycle.
 - **east-ui** + **e3-ui** — author dashboards and decision surfaces as `ui()` tasks bound to workspace datasets.
-- **east-py-datascience** — ML / optimization tasks; set a Python runner (`{ runner: ['uv','run','east-py','run','-p','east-py-datascience'] }`).
+- **east-py-datascience** — ML / optimization tasks; set a Python runner (`{ runner: { runtime: 'east-py', platforms: ['east-py-datascience'] } }`).
 - **east-node-io** / **east-node-std** — pull databases, storage, files, and HTTP into tasks.
 - **east-design** / **east-ontology** — plan the dataflow and model the business before building.

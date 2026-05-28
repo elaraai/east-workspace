@@ -37,6 +37,16 @@ for (const kind of ["east", "e3"] as const) {
     assert.equal(pkg.version, "0.0.1");
     assert.equal(pkg.private, undefined, "private must be stripped on emit");
     assert.equal(pkg.dependencies["@elaraai/east"], "^9.9.9");
+    // east-node-cli is in devDeps for both templates so scaffolded projects
+    // can run `npx east-node` immediately.
+    assert.equal(pkg.devDependencies["@elaraai/east-node-cli"], "^9.9.9",
+      "east-node-cli must be a pinned devDep in every scaffolded project");
+    if (kind === "e3") {
+      // east-c-cli is in e3 devDeps too — the typed Runner API lets users
+      // switch to `{ runtime: 'east-c', ... }` without a separate install.
+      assert.equal(pkg.devDependencies["@elaraai/east-c-cli"], "^9.9.9",
+        "east-c-cli must be a pinned devDep in scaffolded e3 projects");
+    }
     const raw = readFileSync(join(dir, "package.json"), "utf8");
     assert.ok(!raw.includes("workspace:"), "no workspace: specifiers may survive emit");
 

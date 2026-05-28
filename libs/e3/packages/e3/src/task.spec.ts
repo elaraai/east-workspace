@@ -257,7 +257,7 @@ describe('task', () => {
           ($, name) => $.return(name)
         ),
         {
-          runner: ['uv', 'run', 'east-py', 'run', '-p', 'east-py-std']
+          runner: { runtime: 'custom', command: ['uv', 'run', 'east-py', 'run', '-p', 'east-py-std'] },
         }
       );
 

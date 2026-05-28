@@ -204,12 +204,70 @@ Extend the existing job rather than replace it:
    reference platform-package versions that exist, so publish the platform
    packages before (or together with) the launcher in the bootstrap.
 
-## Suggested PR sequencing
+## Bootstrap — one-time, before the first release that publishes new names
 
-1. **east-c Windows build** — fix CMake/deps so `cmake --build` produces
-   `east-c.exe` on `windows-latest`; add the `win32-x64` target to
-   `publish-c-native` (tarball only at first). Self-contained, verifiable.
-2. **east-c-cli npm packaging** — launcher package + per-platform manifest
-   generation + `publish-c-npm` + version/publish/drift wiring.
-3. **Template + e3-core** — add east-node-cli/east-c-cli devDeps to the e3
-   template; `LocalTaskRunner` PATH augmentation; create e2e exercise.
+npm trusted publishing (OIDC from GitHub Actions) needs each package name to
+already exist on the registry and be claimed by your org before the trusted
+publisher config can be applied. The 6 new names
+(`@elaraai/east-c-cli` + `@elaraai/east-c-cli-{linux-x64,linux-arm64,
+darwin-arm64,darwin-x64,win32-x64}`) don't yet, so the first publish must
+be a manual one without `--provenance`.
+
+`scripts/bootstrap-east-c-npm.mjs` does this. Procedure:
+
+1. On npmjs.com, generate a **granular access token** scoped to those 6
+   names with read+write. Use a short TTL (e.g. 7 days). Set it as
+   `NPM_TOKEN` locally — do NOT commit.
+
+2. Trigger a release dry-run from `main` so the per-platform tarballs build:
+
+   ```bash
+   gh workflow run release.yml --ref main \
+     -f release_type=prerelease -f dry_run=true
+   gh run watch
+   ```
+
+3. Download the `c-npm-*` artifacts produced by `publish-c-native`:
+
+   ```bash
+   gh run download <run-id> -D ./bootstrap-artifacts -p 'c-npm-*'
+   ```
+
+4. Publish all 6 names without provenance:
+
+   ```bash
+   NPM_TOKEN=npm_xxx node scripts/bootstrap-east-c-npm.mjs ./bootstrap-artifacts
+   ```
+
+   The script publishes the per-platform packages first (the launcher's
+   `optionalDependencies` pin them), then the launcher. It refuses to
+   re-publish a name+version that's already on the registry, so re-running
+   after a partial failure is safe. Use `--dry-run` to preview without
+   touching the registry.
+
+5. For each of the 6 new packages on npmjs.com, configure trusted publishing
+   — *Settings → Publishing access → Trusted publisher → GitHub Actions*
+   pointing at `elaraai/east-workspace` + `release.yml`.
+
+6. Revoke the temporary `NPM_TOKEN`. Future releases publish via `release.yml`
+   with `--provenance` and don't need a manual token.
+
+## Status — what's in this branch
+
+1. **east-c Windows build (MSVC)** — done. `publish-c-native` builds the
+   `win32-x64` binary alongside linux-x64/linux-arm64/darwin-arm64/darwin-x64.
+2. **east-c-cli npm packaging** — done. Launcher in
+   `libs/east-c/packages/east-c-cli-npm/`; per-platform manifest/README
+   generated at release time by `scripts/emit-east-c-platform-manifest.mjs`
+   + `scripts/emit-east-c-platform-readme.mjs`; published by
+   `publish-c-npm` (release.yml). Version drift covered by
+   `scripts/check-version-drift.mjs`; lockstep optionalDeps bumped by
+   `scripts/set-npm-version.mjs`.
+3. **Template + e3-core PATH** — done. `libs/create/templates/{e3,east}/
+   package.json` carry `@elaraai/east-node-cli` (both) and
+   `@elaraai/east-c-cli` (e3 only) as devDeps. The default `e3.task`
+   runner is now `east-node` + `@elaraai/east-node-std` (every e3 project
+   has Node already; east-py keeps its own toolchain requirement off the
+   default path). `LocalTaskRunner` prepends the nearest `node_modules/.bin`
+   to spawned tasks' PATH so bare `east-node` / `east-c` resolve via the
+   project's installed devDeps without `npm exec` ceremony.

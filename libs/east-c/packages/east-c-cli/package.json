@@ -1,0 +1,42 @@
+{
+  "name": "@elaraai/east-c-cli",
+  "version": "1.0.4",
+  "description": "Launcher for the native east-c runner — locates and spawns the platform-specific binary shipped via optional dependencies",
+  "bin": {
+    "east-c": "./bin/east-c.mjs"
+  },
+  "files": [
+    "bin",
+    "README.md",
+    "LICENSE.md",
+    "CONTRIBUTING.md",
+    "CLA.md"
+  ],
+  "scripts": {},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/elaraai/east-workspace.git",
+    "directory": "libs/east-c/packages/east-c-cli"
+  },
+  "keywords": [
+    "east",
+    "elara",
+    "cli",
+    "runtime",
+    "ir",
+    "native"
+  ],
+  "author": "Elara AI Pty Ltd",
+  "license": "BUSL-1.1",
+  "type": "module",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "optionalDependencies": {
+    "@elaraai/east-c-cli-linux-x64": "1.0.4",
+    "@elaraai/east-c-cli-linux-arm64": "1.0.4",
+    "@elaraai/east-c-cli-darwin-arm64": "1.0.4",
+    "@elaraai/east-c-cli-darwin-x64": "1.0.4",
+    "@elaraai/east-c-cli-win32-x64": "1.0.4"
+  }
+}

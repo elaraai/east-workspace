@@ -167,12 +167,32 @@ const shout = e3.task(
   )
 );
 
-// Task with custom runner
+// Default runner is east-node + @elaraai/east-node-std — every e3 project
+// already has Node, so this resolves with no extra setup.
+
+// Override with a typed runner — discriminated union of stock runtimes
+// (east-py, east-node, east-c) plus a `custom` escape hatch for raw argv.
 const pyTask = e3.task(
   'py_task',
   [someInput],
   East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)),
-  { runner: ['uv', 'run', 'east-py', 'run', '-p', 'east-py-std'] }
+  { runner: { runtime: 'east-py', platforms: ['east-py-std'] } }
+);
+
+// east-c — native binary, lowest overhead for pure compute.
+const fast = e3.task(
+  'fast',
+  [someInput],
+  East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)),
+  { runner: { runtime: 'east-c', platforms: ['east-c-std'] } }
+);
+
+// Same effect via the custom escape hatch (uv-wrapped east-py):
+const wrapped = e3.task(
+  'wrapped',
+  [someInput],
+  East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)),
+  { runner: { runtime: 'custom', command: ['uv', 'run', 'east-py', 'run', '-p', 'east-py-std'] } }
 );
 ```
 

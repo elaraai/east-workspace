@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { alreadyPublished } from './lib/already-published.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
@@ -45,13 +46,6 @@ const PKGS = [
   'libs/create/packages/create-east/package.json',
   'libs/create/packages/create-e3/package.json',
 ];
-
-function alreadyPublished(pkgName, version) {
-  const r = spawnSync('npm', ['view', `${pkgName}@${version}`, 'version'], {
-    encoding: 'utf8',
-  });
-  return r.status === 0 && r.stdout.trim() === version;
-}
 
 function publish(pkgDir) {
   const args = [

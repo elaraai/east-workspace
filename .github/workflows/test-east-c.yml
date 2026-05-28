@@ -144,6 +144,46 @@ jobs:
         working-directory: libs/east-c
         run: ./packages/east-c/scripts/run_compliance.sh build/ir-std build/packages/east-c-std/test_std_compliance
 
+      # ── npm launcher (@elaraai/east-c-cli) ──────────────────────────────
+      # End-to-end smoke for the npm launcher: stage a per-platform package
+      # locally from the binary we just built, pack both launcher + platform
+      # as .tgz, install via file: URLs into a throwaway project, then run
+      # `east-c version` through the launcher script. Catches launcher resolve
+      # / argv-forwarding regressions without round-tripping through the
+      # registry. Uses the canonical root version for both packages so the
+      # launcher's optionalDependencies pin lines up with the staged platform
+      # tarball. Tests the published-package shape: only the `files`
+      # allowlisted content is in the tarball, and the launcher resolves the
+      # platform package the same way an end-user `npm install` would.
+      - name: Use Node.js 22 (npm-launcher smoke)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: npm-launcher smoke
+        shell: bash
+        run: |
+          case "$RUNNER_OS" in
+            Linux)   TARGET=linux-x64;    BIN=east-c     ;;
+            macOS)   TARGET=darwin-arm64; BIN=east-c     ;;
+            Windows) TARGET=win32-x64;    BIN=east-c.exe ;;
+            *) echo "::error::Unsupported RUNNER_OS $RUNNER_OS"; exit 1 ;;
+          esac
+          VERSION=$(node -p "require('./package.json').version")
+          STAGE=stage-launcher-smoke
+          mkdir -p "$STAGE/plat" "$STAGE/proj"
+          cp "libs/east-c/build/packages/east-c-cli/$BIN" "$STAGE/plat/"
+          cp libs/east-c/packages/east-c-cli/LICENSE.md "$STAGE/plat/"
+          node scripts/emit-east-c-platform-manifest.mjs --target "$TARGET" --version "$VERSION" --out "$STAGE/plat/package.json"
+          node scripts/emit-east-c-platform-readme.mjs   --target "$TARGET" --version "$VERSION" --out "$STAGE/plat/README.md"
+          ( cd "$STAGE/plat" && npm pack --pack-destination .. >/dev/null )
+          ( cd libs/east-c/packages/east-c-cli && npm pack --pack-destination "$GITHUB_WORKSPACE/$STAGE" >/dev/null )
+          ( cd "$STAGE/proj" && npm init -y >/dev/null && \
+              npm install --no-fund --no-audit \
+                "../elaraai-east-c-cli-${VERSION}.tgz" \
+                "../elaraai-east-c-cli-${TARGET}-${VERSION}.tgz" )
+          echo "--- east-c version via launcher ---"
+          "$STAGE/proj/node_modules/.bin/east-c" version
+
   lint-east-c:
     name: Lint east-c (clang-format)
     runs-on: ubuntu-latest

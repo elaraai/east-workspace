@@ -12,6 +12,7 @@ const NPM_PKGS = [
   'libs/east-node/packages/east-node-std/package.json',
   'libs/east-node/packages/east-node-io/package.json',
   'libs/east-node/packages/east-node-cli/package.json',
+  'libs/east-c/packages/east-c-cli/package.json',
   'libs/east-py/packages/east-py-datascience/package.json',
   'libs/e3/packages/e3-types/package.json',
   'libs/e3/packages/e3/package.json',
@@ -26,6 +27,18 @@ const NPM_PKGS = [
   'libs/east-ui/packages/e3-ui-components/package.json',
   'libs/create/packages/create-east/package.json',
   'libs/create/packages/create-e3/package.json',
+];
+
+// East-C per-platform packages aren't tracked in NPM_PKGS (they're generated
+// at release time from build artifacts) — but the launcher's
+// optionalDependencies pin them at the canonical version. Validate that here.
+const EAST_C_LAUNCHER = 'libs/east-c/packages/east-c-cli/package.json';
+const EAST_C_PLATFORM_DEP = /^@elaraai\/east-c-cli-(linux-x64|linux-arm64|darwin-arm64|darwin-x64|win32-x64)$/;
+
+// Plain-text VERSION files (CMake input, etc.). Same canonical version
+// as everything else.
+const TEXT_VERSION_FILES = [
+  'libs/east-c/VERSION',  // baked into the east-c binary at CMake configure time
 ];
 
 const PYPROJECTS = [
@@ -59,6 +72,22 @@ const errors = [];
 
 for (const rel of NPM_PKGS) {
   const v = readJsonVersion(rel);
+  if (v !== canonical) errors.push(`${rel}: ${v} ≠ ${canonical}`);
+}
+
+// Launcher's per-platform optionalDependencies must all equal the canonical
+// version exactly — the launcher resolves the matching platform package by
+// `@elaraai/east-c-cli-<platform>@<launcher-version>`.
+const launcherPkg = JSON.parse(fs.readFileSync(path.join(repoRoot, EAST_C_LAUNCHER), 'utf8'));
+for (const [name, spec] of Object.entries(launcherPkg.optionalDependencies ?? {})) {
+  if (!EAST_C_PLATFORM_DEP.test(name)) continue;
+  if (spec !== canonical) {
+    errors.push(`${EAST_C_LAUNCHER} optionalDependencies[${name}]: ${spec} ≠ ${canonical}`);
+  }
+}
+
+for (const rel of TEXT_VERSION_FILES) {
+  const v = fs.readFileSync(path.join(repoRoot, rel), 'utf8').trim();
   if (v !== canonical) errors.push(`${rel}: ${v} ≠ ${canonical}`);
 }
 

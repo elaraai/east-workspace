@@ -27,6 +27,8 @@
   },
   "devDependencies": {
     "@elaraai/e3-cli": "workspace:*",
+    "@elaraai/east-node-cli": "workspace:*",
+    "@elaraai/east-c-cli": "workspace:*",
     "@types/node": "^22",
     "typescript": "^5",
     "eslint": "^9",
