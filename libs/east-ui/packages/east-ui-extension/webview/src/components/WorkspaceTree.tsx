@@ -6,18 +6,21 @@
 /**
  * Workspace navigation sidebar — bsys Sidebar / `navList` recipe.
  *
- * Renders workspaces as top-level nav items (mono uppercase, 16px icon,
- * brand-tint + 3px left-rule active state); the selected workspace expands
- * to its inputs + tasks as nested items, each carrying a `StatusIndicator`
- * (dot + word). Built on the shared `navList` slot-recipe — the same one
- * the showcase sidebar consumes — rather than a default-styled TreeView.
+ * Renders workspaces as top-level nav items (mono uppercase, inset brand-tint
+ * active pill); the selected workspace expands to its inputs + tasks as a
+ * single flat list of quieter sub-rows. Each sub-row carries a leading type
+ * icon (input vs task) and a trailing `StatusIndicator` dot — no INPUTS/TASKS
+ * group headings. Built on the shared `navList` slot-recipe (the same one the
+ * showcase sidebar consumes).
  *
  * @packageDocumentation
  */
 
 import { Fragment, useMemo } from 'react';
 import { Box, Flex, Text, HStack, Spinner, useSlotRecipe, type SystemStyleObject } from '@chakra-ui/react';
-import { faChevronLeft } from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faChevronLeft, faDatabase, faBolt } from '@fortawesome/free-solid-svg-icons';
+import type { IconDefinition } from '@fortawesome/fontawesome-svg-core';
 import { useE3Context, getSelectedWorkspace } from '../context/E3Context';
 import { SidebarToggle } from './SidebarToggle';
 import { useWorkspaceList, useWorkspaceStatus, formatApiError } from '@elaraai/e3-ui-components';
@@ -46,11 +49,12 @@ function getInputStatusTone(status: DatasetStatusInfo['status']['type']): Status
     }
 }
 
-/** Per the bsys sidebar, nested sub-items indent 36px under their parent,
- *  drop the icon for an em-dash prefix, and drop the uppercase mono treatment
- *  for a quieter 11px/500 label. */
+/** Sub-rows (inputs + tasks) are a flat list under the expanded workspace —
+ *  no group headings. They drop the uppercase mono treatment for a quieter
+ *  11px/500 label and are told apart by a leading type icon, not a heading.
+ *  No `paddingInlineStart` override here — the icon column supplies the visual
+ *  lead, and leaving the base padding lets the active pill render correctly. */
 const NESTED_ITEM_OVERRIDE: SystemStyleObject = {
-    paddingInlineStart: '36px',
     height: '30px',
     textTransform: 'none',
     fontSize: '11px',
@@ -60,15 +64,17 @@ const NESTED_ITEM_OVERRIDE: SystemStyleObject = {
 
 interface NestedItemProps {
     label: string;
+    icon: IconDefinition;
     tone: StatusTone;
     statusLabel: string;
     active: boolean;
     itemStyle: SystemStyleObject;
+    iconStyle: SystemStyleObject;
     textStyle: SystemStyleObject;
     onClick: () => void;
 }
 
-function NestedItem({ label, tone, statusLabel, active, itemStyle, textStyle, onClick }: NestedItemProps) {
+function NestedItem({ label, icon, tone, statusLabel, active, itemStyle, iconStyle, textStyle, onClick }: NestedItemProps) {
     return (
         <Box
             as="button"
@@ -77,7 +83,8 @@ function NestedItem({ label, tone, statusLabel, active, itemStyle, textStyle, on
             css={{ ...itemStyle, ...NESTED_ITEM_OVERRIDE }}
             title={label}
         >
-            <Box as="span" css={textStyle}>— {label}</Box>
+            <Box as="span" css={iconStyle}><FontAwesomeIcon icon={icon} /></Box>
+            <Box as="span" css={textStyle}>{label}</Box>
             <StatusIndicator tone={tone} label={statusLabel} hideLabel />
         </Box>
     );
@@ -134,43 +141,37 @@ function WorkspaceTreeContent({ workspaces }: { workspaces: WorkspaceInfo[] }) {
 
                         {expanded && (
                             <>
-                                {/* Inputs and tasks are told apart by a section
-                                 *  eyebrow per group (bsys group-header item type),
-                                 *  not by a per-row icon. */}
-                                {inputs.length > 0 && (
-                                    <>
-                                        <Box textStyle="nav.eyebrow" pl="24px" pt="8px" pb="4px">Inputs</Box>
-                                        {inputs.map(input => (
-                                            <NestedItem
-                                                key={`input:${input.path}`}
-                                                label={input.path.replace(/^\.inputs\./, '')}
-                                                tone={getInputStatusTone(input.status.type)}
-                                                statusLabel={input.status.type}
-                                                active={selection.type === 'input' && selection.workspace === ws.name && selection.path === input.path}
-                                                itemStyle={styles.item}
-                                                textStyle={styles.itemText}
-                                                onClick={() => setSelection({ type: 'input', workspace: ws.name, path: input.path })}
-                                            />
-                                        ))}
-                                    </>
-                                )}
-                                {tasks.length > 0 && (
-                                    <>
-                                        <Box textStyle="nav.eyebrow" pl="24px" pt="8px" pb="4px">Tasks</Box>
-                                        {tasks.map(task => (
-                                            <NestedItem
-                                                key={`task:${task.name}`}
-                                                label={task.name}
-                                                tone={getTaskStatusTone(task.status.type)}
-                                                statusLabel={task.status.type}
-                                                active={selection.type === 'task' && selection.workspace === ws.name && selection.task === task.name}
-                                                itemStyle={styles.item}
-                                                textStyle={styles.itemText}
-                                                onClick={() => setSelection({ type: 'task', workspace: ws.name, task: task.name })}
-                                            />
-                                        ))}
-                                    </>
-                                )}
+                                {/* Inputs + tasks as one flat list of sub-rows; a
+                                 *  leading type icon (database vs bolt) tells them
+                                 *  apart — no INPUTS/TASKS group headings. */}
+                                {inputs.map(input => (
+                                    <NestedItem
+                                        key={`input:${input.path}`}
+                                        label={input.path.replace(/^\.inputs\./, '')}
+                                        icon={faDatabase}
+                                        tone={getInputStatusTone(input.status.type)}
+                                        statusLabel={input.status.type}
+                                        active={selection.type === 'input' && selection.workspace === ws.name && selection.path === input.path}
+                                        itemStyle={styles.item}
+                                        iconStyle={styles.itemIcon}
+                                        textStyle={styles.itemText}
+                                        onClick={() => setSelection({ type: 'input', workspace: ws.name, path: input.path })}
+                                    />
+                                ))}
+                                {tasks.map(task => (
+                                    <NestedItem
+                                        key={`task:${task.name}`}
+                                        label={task.name}
+                                        icon={faBolt}
+                                        tone={getTaskStatusTone(task.status.type)}
+                                        statusLabel={task.status.type}
+                                        active={selection.type === 'task' && selection.workspace === ws.name && selection.task === task.name}
+                                        itemStyle={styles.item}
+                                        iconStyle={styles.itemIcon}
+                                        textStyle={styles.itemText}
+                                        onClick={() => setSelection({ type: 'task', workspace: ws.name, task: task.name })}
+                                    />
+                                ))}
                                 {!statusLoading && inputs.length === 0 && tasks.length === 0 && (
                                     <Text pl="24px" py="1" fontFamily="mono" fontSize="2xs" color="fg.subtle">
                                         No inputs or tasks

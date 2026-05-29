@@ -55,7 +55,7 @@ export function Toolbar() {
                     {crumbs.map((seg, i) => (
                         <Fragment key={i}>
                             {i > 0 && <Box as="span" color="fg.subtle" px="1">/</Box>}
-                            <Box as="span" color={i === crumbs.length - 1 ? 'fg' : 'brand.700'}>{seg}</Box>
+                            <Box as="span" color={i === crumbs.length - 1 ? 'fg' : 'brand.600'}>{seg}</Box>
                         </Fragment>
                     ))}
                 </Text>
