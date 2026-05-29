@@ -68,6 +68,16 @@ export type {
   MergeDatasets,
 };
 
+// Runner selection types — see runner.ts for the discriminated-union spec.
+export type {
+  Runner,
+  Platform,
+  EastPyPlatform,
+  EastNodePlatform,
+  EastCPlatform,
+} from './runner.js';
+export { runnerToCommand, DEFAULT_RUNNER } from './runner.js';
+
 /**
  * The e3 SDK namespace.
  *

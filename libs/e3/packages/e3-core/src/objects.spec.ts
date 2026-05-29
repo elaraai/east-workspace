@@ -256,7 +256,9 @@ describe('objects', () => {
       const hash = '039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81';
       const path = objectPath(testRepo, hash);
 
-      assert.ok(path.endsWith('objects/03/9058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81.beast2'));
+      // objectPath uses path.join (OS separator); normalize before comparing
+      // so the assertion holds on Windows too.
+      assert.ok(path.replace(/\\/g, '/').endsWith('objects/03/9058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81.beast2'));
     });
 
     it('matches actual stored location', async () => {

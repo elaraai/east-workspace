@@ -135,7 +135,7 @@ def min_cost_flow_impl(
     _check_google_or_support()
     from ortools.graph.python import min_cost_flow
 
-    start_time = time.monotonic()
+    start_time = time.perf_counter()
 
     start_nodes = [int(n) for n in input_data.get("start_nodes")]
     end_nodes = [int(n) for n in input_data.get("end_nodes")]
@@ -154,7 +154,7 @@ def min_cost_flow_impl(
         smcf.set_node_supply(i, supply)
 
     status_code = smcf.solve()
-    wall_time = time.monotonic() - start_time
+    wall_time = time.perf_counter() - start_time
 
     if status_code == smcf.OPTIMAL:
         flows = EastArray(
@@ -218,7 +218,7 @@ def max_flow_impl(
     _check_google_or_support()
     from ortools.graph.python import max_flow
 
-    start_time = time.monotonic()
+    start_time = time.perf_counter()
 
     start_nodes = [int(n) for n in input_data.get("start_nodes")]
     end_nodes = [int(n) for n in input_data.get("end_nodes")]
@@ -232,7 +232,7 @@ def max_flow_impl(
         smf.add_arc_with_capacity(start_nodes[i], end_nodes[i], capacities[i])
 
     status_code = smf.solve(source, sink)
-    wall_time = time.monotonic() - start_time
+    wall_time = time.perf_counter() - start_time
 
     if status_code == smf.OPTIMAL:
         flows = EastArray(
@@ -275,12 +275,12 @@ def assignment_impl(
     _check_google_or_support()
     from ortools.graph.python import linear_sum_assignment
 
-    start_time = time.monotonic()
+    start_time = time.perf_counter()
 
     costs_data = input_data.get("costs")
     num_workers = len(costs_data)
     if num_workers == 0:
-        wall_time = time.monotonic() - start_time
+        wall_time = time.perf_counter() - start_time
         return EastStruct(
             {
                 "status": EastVariant("optimal", None),
@@ -298,7 +298,7 @@ def assignment_impl(
             assignment.add_arc_with_cost(worker, task, int(row[task]))
 
     status_code = assignment.solve()
-    wall_time = time.monotonic() - start_time
+    wall_time = time.perf_counter() - start_time
 
     if status_code == assignment.OPTIMAL:
         matches: list[EastStruct] = []

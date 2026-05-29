@@ -22,6 +22,41 @@ import type { DatasetRefStore } from '../interfaces.js';
 const encodeRef = encodeBeast2For(DatasetRefType);
 const decodeRef = decodeBeast2For(DatasetRefType);
 
+// Windows sharing-violation codes raised when renaming over an open file.
+const WIN_SHARING_VIOLATION = new Set(['EPERM', 'EACCES', 'EBUSY']);
+
+/**
+ * Rename `from` over `to`, retrying on Windows sharing-violation errors.
+ *
+ * POSIX rename-over-existing is atomic even while another process holds the
+ * destination open. Windows refuses it (EPERM/EACCES/EBUSY) unless that handle
+ * was opened with FILE_SHARE_DELETE — and Node/libuv never opens files that way
+ * (verified on Node 22: fs.open 'r'/'rs' and createReadStream all block a
+ * concurrent rename). So the orchestrator reading a dataset `.ref` via
+ * fs.readFile blocks a concurrent `dataset set`'s rename over it. Node exposes
+ * no way to set the share mode, so — like graceful-fs / npm — we retry.
+ * (graceful-fs's own rename retry only fires when the destination is *absent*,
+ * so it does not cover renaming over an existing, reader-locked file.)
+ *
+ * The reader holds the handle only for the microseconds of the read, so a
+ * bounded exponential backoff clears it — almost always on the first or second
+ * attempt; the bound is a safety net so a genuine permission error still
+ * surfaces promptly. A no-op on POSIX, where the first attempt always succeeds.
+ */
+async function renameWithRetry(from: string, to: string, maxAttempts = 15): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await fs.rename(from, to);
+      return;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code ?? '';
+      if (attempt >= maxAttempts - 1 || !WIN_SHARING_VIOLATION.has(code)) throw err;
+      // 1, 2, 4, … ms, capped at 200ms (≈1.3s total over 15 attempts).
+      await new Promise((resolve) => setTimeout(resolve, Math.min(2 ** attempt, 200)));
+    }
+  }
+}
+
 export class LocalDatasetRefStore implements DatasetRefStore {
   /**
    * Get the filesystem path for a dataset ref file.
@@ -54,7 +89,7 @@ export class LocalDatasetRefStore implements DatasetRefStore {
     const data = encodeRef(ref);
     await fs.writeFile(stagingPath, data);
     try {
-      await fs.rename(stagingPath, filePath);
+      await renameWithRetry(stagingPath, filePath);
     } catch (err) {
       // Clean up staging file on failure
       try { await fs.unlink(stagingPath); } catch { /* ignore */ }
@@ -86,9 +121,11 @@ export class LocalDatasetRefStore implements DatasetRefStore {
       if (entry.isDirectory()) {
         await this.walkDir(baseDir, fullPath, results);
       } else if (entry.name.endsWith('.ref') && !entry.name.includes('.partial')) {
-        // Convert filesystem path back to dataset path
-        // Remove base dir prefix, leading separator, and .ref suffix
-        const relative = path.relative(baseDir, fullPath);
+        // Convert filesystem path back to dataset path. Dataset paths are
+        // always forward-slash separated; path.relative yields backslashes on
+        // Windows, so normalize them or nested paths won't match the
+        // forward-slash keys deploy looks up (writeRefsFromPackageRecursive).
+        const relative = path.relative(baseDir, fullPath).split(path.sep).join('/');
         const datasetPath = relative.slice(0, -4); // remove .ref
         results.push(datasetPath);
       }

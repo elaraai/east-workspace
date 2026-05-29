@@ -30,7 +30,7 @@ describe("ui()", () => {
     test("custom runner flows through to the command IR", () => {
         const def = ui("with_default_runner", [], blankUI);
         const custom = ui("with_custom_runner", [], blankUI, {
-            runner: ["east-c", "run", "--debug"],
+            runner: { runtime: "custom", command: ["east-c", "run", "--debug"] },
         });
         const replacer = (_: string, v: unknown) => typeof v === "bigint" ? `${v}n` : v;
         assert.notEqual(

@@ -165,7 +165,7 @@ export async function runFuzzTests(config: RunnerConfig): Promise<RunnerResults>
         if (result.success) {
           results.passed++;
           if (config.verbose) {
-            console.log(`✓ (${formatDuration(result.duration)})`);
+            console.log(`[+] (${formatDuration(result.duration)})`);
           }
         } else {
           results.failed++;
@@ -219,7 +219,7 @@ export async function runFuzzTests(config: RunnerConfig): Promise<RunnerResults>
         });
 
         if (config.verbose) {
-          console.log(`✗ ${(error as Error).message}`);
+          console.log(`[x] ${(error as Error).message}`);
         }
 
         printFailureSummary({

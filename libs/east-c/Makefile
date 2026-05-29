@@ -6,9 +6,19 @@
         leak-check leak-check-std leak-check-all \
         help lint format ensure-clang-format
 
+# On Windows use Ninja (single-config) so test binaries land at
+# build/packages/.../<name> as on Unix; the default Visual Studio generator is
+# multi-config (adds a Debug/Release subdir the compliance scripts don't expect).
+# Needs an MSVC environment (run from a Developer prompt / after vcvars).
+ifeq ($(OS),Windows_NT)
+CMAKE_GEN := -G Ninja
+else
+CMAKE_GEN :=
+endif
+
 ## Build native C libraries and tests
 build:
-	@mkdir -p build && cd build && cmake .. && cmake --build . -j$$(nproc)
+	@mkdir -p build && cd build && cmake .. $(CMAKE_GEN) && cmake --build . -j$$(nproc)
 
 ## Clean and rebuild
 rebuild: clean build

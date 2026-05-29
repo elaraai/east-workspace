@@ -14,8 +14,21 @@
  */
 
 import * as fs from 'fs/promises';
+import { existsSync } from 'fs';
 import * as path from 'path';
-import { spawn } from 'child_process';
+import crossSpawn from 'cross-spawn';
+import { spawn as nodeSpawn } from 'child_process';
+// On Windows, pnpm's workspace bins are `.cmd` / `.ps1` files, not real
+// executables. Node's `spawn(name, ...)` doesn't honour PATHEXT and
+// won't find `east-node.cmd` from a bare `east-node` invocation;
+// blanket `shell: true` works for that case but joins args into a
+// shell-parsed string, which then breaks commands like
+// `bash -c 'exit 42'` (the customTask path's bash wrapper). cross-spawn
+// targets exactly this gap — PATHEXT-aware resolution + correct arg
+// quoting for `.cmd`/`.bat`, passthrough for real binaries on POSIX.
+const spawn: typeof nodeSpawn = (process.platform === 'win32'
+  ? (crossSpawn as unknown as typeof nodeSpawn)
+  : nodeSpawn);
 import { tmpdir } from 'os';
 import { decodeBeast2For, variant } from '@elaraai/east';
 import { type ExecutionStatus, TaskObjectType, type TaskObject } from '@elaraai/e3-types';
@@ -205,9 +218,21 @@ export async function taskExecute(
 
     // Step 6: Evaluate command IR to get exec args
     const outputPath = path.join(scratchDir, 'output.beast2');
+
+    // The e3 SDK's `customTask` wraps the user command in `["bash", "-c",
+    // "<cmd-with-paths-interpolated>"]`. Bash treats `\` as an escape
+    // character (e.g. `\U`, `\f`, `\b`), so a Windows backslash path mangles
+    // the command string. Normalize separators here — bash + MSYS coreutils
+    // (cp, sleep, …) accept `C:/path` form, node's `fs` is happy with either
+    // separator on Windows, and runners using these paths as plain strings
+    // (east-py, etc.) are unaffected. No-op on POSIX (`path.sep === '/'`).
+    const toForwardSlash = (p: string) => p.split(path.sep).join('/');
+    const irInputPaths = inputPaths.map(toForwardSlash);
+    const irOutputPath = toForwardSlash(outputPath);
+
     let args: string[];
     try {
-      args = await evaluateCommandIr(storage, repo, task.commandIr, inputPaths, outputPath);
+      args = await evaluateCommandIr(storage, repo, task.commandIr, irInputPaths, irOutputPath);
     } catch (err) {
       const status: ExecutionStatus = variant('error', {
         executionId,
@@ -265,6 +290,7 @@ export async function taskExecute(
       args,
       inputHashes,
       bootId,
+      scratchDir,
       options
     );
 
@@ -350,6 +376,27 @@ export async function taskExecute(
 }
 
 /**
+ * Walk up from `startDir` and return every `node_modules/.bin` directory
+ * found, ordered from nearest to furthest. Used to prepend each to a
+ * spawned task's PATH so the runner CLI resolves no matter which level
+ * of the monorepo a binary was hoisted to — pnpm puts shared bins at the
+ * workspace root, package-local bins next to their consumer.
+ *
+ * Exported for testing; not part of the package's public API.
+ */
+export function collectNodeModulesBins(startDir: string): string[] {
+  const bins: string[] = [];
+  let dir = path.resolve(startDir);
+  while (true) {
+    const candidate = path.join(dir, 'node_modules', '.bin');
+    if (existsSync(candidate)) bins.push(candidate);
+    const parent = path.dirname(dir);
+    if (parent === dir) return bins;
+    dir = parent;
+  }
+}
+
+/**
  * Run a command and capture output
  */
 async function runCommand(
@@ -361,6 +408,7 @@ async function runCommand(
   args: string[],
   inputHashes: string[],
   bootId: string,
+  scratchDir: string,
   options: ExecuteOptions
 ): Promise<{ exitCode: number | null; error: string | null }> {
   const [cmd, ...cmdArgs] = args;
@@ -386,20 +434,71 @@ async function runCommand(
   //   allowing tracking and cleanup. Requires polling to detect orphans.
   // - Firecracker/microVMs: Complete isolation with hardware virtualization.
   //   The VM boundary provides bulletproof containment. Best for multi-tenant.
-  const child = spawn(cmd, cmdArgs, {
+  // Runners (`east-node`, `east-c`) are typically installed as project
+  // devDeps and exposed on `node_modules/.bin`. `npm run`/`pnpm` set that
+  // up automatically; bare `e3 dataflow run` does not. Collect every
+  // `node_modules/.bin` walking up from BOTH the repo and process.cwd()
+  // and prepend the lot (deduped) so the spawn finds the installed runner
+  // regardless of where in a monorepo the project sits — the nearest .bin
+  // often lacks the runner (it's hoisted to the workspace root), so we
+  // can't stop at the first hit.
+  //
+  // Pass env ONLY when we have something to add. Without `env`, the child
+  // inherits process.env directly — exactly what we want when no augment
+  // is available (the fuzz harness spawns from inside /tmp where the walk
+  // finds nothing; the inherited PATH is the proven-working state).
+  const seen = new Set<string>();
+  const projectBins = [
+    ...collectNodeModulesBins(path.dirname(repo)),
+    ...collectNodeModulesBins(process.cwd()),
+  ].filter((b) => (seen.has(b) ? false : (seen.add(b), true)));
+  const spawnOpts: Parameters<typeof spawn>[2] = {
+    // Run in the per-execution scratch dir, not the e3 process's cwd. Tasks
+    // address inputs/outputs by absolute path and resolve their runner via
+    // PATH, so cwd isn't part of the task contract — and inheriting the
+    // caller's cwd pins it. On Windows a live process's cwd can't be removed,
+    // so a `detached` task that outlives a killed parent (e.g. after SIGKILL)
+    // would hold the repo/project dir open and block its cleanup (EBUSY).
+    cwd: scratchDir,
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: true,
-  });
+    windowsHide: true,
+  };
+  if (projectBins.length > 0) {
+    const pathSep = process.platform === 'win32' ? ';' : ':';
+    spawnOpts.env = {
+      ...process.env,
+      PATH: `${projectBins.join(pathSep)}${pathSep}${process.env.PATH ?? ''}`,
+    };
+  }
+  const child = spawn(cmd, cmdArgs, spawnOpts);
 
   // Set up event listeners IMMEDIATELY before any async work
-  // to avoid missing events if the process completes quickly
+  // to avoid missing events if the process completes quickly. Capture the
+  // tail of the child's stderr so non-zero exits carry a useful diagnostic
+  // instead of just an exit code — `storage.logs` has the full log but
+  // callers (fuzz harness, e3 CLI status, ...) usually only see the error
+  // string. 64 KiB tail covers the typical stack-trace / "module not found"
+  // failures without ballooning memory on chatty tasks.
+  const STDERR_TAIL_BYTES = 64 * 1024;
+  let stderrTail = '';
+  const captureStderrTail = (chunk: string) => {
+    stderrTail = (stderrTail + chunk).slice(-STDERR_TAIL_BYTES);
+  };
+
   const resultPromise = new Promise<{ exitCode: number | null; error: string | null }>((resolve) => {
     child.on('error', (err) => {
       resolve({ exitCode: null, error: `Failed to spawn: ${err.message}` });
     });
 
     child.on('close', (code) => {
-      resolve({ exitCode: code, error: code !== 0 ? `Exit code: ${code}` : null });
+      if (code === 0) {
+        resolve({ exitCode: code, error: null });
+      } else {
+        const tail = stderrTail.trim();
+        const detail = tail ? `\nstderr:\n${tail}` : '';
+        resolve({ exitCode: code, error: `Exit code: ${code}${detail}` });
+      }
     });
   });
 
@@ -423,9 +522,11 @@ async function runCommand(
     }
   });
 
-  // Tee stderr - use storage.logs.append for log persistence
+  // Tee stderr — persist to storage.logs AND capture the tail in memory so
+  // the close-handler above can include it in the task's error message.
   child.stderr?.on('data', (data: Buffer) => {
     const str = data.toString('utf-8');
+    captureStderrTail(str);
     // Chain writes sequentially to avoid overlapping
     stderrWriteChain = stderrWriteChain.then(async () => {
       try {

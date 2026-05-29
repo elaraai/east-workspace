@@ -5641,7 +5641,7 @@
       "package": "east",
       "file": "east/test/function.examples.ts",
       "suite": "Closure Serialization",
-      "test": "Serialize deeply nested closures (A→B→C→value) to BEAST2",
+      "test": "Serialize deeply nested closures (A->B->C->value) to BEAST2",
       "keywords": [
         "function",
         "closure",
@@ -5653,7 +5653,7 @@
       "imports": [
         "import { East, IntegerType, NullType, StringType, FunctionType, AsyncFunctionType, StructType, ArrayType, BlobType, example } from \"@elaraai/east\";"
       ],
-      "source": "// Serialize deeply nested closures (A→B→C→value) to BEAST2\n// inputs: []  returns: 42n\nEast.function([], IntegerType, ($) => {\n        const InnerType = FunctionType([], IntegerType);\n        const MiddleType = FunctionType([], InnerType);\n        const OuterType = FunctionType([], MiddleType);\n        const value = $.let(42n, IntegerType);\n        const c = $.let(East.function([], IntegerType, (_$) => { return value; }));\n        const b = $.let(East.function([], InnerType, (_$) => { return c; }));\n        const a = $.let(East.function([], MiddleType, (_$) => { return b; }));\n        const blob = $.let(East.Blob.encodeBeast(a, 'v2'));\n        const decoded = $.let(blob.decodeBeast(OuterType, 'v2'));\n        return decoded()()();\n    })"
+      "source": "// Serialize deeply nested closures (A->B->C->value) to BEAST2\n// inputs: []  returns: 42n\nEast.function([], IntegerType, ($) => {\n        const InnerType = FunctionType([], IntegerType);\n        const MiddleType = FunctionType([], InnerType);\n        const OuterType = FunctionType([], MiddleType);\n        const value = $.let(42n, IntegerType);\n        const c = $.let(East.function([], IntegerType, (_$) => { return value; }));\n        const b = $.let(East.function([], InnerType, (_$) => { return c; }));\n        const a = $.let(East.function([], MiddleType, (_$) => { return b; }));\n        const blob = $.let(East.Blob.encodeBeast(a, 'v2'));\n        const decoded = $.let(blob.decodeBeast(OuterType, 'v2'));\n        return decoded()()();\n    })"
     },
     {
       "id": "east:function.examples.ts:closureSerializeAsync",

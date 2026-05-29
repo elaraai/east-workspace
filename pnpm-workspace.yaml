@@ -6,6 +6,10 @@ packages:
   - "libs/east-node"
   - "libs/east-node/packages/*"
 
+  # east-c — C runtime (npm launcher for the native binary; the C-only
+  # packages under the same dir have no package.json and are skipped).
+  - "libs/east-c/packages/*"
+
   # east-py — Python runtime (TypeScript types package only)
   - "libs/east-py/packages/east-py-datascience"
 

@@ -1453,7 +1453,10 @@ def lightning_train_impl(
             enable_progress_bar=False,
             enable_model_summary=False,
             logger=False,
-            accelerator="auto",
+            # "auto" picks the best accelerator (incl. MPS on Apple Silicon). CI
+            # runners expose MPS but can't actually allocate on it (headless), so
+            # EAST_LIGHTNING_ACCELERATOR=cpu forces CPU there. Default unchanged.
+            accelerator=os.environ.get("EAST_LIGHTNING_ACCELERATOR", "auto"),
             deterministic=random_state is not None,
         )
 

@@ -16,12 +16,19 @@ if (!NEW_VERSION) {
   process.exit(1);
 }
 
+// Plain-text files that hold a single semver line (no JSON / no key-value).
+// Read by CMake / other non-npm tooling.
+const TEXT_VERSION_FILES = [
+  'libs/east-c/VERSION',  // CMake reads this to bake EAST_CLI_VERSION / EAST_RUNTIME_VERSION into the east-c binary
+];
+
 const PKGS = [
   'package.json',
   'libs/east/package.json',
   'libs/east-node/packages/east-node-std/package.json',
   'libs/east-node/packages/east-node-io/package.json',
   'libs/east-node/packages/east-node-cli/package.json',
+  'libs/east-c/packages/east-c-cli/package.json',
   'libs/east-py/packages/east-py-datascience/package.json',
   'libs/e3/packages/e3-types/package.json',
   'libs/e3/packages/e3/package.json',
@@ -48,4 +55,14 @@ for (const rel of PKGS) {
   const indent = raw.startsWith('{\n    ') ? 4 : 2;
   fs.writeFileSync(p, JSON.stringify(pkg, null, indent) + trailingNewline);
   console.log(`${pkg.name}: ${old} → ${NEW_VERSION}`);
+}
+
+// Plain-text VERSION files (CMake input, etc.). Preserve trailing newline.
+for (const rel of TEXT_VERSION_FILES) {
+  const p = path.join(repoRoot, rel);
+  const raw = fs.readFileSync(p, 'utf8');
+  const old = raw.trim();
+  const trailingNewline = raw.endsWith('\n') ? '\n' : '';
+  fs.writeFileSync(p, NEW_VERSION + trailingNewline);
+  console.log(`${rel}: ${old} → ${NEW_VERSION}`);
 }

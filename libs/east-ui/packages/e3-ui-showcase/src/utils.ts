@@ -14,8 +14,10 @@
 import e3 from '@elaraai/e3';
 import { ui } from '@elaraai/e3-ui/ui';
 
+import type { Runner } from '@elaraai/e3';
+
 /** Default runner used for every showcase task. */
-export const DEFAULT_RUNNER = ['east-c', 'run', '-p', 'east-c-std'];
+export const DEFAULT_RUNNER: Runner = { runtime: 'east-c', platforms: ['east-c-std'] };
 
 /** Root directory for exported zips. Override per call if needed. */
 export const DEFAULT_OUT_DIR = '/tmp/east-ui-showcase';
@@ -32,7 +34,7 @@ export function toSnakeCase(name: string): string {
 
 export interface BuildOptions {
     /** Runner passed to every ui() task. Defaults to DEFAULT_RUNNER. */
-    runner?: string[];
+    runner?: Runner;
     /** Explicit camelCase → task-name overrides (bypasses toSnakeCase). */
     rename?: Record<string, string>;
     /** Examples to exclude from the package. */

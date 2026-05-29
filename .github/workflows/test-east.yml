@@ -18,7 +18,20 @@ concurrency:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    name: Test east (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        # Git Bash on all OSes so the build/test steps share one shell.
+        shell: bash
+    env:
+      # east's test script uses single-quoted globs + `&&`; pnpm runs package
+      # scripts via cmd.exe on Windows by default, so force a POSIX shell.
+      npm_config_script_shell: bash
 
     steps:
       - uses: actions/checkout@v4
@@ -35,13 +48,12 @@ jobs:
         run: pnpm install
 
       - name: Build east
-        working-directory: libs/east
-        run: make build
+        run: pnpm --filter @elaraai/east run build
 
-      - name: Lint
-        working-directory: libs/east
-        run: make lint
+      # eslint is OS-independent; run it once on Linux.
+      - name: Lint (Linux only)
+        if: runner.os == 'Linux'
+        run: pnpm --filter @elaraai/east run lint
 
       - name: Run tests
-        working-directory: libs/east
-        run: make test
+        run: pnpm --filter @elaraai/east run test

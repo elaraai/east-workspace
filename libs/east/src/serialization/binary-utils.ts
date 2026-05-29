@@ -574,7 +574,7 @@ export function readStringUtf8Null(buffer: Uint8Array, offset: number): [string,
 
     if (byte1 === 0) {
       // Null terminator found
-      return [String.fromCharCode.apply(String, codePoints), i];
+      return [codePointsToString(codePoints), i];
     }
 
     if ((byte1 & 0x80) === 0) {
@@ -666,47 +666,36 @@ export function utf8EncodeInto(str: string, buffer: Uint8Array, offset: number):
   return at;
 }
 
-export function utf8Decode(buffer: Uint8Array, offset: number, length: number): string {
-  const end = offset + length;
-  const codePoints: number[] = [];
+// Reused decoder — TextDecoder construction has measurable overhead and these
+// hot paths call utf8Decode for every string in the buffer.
+const UTF8_DECODER = new TextDecoder('utf-8', { fatal: false });
 
-  let i = offset;
-  while (i < end) {
-    const byte1 = buffer[i++]!;
-
-    if ((byte1 & 0x80) === 0) {
-      // 1-byte (ASCII)
-      codePoints.push(byte1);
-    } else if ((byte1 & 0xE0) === 0xC0) {
-      // 2-byte
-      const byte2 = buffer[i++]! & 0x3F;
-      codePoints.push(((byte1 & 0x1F) << 6) | byte2);
-    } else if ((byte1 & 0xF0) === 0xE0) {
-      // 3-byte
-      const byte2 = buffer[i++]! & 0x3F;
-      const byte3 = buffer[i++]! & 0x3F;
-      codePoints.push(((byte1 & 0x0F) << 12) | (byte2 << 6) | byte3);
-    } else if ((byte1 & 0xF8) === 0xF0) {
-      // 4-byte
-      const byte2 = buffer[i++]! & 0x3F;
-      const byte3 = buffer[i++]! & 0x3F;
-      const byte4 = buffer[i++]! & 0x3F;
-      let codePoint = ((byte1 & 0x07) << 18) | (byte2 << 12) | (byte3 << 6) | byte4;
-
-      // Encode as surrogate pair if needed
-      if (codePoint > 0xFFFF) {
-        codePoint -= 0x10000;
-        codePoints.push(((codePoint >>> 10) & 0x3FF) | 0xD800);
-        codePoint = 0xDC00 | (codePoint & 0x3FF);
-      }
-      codePoints.push(codePoint);
-    } else {
-      // Invalid UTF-8, skip byte
-      codePoints.push(byte1);
-    }
+// Chunked String.fromCharCode for the null-terminated read paths, which
+// accumulate a codePoints array one byte at a time and can't pre-size a
+// buffer the way utf8Decode can. Spread/apply with more than ~64K args
+// overflows V8's call stack.
+const FROM_CHAR_CODE_CHUNK = 8192;
+function codePointsToString(codePoints: number[]): string {
+  if (codePoints.length <= FROM_CHAR_CODE_CHUNK) {
+    return String.fromCharCode.apply(null, codePoints);
   }
+  let out = '';
+  for (let j = 0; j < codePoints.length; j += FROM_CHAR_CODE_CHUNK) {
+    out += String.fromCharCode.apply(null, codePoints.slice(j, j + FROM_CHAR_CODE_CHUNK));
+  }
+  return out;
+}
 
-  return String.fromCharCode(...codePoints);
+export function utf8Decode(buffer: Uint8Array, offset: number, length: number): string {
+  // Native TextDecoder produces JS strings (UTF-16, surrogate pairs for
+  // supplementary planes) directly from a UTF-8 byte view. The earlier
+  // hand-rolled loop accumulated code points into an array and called
+  // `String.fromCharCode(...codePoints)`, which blew V8's call stack
+  // for strings >~64K characters (each arg becomes a stack slot under the
+  // spread). The async paths at readStringUtf8VarintAsync /
+  // readStringUtf8SizedAsync already use TextDecoder; this aligns the sync
+  // path with them.
+  return UTF8_DECODER.decode(buffer.subarray(offset, offset + length));
 }
 
 /**
@@ -1011,7 +1000,7 @@ export class StreamBufferReader {
 
       if (byte1 === 0) {
         // Null terminator found
-        return String.fromCharCode.apply(String, codePoints);
+        return codePointsToString(codePoints);
       }
 
       if ((byte1 & 0x80) === 0) {

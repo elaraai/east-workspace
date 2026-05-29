@@ -313,7 +313,9 @@ interface ParsedExample {
 }
 
 function parseExamplesFile(filePath: string): ParsedExample[] {
-    const content = fs.readFileSync(filePath, "utf-8");
+    // Normalise CRLF/CR to LF so the extracted source (and the index built from
+    // it) is byte-identical regardless of the checkout's line-ending settings.
+    const content = fs.readFileSync(filePath, "utf-8").replace(/\r\n?/g, "\n");
     const lines = content.split("\n");
     const imports = extractImports(lines);
     const results: ParsedExample[] = [];
@@ -453,7 +455,9 @@ function main(): void {
             if (examples.length === 0) continue;
             fileCount.add(filePath);
 
-            const relFile = path.relative(resolvedBaseDir, filePath);
+            // Forward slashes so the index is byte-identical whether generated
+            // on Windows or POSIX (path.relative emits os-native separators).
+            const relFile = path.relative(resolvedBaseDir, filePath).split(path.sep).join("/");
 
             for (const ex of examples) {
                 const entry: IndexEntry = {

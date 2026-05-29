@@ -23,106 +23,177 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test-east-py:
-    name: Test east-py (core)
+  # Export the compliance IR once on Linux (the TS export tooling is Unix-only),
+  # then share it so the win/mac legs don't re-run it. Mirrors test-east-c.yml.
+  export-ir:
+    name: Export test IR
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: pnpm/action-setup@v4
-
       - name: Use Node.js 22
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: "pnpm"
+      - run: pnpm install
+      # The TS export tooling is Unix-only (VAR=val node, /tmp); run it once here
+      # and share via artifacts so the win/mac legs don't re-run it.
+      - name: Export IR (east + east-node-std + east-py-datascience)
+        run: |
+          pnpm --filter @elaraai/east run test:export
+          pnpm --filter @elaraai/east-node-std run test:export
+          pnpm --filter @elaraai/east-py-datascience run test:export
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ir-east
+          path: /tmp/east-test-ir/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ir-std
+          path: /tmp/east-node-std/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ir-datascience
+          path: /tmp/east-py-datascience/
+          if-no-files-found: error
+
+  test-east-py:
+    name: Test east-py (${{ matrix.os }})
+    needs: export-ir
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        # Git Bash on Windows so the build/test steps share one shell on all OSes.
+        shell: bash
+    env:
+      UV_PYTHON: "3.11"
+      # Ninja avoids scikit-build's default multi-config VS generator on Windows
+      # (deep TryCompile paths overflow MAX_PATH); ninja comes from build-deps.
+      CMAKE_GENERATOR: Ninja
+
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Install uv
         uses: astral-sh/setup-uv@v3
 
-      - name: Set up Python 3.11
-        run: uv python install 3.11
+      - name: Set up MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Install Node.js dependencies
-        run: pnpm install
-
-      - name: Build and export east test IR
-        working-directory: libs/east
-        run: make test-export
-        env:
-          EXPORT_TEST_IR: /tmp/east-test-ir
-
-      - name: Install C build dependencies
+      - name: Install C build dependencies (Linux)
+        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
 
-      - name: Install Python dependencies
-        working-directory: libs/east-py
-        run: make install
+      - name: Install C build dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake || true
 
-      - name: Lint
-        working-directory: libs/east-py
-        run: make lint
+      - name: Download east IR
+        uses: actions/download-artifact@v4
+        with:
+          name: ir-east
+          path: ir-east
 
-      - name: Type check
+      # Build east-py's native Cython extension (links east-c in-process via
+      # scikit-build-core). Replicates `make install`'s no-build-isolation flow
+      # directly so it runs without make on Windows runners.
+      - name: Build east-py
         working-directory: libs/east-py
-        run: make typecheck
+        run: |
+          uv venv
+          uv pip install scikit-build-core cython numpy setuptools ninja
+          uv sync --all-packages --no-build-isolation \
+            --reinstall-package elaraai-east-py --refresh-package elaraai-east-py
 
-      - name: Run east-py compliance tests
+      - name: Run east-py compliance
         working-directory: libs/east-py
-        run: make test-east-py
+        run: uv run --package elaraai-east-py python packages/east-py/tests/test_compliance.py --ir-dir "$GITHUB_WORKSPACE/ir-east"
 
   test-east-py-std:
-    name: Test east-py-std
-    runs-on: ubuntu-latest
+    name: Test east-py-std (${{ matrix.os }})
+    needs: export-ir
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      UV_PYTHON: "3.11"
+      CMAKE_GENERATOR: Ninja
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
-
-      - name: Use Node.js 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: "pnpm"
-
       - name: Install uv
         uses: astral-sh/setup-uv@v3
 
-      - name: Set up Python 3.11
-        run: uv python install 3.11
+      - name: Set up MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Install Node.js dependencies
-        run: pnpm install
-
-      - name: Build east (dependency)
-        working-directory: libs/east
-        run: make build
-
-      - name: Start test services
-        run: docker compose -f docker/services/docker-compose.yml --profile services up -d --wait
-
-      - name: Build east-node and export std test IR
-        working-directory: libs/east-node
-        run: make build && make test-export-std
-        env:
-          EXPORT_TEST_IR: /tmp/east-node-std
-
-      - name: Install C build dependencies
+      - name: Install C build dependencies (Linux)
+        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
 
-      - name: Install Python dependencies
-        working-directory: libs/east-py
-        run: make install
+      - name: Install C build dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake || true
 
-      - name: Run east-py-std compliance tests
-        working-directory: libs/east-py
-        run: make test-east-py-std
+      # go-httpbin serves the fetch suite on :8085 (the URL baked into the std
+      # IR) — same as test-east-c.yml, so no Docker on any OS.
+      - name: Use Go (for go-httpbin)
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
 
-      - name: Stop test services
-        if: always()
-        run: docker compose -f docker/services/docker-compose.yml --profile services down -v
+      - name: Download std IR
+        uses: actions/download-artifact@v4
+        with:
+          name: ir-std
+          path: ir-std
+
+      - name: Build east-py
+        working-directory: libs/east-py
+        run: |
+          uv venv
+          uv pip install scikit-build-core cython numpy setuptools ninja
+          uv sync --all-packages --no-build-isolation \
+            --reinstall-package elaraai-east-py --refresh-package elaraai-east-py
+
+      - name: Start httpbin (go-httpbin :8085)
+        run: |
+          go install github.com/mccutchen/go-httpbin/v2/cmd/go-httpbin@v2.18.3
+          "$(go env GOPATH)/bin/go-httpbin" -port 8085 &
+          for ((i = 0; i < 30; i++)); do
+            curl -sf http://localhost:8085/get >/dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -sf http://localhost:8085/get >/dev/null
+
+      # The fs compliance IR bakes the export host's tmpdir (/tmp/...); on
+      # Windows the runtime resolves that to <drive>:\tmp, so create it (mirrors
+      # test-east-c.yml).
+      - name: Ensure temp dir exists (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: if not exist \tmp mkdir \tmp
+
+      - name: Run east-py-std compliance
+        working-directory: libs/east-py
+        run: uv run --package elaraai-east-py-std python packages/east-py/tests/test_compliance.py --ir-dir "$GITHUB_WORKSPACE/ir-std" -p east_py_std
 
   test-east-py-io:
     name: Test east-py-io
@@ -182,48 +253,62 @@ jobs:
         run: docker compose -f docker/services/docker-compose.yml --profile services down -v
 
   test-east-py-datascience:
-    name: Test east-py-datascience
-    runs-on: ubuntu-latest
+    name: Test east-py-datascience (${{ matrix.os }})
+    needs: export-ir
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      UV_PYTHON: "3.11"
+      CMAKE_GENERATOR: Ninja
+      # Force PyTorch Lightning onto CPU. macos-14 is Apple Silicon, so "auto"
+      # would pick the MPS GPU backend, but MPS is unusable on the headless
+      # runner (allocations fail). No CI runner has a usable GPU, so CPU is the
+      # correct, deterministic choice everywhere.
+      EAST_LIGHTNING_ACCELERATOR: cpu
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
-
-      - name: Use Node.js 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: "pnpm"
-
       - name: Install uv
         uses: astral-sh/setup-uv@v3
 
-      - name: Set up Python 3.11
-        run: uv python install 3.11
+      - name: Set up MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Install Node.js dependencies
-        run: pnpm install
-
-      - name: Build east (dependency)
-        working-directory: libs/east
-        run: make build
-
-      - name: Build east-node (dependency)
-        working-directory: libs/east-node
-        run: make build
-
-      - name: Build east-py-datascience
-        working-directory: libs/east-py/packages/east-py-datascience
-        run: make build
-
-      - name: Install C build dependencies
+      - name: Install C build dependencies (Linux)
+        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
 
-      - name: Install Python dependencies
-        working-directory: libs/east-py
-        run: make install
+      - name: Install C build dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake || true
 
-      - name: Run east-py-datascience tests
+      - name: Download datascience IR
+        uses: actions/download-artifact@v4
+        with:
+          name: ir-datascience
+          path: ir-datascience
+
+      # --all-extras pulls every ML/optimization backend. On Windows/macOS-arm
+      # some (e.g. PyNomadBBO, pymc) may lack wheels; fail-fast:false keeps the
+      # ubuntu leg green while the others surface exactly what's missing.
+      - name: Build east-py-datascience (+ ML extras)
         working-directory: libs/east-py
-        run: make test-east-py-datascience
+        run: |
+          uv venv
+          uv pip install scikit-build-core cython numpy setuptools ninja
+          uv sync --all-extras --all-packages --no-build-isolation \
+            --reinstall-package elaraai-east-py --refresh-package elaraai-east-py \
+            --reinstall-package elaraai-east-py-datascience --refresh-package elaraai-east-py-datascience
+
+      - name: Run east-py-datascience compliance
+        working-directory: libs/east-py
+        run: uv run --package elaraai-east-py-datascience python packages/east-py/tests/test_compliance.py --ir-dir "$GITHUB_WORKSPACE/ir-datascience" -p east_py_datascience

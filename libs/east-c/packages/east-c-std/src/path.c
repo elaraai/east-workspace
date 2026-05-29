@@ -11,7 +11,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 
 static EvalResult path_join(EastValue **args, size_t num_args, EastType **input_types,
                             size_t num_input_types, EastType *output_type)

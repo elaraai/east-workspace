@@ -37,6 +37,9 @@ eggs/
 lib/
 lib64/
 !libs/east-claude-plugin/lib/
+# scripts/lib/ holds real source (already-published.mjs, imported by
+# publish-npm.mjs + bootstrap-east-c-npm.mjs) — not Python build output.
+!scripts/lib/
 parts/
 sdist/
 var/

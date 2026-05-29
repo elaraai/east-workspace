@@ -160,8 +160,8 @@ async function executeLocal(
   if (!result.success) {
     // Get failed task details from state store
     const state = await stateStore.read(repoPath, ws, handle.id);
+    let failedTasks: TaskCompletedCallback[] = [];
     if (state) {
-      const failedTasks: TaskCompletedCallback[] = [];
       for (const [name, taskState] of state.tasks) {
         if (taskState.status === 'failed') {
           failedTasks.push({
@@ -175,6 +175,19 @@ async function executeLocal(
         }
       }
       printFailedTasks(failedTasks);
+    }
+    // Fallback: result.success was false but no per-task failure was found —
+    // the orchestrator failed at a layer above task execution (state load,
+    // version vector conflict, lock, …). Emit SOMETHING on stderr so
+    // callers don't see a bare non-zero exit with empty stderr (was
+    // misdiagnosed as a CI flake more than once during PR work).
+    if (failedTasks.length === 0) {
+      console.error('');
+      console.error(
+        `Dataflow failed without any task-level failure recorded ` +
+        `(executed=${result.executed}, failed=${result.failed}, skipped=${result.skipped}). ` +
+        `Likely an orchestrator-level error before tasks started; check storage/state-store logs.`,
+      );
     }
     process.exit(1);
   }
@@ -332,15 +345,20 @@ function printSummary(summary: Summary): void {
 }
 
 function printFailedTasks(tasks: TaskCompletedCallback[]): void {
-  console.log('');
-  console.log('Failed tasks:');
+  // Stderr, not stdout — `e3 dataflow start` exits non-zero in this branch,
+  // so the failure summary belongs on the error stream where callers (CI
+  // scripts, fuzz harness, anything that asserts on exit code) look for
+  // diagnostics. Was the source of empty "start failed:" messages in the
+  // fuzz harness when every line of failure detail was going to stdout.
+  console.error('');
+  console.error('Failed tasks:');
   for (const task of tasks) {
     if (task.state === 'failed') {
       const exitInfo = task.exitCode != null ? `exit code ${task.exitCode}` : 'spawn failed';
       const errorInfo = task.error ? ` - ${task.error}` : '';
-      console.log(`  ${task.name}: ${exitInfo}${errorInfo}`);
+      console.error(`  ${task.name}: ${exitInfo}${errorInfo}`);
     } else if (task.state === 'error') {
-      console.log(`  ${task.name}: ${task.error}`);
+      console.error(`  ${task.name}: ${task.error}`);
     }
   }
 }

@@ -4,6 +4,14 @@
 # EAST_QUIET=1 — suppress passing test output (only show failures + summaries)
 # Default: verbose in sub-lib targets, quiet in test-all
 
+# GNU Make (and CMake/MSVC/scikit-build) can't handle spaces in the working
+# path — a OneDrive-redirected Documents folder (".../OneDrive - ELARA/...") is
+# the usual Windows culprit. Fail fast with a clear message instead of a cryptic
+# "No rule to make target" from a path that got split mid-recipe.
+ifneq ($(words $(CURDIR)),1)
+$(error This checkout is at a path containing spaces: "$(CURDIR)". Clone/move it to a space-free path outside OneDrive, e.g. C:/src/east-workspace. See docs/WINDOWS_SETUP.md.)
+endif
+
 .PHONY: setup install build link test lint clean services-up services-down services-status test-all test-export set-version check-version help check-deps
 
 # ── Setup (one-time) ─────────────────────────────────────────────────
@@ -34,12 +42,17 @@ check-deps:
 	check pnpm    "npm install -g pnpm  (or: corepack enable && corepack prepare pnpm@latest --activate)"; \
 	check node    "https://nodejs.org/  (>=22)"; \
 	check cmake   "apt install cmake  /  brew install cmake"; \
-	check cc      "apt install build-essential  /  xcode-select --install"; \
-	check python3 "apt install python3  /  brew install python"; \
-	check docker  "https://docs.docker.com/engine/install/  (only needed for make services-up / test-all)"; \
+	if uname -s 2>/dev/null | grep -qiE 'mingw|msys|cygwin'; then \
+		check python "https://www.python.org/downloads/  (>=3.11; ensure python is on PATH)"; \
+		check ninja  "winget install Ninja-build.Ninja  (or the VS 'C++ CMake tools')"; \
+		echo "  o C compiler: MSVC (VS Build Tools, 'Desktop development with C++') -- run make from a"; \
+		echo "                Developer PowerShell/Command Prompt so cl.exe + the Windows SDK are on PATH"; \
+	else \
+		check cc      "apt install build-essential  /  xcode-select --install"; \
+		check python3 "apt install python3  /  brew install python"; \
+	fi; \
 	echo "Optional (task-specific):"; \
-	opt x86_64-w64-mingw32-gcc "apt install mingw-w64  /  brew install mingw-w64  — Windows east-c cross-build"; \
-	opt wine64                 "apt install wine64  — smoke-test the Windows east-c .exe locally"; \
+	opt docker  "https://docs.docker.com/engine/install/  (only needed for make services-up / test-all)"; \
 	if [ $$missing -ne 0 ]; then \
 		echo ""; \
 		echo "Missing tools above. Install them and re-run."; \

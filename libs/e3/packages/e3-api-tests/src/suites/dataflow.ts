@@ -42,6 +42,7 @@ import {
   createWideParallelPackageZip,
   createSlowDiamondPackageZip,
 } from '../fixtures.js';
+import { waitFor } from '../cli.js';
 
 /** Helper: import package, create workspace, deploy */
 function withDeployed(
@@ -627,23 +628,31 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         await new Promise(r => setTimeout(r, 1000));
         await datasetSet(ctx.config.baseUrl, ctx.repoName, 'sdiamond-ws', inputPath, encode(19n), opts);
 
-        // Poll until execution completes (reactive re-execution should reach fixpoint)
-        const maxWait = 60000;
-        const startTime = Date.now();
-        while (Date.now() - startTime < maxWait) {
+        // Wait for the reactive re-execution to reach a fixpoint AND the merge
+        // output to be assigned. The mid-flight input change schedules a
+        // re-execution, so a terminal status can briefly precede merge's ref
+        // being rewritten; read the dataset inside the wait and tolerate the
+        // transient `dataset_unassigned` instead of reading once and racing it.
+        let mergeValue: bigint | undefined;
+        await waitFor(async () => {
           const state = await dataflowExecution(ctx.config.baseUrl, ctx.repoName, 'sdiamond-ws', {}, opts);
-          if (state.status.type === 'completed' || state.status.type === 'failed' || state.status.type === 'aborted') {
-            break;
+          if (state.status.type !== 'completed' && state.status.type !== 'failed' && state.status.type !== 'aborted') {
+            return false;
           }
-          await new Promise(r => setTimeout(r, 500));
-        }
+          try {
+            const { data: mergeData } = await datasetGet(ctx.config.baseUrl, ctx.repoName, 'sdiamond-ws', mergePath, opts);
+            mergeValue = decode(mergeData);
+            return true;
+          } catch (err) {
+            // Re-execution still in flight — merge's ref isn't rewritten yet.
+            if (err instanceof ApiError && err.code === 'dataset_unassigned') return false;
+            throw err;
+          }
+        }, 60000, 500);
 
-        // Read merge output — must be x*5 for some consistent x
-        const { data: mergeData } = await datasetGet(ctx.config.baseUrl, ctx.repoName, 'sdiamond-ws', mergePath, opts);
-        const mergeValue = decode(mergeData);
-
+        // merge must be x*5 for some consistent x (waitFor throws if it never settles)
         assert.strictEqual(
-          mergeValue % 5n,
+          mergeValue! % 5n,
           0n,
           `Diamond consistency violated: merge=${mergeValue} is not divisible by 5 ` +
           `(expected x*5 for consistent x, got mixed versions)`

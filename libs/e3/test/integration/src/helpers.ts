@@ -72,7 +72,11 @@ export function createTestDir(): string {
 export function removeTestDir(testDir: string): void {
   const parentDir = tempDirParents.get(testDir);
   if (parentDir) {
-    rmSync(parentDir, { recursive: true, force: true });
+    // maxRetries/retryDelay guards against Windows EBUSY: when a test
+    // force-kills the CLI (e.g. signal-handling tests), spawned children
+    // briefly outlive their parent and hold file handles to the temp dir.
+    // ~1s of retries is enough for them to die / the OS to release locks.
+    rmSync(parentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     tempDirParents.delete(testDir);
   }
 }
@@ -164,7 +168,10 @@ export async function runE3Command(
  */
 export async function waitFor(
   condition: () => Promise<boolean> | boolean,
-  timeoutMs: number = 5000,
+  // Ceiling, not a delay — returns as soon as the condition holds. Sized
+  // generously so a slow CI runner (Windows subprocess startup especially)
+  // doesn't trip it before the awaited condition becomes true.
+  timeoutMs: number = 30000,
   checkIntervalMs: number = 100
 ): Promise<void> {
   const startTime = Date.now();

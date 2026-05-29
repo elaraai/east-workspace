@@ -137,7 +137,12 @@ export interface CliResult {
 export async function runE3Command(
   args: string[],
   cwd: string,
-  timeoutMs: number = 60000
+  // Hang guard, not a performance budget — sized for the slowest CI runner.
+  // A single `dataflow run` for the stress DAGs spawns dozens of east-node
+  // subprocesses; on Windows (3-4x slower process spawn) the spawn-heavy
+  // scenarios approach a minute even with the suites serialized. Five
+  // minutes leaves ample headroom while still catching a genuine hang.
+  timeoutMs: number = 300000
 ): Promise<CliResult> {
   return new Promise((resolve, reject) => {
     const cmd = getE3CliCommand();
@@ -146,6 +151,7 @@ export async function runE3Command(
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       shell: true,
+      windowsHide: true,
     });
 
     let stdout = '';

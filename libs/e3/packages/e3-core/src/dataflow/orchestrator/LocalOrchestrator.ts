@@ -419,7 +419,21 @@ export class LocalOrchestrator implements DataflowOrchestrator {
           const taskName = readyTasks.shift()!;
           const taskState = state.tasks.get(taskName);
 
-          if (!taskState || taskState.status === 'in_progress' || taskState.status === 'completed') {
+          // Skip if already terminal/running, OR if a previous execution's
+          // promise is still tracked. A completion handler that resets a task
+          // to `pending` (stale-input re-execution) does so while holding the
+          // mutex and still owns its `runningTasks` slot until its `.finally`
+          // runs. The launch path is not under that mutex, so without this
+          // `has()` guard the loop could re-launch the task here — overwriting
+          // the live slot — and the old promise's `.finally` would then evict
+          // the new one, orphaning a task in `in_progress` (Dataflow stuck).
+          // Defer the re-launch until the prior promise has fully settled.
+          if (
+            !taskState ||
+            taskState.status === 'in_progress' ||
+            taskState.status === 'completed' ||
+            execution.runningTasks.has(taskName)
+          ) {
             continue;
           }
 
@@ -619,8 +633,40 @@ export class LocalOrchestrator implements DataflowOrchestrator {
               // Update state store
               await this.persistState(execution, state);
             })
-          ).finally(() => {
-            execution.runningTasks.delete(taskName);
+          ).catch(async (err) => {
+            // The completion handler (writing the output ref, re-reading inputs,
+            // or persisting state) rejected. Without this catch the task is left
+            // in whatever status it had when the throw happened — `in_progress`
+            // if it failed before stepTaskCompleted — and the `.finally` still
+            // drops it from runningTasks. That orphans the arm (in state, not
+            // running) and the dataflow later reports a spurious "Dataflow stuck".
+            // The rejection is otherwise swallowed (a settled Promise.race keeps a
+            // handler on it), so it never surfaces. Mark the task failed with the
+            // real error instead.
+            const msg = err instanceof Error ? err.message : String(err);
+            await execution.mutex.runExclusive(async () => {
+              hasFailure = true;
+              try {
+                stepTaskFailed(state, taskName, msg, undefined, 0);
+                await this.persistState(execution, state);
+              } catch {
+                // best-effort — the original error above is what matters
+              }
+            });
+            options.onTaskComplete?.({
+              name: taskName,
+              cached: false,
+              state: 'error',
+              error: msg,
+              duration: 0,
+            });
+          }).finally(() => {
+            // Identity-checked delete: only clear the slot if it still holds
+            // THIS promise. If a re-launch replaced it, a blind delete-by-name
+            // would drop the newer promise's tracking and orphan the task.
+            if (execution.runningTasks.get(taskName) === taskPromise) {
+              execution.runningTasks.delete(taskName);
+            }
           });
 
           execution.runningTasks.set(taskName, taskPromise);
@@ -762,6 +808,20 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       }
 
       execution.resolveCompletion(result);
+    } catch (err) {
+      // An unexpected error escaped the execution loop (e.g. a task has an
+      // unassigned input). The success-path finalization above is skipped, so
+      // without this the run's persisted status stays 'running' forever — any
+      // client polling it (e.g. a remote `dataflow run` over the API) then hangs
+      // until timeout instead of seeing the failure. Persist a terminal 'failed'
+      // status so pollers observe the error promptly.
+      const failMsg = err instanceof Error ? err.message : String(err);
+      if (this.stateStore) {
+        await this.stateStore
+          .updateStatus(repo, state.workspace, state.id, 'failed', { error: failMsg })
+          .catch(() => { /* best effort — don't mask the original error */ });
+      }
+      throw err;
     } finally {
       // Remove abort listener to avoid leaking execution object
       execution.abortCleanup?.();

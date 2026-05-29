@@ -1,9 +1,0 @@
-/* Embeds the vendored tz database (tzdata.blob) into the binary so the Windows
- * build needs no external zoneinfo files. The blob path is injected by CMake
- * configure_file. Read by tzfile.c via the east_tzdata_blob[] symbols. */
-    .section .rdata, "dr"
-    .global east_tzdata_blob
-east_tzdata_blob:
-    .incbin "@EAST_TZDATA_BLOB@"
-    .global east_tzdata_blob_end
-east_tzdata_blob_end:

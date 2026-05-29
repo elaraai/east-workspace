@@ -3,6 +3,7 @@
 #include "east/arena.h"
 #include "east/gc.h"
 #include "east/types.h"
+#include "east/compat.h" /* EAST_PRINTF_FMT */
 
 #include <inttypes.h>
 #include <math.h>
@@ -1218,7 +1219,7 @@ int east_value_compare(EastValue *a, EastValue *b)
  * position, `buf_size` is total capacity.
  */
 static int buf_append(char *buf, size_t buf_size, int pos, const char *fmt, ...)
-    __attribute__((format(printf, 4, 5)));
+    EAST_PRINTF_FMT(4, 5);
 static int buf_append(char *buf, size_t buf_size, int pos, const char *fmt, ...)
 {
     va_list ap;

@@ -4,9 +4,10 @@
   "description": "Scaffold a new East project (AGPL-3.0, Node-only): npm create @elaraai/east",
   "type": "module",
   "bin": {
-    "create-east": "./dist/index.js"
+    "create-east": "./bin/create-east.mjs"
   },
   "files": [
+    "bin",
     "dist",
     "templates"
   ],

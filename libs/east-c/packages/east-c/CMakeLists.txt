@@ -44,8 +44,26 @@ add_library(east-c
 )
 
 target_include_directories(east-c PUBLIC include)
-target_link_libraries(east-c PRIVATE m pcre2-8)
+target_link_libraries(east-c PRIVATE pcre2-8)
+# libm is part of the CRT on Windows/MSVC; only link the separate libm elsewhere.
+if(NOT WIN32)
+    target_link_libraries(east-c PRIVATE m)
+endif()
 target_compile_definitions(east-c PRIVATE PCRE2_CODE_UNIT_WIDTH=8)
+# Build east-c with the POSIX CRT names (strdup, ...) without C4996 deprecation
+# warnings. Set on the target so it also applies when east-py builds east-c via
+# add_subdirectory (which bypasses the root CMakeLists force-include below).
+if(WIN32)
+    target_compile_definitions(east-c PRIVATE _CRT_NONSTDC_NO_WARNINGS _CRT_SECURE_NO_WARNINGS)
+    # Force-include the compat shim so the POSIX / atomic / __thread mappings
+    # reach every core TU even when east-py builds east-c via add_subdirectory
+    # (which bypasses the root CMakeLists force-include). MSVC: /FI; else -include.
+    if(MSVC)
+        target_compile_options(east-c PRIVATE /FI "${CMAKE_CURRENT_SOURCE_DIR}/include/east/compat.h")
+    else()
+        target_compile_options(east-c PRIVATE -include "${CMAKE_CURRENT_SOURCE_DIR}/include/east/compat.h")
+    endif()
+endif()
 
 if(EAST_USE_MIMALLOC AND TARGET mimalloc-static)
     target_link_libraries(east-c PUBLIC mimalloc-static)

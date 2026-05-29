@@ -15,8 +15,10 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#ifndef _WIN32
 #include <unistd.h>
 #include <dirent.h>
+#endif
 #include <errno.h>
 
 static EvalResult fs_read_file(EastValue **args, size_t num_args, EastType **input_types,

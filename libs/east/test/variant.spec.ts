@@ -263,7 +263,7 @@ await describe("Variant", (test) => {
         $(assert.equal(none_sum, 40n));
     });
 
-    test("Deep-As: beast2 round-trip preserves narrow→wide coerced tags", $ => {
+    test("Deep-As: beast2 round-trip preserves narrow->wide coerced tags", $ => {
         // Build a small dict whose key has a narrow→wide coerced Option field,
         // serialize to beast2 (headerless), round-trip, verify tags.
         const KeyType = StructType({ tag: OptionType(StringType) });
@@ -341,7 +341,7 @@ await describe("Variant", (test) => {
         $(assert.equal(roundtrip_none, 1n));
     });
 
-    test("Deep-As: $.let-bound narrow variant field inside struct-key with volume (stress tag→idx hash)", $ => {
+    test("Deep-As: $.let-bound narrow variant field inside struct-key with volume (stress tag->idx hash)", $ => {
         // Heavier stress for the tag-lookup path: hundreds of keys all with
         // the same narrow-typed variant field, all `.some`. If encode misreads
         // any one of them as `.none`, the roundtrip some-count will mismatch.

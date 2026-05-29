@@ -114,16 +114,17 @@ static int parse_offset(const unsigned char *buf, long sz, int64_t epoch, int64_
 }
 
 #ifdef EAST_TZDATA_EMBEDDED
-/* The vendored tz database, linked in via tzdata_embed.S (.incbin of
- * tzdata.blob). Format: u32 count, then count × { u32 name_len, name,
- * u32 data_len, TZif } — all u32 big-endian, like TZif itself. */
+/* The vendored tz database, embedded as a generated C byte array
+ * (tzdata_embed.c from tzdata.blob; see east-c-std/CMakeLists.txt). Format:
+ * u32 count, then count × { u32 name_len, name, u32 data_len, TZif } — all u32
+ * big-endian, like TZif itself. */
 extern const unsigned char east_tzdata_blob[];
-extern const unsigned char east_tzdata_blob_end[];
+extern const unsigned int east_tzdata_blob_len;
 
 static int lookup_embedded(const char *zone, int64_t epoch, int64_t *out)
 {
     const unsigned char *p = east_tzdata_blob;
-    const unsigned char *end = east_tzdata_blob_end;
+    const unsigned char *end = east_tzdata_blob + east_tzdata_blob_len;
     if (p + 4 > end) return -1;
     uint32_t count = rd_u32(p);
     p += 4;

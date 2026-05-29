@@ -322,7 +322,6 @@ cdef _eastc.EvalResult _optimization_iterative_impl(
 
 cdef extern from *:
     """
-    #include <pthread.h>
     #include <stdlib.h>
     #include <string.h>
     #include <math.h>
@@ -577,11 +576,6 @@ cdef extern from *:
 
     void *_incr_sample_worker(void *arg) nogil
 
-    ctypedef unsigned long pthread_t
-    int pthread_create(pthread_t *thread, void *attr,
-                       void *(*start_routine)(void*), void *arg) nogil
-    int pthread_join(pthread_t thread, void **retval) nogil
-
 
 # ─── Incremental implementation ───────────────────────────────────────
 
@@ -766,7 +760,6 @@ cdef _eastc.EvalResult _optimization_iterative_incremental_impl(
 
 cdef extern from *:
     """
-    #include <pthread.h>
     #include <stdlib.h>
     #include <string.h>
     #include <math.h>

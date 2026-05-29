@@ -71,7 +71,7 @@ describe('signal handling', () => {
       const proc = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
       // Wait for task to start
-      await waitFor(() => proc.getStdout().includes('[START]'), 10000);
+      await waitFor(() => proc.getStdout().includes('[START]'), 30000);
 
       // Send SIGINT (Ctrl+C)
       proc.kill('SIGINT');
@@ -130,7 +130,7 @@ describe('signal handling', () => {
       const proc = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
       // Wait for task to start
-      await waitFor(() => proc.getStdout().includes('[START]'), 10000);
+      await waitFor(() => proc.getStdout().includes('[START]'), 30000);
 
       proc.kill('SIGINT');
 
@@ -147,7 +147,14 @@ describe('signal handling', () => {
       assert.ok(indicatesAbort, `Output should indicate abort or exit non-zero. Got exitCode=${result.exitCode}, output: ${output}`);
     });
 
-    it('persists cancelled status to disk after SIGINT', async () => {
+    // Skipped on Windows: Node's `child.kill('SIGINT')` ignores the signal arg
+    // and force-terminates the child (Node docs), so the CLI's SIGINT handler
+    // — which writes 'cancelled' to disk — never gets a chance to run. The
+    // production path (real-user Ctrl+C in a terminal) works correctly on
+    // Windows because the console driver delivers CTRL_C_EVENT directly; only
+    // the test's instrumentation can't reach it. Reaching it from a test would
+    // need `GenerateConsoleCtrlEvent` via a native helper (e.g. windows-kill).
+    it('persists cancelled status to disk after SIGINT', { skip: process.platform === 'win32' }, async () => {
       // This test verifies that after SIGINT, the execution state file
       // shows "cancelled" status - important for crash recovery.
 
@@ -172,7 +179,7 @@ describe('signal handling', () => {
       const proc = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
       // Wait for task to start and state to be created
-      await waitFor(() => proc.getStdout().includes('[START]'), 10000);
+      await waitFor(() => proc.getStdout().includes('[START]'), 30000);
 
       // Send SIGINT
       proc.kill('SIGINT');
@@ -195,7 +202,9 @@ describe('signal handling', () => {
       assert.strictEqual(state.status, 'cancelled', `Execution status should be 'cancelled', got '${state.status}'`);
     });
 
-    it('persists cancelled status even with rapid SIGINT+SIGKILL', async () => {
+    // Skipped on Windows for the same reason as the previous test — `child.kill('SIGINT')`
+    // can't reach the CLI's SIGINT handler from a Node-spawned child on Windows.
+    it('persists cancelled status even with rapid SIGINT+SIGKILL', { skip: process.platform === 'win32' }, async () => {
       // This test simulates an impatient user pressing Ctrl-C multiple times.
       // The cancellation should be persisted immediately on first SIGINT,
       // so even if SIGKILL follows shortly after, the status is preserved.
@@ -221,7 +230,7 @@ describe('signal handling', () => {
       const proc = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
       // Wait for task to start and state to be created
-      await waitFor(() => proc.getStdout().includes('[START]'), 10000);
+      await waitFor(() => proc.getStdout().includes('[START]'), 30000);
 
       // Send SIGINT (triggers immediate persistence)
       proc.kill('SIGINT');
@@ -276,7 +285,7 @@ describe('signal handling', () => {
 
       // Start and kill the first execution
       const proc1 = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
-      await waitFor(() => proc1.getStdout().includes('[START]'), 10000);
+      await waitFor(() => proc1.getStdout().includes('[START]'), 30000);
       proc1.kill('SIGKILL');
       await proc1.result;
 
@@ -287,7 +296,7 @@ describe('signal handling', () => {
       const proc2 = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
       // Wait for it to start
-      await waitFor(() => proc2.getStdout().includes('[START]'), 10000);
+      await waitFor(() => proc2.getStdout().includes('[START]'), 30000);
 
       // Verify it's running (not blocked by stale lock)
       // The execution state should show 'running'
@@ -331,7 +340,7 @@ describe('signal handling', () => {
       const startProc = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
       // Wait for task to start
-      await waitFor(() => startProc.getStdout().includes('[START]'), 10000);
+      await waitFor(() => startProc.getStdout().includes('[START]'), 30000);
 
       // Try to deploy while dataflow is running - should fail with lock error
       const deployResult = await runE3Command(
@@ -374,7 +383,7 @@ describe('signal handling', () => {
       const startProc = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
       // Wait for task to start
-      await waitFor(() => startProc.getStdout().includes('[START]'), 10000);
+      await waitFor(() => startProc.getStdout().includes('[START]'), 30000);
 
       // Try to remove while dataflow is running - should fail with lock error
       const removeResult = await runE3Command(
@@ -417,7 +426,7 @@ describe('signal handling', () => {
       const startProc1 = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
 
       // Wait for task to start
-      await waitFor(() => startProc1.getStdout().includes('[START]'), 10000);
+      await waitFor(() => startProc1.getStdout().includes('[START]'), 30000);
 
       // Try to start another dataflow - should fail with lock error
       const startResult2 = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);

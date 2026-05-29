@@ -5,7 +5,9 @@
 
 import { readFileSync } from 'fs';
 import { createRequire } from 'module';
+import * as path from 'path';
 import { extname } from 'path';
+import { fileURLToPath, pathToFileURL } from 'url';
 import {
     IRType,
     decodeBeast2For,
@@ -19,8 +21,6 @@ import {
     type EastTypeValue,
 } from '@elaraai/east';
 import type { PlatformFunction, IR, ValueTypeOf } from '@elaraai/east/internal';
-
-const require = createRequire(import.meta.url);
 
 // Decoder for IR from beast2 format (self-describing)
 const decodeIRFromBeast2 = decodeBeast2For(IRType);
@@ -55,8 +55,35 @@ export interface PlatformMetadata {
  */
 export async function loadPlatform(packageName: string): Promise<PlatformFunction[]> {
     try {
-        // Dynamic import of the platform subpath
-        const platformModule = await import(`${packageName}/platform`);
+        // Anchor platform resolution at the LINKED CLI bin location, not at
+        // this file's realpath. pnpm's bin shim invokes us with the
+        // user-project linked path; `process.argv[1]` preserves that. By
+        // contrast, this module's `import.meta.url` is realpath'd by
+        // default, anchored at east-node-cli's source location in whichever
+        // monorepo it lives in — useless for finding user-installed
+        // platform packages.
+        //
+        // The loader stays platform-agnostic: any package that exports
+        // `./platform` and is installed in the user's project resolves
+        // here, with no hardcoded list and no extra Node flags.
+        // Resolve platform packages from the LINKED CLI bin location (the
+        // user's project context pnpm's bin shim invoked us with) rather
+        // than from this file's realpath (which anchors at the monorepo
+        // source — useless for finding user-installed platforms).
+        //
+        // `process.argv[1]` preserves the linked invocation path; we feed
+        // it to `createRequire` whose `require.resolve` walks up from that
+        // base via Node's standard module resolution (exports maps honoured
+        // since Node 12+). `import.meta.resolve(spec, parent)` would be
+        // the modern equivalent but in Node 22 stable the `parent`
+        // parameter is still experimental and silently ignored — verified
+        // empirically by debug printf, which is why the previous attempt
+        // failed in a way that wasn't obvious from the API docs.
+        const cliEntry = process.argv[1] ?? fileURLToPath(import.meta.url);
+        const linkedDir = path.dirname(cliEntry);
+        const linkedRequire = createRequire(pathToFileURL(linkedDir + path.sep));
+        const resolvedPath = linkedRequire.resolve(`${packageName}/platform`);
+        const platformModule = await import(pathToFileURL(resolvedPath).href);
         const fns = platformModule.default;
 
         // Validate the export
@@ -100,12 +127,17 @@ export async function loadPlatform(packageName: string): Promise<PlatformFunctio
 export async function loadPlatformWithMetadata(packageName: string): Promise<PlatformMetadata> {
     const fns = await loadPlatform(packageName);
 
-    // Load package.json for version info
+    // Load package.json for version info — same linked-base resolution as
+    // loadPlatform, otherwise we'd resolve from the realpath and miss
+    // user-installed platform packages.
     let name = packageName;
     let version = 'unknown';
 
     try {
-        const pkgJson = require(`${packageName}/package.json`) as { name?: string; version?: string };
+        const cliEntry = process.argv[1] ?? fileURLToPath(import.meta.url);
+        const linkedDir = path.dirname(cliEntry);
+        const linkedRequire = createRequire(pathToFileURL(linkedDir + path.sep));
+        const pkgJson = linkedRequire(`${packageName}/package.json`) as { name?: string; version?: string };
         name = pkgJson.name ?? packageName;
         version = pkgJson.version ?? 'unknown';
     } catch {

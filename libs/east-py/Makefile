@@ -5,6 +5,12 @@
 # Each package's CMakeLists.txt locates the monorepo root via pnpm-workspace.yaml
 # and add_subdirectory's east-c directly — no EAST_C_SOURCE_DIR env var needed.
 
+# Build the native Cython extensions with the Ninja generator on every OS. On
+# Windows this avoids scikit-build's default multi-config Visual Studio generator,
+# whose deep TryCompile paths overflow MAX_PATH; ninja comes from build-deps (the
+# pip 'ninja' package). Needs an MSVC environment on Windows (a Developer prompt).
+export CMAKE_GENERATOR := Ninja
+
 .PHONY: install install-cli test test-east-py test-east-py-std test-east-py-io test-east-py-datascience \
         reinstall-east-py reinstall-east-py-std reinstall-east-py-io reinstall-east-py-datascience build-deps \
         test-export lint lint-headers lint-headers-fix format typecheck check \

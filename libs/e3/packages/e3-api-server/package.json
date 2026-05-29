@@ -6,7 +6,7 @@
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
   "bin": {
-    "e3-api-server": "dist/src/cli.js"
+    "e3-api-server": "./bin/e3-api-server.mjs"
   },
   "exports": {
     ".": {
@@ -27,6 +27,7 @@
     }
   },
   "files": [
+    "bin",
     "dist/src",
     "!dist/src/**/*.spec.*",
     "README.md",

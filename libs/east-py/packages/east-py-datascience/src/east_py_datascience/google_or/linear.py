@@ -159,7 +159,7 @@ def linear_solve_impl(
     _check_google_or_support()
     from ortools.linear_solver import pywraplp
 
-    start_time = time.monotonic()
+    start_time = time.perf_counter()
 
     # Detect if any integer variables
     variables_data = model_data.get("variables")
@@ -171,7 +171,7 @@ def linear_solve_impl(
     solver = pywraplp.Solver.CreateSolver(solver_id)
 
     if solver is None:
-        wall_time = time.monotonic() - start_time
+        wall_time = time.perf_counter() - start_time
         return EastStruct(
             {
                 "status": EastVariant("model_invalid", None),
@@ -224,7 +224,7 @@ def linear_solve_impl(
 
     # Solve
     result_status = solver.Solve()
-    wall_time = time.monotonic() - start_time
+    wall_time = time.perf_counter() - start_time
 
     # Map status
     status_map = {

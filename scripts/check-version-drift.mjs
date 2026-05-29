@@ -12,6 +12,7 @@ const NPM_PKGS = [
   'libs/east-node/packages/east-node-std/package.json',
   'libs/east-node/packages/east-node-io/package.json',
   'libs/east-node/packages/east-node-cli/package.json',
+  'libs/east-c/packages/east-c-cli/package.json',
   'libs/east-py/packages/east-py-datascience/package.json',
   'libs/e3/packages/e3-types/package.json',
   'libs/e3/packages/e3/package.json',
@@ -27,6 +28,19 @@ const NPM_PKGS = [
   'libs/create/packages/create-east/package.json',
   'libs/create/packages/create-e3/package.json',
 ];
+
+// Plain-text VERSION files (CMake input, etc.). Same canonical version
+// as everything else.
+const TEXT_VERSION_FILES = [
+  'libs/east-c/VERSION',  // baked into the east-c binary at CMake configure time
+];
+
+// The launcher's per-platform optionalDependencies are NOT committed (they'd
+// break pnpm install --frozen-lockfile until the per-platform packages exist
+// on npm). They get injected at publish time via
+// scripts/inject-east-c-platform-deps.mjs, pinned to the canonical version.
+// So nothing to verify here — the lack of optionalDependencies in the source
+// package.json is the correct state.
 
 const PYPROJECTS = [
   'libs/east-py/packages/east-py/pyproject.toml',
@@ -59,6 +73,11 @@ const errors = [];
 
 for (const rel of NPM_PKGS) {
   const v = readJsonVersion(rel);
+  if (v !== canonical) errors.push(`${rel}: ${v} ≠ ${canonical}`);
+}
+
+for (const rel of TEXT_VERSION_FILES) {
+  const v = fs.readFileSync(path.join(repoRoot, rel), 'utf8').trim();
   if (v !== canonical) errors.push(`${rel}: ${v} ≠ ${canonical}`);
 }
 

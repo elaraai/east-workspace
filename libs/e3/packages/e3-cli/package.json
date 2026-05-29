@@ -6,9 +6,10 @@
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
   "bin": {
-    "e3": "./dist/src/cli.js"
+    "e3": "./bin/e3.mjs"
   },
   "files": [
+    "bin",
     "dist/src",
     "!dist/src/**/*.spec.*",
     "scripts/postinstall.cjs",

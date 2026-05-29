@@ -65,7 +65,7 @@ static EvalResult plat_describe(EastValue **args, size_t num_args, EastType **in
 
     const char *prev_describe = g_current_describe;
     g_current_describe = name;
-    if (!g_quiet) printf("\xe2\x96\xb6 %s\n", name);
+    if (!g_quiet) printf("[>] %s\n", name);
 
     int failed_before = g_tests_failed;
 
@@ -83,7 +83,7 @@ static EvalResult plat_describe(EastValue **args, size_t num_args, EastType **in
     if (num_args <= 1 || !args[1] || args[1]->kind != EAST_VAL_FUNCTION) {
         g_tests_run++;
         g_tests_failed++;
-        printf("  \xe2\x9c\x96 describe \"%s\": no body (not a function)\n", name);
+        printf("  [x] describe \"%s\": no body (not a function)\n", name);
     } else {
         EastCompiledFn *body = args[1]->data.function.compiled;
         EvalResult r = east_call(body, NULL, 0);
@@ -91,7 +91,7 @@ static EvalResult plat_describe(EastValue **args, size_t num_args, EastType **in
             /* Count as a failed test so errors don't vanish silently */
             g_tests_run++;
             g_tests_failed++;
-            printf("  \xe2\x9c\x96 describe \"%s\" setup: %s\n", name,
+            printf("  [x] describe \"%s\" setup: %s\n", name,
                    r.error_message ? r.error_message : "?");
             eval_result_free(&r);
         } else {
@@ -104,9 +104,9 @@ static EvalResult plat_describe(EastValue **args, size_t num_args, EastType **in
     double desc_ms = (dt1.tv_sec - dt0.tv_sec) * 1000.0 + (dt1.tv_nsec - dt0.tv_nsec) / 1e6;
 
     if (g_tests_failed > failed_before) {
-        printf("\xe2\x9c\x96 %s (%.6fms)\n", name, desc_ms);
+        printf("[x] %s (%.6fms)\n", name, desc_ms);
     } else if (!g_quiet) {
-        printf("\xe2\x9c\x94 %s (%.6fms)\n", name, desc_ms);
+        printf("[+] %s (%.6fms)\n", name, desc_ms);
     }
 
     g_current_describe = prev_describe;
@@ -130,7 +130,7 @@ static EvalResult plat_test(EastValue **args, size_t num_args, EastType **input_
      * branch was taken — hiding real bugs like lost function compilation. */
     if (num_args <= 1 || !args[1] || args[1]->kind != EAST_VAL_FUNCTION) {
         g_tests_failed++;
-        printf("  \xe2\x9c\x96 %s: no body (test arg missing or not a function)\n", name);
+        printf("  [x] %s: no body (test arg missing or not a function)\n", name);
         return eval_ok(east_null());
     }
 
@@ -162,7 +162,7 @@ static EvalResult plat_test(EastValue **args, size_t num_args, EastType **input_
 
     if (failed) {
         g_tests_failed++;
-        printf("  \xe2\x9c\x96 %s (%.6fms)\n", name, test_ms);
+        printf("  [x] %s (%.6fms)\n", name, test_ms);
         printf("    %s\n", err_msg ? err_msg : "?");
         if (err_file) {
             printf("    at %s:%ld:%ld\n", err_file, err_line, err_col);
@@ -171,7 +171,7 @@ static EvalResult plat_test(EastValue **args, size_t num_args, EastType **input_
         free((void *)err_msg);
     } else {
         g_tests_passed++;
-        if (!g_quiet) printf("  \xe2\x9c\x94 %s (%.6fms)\n", name, test_ms);
+        if (!g_quiet) printf("  [+] %s (%.6fms)\n", name, test_ms);
     }
 
     return eval_ok(east_null());
@@ -389,7 +389,7 @@ static int run_suite(void *arg)
         }
     }
 
-    if (!g_quiet) printf("\xe2\x84\xb9 tests %d\n", g_tests_run);
+    if (!g_quiet) printf("[i] tests %d\n", g_tests_run);
     printf("\nResults: %d/%d passed", g_tests_passed, g_tests_run);
     if (g_tests_failed > 0 || fatal) {
         printf(" (%d failed", g_tests_failed);

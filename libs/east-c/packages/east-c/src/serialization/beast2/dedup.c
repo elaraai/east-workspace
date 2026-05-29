@@ -5,6 +5,10 @@
 
 #include "internal.h"
 
+#if defined(_MSC_VER)
+#include <intrin.h> /* _umul128 */
+#endif
+
 /*
  * Full-content hash using wyhash-style mixing.
  *
@@ -15,8 +19,25 @@
  */
 static inline uint64_t wymix(uint64_t a, uint64_t b)
 {
+#if defined(_MSC_VER) && defined(_M_X64)
+    /* MSVC has no __uint128_t; _umul128 yields the 128-bit product directly. */
+    uint64_t hi;
+    uint64_t lo = _umul128(a, b, &hi);
+    return lo ^ hi;
+#elif defined(__SIZEOF_INT128__)
     __uint128_t r = (__uint128_t)a * b;
     return (uint64_t)(r >> 64) ^ (uint64_t)r;
+#else
+    /* Portable 64x64->128 fallback (wyhash _wymum form). */
+    uint64_t ha = a >> 32, hb = b >> 32, la = (uint32_t)a, lb = (uint32_t)b;
+    uint64_t rh = ha * hb, rm0 = ha * lb, rm1 = hb * la, rl = la * lb;
+    uint64_t t = rl + (rm0 << 32);
+    uint64_t c = (t < rl);
+    uint64_t lo = t + (rm1 << 32);
+    c += (lo < t);
+    uint64_t hi = rh + (rm0 >> 32) + (rm1 >> 32) + c;
+    return lo ^ hi;
+#endif
 }
 
 static inline uint64_t wyread8(const uint8_t *p)

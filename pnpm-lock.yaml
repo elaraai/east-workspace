@@ -197,6 +197,9 @@ importers:
         specifier: workspace:*
         version: link:../../../east-node/packages/east-node-std
     devDependencies:
+      '@elaraai/east-node-cli':
+        specifier: workspace:*
+        version: link:../../../east-node/packages/east-node-cli
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
@@ -258,6 +261,9 @@ importers:
       '@elaraai/east':
         specifier: workspace:*
         version: link:../../../east
+      cross-spawn:
+        specifier: ^7.0.6
+        version: 7.0.6
       yauzl:
         specifier: ^3.2.0
         version: 3.3.0
@@ -265,6 +271,9 @@ importers:
         specifier: ^2.5.1
         version: 2.5.1
     devDependencies:
+      '@types/cross-spawn':
+        specifier: ^6.0.6
+        version: 6.0.6
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
@@ -324,6 +333,12 @@ importers:
         specifier: workspace:*
         version: link:../../../east
     devDependencies:
+      '@elaraai/east-node-cli':
+        specifier: workspace:*
+        version: link:../../../east-node/packages/east-node-cli
+      '@elaraai/east-node-std':
+        specifier: workspace:*
+        version: link:../../../east-node/packages/east-node-std
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
@@ -361,6 +376,9 @@ importers:
         specifier: workspace:*
         version: link:../../../east-node/packages/east-node-std
     devDependencies:
+      '@elaraai/east-node-cli':
+        specifier: workspace:*
+        version: link:../../../east-node/packages/east-node-cli
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
@@ -395,6 +413,8 @@ importers:
       typescript:
         specifier: ~5.9.2
         version: 5.9.3
+
+  libs/east-c/packages/east-c-cli: {}
 
   libs/east-claude-plugin:
     dependencies:
@@ -3178,6 +3198,9 @@ packages:
 
   '@types/cli-table@0.3.4':
     resolution: {integrity: sha512-GsALrTL69mlwbAw/MHF1IPTadSLZQnsxe7a80G8l4inN/iEXCOcVeT/S7aRc6hbhqzL9qZ314kHPDQnQ3ev+HA==}
+
+  '@types/cross-spawn@6.0.6':
+    resolution: {integrity: sha512-fXRhhUkG4H3TQk5dBhQ7m/JDdSNHKwR2BBia62lhwEIq9xGiQKLxd6LymNhn47SjXhsUEPmxi+PKw2OkW4LLjA==}
 
   '@types/cytoscape@3.31.0':
     resolution: {integrity: sha512-EXHOHxqQjGxLDEh5cP4te6J0bi7LbCzmZkzsR6f703igUac8UGMdEohMyU3GHAayCTZrLQOMnaE/lqB2Ekh8Ww==}
@@ -9336,6 +9359,10 @@ snapshots:
       assertion-error: 2.0.1
 
   '@types/cli-table@0.3.4': {}
+
+  '@types/cross-spawn@6.0.6':
+    dependencies:
+      '@types/node': 22.19.15
 
   '@types/cytoscape@3.31.0':
     dependencies:

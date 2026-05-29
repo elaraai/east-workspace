@@ -198,8 +198,8 @@ function capture_stack_frames(): Location[] {
   const frames: Location[] = [];
 
   for (const line of lines) {
-    // Simple regex that matches file:line:col at end of line
-    const match = line.match(/\(?([^()\s]+):(\d+):(\d+)\)?$/);
+    // Take the path before :line:col (allows spaces and a Windows drive colon).
+    const match = line.match(/\((.+):(\d+):(\d+)\)\s*$/) ?? line.match(/\bat\s+(.+):(\d+):(\d+)\s*$/);
     if (match) {
       const [, filename, lineNum, column] = match;
       // `shouldIncludeFrame` runs on the raw path so its node_modules/internal

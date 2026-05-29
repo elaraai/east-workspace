@@ -29,10 +29,23 @@ on:
         required: false
         default: true
         type: boolean
+  # On PRs to main, exercise ONLY the verdaccio release dry-run (validate-release).
+  # Every other job needs `prepare`, which is gated to workflow_dispatch below, so
+  # they all skip on PRs — no publish, no tag, no push, no secrets. `pull_request`
+  # (never pull_request_target) means fork PRs get no secrets to leak.
+  pull_request:
+    branches: [main]
+    paths:
+      - "libs/**"
+      - "scripts/**"
+      - "package.json"
+      - ".github/workflows/release.yml"
 
 concurrency:
-  group: release
-  cancel-in-progress: false
+  # Real releases share one global lock (never cancel a release in flight); PR
+  # validations are per-ref and cancel stale runs for fast iteration.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || 'release' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # ────────────────────────────────────────────────────────────────────────
@@ -41,6 +54,9 @@ jobs:
   #    without re-running the bump (which would be non-deterministic across jobs).
   # ────────────────────────────────────────────────────────────────────────
   prepare:
+    # Only on manual dispatch. On PRs this job (and everything that needs it —
+    # i.e. all the publish/finalize jobs) skips, leaving just validate-release.
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.bump.outputs.version }}
@@ -49,12 +65,21 @@ jobs:
       npm_tag: ${{ steps.bump.outputs.npm_tag }}
       is_prerelease: ${{ steps.bump.outputs.is_prerelease }}
     steps:
-      - name: Enforce release from main
+      # Real releases (non-dry-run) MUST run from main — they tag, push, and
+      # publish to registries. Dry-runs make no state changes (no publish, no
+      # tag, no push), so they're allowed from any branch — useful for the
+      # one-time east-c npm bootstrap and for testing release-pipeline changes
+      # before merging them.
+      - name: Enforce release from main (non-dry-run only)
+        if: ${{ !inputs.dry_run }}
         run: |
           if [ "${{ github.ref }}" != "refs/heads/main" ]; then
-            echo "::error::Releases may only be run from main (got ${{ github.ref }})."
+            echo "::error::Real releases may only be run from main (got ${{ github.ref }})."
             exit 1
           fi
+      - name: Note dry-run on non-main branch
+        if: ${{ inputs.dry_run && github.ref != 'refs/heads/main' }}
+        run: echo "::warning::Dry-run on ${{ github.ref }} — artifacts will reflect this branch, not main."
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
@@ -121,6 +146,55 @@ jobs:
           retention-days: 7
 
   # ────────────────────────────────────────────────────────────────────────
+  # validate-release: publish-dry-run guard. On each OS, spins a throwaway
+  # verdaccio, publishes every @elaraai/* package + the east-c-cli launcher +
+  # the host-platform binary exactly as the real jobs do — minus provenance,
+  # which is npm-OIDC-only — then installs them into a fresh consumer and
+  # smoke-tests. Matrixed over the 3 publish OSes so the per-platform npm
+  # install contract (launcher → matching @elaraai/east-c-cli-<target>) is
+  # validated where it actually runs. Runs in BOTH dry and real so a real
+  # release is proven installable BEFORE anything hits npm; the real npm
+  # publish jobs gate on it. No secrets / no OIDC. (Locally, `act` covers the
+  # ubuntu leg; macOS/Windows legs are CI-only.)
+  # ────────────────────────────────────────────────────────────────────────
+  validate-release:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        # Git Bash on Windows so the bash dry-run script + make builds run everywhere.
+        shell: bash
+    env:
+      # east-c's Makefile picks Ninja on Windows; ensure cmake honours it too.
+      CMAKE_GENERATOR: Ninja
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+      - name: Install build deps (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
+      - name: Install build deps (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake || true
+      - name: Install make (Windows)
+        if: runner.os == 'Windows'
+        run: choco install make --no-progress -y
+      - name: Set up MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+      - name: Install
+        run: pnpm install
+      - name: Release dry-run against verdaccio
+        run: bash scripts/test-release-verdaccio.sh
+
+  # ────────────────────────────────────────────────────────────────────────
   # Tests are NOT re-run here: main is protected and only reachable via PRs that
   # pass the per-lib test workflows, so the release trusts main and only builds
   # + publishes.
@@ -128,7 +202,7 @@ jobs:
   # publish-npm: the public @elaraai/* packages via scripts/publish-npm.mjs.
   # ────────────────────────────────────────────────────────────────────────
   publish-npm:
-    needs: prepare
+    needs: [prepare, validate-release]
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -370,7 +444,12 @@ jobs:
           - { os: ubuntu-24.04-arm, target: linux-arm64 }
           - { os: macos-14,         target: macos-arm64 }
           - { os: macos-14,         target: macos-x64,  cmake_arch: x86_64 }
+          - { os: windows-latest,   target: win32-x64   }
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        # Git Bash on Windows so the mkdir/cp/tar build + stage steps run on every OS.
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -381,22 +460,38 @@ jobs:
       - name: Install build deps (macOS)
         if: runner.os == 'macOS'
         run: brew install cmake || true
+      - name: Set up MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
       - name: Build
         working-directory: libs/east-c
         run: |
           mkdir -p build && cd build
-          ARCH_FLAG="${{ matrix.cmake_arch && format('-DCMAKE_OSX_ARCHITECTURES={0}', matrix.cmake_arch) || '' }}"
-          cmake .. $ARCH_FLAG
-          cmake --build . -j$(nproc 2>/dev/null || sysctl -n hw.logicalcpu)
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            # Ninja (single-config) so binaries land at build/packages/.../<name>
+            # as on Unix; needs the MSVC env set up above.
+            cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release
+            cmake --build .
+          else
+            ARCH_FLAG="${{ matrix.cmake_arch && format('-DCMAKE_OSX_ARCHITECTURES={0}', matrix.cmake_arch) || '' }}"
+            cmake .. $ARCH_FLAG
+            cmake --build . -j$(nproc 2>/dev/null || sysctl -n hw.logicalcpu)
+          fi
       - name: Stage tarball
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
           TARGET="${{ matrix.target }}"
           STAGE="east-c-${VERSION}-${TARGET}"
           mkdir -p "$STAGE"/{bin,lib,include}
-          cp libs/east-c/build/packages/east-c-cli/east-c "$STAGE/bin/"
-          cp libs/east-c/build/packages/east-c/libeast-c.a "$STAGE/lib/" 2>/dev/null || true
-          cp libs/east-c/build/packages/east-c-std/libeast-c-std.a "$STAGE/lib/" 2>/dev/null || true
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            cp libs/east-c/build/packages/east-c-cli/east-c.exe "$STAGE/bin/"
+            cp libs/east-c/build/packages/east-c/east-c.lib "$STAGE/lib/" 2>/dev/null || true
+            cp libs/east-c/build/packages/east-c-std/east-c-std.lib "$STAGE/lib/" 2>/dev/null || true
+          else
+            cp libs/east-c/build/packages/east-c-cli/east-c "$STAGE/bin/"
+            cp libs/east-c/build/packages/east-c/libeast-c.a "$STAGE/lib/" 2>/dev/null || true
+            cp libs/east-c/build/packages/east-c-std/libeast-c-std.a "$STAGE/lib/" 2>/dev/null || true
+          fi
           cp -r libs/east-c/packages/east-c/include/east "$STAGE/include/"
           cp libs/east-c/LICENSE "$STAGE/" 2>/dev/null || cp LICENSE "$STAGE/" 2>/dev/null || true
           cp libs/east-c/README.md "$STAGE/" 2>/dev/null || true
@@ -406,19 +501,130 @@ jobs:
           name: c-native-${{ matrix.target }}
           path: east-c-*.tar.gz
 
+      # Per-platform npm package — just the east-c binary, a generated
+      # package.json (`os` / `cpu` gating + `files: ["east-c*",...]`), a
+      # generated minimal README, and the BSL LICENSE. Packed with
+      # `npm pack` so publish-c-npm can publish the .tgz directly.
+      - name: Set up Node (per-platform npm pack)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Stage per-platform npm package
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          # The publish-c-native matrix uses `macos-*` for the tarball names
+          # (the historical convention). The npm per-platform package uses
+          # `darwin-*` so the launcher's `require.resolve` finds it via
+          # `process.platform-process.arch` on a real Mac. Map here.
+          case "${{ matrix.target }}" in
+            macos-arm64) NPM_TARGET=darwin-arm64 ;;
+            macos-x64)   NPM_TARGET=darwin-x64   ;;
+            *)           NPM_TARGET="${{ matrix.target }}" ;;
+          esac
+          STAGE_NPM="east-c-cli-${NPM_TARGET}-${VERSION}"
+          mkdir -p "$STAGE_NPM"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            cp libs/east-c/build/packages/east-c-cli/east-c.exe "$STAGE_NPM/"
+          else
+            cp libs/east-c/build/packages/east-c-cli/east-c "$STAGE_NPM/"
+          fi
+          cp libs/east-c/packages/east-c-cli/LICENSE.md "$STAGE_NPM/"
+          node scripts/emit-east-c-platform-manifest.mjs \
+            --target "$NPM_TARGET" --version "$VERSION" \
+            --out "$STAGE_NPM/package.json"
+          node scripts/emit-east-c-platform-readme.mjs \
+            --target "$NPM_TARGET" --version "$VERSION" \
+            --out "$STAGE_NPM/README.md"
+          ( cd "$STAGE_NPM" && npm pack --pack-destination .. )
+      - uses: actions/upload-artifact@v4
+        with:
+          name: c-npm-${{ matrix.target }}
+          path: east-c-cli-*.tgz
+
+  # ────────────────────────────────────────────────────────────────────────
+  # 5b. publish-c-npm: publishes the @elaraai/east-c-cli launcher + the 5
+  #     per-platform packages (@elaraai/east-c-cli-<target>) to npm with
+  #     provenance. The 5 .tgz tarballs are downloaded as artifacts from
+  #     publish-c-native; the launcher is pnpm-published from source.
+  #
+  #     Trusted publishing must be configured per package name in the npm
+  #     UI before this job's first non-dry run — see scripts/bootstrap-
+  #     east-c-npm.mjs and libs/east-c/docs/npm-runner-distribution.md.
+  # ────────────────────────────────────────────────────────────────────────
+  publish-c-npm:
+    needs: [prepare, publish-c-native, validate-release]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: version-bump }
+      - uses: actions/download-artifact@v4
+        with:
+          path: c-npm
+          pattern: c-npm-*
+          merge-multiple: true
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+          registry-url: "https://registry.npmjs.org"
+      - name: Upgrade npm for trusted publishing
+        run: npm install -g npm@latest
+      - name: Publish per-platform packages
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          TAG="${{ needs.prepare.outputs.npm_tag }}"
+          DRY=${{ inputs.dry_run && '--dry-run' || '' }}
+          for target in linux-x64 linux-arm64 darwin-arm64 darwin-x64 win32-x64; do
+            TGZ="c-npm/east-c-cli-${target}-${VERSION}.tgz"
+            if [ ! -f "$TGZ" ]; then
+              echo "::error::Missing artifact $TGZ"
+              exit 1
+            fi
+            NAME="@elaraai/east-c-cli-${target}"
+            # Skip if already published — registry rejects re-publishing the
+            # same version, and a partial-failure retry must be safe.
+            if [ -z "$DRY" ] && npm view "${NAME}@${VERSION}" version >/dev/null 2>&1; then
+              echo "  skip: ${NAME}@${VERSION} already on npm"
+              continue
+            fi
+            echo "  publish: ${NAME}@${VERSION} ← ${TGZ}"
+            npm publish "$TGZ" --access public --provenance --tag "$TAG" $DRY
+          done
+      - name: Inject launcher optionalDependencies (not committed; see scripts/inject-east-c-platform-deps.mjs)
+        run: |
+          node scripts/inject-east-c-platform-deps.mjs \
+            --version "${{ needs.prepare.outputs.version }}" \
+            --file libs/east-c/packages/east-c-cli/package.json
+      - name: Publish launcher
+        working-directory: libs/east-c/packages/east-c-cli
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          TAG="${{ needs.prepare.outputs.npm_tag }}"
+          DRY=${{ inputs.dry_run && '--dry-run' || '' }}
+          if [ -z "$DRY" ] && npm view "@elaraai/east-c-cli@${VERSION}" version >/dev/null 2>&1; then
+            echo "  skip: @elaraai/east-c-cli@${VERSION} already on npm"
+            exit 0
+          fi
+          pnpm publish --access public --provenance --tag "$TAG" --no-git-checks $DRY
+
   # ────────────────────────────────────────────────────────────────────────
   # 6. finalize: on success, commit + tag + push, create GitHub Release with
   #    VSIX + C binaries attached. Skipped entirely on dry run.
   # ────────────────────────────────────────────────────────────────────────
   finalize:
-    needs: [prepare, publish-npm, publish-vsix, publish-pypi-upload, publish-c-native]
+    needs: [prepare, publish-npm, publish-vsix, publish-pypi-upload, publish-c-native, publish-c-npm]
     if: >-
       ${{ !inputs.dry_run &&
           needs.prepare.result == 'success' &&
           needs.publish-npm.result == 'success' &&
           needs.publish-vsix.result == 'success' &&
           needs.publish-pypi-upload.result == 'success' &&
-          needs.publish-c-native.result == 'success' }}
+          needs.publish-c-native.result == 'success' &&
+          needs.publish-c-npm.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write

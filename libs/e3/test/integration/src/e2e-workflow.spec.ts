@@ -582,7 +582,7 @@ describe('end-to-end workflow', () => {
       // This ensures the dataflow lock is held and the task is running.
       await waitFor(
         () => startProc.getStdout().includes('[START]'),
-        10000, // timeout — generous for CI
+        30000, // timeout ceiling — generous for slow CI runners
         50     // poll interval
       );
 

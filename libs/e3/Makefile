@@ -12,10 +12,15 @@ build:
 	pnpm -r --filter='./packages/*' --filter='./test/*' run build
 
 ## Run all tests
+# --workspace-concurrency=1 runs one package's test script at a time. The
+# integration and fuzz suites each spawn many e3 / east-node subprocesses;
+# running them in parallel starves CPU on smaller CI runners (Windows
+# especially), inflating wall-clock and causing nondeterministic timeouts.
+# Serial execution trades a little speed for reproducible timing.
 test:
 	@echo "Running tests..."
-	pnpm -r --filter='./packages/*' run test
-	pnpm -r --filter='./test/*' run test
+	pnpm -r --workspace-concurrency=1 --filter='./packages/*' run test
+	pnpm -r --workspace-concurrency=1 --filter='./test/*' run test
 
 ## Run all linters
 lint:

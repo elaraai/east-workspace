@@ -21,7 +21,7 @@ import {
   unlinkSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, posix } from 'node:path';
 import { COMPLETION_SCRIPTS } from './completion.js';
 import { exitError, formatError } from '../utils.js';
 
@@ -62,12 +62,15 @@ export function detectShell(env: NodeJS.ProcessEnv = process.env): SupportedShel
  */
 export function rcPath(shell: SupportedShell, env: NodeJS.ProcessEnv = process.env, home: string = homedir()): string {
   switch (shell) {
+    // These are Unix-shell rc paths (bash/zsh/fish), so always use POSIX
+    // separators — even when computed on Windows (e.g. git-bash) the path is
+    // consumed by a Unix shell. node fs accepts forward slashes on Windows too.
     case 'bash':
-      return join(home, '.bashrc');
+      return posix.join(home, '.bashrc');
     case 'zsh':
-      return env.ZDOTDIR ? join(env.ZDOTDIR, '.zshrc') : join(home, '.zshrc');
+      return env.ZDOTDIR ? posix.join(env.ZDOTDIR, '.zshrc') : posix.join(home, '.zshrc');
     case 'fish':
-      return join(home, '.config', 'fish', 'completions', 'e3.fish');
+      return posix.join(home, '.config', 'fish', 'completions', 'e3.fish');
   }
 }
 

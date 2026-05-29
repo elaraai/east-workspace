@@ -4,9 +4,10 @@
   "description": "Scaffold a new e3 project (BSL-1.1, Node + Python, durable execution): npm create @elaraai/e3",
   "type": "module",
   "bin": {
-    "create-e3": "./dist/index.js"
+    "create-e3": "./bin/create-e3.mjs"
   },
   "files": [
+    "bin",
     "dist",
     "templates"
   ],

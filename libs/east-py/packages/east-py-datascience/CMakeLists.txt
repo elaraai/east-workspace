@@ -125,7 +125,11 @@ foreach(pyx ${PYX_FILES})
         ${Python_NumPy_INCLUDE_DIRS}
         ${EAST_PY_PXD_DIR}
     )
-    target_link_libraries(${name} PRIVATE east-c m)
+    target_link_libraries(${name} PRIVATE east-c)
+    # libm is part of the CRT on Windows/MSVC; link the separate libm elsewhere.
+    if(NOT WIN32)
+        target_link_libraries(${name} PRIVATE m)
+    endif()
 
     install(TARGETS ${name} LIBRARY DESTINATION "east_py_datascience/${install_subdir}")
 endforeach()

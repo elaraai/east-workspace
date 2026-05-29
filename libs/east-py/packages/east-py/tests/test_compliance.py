@@ -13,10 +13,28 @@ Output matches east-c's run_compliance.sh. Usage:
 import io
 import os
 import sys
+import tempfile
 import time
 from pathlib import Path
 
-TEST_IR_DIR = Path("/tmp/east-test-ir")
+
+def _resolve_ir_dir(s: str | Path) -> Path:
+    # The TS / east-c / bash sides write IR under `/tmp/<name>`. On POSIX that's
+    # literal `/tmp`. On Windows the writers run via Git Bash, which MSYS-rewrites
+    # `/tmp/...` to `%TEMP%/...` when spawning native processes — so the files
+    # land in `tempfile.gettempdir()/<name>`. Python doesn't get that MSYS
+    # rewrite; `Path('/tmp/x')` on Windows resolves literally to `C:\tmp\x`.
+    # Translate `/tmp/<name>` here so reads line up with where everyone else
+    # writes. No-op on POSIX (gettempdir is `/tmp`).
+    p = Path(s)
+    try:
+        rel = p.relative_to("/tmp")
+    except ValueError:
+        return p
+    return Path(tempfile.gettempdir()) / rel
+
+
+TEST_IR_DIR = _resolve_ir_dir("/tmp/east-test-ir")
 
 
 def get_test_ir_files(ir_dir: Path | None = None):
@@ -44,7 +62,7 @@ def run_one(ir_file: Path, out: io.StringIO | None = None, extra_platform: list 
         t0 = time.perf_counter()
         depth += 1
         if out and depth == 1:
-            out.write(f"\u25b6 {name}\n")
+            out.write(f"[>] {name}\n")
         try:
             if callable(test_fn):
                 test_fn()
@@ -54,23 +72,30 @@ def run_one(ir_file: Path, out: io.StringIO | None = None, extra_platform: list 
             depth -= 1
             if out and depth == 0:
                 dur = (time.perf_counter() - t0) * 1000
-                mark = "\u2714" if failed == 0 else "\u2716"
+                mark = "[+]" if failed == 0 else "[x]"
                 out.write(f"{mark} {name} ({dur:.6f}ms)\n")
 
     def test_impl(name, test_fn):
         nonlocal passed, failed
         t0 = time.perf_counter()
         ok = True
+        err = None
         try:
             if callable(test_fn):
                 test_fn()
-        except Exception:
+        except Exception as e:
             ok = False
+            err = e
         dur = (time.perf_counter() - t0) * 1000
         if out:
             indent = "  " * depth
-            mark = "\u2714" if ok else "\u2716"
+            mark = "[+]" if ok else "[x]"
             out.write(f"{indent}{mark} {name} ({dur:.6f}ms)\n")
+            # Print why it failed (the East testFail message or the raised
+            # exception), matching east-c's harness — otherwise the log only
+            # says which test failed, not why.
+            if not ok and err is not None:
+                out.write(f"{indent}    {err}\n")
         if ok:
             passed += 1
         else:
@@ -100,7 +125,7 @@ def run_one(ir_file: Path, out: io.StringIO | None = None, extra_platform: list 
     _eastc_call(handle._compiled, handle._input_types, handle._output_type, ())
 
     if out:
-        out.write(f"\u2139 tests {passed + failed}\n")
+        out.write(f"[i] tests {passed + failed}\n")
 
     return passed, failed
 
@@ -134,7 +159,7 @@ def main():
     parser = argparse.ArgumentParser(description="East compliance test runner")
     parser.add_argument("file", nargs="?", help="Single IR file or stem name")
     parser.add_argument("-q", "--quiet", action="store_true", help="Summary only")
-    parser.add_argument("--ir-dir", type=Path, default=TEST_IR_DIR, help="IR directory")
+    parser.add_argument("--ir-dir", type=_resolve_ir_dir, default=TEST_IR_DIR, help="IR directory")
     parser.add_argument("-p", "--platform", action="append", default=[], help="Platform module(s) to import")
     args = parser.parse_args()
 
@@ -187,15 +212,15 @@ def main():
             total_pass += p
             total_fail += fl
             if fl == 0:
-                print(f"  PASS  {name} ({p}/{total})", flush=True)
+                print(f"  [+] {name} ({p}/{total})", flush=True)
             else:
-                print(f"  FAIL  {name} ({p}/{total}, {fl} failed)", flush=True)
+                print(f"  [x] {name} ({p}/{total}, {fl} failed)", flush=True)
                 if not quiet:
                     sys.stdout.write(out)
         elif result.returncode != 0:
             total_crash += 1
             stderr_first = out.strip().splitlines()[-1] if out.strip() else f"exit {result.returncode}"
-            print(f"  CRASH {name} ({stderr_first})", flush=True)
+            print(f"  [!] {name} ({stderr_first})", flush=True)
 
     wall = (time.perf_counter() - t_start) * 1000
 
