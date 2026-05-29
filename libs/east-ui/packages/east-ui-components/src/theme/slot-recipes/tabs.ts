@@ -4,16 +4,11 @@
  */
 
 /**
- * Tabs slot recipe — bsys §Tabs (design/index.html L1224).
- *
- * Underline-style only — "No pill-tabs, no boxed-tabs" per L1235. The
- * historical `enclosed`, `outline`, `subtle`, `ink`, and `brand-tint`
- * variants have been removed. Consumers wanting a segmented control
- * belong on `SegmentGroup`, not `Tabs`.
- *
- * Active label: `mono · 11 px · 600 · 0.16 em uppercase · ink` with a
- * 2 px ink underline (margin-bottom -1 px to overlap the base rule).
- * Inactive: same typography, `ink-4`.
+ * Tabs slot recipe — underline style only (no pill or boxed tabs); a
+ * segmented control belongs on `SegmentGroup`, not here. The active tab
+ * gets an ink underline overlapping a hairline base rule; labels follow
+ * the mono eyebrow grammar, inactive reading one step quieter. `line`
+ * (default) and `plain` variants.
  *
  * @packageDocumentation
  */
@@ -62,7 +57,7 @@ export const tabsSlotRecipe = defineSlotRecipe({
                     fontWeight: "semibold",
                     letterSpacing: "0.16em",
                     textTransform: "uppercase",
-                    color: "fg.muted",
+                    color: "fg.subtle",
                     background: "transparent",
                     paddingX: "{spacing.3}",
                     paddingY: "{spacing.3}",
@@ -89,7 +84,7 @@ export const tabsSlotRecipe = defineSlotRecipe({
                     fontWeight: "semibold",
                     letterSpacing: "0.16em",
                     textTransform: "uppercase",
-                    color: "fg.muted",
+                    color: "fg.subtle",
                     background: "transparent",
                     paddingX: "{spacing.2}",
                     paddingY: "{spacing.2}",

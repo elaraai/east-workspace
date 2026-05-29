@@ -30,7 +30,7 @@ export const showMoreSlotRecipe = defineSlotRecipe({
             cursor: "pointer",
             paddingX: "0",
             paddingY: "{spacing.1}",
-            _hover: { color: "link.hover", textDecoration: "underline", textUnderlineOffset: "2px" },
+            _hover: { color: "link.hover" },
         },
         indicator: { color: "fg.muted", transitionProperty: "transform", transitionDuration: "{durations.fast}" },
         content: { paddingY: "{spacing.2}" },
