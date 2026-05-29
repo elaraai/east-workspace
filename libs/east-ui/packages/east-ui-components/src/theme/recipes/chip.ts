@@ -31,7 +31,7 @@ export const chipRecipe = defineRecipe({
         borderStyle: "solid",
         borderColor: "border.strong",
         background: "bg.surface",
-        color: "fg",
+        color: "{colors.brand.700}",
         whiteSpace: "nowrap",
         lineHeight: "1",
         fontVariantNumeric: "tabular-nums",
@@ -39,10 +39,10 @@ export const chipRecipe = defineRecipe({
     variants: {
         tone: {
             neutral: {},
-            brand: { background: "bg.brand.subtle", borderColor: "border.brand", color: "{colors.brand.800}" },
+            brand: { background: "bg.brand.subtle", borderColor: "border.brand", color: "{colors.brand.700}" },
             dashed: { borderStyle: "dashed", color: "fg.subtle" },
             /** Overflow `+M more` pill — paper fill, brand border, bold (spec `.more-chip`). */
-            more: { background: "bg.surface", borderColor: "border.brand", color: "{colors.brand.800}", fontWeight: "bold" },
+            more: { background: "bg.surface", borderColor: "{colors.brand.600}", color: "{colors.brand.700}", fontWeight: "bold" },
         },
         numeric: {
             true: { fontFamily: "mono" },

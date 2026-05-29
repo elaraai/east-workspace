@@ -23,14 +23,14 @@ export const inputRecipe = defineRecipe({
     className: "elara-input",
     base: {
         fontFamily: "body",
-        fontSize: "{fontSizes.sm}",   // 14 px
+        fontSize: "13px",
         background: "bg.surface",
         color: "fg",
         borderRadius: "{radii.sm}",    // 4 px (spec)
         borderWidth: "1px",
         borderColor: "border.subtle",  // gray.200 (spec rule)
-        paddingX: "{spacing.3}",       // 12 px
-        paddingY: "{spacing.2}",       // 8 px → ~32 px hit-target with 14 px body
+        paddingX: "10px",
+        paddingY: "7px",
         outline: "none",
         transitionProperty: "border-color, box-shadow, background",
         transitionDuration: "{durations.fast}",
@@ -86,7 +86,7 @@ export const inputRecipe = defineRecipe({
         },
         size: {
             sm: { fontSize: "{fontSizes.xs}" /* 12 */, paddingX: "{spacing.2}", paddingY: "{spacing.1}" },
-            md: { fontSize: "{fontSizes.sm}" /* 14 */, paddingX: "{spacing.3}", paddingY: "{spacing.2}" },
+            md: { fontSize: "13px", paddingX: "10px", paddingY: "7px" },
             lg: { fontSize: "{fontSizes.md}" /* 16 */, paddingX: "{spacing.4}", paddingY: "{spacing.3}" },
         },
     },
