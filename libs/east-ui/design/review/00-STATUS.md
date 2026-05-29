@@ -5,6 +5,17 @@ Living status of applying the `design/review/` findings to the renderer/theme.
 
 > **Full per-section + per-discrepancy reconciliation:** [`00-RECONCILIATION.md`](00-RECONCILIATION.md) — every one of the 77 review sections re-checked against the current source (resolved / partial / clean / open / deferred / blocked), and each `01`–`05` section now carries an inline status banner.
 
+## Applied-fixes log — branch `ui-review-reconciliation` (PR #14)
+
+Commits on this branch (oldest → newest):
+1. **`48d19f64`** — review docs + reconciliation + the first 10 fixes: foundation ink → brand.900, nav→spec, charts→accent token, matrix colours, table header, pagination (recipe adopted), editableChip (recipe adopted), codeBlock colours, dialog/drawer backdrop scrim, ToggleTip dark chip. Plus showcase DX (src alias + slimmer `make showcase`).
+2. **`b3df8817`** — atom-recipe spec drifts: **button** (md 12.5px, commit 0.14em + 14/22 padding, lh 1.15), **chip** (text brand.700, more-border brand.600), **input** (13px + 7/10), **kbd** (6px/0.04em/2px), **separator** (default → subtle gray.200).
+3. **`de9e748d`** — slot-recipe spec drifts: **status** (label fg.muted, dot fg.subtle, gap 6px), **tag** (×+dashed fg.subtle, brand brand.700, gap 6px), **meter**+**barStrip** (fill brand.500, radius 3px), **accordion** (chevron fg.subtle, padding 18/14, gap 10px, lh 1.5), **dataList** (label fg.subtle+0.14em, 116px/14px).
+
+All built + snapshot/probe-verified, pushed to origin. **In progress:** extension-webview nav/header parity + dropping the INPUTS/TASKS sidebar group headings. **Remaining:** the structural batch (gantt/matrix-size-shape/planner/shared-table-chrome/table-numeric-IR/commandPalette) + the long tail of partial colour/px drifts in the per-section tables of `00-RECONCILIATION.md`.
+
+> A concurrent agent is editing `packages/east-ui-components/src/charts/**` (and likely `slice/**`) on this same branch — leave charts + slice to them; scope every commit to your own files; don't build simultaneously.
+
 Governing decisions (from the owner):
 - **Primary ink = `brand.900` `#111b22`** (spec.css `--ink`). ✅ applied 2026-05-29: renderer `fg`/`fg.DEFAULT`/`fg.default` base + `colors_and_type --fg-primary` now brand.900 (dark mode unchanged). Resolves the systemic "text gray.900 vs --ink" class across the review.
 - **Dead slot-recipes → adopt the recipe everywhere** (rewire the renderer to consume it; fix recipe values to spec), not inline patches.
