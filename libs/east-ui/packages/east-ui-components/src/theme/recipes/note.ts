@@ -18,7 +18,7 @@ export const noteRecipe = defineRecipe({
     className: "elara-note",
     base: {
         borderLeftWidth: "3px",
-        borderLeftColor: "border.brand",
+        borderLeftColor: "{colors.brand.600}",
         background: "bg.canvas",
         paddingX: "{spacing.4}",
         paddingY: "{spacing.3}",
@@ -29,7 +29,7 @@ export const noteRecipe = defineRecipe({
     },
     variants: {
         accent: {
-            brand:   { borderLeftColor: "border.brand" },
+            brand:   { borderLeftColor: "{colors.brand.600}" },
             warning: { borderLeftColor: "fg.warning" },
             danger:  { borderLeftColor: "fg.danger" },
             success: { borderLeftColor: "fg.success" },

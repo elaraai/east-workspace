@@ -29,7 +29,7 @@ export const headingRecipe = defineRecipe({
             xl: {
                 fontSize: "{fontSizes.5xl}",   // 48 — spec h1
                 fontWeight: "bold",
-                lineHeight: "1.1",
+                lineHeight: "{lineHeights.tight}",
                 letterSpacing: "{letterSpacings.tighter}",
             },
             lg: {
@@ -46,9 +46,9 @@ export const headingRecipe = defineRecipe({
             sm: {
                 fontSize: "{fontSizes.2xl}",   // 24 — spec h4
                 lineHeight: "{lineHeights.snug}",
-                letterSpacing: "{letterSpacings.snug}",
             },
             xs: {
+                fontFamily: "body",            // spec h5 drops to Inter Tight
                 fontSize: "{fontSizes.xl}",    // 20 — spec h5
                 lineHeight: "{lineHeights.snug}",
             },

@@ -14,6 +14,8 @@ Commits on this branch (oldest → newest):
 
 4. **`f8c0d67b`** — extension-webview nav parity: flattened the workspace tree (dropped the INPUTS/TASKS group headings → one flat list of sub-rows with a leading type icon, database=input / bolt=task), fixed the nested active-pill (removed the 36px paddingInlineStart that fought the recipe's active state), breadcrumb link brand.700→brand.600. Webview built; extension repackaged + installed (v1.0.4). **To confirm live:** density/spacing parity with the showcase.
 
+5. **(uncommitted)** — five more atom recipes to spec: **mark** (text brand.700 = --brand-dd), **badge** (brand variant brand.600 text + borderless per `.pattern-anchor`; stakesMid brand.700 text + brand.600 border per `.stakes-tag.mid`), **note** (accent stripe brand.600 = --brand-d on base + brand accent), **heading** (xs/h5 → Inter Tight `body` font, xl line-height → tight 1.25, sm/h4 stray -0.01em tracking removed), **icon-button** (xs glyph 12→13px per `.x-btn`). All 5 snapshot-verified (badge/mark/note/heading/icon-button PNGs). Remaining for these = spec-internal-inconsistency only (warn-hue, x-btn radius) → `05-spec-consolidation.md`, plus note's italic-leak (structural, 04).
+
 All built + snapshot/probe-verified, pushed to origin. **Remaining:** the structural batch (gantt/matrix-size-shape/planner/shared-table-chrome/table-numeric-IR/commandPalette) + the long tail of partial colour/px drifts in the per-section tables of `00-RECONCILIATION.md`.
 
 > A concurrent agent is editing `packages/east-ui-components/src/charts/**` (and likely `slice/**`) on this same branch — leave charts + slice to them; scope every commit to your own files; don't build simultaneously.

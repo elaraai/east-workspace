@@ -46,11 +46,11 @@ export const badgeRecipe = defineRecipe({
             lg: { fontSize: "{fontSizes.xs}", paddingX: "{spacing.3}", paddingY: "{spacing.1}", lineHeight: "1.2" },
         },
         variant: {
-            /** Spec `.pattern-anchor` — brand-tinted body. */
+            /** Spec `.pattern-anchor` — brand-tinted body, no border. */
             brand: {
                 background: "bg.brand.subtle",
-                borderColor: "border.brand",
-                color: "{colors.brand.800}",
+                borderColor: "transparent",
+                color: "{colors.brand.600}",
             },
             /** Spec `.diff-pill` default — outlined. */
             outline: {
@@ -79,8 +79,8 @@ export const badgeRecipe = defineRecipe({
             /** Spec `.stakes-tag.mid`. */
             stakesMid: {
                 background: "bg.brand.subtle",
-                borderColor: "border.brand",
-                color: "{colors.brand.800}",
+                borderColor: "{colors.brand.600}",
+                color: "{colors.brand.700}",
             },
             /** Plain — Chakra default. */
             plain: {
