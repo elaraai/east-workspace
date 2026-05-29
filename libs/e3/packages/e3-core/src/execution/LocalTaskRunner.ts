@@ -290,6 +290,7 @@ export async function taskExecute(
       args,
       inputHashes,
       bootId,
+      scratchDir,
       options
     );
 
@@ -407,6 +408,7 @@ async function runCommand(
   args: string[],
   inputHashes: string[],
   bootId: string,
+  scratchDir: string,
   options: ExecuteOptions
 ): Promise<{ exitCode: number | null; error: string | null }> {
   const [cmd, ...cmdArgs] = args;
@@ -451,6 +453,13 @@ async function runCommand(
     ...collectNodeModulesBins(process.cwd()),
   ].filter((b) => (seen.has(b) ? false : (seen.add(b), true)));
   const spawnOpts: Parameters<typeof spawn>[2] = {
+    // Run in the per-execution scratch dir, not the e3 process's cwd. Tasks
+    // address inputs/outputs by absolute path and resolve their runner via
+    // PATH, so cwd isn't part of the task contract — and inheriting the
+    // caller's cwd pins it. On Windows a live process's cwd can't be removed,
+    // so a `detached` task that outlives a killed parent (e.g. after SIGKILL)
+    // would hold the repo/project dir open and block its cleanup (EBUSY).
+    cwd: scratchDir,
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: true,
     windowsHide: true,
