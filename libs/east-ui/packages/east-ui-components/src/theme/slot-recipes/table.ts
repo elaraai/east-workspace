@@ -38,7 +38,7 @@ export const tableSlotRecipe = defineSlotRecipe({
             fontWeight: "semibold",
             letterSpacing: "{letterSpacings.wider2}",
             textTransform: "uppercase",
-            color: "fg.muted",
+            color: "fg.subtle",
             background: "bg.canvas",
             paddingX: "14px",
             paddingY: "10px",

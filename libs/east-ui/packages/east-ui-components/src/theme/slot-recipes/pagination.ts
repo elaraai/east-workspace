@@ -4,7 +4,7 @@
  */
 
 /**
- * Pagination slot recipe — flat numbered chips, ink fill on current.
+ * Pagination slot recipe — numbered page chips with prev/next triggers.
  *
  * @packageDocumentation
  */
@@ -24,6 +24,8 @@ export const paginationSlotRecipe = defineSlotRecipe({
             height: "28px",
             paddingX: "{spacing.2}",
             borderRadius: "{radii.sm}",
+            borderWidth: "1px",
+            borderColor: "border.strong",
             background: "bg.surface",
             color: "fg",
             fontFamily: "mono",
@@ -32,13 +34,18 @@ export const paginationSlotRecipe = defineSlotRecipe({
             cursor: "pointer",
             transitionProperty: "background, color, border-color",
             transitionDuration: "{durations.fast}",
-            _hover: { background: "bg.subtle" },
-            _selected: { background: "fg.default", color: "bg.surface" },
-            "&[data-selected]": { background: "fg.default", color: "bg.surface" },
+            _hover: { borderColor: "fg.muted" },
+            _selected: { background: "bg.brand.subtle", color: "brand.fg", borderColor: "border.brand" },
+            "&[data-selected]": { background: "bg.brand.subtle", color: "brand.fg", borderColor: "border.brand" },
         },
         ellipsis: {
             display: "inline-flex",
             alignItems: "center",
+            justifyContent: "center",
+            minWidth: "28px",
+            height: "28px",
+            background: "transparent",
+            borderWidth: "0",
             color: "fg.muted",
             fontFamily: "mono",
         },

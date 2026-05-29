@@ -131,29 +131,24 @@ export const layerStyles = defineLayerStyles({
 
     /* ─── App shell — bsys "Header recipe" / "Sidebar recipe" ──── */
 
-    /** Sticky top header bar — `bg.canvas` (paper-2) so chrome shares
-     *  a plane with main, leaving the white `paper` surface exclusively
-     *  to Frame cards. The 1 px bottom rule keeps the hard cut when
-     *  content scrolls behind the sticky header — `border.strong`
-     *  (gray.300) instead of `border.subtle` because the same-luminance
-     *  rule against the canvas would be near-invisible otherwise.
-     *
-     *  Side gutter is the bsys Main recipe value (`24 px`) so the Row 2
-     *  surface title aligns with the row cards' left edge below it
-     *  (which use the same 24 px offset from the sidebar rule). */
+    /** Sticky top header bar. The bottom cut uses `border.strong`, not the
+     *  hairline `border.subtle`, so it holds as a hard line when white content
+     *  scrolls up behind the sticky bar — the hairline is tuned for a card
+     *  edge against the canvas and reads too faint here. */
     "header.bar": {
         value: {
-            background: "bg.canvas",
+            background: "bg.surface",
             borderBottomWidth: "1px",
             borderBottomColor: "border.strong",
-            paddingInline: "{spacing.6}",       // 24 px — bsys Main recipe
-            paddingBlock: "{spacing.3}",        // 12 px (close to spec's 14 / 16 ladder)
+            paddingInline: "{spacing.6}",       // 24 px
+            paddingTop: "14px",
+            paddingBottom: "16px",
         },
     },
-    /** Sidebar panel surface — `paper-2` bg, 1 px right rule. Spec says
-     *  `border.subtle` against `bg.canvas`, but at the same lightness the
-     *  rule reads near-invisible — `border.strong` (gray.300) keeps the
-     *  hue but lifts the contrast enough to render against the canvas. */
+    /** Sidebar panel surface. It shares the canvas plane with main, so the
+     *  right cut uses `border.strong`, not the hairline `border.subtle`: the
+     *  hairline vanishes between two same-luminance surfaces and the sidebar
+     *  bleeds into the body. */
     "nav.panel": {
         value: {
             background: "bg.canvas",

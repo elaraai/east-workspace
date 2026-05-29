@@ -131,7 +131,7 @@ export const EastChakraCodeBlock = memo(function EastChakraCodeBlock({ value }: 
 
     const defaultHighlightProps = props.highlightBackground
         ? { bg: props.highlightBackground, mx: "-3", px: "3" }
-        : { bg: "yellow.100", _dark: { bg: "yellow.900" }, mx: "-3", px: "3" };
+        : { bg: "bg.warning.subtle", mx: "-3", px: "3" };
 
     return (
         <Box
@@ -210,9 +210,9 @@ export const EastChakraCodeBlock = memo(function EastChakraCodeBlock({ value }: 
                             : undefined;
 
                         const diffProps = diffKind === "added"
-                            ? { bg: "green.50", _dark: { bg: "green.900" }, color: "green.700" }
+                            ? { bg: "bg.success.subtle", color: "fg.success" }
                             : diffKind === "removed"
-                                ? { bg: "red.50", _dark: { bg: "red.900" }, color: "red.700" }
+                                ? { bg: "bg.danger.subtle", color: "fg.danger" }
                                 : {};
                         const highlightProps = highlighted ? defaultHighlightProps : {};
                         const lineProps = { ...diffProps, ...highlightProps };
@@ -222,7 +222,7 @@ export const EastChakraCodeBlock = memo(function EastChakraCodeBlock({ value }: 
                                 {props.showLineNumbers && (
                                     <Box
                                         as="span"
-                                        color={props.lineNumberColor ?? "gray.500"}
+                                        color={props.lineNumberColor ?? "fg.subtle"}
                                         textAlign="right"
                                         pr="3"
                                         userSelect="none"

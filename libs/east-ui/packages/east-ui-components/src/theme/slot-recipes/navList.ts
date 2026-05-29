@@ -40,12 +40,9 @@ export const navListSlotRecipe = defineSlotRecipe({
             gap: "10px",
             width: "full",
             height: "36px",
-            paddingInlineStart: "11px",
-            paddingInlineEnd: "14px",
+            paddingInline: "14px",
             paddingBlock: "0",
-            borderInlineStartWidth: "3px",
-            borderInlineStartStyle: "solid",
-            borderInlineStartColor: "transparent",
+            borderRadius: "{radii.sm}",
             background: "transparent",
             color: "{colors.gray.600}",
             fontFamily: "mono",
@@ -60,12 +57,15 @@ export const navListSlotRecipe = defineSlotRecipe({
             transitionDuration: "{durations.fast}",
             _hover: {
                 color: "{colors.brand.600}",
-                background: "transparent",
             },
+            // Active row is an inset pill, not a full-width band.
             "&[aria-current=page], &[data-active]": {
+                width: "calc(100% - 16px)",
+                marginInline: "8px",
+                paddingInline: "12px",
                 background: "{colors.brandTint}",
                 color: "{colors.brand.700}",
-                borderInlineStartColor: "{colors.brand.600}",
+                fontWeight: "bold",
             },
         },
         itemIcon: {

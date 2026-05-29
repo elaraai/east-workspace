@@ -16,7 +16,7 @@ export const dialogSlotRecipe = defineSlotRecipe({
     ],
     base: {
         backdrop: {
-            background: "rgba(17,27,34,0.04)",
+            background: "{colors.overlay.backdrop}",
         },
         content: {
             background: "{colors.white}",

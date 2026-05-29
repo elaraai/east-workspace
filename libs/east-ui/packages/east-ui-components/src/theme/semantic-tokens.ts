@@ -70,13 +70,13 @@ export const semanticTokens = defineSemanticTokens({
 
         /* ─── Foreground ────────────────────────────────────── */
         fg: {
-            DEFAULT: { value: { base: "{colors.gray.900}", _dark: "{colors.gray.100}" } },
+            DEFAULT: { value: { base: "{colors.brand.900}", _dark: "{colors.gray.100}" } },
             muted:   { value: { base: "{colors.gray.600}", _dark: "{colors.gray.400}" } },
             subtle:  { value: { base: "{colors.gray.500}", _dark: "{colors.gray.500}" } },
             inverse: { value: { base: "{colors.white}",     _dark: "{colors.brand.900}" } },
 
             /* Alias for renderer code that uses `fg.default` semantically. */
-            default: { value: { base: "{colors.gray.900}", _dark: "{colors.gray.100}" } },
+            default: { value: { base: "{colors.brand.900}", _dark: "{colors.gray.100}" } },
 
             /* Status ink (muted document-print hues per spec). */
             success: { value: "{colors.status.pos}"  },

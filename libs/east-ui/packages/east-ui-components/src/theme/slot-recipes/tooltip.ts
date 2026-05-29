@@ -26,6 +26,7 @@ export const tooltipSlotRecipe = defineSlotRecipe({
             color: "bg.surface",
             paddingX: "{spacing.2}",
             paddingY: "{spacing.1}",
+            borderWidth: "0",
             borderRadius: "{radii.sm}",
             boxShadow: "sm",
             maxWidth: "240px",

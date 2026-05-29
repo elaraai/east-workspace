@@ -1,0 +1,74 @@
+# Design Conformance — Fix Progress Ledger
+
+Living status of applying the `design/review/` findings to the renderer/theme.
+**A new session should read this file first.** Update it as each area is fixed.
+
+> **Full per-section + per-discrepancy reconciliation:** [`00-RECONCILIATION.md`](00-RECONCILIATION.md) — every one of the 77 review sections re-checked against the current source (resolved / partial / clean / open / deferred / blocked), and each `01`–`05` section now carries an inline status banner.
+
+Governing decisions (from the owner):
+- **Primary ink = `brand.900` `#111b22`** (spec.css `--ink`). ✅ applied 2026-05-29: renderer `fg`/`fg.DEFAULT`/`fg.default` base + `colors_and_type --fg-primary` now brand.900 (dark mode unchanged). Resolves the systemic "text gray.900 vs --ink" class across the review.
+- **Dead slot-recipes → adopt the recipe everywhere** (rewire the renderer to consume it; fix recipe values to spec), not inline patches.
+- **Theme is the single source of truth** (HARD CONSTRAINT): design values live in tokens/recipes/slot-recipes; components consume them, never hardcode hex/palette literals. See memory `feedback-theme-single-source`.
+- Nav: the **spec changed**; the renderer follows it (not a deviation to preserve).
+
+All changes so far are **uncommitted** in the working tree.
+
+## Status by area
+
+| Area | Doc | Status | Verified | Notes |
+|---|---|---|---|---|
+| Review docs written | all | ✅ done | — | 537 non-intentional findings (23🔴 / 101🟠 / 288🟡 / 125⚪) |
+| **Nav** (header/sidebar/navList/breadcrumb) | `06` | ✅ done | ✅ snapshot + live | inset pill, white header, gray.300 chrome rules (bleed fix) |
+| **Charts** series palette | `04` charts | ✅ done | ✅ snapshot | now consumes `accent` token, brand-first |
+| **Matrix** colours | `03`/`04` | ✅ done (colour) | ✅ snapshot | blue/yellow defaults → brand/status/ink tokens; emphasis=neg outline (red, verified); selection=2px ink outline + brandTint; segment fallback=brand.solid. **Size/shape + full recipe adoption deferred to structural batch** (below). |
+| **Table** header colour + tracking | `03`/`04` | ✅ done (header) | ✅ build | header `fg.muted`→`fg.subtle` (gray.500=`--ink-4`) in recipe + component default; tracking 0.12→**0.16em**. **Still open (structural):** numeric columns left-aligned body font → needs IR `align`/`numeric` field; cells flex-centered vs spec `vertical-align:top`; footer double-rule. |
+| **Pagination** (adopt recipe + colours) | `03` | ✅ done | ✅ snapshot | now consumes the `pagination` slot recipe (was ButtonGroup+IconButton); bordered chips, brand-tint active + brand.700 text + brand border, muted "•••" ellipsis (was a dark btn-fill box), ghost chevrons |
+| **editableChip** (adopt recipe + colours) | `03` | ✅ done | ✅ probe | recipe simplified to a trigger-chip (root + trigger slots, size variant); component now consumes it; resting = white bg + 1px `border.strong` + `brand.fg` text (was a `gray.100` filled pill); `style.*` overrides preserved. ⚠ `make east-ui-examples-html-display/editable-chip` snapshot is FLAKY — captures "Loading…" before the dynamic import settles; verify via a direct Playwright probe (`/tmp/probe.ts` against the snapshot vite server) instead. |
+| **codeBlock** (off-palette colours) | `03` | ✅ done (colours) | ✅ snapshot | diff +/- → `status.pos`/`status.neg` (muted green/red, was Chakra `green.*`/`red.*`); highlight → `bg.warning.subtle` (was `yellow.100`); line-number → `fg.subtle`. **Recipe-chrome adoption deferred** — the `codeBlock` recipe is an incomplete model (doesn't cover diff/highlight/line-numbers); extend or delete it (misleading dead code) — structural-batch item. |
+| commandPalette (adopt recipe) | `03`/`04` | 📋 backlog | — | dead recipe; bypasses with raw Dialog (a dialog rebuild, not a swap) |
+| **Dialog/drawer backdrop scrim** | `04` | ✅ done | ✅ probe (open) | dialog + drawer backdrop `rgba(17,27,34,0.04)` → `{colors.overlay.backdrop}` (0.40 scrim), matching commandPalette. Verified by opening a dialog: proper 40% dim + computed bg `rgba(17,27,34,0.4)`. Still open in overlays-inline (`04`): dialog content radius 10px (non-token) vs spec, popover radius 3-way inconsistency. |
+| **ToggleTip** dark surface | `04` | ✅ done | ✅ probe (open) | was a white default popover; now consumes the `tooltip` recipe's `content`+`arrow` slots → dark ink chip (`fg.default` bg `rgb(17,27,34)` + white text + dark arrow), verified by opening it. Added `borderWidth:0` to the tooltip `content` slot (borderless dark chip; no-op for Tooltip, removes the popover border for ToggleTip). Single-source reuse — no inline values. |
+| **segmentedMeter** | `03` | ✅ clean (no fix) | code review | component is already token-driven (`TONE_FILL` → `fg.success/warning/danger/info`; track `gray.100`; default `fg.info`; NO off-palette literals). Recipe is dead AND models a different idiom (gapped `.bf2-conf`, 2px segment gaps) vs the component's FLUSH meter — adopting it would change the visual; adopt-vs-delete needs a flush-vs-gapped design call. Deferred. |
+| **Gantt** (SVG renderer refactor) | `03` | 📋 backlog | — | status palette + mono axis + now-line + fixed diamond; >recipe |
+| **Planner** (renderer rebuild + IR) | `03` | ⛔ blocked | — | **needs design decision** (CSS-grid Planner vs re-spec Gantt) + `Planner.Event` event-state IR field |
+| **Foundation: `fg`/`--ink`** = brand.900 | `01` | ✅ done | ✅ build+snapshot | `fg.DEFAULT`/`fg.default` base + `colors_and_type --fg-primary` → brand.900; `typography/text` renders clean |
+| Off-grid rounding (12.5/13.5/10.5px etc.) | all | 📋 backlog | — | mostly minor/nit |
+| **spec.css consolidation** | `05` | 📋 backlog | — | dead `._dummy_*`, dup `.btn.primary:hover`, `--ink` vs `--fg-primary`, off-grid, chrome-rule `--rule`→`rule-strong`, 3 banner systems |
+
+Legend: ✅ done · 🚧 doing · 📋 backlog · ⛔ blocked (needs a decision)
+
+## Detail
+
+### Nav — ✅ done (2026-05-29)
+Spec changed; renderer updated to match. See `06-nav-implemented-to-spec.md` for the full delta.
+- Files: `theme/layer-styles.ts` (`header.bar` bg→white, 14/16 padding; chrome rules kept `border.strong`/gray.300 to avoid the same-luminance bleed), `theme/slot-recipes/navList.ts` (active = inset brand-tint pill), `navigation/nav-list/index.tsx` (comment), `east-ui-showcase/App.tsx` (breadcrumb link brand.600 + comment).
+- Verified: `navigation/nav-list` re-snapshot (left-rule gone, inset pill); showcase shell live (bleed fixed, owner-confirmed).
+- Supersedes the `navList`/`navigation-deep` findings in `03`/`04`.
+
+### Charts — ✅ done (2026-05-29)
+Fixed at source: series colour now resolves to the theme `accent` token in canonical order (brand-first), no hardcoded palette list.
+- Files: `charts/utils.ts` — `SERIES_COLOR_PALETTE` = accent keys; `getDefaultSeriesColorToken` → `accent.<key>`; `getPivotColorToken` shades the matching scale family (`slate`→`gray`).
+- Verified: `charts/bar` + `charts/line` re-snapshot — single/lead series render brand teal `#488e97`.
+- Remaining nit (separate, `04`): `sparkline` default stroke is `currentColor`, not `brand`; can fold in with the sparkline pass.
+
+### Matrix — 🚧 doing
+Adopt `theme/slot-recipes/matrix.ts` and recolour the inline `blue.*`/`yellow.*` defaults in `collections/matrix/index.tsx` to spec tokens. Spec colours: selected = 2px outline `--ink` (brand.900) **no fill**; emphasis = 2px outline `status.neg` + 6% neg tint; brushed = 1px dashed `brand.600` + 5% brand tint; segments category-semantic (committed=pos, pending=warn, booked=brand-d, atrisk=neg); no blue/yellow.
+
+### Gantt / Planner — backlog/blocked
+Gantt is an SVG-renderer refactor (status palette + mono axis + now-line + fixed 14px diamond), tractable. Planner is a **rebuild** to the spec CSS-grid model + a `Planner.Event` event-state IR field, and needs a design decision first (spec CSS-grid Planner vs keep the Gantt model and re-spec). Do not start Planner without that decision.
+
+## STRUCTURAL COLLECTIONS BATCH (the real next effort)
+
+Point-fixing colour is insufficient for the collections. The review captured these as scattered per-component symptoms; they share roots and should be done together. **These items partly correct gaps the review under-emphasized — recorded here so they aren't lost.**
+
+1. **Shared table chrome (consolidation gap — review caught symptoms only).** Table, Gantt, Planner, and Matrix each **hand-roll their own header/cell/axis chrome**; the Table recipe's header/cell styling was never made the shared source, so Table's fixes did **not** propagate. Symptoms in the docs: Matrix colHeader = body-font ~14px gray.700 (not mono-uppercase eyebrow); Gantt tick labels body-font; Planner axis sans `fg.default`. **Fix:** make the `table` recipe (or a shared `TableChrome`/header-cell primitive) the single source the Gantt/Planner/Matrix table panes consume.
+
+2. **Table is NOT fully spec-compliant** (`03` slot:table). Majors: column-header text `fg.muted` gray.600 → spec `--ink-4` gray.500 (`fg.subtle`); **numeric columns render left-aligned body font** — `TableColumnType`/`TableColumnConfigBase` have **no `align`/`numeric` field** (spec `.num` = right-aligned mono) → **IR change**. Minors: header tracking 0.12 → 0.16em; cells vertically centered → spec `vertical-align: top`; footer/total possible double bottom rule.
+
+3. **Matrix size + shape** (live renderer, not just the dead recipe). Live cell height = `SIZE_PRESETS.md` **52px** → spec `.mx-cell` **44px**; bars render **height 100% (full-cell fill)** → spec `.mx-bar` **fixed 24px centered** (vert `.mx-cell.vert .mx-bar` 32px + 1px rule border). **Coupled to the drag-resize math** (`segPxV = pct% × cellHeight`, resize handlers pass `cellHeight`) — cannot be a safe one-liner; must be reworked alongside the recipe adoption.
+
+4. **Matrix / Gantt / Planner recipe adoption** — consume `useSlotRecipe` (each recipe is currently dead code); brings the correct 44px/24px/mono-header/now-line values from the theme.
+
+5. **Planner** also needs the `Planner.Event` event-state IR field + a **design decision** (spec CSS-grid model vs keep Gantt + re-spec) — see above. **Blocked.**
+
+Suggested sequence: (a) settle Table to spec incl. the numeric-align IR field → (b) extract/share the table chrome → (c) Matrix recipe adoption (size+shape+headers) → (d) Gantt SVG refactor → (e) Planner (after the design decision).

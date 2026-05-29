@@ -184,7 +184,7 @@ export const EastChakraTable = memo(function EastChakraTable({
     // set, the renderer plumbs it onto the relevant DOM node via
     // inline style.
     const headerBackground = style ? getSomeorUndefined(style.headerBackground) : undefined;
-    const headerColor = style ? getSomeorUndefined(style.headerColor) : undefined;
+    const headerColor = style ? getSomeorUndefined(style.headerColor) ?? "fg.subtle" : "fg.subtle";
     const borderColor = style ? getSomeorUndefined(style.borderColor) : undefined;
     const zebraBackground = style ? getSomeorUndefined(style.zebraBackground) : undefined;
     const hoverBackground = style ? getSomeorUndefined(style.hoverBackground) : undefined;
@@ -816,7 +816,7 @@ export const EastChakraTable = memo(function EastChakraTable({
                                         position={isPinned ? "sticky" : "relative"}
                                     >
                                         <HStack justify="space-between" width="100%" pr={enableColumnResizing ? "4px" : "0"}>
-                                            <Text textStyle="caption.eyebrow" color={headerColor} lineHeight="1" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" flex="1">
+                                            <Text textStyle="caption.eyebrow" color={headerColor} letterSpacing="0.16em" lineHeight="1" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" flex="1">
                                                 {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
                                             </Text>
                                             <HStack className="col-controls" gap={0} flexShrink={0} alignItems="center"

@@ -26,8 +26,7 @@ export interface EastChakraNavListProps {
 
 /**
  * Renders an East UI NavList as the bsys Sidebar recipe — mono uppercase
- * rows, brand-tint active state with a 3 px brand-d left rule, paper-2
- * card chrome.
+ * rows, an inset brand-tint pill for the active row, paper-2 card chrome.
  */
 export const EastChakraNavList = memo(function EastChakraNavList({ value }: EastChakraNavListProps) {
     const recipe = useSlotRecipe({ key: "navList" });

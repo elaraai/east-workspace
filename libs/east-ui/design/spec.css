@@ -3725,3 +3725,369 @@ nav.toc a.indent { padding-left: 20px; color: var(--ink-3); font-size: 11.5px; }
 .cgrid-legend .sw.c-5 { background: color-mix(in oklch, var(--ink-4) 70%, var(--paper)); }
 .cgrid-legend .li .pct { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--ink); }
 .cgrid-legend .li .hours { color: var(--ink-4); font-size: 10px; }
+
+/* ============================================================
+ * Collections.Planner — event states & affordances
+ *
+ * Three event states shared across every Planner variant
+ * (Point / Span / Roster / Gantt). Committed = happened,
+ * audit-locked; Proposed = drafted, dirty-patch ownership;
+ * Rejected = reviewed-and-declined, kept for diff context.
+ *
+ * Backwards-compatible with the existing .shift-chip vocabulary
+ * (.dirty / .new / .ghost) — those keep rendering as before.
+ * ============================================================ */
+
+.evt {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 8px;
+  border-radius: 2px;
+  font-family: var(--font-mono); font-size: 10.5px; font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  box-sizing: border-box;
+}
+
+/* Committed: happened, immutable */
+.evt-committed {
+  background: var(--brand-700);
+  color: var(--paper);
+  border-color: var(--brand-700);
+}
+.evt-committed .grip { display: none; }
+
+/* Proposed: drafted, drag-droppable, dirty-patch owns it */
+.evt-proposed {
+  background: var(--brand-tint);
+  color: var(--brand-dd);
+  border: 1px dashed var(--brand-d);
+  cursor: grab;
+}
+.evt-proposed .grip {
+  display: inline-block; margin-right: 2px;
+  color: var(--brand-d); font-size: 11px;
+  letter-spacing: -0.05em;
+}
+.evt-proposed.added    { /* default brand-tint */ }
+.evt-proposed.removed  {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--brand-tint) 0 4px,
+    rgba(184, 90, 74, 0.10) 4px 5px
+  );
+  text-decoration: line-through;
+  color: var(--ink-3);
+}
+.evt-proposed.model    {
+  background: transparent;
+  font-style: italic;
+}
+
+/* Rejected: proposal that was reviewed and declined — kept for diff */
+.evt-rejected {
+  background: transparent;
+  color: var(--ink-4);
+  border: 1px solid var(--ink-5);
+  text-decoration: line-through;
+}
+
+/* Span event — wraps multiple columns, fills the row height */
+.evt-span {
+  display: block;
+  height: 22px;
+  border-radius: 2px;
+  padding: 0 8px;
+  line-height: 22px;
+  font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+  white-space: nowrap; overflow: hidden;
+}
+.evt-span.evt-committed { color: var(--paper); }
+.evt-span.evt-proposed  { border-style: dashed; }
+
+/* ============================================================
+ * The "now" line — vertical rule dividing committed past
+ * (audit-only) from proposed future (drag-droppable). Lives
+ * inside .planner-cells with position: absolute.
+ * ============================================================ */
+/* "Now" line — vertical rule that threads through every row of a Planner grid.
+   The label only renders on the .planner-thead's now-marker (one per grid, not per row).
+   Within data rows it's just a 1px brand-d line so the visual is whisper-quiet. */
+.planner-now {
+  position: absolute; top: 0; bottom: 0;
+  width: 0;
+  border-left: 1px solid var(--brand-d);
+  z-index: 2;
+  pointer-events: none;
+}
+/* Single "now" marker in the header row — a small brand-d pill above the column.
+   Use class .planner-now.thead to opt in to the label. */
+/* Header now-marker — a small brand-d pip at the top of the column boundary, no permanent text.
+   The vertical line is brand-d (visually distinct from the gray rules) so the line itself signals it.
+   The "now" label only appears on hover — see the .planner-now-hint that we attach to a wider hit zone. */
+.planner-now.thead {
+  top: 0; bottom: 0; height: 100%;
+  border-left: 1px solid var(--brand-d);
+}
+.planner-now.thead::before {
+  content: "";
+  position: absolute; top: 2px; left: -3px;
+  width: 5px; height: 5px;
+  background: var(--brand-d);
+  border-radius: 50%;
+}
+
+/* Invisible 12px-wide hover zone around every .planner-now segment, so hovering near the
+   line surfaces the label even though the line itself is 1px. Sits inside the same
+   absolutely-positioned parent. */
+.planner-now-hint {
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 12px;
+  margin-left: -6px;
+  z-index: 2;
+  cursor: help;
+}
+.planner-now-hint::after {
+  content: attr(data-label);
+  position: absolute;
+  top: 50%; left: 14px;
+  transform: translateY(-50%);
+  padding: 3px 6px;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--font-mono); font-size: 10px;
+  font-weight: 600; letter-spacing: 0.06em;
+  border-radius: 2px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms;
+  z-index: 4;
+}
+.planner-now-hint:hover::after { opacity: 1; }
+
+/* Conflict marker — invariant violations on a cell */
+/* Conflict marker — inset ring + small in-cell corner badge so it can never clip */
+.planner-conflict {
+  position: absolute; inset: 1px;
+  border: 1.5px solid var(--neg);
+  border-radius: 2px;
+  pointer-events: none;
+  background: rgba(184, 90, 74, 0.06);
+  z-index: 1;
+}
+.planner-conflict-badge {
+  position: absolute; top: 2px; right: 2px;
+  width: 13px; height: 13px;
+  background: var(--neg); color: var(--paper);
+  border-radius: 2px;
+  font-family: var(--font-mono); font-size: 9px;
+  font-weight: 700;
+  display: inline-flex; align-items: center; justify-content: center;
+  z-index: 3;
+}
+
+/* Row-header capacity overlay bar */
+.planner-capacity-bar {
+  position: relative;
+  height: 4px;
+  background: var(--paper-3);
+  border-radius: 9999px;
+  margin-top: 4px;
+  overflow: hidden;
+}
+.planner-capacity-bar .fill {
+  position: absolute; left: 0; top: 0; bottom: 0;
+  background: var(--brand-d);
+  border-radius: 9999px;
+}
+.planner-capacity-bar.near .fill { background: var(--warn); }
+.planner-capacity-bar.over .fill { background: var(--neg); }
+
+/* ============================================================
+ * Planner row layout — used by the new winemaker tank-view
+ * example. Old .lhs-cells / .lhs-headers scaffold in the
+ * legacy Planner / Gantt articles continues to render.
+ * ============================================================ */
+.planner-grid {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  background: var(--paper);
+}
+/* .planner-thead removed — header is now inline-styled to exactly match the legacy .lhs-headers rhythm; see the Planner article in configure.html */
+
+.planner-row {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  border-bottom: 1px solid var(--rule);
+  min-height: 44px;
+}
+.planner-row.group-head {
+  background: var(--paper-2);
+  min-height: 28px;
+}
+.planner-row.group-head .planner-rh {
+  font-family: var(--font-mono); font-size: 9.5px; font-weight: 700;
+  letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--ink-3);
+  padding: 6px 12px;
+}
+
+.planner-rh {
+  padding: 8px 12px;
+  border-right: 1px solid var(--rule);
+  display: flex; flex-direction: column; justify-content: center;
+  font-family: var(--font-mono);
+}
+.planner-rh .name {
+  font-size: 11.5px; color: var(--ink); font-weight: 600;
+}
+.planner-rh .meta {
+  font-size: 10px; color: var(--ink-4);
+  margin-top: 2px;
+}
+.planner-rh .num {
+  color: var(--ink); font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.planner-cells {
+  position: relative;
+  display: grid;
+  align-items: stretch;
+}
+.planner-cell {
+  position: relative;
+  border-right: 1px solid var(--rule);
+  display: flex; align-items: center; gap: 3px;
+  padding: 3px 4px;
+  flex-wrap: wrap;
+  min-height: 38px;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.planner-cell:last-child { border-right: 0; }
+.planner-cell.empty { background: rgba(0,0,0,0.012); }
+.planner-cell.empty:hover {
+  background: var(--brand-tint);
+  cursor: cell;
+}
+.planner-cell.past {
+  background: var(--paper-2);
+}
+/* Cell selection — outline ring, no fill change so the underlying state is still readable */
+.planner-cell.selected {
+  outline: 2px solid var(--brand-d);
+  outline-offset: -2px;
+  z-index: 3;
+}
+.planner-cell.selected .planner-bucket { background: rgba(72,142,151,0.06); }
+.evt.selected {
+  outline: 2px solid var(--brand-d);
+  outline-offset: 1px;
+}
+
+
+/* Sub-slot bucketing inside a cell (AM/PM, morning/arvo/night) */
+.planner-cell.bucketed {
+  display: grid; gap: 2px;
+  padding: 2px;
+  grid-auto-flow: row;
+  align-items: stretch;
+}
+.planner-bucket {
+  position: relative;
+  min-height: 16px;
+  background: rgba(0,0,0,0.020);
+  border-radius: 2px;
+  display: flex; align-items: center; gap: 3px;
+  padding: 2px 4px;
+  min-width: 0;
+  overflow: hidden;
+}
+.planner-bucket-label {
+  font-family: var(--font-mono); font-size: 8.5px;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--ink-5); font-weight: 700;
+  flex-shrink: 0;
+  width: 18px;
+}
+
+/* ============================================================
+ * Scenario.* chrome — sits in the Header right cluster.
+ * Pairs with §1.5d in index.html.
+ * ============================================================ */
+.scenario-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--brand-d); border-radius: 4px;
+  background: var(--brand-tint);
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--brand-dd); font-weight: 600;
+}
+.scenario-pill .name { font-weight: 700; }
+.scenario-pill .meta { color: var(--brand-d); font-weight: 500; margin-left: 2px; }
+
+.scenario-mode-toggle {
+  display: inline-flex; align-items: stretch; gap: 0;
+  border: 1px solid var(--rule-strong); border-radius: 4px;
+  background: var(--paper);
+  overflow: hidden;
+}
+.scenario-mode-toggle .mode {
+  padding: 4px 10px;
+  font-family: var(--font-mono); font-size: 10.5px; font-weight: 600;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--ink-3);
+  border: 0; background: transparent; cursor: pointer;
+  border-right: 1px solid var(--rule);
+}
+.scenario-mode-toggle .mode:last-child { border-right: 0; }
+.scenario-mode-toggle .mode.active {
+  background: var(--brand-tint);
+  color: var(--brand-dd);
+}
+
+/* Overlay-mode tints — applied to events when two scenarios share a surface */
+.evt-scenario-a   { box-shadow: inset 3px 0 0 0 var(--brand-d); }
+.evt-scenario-b   { box-shadow: inset 3px 0 0 0 var(--warn); }
+.evt-scenario-both {
+  background: var(--paper-2) !important;
+  color: var(--ink-2) !important;
+  box-shadow: inset 3px 0 0 0 var(--ink-3);
+  border-style: solid !important;
+}
+
+/* Compact scenario badge attached to an event */
+.evt-scenario-badge {
+  display: inline-block;
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  margin-left: 4px;
+  font-family: var(--font-mono); font-size: 8px;
+  font-weight: 700; text-align: center;
+  line-height: 12px;
+  color: var(--paper);
+}
+.evt-scenario-badge.a { background: var(--brand-d); }
+.evt-scenario-badge.b { background: var(--warn); }
+
+/* ============================================================
+ * Enforce §1.5b · "chrome is one row, never wraps"
+ * Eyebrow children should compress, never wrap to a second line.
+ * ============================================================ */
+.eyebrow-row {
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+.eyebrow-row .lbl,
+.eyebrow-row .meta {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.eyebrow-row .lbl { flex-shrink: 0; }
+.eyebrow-row .meta { flex-shrink: 1; }

@@ -73,9 +73,9 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
     const columnHeaderHeight = style ? getSomeorUndefined(style.columnHeaderHeight) ?? sizePreset.cellHeight : sizePreset.cellHeight;
     const legendPosition = style ? getSomeorUndefined(style.legendPosition)?.type ?? "bottom" : "bottom";
     const emphasisDefault = style ? getSomeorUndefined(style.emphasisColor) : undefined;
-    const selectedBackground = style ? getSomeorUndefined(style.selectedBackground) ?? "blue.200" : "blue.200";
-    const selectedBorderColor = style ? getSomeorUndefined(style.selectedBorderColor) ?? "blue.700" : "blue.700";
-    const hoverHighlightColor = style ? getSomeorUndefined(style.hoverHighlightColor) ?? "yellow.50" : "yellow.50";
+    const selectedBackground = style ? getSomeorUndefined(style.selectedBackground) ?? "bg.brand.subtle" : "bg.brand.subtle";
+    const selectedBorderColor = style ? getSomeorUndefined(style.selectedBorderColor) ?? "fg.default" : "fg.default";
+    const hoverHighlightColor = style ? getSomeorUndefined(style.hoverHighlightColor) ?? "bg.muted" : "bg.muted";
     const segmentLabelColor = style ? getSomeorUndefined(style.segmentLabelColor) ?? "white" : "white";
     const segmentLabelFontSize = style ? getSomeorUndefined(style.segmentLabelFontSize) ?? "0.75rem" : "0.75rem";
     const segmentLabelFontWeight = style ? getSomeorUndefined(style.segmentLabelFontWeight) ?? "600" : "600";
@@ -91,7 +91,7 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
 
     const [defaultGridColor, defaultEmphasis, selectedBgToken, selectedBorderToken, hoverHighlightToken] = useToken("colors", [
         "gray.200",
-        emphasisDefault ?? "blue.500",
+        emphasisDefault ?? "fg.danger",
         selectedBackground,
         selectedBorderColor,
         hoverHighlightColor,
@@ -397,7 +397,7 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
                                         height={sizePreset.cellHeight}
                                         background={
                                             isSelected ? selectedBgToken
-                                            : isThisCellHovered ? "yellow.100"
+                                            : isThisCellHovered ? hoverHighlightToken
                                             : (cellBackground ?? "white")
                                         }
                                         borderRadius={cellBorderRadius}
@@ -408,16 +408,17 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
                                         onPointerLeave={() => setHoveredCell(null)}
                                         overflow="hidden"
                                         {...(emphasisColor ? {
-                                            outline: `3px solid ${emphasisColor}`,
-                                            outlineOffset: "-3px",
+                                            outline: `2px solid ${emphasisColor}`,
+                                            outlineOffset: "-2px",
                                             zIndex: STACK.cellEmphasis,
                                         } : isEmphasized ? {
-                                            outline: `3px solid ${defaultEmphasis}`,
-                                            outlineOffset: "-3px",
+                                            outline: `2px solid ${defaultEmphasis}`,
+                                            outlineOffset: "-2px",
                                             zIndex: STACK.cellEmphasis,
                                         } : {})}
                                         {...(isSelected ? {
-                                            boxShadow: `inset 0 0 0 3px ${selectedBorderToken}`,
+                                            outline: `2px solid ${selectedBorderToken}`,
+                                            outlineOffset: "-2px",
                                         } : {})}
                                     >
                                         {/* Segment fill */}
@@ -427,7 +428,7 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
                                                     {segments.map((seg, i) => {
                                                         const pct = (seg.weight / totalWeight) * 100;
                                                         const isResizable = !!onSegmentChange && i < segments.length - 1;
-                                                        const segColor = getSomeorUndefined(seg.color) ?? colorByCategory.get(seg.category) ?? "blue.400";
+                                                        const segColor = getSomeorUndefined(seg.color) ?? colorByCategory.get(seg.category) ?? "brand.solid";
                                                         const handleColor = tokenToCssVar(segColor);
                                                         const segLabel = getSomeorUndefined(seg.label);
                                                         // Cell height is fixed via the size preset; vertical
@@ -499,7 +500,7 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
                                                     {segments.map((seg, i) => {
                                                         const pct = (seg.weight / totalWeight) * 100;
                                                         const isResizable = !!onSegmentChange && i < segments.length - 1;
-                                                        const segColor = getSomeorUndefined(seg.color) ?? colorByCategory.get(seg.category) ?? "blue.400";
+                                                        const segColor = getSomeorUndefined(seg.color) ?? colorByCategory.get(seg.category) ?? "brand.solid";
                                                         const handleColor = tokenToCssVar(segColor);
                                                         const segLabel = getSomeorUndefined(seg.label);
                                                         // Cell width is live-measured via the ResizeObserver

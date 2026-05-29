@@ -79,20 +79,21 @@ export interface RechartsMargin {
 // ============================================================================
 
 /**
- * Default color palette for series without explicit colors.
- * Colors chosen for visual distinction and aesthetic harmony.
+ * Series colours are the theme `accent` token keys, in the token's canonical
+ * order (`tokens.ts` → `colors.accent`, "chart palette only. Order is
+ * canonical."). The first auto series is brand teal — the spec leads with the
+ * brand colour, never a generic blue. Series colour is resolved as the token
+ * `accent.<key>`; do not hardcode hex or Chakra palette literals here.
  */
 export const SERIES_COLOR_PALETTE = [
-    "blue",
+    "brand",
     "purple",
-    "teal",
     "orange",
-    "pink",
-    "cyan",
-    "green",
-    "red",
+    "blue",
+    "teal",
     "yellow",
-    "indigo",
+    "pink",
+    "slate",
 ] as const;
 
 /**
@@ -110,18 +111,17 @@ export const PIVOT_SHADE_PALETTE = [
 ] as const;
 
 /**
- * Get the default color for a series based on its index.
- * Returns the base color name (e.g., "blue") without shade suffix.
+ * The `accent` token key for a series by index (e.g. `"brand"`, `"slate"`).
  */
 export function getDefaultSeriesColor(seriesIndex: number): string {
     return SERIES_COLOR_PALETTE[seriesIndex % SERIES_COLOR_PALETTE.length]!;
 }
 
 /**
- * Get the full color token for a series (with .solid suffix).
+ * Series colour as the theme token `accent.<key>`.
  */
 export function getDefaultSeriesColorToken(seriesIndex: number): string {
-    return `${getDefaultSeriesColor(seriesIndex)}.solid`;
+    return `accent.${getDefaultSeriesColor(seriesIndex)}`;
 }
 
 /**
@@ -137,8 +137,11 @@ export function getPivotShade(pivotIndex: number): string {
  * @param pivotIndex - The index of the pivot value
  */
 export function getPivotColorToken(baseColor: string, pivotIndex: number): string {
-    const colorName = baseColor.split(".")[0];
-    return `${colorName}.${getPivotShade(pivotIndex)}`;
+    // Pivot values shade a colour SCALE; the flat accent tokens have no ramp,
+    // so shade the matching scale family — `slate` resolves to our `gray` ramp.
+    const key = baseColor.split(".")[0];
+    const scale = key === "slate" ? "gray" : key;
+    return `${scale}.${getPivotShade(pivotIndex)}`;
 }
 
 /**

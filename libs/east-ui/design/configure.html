@@ -25,14 +25,16 @@
   .lhs-headers {
     display: grid;
     gap: 4px;
-    padding: 8px 10px;
+    padding: 10px 14px;
     border-bottom: 1px solid var(--rule-strong);
     font-family: var(--font-mono);
-    font-size: 10px; font-weight: 600;
-    letter-spacing: 0.16em; text-transform: uppercase;
+    font-size: 11px; font-weight: 600;
+    letter-spacing: 0.18em; text-transform: uppercase;
     color: var(--ink-4);
     align-items: center;
     background: var(--paper-2);
+    min-height: 44px;
+    box-sizing: border-box;
   }
   .lhs-headers.planner { grid-template-columns: minmax(0, 1fr) 50px 50px; }
   .lhs-headers.gantt   { grid-template-columns: minmax(0, 1fr) 70px; }
@@ -208,7 +210,7 @@
 
     <article id="calendar-heatmap" class="pattern">
       <div class="pattern-head"><span class="pattern-name">Input<span class="ns">.</span>Calendar</span></div>
-      <p class="pattern-blurb">Day-of-week × week grid coloured by intensity. Used for forecast, demand, OT exposure. Click any cell to drill.</p>
+      <p class="pattern-blurb">Day-of-week × week grid coloured by intensity. Used for forecast, demand, OT exposure. <strong>Visualisation only</strong> — click drills into the day, but Calendar is not part of the <a class="btn-link" href="#planner">Planner</a> family (no events, no committed/proposed state, no DnD). Pair it with a <span class="mono">Slice.Range</span> in the surrounding chrome if the time window needs to narrow.</p>
       <div class="frame">
         <div class="eyebrow-row"><span class="lbl">Forecasted demand · SE region · Sep–Oct</span><span class="meta">low → high</span></div>
         <div class="cal-heat">
@@ -305,11 +307,21 @@
         <div class="spec-note" style="margin-top: 12px;">Always shows the gap, signed and with units. Never just "invalid".</div>
       </div>
 
+      <div class="frame" style="margin-top: 14px;">
+        <div class="eyebrow-row">
+          <span class="lbl">Drag &amp; drop · matrix opts out of the Planner grammar</span>
+          <span class="meta muted">no <span class="mono">add</span> · no <span class="mono">move</span> · no <span class="mono">remove</span> · no <span class="mono">resize</span> across cells</span>
+        </div>
+        <div class="pad-18" style="font-size: 13px; line-height: 1.55; color: var(--ink-2);">
+          The Matrix renders cells via a <strong>free slot</strong>; whatever DnD the cell's slot uses — drag-to-resize a segment within a cell, brush-select across cells, click-to-edit a numeric input — is <strong>slot-owned</strong>. None of it crosses cell boundaries, and none of it produces <span class="mono">Planner</span>-grammar events (<span class="mono">add</span> / <span class="mono">move</span> / <span class="mono">remove</span> / <span class="mono">resize</span>). If a host needs cross-cell drag semantics, the right pattern is <a class="btn-link" href="#planner">Collections.Planner</a>, not Matrix with custom hooks.
+        </div>
+      </div>
+
     </article>
 
     <article id="roster" class="pattern">
       <div class="pattern-head"><span class="pattern-name">Collections<span class="ns">.</span>Roster</span></div>
-      <p class="pattern-blurb">The roster surface. Editable mode shows drag handles on every shift, ghost overlays for the model's proposed moves, and click-to-add empty cells; read-only mode (published rosters, audit views, side-by-side compare) drops the handles, dirty state, and toolbar — same chassis, same grid, no edit affordances.</p>
+      <p class="pattern-blurb">A configuration of <span class="mono">Collections.Planner.Point</span> — <span class="mono">rows = people</span>, axis = <span class="mono">datetime</span>, <span class="mono">slotsPerColumn = shift-labels</span>. Same chassis, same event-state grammar (<span class="mono">committed</span> / <span class="mono">proposed</span> / <span class="mono">rejected</span>), but specialised for people-on-shifts: published rosters render committed-only with no handles; edit mode allows operator + model proposals; cross-row moves between people materialise as <a class="btn-link" href="#swap-request">Communicate.Swap</a> proposals routed to the affected counter-parties. See <a class="btn-link" href="#planner">Planner</a> for the underlying contracts.</p>
       <div class="frame">
         <div class="eyebrow-row"><span class="lbl">Edit roster · SE region · wk of Sep 16</span><span class="meta muted">3 dirty · 1 new · 2 ghost · <a class="btn-link" href="#">show diff →</a></span></div>
         <div class="board-toolbar">
@@ -364,6 +376,11 @@
           <span><span class="num">3</span> dirty · <span class="num pos">1</span> new · <span class="num">2</span> model-ghost · selected · <span class="num">Cho · Thu 8h</span></span>
           <span class="muted" style="margin-left: auto;">⌫ delete · ⌥-drag duplicate · ⏎ accept ghost</span>
         </div>
+
+        <div class="diff-meta-row" style="border-top: 1px solid var(--rule); flex-wrap: wrap; row-gap: 4px;">
+          <span class="cap-eyebrow">Drag &amp; drop</span>
+          <span class="muted" style="margin-left: 8px;">Supports <span class="mono">add</span> (from a sibling Library) · <span class="mono">move</span> (within the surface) · <span class="mono">remove</span> (drag off the cell). No <span class="mono">resize</span> — shifts are point events, not spans. Cross-row moves between people materialise as <a class="btn-link" href="#swap-request">Communicate.Swap</a> proposals; same-row moves apply directly. See <a class="btn-link" href="#planner">Planner · Drag &amp; drop event grammar</a> for the full matrix.</span>
+        </div>
         <footer class="diff-foot">
           <span><span class="num pos">−$8k OT</span> · <span class="num">0 SLA risk</span> · 2 ghost shifts pending</span>
           <span class="actions">
@@ -377,7 +394,7 @@
 
     <article id="valuematrix" class="pattern">
       <div class="pattern-head"><span class="pattern-name">Collections<span class="ns">.</span>Matrix</span></div>
-      <p class="pattern-blurb">Generic row × column grid primitive. Cells are rendered via a slot — anything from a single weight bar to multi-segment splits, vertical capacity bars, badges, or icons. Row headers can be rich (avatar + name + sub). Configurable: orientation, brush selection, drag-resize segments, emphasis ring, corner overlays. <span class="mono">ValueMatrixEditor</span>, capacity heatmaps, allocation grids, and eligibility tables are all configurations of this.</p>
+      <p class="pattern-blurb">Generic row × column grid primitive. Cells are rendered via a free slot — anything from a single weight bar to multi-segment splits, vertical capacity bars, badges, or icons. Row headers can be rich (avatar + name + sub). Configurable: orientation, brush selection, emphasis ring, corner overlays. <span class="mono">ValueMatrixEditor</span>, capacity heatmaps, allocation grids, and eligibility tables are all configurations of this. <strong>Matrix opts out of the <a class="btn-link" href="#planner">Planner DnD grammar</a></strong> — it doesn't author <span class="mono">add</span> / <span class="mono">move</span> / <span class="mono">remove</span> / <span class="mono">resize</span> events. The cell's slot may render <em>internal</em> interactions (drag-to-resize a segment within a cell, brush-select across cells), but those are slot-owned and never cross cell boundaries.</p>
 
       <!-- Config 1: Heat-grid (booked / free) with rich row headers -->
       <div class="frame">
@@ -477,48 +494,6 @@
           <div class="mx-cell"><div class="mx-bar"><span class="seg booked" style="width: 60%;"></span><span class="seg free" style="width: 40%;"></span></div></div>
         </div>
         <div class="mx-legend"><span><span class="swatch booked"></span>Booked</span><span><span class="swatch free"></span>Free</span><span><span class="swatch atrisk"></span>At risk</span></div>
-      </div>
-
-      <!-- Config 5: Numeric editable (legacy ValueMatrixEditor) -->
-      <div class="frame" style="margin-top: 14px;">
-        <div class="eyebrow-row"><span class="lbl">Config · numeric editable · row & column totals</span><span class="meta muted">cells render as <span class="mono">&lt;input&gt;</span> · dirty state · sum row + sum col</span></div>
-        <div class="mx" style="grid-template-columns: 110px repeat(4, 1fr) 90px;">
-          <div class="mx-h"></div>
-          <div class="mx-h">Wk 1</div><div class="mx-h">Wk 2</div><div class="mx-h">Wk 3</div><div class="mx-h">Wk 4</div>
-          <div class="mx-h">Row Σ</div>
-
-          <div class="mx-rh">NE</div>
-          <div class="mx-cell mx-num"><input value="600" /></div>
-          <div class="mx-cell mx-num"><input value="650" /></div>
-          <div class="mx-cell mx-num"><input value="700" /></div>
-          <div class="mx-cell mx-num"><input value="600" /></div>
-          <div class="mx-cell mx-num total"><input value="2,550" readonly /></div>
-
-          <div class="mx-rh">SE</div>
-          <div class="mx-cell mx-num"><input value="900" /></div>
-          <div class="mx-cell mx-num dirty"><input value="1,200" /></div>
-          <div class="mx-cell mx-num dirty"><input value="1,400" /></div>
-          <div class="mx-cell mx-num"><input value="850" /></div>
-          <div class="mx-cell mx-num total"><input value="4,350" readonly /></div>
-
-          <div class="mx-rh">MW</div>
-          <div class="mx-cell mx-num"><input value="500" /></div>
-          <div class="mx-cell mx-num"><input value="550" /></div>
-          <div class="mx-cell mx-num"><input value="600" /></div>
-          <div class="mx-cell mx-num"><input value="450" /></div>
-          <div class="mx-cell mx-num total"><input value="2,100" readonly /></div>
-
-          <div class="mx-rh">Col Σ</div>
-          <div class="mx-cell mx-num total"><input value="2,000" readonly /></div>
-          <div class="mx-cell mx-num total"><input value="2,400" readonly /></div>
-          <div class="mx-cell mx-num total"><input value="2,700" readonly /></div>
-          <div class="mx-cell mx-num total"><input value="1,900" readonly /></div>
-          <div class="mx-cell mx-num total"><input value="9,000" readonly /></div>
-        </div>
-        <div class="row gap-3" style="padding: 10px 14px; align-items: center;">
-          <span class="sumcheck ok">✓ within $10,000 cap</span>
-          <span class="cap-eyebrow muted" style="margin-left: auto;">2 dirty cells · <a class="btn-link" href="#">show diff →</a></span>
-        </div>
       </div>
 
       <!-- Config 6: Brush selection -->
@@ -1611,7 +1586,7 @@
 
     <article id="swap-request" class="pattern">
       <div class="pattern-head"><span class="pattern-name">Communicate<span class="ns">.</span>Swap</span></div>
-      <p class="pattern-blurb">Atomic two-person shift swap with reason and approval state. Initiated by an operator; routed to the affected counter-party.</p>
+      <p class="pattern-blurb">The communication surface for a cross-row <span class="mono">move</span> event proposed in <a class="btn-link" href="#planner">Collections.Planner.Point</a> / <a class="btn-link" href="#roster">Roster</a>. When the proposed move would shift a shift / assignment from one row's owner to another, the system surfaces this card to the affected counter-party. Carries the from/to identities, the reason, and the approval state; on <span class="mono">Apply</span>, materialises as a pair of <span class="mono">proposed</span> events (one removal on the source row, one addition on the target) — same dirty-patch ownership as any other Planner edit. Not a peer of the schedulers; it's their cross-row message envelope.</p>
       <div class="frame pad-18">
         <div class="swap-card">
           <div class="swap-side">
@@ -1638,6 +1613,10 @@
             <button class="btn primary">Apply · send swap request</button>
           </span>
         </div>
+        <div class="diff-meta-row" style="border-top: 1px solid var(--rule); flex-wrap: wrap; row-gap: 4px;">
+          <span class="cap-eyebrow">Drag &amp; drop</span>
+          <span class="muted" style="margin-left: 8px;">No native DnD — Swap is the <em>communication surface</em> for a <span class="mono">move</span> event proposed in <a class="btn-link" href="#planner">Planner</a> / <a class="btn-link" href="#roster">Roster</a>. The proposed move arrives here as a card; the counter-party approves or rejects. On <span class="mono">Apply</span>, the move materialises as a pair of <span class="mono">proposed</span> events back in the originating surface.</span>
+        </div>
       </div>
 
     </article>
@@ -1663,116 +1642,536 @@
 
     <article id="planner" class="pattern">
       <div class="pattern-head"><span class="pattern-name">Collections<span class="ns">.</span>Planner</span></div>
-      <p class="pattern-blurb">Row × abstract-slot grid. Left side carries table cells (resource identity, capacity, role); right side is a numeric-slot timeline that can hold single-slot or span events. Used for shift rosters, queue assignments, capacity allocations — anywhere "slot N on row M" is the placement primitive. Compare with <span class="mono">Collections<span class="ns">.</span>Gantt</span> (datetime-axis); Planner's axis is abstract <span class="mono">FloatType</span>.</p>
+      <p class="pattern-blurb">The slot-based scheduling primitive. <strong>Rows × ordered slots</strong>, where rows are typed resources (people, tanks, workstreams, task-types, additive-types) and slots are positions on an axis that can be <span class="mono">datetime</span>, <span class="mono">numeric</span> (day-of-X, hour-of-Y) or <span class="mono">ordinal</span> (phase / stage / week-number). Each cell holds zero or more <strong>events</strong> in one of three states — <span class="mono">committed</span> (audit-locked), <span class="mono">proposed</span> (draggable, dirty-patch owned), or <span class="mono">rejected</span> (kept for diff). Sub-slot buckets (AM/PM, morning/arvo/night) declared with <span class="mono">slotsPerColumn</span>. <span class="mono">Roster</span> and <span class="mono">Gantt</span> are configurations of this chassis; the slot mental model is the same.</p>
       <div class="frame">
         <div class="eyebrow-row">
-          <span class="lbl">Roster · week of Sep 09 – Sep 15</span>
-          <span class="meta">7 operators · slots <span class="num" style="color: var(--ink); font-weight: 600;">0 – 7</span> · <span class="num pos" style="font-weight: 600;">▲ 3 swaps pending</span></span>
+          <span class="lbl">TANK-04 · ferment day 4–11</span>
+          <span class="meta muted">AM / PM · today <span class="mono" style="color: var(--ink); font-weight: 600;">day 7</span></span>
         </div>
-        <div style="display: grid; grid-template-columns: 220px 1fr; border-bottom: 1px solid var(--rule-strong); background: var(--paper-2);">
-          <div class="lhs-headers planner" style="border-right: 1px solid var(--rule);">
-            <span class="col-h">operator<span class="col-icons"><span class="col-i sort active" title="Sorted ascending"><svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true"><path d="M4 1.5l3 4H1z" fill="currentColor"/></svg><sup>1</sup></span></span></span>
-            <span class="col-h">hrs<span class="col-icons"><span class="col-i sort active" title="Sorted descending"><svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true"><path d="M4 6.5L1 2.5h6z" fill="currentColor"/></svg><sup>2</sup></span></span></span>
-            <span class="col-h end">role<span class="col-icons"><span class="col-i filter active" title="Filter active"><svg width="9" height="9" viewBox="0 0 10 10" aria-hidden="true"><path d="M1 1.5h8L6 5v3.5L4 9.5V5L1 1.5z" fill="currentColor"/></svg></span></span></span>
+
+        <div class="planner-grid">
+          <!-- Header row · flat 9-column grid · matches .lhs-headers rhythm (mono 11px / 0.18em / paper-2 / 44px) -->
+          <div style="grid-column: 1 / -1; position: relative; display: grid; grid-template-columns: 240px repeat(8, minmax(0, 1fr)); align-items: center; border-bottom: 1px solid var(--rule-strong); background: var(--paper-2); min-height: 44px; box-sizing: border-box;">
+            <div style="display: flex; align-items: center; padding: 10px 14px; border-right: 1px solid var(--rule); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4); height: 100%; box-sizing: border-box;">Resource <span style="margin-left: auto; color: var(--ink-5); font-weight: 500;">ferment day →</span></div>
+            <div style="padding: 10px 4px; border-right: 1px solid var(--rule); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4); min-width: 0; white-space: nowrap; overflow: hidden; text-align: center;">4</div>
+            <div style="padding: 10px 4px; border-right: 1px solid var(--rule); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4); min-width: 0; white-space: nowrap; overflow: hidden; text-align: center;">5</div>
+            <div style="padding: 10px 4px; border-right: 1px solid var(--rule); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4); min-width: 0; white-space: nowrap; overflow: hidden; text-align: center;">6</div>
+            <div style="padding: 10px 4px; border-right: 1px solid var(--rule); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4); min-width: 0; white-space: nowrap; overflow: hidden; text-align: center;">7</div>
+            <div style="padding: 10px 4px; border-right: 1px solid var(--rule); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4); min-width: 0; white-space: nowrap; overflow: hidden; text-align: center;">8</div>
+            <div style="padding: 10px 4px; border-right: 1px solid var(--rule); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4); min-width: 0; white-space: nowrap; overflow: hidden; text-align: center;">9</div>
+            <div style="padding: 10px 4px; border-right: 1px solid var(--rule); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4); min-width: 0; white-space: nowrap; overflow: hidden; text-align: center;">10</div>
+            <div style="padding: 10px 4px; font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4); min-width: 0; white-space: nowrap; overflow: hidden; text-align: center;">11</div>
+            <!-- now marker (overlaid on the row, positioned at boundary between day 7 and day 8) -->
+            <div style="position: absolute; left: calc(240px + (100% - 240px) * 0.5); top: 0; bottom: 0; width: 0; border-left: 1px solid var(--brand-d); pointer-events: none; z-index: 2;"></div>
+            <div class="planner-now-hint" data-label="now · ferment-day 7 PM" style="left: calc(240px + (100% - 240px) * 0.5); top: 0; bottom: 0;"></div>
           </div>
-          <div>
-            <div style="display: grid; grid-template-columns: repeat(7, 1fr); padding: 8px 0; font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4);">
-              <span style="text-align: center;">Mon</span><span style="text-align: center;">Tue</span><span style="text-align: center;">Wed</span><span style="text-align: center;">Thu</span><span style="text-align: center;">Fri</span><span style="text-align: center;">Sat</span><span style="text-align: center;">Sun</span>
+
+          <div class="planner-row group-head">
+            <div class="planner-rh">Tasks</div>
+            <div class="planner-cells" style="grid-template-columns: 1fr;"></div>
+          </div>
+          <div class="planner-row">
+            <div class="planner-rh">
+              <span class="name">pump-over</span>
+              <span class="meta">recirc · 2× daily</span>
+            </div>
+            <div class="planner-cells" style="grid-template-columns: repeat(8, minmax(0, 1fr)); position: relative;">
+              <div class="planner-now" style="left: 50%;"></div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span><span class="evt evt-committed">✓</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span><span class="evt evt-committed">✓</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span><span class="evt evt-committed">✓</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span><span class="evt evt-committed">✓</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span><span class="evt evt-committed">✓</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span><span class="evt evt-committed">✓</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span><span class="evt evt-committed">✓</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span><span class="evt evt-committed">✓</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span><span class="evt evt-proposed"><span class="grip">⠿</span>✓</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span><span class="evt evt-proposed"><span class="grip">⠿</span>✓</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span><span class="evt evt-proposed"><span class="grip">⠿</span>✓</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span><span class="evt evt-proposed"><span class="grip">⠿</span>✓</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span><span class="evt evt-proposed model"><span class="grip">⠿</span>? model</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span><span class="evt evt-proposed model"><span class="grip">⠿</span>? model</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="planner-row">
+            <div class="planner-rh">
+              <span class="name">SO₂ check</span>
+              <span class="meta">pH probe · AM only</span>
+            </div>
+            <div class="planner-cells" style="grid-template-columns: repeat(8, minmax(0, 1fr)); position: relative;">
+              <div class="planner-now" style="left: 50%;"></div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span><span class="evt evt-committed">pH 3.4</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span><span class="evt evt-committed selected">pH 3.3</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span><span class="evt evt-proposed"><span class="grip">⠿</span>check</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span><span class="evt evt-proposed"><span class="grip">⠿</span>check</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="planner-row">
+            <div class="planner-rh">
+              <span class="name">racking</span>
+              <span class="meta">1× event · end of ferment</span>
+            </div>
+            <div class="planner-cells" style="grid-template-columns: repeat(8, minmax(0, 1fr)); position: relative;">
+              <div class="planner-now" style="left: 50%;"></div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span><span class="evt evt-proposed"><span class="grip">⠿</span>rack → barrel</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="planner-row group-head">
+            <div class="planner-rh">Additives</div>
+            <div class="planner-cells" style="grid-template-columns: 1fr;"></div>
+          </div>
+          <div class="planner-row">
+            <div class="planner-rh">
+              <span class="name">DAP</span>
+              <span class="meta">nitrogen · max 1× / day</span>
+            </div>
+            <div class="planner-cells" style="grid-template-columns: repeat(8, minmax(0, 1fr)); position: relative;">
+              <div class="planner-now" style="left: 50%;"></div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span><span class="evt evt-committed">150 ppm</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span><span class="evt evt-proposed"><span class="grip">⠿</span>100 ppm</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="planner-row">
+            <div class="planner-rh">
+              <span class="name">GoFerm</span>
+              <span class="meta">rehydration · day 1–5</span>
+            </div>
+            <div class="planner-cells" style="grid-template-columns: repeat(8, minmax(0, 1fr)); position: relative;">
+              <div class="planner-now" style="left: 50%;"></div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span><span class="evt evt-committed">30 g/hL</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span><span class="evt evt-proposed"><span class="grip">⠿</span>20 g/hL</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+                <div class="planner-conflict"></div><div class="planner-conflict-badge">!</div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="planner-row">
+            <div class="planner-rh">
+              <span class="name">SO₂</span>
+              <span class="meta">preservation · end of MLF</span>
+            </div>
+            <div class="planner-cells" style="grid-template-columns: repeat(8, minmax(0, 1fr)); position: relative;">
+              <div class="planner-now" style="left: 50%;"></div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span><span class="evt evt-proposed"><span class="grip">⠿</span>50 ppm</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="planner-row">
+            <div class="planner-rh">
+              <span class="name">malolactic</span>
+              <span class="meta">inoculation · 1× event</span>
+            </div>
+            <div class="planner-cells" style="grid-template-columns: repeat(8, minmax(0, 1fr)); position: relative;">
+              <div class="planner-now" style="left: 50%;"></div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed past">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
+              <div class="planner-cell bucketed">
+                <div class="planner-bucket"><span class="planner-bucket-label">AM</span><span class="evt evt-proposed model"><span class="grip">⠿</span>? inoc</span></div>
+                <div class="planner-bucket"><span class="planner-bucket-label">PM</span></div>
+              </div>
             </div>
           </div>
         </div>
-        <div class="planner-stack" style="position: relative;">
-        <!-- Row 1: full week of regular shifts -->
-        <div style="display: grid; grid-template-columns: 220px 1fr; border-bottom: 1px solid var(--rule); min-height: 48px;">
-          <div class="lhs-cells planner">
-            <span class="mono">a.patel</span>
-            <span class="num">40</span>
-            <span class="cap-eyebrow muted" style="text-align: right;">snr</span>
-          </div>
-          <div style="position: relative; display: grid; grid-template-columns: repeat(7, 1fr); align-items: center;">
-            <div style="grid-column: 1 / 6; height: 22px; margin: 0 3px; background: #3a7780; border-radius: 2px; display: flex; align-items: center; padding: 0 8px; color: white; font-family: var(--font-mono); font-size: 11px; font-weight: 600;">day · 09:00 – 17:00</div>
-          </div>
-        </div>
-        <!-- Row 2: split shifts with swap pending -->
-        <div style="display: grid; grid-template-columns: 220px 1fr; border-bottom: 1px solid var(--rule); min-height: 48px;">
-          <div class="lhs-cells planner">
-            <span class="mono">m.cho</span>
-            <span class="num">32</span>
-            <span class="cap-eyebrow muted" style="text-align: right;">mid</span>
-          </div>
-          <div style="position: relative; display: grid; grid-template-columns: repeat(7, 1fr); align-items: center;">
-            <div style="grid-column: 1 / 4; height: 22px; margin: 0 3px; background: #3a7780; border-radius: 2px; display: flex; align-items: center; padding: 0 8px; color: white; font-family: var(--font-mono); font-size: 11px; font-weight: 600;">day</div>
-            <div style="grid-column: 5 / 8; height: 22px; margin: 0 3px; background: #b8862d; opacity: 0.85; border-radius: 2px; border: 1px dashed #8a6420; display: flex; align-items: center; padding: 0 8px; color: white; font-family: var(--font-mono); font-size: 11px; font-weight: 600;">swap → r.diaz · pending</div>
-          </div>
-        </div>
-        <!-- Row 3: night-only -->
-        <div style="display: grid; grid-template-columns: 220px 1fr; border-bottom: 1px solid var(--rule); min-height: 48px;">
-          <div class="lhs-cells planner">
-            <span class="mono">r.diaz</span>
-            <span class="num">24</span>
-            <span class="cap-eyebrow muted" style="text-align: right;">jr</span>
-          </div>
-          <div style="position: relative; display: grid; grid-template-columns: repeat(7, 1fr); align-items: center;">
-            <div style="grid-column: 2 / 5; height: 22px; margin: 0 3px; background: #2b4b55; border-radius: 2px; display: flex; align-items: center; padding: 0 8px; color: white; font-family: var(--font-mono); font-size: 11px; font-weight: 600;">night · 22:00 – 06:00</div>
-            <div style="grid-column: 5 / 6; height: 22px; margin: 0 3px; background: var(--paper-2); border: 1px dashed var(--rule-strong); border-radius: 2px; display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 11px; color: var(--ink-4);">+ add</div>
-          </div>
-        </div>
-        <!-- Row 4: unassigned (capacity gap) -->
-        <div style="display: grid; grid-template-columns: 220px 1fr; min-height: 48px; background: rgba(184, 90, 74, 0.04);">
-          <div class="lhs-cells planner">
-            <span class="mono" style="color: var(--neg);">— unfilled</span>
-            <span class="num neg">8</span>
-            <span class="cap-eyebrow" style="color: var(--neg); text-align: right;">gap</span>
-          </div>
-          <div style="position: relative; display: grid; grid-template-columns: repeat(7, 1fr); align-items: center;">
-            <div style="grid-column: 6 / 8; height: 22px; margin: 0 3px; background: var(--neg); opacity: 0.7; border-radius: 2px; display: flex; align-items: center; padding: 0 8px; color: white; font-family: var(--font-mono); font-size: 11px; font-weight: 600;">2 shifts · no candidate</div>
-          </div>
-        </div>
-          <!-- swap dependency: m.cho's pending swap → r.diaz night bar.
-               Always enter target from LEFT with an h-stub adjoining its left vertical edge. -->
-          <div class="gantt-deps" aria-hidden="true" style="left: 220px; right: 0;">
-            <!-- h-stub LEFT adjoining swap bar's left edge (at x=57.1%, y=72) -->
-            <div class="gd-h dashed" style="left: 54%; top: 72px; width: 3.1%;"></div>
-            <!-- drop into gap above r.diaz -->
-            <div class="gd-v dashed" style="left: 54%; top: 72px; height: 24px;"></div>
-            <!-- run LEFT in row-2/3 gap, clear of night bar -->
-            <div class="gd-h dashed" style="left: 12%; top: 96px; width: 42%;"></div>
-            <!-- drop into r.diaz row, in the empty Mon area (left of night bar) -->
-            <div class="gd-v dashed" style="left: 12%; top: 96px; height: 24px;"></div>
-            <!-- h-stub RIGHT entering night bar's left edge (at x=14.3%, y=120) -->
-            <div class="gd-h dashed" style="left: 12%; top: 120px; width: 2.3%;"></div>
-            <svg class="gd-arrow warn right" width="7" height="10" viewBox="0 0 7 10" style="left: calc(14.3% - 7px); top: 115px;"><path class="gd-arrow-fill" d="M0 0 L7 5 L0 10 z"/></svg>
-            <div class="gd-label" style="left: 28%; top: 86px;">SWAP · pending</div>
-          </div>
-        </div>
+
         <div class="diff-meta-row">
-          <span class="cap-eyebrow">Slot snap</span>
-          <span style="margin-left: 8px;" class="muted">stepSize <span class="mono" style="color: var(--ink);">1.0</span> · drag a bar edge to resize, drag the body to move, double-click an empty cell to add</span>
+          <span class="cap-eyebrow">Event states</span>
+          <span style="margin-left: 8px; display: inline-flex; align-items: center; gap: 12px;">
+            <span class="evt evt-committed">committed</span>
+            <span class="evt evt-proposed"><span class="grip">⠿</span>proposed</span>
+            <span class="evt evt-proposed model"><span class="grip">⠿</span>model</span>
+            <span class="evt evt-proposed removed">removed</span>
+            <span class="evt evt-rejected">rejected</span>
+          </span>
+          <span class="muted" style="margin-left: auto;">drag a proposed event to move · double-click an empty bucket to add · committed events cannot be edited in place</span>
         </div>
       </div>
 
-    </article>
+      <div class="spec-note" style="margin: 16px 0 0; padding: 14px 18px; border: 1px solid var(--rule); border-radius: 4px; background: var(--paper-2);">
+        <div class="cap-eyebrow" style="margin-bottom: 10px;">Reading the example</div>
+        <div style="font-size: 13px; line-height: 1.6; color: var(--ink-2);">
+          <strong>Axis</strong> is <span class="mono">numeric</span> — day-of-fermentation, not calendar dates. The "now" line at day 7 divides committed past from proposed future. Past cells are read-only; future cells are draggable.<br>
+          <strong>Slots per column</strong> is <span class="mono">['AM', 'PM']</span> — sub-day buckets declared once on the axis. Three slots per column (morning / arvo / night), one slot per column (just date), or an arbitrary labelled array all work the same way.<br>
+          <strong>Conflict marker</strong> on <span class="mono">GoFerm · day 8 AM</span> — DAP and GoFerm are flagged as incompatible additives by a declared invariant (<span class="mono">no-cosolutes-same-bucket</span>). The renderer surfaces the rule's violation as a red ring + corner badge, not host-decorated.<br>
+          <strong>Two flavors of proposed</strong> — the dashed teal events are operator proposals (dirty-patch ownership); the italic ones are the model's suggested actions (day 10 pump-over, day 11 malolactic inoculation). Both narrow into <span class="mono">Commit.Bar</span> on Apply.
+        </div>
+      </div>
+
+      <div class="pattern-footer">
+        <div>
+          <div class="pattern-section-title">Three event states</div>
+          <table class="pattern-table">
+            <thead><tr><th>State</th><th>Visual</th><th>Behaviour</th></tr></thead>
+            <tbody>
+              <tr>
+                <td class="name">committed</td>
+                <td><span class="evt evt-committed">happened</span></td>
+                <td>Audit-locked, read-only. Solid <span class="mono">brand-700</span> fill. No drag handle. Hover shows provenance (run id, actor, timestamp). To change one, reverse it (creates a new committed reversal) and propose a new one — the history is not edited in place.</td>
+              </tr>
+              <tr>
+                <td class="name">proposed</td>
+                <td><span class="evt evt-proposed"><span class="grip">⠿</span>draft</span></td>
+                <td>Dirty-patch ownership. <span class="mono">brand-tint</span> fill, dashed edges, drag handle visible. Drags to move within the surface, off-surface to remove. <span class="mono">Commit.Bar</span> applies. Sub-flavours: <span class="mono">.added</span> (operator), <span class="mono">.model</span> (italic — model's suggestion), <span class="mono">.removed</span> (struck through — proposed deletion of a committed event).</td>
+              </tr>
+              <tr>
+                <td class="name">rejected</td>
+                <td><span class="evt evt-rejected">declined</span></td>
+                <td>A proposal that was reviewed and turned down. Kept for diff context; rendered as <span class="mono">ink-5</span> outline with strike-through. Hidden in regular view; surfaces only in compare / journal contexts.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div>
+          <div class="pattern-section-title">Five column kinds (left side)</div>
+          <table class="pattern-table">
+            <thead><tr><th>Kind</th><th>Purpose</th><th>Behaviour</th></tr></thead>
+            <tbody>
+              <tr><td class="name">identity</td>  <td>Row name + sub-label</td>  <td>Sticky-left; click selects the row; eyebrow style.</td></tr>
+              <tr><td class="name">resource</td>  <td>The thing the row represents</td><td>Drop target for items dragged from a sibling <span class="mono">Library</span>.</td></tr>
+              <tr><td class="name">capacity</td>  <td>Bounded headroom (hours, kL, FTE)</td><td>Renders as a small bar + numeric. Drives over-capacity markers in the body cells.</td></tr>
+              <tr><td class="name">derived</td>   <td>Computed from body content</td>     <td>Read-only. Recomputes when events change (sum of hours, count of tasks, current fill).</td></tr>
+              <tr><td class="name">action</td>    <td>Per-row controls</td>               <td>Small icon button cluster — pin, hide, edit. Right-aligned within the row header.</td></tr>
+              <tr><td class="name">custom</td>    <td>Hand-rolled by the host</td>         <td>Escape hatch. Renderer does nothing automatic — the host owns layout and behaviour.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div>
+          <div class="pattern-section-title">Drag &amp; drop event grammar</div>
+          <table class="pattern-table">
+            <thead><tr><th>Event kind</th><th>Shape</th><th>Surfaces that support it</th></tr></thead>
+            <tbody>
+              <tr><td class="name">add</td>    <td>Drop new item into a cell (from a sibling <span class="mono">Library</span> or palette)</td><td>Planner.Point · Planner.Span · Roster · Workbench</td></tr>
+              <tr><td class="name">move</td>   <td>Drag a proposed event from cell A to cell B</td>                                              <td>Planner.Point · Planner.Span · Roster</td></tr>
+              <tr><td class="name">remove</td> <td>Drag a proposed event off the surface (to trash or back to source)</td>                       <td>Planner.Point · Planner.Span · Roster · Workbench</td></tr>
+              <tr><td class="name">resize</td> <td>Drag the start or end edge of a span event</td>                                               <td>Planner.Span · Gantt</td></tr>
+            </tbody>
+          </table>
+          <p class="spec-note" style="margin-top: 10px;">
+            Three actor roles: <strong>source</strong> (Library, palette — drag from), <strong>target</strong> (Planner cells — drag to · within · out), <strong>sink</strong> (trash, return-to-source). Every surface declares its supported subset; the renderer rejects unsupported kinds at type time. <span class="mono">Matrix</span> opts out entirely — its cells render via a free slot, no inherent DnD.
+          </p>
+        </div>
+
+        <p class="spec-note">
+          <span class="k">Invariants:</span>
+          <strong>Committed events are read-only by construction.</strong> Editing the past would corrupt the audit trail. To change a committed event, propose a new one that reverses it (the model can be configured to do this automatically) — both the original and the reversal stay committed.
+          <strong>One axis type per Planner.</strong> Mixing <span class="mono">datetime</span> and <span class="mono">numeric</span> in one surface is forbidden — pick one and stay there.
+          <strong>Sub-slot buckets are labelled.</strong> <span class="mono">slotsPerColumn = ['AM','PM']</span> labels the buckets explicitly. A bare <span class="mono">slotsPerColumn = 2</span> is rejected — operators need to read the bucket name.
+          <strong>Conflict markers come from declared invariants, not the host.</strong> Authoring <span class="mono">invariants: [{ rule, message, severity }]</span> means every screen that uses the same Planner config flags the same violations the same way. Host-decorated red borders are forbidden.
+          <strong>The "now" line is implicit and quiet.</strong> The renderer draws a 1px brand-d vertical rule at the boundary between the last committed-allowed slot and the first proposed-allowed slot. A small brand-d pip caps the top of the rule so the visual reads as a marker, not a generic separator. <strong>No permanent text label</strong> — adding chrome real-estate to host a 3-letter word is wasteful. On hover (across a 12px hit zone around the line), a dark tooltip surfaces the precise position (e.g. <span class="mono">now · ferment-day 7 PM</span>). Configurable per row — some resources have no "now" (e.g. a budget planner where every slot is proposed).
+          <strong>Variants:</strong>
+          <span class="mono">Collections<span class="ns">.</span>Planner.Point</span> — slot-bound events (the winemaker default, Roster's chassis).
+          <span class="mono">Collections<span class="ns">.</span>Planner.Span</span> — multi-slot span events (the Gantt chassis).
+          <span class="mono">Collections<span class="ns">.</span>Planner.Summary</span> — read-only roll-up view; no DnD, no <span class="mono">Commit.Bar</span> ownership; events are grouped by another dimension.
+          <span class="mono">Collections<span class="ns">.</span>Planner.Template</span> — recurring-event templates that materialise into proposed events on contact (specced below).
+        </p>
+
+        <div style="margin-top: 18px;">
+          <div class="pattern-section-title">Variant · <span class="mono">Collections.Planner.Template</span></div>
+          <p style="margin: 6px 0 12px; font-size: 13px; line-height: 1.6; color: var(--ink-2);">
+            A reusable recurring-event pattern. Authored as a <span class="mono">{rule, range, slot, event}</span> tuple; dragged from a sibling palette onto the canvas, it materialises into a set of <span class="mono">proposed</span> events the operator can edit individually. Once instantiated, events lose their template link — each is a peer of every other proposed event for edit / commit / reject. The template itself is configuration, not state; deleting it does not remove the events it materialised.
+          </p>
+
+          <div class="frame" style="margin: 0;">
+            <div class="eyebrow-row">
+              <span class="lbl">Template · <span class="mono">pump-over · 2× daily · ferment-day 1–7</span></span>
+              <span class="meta muted">drag onto the canvas → instantiates 14 proposed events</span>
+            </div>
+            <div style="display: grid; grid-template-columns: 240px 1fr; gap: 0;">
+              <div style="padding: 14px 16px; background: var(--paper-2); border-right: 1px solid var(--rule); display: flex; flex-direction: column; gap: 10px;">
+                <div>
+                  <div class="cap-eyebrow muted" style="margin-bottom: 4px;">Rule</div>
+                  <span class="mono" style="font-size: 12px; color: var(--ink);">every day</span>
+                </div>
+                <div>
+                  <div class="cap-eyebrow muted" style="margin-bottom: 4px;">Range</div>
+                  <span class="mono" style="font-size: 12px; color: var(--ink);">ferment-day 1–7</span>
+                </div>
+                <div>
+                  <div class="cap-eyebrow muted" style="margin-bottom: 4px;">Slots</div>
+                  <span class="mono" style="font-size: 12px; color: var(--ink);">['AM', 'PM']</span>
+                </div>
+                <div>
+                  <div class="cap-eyebrow muted" style="margin-bottom: 4px;">Event</div>
+                  <span class="mono" style="font-size: 12px; color: var(--ink);">pump-over · ✓</span>
+                </div>
+              </div>
+              <div style="padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;">
+                <div class="cap-eyebrow muted">Materialises as</div>
+                <div style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px;">
+                  <div style="padding: 3px; background: var(--paper-2); border-radius: 2px; text-align: center; font-family: var(--font-mono); font-size: 9px; color: var(--ink-4); letter-spacing: 0.12em; text-transform: uppercase;">d1</div>
+                  <div style="padding: 3px; background: var(--paper-2); border-radius: 2px; text-align: center; font-family: var(--font-mono); font-size: 9px; color: var(--ink-4); letter-spacing: 0.12em; text-transform: uppercase;">d2</div>
+                  <div style="padding: 3px; background: var(--paper-2); border-radius: 2px; text-align: center; font-family: var(--font-mono); font-size: 9px; color: var(--ink-4); letter-spacing: 0.12em; text-transform: uppercase;">d3</div>
+                  <div style="padding: 3px; background: var(--paper-2); border-radius: 2px; text-align: center; font-family: var(--font-mono); font-size: 9px; color: var(--ink-4); letter-spacing: 0.12em; text-transform: uppercase;">d4</div>
+                  <div style="padding: 3px; background: var(--paper-2); border-radius: 2px; text-align: center; font-family: var(--font-mono); font-size: 9px; color: var(--ink-4); letter-spacing: 0.12em; text-transform: uppercase;">d5</div>
+                  <div style="padding: 3px; background: var(--paper-2); border-radius: 2px; text-align: center; font-family: var(--font-mono); font-size: 9px; color: var(--ink-4); letter-spacing: 0.12em; text-transform: uppercase;">d6</div>
+                  <div style="padding: 3px; background: var(--paper-2); border-radius: 2px; text-align: center; font-family: var(--font-mono); font-size: 9px; color: var(--ink-4); letter-spacing: 0.12em; text-transform: uppercase;">d7</div>
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px;">
+                  <div style="padding: 2px; background: var(--paper); border: 1px dashed var(--rule); border-radius: 2px; display: flex; flex-direction: column; gap: 2px;">
+                    <span class="evt evt-proposed" style="font-size: 9px; padding: 1px 4px;"><span class="grip">⠿</span>AM</span>
+                    <span class="evt evt-proposed" style="font-size: 9px; padding: 1px 4px;"><span class="grip">⠿</span>PM</span>
+                  </div>
+                  <div style="padding: 2px; background: var(--paper); border: 1px dashed var(--rule); border-radius: 2px; display: flex; flex-direction: column; gap: 2px;">
+                    <span class="evt evt-proposed" style="font-size: 9px; padding: 1px 4px;"><span class="grip">⠿</span>AM</span>
+                    <span class="evt evt-proposed" style="font-size: 9px; padding: 1px 4px;"><span class="grip">⠿</span>PM</span>
+                  </div>
+                  <div style="padding: 2px; background: var(--paper); border: 1px dashed var(--rule); border-radius: 2px; display: flex; flex-direction: column; gap: 2px;">
+                    <span class="evt evt-proposed" style="font-size: 9px; padding: 1px 4px;"><span class="grip">⠿</span>AM</span>
+                    <span class="evt evt-proposed" style="font-size: 9px; padding: 1px 4px;"><span class="grip">⠿</span>PM</span>
+                  </div>
+                  <div style="padding: 2px; background: var(--paper); border: 1px dashed var(--rule); border-radius: 2px; display: flex; flex-direction: column; gap: 2px;">
+                    <span class="evt evt-proposed" style="font-size: 9px; padding: 1px 4px;"><span class="grip">⠿</span>AM</span>
+                    <span class="evt evt-proposed" style="font-size: 9px; padding: 1px 4px;"><span class="grip">⠿</span>PM</span>
+                  </div>
+                  <div style="padding: 2px; background: var(--paper); border: 1px dashed var(--rule); border-radius: 2px; display: flex; flex-direction: column; gap: 2px;">
+                    <span class="evt evt-proposed" style="font-size: 9px; padding: 1px 4px;"><span class="grip">⠿</span>AM</span>
+                    <span class="evt evt-proposed" style="font-size: 9px; padding: 1px 4px;"><span class="grip">⠿</span>PM</span>
+                  </div>
+                  <div style="padding: 2px; background: var(--paper); border: 1px dashed var(--rule); border-radius: 2px; display: flex; flex-direction: column; gap: 2px;">
+                    <span class="evt evt-proposed" style="font-size: 9px; padding: 1px 4px;"><span class="grip">⠿</span>AM</span>
+                    <span class="evt evt-proposed" style="font-size: 9px; padding: 1px 4px;"><span class="grip">⠿</span>PM</span>
+                  </div>
+                  <div style="padding: 2px; background: var(--paper); border: 1px dashed var(--rule); border-radius: 2px; display: flex; flex-direction: column; gap: 2px;">
+                    <span class="evt evt-proposed" style="font-size: 9px; padding: 1px 4px;"><span class="grip">⠿</span>AM</span>
+                    <span class="evt evt-proposed" style="font-size: 9px; padding: 1px 4px;"><span class="grip">⠿</span>PM</span>
+                  </div>
+                </div>
+                <div style="font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-3); padding-top: 6px; border-top: 1px solid var(--rule);">
+                  <span style="color: var(--ink); font-weight: 600;">14 proposed events</span> · each independently editable · template link is broken after instantiation
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <p class="spec-note" style="margin-top: 12px;">
+            <span class="k">Use cases:</span>
+            Winemaker dosing schedules (2× daily pump-overs across primary), periodisation cycles (a week of training intensities), maintenance routines (Friday safety checks per quarter), kit prep checklists, MLF nutrient additions.
+            <span class="k">Rule grammar (initial):</span>
+            <span class="mono">every day</span> · <span class="mono">every other day</span> · <span class="mono">weekly on D</span> · <span class="mono">first of month</span> · <span class="mono">days [list]</span>. More complex schedules go through <span class="mono">Cause.SupplyDemand</span> or a custom rule function (<span class="mono">rule: fn(day) → boolean</span>).
+            <span class="k">Templates vs events:</span>
+            A template is configuration with a known set of materialisations. An event is state with provenance. They never co-exist on the canvas: once instantiated, only the events remain. Editing the template after instantiation does <em>not</em> retroactively change the instantiated events — it changes only future instantiations.
+          </p>
+        </div>
+      </div>
 
     <article id="gantt" class="pattern">
       <div class="pattern-head"><span class="pattern-name">Collections<span class="ns">.</span>Gantt</span></div>
-      <p class="pattern-blurb">Datetime-axis row × time grid. Left side carries table cells (workstream, owner, status); right side is a real calendar timeline carrying tasks (date-range bars with progress) and milestones (single-point diamond markers). Compare with <span class="mono">Collections<span class="ns">.</span>Planner</span> (abstract slot axis); Gantt's axis is <span class="mono">DateTimeType</span> with real calendar weeks.</p>
+      <p class="pattern-blurb">A configuration of <span class="mono">Collections.Planner.Span</span> — axis = <span class="mono">datetime</span>, events are multi-slot spans with start &amp; end, plus the project-planning affordances Gantt-style consumers need: <strong>dependency arrows</strong> (finish-to-start, start-to-start, with slip detection), <strong>milestones</strong> (zero-duration point markers as diamonds), <strong>critical path overlay</strong>, and a <strong>"now" line</strong> distinguishing committed past from proposed future. Same event-state grammar (<span class="mono">committed</span> / <span class="mono">proposed</span> / <span class="mono">rejected</span>) and the same five typed column kinds as <a class="btn-link" href="#planner">Planner</a>; the difference from Planner.Point is shape (<span class="mono">span</span> vs <span class="mono">point</span>), not scaffolding.</p>
       <div class="frame">
         <div class="eyebrow-row">
           <span class="lbl">Project · procure-2024 rebuild</span>
           <span class="meta">3 workstreams · <span class="num pos" style="font-weight: 600;">42% complete</span> · 2 milestones <span class="sep">·</span> due <span class="num" style="color: var(--ink); font-weight: 600;">Nov 30</span></span>
         </div>
-        <div style="display: grid; grid-template-columns: 220px 1fr; border-bottom: 1px solid var(--rule-strong); background: var(--paper-2);">
+        <div style="display: grid; grid-template-columns: 220px 1fr; border-bottom: 1px solid var(--rule-strong); background: var(--paper-2); min-height: 44px; box-sizing: border-box;">
           <div class="lhs-headers gantt" style="border-right: 1px solid var(--rule);">
             <span class="col-h">workstream<span class="col-icons"><span class="col-i sort active" title="Sorted ascending"><svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true"><path d="M4 1.5l3 4H1z" fill="currentColor"/></svg></span><span class="col-i filter active" title="2 filters"><svg width="9" height="9" viewBox="0 0 10 10" aria-hidden="true"><path d="M1 1.5h8L6 5v3.5L4 9.5V5L1 1.5z" fill="currentColor"/></svg></span></span></span>
             <span class="col-h end">owner<span class="col-icons"><span class="col-i filter" title="Filter"><svg width="9" height="9" viewBox="0 0 10 10" aria-hidden="true"><path d="M1 1.5h8L6 5v3.5L4 9.5V5L1 1.5z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg></span></span></span>
           </div>
-          <div>
-            <div style="display: grid; grid-template-columns: repeat(4, 1fr); padding: 8px 0; font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4);">
-              <span style="text-align: center;">Sep</span><span style="text-align: center;">Oct</span><span style="text-align: center;">Nov</span><span style="text-align: center;">Dec</span>
-            </div>
+          <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); min-height: 44px; box-sizing: border-box;">
+            <div style="display: flex; align-items: center; justify-content: center; padding: 10px 4px; border-right: 1px solid var(--rule); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4); min-width: 0; white-space: nowrap; overflow: hidden;">Sep</div>
+            <div style="display: flex; align-items: center; justify-content: center; padding: 10px 4px; border-right: 1px solid var(--rule); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4); min-width: 0; white-space: nowrap; overflow: hidden;">Oct</div>
+            <div style="display: flex; align-items: center; justify-content: center; padding: 10px 4px; border-right: 1px solid var(--rule); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4); min-width: 0; white-space: nowrap; overflow: hidden;">Nov</div>
+            <div style="display: flex; align-items: center; justify-content: center; padding: 10px 4px; font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4); min-width: 0; white-space: nowrap; overflow: hidden;">Dec</div>
           </div>
         </div>
         <div class="gantt-stack" style="position: relative;">
+        <!-- now-line: vertical brand-d rule at Oct 15 (≈ 1.5 / 4 across the Sep-Dec timeline) -->
+        <div style="position: absolute; left: calc(220px + 12px + (100% - 220px - 24px) * 0.375); top: 0; bottom: 0; width: 0; border-left: 1px solid var(--brand-d); pointer-events: none; z-index: 5;"></div>
+        <!-- 12px hover hit-zone for the "now" tooltip -->
+        <div class="planner-now-hint" data-label="now · Oct 15" style="position: absolute; left: calc(220px + 12px + (100% - 220px - 24px) * 0.375); top: 0; bottom: 0; z-index: 7;"></div>
         <!-- Row 1: completed workstream (Sep → mid-Oct) -->
         <div style="display: grid; grid-template-columns: 220px 1fr; border-bottom: 1px solid var(--rule); min-height: 56px;">
           <div class="lhs-cells gantt">
@@ -1798,7 +2197,7 @@
             <div style="position: relative; height: 26px; margin: 0 12px;">
               <div style="position: absolute; left: 40%; width: 30%; top: 0; bottom: 0; background: var(--paper-2); border: 1px solid #3a7780; border-radius: 2px; overflow: hidden;">
                 <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 58%; background: #3a7780;"></div>
-                <span style="position: absolute; inset: 0; display: flex; align-items: center; padding: 0 8px; font-family: var(--font-mono); font-size: 11px; font-weight: 600; z-index: 1;"><span style="color: white;">pipeline</span><span style="margin-left: auto; color: var(--ink);">58%</span></span>
+                <span style="position: absolute; inset: 0; display: flex; align-items: center; padding: 0 8px; font-family: var(--font-mono); font-size: 11px; font-weight: 600; z-index: 1;"><span style="color: var(--ink-4); margin-right: 6px; cursor: grab; letter-spacing: -0.05em;">⠿</span><span style="color: white;">pipeline</span><span style="margin-left: auto; color: var(--ink);">58%</span></span>
               </div>
               <!-- milestone diamond at schema freeze -->
               <span style="position: absolute; left: 60%; top: 50%; transform: translate(-50%, -50%) rotate(45deg); width: 14px; height: 14px; background: var(--warn); border: 2px solid var(--paper);"></span>
@@ -1816,7 +2215,7 @@
             <div style="position: relative; height: 26px; margin: 0 12px;">
               <div style="position: absolute; left: 56%; width: 38%; top: 0; bottom: 0; background: var(--paper-2); border: 1px solid #b85a4a; border-radius: 2px; overflow: hidden;">
                 <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 18%; background: #b85a4a;"></div>
-                <span style="position: absolute; inset: 0; display: flex; align-items: center; padding: 0 8px; font-family: var(--font-mono); font-size: 11px; font-weight: 600; z-index: 1;"><span style="color: var(--ink);">ui-rebuild · at-risk</span><span style="margin-left: auto; color: var(--ink);">18%</span></span>
+                <span style="position: absolute; inset: 0; display: flex; align-items: center; padding: 0 8px; font-family: var(--font-mono); font-size: 11px; font-weight: 600; z-index: 1;"><span style="color: var(--ink-4); margin-right: 6px; cursor: grab; letter-spacing: -0.05em;">⠿</span><span style="color: var(--ink);">ui-rebuild · at-risk</span><span style="margin-left: auto; color: var(--ink);">18%</span></span>
               </div>
             </div>
           </div>
@@ -1834,27 +2233,21 @@
             </div>
           </div>
         </div>
-        <!-- dependency arrows overlaid on the row stack (HTML, not SVG — deterministic per-pixel) -->
-        <div class="gantt-deps" aria-hidden="true">
-          <!-- A: infra-upgrade END (38%, 28) → data-pipeline START (40%, 84): clean finish-to-start.
-               Horizontal stub leaving right edge → drop → horizontal stub entering left edge. -->
-          <div class="gd-h" style="left: 38%; top: 28px; width: 1%;"></div>
-          <div class="gd-v" style="left: 39%; top: 28px; height: 56px;"></div>
-          <div class="gd-h" style="left: 39%; top: 84px; width: 1%;"></div>
-                    <svg class="gd-arrow right" width="7" height="10" viewBox="0 0 7 10" style="left: calc(40% - 7px); top: 79px;"><path class="gd-arrow-fill" d="M0 0 L7 5 L0 10 z"/></svg>
-          <!-- B: m1 schema-freeze (60%, 84) → ui-rebuild START (56%, 140): BACKWARD slip — successor started before predecessor's milestone.
-               Routing: drop into the padding gap between rows 2/3 (y=114), sidestep LEFT past successor leading edge, drop to row 3 center, push RIGHT into bar. -->
-          <div class="gd-v dashed" style="left: 60%; top: 84px; height: 36px;"></div>
-          <div class="gd-h dashed" style="left: 54%; top: 120px; width: 6%;"></div>
-          <div class="gd-v dashed" style="left: 54%; top: 120px; height: 20px;"></div>
-          <div class="gd-h dashed" style="left: 54%; top: 140px; width: 1.5%;"></div>
-                    <svg class="gd-arrow warn right" width="7" height="10" viewBox="0 0 7 10" style="left: calc(56% - 7px); top: 135px;"><path class="gd-arrow-fill" d="M0 0 L7 5 L0 10 z"/></svg>
-          <div class="gd-label" style="left: 40%; top: 114px;">SLIP · 2D</div>
-        </div>
+        
+        </svg>
         </div>
         <div class="diff-meta-row">
-          <span class="cap-eyebrow">Today</span>
-          <span style="margin-left: 8px;" class="muted">vertical "now" line drops at <span class="mono" style="color: var(--ink);">Oct 15</span> · drag a task edge to reschedule (snaps to <span class="mono">dragStep</span>) · dependency arrows turn <span style="color: var(--warn); font-weight: 600;">amber-dashed</span> when a successor slips behind its predecessor</span>
+          <span class="cap-eyebrow">Event states</span>
+          <span style="margin-left: 8px; display: inline-flex; align-items: center; gap: 12px;">
+            <span style="display: inline-flex; align-items: center; gap: 4px; font-family: var(--font-mono); font-size: 10px;"><span style="width: 16px; height: 6px; background: #2f7a5b; border-radius: 1px;"></span>committed</span>
+            <span style="display: inline-flex; align-items: center; gap: 4px; font-family: var(--font-mono); font-size: 10px;"><span style="width: 16px; height: 6px; background: var(--paper); border: 1px solid #3a7780; border-radius: 1px;"></span><span style="font-family: var(--font-mono); font-size: 10px;">proposed</span></span>
+            <span style="display: inline-flex; align-items: center; gap: 4px; font-family: var(--font-mono); font-size: 10px;"><span style="width: 16px; height: 6px; background: var(--paper); border: 1px dashed #b85a4a; border-radius: 1px;"></span>at-risk · proposed</span>
+            <span class="muted" style="font-family: var(--font-mono); font-size: 10px;">⠿ resize edge to reschedule · committed bars cannot be moved</span>
+          </span>
+        </div>
+        <div class="diff-meta-row" style="border-top: 1px solid var(--rule); flex-wrap: wrap; row-gap: 4px;">
+          <span class="cap-eyebrow">Drag &amp; drop</span>
+          <span class="muted" style="margin-left: 8px;">Supports the full Planner grammar — <span class="mono">add</span> (drop a task from a sibling Library), <span class="mono">move</span> (drag a bar body to reschedule), <span class="mono">remove</span> (drag a bar off the surface), <span class="mono">resize</span> (drag a bar edge to change duration). Only proposed bars are draggable; committed bars are read-only and resize-locked. Snaps to <span class="mono">dragStep</span>; dependency arrows turn <span style="color: var(--warn); font-weight: 600;">amber-dashed</span> when a successor slips behind its predecessor. See <a class="btn-link" href="#planner">Planner · Drag &amp; drop event grammar</a>.</span>
         </div>
       </div>
 
