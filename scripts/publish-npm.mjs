@@ -66,7 +66,15 @@ function publish(pkgDir) {
   if (!REGISTRY) args.push('--provenance');
   if (REGISTRY) args.push('--registry', REGISTRY);
   if (DRY_RUN) args.push('--dry-run');
-  const r = spawnSync('pnpm', args, { cwd: pkgDir, stdio: 'inherit' });
+  // On Windows `pnpm` is a `.cmd` shim; spawnSync can't resolve it without a
+  // shell (the real release publishes from Linux, but the verdaccio dry-run's
+  // Windows leg exercises this path). Args here are shell-safe (no spaces).
+  const r = spawnSync('pnpm', args, {
+    cwd: pkgDir,
+    stdio: 'inherit',
+    shell: process.platform === 'win32',
+  });
+  if (r.error) console.error(`  spawn error: ${r.error.message}`);
   return r.status === 0;
 }
 

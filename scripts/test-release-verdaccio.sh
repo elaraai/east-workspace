@@ -157,13 +157,32 @@ node scripts/inject-east-c-platform-deps.mjs --version "$VERSION" --file "$LAUNC
 log "Installing published packages into a throwaway consumer"
 PROJ="$WORK/consumer" && mkdir -p "$PROJ"
 cp "$NPMRC" "$PROJ/.npmrc"
-( cd "$PROJ" && npm init -y >/dev/null && \
-    npm install --no-fund --no-audit \
-      @elaraai/east-c-cli @elaraai/east @elaraai/e3-cli @elaraai/east-node-std >/dev/null )
+# A real consumer project: deps + npm scripts that invoke each CLI by bare
+# name. `npm run` puts node_modules/.bin on PATH, so this proves the published
+# bins resolve and run the way a user actually invokes them — not via a hand-
+# built path. east-c-cli is the high-risk one: its bin resolves a per-platform
+# binary (@elaraai/east-c-cli-<target>) via optionalDependencies and spawns it.
+cat > "$PROJ/package.json" <<EOF
+{
+  "name": "east-release-dryrun-consumer",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@elaraai/east-c-cli": "$VERSION",
+    "@elaraai/east-node-cli": "$VERSION",
+    "@elaraai/e3-cli": "$VERSION",
+    "@elaraai/east": "$VERSION",
+    "@elaraai/east-node-std": "$VERSION"
+  },
+  "scripts": {
+    "smoke": "east-c version && east-node version && e3 --version"
+  }
+}
+EOF
+( cd "$PROJ" && npm install --no-fund --no-audit >/dev/null )
 
-log "Smoke tests"
-echo -n "  east-c version: "; "$PROJ/node_modules/.bin/east-c" version
+log "Smoke tests (each CLI via npm run, resolved from node_modules/.bin)"
+( cd "$PROJ" && npm run smoke )
 echo -n "  require @elaraai/east: "; ( cd "$PROJ" && node -e "require('@elaraai/east'); console.log('ok')" )
-echo -n "  e3 --version: "; ( cd "$PROJ" && ./node_modules/.bin/e3 --version )
 
 log "PASS — full @elaraai/* release installs + runs from verdaccio (${TARGET})"
