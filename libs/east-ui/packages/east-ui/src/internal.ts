@@ -69,14 +69,8 @@ export * from "./collections/tree-view/types.js";
 
 // Charts
 export * from "./charts/index.js";
-export * from "./charts/types.js";
+export * from "./format/types.js";
 export * from "./charts/sparkline/types.js";
-export * from "./charts/area/types.js";
-export * from "./charts/bar/types.js";
-export * from "./charts/line/types.js";
-export * from "./charts/scatter/types.js";
-export * from "./charts/pie/types.js";
-export * from "./charts/radar/types.js";
 
 // Disclosure
 export * from "./disclosure/index.js";

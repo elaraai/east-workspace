@@ -104,11 +104,12 @@ import { StatusTokenType } from "./style/interaction.js";
 import { CardStyleType } from "./container/card/types.js";
 import { StateValueType } from "./contracts/states.js";
 import { StatIndicatorType, StatStyleType } from "./display/stat/types.js";
-import { TickFormatType } from "./charts/types.js";
+import { TickFormatType } from "./format/types.js";
 import { SliceSummaryType } from "./slice/summary/types.js";
 import { SliceRangePickerType } from "./slice/range/types.js";
 import { SliceFilterType } from "./slice/filter/types.js";
 import { SliceLegendType } from "./slice/legend/types.js";
+import { SliceChartType } from "./slice/chart/types.js";
 import { SliceBreakdownPickerType } from "./slice/breakdown/types.js";
 import { SliceSearchType } from "./slice/search/types.js";
 import { SliceCohortPickerType } from "./slice/cohort/types.js";
@@ -165,13 +166,6 @@ import {
 
 // Charts
 import { SparklineType } from "./charts/sparkline/types.js";
-import { AreaChartType, AreaRangeChartType } from "./charts/area/types.js";
-import { BarChartType } from "./charts/bar/types.js";
-import { LineChartType } from "./charts/line/types.js";
-import { ScatterChartType } from "./charts/scatter/types.js";
-import { PieChartType } from "./charts/pie/types.js";
-import { RadarChartType } from "./charts/radar/types.js";
-import { ComposedChartType } from "./charts/composed/types.js";
 import { ChartSpecType } from "./charts/spec/index.js";
 
 // Disclosure
@@ -530,6 +524,7 @@ export const UIComponentType = RecursiveType(node => VariantType({
     SliceRange: SliceRangePickerType,
     SliceFilter: SliceFilterType,
     SliceLegend: SliceLegendType,
+    SliceChart: SliceChartType,
     SliceBreakdown: SliceBreakdownPickerType,
     SliceSearch: SliceSearchType,
     SliceCohort: SliceCohortPickerType,
@@ -604,15 +599,7 @@ export const UIComponentType = RecursiveType(node => VariantType({
 
     // Charts
     Sparkline: SparklineType,
-    AreaChart: AreaChartType,
-    AreaRangeChart: AreaRangeChartType,
-    BarChart: BarChartType,
-    LineChart: LineChartType,
-    ScatterChart: ScatterChartType,
-    PieChart: PieChartType,
-    RadarChart: RadarChartType,
-    ComposedChart: ComposedChartType,
-    /** visx-primitive chart tree (recursive ChartSpec). Backs `Slice.Chart.*`. */
+    /** visx-primitive chart tree (recursive ChartSpec). Backs `Chart.*` and `Slice.Chart.*`. */
     VisxChart: ChartSpecType,
 
     TreeView: StructType({

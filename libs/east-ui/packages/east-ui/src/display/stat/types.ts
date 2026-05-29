@@ -18,7 +18,7 @@ import {
 import { SizeType } from "../../style.js";
 import type { SizeLiteral } from "../../style.js";
 import { IconType } from "../icon/types.js";
-import { TickFormatType } from "../../charts/types.js";
+import { TickFormatType } from "../../format/types.js";
 
 // ============================================================================
 // Stat Direction (axis)

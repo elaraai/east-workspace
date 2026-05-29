@@ -85,6 +85,8 @@ import {
     type SubtypeExprOrValue,
 } from "@elaraai/east";
 
+import { ChartXType } from "../../charts/spec/types.js";
+
 // ============================================================================
 // DateTimeRange — generic { from, to } interval
 // (Could move to Foundation later; keeping here for now so Slice is self-contained.)
@@ -666,14 +668,23 @@ export const SliceBreakdownGroupArrayType = ArrayType(SliceBreakdownGroupType);
 export type SliceBreakdownGroupArrayType = typeof SliceBreakdownGroupArrayType;
 
 /**
- * One point of a pivoted series — an x-axis position and its aggregated value.
+ * One point of a pivoted series — a typed x position and its aggregated value.
  *
- * @property x     - Stringified x-axis value (the point's position along the axis)
+ * @remarks
+ * The x coordinate is the chart's {@link ChartXType} (band category / linear
+ * number / time date), so the pivot feeds `Chart.Spec.series` directly and the
+ * renderer derives the scale from the coordinate.
+ *
+ * @property x     - The point's typed x coordinate
  * @property value - Aggregated (summed) numeric value at this `x`
+ * @property size  - Mirrors {@link ChartPointType} so the pivot feeds
+ *                   `Chart.Spec.series` directly; always `none` (slice series
+ *                   carry no per-point bubble magnitude)
  */
 export const SliceSeriesPointType = StructType({
-    x:     StringType,
+    x:     ChartXType,
     value: FloatType,
+    size:  OptionType(FloatType),
 });
 export type SliceSeriesPointType = typeof SliceSeriesPointType;
 

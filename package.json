@@ -21,6 +21,12 @@
       "esbuild",
       "keytar",
       "ssh2"
-    ]
+    ],
+    "peerDependencyRules": {
+      "allowedVersions": {
+        "react": "19",
+        "react-dom": "19"
+      }
+    }
   }
 }

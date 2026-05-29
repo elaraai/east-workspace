@@ -2,11 +2,5 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-export * from "./area.examples.js";
-export * from "./bar.examples.js";
-export * from "./composed.examples.js";
-export * from "./line.examples.js";
-export * from "./pie.examples.js";
-export * from "./radar.examples.js";
-export * from "./scatter.examples.js";
+export * from "./chart.examples.js";
 export * from "./sparkline.examples.js";

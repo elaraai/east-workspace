@@ -22,7 +22,7 @@ import {
 
 import { SizeType } from "../../style.js";
 import { UIComponentType } from "../../component.js";
-import { TickFormatType } from "../../charts/types.js";
+import { TickFormatType } from "../../format/types.js";
 import { IconType } from "../icon/types.js";
 import {
     StatIndicatorType,

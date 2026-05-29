@@ -35,5 +35,6 @@ describeEast("Slice UI", (test) => {
         sliceChartScatter: ex.sliceChartScatter,
         sliceChartTime:    ex.sliceChartTime,
         sliceChartLinearX: ex.sliceChartLinearX,
+        sliceChartBrush:   ex.sliceChartBrush,
     });
 }, { platformFns: [...TestImpl, ...SliceApplyImpl] });

@@ -72,7 +72,8 @@ export { Card } from "./container/index.js";
 export { DataList, Matrix, Pagination, Table, TreeView, Gantt, Planner } from "./collections/index.js";
 
 // Charts
-export { Chart, Sparkline } from "./charts/index.js";
+export { Chart } from "./charts/chart/index.js";
+export { Sparkline } from "./charts/index.js";
 
 // Disclosure
 export { Accordion, Carousel, Collapsible, Disclosure, OptionList, SegmentGroup, Tabs } from "./disclosure/index.js";

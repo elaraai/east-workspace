@@ -16,7 +16,7 @@ import {
 
 import { TextStyleType } from "../../style.js";
 import type { TextStyleLiteral } from "../../style.js";
-import { TickFormatType } from "../../charts/types.js";
+import { TickFormatType } from "../../format/types.js";
 
 // ============================================================================
 // Numeric Sentiment Variant

@@ -24,6 +24,9 @@ import {
 } from "../../charts/spec/index.js";
 import { Stack } from "../../layout/stack/index.js";
 import { SliceLegend } from "../legend/index.js";
+import { SliceChartType, SliceChartRangeKindType } from "./types.js";
+
+export { SliceChartType, SliceChartRangeKindType } from "./types.js";
 
 /** Options for `Slice.Chart.{Line,Bar,Area}`. */
 export interface SliceChartOptions {
@@ -43,6 +46,12 @@ export interface SliceChartOptions {
      * `linear` parses it as a number. Use `time` when `x` is a `DateTime` field.
      */
     xScale?: "band" | "time" | "linear";
+    /**
+     * Enable drag-to-select on the plot, writing the slice's range (`setRange`)
+     * so the whole slice re-narrows. Only applies to a `time` / `linear` `xScale`
+     * whose `x` is the slice's `rangeFieldId`; a no-op on a `band` chart.
+     */
+    brush?: boolean;
 }
 
 /**
@@ -58,6 +67,7 @@ function createSliceChart(
 ): ExprType<UIComponentType> {
     const s = slice as ExprType<SliceBindType>;
     const series = s.series(options.x, options.value);
+    const xScale = options.xScale ?? "band";
     const spec = chartFrame(
         // Gridlines dashed `2 4` (spec `index.html` multiline), under the marks.
         [
@@ -69,11 +79,17 @@ function createSliceChart(
         ],
         {
             height: options.height ?? 240,
-            xScale: options.xScale ?? "band",
+            xScale,
             ...(options.width !== undefined ? { width: options.width } : {}),
         },
     );
-    const chart = East.value(variant("VisxChart", spec), UIComponentType);
+    // A brush only makes sense on a continuous x (it writes a datetime / float
+    // `SliceRange`); a band chart has no continuous range, so it stays a plain
+    // `VisxChart` even with `brush: true`.
+    const brushable = options.brush === true && (xScale === "time" || xScale === "linear");
+    const chart = brushable
+        ? East.value(variant("SliceChart", { slice, spec, rangeKind: variant(xScale === "time" ? "datetime" : "float", null) }), UIComponentType)
+        : East.value(variant("VisxChart", spec), UIComponentType);
     if (options.legend === false) return chart;
     return Stack.VStack([chart, SliceLegend.Root(slice)], { gap: "3", align: "stretch" });
 }
@@ -105,5 +121,9 @@ export const SliceChart = {
         Spec: ChartSpecType,
         /** One coloured series consumed by the chart. */
         Series: ChartSeriesType,
+        /** The brush-bearing slice chart (emitted when `brush` is set on a time/linear chart). */
+        Chart: SliceChartType,
+        /** Which `SliceRange` arm the brush writes. */
+        RangeKind: SliceChartRangeKindType,
     },
 } as const;

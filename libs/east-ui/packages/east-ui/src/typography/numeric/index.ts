@@ -15,7 +15,7 @@ import {
 
 import { TextStyleType } from "../../style.js";
 import { UIComponentType } from "../../component.js";
-import { TickFormatType } from "../../charts/types.js";
+import { TickFormatType } from "../../format/types.js";
 import {
     NumericType,
     NumericSentimentType,

@@ -86,8 +86,8 @@ export {
 export {
     EastChakraSparkline,
     type EastChakraSparklineProps,
-    EastChakraAreaChart,
-    type EastChakraAreaChartProps,
+    EastVisxChart,
+    type EastVisxChartProps,
 } from "./charts/index.js";
 
 // Disclosure
