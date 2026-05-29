@@ -12,7 +12,9 @@ Commits on this branch (oldest → newest):
 2. **`b3df8817`** — atom-recipe spec drifts: **button** (md 12.5px, commit 0.14em + 14/22 padding, lh 1.15), **chip** (text brand.700, more-border brand.600), **input** (13px + 7/10), **kbd** (6px/0.04em/2px), **separator** (default → subtle gray.200).
 3. **`de9e748d`** — slot-recipe spec drifts: **status** (label fg.muted, dot fg.subtle, gap 6px), **tag** (×+dashed fg.subtle, brand brand.700, gap 6px), **meter**+**barStrip** (fill brand.500, radius 3px), **accordion** (chevron fg.subtle, padding 18/14, gap 10px, lh 1.5), **dataList** (label fg.subtle+0.14em, 116px/14px).
 
-All built + snapshot/probe-verified, pushed to origin. **In progress:** extension-webview nav/header parity + dropping the INPUTS/TASKS sidebar group headings. **Remaining:** the structural batch (gantt/matrix-size-shape/planner/shared-table-chrome/table-numeric-IR/commandPalette) + the long tail of partial colour/px drifts in the per-section tables of `00-RECONCILIATION.md`.
+4. **`f8c0d67b`** — extension-webview nav parity: flattened the workspace tree (dropped the INPUTS/TASKS group headings → one flat list of sub-rows with a leading type icon, database=input / bolt=task), fixed the nested active-pill (removed the 36px paddingInlineStart that fought the recipe's active state), breadcrumb link brand.700→brand.600. Webview built; extension repackaged + installed (v1.0.4). **To confirm live:** density/spacing parity with the showcase.
+
+All built + snapshot/probe-verified, pushed to origin. **Remaining:** the structural batch (gantt/matrix-size-shape/planner/shared-table-chrome/table-numeric-IR/commandPalette) + the long tail of partial colour/px drifts in the per-section tables of `00-RECONCILIATION.md`.
 
 > A concurrent agent is editing `packages/east-ui-components/src/charts/**` (and likely `slice/**`) on this same branch — leave charts + slice to them; scope every commit to your own files; don't build simultaneously.
 
