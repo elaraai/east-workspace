@@ -27,7 +27,7 @@ export const statusSlotRecipe = defineSlotRecipe({
         root: {
             display: "inline-flex",
             alignItems: "center",
-            gap: "{spacing.2}",
+            gap: "6px",
             background: "transparent",
             whiteSpace: "nowrap",
             flexShrink: 0,
@@ -43,7 +43,7 @@ export const statusSlotRecipe = defineSlotRecipe({
             fontWeight: "semibold",
             letterSpacing: "0.1em",
             textTransform: "uppercase",
-            color: "fg.subtle",
+            color: "fg.muted",
             lineHeight: "1.2",
         },
     },
@@ -53,7 +53,7 @@ export const statusSlotRecipe = defineSlotRecipe({
             warning: { indicator: { background: "fg.warning" } },
             danger:  { indicator: { background: "fg.danger"  } },
             info:    { indicator: { background: "fg.info"    } },
-            neutral: { indicator: { background: "fg.muted"   } },
+            neutral: { indicator: { background: "fg.subtle"   } },
             brand:   { indicator: { background: "{colors.brand.500}" } },
         },
         size: {

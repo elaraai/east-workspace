@@ -26,7 +26,7 @@ export const tagSlotRecipe = defineSlotRecipe({
         root: {
             display: "inline-flex",
             alignItems: "center",
-            gap: "{spacing.1}",
+            gap: "6px",
             fontFamily: "body",
             fontWeight: "medium",
             lineHeight: "1",
@@ -43,7 +43,7 @@ export const tagSlotRecipe = defineSlotRecipe({
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
-            color: "fg.muted",
+            color: "fg.subtle",
             cursor: "pointer",
             _hover: { color: "fg" },
         },
@@ -61,7 +61,7 @@ export const tagSlotRecipe = defineSlotRecipe({
                 root: {
                     background: "bg.brand.subtle",
                     borderColor: "border.brand",
-                    color: "{colors.brand.800}",
+                    color: "{colors.brand.700}",
                 },
             },
             subtle: {
@@ -76,7 +76,7 @@ export const tagSlotRecipe = defineSlotRecipe({
                     background: "bg.surface",
                     borderStyle: "dashed",
                     borderColor: "border.strong",
-                    color: "fg.muted",
+                    color: "fg.subtle",
                 },
             },
             solid: {

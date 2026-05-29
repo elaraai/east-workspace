@@ -25,7 +25,7 @@ export const meterSlotRecipe = defineSlotRecipe({
             flex: "1",
             height: "6px",
             background: "{colors.gray.100}",
-            borderRadius: "{radii.full}",
+            borderRadius: "3px",
             overflow: "hidden",
         },
         fill: {
@@ -33,8 +33,8 @@ export const meterSlotRecipe = defineSlotRecipe({
             top: "0",
             left: "0",
             bottom: "0",
-            background: "{colors.brand.600}",
-            borderRadius: "{radii.full}",
+            background: "{colors.brand.500}",
+            borderRadius: "3px",
         },
         value: {
             flexShrink: "0",

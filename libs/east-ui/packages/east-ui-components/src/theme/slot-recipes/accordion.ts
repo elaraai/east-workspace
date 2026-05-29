@@ -37,7 +37,7 @@ export const accordionSlotRecipe = defineSlotRecipe({
         itemTrigger: {
             display: "flex",
             alignItems: "center",
-            gap: "{spacing.2}",
+            gap: "10px",
             width: "100%",
             paddingX: "16px",
             paddingY: "12px",
@@ -77,7 +77,7 @@ export const accordionSlotRecipe = defineSlotRecipe({
             color: "{colors.gray.500}",
         },
         itemIndicator: {
-            color: "fg.muted",
+            color: "fg.subtle",
             fontSize: "10px",
             transitionProperty: "transform",
             transitionDuration: "{durations.fast}",
@@ -91,13 +91,13 @@ export const accordionSlotRecipe = defineSlotRecipe({
             },
         },
         itemContent: {
-            paddingX: "{spacing.5}",
-            paddingY: "{spacing.4}",
+            paddingX: "18px",
+            paddingY: "14px",
         },
         itemBody: {
             fontSize: "13px",
             color: "fg",
-            lineHeight: "1.55",
+            lineHeight: "1.5",
         },
     },
 });
