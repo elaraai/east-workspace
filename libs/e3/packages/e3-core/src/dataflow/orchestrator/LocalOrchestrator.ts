@@ -419,7 +419,21 @@ export class LocalOrchestrator implements DataflowOrchestrator {
           const taskName = readyTasks.shift()!;
           const taskState = state.tasks.get(taskName);
 
-          if (!taskState || taskState.status === 'in_progress' || taskState.status === 'completed') {
+          // Skip if already terminal/running, OR if a previous execution's
+          // promise is still tracked. A completion handler that resets a task
+          // to `pending` (stale-input re-execution) does so while holding the
+          // mutex and still owns its `runningTasks` slot until its `.finally`
+          // runs. The launch path is not under that mutex, so without this
+          // `has()` guard the loop could re-launch the task here — overwriting
+          // the live slot — and the old promise's `.finally` would then evict
+          // the new one, orphaning a task in `in_progress` (Dataflow stuck).
+          // Defer the re-launch until the prior promise has fully settled.
+          if (
+            !taskState ||
+            taskState.status === 'in_progress' ||
+            taskState.status === 'completed' ||
+            execution.runningTasks.has(taskName)
+          ) {
             continue;
           }
 
@@ -629,8 +643,6 @@ export class LocalOrchestrator implements DataflowOrchestrator {
             // The rejection is otherwise swallowed (a settled Promise.race keeps a
             // handler on it), so it never surfaces. Mark the task failed with the
             // real error instead.
-            // eslint-disable-next-line no-console
-            console.error(`[DIAG complete-error] ${taskName}:`, err);
             const msg = err instanceof Error ? err.message : String(err);
             await execution.mutex.runExclusive(async () => {
               hasFailure = true;
@@ -649,7 +661,12 @@ export class LocalOrchestrator implements DataflowOrchestrator {
               duration: 0,
             });
           }).finally(() => {
-            execution.runningTasks.delete(taskName);
+            // Identity-checked delete: only clear the slot if it still holds
+            // THIS promise. If a re-launch replaced it, a blind delete-by-name
+            // would drop the newer promise's tracking and orphan the task.
+            if (execution.runningTasks.get(taskName) === taskPromise) {
+              execution.runningTasks.delete(taskName);
+            }
           });
 
           execution.runningTasks.set(taskName, taskPromise);
@@ -690,16 +707,6 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         .map(([name, ts]) => `${name} (${ts.status})`)
         .join(', ');
       if (stuckTasks.length > 0 && !checkAborted() && !hasFailure) {
-        // [DIAG] dump every task's status at the stuck point. runningTasks is
-        // already drained here (Promise.all above), so an arm showing
-        // `in_progress` means it is orphaned (in state, not running); both arms
-        // `completed` + merge `pending` would instead point at the readiness/VV
-        // recompute. reexec = how many reactive invalidations fired.
-        const diag = [...state.tasks.entries()]
-          .map(([name, ts]) => `${name}=${ts.status}`)
-          .join(', ');
-        // eslint-disable-next-line no-console
-        console.error(`[DIAG stuck] reexec=${state.reexecuted} running=${execution.runningTasks.size} | ${diag}`);
         throw new DataflowError(`Dataflow stuck: ${stuckTasks}`);
       }
 
