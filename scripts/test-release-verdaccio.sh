@@ -64,8 +64,16 @@ if [[ "${SKIP_BUILD:-}" != "1" ]]; then
   NODE_OPTIONS=--max-old-space-size=4096 make -C libs/east-ui build
   pnpm --filter @elaraai/east-py-datascience run build
   pnpm --filter @elaraai/scaffold-core --filter @elaraai/create-e3 --filter @elaraai/create-east run build
-  log "Building east-c (cmake)"
-  make -C libs/east-c build >/dev/null
+  log "Building east-c (cmake, $TARGET)"
+  # OS-aware to match publish-c-native: Ninja + MSVC on Windows; nproc has no
+  # macOS equivalent so fall back to sysctl. (east-c's `make build` hardcodes
+  # bare `nproc`, which fails on macOS — build cmake directly here.)
+  ( mkdir -p libs/east-c/build && cd libs/east-c/build
+    if [ "$TARGET" = "win32-x64" ]; then
+      cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release >/dev/null && cmake --build . >/dev/null
+    else
+      cmake .. >/dev/null && cmake --build . -j"$(nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || echo 4)" >/dev/null
+    fi )
 else
   log "SKIP_BUILD=1 — reusing existing dist/ + east-c build"
 fi

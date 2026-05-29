@@ -146,17 +146,30 @@ jobs:
           retention-days: 7
 
   # ────────────────────────────────────────────────────────────────────────
-  # validate-release: publish-dry-run guard. Spins a throwaway verdaccio,
-  # publishes every @elaraai/* package + the east-c-cli launcher (host leg)
-  # exactly as the real jobs do — minus provenance, which is npm-OIDC-only —
-  # then installs them into a fresh consumer and smoke-tests. Runs in BOTH dry
-  # and real so a real release is proven installable BEFORE anything hits npm;
-  # the real npm publish jobs gate on it. Linux-x64 only (the host leg) — the
-  # per-platform binary matrix is covered by publish-c-native. No secrets / no
-  # OIDC, so it runs anywhere, including locally under `act`.
+  # validate-release: publish-dry-run guard. On each OS, spins a throwaway
+  # verdaccio, publishes every @elaraai/* package + the east-c-cli launcher +
+  # the host-platform binary exactly as the real jobs do — minus provenance,
+  # which is npm-OIDC-only — then installs them into a fresh consumer and
+  # smoke-tests. Matrixed over the 3 publish OSes so the per-platform npm
+  # install contract (launcher → matching @elaraai/east-c-cli-<target>) is
+  # validated where it actually runs. Runs in BOTH dry and real so a real
+  # release is proven installable BEFORE anything hits npm; the real npm
+  # publish jobs gate on it. No secrets / no OIDC. (Locally, `act` covers the
+  # ubuntu leg; macOS/Windows legs are CI-only.)
   # ────────────────────────────────────────────────────────────────────────
   validate-release:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        # Git Bash on Windows so the bash dry-run script + make builds run everywhere.
+        shell: bash
+    env:
+      # east-c's Makefile picks Ninja on Windows; ensure cmake honours it too.
+      CMAKE_GENERATOR: Ninja
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -164,8 +177,18 @@ jobs:
         with:
           node-version: 22
           cache: "pnpm"
-      - name: Install build deps (east-c native)
+      - name: Install build deps (Linux)
+        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
+      - name: Install build deps (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake || true
+      - name: Install make (Windows)
+        if: runner.os == 'Windows'
+        run: choco install make --no-progress -y
+      - name: Set up MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
       - name: Install
         run: pnpm install
       - name: Release dry-run against verdaccio
