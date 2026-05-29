@@ -191,9 +191,9 @@ export const textStyles = defineTextStyles({
             fontSize: "11px",
             fontWeight: "{fontWeights.semibold}",
             lineHeight: "{lineHeights.tight}",
-            letterSpacing: "{letterSpacings.widest}",   // 0.12em
+            letterSpacing: "{letterSpacings.widest2}",   // 0.18em — spec .cell .lbl / .cap-eyebrow
             textTransform: "uppercase",
-            color: "fg.muted",
+            color: "fg.subtle",                          // --ink-4
         },
     },
     /** KV-pair label — spec `.tag .k`, `.kvrow .k`. */

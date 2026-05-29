@@ -22,6 +22,8 @@ Commits on this branch (oldest → newest):
 
 8. **(uncommitted)** — **long-tail batch 2.** **optionList** (itemDescription fg.subtle, padding 12/16, hover bg.subtle), **treeView** (_selected text brand.700), **avatar** (brand variant + fontWeight bold + letterSpacing 0.05em per `.mx-avatar`). Snapshot-verified (avatar/option-list/tree-view PNGs). Stale banners corrected: **dataList** + **emptyState** were already at spec (fixes had landed earlier / the recon rows were stale). **field** deferred — its label drift is in the shared `caption.eyebrow` textStyle (also used by select/dataList/optionList), so it's a one-place `text-styles.ts` edit belonging to a foundation textStyle pass, not a per-recipe patch.
 
+9. **(uncommitted)** — **foundation textStyle pass.** `text-styles.ts` `caption.eyebrow`: letterSpacing `{letterSpacings.widest}` (0.12em)→`{letterSpacings.widest2}` (0.18em) + color fg.muted→fg.subtle (--ink-4), matching the unanimous spec caption-eyebrow tier (`.cell .lbl`, `.cap-eyebrow`, `.sc-eyebrow` all 0.18em/--ink-4). One edit corrects field + select/optionList/combobox eyebrow labels. The general `eyebrow` (0.12em/brand.600 per `.eyebrow`) is unchanged. dataList keeps its explicit 0.14em override (its own data-rail choice). Resolves the field banner.
+
 All built + snapshot/probe-verified, pushed to origin. **Remaining:** the structural batch (gantt/matrix-size-shape/planner/shared-table-chrome/table-numeric-IR/commandPalette) + the long tail of partial colour/px drifts in the per-section tables of `00-RECONCILIATION.md`.
 
 > A concurrent agent is editing `packages/east-ui-components/src/charts/**` (and likely `slice/**`) on this same branch — leave charts + slice to them; scope every commit to your own files; don't build simultaneously.
