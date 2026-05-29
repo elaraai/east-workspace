@@ -4,7 +4,7 @@
  */
 
 import { memo, useMemo, useEffect, useState } from "react";
-import { Progress as ChakraProgress, type ProgressRootProps, Box as ChakraBox } from "@chakra-ui/react";
+import { Progress as ChakraProgress, type ProgressRootProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Progress } from "@elaraai/east-ui";
 import { getSomeorUndefined } from "../../utils";
@@ -103,15 +103,13 @@ export const EastChakraProgress = memo(function EastChakraProgress({ value }: Ea
                     ) : null}
                 </ChakraProgress.Label>
             ) : null}
-            <ChakraBox
-                {...(trackColor !== undefined ? { style: { "--chakra-colors-bg-emphasized": trackColor } as React.CSSProperties } : {})}
+            <ChakraProgress.Track
+                {...(trackColor !== undefined ? { style: { background: trackColor } } : {})}
             >
-                <ChakraProgress.Track>
-                    <ChakraProgress.Range
-                        {...(fillColor !== undefined ? { style: { background: fillColor } } : {})}
-                    />
-                </ChakraProgress.Track>
-            </ChakraBox>
+                <ChakraProgress.Range
+                    {...(fillColor !== undefined ? { style: { background: fillColor } } : {})}
+                />
+            </ChakraProgress.Track>
         </ChakraProgress.Root>
     );
 }, (prev, next) => progressEqual(prev.value, next.value));

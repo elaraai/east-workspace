@@ -34,6 +34,10 @@ export const collapsibleSlotRecipe = defineSlotRecipe({
             paddingX: "0",
             paddingY: "{spacing.1}",
             _hover: { color: "{colors.brand.700}" },
+            /* The chevron carries no data-state of its own, so drive its
+             * rotation from the trigger's open state (the trigger button is
+             * where Chakra sets data-state). */
+            "&[data-state=open] [data-collapsible-chevron]": { transform: "rotate(0deg)" },
         },
         indicator: {
             color: "fg.muted",
@@ -42,7 +46,6 @@ export const collapsibleSlotRecipe = defineSlotRecipe({
             transitionDuration: "{durations.fast}",
             transitionTimingFunction: "{easings.out}",
             transform: "rotate(-90deg)",
-            "&[data-state=open]": { transform: "rotate(0deg)" },
         },
         content: { paddingY: "{spacing.2}" },
     },

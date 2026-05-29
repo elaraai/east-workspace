@@ -4,7 +4,9 @@
  */
 
 import { memo, useMemo, useCallback } from "react";
-import { Collapsible as ChakraCollapsible, Box as ChakraBox } from "@chakra-ui/react";
+import { Collapsible as ChakraCollapsible, Box as ChakraBox, useSlotRecipe } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faChevronDown } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Collapsible } from "@elaraai/east-ui";
 import { getSomeorUndefined } from "../../utils";
@@ -33,6 +35,8 @@ export const EastChakraCollapsible = memo(function EastChakraCollapsible({ value
         }
     }, [onOpenChangeFn]);
 
+    const styles = useSlotRecipe({ key: "collapsible" })();
+
     const background = style ? getSomeorUndefined(style.background) : undefined;
     const borderColor = style ? getSomeorUndefined(style.borderColor) : undefined;
     const triggerColor = style ? getSomeorUndefined(style.triggerColor) : undefined;
@@ -48,7 +52,10 @@ export const EastChakraCollapsible = memo(function EastChakraCollapsible({ value
             <ChakraCollapsible.Trigger
                 {...(triggerColor !== undefined ? { color: triggerColor } : {})}
             >
-                <ChakraBox as="span" cursor="pointer">
+                <ChakraBox as="span" cursor="pointer" display="inline-flex" alignItems="center" gap="2">
+                    <ChakraBox as="span" css={styles.indicator} data-collapsible-chevron="true">
+                        <FontAwesomeIcon icon={faChevronDown} />
+                    </ChakraBox>
                     <EastChakraComponent value={value.trigger} storageKey={`${storageKey ?? ""}.trigger`} />
                 </ChakraBox>
             </ChakraCollapsible.Trigger>

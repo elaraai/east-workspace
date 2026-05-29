@@ -8,7 +8,6 @@ import { usePersistedState } from "../../hooks/usePersistedState";
 import {
     Carousel as ChakraCarousel,
     type CarouselRootProps,
-    IconButton,
 } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronLeft, faChevronRight } from "@fortawesome/free-solid-svg-icons";
@@ -113,37 +112,19 @@ export const EastChakraCarousel = memo(function EastChakraCarousel({ value, stor
             </ChakraCarousel.ItemGroup>
             {showControls && (
                 <ChakraCarousel.Control>
-                    <ChakraCarousel.PrevTrigger asChild>
-                        <IconButton
-                            aria-label="Previous slide"
-                            variant="outline"
-                            size="sm"
-                            rounded="full"
-                            /* Force square shape — Chakra's default button
-                             * recipe sets `min-width: sizes.9` (36 px) on
-                             * size=sm which makes IconButton render as a
-                             * 36×28 oval. Override here keeps it 28×28. */
-                            minW="28px"
-                            boxSize="28px"
-                            {...(controlColor !== undefined ? { color: controlColor } : {})}
-                            {...(controlBackground !== undefined ? { bg: controlBackground } : {})}
-                        >
-                            <FontAwesomeIcon icon={faChevronLeft} />
-                        </IconButton>
+                    <ChakraCarousel.PrevTrigger
+                        aria-label="Previous slide"
+                        {...(controlColor !== undefined ? { color: controlColor } : {})}
+                        {...(controlBackground !== undefined ? { bg: controlBackground } : {})}
+                    >
+                        <FontAwesomeIcon icon={faChevronLeft} />
                     </ChakraCarousel.PrevTrigger>
-                    <ChakraCarousel.NextTrigger asChild>
-                        <IconButton
-                            aria-label="Next slide"
-                            variant="outline"
-                            size="sm"
-                            rounded="full"
-                            minW="28px"
-                            boxSize="28px"
-                            {...(controlColor !== undefined ? { color: controlColor } : {})}
-                            {...(controlBackground !== undefined ? { bg: controlBackground } : {})}
-                        >
-                            <FontAwesomeIcon icon={faChevronRight} />
-                        </IconButton>
+                    <ChakraCarousel.NextTrigger
+                        aria-label="Next slide"
+                        {...(controlColor !== undefined ? { color: controlColor } : {})}
+                        {...(controlBackground !== undefined ? { bg: controlBackground } : {})}
+                    >
+                        <FontAwesomeIcon icon={faChevronRight} />
                     </ChakraCarousel.NextTrigger>
                 </ChakraCarousel.Control>
             )}
