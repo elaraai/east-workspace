@@ -4,12 +4,10 @@
  */
 
 /**
- * OptionList slot recipe — pattern_spec `Input.Presets` / `Decision.Alternatives`.
- *
- * Continuous list of full-width rows separated by 1 px hairlines.
- * No per-item borders or radii — the outer `frame` owns the perimeter.
- * Selected row = brand-tint surface; hover = subtle paper-3 wash.
- * Label uses brand-heading 14 px / 600; description uses mono 11 px ink-4.
+ * OptionList slot recipe — a continuous list of full-width rows separated
+ * by hairlines (the outer frame owns the perimeter; no per-item border or
+ * radius). Selected row reads as a brand-tint surface, hover as a subtle
+ * wash; label is brand-heading, description is mono.
  *
  * @packageDocumentation
  */
@@ -36,15 +34,15 @@ export const optionListSlotRecipe = defineSlotRecipe({
             alignItems: "center",
             gap: "{spacing.3}",
             width: "100%",
-            paddingX: "18px",
-            paddingY: "14px",
+            paddingX: "16px",
+            paddingY: "12px",
             background: "bg.surface",
             color: "fg",
             cursor: "pointer",
             transitionProperty: "background",
             transitionDuration: "{durations.fast}",
             "& + &": { borderTopWidth: "1px", borderTopColor: "border.subtle" },
-            _hover: { background: "bg.canvas" },
+            _hover: { background: "bg.subtle" },
             _selected: { background: "bg.brand.subtle" },
             "&[data-selected]": { background: "bg.brand.subtle" },
             "&[aria-disabled='true']": {
@@ -64,7 +62,7 @@ export const optionListSlotRecipe = defineSlotRecipe({
         itemDescription: {
             fontFamily: "mono",
             fontSize: "11px",
-            color: "fg.muted",
+            color: "fg.subtle",
             marginTop: "4px",
             lineHeight: "1.4",
         },

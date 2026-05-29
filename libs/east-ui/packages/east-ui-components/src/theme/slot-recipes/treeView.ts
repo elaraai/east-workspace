@@ -4,10 +4,8 @@
  */
 
 /**
- * TreeView slot recipe — pattern_spec `.diff-tree` indented branches.
- *
- * Branches indent at 18 px each. Items use 13 px body font with mono key
- * accents via consumer-side textStyle overrides.
+ * TreeView slot recipe — indented branches (the `.diff-tree` pattern).
+ * Items read as body text with mono key accents applied consumer-side.
  *
  * @packageDocumentation
  */
@@ -51,8 +49,8 @@ export const treeViewSlotRecipe = defineSlotRecipe({
             color: "fg",
             cursor: "pointer",
             _hover: { background: "bg.subtle" },
-            _selected: { background: "bg.brand.subtle", color: "{colors.brand.800}" },
-            "&[data-selected]": { background: "bg.brand.subtle", color: "{colors.brand.800}" },
+            _selected: { background: "bg.brand.subtle", color: "{colors.brand.700}" },
+            "&[data-selected]": { background: "bg.brand.subtle", color: "{colors.brand.700}" },
         },
         itemText: { fontSize: "{fontSizes.control}" },
     },
