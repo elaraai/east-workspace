@@ -29,10 +29,23 @@ on:
         required: false
         default: true
         type: boolean
+  # On PRs to main, exercise ONLY the verdaccio release dry-run (validate-release).
+  # Every other job needs `prepare`, which is gated to workflow_dispatch below, so
+  # they all skip on PRs — no publish, no tag, no push, no secrets. `pull_request`
+  # (never pull_request_target) means fork PRs get no secrets to leak.
+  pull_request:
+    branches: [main]
+    paths:
+      - "libs/**"
+      - "scripts/**"
+      - "package.json"
+      - ".github/workflows/release.yml"
 
 concurrency:
-  group: release
-  cancel-in-progress: false
+  # Real releases share one global lock (never cancel a release in flight); PR
+  # validations are per-ref and cancel stale runs for fast iteration.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || 'release' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # ────────────────────────────────────────────────────────────────────────
@@ -41,6 +54,9 @@ jobs:
   #    without re-running the bump (which would be non-deterministic across jobs).
   # ────────────────────────────────────────────────────────────────────────
   prepare:
+    # Only on manual dispatch. On PRs this job (and everything that needs it —
+    # i.e. all the publish/finalize jobs) skips, leaving just validate-release.
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.bump.outputs.version }}
@@ -130,6 +146,32 @@ jobs:
           retention-days: 7
 
   # ────────────────────────────────────────────────────────────────────────
+  # validate-release: publish-dry-run guard. Spins a throwaway verdaccio,
+  # publishes every @elaraai/* package + the east-c-cli launcher (host leg)
+  # exactly as the real jobs do — minus provenance, which is npm-OIDC-only —
+  # then installs them into a fresh consumer and smoke-tests. Runs in BOTH dry
+  # and real so a real release is proven installable BEFORE anything hits npm;
+  # the real npm publish jobs gate on it. Linux-x64 only (the host leg) — the
+  # per-platform binary matrix is covered by publish-c-native. No secrets / no
+  # OIDC, so it runs anywhere, including locally under `act`.
+  # ────────────────────────────────────────────────────────────────────────
+  validate-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+      - name: Install build deps (east-c native)
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
+      - name: Install
+        run: pnpm install
+      - name: Release dry-run against verdaccio
+        run: bash scripts/test-release-verdaccio.sh
+
+  # ────────────────────────────────────────────────────────────────────────
   # Tests are NOT re-run here: main is protected and only reachable via PRs that
   # pass the per-lib test workflows, so the release trusts main and only builds
   # + publishes.
@@ -137,7 +179,7 @@ jobs:
   # publish-npm: the public @elaraai/* packages via scripts/publish-npm.mjs.
   # ────────────────────────────────────────────────────────────────────────
   publish-npm:
-    needs: prepare
+    needs: [prepare, validate-release]
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -487,7 +529,7 @@ jobs:
   #     east-c-npm.mjs and libs/east-c/docs/npm-runner-distribution.md.
   # ────────────────────────────────────────────────────────────────────────
   publish-c-npm:
-    needs: [prepare, publish-c-native]
+    needs: [prepare, publish-c-native, validate-release]
     runs-on: ubuntu-latest
     permissions:
       id-token: write
