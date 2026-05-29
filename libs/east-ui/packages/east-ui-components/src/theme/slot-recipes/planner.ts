@@ -51,7 +51,7 @@ export const plannerSlotRecipe = defineSlotRecipe({
             borderRightColor: "border.subtle",
             borderBottomWidth: "1px",
             borderBottomColor: "border.subtle",
-            fontSize: "13px",
+            fontSize: "{fontSizes.control}",
             color: "fg",
         },
         cell: {

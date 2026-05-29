@@ -73,7 +73,7 @@ export const selectSlotRecipe = defineSlotRecipe({
             gap: "{spacing.2}",
             paddingX: "{spacing.3}",
             paddingY: "{spacing.2}",
-            fontSize: "13px",
+            fontSize: "{fontSizes.control}",
             cursor: "pointer",
             _hover: { background: "bg.subtle" },
             _highlighted: { background: "bg.subtle" },

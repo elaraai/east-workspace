@@ -20,7 +20,7 @@ export const popoverSlotRecipe = defineSlotRecipe({
             padding: "14px 16px",
             minWidth: "240px",
             maxWidth: "360px",
-            fontSize: "13px",
+            fontSize: "{fontSizes.control}",
             color: "{colors.gray.900}",
             overflow: "visible",
         },
@@ -42,12 +42,12 @@ export const popoverSlotRecipe = defineSlotRecipe({
             marginBottom: "8px",
         },
         description: {
-            fontSize: "13px",
+            fontSize: "{fontSizes.control}",
             color: "{colors.gray.600}",
         },
         body: {
             padding: "0",
-            fontSize: "13px",
+            fontSize: "{fontSizes.control}",
         },
     },
 });

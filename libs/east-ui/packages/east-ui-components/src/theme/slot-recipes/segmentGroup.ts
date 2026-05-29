@@ -17,13 +17,9 @@
  *                     and use the item's `_checked` state instead, per
  *                     spec convention)
  *
- * Default `variant="ink"` matches spec `.context-tabs` — mono uppercase
- * 11.5 px / 600 / 0.06 em tracking, hairline 1 px `border.strong` group
- * border, 4 px radius, segments divided by 1 px right-rule, active = ink
- * fill against `bg.surface` rest.
- *
- * `variant="brand-tint"` swaps the active fill to spec `.lib-seg-btn`'s
- * brand-tinted surface.
+ * `variant="ink"` matches spec `.context-tabs` (active = ink fill, white
+ * text); `variant="brand-tint"` matches spec `.lib-seg-btn` (active =
+ * brand-tinted surface). Segments are mono, divided by a right-rule.
  *
  * @packageDocumentation
  */
@@ -122,21 +118,20 @@ export const segmentGroupSlotRecipe = defineSlotRecipe({
                     },
                 },
             },
-            /** Active = mid-brand-tinted surface (brand.100) + brand.800 ink.
-             *  Spec calls for the lighter `brand-tint` (#e8f6f7) but against
-             *  `bg.surface` white that delta reads near-invisible — bump two
-             *  stops to `brand.100` (#c2fcfc) so the selected segment actually
-             *  pops while keeping the same hue family. */
+            /** Spec `.lib-seg-btn` active. Spec fills with the pale brand-tint,
+             *  but against the white surface that delta is near-invisible — step
+             *  up a few brand stops so the selected segment is legible, same hue
+             *  family. Active text is `--brand-dd` (brand.700). */
             "brand-tint": {
                 item: {
                     background: "bg.surface",
                     _checked: {
                         background: "{colors.brand.100}",
-                        color: "{colors.brand.800}",
+                        color: "{colors.brand.700}",
                     },
                     "&[data-state=checked]": {
                         background: "{colors.brand.100}",
-                        color: "{colors.brand.800}",
+                        color: "{colors.brand.700}",
                     },
                 },
             },
@@ -157,9 +152,8 @@ export const segmentGroupSlotRecipe = defineSlotRecipe({
         },
     },
     defaultVariants: {
-        /* bsys §Segmented (design/index.html L1126): active = brand-tint
-         * bg + brand-dd text. `brand-tint` is the bsys-compliant default;
-         * `ink` and `subtle` remain available as palette overrides. */
+        /* Default to the brand-tint active treatment; `ink` and `subtle`
+         * remain available as palette overrides. */
         variant: "brand-tint",
         size: "md",
     },

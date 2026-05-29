@@ -120,6 +120,7 @@ export const tokens = defineTokens({
         },
     },
     radii: {
+        xs:   { value: "3px" },   // small controls / chips (badge, meter, barStrip, checkbox)
         sm:   { value: "4px" },
         md:   { value: "6px" },   // buttons, inputs
         lg:   { value: "8px" },   // cards
@@ -182,6 +183,9 @@ export const tokens = defineTokens({
     fontSizes: {
         // Aligned to pattern_spec/colors_and_type.css. Each tier carries the
         // px value the spec assigns (`--fs-xs: 12px` through `--fs-6xl: 60px`).
+        // `control` sits off the tier scale — the spec's form-control / dense
+        // mono size (`.p-input`, `.je-rationale`), between xs (12) and sm (14).
+        control: { value: "13px" },
         xs:    { value: "12px" },
         sm:    { value: "14px" },
         md:    { value: "16px" },

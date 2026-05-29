@@ -27,18 +27,15 @@ export const radioGroupSlotRecipe = defineSlotRecipe({
             cursor: "pointer",
         },
         itemControl: {
-            /* bsys §Radio (L1998-2018): 14×14 outlined circle, paper bg,
-             * brand-d border + brand-d 6px inner dot on checked. Defeat
-             * Chakra's `solid` default by setting `bg: transparent` so
-             * the inner Radiomark dot reads against paper, not against
-             * a brand-coloured fill. The `.dot` is Chakra's inner mark;
-             * `currentColor` resolves through `color: brand.600` set on
-             * `_checked` below. */
+            /* Outlined circle on paper with a brand inner dot when checked.
+             * `bg` stays the surface (not Chakra's `solid` fill) so the inner
+             * Radiomark reads against paper; the `.dot` is that mark and its
+             * `currentColor` resolves through the `color` set on `_checked`. */
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
-            width: "16px",
-            height: "16px",
+            width: "14px",
+            height: "14px",
             borderRadius: "{radii.full}",
             borderWidth: "1.5px",
             borderColor: "border.strong",
@@ -47,11 +44,10 @@ export const radioGroupSlotRecipe = defineSlotRecipe({
             transitionDuration: "{durations.fast}",
             color: "transparent",
             "& .dot": {
-                width: "100%",
-                height: "100%",
+                width: "6px",
+                height: "6px",
                 borderRadius: "{radii.full}",
                 background: "currentColor",
-                scale: "0.5",
             },
             _checked: {
                 borderColor: "{colors.brand.600}",
@@ -65,7 +61,7 @@ export const radioGroupSlotRecipe = defineSlotRecipe({
             },
         },
         itemText: {
-            fontSize: "{fontSizes.sm}",
+            fontSize: "{fontSizes.control}",
             color: "fg",
             userSelect: "none",
         },

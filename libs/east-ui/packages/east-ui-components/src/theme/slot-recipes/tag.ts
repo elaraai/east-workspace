@@ -91,7 +91,7 @@ export const tagSlotRecipe = defineSlotRecipe({
         size: {
             sm: { root: { fontSize: "11px", paddingX: "{spacing.2}", paddingY: "2px" } },
             md: { root: { fontSize: "{fontSizes.xs}", paddingX: "10px", paddingY: "{spacing.1}" } },
-            lg: { root: { fontSize: "13px", paddingX: "{spacing.3}", paddingY: "{spacing.1}" } },
+            lg: { root: { fontSize: "{fontSizes.control}", paddingX: "{spacing.3}", paddingY: "{spacing.1}" } },
         },
     },
     defaultVariants: {

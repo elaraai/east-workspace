@@ -20,7 +20,7 @@ export const hoverCardSlotRecipe = defineSlotRecipe({
             padding: "14px 16px",
             minWidth: "240px",
             maxWidth: "320px",
-            fontSize: "13px",
+            fontSize: "{fontSizes.control}",
             color: "{colors.gray.900}",
         },
         arrow: {

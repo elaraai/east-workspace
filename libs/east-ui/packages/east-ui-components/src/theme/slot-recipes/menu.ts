@@ -23,11 +23,11 @@ export const menuSlotRecipe = defineSlotRecipe({
             boxShadow: "md",
             padding: "4px",
             minWidth: "220px",
-            fontSize: "13px",
+            fontSize: "{fontSizes.control}",
             overflow: "hidden",
         },
         item: {
-            fontSize: "13px",
+            fontSize: "{fontSizes.control}",
             padding: "6px 10px",
             borderRadius: "{radii.sm}",
             color: "{colors.gray.900}",

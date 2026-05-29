@@ -48,7 +48,7 @@ export const tableSlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
         },
         cell: {
-            fontSize: "13px",
+            fontSize: "{fontSizes.control}",
             paddingX: "14px",
             paddingY: "10px",
             borderBottomWidth: "1px",
@@ -77,7 +77,7 @@ export const tableSlotRecipe = defineSlotRecipe({
         // pairs each with a row height from `TABLE_ROW_HEIGHT`.
         size: {
             sm: { cell: { paddingX: "{spacing.2}", paddingY: "{spacing.1}", fontSize: "12px" }, columnHeader: { paddingX: "{spacing.2}", paddingY: "{spacing.1}" } },
-            md: { cell: { paddingX: "{spacing.3.5}", paddingY: "{spacing.2.5}", fontSize: "13px" }, columnHeader: { paddingX: "{spacing.3.5}", paddingY: "{spacing.2.5}" } },
+            md: { cell: { paddingX: "{spacing.3.5}", paddingY: "{spacing.2.5}", fontSize: "{fontSizes.control}" }, columnHeader: { paddingX: "{spacing.3.5}", paddingY: "{spacing.2.5}" } },
             lg: { cell: { paddingX: "{spacing.4}", paddingY: "{spacing.3}", fontSize: "{fontSizes.sm}" }, columnHeader: { paddingX: "{spacing.4}", paddingY: "{spacing.3}" } },
         },
         striped: { true: { row: { "&:nth-of-type(odd)": { background: "bg.subtle" } } } },

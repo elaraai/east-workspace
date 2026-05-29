@@ -4,10 +4,8 @@
  */
 
 /**
- * Slider slot recipe — brand thumb / range, thin track.
- *
- * Per CLAUDE.md "Thin chart lines" rule: track is 4 px, thumb is 12 px,
- * range is the brand-500 colour at 60% opacity (brush-handle look).
+ * Slider slot recipe — thin track with a brand fill and a bordered thumb,
+ * mirroring the workbench `.wb-track` / `.wb-fill` / `.wb-thumb` handle.
  *
  * @packageDocumentation
  */
@@ -38,21 +36,21 @@ export const sliderSlotRecipe = defineSlotRecipe({
         },
         track: {
             background: "bg.subtle",
-            borderRadius: "{radii.sm}",
+            borderRadius: "{radii.full}",
             height: "4px",
             overflow: "hidden",
         },
         range: {
-            background: "{colors.brand.500}",
+            background: "{colors.brand.600}",
             height: "100%",
         },
         thumb: {
-            width: "12px",
-            height: "12px",
+            width: "14px",
+            height: "14px",
             borderRadius: "{radii.full}",
             background: "bg.surface",
             borderWidth: "2px",
-            borderColor: "{colors.brand.500}",
+            borderColor: "{colors.brand.600}",
             boxShadow: "sm",
             cursor: "grab",
             _focusVisible: {

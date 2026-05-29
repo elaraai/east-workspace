@@ -28,7 +28,7 @@ export const kbdRecipe = defineRecipe({
         lineHeight: "1",
         paddingX: "6px",
         paddingY: "2px",
-        borderRadius: "3px",
+        borderRadius: "{radii.xs}",
         whiteSpace: "nowrap",
     },
     variants: {

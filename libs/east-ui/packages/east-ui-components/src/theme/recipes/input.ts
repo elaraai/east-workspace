@@ -4,15 +4,14 @@
  */
 
 /**
- * Input recipe — enforces the canonical input shape.
+ * Input recipe — the canonical text-field shape, mirrored by the combobox
+ * and select triggers so every typed control reads identically.
  *
- *  - 4 px radius (spec `--r-sm`), 1 px subtle border.
- *  - Focus: brand-500 border + 3 px brand-tinted box-shadow.
- *  - Error: muted-danger border. Helper text becomes danger ink.
- *  - Variant `numeric` switches font to mono + right-align (used inside
- *    parameter forms, matrix cells, KPI inputs).
- *  - Variant `dirty` highlights uncommitted edits (matrix dirty cells).
- *  - Always paired with a static `<label>` above. No floating labels.
+ *  - `numeric` — mono + right-aligned tabular figures for parameter forms,
+ *    matrix cells, KPI inputs.
+ *  - `dirty` — flags an uncommitted edit (matrix dirty cells).
+ *  - `flushed` — borderless strip for the command-palette input.
+ *  Always paired with a static `<label>` above; no floating labels.
  *
  * @packageDocumentation
  */
@@ -23,12 +22,12 @@ export const inputRecipe = defineRecipe({
     className: "elara-input",
     base: {
         fontFamily: "body",
-        fontSize: "13px",
+        fontSize: "{fontSizes.control}",
         background: "bg.surface",
         color: "fg",
-        borderRadius: "{radii.sm}",    // 4 px (spec)
+        borderRadius: "{radii.sm}",
         borderWidth: "1px",
-        borderColor: "border.subtle",  // gray.200 (spec rule)
+        borderColor: "border.strong",
         paddingX: "10px",
         paddingY: "7px",
         outline: "none",
@@ -36,9 +35,9 @@ export const inputRecipe = defineRecipe({
         transitionDuration: "{durations.fast}",
         transitionTimingFunction: "{easings.out}",
         _placeholder: { color: "fg.subtle" },
-        _hover: { borderColor: "border.strong" },
+        _hover: { borderColor: "fg.subtle" },
         _focusVisible: {
-            borderColor: "{colors.brand.500}",
+            borderColor: "{colors.brand.600}",
             boxShadow: "none",
         },
         _invalid: {
@@ -77,16 +76,16 @@ export const inputRecipe = defineRecipe({
                 borderRadius: "0",
                 paddingX: "0",
                 borderBottomWidth: "1px",
-                borderBottomColor: "border.subtle",
+                borderBottomColor: "border.strong",
                 _focusVisible: {
-                    borderBottomColor: "{colors.brand.500}",
+                    borderBottomColor: "{colors.brand.600}",
                     boxShadow: "none",
                 },
             },
         },
         size: {
             sm: { fontSize: "{fontSizes.xs}" /* 12 */, paddingX: "{spacing.2}", paddingY: "{spacing.1}" },
-            md: { fontSize: "13px", paddingX: "10px", paddingY: "7px" },
+            md: { fontSize: "{fontSizes.control}", paddingX: "10px", paddingY: "7px" },
             lg: { fontSize: "{fontSizes.md}" /* 16 */, paddingX: "{spacing.4}", paddingY: "{spacing.3}" },
         },
     },

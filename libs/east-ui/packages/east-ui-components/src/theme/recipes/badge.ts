@@ -4,12 +4,9 @@
  */
 
 /**
- * Badge recipe — small mono-uppercase chip used for taxonomic / status
+ * Badge recipe — small mono-uppercase chip for taxonomic / status
  * micro-labels. Spec sources: `.pattern-anchor`, `.diff-pill.*`,
  * `.stakes-tag.{low,mid,high,crit}`.
- *
- * Default look: 10 px JetBrains Mono / weight 700 / 0.16 em letter-spacing
- * / uppercase / 3 px radius / 1 px coloured border.
  *
  * @packageDocumentation
  */
@@ -29,7 +26,7 @@ export const badgeRecipe = defineRecipe({
         letterSpacing: "{letterSpacings.wider2}",
         textTransform: "uppercase",
         borderWidth: "1px",
-        borderRadius: "3px",
+        borderRadius: "{radii.xs}",
         paddingX: "{spacing.2}",
         paddingY: "2px",
         whiteSpace: "nowrap",
