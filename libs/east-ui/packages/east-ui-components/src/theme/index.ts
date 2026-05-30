@@ -94,6 +94,7 @@ import { sliceEditSlotRecipe } from "./slot-recipes/sliceEdit.js";
 import { editableChipSlotRecipe } from "./slot-recipes/editableChip.js";
 import { ganttSlotRecipe } from "./slot-recipes/gantt.js";
 import { plannerSlotRecipe } from "./slot-recipes/planner.js";
+import { splitterSlotRecipe } from "./slot-recipes/splitter.js";
 import { matrixSlotRecipe } from "./slot-recipes/matrix.js";
 import { showMoreSlotRecipe } from "./slot-recipes/showMore.js";
 import { statusSlotRecipe } from "./slot-recipes/status.js";
@@ -167,6 +168,7 @@ const config = defineConfig({
             sliceEdit:       sliceEditSlotRecipe,
             editableChip:    editableChipSlotRecipe,
             gantt:           ganttSlotRecipe,
+            splitter:        splitterSlotRecipe,
             planner:         plannerSlotRecipe,
             matrix:          matrixSlotRecipe,
             showMore:        showMoreSlotRecipe,
