@@ -39,6 +39,14 @@ export default defineConfig(({ command }) => {
               find: /^@elaraai\/east-ui-components\/fonts$/,
               replacement: path.resolve(__dirname, '../east-ui-components/src/fonts.ts'),
             },
+            /* east-ui (the IR layer) also from source so dev never serves a
+             * stale `dist` — adding an IR field (e.g. a Gantt status) shows up
+             * live without rebuilding. Anchored ($) so subpaths
+             * (…/internal, …/…examples) still resolve through package exports. */
+            {
+              find: /^@elaraai\/east-ui$/,
+              replacement: path.resolve(__dirname, '../east-ui/src/index.ts'),
+            },
           ],
           /* The renderer source joins the app module graph across the pnpm
            * symlink boundary — pin one React copy so hooks don't duplicate. */
