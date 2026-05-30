@@ -12,6 +12,7 @@ import {
     Skeleton,
     Splitter,
     useToken,
+    useSlotRecipe,
     type TableRootProps,
 } from "@chakra-ui/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -280,6 +281,9 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({
     // Row-status callback — paints each row's background with a semantic
     // token. Shared helper used by Gantt / Table too.
     const rowStatusBgFor = useRowStatusBg(getSomeorUndefined(value.rowStatus));
+    // The left pane IS a Table — consume the same `table` columnHeader slot so
+    // the header type matches the Table component exactly.
+    const tableSlotStyles = useSlotRecipe({ key: "table" })({ size: "md" });
 
     // Subscribe to row state changes
     useEffect(() => {
@@ -824,6 +828,8 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({
                                             return (
                                                 <ChakraTable.ColumnHeader
                                                     key={header.id}
+                                                    css={tableSlotStyles.columnHeader}
+                                                    color="gray.500"
                                                     _hover={{ bg: "bg.muted" }}
                                                     transition="background 0.2s"
                                                     style={getHeaderCellStyle(header, hasFrozen, columnSizing, header.id === lastUnpinnedColumnId)}
@@ -969,7 +975,7 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({
                     </Box>
                 </Splitter.Panel>
 
-                <Splitter.ResizeTrigger id="table:slots" />
+                <Splitter.ResizeTrigger id="table:slots" css={{ _after: { top: `calc(50% + ${headerHeight / 2}px)` } }} />
 
                 {/* Slot Grid Panel */}
                 <Splitter.Panel id="slots">

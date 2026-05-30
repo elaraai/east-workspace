@@ -40,11 +40,6 @@ export interface GanttEventRowProps {
     durationStep?: TimeStep | undefined;
     /** Storage key prefix for per-task / per-milestone UIComp slots. */
     storageKey?: string | undefined;
-    /** Visual-token defaults from Gantt `style` (per-event overrides win). */
-    taskBorderRadius?: string | undefined;
-    labelColor?: string | undefined;
-    labelFontSize?: string | undefined;
-    labelFontWeight?: string | undefined;
 }
 
 interface TaskPosition {
@@ -116,14 +111,11 @@ export const GanttEventRow = ({
     dragStep,
     durationStep,
     storageKey = "gantt",
-    taskBorderRadius,
-    labelColor,
-    labelFontSize,
-    labelFontWeight,
 }: GanttEventRowProps) => {
     const renderedEvents = useMemo(() => {
-        const eventHeight = height - 24;
-        const eventY = y + 12;
+        // Spec bar = a fixed 26px band centred in the row (not row-height-filling).
+        const eventHeight = 26;
+        const eventY = y + (height - eventHeight) / 2;
 
         const renderedTasks = tasks.map((task, taskIndex) => {
             const position = getTaskPosition(task, startDate, endDate, width);
@@ -148,10 +140,6 @@ export const GanttEventRow = ({
                     timelineWidth={width}
                     dragStep={dragStep}
                     durationStep={durationStep}
-                    taskBorderRadius={taskBorderRadius}
-                    labelColor={labelColor}
-                    labelFontSize={labelFontSize}
-                    labelFontWeight={labelFontWeight}
                 />
             );
         });
@@ -174,15 +162,12 @@ export const GanttEventRow = ({
                     timelineStartDate={startDate}
                     timelineEndDate={endDate}
                     timelineWidth={width}
-                    labelColor={labelColor}
-                    labelFontSize={labelFontSize}
-                    labelFontWeight={labelFontWeight}
                 />
             );
         });
 
         return [...renderedTasks, ...renderedMilestones].filter(Boolean);
-    }, [tasks, milestones, rowIndex, y, width, height, startDate, endDate, onTaskClick, onTaskDoubleClick, onMilestoneClick, onMilestoneDoubleClick, onTaskDrag, onTaskDurationChange, onTaskProgressChange, onMilestoneDrag, dragStep, durationStep, storageKey, taskBorderRadius, labelColor, labelFontSize, labelFontWeight]);
+    }, [tasks, milestones, rowIndex, y, width, height, startDate, endDate, onTaskClick, onTaskDoubleClick, onMilestoneClick, onMilestoneDoubleClick, onTaskDrag, onTaskDurationChange, onTaskProgressChange, onMilestoneDrag, dragStep, durationStep, storageKey]);
 
     return <g>{renderedEvents}</g>;
 };

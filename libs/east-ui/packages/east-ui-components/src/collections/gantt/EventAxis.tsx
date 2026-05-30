@@ -4,21 +4,20 @@
  */
 
 import { useMemo } from "react";
-import { Box, HStack, Text } from "@chakra-ui/react";
+import { Box, type SystemStyleObject } from "@chakra-ui/react";
 
 export interface EventAxisProps {
     startDate: Date;
     endDate: Date;
     width: number;
     height: number;
+    /**
+     * The `table` slot recipe's `columnHeader` style object — the same one the
+     * left table-pane consumes, so the month header reads identically to a
+     * Table column header (mono / 10px / 0.16em / uppercase eyebrow).
+     */
+    columnHeaderStyles: SystemStyleObject;
 }
-
-const formatDate = (date: Date): string => {
-    return date.toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-    });
-};
 
 export const generateDateTicks = (startDate: Date, endDate: Date, maxTicks: number = 8): Date[] => {
     const totalDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
@@ -42,58 +41,47 @@ export const getDatePosition = (date: Date, startDate: Date, endDate: Date, widt
     return ratio * width;
 };
 
-// Label width estimate for edge detection
-const LABEL_HALF_WIDTH = 40;
-
 export const EventAxis = ({
     startDate,
     endDate,
     width,
     height,
+    columnHeaderStyles,
 }: EventAxisProps) => {
-    const ticks = useMemo(() => {
-        const dates = generateDateTicks(startDate, endDate, Math.floor(width / 100));
-
-        return dates
-            .map((date, index) => {
-                const x = getDatePosition(date, startDate, endDate, width);
-                // Only include if the label won't be cut off at edges
-                if (x >= LABEL_HALF_WIDTH && x <= width - LABEL_HALF_WIDTH) {
-                    return { date, x, index };
-                }
-                return null;
-            })
-            .filter(Boolean) as { date: Date; x: number; index: number }[];
+    // Month-scale header: one cell per calendar month spanning [start, end],
+    // each positioned by its month-boundary x so it aligns with the timeline.
+    const months = useMemo(() => {
+        const cells: { label: string; x0: number; x1: number }[] = [];
+        const cursor = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+        while (cursor <= endDate) {
+            const next = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+            const from = cursor < startDate ? startDate : cursor;
+            const to = next > endDate ? endDate : next;
+            cells.push({
+                label: cursor.toLocaleDateString("en-US", { month: "short" }),
+                x0: getDatePosition(from, startDate, endDate, width),
+                x1: getDatePosition(to, startDate, endDate, width),
+            });
+            cursor.setMonth(cursor.getMonth() + 1);
+        }
+        return cells;
     }, [startDate, endDate, width]);
 
     return (
-        <HStack
-            position="relative"
-            width="100%"
-            height={`${height}px`}
-            px="3"
-            alignItems="center"
-            borderBottomWidth="1px"
-            borderColor="border.muted"
-            gap={0}
-        >
-            {ticks.map(({ date, x, index }) => (
+        <Box position="relative" width="100%" height={`${height}px`}>
+            {months.map((m, index) => (
                 <Box
-                    key={`tick-${index}`}
+                    key={`month-${index}`}
                     position="absolute"
-                    left={`${x}px`}
-                    transform="translateX(-50%)"
+                    left={`${m.x0}px`}
+                    width={`${Math.max(m.x1 - m.x0, 0)}px`}
+                    height="100%"
+                    color="gray.500"
+                    css={columnHeaderStyles}
                 >
-                    <Text
-                        fontSize="sm"
-                        fontWeight="semibold"
-                        color="fg.default"
-                        whiteSpace="nowrap"
-                    >
-                        {formatDate(date)}
-                    </Text>
+                    {m.label}
                 </Box>
             ))}
-        </HStack>
+        </Box>
     );
 };

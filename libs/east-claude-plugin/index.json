@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1326,
+    "totalEntries": 1303,
     "totalFiles": 163,
     "packages": {
       "east": 486,
       "east-node-std": 42,
       "east-node-io": 63,
       "east-py-datascience": 81,
-      "east-ui": 614,
+      "east-ui": 591,
       "e3-ui": 33,
       "e3": 7
     }
@@ -14617,7 +14617,7 @@
       ],
       "imports": [
         "import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Gantt, Icon, Reactive, Stack, Stat, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+        "import { Badge, Gantt, Reactive, Stack, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
       "source": "// Simple project timeline with tasks\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Gantt.Root(\n            [\n                { task: \"Planning\", owner: \"Alice\", start: new Date(\"2024-01-01\"), end: new Date(\"2024-01-15\") },\n                { task: \"Design\", owner: \"Bob\", start: new Date(\"2024-01-10\"), end: new Date(\"2024-02-01\") },\n                { task: \"Development\", owner: \"Charlie\", start: new Date(\"2024-01-20\"), end: new Date(\"2024-03-15\") },\n                { task: \"Testing\", owner: \"Diana\", start: new Date(\"2024-03-01\"), end: new Date(\"2024-03-30\") },\n            ],\n            [\"task\", \"owner\"],\n            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })\n        );\n    })"
     },
@@ -14638,9 +14638,9 @@
       ],
       "imports": [
         "import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Gantt, Icon, Reactive, Stack, Stat, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+        "import { Badge, Gantt, Reactive, Stack, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Object config with custom column headers and widths\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Gantt.Root(\n            [\n                { phase: \"Research\", team: \"R&D\", start: new Date(\"2024-02-01\"), end: new Date(\"2024-02-28\") },\n                { phase: \"Prototype\", team: \"Engineering\", start: new Date(\"2024-02-15\"), end: new Date(\"2024-03-31\") },\n                { phase: \"Launch\", team: \"Marketing\", start: new Date(\"2024-03-15\"), end: new Date(\"2024-04-15\") },\n            ],\n            {\n                phase: { header: \"Phase\", width: \"300px\", minWidth: \"80px\" },\n                team: { header: \"Team\", width: \"150px\", maxWidth: \"200px\" },\n            },\n            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end, colorPalette: \"teal\" })] })\n        );\n    })"
+      "source": "// Object config with custom column headers and widths\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Gantt.Root(\n            [\n                { phase: \"Research\", team: \"R&D\", start: new Date(\"2024-02-01\"), end: new Date(\"2024-02-28\") },\n                { phase: \"Prototype\", team: \"Engineering\", start: new Date(\"2024-02-15\"), end: new Date(\"2024-03-31\") },\n                { phase: \"Launch\", team: \"Marketing\", start: new Date(\"2024-03-15\"), end: new Date(\"2024-04-15\") },\n            ],\n            {\n                phase: { header: \"Phase\", width: \"300px\", minWidth: \"80px\" },\n                team: { header: \"Team\", width: \"150px\", maxWidth: \"200px\" },\n            },\n            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })\n        );\n    })"
     },
     {
       "id": "east-ui:gantt.examples.ts:ganttWithMilestones",
@@ -14648,17 +14648,20 @@
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/collections/gantt.examples.ts",
       "suite": "",
-      "test": "Combining tasks with milestone markers",
+      "test": "Combining tasks with milestone markers — ",
       "keywords": [
         "Gantt",
         "Task",
-        "Milestone"
+        "Milestone",
+        "kind",
+        "interim",
+        "release"
       ],
       "imports": [
         "import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Gantt, Icon, Reactive, Stack, Stat, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+        "import { Badge, Gantt, Reactive, Stack, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Combining tasks with milestone markers\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Gantt.Root(\n            [\n                { name: \"Sprint 1\", start: new Date(\"2024-01-01\"), end: new Date(\"2024-01-14\"), release: new Date(\"2024-01-14\") },\n                { name: \"Sprint 2\", start: new Date(\"2024-01-15\"), end: new Date(\"2024-01-28\"), release: new Date(\"2024-01-28\") },\n                { name: \"Sprint 3\", start: new Date(\"2024-01-29\"), end: new Date(\"2024-02-11\"), release: new Date(\"2024-02-11\") },\n            ],\n            { name: { header: \"Sprint\" } },\n            row => ({\n                tasks: [Gantt.Task({ start: row.start, end: row.end, colorPalette: \"blue\" })],\n                milestones: [Gantt.Milestone({ date: row.release, label: \"Release\", colorPalette: \"green\" })],\n            })\n        );\n    })"
+      "source": "// Combining tasks with milestone markers — \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Gantt.Root(\n            [\n                { name: \"Sprint 1\", start: new Date(\"2024-01-01\"), end: new Date(\"2024-01-14\"), checkpoint: new Date(\"2024-01-14\"), kind: \"interim\" },\n                { name: \"Sprint 2\", start: new Date(\"2024-01-15\"), end: new Date(\"2024-01-28\"), checkpoint: new Date(\"2024-01-28\"), kind: \"interim\" },\n                { name: \"Sprint 3\", start: new Date(\"2024-01-29\"), end: new Date(\"2024-02-11\"), checkpoint: new Date(\"2024-02-11\"), kind: \"release\" },\n            ],\n            { name: { header: \"Sprint\" } },\n            row => ({\n                tasks: [Gantt.Task({ start: row.start, end: row.end })],\n                milestones: [Gantt.Milestone({\n                    date: row.checkpoint,\n                    label: \"Checkpoint\",\n                    kind: row.kind.equal(\"release\").ifElse(\n                        _$ => variant(\"release\", null),\n                        _$ => variant(\"interim\", null),\n                    ),\n                })],\n            })\n        );\n    })"
     },
     {
       "id": "east-ui:gantt.examples.ts:ganttWithProgress",
@@ -14674,31 +14677,32 @@
       ],
       "imports": [
         "import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Gantt, Icon, Reactive, Stack, Stat, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+        "import { Badge, Gantt, Reactive, Stack, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Tasks with progress indicators\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Gantt.Root(\n            [\n                { task: \"Backend API\", start: new Date(\"2024-01-01\"), end: new Date(\"2024-02-15\"), progress: 100 },\n                { task: \"Frontend UI\", start: new Date(\"2024-01-15\"), end: new Date(\"2024-03-01\"), progress: 75 },\n                { task: \"Integration\", start: new Date(\"2024-02-01\"), end: new Date(\"2024-03-15\"), progress: 40 },\n                { task: \"QA Testing\", start: new Date(\"2024-02-15\"), end: new Date(\"2024-04-01\"), progress: 10 },\n            ],\n            { task: { header: \"Task\" } },\n            row => ({\n                tasks: [Gantt.Task({\n                    start: row.start,\n                    end: row.end,\n                    progress: row.progress,\n                    colorPalette: \"purple\",\n                })],\n            })\n        );\n    })"
+      "source": "// Tasks with progress indicators\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Gantt.Root(\n            [\n                { task: \"Backend API\", start: new Date(\"2024-01-01\"), end: new Date(\"2024-02-15\"), progress: 100 },\n                { task: \"Frontend UI\", start: new Date(\"2024-01-15\"), end: new Date(\"2024-03-01\"), progress: 75 },\n                { task: \"Integration\", start: new Date(\"2024-02-01\"), end: new Date(\"2024-03-15\"), progress: 40 },\n                { task: \"QA Testing\", start: new Date(\"2024-02-15\"), end: new Date(\"2024-04-01\"), progress: 10 },\n            ],\n            { task: { header: \"Task\" } },\n            row => ({\n                tasks: [Gantt.Task({ start: row.start, end: row.end, progress: row.progress })],\n            })\n        );\n    })"
     },
     {
-      "id": "east-ui:gantt.examples.ts:ganttColorful",
+      "id": "east-ui:gantt.examples.ts:ganttStatusByType",
       "skill": "east-ui",
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/collections/gantt.examples.ts",
       "suite": "",
-      "test": "Different colors for different task types — per-row colorPalette derived from a type field via East ifElse",
+      "test": "Status-driven bar colour — per-row ",
       "keywords": [
         "Gantt",
         "Task",
-        "label",
-        "color",
-        "colorPalette",
+        "status",
+        "committed",
+        "proposed",
+        "atRisk",
         "ifElse",
-        "per-type"
+        "per-row"
       ],
       "imports": [
         "import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Gantt, Icon, Reactive, Stack, Stat, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+        "import { Badge, Gantt, Reactive, Stack, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Different colors for different task types — per-row colorPalette derived from a type field via East ifElse\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Gantt.Root(\n            [\n                { type: \"Feature\", name: \"User Auth\", start: new Date(\"2024-01-01\"), end: new Date(\"2024-01-20\") },\n                { type: \"Bug Fix\", name: \"Login Issue\", start: new Date(\"2024-01-10\"), end: new Date(\"2024-01-15\") },\n                { type: \"Enhancement\", name: \"Performance\", start: new Date(\"2024-01-15\"), end: new Date(\"2024-02-01\") },\n                { type: \"Feature\", name: \"Dashboard\", start: new Date(\"2024-01-20\"), end: new Date(\"2024-02-15\") },\n            ],\n            {\n                type: { header: \"Type\" },\n                name: { header: \"Name\" },\n            },\n            row => ({\n                tasks: [Gantt.Task({\n                    start: row.start,\n                    end: row.end,\n                    label: row.name,\n                    // Map task type → colorPalette via chained East ifElse:\n                    //   Feature → blue, Bug Fix → red, Enhancement → purple.\n                    colorPalette: row.type.equal(\"Feature\").ifElse(\n                        _$ => variant(\"blue\", null),\n                        _$ => row.type.equal(\"Bug Fix\").ifElse(\n                            _$ => variant(\"red\", null),\n                            _$ => variant(\"purple\", null),\n                        ),\n                    ),\n                })],\n            })\n        );\n    })"
+      "source": "// Status-driven bar colour — per-row \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Gantt.Root(\n            [\n                { stage: \"Locked\", name: \"User Auth\", start: new Date(\"2024-01-01\"), end: new Date(\"2024-01-20\") },\n                { stage: \"Blocked\", name: \"Login Issue\", start: new Date(\"2024-01-10\"), end: new Date(\"2024-01-15\") },\n                { stage: \"Planned\", name: \"Performance\", start: new Date(\"2024-01-15\"), end: new Date(\"2024-02-01\") },\n                { stage: \"Locked\", name: \"Dashboard\", start: new Date(\"2024-01-20\"), end: new Date(\"2024-02-15\") },\n            ],\n            {\n                stage: { header: \"Stage\" },\n                name: { header: \"Name\" },\n            },\n            row => ({\n                tasks: [Gantt.Task({\n                    start: row.start,\n                    end: row.end,\n                    label: row.name,\n                    // Map stage → status: Locked → committed, Blocked → at-risk, else → proposed.\n                    status: row.stage.equal(\"Locked\").ifElse(\n                        _$ => variant(\"committed\", null),\n                        _$ => row.stage.equal(\"Blocked\").ifElse(\n                            _$ => variant(\"atRisk\", null),\n                            _$ => variant(\"proposed\", null),\n                        ),\n                    ),\n                })],\n            })\n        );\n    })"
     },
     {
       "id": "east-ui:gantt.examples.ts:ganttStyled",
@@ -14712,13 +14716,15 @@
         "variant",
         "line",
         "striped",
-        "showToday"
+        "showToday",
+        "density",
+        "compact"
       ],
       "imports": [
         "import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Gantt, Icon, Reactive, Stack, Stat, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+        "import { Badge, Gantt, Reactive, Stack, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Multiple style options combined — \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Gantt.Root(\n            [\n                { dept: \"Engineering\", project: \"Platform v2\", start: new Date(\"2024-01-01\"), end: new Date(\"2024-03-31\") },\n                { dept: \"Design\", project: \"UI Refresh\", start: new Date(\"2024-01-15\"), end: new Date(\"2024-02-28\") },\n                { dept: \"DevOps\", project: \"CI/CD Pipeline\", start: new Date(\"2024-02-01\"), end: new Date(\"2024-02-28\") },\n                { dept: \"QA\", project: \"Test Automation\", start: new Date(\"2024-02-15\"), end: new Date(\"2024-04-15\") },\n            ],\n            {\n                dept: { header: \"Department\" },\n                project: { header: \"Project\" },\n            },\n            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end, colorPalette: \"cyan\" })] }),\n            {\n                variant: \"line\",\n                striped: true,\n                showToday: true,\n            }\n        );\n    })"
+      "source": "// Multiple style options combined — \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Gantt.Root(\n            [\n                { dept: \"Engineering\", project: \"Platform v2\", start: new Date(\"2024-01-01\"), end: new Date(\"2024-03-31\") },\n                { dept: \"Design\", project: \"UI Refresh\", start: new Date(\"2024-01-15\"), end: new Date(\"2024-02-28\") },\n                { dept: \"DevOps\", project: \"CI/CD Pipeline\", start: new Date(\"2024-02-01\"), end: new Date(\"2024-02-28\") },\n                { dept: \"QA\", project: \"Test Automation\", start: new Date(\"2024-02-15\"), end: new Date(\"2024-04-15\") },\n            ],\n            {\n                dept: { header: \"Department\" },\n                project: { header: \"Project\" },\n            },\n            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] }),\n            {\n                variant: \"line\",\n                striped: true,\n                showToday: true,\n                density: \"compact\",\n            }\n        );\n    })"
     },
     {
       "id": "east-ui:gantt.examples.ts:ganttComplexColumns",
@@ -14726,39 +14732,20 @@
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/collections/gantt.examples.ts",
       "suite": "",
-      "test": "Array and struct fields with value functions for sorting",
+      "test": "Complex columns — ",
       "keywords": [
         "Gantt",
         "value",
         "render",
-        "complex",
-        "array",
-        "struct"
-      ],
-      "imports": [
-        "import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Gantt, Icon, Reactive, Stack, Stat, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Array and struct fields with value functions for sorting\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Gantt.Root(\n            [\n                { task: \"Platform v2\", tags: [\"backend\", \"api\", \"priority\"], info: { team: \"Core\", size: 5n }, start: new Date(\"2024-01-01\"), end: new Date(\"2024-03-31\") },\n                { task: \"UI Refresh\", tags: [\"frontend\", \"design\"], info: { team: \"Web\", size: 3n }, start: new Date(\"2024-01-15\"), end: new Date(\"2024-02-28\") },\n                { task: \"CI/CD\", tags: [\"devops\"], info: { team: \"Infra\", size: 2n }, start: new Date(\"2024-02-01\"), end: new Date(\"2024-02-28\") },\n            ],\n            {\n                task: { header: \"Project\" },\n                tags: {\n                    header: \"Tags\",\n                    value: (tags) => tags.size(),\n                    render: East.function(\n                        [Table.Types.CellRenderContext],\n                        UIComponentType,\n                        (_$, ctx) => Text.Root(\n                            ctx.cellValue.match({ Integer: (_$2, v) => East.str`${v} tags` }, _$2 => \"\")\n                        )\n                    ),\n                },\n                info: {\n                    header: \"Team\",\n                    value: (info) => info.size,\n                    render: East.function(\n                        [Table.Types.CellRenderContext],\n                        UIComponentType,\n                        (_$, ctx) => Text.Root(\n                            ctx.cellValue.match({ Integer: (_$2, v) => East.str`Team size: ${v}` }, _$2 => \"\")\n                        )\n                    ),\n                },\n            },\n            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end, colorPalette: \"purple\" })] }),\n            { variant: \"line\", striped: true }\n        );\n    })"
-    },
-    {
-      "id": "east-ui:gantt.examples.ts:ganttColumnRenderWithRow",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/gantt.examples.ts",
-      "suite": "",
-      "test": "Render function closes over data to access other row fields",
-      "keywords": [
-        "Gantt",
-        "render",
         "CellRenderContext",
-        "row access"
+        "row access",
+        "complex"
       ],
       "imports": [
         "import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Gantt, Icon, Reactive, Stack, Stat, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+        "import { Badge, Gantt, Reactive, Stack, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Render function closes over data to access other row fields\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const ganttRowData = $.let(East.value([\n            { task: \"Backend API\", owner: \"Alice\", priority: \"high\", start: new Date(\"2024-01-01\"), end: new Date(\"2024-02-15\") },\n            { task: \"Frontend UI\", owner: \"Bob\", priority: \"medium\", start: new Date(\"2024-01-15\"), end: new Date(\"2024-03-01\") },\n            { task: \"Integration\", owner: \"Charlie\", priority: \"high\", start: new Date(\"2024-02-01\"), end: new Date(\"2024-03-15\") },\n            { task: \"Documentation\", owner: \"Diana\", priority: \"low\", start: new Date(\"2024-02-15\"), end: new Date(\"2024-04-01\") },\n        ]));\n        return Gantt.Root(\n            ganttRowData,\n            {\n                task: {\n                    header: \"Task\",\n                    render: East.function(\n                        [Table.Types.CellRenderContext],\n                        UIComponentType,\n                        ($, ctx) => {\n                            const row = $.let(ganttRowData.get(ctx.rowIndex));\n                            return Text.Root(East.str`${row.task} (${row.owner})`);\n                        }\n                    ),\n                },\n                priority: {\n                    header: \"Priority\",\n                    render: East.function(\n                        [Table.Types.CellRenderContext],\n                        UIComponentType,\n                        ($, ctx) => {\n                            const row = $.let(ganttRowData.get(ctx.rowIndex));\n                            return Badge.Root(\n                                East.str`${row.priority} (${row.owner})`,\n                                { variant: \"solid\" }\n                            );\n                        }\n                    ),\n                },\n            },\n            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] }),\n            { variant: \"line\", striped: true }\n        );\n    })"
+      "source": "// Complex columns — \n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.let(East.value([\n            { task: \"Platform v2\", owner: \"Alice\", tags: [\"backend\", \"api\", \"priority\"], start: new Date(\"2024-01-01\"), end: new Date(\"2024-03-31\") },\n            { task: \"UI Refresh\", owner: \"Bob\", tags: [\"frontend\", \"design\"], start: new Date(\"2024-01-15\"), end: new Date(\"2024-02-28\") },\n            { task: \"CI/CD\", owner: \"Charlie\", tags: [\"devops\"], start: new Date(\"2024-02-01\"), end: new Date(\"2024-02-28\") },\n        ]));\n        return Gantt.Root(\n            rows,\n            {\n                task: {\n                    header: \"Project\",\n                    // render closes over `rows` to read a sibling field (owner) for the same row\n                    render: East.function(\n                        [Table.Types.CellRenderContext],\n                        UIComponentType,\n                        ($, ctx) => {\n                            const row = $.let(rows.get(ctx.rowIndex));\n                            return Text.Root(East.str`${row.task} · ${row.owner}`);\n                        }\n                    ),\n                },\n                tags: {\n                    header: \"Tags\",\n                    value: (tags) => tags.size(),\n                    render: East.function(\n                        [Table.Types.CellRenderContext],\n                        UIComponentType,\n                        (_$, ctx) => Text.Root(\n                            ctx.cellValue.match({ Integer: (_$2, v) => East.str`${v} tags` }, _$2 => \"\")\n                        )\n                    ),\n                },\n            },\n            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] }),\n            { variant: \"line\", striped: true }\n        );\n    })"
     },
     {
       "id": "east-ui:gantt.examples.ts:ganttInteractiveCallbacks",
@@ -14778,9 +14765,9 @@
       ],
       "imports": [
         "import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Gantt, Icon, Reactive, Stack, Stat, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+        "import { Badge, Gantt, Reactive, Stack, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Click rows, cells, tasks, milestones or drag to see events\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const lastEventBind = $.let(State.bind([StringType], \"gantt_last_event\", \"\"));\n            const lastEvent = $.let(lastEventBind.read());\n\n            const onRowClick = $.const(East.function(\n                [Table.Types.RowClickEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onRowClick: row ${event.rowIndex}`));\n                }\n            ));\n\n            const onRowDoubleClick = $.const(East.function(\n                [Table.Types.RowClickEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onRowDoubleClick: row ${event.rowIndex}`));\n                }\n            ));\n\n            const onCellClick = $.const(East.function(\n                [Table.Types.CellClickEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onCellClick: row ${event.rowIndex}, col ${event.columnKey}`));\n                }\n            ));\n\n            const onCellDoubleClick = $.const(East.function(\n                [Table.Types.CellClickEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onCellDoubleClick: row ${event.rowIndex}, col ${event.columnKey}`));\n                }\n            ));\n\n            const onSortChange = $.const(East.function(\n                [Table.Types.SortEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onSortChange: ${event.columnKey} - ${event.sortDirection.getTag()}`));\n                }\n            ));\n\n            const onTaskClick = $.const(East.function(\n                [Gantt.Types.TaskClickEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onTaskClick: row ${event.rowIndex}, task ${event.taskIndex}`));\n                }\n            ));\n\n            const onTaskDoubleClick = $.const(East.function(\n                [Gantt.Types.TaskClickEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onTaskDoubleClick: row ${event.rowIndex}, task ${event.taskIndex}`));\n                }\n            ));\n\n            const onTaskDrag = $.const(East.function(\n                [Gantt.Types.TaskDragEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onTaskDrag: row ${event.rowIndex}, task ${event.taskIndex} moved`));\n                }\n            ));\n\n            const onTaskDurationChange = $.const(East.function(\n                [Gantt.Types.TaskDurationChangeEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onTaskDurationChange: row ${event.rowIndex}, task ${event.taskIndex}, new end date`));\n                }\n            ));\n\n            const onTaskProgressChange = $.const(East.function(\n                [Gantt.Types.TaskProgressChangeEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onTaskProgressChange: row ${event.rowIndex}, task ${event.taskIndex}, progress ${event.newProgress}`));\n                }\n            ));\n\n            const onMilestoneClick = $.const(East.function(\n                [Gantt.Types.MilestoneClickEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onMilestoneClick: row ${event.rowIndex}, milestone ${event.milestoneIndex}`));\n                }\n            ));\n\n            const onMilestoneDoubleClick = $.const(East.function(\n                [Gantt.Types.MilestoneClickEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onMilestoneDoubleClick: row ${event.rowIndex}, milestone ${event.milestoneIndex}`));\n                }\n            ));\n\n            const onMilestoneDrag = $.const(East.function(\n                [Gantt.Types.MilestoneDragEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onMilestoneDrag: row ${event.rowIndex}, milestone ${event.milestoneIndex} moved`));\n                }\n            ));\n\n            return Stack.VStack([\n                Gantt.Root(\n                    [\n                        { name: \"Sprint 1\", start: new Date(\"2024-01-01\"), end: new Date(\"2024-01-14\"), release: new Date(\"2024-01-14\") },\n                        { name: \"Sprint 2\", start: new Date(\"2024-01-15\"), end: new Date(\"2024-01-28\"), release: new Date(\"2024-01-28\") },\n                        { name: \"Sprint 3\", start: new Date(\"2024-01-29\"), end: new Date(\"2024-02-11\"), release: new Date(\"2024-02-11\") },\n                    ],\n                    { name: { header: \"Sprint\" } },\n                    row => ({\n                        tasks: [Gantt.Task({ start: row.start, end: row.end, colorPalette: \"blue\", progress: 50 })],\n                        milestones: [Gantt.Milestone({ date: row.release, label: \"Release\", colorPalette: \"green\" })],\n                    }),\n                    {\n                        striped: true,\n                        showToday: true,\n                        onRowClick,\n                        onRowDoubleClick,\n                        onCellClick,\n                        onCellDoubleClick,\n                        onSortChange,\n                        onTaskClick,\n                        onTaskDoubleClick,\n                        onTaskDrag,\n                        onTaskDurationChange,\n                        onTaskProgressChange,\n                        onMilestoneClick,\n                        onMilestoneDoubleClick,\n                        onMilestoneDrag,\n                    }\n                ),\n                Badge.Root(\n                    East.equal(lastEvent.length(), 0n).ifElse(\n                        _$ => \"Interact with the Gantt chart\",\n                        _$ => lastEvent\n                    ),\n                    { colorPalette: \"blue\", variant: \"outline\" }\n                ),\n            ], { gap: \"3\", align: \"stretch\" });\n        }));\n    })"
+      "source": "// Click rows, cells, tasks, milestones or drag to see events\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const lastEventBind = $.let(State.bind([StringType], \"gantt_last_event\", \"\"));\n            const lastEvent = $.let(lastEventBind.read());\n\n            const onRowClick = $.const(East.function(\n                [Table.Types.RowClickEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onRowClick: row ${event.rowIndex}`));\n                }\n            ));\n\n            const onRowDoubleClick = $.const(East.function(\n                [Table.Types.RowClickEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onRowDoubleClick: row ${event.rowIndex}`));\n                }\n            ));\n\n            const onCellClick = $.const(East.function(\n                [Table.Types.CellClickEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onCellClick: row ${event.rowIndex}, col ${event.columnKey}`));\n                }\n            ));\n\n            const onCellDoubleClick = $.const(East.function(\n                [Table.Types.CellClickEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onCellDoubleClick: row ${event.rowIndex}, col ${event.columnKey}`));\n                }\n            ));\n\n            const onSortChange = $.const(East.function(\n                [Table.Types.SortEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onSortChange: ${event.columnKey} - ${event.sortDirection.getTag()}`));\n                }\n            ));\n\n            const onTaskClick = $.const(East.function(\n                [Gantt.Types.TaskClickEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onTaskClick: row ${event.rowIndex}, task ${event.taskIndex}`));\n                }\n            ));\n\n            const onTaskDoubleClick = $.const(East.function(\n                [Gantt.Types.TaskClickEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onTaskDoubleClick: row ${event.rowIndex}, task ${event.taskIndex}`));\n                }\n            ));\n\n            const onTaskDrag = $.const(East.function(\n                [Gantt.Types.TaskDragEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onTaskDrag: row ${event.rowIndex}, task ${event.taskIndex} moved`));\n                }\n            ));\n\n            const onTaskDurationChange = $.const(East.function(\n                [Gantt.Types.TaskDurationChangeEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onTaskDurationChange: row ${event.rowIndex}, task ${event.taskIndex}, new end date`));\n                }\n            ));\n\n            const onTaskProgressChange = $.const(East.function(\n                [Gantt.Types.TaskProgressChangeEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onTaskProgressChange: row ${event.rowIndex}, task ${event.taskIndex}, progress ${event.newProgress}`));\n                }\n            ));\n\n            const onMilestoneClick = $.const(East.function(\n                [Gantt.Types.MilestoneClickEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onMilestoneClick: row ${event.rowIndex}, milestone ${event.milestoneIndex}`));\n                }\n            ));\n\n            const onMilestoneDoubleClick = $.const(East.function(\n                [Gantt.Types.MilestoneClickEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onMilestoneDoubleClick: row ${event.rowIndex}, milestone ${event.milestoneIndex}`));\n                }\n            ));\n\n            const onMilestoneDrag = $.const(East.function(\n                [Gantt.Types.MilestoneDragEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onMilestoneDrag: row ${event.rowIndex}, milestone ${event.milestoneIndex} moved`));\n                }\n            ));\n\n            return Stack.VStack([\n                Gantt.Root(\n                    [\n                        { name: \"Sprint 1\", start: new Date(\"2024-01-01\"), end: new Date(\"2024-01-14\"), release: new Date(\"2024-01-14\") },\n                        { name: \"Sprint 2\", start: new Date(\"2024-01-15\"), end: new Date(\"2024-01-28\"), release: new Date(\"2024-01-28\") },\n                        { name: \"Sprint 3\", start: new Date(\"2024-01-29\"), end: new Date(\"2024-02-11\"), release: new Date(\"2024-02-11\") },\n                    ],\n                    { name: { header: \"Sprint\" } },\n                    row => ({\n                        tasks: [Gantt.Task({ start: row.start, end: row.end, progress: 50 })],\n                        milestones: [Gantt.Milestone({ date: row.release, label: \"Release\", kind: \"release\" })],\n                    }),\n                    {\n                        striped: true,\n                        showToday: true,\n                        onRowClick,\n                        onRowDoubleClick,\n                        onCellClick,\n                        onCellDoubleClick,\n                        onSortChange,\n                        onTaskClick,\n                        onTaskDoubleClick,\n                        onTaskDrag,\n                        onTaskDurationChange,\n                        onTaskProgressChange,\n                        onMilestoneClick,\n                        onMilestoneDoubleClick,\n                        onMilestoneDrag,\n                    }\n                ),\n                Badge.Root(\n                    East.equal(lastEvent.length(), 0n).ifElse(\n                        _$ => \"Interact with the Gantt chart\",\n                        _$ => lastEvent\n                    ),\n                    { colorPalette: \"blue\", variant: \"outline\" }\n                ),\n            ], { gap: \"3\", align: \"stretch\" });\n        }));\n    })"
     },
     {
       "id": "east-ui:gantt.examples.ts:ganttReactiveDrag",
@@ -14799,27 +14786,9 @@
       ],
       "imports": [
         "import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Gantt, Icon, Reactive, Stack, Stat, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+        "import { Badge, Gantt, Reactive, Stack, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Drag task to update state - position persists after re-render\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const taskStartBind = $.let(State.bind([DateTimeType], \"gantt_task_start\", new Date(\"2024-01-15\")));\n            const taskStart = $.let(taskStartBind.read());\n            const taskEnd = $.let(taskStart.addDays(14));\n\n            const onTaskDrag = $.const(East.function(\n                [Gantt.Types.TaskDragEvent],\n                NullType,\n                ($, event) => {\n                    $(taskStartBind.write(event.newStart));\n                }\n            ));\n\n            return Stack.VStack([\n                Gantt.Root(\n                    [{ name: \"Draggable Task\" }],\n                    { name: { header: \"Task\" } },\n                    _row => ({\n                        tasks: [Gantt.Task({\n                            start: taskStart,\n                            end: taskEnd,\n                            label: \"Drag me!\",\n                            colorPalette: \"orange\",\n                        })],\n                    }),\n                    {\n                        onTaskDrag,\n                        dragStep: variant(\"days\", 1),\n                        durationStep: variant(\"days\", 1),\n                    }\n                ),\n                Text.Root(East.str`Start: ${taskStart}`, { textStyle: \"body-sm\", color: \"fg.muted\" }),\n            ], { gap: \"3\", align: \"stretch\" });\n        }));\n    })"
-    },
-    {
-      "id": "east-ui:gantt.examples.ts:ganttCustomHeight",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/gantt.examples.ts",
-      "suite": "",
-      "test": "Set height via style to control container size",
-      "keywords": [
-        "Gantt",
-        "Root",
-        "height"
-      ],
-      "imports": [
-        "import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Gantt, Icon, Reactive, Stack, Stat, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Set height via style to control container size\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Gantt.Root(\n            [\n                { task: \"Planning\", owner: \"Alice\", start: new Date(\"2024-01-01\"), end: new Date(\"2024-01-15\") },\n                { task: \"Design\", owner: \"Bob\", start: new Date(\"2024-01-10\"), end: new Date(\"2024-02-01\") },\n                { task: \"Development\", owner: \"Charlie\", start: new Date(\"2024-01-20\"), end: new Date(\"2024-03-15\") },\n                { task: \"Testing\", owner: \"Diana\", start: new Date(\"2024-03-01\"), end: new Date(\"2024-03-30\") },\n                { task: \"Deployment\", owner: \"Eve\", start: new Date(\"2024-03-20\"), end: new Date(\"2024-04-15\") },\n            ],\n            [\"task\", \"owner\"],\n            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] }),\n            { height: \"200px\", variant: \"line\" }\n        );\n    })"
+      "source": "// Drag task to update state - position persists after re-render\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const taskStartBind = $.let(State.bind([DateTimeType], \"gantt_task_start\", new Date(\"2024-01-15\")));\n            const taskStart = $.let(taskStartBind.read());\n            const taskEnd = $.let(taskStart.addDays(14));\n\n            const onTaskDrag = $.const(East.function(\n                [Gantt.Types.TaskDragEvent],\n                NullType,\n                ($, event) => {\n                    $(taskStartBind.write(event.newStart));\n                }\n            ));\n\n            return Stack.VStack([\n                Gantt.Root(\n                    [{ name: \"Draggable Task\" }],\n                    { name: { header: \"Task\" } },\n                    _row => ({\n                        tasks: [Gantt.Task({\n                            start: taskStart,\n                            end: taskEnd,\n                            label: \"Drag me!\",\n                        })],\n                    }),\n                    {\n                        onTaskDrag,\n                        dragStep: variant(\"days\", 1),\n                        durationStep: variant(\"days\", 1),\n                    }\n                ),\n                Text.Root(East.str`Start: ${taskStart}`, { textStyle: \"body-sm\", color: \"fg.muted\" }),\n            ], { gap: \"3\", align: \"stretch\" });\n        }));\n    })"
     },
     {
       "id": "east-ui:gantt.examples.ts:ganttFrozenColumns",
@@ -14835,7 +14804,7 @@
       ],
       "imports": [
         "import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Gantt, Icon, Reactive, Stack, Stat, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+        "import { Badge, Gantt, Reactive, Stack, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
       "source": "// Pin columns left so they stay visible while scrolling the timeline\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Gantt.Root(\n            [\n                { id: \"#1\", task: \"Planning\", owner: \"Alice\", dept: \"PM\", priority: \"High\", start: new Date(\"2024-01-01\"), end: new Date(\"2024-01-15\") },\n                { id: \"#2\", task: \"Design\", owner: \"Bob\", dept: \"Design\", priority: \"Medium\", start: new Date(\"2024-01-10\"), end: new Date(\"2024-02-01\") },\n                { id: \"#3\", task: \"Development\", owner: \"Charlie\", dept: \"Engineering\", priority: \"High\", start: new Date(\"2024-01-20\"), end: new Date(\"2024-03-15\") },\n                { id: \"#4\", task: \"Testing\", owner: \"Diana\", dept: \"QA\", priority: \"Low\", start: new Date(\"2024-03-01\"), end: new Date(\"2024-03-30\") },\n                { id: \"#5\", task: \"Deployment\", owner: \"Eve\", dept: \"DevOps\", priority: \"Medium\", start: new Date(\"2024-03-20\"), end: new Date(\"2024-04-15\") },\n            ],\n            {\n                id: { header: \"ID\", width: \"80px\" },\n                task: { header: \"Task\", width: \"150px\" },\n                owner: { header: \"Owner\", width: \"120px\" },\n                dept: { header: \"Department\", width: \"150px\" },\n                priority: { header: \"Priority\", width: \"120px\" },\n            },\n            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] }),\n            {\n                frozen: [\"id\", \"task\"],\n                variant: \"line\",\n                striped: true,\n                height: \"300px\",\n            }\n        );\n    })"
     },
@@ -14855,72 +14824,9 @@
       ],
       "imports": [
         "import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Gantt, Icon, Reactive, Stack, Stat, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+        "import { Badge, Gantt, Reactive, Stack, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
       "source": "// Row-status tint — \n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rowStatus = $.const(East.function([IntegerType], Style.Types.StatusToken, ($, rowIndex) => {\n            const bucket = $.let(rowIndex.modulo(3n), IntegerType);\n            return bucket.equals(0n).ifElse(\n                $ => Style.StatusToken(\"success\"),\n                $ => bucket.equals(1n).ifElse(\n                    $ => Style.StatusToken(\"warning\"),\n                    $ => Style.StatusToken(\"danger\"),\n                ),\n            );\n        }));\n\n        return Gantt.Root(\n            [\n                { task: \"Planning\", start: new Date(\"2024-01-01\"), end: new Date(\"2024-01-15\") },\n                { task: \"Design\", start: new Date(\"2024-01-10\"), end: new Date(\"2024-02-01\") },\n                { task: \"Development\", start: new Date(\"2024-01-20\"), end: new Date(\"2024-03-15\") },\n            ],\n            { task: { header: \"Task\" } },\n            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] }),\n            { rowStatus, variant: \"line\" },\n        );\n    })"
-    },
-    {
-      "id": "east-ui:gantt.examples.ts:ganttPerEventColours",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/gantt.examples.ts",
-      "suite": "",
-      "test": "Per-task colour escape hatches — ",
-      "keywords": [
-        "Gantt",
-        "Task",
-        "background",
-        "stroke",
-        "labelColor",
-        "progressFill",
-        "per-event"
-      ],
-      "imports": [
-        "import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Gantt, Icon, Reactive, Stack, Stat, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Per-task colour escape hatches — \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Gantt.Root(\n            [\n                { task: \"Critical path\", start: new Date(\"2024-01-01\"), end: new Date(\"2024-01-20\"), progress: 75 },\n                { task: \"Standard work\", start: new Date(\"2024-01-15\"), end: new Date(\"2024-02-10\"), progress: 40 },\n            ],\n            { task: { header: \"Task\" } },\n            row => ({ tasks: [Gantt.Task({\n                start: row.start,\n                end: row.end,\n                label: { value: row.task, color: \"white\" },\n                progress: row.progress,\n                background: \"#C53030\",\n                stroke: \"#742A2A\",\n                progressFill: \"#822727\",\n            })] }),\n            { variant: \"line\" },\n        );\n    })"
-    },
-    {
-      "id": "east-ui:gantt.examples.ts:ganttChromeColours",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/gantt.examples.ts",
-      "suite": "",
-      "test": "Root chrome colour overrides — explicit grid / today-marker / header colours for brand alignment",
-      "keywords": [
-        "Gantt",
-        "gridColor",
-        "todayMarkerColor",
-        "headerBackground",
-        "headerColor",
-        "chrome"
-      ],
-      "imports": [
-        "import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Gantt, Icon, Reactive, Stack, Stat, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Root chrome colour overrides — explicit grid / today-marker / header colours for brand alignment\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Gantt.Root(\n            [\n                { task: \"Planning\", start: new Date(\"2024-01-01\"), end: new Date(\"2024-01-15\") },\n                { task: \"Design\", start: new Date(\"2024-01-10\"), end: new Date(\"2024-02-01\") },\n            ],\n            { task: { header: \"Task\" } },\n            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end, colorPalette: \"blue\" })] }),\n            {\n                variant: \"line\",\n                gridColor: \"blue.100\",\n                todayMarkerColor: \"red.500\",\n                headerBackground: \"blue.50\",\n                headerColor: \"blue.900\",\n                showToday: true,\n            },\n        );\n    })"
-    },
-    {
-      "id": "east-ui:gantt.examples.ts:ganttTaskTooltip",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/gantt.examples.ts",
-      "suite": "",
-      "test": "Per-task hover tooltip — pass a UIComponent into ",
-      "keywords": [
-        "Gantt",
-        "Task",
-        "tooltip",
-        "hover",
-        "rich"
-      ],
-      "imports": [
-        "import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Gantt, Icon, Reactive, Stack, Stat, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Per-task hover tooltip — pass a UIComponent into \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Gantt.Root(\n            [\n                { task: \"API redesign\", owner: \"Alice\", start: new Date(\"2024-01-01\"), end: new Date(\"2024-01-20\") },\n                { task: \"UI polish\", owner: \"Bob\", start: new Date(\"2024-01-15\"), end: new Date(\"2024-02-10\") },\n            ],\n            { task: { header: \"Task\" } },\n            row => ({ tasks: [Gantt.Task({\n                start: row.start,\n                end: row.end,\n                label: row.task,\n                colorPalette: \"purple\",\n                tooltip: Stack.VStack([\n                    Badge.Root(row.task, { colorPalette: \"purple\", variant: \"solid\" }),\n                    Text.Root(East.str`Owner: ${row.owner}`),\n                ], { gap: \"1\", padding: \"0px\" }),\n            })] }),\n        );\n    })"
     },
     {
       "id": "east-ui:gantt.examples.ts:ganttTaskPopover",
@@ -14938,30 +14844,9 @@
       ],
       "imports": [
         "import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Gantt, Icon, Reactive, Stack, Stat, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+        "import { Badge, Gantt, Reactive, Stack, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Per-task click popover — pass a UIComponent into \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Gantt.Root(\n            [\n                { task: \"Sprint 1\", owner: \"Alice\", start: new Date(\"2024-01-01\"), end: new Date(\"2024-01-14\") },\n                { task: \"Sprint 2\", owner: \"Bob\", start: new Date(\"2024-01-15\"), end: new Date(\"2024-01-28\") },\n            ],\n            { task: { header: \"Sprint\" } },\n            row => ({ tasks: [Gantt.Task({\n                start: row.start,\n                end: row.end,\n                label: row.task,\n                colorPalette: \"teal\",\n                popover: Stack.VStack([\n                    Text.Root(East.str`Sprint: ${row.task}`, { fontWeight: \"bold\" }),\n                    Text.Root(East.str`Owner: ${row.owner}`),\n                    Text.Root(East.str`From ${row.start} to ${row.end}`),\n                ], { gap: \"2\" }),\n            })] }),\n        );\n    })"
-    },
-    {
-      "id": "east-ui:gantt.examples.ts:ganttTaskOverlays",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/gantt.examples.ts",
-      "suite": "",
-      "test": "Per-task overlays — UIComponents pinned to corners of the bar (priority chip top-right, status icon bottom-left)",
-      "keywords": [
-        "Gantt",
-        "Task",
-        "overlays",
-        "axis",
-        "Badge",
-        "Icon"
-      ],
-      "imports": [
-        "import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Gantt, Icon, Reactive, Stack, Stat, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Per-task overlays — UIComponents pinned to corners of the bar (priority chip top-right, status icon bottom-left)\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Gantt.Root(\n            [\n                { task: \"Critical Path\", priority: \"HIGH\", start: new Date(\"2024-01-01\"), end: new Date(\"2024-01-20\") },\n                { task: \"Background Work\", priority: \"LOW\", start: new Date(\"2024-01-15\"), end: new Date(\"2024-02-10\") },\n            ],\n            { task: { header: \"Task\" }, priority: { header: \"Priority\" } },\n            row => ({ tasks: [Gantt.Task({\n                start: row.start,\n                end: row.end,\n                label: { value: row.task, color: \"white\" },\n                colorPalette: \"purple\",\n                overlays: [\n                    {\n                        content: Badge.Root(row.priority, { colorPalette: \"red\", variant: \"solid\", size: \"xs\" }),\n                        align: \"end\",\n                        verticalAlign: \"start\",\n                    },\n                    {\n                        content: Icon.Root(\"fas\", \"circle-check\", { colorPalette: \"green\", size: \"sm\" }),\n                        align: \"start\",\n                        verticalAlign: \"end\",\n                    },\n                ],\n            })] }),\n        );\n    })"
+      "source": "// Per-task click popover — pass a UIComponent into \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Gantt.Root(\n            [\n                { task: \"Sprint 1\", owner: \"Alice\", start: new Date(\"2024-01-01\"), end: new Date(\"2024-01-14\") },\n                { task: \"Sprint 2\", owner: \"Bob\", start: new Date(\"2024-01-15\"), end: new Date(\"2024-01-28\") },\n            ],\n            { task: { header: \"Sprint\" } },\n            row => ({ tasks: [Gantt.Task({\n                start: row.start,\n                end: row.end,\n                label: row.task,\n                popover: Stack.VStack([\n                    Text.Root(East.str`Sprint: ${row.task}`, { fontWeight: \"bold\" }),\n                    Text.Root(East.str`Owner: ${row.owner}`),\n                    Text.Root(East.str`From ${row.start} to ${row.end}`),\n                ], { gap: \"2\" }),\n            })] }),\n        );\n    })"
     },
     {
       "id": "east-ui:gantt.examples.ts:ganttRichLabel",
@@ -14969,7 +14854,7 @@
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/collections/gantt.examples.ts",
       "suite": "",
-      "test": "Rich task label — LabelInput with align / verticalAlign / color / fontWeight / fontStyle / fontSize overrides",
+      "test": "Rich task label — a plain LabelInput vs one with align / verticalAlign / color / fontWeight / fontStyle / fontSize overrides",
       "keywords": [
         "Gantt",
         "Task",
@@ -14977,137 +14862,16 @@
         "LabelInput",
         "align",
         "verticalAlign",
-        "fontWeight"
+        "fontWeight",
+        "fontStyle",
+        "fontSize",
+        "color"
       ],
       "imports": [
         "import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Gantt, Icon, Reactive, Stack, Stat, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+        "import { Badge, Gantt, Reactive, Stack, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Rich task label — LabelInput with align / verticalAlign / color / fontWeight / fontStyle / fontSize overrides\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Gantt.Root(\n            [{ task: \"Pretty\", start: new Date(\"2024-01-01\"), end: new Date(\"2024-01-31\") }],\n            { task: { header: \"Task\" } },\n            row => ({ tasks: [Gantt.Task({\n                start: row.start,\n                end: row.end,\n                colorPalette: \"purple\",\n                label: {\n                    value: row.task,\n                    align: \"center\",\n                    verticalAlign: \"center\",\n                    color: \"yellow.300\",\n                    fontWeight: \"bold\",\n                    fontStyle: \"italic\",\n                    fontSize: \"lg\",\n                },\n            })] }),\n        );\n    })"
-    },
-    {
-      "id": "east-ui:gantt.examples.ts:ganttVisualTokens",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/gantt.examples.ts",
-      "suite": "",
-      "test": "Visual-parity tokens — ",
-      "keywords": [
-        "Gantt",
-        "taskBorderRadius",
-        "labelColor",
-        "labelFontSize",
-        "labelFontWeight",
-        "visual",
-        "tokens"
-      ],
-      "imports": [
-        "import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Gantt, Icon, Reactive, Stack, Stat, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Visual-parity tokens — \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Gantt.Root(\n            [{ row: \"demo\" }],\n            [\"row\"],\n            (_row) => ({\n                tasks: [\n                    Gantt.Task({\n                        start: new Date(\"2024-01-01\"),\n                        end: new Date(\"2024-01-15\"),\n                        label: { value: \"Inherits defaults\" },\n                        colorPalette: \"teal\",\n                    }),\n                    Gantt.Task({\n                        start: new Date(\"2024-01-20\"),\n                        end: new Date(\"2024-02-05\"),\n                        label: {\n                            value: \"Overrides per-task\",\n                            color: \"yellow.300\",\n                            fontSize: \"lg\",\n                            fontWeight: \"bold\",\n                        },\n                        colorPalette: \"teal\",\n                    }),\n                ],\n            }),\n            {\n                taskBorderRadius: \"8px\",\n                labelColor: \"white\",\n                labelFontSize: \"0.875rem\",\n                labelFontWeight: \"700\",\n            },\n        );\n    })"
-    },
-    {
-      "id": "east-ui:gantt.examples.ts:ganttMilestoneTooltip",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/gantt.examples.ts",
-      "suite": "",
-      "test": "Per-milestone hover tooltip — same UIComponent slot as tasks, anchored to the diamond",
-      "keywords": [
-        "Gantt",
-        "Milestone",
-        "tooltip",
-        "hover",
-        "rich"
-      ],
-      "imports": [
-        "import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Gantt, Icon, Reactive, Stack, Stat, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Per-milestone hover tooltip — same UIComponent slot as tasks, anchored to the diamond\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Gantt.Root(\n            [\n                { sprint: \"Sprint 1\", release: new Date(\"2024-01-14\"), notes: \"Internal beta\" },\n                { sprint: \"Sprint 2\", release: new Date(\"2024-01-28\"), notes: \"Customer preview\" },\n            ],\n            { sprint: { header: \"Sprint\" } },\n            row => ({ milestones: [Gantt.Milestone({\n                date: row.release,\n                label: \"Release\",\n                colorPalette: \"green\",\n                tooltip: Stack.VStack([\n                    Badge.Root(row.sprint, { colorPalette: \"green\", variant: \"solid\" }),\n                    Text.Root(East.str`Notes: ${row.notes}`),\n                ], { gap: \"1\", padding: \"0px\" }),\n            })] }),\n        );\n    })"
-    },
-    {
-      "id": "east-ui:gantt.examples.ts:ganttMilestonePopover",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/gantt.examples.ts",
-      "suite": "",
-      "test": "Per-milestone click popover — UIComponent surface anchored to the diamond, click toggles open/close",
-      "keywords": [
-        "Gantt",
-        "Milestone",
-        "popover",
-        "click",
-        "rich"
-      ],
-      "imports": [
-        "import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Gantt, Icon, Reactive, Stack, Stat, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Per-milestone click popover — UIComponent surface anchored to the diamond, click toggles open/close\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Gantt.Root(\n            [\n                { name: \"Q1 Launch\", date: new Date(\"2024-03-31\"), owner: \"Alice\", scope: \"Public release\" },\n                { name: \"Q2 GA\", date: new Date(\"2024-06-30\"), owner: \"Bob\", scope: \"Enterprise tier\" },\n            ],\n            { name: { header: \"Milestone\" } },\n            row => ({ milestones: [Gantt.Milestone({\n                date: row.date,\n                label: row.name,\n                colorPalette: \"purple\",\n                popover: Stack.VStack([\n                    Text.Root(East.str`${row.name}`, { fontWeight: \"bold\" }),\n                    Text.Root(East.str`Owner: ${row.owner}`),\n                    Text.Root(East.str`Scope: ${row.scope}`),\n                ], { gap: \"2\" }),\n            })] }),\n        );\n    })"
-    },
-    {
-      "id": "east-ui:gantt.examples.ts:ganttMilestoneOverlays",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/gantt.examples.ts",
-      "suite": "",
-      "test": "Per-milestone overlays — UIComponents pinned to corners of the diamond (status icon top-right, badge bottom)",
-      "keywords": [
-        "Gantt",
-        "Milestone",
-        "overlays",
-        "axis",
-        "Badge",
-        "Icon"
-      ],
-      "imports": [
-        "import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Gantt, Icon, Reactive, Stack, Stat, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Per-milestone overlays — UIComponents pinned to corners of the diamond (status icon top-right, badge bottom)\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Gantt.Root(\n            [\n                { name: \"Beta\", date: new Date(\"2024-02-01\"), status: \"DONE\" },\n                { name: \"GA\", date: new Date(\"2024-04-01\"), status: \"TODO\" },\n            ],\n            { name: { header: \"Milestone\" } },\n            row => ({ milestones: [Gantt.Milestone({\n                date: row.date,\n                label: row.name,\n                colorPalette: \"purple\",\n                overlays: [\n                    {\n                        content: Icon.Root(\"fas\", \"star\", { colorPalette: \"yellow\", size: \"xs\" }),\n                        align: \"end\",\n                        verticalAlign: \"start\",\n                    },\n                    {\n                        content: Badge.Root(row.status, { colorPalette: \"green\", variant: \"solid\", size: \"xs\" }),\n                        align: \"center\",\n                        verticalAlign: \"end\",\n                    },\n                ],\n            })] }),\n        );\n    })"
-    },
-    {
-      "id": "east-ui:gantt.examples.ts:ganttMilestoneColours",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/gantt.examples.ts",
-      "suite": "",
-      "test": "Per-milestone colour escapes — ",
-      "keywords": [
-        "Gantt",
-        "Milestone",
-        "fill",
-        "stroke",
-        "per-milestone"
-      ],
-      "imports": [
-        "import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Gantt, Icon, Reactive, Stack, Stat, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Per-milestone colour escapes — \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Gantt.Root(\n            [\n                { milestone: \"Compliance review\", date: new Date(\"2024-02-15\") },\n                { milestone: \"External audit\", date: new Date(\"2024-04-15\") },\n            ],\n            { milestone: { header: \"Milestone\" } },\n            row => ({ milestones: [Gantt.Milestone({\n                date: row.date,\n                label: row.milestone,\n                fill: \"#C53030\",\n                stroke: \"#742A2A\",\n            })] }),\n        );\n    })"
-    },
-    {
-      "id": "east-ui:gantt.examples.ts:ganttTaskPopoverWithCallback",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/gantt.examples.ts",
-      "suite": "",
-      "test": "Per-task popover coexists with ",
-      "keywords": [
-        "Gantt",
-        "popover",
-        "onTaskClick",
-        "coexist",
-        "Reactive",
-        "State"
-      ],
-      "imports": [
-        "import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Gantt, Icon, Reactive, Stack, Stat, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Per-task popover coexists with \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const clicksBind = $.let(State.bind([IntegerType], \"gantt_popover_clicks\", 0n));\n            const clicks = $.let(clicksBind.read());\n\n            const onTaskClick = $.const(East.function(\n                [Gantt.Types.TaskClickEvent],\n                NullType,\n                ($, _event) => {\n                    const current = $.let(clicksBind.read(), IntegerType);\n                    $(clicksBind.write(current.add(1n)));\n                },\n            ));\n\n            return Stack.VStack([\n                Gantt.Root(\n                    [{ task: \"Status review\", start: new Date(\"2024-01-01\"), end: new Date(\"2024-01-31\") }],\n                    { task: { header: \"Task\" } },\n                    row => ({ tasks: [Gantt.Task({\n                        start: row.start,\n                        end: row.end,\n                        label: row.task,\n                        colorPalette: \"purple\",\n                        popover: Stat.Root(\n                            \"Total clicks\",\n                            East.str`${clicks}`,\n                            { helpText: \"Counter increments every click — popover and callback coexist.\" },\n                        ),\n                    })] }),\n                    { onTaskClick },\n                ),\n                Text.Root(East.str`Clicked ${clicks} times`, { textStyle: \"body-sm\", color: \"fg.muted\" }),\n            ], { gap: \"3\", align: \"stretch\" });\n        }));\n    })"
+      "source": "// Rich task label — a plain LabelInput vs one with align / verticalAlign / color / fontWeight / fontStyle / fontSize overrides\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Gantt.Root(\n            [{ row: \"demo\" }],\n            [\"row\"],\n            (_row) => ({\n                tasks: [\n                    Gantt.Task({\n                        start: new Date(\"2024-01-01\"),\n                        end: new Date(\"2024-01-15\"),\n                        label: { value: \"Plain label\" },\n                    }),\n                    Gantt.Task({\n                        start: new Date(\"2024-01-20\"),\n                        end: new Date(\"2024-02-05\"),\n                        label: {\n                            value: \"Styled label\",\n                            align: \"center\",\n                            verticalAlign: \"center\",\n                            color: \"yellow.300\",\n                            fontWeight: \"bold\",\n                            fontStyle: \"italic\",\n                            fontSize: \"lg\",\n                        },\n                    }),\n                ],\n            }),\n        );\n    })"
     },
     {
       "id": "east-ui:matrix.examples.ts:matrixBasic",
@@ -16057,25 +15821,6 @@
       "source": "// Alternating row colors for readability\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Table.Root(\n            [\n                { product: \"Widget A\", price: \"$29.99\", stock: 150n },\n                { product: \"Widget B\", price: \"$49.99\", stock: 75n },\n                { product: \"Widget C\", price: \"$19.99\", stock: 200n },\n                { product: \"Widget D\", price: \"$39.99\", stock: 50n },\n            ],\n            {\n                product: { header: \"Product\" },\n                price: { header: \"Price\" },\n                stock: { header: \"In Stock\" },\n            },\n            { striped: true }\n        );\n    })"
     },
     {
-      "id": "east-ui:table.examples.ts:tableInteractive",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/table.examples.ts",
-      "suite": "",
-      "test": "Hover effects for better UX",
-      "keywords": [
-        "Table",
-        "Root",
-        "interactive",
-        "hover"
-      ],
-      "imports": [
-        "import { East, ArrayType, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
-        "import { Badge, Box, Pagination, Reactive, Stack, State, Style, Table, Tag, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Hover effects for better UX\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Table.Root(\n            [\n                { id: \"#001\", task: \"Review PR\", status: \"In Progress\" },\n                { id: \"#002\", task: \"Deploy v2.0\", status: \"Pending\" },\n                { id: \"#003\", task: \"Update docs\", status: \"Complete\" },\n            ],\n            {\n                id: { header: \"ID\" },\n                task: { header: \"Task\" },\n                status: { header: \"Status\" },\n            },\n            { interactive: true }\n        );\n    })"
-    },
-    {
       "id": "east-ui:table.examples.ts:tableWithBadge",
       "skill": "east-ui",
       "package": "east-ui",
@@ -16094,27 +15839,6 @@
         "import { Badge, Box, Pagination, Reactive, Stack, State, Style, Table, Tag, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
       "source": "// Using Badge for status column\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Table.Root(\n            East.Array.range(0n, 1000n).map((_$, i) => ({\n                name: East.str`User ${i}`,\n                email: East.str`user${i}@example.com`,\n                status: \"Active\",\n            })),\n            {\n                name: { header: \"Name\" },\n                email: { header: \"Email\" },\n                status: {\n                    header: \"Status\",\n                    render: East.function(\n                        [Table.Types.CellRenderContext],\n                        UIComponentType,\n                        (_$, ctx) => Badge.Root(\n                            ctx.cellValue.match({ String: (_$2, v) => v }, _$2 => \"\"),\n                            { variant: \"solid\", colorPalette: \"blue\" }\n                        )\n                    ),\n                },\n            },\n            { variant: \"line\", height: \"400px\" }\n        );\n    })"
-    },
-    {
-      "id": "east-ui:table.examples.ts:tableFullStyled",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/table.examples.ts",
-      "suite": "",
-      "test": "Multiple style options combined",
-      "keywords": [
-        "Table",
-        "Root",
-        "variant",
-        "outline",
-        "showColumnBorder",
-        "colorPalette"
-      ],
-      "imports": [
-        "import { East, ArrayType, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
-        "import { Badge, Box, Pagination, Reactive, Stack, State, Style, Table, Tag, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Multiple style options combined\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Table.Root(\n            [\n                { q1: \"$45,000\", q2: \"$52,000\", q3: \"$48,000\", q4: \"$61,000\" },\n                { q1: \"$38,000\", q2: \"$41,000\", q3: \"$44,000\", q4: \"$47,000\" },\n            ],\n            {\n                q1: { header: \"Q1\" },\n                q2: { header: \"Q2\" },\n                q3: { header: \"Q3\" },\n                q4: { header: \"Q4\" },\n            },\n            {\n                variant: \"outline\",\n                striped: true,\n                showColumnBorder: true,\n                colorPalette: \"teal\",\n            }\n        );\n    })"
     },
     {
       "id": "east-ui:table.examples.ts:tableComplexColumns",
@@ -16137,26 +15861,6 @@
         "import { Badge, Box, Pagination, Reactive, Stack, State, Style, Table, Tag, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
       "source": "// Array and struct fields with value functions for sorting\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const complexData = $.let(East.value([\n            { name: \"Alice\", skills: [\"TypeScript\", \"React\", \"Node\"], metadata: { level: \"Senior\", years: 5n } },\n            { name: \"Bob\", skills: [\"Python\", \"Django\"], metadata: { level: \"Mid\", years: 3n } },\n            { name: \"Charlie\", skills: [\"Go\", \"Rust\", \"C++\", \"Java\"], metadata: { level: \"Senior\", years: 8n } },\n        ]));\n        return Table.Root(\n            complexData,\n            {\n                name: { header: \"Name\" },\n                skills: {\n                    header: \"Skills\",\n                    value: (skills) => skills.size(),\n                    render: East.function(\n                        [Table.Types.CellRenderContext],\n                        UIComponentType,\n                        ($, ctx) => {\n                            const row = $.let(complexData.get(ctx.rowIndex));\n                            return Stack.HStack(\n                                row.skills.map((_$, s) => Badge.Root(s, { variant: \"subtle\", colorPalette: \"blue\" })),\n                                { gap: \"1\", wrap: \"wrap\" }\n                            );\n                        }\n                    ),\n                },\n                metadata: {\n                    header: \"Experience\",\n                    value: (meta) => meta.years,\n                    render: East.function(\n                        [Table.Types.CellRenderContext],\n                        UIComponentType,\n                        ($, ctx) => {\n                            const row = $.let(complexData.get(ctx.rowIndex));\n                            return Text.Root(East.str`${row.metadata.level} (${row.metadata.years} yrs)`);\n                        }\n                    ),\n                },\n            },\n            { variant: \"line\", striped: true }\n        );\n    })"
-    },
-    {
-      "id": "east-ui:table.examples.ts:tableColumnRenderWithRow",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/table.examples.ts",
-      "suite": "",
-      "test": "East render function receives cell context at render time",
-      "keywords": [
-        "Table",
-        "Root",
-        "render",
-        "CellRenderContext",
-        "context"
-      ],
-      "imports": [
-        "import { East, ArrayType, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
-        "import { Badge, Box, Pagination, Reactive, Stack, State, Style, Table, Tag, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// East render function receives cell context at render time\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Table.Root(\n            [\n                { name: \"Alice\", role: \"Admin\", status: \"Active\", score: 95n },\n                { name: \"Bob\", role: \"User\", status: \"Inactive\", score: 72n },\n                { name: \"Charlie\", role: \"Manager\", status: \"Active\", score: 88n },\n                { name: \"Diana\", role: \"User\", status: \"Pending\", score: 65n },\n            ],\n            {\n                name: { header: \"Name\" },\n                status: {\n                    header: \"Status\",\n                    render: East.function(\n                        [Table.Types.CellRenderContext],\n                        UIComponentType,\n                        (_$, ctx) => Badge.Root(\n                            ctx.cellValue.match({ String: (_$2, v) => v }, _$2 => \"\"),\n                            { variant: \"solid\" }\n                        )\n                    ),\n                },\n                score: { header: \"Score\" },\n            },\n            { variant: \"line\", striped: true }\n        );\n    })"
     },
     {
       "id": "east-ui:table.examples.ts:tableWrappingTags",
@@ -16201,25 +15905,6 @@
       "source": "// Click, double-click rows/cells, or click headers to sort\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const lastEventBind = $.let(State.bind([StringType], \"table_last_event\", \"\"));\n            const lastEvent = $.let(lastEventBind.read());\n\n            const onRowClick = $.const(East.function(\n                [Table.Types.RowClickEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onRowClick: row ${event.rowIndex}`));\n                }\n            ));\n\n            const onRowDoubleClick = $.const(East.function(\n                [Table.Types.RowClickEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onRowDoubleClick: row ${event.rowIndex}`));\n                }\n            ));\n\n            const onCellClick = $.const(East.function(\n                [Table.Types.CellClickEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onCellClick: row ${event.rowIndex}, col ${event.columnKey}`));\n                }\n            ));\n\n            const onCellDoubleClick = $.const(East.function(\n                [Table.Types.CellClickEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onCellDoubleClick: row ${event.rowIndex}, col ${event.columnKey}`));\n                }\n            ));\n\n            const onRowSelectionChange = $.const(East.function(\n                [Table.Types.RowSelectionEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(\n                        event.selected.ifElse(\n                            _$ => East.str`onRowSelectionChange: selected row ${event.rowIndex}`,\n                            _$ => East.str`onRowSelectionChange: deselected row ${event.rowIndex}`\n                        )\n                    ));\n                }\n            ));\n\n            const onSortChange = $.const(East.function(\n                [Table.Types.SortEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onSortChange: ${event.columnKey} - ${event.sortDirection.getTag()}`));\n                }\n            ));\n\n            return Stack.VStack([\n                Table.Root(\n                    [\n                        { name: \"Alice\", role: \"Admin\", score: 95n },\n                        { name: \"Bob\", role: \"User\", score: 88n },\n                        { name: \"Charlie\", role: \"User\", score: 92n },\n                    ],\n                    {\n                        name: { header: \"Name\" },\n                        role: { header: \"Role\" },\n                        score: { header: \"Score\" },\n                    },\n                    {\n                        interactive: true,\n                        striped: true,\n                        onRowClick,\n                        onRowDoubleClick,\n                        onCellClick,\n                        onCellDoubleClick,\n                        onRowSelectionChange,\n                        onSortChange,\n                    }\n                ),\n                Badge.Root(\n                    East.equal(lastEvent.length(), 0n).ifElse(_$ => \"Interact with the table\", _$ => lastEvent),\n                    { colorPalette: \"blue\", variant: \"outline\" }\n                ),\n            ], { gap: \"3\", align: \"stretch\" });\n        }));\n    })"
     },
     {
-      "id": "east-ui:table.examples.ts:tableCustomHeight",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/table.examples.ts",
-      "suite": "",
-      "test": "Set height via style to control container size",
-      "keywords": [
-        "Table",
-        "Root",
-        "height",
-        "scroll"
-      ],
-      "imports": [
-        "import { East, ArrayType, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
-        "import { Badge, Box, Pagination, Reactive, Stack, State, Style, Table, Tag, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Set height via style to control container size\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Table.Root(\n            [\n                { name: \"Alice\", email: \"alice@example.com\", role: \"Admin\" },\n                { name: \"Bob\", email: \"bob@example.com\", role: \"User\" },\n                { name: \"Charlie\", email: \"charlie@example.com\", role: \"User\" },\n                { name: \"Diana\", email: \"diana@example.com\", role: \"Manager\" },\n                { name: \"Eve\", email: \"eve@example.com\", role: \"User\" },\n            ],\n            {\n                name: { header: \"Name\" },\n                email: { header: \"Email\" },\n                role: { header: \"Role\" },\n            },\n            { height: \"200px\", variant: \"line\", striped: true }\n        );\n    })"
-    },
-    {
       "id": "east-ui:table.examples.ts:tableFrozenColumns",
       "skill": "east-ui",
       "package": "east-ui",
@@ -16261,47 +15946,6 @@
       "source": "// Row-status tint — \n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rowStatus = $.const(East.function([IntegerType], Style.Types.StatusToken, ($, rowIndex) => {\n            const bucket = $.let(rowIndex.modulo(3n), IntegerType);\n            return bucket.equals(0n).ifElse(\n                $ => Style.StatusToken(\"success\"),\n                $ => bucket.equals(1n).ifElse(\n                    $ => Style.StatusToken(\"warning\"),\n                    $ => Style.StatusToken(\"danger\"),\n                ),\n            );\n        }));\n\n        return Table.Root(\n            East.Array.range(0n, 9n).map((_$, i) => ({\n                name: East.str`Row ${i}`,\n                score: i.multiply(11n),\n            })),\n            { name: { header: \"Name\" }, score: { header: \"Score\" } },\n            { rowStatus, variant: \"line\" },\n        );\n    })"
     },
     {
-      "id": "east-ui:table.examples.ts:tableWithFooter",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/table.examples.ts",
-      "suite": "",
-      "test": "Footer row with a totals aggregation, using colSpan to merge the label cell across columns",
-      "keywords": [
-        "Table",
-        "Root",
-        "footer",
-        "totals",
-        "colSpan",
-        "aggregate"
-      ],
-      "imports": [
-        "import { East, ArrayType, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
-        "import { Badge, Box, Pagination, Reactive, Stack, State, Style, Table, Tag, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Footer row with a totals aggregation, using colSpan to merge the label cell across columns\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Table.Root(\n            [\n                { product: \"Widget A\", qty: 5n, total: 125.0 },\n                { product: \"Widget B\", qty: 12n, total: 360.0 },\n                { product: \"Widget C\", qty: 3n, total: 75.0 },\n            ],\n            {\n                product: { header: \"Product\" },\n                qty: { header: \"Qty\" },\n                total: { header: \"Total ($)\" },\n            },\n            {\n                variant: \"line\",\n                footer: {\n                    product: { content: Text.Root(\"Total\", { fontWeight: \"bold\" }), colSpan: 2n },\n                    qty: { content: Text.Root(\"20\") },\n                    total: { content: Text.Root(\"$560.00\", { fontWeight: \"bold\" }) },\n                },\n                footerBackground: \"gray.50\",\n            },\n        );\n    })"
-    },
-    {
-      "id": "east-ui:table.examples.ts:tableColumnGroups",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/table.examples.ts",
-      "suite": "",
-      "test": "Two-level header — ",
-      "keywords": [
-        "Table",
-        "Root",
-        "columnGroups",
-        "grouped header",
-        "category"
-      ],
-      "imports": [
-        "import { East, ArrayType, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
-        "import { Badge, Box, Pagination, Reactive, Stack, State, Style, Table, Tag, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Two-level header — \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Table.Root(\n            [\n                { sku: \"SKU-001\", price: 19.99, stock: 120n, reordered: 50n, delivered: 50n },\n                { sku: \"SKU-002\", price: 29.99, stock: 45n, reordered: 25n, delivered: 0n },\n            ],\n            {\n                sku: { header: \"SKU\" },\n                price: { header: \"Price\" },\n                stock: { header: \"On hand\" },\n                reordered: { header: \"Reordered\" },\n                delivered: { header: \"Delivered\" },\n            },\n            {\n                variant: \"outline\",\n                columnGroups: [\n                    { label: \"Identity\", columnKeys: [\"sku\"] },\n                    { label: \"Pricing\", columnKeys: [\"price\"] },\n                    { label: \"Inventory\", columnKeys: [\"stock\", \"reordered\", \"delivered\"] },\n                ],\n            },\n        );\n    })"
-    },
-    {
       "id": "east-ui:table.examples.ts:tableReactivePagination",
       "skill": "east-ui",
       "package": "east-ui",
@@ -16323,47 +15967,6 @@
       "source": "// Embedded pagination — Table holds \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const pageBind = $.let(State.bind([IntegerType], \"table_page\", 0n));\n            const page = $.let(pageBind.read(), IntegerType);\n            const onPageChange = $.const(East.function([IntegerType], NullType, ($, next) => {\n                $(pageBind.write(next));\n            }));\n            return Table.Root(\n                East.Array.range(0n, 120n).map((_$, i) => ({\n                    id: East.str`#${i}`,\n                    name: East.str`Row ${i}`,\n                    value: i.multiply(3n),\n                })),\n                { id: { header: \"ID\" }, name: { header: \"Name\" }, value: { header: \"Value\" } },\n                {\n                    variant: \"line\",\n                    pagination: { pageSize: 20n, page, onPageChange },\n                },\n            );\n        }));\n    })"
     },
     {
-      "id": "east-ui:table.examples.ts:tableReactiveSelection",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/table.examples.ts",
-      "suite": "",
-      "test": "Single-row selection — ",
-      "keywords": [
-        "Table",
-        "Root",
-        "selection",
-        "single",
-        "Reactive",
-        "State"
-      ],
-      "imports": [
-        "import { East, ArrayType, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
-        "import { Badge, Box, Pagination, Reactive, Stack, State, Style, Table, Tag, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Single-row selection — \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const selectedBind = $.let(State.bind([ArrayType(IntegerType)], \"table_selected_indices\", []));\n            const selected = $.let(selectedBind.read(), ArrayType(IntegerType));\n            const onChange = $.const(East.function([ArrayType(IntegerType)], NullType, ($, next) => {\n                $(selectedBind.write(next));\n            }));\n            return Table.Root(\n                [\n                    { name: \"Alice\", role: \"Admin\" },\n                    { name: \"Bob\", role: \"User\" },\n                    { name: \"Charlie\", role: \"User\" },\n                ],\n                { name: { header: \"Name\" }, role: { header: \"Role\" } },\n                {\n                    variant: \"line\",\n                    selection: { mode: \"single\", selected, onChange },\n                    selectedBackground: \"blue.50\",\n                    selectedBorderColor: \"blue.200\",\n                },\n            );\n        }));\n    })"
-    },
-    {
-      "id": "east-ui:table.examples.ts:tableExpandedContent",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/table.examples.ts",
-      "suite": "",
-      "test": "Expandable rows — ",
-      "keywords": [
-        "Table",
-        "Root",
-        "expandedContent",
-        "expandable",
-        "detail row"
-      ],
-      "imports": [
-        "import { East, ArrayType, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
-        "import { Badge, Box, Pagination, Reactive, Stack, State, Style, Table, Tag, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Expandable rows — \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const rows = [\n            { name: \"Alice\", email: \"alice@example.com\", role: \"Admin\" },\n            { name: \"Bob\", email: \"bob@example.com\", role: \"User\" },\n        ];\n        const rowsExpr = East.value(rows);\n        return Table.Root(\n            rows,\n            { name: { header: \"Name\" }, role: { header: \"Role\" } },\n            {\n                variant: \"line\",\n                expandedContent: East.function([IntegerType], UIComponentType, ($, rowIndex) => {\n                    const row = $.let(rowsExpr.get(rowIndex));\n                    return Box.Root([\n                        Stack.VStack([\n                            Text.Root(\"Email\", { fontWeight: \"bold\" }),\n                            Text.Root(row.email),\n                        ], { gap: \"1\" }),\n                    ], { padding: \"4\", background: \"gray.50\" });\n                }),\n            },\n        );\n    })"
-    },
-    {
       "id": "east-ui:table.examples.ts:tableDensityCompact",
       "skill": "east-ui",
       "package": "east-ui",
@@ -16382,27 +15985,6 @@
         "import { Badge, Box, Pagination, Reactive, Stack, State, Style, Table, Tag, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
       "source": "// Compact density — the \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Table.Root(\n            East.Array.range(0n, 6n).map((_$, i) => ({\n                name: East.str`Row ${i}`,\n                status: \"Active\",\n            })),\n            { name: { header: \"Name\" }, status: { header: \"Status\" } },\n            { variant: \"line\", density: \"compact\" },\n        );\n    })"
-    },
-    {
-      "id": "east-ui:table.examples.ts:tableColourOverrides",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/table.examples.ts",
-      "suite": "",
-      "test": "Explicit colour overrides for header / zebra / hover / footer — theme escape hatches for enterprise brand alignment",
-      "keywords": [
-        "Table",
-        "Root",
-        "colour",
-        "override",
-        "headerBackground",
-        "hoverBackground"
-      ],
-      "imports": [
-        "import { East, ArrayType, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
-        "import { Badge, Box, Pagination, Reactive, Stack, State, Style, Table, Tag, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Explicit colour overrides for header / zebra / hover / footer — theme escape hatches for enterprise brand alignment\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Table.Root(\n            [\n                { product: \"Widget A\", qty: 5n },\n                { product: \"Widget B\", qty: 12n },\n            ],\n            { product: { header: \"Product\" }, qty: { header: \"Qty\" } },\n            {\n                variant: \"line\",\n                striped: true,\n                headerBackground: \"blue.600\",\n                headerColor: \"white\",\n                borderColor: \"blue.200\",\n                zebraBackground: \"blue.50\",\n                hoverBackground: \"blue.100\",\n            },\n        );\n    })"
     },
     {
       "id": "east-ui:table.examples.ts:tableExpandedRichDetail",
@@ -16468,28 +16050,6 @@
       "source": "// Three column groups across six columns — financial-report-style header with Identity / Q1-Q2 / Q3-Q4 groupings\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Table.Root(\n            [\n                { dept: \"Sales\", region: \"EMEA\", q1: \"$120k\", q2: \"$135k\", q3: \"$148k\", q4: \"$162k\" },\n                { dept: \"Sales\", region: \"APAC\", q1: \"$95k\", q2: \"$102k\", q3: \"$118k\", q4: \"$130k\" },\n                { dept: \"Marketing\", region: \"AMER\", q1: \"$48k\", q2: \"$52k\", q3: \"$54k\", q4: \"$59k\" },\n            ],\n            {\n                dept: { header: \"Department\" },\n                region: { header: \"Region\" },\n                q1: { header: \"Q1\" },\n                q2: { header: \"Q2\" },\n                q3: { header: \"Q3\" },\n                q4: { header: \"Q4\" },\n            },\n            {\n                variant: \"outline\",\n                showColumnBorder: true,\n                columnGroups: [\n                    { label: \"Identity\", columnKeys: [\"dept\", \"region\"] },\n                    { label: \"First half\", columnKeys: [\"q1\", \"q2\"] },\n                    { label: \"Second half\", columnKeys: [\"q3\", \"q4\"] },\n                ],\n            },\n        );\n    })"
     },
     {
-      "id": "east-ui:table.examples.ts:tablePaginationServerSide",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/table.examples.ts",
-      "suite": "",
-      "test": "Server-side-style pagination — full dataset captured outside Reactive via $.let; inside, the State page index slices it via slice(start, pageSize) and only the page window reaches Table",
-      "keywords": [
-        "Table",
-        "Root",
-        "pagination",
-        "server-side",
-        "slice",
-        "Reactive",
-        "State"
-      ],
-      "imports": [
-        "import { East, ArrayType, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
-        "import { Badge, Box, Pagination, Reactive, Stack, State, Style, Table, Tag, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Server-side-style pagination — full dataset captured outside Reactive via $.let; inside, the State page index slices it via slice(start, pageSize) and only the page window reaches Table\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const RowType = StructType({\n            id: StringType,\n            name: StringType,\n            value: IntegerType,\n        });\n        const allRows = $.let(\n            East.Array.range(0n, 200n).map((_$, i) => ({\n                id: East.str`#${i}`,\n                name: East.str`Customer ${i}`,\n                value: i.multiply(13n),\n            })),\n            ArrayType(RowType),\n        );\n        const total = $.let(allRows.size(), IntegerType);\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const pageSize = $.let(10n, IntegerType);\n            const pageBind = $.let(State.bind([IntegerType], \"table_server_page\", 0n));\n            const page = $.let(pageBind.read(), IntegerType);\n            const start = $.let(page.multiply(pageSize), IntegerType);\n            const end = $.let(start.add(pageSize), IntegerType);\n            const pageRows = $.let(allRows.slice(start, end), ArrayType(RowType));\n            const onPageChange = $.const(East.function([IntegerType], NullType, ($, next) => {\n                $(pageBind.write(next));\n            }));\n            return Stack.VStack([\n                Badge.Root(\n                    East.str`Showing rows ${start.add(1n)}–${start.add(pageRows.size())} of ${total}`,\n                    { variant: \"subtle\", colorPalette: \"blue\" },\n                ),\n                Table.Root(\n                    pageRows,\n                    {\n                        id: { header: \"ID\" },\n                        name: { header: \"Customer\" },\n                        value: { header: \"Value\" },\n                    },\n                    { variant: \"line\", striped: true },\n                ),\n                Pagination.Root(page, pageSize, total, onPageChange),\n            ], { gap: \"3\", align: \"stretch\" });\n        }));\n    })"
-    },
-    {
       "id": "east-ui:table.examples.ts:tableMultiSelection",
       "skill": "east-ui",
       "package": "east-ui",
@@ -16532,26 +16092,6 @@
         "import { Badge, Box, Pagination, Reactive, Stack, State, Style, Table, Tag, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
       "source": "// Range-mode selection — shift-click extends from the last anchor; plain click resets to a single row\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const selectedBind = $.let(State.bind([ArrayType(IntegerType)], \"table_range_selected\", []));\n            const selected = $.let(selectedBind.read(), ArrayType(IntegerType));\n            const onChange = $.const(East.function([ArrayType(IntegerType)], NullType, ($, next) => {\n                $(selectedBind.write(next));\n            }));\n            return Stack.VStack([\n                Badge.Root(\n                    East.str`Range size: ${selected.size()}`,\n                    { variant: \"outline\", colorPalette: \"purple\" },\n                ),\n                Table.Root(\n                    East.Array.range(0n, 8n).map((_$, i) => ({\n                        id: East.str`#${i.add(1n)}`,\n                        task: East.str`Task ${i.add(1n)}`,\n                    })),\n                    { id: { header: \"ID\" }, task: { header: \"Task\" } },\n                    {\n                        variant: \"line\",\n                        striped: true,\n                        selection: { mode: \"range\", selected, onChange },\n                        selectedBackground: \"purple.50\",\n                        selectedBorderColor: \"purple.300\",\n                    },\n                ),\n            ], { gap: \"3\", align: \"stretch\" });\n        }));\n    })"
-    },
-    {
-      "id": "east-ui:table.examples.ts:tableDensityComfortable",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/table.examples.ts",
-      "suite": "",
-      "test": "Comfortable density — the ",
-      "keywords": [
-        "Table",
-        "Root",
-        "density",
-        "comfortable",
-        "spacious"
-      ],
-      "imports": [
-        "import { East, ArrayType, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
-        "import { Badge, Box, Pagination, Reactive, Stack, State, Style, Table, Tag, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Comfortable density — the \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Table.Root(\n            East.Array.range(0n, 5n).map((_$, i) => ({\n                name: East.str`Row ${i}`,\n                description: East.str`Comfortable row description ${i}`,\n            })),\n            { name: { header: \"Name\" }, description: { header: \"Description\" } },\n            { variant: \"line\", density: \"comfortable\" },\n        );\n    })"
     },
     {
       "id": "east-ui:tree-view.examples.ts:treeViewFile",

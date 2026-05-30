@@ -86,9 +86,12 @@ export function HeaderControls<TData>({
     return (
         <>
             <HStack justify="space-between" width="100%" pr={enableColumnResizing ? "4px" : "0"}>
-                <Text fontSize="sm" fontWeight="semibold" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" flex="1">
+                {/* Bare span so the consumer's `columnHeader` slot governs the
+                    type (mono / 10px / 0.16em / uppercase) — identical to the
+                    Table's header. Don't set a competing fontSize here. */}
+                <Box as="span" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" flex="1">
                     {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
-                </Text>
+                </Box>
                 <HStack gap={0} flexShrink={0} alignItems="center">
                     {/* Pin toggle */}
                     <Box

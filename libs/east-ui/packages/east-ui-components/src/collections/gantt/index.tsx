@@ -12,6 +12,7 @@ import {
     Skeleton,
     Splitter,
     useToken,
+    useSlotRecipe,
     type TableRootProps,
 } from "@chakra-ui/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -98,7 +99,6 @@ export function toChakraTableRoot(value: GanttRootValue): TableRootProps {
         interactive: true as boolean | undefined,
         stickyHeader: style ? getSomeorUndefined(style.stickyHeader) : undefined,
         showColumnBorder: style ? getSomeorUndefined(style.showColumnBorder) : undefined,
-        colorPalette: style ? getSomeorUndefined(style.colorPalette)?.type : undefined,
     };
 }
 
@@ -162,7 +162,6 @@ export const EastChakraGantt = memo(function EastChakraGantt({
     storageKey,
 }: EastChakraGanttProps) {
     const props = useMemo(() => toChakraTableRoot(value), [value]);
-    const headerHeight = 56;
 
     // Track root container width for accurate splitter sizing
     const rootRef = useRef<HTMLDivElement>(null);
@@ -195,18 +194,30 @@ export const EastChakraGantt = memo(function EastChakraGantt({
     const dragStepValue = getSomeorUndefined(value.dragStep);
     const durationStepValue = getSomeorUndefined(value.durationStep);
 
-    // Visual-parity tokens — per-task `label.color` etc. override these
-    // defaults inside `GanttTask`. Pulled out of `style` once and threaded
-    // down through `GanttEventRow`.
-    const taskBorderRadius = style ? getSomeorUndefined(style.taskBorderRadius) : undefined;
-    const labelColor = style ? getSomeorUndefined(style.labelColor) : undefined;
-    const labelFontSize = style ? getSomeorUndefined(style.labelFontSize) : undefined;
-    const labelFontWeight = style ? getSomeorUndefined(style.labelFontWeight) : undefined;
+    // Density preset → row + header height (mirrors the Table's mapping:
+    // compact → sm, comfortable → lg, everything else → md). Body rows are
+    // taller than the Table's to hold the bars; the HEADER band is identical
+    // to the Table's column-header row (same recipe + same height) so the
+    // left pane reads as one component with a Table.
+    const densityTag = (style ? getSomeorUndefined(style.density) : undefined)?.type;
+    const ganttSize: "sm" | "md" | "lg" = densityTag === "compact" ? "sm"
+        : densityTag === "comfortable" ? "lg"
+        : "md";
+    const densityRowHeight = ganttSize === "sm" ? 44 : ganttSize === "lg" ? 64 : 56;
+    const effectiveRowHeight = densityTag ? densityRowHeight : rowHeight;
+    // Header height = the Table's density row height (2·padY + round(font·1.25)
+    // with padY 6/10/12 and font 12/13/14) so the header matches exactly.
+    const headerHeight = ganttSize === "sm" ? 27 : ganttSize === "lg" ? 42 : 36;
+    const ganttSlotStyles = useSlotRecipe({ key: "gantt" })({ size: ganttSize });
+    // The left pane IS a Table — consume the SAME `table` columnHeader slot so
+    // the header font/size/padding are identical to the Table component.
+    const tableSlotStyles = useSlotRecipe({ key: "table" })({ size: ganttSize });
 
     // Row-status callback — paints each row's background with a semantic
     // token. Shared helper used by Planner / Table too.
     const rowStatusBgFor = useRowStatusBg(getSomeorUndefined(value.rowStatus));
-    const [gridLineColor] = useToken("colors", ["gray.300"]);
+    const [gridLineColor, nowLineColor] = useToken("colors", ["gray.300", "fg.info"]);
+    const showNowLine = style ? getSomeorUndefined(style.showToday) ?? false : false;
     const tableContainerRef = useRef<HTMLDivElement>(null);
     const timelineContainerRef = useRef<HTMLDivElement>(null);
     const [timelineWidth, setTimelineWidth] = useState(400);
@@ -658,7 +669,7 @@ export const EastChakraGantt = memo(function EastChakraGantt({
     const virtualizer = useVirtualizer({
         count: rows.length,
         getScrollElement: () => tableContainerRef.current,
-        estimateSize: () => rowHeight,
+        estimateSize: () => effectiveRowHeight,
         overscan,
     });
 
@@ -761,7 +772,7 @@ export const EastChakraGantt = memo(function EastChakraGantt({
                             position="sticky"
                             top={0}
                             zIndex={1}
-                            bg="bg.panel"
+                            css={ganttSlotStyles.header}
                         >
                             {table.getHeaderGroups().map((headerGroup) => (
                                 <ChakraTable.Row
@@ -772,6 +783,8 @@ export const EastChakraGantt = memo(function EastChakraGantt({
                                         return (
                                             <ChakraTable.ColumnHeader
                                                 key={header.id}
+                                                css={tableSlotStyles.columnHeader}
+                                                color="gray.500"
                                                 _hover={{ bg: "bg.muted" }}
                                                 transition="background 0.2s"
                                                 style={getHeaderCellStyle(header, hasFrozen, columnSizing, header.id === lastUnpinnedColumnId)}
@@ -918,7 +931,9 @@ export const EastChakraGantt = memo(function EastChakraGantt({
                 </Box>
             </Splitter.Panel>
 
-            <Splitter.ResizeTrigger id="table:timeline" />
+            {/* Base grip from the `splitter` slot recipe; nudge it into the
+                rows area (below the header) — a runtime offset, not a recipe value. */}
+            <Splitter.ResizeTrigger id="table:timeline" css={{ _after: { top: `calc(50% + ${headerHeight / 2}px)` } }} />
 
             {/* Timeline Panel */}
             <Splitter.Panel id="timeline">
@@ -932,12 +947,13 @@ export const EastChakraGantt = memo(function EastChakraGantt({
                     onScroll={handleTimelineScroll}
                 >
                     {/* Timeline Header - matches table header styling */}
-                    <Box position="sticky" top={0} zIndex={1} bg="bg.panel">
+                    <Box position="sticky" top={0} zIndex={1} css={ganttSlotStyles.header}>
                         <EventAxis
                             startDate={dateRange.start}
                             endDate={dateRange.end}
                             width={timelineWidth}
                             height={headerHeight}
+                            columnHeaderStyles={tableSlotStyles.columnHeader}
                         />
                     </Box>
 
@@ -1001,10 +1017,6 @@ export const EastChakraGantt = memo(function EastChakraGantt({
                                                     onMilestoneDrag={onMilestoneDragFn ? handleEventMilestoneDrag : undefined}
                                                     dragStep={dragStep}
                                                     durationStep={durationStep}
-                                                    taskBorderRadius={taskBorderRadius}
-                                                    labelColor={labelColor}
-                                                    labelFontSize={labelFontSize}
-                                                    labelFontWeight={labelFontWeight}
                                                 />
                                             </svg>
                                         </ChakraTable.Cell>
@@ -1038,6 +1050,22 @@ export const EastChakraGantt = memo(function EastChakraGantt({
                                     opacity={0.6}
                                 />
                             ))}
+                            {/* Now-line — 1px brand-d rule at the present, on the
+                                same coordinate origin as the grid + bars. */}
+                            {showNowLine && (() => {
+                                const nowX = getDatePosition(new Date(), dateRange.start, dateRange.end, timelineWidth);
+                                if (nowX < 0 || nowX > timelineWidth) return null;
+                                return (
+                                    <line
+                                        x1={nowX}
+                                        y1={0}
+                                        x2={nowX}
+                                        y2={virtualizer.getTotalSize()}
+                                        stroke={nowLineColor}
+                                        strokeWidth={1}
+                                    />
+                                );
+                            })()}
                         </svg>
                     </Box>
                 </Box>

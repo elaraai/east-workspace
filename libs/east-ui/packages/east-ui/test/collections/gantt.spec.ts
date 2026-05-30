@@ -14,27 +14,15 @@ describeEast("Gantt", (test) => {
         ganttCustomHeaders: ex.ganttCustomHeaders,
         ganttWithMilestones: ex.ganttWithMilestones,
         ganttWithProgress: ex.ganttWithProgress,
-        ganttColorful: ex.ganttColorful,
+        ganttStatusByType: ex.ganttStatusByType,
         ganttStyled: ex.ganttStyled,
         ganttComplexColumns: ex.ganttComplexColumns,
-        ganttColumnRenderWithRow: ex.ganttColumnRenderWithRow,
         ganttInteractiveCallbacks: ex.ganttInteractiveCallbacks,
         ganttReactiveDrag: ex.ganttReactiveDrag,
-        ganttCustomHeight: ex.ganttCustomHeight,
         ganttFrozenColumns: ex.ganttFrozenColumns,
         ganttRowStatus: ex.ganttRowStatus,
-        ganttPerEventColours: ex.ganttPerEventColours,
-        ganttChromeColours: ex.ganttChromeColours,
-        ganttTaskTooltip: ex.ganttTaskTooltip,
         ganttTaskPopover: ex.ganttTaskPopover,
-        ganttTaskOverlays: ex.ganttTaskOverlays,
         ganttRichLabel: ex.ganttRichLabel,
-        ganttVisualTokens: ex.ganttVisualTokens,
-        ganttMilestoneTooltip: ex.ganttMilestoneTooltip,
-        ganttMilestonePopover: ex.ganttMilestonePopover,
-        ganttMilestoneOverlays: ex.ganttMilestoneOverlays,
-        ganttMilestoneColours: ex.ganttMilestoneColours,
-        ganttTaskPopoverWithCallback: ex.ganttTaskPopoverWithCallback,
     });
 
     // =========================================================================
@@ -108,15 +96,15 @@ describeEast("Gantt", (test) => {
         $(Assert.equal(task.progress.unwrap("some"), 0.75));
     });
 
-    test("creates task with color palette", $ => {
+    test("creates task with status", $ => {
         const gantt = $.let(Gantt.Root(
             [{ name: "Testing", start: new Date("2024-02-01"), end: new Date("2024-02-15") }],
             ["name"],
-            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end, colorPalette: "blue" })] })
+            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end, status: "atRisk" })] })
         ));
 
         const task = gantt.unwrap().unwrap("Gantt").rows.get(0n).tasks.get(0n);
-        $(Assert.equal(task.colorPalette.unwrap("some").hasTag("blue"), true));
+        $(Assert.equal(task.status.unwrap("some").hasTag("atRisk"), true));
     });
 
     // =========================================================================
@@ -145,15 +133,15 @@ describeEast("Gantt", (test) => {
         $(Assert.equal(milestone.label.unwrap("some").value, "Product Launch"));
     });
 
-    test("creates milestone with color palette", $ => {
+    test("creates milestone with kind", $ => {
         const gantt = $.let(Gantt.Root(
             [{ name: "Deadline", date: new Date("2024-04-01"), start: new Date("2024-01-01"), end: new Date("2024-01-01") }],
             ["name"],
-            row => ({ milestones: [Gantt.Milestone({ date: row.date, colorPalette: "red" })] })
+            row => ({ milestones: [Gantt.Milestone({ date: row.date, kind: "interim" })] })
         ));
 
         const milestone = gantt.unwrap().unwrap("Gantt").rows.get(0n).milestones.get(0n);
-        $(Assert.equal(milestone.colorPalette.unwrap("some").hasTag("red"), true));
+        $(Assert.equal(milestone.kind.unwrap("some").hasTag("interim"), true));
     });
 
     // =========================================================================
@@ -209,14 +197,15 @@ describeEast("Gantt", (test) => {
             {
                 variant: "outline",
                 size: "md",
+                density: "compact",
                 striped: true,
                 stickyHeader: true,
-                colorPalette: "blue",
                 showToday: true,
             }
         ));
 
         $(Assert.equal(gantt.unwrap().unwrap("Gantt").style.unwrap("some").variant.unwrap("some").hasTag("outline"), true));
+        $(Assert.equal(gantt.unwrap().unwrap("Gantt").style.unwrap("some").density.unwrap("some").hasTag("compact"), true));
         $(Assert.equal(gantt.unwrap().unwrap("Gantt").style.unwrap("some").striped.unwrap("some"), true));
         $(Assert.equal(gantt.unwrap().unwrap("Gantt").style.unwrap("some").showToday.unwrap("some"), true));
     });
@@ -237,7 +226,7 @@ describeEast("Gantt", (test) => {
                 phase: { header: "Phase" },
                 owner: { header: "Owner" },
             },
-            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end, colorPalette: "blue" })] }),
+            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] }),
             { variant: "line", striped: true, showToday: true }
         ));
 
@@ -253,8 +242,8 @@ describeEast("Gantt", (test) => {
             ],
             { name: { header: "Sprint" } },
             row => ({
-                tasks: [Gantt.Task({ start: row.start, end: row.end, colorPalette: "teal" })],
-                milestones: [Gantt.Milestone({ date: row.release, label: "Release", colorPalette: "green" })],
+                tasks: [Gantt.Task({ start: row.start, end: row.end })],
+                milestones: [Gantt.Milestone({ date: row.release, label: "Release", kind: "release" })],
             })
         ));
 
@@ -419,32 +408,16 @@ describeEast("Gantt", (test) => {
     });
 
     // =========================================================================
-    // Per-task / per-milestone tooltip / popover / overlays — Plan 1.10 I IR coverage
+    // Per-task / per-milestone popover — IR coverage
     // =========================================================================
 
-    test("task with tooltip slot round-trips as some(UIComp)", $ => {
-        const gantt = $.let(Gantt.Root(
-            [{ name: "T", start: new Date("2024-01-01"), end: new Date("2024-01-15") }],
-            ["name"],
-            row => ({ tasks: [Gantt.Task({
-                start: row.start,
-                end: row.end,
-                tooltip: Text.Root("hello"),
-            })] }),
-        ));
-        const task = $.let(gantt.unwrap().unwrap("Gantt").rows.get(0n).tasks.get(0n));
-        $(Assert.equal(task.tooltip.hasTag("some"), true));
-        $(Assert.equal(task.tooltip.unwrap("some").unwrap().hasTag("Text"), true));
-    });
-
-    test("task without tooltip is none", $ => {
+    test("task without popover is none", $ => {
         const gantt = $.let(Gantt.Root(
             [{ name: "T", start: new Date("2024-01-01"), end: new Date("2024-01-15") }],
             ["name"],
             row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] }),
         ));
         const task = $.let(gantt.unwrap().unwrap("Gantt").rows.get(0n).tasks.get(0n));
-        $(Assert.equal(task.tooltip.hasTag("none"), true));
         $(Assert.equal(task.popover.hasTag("none"), true));
     });
 
@@ -463,106 +436,39 @@ describeEast("Gantt", (test) => {
         $(Assert.equal(task.popover.unwrap("some").unwrap().hasTag("Text"), true));
     });
 
-    test("task with overlays round-trips with axis-aligned positioning", $ => {
-        const gantt = $.let(Gantt.Root(
-            [{ name: "T", start: new Date("2024-01-01"), end: new Date("2024-01-15") }],
-            ["name"],
-            row => ({ tasks: [Gantt.Task({
-                start: row.start,
-                end: row.end,
-                overlays: [
-                    {
-                        content: Badge.Root("HIGH"),
-                        align: "end",
-                        verticalAlign: "start",
-                    },
-                    {
-                        content: Text.Root("note"),
-                        align: "start",
-                        verticalAlign: "end",
-                    },
-                ],
-            })] }),
-        ));
-        const task = $.let(gantt.unwrap().unwrap("Gantt").rows.get(0n).tasks.get(0n));
-        $(Assert.equal(task.overlays.size(), 2n));
-        const o0 = $.let(task.overlays.get(0n));
-        $(Assert.equal(o0.align.hasTag("end"), true));
-        $(Assert.equal(o0.verticalAlign.hasTag("start"), true));
-        $(Assert.equal(o0.content.unwrap().hasTag("Badge"), true));
-    });
-
-    test("milestone with tooltip / popover / overlays round-trips", $ => {
+    test("milestone with popover round-trips", $ => {
         const gantt = $.let(Gantt.Root(
             [{ name: "M", date: new Date("2024-01-15") }],
             ["name"],
             row => ({ milestones: [Gantt.Milestone({
                 date: row.date,
-                tooltip: Text.Root("hover"),
                 popover: Text.Root("click"),
-                overlays: [{
-                    content: Badge.Root("DONE"),
-                    align: "center",
-                    verticalAlign: "start",
-                }],
             })] }),
         ));
         const ms = $.let(gantt.unwrap().unwrap("Gantt").rows.get(0n).milestones.get(0n));
-        $(Assert.equal(ms.tooltip.hasTag("some"), true));
         $(Assert.equal(ms.popover.hasTag("some"), true));
-        $(Assert.equal(ms.overlays.size(), 1n));
-        $(Assert.equal(ms.overlays.get(0n).content.unwrap().hasTag("Badge"), true));
     });
 
-    test("creates gantt with taskBorderRadius", $ => {
+    test("creates milestone with release kind", $ => {
+        const gantt = $.let(Gantt.Root(
+            [{ name: "M", date: new Date("2024-01-15") }],
+            ["name"],
+            row => ({ milestones: [Gantt.Milestone({ date: row.date, kind: "release" })] }),
+        ));
+        const ms = $.let(gantt.unwrap().unwrap("Gantt").rows.get(0n).milestones.get(0n));
+        $(Assert.equal(ms.kind.unwrap("some").hasTag("release"), true));
+    });
+
+    test("creates gantt with density", $ => {
         const gantt = $.let(Gantt.Root(
             [{ name: "T", start: new Date("2024-01-01"), end: new Date("2024-01-15") }],
             ["name"],
             row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] }),
-            { taskBorderRadius: "8px" },
+            { density: "comfortable" },
         ));
         $(Assert.equal(
-            gantt.unwrap().unwrap("Gantt").style.unwrap("some").taskBorderRadius.unwrap("some"),
-            "8px",
-        ));
-    });
-
-    test("creates gantt with labelColor", $ => {
-        const gantt = $.let(Gantt.Root(
-            [{ name: "T", start: new Date("2024-01-01"), end: new Date("2024-01-15") }],
-            ["name"],
-            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] }),
-            { labelColor: "white" },
-        ));
-        $(Assert.equal(
-            gantt.unwrap().unwrap("Gantt").style.unwrap("some").labelColor.unwrap("some"),
-            "white",
-        ));
-    });
-
-    test("creates gantt with labelFontSize", $ => {
-        const gantt = $.let(Gantt.Root(
-            [{ name: "T", start: new Date("2024-01-01"), end: new Date("2024-01-15") }],
-            ["name"],
-            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] }),
-            { labelFontSize: "0.875rem" },
-        ));
-        $(Assert.equal(
-            gantt.unwrap().unwrap("Gantt").style.unwrap("some").labelFontSize.unwrap("some"),
-            "0.875rem",
-        ));
-    });
-
-    test("creates gantt with labelFontWeight", $ => {
-        const gantt = $.let(Gantt.Root(
-            [{ name: "T", start: new Date("2024-01-01"), end: new Date("2024-01-15") }],
-            ["name"],
-            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] }),
-            { labelFontWeight: "700" },
-        ));
-        $(Assert.equal(
-            gantt.unwrap().unwrap("Gantt").style.unwrap("some").labelFontWeight.unwrap("some"),
-            "700",
+            gantt.unwrap().unwrap("Gantt").style.unwrap("some").density.unwrap("some").hasTag("comfortable"),
+            true,
         ));
     });
 
