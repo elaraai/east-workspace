@@ -328,8 +328,10 @@ break all later calls. The implementer MUST extend the local GC mark
 - Add an `isFunctionObjectShape` guard and a `FunctionObject` branch that pushes
   **`value.bodyIr`** as a leaf child.
 
-The cloud GC (`gc-mark.ts` `markReachable`) needs the analogous change — covered in
-the cloud doc. Add a GC survival test (§13.13).
+This single `extractChildren` fix also covers the cloud: the cloud's `gc-mark.ts`
+imports and calls **this** `markReachable`/`extractChildren` from
+`@elaraai/e3-core`, so it inherits function-body reachability with no separate
+cloud change (cloud doc §6). Add a GC survival test (§13, item 13).
 
 ## 5. Shared types (e3-types) — runner + execution
 
