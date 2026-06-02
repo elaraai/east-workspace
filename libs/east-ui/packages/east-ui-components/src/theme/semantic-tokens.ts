@@ -43,16 +43,18 @@ export const semanticTokens = defineSemanticTokens({
         /* ─── Surfaces ───────────────────────────────────────── */
         bg: {
             canvas:      { value: { base: "{colors.gray.50}",   _dark: "{colors.gray.900}" } },
-            surface:     { value: { base: "{colors.white}",      _dark: "{colors.gray.800}" } },
-            muted:       { value: { base: "{colors.gray.100}",  _dark: "{colors.gray.700}" } },
+            surface:     { value: { _light: "{colors.white}",    _dark: "{colors.gray.800}" } },
             inverse:     { value: { base: "{colors.brand.900}", _dark: "{colors.white}"     } },
 
             /* Surface roles referenced by Table / Gantt / Planner / Matrix /
-             * NavList / CommandPalette — previously fell through to Chakra
-             * defaults, now anchored to the cool-gray ladder. */
-            panel:       { value: { base: "{colors.gray.50}",   _dark: "{colors.gray.800}" } },
-            subtle:      { value: { base: "{colors.gray.100}",  _dark: "{colors.gray.700}" } },
-            emphasized:  { value: { base: "{colors.gray.200}",  _dark: "{colors.gray.600}" } },
+             * NavList / CommandPalette. These names collide with Chakra's
+             * built-in `bg.*` semantic tokens, which define a `_light` value —
+             * and `_light` beats a plain `base` at resolution in light mode, so
+             * an override MUST use `_light` (not `base`) to actually win. */
+            muted:       { value: { _light: "{colors.gray.100}", _dark: "{colors.gray.700}" } },
+            panel:       { value: { _light: "{colors.gray.50}",  _dark: "{colors.gray.800}" } },
+            subtle:      { value: { _light: "{colors.gray.100}", _dark: "{colors.gray.700}" } },
+            emphasized:  { value: { _light: "{colors.gray.200}", _dark: "{colors.gray.600}" } },
 
             /* Brand-tinted surface — used for selected rows, branded chips,
              * brand banners, choice-card selected state. */
@@ -86,13 +88,17 @@ export const semanticTokens = defineSemanticTokens({
         },
 
         /* ─── Borders ───────────────────────────────────────── */
+        /* `border.subtle` / `border.muted` collide with Chakra's built-in
+         * border tokens (which define a `_light` value); like `bg.panel`, the
+         * override MUST use `_light` (not `base`) or Chakra's default wins and
+         * the rule renders near-invisible. */
         border: {
-            subtle: { value: { base: "{colors.gray.200}", _dark: "{colors.gray.700}" } },
+            subtle: { value: { _light: "{colors.gray.200}", _dark: "{colors.gray.700}" } },
             strong: { value: { base: "{colors.gray.300}", _dark: "{colors.gray.600}" } },
             focus:  { value: "{colors.brand.500}" },
 
             /* Alias used by Card / chart axis / Note default. */
-            muted:  { value: { base: "{colors.gray.200}", _dark: "{colors.gray.700}" } },
+            muted:  { value: { _light: "{colors.gray.200}", _dark: "{colors.gray.700}" } },
 
             /* Brand-tinted border for selected / emphasized branded surfaces. */
             brand:  { value: { base: "{colors.brand.500}", _dark: "{colors.brand.400}" } },

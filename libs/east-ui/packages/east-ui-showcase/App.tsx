@@ -92,7 +92,7 @@ export function App() {
     return (
         /* h=100vh locks the shell to the viewport — the Main content area
          * scrolls internally; the page itself never overflows. */
-        <Flex h="100vh" w="100vw" overflow="hidden" bg="bg.canvas" align="stretch">
+        <Flex h="100dvh" w="100%" overflow="hidden" bg="bg.canvas" align="stretch">
             <Sidebar selected={selectedCategory} onSelect={setSelectedCategory} />
             <Flex flex="1" minW={0} direction="column" h="100vh">
                 <Header

@@ -35,7 +35,7 @@ import { NoteVariantType, NoteVisualStyleType } from "./typography/note/types.js
 import { CodeBlockType } from "./typography/code-block/types.js";
 
 // Layout
-import { DensityType, AlignType, LabelInputType, ColorSchemeType } from "./style.js";
+import { DensityType, AlignType, LabelInputType } from "./style.js";
 import { BoxStyleType } from "./layout/box/types.js";
 import { FlexStyleType } from "./layout/flex/types.js";
 import { StackStyleType } from "./layout/stack/types.js";
@@ -120,10 +120,11 @@ import { IconType } from "./display/icon/types.js";
 // Collections
 import { DataListStyleType } from "./collections/data-list/types.js";
 import {
-    MatrixStyleType,
-    MatrixCellSegmentType,
-    MatrixBrushCoordType,
-    MatrixBrushSelectionType,
+    MatrixSegmentType,
+    MatrixMarkerType,
+    MatrixOrientationType,
+    MatrixLegendEntryType,
+    MatrixCellClickEventType,
     MatrixSegmentClickEventType,
     MatrixSegmentChangeEventType,
 } from "./collections/matrix/types.js";
@@ -137,6 +138,7 @@ import {
 } from "./collections/table/types.js";
 import {
     GanttStyleType,
+    GanttAxisType,
     GanttTaskStatusType,
     GanttMilestoneKindType,
     GanttTaskClickEventType,
@@ -148,15 +150,14 @@ import {
     TimeStepType,
 } from "./collections/gantt/types.js";
 import {
-    PlannerStyleType,
-    SlotModeType,
-    PlannerBoundaryType,
-    EventClickEventType,
-    EventDragEventType,
-    EventResizeEventType,
-    EventAddEventType,
-    EventDeleteEventType,
-    EventIconType,
+    PlannerSlotType,
+    PlannerAxisType,
+    PlannerStateType,
+    PlannerMarkerType,
+    PlannerColumnType,
+    PlannerCellType,
+    PlannerVariantType,
+    PlannerSelectEventType,
 } from "./collections/planner/types.js";
 import {
     TableRowClickEventType,
@@ -570,33 +571,29 @@ export const UIComponentType = RecursiveType(node => VariantType({
     Matrix: StructType({
         rows: ArrayType(StructType({
             key: StringType,
-            header: OptionType(node),
+            value: StringType,
+            sublabel: OptionType(StringType),
+            group: OptionType(StringType),
             cells: DictType(StringType, StructType({
-                segments: ArrayType(MatrixCellSegmentType),
-                overlays: ArrayType(StructType({
-                    content: node,
-                    align: AlignType,
-                    verticalAlign: AlignType,
-                })),
-                emphasisColor: OptionType(StringType),
-                tooltip: OptionType(node),
+                segments: ArrayType(MatrixSegmentType),
+                markers: ArrayType(MatrixMarkerType),
+                orientation: OptionType(MatrixOrientationType),
+                slot: OptionType(node),
                 popover: OptionType(node),
             })),
         })),
         columns: ArrayType(StructType({
             key: StringType,
-            header: OptionType(node),
+            label: OptionType(LabelInputType),
         })),
-        legend: OptionType(ArrayType(StructType({
-            category: StringType,
-            color: StringType,
-            label: OptionType(StringType),
-        }))),
-        brushSelection: OptionType(MatrixBrushSelectionType),
-        onCellClick: OptionType(FunctionType([MatrixBrushCoordType], NullType)),
+        rowHeader: OptionType(StringType),
+        orientation: MatrixOrientationType,
+        legend: OptionType(ArrayType(MatrixLegendEntryType)),
+        minLabelSize: OptionType(FloatType),
+        density: OptionType(DensityType),
+        onCellClick: OptionType(FunctionType([MatrixCellClickEventType], NullType)),
         onSegmentClick: OptionType(FunctionType([MatrixSegmentClickEventType], NullType)),
         onSegmentChange: OptionType(FunctionType([MatrixSegmentChangeEventType], NullType)),
-        style: OptionType(MatrixStyleType),
     }),
 
     // Charts
@@ -706,6 +703,7 @@ export const UIComponentType = RecursiveType(node => VariantType({
             render: OptionType(FunctionType([TableCellRenderContextType], node)),
         })),
         frozen: ArrayType(StringType),
+        axis: OptionType(GanttAxisType),
         dragStep: OptionType(TimeStepType),
         durationStep: OptionType(TimeStepType),
         rowStatus: OptionType(FunctionType([IntegerType], StatusTokenType)),
@@ -726,60 +724,26 @@ export const UIComponentType = RecursiveType(node => VariantType({
     }),
 
     Planner: StructType({
+        variant: PlannerVariantType,
+        axis: PlannerAxisType,
+        columns: ArrayType(PlannerColumnType),
         rows: ArrayType(StructType({
-            cells: DictType(StringType, StructType({
-                value: LiteralValueType,
-                content: OptionType(node),
-            })),
+            group: OptionType(StringType),
+            cells: DictType(StringType, PlannerCellType),
             events: ArrayType(StructType({
-                start: FloatType,
-                end: OptionType(FloatType),
-                label: OptionType(LabelInputType),
-                icon: OptionType(EventIconType),
-                colorPalette: OptionType(ColorSchemeType),
-                background: OptionType(StringType),
-                stroke: OptionType(StringType),
-                opacity: OptionType(FloatType),
-                overlays: ArrayType(StructType({
-                    content: node,
-                    align: AlignType,
-                    verticalAlign: AlignType,
-                })),
-                tooltip: OptionType(node),
+                slot: PlannerSlotType,
+                endSlot: OptionType(PlannerSlotType),
+                bucket: OptionType(StringType),
+                label: StringType,
+                state: PlannerStateType,
                 popover: OptionType(node),
             })),
+            markers: ArrayType(PlannerMarkerType),
         })),
-        columns: ArrayType(StructType({
-            key: StringType,
-            dataType: EastTypeType,
-            valueType: EastTypeType,
-            header: OptionType(StringType),
-            width: OptionType(StringType),
-            minWidth: OptionType(StringType),
-            maxWidth: OptionType(StringType),
-            render: OptionType(FunctionType([TableCellRenderContextType], node)),
-        })),
-        frozen: ArrayType(StringType),
-        slotMode: OptionType(SlotModeType),
-        minSlot: OptionType(FloatType),
-        maxSlot: OptionType(FloatType),
-        stepSize: OptionType(FloatType),
-        slotLabel: OptionType(FunctionType([FloatType], StringType)),
-        boundaries: OptionType(ArrayType(PlannerBoundaryType)),
-        rowStatus: OptionType(FunctionType([IntegerType], StatusTokenType)),
-        onCellClick: OptionType(FunctionType([TableCellClickEventType], NullType)),
-        onCellDoubleClick: OptionType(FunctionType([TableCellClickEventType], NullType)),
-        onRowClick: OptionType(FunctionType([TableRowClickEventType], NullType)),
-        onRowDoubleClick: OptionType(FunctionType([TableRowClickEventType], NullType)),
-        onSortChange: OptionType(FunctionType([TableSortEventType], NullType)),
-        onEventClick: OptionType(FunctionType([EventClickEventType], NullType)),
-        onEventDoubleClick: OptionType(FunctionType([EventClickEventType], NullType)),
-        onEventDrag: OptionType(FunctionType([EventDragEventType], NullType)),
-        onEventResize: OptionType(FunctionType([EventResizeEventType], NullType)),
-        onEventAdd: OptionType(FunctionType([EventAddEventType], NullType)),
-        onEventEdit: OptionType(FunctionType([EventClickEventType], NullType)),
-        onEventDelete: OptionType(FunctionType([EventDeleteEventType], NullType)),
-        style: OptionType(PlannerStyleType),
+        now: OptionType(PlannerSlotType),
+        density: OptionType(DensityType),
+        slotMinWidth: OptionType(StringType),
+        onSelectRow: OptionType(FunctionType([PlannerSelectEventType], NullType)),
     }),
 
     // Disclosure

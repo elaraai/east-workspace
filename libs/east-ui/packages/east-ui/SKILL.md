@@ -134,11 +134,16 @@ Task → What do you need?
 │   │   └─ .Root(nodes, options)
 │   ├─ Gantt — Gantt chart; reuses Table chrome; showToday marker, gridColor, task/milestone defaults
 │   │   └─ .Root(tasks, options)
-│   ├─ Planner — time-grid event planner (day / week); slotMinWidth, slotLineStroke, colorPalette
-│   │   └─ .Root(events, options)
-│   ├─ Matrix — generic row × column grid with a cell renderer slot; showGridLines, header/cell colours, legendPosition, emphasis/selected colours
-│   │   ├─ .Root(rows, cols, cells, options)
-│   │   └─ .CellAddressable(child)          – addressable cell for sparse fills
+│   ├─ Planner — discrete rows × ordered-slot scheduler; reuses Table header chrome; committed / proposed / rejected event states, conflict markers, now-line
+│   │   ├─ .Point(data, config) / .Span(data, config)  – config: axis, columns, events, markers, groupBy, now, density, slotMinWidth, onSelectRow
+│   │   ├─ .axis.time() / .number({ buckets }) / .ordinal({ range })
+│   │   ├─ .event({ slot, endSlot, label, state, bucket, popover })
+│   │   └─ .marker({ slot, status, message })           – conflict / status flag on a slot
+│   ├─ Matrix — row × column grid of status-coloured segment bars; reuses Table header + Slice legend chrome
+│   │   ├─ .Root(data, config)              – config: columns, rowKey, cell, rowHeader/rowValue/rowSublabel, groupBy, orientation, legend, onSegmentChange…
+│   │   ├─ .cell({ segments, markers, slot, popover, orientation })
+│   │   ├─ .segment({ fill, weight, label, min, max, step })  – fill: brand/success/warning/danger/info/neutral/slack/free
+│   │   └─ .marker({ status, message, at, label })            – Planner-parity cell status flag (ring tint + corner icon)
 │   └─ Pagination — page-number control; siblings + boundaries control ellipsis windows; active colour slots
 │       └─ .Root(options)
 │

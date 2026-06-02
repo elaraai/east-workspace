@@ -113,8 +113,10 @@ export const GanttEventRow = ({
     storageKey = "gantt",
 }: GanttEventRowProps) => {
     const renderedEvents = useMemo(() => {
-        // Spec bar = a fixed 26px band centred in the row (not row-height-filling).
-        const eventHeight = 26;
+        // Bar band centred in the row, derived from the row height (≈ row − 12px
+        // for ~6px breathing room top/bottom) so it scales with density instead
+        // of packing a fixed 26px into a short row. Clamped 16–26px for legibility.
+        const eventHeight = Math.min(26, Math.max(16, height - 12));
         const eventY = y + (height - eventHeight) / 2;
 
         const renderedTasks = tasks.map((task, taskIndex) => {

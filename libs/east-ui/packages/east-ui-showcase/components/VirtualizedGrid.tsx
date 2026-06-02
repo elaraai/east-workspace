@@ -34,15 +34,15 @@ function useViewportWidth(): number {
     return w;
 }
 
-/** Clamp an entry's preferred column count to the bsys Main recipe
- *  breakpoint ladder: cap at 1 below 560 px, 2 below 768, 3 below 960,
- *  4 below 1280, otherwise honour the entry's preference (max 6). */
+/** Clamp an entry's preferred column count so cards stay comfortably wide:
+ *  a single full-width column on phones / portrait tablets, scaling up only
+ *  as the viewport earns each extra ~340 px column. */
 function columnsForEntry(e: CatalogEntry, viewportW: number): number {
     let cap: number;
-    if      (viewportW < 560)  cap = 1;
-    else if (viewportW < 768)  cap = 2;
-    else if (viewportW < 960)  cap = 3;
-    else if (viewportW < 1280) cap = 4;
+    if      (viewportW < 860)  cap = 1;
+    else if (viewportW < 1200) cap = 2;
+    else if (viewportW < 1560) cap = 3;
+    else if (viewportW < 1920) cap = 4;
     else                       cap = 6;
     return Math.min(e.columns, cap);
 }

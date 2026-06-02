@@ -105,6 +105,98 @@ export type GanttMilestoneKindType = typeof GanttMilestoneKindType;
 /** String shorthand for {@link GanttMilestoneKindType}. */
 export type GanttMilestoneKindLiteral = "interim" | "release";
 
+// ============================================================================
+// Time Axis (domain + tick format + header granularity)
+// ============================================================================
+
+/**
+ * Header granularity for the Gantt time axis — the size of the labelled band
+ * the axis header draws, and the boundary the dashed gridlines snap to.
+ *
+ * @remarks
+ * `auto` lets the renderer pick a sensible interval (and tick count) from the
+ * visible span and pixel width via the visx time scale; the rest force a fixed
+ * calendar interval.
+ *
+ * @property auto - Interval + count chosen automatically from span / width
+ * @property day - One band per day
+ * @property week - One band per week
+ * @property month - One band per calendar month
+ * @property quarter - One band per calendar quarter
+ * @property year - One band per calendar year
+ */
+export const GanttTierType = VariantType({
+    auto: NullType,
+    day: NullType,
+    week: NullType,
+    month: NullType,
+    quarter: NullType,
+    year: NullType,
+});
+
+export type GanttTierType = typeof GanttTierType;
+
+/** String shorthand for {@link GanttTierType}. */
+export type GanttTierLiteral = "auto" | "day" | "week" | "month" | "quarter" | "year";
+
+/**
+ * Explicit time-domain bounds for the Gantt axis.
+ *
+ * @property min - Earliest instant shown (left edge)
+ * @property max - Latest instant shown (right edge)
+ */
+export const GanttAxisRangeType = StructType({
+    min: DateTimeType,
+    max: DateTimeType,
+});
+
+export type GanttAxisRangeType = typeof GanttAxisRangeType;
+
+/**
+ * Declarative time-axis configuration — the Gantt analogue of the Planner's
+ * `axis`, specialised to the single time scale a Gantt always uses.
+ *
+ * @remarks
+ * All three fields are optional: omit `range` to fit the domain to the data
+ * (with padding), omit `format` to let the renderer pick a label pattern for
+ * the tier, omit `tier` (or use `auto`) to let visx choose the tick interval +
+ * count. When set, `range` pins the visible window, `format` is a date pattern
+ * (`MMM` / `MMM YYYY` / `YYYY` — same tokens as Chart tick formats), and `tier`
+ * forces the header band granularity.
+ *
+ * @property range - Explicit `{ min, max }` window; omitted ⇒ derived from data
+ * @property format - Tick-label date pattern (e.g. `"MMM"`, `"MMM d"`, `"YYYY"`)
+ * @property tier - Header band granularity (auto / day / week / month / quarter / year)
+ */
+export const GanttAxisType = StructType({
+    range: OptionType(GanttAxisRangeType),
+    format: OptionType(StringType),
+    tier: OptionType(GanttTierType),
+});
+
+export type GanttAxisType = typeof GanttAxisType;
+
+/**
+ * TypeScript input for the ergonomic `axis` option on {@link GanttStyle}.
+ *
+ * @remarks
+ * Flat JS in, fully-enveloped {@link GanttAxisType} out — the factory wraps the
+ * optional fields in `some` / `none` and converts the `tier` string shorthand
+ * to an East variant. Every field accepts a plain value or an East expression.
+ *
+ * @property range - Explicit `{ min, max }` time window (Dates or expressions)
+ * @property format - Tick-label date pattern string
+ * @property tier - Header band granularity; string shorthand or East variant
+ */
+export interface GanttAxisInput {
+    /** Explicit `{ min, max }` time window. Omit to fit the domain to the data. */
+    range?: { min: SubtypeExprOrValue<DateTimeType>; max: SubtypeExprOrValue<DateTimeType> };
+    /** Tick-label date pattern (e.g. `"MMM"`, `"MMM YYYY"`, `"YYYY"`). Omit for a tier-derived default. */
+    format?: SubtypeExprOrValue<StringType>;
+    /** Header band granularity. String shorthand (`"month"`) or an East variant. Default `"auto"`. */
+    tier?: SubtypeExprOrValue<GanttTierType> | GanttTierLiteral;
+}
+
 // NOTE: `GanttTaskType` and `GanttMilestoneType` are UIComp-coupled
 // (they carry `tooltip` / `popover` UIComponent slots) and live in
 // `./index.ts` alongside the factory. types.ts stays
@@ -290,6 +382,8 @@ export type GanttStyleType = typeof GanttStyleType;
 export interface GanttStyle<ColumnKeys extends string = string> {
     /** Column keys to freeze (pin left). Frozen columns appear first and stay visible during horizontal scroll. */
     frozen?: ColumnKeys[];
+    /** Time-axis configuration — explicit `{ min, max }` window, tick-label `format`, and header `tier`. Omit to fit the domain to the data with an auto-chosen tick interval. */
+    axis?: GanttAxisInput;
     /** CSS height for the Gantt container (e.g., "500px", "100%") */
     height?: SubtypeExprOrValue<StringType>;
     /** Table variant (line or outline). */

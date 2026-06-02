@@ -33,7 +33,7 @@ import { Table, type UIComponentType } from "@elaraai/east-ui";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { RowStateManager, type RowKey, type RowState } from "../../utils/RowStateManager";
-import { useRowStatusBg } from "../shared/helpers";
+import { useRowStatusBg, useDensityHeights } from "../shared/helpers";
 
 // Pre-define equality function at module level
 const tableRootEqual = equalFor(Table.Types.Root);
@@ -208,17 +208,12 @@ export const EastChakraTable = memo(function EastChakraTable({
     const tableSize: "sm" | "md" | "lg" = densityTag === "compact" ? "sm"
         : densityTag === "comfortable" ? "lg"
         : ((props.size as "sm" | "md" | "lg" | undefined) ?? "md");
-    // Row height is DERIVED from the density's own vertical padding + one line
-    // of text at the cell recipe's tight leading (1.25) — NOT a magic constant.
-    // The same value drives the header height and every body row, so a
-    // single-line row hugs its content exactly and the header matches it
-    // (md → 2·10 + round(13·1.25) = 36px, the spec row height).
-    // Must mirror the `table` recipe's per-size cell padding (spacing.1.5/2.5/3 =
-    // 6/10/12px) and font-size (12/13/14px) so the derived height matches what
-    // the body cells actually render.
-    const densityFontSizePx = tableSize === "sm" ? 12 : tableSize === "lg" ? 14 : 13;
+    // Row + header height come from the shared `sizes.density` tokens (the
+    // single source, also consumed by Gantt and Planner) — md → 36px, the spec
+    // row height. Pad-Y stays here for the group/footer cells that set padding
+    // via raw inline style outside the recipe's cell slot.
     const densityPadYPx = tableSize === "sm" ? 6 : tableSize === "lg" ? 12 : 10;
-    const densityRowHeight = 2 * densityPadYPx + Math.round(densityFontSizePx * 1.25);
+    const densityRowHeight = useDensityHeights(tableSize).row;
     // Group / footer cells sit outside the recipe's cell/columnHeader slots and
     // set padding via raw inline `style`; mirror the same density padding.
     const densityCellPadX = tableSize === "sm" ? "8px" : tableSize === "lg" ? "16px" : "14px";

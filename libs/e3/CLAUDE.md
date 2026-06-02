@@ -73,6 +73,7 @@ See design/e3-reactive-dataflow.md for reactive execution, per-dataset refs, and
 See design/e3-dataset-status.md for dataset/task status semantics.
 See design/e3-watch.md for the `e3 watch` file-watching workflow.
 See design/e3-ui.md for first-class UI tasks (Data bindings, `e3.ui()`).
+See design/e3-functions.md for named package functions (`e3.function`) and graph-free / one-shot execution.
 See design/repo-manager-abstraction.md and design/task-runner-implementation.md for the storage/execution abstractions.
 See design/e3-fuzz.md for the fuzz harness.
 

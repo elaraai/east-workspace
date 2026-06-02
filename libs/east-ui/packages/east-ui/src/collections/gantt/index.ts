@@ -33,8 +33,8 @@ import {
     TableRowClickEventType,
     TableSortEventType,
 } from "../table/types.js";
-import { TimeStepType, GanttTaskStatusType, GanttMilestoneKindType } from "./types.js";
-import type { GanttTaskStatusLiteral, GanttMilestoneKindLiteral } from "./types.js";
+import { TimeStepType, GanttTaskStatusType, GanttMilestoneKindType, GanttAxisType, GanttAxisRangeType, GanttTierType } from "./types.js";
+import type { GanttTaskStatusLiteral, GanttMilestoneKindLiteral, GanttAxisInput, GanttTierLiteral } from "./types.js";
 
 import {
     AlignType,
@@ -75,8 +75,13 @@ export {
     TimeStepType,
     GanttTaskStatusType,
     GanttMilestoneKindType,
+    GanttAxisType,
+    GanttAxisRangeType,
+    GanttTierType,
     type GanttTaskStatusLiteral,
     type GanttMilestoneKindLiteral,
+    type GanttTierLiteral,
+    type GanttAxisInput,
     type GanttStyle,
 } from "./types.js";
 
@@ -218,6 +223,7 @@ export const GanttRootType: StructType<{
     rows: ArrayType<GanttRowType>,
     columns: ArrayType<typeof TableColumnType>,
     frozen: ArrayType<StringType>,
+    axis: OptionType<GanttAxisType>,
     dragStep: OptionType<TimeStepType>,
     durationStep: OptionType<TimeStepType>,
     rowStatus: OptionType<FunctionType<[IntegerType], StatusTokenType>>,
@@ -239,6 +245,7 @@ export const GanttRootType: StructType<{
     rows: ArrayType(GanttRowType),
     columns: ArrayType(TableColumnType),
     frozen: ArrayType(StringType),
+    axis: OptionType(GanttAxisType),
     dragStep: OptionType(TimeStepType),
     durationStep: OptionType(TimeStepType),
     rowStatus: OptionType(FunctionType([IntegerType], StatusTokenType)),
@@ -478,6 +485,29 @@ function createMilestone(input: MilestoneInput): ExprType<GanttMilestoneType> {
     }, GanttMilestoneType);
 }
 
+/**
+ * Builds the Gantt time-axis East value from the ergonomic {@link GanttAxisInput}.
+ *
+ * @remarks
+ * Wraps the optional `range` / `format` / `tier` into their `some` / `none`
+ * envelopes and converts the `tier` string shorthand to an East variant — flat
+ * TS input in, fully-shaped {@link GanttAxisType} value out.
+ */
+function buildGanttAxis(input: GanttAxisInput): ExprType<GanttAxisType> {
+    const tierValue = input.tier
+        ? (typeof input.tier === "string"
+            ? East.value(variant(input.tier as GanttTierLiteral, null), GanttTierType)
+            : input.tier)
+        : undefined;
+    return East.value({
+        range: input.range !== undefined
+            ? some(East.value({ min: input.range.min, max: input.range.max }, GanttAxisRangeType))
+            : none,
+        format: input.format !== undefined ? some(input.format) : none,
+        tier: tierValue ? some(tierValue) : none,
+    }, GanttAxisType);
+}
+
 // ============================================================================
 // Gantt Column Configuration
 // ============================================================================
@@ -642,13 +672,11 @@ function createGantt<
         // `Gantt.Milestone(...)`. Default to an empty East array when a
         // key is omitted.
         const spec = rowSpec(datum as any);
-        const tasks = $.let(spec.tasks ?? [], ArrayType(GanttTaskType));
-        const milestones = $.let(spec.milestones ?? [], ArrayType(GanttMilestoneType));
 
         return East.value({
             cells: cells,
-            tasks,
-            milestones,
+            tasks: East.value(spec.tasks ?? [], ArrayType(GanttTaskType)),
+            milestones: East.value(spec.milestones ?? [], ArrayType(GanttMilestoneType)),
         }, GanttRowType);
     });
 
@@ -726,6 +754,7 @@ function createGantt<
         rows: rows_mapped,
         columns: columns_expr,
         frozen: frozen_expr,
+        axis: style?.axis ? some(buildGanttAxis(style.axis)) : none,
         dragStep: style?.dragStep ? some(style.dragStep) : none,
         durationStep: style?.durationStep ? some(style.durationStep) : none,
         rowStatus: style?.rowStatus !== undefined
@@ -759,6 +788,8 @@ interface GanttTypesShape {
     Milestone: GanttMilestoneType;
     TaskStatus: GanttTaskStatusType;
     MilestoneKind: GanttMilestoneKindType;
+    Axis: GanttAxisType;
+    Tier: GanttTierType;
     Style: GanttStyleType;
     Column: TableColumnType;
     Cell: typeof TableCellType;
@@ -862,6 +893,29 @@ const GanttTypes: GanttTypesShape = {
      * @property release - Shippable deliverable (brand teal)
      */
     MilestoneKind: GanttMilestoneKindType,
+    /**
+     * East StructType for the Gantt time-axis configuration.
+     *
+     * @remarks
+     * The Gantt analogue of the Planner `axis`, specialised to the single
+     * time scale. Construct via the `axis` option on `Gantt.Root`.
+     *
+     * @property range - Optional explicit `{ min, max }` window (omitted ⇒ derived from data)
+     * @property format - Optional tick-label date pattern (e.g. `"MMM"`)
+     * @property tier - Optional header band granularity ({@link GanttTierType})
+     */
+    Axis: GanttAxisType,
+    /**
+     * East VariantType for the axis header granularity.
+     *
+     * @property auto - Interval + count chosen automatically
+     * @property day - One band per day
+     * @property week - One band per week
+     * @property month - One band per calendar month
+     * @property quarter - One band per calendar quarter
+     * @property year - One band per calendar year
+     */
+    Tier: GanttTierType,
     /**
      * East StructType holding every visual field for a Gantt.
      *

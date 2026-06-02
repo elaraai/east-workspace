@@ -36,9 +36,14 @@ const TARGETS: ReadonlyArray<{ file: string; example: string }> = [
     { file: "collections/gantt",   example: "ganttWithProgress" },
     { file: "collections/gantt",   example: "ganttWithMilestones" },
     { file: "collections/gantt",   example: "ganttColorful" },
-    { file: "collections/planner", example: "plannerWithLabels" },
-    { file: "collections/planner", example: "plannerMultipleEvents" },
-    { file: "collections/planner", example: "plannerBasic" },
+    { file: "collections/gantt",   example: "ganttAxisWindow" },
+    { file: "collections/gantt",   example: "ganttAxisQuarterTier" },
+    { file: "collections/gantt",   example: "ganttAxisWeekTier" },
+    { file: "collections/planner", example: "plannerPoint" },
+    { file: "collections/planner", example: "plannerBuckets" },
+    { file: "collections/planner", example: "plannerEventStates" },
+    { file: "collections/planner", example: "plannerColumns" },
+    { file: "collections/planner", example: "plannerMarkers" },
 ];
 
 async function main() {

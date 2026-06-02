@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1303,
+    "totalEntries": 1282,
     "totalFiles": 163,
     "packages": {
       "east": 486,
       "east-node-std": 42,
       "east-node-io": 63,
       "east-py-datascience": 81,
-      "east-ui": 591,
+      "east-ui": 570,
       "e3-ui": 33,
       "e3": 7
     }
@@ -14682,6 +14682,70 @@
       "source": "// Tasks with progress indicators\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Gantt.Root(\n            [\n                { task: \"Backend API\", start: new Date(\"2024-01-01\"), end: new Date(\"2024-02-15\"), progress: 100 },\n                { task: \"Frontend UI\", start: new Date(\"2024-01-15\"), end: new Date(\"2024-03-01\"), progress: 75 },\n                { task: \"Integration\", start: new Date(\"2024-02-01\"), end: new Date(\"2024-03-15\"), progress: 40 },\n                { task: \"QA Testing\", start: new Date(\"2024-02-15\"), end: new Date(\"2024-04-01\"), progress: 10 },\n            ],\n            { task: { header: \"Task\" } },\n            row => ({\n                tasks: [Gantt.Task({ start: row.start, end: row.end, progress: row.progress })],\n            })\n        );\n    })"
     },
     {
+      "id": "east-ui:gantt.examples.ts:ganttAxisWindow",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/gantt.examples.ts",
+      "suite": "",
+      "test": "Pinned time window — ",
+      "keywords": [
+        "Gantt",
+        "axis",
+        "range",
+        "window",
+        "domain",
+        "month"
+      ],
+      "imports": [
+        "import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
+        "import { Badge, Gantt, Reactive, Stack, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Pinned time window — \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Gantt.Root(\n            [\n                { task: \"Discovery\", start: new Date(\"2024-02-01\"), end: new Date(\"2024-03-15\") },\n                { task: \"Build\", start: new Date(\"2024-03-10\"), end: new Date(\"2024-06-30\") },\n                { task: \"Rollout\", start: new Date(\"2024-07-01\"), end: new Date(\"2024-09-30\") },\n            ],\n            { task: { header: \"Workstream\" } },\n            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] }),\n            { axis: { range: { min: new Date(\"2024-01-01\"), max: new Date(\"2024-12-31\") }, tier: \"month\", format: \"MMM\" } },\n        );\n    })"
+    },
+    {
+      "id": "east-ui:gantt.examples.ts:ganttAxisQuarterTier",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/gantt.examples.ts",
+      "suite": "",
+      "test": "Multi-year roadmap with a quarter-grained header — ",
+      "keywords": [
+        "Gantt",
+        "axis",
+        "tier",
+        "quarter",
+        "format",
+        "roadmap"
+      ],
+      "imports": [
+        "import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
+        "import { Badge, Gantt, Reactive, Stack, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Multi-year roadmap with a quarter-grained header — \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Gantt.Root(\n            [\n                { epic: \"Platform\", start: new Date(\"2024-01-01\"), end: new Date(\"2024-09-30\") },\n                { epic: \"Mobile\", start: new Date(\"2024-06-01\"), end: new Date(\"2025-03-31\") },\n                { epic: \"Analytics\", start: new Date(\"2025-01-01\"), end: new Date(\"2025-12-31\") },\n            ],\n            { epic: { header: \"Epic\" } },\n            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] }),\n            { axis: { tier: \"quarter\", format: \"MMM YYYY\" } },\n        );\n    })"
+    },
+    {
+      "id": "east-ui:gantt.examples.ts:ganttAxisWeekTier",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/gantt.examples.ts",
+      "suite": "",
+      "test": "Short, day-precise plan with a weekly header — ",
+      "keywords": [
+        "Gantt",
+        "axis",
+        "tier",
+        "week",
+        "format",
+        "sprint",
+        "showToday"
+      ],
+      "imports": [
+        "import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
+        "import { Badge, Gantt, Reactive, Stack, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Short, day-precise plan with a weekly header — \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Gantt.Root(\n            [\n                { task: \"Spec\", start: new Date(\"2024-04-01\"), end: new Date(\"2024-04-05\") },\n                { task: \"Implement\", start: new Date(\"2024-04-04\"), end: new Date(\"2024-04-18\") },\n                { task: \"Review\", start: new Date(\"2024-04-17\"), end: new Date(\"2024-04-24\") },\n            ],\n            { task: { header: \"Task\" } },\n            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] }),\n            { axis: { tier: \"week\", format: \"MMM DD\" }, showToday: true },\n        );\n    })"
+    },
+    {
       "id": "east-ui:gantt.examples.ts:ganttStatusByType",
       "skill": "east-ui",
       "package": "east-ui",
@@ -14702,7 +14766,7 @@
         "import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
         "import { Badge, Gantt, Reactive, Stack, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Status-driven bar colour — per-row \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Gantt.Root(\n            [\n                { stage: \"Locked\", name: \"User Auth\", start: new Date(\"2024-01-01\"), end: new Date(\"2024-01-20\") },\n                { stage: \"Blocked\", name: \"Login Issue\", start: new Date(\"2024-01-10\"), end: new Date(\"2024-01-15\") },\n                { stage: \"Planned\", name: \"Performance\", start: new Date(\"2024-01-15\"), end: new Date(\"2024-02-01\") },\n                { stage: \"Locked\", name: \"Dashboard\", start: new Date(\"2024-01-20\"), end: new Date(\"2024-02-15\") },\n            ],\n            {\n                stage: { header: \"Stage\" },\n                name: { header: \"Name\" },\n            },\n            row => ({\n                tasks: [Gantt.Task({\n                    start: row.start,\n                    end: row.end,\n                    label: row.name,\n                    // Map stage → status: Locked → committed, Blocked → at-risk, else → proposed.\n                    status: row.stage.equal(\"Locked\").ifElse(\n                        _$ => variant(\"committed\", null),\n                        _$ => row.stage.equal(\"Blocked\").ifElse(\n                            _$ => variant(\"atRisk\", null),\n                            _$ => variant(\"proposed\", null),\n                        ),\n                    ),\n                })],\n            })\n        );\n    })"
+      "source": "// Status-driven bar colour — per-row \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Gantt.Root(\n            [\n                { stage: \"Locked\", name: \"User Auth\", start: new Date(\"2024-01-01\"), end: new Date(\"2024-01-20\"), progress: 100 },\n                { stage: \"Blocked\", name: \"Login Issue\", start: new Date(\"2024-01-10\"), end: new Date(\"2024-01-15\"), progress: 20 },\n                { stage: \"Planned\", name: \"Performance\", start: new Date(\"2024-01-15\"), end: new Date(\"2024-02-01\"), progress: 55 },\n                { stage: \"Locked\", name: \"Dashboard\", start: new Date(\"2024-01-20\"), end: new Date(\"2024-02-15\"), progress: 90 },\n            ],\n            {\n                stage: { header: \"Stage\" },\n                name: { header: \"Name\" },\n            },\n            row => ({\n                tasks: [Gantt.Task({\n                    start: row.start,\n                    end: row.end,\n                    label: row.name,\n                    // Progress fills the bar in the status colour so each status\n                    // reads at a glance (an empty track only shows a thin border).\n                    progress: row.progress,\n                    // Map stage → status: Locked → committed, Blocked → at-risk, else → proposed.\n                    status: row.stage.equal(\"Locked\").ifElse(\n                        _$ => variant(\"committed\", null),\n                        _$ => row.stage.equal(\"Blocked\").ifElse(\n                            _$ => variant(\"atRisk\", null),\n                            _$ => variant(\"proposed\", null),\n                        ),\n                    ),\n                })],\n            })\n        );\n    })"
     },
     {
       "id": "east-ui:gantt.examples.ts:ganttStyled",
@@ -14724,7 +14788,7 @@
         "import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
         "import { Badge, Gantt, Reactive, Stack, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Multiple style options combined — \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Gantt.Root(\n            [\n                { dept: \"Engineering\", project: \"Platform v2\", start: new Date(\"2024-01-01\"), end: new Date(\"2024-03-31\") },\n                { dept: \"Design\", project: \"UI Refresh\", start: new Date(\"2024-01-15\"), end: new Date(\"2024-02-28\") },\n                { dept: \"DevOps\", project: \"CI/CD Pipeline\", start: new Date(\"2024-02-01\"), end: new Date(\"2024-02-28\") },\n                { dept: \"QA\", project: \"Test Automation\", start: new Date(\"2024-02-15\"), end: new Date(\"2024-04-15\") },\n            ],\n            {\n                dept: { header: \"Department\" },\n                project: { header: \"Project\" },\n            },\n            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] }),\n            {\n                variant: \"line\",\n                striped: true,\n                showToday: true,\n                density: \"compact\",\n            }\n        );\n    })"
+      "source": "// Multiple style options combined — \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        // Dates span around the present so the `showToday` now-line is visible\n        // (it only renders when today falls within the timeline range).\n        const day = 24 * 60 * 60 * 1000;\n        const at = (offsetDays: number) => new Date(Date.now() + offsetDays * day);\n        return Gantt.Root(\n            [\n                { dept: \"Engineering\", project: \"Platform v2\", start: at(-60), end: at(60) },\n                { dept: \"Design\", project: \"UI Refresh\", start: at(-45), end: at(15) },\n                { dept: \"DevOps\", project: \"CI/CD Pipeline\", start: at(-20), end: at(30) },\n                { dept: \"QA\", project: \"Test Automation\", start: at(-10), end: at(75) },\n            ],\n            {\n                dept: { header: \"Department\" },\n                project: { header: \"Project\" },\n            },\n            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] }),\n            {\n                variant: \"line\",\n                striped: true,\n                showToday: true,\n                density: \"compact\",\n            }\n        );\n    })"
     },
     {
       "id": "east-ui:gantt.examples.ts:ganttComplexColumns",
@@ -14767,7 +14831,7 @@
         "import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
         "import { Badge, Gantt, Reactive, Stack, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Click rows, cells, tasks, milestones or drag to see events\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const lastEventBind = $.let(State.bind([StringType], \"gantt_last_event\", \"\"));\n            const lastEvent = $.let(lastEventBind.read());\n\n            const onRowClick = $.const(East.function(\n                [Table.Types.RowClickEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onRowClick: row ${event.rowIndex}`));\n                }\n            ));\n\n            const onRowDoubleClick = $.const(East.function(\n                [Table.Types.RowClickEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onRowDoubleClick: row ${event.rowIndex}`));\n                }\n            ));\n\n            const onCellClick = $.const(East.function(\n                [Table.Types.CellClickEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onCellClick: row ${event.rowIndex}, col ${event.columnKey}`));\n                }\n            ));\n\n            const onCellDoubleClick = $.const(East.function(\n                [Table.Types.CellClickEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onCellDoubleClick: row ${event.rowIndex}, col ${event.columnKey}`));\n                }\n            ));\n\n            const onSortChange = $.const(East.function(\n                [Table.Types.SortEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onSortChange: ${event.columnKey} - ${event.sortDirection.getTag()}`));\n                }\n            ));\n\n            const onTaskClick = $.const(East.function(\n                [Gantt.Types.TaskClickEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onTaskClick: row ${event.rowIndex}, task ${event.taskIndex}`));\n                }\n            ));\n\n            const onTaskDoubleClick = $.const(East.function(\n                [Gantt.Types.TaskClickEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onTaskDoubleClick: row ${event.rowIndex}, task ${event.taskIndex}`));\n                }\n            ));\n\n            const onTaskDrag = $.const(East.function(\n                [Gantt.Types.TaskDragEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onTaskDrag: row ${event.rowIndex}, task ${event.taskIndex} moved`));\n                }\n            ));\n\n            const onTaskDurationChange = $.const(East.function(\n                [Gantt.Types.TaskDurationChangeEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onTaskDurationChange: row ${event.rowIndex}, task ${event.taskIndex}, new end date`));\n                }\n            ));\n\n            const onTaskProgressChange = $.const(East.function(\n                [Gantt.Types.TaskProgressChangeEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onTaskProgressChange: row ${event.rowIndex}, task ${event.taskIndex}, progress ${event.newProgress}`));\n                }\n            ));\n\n            const onMilestoneClick = $.const(East.function(\n                [Gantt.Types.MilestoneClickEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onMilestoneClick: row ${event.rowIndex}, milestone ${event.milestoneIndex}`));\n                }\n            ));\n\n            const onMilestoneDoubleClick = $.const(East.function(\n                [Gantt.Types.MilestoneClickEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onMilestoneDoubleClick: row ${event.rowIndex}, milestone ${event.milestoneIndex}`));\n                }\n            ));\n\n            const onMilestoneDrag = $.const(East.function(\n                [Gantt.Types.MilestoneDragEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onMilestoneDrag: row ${event.rowIndex}, milestone ${event.milestoneIndex} moved`));\n                }\n            ));\n\n            return Stack.VStack([\n                Gantt.Root(\n                    [\n                        { name: \"Sprint 1\", start: new Date(\"2024-01-01\"), end: new Date(\"2024-01-14\"), release: new Date(\"2024-01-14\") },\n                        { name: \"Sprint 2\", start: new Date(\"2024-01-15\"), end: new Date(\"2024-01-28\"), release: new Date(\"2024-01-28\") },\n                        { name: \"Sprint 3\", start: new Date(\"2024-01-29\"), end: new Date(\"2024-02-11\"), release: new Date(\"2024-02-11\") },\n                    ],\n                    { name: { header: \"Sprint\" } },\n                    row => ({\n                        tasks: [Gantt.Task({ start: row.start, end: row.end, progress: 50 })],\n                        milestones: [Gantt.Milestone({ date: row.release, label: \"Release\", kind: \"release\" })],\n                    }),\n                    {\n                        striped: true,\n                        showToday: true,\n                        onRowClick,\n                        onRowDoubleClick,\n                        onCellClick,\n                        onCellDoubleClick,\n                        onSortChange,\n                        onTaskClick,\n                        onTaskDoubleClick,\n                        onTaskDrag,\n                        onTaskDurationChange,\n                        onTaskProgressChange,\n                        onMilestoneClick,\n                        onMilestoneDoubleClick,\n                        onMilestoneDrag,\n                    }\n                ),\n                Badge.Root(\n                    East.equal(lastEvent.length(), 0n).ifElse(\n                        _$ => \"Interact with the Gantt chart\",\n                        _$ => lastEvent\n                    ),\n                    { colorPalette: \"blue\", variant: \"outline\" }\n                ),\n            ], { gap: \"3\", align: \"stretch\" });\n        }));\n    })"
+      "source": "// Click rows, cells, tasks, milestones or drag to see events\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const lastEventBind = $.let(State.bind([StringType], \"gantt_last_event\", \"\"));\n            const lastEvent = $.let(lastEventBind.read());\n\n            const onRowClick = $.const(East.function(\n                [Table.Types.RowClickEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onRowClick: row ${event.rowIndex}`));\n                }\n            ));\n\n            const onRowDoubleClick = $.const(East.function(\n                [Table.Types.RowClickEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onRowDoubleClick: row ${event.rowIndex}`));\n                }\n            ));\n\n            const onCellClick = $.const(East.function(\n                [Table.Types.CellClickEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onCellClick: row ${event.rowIndex}, col ${event.columnKey}`));\n                }\n            ));\n\n            const onCellDoubleClick = $.const(East.function(\n                [Table.Types.CellClickEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onCellDoubleClick: row ${event.rowIndex}, col ${event.columnKey}`));\n                }\n            ));\n\n            const onSortChange = $.const(East.function(\n                [Table.Types.SortEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onSortChange: ${event.columnKey} - ${event.sortDirection.getTag()}`));\n                }\n            ));\n\n            const onTaskClick = $.const(East.function(\n                [Gantt.Types.TaskClickEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onTaskClick: row ${event.rowIndex}, task ${event.taskIndex}`));\n                }\n            ));\n\n            const onTaskDoubleClick = $.const(East.function(\n                [Gantt.Types.TaskClickEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onTaskDoubleClick: row ${event.rowIndex}, task ${event.taskIndex}`));\n                }\n            ));\n\n            const onTaskDrag = $.const(East.function(\n                [Gantt.Types.TaskDragEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onTaskDrag: row ${event.rowIndex}, task ${event.taskIndex} moved`));\n                }\n            ));\n\n            const onTaskDurationChange = $.const(East.function(\n                [Gantt.Types.TaskDurationChangeEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onTaskDurationChange: row ${event.rowIndex}, task ${event.taskIndex}, new end date`));\n                }\n            ));\n\n            const onTaskProgressChange = $.const(East.function(\n                [Gantt.Types.TaskProgressChangeEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onTaskProgressChange: row ${event.rowIndex}, task ${event.taskIndex}, progress ${event.newProgress}`));\n                }\n            ));\n\n            const onMilestoneClick = $.const(East.function(\n                [Gantt.Types.MilestoneClickEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onMilestoneClick: row ${event.rowIndex}, milestone ${event.milestoneIndex}`));\n                }\n            ));\n\n            const onMilestoneDoubleClick = $.const(East.function(\n                [Gantt.Types.MilestoneClickEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onMilestoneDoubleClick: row ${event.rowIndex}, milestone ${event.milestoneIndex}`));\n                }\n            ));\n\n            const onMilestoneDrag = $.const(East.function(\n                [Gantt.Types.MilestoneDragEvent],\n                NullType,\n                ($, event) => {\n                    $(lastEventBind.write(East.str`onMilestoneDrag: row ${event.rowIndex}, milestone ${event.milestoneIndex} moved`));\n                }\n            ));\n\n            return Stack.VStack([\n                Gantt.Root(\n                    [\n                        { name: \"Sprint 1\", start: new Date(\"2024-01-01\"), end: new Date(\"2024-01-14\"), release: new Date(\"2024-01-14\") },\n                        { name: \"Sprint 2\", start: new Date(\"2024-01-15\"), end: new Date(\"2024-01-28\"), release: new Date(\"2024-01-28\") },\n                        { name: \"Sprint 3\", start: new Date(\"2024-01-29\"), end: new Date(\"2024-02-11\"), release: new Date(\"2024-02-11\") },\n                    ],\n                    { name: { header: \"Sprint\" } },\n                    row => ({\n                        // `proposed` (not committed) so the bars are editable —\n                        // committed bars are read-only / resize-locked per spec.\n                        tasks: [Gantt.Task({ start: row.start, end: row.end, progress: 50, status: \"proposed\" })],\n                        milestones: [Gantt.Milestone({ date: row.release, label: \"Release\", kind: \"release\" })],\n                    }),\n                    {\n                        striped: true,\n                        showToday: true,\n                        onRowClick,\n                        onRowDoubleClick,\n                        onCellClick,\n                        onCellDoubleClick,\n                        onSortChange,\n                        onTaskClick,\n                        onTaskDoubleClick,\n                        onTaskDrag,\n                        onTaskDurationChange,\n                        onTaskProgressChange,\n                        onMilestoneClick,\n                        onMilestoneDoubleClick,\n                        onMilestoneDrag,\n                    }\n                ),\n                Badge.Root(\n                    East.equal(lastEvent.length(), 0n).ifElse(\n                        _$ => \"Interact with the Gantt chart\",\n                        _$ => lastEvent\n                    ),\n                    { colorPalette: \"blue\", variant: \"outline\" }\n                ),\n            ], { gap: \"3\", align: \"stretch\" });\n        }));\n    })"
     },
     {
       "id": "east-ui:gantt.examples.ts:ganttReactiveDrag",
@@ -14788,7 +14852,7 @@
         "import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
         "import { Badge, Gantt, Reactive, Stack, State, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Drag task to update state - position persists after re-render\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const taskStartBind = $.let(State.bind([DateTimeType], \"gantt_task_start\", new Date(\"2024-01-15\")));\n            const taskStart = $.let(taskStartBind.read());\n            const taskEnd = $.let(taskStart.addDays(14));\n\n            const onTaskDrag = $.const(East.function(\n                [Gantt.Types.TaskDragEvent],\n                NullType,\n                ($, event) => {\n                    $(taskStartBind.write(event.newStart));\n                }\n            ));\n\n            return Stack.VStack([\n                Gantt.Root(\n                    [{ name: \"Draggable Task\" }],\n                    { name: { header: \"Task\" } },\n                    _row => ({\n                        tasks: [Gantt.Task({\n                            start: taskStart,\n                            end: taskEnd,\n                            label: \"Drag me!\",\n                        })],\n                    }),\n                    {\n                        onTaskDrag,\n                        dragStep: variant(\"days\", 1),\n                        durationStep: variant(\"days\", 1),\n                    }\n                ),\n                Text.Root(East.str`Start: ${taskStart}`, { textStyle: \"body-sm\", color: \"fg.muted\" }),\n            ], { gap: \"3\", align: \"stretch\" });\n        }));\n    })"
+      "source": "// Drag task to update state - position persists after re-render\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const taskStartBind = $.let(State.bind([DateTimeType], \"gantt_task_start\", new Date(\"2024-01-15\")));\n            const taskStart = $.let(taskStartBind.read());\n            const taskEnd = $.let(taskStart.addDays(14));\n\n            const onTaskDrag = $.const(East.function(\n                [Gantt.Types.TaskDragEvent],\n                NullType,\n                ($, event) => {\n                    $(taskStartBind.write(event.newStart));\n                }\n            ));\n\n            return Stack.VStack([\n                Gantt.Root(\n                    [{ name: \"Draggable Task\" }],\n                    { name: { header: \"Task\" } },\n                    _row => ({\n                        tasks: [Gantt.Task({\n                            start: taskStart,\n                            end: taskEnd,\n                            label: \"Drag me!\",\n                            // `proposed` so the bar is editable (the ⠿ grip shows);\n                            // committed bars are locked per spec.\n                            status: \"proposed\",\n                        })],\n                    }),\n                    {\n                        onTaskDrag,\n                        dragStep: variant(\"days\", 1),\n                        durationStep: variant(\"days\", 1),\n                    }\n                ),\n                Text.Root(East.str`Start: ${taskStart}`, { textStyle: \"body-sm\", color: \"fg.muted\" }),\n            ], { gap: \"3\", align: \"stretch\" });\n        }));\n    })"
     },
     {
       "id": "east-ui:gantt.examples.ts:ganttFrozenColumns",
@@ -14874,259 +14938,145 @@
       "source": "// Rich task label — a plain LabelInput vs one with align / verticalAlign / color / fontWeight / fontStyle / fontSize overrides\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Gantt.Root(\n            [{ row: \"demo\" }],\n            [\"row\"],\n            (_row) => ({\n                tasks: [\n                    Gantt.Task({\n                        start: new Date(\"2024-01-01\"),\n                        end: new Date(\"2024-01-15\"),\n                        label: { value: \"Plain label\" },\n                    }),\n                    Gantt.Task({\n                        start: new Date(\"2024-01-20\"),\n                        end: new Date(\"2024-02-05\"),\n                        label: {\n                            value: \"Styled label\",\n                            align: \"center\",\n                            verticalAlign: \"center\",\n                            color: \"yellow.300\",\n                            fontWeight: \"bold\",\n                            fontStyle: \"italic\",\n                            fontSize: \"lg\",\n                        },\n                    }),\n                ],\n            }),\n        );\n    })"
     },
     {
-      "id": "east-ui:matrix.examples.ts:matrixBasic",
+      "id": "east-ui:matrix.examples.ts:matrixHeatGrid",
       "skill": "east-ui",
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/collections/matrix.examples.ts",
       "suite": "",
-      "test": "Assignment grid — rich row headers, dict-keyed cells, booked / free segment weights",
+      "test": "Heat-grid: resources × days, each cell a booked/free weight bar; rows grouped by team",
       "keywords": [
         "Matrix",
-        "Root",
         "heat-grid",
-        "basic",
-        "segments",
-        "dict"
+        "segment",
+        "booked",
+        "free",
+        "group",
+        "groupBy",
+        "utilization",
+        "capacity"
       ],
       "imports": [
-        "import { ArrayType, East, FloatType, IntegerType, NullType, StringType, example } from \"@elaraai/east\";",
-        "import {"
+        "import { ArrayType, East, FloatType, NullType, StringType, StructType, example, variant } from \"@elaraai/east\";",
+        "import { Matrix, Reactive, State, Stack, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Assignment grid — rich row headers, dict-keyed cells, booked / free segment weights\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const userHeader = $.const(East.function([StringType, StringType], UIComponentType, ($, name, role) => Stack.HStack([\n            Avatar.Root({ name, size: \"sm\" }),\n            Stack.VStack([\n                Text.Root(name, { fontWeight: \"semibold\" }),\n                Text.Root(role, { textStyle: \"caption\", color: \"gray.500\" }),\n            ], { gap: \"0\", align: \"flex-start\" }),\n        ], { gap: \"2\", align: \"center\" })));\n        const dayHeader = $.const(East.function([StringType, StringType], UIComponentType, ($, day, date) => Stack.VStack([\n            Text.Root(day, { fontWeight: \"semibold\" }),\n            Text.Root(date, { textStyle: \"caption\", color: \"gray.500\" }),\n        ], { gap: \"0\", align: \"center\" })));\n        return Matrix.Root(\n            [\n                { key: \"alice\", header: userHeader(\"Alice Chen\", \"Senior PM\"), cells: {\n                    mon: { segments: [{ category: \"booked\", weight: 0.8 }, { category: \"free\", weight: 0.2 }] },\n                    tue: { segments: [{ category: \"booked\", weight: 0.4 }, { category: \"free\", weight: 0.6 }] },\n                    wed: { segments: [{ category: \"booked\", weight: 1.0 }] },\n                    thu: { segments: [{ category: \"booked\", weight: 0.6 }, { category: \"free\", weight: 0.4 }] },\n                    fri: { segments: [{ category: \"free\", weight: 1.0 }] },\n                }},\n                { key: \"bob\", header: userHeader(\"Bob Martinez\", \"Designer\"), cells: {\n                    mon: { segments: [{ category: \"booked\", weight: 0.5 }, { category: \"free\", weight: 0.5 }] },\n                    tue: { segments: [{ category: \"booked\", weight: 0.9 }, { category: \"free\", weight: 0.1 }] },\n                    wed: { segments: [{ category: \"booked\", weight: 0.3 }, { category: \"free\", weight: 0.7 }] },\n                    thu: { segments: [{ category: \"booked\", weight: 1.0 }] },\n                    fri: { segments: [{ category: \"booked\", weight: 0.5 }, { category: \"free\", weight: 0.5 }] },\n                }},\n            ],\n            [\n                { key: \"mon\", header: dayHeader(\"Mon\", \"Apr 22\") },\n                { key: \"tue\", header: dayHeader(\"Tue\", \"Apr 23\") },\n                { key: \"wed\", header: dayHeader(\"Wed\", \"Apr 24\") },\n                { key: \"thu\", header: dayHeader(\"Thu\", \"Apr 25\") },\n                { key: \"fri\", header: dayHeader(\"Fri\", \"Apr 26\") },\n            ],\n            {\n                legend: [\n                    { category: \"booked\", color: \"blue.400\", label: \"Booked\" },\n                    { category: \"free\", color: \"gray.200\", label: \"Free\" },\n                ],\n                rowHeaderWidth: \"200px\",\n            },\n        );\n    })"
+      "source": "// Heat-grid: resources × days, each cell a booked/free weight bar; rows grouped by team\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Matrix.Root(\n            [\n                { name: \"Alice\", role: \"Senior PM\", team: \"Web\", booked: new Map([[\"mon\", 0.45], [\"tue\", 0.70], [\"wed\", 0.85], [\"thu\", 0.60], [\"fri\", 0.30]]) },\n                { name: \"Bob\", role: \"Designer\", team: \"Web\", booked: new Map([[\"mon\", 0.35], [\"tue\", 0.60], [\"wed\", 0.30], [\"thu\", 0.75], [\"fri\", 0.50]]) },\n                { name: \"Carol\", role: \"Engineer\", team: \"Batch\", booked: new Map([[\"mon\", 0.55], [\"tue\", 0.40], [\"wed\", 0.90], [\"thu\", 0.20], [\"fri\", 0.65]]) },\n            ],\n            {\n                columns: [{ key: \"mon\", label: \"Mon\" }, { key: \"tue\", label: \"Tue\" }, { key: \"wed\", label: \"Wed\" }, { key: \"thu\", label: \"Thu\" }, { key: \"fri\", label: \"Fri\" }],\n                rowKey: r => r.name,\n                rowHeader: \"Resource\",\n                rowSublabel: r => r.role,\n                groupBy: r => r.team,\n                cell: (r, col) => Matrix.cell({ segments: [\n                    Matrix.segment({ fill: \"brand\", weight: r.booked.get(col) }),\n                    Matrix.segment({ fill: \"free\", weight: East.value(1.0, FloatType).subtract(r.booked.get(col)) }),\n                ] }),\n                legend: [{ fill: \"brand\", label: \"Booked\" }, { fill: \"free\", label: \"Free\" }],\n            },\n        );\n    })"
     },
     {
-      "id": "east-ui:matrix.examples.ts:matrixMultiSegment",
+      "id": "east-ui:matrix.examples.ts:matrixSegments",
       "skill": "east-ui",
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/collections/matrix.examples.ts",
       "suite": "",
-      "test": "Multi-segment cells — committed / pending / slack proportional split",
+      "test": "Multi-segment cells (committed / pending / slack) with in-bar labels, drag-resize, and minLabelSize suppression",
       "keywords": [
         "Matrix",
-        "Root",
-        "segments",
-        "stacked",
-        "multi-category"
+        "segment",
+        "committed",
+        "pending",
+        "slack",
+        "drag",
+        "resize",
+        "onSegmentChange",
+        "minLabelSize",
+        "weight",
+        "allocation"
       ],
       "imports": [
-        "import { ArrayType, East, FloatType, IntegerType, NullType, StringType, example } from \"@elaraai/east\";",
-        "import {"
+        "import { ArrayType, East, FloatType, NullType, StringType, StructType, example, variant } from \"@elaraai/east\";",
+        "import { Matrix, Reactive, State, Stack, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Multi-segment cells — committed / pending / slack proportional split\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Matrix.Root(\n            [\n                { key: \"sprint-1\", header: Text.Root(\"Sprint 1\", { fontWeight: \"semibold\" }), cells: {\n                    design: { segments: [\n                        { category: \"committed\", weight: 0.6 },\n                        { category: \"pending\", weight: 0.3 },\n                        { category: \"slack\", weight: 0.1 },\n                    ] },\n                    dev: { segments: [\n                        { category: \"committed\", weight: 0.8 },\n                        { category: \"pending\", weight: 0.2 },\n                    ] },\n                    qa: { segments: [\n                        { category: \"committed\", weight: 0.3 },\n                        { category: \"pending\", weight: 0.5 },\n                        { category: \"slack\", weight: 0.2 },\n                    ] },\n                }},\n                { key: \"sprint-2\", header: Text.Root(\"Sprint 2\", { fontWeight: \"semibold\" }), cells: {\n                    design: { segments: [\n                        { category: \"committed\", weight: 0.4 },\n                        { category: \"pending\", weight: 0.4 },\n                        { category: \"slack\", weight: 0.2 },\n                    ] },\n                    dev: { segments: [{ category: \"committed\", weight: 1.0 }] },\n                    qa: { segments: [{ category: \"slack\", weight: 1.0 }] },\n                }},\n            ],\n            [\n                { key: \"design\", header: Text.Root(\"Design\", { fontWeight: \"semibold\" }) },\n                { key: \"dev\", header: Text.Root(\"Development\", { fontWeight: \"semibold\" }) },\n                { key: \"qa\", header: Text.Root(\"QA\", { fontWeight: \"semibold\" }) },\n            ],\n            {\n                legend: [\n                    { category: \"committed\", color: \"green.400\", label: \"Committed\" },\n                    { category: \"pending\", color: \"orange.400\", label: \"Pending\" },\n                    { category: \"slack\", color: \"gray.200\", label: \"Slack\" },\n                ],\n            },\n        );\n    })"
+      "source": "// Multi-segment cells (committed / pending / slack) with in-bar labels, drag-resize, and minLabelSize suppression\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Matrix.Root(\n            [\n                { sprint: \"Sprint 1\", committed: new Map([[\"design\", 0.50], [\"dev\", 0.70], [\"qa\", 0.30]]), pending: new Map([[\"design\", 0.30], [\"dev\", 0.20], [\"qa\", 0.40]]) },\n                { sprint: \"Sprint 2\", committed: new Map([[\"design\", 0.45], [\"dev\", 0.80], [\"qa\", 0.25]]), pending: new Map([[\"design\", 0.35], [\"dev\", 0.15], [\"qa\", 0.35]]) },\n            ],\n            {\n                columns: [{ key: \"design\", label: \"Design\" }, { key: \"dev\", label: \"Development\" }, { key: \"qa\", label: \"QA\" }],\n                rowKey: r => r.sprint,\n                rowHeader: \"Sprint\",\n                minLabelSize: 28.0,\n                cell: (r, col) => Matrix.cell({ segments: [\n                    Matrix.segment({ fill: \"success\", weight: r.committed.get(col), label: East.str`${r.committed.get(col).multiply(100.0)}%`, min: 0.0, max: 1.0, step: 0.05 }),\n                    Matrix.segment({ fill: \"warning\", weight: r.pending.get(col), label: East.str`${r.pending.get(col).multiply(100.0)}%`, min: 0.0, max: 1.0, step: 0.05 }),\n                    Matrix.segment({ fill: \"slack\", weight: East.value(1.0, FloatType).subtract(r.committed.get(col)).subtract(r.pending.get(col)) }),\n                ] }),\n                legend: [{ fill: \"success\", label: \"Committed\" }, { fill: \"warning\", label: \"Pending\" }, { fill: \"slack\", label: \"Slack\" }],\n                onSegmentChange: East.function([Matrix.Types.SegmentChangeEvent], NullType, _$ => null),\n            },\n        );\n    })"
     },
     {
-      "id": "east-ui:matrix.examples.ts:matrixWithOverlays",
+      "id": "east-ui:matrix.examples.ts:matrixVertical",
       "skill": "east-ui",
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/collections/matrix.examples.ts",
       "suite": "",
-      "test": "Cells with rich overlays at different corners — badges, icons, and text",
+      "test": "Vertical orientation — cells stack bottom-up as capacity bars (height-encoded utilisation)",
       "keywords": [
         "Matrix",
-        "Root",
-        "overlays",
-        "badge",
-        "icon",
-        "alerts"
-      ],
-      "imports": [
-        "import { ArrayType, East, FloatType, IntegerType, NullType, StringType, example } from \"@elaraai/east\";",
-        "import {"
-      ],
-      "source": "// Cells with rich overlays at different corners — badges, icons, and text\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const userHeader = $.const(East.function([StringType, StringType], UIComponentType, ($, name, role) => Stack.HStack([\n            Avatar.Root({ name, size: \"sm\" }),\n            Stack.VStack([\n                Text.Root(name, { fontWeight: \"semibold\" }),\n                Text.Root(role, { textStyle: \"caption\", color: \"gray.500\" }),\n            ], { gap: \"0\", align: \"flex-start\" }),\n        ], { gap: \"2\", align: \"center\" })));\n        const dayHeader = $.const(East.function([StringType, StringType], UIComponentType, ($, day, date) => Stack.VStack([\n            Text.Root(day, { fontWeight: \"semibold\" }),\n            Text.Root(date, { textStyle: \"caption\", color: \"gray.500\" }),\n        ], { gap: \"0\", align: \"center\" })));\n        return Matrix.Root(\n            [\n                { key: \"alice\", header: userHeader(\"Alice Chen\", \"PM\"), cells: {\n                    mon: {\n                        segments: [{ category: \"booked\", weight: 0.8 }, { category: \"free\", weight: 0.2 }],\n                        overlays: [\n                            { align: \"end\", verticalAlign: \"start\", content: Badge.Root(\"!\", { variant: \"solid\", colorPalette: \"red\", size: \"sm\" }) },\n                            { align: \"start\", verticalAlign: \"end\", content: Text.Root(\"6.4h\", { textStyle: \"caption\", color: \"white\", fontWeight: \"semibold\" }) },\n                        ],\n                    },\n                    tue: {\n                        segments: [{ category: \"booked\", weight: 0.5 }, { category: \"free\", weight: 0.5 }],\n                        overlays: [\n                            { align: \"start\", verticalAlign: \"end\", content: Text.Root(\"4h\", { textStyle: \"caption\", color: \"white\", fontWeight: \"semibold\" }) },\n                            { align: \"end\", verticalAlign: \"start\", content: Icon.Root(\"fas\", \"users\", { color: \"gray.600\", size: \"xs\" }) },\n                        ],\n                    },\n                    wed: {\n                        segments: [{ category: \"booked\", weight: 1.0 }],\n                        overlays: [\n                            { align: \"end\", verticalAlign: \"start\", content: Badge.Root(\"OT\", { variant: \"solid\", colorPalette: \"purple\", size: \"sm\" }) },\n                            { align: \"start\", verticalAlign: \"end\", content: Text.Root(\"9h\", { textStyle: \"caption\", color: \"white\", fontWeight: \"semibold\" }) },\n                        ],\n                    },\n                }},\n            ],\n            [\n                { key: \"mon\", header: dayHeader(\"Mon\", \"Apr 22\") },\n                { key: \"tue\", header: dayHeader(\"Tue\", \"Apr 23\") },\n                { key: \"wed\", header: dayHeader(\"Wed\", \"Apr 24\") },\n            ],\n            {\n                legend: [{ category: \"booked\", color: \"blue.400\", label: \"Booked\" }, { category: \"free\", color: \"gray.200\", label: \"Free\" }],\n                rowHeaderWidth: \"200px\",\n            },\n        );\n    })"
-    },
-    {
-      "id": "east-ui:matrix.examples.ts:matrixEmphasis",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/matrix.examples.ts",
-      "suite": "",
-      "test": "Emphasis — cells with ",
-      "keywords": [
-        "Matrix",
-        "Root",
-        "emphasis",
-        "emphasisColor",
-        "ring",
-        "at-risk"
-      ],
-      "imports": [
-        "import { ArrayType, East, FloatType, IntegerType, NullType, StringType, example } from \"@elaraai/east\";",
-        "import {"
-      ],
-      "source": "// Emphasis — cells with \n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const userHeader = $.const(East.function([StringType, StringType], UIComponentType, ($, name, role) => Stack.HStack([\n            Avatar.Root({ name, size: \"sm\" }),\n            Stack.VStack([\n                Text.Root(name, { fontWeight: \"semibold\" }),\n                Text.Root(role, { textStyle: \"caption\", color: \"gray.500\" }),\n            ], { gap: \"0\", align: \"flex-start\" }),\n        ], { gap: \"2\", align: \"center\" })));\n        const dayHeader = $.const(East.function([StringType, StringType], UIComponentType, ($, day, date) => Stack.VStack([\n            Text.Root(day, { fontWeight: \"semibold\" }),\n            Text.Root(date, { textStyle: \"caption\", color: \"gray.500\" }),\n        ], { gap: \"0\", align: \"center\" })));\n        return Matrix.Root(\n            [\n                { key: \"alice\", header: userHeader(\"Alice Chen\", \"PM\"), cells: {\n                    mon: { segments: [{ category: \"booked\", weight: 0.6 }, { category: \"free\", weight: 0.4 }] },\n                    tue: { segments: [{ category: \"booked\", weight: 0.6 }, { category: \"free\", weight: 0.4 }] },\n                    wed: {\n                        segments: [{ category: \"at-risk\", weight: 1.0, color: \"red.400\" }],\n                        emphasisColor: \"red.500\",\n                        overlays: [\n                            { content: Icon.Root(\"fas\", \"triangle-exclamation\", { color: \"white\", size: \"md\" }) },\n                        ],\n                    },\n                    thu: { segments: [{ category: \"booked\", weight: 0.6 }, { category: \"free\", weight: 0.4 }] },\n                }},\n                { key: \"bob\", header: userHeader(\"Bob Martinez\", \"Design\"), cells: {\n                    mon: { segments: [{ category: \"booked\", weight: 0.4 }, { category: \"free\", weight: 0.6 }] },\n                    tue: {\n                        segments: [{ category: \"at-risk\", weight: 1.0, color: \"red.400\" }],\n                        emphasisColor: \"red.500\",\n                        overlays: [\n                            { content: Icon.Root(\"fas\", \"triangle-exclamation\", { color: \"white\", size: \"md\" }) },\n                        ],\n                    },\n                    wed: { segments: [{ category: \"booked\", weight: 0.6 }, { category: \"free\", weight: 0.4 }] },\n                    thu: { segments: [{ category: \"booked\", weight: 0.6 }, { category: \"free\", weight: 0.4 }] },\n                }},\n            ],\n            [\n                { key: \"mon\", header: dayHeader(\"Mon\", \"Apr 22\") },\n                { key: \"tue\", header: dayHeader(\"Tue\", \"Apr 23\") },\n                { key: \"wed\", header: dayHeader(\"Wed\", \"Apr 24\") },\n                { key: \"thu\", header: dayHeader(\"Thu\", \"Apr 25\") },\n            ],\n            {\n                legend: [\n                    { category: \"booked\", color: \"blue.400\", label: \"Booked\" },\n                    { category: \"free\", color: \"gray.200\", label: \"Free\" },\n                    { category: \"at-risk\", color: \"red.400\", label: \"At risk\" },\n                ],\n                rowHeaderWidth: \"200px\",\n            },\n        );\n    })"
-    },
-    {
-      "id": "east-ui:matrix.examples.ts:matrixVerticalOrientation",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/matrix.examples.ts",
-      "suite": "",
-      "test": "Vertical segment orientation — each cell reads as a stacked vertical capacity bar",
-      "keywords": [
-        "Matrix",
-        "Root",
-        "cellOrientation",
         "vertical",
+        "orientation",
         "capacity",
-        "dashboard"
+        "stacked",
+        "utilization",
+        "bar"
       ],
       "imports": [
-        "import { ArrayType, East, FloatType, IntegerType, NullType, StringType, example } from \"@elaraai/east\";",
-        "import {"
+        "import { ArrayType, East, FloatType, NullType, StringType, StructType, example, variant } from \"@elaraai/east\";",
+        "import { Matrix, Reactive, State, Stack, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Vertical segment orientation — each cell reads as a stacked vertical capacity bar\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const dayHeader = $.const(East.function([StringType, StringType], UIComponentType, ($, day, date) => Stack.VStack([\n            Text.Root(day, { fontWeight: \"semibold\" }),\n            Text.Root(date, { textStyle: \"caption\", color: \"gray.500\" }),\n        ], { gap: \"0\", align: \"center\" })));\n        return Matrix.Root(\n            [\n                { key: \"team-a\", header: Text.Root(\"Team A\", { fontWeight: \"semibold\" }), cells: {\n                    mon: { segments: [{ category: \"used\", weight: 0.7 }, { category: \"free\", weight: 0.3 }] },\n                    tue: { segments: [{ category: \"used\", weight: 0.4 }, { category: \"free\", weight: 0.6 }] },\n                    wed: { segments: [{ category: \"used\", weight: 0.9 }, { category: \"free\", weight: 0.1 }] },\n                    thu: { segments: [{ category: \"used\", weight: 0.6 }, { category: \"free\", weight: 0.4 }] },\n                    fri: { segments: [{ category: \"used\", weight: 0.3 }, { category: \"free\", weight: 0.7 }] },\n                }},\n                { key: \"team-b\", header: Text.Root(\"Team B\", { fontWeight: \"semibold\" }), cells: {\n                    mon: { segments: [{ category: \"used\", weight: 0.5 }, { category: \"free\", weight: 0.5 }] },\n                    tue: { segments: [{ category: \"used\", weight: 0.8 }, { category: \"free\", weight: 0.2 }] },\n                    wed: { segments: [{ category: \"used\", weight: 0.3 }, { category: \"free\", weight: 0.7 }] },\n                    thu: { segments: [{ category: \"used\", weight: 1.0 }] },\n                    fri: { segments: [{ category: \"used\", weight: 0.4 }, { category: \"free\", weight: 0.6 }] },\n                }},\n            ],\n            [\n                { key: \"mon\", header: dayHeader(\"Mon\", \"Apr 22\") },\n                { key: \"tue\", header: dayHeader(\"Tue\", \"Apr 23\") },\n                { key: \"wed\", header: dayHeader(\"Wed\", \"Apr 24\") },\n                { key: \"thu\", header: dayHeader(\"Thu\", \"Apr 25\") },\n                { key: \"fri\", header: dayHeader(\"Fri\", \"Apr 26\") },\n            ],\n            {\n                cellOrientation: \"vertical\",\n                legend: [\n                    { category: \"used\", color: \"blue.400\", label: \"Used capacity\" },\n                    { category: \"free\", color: \"gray.200\", label: \"Available\" },\n                ],\n                rowHeaderWidth: \"140px\",\n                columnHeaderHeight: \"52px\",\n            },\n        );\n    })"
+      "source": "// Vertical orientation — cells stack bottom-up as capacity bars (height-encoded utilisation)\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Matrix.Root(\n            [\n                { team: \"Team A\", booked: new Map([[\"mon\", 0.70], [\"tue\", 0.55], [\"wed\", 0.90], [\"thu\", 0.65], [\"fri\", 0.45]]) },\n                { team: \"Team B\", booked: new Map([[\"mon\", 0.50], [\"tue\", 0.75], [\"wed\", 0.40], [\"thu\", 0.85], [\"fri\", 0.60]]) },\n            ],\n            {\n                columns: [{ key: \"mon\", label: \"Mon\" }, { key: \"tue\", label: \"Tue\" }, { key: \"wed\", label: \"Wed\" }, { key: \"thu\", label: \"Thu\" }, { key: \"fri\", label: \"Fri\" }],\n                rowKey: r => r.team,\n                rowHeader: \"Team\",\n                orientation: \"vertical\",\n                cell: (r, col) => Matrix.cell({ segments: [\n                    Matrix.segment({ fill: \"brand\", weight: r.booked.get(col) }),\n                    Matrix.segment({ fill: \"free\", weight: East.value(1.0, FloatType).subtract(r.booked.get(col)) }),\n                ] }),\n                legend: [{ fill: \"brand\", label: \"Used capacity\" }, { fill: \"free\", label: \"Available\" }],\n            },\n        );\n    })"
     },
     {
-      "id": "east-ui:matrix.examples.ts:matrixBrushSelection",
+      "id": "east-ui:matrix.examples.ts:matrixMarkers",
       "skill": "east-ui",
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/collections/matrix.examples.ts",
       "suite": "",
-      "test": "Controlled brush selection — drag to select cells; ",
+      "test": "Cell status markers (the Matrix analogue of Planner.marker) — status/message follow the booked value, tinting a corner ring",
       "keywords": [
         "Matrix",
-        "Root",
-        "brushSelection",
-        "controlled",
-        "Reactive",
-        "State"
+        "marker",
+        "status",
+        "ring",
+        "corner",
+        "tooltip",
+        "danger",
+        "warning",
+        "capacity",
+        "overbooked"
       ],
       "imports": [
-        "import { ArrayType, East, FloatType, IntegerType, NullType, StringType, example } from \"@elaraai/east\";",
-        "import {"
+        "import { ArrayType, East, FloatType, NullType, StringType, StructType, example, variant } from \"@elaraai/east\";",
+        "import { Matrix, Reactive, State, Stack, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Controlled brush selection — drag to select cells; \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const userHeader = $.const(East.function([StringType, StringType], UIComponentType, ($, name, role) => Stack.HStack([\n                Avatar.Root({ name, size: \"sm\" }),\n                Stack.VStack([\n                    Text.Root(name, { fontWeight: \"semibold\" }),\n                    Text.Root(role, { textStyle: \"caption\", color: \"gray.500\" }),\n                ], { gap: \"0\", align: \"flex-start\" }),\n            ], { gap: \"2\", align: \"center\" })));\n            const dayHeader = $.const(East.function([StringType, StringType], UIComponentType, ($, day, date) => Stack.VStack([\n                Text.Root(day, { fontWeight: \"semibold\" }),\n                Text.Root(date, { textStyle: \"caption\", color: \"gray.500\" }),\n            ], { gap: \"0\", align: \"center\" })));\n            const selBind = $.let(State.bind([ArrayType(Matrix.Types.BrushCoord)], \"matrix_brush_selected\", []));\n            const selected = $.let(selBind.read(), ArrayType(Matrix.Types.BrushCoord));\n            const onChange = $.const(East.function([ArrayType(Matrix.Types.BrushCoord)], NullType, ($, next) => {\n                $(selBind.write(next));\n            }));\n            return Stack.VStack([\n                Matrix.Root(\n                    [\n                        { key: \"alice\", header: userHeader(\"Alice Chen\", \"PM\"), cells: {\n                            mon: { segments: [{ category: \"booked\", weight: 0.8 }] },\n                            tue: { segments: [{ category: \"booked\", weight: 0.5 }] },\n                            wed: { segments: [{ category: \"booked\", weight: 0.3 }] },\n                            thu: { segments: [{ category: \"booked\", weight: 0.9 }] },\n                        }},\n                        { key: \"bob\", header: userHeader(\"Bob Martinez\", \"Design\"), cells: {\n                            mon: { segments: [{ category: \"booked\", weight: 0.4 }] },\n                            tue: { segments: [{ category: \"booked\", weight: 0.9 }] },\n                            wed: { segments: [{ category: \"booked\", weight: 0.6 }] },\n                            thu: { segments: [{ category: \"booked\", weight: 0.7 }] },\n                        }},\n                    ],\n                    [\n                        { key: \"mon\", header: dayHeader(\"Mon\", \"Apr 22\") },\n                        { key: \"tue\", header: dayHeader(\"Tue\", \"Apr 23\") },\n                        { key: \"wed\", header: dayHeader(\"Wed\", \"Apr 24\") },\n                        { key: \"thu\", header: dayHeader(\"Thu\", \"Apr 25\") },\n                    ],\n                    {\n                        brushSelection: { enabled: true, selected, onChange },\n                        legend: [{ category: \"booked\", color: \"blue.400\", label: \"Booked\" }],\n                        rowHeaderWidth: \"200px\",\n                    },\n                ),\n                Badge.Root(East.str`Selected: ${East.print(selected.size())} cells`, { variant: \"subtle\", colorPalette: \"blue\" }),\n            ], { gap: \"3\", align: \"stretch\" });\n        }));\n    })"
+      "source": "// Cell status markers (the Matrix analogue of Planner.marker) — status/message follow the booked value, tinting a corner ring\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Matrix.Root(\n            [\n                { name: \"Alice\", role: \"PM\", booked: new Map([[\"mon\", 0.80], [\"tue\", 0.50], [\"wed\", 1.00]]) },\n                { name: \"Bob\", role: \"Design\", booked: new Map([[\"mon\", 0.35], [\"tue\", 1.00], [\"wed\", 0.60]]) },\n            ],\n            {\n                columns: [{ key: \"mon\", label: \"Mon\" }, { key: \"tue\", label: \"Tue\" }, { key: \"wed\", label: \"Wed\" }],\n                rowKey: r => r.name,\n                rowHeader: \"Resource\",\n                rowSublabel: r => r.role,\n                cell: (r, col) => Matrix.cell({\n                    segments: [\n                        Matrix.segment({ fill: \"brand\", weight: r.booked.get(col), label: East.str`${r.booked.get(col).multiply(8.0)}h` }),\n                        Matrix.segment({ fill: \"free\", weight: East.value(1.0, FloatType).subtract(r.booked.get(col)) }),\n                    ],\n                    markers: [Matrix.marker({\n                        status: r.booked.get(col).greaterEqual(1.0).ifElse(\n                            _$ => variant(\"danger\", null),\n                            _$ => r.booked.get(col).greaterEqual(0.75).ifElse(_$ => variant(\"warning\", null), _$ => variant(\"success\", null)),\n                        ),\n                        message: East.str`${r.booked.get(col).multiply(100.0)}% booked`,\n                        at: \"tr\",\n                    })],\n                }),\n                legend: [{ fill: \"brand\", label: \"Booked\" }, { fill: \"free\", label: \"Free\" }],\n            },\n        );\n    })"
     },
     {
-      "id": "east-ui:matrix.examples.ts:matrixReactiveClick",
+      "id": "east-ui:matrix.examples.ts:matrixPopover",
       "skill": "east-ui",
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/collections/matrix.examples.ts",
       "suite": "",
-      "test": "Reactive cell click — selected ",
+      "test": "Per-cell click popover with rich content",
       "keywords": [
         "Matrix",
-        "Root",
-        "onCellClick",
-        "Reactive",
-        "State"
-      ],
-      "imports": [
-        "import { ArrayType, East, FloatType, IntegerType, NullType, StringType, example } from \"@elaraai/east\";",
-        "import {"
-      ],
-      "source": "// Reactive cell click — selected \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const userHeader = $.const(East.function([StringType, StringType], UIComponentType, ($, name, role) => Stack.HStack([\n                Avatar.Root({ name, size: \"sm\" }),\n                Stack.VStack([\n                    Text.Root(name, { fontWeight: \"semibold\" }),\n                    Text.Root(role, { textStyle: \"caption\", color: \"gray.500\" }),\n                ], { gap: \"0\", align: \"flex-start\" }),\n            ], { gap: \"2\", align: \"center\" })));\n            const dayHeader = $.const(East.function([StringType, StringType], UIComponentType, ($, day, date) => Stack.VStack([\n                Text.Root(day, { fontWeight: \"semibold\" }),\n                Text.Root(date, { textStyle: \"caption\", color: \"gray.500\" }),\n            ], { gap: \"0\", align: \"center\" })));\n            const rowBind = $.let(State.bind([StringType], \"matrix_sel_row\", \"\"));\n            const colBind = $.let(State.bind([StringType], \"matrix_sel_col\", \"\"));\n            const countBind = $.let(State.bind([IntegerType], \"matrix_click_count\", 0n));\n\n            const row = $.let(rowBind.read(), StringType);\n            const column = $.let(colBind.read(), StringType);\n            const count = $.let(countBind.read(), IntegerType);\n\n            const onCellClick = $.const(East.function([Matrix.Types.BrushCoord], NullType, ($, coord) => {\n                const current = $.let(countBind.read(), IntegerType);\n                $(rowBind.write(coord.row));\n                $(colBind.write(coord.column));\n                $(countBind.write(current.add(1n)));\n            }));\n\n            return Stack.VStack([\n                Matrix.Root(\n                    [\n                        { key: \"alice\", header: userHeader(\"Alice Chen\", \"PM\"), cells: {\n                            mon: { segments: [{ category: \"booked\", weight: 0.8 }] },\n                            tue: { segments: [{ category: \"booked\", weight: 0.5 }] },\n                            wed: { segments: [{ category: \"booked\", weight: 0.3 }] },\n                        }},\n                        { key: \"bob\", header: userHeader(\"Bob Martinez\", \"Design\"), cells: {\n                            mon: { segments: [{ category: \"booked\", weight: 0.4 }] },\n                            tue: { segments: [{ category: \"booked\", weight: 0.9 }] },\n                            wed: { segments: [{ category: \"booked\", weight: 0.6 }] },\n                        }},\n                    ],\n                    [\n                        { key: \"mon\", header: dayHeader(\"Mon\", \"Apr 22\") },\n                        { key: \"tue\", header: dayHeader(\"Tue\", \"Apr 23\") },\n                        { key: \"wed\", header: dayHeader(\"Wed\", \"Apr 24\") },\n                    ],\n                    {\n                        onCellClick,\n                        legend: [{ category: \"booked\", color: \"blue.400\", label: \"Booked\" }],\n                        rowHeaderWidth: \"200px\",\n                    },\n                ),\n                Stack.HStack([\n                    Badge.Root(East.str`Clicks: ${East.print(count)}`, { variant: \"subtle\", colorPalette: \"gray\" }),\n                    Badge.Root(East.str`Last: ${row}, ${column}`, { variant: \"subtle\", colorPalette: \"blue\" }),\n                ], { gap: \"2\" }),\n            ], { gap: \"3\", align: \"stretch\" });\n        }));\n    })"
-    },
-    {
-      "id": "east-ui:matrix.examples.ts:matrixReactiveSegmentEdit",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/matrix.examples.ts",
-      "suite": "",
-      "test": "Drag-to-resize segments — ",
-      "keywords": [
-        "Matrix",
-        "Root",
-        "onSegmentChange",
-        "drag",
-        "resize",
-        "Reactive",
-        "State"
-      ],
-      "imports": [
-        "import { ArrayType, East, FloatType, IntegerType, NullType, StringType, example } from \"@elaraai/east\";",
-        "import {"
-      ],
-      "source": "// Drag-to-resize segments — \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const userHeader = $.const(East.function([StringType, StringType], UIComponentType, ($, name, role) => Stack.HStack([\n                Avatar.Root({ name, size: \"sm\" }),\n                Stack.VStack([\n                    Text.Root(name, { fontWeight: \"semibold\" }),\n                    Text.Root(role, { textStyle: \"caption\", color: \"gray.500\" }),\n                ], { gap: \"0\", align: \"flex-start\" }),\n            ], { gap: \"2\", align: \"center\" })));\n            const dayHeader = $.const(East.function([StringType, StringType], UIComponentType, ($, day, date) => Stack.VStack([\n                Text.Root(day, { fontWeight: \"semibold\" }),\n                Text.Root(date, { textStyle: \"caption\", color: \"gray.500\" }),\n            ], { gap: \"0\", align: \"center\" })));\n            const monBooked = $.let(State.bind([FloatType], \"matrix_edit_mon_booked\", 0.7));\n            const tueBooked = $.let(State.bind([FloatType], \"matrix_edit_tue_booked\", 0.5));\n            const wedBooked = $.let(State.bind([FloatType], \"matrix_edit_wed_booked\", 0.9));\n\n            const monW = $.let(monBooked.read(), FloatType);\n            const tueW = $.let(tueBooked.read(), FloatType);\n            const wedW = $.let(wedBooked.read(), FloatType);\n\n            const monPct = $.let(East.Float.roundHalf(monW.multiply(100.0)), IntegerType);\n            const tuePct = $.let(East.Float.roundHalf(tueW.multiply(100.0)), IntegerType);\n            const wedPct = $.let(East.Float.roundHalf(wedW.multiply(100.0)), IntegerType);\n\n            const onSegmentChange = $.const(East.function([Matrix.Types.SegmentChangeEvent], NullType, ($, evt) => {\n                $.if(evt.column.equals(\"mon\").and(() => evt.category.equals(\"booked\")), $ => {\n                    $(monBooked.write(evt.weight));\n                });\n                $.if(evt.column.equals(\"tue\").and(() => evt.category.equals(\"booked\")), $ => {\n                    $(tueBooked.write(evt.weight));\n                });\n                $.if(evt.column.equals(\"wed\").and(() => evt.category.equals(\"booked\")), $ => {\n                    $(wedBooked.write(evt.weight));\n                });\n            }));\n\n            return Matrix.Root(\n                [\n                    { key: \"alice\", header: userHeader(\"Alice Chen\", \"PM\"), cells: {\n                        mon: { segments: [\n                            { category: \"booked\", weight: monW, step: 0.05, label: East.str`${East.print(monPct)}%` },\n                            { category: \"free\", weight: East.value(1.0).subtract(monW), label: East.str`${East.print(East.value(100n).subtract(monPct))}%` },\n                        ]},\n                        tue: { segments: [\n                            { category: \"booked\", weight: tueW, step: 0.05, label: East.str`${East.print(tuePct)}%` },\n                            { category: \"free\", weight: East.value(1.0).subtract(tueW), label: East.str`${East.print(East.value(100n).subtract(tuePct))}%` },\n                        ]},\n                        wed: { segments: [\n                            { category: \"booked\", weight: wedW, step: 0.05, label: East.str`${East.print(wedPct)}%` },\n                            { category: \"free\", weight: East.value(1.0).subtract(wedW), label: East.str`${East.print(East.value(100n).subtract(wedPct))}%` },\n                        ]},\n                    }},\n                ],\n                [\n                    { key: \"mon\", header: dayHeader(\"Mon\", \"Apr 22\") },\n                    { key: \"tue\", header: dayHeader(\"Tue\", \"Apr 23\") },\n                    { key: \"wed\", header: dayHeader(\"Wed\", \"Apr 24\") },\n                ],\n                {\n                    onSegmentChange,\n                    legend: [{ category: \"booked\", color: \"blue.400\", label: \"Booked\" }, { category: \"free\", color: \"gray.200\", label: \"Free\" }],\n                    rowHeaderWidth: \"200px\",\n                },\n            );\n        }));\n    })"
-    },
-    {
-      "id": "east-ui:matrix.examples.ts:matrixReactiveSegmentEditMulti",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/matrix.examples.ts",
-      "suite": "",
-      "test": "Multi-segment drag-resize — three categories per cell (committed / pending / slack); both internal boundaries are draggable, slack auto-fills the remainder. Live values shown below.",
-      "keywords": [
-        "Matrix",
-        "Root",
-        "onSegmentChange",
-        "drag",
-        "resize",
-        "multi-segment",
-        "Reactive",
-        "State"
-      ],
-      "imports": [
-        "import { ArrayType, East, FloatType, IntegerType, NullType, StringType, example } from \"@elaraai/east\";",
-        "import {"
-      ],
-      "source": "// Multi-segment drag-resize — three categories per cell (committed / pending / slack); both internal boundaries are draggable, slack auto-fills the remainder. Live values shown below.\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const designCommitted = $.let(State.bind([FloatType], \"matrix_multi_design_committed\", 0.5));\n            const designPending = $.let(State.bind([FloatType], \"matrix_multi_design_pending\", 0.3));\n            const devCommitted = $.let(State.bind([FloatType], \"matrix_multi_dev_committed\", 0.7));\n            const devPending = $.let(State.bind([FloatType], \"matrix_multi_dev_pending\", 0.2));\n            const qaCommitted = $.let(State.bind([FloatType], \"matrix_multi_qa_committed\", 0.3));\n            const qaPending = $.let(State.bind([FloatType], \"matrix_multi_qa_pending\", 0.4));\n\n            const designC = $.let(designCommitted.read(), FloatType);\n            const designP = $.let(designPending.read(), FloatType);\n            const devC = $.let(devCommitted.read(), FloatType);\n            const devP = $.let(devPending.read(), FloatType);\n            const qaC = $.let(qaCommitted.read(), FloatType);\n            const qaP = $.let(qaPending.read(), FloatType);\n\n            const designCPct = $.let(East.Float.roundHalf(designC.multiply(100.0)), IntegerType);\n            const designPPct = $.let(East.Float.roundHalf(designP.multiply(100.0)), IntegerType);\n            const designSPct = $.let(East.value(100n).subtract(designCPct).subtract(designPPct), IntegerType);\n            const devCPct = $.let(East.Float.roundHalf(devC.multiply(100.0)), IntegerType);\n            const devPPct = $.let(East.Float.roundHalf(devP.multiply(100.0)), IntegerType);\n            const devSPct = $.let(East.value(100n).subtract(devCPct).subtract(devPPct), IntegerType);\n            const qaCPct = $.let(East.Float.roundHalf(qaC.multiply(100.0)), IntegerType);\n            const qaPPct = $.let(East.Float.roundHalf(qaP.multiply(100.0)), IntegerType);\n            const qaSPct = $.let(East.value(100n).subtract(qaCPct).subtract(qaPPct), IntegerType);\n\n            const onSegmentChange = $.const(East.function([Matrix.Types.SegmentChangeEvent], NullType, ($, evt) => {\n                $.if(evt.column.equals(\"design\").and(() => evt.category.equals(\"committed\")), $ => {\n                    $(designCommitted.write(evt.weight));\n                });\n                $.if(evt.column.equals(\"design\").and(() => evt.category.equals(\"pending\")), $ => {\n                    $(designPending.write(evt.weight));\n                });\n                $.if(evt.column.equals(\"dev\").and(() => evt.category.equals(\"committed\")), $ => {\n                    $(devCommitted.write(evt.weight));\n                });\n                $.if(evt.column.equals(\"dev\").and(() => evt.category.equals(\"pending\")), $ => {\n                    $(devPending.write(evt.weight));\n                });\n                $.if(evt.column.equals(\"qa\").and(() => evt.category.equals(\"committed\")), $ => {\n                    $(qaCommitted.write(evt.weight));\n                });\n                $.if(evt.column.equals(\"qa\").and(() => evt.category.equals(\"pending\")), $ => {\n                    $(qaPending.write(evt.weight));\n                });\n            }));\n\n            return Matrix.Root(\n                [\n                    { key: \"sprint-1\", header: Text.Root(\"Sprint 1\", { fontWeight: \"semibold\" }), cells: {\n                        design: { segments: [\n                            { category: \"committed\", weight: designC, step: 0.05, min: 0.05, max: 0.9, label: East.str`${East.print(designCPct)}%` },\n                            { category: \"pending\", weight: designP, step: 0.05, min: 0.05, max: 0.9, label: East.str`${East.print(designPPct)}%` },\n                            { category: \"slack\", weight: East.value(1.0).subtract(designC).subtract(designP), label: East.str`${East.print(designSPct)}%` },\n                        ]},\n                        dev: { segments: [\n                            { category: \"committed\", weight: devC, step: 0.05, min: 0.05, max: 0.9, label: East.str`${East.print(devCPct)}%` },\n                            { category: \"pending\", weight: devP, step: 0.05, min: 0.05, max: 0.9, label: East.str`${East.print(devPPct)}%` },\n                            { category: \"slack\", weight: East.value(1.0).subtract(devC).subtract(devP), label: East.str`${East.print(devSPct)}%` },\n                        ]},\n                        qa: { segments: [\n                            { category: \"committed\", weight: qaC, step: 0.05, min: 0.05, max: 0.9, label: East.str`${East.print(qaCPct)}%` },\n                            { category: \"pending\", weight: qaP, step: 0.05, min: 0.05, max: 0.9, label: East.str`${East.print(qaPPct)}%` },\n                            { category: \"slack\", weight: East.value(1.0).subtract(qaC).subtract(qaP), label: East.str`${East.print(qaSPct)}%` },\n                        ]},\n                    }},\n                ],\n                [\n                    { key: \"design\", header: Text.Root(\"Design\", { fontWeight: \"semibold\" }) },\n                    { key: \"dev\", header: Text.Root(\"Development\", { fontWeight: \"semibold\" }) },\n                    { key: \"qa\", header: Text.Root(\"QA\", { fontWeight: \"semibold\" }) },\n                ],\n                {\n                    onSegmentChange,\n                    legend: [\n                        { category: \"committed\", color: \"green.400\", label: \"Committed\" },\n                        { category: \"pending\", color: \"orange.400\", label: \"Pending\" },\n                        { category: \"slack\", color: \"gray.200\", label: \"Slack\" },\n                    ],\n                },\n            );\n        }));\n    })"
-    },
-    {
-      "id": "east-ui:matrix.examples.ts:matrixReactiveSegmentEditVertical",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/matrix.examples.ts",
-      "suite": "",
-      "test": "Vertical-orientation drag-resize — drag the top of a segment to rebalance utilization vs free capacity in a stacked vertical bar",
-      "keywords": [
-        "Matrix",
-        "Root",
-        "onSegmentChange",
-        "cellOrientation",
-        "vertical",
-        "drag",
-        "resize",
-        "Reactive",
-        "State"
-      ],
-      "imports": [
-        "import { ArrayType, East, FloatType, IntegerType, NullType, StringType, example } from \"@elaraai/east\";",
-        "import {"
-      ],
-      "source": "// Vertical-orientation drag-resize — drag the top of a segment to rebalance utilization vs free capacity in a stacked vertical bar\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const dayHeader = $.const(East.function([StringType, StringType], UIComponentType, ($, day, date) => Stack.VStack([\n                Text.Root(day, { fontWeight: \"semibold\" }),\n                Text.Root(date, { textStyle: \"caption\", color: \"gray.500\" }),\n            ], { gap: \"0\", align: \"center\" })));\n            const monUsed = $.let(State.bind([FloatType], \"matrix_vedit_mon_used\", 0.7));\n            const tueUsed = $.let(State.bind([FloatType], \"matrix_vedit_tue_used\", 0.4));\n            const wedUsed = $.let(State.bind([FloatType], \"matrix_vedit_wed_used\", 0.9));\n            const thuUsed = $.let(State.bind([FloatType], \"matrix_vedit_thu_used\", 0.6));\n            const friUsed = $.let(State.bind([FloatType], \"matrix_vedit_fri_used\", 0.3));\n\n            const monU = $.let(monUsed.read(), FloatType);\n            const tueU = $.let(tueUsed.read(), FloatType);\n            const wedU = $.let(wedUsed.read(), FloatType);\n            const thuU = $.let(thuUsed.read(), FloatType);\n            const friU = $.let(friUsed.read(), FloatType);\n\n            const onSegmentChange = $.const(East.function([Matrix.Types.SegmentChangeEvent], NullType, ($, evt) => {\n                $.if(evt.column.equals(\"mon\").and(() => evt.category.equals(\"used\")), $ => {\n                    $(monUsed.write(evt.weight));\n                });\n                $.if(evt.column.equals(\"tue\").and(() => evt.category.equals(\"used\")), $ => {\n                    $(tueUsed.write(evt.weight));\n                });\n                $.if(evt.column.equals(\"wed\").and(() => evt.category.equals(\"used\")), $ => {\n                    $(wedUsed.write(evt.weight));\n                });\n                $.if(evt.column.equals(\"thu\").and(() => evt.category.equals(\"used\")), $ => {\n                    $(thuUsed.write(evt.weight));\n                });\n                $.if(evt.column.equals(\"fri\").and(() => evt.category.equals(\"used\")), $ => {\n                    $(friUsed.write(evt.weight));\n                });\n            }));\n\n            return Matrix.Root(\n                [\n                    { key: \"team-a\", header: Text.Root(\"Team A\", { fontWeight: \"semibold\" }), cells: {\n                        mon: { segments: [{ category: \"used\", weight: monU, step: 0.05 }, { category: \"free\", weight: East.value(1.0).subtract(monU) }] },\n                        tue: { segments: [{ category: \"used\", weight: tueU, step: 0.05 }, { category: \"free\", weight: East.value(1.0).subtract(tueU) }] },\n                        wed: { segments: [{ category: \"used\", weight: wedU, step: 0.05 }, { category: \"free\", weight: East.value(1.0).subtract(wedU) }] },\n                        thu: { segments: [{ category: \"used\", weight: thuU, step: 0.05 }, { category: \"free\", weight: East.value(1.0).subtract(thuU) }] },\n                        fri: { segments: [{ category: \"used\", weight: friU, step: 0.05 }, { category: \"free\", weight: East.value(1.0).subtract(friU) }] },\n                    }},\n                ],\n                [\n                    { key: \"mon\", header: dayHeader(\"Mon\", \"Apr 22\") },\n                    { key: \"tue\", header: dayHeader(\"Tue\", \"Apr 23\") },\n                    { key: \"wed\", header: dayHeader(\"Wed\", \"Apr 24\") },\n                    { key: \"thu\", header: dayHeader(\"Thu\", \"Apr 25\") },\n                    { key: \"fri\", header: dayHeader(\"Fri\", \"Apr 26\") },\n                ],\n                {\n                    cellOrientation: \"vertical\",\n                    onSegmentChange,\n                    legend: [\n                        { category: \"used\", color: \"blue.400\", label: \"Used capacity\" },\n                        { category: \"free\", color: \"gray.200\", label: \"Available\" },\n                    ],\n                    rowHeaderWidth: \"140px\",\n                    columnHeaderHeight: \"52px\",\n                },\n            );\n        }));\n    })"
-    },
-    {
-      "id": "east-ui:matrix.examples.ts:matrixCellPopover",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/matrix.examples.ts",
-      "suite": "",
-      "test": "Per-cell click popover — pass a UIComponent into ",
-      "keywords": [
-        "Matrix",
-        "Cell",
         "popover",
         "click",
-        "rich",
-        "Stat"
+        "detail",
+        "onCellClick"
       ],
       "imports": [
-        "import { ArrayType, East, FloatType, IntegerType, NullType, StringType, example } from \"@elaraai/east\";",
-        "import {"
+        "import { ArrayType, East, FloatType, NullType, StringType, StructType, example, variant } from \"@elaraai/east\";",
+        "import { Matrix, Reactive, State, Stack, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Per-cell click popover — pass a UIComponent into \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Matrix.Root(\n            [\n                { key: \"alice\", header: Text.Root(\"Alice\"), cells: {\n                    mon: {\n                        segments: [\n                            { category: \"booked\", weight: 6.0 },\n                            { category: \"free\", weight: 2.0 },\n                        ],\n                        popover: Stat.Root(\n                            \"Alice — Monday\",\n                            \"6 booked / 2 free\",\n                            { helpText: \"Click again to dismiss.\" },\n                        ),\n                    },\n                    tue: {\n                        segments: [{ category: \"free\", weight: 8.0 }],\n                        popover: Stat.Root(\n                            \"Alice — Tuesday\",\n                            \"Fully free\",\n                        ),\n                    },\n                } },\n            ],\n            [\n                { key: \"mon\", header: Text.Root(\"Mon\") },\n                { key: \"tue\", header: Text.Root(\"Tue\") },\n            ],\n            {\n                legend: [\n                    { category: \"booked\", color: \"blue.500\", label: \"Booked\" },\n                    { category: \"free\", color: \"green.300\", label: \"Free\" },\n                ],\n            },\n        );\n    })"
+      "source": "// Per-cell click popover with rich content\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Matrix.Root(\n            [{ name: \"Alice\", booked: new Map([[\"mon\", 0.7], [\"tue\", 0.4]]) }],\n            {\n                columns: [{ key: \"mon\", label: \"Mon\" }, { key: \"tue\", label: \"Tue\" }],\n                rowKey: r => r.name,\n                rowHeader: \"Resource\",\n                cell: (r, col) => Matrix.cell({\n                    segments: [\n                        Matrix.segment({ fill: \"brand\", weight: r.booked.get(col) }),\n                        Matrix.segment({ fill: \"free\", weight: East.value(1.0, FloatType).subtract(r.booked.get(col)) }),\n                    ],\n                    popover: Stack.VStack([\n                        Text.Root(\"Allocation\", { fontWeight: \"semibold\" }),\n                        Text.Root(East.str`${r.booked.get(col).multiply(100.0)}% booked`, { color: \"fg.muted\" }),\n                    ], { gap: \"1\" }),\n                }),\n                onCellClick: East.function([Matrix.Types.CellClickEvent], NullType, _$ => null),\n            },\n        );\n    })"
     },
     {
-      "id": "east-ui:matrix.examples.ts:matrixMinLabelSize",
+      "id": "east-ui:matrix.examples.ts:matrixReactiveAdjust",
       "skill": "east-ui",
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/collections/matrix.examples.ts",
       "suite": "",
-      "test": "",
+      "test": "Drag a segment to adjust its weight — onSegmentChange writes the new value to bound State, which the cell reads back",
       "keywords": [
         "Matrix",
-        "minLabelSize",
-        "segment",
-        "label",
-        "threshold"
+        "reactive",
+        "State",
+        "bind",
+        "onSegmentChange",
+        "adjust",
+        "edit",
+        "drag",
+        "controlled"
       ],
       "imports": [
-        "import { ArrayType, East, FloatType, IntegerType, NullType, StringType, example } from \"@elaraai/east\";",
-        "import {"
+        "import { ArrayType, East, FloatType, NullType, StringType, StructType, example, variant } from \"@elaraai/east\";",
+        "import { Matrix, Reactive, State, Stack, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Matrix.Root(\n            [\n                { key: \"task\", header: Text.Root(\"Mix\"), cells: {\n                    week: {\n                        segments: [\n                            { category: \"big\", weight: 7.0, label: { value: \"Big slice\" } },\n                            { category: \"med\", weight: 2.0, label: { value: \"Med\" } },\n                            { category: \"tiny\", weight: 1.0, label: { value: \"Tiny\" } },\n                        ],\n                    },\n                } },\n            ],\n            [\n                { key: \"week\", header: Text.Root(\"Week 1\") },\n            ],\n            {\n                // Default is `\"24px\"` — bump to `\"48px\"` so anything narrower\n                // than that drops its label rather than getting clipped.\n                minLabelSize: \"48px\",\n                legend: [\n                    { category: \"big\", color: \"blue.400\" },\n                    { category: \"med\", color: \"orange.400\" },\n                    { category: \"tiny\", color: \"red.400\" },\n                ],\n            },\n        );\n    })"
+      "source": "// Drag a segment to adjust its weight — onSegmentChange writes the new value to bound State, which the cell reads back\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const committedBind = $.let(State.bind([FloatType], \"matrix_adjust_committed\", 0.5));\n            const committed = $.let(committedBind.read());\n            const data = $.const([{ team: \"Squad\", load: committed }], ArrayType(StructType({ team: StringType, load: FloatType })));\n            return Matrix.Root(data, {\n                columns: [{ key: \"load\", label: \"Allocation\" }],\n                rowKey: r => r.team,\n                rowHeader: \"Squad\",\n                cell: (r, _col) => Matrix.cell({ segments: [\n                    Matrix.segment({ fill: \"success\", weight: r.load, label: East.str`${r.load.multiply(100.0)}%`, min: 0.0, max: 1.0, step: 0.05 }),\n                    Matrix.segment({ fill: \"slack\", weight: East.value(1.0, FloatType).subtract(r.load) }),\n                ] }),\n                onSegmentChange: East.function([Matrix.Types.SegmentChangeEvent], NullType, ($, e) => {\n                    $(committedBind.write(e.weight));\n                }),\n            });\n        }));\n    })"
     },
     {
       "id": "east-ui:pagination.examples.ts:paginationBasic",
@@ -15216,550 +15166,206 @@
       "source": "// Pagination with custom active-page colour overrides\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const pageBind = $.let(State.bind([IntegerType], \"pagination_colour_page\", 2n));\n            const page = $.let(pageBind.read(), IntegerType);\n            const onChange = $.const(East.function([IntegerType], NullType, ($, next) => {\n                $(pageBind.write(next));\n            }));\n            return Pagination.Root(page, 25n, 300n, onChange, {\n                variant: \"subtle\",\n                activeBackground: \"blue.500\",\n                activeColor: \"white\",\n            });\n        }));\n    })"
     },
     {
-      "id": "east-ui:planner.examples.ts:plannerBasic",
+      "id": "east-ui:planner.examples.ts:plannerPoint",
       "skill": "east-ui",
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/collections/planner.examples.ts",
       "suite": "",
-      "test": "Simple resource allocation grid with events",
+      "test": "Slot-based Point planner: resources × days, AM/PM buckets, committed past + proposed future, now-line",
       "keywords": [
         "Planner",
-        "Root",
-        "Event",
-        "basic",
-        "resource",
-        "allocation"
+        "Point",
+        "slot",
+        "schedule",
+        "roster",
+        "committed",
+        "proposed",
+        "now",
+        "select"
       ],
       "imports": [
-        "import { East, FloatType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Icon, Planner, Reactive, Stack, State, Stat, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+        "import { East, NullType, example } from \"@elaraai/east\";",
+        "import { Planner, Stack, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Simple resource allocation grid with events\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Planner.Root(\n            [\n                { resource: \"Alice\", task: \"Development\", start: 1.0, end: 3.0 },\n                { resource: \"Bob\", task: \"Testing\", start: 2.0, end: 5.0 },\n                { resource: \"Charlie\", task: \"Review\", start: 4.0, end: 6.0 },\n            ],\n            [\"resource\", \"task\"],\n            row => [Planner.Event({ start: row.start, end: row.end })]\n        );\n    })"
+      "source": "// Slot-based Point planner: resources × days, AM/PM buckets, committed past + proposed future, now-line\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Planner.Point(\n            [\n                { name: \"api-01\", role: \"Lead\", team: \"Web\" },\n                { name: \"api-02\", role: \"Engineer\", team: \"Web\" },\n                { name: \"cache\", role: \"Service\", team: \"Web\" },\n                { name: \"etl-01\", role: \"Lead\", team: \"Batch\" },\n                { name: \"etl-02\", role: \"Engineer\", team: \"Batch\" },\n            ],\n            {\n                axis: Planner.axis.number({ buckets: [{ key: \"am\", label: \"AM\" }, { key: \"pm\", label: \"PM\" }], range: { min: 1, max: 8 } }),\n                groupBy: r => r.team,\n                columns: [{ key: \"name\", frozen: true, value: r => r.name, sublabel: r => r.role }],\n                events: _r => [\n                    Planner.event({ slot: Planner.at.number(1), bucket: \"am\", label: \"✓\", state: \"committed\" }),\n                    Planner.event({ slot: Planner.at.number(2), bucket: \"pm\", label: \"✓\", state: \"committed\" }),\n                    Planner.event({ slot: Planner.at.number(3), bucket: \"am\", label: \"✓\", state: \"committed\" }),\n                    Planner.event({ slot: Planner.at.number(4), bucket: \"am\", label: \"✓\", state: \"committed\" }),\n                    Planner.event({ slot: Planner.at.number(5), bucket: \"am\", label: \"check\", state: \"added\" }),\n                    Planner.event({ slot: Planner.at.number(6), bucket: \"pm\", label: \"check\", state: \"added\" }),\n                    Planner.event({ slot: Planner.at.number(7), bucket: \"am\", label: \"? plan\", state: \"model\" }),\n                ],\n                now: Planner.at.number(5),\n                onSelectRow: East.function([Planner.Types.SelectEvent], NullType, _$ => null),\n            },\n        );\n    })"
     },
     {
-      "id": "east-ui:planner.examples.ts:plannerWithLabels",
+      "id": "east-ui:planner.examples.ts:plannerEventStates",
       "skill": "east-ui",
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/collections/planner.examples.ts",
       "suite": "",
-      "test": "Events with custom labels, color palettes, and column widths",
+      "test": "The event-state grammar: committed, proposed (added / model / removed), rejected",
       "keywords": [
         "Planner",
-        "Event",
-        "label",
-        "colorPalette",
-        "width"
+        "state",
+        "committed",
+        "proposed",
+        "rejected",
+        "model",
+        "draft",
+        "audit",
+        "diff"
       ],
       "imports": [
-        "import { East, FloatType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Icon, Planner, Reactive, Stack, State, Stat, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+        "import { East, NullType, example } from \"@elaraai/east\";",
+        "import { Planner, Stack, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Events with custom labels, color palettes, and column widths\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Planner.Root(\n            [\n                { name: \"Project A\", status: \"Active\", slot: 1.0, endSlot: 4.0 },\n                { name: \"Project B\", status: \"Pending\", slot: 3.0, endSlot: 7.0 },\n                { name: \"Project C\", status: \"Done\", slot: 5.0, endSlot: 8.0 },\n            ],\n            {\n                name: { header: \"Project\", width: \"200px\", minWidth: \"80px\" },\n                status: { header: \"Status\", width: \"100px\", maxWidth: \"150px\" },\n            },\n            row => [\n                Planner.Event({\n                    start: row.slot,\n                    end: row.endSlot,\n                    label: { value: \"Active\" },\n                    colorPalette: \"blue\",\n                }),\n            ]\n        );\n    })"
+      "source": "// The event-state grammar: committed, proposed (added / model / removed), rejected\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Planner.Point(\n            [{ name: \"Stream\" }],\n            {\n                axis: Planner.axis.number({ range: { min: 1, max: 5 } }),\n                columns: [{ key: \"name\", frozen: true, value: r => r.name }],\n                events: _r => [\n                    Planner.event({ slot: Planner.at.number(1), label: \"Done\", state: \"committed\" }),\n                    Planner.event({ slot: Planner.at.number(2), label: \"Add\", state: \"added\" }),\n                    Planner.event({ slot: Planner.at.number(3), label: \"Suggest\", state: \"model\" }),\n                    Planner.event({ slot: Planner.at.number(4), label: \"Drop\", state: \"removed\" }),\n                    Planner.event({ slot: Planner.at.number(5), label: \"Declined\", state: \"rejected\" }),\n                ],\n            },\n        );\n    })"
     },
     {
-      "id": "east-ui:planner.examples.ts:plannerMultipleEvents",
+      "id": "east-ui:planner.examples.ts:plannerBuckets",
       "skill": "east-ui",
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/collections/planner.examples.ts",
       "suite": "",
-      "test": "Rows can have multiple events with different colors",
+      "test": "Labelled sub-slot buckets per column (three named shifts)",
       "keywords": [
         "Planner",
-        "Event",
-        "multiple",
-        "maxSlot"
+        "bucket",
+        "sub-slot",
+        "slotsPerColumn",
+        "shift",
+        "morning",
+        "afternoon"
       ],
       "imports": [
-        "import { East, FloatType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Icon, Planner, Reactive, Stack, State, Stat, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+        "import { East, NullType, example } from \"@elaraai/east\";",
+        "import { Planner, Stack, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Rows can have multiple events with different colors\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Planner.Root(\n            [\n                { name: \"Team A\", slot1: 1.0, slot2: 4.0, slot3: 7.0 },\n                { name: \"Team B\", slot1: 2.0, slot2: 5.0, slot3: 8.0 },\n            ],\n            [\"name\"],\n            row => [\n                Planner.Event({ start: row.slot1, end: row.slot1.add(1.0), colorPalette: \"green\", label: { value: \"Sprint 1\" } }),\n                Planner.Event({ start: row.slot2, end: row.slot2.add(1.0), colorPalette: \"blue\", label: { value: \"Sprint 2\" } }),\n                Planner.Event({ start: row.slot3, end: row.slot3.add(1.0), colorPalette: \"purple\", label: { value: \"Sprint 3\" } }),\n            ],\n            { maxSlot: 15.0 }\n        );\n    })"
+      "source": "// Labelled sub-slot buckets per column (three named shifts)\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Planner.Point(\n            [{ name: \"Alice\" }, { name: \"Bob\" }],\n            {\n                axis: Planner.axis.number({\n                    buckets: [\n                        { key: \"morning\", label: \"AM\" },\n                        { key: \"afternoon\", label: \"PM\" },\n                        { key: \"evening\", label: \"EV\" },\n                    ],\n                    range: { min: 1, max: 3 },\n                }),\n                columns: [{ key: \"name\", frozen: true, value: r => r.name }],\n                events: _r => [\n                    Planner.event({ slot: Planner.at.number(1), bucket: \"morning\", label: \"A\", state: \"committed\" }),\n                    Planner.event({ slot: Planner.at.number(1), bucket: \"evening\", label: \"B\", state: \"added\" }),\n                ],\n            },\n        );\n    })"
     },
     {
-      "id": "east-ui:planner.examples.ts:plannerSingleSlotMode",
+      "id": "east-ui:planner.examples.ts:plannerOrdinalAxis",
       "skill": "east-ui",
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/collections/planner.examples.ts",
       "suite": "",
-      "test": "Events occupy exactly one slot each",
+      "test": "Ordinal phase axis, one slot per column",
       "keywords": [
         "Planner",
-        "Event",
-        "slotMode",
-        "single"
+        "ordinal",
+        "phase",
+        "stage",
+        "category",
+        "axis"
       ],
       "imports": [
-        "import { East, FloatType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Icon, Planner, Reactive, Stack, State, Stat, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+        "import { East, NullType, example } from \"@elaraai/east\";",
+        "import { Planner, Stack, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Events occupy exactly one slot each\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Planner.Root(\n            [\n                { resource: \"Room A\", s1: 1.0, s2: 3.0, s3: 5.0, s4: 7.0 },\n                { resource: \"Room B\", s1: 2.0, s2: 4.0, s3: 6.0, s4: 8.0 },\n            ],\n            [\"resource\"],\n            row => [\n                Planner.Event({ start: row.s1, colorPalette: \"teal\" }),\n                Planner.Event({ start: row.s2, colorPalette: \"teal\" }),\n                Planner.Event({ start: row.s3, colorPalette: \"teal\" }),\n                Planner.Event({ start: row.s4, colorPalette: \"teal\" }),\n            ],\n            { slotMode: \"single\", maxSlot: 10.0 }\n        );\n    })"
+      "source": "// Ordinal phase axis, one slot per column\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Planner.Point(\n            [{ name: \"Item\" }],\n            {\n                axis: Planner.axis.ordinal({ range: [\"backlog\", \"active\", \"review\", \"done\"] }),\n                columns: [{ key: \"name\", frozen: true, value: r => r.name }],\n                events: _r => [\n                    Planner.event({ slot: Planner.at.ordinal(\"active\"), label: \"Start\", state: \"committed\" }),\n                    Planner.event({ slot: Planner.at.ordinal(\"done\"), label: \"Wrap up\", state: \"model\" }),\n                ],\n            },\n        );\n    })"
     },
     {
-      "id": "east-ui:planner.examples.ts:plannerFractionalSteps",
+      "id": "east-ui:planner.examples.ts:plannerColumns",
       "skill": "east-ui",
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/collections/planner.examples.ts",
       "suite": "",
-      "test": "Events can start/end at half or quarter positions with stepSize snapping",
+      "test": "Value + eyebrow columns, a derived East-computed column, alignment, frozen, groupBy",
       "keywords": [
         "Planner",
-        "Event",
-        "stepSize",
-        "fractional",
-        "snap"
+        "column",
+        "eyebrow",
+        "sublabel",
+        "derived",
+        "group",
+        "groupBy",
+        "frozen",
+        "capacity"
       ],
       "imports": [
-        "import { East, FloatType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Icon, Planner, Reactive, Stack, State, Stat, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+        "import { East, NullType, example } from \"@elaraai/east\";",
+        "import { Planner, Stack, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Events can start/end at half or quarter positions with stepSize snapping\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Planner.Root(\n            [\n                { task: \"Task A\", start: 0.0, end: 1.5 },\n                { task: \"Task B\", start: 1.5, end: 3.5 },\n                { task: \"Task C\", start: 0.5, end: 2.0 },\n            ],\n            [\"task\"],\n            row => [Planner.Event({ start: row.start, end: row.end, colorPalette: \"purple\", label: { value: row.task } })],\n            {\n                minSlot: 0.0,\n                maxSlot: 5.0,\n                stepSize: 0.5,\n            }\n        );\n    })"
+      "source": "// Value + eyebrow columns, a derived East-computed column, alignment, frozen, groupBy\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Planner.Point(\n            [\n                { name: \"Alice\", role: \"Lead\", team: \"Team A\", used: 6.0, cap: 8.0 },\n                { name: \"Bob\", role: \"Engineer\", team: \"Team A\", used: 4.0, cap: 8.0 },\n                { name: \"Carol\", role: \"Designer\", team: \"Team B\", used: 7.0, cap: 8.0 },\n            ],\n            {\n                axis: Planner.axis.number({ range: { min: 1, max: 3 } }),\n                groupBy: r => r.team,\n                columns: [\n                    { key: \"name\", frozen: true, value: r => r.name, sublabel: r => r.role },\n                    { key: \"hours\", header: \"Hours\", align: \"end\", value: r => East.str`${r.used} / ${r.cap} h` },\n                    { key: \"free\", header: \"Free\", align: \"end\", value: r => East.print(r.cap.subtract(r.used)) },\n                ],\n                events: _r => [Planner.event({ slot: Planner.at.number(1), label: \"Task\", state: \"committed\" })],\n            },\n        );\n    })"
     },
     {
-      "id": "east-ui:planner.examples.ts:plannerCustomSlotLabels",
+      "id": "east-ui:planner.examples.ts:plannerMarkers",
       "skill": "east-ui",
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/collections/planner.examples.ts",
       "suite": "",
-      "test": "Use a function to format slot labels",
+      "test": "Status markers parallel to events — success / warning / danger / info, each a status-coloured ring + corner icon with a hover tooltip",
       "keywords": [
         "Planner",
-        "Event",
-        "slotLabel",
-        "format"
+        "marker",
+        "status",
+        "success",
+        "warning",
+        "danger",
+        "info",
+        "flag",
+        "tooltip"
       ],
       "imports": [
-        "import { East, FloatType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Icon, Planner, Reactive, Stack, State, Stat, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+        "import { East, NullType, example } from \"@elaraai/east\";",
+        "import { Planner, Stack, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Use a function to format slot labels\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Planner.Root(\n            [\n                { shift: \"Morning\", start: 0.0, end: 2.0 },\n                { shift: \"Afternoon\", start: 2.0, end: 4.0 },\n                { shift: \"Evening\", start: 4.0, end: 6.0 },\n            ],\n            { shift: { header: \"Shift\" } },\n            row => [Planner.Event({ start: row.start, end: row.end, colorPalette: \"orange\" })],\n            {\n                minSlot: 0.0,\n                maxSlot: 7.0,\n                slotLabel: East.function([FloatType], StringType, (_$, slot) => {\n                    return East.str`Day ${slot}`;\n                }),\n            }\n        );\n    })"
+      "source": "// Status markers parallel to events — success / warning / danger / info, each a status-coloured ring + corner icon with a hover tooltip\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Planner.Point(\n            [\n                { name: \"api-01\", role: \"Lead\" },\n                { name: \"api-02\", role: \"Engineer\" },\n                { name: \"cache\", role: \"Service\" },\n                { name: \"etl-01\", role: \"Batch\" },\n            ],\n            {\n                axis: Planner.axis.number({ buckets: [{ key: \"am\", label: \"AM\" }, { key: \"pm\", label: \"PM\" }], range: { min: 1, max: 4 } }),\n                columns: [{ key: \"name\", frozen: true, value: r => r.name, sublabel: r => r.role }],\n                events: _r => [\n                    Planner.event({ slot: Planner.at.number(1), bucket: \"am\", label: \"✓\", state: \"committed\" }),\n                    Planner.event({ slot: Planner.at.number(2), bucket: \"am\", label: \"✓\", state: \"committed\" }),\n                    Planner.event({ slot: Planner.at.number(3), bucket: \"am\", label: \"plan\", state: \"added\" }),\n                ],\n                markers: _r => [\n                    Planner.marker({ slot: Planner.at.number(1), status: \"success\", message: \"On track\" }),\n                    Planner.marker({ slot: Planner.at.number(2), status: \"warning\", message: \"Tight turnaround\" }),\n                    Planner.marker({ slot: Planner.at.number(3), status: \"danger\", message: \"Double-booked in this slot\" }),\n                    Planner.marker({ slot: Planner.at.number(4), status: \"info\", message: \"Pending review\" }),\n                ],\n            },\n        );\n    })"
     },
     {
-      "id": "east-ui:planner.examples.ts:plannerStyled",
+      "id": "east-ui:planner.examples.ts:plannerPopover",
       "skill": "east-ui",
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/collections/planner.examples.ts",
       "suite": "",
-      "test": "Table styling options: striped, interactive, custom grid lines",
-      "keywords": [
-        "Planner",
-        "striped",
-        "interactive",
-        "slotLineStroke",
-        "slotLineDash",
-        "slotLineOpacity"
-      ],
-      "imports": [
-        "import { East, FloatType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Icon, Planner, Reactive, Stack, State, Stat, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Table styling options: striped, interactive, custom grid lines\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Planner.Root(\n            [\n                { task: \"Analysis\", priority: \"High\", start: 1.0, end: 3.0 },\n                { task: \"Design\", priority: \"Medium\", start: 2.0, end: 5.0 },\n                { task: \"Build\", priority: \"High\", start: 4.0, end: 8.0 },\n                { task: \"Test\", priority: \"Low\", start: 6.0, end: 9.0 },\n            ],\n            [\"task\", \"priority\"],\n            row => [Planner.Event({ start: row.start, end: row.end, colorPalette: \"cyan\" })],\n            {\n                striped: true,\n                slotLineStroke: \"gray.300\",\n                slotLineDash: \"4 2\",\n                slotLineOpacity: 0.7,\n                maxSlot: 10.0,\n            }\n        );\n    })"
-    },
-    {
-      "id": "east-ui:planner.examples.ts:plannerComplexColumns",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/planner.examples.ts",
-      "suite": "",
-      "test": "Array and struct fields with value functions and East render functions",
-      "keywords": [
-        "Planner",
-        "value",
-        "render",
-        "complex",
-        "array",
-        "struct"
-      ],
-      "imports": [
-        "import { East, FloatType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Icon, Planner, Reactive, Stack, State, Stat, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Array and struct fields with value functions and East render functions\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const plannerComplexData = $.let(East.value([\n            { name: \"Alice\", skills: [\"TypeScript\", \"React\"], info: { dept: \"Eng\", level: 3n }, start: 1.0, end: 4.0 },\n            { name: \"Bob\", skills: [\"Python\"], info: { dept: \"Data\", level: 2n }, start: 2.0, end: 5.0 },\n            { name: \"Charlie\", skills: [\"Go\", \"Rust\", \"C++\"], info: { dept: \"Infra\", level: 4n }, start: 3.0, end: 7.0 },\n        ]));\n        return Planner.Root(\n            plannerComplexData,\n            {\n                name: { header: \"Name\" },\n                skills: {\n                    header: \"Skills\",\n                    value: (skills) => skills.size(),\n                    render: East.function(\n                        [Table.Types.CellRenderContext],\n                        UIComponentType,\n                        ($, ctx) => {\n                            const row = $.let(plannerComplexData.get(ctx.rowIndex));\n                            return Text.Root(East.str`${row.skills.size()} skills`);\n                        }\n                    ),\n                },\n                info: {\n                    header: \"Level\",\n                    value: (info) => info.level,\n                    render: East.function(\n                        [Table.Types.CellRenderContext],\n                        UIComponentType,\n                        ($, ctx) => {\n                            const row = $.let(plannerComplexData.get(ctx.rowIndex));\n                            return Text.Root(East.str`${row.info.dept} L${row.info.level}`);\n                        }\n                    ),\n                },\n            },\n            row => [Planner.Event({ start: row.start, end: row.end, colorPalette: \"purple\" })],\n            { maxSlot: 8.0, striped: true }\n        );\n    })"
-    },
-    {
-      "id": "east-ui:planner.examples.ts:plannerColumnRenderWithRow",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/planner.examples.ts",
-      "suite": "",
-      "test": "Render function closes over data to access other row fields",
-      "keywords": [
-        "Planner",
-        "render",
-        "CellRenderContext",
-        "row access"
-      ],
-      "imports": [
-        "import { East, FloatType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Icon, Planner, Reactive, Stack, State, Stat, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Render function closes over data to access other row fields\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const plannerRowData = $.let(East.value([\n            { task: \"Backend API\", owner: \"Alice\", priority: \"high\", start: 1.0, end: 4.0 },\n            { task: \"Frontend UI\", owner: \"Bob\", priority: \"medium\", start: 2.0, end: 6.0 },\n            { task: \"Integration\", owner: \"Charlie\", priority: \"high\", start: 4.0, end: 8.0 },\n            { task: \"Documentation\", owner: \"Diana\", priority: \"low\", start: 5.0, end: 9.0 },\n        ]));\n        return Planner.Root(\n            plannerRowData,\n            {\n                task: {\n                    header: \"Task\",\n                    render: East.function(\n                        [Table.Types.CellRenderContext],\n                        UIComponentType,\n                        ($, ctx) => {\n                            const row = $.let(plannerRowData.get(ctx.rowIndex));\n                            return Text.Root(East.str`${row.task} (${row.owner})`);\n                        }\n                    ),\n                },\n                priority: {\n                    header: \"Priority\",\n                    render: East.function(\n                        [Table.Types.CellRenderContext],\n                        UIComponentType,\n                        ($, ctx) => {\n                            const row = $.let(plannerRowData.get(ctx.rowIndex));\n                            return Badge.Root(\n                                East.str`${row.priority} (${row.owner})`,\n                                { variant: \"solid\" }\n                            );\n                        }\n                    ),\n                },\n            },\n            row => [Planner.Event({ start: row.start, end: row.end })],\n            { maxSlot: 10.0, striped: true }\n        );\n    })"
-    },
-    {
-      "id": "east-ui:planner.examples.ts:plannerWithBoundaries",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/planner.examples.ts",
-      "suite": "",
-      "test": "Vertical boundary lines at specific slot positions (e.g., deadlines, milestones)",
-      "keywords": [
-        "Planner",
-        "boundaries",
-        "deadline",
-        "milestone"
-      ],
-      "imports": [
-        "import { East, FloatType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Icon, Planner, Reactive, Stack, State, Stat, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Vertical boundary lines at specific slot positions (e.g., deadlines, milestones)\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Planner.Root(\n            [\n                { task: \"Planning\", team: \"Alpha\", start: 1.0, end: 3.0 },\n                { task: \"Development\", team: \"Beta\", start: 2.0, end: 6.0 },\n                { task: \"Testing\", team: \"Gamma\", start: 5.0, end: 8.0 },\n            ],\n            [\"task\", \"team\"],\n            row => [Planner.Event({ start: row.start, end: row.end, colorPalette: \"blue\" })],\n            {\n                maxSlot: 10.0,\n                boundaries: [\n                    { x: 4.0, stroke: \"red\", strokeWidth: 2 },\n                    { x: 7.0, stroke: \"green\", strokeWidth: 4, strokeDash: \"4 2\" },\n                ],\n            }\n        );\n    })"
-    },
-    {
-      "id": "east-ui:planner.examples.ts:plannerPopoverClick",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/planner.examples.ts",
-      "suite": "",
-      "test": "Per-event click popover — pass a UIComponent into ",
+      "test": "Per-event click popover with rich content",
       "keywords": [
         "Planner",
         "popover",
+        "detail",
         "click",
         "rich"
       ],
       "imports": [
-        "import { East, FloatType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Icon, Planner, Reactive, Stack, State, Stat, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+        "import { East, NullType, example } from \"@elaraai/east\";",
+        "import { Planner, Stack, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Per-event click popover — pass a UIComponent into \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Planner.Root(\n            [\n                { task: \"Sprint Planning\", owner: \"Alice\", start: 1.0, end: 3.0 },\n                { task: \"Development\", owner: \"Bob\", start: 2.0, end: 5.0 },\n                { task: \"Code Review\", owner: \"Charlie\", start: 4.0, end: 6.0 },\n            ],\n            [\"task\", \"owner\"],\n            row => [Planner.Event({\n                start: row.start,\n                end: row.end,\n                label: { value: row.task },\n                colorPalette: \"teal\",\n                popover: Stack.VStack([\n                    Text.Root(East.str`Event: ${row.task}`, { fontWeight: \"bold\" }),\n                    Text.Root(East.str`Owner: ${row.owner}`),\n                    Text.Root(East.str`Slots: ${row.start} – ${row.end}`),\n                ], { gap: \"2\" }),\n            })],\n            { maxSlot: 8.0 }\n        );\n    })"
+      "source": "// Per-event click popover with rich content\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Planner.Point(\n            [{ name: \"Alice\" }],\n            {\n                axis: Planner.axis.number({ range: { min: 1, max: 3 } }),\n                columns: [{ key: \"name\", frozen: true, value: r => r.name }],\n                events: _r => [\n                    Planner.event({\n                        slot: Planner.at.number(2), label: \"Review\", state: \"committed\",\n                        popover: Stack.VStack([Text.Root(\"Review\", { fontWeight: \"semibold\" }), Text.Root(\"Owner: Alice\", { color: \"fg.muted\" })], { gap: \"1\" }),\n                    }),\n                ],\n            },\n        );\n    })"
     },
     {
-      "id": "east-ui:planner.examples.ts:plannerEventTooltip",
+      "id": "east-ui:planner.examples.ts:plannerSpan",
       "skill": "east-ui",
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/collections/planner.examples.ts",
       "suite": "",
-      "test": "Per-event hover tooltip — pass a UIComponent into ",
+      "test": "Span variant: multi-slot datetime spans, committed and proposed",
       "keywords": [
         "Planner",
-        "tooltip",
-        "hover",
-        "rich"
+        "span",
+        "gantt",
+        "datetime",
+        "range",
+        "duration",
+        "timeline"
       ],
       "imports": [
-        "import { East, FloatType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Icon, Planner, Reactive, Stack, State, Stat, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+        "import { East, NullType, example } from \"@elaraai/east\";",
+        "import { Planner, Stack, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Per-event hover tooltip — pass a UIComponent into \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Planner.Root(\n            [\n                { resource: \"Server A\", status: \"Active\", start: 0.0, end: 4.0 },\n                { resource: \"Server B\", status: \"Idle\", start: 2.0, end: 6.0 },\n                { resource: \"Server C\", status: \"Maintenance\", start: 5.0, end: 8.0 },\n            ],\n            [\"resource\", \"status\"],\n            row => [Planner.Event({\n                start: row.start,\n                end: row.end,\n                label: { value: row.resource },\n                colorPalette: \"purple\",\n                tooltip: Stack.VStack([\n                    Badge.Root(East.str`${row.resource}`, { colorPalette: \"purple\", variant: \"solid\" }),\n                    Text.Root(East.str`Status: ${row.status}`),\n                ], { gap: \"1\", padding: \"0px\" }),\n            })],\n            { maxSlot: 10.0 }\n        );\n    })"
+      "source": "// Span variant: multi-slot datetime spans, committed and proposed\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Planner.Span(\n            [\n                { name: \"Workstream A\", owner: \"d.park\" },\n                { name: \"Workstream B\", owner: \"r.chen\" },\n            ],\n            {\n                axis: Planner.axis.time({ format: \"MMM\" }),\n                columns: [{ key: \"name\", frozen: true, value: r => r.name, sublabel: r => r.owner }],\n                events: _r => [\n                    Planner.event({\n                        slot: Planner.at.time(new Date(\"2024-01-01\")), endSlot: Planner.at.time(new Date(\"2024-02-15\")),\n                        label: \"Phase one\", state: \"committed\",\n                    }),\n                    Planner.event({\n                        slot: Planner.at.time(new Date(\"2024-02-15\")), endSlot: Planner.at.time(new Date(\"2024-04-01\")),\n                        label: \"Phase two\", state: \"added\",\n                    }),\n                ],\n            },\n        );\n    })"
     },
     {
-      "id": "east-ui:planner.examples.ts:plannerPopoverAndContextMenu",
+      "id": "east-ui:planner.examples.ts:plannerDensity",
       "skill": "east-ui",
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/collections/planner.examples.ts",
       "suite": "",
-      "test": "Click for popover, right-click for Edit/Delete context menu",
+      "test": "Density control over the row / header rhythm",
       "keywords": [
         "Planner",
-        "popover",
-        "onEventEdit",
-        "onEventDelete",
-        "combined"
+        "density",
+        "compact",
+        "comfortable",
+        "condensed",
+        "size"
       ],
       "imports": [
-        "import { East, FloatType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Icon, Planner, Reactive, Stack, State, Stat, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
+        "import { East, NullType, example } from \"@elaraai/east\";",
+        "import { Planner, Stack, Text, UIComponentType } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Click for popover, right-click for Edit/Delete context menu\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Planner.Root(\n            [\n                { project: \"Alpha\", phase: \"Design\", start: 1.0, end: 3.0 },\n                { project: \"Beta\", phase: \"Build\", start: 2.0, end: 5.0 },\n                { project: \"Gamma\", phase: \"Test\", start: 4.0, end: 7.0 },\n            ],\n            [\"project\", \"phase\"],\n            row => [Planner.Event({\n                start: row.start,\n                end: row.end,\n                label: { value: row.project },\n                colorPalette: \"orange\",\n                popover: Stack.VStack([\n                    Text.Root(East.str`${row.project} — ${row.phase}`, { fontWeight: \"semibold\" }),\n                    Text.Root(East.str`Time: ${row.start} to ${row.end}`),\n                ], { gap: \"2\" }),\n            })],\n            {\n                maxSlot: 8.0,\n                onEventEdit: East.function([Planner.Types.ClickEvent], NullType, () => null),\n                onEventDelete: East.function([Planner.Types.DeleteEvent], NullType, () => null),\n            }\n        );\n    })"
-    },
-    {
-      "id": "east-ui:planner.examples.ts:plannerReadOnlyMode",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/planner.examples.ts",
-      "suite": "",
-      "test": "Read-only planner — omit ",
-      "keywords": [
-        "Planner",
-        "read-only",
-        "no callbacks"
-      ],
-      "imports": [
-        "import { East, FloatType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Icon, Planner, Reactive, Stack, State, Stat, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Read-only planner — omit \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Planner.Root(\n            [\n                { task: \"Fixed Task A\", start: 1.0, end: 3.0 },\n                { task: \"Fixed Task B\", start: 2.0, end: 5.0 },\n                { task: \"Fixed Task C\", start: 4.0, end: 7.0 },\n            ],\n            [\"task\"],\n            row => [Planner.Event({ start: row.start, end: row.end, colorPalette: \"gray\", label: { value: row.task } })],\n            { maxSlot: 8.0 }\n        );\n    })"
-    },
-    {
-      "id": "east-ui:planner.examples.ts:plannerEventStyling",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/planner.examples.ts",
-      "suite": "",
-      "test": "Custom background, opacity, and label styling (color, font weight, style, size, alignment)",
-      "keywords": [
-        "Planner",
-        "Event",
-        "label",
-        "background",
-        "stroke",
-        "opacity",
-        "color",
-        "fontWeight",
-        "fontStyle"
-      ],
-      "imports": [
-        "import { East, FloatType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Icon, Planner, Reactive, Stack, State, Stat, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Custom background, opacity, and label styling (color, font weight, style, size, alignment)\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Planner.Root(\n            [\n                { task: \"Default\", start: 1.0, end: 4.0 },\n                { task: \"Bold Red\", start: 1.0, end: 4.0 },\n                { task: \"Custom BG\", start: 1.0, end: 4.0 },\n                { task: \"Faded\", start: 1.0, end: 4.0 },\n            ],\n            [\"task\"],\n            () => [\n                Planner.Event({\n                    start: 1.0,\n                    end: 3.0,\n                    label: { value: \"Default\" },\n                    colorPalette: \"blue\",\n                }),\n                Planner.Event({\n                    start: 4.0,\n                    end: 6.0,\n                    label: { value: \"Bold Red\", color: \"red.600\", fontWeight: \"bold\", fontSize: \"md\" },\n                    colorPalette: \"gray\",\n                }),\n                Planner.Event({\n                    start: 7.0,\n                    end: 9.0,\n                    label: { value: \"Centered\", align: \"center\", color: \"white\", fontWeight: \"semibold\" },\n                    background: \"#ff69b4\",\n                    stroke: \"#c71585\",\n                }),\n                Planner.Event({\n                    start: 10.0,\n                    end: 12.0,\n                    label: { value: \"Faded Italic\", fontStyle: \"italic\" },\n                    colorPalette: \"red\",\n                    opacity: 0.5,\n                }),\n            ],\n            { maxSlot: 13.0 }\n        );\n    })"
-    },
-    {
-      "id": "east-ui:planner.examples.ts:plannerOverlappingEvents",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/planner.examples.ts",
-      "suite": "",
-      "test": "Hover over an event to dim others in the same row, making overlapping labels readable",
-      "keywords": [
-        "Planner",
-        "Event",
-        "overlapping",
-        "hover",
-        "dim"
-      ],
-      "imports": [
-        "import { East, FloatType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Icon, Planner, Reactive, Stack, State, Stat, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Hover over an event to dim others in the same row, making overlapping labels readable\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Planner.Root(\n            [\n                { resource: \"Team Alpha\", category: \"Development\" },\n                { resource: \"Team Beta\", category: \"Design\" },\n            ],\n            [\"resource\", \"category\"],\n            () => [\n                Planner.Event({ start: 0.0, end: 3.0, label: { value: \"Task A\" }, colorPalette: \"blue\" }),\n                Planner.Event({ start: 2.0, end: 5.0, label: { value: \"Task B (overlaps A)\" }, colorPalette: \"green\" }),\n                Planner.Event({ start: 4.0, end: 7.0, label: { value: \"Task C (overlaps B)\" }, colorPalette: \"orange\" }),\n                Planner.Event({ start: 6.0, end: 9.0, label: { value: \"Task D (overlaps C)\" }, colorPalette: \"purple\" }),\n            ],\n            { maxSlot: 10.0 }\n        );\n    })"
-    },
-    {
-      "id": "east-ui:planner.examples.ts:plannerWithIcons",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/planner.examples.ts",
-      "suite": "",
-      "test": "Icons can be positioned independently (start, center, end) with or without labels",
-      "keywords": [
-        "Planner",
-        "Event",
-        "icon",
-        "align",
-        "start",
-        "center",
-        "end"
-      ],
-      "imports": [
-        "import { East, FloatType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Icon, Planner, Reactive, Stack, State, Stat, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Icons can be positioned independently (start, center, end) with or without labels\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Planner.Root(\n            [\n                { task: \"Icon at Start\", position: \"start\" },\n                { task: \"Icon at Center\", position: \"center\" },\n                { task: \"Icon at End\", position: \"end\" },\n                { task: \"Icon + Label\", position: \"both\" },\n            ],\n            [\"task\", \"position\"],\n            () => [\n                Planner.Event({\n                    start: 0.0,\n                    end: 3.0,\n                    icon: { prefix: \"fas\", name: \"check\", align: \"start\" },\n                    colorPalette: \"green\",\n                }),\n                Planner.Event({\n                    start: 4.0,\n                    end: 7.0,\n                    icon: { prefix: \"fas\", name: \"spinner\", align: \"center\" },\n                    colorPalette: \"blue\",\n                }),\n                Planner.Event({\n                    start: 8.0,\n                    end: 11.0,\n                    icon: { prefix: \"fas\", name: \"flag\", align: \"end\", color: \"red.500\" },\n                    colorPalette: \"gray\",\n                }),\n                Planner.Event({\n                    start: 0.0,\n                    end: 5.0,\n                    icon: { prefix: \"fas\", name: \"play\", align: \"start\", size: \"lg\" },\n                    label: { value: \"In Progress\", align: \"end\" },\n                    colorPalette: \"purple\",\n                }),\n            ],\n            { maxSlot: 12.0 }\n        );\n    })"
-    },
-    {
-      "id": "east-ui:planner.examples.ts:plannerLabelAlignment",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/planner.examples.ts",
-      "suite": "",
-      "test": "Labels can be positioned horizontally (start, center, end) and vertically (start, center, end)",
-      "keywords": [
-        "Planner",
-        "Event",
-        "label",
-        "align",
-        "verticalAlign"
-      ],
-      "imports": [
-        "import { East, FloatType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Icon, Planner, Reactive, Stack, State, Stat, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Labels can be positioned horizontally (start, center, end) and vertically (start, center, end)\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Planner.Root(\n            [\n                { position: \"Top Left\", hAlign: variant(\"start\", null), vAlign: variant(\"start\", null), color: variant(\"blue\", null) },\n                { position: \"Top Center\", hAlign: variant(\"center\", null), vAlign: variant(\"start\", null), color: variant(\"green\", null) },\n                { position: \"Top Right\", hAlign: variant(\"end\", null), vAlign: variant(\"start\", null), color: variant(\"purple\", null) },\n                { position: \"Center Left\", hAlign: variant(\"start\", null), vAlign: variant(\"center\", null), color: variant(\"teal\", null) },\n                { position: \"Center\", hAlign: variant(\"center\", null), vAlign: variant(\"center\", null), color: variant(\"orange\", null) },\n                { position: \"Center Right\", hAlign: variant(\"end\", null), vAlign: variant(\"center\", null), color: variant(\"cyan\", null) },\n                { position: \"Bottom Left\", hAlign: variant(\"start\", null), vAlign: variant(\"end\", null), color: variant(\"red\", null) },\n                { position: \"Bottom Center\", hAlign: variant(\"center\", null), vAlign: variant(\"end\", null), color: variant(\"pink\", null) },\n                { position: \"Bottom Right\", hAlign: variant(\"end\", null), vAlign: variant(\"end\", null), color: variant(\"gray\", null) },\n            ],\n            [\"position\"],\n            row => [\n                Planner.Event({\n                    start: 0.0,\n                    end: 4.0,\n                    label: { value: row.position, align: row.hAlign, verticalAlign: row.vAlign },\n                    colorPalette: row.color,\n                }),\n            ],\n            { maxSlot: 5.0 }\n        );\n    })"
-    },
-    {
-      "id": "east-ui:planner.examples.ts:plannerCustomHeight",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/planner.examples.ts",
-      "suite": "",
-      "test": "Set height via style to control container size",
-      "keywords": [
-        "Planner",
-        "Root",
-        "height"
-      ],
-      "imports": [
-        "import { East, FloatType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Icon, Planner, Reactive, Stack, State, Stat, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Set height via style to control container size\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Planner.Root(\n            [\n                { resource: \"Alice\", task: \"Development\", start: 1.0, end: 3.0 },\n                { resource: \"Bob\", task: \"Testing\", start: 2.0, end: 5.0 },\n                { resource: \"Charlie\", task: \"Review\", start: 4.0, end: 6.0 },\n                { resource: \"Diana\", task: \"Deploy\", start: 5.0, end: 8.0 },\n                { resource: \"Eve\", task: \"Monitor\", start: 7.0, end: 10.0 },\n            ],\n            [\"resource\", \"task\"],\n            row => [Planner.Event({ start: row.start, end: row.end, colorPalette: \"blue\" })],\n            { height: \"200px\", variant: \"line\" }\n        );\n    })"
-    },
-    {
-      "id": "east-ui:planner.examples.ts:plannerFrozenColumns",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/planner.examples.ts",
-      "suite": "",
-      "test": "Pin columns left so they stay visible while scrolling the timeline",
-      "keywords": [
-        "Planner",
-        "frozen",
-        "pin"
-      ],
-      "imports": [
-        "import { East, FloatType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Icon, Planner, Reactive, Stack, State, Stat, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Pin columns left so they stay visible while scrolling the timeline\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Planner.Root(\n            [\n                { id: \"#1\", resource: \"Alice\", dept: \"Engineering\", role: \"Lead\", priority: \"High\", start: 1.0, end: 4.0 },\n                { id: \"#2\", resource: \"Bob\", dept: \"Design\", role: \"Senior\", priority: \"Medium\", start: 2.0, end: 6.0 },\n                { id: \"#3\", resource: \"Charlie\", dept: \"Engineering\", role: \"Junior\", priority: \"Low\", start: 3.0, end: 7.0 },\n                { id: \"#4\", resource: \"Diana\", dept: \"QA\", role: \"Senior\", priority: \"High\", start: 5.0, end: 9.0 },\n                { id: \"#5\", resource: \"Eve\", dept: \"DevOps\", role: \"Lead\", priority: \"Medium\", start: 7.0, end: 10.0 },\n            ],\n            {\n                id: { header: \"ID\", width: \"80px\" },\n                resource: { header: \"Resource\", width: \"150px\" },\n                dept: { header: \"Department\", width: \"150px\" },\n                role: { header: \"Role\", width: \"120px\" },\n                priority: { header: \"Priority\", width: \"120px\" },\n            },\n            row => [Planner.Event({ start: row.start, end: row.end })],\n            {\n                frozen: [\"id\", \"resource\"],\n                variant: \"line\",\n                striped: true,\n                height: \"300px\",\n            }\n        );\n    })"
-    },
-    {
-      "id": "east-ui:planner.examples.ts:plannerRowStatus",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/planner.examples.ts",
-      "suite": "",
-      "test": "Row-status tint — ",
-      "keywords": [
-        "Planner",
-        "rowStatus",
-        "StatusToken",
-        "tint",
-        "theme-agnostic"
-      ],
-      "imports": [
-        "import { East, FloatType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Icon, Planner, Reactive, Stack, State, Stat, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Row-status tint — \n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rowStatus = $.const(East.function([IntegerType], Style.Types.StatusToken, ($, rowIndex) => {\n            const bucket = $.let(rowIndex.modulo(3n), IntegerType);\n            return bucket.equals(0n).ifElse(\n                $ => Style.StatusToken(\"success\"),\n                $ => bucket.equals(1n).ifElse(\n                    $ => Style.StatusToken(\"warning\"),\n                    $ => Style.StatusToken(\"danger\"),\n                ),\n            );\n        }));\n        return Planner.Root(\n            [\n                { name: \"Alice\", slot: 1.0 },\n                { name: \"Bob\", slot: 3.0 },\n                { name: \"Charlie\", slot: 5.0 },\n            ],\n            { name: { header: \"Name\" } },\n            row => [Planner.Event({ start: row.slot })],\n            { rowStatus, slotMode: \"single\" },\n        );\n    })"
-    },
-    {
-      "id": "east-ui:planner.examples.ts:plannerChromeColours",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/planner.examples.ts",
-      "suite": "",
-      "test": "Root chrome colour overrides — explicit grid / now-marker / header colours",
-      "keywords": [
-        "Planner",
-        "gridColor",
-        "nowMarkerColor",
-        "headerBackground",
-        "headerColor",
-        "chrome"
-      ],
-      "imports": [
-        "import { East, FloatType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Icon, Planner, Reactive, Stack, State, Stat, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Root chrome colour overrides — explicit grid / now-marker / header colours\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Planner.Root(\n            [{ name: \"Alice\", slot: 1.0 }, { name: \"Bob\", slot: 3.0 }],\n            { name: { header: \"Name\" } },\n            row => [Planner.Event({ start: row.slot })],\n            {\n                slotMode: \"single\",\n                gridColor: \"blue.100\",\n                nowMarkerColor: \"red.500\",\n                headerBackground: \"blue.50\",\n                headerColor: \"blue.900\",\n            },\n        );\n    })"
-    },
-    {
-      "id": "east-ui:planner.examples.ts:plannerEventOverlays",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/planner.examples.ts",
-      "suite": "",
-      "test": "Per-event overlays — UIComponents pinned to corners of the event bar (priority chip top-right, status icon bottom-left)",
-      "keywords": [
-        "Planner",
-        "Event",
-        "overlays",
-        "axis",
-        "align",
-        "verticalAlign",
-        "Badge",
-        "Icon"
-      ],
-      "imports": [
-        "import { East, FloatType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Icon, Planner, Reactive, Stack, State, Stat, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Per-event overlays — UIComponents pinned to corners of the event bar (priority chip top-right, status icon bottom-left)\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Planner.Root(\n            [\n                { task: \"API redesign\", priority: \"HIGH\", start: 0.0, end: 4.0 },\n                { task: \"UI polish\", priority: \"LOW\", start: 2.0, end: 6.0 },\n            ],\n            [\"task\", \"priority\"],\n            row => [Planner.Event({\n                start: row.start,\n                end: row.end,\n                label: { value: row.task, color: \"white\" },\n                colorPalette: \"purple\",\n                overlays: [\n                    {\n                        content: Badge.Root(row.priority, { colorPalette: \"red\", variant: \"solid\", size: \"xs\" }),\n                        align: \"end\",\n                        verticalAlign: \"start\",\n                    },\n                    {\n                        content: Icon.Root(\"fas\", \"circle-check\", { colorPalette: \"green\", size: \"sm\" }),\n                        align: \"start\",\n                        verticalAlign: \"end\",\n                    },\n                ],\n            })],\n            { maxSlot: 8.0 },\n        );\n    })"
-    },
-    {
-      "id": "east-ui:planner.examples.ts:plannerVisualTokens",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/planner.examples.ts",
-      "suite": "",
-      "test": "Visual-parity tokens — ",
-      "keywords": [
-        "Planner",
-        "eventBorderRadius",
-        "labelColor",
-        "labelFontSize",
-        "labelFontWeight",
-        "visual",
-        "tokens"
-      ],
-      "imports": [
-        "import { East, FloatType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Icon, Planner, Reactive, Stack, State, Stat, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Visual-parity tokens — \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Planner.Root(\n            // Single row carrying two events on the same track. The first\n            // event inherits the cascading style-level label tokens; the\n            // second overrides them via per-event `label.color` /\n            // `fontSize` / `fontWeight`.\n            [{ row: \"demo\" }],\n            [\"row\"],\n            (_row) => [\n                Planner.Event({\n                    start: 0.0,\n                    end: 4.0,\n                    label: { value: \"Inherits defaults\" },\n                    colorPalette: \"teal\",\n                }),\n                Planner.Event({\n                    start: 5.0,\n                    end: 9.0,\n                    label: {\n                        value: \"Overrides per-event\",\n                        color: \"yellow.300\",\n                        fontSize: \"lg\",\n                        fontWeight: \"bold\",\n                    },\n                    colorPalette: \"teal\",\n                }),\n            ],\n            {\n                maxSlot: 10.0,\n                eventBorderRadius: \"8px\",\n                labelColor: \"white\",\n                labelFontSize: \"0.875rem\",\n                labelFontWeight: \"700\",\n            },\n        );\n    })"
-    },
-    {
-      "id": "east-ui:planner.examples.ts:plannerInteractive",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/planner.examples.ts",
-      "suite": "",
-      "test": "Live interactivity — drag, resize, and click-on-empty-slot fire callbacks that update state; absence of a callback would disable that interaction",
-      "keywords": [
-        "Planner",
-        "Reactive",
-        "State",
-        "onEventDrag",
-        "onEventResize",
-        "onEventAdd",
-        "interactive",
-        "live"
-      ],
-      "imports": [
-        "import { East, FloatType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Icon, Planner, Reactive, Stack, State, Stat, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Live interactivity — drag, resize, and click-on-empty-slot fire callbacks that update state; absence of a callback would disable that interaction\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const startBind = $.let(State.bind([FloatType], \"planner_event_start\", 1.0));\n            const endBind = $.let(State.bind([FloatType], \"planner_event_end\", 4.0));\n            const eventStart = $.let(startBind.read());\n            const eventEnd = $.let(endBind.read());\n\n            const onEventDrag = $.const(East.function(\n                [Planner.Types.DragEvent],\n                NullType,\n                ($, event) => {\n                    $(startBind.write(event.newStart));\n                    $(endBind.write(event.newEnd));\n                },\n            ));\n\n            const onEventResize = $.const(East.function(\n                [Planner.Types.ResizeEvent],\n                NullType,\n                ($, event) => {\n                    $(startBind.write(event.newStart));\n                    $(endBind.write(event.newEnd));\n                },\n            ));\n\n            const onEventAdd = $.const(East.function(\n                [Planner.Types.AddEvent],\n                NullType,\n                ($, event) => {\n                    $(startBind.write(event.slot));\n                    $(endBind.write(event.slot.add(2.0)));\n                },\n            ));\n\n            return Stack.VStack([\n                Planner.Root(\n                    [{ name: \"Drag, resize, or click an empty slot\" }],\n                    { name: { header: \"Demo\" } },\n                    _row => [Planner.Event({\n                        start: eventStart,\n                        end: eventEnd,\n                        label: { value: \"Drag me / resize edges\" },\n                        colorPalette: \"orange\",\n                    })],\n                    {\n                        minSlot: 0.0,\n                        maxSlot: 10.0,\n                        onEventDrag,\n                        onEventResize,\n                        onEventAdd,\n                    },\n                ),\n                Text.Root(\n                    East.str`Position: slot ${eventStart} → ${eventEnd}`,\n                    { textStyle: \"body-sm\", color: \"fg.muted\" },\n                ),\n            ], { gap: \"3\", align: \"stretch\" });\n        }));\n    })"
-    },
-    {
-      "id": "east-ui:planner.examples.ts:plannerReactiveClick",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/planner.examples.ts",
-      "suite": "",
-      "test": "Reactive click — ",
-      "keywords": [
-        "Planner",
-        "Reactive",
-        "State",
-        "onEventClick",
-        "reactive",
-        "callback"
-      ],
-      "imports": [
-        "import { East, FloatType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Icon, Planner, Reactive, Stack, State, Stat, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Reactive click — \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const lastClickBind = $.let(State.bind([StringType], \"planner_last_click\", \"\"));\n            const lastClick = $.let(lastClickBind.read());\n\n            const onEventClick = $.const(East.function(\n                [Planner.Types.ClickEvent],\n                NullType,\n                ($, event) => {\n                    $(lastClickBind.write(\n                        East.str`row ${event.rowIndex}, event ${event.eventIndex}, slots ${event.start}-${event.end}`,\n                    ));\n                },\n            ));\n\n            return Stack.VStack([\n                Planner.Root(\n                    [\n                        { team: \"Alpha\", start: 1.0, end: 3.0 },\n                        { team: \"Beta\", start: 2.0, end: 5.0 },\n                        { team: \"Gamma\", start: 4.0, end: 7.0 },\n                    ],\n                    [\"team\"],\n                    row => [Planner.Event({\n                        start: row.start,\n                        end: row.end,\n                        label: { value: row.team },\n                        colorPalette: \"cyan\",\n                    })],\n                    { maxSlot: 8.0, onEventClick },\n                ),\n                Badge.Root(\n                    East.equal(lastClick.length(), 0n).ifElse(\n                        _$ => \"Click any event\",\n                        _$ => East.str`Last click: ${lastClick}`,\n                    ),\n                    { colorPalette: \"cyan\", variant: \"outline\" },\n                ),\n            ], { gap: \"3\", align: \"stretch\" });\n        }));\n    })"
-    },
-    {
-      "id": "east-ui:planner.examples.ts:plannerEventPopoverWithCallback",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/planner.examples.ts",
-      "suite": "",
-      "test": "Per-event popover coexists with ",
-      "keywords": [
-        "Planner",
-        "popover",
-        "onEventClick",
-        "coexist",
-        "callback"
-      ],
-      "imports": [
-        "import { East, FloatType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
-        "import { Badge, Icon, Planner, Reactive, Stack, State, Stat, Style, Table, Text, UIComponentType } from \"@elaraai/east-ui\";"
-      ],
-      "source": "// Per-event popover coexists with \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Reactive.Root(East.function([], UIComponentType, $ => {\n            const clicksBind = $.let(State.bind([IntegerType], \"planner_popover_clicks\", 0n));\n            const clicks = $.let(clicksBind.read());\n\n            const onEventClick = $.const(East.function(\n                [Planner.Types.ClickEvent],\n                NullType,\n                ($, _event) => {\n                    const current = $.let(clicksBind.read(), IntegerType);\n                    $(clicksBind.write(current.add(1n)));\n                },\n            ));\n\n            return Stack.VStack([\n                Planner.Root(\n                    [{ task: \"Status review\", owner: \"Alice\", start: 1.0, end: 4.0 }],\n                    [\"task\", \"owner\"],\n                    row => [Planner.Event({\n                        start: row.start,\n                        end: row.end,\n                        label: { value: row.task },\n                        colorPalette: \"purple\",\n                        popover: Stat.Root(\n                            \"Total clicks\",\n                            East.str`${clicks}`,\n                            { helpText: \"Counter increments every click — popover and callback coexist.\" },\n                        ),\n                    })],\n                    { maxSlot: 6.0, onEventClick },\n                ),\n                Text.Root(\n                    East.str`Clicked ${clicks} times`,\n                    { textStyle: \"body-sm\", color: \"fg.muted\" },\n                ),\n            ], { gap: \"3\", align: \"stretch\" });\n        }));\n    })"
+      "source": "// Density control over the row / header rhythm\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return Planner.Point(\n            [{ name: \"Alice\" }, { name: \"Bob\" }],\n            {\n                axis: Planner.axis.number({ range: { min: 1, max: 4 } }),\n                density: \"compact\",\n                columns: [{ key: \"name\", frozen: true, value: r => r.name }],\n                events: _r => [Planner.event({ slot: Planner.at.number(1), label: \"Task\", state: \"committed\" })],\n            },\n        );\n    })"
     },
     {
       "id": "east-ui:table.examples.ts:tableBasic",

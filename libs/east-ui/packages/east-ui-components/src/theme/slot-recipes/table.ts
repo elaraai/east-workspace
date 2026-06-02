@@ -56,7 +56,10 @@ export const tableSlotRecipe = defineSlotRecipe({
             paddingY: "10px",
             borderBottomWidth: "1px",
             borderBottomColor: "border.subtle",
-            verticalAlign: "top",
+            // Centre cell content vertically — for the Table's content-height
+            // rows this matches the old top alignment; for the Gantt's left pane
+            // (rows sized to the same density token) it keeps text centred.
+            verticalAlign: "middle",
             color: "fg",
         },
         row: { transitionProperty: "background", transitionDuration: "{durations.fast}" },

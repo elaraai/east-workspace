@@ -151,6 +151,18 @@ export const tokens = defineTokens({
             lg: { value: "1040px" },
             xl: { value: "1200px" },  // marketing cap
         },
+        // Density-driven control heights — the single source for the column
+        // header band and one text row, per density (compact / cozy / comfortable
+        // → sm / md / lg). Derived from the Table cell rhythm (cell padding-Y
+        // 6/10/12 + font 12/13/14): 2·padY + round(font·1.25). Consumed by Table
+        // rows, Gantt/Planner header bands, and Planner slot rows — where a
+        // Planner "row" is one bucket (AM/PM/EV). Recipes can reference these
+        // (`{sizes.density.row.md}`); renderers read them as numbers via
+        // `useDensityHeights`.
+        density: {
+            header: { sm: { value: "27px" }, md: { value: "36px" }, lg: { value: "42px" } },
+            row:    { sm: { value: "27px" }, md: { value: "36px" }, lg: { value: "42px" } },
+        },
     },
     shadows: {
         // Cool ink at low opacity — never warm, never black.

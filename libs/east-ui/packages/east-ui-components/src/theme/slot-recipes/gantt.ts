@@ -28,10 +28,11 @@ export const ganttSlotRecipe = defineSlotRecipe({
     ],
     base: {
         root: { display: "flex", flexDirection: "column", overflow: "hidden" },
+        // The strong bottom rule lives on the header CELLS (the `table`
+        // columnHeader slot on the left, the EventAxis cells on the timeline) —
+        // not here — so the band shows ONE line, not a container + cell pair.
         header: {
             background: "bg.canvas",
-            borderBottomWidth: "1px",
-            borderBottomColor: "border.strong",
             display: "flex",
         },
         headerCell: {

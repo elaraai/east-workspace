@@ -8,7 +8,19 @@ import { Box, HStack, Text } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronUp, faChevronDown, faAnglesDown, faThumbtack } from "@fortawesome/free-solid-svg-icons";
 import { flexRender } from "@tanstack/react-table";
-import type { Column, Header, SortingState } from "@tanstack/react-table";
+import type { Column, Header, SortingState, Table } from "@tanstack/react-table";
+
+// The custom column meta both Table/Gantt and Planner attach. Declared here in
+// the shared module so any consumer of these helpers carries the typing.
+declare module "@tanstack/react-table" {
+    /* eslint-disable @typescript-eslint/no-unused-vars */
+    interface ColumnMeta<TData, TValue> {
+        columnKey?: string;
+        width?: string | undefined;
+        alignEnd?: boolean;
+    }
+    /* eslint-enable @typescript-eslint/no-unused-vars */
+}
 
 // ── Pinning styles (TanStack recommended approach) ──────────────────
 
@@ -92,7 +104,11 @@ export function HeaderControls<TData>({
                 <Box as="span" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" flex="1">
                     {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
                 </Box>
-                <HStack gap={0} flexShrink={0} alignItems="center">
+                {/* Controls are hidden until the header is hovered (the consumer's
+                    header cell reveals `.col-controls`), except a pinned/sorted
+                    column keeps its indicator visible. Mirrors the Table. */}
+                <HStack className="col-controls" gap={0} flexShrink={0} alignItems="center"
+                    opacity={isPinned || isSorted ? 1 : 0} transition="opacity 0.15s">
                     {/* Pin toggle */}
                     <Box
                         as="button"
@@ -136,16 +152,41 @@ export function HeaderControls<TData>({
                     )}
                 </HStack>
             </HStack>
-            {enableColumnResizing && header.column.getCanResize() && (
-                <Box
-                    position="absolute" right="0" top="0" bottom="0" width="8px" cursor="col-resize" bg="transparent"
-                    _hover={{ _before: { opacity: 1, bg: 'fg.muted' } }}
-                    transition="all 0.2s" zIndex={10}
-                    onMouseDown={header.getResizeHandler()} onTouchStart={header.getResizeHandler()}
-                    _before={{ content: '""', position: 'absolute', right: '2px', top: '50%', transform: 'translateY(-50%)', width: '2px', height: '16px', bg: 'gray.300', borderRadius: '1px', opacity: 0.4, transition: 'opacity 0.2s' }}
-                />
-            )}
+            {enableColumnResizing && <ColumnResizeHandle header={header} />}
         </>
+    );
+}
+
+// ── Shared header divider bar + resize handle ───────────────────────
+
+/** The vertical grip/divider bar shown between header columns — 2px × 16px,
+ *  faint grey, its right edge sitting ON the column boundary so it lines up with
+ *  the body cells' `border-right`. The resize handle renders it (brightening on
+ *  hover); a non-resizable axis header renders <ColumnDividerBar/> for the SAME
+ *  look. (`right: 0` keeps it inside the cell — no clip under `overflow: hidden`.) */
+const DIVIDER_BAR = {
+    position: "absolute" as const, right: "0", top: "50%", transform: "translateY(-50%)",
+    width: "2px", height: "16px", bg: "gray.300", borderRadius: "1px",
+} as const;
+
+/** A static copy of the resize-handle grip bar, for non-resizable headers. */
+export function ColumnDividerBar() {
+    return <Box css={{ ...DIVIDER_BAR, opacity: 0.4 }} pointerEvents="none" />;
+}
+
+/** The interactive resize handle (drag to resize) showing the grip bar. Used by
+ *  HeaderControls, and directly by surfaces that want resize WITHOUT the pin /
+ *  sort controls (e.g. the Planner, whose left pane is frozen so pinning is moot). */
+export function ColumnResizeHandle<TData>({ header }: { header: Header<TData, unknown> }) {
+    if (!header.column.getCanResize()) return null;
+    return (
+        <Box
+            position="absolute" right="0" top="0" bottom="0" width="8px" cursor="col-resize" bg="transparent"
+            _hover={{ _before: { opacity: 1, bg: 'fg.muted' } }}
+            transition="all 0.2s" zIndex={10}
+            onMouseDown={header.getResizeHandler()} onTouchStart={header.getResizeHandler()}
+            _before={{ content: '""', ...DIVIDER_BAR, opacity: 0.4, transition: 'opacity 0.2s' }}
+        />
     );
 }
 
@@ -201,4 +242,35 @@ export function createGetSortIndex(sorting: SortingState) {
         const idx = sorting.findIndex(s => s.id === columnId);
         return idx >= 0 ? idx + 1 : undefined;
     };
+}
+
+// ── TanStack column-sizing derivations (shared by Table/Gantt/Planner) ──
+
+/**
+ * Memoized `--header-<id>-size` / `--col-<id>-size` CSS variables for the
+ * current column sizing. Applied once to the header/body wrapper so each cell
+ * reads its width from a variable instead of forcing a layout per resize tick.
+ */
+export function useColumnSizeVars<TData>(table: Table<TData>): Record<string, string> {
+    return useMemo(() => {
+        const colSizes: Record<string, string> = {};
+        for (const header of table.getFlatHeaders()) {
+            colSizes[`--header-${header.id}-size`] = `${header.getSize()}px`;
+            colSizes[`--col-${header.column.id}-size`] = `${header.column.getSize()}px`;
+        }
+        return colSizes;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [table.getState().columnSizingInfo, table.getState().columnSizing]);
+}
+
+/** The id of the last unpinned column — it stretches to fill remaining space. */
+export function useLastUnpinnedColumnId<TData>(table: Table<TData>): string | null {
+    return useMemo(() => {
+        const headers = table.getFlatHeaders();
+        for (let i = headers.length - 1; i >= 0; i--) {
+            if (!headers[i]!.column.getIsPinned()) return headers[i]!.id;
+        }
+        return null;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [table, table.getState().columnPinning]);
 }

@@ -114,7 +114,7 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 const MONTHS_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 /** Format a Date against a token pattern (`YYYY`/`MMM`/`DD`/`HH`/`mm`/…), single-pass. */
-function formatDatePattern(pattern: string, d: Date): string {
+export function formatDatePattern(pattern: string, d: Date): string {
     if (isNaN(d.getTime())) return "";
     const pad = (n: number) => String(n).padStart(2, "0");
     const map: Record<string, string> = {
@@ -230,16 +230,6 @@ function collectLegend(node: Spec, out: Array<{ key: string; color: string }>): 
         series: s => { for (const ser of s.data) if (ser.key) out.push({ key: ser.key, color: ser.color }); },
         bandArea: b => { for (const ser of b.data) if (ser.key) out.push({ key: ser.key, color: ser.color }); },
     }, undefined);
-}
-
-/** True if any descendant draws bars (bar marks position categorically). */
-function hasBarMark(node: Spec): boolean {
-    return match(node, {
-        frame: f => f.children.some(hasBarMark),
-        group: g => g.children.some(hasBarMark),
-        series: s => match(s.mark, { line: () => false, bar: () => true, area: () => false, scatter: () => false }),
-        bars: () => true,
-    }, false);
 }
 
 /** Gather per-point scatter `size` magnitudes, for the bubble size scale. */

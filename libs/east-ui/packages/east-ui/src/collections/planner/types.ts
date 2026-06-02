@@ -3,448 +3,408 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
+/**
+ * `Planner` IR — the UIComponent-free types. A Planner is a discrete
+ * `rows × ordered slots` scheduling grid: rows are typed resources, slots are
+ * positions on a typed axis, and each cell holds zero or more events in one of
+ * three audit states.
+ *
+ * The axis design follows the `Chart.Spec` style — a typed coordinate variant
+ * ({@link PlannerSlotType}) whose arm chooses the scale, so the axis kind is
+ * derived from the data ("one axis type per Planner"). Sub-slot buckets are an
+ * arbitrary labelled array, never a bare count.
+ *
+ * `PlannerEventType` / `PlannerRowType` / `PlannerRootType` carry a
+ * `UIComponentType` (`event.popover`) and therefore live in `./index.ts`, not
+ * here — `types.ts` stays UIComp-free so `component.ts` can import it without a
+ * circular dependency.
+ *
+ * @packageDocumentation
+ */
+
 import {
     type SubtypeExprOrValue,
     OptionType,
     StructType,
     VariantType,
     StringType,
-    BooleanType,
     FloatType,
     IntegerType,
+    BooleanType,
+    DateTimeType,
     NullType,
-    FunctionType
+    ArrayType,
 } from "@elaraai/east";
-
-import { TableCellClickEventType, TableRowClickEventType, TableSortEventType } from "../table/types.js";
-
-import {
-    AlignType,
-    ColorSchemeType,
-    type ColorSchemeLiteral,
-    type AlignLiteral,
-} from "../../style.js";
-import { StatusTokenType } from "../../style/interaction.js";
-
-import {
-    IconSizeType,
-    type IconSizeLiteral,
-} from "../../display/icon/types.js";
-
-// Re-export Font Awesome types for convenience
-export type { IconName, IconPrefix } from "@fortawesome/fontawesome-common-types";
-
-// Re-export shared content primitives under the Planner namespace
-// for ergonomic discovery via `Planner.Types.*`.
-export { AlignType, LabelInputType, type AlignLiteral, type LabelInput } from "../../style.js";
-
-// Import shared types from table
-import {
-    TableVariantType,
-    TableSizeType,
-    type TableVariantLiteral,
-    type TableSizeLiteral,
-} from "../table/types.js";
-
-// Re-export table types used by Planner
-export {
-    TableVariantType,
-    TableSizeType,
-    type TableVariantLiteral,
-    type TableSizeLiteral,
-} from "../table/types.js";
+import { StatusValueType } from "../../feedback/status/types.js";
 
 // ============================================================================
-// Slot Mode Type
+// Axis — typed slot coordinate + scale + buckets + range
 // ============================================================================
 
 /**
- * Slot mode variant type - determines how events occupy slots.
+ * A typed slot coordinate. The arm chooses the axis scale the renderer builds,
+ * so the scale kind is derived from the data and never declared twice; mixing
+ * arms within one Planner is the forbidden "one axis type per Planner" case.
  *
- * @property single - Each event occupies exactly one slot (start only)
- * @property span - Events span from start to end slot (inclusive)
- */
-export const SlotModeType = VariantType({
-    /** Each event occupies exactly one slot */
-    single: NullType,
-    /** Events span from start to end slot (inclusive) */
-    span: NullType,
-});
-
-export type SlotModeType = typeof SlotModeType;
-
-/**
- * String literal type for slot mode values.
- */
-export type SlotModeLiteral = "single" | "span";
-
-// ============================================================================
-// Event Icon Type
-// ============================================================================
-
-/**
- * Icon configuration for Planner events.
+ * @remarks
+ * Use `Planner.at.time(date)`, `Planner.at.number(n)`, or
+ * `Planner.at.ordinal(label)` to construct slot values rather than building
+ * the variant manually. Every event and marker on the same Planner must use
+ * the same arm — the renderer enforces the single-axis-kind rule at render
+ * time.
  *
- * @property prefix - Font Awesome prefix (fas, far, fab, etc.)
- * @property name - Font Awesome icon name
- * @property align - Position within the event (start, center, end)
- * @property size - Icon size
- * @property color - Icon color (CSS color or Chakra token)
- * @property colorPalette - Color scheme for the icon
+ * @property time - A datetime position (calendar slots)
+ * @property number - A numeric position (day-of-X, hour-of-Y)
+ * @property ordinal - An ordinal label (phase / stage / week-number)
  */
-export const EventIconType = StructType({
-    prefix: StringType,
-    name: StringType,
-    align: OptionType(AlignType),
-    size: OptionType(IconSizeType),
-    color: OptionType(StringType),
-    colorPalette: OptionType(ColorSchemeType),
+export const PlannerSlotType = VariantType({
+    time:    DateTimeType,
+    number:  FloatType,
+    ordinal: StringType,
 });
-
-export type EventIconType = typeof EventIconType;
+export type PlannerSlotType = typeof PlannerSlotType;
 
 /**
- * TypeScript interface for event icon input.
+ * The axis scale kind, declared once on the axis; must match every slot's arm.
+ *
+ * @remarks
+ * This value is embedded in the serialised `PlannerAxisType` and read by the
+ * renderer to choose the correct tick-label formatter. Prefer the
+ * `Planner.axis.*` builder helpers over constructing it directly — they set the
+ * scale tag automatically from the builder you call.
+ *
+ * @property time - Datetime axis
+ * @property number - Numeric axis
+ * @property ordinal - Ordinal axis
  */
-export interface EventIcon {
-    /** Font Awesome prefix (fas, far, fab, etc.) */
-    prefix: string;
-    /** Font Awesome icon name */
-    name: string;
-    /** Position within the event (start, center, end). Default: start */
-    align?: SubtypeExprOrValue<AlignType> | AlignLiteral;
-    /** Icon size */
-    size?: SubtypeExprOrValue<IconSizeType> | IconSizeLiteral;
-    /** Icon color (CSS color or Chakra token) */
-    color?: SubtypeExprOrValue<StringType>;
-    /** Color scheme for the icon */
-    colorPalette?: SubtypeExprOrValue<ColorSchemeType> | ColorSchemeLiteral;
+export const PlannerScaleType = VariantType({
+    time:    NullType,
+    number:  NullType,
+    ordinal: NullType,
+});
+export type PlannerScaleType = typeof PlannerScaleType;
+
+/** String-literal shorthand for {@link PlannerScaleType}. */
+export type PlannerScaleLiteral = "time" | "number" | "ordinal";
+
+/**
+ * One labelled sub-slot bucket inside a column — the explicit name an operator
+ * reads (AM/PM, the parts of a day, …). Buckets are an arbitrary labelled
+ * array; an empty array means one slot per column.
+ *
+ * @remarks
+ * Pass bucket objects via the `buckets` array in `AxisTimeOptions`,
+ * `AxisNumberOptions`, or `AxisOrdinalOptions`. Events reference a bucket by
+ * its `key`; the renderer displays the `label` in the column header. When no
+ * buckets are specified an event omits the `bucket` field entirely.
+ *
+ * @property key - The bucket identity an event references
+ * @property label - The displayed bucket name
+ */
+export const PlannerBucketType = StructType({
+    key:   StringType,
+    label: StringType,
+});
+export type PlannerBucketType = typeof PlannerBucketType;
+
+/**
+ * An explicit axis domain, typed to the axis's coordinate kind. Supplied to fix
+ * the extent instead of deriving it from the data.
+ *
+ * @remarks
+ * When omitted the renderer derives the domain from the union of all event
+ * slots, which can produce a shifting viewport as data changes. Supply a range
+ * to pin the visible extent regardless of what events are present — useful for
+ * keeping a calendar grid stable even when some days have no events. The arm
+ * must match the axis scale: a `number` axis requires the `number` arm, a
+ * `time` axis the `time` arm, and an `ordinal` axis the `ordinal` arm.
+ *
+ * @property time - Datetime bounds for a time axis
+ * @property number - Numeric bounds for a numeric axis
+ * @property ordinal - The ordered category labels for an ordinal axis
+ */
+export const PlannerRangeType = VariantType({
+    time:    StructType({ min: DateTimeType, max: DateTimeType }),
+    number:  StructType({ min: FloatType, max: FloatType }),
+    ordinal: ArrayType(StringType),
+});
+export type PlannerRangeType = typeof PlannerRangeType;
+
+/**
+ * The axis declaration — the scale kind, the labelled sub-slot buckets, an
+ * optional explicit range, and an optional tick-label format.
+ *
+ * @remarks
+ * This is the serialised form written into the Planner IR. Consumer code
+ * should construct it via `Planner.axis.time(opts)`, `Planner.axis.number(opts)`,
+ * or `Planner.axis.ordinal(opts)` rather than by hand — those builders fill
+ * `scale` and coerce the `range` variant automatically.
+ *
+ * @property scale - The axis coordinate kind (see {@link PlannerScaleType})
+ * @property buckets - The labelled sub-slot buckets ([] = one slot per column)
+ * @property range - Optional explicit domain; else derived from the data
+ * @property format - Optional tick-label format pattern
+ */
+export const PlannerAxisType = StructType({
+    scale:   PlannerScaleType,
+    buckets: ArrayType(PlannerBucketType),
+    range:   OptionType(PlannerRangeType),
+    format:  OptionType(StringType),
+});
+export type PlannerAxisType = typeof PlannerAxisType;
+
+// ============================================================================
+// Event state + conflict marker
+// ============================================================================
+
+/**
+ * The sub-flavour of a `proposed` event. It rides inside the `proposed` arm of
+ * {@link PlannerStateType}, so it is only representable while proposed — a
+ * committed event can never carry a flavour.
+ *
+ * @remarks
+ * Consumer code passes string literals (`"added"`, `"model"`, `"removed"`) to
+ * `Planner.event`'s `state` field rather than constructing this variant
+ * directly. The renderer uses the flavour to pick a distinct visual treatment:
+ * `added` is highlighted, `model` is rendered italic, and `removed` is struck
+ * through to communicate a proposed deletion of an existing committed event.
+ *
+ * @property added - An operator proposal
+ * @property model - A model's suggestion (rendered italic)
+ * @property removed - A proposed deletion of a committed event (struck through)
+ */
+export const PlannerFlavourType = VariantType({
+    added:   NullType,
+    model:   NullType,
+    removed: NullType,
+});
+export type PlannerFlavourType = typeof PlannerFlavourType;
+
+/**
+ * The three event states. `committed` is audit-locked and read-only; `proposed`
+ * is dirty-patch owned (carrying its flavour); `rejected` is a proposal that was
+ * turned down, kept for diff context.
+ *
+ * @remarks
+ * Consumer code passes string literals to `Planner.event`'s `state` field —
+ * `"committed"`, `"added"`, `"model"`, `"removed"`, or `"rejected"` — and the
+ * builder maps them to the appropriate nested variant. `proposed` is never
+ * written directly; use the flavour shorthands instead. `rejected` events are
+ * kept in the IR so diff views can show what was declined without re-fetching
+ * history.
+ *
+ * @property committed - Audit-locked, immutable
+ * @property proposed - Drafted; the flavour (see {@link PlannerFlavourType}) is nested
+ * @property rejected - Reviewed and declined; kept for diff
+ */
+export const PlannerStateType = VariantType({
+    committed: NullType,
+    proposed:  PlannerFlavourType,
+    rejected:  NullType,
+});
+export type PlannerStateType = typeof PlannerStateType;
+
+/**
+ * A status marker placed at a slot — declared parallel to events (in the row's
+ * `markers`, not on an event). The renderer rings the cell at `slot`, paints the
+ * paired status icon in its corner, and surfaces `message` as a hover tooltip.
+ * Reuses the shared {@link StatusValueType} so a cell can be flagged good
+ * (`success`) just as readily as bad (`danger` / `warning`). The consumer
+ * computes the rule (in East) and emits the markers; the library renders them.
+ *
+ * @remarks
+ * Markers are computed independently of events and passed via the `markers`
+ * callback on the Planner root options. A slot can carry a marker and zero
+ * events simultaneously — for example, to flag a capacity breach on a day that
+ * has no events scheduled yet. The `message` field is intentionally free-form;
+ * compute it from the same East expression that determines the status so the
+ * tooltip stays in sync with the visual.
+ *
+ * @property slot - The slot coordinate of the cell the marker rings
+ * @property status - The semantic status (success / warning / danger / info / neutral) — drives colour + icon
+ * @property message - The marker text surfaced as a hover tooltip
+ */
+export const PlannerMarkerType = StructType({
+    slot:    PlannerSlotType,
+    status:  StatusValueType,
+    message: StringType,
+});
+export type PlannerMarkerType = typeof PlannerMarkerType;
+
+// ============================================================================
+// Columns — one flat shape (value + eyebrow)
+// ============================================================================
+
+/**
+ * Horizontal alignment of a left column's content.
+ *
+ * @remarks
+ * Defaults to `start` when omitted. Use `"end"` for numeric columns such as
+ * hours or counts so digits align on their decimal point. Pass the string
+ * literal directly to the `align` field in a column definition rather than
+ * constructing the variant explicitly.
+ *
+ * @property start - Align to the start (left)
+ * @property end - Align to the end (right)
+ */
+export const PlannerAlignType = VariantType({ start: NullType, end: NullType });
+export type PlannerAlignType = typeof PlannerAlignType;
+
+/** String-literal shorthand for {@link PlannerAlignType}. */
+export type PlannerAlignLiteral = "start" | "end";
+
+/**
+ * A left-side column definition — flat and kind-free, the same shape as Table /
+ * Gantt. The five spec "column kinds" are authoring patterns built from `value`
+ * + `sublabel`, not distinct IR shapes.
+ *
+ * @remarks
+ * Pass column definitions as plain objects in the `columns` array of the
+ * Planner root options. Set `frozen: true` on the identity column so it stays
+ * visible while the slot grid scrolls horizontally. Derived columns — values
+ * computed from the row in East rather than read from a field directly — use
+ * the same shape; there is no separate kind for them.
+ *
+ * @property key - The column identity (and the row's cell key)
+ * @property header - The column header text
+ * @property width - Optional CSS width
+ * @property frozen - Whether the column is pinned sticky-left
+ * @property align - Optional horizontal alignment of the cell content
+ */
+export const PlannerColumnType = StructType({
+    key:    StringType,
+    header: StringType,
+    width:  OptionType(StringType),
+    frozen: OptionType(BooleanType),
+    align:  OptionType(PlannerAlignType),
+});
+export type PlannerColumnType = typeof PlannerColumnType;
+
+/**
+ * The per-row cell content — a `value` and an optional muted `sublabel`
+ * (eyebrow). A derived column is just a `value` computed in East; there is no
+ * separate kind.
+ *
+ * @remarks
+ * This is the serialised cell shape stored in the row's `cells` map, keyed by
+ * the matching `PlannerColumnType.key`. Consumer code produces cell values via
+ * the `value` and `sublabel` callbacks on each column definition — the builder
+ * assembles this struct from those callbacks automatically.
+ *
+ * @property value - The cell text (a field or an East-computed value)
+ * @property sublabel - The optional muted eyebrow line beneath the value
+ */
+export const PlannerCellType = StructType({
+    value:    StringType,
+    sublabel: OptionType(StringType),
+});
+export type PlannerCellType = typeof PlannerCellType;
+
+// ============================================================================
+// Variant + callback payloads
+// ============================================================================
+
+/**
+ * Which chassis configuration this Planner is.
+ *
+ * @remarks
+ * Set automatically by `Planner.Point(...)` and `Planner.Span(...)` — consumer
+ * code never needs to construct this variant directly. The renderer uses it to
+ * decide whether to treat events as single-cell tiles (`point`) or as
+ * horizontal bars stretching from `slot` to `endSlot` (`span`).
+ *
+ * @property point - Slot-bound events (each event sits in one slot/bucket)
+ * @property span - Multi-slot span events (start → end)
+ */
+export const PlannerVariantType = VariantType({
+    point: NullType,
+    span:  NullType,
+});
+export type PlannerVariantType = typeof PlannerVariantType;
+
+/**
+ * The payload of the `onSelectRow` callback (a row was clicked / selected).
+ *
+ * @remarks
+ * Passed as the sole argument to the `East.function` supplied to `onSelectRow`
+ * on the Planner root options. Use `Planner.Types.SelectEvent` to reference
+ * this type when declaring that function's parameter list, as shown in the
+ * `plannerPoint` example.
+ *
+ * @property rowIndex - The selected row's index (0-based)
+ */
+export const PlannerSelectEventType = StructType({ rowIndex: IntegerType });
+export type PlannerSelectEventType = typeof PlannerSelectEventType;
+
+// ============================================================================
+// TypeScript input interfaces (UIComp-free)
+// ============================================================================
+
+/**
+ * Shared options for the axis builders (`Planner.axis.*`).
+ *
+ * @property buckets - The labelled sub-slot buckets ([] = one slot per column)
+ * @property format - Optional tick-label format pattern
+ */
+export interface AxisOptions {
+    /** The labelled sub-slot buckets ([] = one slot per column). */
+    buckets?: { key: string; label: string }[];
+    /** Optional tick-label format pattern (e.g. `"MMM"` for a time axis). */
+    format?: SubtypeExprOrValue<StringType>;
 }
 
-// NOTE: `PlannerEventType` is UIComp-coupled (it carries `tooltip` and
-// `popover` UIComponent slots) and lives in `./index.ts` alongside the
-// factory. types.ts stays UIComp-free so it can be imported by
-// `component.ts` without a circular dependency.
-
-// ============================================================================
-// Callback Event Types
-// ============================================================================
-
 /**
- * Event data for event click events.
- *
- * @property rowIndex - Row index (0-based)
- * @property eventIndex - Event index within the row (0-based)
- * @property start - Start slot of the event
- * @property end - End slot of the event (same as start if single-slot mode)
- */
-export const EventClickEventType = StructType({
-    rowIndex: IntegerType,
-    eventIndex: IntegerType,
-    start: FloatType,
-    end: FloatType,
-});
-
-export type EventClickEventType = typeof EventClickEventType;
-
-/**
- * Event data for event drag (move) events.
- *
- * @property rowIndex - Row index (0-based)
- * @property eventIndex - Event index within the row (0-based)
- * @property previousStart - Previous start slot
- * @property previousEnd - Previous end slot
- * @property newStart - New start slot
- * @property newEnd - New end slot
- */
-export const EventDragEventType = StructType({
-    rowIndex: IntegerType,
-    eventIndex: IntegerType,
-    previousStart: FloatType,
-    previousEnd: FloatType,
-    newStart: FloatType,
-    newEnd: FloatType,
-});
-
-export type EventDragEventType = typeof EventDragEventType;
-
-/**
- * Edge variant for resize events.
- *
- * @property start - The start edge was dragged
- * @property end - The end edge was dragged
- */
-export const ResizeEdgeType = VariantType({
-    start: NullType,
-    end: NullType,
-});
-
-export type ResizeEdgeType = typeof ResizeEdgeType;
-
-/**
- * Event data for event resize events.
- *
- * @property rowIndex - Row index (0-based)
- * @property eventIndex - Event index within the row (0-based)
- * @property previousStart - Previous start slot
- * @property previousEnd - Previous end slot
- * @property newStart - New start slot
- * @property newEnd - New end slot
- * @property edge - Which edge was dragged (start or end)
- */
-export const EventResizeEventType = StructType({
-    rowIndex: IntegerType,
-    eventIndex: IntegerType,
-    previousStart: FloatType,
-    previousEnd: FloatType,
-    newStart: FloatType,
-    newEnd: FloatType,
-    edge: ResizeEdgeType,
-});
-
-export type EventResizeEventType = typeof EventResizeEventType;
-
-/**
- * Event data for event add events.
- *
- * @property rowIndex - Row index (0-based)
- * @property slot - Slot where the event should be added
- */
-export const EventAddEventType = StructType({
-    rowIndex: IntegerType,
-    slot: FloatType,
-});
-
-export type EventAddEventType = typeof EventAddEventType;
-
-/**
- * Event data for event delete events.
- *
- * @property rowIndex - Row index (0-based)
- * @property eventIndex - Event index within the row (0-based)
- * @property start - Start slot of the event
- * @property end - End slot of the event
- */
-export const EventDeleteEventType = StructType({
-    rowIndex: IntegerType,
-    eventIndex: IntegerType,
-    start: FloatType,
-    end: FloatType,
-});
-
-export type EventDeleteEventType = typeof EventDeleteEventType;
-
-// ============================================================================
-// Boundary Type
-// ============================================================================
-
-/**
- * Boundary data for Planner - vertical lines at specific slot positions.
+ * Options for `Planner.axis.time` — extends {@link AxisOptions} with a datetime extent.
  *
  * @remarks
- * Boundaries are vertical lines that span the full height of the chart
- * at a specific x (slot) position. Useful for marking deadlines, milestones,
- * or other significant points.
+ * Supply `range` to pin the visible calendar window regardless of event
+ * coverage; omit it to let the renderer derive the extent from the earliest
+ * and latest event slots. `min` and `max` are plain JS `Date` values — the
+ * builder coerces them to the `PlannerRangeType` `time` arm automatically.
  *
- * @property x - The slot position for the boundary line
- * @property stroke - Line color (CSS color value)
- * @property strokeWidth - Line width in pixels
- * @property strokeDash - Dash pattern (e.g., "4 2" for dashed line)
- * @property strokeOpacity - Line opacity (0-1)
+ * @property buckets - The labelled sub-slot buckets ([] = one slot per column)
+ * @property format - Optional tick-label format pattern (e.g. `"MMM"` for month abbreviations)
+ * @property range - Optional explicit datetime extent; omit to derive from event slots
  */
-export const PlannerBoundaryType = StructType({
-    x: FloatType,
-    stroke: OptionType(StringType),
-    strokeWidth: OptionType(FloatType),
-    strokeDash: OptionType(StringType),
-    strokeOpacity: OptionType(FloatType),
-});
-
-/**
- * Type representing the Planner boundary structure.
- */
-export type PlannerBoundaryType = typeof PlannerBoundaryType;
-
-/**
- * TypeScript interface for Planner boundary input.
- *
- * @remarks
- * Accepts both static values and East expressions.
- */
-export interface PlannerBoundary {
-    /** The slot position for the boundary line */
-    x: SubtypeExprOrValue<FloatType>;
-    /** Line color (CSS color value) */
-    stroke?: SubtypeExprOrValue<StringType>;
-    /** Line width in pixels */
-    strokeWidth?: SubtypeExprOrValue<FloatType>;
-    /** Dash pattern (e.g., "4 2" for dashed line) */
-    strokeDash?: SubtypeExprOrValue<StringType>;
-    /** Line opacity (0-1) */
-    strokeOpacity?: SubtypeExprOrValue<FloatType>;
+export interface AxisTimeOptions extends AxisOptions {
+    /** Optional explicit datetime extent; omit to derive from event slots. */
+    range?: { min: Date; max: Date };
 }
 
-// ============================================================================
-// Style Type
-// ============================================================================
-
 /**
- * East StructType holding every visual field for a Planner.
+ * Options for `Planner.axis.number` — extends {@link AxisOptions} with a numeric extent.
  *
  * @remarks
- * Visual-only. Content (`rows` / `columns` / `frozen`),
- * structured state (`rowStatus`), behaviour callbacks (`on*`), and
- * timeline configuration (`slotMode` / `minSlot` / `maxSlot` /
- * `stepSize` / `slotLabel` / `boundaries`) live on the main
- * `Planner` variant in `index.ts`, not in this struct.
+ * Supply `range` to fix the slot domain (e.g. days 1–31 for a monthly roster)
+ * so the grid stays stable even when some slots have no events. Without it the
+ * renderer derives `min` and `max` from the event slots present, which can
+ * cause the grid to shrink on sparse days.
  *
- * Drag / resize / add / delete behaviour is driven by callback
- * presence on main (Matrix-style) — there is no `readOnly` flag.
- * Row hover is always on — there is no `interactive` flag.
- *
- * @property height - CSS height for the Planner container
- * @property variant - Table variant (line or outline)
- * @property size - Table size (sm, md, lg)
- * @property striped - Whether to show zebra stripes on rows
- * @property stickyHeader - Whether the header sticks when scrolling
- * @property showColumnBorder - Whether to show borders between columns
- * @property slotMinWidth - Min width per slot (CSS value, default `"60px"`)
- * @property colorPalette - Default color scheme for events
- * @property slotLineStroke - Vertical grid line color
- * @property slotLineWidth - Vertical grid line width in pixels
- * @property slotLineDash - Vertical grid line dash pattern
- * @property slotLineOpacity - Vertical grid line opacity (0-1)
- * @property gridColor - Explicit grid colour
- * @property nowMarkerColor - Explicit now-marker colour
- * @property headerBackground - Header row background
- * @property headerColor - Header row text colour
- * @property eventBorderRadius - CSS border-radius for event bars (default `"4px"`)
- * @property labelColor - Default text colour for per-event labels (per-event `label.color` overrides)
- * @property labelFontSize - Default CSS `font-size` for per-event labels (per-event `label.fontSize` overrides)
- * @property labelFontWeight - Default CSS `font-weight` for per-event labels (per-event `label.fontWeight` overrides)
+ * @property buckets - The labelled sub-slot buckets ([] = one slot per column)
+ * @property format - Optional tick-label format pattern
+ * @property range - Optional explicit numeric extent; omit to derive from event slots
  */
-export const PlannerStyleType = StructType({
-    // Table styling (reused from Table)
-    height: OptionType(StringType),
-    variant: OptionType(TableVariantType),
-    size: OptionType(TableSizeType),
-    striped: OptionType(BooleanType),
-    stickyHeader: OptionType(BooleanType),
-    showColumnBorder: OptionType(BooleanType),
-
-    // Visual-only Planner fields
-    slotMinWidth: OptionType(StringType),
-    colorPalette: OptionType(ColorSchemeType),
-
-    // Slot line styling (vertical grid lines)
-    slotLineStroke: OptionType(StringType),
-    slotLineWidth: OptionType(FloatType),
-    slotLineDash: OptionType(StringType),
-    slotLineOpacity: OptionType(FloatType),
-
-    // Root chrome colour slots
-    gridColor: OptionType(StringType),
-    nowMarkerColor: OptionType(StringType),
-    headerBackground: OptionType(StringType),
-    headerColor: OptionType(StringType),
-
-    // Visual parity with Matrix — event chrome + label defaults.
-    eventBorderRadius: OptionType(StringType),
-    labelColor: OptionType(StringType),
-    labelFontSize: OptionType(StringType),
-    labelFontWeight: OptionType(StringType),
-});
+export interface AxisNumberOptions extends AxisOptions {
+    /** Optional explicit numeric extent; omit to derive from event slots. */
+    range?: { min: number; max: number };
+}
 
 /**
- * Type representing the Planner style structure.
- */
-export type PlannerStyleType = typeof PlannerStyleType;
-
-/**
- * TypeScript interface for Planner styling input.
+ * Options for `Planner.axis.ordinal` — extends {@link AxisOptions} with an ordered category list.
  *
  * @remarks
- * Accepts both static values and East expressions.
+ * `range` is the authoritative ordered label sequence for the axis columns —
+ * the renderer renders one column per entry in declaration order. Without it
+ * the renderer derives the order from the set of ordinal slot values present
+ * in the events, which is insertion-ordered and may be unstable across data
+ * updates. Supply it whenever column order is semantically meaningful (e.g.
+ * workflow phases: `["backlog", "active", "review", "done"]`).
+ *
+ * @property buckets - The labelled sub-slot buckets ([] = one slot per column)
+ * @property format - Optional tick-label format pattern
+ * @property range - Optional explicit ordered category labels; omit to derive from event slots
  */
-export interface PlannerStyle<ColumnKeys extends string = string> {
-    /** Column keys to freeze (pin left). Frozen columns appear first and stay visible during horizontal scroll. */
-    frozen?: ColumnKeys[];
-    /** CSS height for the Planner container (e.g., "500px", "100%") */
-    height?: SubtypeExprOrValue<StringType>;
-    /** Table variant (line or outline) */
-    variant?: SubtypeExprOrValue<TableVariantType> | TableVariantLiteral;
-    /** Table size (sm, md, lg) */
-    size?: SubtypeExprOrValue<TableSizeType> | TableSizeLiteral;
-    /** Whether to show zebra stripes on rows */
-    striped?: SubtypeExprOrValue<BooleanType>;
-    /** Whether the header sticks when scrolling */
-    stickyHeader?: SubtypeExprOrValue<BooleanType>;
-    /** Whether to show borders between columns */
-    showColumnBorder?: SubtypeExprOrValue<BooleanType>;
-    /** Slot mode: single or span (default: span) */
-    slotMode?: SubtypeExprOrValue<SlotModeType> | SlotModeLiteral;
-    /** Optional min slot override (else derived from data) */
-    minSlot?: SubtypeExprOrValue<FloatType>;
-    /** Optional max slot override (else derived from data) */
-    maxSlot?: SubtypeExprOrValue<FloatType>;
-    /** Step size for snapping (e.g., 0.25 for quarter steps, 0.5 for half steps) */
-    stepSize?: SubtypeExprOrValue<FloatType>;
-    /** Custom slot label function */
-    slotLabel?: SubtypeExprOrValue<FunctionType<[FloatType], StringType>>;
-    /** Min width per slot (CSS value, default "60px") */
-    slotMinWidth?: SubtypeExprOrValue<StringType>;
-    /** Default color scheme for events */
-    colorPalette?: SubtypeExprOrValue<ColorSchemeType> | ColorSchemeLiteral;
-    /** Vertical grid line color */
-    slotLineStroke?: SubtypeExprOrValue<StringType>;
-    /** Vertical grid line width in pixels */
-    slotLineWidth?: SubtypeExprOrValue<FloatType>;
-    /** Vertical grid line dash pattern (e.g., "4 2") */
-    slotLineDash?: SubtypeExprOrValue<StringType>;
-    /** Vertical grid line opacity (0-1) */
-    slotLineOpacity?: SubtypeExprOrValue<FloatType>;
-    /** Array of boundary lines at specific slot positions */
-    boundaries?: PlannerBoundary[];
-    /** Callback triggered when a cell is clicked */
-    onCellClick?: SubtypeExprOrValue<FunctionType<[TableCellClickEventType], NullType>>;
-    /** Callback triggered when a cell is double-clicked */
-    onCellDoubleClick?: SubtypeExprOrValue<FunctionType<[TableCellClickEventType], NullType>>;
-    /** Callback triggered when a row is clicked */
-    onRowClick?: SubtypeExprOrValue<FunctionType<[TableRowClickEventType], NullType>>;
-    /** Callback triggered when a row is double-clicked */
-    onRowDoubleClick?: SubtypeExprOrValue<FunctionType<[TableRowClickEventType], NullType>>;
-    /** Callback triggered when sorting changes */
-    onSortChange?: SubtypeExprOrValue<FunctionType<[TableSortEventType], NullType>>;
-    /** Callback triggered when an event is clicked */
-    onEventClick?: SubtypeExprOrValue<FunctionType<[EventClickEventType], NullType>>;
-    /** Callback triggered when an event is double-clicked */
-    onEventDoubleClick?: SubtypeExprOrValue<FunctionType<[EventClickEventType], NullType>>;
-    /** Callback triggered when an event is dragged/moved */
-    onEventDrag?: SubtypeExprOrValue<FunctionType<[EventDragEventType], NullType>>;
-    /** Callback triggered when an event is resized */
-    onEventResize?: SubtypeExprOrValue<FunctionType<[EventResizeEventType], NullType>>;
-    /** Callback triggered when adding a new event (click on empty slot) */
-    onEventAdd?: SubtypeExprOrValue<FunctionType<[EventAddEventType], NullType>>;
-    /** Callback triggered when editing an event (via context menu) */
-    onEventEdit?: SubtypeExprOrValue<FunctionType<[EventClickEventType], NullType>>;
-    /** Callback triggered when deleting an event (via context menu) */
-    onEventDelete?: SubtypeExprOrValue<FunctionType<[EventDeleteEventType], NullType>>;
-    /** Explicit colour for the timeline grid lines. */
-    gridColor?: SubtypeExprOrValue<StringType>;
-    /** Explicit colour for the now-marker line. */
-    nowMarkerColor?: SubtypeExprOrValue<StringType>;
-    /** Explicit background for the header row. */
-    headerBackground?: SubtypeExprOrValue<StringType>;
-    /** Explicit text colour for the header row. */
-    headerColor?: SubtypeExprOrValue<StringType>;
-    /** Row-status callback: `(rowIndex) => StatusToken`; renderer tints the row. */
-    rowStatus?: SubtypeExprOrValue<FunctionType<[IntegerType], StatusTokenType>>;
-    /** CSS border-radius for event bars. Default `"2px"`. */
-    eventBorderRadius?: SubtypeExprOrValue<StringType>;
-    /** Default text colour for per-event labels. Default `"white"`. Per-event `label.color` overrides. */
-    labelColor?: SubtypeExprOrValue<StringType>;
-    /** Default CSS `font-size` for per-event labels. Default `"0.75rem"`. Per-event `label.fontSize` overrides. */
-    labelFontSize?: SubtypeExprOrValue<StringType>;
-    /** Default CSS `font-weight` for per-event labels. Default `"600"`. Per-event `label.fontWeight` overrides. */
-    labelFontWeight?: SubtypeExprOrValue<StringType>;
+export interface AxisOrdinalOptions extends AxisOptions {
+    /** Optional explicit ordered category labels; omit to derive from event slots. */
+    range?: string[];
 }

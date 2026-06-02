@@ -41,7 +41,6 @@ export {
 
 export {
     EastChakraPlanner,
-    toChakraTableRoot as toChakraPlannerRoot,
     type PlannerRootValue,
     type PlannerEventValue,
     type EastChakraPlannerProps,

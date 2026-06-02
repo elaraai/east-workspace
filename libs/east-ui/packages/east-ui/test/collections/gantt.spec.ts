@@ -14,6 +14,9 @@ describeEast("Gantt", (test) => {
         ganttCustomHeaders: ex.ganttCustomHeaders,
         ganttWithMilestones: ex.ganttWithMilestones,
         ganttWithProgress: ex.ganttWithProgress,
+        ganttAxisWindow: ex.ganttAxisWindow,
+        ganttAxisQuarterTier: ex.ganttAxisQuarterTier,
+        ganttAxisWeekTier: ex.ganttAxisWeekTier,
         ganttStatusByType: ex.ganttStatusByType,
         ganttStyled: ex.ganttStyled,
         ganttComplexColumns: ex.ganttComplexColumns,
@@ -23,6 +26,32 @@ describeEast("Gantt", (test) => {
         ganttRowStatus: ex.ganttRowStatus,
         ganttTaskPopover: ex.ganttTaskPopover,
         ganttRichLabel: ex.ganttRichLabel,
+    });
+
+    // =========================================================================
+    // Time axis
+    // =========================================================================
+
+    test("axis config carries range, format, and tier", $ => {
+        const gantt = $.let(Gantt.Root(
+            [{ name: "A", start: new Date("2024-02-01"), end: new Date("2024-03-01") }],
+            ["name"],
+            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] }),
+            { axis: { range: { min: new Date("2024-01-01"), max: new Date("2024-12-31") }, format: "MMM", tier: "month" } },
+        ));
+        const axis = $.let(gantt.unwrap().unwrap("Gantt").axis.unwrap("some"));
+        $(Assert.equal(axis.range.unwrap("some").min, new Date("2024-01-01")));
+        $(Assert.equal(axis.format.unwrap("some"), "MMM"));
+        $(Assert.equal(axis.tier.unwrap("some").hasTag("month"), true));
+    });
+
+    test("axis is none when omitted", $ => {
+        const gantt = $.let(Gantt.Root(
+            [{ name: "A", start: new Date("2024-02-01"), end: new Date("2024-03-01") }],
+            ["name"],
+            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] }),
+        ));
+        $(Assert.equal(gantt.unwrap().unwrap("Gantt").axis.hasTag("none"), true));
     });
 
     // =========================================================================

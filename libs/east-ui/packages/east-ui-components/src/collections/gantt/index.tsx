@@ -29,10 +29,11 @@ import { compareFor, equalFor, printFor, variant, type ValueTypeOf } from "@elar
 import { Gantt, Table, type UIComponentType } from "@elaraai/east-ui";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
-import { useRowStatusBg } from "../shared/helpers";
+import { useRowStatusBg, useDensityHeights } from "../shared/helpers";
 import { RowStateManager, type RowKey, type RowState } from "../../utils/RowStateManager";
-import { useColumnPinning, HeaderControls, getHeaderCellStyle, getCellStyle, createGetSortIndex } from "../shared/column-pinning";
-import { EventAxis, generateDateTicks, getDatePosition } from "./EventAxis";
+import { useColumnPinning, HeaderControls, getHeaderCellStyle, getCellStyle, createGetSortIndex, useColumnSizeVars, useLastUnpinnedColumnId } from "../shared/column-pinning";
+import { EventAxis, tierInterval, type GanttTier } from "./EventAxis";
+import { scaleTime } from "@visx/scale";
 import { GanttEventRow, type GanttTaskValue, type GanttMilestoneValue } from "./GanttEventRow";
 
 // Pre-define equality function at module level
@@ -149,7 +150,7 @@ interface GanttPersistedState {
 export const EastChakraGantt = memo(function EastChakraGantt({
     value,
     height = "100%",
-    rowHeight = 48,
+    rowHeight = 36,
     overscan = 8,
     onSortChange,
     enableMultiSort = true,
@@ -203,11 +204,10 @@ export const EastChakraGantt = memo(function EastChakraGantt({
     const ganttSize: "sm" | "md" | "lg" = densityTag === "compact" ? "sm"
         : densityTag === "comfortable" ? "lg"
         : "md";
-    const densityRowHeight = ganttSize === "sm" ? 44 : ganttSize === "lg" ? 64 : 56;
+    // Row + header height come from the SAME shared density tokens the Table
+    // consumes (`useDensityHeights`), so a Gantt row is exactly a Table row.
+    const { header: headerHeight, row: densityRowHeight } = useDensityHeights(ganttSize);
     const effectiveRowHeight = densityTag ? densityRowHeight : rowHeight;
-    // Header height = the Table's density row height (2·padY + round(font·1.25)
-    // with padY 6/10/12 and font 12/13/14) so the header matches exactly.
-    const headerHeight = ganttSize === "sm" ? 27 : ganttSize === "lg" ? 42 : 36;
     const ganttSlotStyles = useSlotRecipe({ key: "gantt" })({ size: ganttSize });
     // The left pane IS a Table — consume the SAME `table` columnHeader slot so
     // the header font/size/padding are identical to the Table component.
@@ -227,8 +227,20 @@ export const EastChakraGantt = memo(function EastChakraGantt({
     const [rowStates, setRowStates] = useState<Map<RowKey, RowState>>(new Map());
     const visibleRowsRef = useRef<Set<RowKey>>(new Set());
 
-    // Calculate date range from events
+    // Declarative time-axis config (range / format / tier). All optional.
+    const axisCfg = useMemo(() => getSomeorUndefined(value.axis), [value.axis]);
+    const axisRange = useMemo(() => (axisCfg ? getSomeorUndefined(axisCfg.range) : undefined), [axisCfg]);
+    const axisFormat = useMemo(() => (axisCfg ? getSomeorUndefined(axisCfg.format) : undefined), [axisCfg]);
+    const axisTier = useMemo(
+        () => (axisCfg ? getSomeorUndefined(axisCfg.tier)?.type as GanttTier | undefined : undefined),
+        [axisCfg],
+    );
+
+    // The time domain: an explicit `axis.range` pins the window; otherwise fit
+    // to the task / milestone dates with a 10% (≥1 day) pad on each side.
     const dateRange = useMemo(() => {
+        if (axisRange) return { start: axisRange.min, end: axisRange.max };
+
         let minDate: Date | null = null;
         let maxDate: Date | null = null;
 
@@ -249,24 +261,33 @@ export const EastChakraGantt = memo(function EastChakraGantt({
         // Fallback to current date if no events
         if (minDate === null) minDate = new Date();
         if (maxDate === null) maxDate = new Date();
+        // Expand a degenerate (single-instant) domain so nicing has room.
+        if (minDate.getTime() === maxDate.getTime()) {
+            minDate = new Date(minDate.getTime() - 86_400_000);
+            maxDate = new Date(maxDate.getTime() + 86_400_000);
+        }
 
-        // Add 10% buffer on each side
-        const totalDuration = maxDate.getTime() - minDate.getTime();
-        const bufferDuration = Math.max(totalDuration * 0.1, 24 * 60 * 60 * 1000); // At least 1 day buffer
+        // Snap the domain out to whole period boundaries (the same d3-time
+        // interval the header bands use) so every band is a full period — no
+        // cramped, clipped leading/trailing partials.
+        const interval = tierInterval(axisTier ?? "auto", minDate, maxDate);
+        return { start: interval.floor(minDate), end: interval.ceil(maxDate) };
+    }, [value.rows, axisRange, axisTier]);
 
-        return {
-            start: new Date(minDate.getTime() - bufferDuration),
-            end: new Date(maxDate.getTime() + bufferDuration),
-        };
-    }, [value.rows]);
+    // One visx time scale shared by the gridlines + now-line (and the same
+    // [start,end]→[0,width] linear mapping the bars/milestones use). `.ticks()`
+    // lets the scale choose a human-friendly tick count for the dashed lines.
+    const xScale = useMemo(
+        () => scaleTime({ domain: [dateRange.start, dateRange.end], range: [0, timelineWidth] }),
+        [dateRange.start, dateRange.end, timelineWidth],
+    );
 
-    // Calculate grid line positions for dashed vertical lines
-    const gridLinePositions = useMemo(() => {
-        const dates = generateDateTicks(dateRange.start, dateRange.end, Math.floor(timelineWidth / 100));
-        return dates
-            .map((date) => getDatePosition(date, dateRange.start, dateRange.end, timelineWidth))
-            .filter((x) => x >= 0 && x <= timelineWidth);
-    }, [dateRange.start, dateRange.end, timelineWidth]);
+    const gridLinePositions = useMemo(
+        () => xScale.ticks(Math.max(2, Math.floor(timelineWidth / 100)))
+            .map((d) => xScale(d))
+            .filter((x) => x >= 0 && x <= timelineWidth),
+        [xScale, timelineWidth],
+    );
 
     // Update timeline width when container resizes (including splitter changes)
     useEffect(() => {
@@ -631,19 +652,8 @@ export const EastChakraGantt = memo(function EastChakraGantt({
     // Get sorted rows from table
     const { rows } = table.getRowModel();
 
-    // Calculate column size CSS variables for performance
-    const columnSizeVars = useMemo(() => {
-        const headers = table.getFlatHeaders();
-        const colSizes: Record<string, string> = {};
-
-        headers.forEach((header) => {
-            colSizes[`--header-${header.id}-size`] = `${header.getSize()}px`;
-            colSizes[`--col-${header.column.id}-size`] = `${header.column.getSize()}px`;
-        });
-
-        return colSizes;
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [table.getState().columnSizingInfo, table.getState().columnSizing]);
+    // Column-sizing CSS variables (shared derivation, also used by Planner).
+    const columnSizeVars = useColumnSizeVars(table);
 
     // Compute table panel % from actual column widths and container width
     const columnTotalWidth = table.getCenterTotalSize();
@@ -657,13 +667,8 @@ export const EastChakraGantt = memo(function EastChakraGantt({
     const effectiveTablePanelSize = dragSize ?? persistedState.tablePanelSize ?? computedTablePanelSize;
 
     // Last unpinned column stretches to fill remaining panel space
-    const lastUnpinnedColumnId = useMemo(() => {
-        const headers = table.getFlatHeaders();
-        for (let i = headers.length - 1; i >= 0; i--) {
-            if (!headers[i]!.column.getIsPinned()) return headers[i]!.id;
-        }
-        return null;
-    }, [table]);
+    // (shared derivation, also used by Planner).
+    const lastUnpinnedColumnId = useLastUnpinnedColumnId(table);
 
     // Virtual row setup
     const virtualizer = useVirtualizer({
@@ -785,7 +790,7 @@ export const EastChakraGantt = memo(function EastChakraGantt({
                                                 key={header.id}
                                                 css={tableSlotStyles.columnHeader}
                                                 color="gray.500"
-                                                _hover={{ bg: "bg.muted" }}
+                                                _hover={{ bg: "bg.muted", "& .col-controls": { opacity: 1 } }}
                                                 transition="background 0.2s"
                                                 style={getHeaderCellStyle(header, hasFrozen, columnSizing, header.id === lastUnpinnedColumnId)}
                                             >
@@ -954,6 +959,8 @@ export const EastChakraGantt = memo(function EastChakraGantt({
                             width={timelineWidth}
                             height={headerHeight}
                             columnHeaderStyles={tableSlotStyles.columnHeader}
+                            tier={axisTier}
+                            format={axisFormat}
                         />
                     </Box>
 
@@ -1053,7 +1060,7 @@ export const EastChakraGantt = memo(function EastChakraGantt({
                             {/* Now-line — 1px brand-d rule at the present, on the
                                 same coordinate origin as the grid + bars. */}
                             {showNowLine && (() => {
-                                const nowX = getDatePosition(new Date(), dateRange.start, dateRange.end, timelineWidth);
+                                const nowX = xScale(new Date());
                                 if (nowX < 0 || nowX > timelineWidth) return null;
                                 return (
                                     <line

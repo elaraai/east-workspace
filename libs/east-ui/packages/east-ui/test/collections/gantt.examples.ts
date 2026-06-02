@@ -90,6 +90,60 @@ export const ganttWithProgress = example({
     inputs: [],
 });
 
+export const ganttAxisWindow = example({
+    keywords: ["Gantt", "axis", "range", "window", "domain", "month"],
+    description: "Pinned time window — `axis.range` fixes the visible domain (a full year) instead of fitting tightly to the task dates; month-grained header",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Gantt.Root(
+            [
+                { task: "Discovery", start: new Date("2024-02-01"), end: new Date("2024-03-15") },
+                { task: "Build", start: new Date("2024-03-10"), end: new Date("2024-06-30") },
+                { task: "Rollout", start: new Date("2024-07-01"), end: new Date("2024-09-30") },
+            ],
+            { task: { header: "Workstream" } },
+            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] }),
+            { axis: { range: { min: new Date("2024-01-01"), max: new Date("2024-12-31") }, tier: "month", format: "MMM" } },
+        );
+    }),
+    inputs: [],
+});
+
+export const ganttAxisQuarterTier = example({
+    keywords: ["Gantt", "axis", "tier", "quarter", "format", "roadmap"],
+    description: "Multi-year roadmap with a quarter-grained header — `axis.tier: \"quarter\"` with a `MMM YYYY` tick format",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Gantt.Root(
+            [
+                { epic: "Platform", start: new Date("2024-01-01"), end: new Date("2024-09-30") },
+                { epic: "Mobile", start: new Date("2024-06-01"), end: new Date("2025-03-31") },
+                { epic: "Analytics", start: new Date("2025-01-01"), end: new Date("2025-12-31") },
+            ],
+            { epic: { header: "Epic" } },
+            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] }),
+            { axis: { tier: "quarter", format: "MMM YYYY" } },
+        );
+    }),
+    inputs: [],
+});
+
+export const ganttAxisWeekTier = example({
+    keywords: ["Gantt", "axis", "tier", "week", "format", "sprint", "showToday"],
+    description: "Short, day-precise plan with a weekly header — `axis.tier: \"week\"` with a `MMM DD` tick format and the now-line on",
+    fn: East.function([], UIComponentType, (_$) => {
+        return Gantt.Root(
+            [
+                { task: "Spec", start: new Date("2024-04-01"), end: new Date("2024-04-05") },
+                { task: "Implement", start: new Date("2024-04-04"), end: new Date("2024-04-18") },
+                { task: "Review", start: new Date("2024-04-17"), end: new Date("2024-04-24") },
+            ],
+            { task: { header: "Task" } },
+            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] }),
+            { axis: { tier: "week", format: "MMM DD" }, showToday: true },
+        );
+    }),
+    inputs: [],
+});
+
 export const ganttStatusByType = example({
     keywords: ["Gantt", "Task", "status", "committed", "proposed", "atRisk", "ifElse", "per-row"],
     description: "Status-driven bar colour — per-row `status` derived from a field via East ifElse (committed / proposed / at-risk palette)",

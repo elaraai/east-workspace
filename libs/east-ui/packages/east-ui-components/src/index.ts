@@ -134,7 +134,6 @@ export {
     type TreeNodeValue,
     type EastChakraTreeViewProps,
     EastChakraPlanner,
-    toChakraPlannerRoot,
     type PlannerRootValue,
     type PlannerEventValue,
     type EastChakraPlannerProps,
