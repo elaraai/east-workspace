@@ -1771,10 +1771,20 @@ class EastSet(Generic[T]):
         return _call_builtin(name, [self.element_type], [self, other], SetType(self.element_type))
 
     def union_in_place(self, other: EastSet) -> None:
-        """Add every element of ``other`` to self in place (east-c SetUnionInPlace)."""
-        from east.types.types import NullType
+        """Add every element of ``other`` to self in place.
 
-        _call_builtin("SetUnionInPlace", [self.element_type], [self, other], NullType)
+        On a C-backed proxy (``_data is None``) this mutates the live east-c set via
+        ``SetUnionInPlace``. A bare Python-constructed set has no live C value to
+        mutate, so delegate the union to east-c (``SetUnion``) and rebind the local
+        store from the result — both paths run the union in east-c.
+        """
+        self._check_not_iterating()
+        if self._data is None:
+            from east.types.types import NullType
+
+            _call_builtin("SetUnionInPlace", [self.element_type], [self, other], NullType)
+        else:
+            self._data = SortedSet(self.union(other), key=_make_east_key(self.element_type))
 
     def is_subset(self, other: EastSet) -> bool:
         """Whether every element of self is also in ``other`` (east-c SetIsSubset)."""
