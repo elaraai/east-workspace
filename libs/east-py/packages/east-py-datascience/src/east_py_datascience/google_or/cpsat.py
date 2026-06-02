@@ -19,7 +19,7 @@ import importlib.util
 import time
 from typing import Any
 
-from east.runtime.platform import PlatformFunction
+from east.runtime.platform import platform_function, platform_functions
 from east.types.types import (
     ArrayType,
     BooleanType,
@@ -532,6 +532,11 @@ def _extract_assignments(
     return assignments
 
 
+@platform_function(
+    name="google_or_cpsat_solve",
+    inputs=[CpSatModelType, CpSatConfigType],
+    output=CpSatResultType,
+)
 def cpsat_solve_impl(
     model_data: EastStruct,
     config: EastStruct,
@@ -574,6 +579,11 @@ def cpsat_solve_impl(
     )
 
 
+@platform_function(
+    name="google_or_cpsat_solve_all",
+    inputs=[CpSatModelType, CpSatConfigType],
+    output=ArrayType(CpSatResultType),
+)
 def cpsat_solve_all_impl(
     model_data: EastStruct,
     config: EastStruct,
@@ -674,22 +684,7 @@ def cpsat_solve_all_impl(
 # Platform Function Registration
 # ============================================================================
 
-cpsat_impl = [
-    PlatformFunction(
-        name="google_or_cpsat_solve",
-        inputs=[CpSatModelType, CpSatConfigType],
-        output=CpSatResultType,
-        type="sync",
-        fn=cpsat_solve_impl,
-    ),
-    PlatformFunction(
-        name="google_or_cpsat_solve_all",
-        inputs=[CpSatModelType, CpSatConfigType],
-        output=ArrayType(CpSatResultType),
-        type="sync",
-        fn=cpsat_solve_all_impl,
-    ),
-]
+cpsat_impl = platform_functions(__name__)
 
 
 __all__ = [

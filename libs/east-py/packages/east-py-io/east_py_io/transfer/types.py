@@ -23,7 +23,7 @@ FtpConfigType = StructType(
         ("port", IntegerType),
         ("user", StringType),
         ("password", StringType),
-        ("secure", OptionType(BooleanType)),
+        ("secure", BooleanType),
     ]
 )
 

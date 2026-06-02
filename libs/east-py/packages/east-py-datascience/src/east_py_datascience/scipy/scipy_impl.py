@@ -13,7 +13,7 @@ import warnings
 from collections.abc import Callable
 
 import numpy as np
-from east.runtime.platform import PlatformFunction
+from east.runtime.platform import platform_function, platform_functions
 
 # Lazy import guard for optional dependency
 _HAS_SCIPY_SUPPORT = importlib.util.find_spec("scipy") is not None
@@ -82,6 +82,11 @@ def _make_enum(tag: str) -> EastVariant:
 # ============================================================================
 
 
+@platform_function(
+    name="scipy_curve_fit",
+    inputs=[CurveFunctionType, VectorType(FloatType), VectorType(FloatType), CurveFitConfigType],
+    output=CurveFitResultType,
+)
 def scipy_curve_fit_impl(
     curve_type: EastVariant,
     x: EastVector,
@@ -251,6 +256,11 @@ def scipy_curve_fit_impl(
         )
 
 
+@platform_function(
+    name="scipy_stats_describe",
+    inputs=[VectorType(FloatType)],
+    output=StatsDescribeResultType,
+)
 def scipy_stats_describe_impl(data: EastVector) -> EastStruct:
     """Compute descriptive statistics for data."""
     _check_scipy_support()
@@ -272,6 +282,11 @@ def scipy_stats_describe_impl(data: EastVector) -> EastStruct:
     )
 
 
+@platform_function(
+    name="scipy_stats_pearsonr",
+    inputs=[VectorType(FloatType), VectorType(FloatType)],
+    output=CorrelationResultType,
+)
 def scipy_stats_pearsonr_impl(x: EastVector, y: EastVector) -> EastStruct:
     """Compute Pearson correlation coefficient."""
     _check_scipy_support()
@@ -290,6 +305,11 @@ def scipy_stats_pearsonr_impl(x: EastVector, y: EastVector) -> EastStruct:
     )
 
 
+@platform_function(
+    name="scipy_stats_spearmanr",
+    inputs=[VectorType(FloatType), VectorType(FloatType)],
+    output=CorrelationResultType,
+)
 def scipy_stats_spearmanr_impl(x: EastVector, y: EastVector) -> EastStruct:
     """Compute Spearman rank correlation."""
     _check_scipy_support()
@@ -308,6 +328,11 @@ def scipy_stats_spearmanr_impl(x: EastVector, y: EastVector) -> EastStruct:
     )
 
 
+@platform_function(
+    name="scipy_stats_percentile",
+    inputs=[VectorType(FloatType), VectorType(FloatType)],
+    output=VectorType(FloatType),
+)
 def scipy_stats_percentile_impl(data: EastVector, percentiles: EastVector) -> EastVector:
     """Compute percentiles of data."""
     import numpy as np
@@ -318,6 +343,11 @@ def scipy_stats_percentile_impl(data: EastVector, percentiles: EastVector) -> Ea
     return EastVector(FloatType, result.ravel().astype(np.float64))
 
 
+@platform_function(
+    name="scipy_stats_percentileofscore",
+    inputs=[VectorType(FloatType), FloatType],
+    output=FloatType,
+)
 def scipy_stats_percentileofscore_impl(data: EastVector, score: float) -> float:
     """Compute the percentile rank of a score relative to a dataset."""
     _check_scipy_support()
@@ -326,6 +356,11 @@ def scipy_stats_percentileofscore_impl(data: EastVector, score: float) -> float:
     return float(percentileofscore(data.data, score))
 
 
+@platform_function(
+    name="scipy_stats_iqr",
+    inputs=[VectorType(FloatType)],
+    output=FloatType,
+)
 def scipy_stats_iqr_impl(data: EastVector) -> float:
     """Compute interquartile range (Q3 - Q1)."""
     _check_scipy_support()
@@ -334,6 +369,11 @@ def scipy_stats_iqr_impl(data: EastVector) -> float:
     return float(stats.iqr(data.data))
 
 
+@platform_function(
+    name="scipy_stats_median",
+    inputs=[VectorType(FloatType)],
+    output=FloatType,
+)
 def scipy_stats_median_impl(data: EastVector) -> float:
     """Compute median."""
     import numpy as np
@@ -341,6 +381,11 @@ def scipy_stats_median_impl(data: EastVector) -> float:
     return float(np.median(data.data))
 
 
+@platform_function(
+    name="scipy_stats_mad",
+    inputs=[VectorType(FloatType)],
+    output=FloatType,
+)
 def scipy_stats_mad_impl(data: EastVector) -> float:
     """Compute median absolute deviation."""
     _check_scipy_support()
@@ -349,6 +394,11 @@ def scipy_stats_mad_impl(data: EastVector) -> float:
     return float(stats.median_abs_deviation(data.data))
 
 
+@platform_function(
+    name="scipy_stats_robust",
+    inputs=[VectorType(FloatType)],
+    output=RobustStatsResultType,
+)
 def scipy_stats_robust_impl(data: EastVector) -> EastStruct:
     """Compute robust statistics: median, iqr, mad, q1, q3."""
     _check_scipy_support()
@@ -369,6 +419,11 @@ def scipy_stats_robust_impl(data: EastVector) -> EastStruct:
     )
 
 
+@platform_function(
+    name="scipy_interpolate_1d_fit",
+    inputs=[VectorType(FloatType), VectorType(FloatType), InterpolateConfigType],
+    output=ModelBlobType,
+)
 def scipy_interpolate_1d_fit_impl(
     x: EastVector,
     y: EastVector,
@@ -397,6 +452,11 @@ def scipy_interpolate_1d_fit_impl(
     )
 
 
+@platform_function(
+    name="scipy_interpolate_1d_predict",
+    inputs=[ModelBlobType, VectorType(FloatType)],
+    output=VectorType(FloatType),
+)
 def scipy_interpolate_1d_predict_impl(
     model_blob: EastVariant,
     x: EastVector,
@@ -415,6 +475,11 @@ def scipy_interpolate_1d_predict_impl(
     return EastVector(FloatType, y_np.ravel().astype(np.float64))
 
 
+@platform_function(
+    name="scipy_optimize_minimize",
+    inputs=[ScalarObjectiveType, VectorType(FloatType), OptimizeConfigType],
+    output=OptimizeResultType,
+)
 def scipy_optimize_minimize_impl(
     objective_fn: Callable[[EastVector], float],
     x0: EastVector,
@@ -461,6 +526,11 @@ def scipy_optimize_minimize_impl(
     )
 
 
+@platform_function(
+    name="scipy_optimize_minimize_quadratic",
+    inputs=[VectorType(FloatType), QuadraticConfigType, OptimizeConfigType],
+    output=OptimizeResultType,
+)
 def scipy_optimize_minimize_quadratic_impl(
     x0: EastVector,
     quadratic: EastStruct,
@@ -512,6 +582,16 @@ def scipy_optimize_minimize_quadratic_impl(
     )
 
 
+@platform_function(
+    name="scipy_optimize_dual_annealing",
+    inputs=[
+        ScalarObjectiveType,
+        OptionType(VectorType(FloatType)),
+        DualAnnealBoundsType,
+        DualAnnealConfigType,
+    ],
+    output=DualAnnealResultType,
+)
 def scipy_optimize_dual_annealing_impl(
     objective_fn: Callable[[EastVector], float],
     x0_opt: EastVariant | None,
@@ -596,6 +676,11 @@ def scipy_optimize_dual_annealing_impl(
     )
 
 
+@platform_function(
+    name="scipy_histogram",
+    inputs=[VectorType(FloatType), HistogramConfigType],
+    output=HistogramResultType,
+)
 def scipy_histogram_impl(
     data: EastVector,
     config: EastStruct,
@@ -640,6 +725,11 @@ def scipy_histogram_impl(
     )
 
 
+@platform_function(
+    name="scipy_kde_fit",
+    inputs=[VectorType(FloatType), KdeConfigType],
+    output=ModelBlobType,
+)
 def scipy_kde_fit_impl(
     data: EastVector,
     config: EastStruct,
@@ -685,6 +775,11 @@ def scipy_kde_fit_impl(
     )
 
 
+@platform_function(
+    name="scipy_kde_evaluate",
+    inputs=[ModelBlobType, VectorType(FloatType)],
+    output=VectorType(FloatType),
+)
 def scipy_kde_evaluate_impl(
     model_blob: EastVariant,
     points: EastVector,
@@ -707,139 +802,7 @@ def scipy_kde_evaluate_impl(
 # Platform Function Registration
 # ============================================================================
 
-scipy_impl = [
-    PlatformFunction(
-        name="scipy_curve_fit",
-        inputs=[CurveFunctionType, VectorType(FloatType), VectorType(FloatType), CurveFitConfigType],
-        output=CurveFitResultType,
-        type="sync",
-        fn=scipy_curve_fit_impl,
-    ),
-    PlatformFunction(
-        name="scipy_stats_describe",
-        inputs=[VectorType(FloatType)],
-        output=StatsDescribeResultType,
-        type="sync",
-        fn=scipy_stats_describe_impl,
-    ),
-    PlatformFunction(
-        name="scipy_stats_pearsonr",
-        inputs=[VectorType(FloatType), VectorType(FloatType)],
-        output=CorrelationResultType,
-        type="sync",
-        fn=scipy_stats_pearsonr_impl,
-    ),
-    PlatformFunction(
-        name="scipy_stats_spearmanr",
-        inputs=[VectorType(FloatType), VectorType(FloatType)],
-        output=CorrelationResultType,
-        type="sync",
-        fn=scipy_stats_spearmanr_impl,
-    ),
-    PlatformFunction(
-        name="scipy_stats_percentile",
-        inputs=[VectorType(FloatType), VectorType(FloatType)],
-        output=VectorType(FloatType),
-        type="sync",
-        fn=scipy_stats_percentile_impl,
-    ),
-    PlatformFunction(
-        name="scipy_stats_percentileofscore",
-        inputs=[VectorType(FloatType), FloatType],
-        output=FloatType,
-        type="sync",
-        fn=scipy_stats_percentileofscore_impl,
-    ),
-    PlatformFunction(
-        name="scipy_stats_iqr",
-        inputs=[VectorType(FloatType)],
-        output=FloatType,
-        type="sync",
-        fn=scipy_stats_iqr_impl,
-    ),
-    PlatformFunction(
-        name="scipy_stats_median",
-        inputs=[VectorType(FloatType)],
-        output=FloatType,
-        type="sync",
-        fn=scipy_stats_median_impl,
-    ),
-    PlatformFunction(
-        name="scipy_stats_mad",
-        inputs=[VectorType(FloatType)],
-        output=FloatType,
-        type="sync",
-        fn=scipy_stats_mad_impl,
-    ),
-    PlatformFunction(
-        name="scipy_stats_robust",
-        inputs=[VectorType(FloatType)],
-        output=RobustStatsResultType,
-        type="sync",
-        fn=scipy_stats_robust_impl,
-    ),
-    PlatformFunction(
-        name="scipy_interpolate_1d_fit",
-        inputs=[VectorType(FloatType), VectorType(FloatType), InterpolateConfigType],
-        output=ModelBlobType,
-        type="sync",
-        fn=scipy_interpolate_1d_fit_impl,
-    ),
-    PlatformFunction(
-        name="scipy_interpolate_1d_predict",
-        inputs=[ModelBlobType, VectorType(FloatType)],
-        output=VectorType(FloatType),
-        type="sync",
-        fn=scipy_interpolate_1d_predict_impl,
-    ),
-    PlatformFunction(
-        name="scipy_optimize_minimize",
-        inputs=[ScalarObjectiveType, VectorType(FloatType), OptimizeConfigType],
-        output=OptimizeResultType,
-        type="sync",
-        fn=scipy_optimize_minimize_impl,
-    ),
-    PlatformFunction(
-        name="scipy_optimize_minimize_quadratic",
-        inputs=[VectorType(FloatType), QuadraticConfigType, OptimizeConfigType],
-        output=OptimizeResultType,
-        type="sync",
-        fn=scipy_optimize_minimize_quadratic_impl,
-    ),
-    PlatformFunction(
-        name="scipy_optimize_dual_annealing",
-        inputs=[
-            ScalarObjectiveType,
-            OptionType(VectorType(FloatType)),
-            DualAnnealBoundsType,
-            DualAnnealConfigType,
-        ],
-        output=DualAnnealResultType,
-        type="sync",
-        fn=scipy_optimize_dual_annealing_impl,
-    ),
-    PlatformFunction(
-        name="scipy_histogram",
-        inputs=[VectorType(FloatType), HistogramConfigType],
-        output=HistogramResultType,
-        type="sync",
-        fn=scipy_histogram_impl,
-    ),
-    PlatformFunction(
-        name="scipy_kde_fit",
-        inputs=[VectorType(FloatType), KdeConfigType],
-        output=ModelBlobType,
-        type="sync",
-        fn=scipy_kde_fit_impl,
-    ),
-    PlatformFunction(
-        name="scipy_kde_evaluate",
-        inputs=[ModelBlobType, VectorType(FloatType)],
-        output=VectorType(FloatType),
-        type="sync",
-        fn=scipy_kde_evaluate_impl,
-    ),
-]
+scipy_impl = platform_functions(__name__)
 
 __all__ = [
     "scipy_impl",

@@ -10,13 +10,18 @@ Provides zip archive creation and extraction for East programs.
 import io
 import zipfile
 
-from east.runtime.platform import PlatformFunction
+from east.runtime.platform import platform_function, platform_functions
 from east.types.types import BlobType, StringType
 from east.types.values import EastArray, EastBlob, EastDict, EastStruct
 
 from .types import ZipEntriesType, ZipExtractedType, ZipOptionsType
 
 
+@platform_function(
+    name="zip_compress",
+    inputs=[ZipEntriesType, ZipOptionsType],
+    output=BlobType,
+)
 def zip_compress_impl(
     entries: EastArray,
     options: EastStruct,
@@ -58,6 +63,11 @@ def zip_compress_impl(
         raise Exception(f"Zip compress failed: {e}") from e
 
 
+@platform_function(
+    name="zip_decompress",
+    inputs=[BlobType],
+    output=ZipExtractedType,
+)
 def zip_decompress_impl(data: EastBlob) -> EastDict:
     """Decompress a zip archive.
 
@@ -82,23 +92,8 @@ def zip_decompress_impl(data: EastBlob) -> EastDict:
         raise Exception(f"Zip decompress failed: {e}") from e
 
 
-# Platform function implementations
-zip_impl = [
-    PlatformFunction(
-        name="zip_compress",
-        inputs=[ZipEntriesType, ZipOptionsType],
-        output=BlobType,
-        type="sync",
-        fn=zip_compress_impl,
-    ),
-    PlatformFunction(
-        name="zip_decompress",
-        inputs=[BlobType],
-        output=ZipExtractedType,
-        type="sync",
-        fn=zip_decompress_impl,
-    ),
-]
+# Collected from the @platform_function decorations above.
+zip_impl = platform_functions(__name__)
 
 __all__ = [
     "zip_impl",

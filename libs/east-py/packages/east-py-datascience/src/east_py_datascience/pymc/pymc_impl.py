@@ -13,7 +13,7 @@ import importlib.util
 import warnings
 
 import numpy as np
-from east.runtime.platform import PlatformFunction
+from east.runtime.platform import platform_function, platform_functions
 from east.types.types import (
     ArrayType,
     BlobType,
@@ -360,6 +360,11 @@ def _get_mcmc_config(config):
 # ============================================================================
 
 
+@platform_function(
+    name="pymc_train_regression",
+    inputs=[MatrixType(FloatType), MatrixType(FloatType), PyMCRegressionConfigType],
+    output=PyMCModelBlobType,
+)
 def pymc_train_regression_impl(
     X: EastArray,
     Y: EastArray,
@@ -429,6 +434,16 @@ def pymc_train_regression_impl(
     )
 
 
+@platform_function(
+    name="pymc_train_hierarchical",
+    inputs=[
+        MatrixType(FloatType),
+        MatrixType(FloatType),
+        VectorType(IntegerType),
+        PyMCHierarchicalConfigType,
+    ],
+    output=PyMCModelBlobType,
+)
 def pymc_train_hierarchical_impl(
     X: EastArray,
     Y: EastArray,
@@ -534,6 +549,11 @@ def pymc_train_hierarchical_impl(
     )
 
 
+@platform_function(
+    name="pymc_train_multi_layer",
+    inputs=[ArrayType(PyMCNamedDataType), PyMCMultiLayerConfigType],
+    output=PyMCModelBlobType,
+)
 def pymc_train_multi_layer_impl(
     data: EastArray,
     config: EastStruct,
@@ -659,6 +679,11 @@ def pymc_train_multi_layer_impl(
     )
 
 
+@platform_function(
+    name="pymc_predict",
+    inputs=[PyMCModelBlobType, MatrixType(FloatType), PyMCPredictConfigType],
+    output=MatrixType(FloatType),
+)
 def pymc_predict_impl(
     model_blob: EastVariant,
     X: EastArray,
@@ -755,6 +780,11 @@ def pymc_predict_impl(
     return EastMatrix(FloatType, mean_pred.astype(np.float64))
 
 
+@platform_function(
+    name="pymc_predict_distribution",
+    inputs=[PyMCModelBlobType, MatrixType(FloatType), PyMCPredictConfigType],
+    output=MatrixType(FloatType),
+)
 def pymc_predict_distribution_impl(
     model_blob: EastVariant,
     X: EastArray,
@@ -844,6 +874,11 @@ def pymc_predict_distribution_impl(
     return EastMatrix(FloatType, result.astype(np.float64))
 
 
+@platform_function(
+    name="pymc_posterior_summary",
+    inputs=[PyMCModelBlobType],
+    output=ArrayType(PyMCParameterSummaryType),
+)
 def pymc_posterior_summary_impl(
     model_blob: EastVariant,
 ) -> EastArray:
@@ -981,6 +1016,11 @@ def _compute_rhat(chain_draws):
         return 1.0
 
 
+@platform_function(
+    name="pymc_posterior_samples",
+    inputs=[PyMCModelBlobType, StringType, IntegerType],
+    output=MatrixType(FloatType),
+)
 def pymc_posterior_samples_impl(
     model_blob: EastVariant,
     param_name: str,
@@ -1024,6 +1064,11 @@ def pymc_posterior_samples_impl(
     return EastMatrix(FloatType, result.astype(np.float64))
 
 
+@platform_function(
+    name="pymc_diagnostics",
+    inputs=[PyMCModelBlobType],
+    output=PyMCDiagnosticsResultType,
+)
 def pymc_diagnostics_impl(
     model_blob: EastVariant,
 ) -> EastStruct:
@@ -1098,6 +1143,11 @@ def pymc_diagnostics_impl(
     })
 
 
+@platform_function(
+    name="pymc_posterior_predictive_check",
+    inputs=[PyMCModelBlobType, MatrixType(FloatType), MatrixType(FloatType)],
+    output=ArrayType(PyMCObservedFitType),
+)
 def pymc_posterior_predictive_check_impl(
     model_blob: EastVariant,
     X: EastArray,
@@ -1201,76 +1251,8 @@ def pymc_posterior_predictive_check_impl(
 # Platform Function Registration
 # ============================================================================
 
-pymc_impl = [
-    PlatformFunction(
-        name="pymc_train_regression",
-        inputs=[MatrixType(FloatType), MatrixType(FloatType), PyMCRegressionConfigType],
-        output=PyMCModelBlobType,
-        type="sync",
-        fn=pymc_train_regression_impl,
-    ),
-    PlatformFunction(
-        name="pymc_train_hierarchical",
-        inputs=[
-            MatrixType(FloatType),
-            MatrixType(FloatType),
-            VectorType(IntegerType),
-            PyMCHierarchicalConfigType,
-        ],
-        output=PyMCModelBlobType,
-        type="sync",
-        fn=pymc_train_hierarchical_impl,
-    ),
-    PlatformFunction(
-        name="pymc_train_multi_layer",
-        inputs=[ArrayType(PyMCNamedDataType), PyMCMultiLayerConfigType],
-        output=PyMCModelBlobType,
-        type="sync",
-        fn=pymc_train_multi_layer_impl,
-    ),
-    PlatformFunction(
-        name="pymc_predict",
-        inputs=[PyMCModelBlobType, MatrixType(FloatType), PyMCPredictConfigType],
-        output=MatrixType(FloatType),
-        type="sync",
-        fn=pymc_predict_impl,
-    ),
-    PlatformFunction(
-        name="pymc_predict_distribution",
-        inputs=[PyMCModelBlobType, MatrixType(FloatType), PyMCPredictConfigType],
-        output=MatrixType(FloatType),
-        type="sync",
-        fn=pymc_predict_distribution_impl,
-    ),
-    PlatformFunction(
-        name="pymc_posterior_summary",
-        inputs=[PyMCModelBlobType],
-        output=ArrayType(PyMCParameterSummaryType),
-        type="sync",
-        fn=pymc_posterior_summary_impl,
-    ),
-    PlatformFunction(
-        name="pymc_posterior_samples",
-        inputs=[PyMCModelBlobType, StringType, IntegerType],
-        output=MatrixType(FloatType),
-        type="sync",
-        fn=pymc_posterior_samples_impl,
-    ),
-    PlatformFunction(
-        name="pymc_diagnostics",
-        inputs=[PyMCModelBlobType],
-        output=PyMCDiagnosticsResultType,
-        type="sync",
-        fn=pymc_diagnostics_impl,
-    ),
-    PlatformFunction(
-        name="pymc_posterior_predictive_check",
-        inputs=[PyMCModelBlobType, MatrixType(FloatType), MatrixType(FloatType)],
-        output=ArrayType(PyMCObservedFitType),
-        type="sync",
-        fn=pymc_posterior_predictive_check_impl,
-    ),
-]
+# Collected from the @platform_function decorations above.
+pymc_impl = platform_functions(__name__)
 
 __all__ = [
     "pymc_impl",

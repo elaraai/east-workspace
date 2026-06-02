@@ -17,7 +17,7 @@ warnings.filterwarnings("ignore", category=DeprecationWarning, module="sklearn")
 import importlib.util
 
 import numpy as np
-from east.runtime.platform import PlatformFunction
+from east.runtime.platform import platform_function, platform_functions
 
 # ============================================================================
 # Type Definitions for MAPIE
@@ -576,6 +576,11 @@ def _check_mapie_support() -> None:
 # ============================================================================
 
 
+@platform_function(
+    name="mapie_train_conformal_regressor",
+    inputs=[MatrixType(FloatType), VectorType(FloatType), MatrixType(FloatType), VectorType(FloatType), MAPIEConfigType],
+    output=MAPIERegressorBlobType,
+)
 def mapie_train_conformal_regressor_impl(
     X_train: EastMatrix,
     y_train: EastVector,
@@ -734,6 +739,11 @@ def mapie_train_conformal_regressor_impl(
     )
 
 
+@platform_function(
+    name="mapie_train_cqr",
+    inputs=[MatrixType(FloatType), VectorType(FloatType), MatrixType(FloatType), VectorType(FloatType), MAPIECQRConfigType],
+    output=MAPIERegressorBlobType,
+)
 def mapie_train_cqr_impl(
     X_train: EastMatrix,
     y_train: EastVector,
@@ -852,6 +862,11 @@ def _extract_from_base_model_data(data_variant):
         return data_variant.value, None, None  # bare blob
 
 
+@platform_function(
+    name="mapie_predict_interval",
+    inputs=[MAPIERegressorBlobType, MatrixType(FloatType)],
+    output=IntervalResultType,
+)
 def mapie_predict_interval_impl(
     model_blob: EastVariant,
     X: EastMatrix,
@@ -916,6 +931,17 @@ def mapie_predict_interval_impl(
 # ============================================================================
 
 
+@platform_function(
+    name="mapie_train_conformal_classifier",
+    inputs=[
+        MatrixType(FloatType),
+        VectorType(IntegerType),
+        MatrixType(FloatType),
+        VectorType(IntegerType),
+        MAPIEClassifierConfigType,
+    ],
+    output=MAPIEClassifierBlobType,
+)
 def mapie_train_conformal_classifier_impl(
     X_train: EastMatrix,
     y_train: EastVector,
@@ -1067,6 +1093,11 @@ def mapie_train_conformal_classifier_impl(
     )
 
 
+@platform_function(
+    name="mapie_predict_set",
+    inputs=[MAPIEClassifierBlobType, MatrixType(FloatType)],
+    output=PredictionSetResultType,
+)
 def mapie_predict_set_impl(
     model_blob: EastVariant,
     X: EastMatrix,
@@ -1156,6 +1187,11 @@ def mapie_predict_set_impl(
 # ============================================================================
 
 
+@platform_function(
+    name="mapie_uncertainty_predictor_regressor",
+    inputs=[MAPIERegressorBlobType],
+    output=UncertaintyPredictorType,
+)
 def mapie_uncertainty_predictor_regressor_impl(
     model_blob: EastVariant,
 ) -> EastVariant:
@@ -1190,6 +1226,11 @@ def mapie_uncertainty_predictor_regressor_impl(
     )
 
 
+@platform_function(
+    name="mapie_uncertainty_predictor_classifier",
+    inputs=[MAPIEClassifierBlobType],
+    output=UncertaintyPredictorType,
+)
 def mapie_uncertainty_predictor_classifier_impl(
     model_blob: EastVariant,
 ) -> EastVariant:
@@ -1221,66 +1262,8 @@ def mapie_uncertainty_predictor_classifier_impl(
 # Platform Function Registration
 # ============================================================================
 
-mapie_impl = [
-    # Regression
-    PlatformFunction(
-        name="mapie_train_conformal_regressor",
-        inputs=[MatrixType(FloatType), VectorType(FloatType), MatrixType(FloatType), VectorType(FloatType), MAPIEConfigType],
-        output=MAPIERegressorBlobType,
-        type="sync",
-        fn=mapie_train_conformal_regressor_impl,
-    ),
-    PlatformFunction(
-        name="mapie_train_cqr",
-        inputs=[MatrixType(FloatType), VectorType(FloatType), MatrixType(FloatType), VectorType(FloatType), MAPIECQRConfigType],
-        output=MAPIERegressorBlobType,
-        type="sync",
-        fn=mapie_train_cqr_impl,
-    ),
-    PlatformFunction(
-        name="mapie_predict_interval",
-        inputs=[MAPIERegressorBlobType, MatrixType(FloatType)],
-        output=IntervalResultType,
-        type="sync",
-        fn=mapie_predict_interval_impl,
-    ),
-    # Classification
-    PlatformFunction(
-        name="mapie_train_conformal_classifier",
-        inputs=[
-            MatrixType(FloatType),
-            VectorType(IntegerType),
-            MatrixType(FloatType),
-            VectorType(IntegerType),
-            MAPIEClassifierConfigType,
-        ],
-        output=MAPIEClassifierBlobType,
-        type="sync",
-        fn=mapie_train_conformal_classifier_impl,
-    ),
-    PlatformFunction(
-        name="mapie_predict_set",
-        inputs=[MAPIEClassifierBlobType, MatrixType(FloatType)],
-        output=PredictionSetResultType,
-        type="sync",
-        fn=mapie_predict_set_impl,
-    ),
-    # SHAP integration (uncertainty predictors)
-    PlatformFunction(
-        name="mapie_uncertainty_predictor_regressor",
-        inputs=[MAPIERegressorBlobType],
-        output=UncertaintyPredictorType,
-        type="sync",
-        fn=mapie_uncertainty_predictor_regressor_impl,
-    ),
-    PlatformFunction(
-        name="mapie_uncertainty_predictor_classifier",
-        inputs=[MAPIEClassifierBlobType],
-        output=UncertaintyPredictorType,
-        type="sync",
-        fn=mapie_uncertainty_predictor_classifier_impl,
-    ),
-]
+# Collected from the @platform_function decorations above.
+mapie_impl = platform_functions(__name__)
 
 __all__ = [
     "mapie_impl",

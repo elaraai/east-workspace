@@ -17,7 +17,7 @@ Supports:
 import importlib.util
 import time
 
-from east.runtime.platform import PlatformFunction
+from east.runtime.platform import platform_function, platform_functions
 from east.types.types import (
     ArrayType,
     FloatType,
@@ -164,6 +164,11 @@ def _get_metaheuristic(metaheuristic: EastVariant | None) -> int | None:
     return metaheuristic_map.get(metaheuristic.type)
 
 
+@platform_function(
+    name="google_or_routing_solve",
+    inputs=[RoutingModelType, RoutingConfigType],
+    output=RoutingResultType,
+)
 def routing_solve_impl(
     model_data: EastStruct,
     config: EastStruct,
@@ -371,15 +376,7 @@ def routing_solve_impl(
 # Platform Function Registration
 # ============================================================================
 
-routing_impl = [
-    PlatformFunction(
-        name="google_or_routing_solve",
-        inputs=[RoutingModelType, RoutingConfigType],
-        output=RoutingResultType,
-        type="sync",
-        fn=routing_solve_impl,
-    ),
-]
+routing_impl = platform_functions(__name__)
 
 
 __all__ = [

@@ -12,7 +12,7 @@ import importlib.util
 from datetime import datetime
 from typing import Any
 
-from east.runtime.platform import PlatformFunction
+from east.runtime.platform import platform_function, platform_functions
 
 _HAS_S3_SUPPORT = importlib.util.find_spec("boto3") is not None
 
@@ -123,6 +123,11 @@ def create_s3_client(config: EastStruct) -> Any:
     return session.client(**client_kwargs)
 
 
+@platform_function(
+    name="s3_put_object",
+    inputs=[S3ConfigType, StringType, BlobType],
+    output=NullType,
+)
 async def s3_put_object_impl(config: EastStruct, key: str, data: EastBlob) -> None:
     """Upload an object to S3.
 
@@ -144,6 +149,11 @@ async def s3_put_object_impl(config: EastStruct, key: str, data: EastBlob) -> No
         raise Exception(f"S3 putObject failed: {e}") from e
 
 
+@platform_function(
+    name="s3_get_object",
+    inputs=[S3ConfigType, StringType],
+    output=BlobType,
+)
 async def s3_get_object_impl(config: EastStruct, key: str) -> EastBlob:
     """Download an object from S3.
 
@@ -168,6 +178,11 @@ async def s3_get_object_impl(config: EastStruct, key: str) -> EastBlob:
         raise Exception(f"S3 getObject failed: {e}") from e
 
 
+@platform_function(
+    name="s3_head_object",
+    inputs=[S3ConfigType, StringType],
+    output=S3ObjectMetadataType,
+)
 async def s3_head_object_impl(config: EastStruct, key: str) -> EastStruct:
     """Get object metadata without downloading.
 
@@ -212,6 +227,11 @@ async def s3_head_object_impl(config: EastStruct, key: str) -> EastStruct:
         raise Exception(f"S3 headObject failed: {e}") from e
 
 
+@platform_function(
+    name="s3_delete_object",
+    inputs=[S3ConfigType, StringType],
+    output=NullType,
+)
 async def s3_delete_object_impl(config: EastStruct, key: str) -> None:
     """Delete an object from S3.
 
@@ -232,6 +252,11 @@ async def s3_delete_object_impl(config: EastStruct, key: str) -> None:
         raise Exception(f"S3 deleteObject failed: {e}") from e
 
 
+@platform_function(
+    name="s3_list_objects",
+    inputs=[S3ConfigType, StringType, IntegerType, OptionType(StringType)],
+    output=S3ListResultType,
+)
 async def s3_list_objects_impl(
     config: EastStruct, prefix: str, max_keys: int, continuation_token: EastVariant
 ) -> EastStruct:
@@ -304,6 +329,11 @@ async def s3_list_objects_impl(
         raise Exception(f"S3 listObjects failed: {e}") from e
 
 
+@platform_function(
+    name="s3_presign_url",
+    inputs=[S3ConfigType, StringType, IntegerType],
+    output=StringType,
+)
 async def s3_presign_url_impl(config: EastStruct, key: str, expires_in: int) -> str:
     """Generate a presigned URL for temporary access.
 
@@ -338,51 +368,8 @@ async def s3_presign_url_impl(config: EastStruct, key: str, expires_in: int) -> 
         raise Exception(f"S3 presignUrl failed: {e}") from e
 
 
-# Platform function implementations
-s3_impl = [
-    PlatformFunction(
-        name="s3_put_object",
-        inputs=[S3ConfigType, StringType, BlobType],
-        output=NullType,
-        type="async",
-        fn=s3_put_object_impl,
-    ),
-    PlatformFunction(
-        name="s3_get_object",
-        inputs=[S3ConfigType, StringType],
-        output=BlobType,
-        type="async",
-        fn=s3_get_object_impl,
-    ),
-    PlatformFunction(
-        name="s3_head_object",
-        inputs=[S3ConfigType, StringType],
-        output=S3ObjectMetadataType,
-        type="async",
-        fn=s3_head_object_impl,
-    ),
-    PlatformFunction(
-        name="s3_delete_object",
-        inputs=[S3ConfigType, StringType],
-        output=NullType,
-        type="async",
-        fn=s3_delete_object_impl,
-    ),
-    PlatformFunction(
-        name="s3_list_objects",
-        inputs=[S3ConfigType, StringType, IntegerType, OptionType(StringType)],
-        output=S3ListResultType,
-        type="async",
-        fn=s3_list_objects_impl,
-    ),
-    PlatformFunction(
-        name="s3_presign_url",
-        inputs=[S3ConfigType, StringType, IntegerType],
-        output=StringType,
-        type="async",
-        fn=s3_presign_url_impl,
-    ),
-]
+# Collected from the @platform_function decorations above.
+s3_impl = platform_functions(__name__)
 
 
 __all__ = ["s3_impl", "S3ConfigType", "S3ObjectMetadataType", "S3ListResultType"]

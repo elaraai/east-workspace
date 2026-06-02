@@ -15,6 +15,7 @@ from east.types.types import (
     IntegerType,
     NullType,
     OptionType,
+    RecursiveType,
     StringType,
     StructType,
     VariantType,
@@ -51,17 +52,19 @@ MongoFindOptionsType = StructType(
 # Connection handle type
 ConnectionHandleType = StringType
 
-# BSON-compatible value type (simplified - no recursive types in Python version)
-BsonValueType = VariantType(
-    [
-        ("String", StringType),
-        ("Integer", IntegerType),
-        ("Float", FloatType),
-        ("Boolean", BooleanType),
-        ("Null", NullType),
-        ("Array", ArrayType(StringType)),  # Simplified
-        ("Object", DictType(StringType, StringType)),  # Simplified
-    ]
+# BSON-compatible value type: arrays and objects nest BsonValues recursively.
+BsonValueType = RecursiveType(
+    lambda self: VariantType(
+        [
+            ("String", StringType),
+            ("Integer", IntegerType),
+            ("Float", FloatType),
+            ("Boolean", BooleanType),
+            ("Null", NullType),
+            ("Array", ArrayType(self)),
+            ("Object", DictType(StringType, self)),
+        ]
+    )
 )
 
 # Document type for MongoDB

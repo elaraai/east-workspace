@@ -18,7 +18,7 @@ import importlib.util
 import time
 from typing import Any
 
-from east.runtime.platform import PlatformFunction
+from east.runtime.platform import platform_function, platform_functions
 from east.types.types import (
     ArrayType,
     BooleanType,
@@ -143,6 +143,11 @@ def _detect_solver_id(
     return "GLOP_LINEAR_PROGRAMMING"
 
 
+@platform_function(
+    name="google_or_linear_solve",
+    inputs=[LinearModelType, LinearConfigType],
+    output=LinearResultType,
+)
 def linear_solve_impl(
     model_data: EastStruct,
     config: EastStruct,
@@ -263,15 +268,7 @@ def linear_solve_impl(
 # Platform Function Registration
 # ============================================================================
 
-linear_impl = [
-    PlatformFunction(
-        name="google_or_linear_solve",
-        inputs=[LinearModelType, LinearConfigType],
-        output=LinearResultType,
-        type="sync",
-        fn=linear_solve_impl,
-    ),
-]
+linear_impl = platform_functions(__name__)
 
 
 __all__ = [

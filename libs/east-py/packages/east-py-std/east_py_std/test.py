@@ -15,7 +15,11 @@ import sys
 import time
 from typing import Any
 
-from east.runtime.platform import PlatformFunction
+from east.runtime.platform import (
+    PlatformFunction,
+    platform_function,
+    platform_functions,
+)
 from east.types.types import FunctionType, NullType, StringType
 
 # Module-level counters — accessed by the compliance test runner
@@ -35,10 +39,12 @@ def reset_counters(out=None):
         _out = out
 
 
+@platform_function(name="testPass", inputs=[], output=NullType)
 def test_pass_impl() -> None:
     """Signal that a test assertion passed."""
 
 
+@platform_function(name="testFail", inputs=[StringType], output=NullType)
 def test_fail_impl(message: str) -> None:
     """Signal that a test assertion failed with a message."""
     raise AssertionError(message)
@@ -86,22 +92,11 @@ def describe_impl(name: str, body: Any) -> None:
             _out.write(f"{mark} {name} ({dur:.6f}ms)\n")
 
 
-# Platform function implementations
+# `test` and `describe` declare type="async" while their impls are plain
+# `def`, so the decorator's sync/async inference would flip them — they stay
+# raw PlatformFunction to preserve the declared async behavior.
 test_impl = [
-    PlatformFunction(
-        name="testPass",
-        inputs=[],
-        output=NullType,
-        type="sync",
-        fn=test_pass_impl,
-    ),
-    PlatformFunction(
-        name="testFail",
-        inputs=[StringType],
-        output=NullType,
-        type="sync",
-        fn=test_fail_impl,
-    ),
+    *platform_functions(__name__),
     PlatformFunction(
         name="test",
         inputs=[StringType, FunctionType([], NullType)],

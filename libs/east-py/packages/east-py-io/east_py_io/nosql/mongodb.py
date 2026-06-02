@@ -10,11 +10,17 @@ including CRUD operations on documents.
 
 import importlib.util
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
-from east.runtime.platform import PlatformFunction
+from east.runtime.platform import platform_function, platform_functions
 from east.types.types import ArrayType, IntegerType, NullType, OptionType, StringType
 from east.types.values import EastArray, EastDict, EastStruct, EastVariant, east_null
+
+try:
+    from bson import ObjectId as _BsonObjectId
+except ImportError:  # bson ships with the mongodb extra; absent otherwise
+    _BsonObjectId = None
 
 _HAS_MONGODB_SUPPORT = importlib.util.find_spec("motor") is not None
 
@@ -51,12 +57,23 @@ def convert_bson_to_east(value: Any) -> EastVariant:
         return EastVariant("Float", value)
     elif isinstance(value, str):
         return EastVariant("String", value)
-    elif isinstance(value, list):
-        return EastVariant("Array", [convert_bson_to_east(v) for v in value])
-    elif isinstance(value, dict):
-        return EastVariant("Object", {k: convert_bson_to_east(v) for k, v in value.items()})
-    else:
+    elif isinstance(value, datetime):
+        # BsonValue has no DateTime case; emit a Unix timestamp in seconds (UTC).
+        utc = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+        return EastVariant("Integer", int(utc.timestamp()))
+    elif _BsonObjectId is not None and isinstance(value, _BsonObjectId):
         return EastVariant("String", str(value))
+    elif isinstance(value, list):
+        return EastVariant(
+            "Array", EastArray(BsonValueType, [convert_bson_to_east(v) for v in value])
+        )
+    elif isinstance(value, dict):
+        obj = EastDict(StringType, BsonValueType)
+        for k, v in value.items():
+            obj[k] = convert_bson_to_east(v)
+        return EastVariant("Object", obj)
+    else:
+        return EastVariant("Null", east_null)
 
 
 def convert_east_to_bson(value: EastVariant) -> Any:
@@ -99,6 +116,7 @@ def east_to_doc(doc: EastDict) -> dict[str, Any]:
     return result
 
 
+@platform_function(name="mongodb_connect", inputs=[MongoConfigType], output=ConnectionHandleType)
 async def mongo_connect_impl(config: EastStruct) -> str:
     """Connect to a MongoDB database."""
     _check_mongodb_support()
@@ -127,6 +145,11 @@ async def mongo_connect_impl(config: EastStruct) -> str:
         raise Exception(f"MongoDB connection failed: {e}") from e
 
 
+@platform_function(
+    name="mongodb_insert_one",
+    inputs=[ConnectionHandleType, MongoDocumentType],
+    output=StringType,
+)
 async def mongo_insert_one_impl(handle: str, document: EastDict) -> str:
     """Insert a document into MongoDB."""
     try:
@@ -141,6 +164,11 @@ async def mongo_insert_one_impl(handle: str, document: EastDict) -> str:
         raise Exception(f"MongoDB insertOne failed: {e}") from e
 
 
+@platform_function(
+    name="mongodb_find_one",
+    inputs=[ConnectionHandleType, MongoDocumentType],
+    output=OptionType(MongoDocumentType),
+)
 async def mongo_find_one_impl(handle: str, filter_doc: EastDict) -> EastVariant:
     """Find a single document in MongoDB."""
     try:
@@ -160,6 +188,11 @@ async def mongo_find_one_impl(handle: str, filter_doc: EastDict) -> EastVariant:
         raise Exception(f"MongoDB findOne failed: {e}") from e
 
 
+@platform_function(
+    name="mongodb_find_many",
+    inputs=[ConnectionHandleType, MongoDocumentType, MongoFindOptionsType],
+    output=ArrayType(MongoDocumentType),
+)
 async def mongo_find_impl(handle: str, filter_doc: EastDict, options: EastStruct) -> EastArray:
     """Find documents in MongoDB."""
     try:
@@ -189,6 +222,11 @@ async def mongo_find_impl(handle: str, filter_doc: EastDict, options: EastStruct
         raise Exception(f"MongoDB find failed: {e}") from e
 
 
+@platform_function(
+    name="mongodb_update_one",
+    inputs=[ConnectionHandleType, MongoDocumentType, MongoDocumentType],
+    output=IntegerType,
+)
 async def mongo_update_one_impl(handle: str, filter_doc: EastDict, update_doc: EastDict) -> int:
     """Update a document in MongoDB."""
     try:
@@ -210,6 +248,11 @@ async def mongo_update_one_impl(handle: str, filter_doc: EastDict, update_doc: E
         raise Exception(f"MongoDB updateOne failed: {e}") from e
 
 
+@platform_function(
+    name="mongodb_delete_one",
+    inputs=[ConnectionHandleType, MongoDocumentType],
+    output=IntegerType,
+)
 async def mongo_delete_one_impl(handle: str, filter_doc: EastDict) -> int:
     """Delete a document from MongoDB."""
     try:
@@ -224,6 +267,11 @@ async def mongo_delete_one_impl(handle: str, filter_doc: EastDict) -> int:
         raise Exception(f"MongoDB deleteOne failed: {e}") from e
 
 
+@platform_function(
+    name="mongodb_delete_many",
+    inputs=[ConnectionHandleType, MongoDocumentType],
+    output=IntegerType,
+)
 async def mongo_delete_many_impl(handle: str, filter_doc: EastDict) -> int:
     """Delete multiple documents from MongoDB."""
     try:
@@ -238,6 +286,7 @@ async def mongo_delete_many_impl(handle: str, filter_doc: EastDict) -> int:
         raise Exception(f"MongoDB deleteMany failed: {e}") from e
 
 
+@platform_function(name="mongodb_close", inputs=[ConnectionHandleType], output=NullType)
 async def mongo_close_impl(handle: str) -> None:
     """Close a MongoDB connection."""
     try:
@@ -251,6 +300,7 @@ async def mongo_close_impl(handle: str) -> None:
         raise Exception(f"MongoDB close failed: {e}") from e
 
 
+@platform_function(name="mongodb_close_all", inputs=[], output=NullType)
 async def mongo_close_all_impl() -> None:
     """Close all MongoDB connections."""
     for client, _ in _clients.values():
@@ -258,72 +308,8 @@ async def mongo_close_all_impl() -> None:
     _clients.clear()
 
 
-# Platform function implementations
-mongodb_impl = [
-    PlatformFunction(
-        name="mongodb_connect",
-        inputs=[MongoConfigType],
-        output=ConnectionHandleType,
-        type="async",
-        fn=mongo_connect_impl,
-    ),
-    PlatformFunction(
-        name="mongodb_insert_one",
-        inputs=[ConnectionHandleType, MongoDocumentType],
-        output=StringType,
-        type="async",
-        fn=mongo_insert_one_impl,
-    ),
-    PlatformFunction(
-        name="mongodb_find_one",
-        inputs=[ConnectionHandleType, MongoDocumentType],
-        output=OptionType(MongoDocumentType),
-        type="async",
-        fn=mongo_find_one_impl,
-    ),
-    PlatformFunction(
-        name="mongodb_find_many",
-        inputs=[ConnectionHandleType, MongoDocumentType, MongoFindOptionsType],
-        output=ArrayType(MongoDocumentType),
-        type="async",
-        fn=mongo_find_impl,
-    ),
-    PlatformFunction(
-        name="mongodb_update_one",
-        inputs=[ConnectionHandleType, MongoDocumentType, MongoDocumentType],
-        output=IntegerType,
-        type="async",
-        fn=mongo_update_one_impl,
-    ),
-    PlatformFunction(
-        name="mongodb_delete_one",
-        inputs=[ConnectionHandleType, MongoDocumentType],
-        output=IntegerType,
-        type="async",
-        fn=mongo_delete_one_impl,
-    ),
-    PlatformFunction(
-        name="mongodb_delete_many",
-        inputs=[ConnectionHandleType, MongoDocumentType],
-        output=IntegerType,
-        type="async",
-        fn=mongo_delete_many_impl,
-    ),
-    PlatformFunction(
-        name="mongodb_close",
-        inputs=[ConnectionHandleType],
-        output=NullType,
-        type="async",
-        fn=mongo_close_impl,
-    ),
-    PlatformFunction(
-        name="mongodb_close_all",
-        inputs=[],
-        output=NullType,
-        type="async",
-        fn=mongo_close_all_impl,
-    ),
-]
+# Collected from the @platform_function decorations above.
+mongodb_impl = platform_functions(__name__)
 
 __all__ = [
     "mongodb_impl",

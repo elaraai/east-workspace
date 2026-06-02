@@ -12,7 +12,7 @@ import importlib.util
 import warnings
 
 import numpy as np
-from east.runtime.platform import PlatformFunction
+from east.runtime.platform import platform_function, platform_functions
 from east.types.types import FloatType, IntegerType, MatrixType, VectorType
 from east.types.values import EastArray, EastBlob, EastMatrix, EastStruct, EastVariant, EastVector
 
@@ -68,6 +68,11 @@ def _check_lightgbm_support() -> None:
 # ============================================================================
 
 
+@platform_function(
+    name="lightgbm_train_regressor",
+    inputs=[MatrixType(FloatType), VectorType(FloatType), LightGBMConfigType],
+    output=ModelBlobType,
+)
 def lightgbm_train_regressor_impl(
     X: EastArray,
     y: EastArray,
@@ -138,6 +143,11 @@ def lightgbm_train_regressor_impl(
     )
 
 
+@platform_function(
+    name="lightgbm_train_classifier",
+    inputs=[MatrixType(FloatType), VectorType(IntegerType), LightGBMConfigType],
+    output=ModelBlobType,
+)
 def lightgbm_train_classifier_impl(
     X: EastArray,
     y: EastArray,
@@ -212,6 +222,11 @@ def lightgbm_train_classifier_impl(
     )
 
 
+@platform_function(
+    name="lightgbm_predict",
+    inputs=[ModelBlobType, MatrixType(FloatType)],
+    output=VectorType(FloatType),
+)
 def lightgbm_predict_impl(
     model_blob: EastVariant,
     X: EastArray,
@@ -243,6 +258,11 @@ def lightgbm_predict_impl(
     return EastVector(FloatType, y_pred.ravel().astype(np.float64))
 
 
+@platform_function(
+    name="lightgbm_predict_class",
+    inputs=[ModelBlobType, MatrixType(FloatType)],
+    output=VectorType(IntegerType),
+)
 def lightgbm_predict_class_impl(
     model_blob: EastVariant,
     X: EastArray,
@@ -274,6 +294,11 @@ def lightgbm_predict_class_impl(
     return EastVector(IntegerType, y_pred.ravel().astype(np.int64))
 
 
+@platform_function(
+    name="lightgbm_predict_proba",
+    inputs=[ModelBlobType, MatrixType(FloatType)],
+    output=MatrixType(FloatType),
+)
 def lightgbm_predict_proba_impl(
     model_blob: EastVariant,
     X: EastArray,
@@ -309,43 +334,7 @@ def lightgbm_predict_proba_impl(
 # Platform Function Registration
 # ============================================================================
 
-lightgbm_impl = [
-    PlatformFunction(
-        name="lightgbm_train_regressor",
-        inputs=[MatrixType(FloatType), VectorType(FloatType), LightGBMConfigType],
-        output=ModelBlobType,
-        type="sync",
-        fn=lightgbm_train_regressor_impl,
-    ),
-    PlatformFunction(
-        name="lightgbm_train_classifier",
-        inputs=[MatrixType(FloatType), VectorType(IntegerType), LightGBMConfigType],
-        output=ModelBlobType,
-        type="sync",
-        fn=lightgbm_train_classifier_impl,
-    ),
-    PlatformFunction(
-        name="lightgbm_predict",
-        inputs=[ModelBlobType, MatrixType(FloatType)],
-        output=VectorType(FloatType),
-        type="sync",
-        fn=lightgbm_predict_impl,
-    ),
-    PlatformFunction(
-        name="lightgbm_predict_class",
-        inputs=[ModelBlobType, MatrixType(FloatType)],
-        output=VectorType(IntegerType),
-        type="sync",
-        fn=lightgbm_predict_class_impl,
-    ),
-    PlatformFunction(
-        name="lightgbm_predict_proba",
-        inputs=[ModelBlobType, MatrixType(FloatType)],
-        output=MatrixType(FloatType),
-        type="sync",
-        fn=lightgbm_predict_proba_impl,
-    ),
-]
+lightgbm_impl = platform_functions(__name__)
 
 __all__ = [
     "lightgbm_impl",

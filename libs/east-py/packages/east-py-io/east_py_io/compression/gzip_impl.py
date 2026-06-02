@@ -10,13 +10,14 @@ Provides gzip compression and decompression for East programs.
 import gzip
 import io
 
-from east.runtime.platform import PlatformFunction
+from east.runtime.platform import platform_function, platform_functions
 from east.types.types import BlobType
 from east.types.values import EastBlob, EastStruct
 
 from .types import GzipOptionsType
 
 
+@platform_function(name="gzip_compress", inputs=[BlobType, GzipOptionsType], output=BlobType)
 async def gzip_compress_impl(data: EastBlob, options: EastStruct) -> EastBlob:
     """Compress data using gzip.
 
@@ -44,6 +45,7 @@ async def gzip_compress_impl(data: EastBlob, options: EastStruct) -> EastBlob:
         raise Exception(f"Gzip compress failed: {e}") from e
 
 
+@platform_function(name="gzip_decompress", inputs=[BlobType], output=BlobType)
 async def gzip_decompress_impl(data: EastBlob) -> EastBlob:
     """Decompress gzip data."""
     try:
@@ -53,23 +55,8 @@ async def gzip_decompress_impl(data: EastBlob) -> EastBlob:
         raise Exception(f"Gzip decompress failed: {e}") from e
 
 
-# Platform function implementations
-gzip_impl = [
-    PlatformFunction(
-        name="gzip_compress",
-        inputs=[BlobType, GzipOptionsType],
-        output=BlobType,
-        type="async",
-        fn=gzip_compress_impl,
-    ),
-    PlatformFunction(
-        name="gzip_decompress",
-        inputs=[BlobType],
-        output=BlobType,
-        type="async",
-        fn=gzip_decompress_impl,
-    ),
-]
+# Collected from the @platform_function decorations above.
+gzip_impl = platform_functions(__name__)
 
 __all__ = [
     "gzip_impl",

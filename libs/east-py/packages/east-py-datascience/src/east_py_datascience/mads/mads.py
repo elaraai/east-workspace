@@ -18,7 +18,7 @@ import importlib.util
 from collections.abc import Callable
 from typing import Any
 
-from east.runtime.platform import PlatformFunction
+from east.runtime.platform import platform_function, platform_functions
 from east.types.types import (
     ArrayType,
     BooleanType,
@@ -135,6 +135,17 @@ def _check_mads_support() -> None:
 # ============================================================================
 
 
+@platform_function(
+    name="mads_optimize",
+    inputs=[
+        ScalarObjectiveType,
+        VectorType(FloatType),
+        MADSBoundsType,
+        OptionType(ArrayType(MADSConstraintType)),
+        MADSConfigType,
+    ],
+    output=MADSResultType,
+)
 def mads_optimize_impl(
     objective_fn: Callable[[EastVector], float],
     x0: EastVector,
@@ -255,21 +266,7 @@ def mads_optimize_impl(
 # Platform Function Registration
 # ============================================================================
 
-mads_impl = [
-    PlatformFunction(
-        name="mads_optimize",
-        inputs=[
-            ScalarObjectiveType,
-            VectorType(FloatType),
-            MADSBoundsType,
-            OptionType(ArrayType(MADSConstraintType)),
-            MADSConfigType,
-        ],
-        output=MADSResultType,
-        type="sync",
-        fn=mads_optimize_impl,
-    ),
-]
+mads_impl = platform_functions(__name__)
 
 
 __all__ = [

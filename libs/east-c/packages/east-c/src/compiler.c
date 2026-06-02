@@ -1251,6 +1251,21 @@ EvalResult east_call(EastCompiledFn *fn, EastValue **args, size_t num_args)
     return result;
 }
 
+EastValue *east_foreign_function(EastInvokeFn invoke, void *userdata,
+                                 void (*invoke_release)(void *userdata), EastType *fn_type)
+{
+    EastCompiledFn *fn = east_calloc(1, sizeof(EastCompiledFn));
+    if (!fn) {
+        if (invoke_release) invoke_release(userdata);
+        return NULL;
+    }
+    fn->invoke = invoke;
+    fn->invoke_userdata = userdata;
+    fn->invoke_release = invoke_release;
+    fn->fn_type = fn_type; /* borrowed, per struct contract */
+    return east_function_value(fn);
+}
+
 void east_compiled_fn_free(EastCompiledFn *fn)
 {
     if (!fn) return;

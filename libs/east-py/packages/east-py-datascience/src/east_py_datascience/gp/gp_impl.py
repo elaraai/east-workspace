@@ -16,7 +16,7 @@ warnings.filterwarnings("ignore", module="sklearn")
 import importlib.util  # noqa: E402
 
 import numpy as np  # noqa: E402
-from east.runtime.platform import PlatformFunction  # noqa: E402
+from east.runtime.platform import platform_function, platform_functions  # noqa: E402
 from east.types.types import FloatType, MatrixType, VectorType  # noqa: E402
 from east.types.values import EastArray, EastBlob, EastStruct, EastVariant, EastVector  # noqa: E402
 
@@ -99,6 +99,11 @@ def _check_gp_support() -> None:
 # ============================================================================
 
 
+@platform_function(
+    name="gp_train",
+    inputs=[MatrixType(FloatType), VectorType(FloatType), GPConfigType],
+    output=ModelBlobType,
+)
 def gp_train_impl(
     X: EastArray,
     y: EastArray,
@@ -173,6 +178,11 @@ def gp_train_impl(
     )
 
 
+@platform_function(
+    name="gp_predict",
+    inputs=[ModelBlobType, MatrixType(FloatType)],
+    output=VectorType(FloatType),
+)
 def gp_predict_impl(
     model_blob: EastVariant,
     X: EastArray,
@@ -206,6 +216,11 @@ def gp_predict_impl(
     return EastVector(FloatType, predictions.ravel().astype(np.float64))
 
 
+@platform_function(
+    name="gp_predict_std",
+    inputs=[ModelBlobType, MatrixType(FloatType)],
+    output=GPPredictResultType,
+)
 def gp_predict_std_impl(
     model_blob: EastVariant,
     X: EastArray,
@@ -250,29 +265,7 @@ def gp_predict_std_impl(
 # Platform Function Registration
 # ============================================================================
 
-gp_impl = [
-    PlatformFunction(
-        name="gp_train",
-        inputs=[MatrixType(FloatType), VectorType(FloatType), GPConfigType],
-        output=ModelBlobType,
-        type="sync",
-        fn=gp_train_impl,
-    ),
-    PlatformFunction(
-        name="gp_predict",
-        inputs=[ModelBlobType, MatrixType(FloatType)],
-        output=VectorType(FloatType),
-        type="sync",
-        fn=gp_predict_impl,
-    ),
-    PlatformFunction(
-        name="gp_predict_std",
-        inputs=[ModelBlobType, MatrixType(FloatType)],
-        output=GPPredictResultType,
-        type="sync",
-        fn=gp_predict_std_impl,
-    ),
-]
+gp_impl = platform_functions(__name__)
 
 __all__ = [
     "gp_impl",

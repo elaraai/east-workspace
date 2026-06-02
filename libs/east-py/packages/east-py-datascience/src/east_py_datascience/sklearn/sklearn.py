@@ -16,7 +16,7 @@ warnings.filterwarnings("ignore", module="sklearn")
 import importlib.util  # noqa: E402
 
 import numpy as np  # noqa: E402
-from east.runtime.platform import PlatformFunction  # noqa: E402
+from east.runtime.platform import platform_function, platform_functions  # noqa: E402
 from east.types.types import ArrayType, FloatType, IntegerType, MatrixType, VectorType  # noqa: E402
 from east.types.values import (  # noqa: E402
     EastArray,
@@ -188,6 +188,11 @@ def _stratified_n_way_split(
     return [np.array(s, dtype=np.int64) for s in split_indices]
 
 
+@platform_function(
+    name="sklearn_split",
+    inputs=[MatrixType(FloatType), MatrixType(FloatType), SplitConfigType],
+    output=SplitResultType,
+)
 def sklearn_split_impl(
     X: EastArray,
     Y: EastArray,
@@ -568,6 +573,11 @@ def _filter_by_known_categories(
     return keep_mask
 
 
+@platform_function(
+    name="sklearn_overlap",
+    inputs=[MatrixType(FloatType), ArrayType(MatrixType(FloatType)), ArrayType(MatrixType(FloatType)), OverlapConfigType],
+    output=OverlapResultType,
+)
 def sklearn_overlap_impl(
     X_reference: EastArray,
     X_targets: EastArray,
@@ -641,6 +651,11 @@ def sklearn_overlap_impl(
     )
 
 
+@platform_function(
+    name="sklearn_standard_scaler_fit",
+    inputs=[MatrixType(FloatType)],
+    output=ModelBlobType,
+)
 def sklearn_standard_scaler_fit_impl(X: EastArray) -> EastVariant:
     """Fit StandardScaler and return model blob."""
     _check_sklearn_support()
@@ -675,6 +690,11 @@ def sklearn_standard_scaler_fit_impl(X: EastArray) -> EastVariant:
     )
 
 
+@platform_function(
+    name="sklearn_standard_scaler_transform",
+    inputs=[ModelBlobType, MatrixType(FloatType)],
+    output=MatrixType(FloatType),
+)
 def sklearn_standard_scaler_transform_impl(
     model_blob: EastVariant,
     X: EastArray,
@@ -695,6 +715,11 @@ def sklearn_standard_scaler_transform_impl(
         ) from e
 
 
+@platform_function(
+    name="sklearn_min_max_scaler_fit",
+    inputs=[MatrixType(FloatType)],
+    output=ModelBlobType,
+)
 def sklearn_min_max_scaler_fit_impl(X: EastArray) -> EastVariant:
     """Fit MinMaxScaler and return model blob."""
     _check_sklearn_support()
@@ -729,6 +754,11 @@ def sklearn_min_max_scaler_fit_impl(X: EastArray) -> EastVariant:
     )
 
 
+@platform_function(
+    name="sklearn_min_max_scaler_transform",
+    inputs=[ModelBlobType, MatrixType(FloatType)],
+    output=MatrixType(FloatType),
+)
 def sklearn_min_max_scaler_transform_impl(
     model_blob: EastVariant,
     X: EastArray,
@@ -749,6 +779,11 @@ def sklearn_min_max_scaler_transform_impl(
         ) from e
 
 
+@platform_function(
+    name="sklearn_robust_scaler_fit",
+    inputs=[MatrixType(FloatType)],
+    output=ModelBlobType,
+)
 def sklearn_robust_scaler_fit_impl(X: EastArray) -> EastVariant:
     """Fit RobustScaler and return model blob.
 
@@ -787,6 +822,11 @@ def sklearn_robust_scaler_fit_impl(X: EastArray) -> EastVariant:
     )
 
 
+@platform_function(
+    name="sklearn_robust_scaler_transform",
+    inputs=[ModelBlobType, MatrixType(FloatType)],
+    output=MatrixType(FloatType),
+)
 def sklearn_robust_scaler_transform_impl(
     model_blob: EastVariant,
     X: EastArray,
@@ -807,6 +847,11 @@ def sklearn_robust_scaler_transform_impl(
         ) from e
 
 
+@platform_function(
+    name="sklearn_label_encoder_fit",
+    inputs=[VectorType(IntegerType)],
+    output=ModelBlobType,
+)
 def sklearn_label_encoder_fit_impl(y: EastArray) -> EastVariant:
     """Fit LabelEncoder to labels and return model blob."""
     _check_sklearn_support()
@@ -840,6 +885,11 @@ def sklearn_label_encoder_fit_impl(y: EastArray) -> EastVariant:
     )
 
 
+@platform_function(
+    name="sklearn_label_encoder_transform",
+    inputs=[ModelBlobType, VectorType(IntegerType)],
+    output=VectorType(IntegerType),
+)
 def sklearn_label_encoder_transform_impl(
     model_blob: EastVariant,
     y: EastArray,
@@ -865,6 +915,11 @@ def sklearn_label_encoder_transform_impl(
     return EastVector(IntegerType, y_encoded.ravel().astype(np.int64))
 
 
+@platform_function(
+    name="sklearn_label_encoder_inverse_transform",
+    inputs=[ModelBlobType, VectorType(IntegerType)],
+    output=VectorType(IntegerType),
+)
 def sklearn_label_encoder_inverse_transform_impl(
     model_blob: EastVariant,
     y: EastArray,
@@ -890,6 +945,11 @@ def sklearn_label_encoder_inverse_transform_impl(
     return EastVector(IntegerType, y_original.ravel().astype(np.int64))
 
 
+@platform_function(
+    name="sklearn_ordinal_encoder_fit",
+    inputs=[MatrixType(FloatType)],
+    output=ModelBlobType,
+)
 def sklearn_ordinal_encoder_fit_impl(X: EastArray) -> EastVariant:
     """Fit OrdinalEncoder to features and return model blob."""
     _check_sklearn_support()
@@ -924,6 +984,11 @@ def sklearn_ordinal_encoder_fit_impl(X: EastArray) -> EastVariant:
     )
 
 
+@platform_function(
+    name="sklearn_ordinal_encoder_transform",
+    inputs=[ModelBlobType, MatrixType(FloatType)],
+    output=MatrixType(FloatType),
+)
 def sklearn_ordinal_encoder_transform_impl(
     model_blob: EastVariant,
     X: EastArray,
@@ -949,6 +1014,11 @@ def sklearn_ordinal_encoder_transform_impl(
     return EastMatrix(FloatType, np.atleast_2d(X_encoded).astype(np.float64))
 
 
+@platform_function(
+    name="sklearn_compute_class_weight",
+    inputs=[ClassWeightModeType, VectorType(IntegerType)],
+    output=VectorType(FloatType),
+)
 def sklearn_compute_class_weight_impl(
     mode: EastVariant,
     y: EastArray,
@@ -984,6 +1054,11 @@ def sklearn_compute_class_weight_impl(
     return EastVector(FloatType, weights.ravel().astype(np.float64))
 
 
+@platform_function(
+    name="sklearn_confusion_matrix",
+    inputs=[VectorType(IntegerType), VectorType(IntegerType)],
+    output=ConfusionMatrixResultType,
+)
 def sklearn_confusion_matrix_impl(
     y_true: EastArray,
     y_pred: EastArray,
@@ -1026,6 +1101,11 @@ def sklearn_confusion_matrix_impl(
     )
 
 
+@platform_function(
+    name="sklearn_roc_auc_score",
+    inputs=[VectorType(IntegerType), MatrixType(FloatType), RocAucConfigType],
+    output=FloatType,
+)
 def sklearn_roc_auc_score_impl(
     y_true: EastArray,
     y_proba: EastArray,
@@ -1085,6 +1165,11 @@ def sklearn_roc_auc_score_impl(
     return float(score)
 
 
+@platform_function(
+    name="sklearn_log_loss",
+    inputs=[VectorType(IntegerType), MatrixType(FloatType)],
+    output=FloatType,
+)
 def sklearn_log_loss_impl(
     y_true: EastArray,
     y_proba: EastArray,
@@ -1117,6 +1202,11 @@ def sklearn_log_loss_impl(
     return float(loss)
 
 
+@platform_function(
+    name="sklearn_silhouette_score",
+    inputs=[MatrixType(FloatType), VectorType(IntegerType)],
+    output=FloatType,
+)
 def sklearn_silhouette_score_impl(
     X: EastArray, labels: EastArray
 ) -> float:
@@ -1224,6 +1314,11 @@ def _compute_regression_metric(
         raise ValueError(f"Unknown regression metric: {metric_name}")
 
 
+@platform_function(
+    name="sklearn_compute_metrics",
+    inputs=[VectorType(FloatType), VectorType(FloatType), ArrayType(RegressionMetricType)],
+    output=MetricsResultType,
+)
 def sklearn_compute_metrics_impl(
     y_true: EastArray,
     y_pred: EastArray,
@@ -1264,6 +1359,16 @@ def sklearn_compute_metrics_impl(
     return EastArray(MetricResultType, results)
 
 
+@platform_function(
+    name="sklearn_compute_metrics_multi",
+    inputs=[
+        MatrixType(FloatType),
+        MatrixType(FloatType),
+        ArrayType(RegressionMetricType),
+        MultiMetricsConfigType,
+    ],
+    output=MultiMetricsResultType,
+)
 def sklearn_compute_metrics_multi_impl(
     Y_true: EastArray,
     Y_pred: EastArray,
@@ -1371,6 +1476,16 @@ def _compute_classification_metric(
         raise ValueError(f"Unknown classification metric: {metric_name}")
 
 
+@platform_function(
+    name="sklearn_compute_classification_metrics",
+    inputs=[
+        VectorType(IntegerType),
+        VectorType(IntegerType),
+        ArrayType(ClassificationMetricType),
+        ClassificationMetricsConfigType,
+    ],
+    output=ClassificationMetricResultsType,
+)
 def sklearn_compute_classification_metrics_impl(
     y_true: EastArray,
     y_pred: EastArray,
@@ -1426,6 +1541,16 @@ def sklearn_compute_classification_metrics_impl(
     return EastArray(ClassificationMetricResultType, results)
 
 
+@platform_function(
+    name="sklearn_compute_classification_metrics_multi",
+    inputs=[
+        MatrixType(FloatType),
+        MatrixType(FloatType),
+        ArrayType(ClassificationMetricType),
+        MultiClassificationConfigType,
+    ],
+    output=MultiClassificationMetricResultsType,
+)
 def sklearn_compute_classification_metrics_multi_impl(
     Y_true: EastArray,
     Y_pred: EastArray,
@@ -1624,6 +1749,11 @@ def _create_base_estimator(estimator_variant: EastVariant):
         )
 
 
+@platform_function(
+    name="sklearn_regressor_chain_train",
+    inputs=[MatrixType(FloatType), MatrixType(FloatType), RegressorChainConfigType],
+    output=ModelBlobType,
+)
 def sklearn_regressor_chain_train_impl(
     X: EastArray,
     Y: EastArray,
@@ -1699,6 +1829,11 @@ def sklearn_regressor_chain_train_impl(
     )
 
 
+@platform_function(
+    name="sklearn_regressor_chain_predict",
+    inputs=[ModelBlobType, MatrixType(FloatType)],
+    output=MatrixType(FloatType),
+)
 def sklearn_regressor_chain_predict_impl(
     model_blob: EastVariant,
     X: EastArray,
@@ -1734,6 +1869,11 @@ def sklearn_regressor_chain_predict_impl(
 # ============================================================================
 
 
+@platform_function(
+    name="sklearn_gmm_fit",
+    inputs=[MatrixType(FloatType), GMMConfigType],
+    output=ModelBlobType,
+)
 def sklearn_gmm_fit_impl(
     X: EastArray,
     config: EastStruct,
@@ -1791,6 +1931,11 @@ def sklearn_gmm_fit_impl(
     )
 
 
+@platform_function(
+    name="sklearn_gmm_predict",
+    inputs=[ModelBlobType, MatrixType(FloatType)],
+    output=VectorType(IntegerType),
+)
 def sklearn_gmm_predict_impl(
     model_blob: EastVariant,
     X: EastArray,
@@ -1820,6 +1965,11 @@ def sklearn_gmm_predict_impl(
     return EastVector(IntegerType, labels.ravel().astype(np.int64))
 
 
+@platform_function(
+    name="sklearn_gmm_predict_proba",
+    inputs=[ModelBlobType, MatrixType(FloatType)],
+    output=MatrixType(FloatType),
+)
 def sklearn_gmm_predict_proba_impl(
     model_blob: EastVariant,
     X: EastArray,
@@ -1849,6 +1999,11 @@ def sklearn_gmm_predict_proba_impl(
     return EastMatrix(FloatType, np.atleast_2d(proba).astype(np.float64))
 
 
+@platform_function(
+    name="sklearn_gmm_score_samples",
+    inputs=[ModelBlobType, MatrixType(FloatType)],
+    output=VectorType(FloatType),
+)
 def sklearn_gmm_score_samples_impl(
     model_blob: EastVariant,
     X: EastArray,
@@ -1878,6 +2033,11 @@ def sklearn_gmm_score_samples_impl(
     return EastVector(FloatType, scores.ravel().astype(np.float64))
 
 
+@platform_function(
+    name="sklearn_gmm_sample",
+    inputs=[ModelBlobType, IntegerType],
+    output=MatrixType(FloatType),
+)
 def sklearn_gmm_sample_impl(
     model_blob: EastVariant,
     n_samples: int,
@@ -1900,6 +2060,11 @@ def sklearn_gmm_sample_impl(
     return EastMatrix(FloatType, np.atleast_2d(samples).astype(np.float64))
 
 
+@platform_function(
+    name="sklearn_gmm_bic",
+    inputs=[ModelBlobType, MatrixType(FloatType)],
+    output=FloatType,
+)
 def sklearn_gmm_bic_impl(
     model_blob: EastVariant,
     X: EastArray,
@@ -1927,6 +2092,11 @@ def sklearn_gmm_bic_impl(
         ) from e
 
 
+@platform_function(
+    name="sklearn_gmm_aic",
+    inputs=[ModelBlobType, MatrixType(FloatType)],
+    output=FloatType,
+)
 def sklearn_gmm_aic_impl(
     model_blob: EastVariant,
     X: EastArray,
@@ -1958,246 +2128,7 @@ def sklearn_gmm_aic_impl(
 # Platform Function Registration
 # ============================================================================
 
-sklearn_impl = [
-    PlatformFunction(
-        name="sklearn_split",
-        inputs=[MatrixType(FloatType), MatrixType(FloatType), SplitConfigType],
-        output=SplitResultType,
-        type="sync",
-        fn=sklearn_split_impl,
-    ),
-    PlatformFunction(
-        name="sklearn_overlap",
-        inputs=[MatrixType(FloatType), ArrayType(MatrixType(FloatType)), ArrayType(MatrixType(FloatType)), OverlapConfigType],
-        output=OverlapResultType,
-        type="sync",
-        fn=sklearn_overlap_impl,
-    ),
-    PlatformFunction(
-        name="sklearn_standard_scaler_fit",
-        inputs=[MatrixType(FloatType)],
-        output=ModelBlobType,
-        type="sync",
-        fn=sklearn_standard_scaler_fit_impl,
-    ),
-    PlatformFunction(
-        name="sklearn_standard_scaler_transform",
-        inputs=[ModelBlobType, MatrixType(FloatType)],
-        output=MatrixType(FloatType),
-        type="sync",
-        fn=sklearn_standard_scaler_transform_impl,
-    ),
-    PlatformFunction(
-        name="sklearn_min_max_scaler_fit",
-        inputs=[MatrixType(FloatType)],
-        output=ModelBlobType,
-        type="sync",
-        fn=sklearn_min_max_scaler_fit_impl,
-    ),
-    PlatformFunction(
-        name="sklearn_min_max_scaler_transform",
-        inputs=[ModelBlobType, MatrixType(FloatType)],
-        output=MatrixType(FloatType),
-        type="sync",
-        fn=sklearn_min_max_scaler_transform_impl,
-    ),
-    PlatformFunction(
-        name="sklearn_robust_scaler_fit",
-        inputs=[MatrixType(FloatType)],
-        output=ModelBlobType,
-        type="sync",
-        fn=sklearn_robust_scaler_fit_impl,
-    ),
-    PlatformFunction(
-        name="sklearn_robust_scaler_transform",
-        inputs=[ModelBlobType, MatrixType(FloatType)],
-        output=MatrixType(FloatType),
-        type="sync",
-        fn=sklearn_robust_scaler_transform_impl,
-    ),
-    PlatformFunction(
-        name="sklearn_compute_class_weight",
-        inputs=[ClassWeightModeType, VectorType(IntegerType)],
-        output=VectorType(FloatType),
-        type="sync",
-        fn=sklearn_compute_class_weight_impl,
-    ),
-    PlatformFunction(
-        name="sklearn_confusion_matrix",
-        inputs=[VectorType(IntegerType), VectorType(IntegerType)],
-        output=ConfusionMatrixResultType,
-        type="sync",
-        fn=sklearn_confusion_matrix_impl,
-    ),
-    PlatformFunction(
-        name="sklearn_roc_auc_score",
-        inputs=[VectorType(IntegerType), MatrixType(FloatType), RocAucConfigType],
-        output=FloatType,
-        type="sync",
-        fn=sklearn_roc_auc_score_impl,
-    ),
-    PlatformFunction(
-        name="sklearn_log_loss",
-        inputs=[VectorType(IntegerType), MatrixType(FloatType)],
-        output=FloatType,
-        type="sync",
-        fn=sklearn_log_loss_impl,
-    ),
-    PlatformFunction(
-        name="sklearn_silhouette_score",
-        inputs=[MatrixType(FloatType), VectorType(IntegerType)],
-        output=FloatType,
-        type="sync",
-        fn=sklearn_silhouette_score_impl,
-    ),
-    # Flexible regression metrics
-    PlatformFunction(
-        name="sklearn_compute_metrics",
-        inputs=[VectorType(FloatType), VectorType(FloatType), ArrayType(RegressionMetricType)],
-        output=MetricsResultType,
-        type="sync",
-        fn=sklearn_compute_metrics_impl,
-    ),
-    PlatformFunction(
-        name="sklearn_compute_metrics_multi",
-        inputs=[
-            MatrixType(FloatType),
-            MatrixType(FloatType),
-            ArrayType(RegressionMetricType),
-            MultiMetricsConfigType,
-        ],
-        output=MultiMetricsResultType,
-        type="sync",
-        fn=sklearn_compute_metrics_multi_impl,
-    ),
-    # Flexible classification metrics
-    PlatformFunction(
-        name="sklearn_compute_classification_metrics",
-        inputs=[
-            VectorType(IntegerType),
-            VectorType(IntegerType),
-            ArrayType(ClassificationMetricType),
-            ClassificationMetricsConfigType,
-        ],
-        output=ClassificationMetricResultsType,
-        type="sync",
-        fn=sklearn_compute_classification_metrics_impl,
-    ),
-    PlatformFunction(
-        name="sklearn_compute_classification_metrics_multi",
-        inputs=[
-            MatrixType(FloatType),
-            MatrixType(FloatType),
-            ArrayType(ClassificationMetricType),
-            MultiClassificationConfigType,
-        ],
-        output=MultiClassificationMetricResultsType,
-        type="sync",
-        fn=sklearn_compute_classification_metrics_multi_impl,
-    ),
-    # RegressorChain
-    PlatformFunction(
-        name="sklearn_regressor_chain_train",
-        inputs=[MatrixType(FloatType), MatrixType(FloatType), RegressorChainConfigType],
-        output=ModelBlobType,
-        type="sync",
-        fn=sklearn_regressor_chain_train_impl,
-    ),
-    PlatformFunction(
-        name="sklearn_regressor_chain_predict",
-        inputs=[ModelBlobType, MatrixType(FloatType)],
-        output=MatrixType(FloatType),
-        type="sync",
-        fn=sklearn_regressor_chain_predict_impl,
-    ),
-    # LabelEncoder
-    PlatformFunction(
-        name="sklearn_label_encoder_fit",
-        inputs=[VectorType(IntegerType)],
-        output=ModelBlobType,
-        type="sync",
-        fn=sklearn_label_encoder_fit_impl,
-    ),
-    PlatformFunction(
-        name="sklearn_label_encoder_transform",
-        inputs=[ModelBlobType, VectorType(IntegerType)],
-        output=VectorType(IntegerType),
-        type="sync",
-        fn=sklearn_label_encoder_transform_impl,
-    ),
-    PlatformFunction(
-        name="sklearn_label_encoder_inverse_transform",
-        inputs=[ModelBlobType, VectorType(IntegerType)],
-        output=VectorType(IntegerType),
-        type="sync",
-        fn=sklearn_label_encoder_inverse_transform_impl,
-    ),
-    # OrdinalEncoder
-    PlatformFunction(
-        name="sklearn_ordinal_encoder_fit",
-        inputs=[MatrixType(FloatType)],
-        output=ModelBlobType,
-        type="sync",
-        fn=sklearn_ordinal_encoder_fit_impl,
-    ),
-    PlatformFunction(
-        name="sklearn_ordinal_encoder_transform",
-        inputs=[ModelBlobType, MatrixType(FloatType)],
-        output=MatrixType(FloatType),
-        type="sync",
-        fn=sklearn_ordinal_encoder_transform_impl,
-    ),
-    # GMM
-    PlatformFunction(
-        name="sklearn_gmm_fit",
-        inputs=[MatrixType(FloatType), GMMConfigType],
-        output=ModelBlobType,
-        type="sync",
-        fn=sklearn_gmm_fit_impl,
-    ),
-    PlatformFunction(
-        name="sklearn_gmm_predict",
-        inputs=[ModelBlobType, MatrixType(FloatType)],
-        output=VectorType(IntegerType),
-        type="sync",
-        fn=sklearn_gmm_predict_impl,
-    ),
-    PlatformFunction(
-        name="sklearn_gmm_predict_proba",
-        inputs=[ModelBlobType, MatrixType(FloatType)],
-        output=MatrixType(FloatType),
-        type="sync",
-        fn=sklearn_gmm_predict_proba_impl,
-    ),
-    PlatformFunction(
-        name="sklearn_gmm_score_samples",
-        inputs=[ModelBlobType, MatrixType(FloatType)],
-        output=VectorType(FloatType),
-        type="sync",
-        fn=sklearn_gmm_score_samples_impl,
-    ),
-    PlatformFunction(
-        name="sklearn_gmm_sample",
-        inputs=[ModelBlobType, IntegerType],
-        output=MatrixType(FloatType),
-        type="sync",
-        fn=sklearn_gmm_sample_impl,
-    ),
-    PlatformFunction(
-        name="sklearn_gmm_bic",
-        inputs=[ModelBlobType, MatrixType(FloatType)],
-        output=FloatType,
-        type="sync",
-        fn=sklearn_gmm_bic_impl,
-    ),
-    PlatformFunction(
-        name="sklearn_gmm_aic",
-        inputs=[ModelBlobType, MatrixType(FloatType)],
-        output=FloatType,
-        type="sync",
-        fn=sklearn_gmm_aic_impl,
-    ),
-]
+sklearn_impl = platform_functions(__name__)
 
 __all__ = [
     "sklearn_impl",

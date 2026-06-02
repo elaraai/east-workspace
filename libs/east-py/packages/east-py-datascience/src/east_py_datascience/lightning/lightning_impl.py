@@ -21,7 +21,7 @@ import warnings
 from collections.abc import Callable
 
 import numpy as np
-from east.runtime.platform import PlatformFunction
+from east.runtime.platform import platform_function, platform_functions
 from east.types.values import EastArray, EastBlob, EastStruct, EastVariant, is_east_variant
 
 # Lazy import guard for optional dependency
@@ -1135,7 +1135,15 @@ def _deserialize_model(blob: bytes) -> LightningMLP:
 # Platform Function Implementations
 # ============================================================================
 
+# 3D tensor type for masks
+Tensor3DType = EastArray  # ArrayType(ArrayType(ArrayType(BooleanType)))
 
+
+@platform_function(
+    name="lightning_train",
+    inputs=[MatrixType(FloatType), MatrixType(FloatType), LightningConfigType, Tensor3DType, GroupWeightsType, MatrixType(FloatType)],
+    output=LightningResultType,
+)
 def lightning_train_impl(
     X: EastArray,
     y: EastArray,
@@ -1504,6 +1512,11 @@ def lightning_train_impl(
     )
 
 
+@platform_function(
+    name="lightning_predict",
+    inputs=[ModelBlobType, MatrixType(FloatType), Tensor3DType, MatrixType(FloatType)],
+    output=MatrixType(FloatType),
+)
 def lightning_predict_impl(
     model_blob: EastVariant,
     X: EastArray,
@@ -1562,6 +1575,11 @@ def lightning_predict_impl(
     return EastMatrix(FloatType, np.atleast_2d(probs).astype(np.float64))
 
 
+@platform_function(
+    name="lightning_encode",
+    inputs=[ModelBlobType, MatrixType(FloatType)],
+    output=MatrixType(FloatType),
+)
 def lightning_encode_impl(
     model_blob: EastVariant,
     X: EastArray,
@@ -1586,6 +1604,11 @@ def lightning_encode_impl(
     return EastMatrix(FloatType, np.atleast_2d(embeddings).astype(np.float64))
 
 
+@platform_function(
+    name="lightning_decode",
+    inputs=[ModelBlobType, MatrixType(FloatType)],
+    output=MatrixType(FloatType),
+)
 def lightning_decode_impl(
     model_blob: EastVariant,
     z: EastArray,
@@ -1619,6 +1642,11 @@ def lightning_decode_impl(
     return EastMatrix(FloatType, np.atleast_2d(output).astype(np.float64))
 
 
+@platform_function(
+    name="lightning_decode_conditional",
+    inputs=[ModelBlobType, MatrixType(FloatType), MatrixType(FloatType)],
+    output=MatrixType(FloatType),
+)
 def lightning_decode_conditional_impl(
     model_blob: EastVariant,
     z: EastArray,
@@ -1660,6 +1688,11 @@ def lightning_decode_conditional_impl(
     return EastMatrix(FloatType, np.atleast_2d(output).astype(np.float64))
 
 
+@platform_function(
+    name="lightning_generate_sequence",
+    inputs=[ModelBlobType, MatrixType(FloatType), MatrixType(FloatType), LightningGenerateConfigType],
+    output=MatrixType(FloatType),
+)
 def lightning_generate_sequence_impl(
     model_blob: EastVariant,
     prefix: EastArray,
@@ -1736,50 +1769,5 @@ def lightning_generate_sequence_impl(
 # Platform Function Registration
 # ============================================================================
 
-# 3D tensor type for masks
-Tensor3DType = EastArray  # ArrayType(ArrayType(ArrayType(BooleanType)))
-
-lightning_impl = [
-    PlatformFunction(
-        name="lightning_train",
-        inputs=[MatrixType(FloatType), MatrixType(FloatType), LightningConfigType, Tensor3DType, GroupWeightsType, MatrixType(FloatType)],
-        output=LightningResultType,
-        type="sync",
-        fn=lightning_train_impl,
-    ),
-    PlatformFunction(
-        name="lightning_predict",
-        inputs=[ModelBlobType, MatrixType(FloatType), Tensor3DType, MatrixType(FloatType)],
-        output=MatrixType(FloatType),
-        type="sync",
-        fn=lightning_predict_impl,
-    ),
-    PlatformFunction(
-        name="lightning_encode",
-        inputs=[ModelBlobType, MatrixType(FloatType)],
-        output=MatrixType(FloatType),
-        type="sync",
-        fn=lightning_encode_impl,
-    ),
-    PlatformFunction(
-        name="lightning_decode",
-        inputs=[ModelBlobType, MatrixType(FloatType)],
-        output=MatrixType(FloatType),
-        type="sync",
-        fn=lightning_decode_impl,
-    ),
-    PlatformFunction(
-        name="lightning_decode_conditional",
-        inputs=[ModelBlobType, MatrixType(FloatType), MatrixType(FloatType)],
-        output=MatrixType(FloatType),
-        type="sync",
-        fn=lightning_decode_conditional_impl,
-    ),
-    PlatformFunction(
-        name="lightning_generate_sequence",
-        inputs=[ModelBlobType, MatrixType(FloatType), MatrixType(FloatType), LightningGenerateConfigType],
-        output=MatrixType(FloatType),
-        type="sync",
-        fn=lightning_generate_sequence_impl,
-    ),
-]
+# Collected from the @platform_function decorations above.
+lightning_impl = platform_functions(__name__)

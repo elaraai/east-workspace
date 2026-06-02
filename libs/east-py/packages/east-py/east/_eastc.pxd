@@ -189,6 +189,7 @@ cdef extern from "east/values.h":
         EastValue *source_ir
         EastType *fn_type
         EastSourceMap *source_map
+        void *invoke_userdata
 
     # Nested structs for the value union
     ctypedef struct _EastValueStringData:
@@ -388,9 +389,11 @@ cdef extern from "east/env.h":
 # ─── builtins.h ──────────────────────────────────────────────────────────
 
 cdef extern from "east/builtins.h":
+    ctypedef EastValue *(*BuiltinImpl)(EastValue **args, size_t num_args)
     BuiltinRegistry *builtin_registry_new()
     void east_register_all_builtins(BuiltinRegistry *reg)
     void builtin_registry_free(BuiltinRegistry *reg)
+    BuiltinImpl builtin_registry_get(BuiltinRegistry *reg, const char *name, EastType **type_params, size_t num_tp)
     void east_builtin_error(const char *msg)
     char *east_builtin_get_error()
 
@@ -437,6 +440,8 @@ cdef extern from "east/platform.h":
 # ─── compiler.h ──────────────────────────────────────────────────────────
 
 cdef extern from "east/compiler.h":
+    ctypedef EvalResult (*EastInvokeFn)(EastCompiledFn *self, EastValue **args, size_t n_args)
+    EastValue *east_foreign_function(EastInvokeFn invoke, void *userdata, void (*invoke_release)(void *userdata), EastType *fn_type)
     EastCompiledFn *east_compile(IRNode *ir, PlatformRegistry *platform, BuiltinRegistry *builtins)
     EvalResult east_call(EastCompiledFn *fn, EastValue **args, size_t num_args)
     void east_compiled_fn_free(EastCompiledFn *fn)

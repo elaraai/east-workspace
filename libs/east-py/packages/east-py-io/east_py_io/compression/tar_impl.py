@@ -10,13 +10,14 @@ Provides tar archive creation and extraction for East programs.
 import io
 import tarfile
 
-from east.runtime.platform import PlatformFunction
+from east.runtime.platform import platform_function, platform_functions
 from east.types.types import BlobType, StringType
 from east.types.values import EastArray, EastBlob, EastDict
 
 from .types import TarEntriesType, TarExtractedType
 
 
+@platform_function(name="tar_create", inputs=[TarEntriesType], output=BlobType)
 async def tar_create_impl(entries: EastArray) -> EastBlob:
     """Create a tar archive from entries.
 
@@ -47,6 +48,7 @@ async def tar_create_impl(entries: EastArray) -> EastBlob:
         raise Exception(f"Tar create failed: {e}") from e
 
 
+@platform_function(name="tar_extract", inputs=[BlobType], output=TarExtractedType)
 async def tar_extract_impl(data: EastBlob) -> EastDict:
     """Extract all files from a tar archive.
 
@@ -71,23 +73,8 @@ async def tar_extract_impl(data: EastBlob) -> EastDict:
         raise Exception(f"Tar extract failed: {e}") from e
 
 
-# Platform function implementations
-tar_impl = [
-    PlatformFunction(
-        name="tar_create",
-        inputs=[TarEntriesType],
-        output=BlobType,
-        type="async",
-        fn=tar_create_impl,
-    ),
-    PlatformFunction(
-        name="tar_extract",
-        inputs=[BlobType],
-        output=TarExtractedType,
-        type="async",
-        fn=tar_extract_impl,
-    ),
-]
+# Collected from the @platform_function decorations above.
+tar_impl = platform_functions(__name__)
 
 __all__ = [
     "tar_impl",

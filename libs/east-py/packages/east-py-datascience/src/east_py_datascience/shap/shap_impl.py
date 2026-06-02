@@ -12,7 +12,7 @@ import importlib.util
 import warnings
 
 import numpy as np
-from east.runtime.platform import PlatformFunction
+from east.runtime.platform import platform_function, platform_functions
 from east.types.types import FloatType, MatrixType
 from east.types.values import EastArray, EastBlob, EastMatrix, EastStruct, EastVariant, EastVector
 
@@ -188,6 +188,11 @@ def _extract_tree_model(model_blob: EastVariant, function_name: str):
     return model, n_features
 
 
+@platform_function(
+    name="shap_tree_explainer_create",
+    inputs=[TreeExplainerConfigType],
+    output=ModelBlobType,
+)
 def shap_tree_explainer_create_impl(
     config: EastVariant,
 ) -> EastVariant:
@@ -469,6 +474,11 @@ def _extract_model_from_blob(model_blob: EastVariant, function_name: str):
     return model, n_features, categorical_features, categorical_n, model_type
 
 
+@platform_function(
+    name="shap_kernel_explainer_create",
+    inputs=[ModelBlobType, MatrixType(FloatType)],
+    output=ModelBlobType,
+)
 def shap_kernel_explainer_create_impl(
     model_blob: EastVariant,
     X_background: EastArray,
@@ -516,6 +526,11 @@ def shap_kernel_explainer_create_impl(
     )
 
 
+@platform_function(
+    name="shap_compute_values",
+    inputs=[ModelBlobType, MatrixType(FloatType), StringVectorType],
+    output=ShapResultType,
+)
 def shap_compute_values_impl(
     explainer_blob: EastVariant,
     X: EastArray,
@@ -654,6 +669,11 @@ def shap_compute_values_impl(
         ) from e
 
 
+@platform_function(
+    name="shap_feature_importance",
+    inputs=[ShapValuesType, StringVectorType],
+    output=FeatureImportanceType,
+)
 def shap_feature_importance_impl(
     shap_values: EastVariant,
     feature_names: EastArray,
@@ -713,36 +733,7 @@ def shap_feature_importance_impl(
 # Platform Function Registration
 # ============================================================================
 
-shap_impl = [
-    PlatformFunction(
-        name="shap_tree_explainer_create",
-        inputs=[TreeExplainerConfigType],
-        output=ModelBlobType,
-        type="sync",
-        fn=shap_tree_explainer_create_impl,
-    ),
-    PlatformFunction(
-        name="shap_kernel_explainer_create",
-        inputs=[ModelBlobType, MatrixType(FloatType)],
-        output=ModelBlobType,
-        type="sync",
-        fn=shap_kernel_explainer_create_impl,
-    ),
-    PlatformFunction(
-        name="shap_compute_values",
-        inputs=[ModelBlobType, MatrixType(FloatType), StringVectorType],
-        output=ShapResultType,
-        type="sync",
-        fn=shap_compute_values_impl,
-    ),
-    PlatformFunction(
-        name="shap_feature_importance",
-        inputs=[ShapValuesType, StringVectorType],
-        output=FeatureImportanceType,
-        type="sync",
-        fn=shap_feature_importance_impl,
-    ),
-]
+shap_impl = platform_functions(__name__)
 
 __all__ = [
     "shap_impl",

@@ -14,7 +14,7 @@ import secrets
 import time
 from abc import ABC, abstractmethod
 
-from east.runtime.platform import PlatformFunction
+from east.runtime.platform import platform_function, platform_functions
 from east.types.types import FloatType, IntegerType, NullType
 
 
@@ -135,6 +135,7 @@ def _reset_to_crypto() -> None:
     _global_rng = CryptoRNG()
 
 
+@platform_function(name="random_uniform", inputs=[], output=FloatType)
 def random_uniform_impl() -> float:
     """Generate uniform random float in [0.0, 1.0).
 
@@ -144,6 +145,7 @@ def random_uniform_impl() -> float:
     return _get_rng().next()
 
 
+@platform_function(name="random_normal", inputs=[], output=FloatType)
 def random_normal_impl() -> float:
     """Generate random float from standard normal distribution.
 
@@ -162,6 +164,9 @@ def random_normal_impl() -> float:
             return u * math.sqrt(-2.0 * math.log(s) / s)
 
 
+@platform_function(
+    name="random_range", inputs=[IntegerType, IntegerType], output=IntegerType
+)
 def random_range_impl(min_val: int, max_val: int) -> int:
     """Generate uniformly distributed random integer in [min, max].
 
@@ -181,6 +186,7 @@ def random_range_impl(min_val: int, max_val: int) -> int:
     return int(_get_rng().next() * range_size) + min_val
 
 
+@platform_function(name="random_exponential", inputs=[FloatType], output=FloatType)
 def random_exponential_impl(lambda_rate: float) -> float:
     """Generate random float from exponential distribution.
 
@@ -200,6 +206,7 @@ def random_exponential_impl(lambda_rate: float) -> float:
     return -math.log(1.0 - u) / lambda_rate
 
 
+@platform_function(name="random_weibull", inputs=[FloatType], output=FloatType)
 def random_weibull_impl(shape_k: float) -> float:
     """Generate random float from Weibull distribution.
 
@@ -218,6 +225,7 @@ def random_weibull_impl(shape_k: float) -> float:
     return math.pow(-math.log(1.0 - u), 1.0 / shape_k)
 
 
+@platform_function(name="random_bernoulli", inputs=[FloatType], output=IntegerType)
 def random_bernoulli_impl(p: float) -> int:
     """Generate binary random outcome (Bernoulli trial).
 
@@ -235,6 +243,9 @@ def random_bernoulli_impl(p: float) -> int:
     return 1 if _get_rng().next() < p else 0
 
 
+@platform_function(
+    name="random_binomial", inputs=[IntegerType, FloatType], output=IntegerType
+)
 def random_binomial_impl(n: int, p: float) -> int:
     """Generate number of successes in n Bernoulli trials.
 
@@ -261,6 +272,7 @@ def random_binomial_impl(n: int, p: float) -> int:
     return count
 
 
+@platform_function(name="random_geometric", inputs=[FloatType], output=IntegerType)
 def random_geometric_impl(p: float) -> int:
     """Generate number of trials until first success.
 
@@ -279,6 +291,7 @@ def random_geometric_impl(p: float) -> int:
     return int(math.ceil(math.log(1.0 - u) / math.log(1.0 - p)))
 
 
+@platform_function(name="random_poisson", inputs=[FloatType], output=IntegerType)
 def random_poisson_impl(lambda_rate: float) -> int:
     """Generate number of events from Poisson process.
 
@@ -322,6 +335,7 @@ def random_poisson_impl(lambda_rate: float) -> int:
         return max(0, int(z * math.sqrt(lambda_rate) + lambda_rate))
 
 
+@platform_function(name="random_pareto", inputs=[FloatType], output=FloatType)
 def random_pareto_impl(alpha: float) -> float:
     """Generate random float from Pareto distribution.
 
@@ -340,6 +354,9 @@ def random_pareto_impl(alpha: float) -> float:
     return math.pow(1.0 - u, -1.0 / alpha)
 
 
+@platform_function(
+    name="random_log_normal", inputs=[FloatType, FloatType], output=FloatType
+)
 def random_log_normal_impl(mu: float, sigma: float) -> float:
     """Generate random float from log-normal distribution.
 
@@ -359,6 +376,7 @@ def random_log_normal_impl(mu: float, sigma: float) -> float:
     return math.exp(mu + sigma * z)
 
 
+@platform_function(name="random_irwin_hall", inputs=[IntegerType], output=FloatType)
 def random_irwin_hall_impl(n: int) -> float:
     """Generate sum of n uniform(0,1) random variables.
 
@@ -377,6 +395,7 @@ def random_irwin_hall_impl(n: int) -> float:
     return sum(rng.next() for _ in range(n))
 
 
+@platform_function(name="random_bates", inputs=[IntegerType], output=FloatType)
 def random_bates_impl(n: int) -> float:
     """Generate average of n uniform(0,1) random variables.
 
@@ -394,6 +413,7 @@ def random_bates_impl(n: int) -> float:
     return random_irwin_hall_impl(n) / n
 
 
+@platform_function(name="random_seed", inputs=[IntegerType], output=NullType)
 def random_seed_impl(seed: int) -> None:
     """Seed the random number generator for reproducible sequences.
 
@@ -411,107 +431,8 @@ def random_seed_impl(seed: int) -> None:
     _set_rng(XorShift128RNG(seed))
 
 
-# Platform function implementations
-random_impl = [
-    PlatformFunction(
-        name="random_uniform",
-        inputs=[],
-        output=FloatType,
-        type="sync",
-        fn=random_uniform_impl,
-    ),
-    PlatformFunction(
-        name="random_normal",
-        inputs=[],
-        output=FloatType,
-        type="sync",
-        fn=random_normal_impl,
-    ),
-    PlatformFunction(
-        name="random_range",
-        inputs=[IntegerType, IntegerType],
-        output=IntegerType,
-        type="sync",
-        fn=random_range_impl,
-    ),
-    PlatformFunction(
-        name="random_exponential",
-        inputs=[FloatType],
-        output=FloatType,
-        type="sync",
-        fn=random_exponential_impl,
-    ),
-    PlatformFunction(
-        name="random_weibull",
-        inputs=[FloatType],
-        output=FloatType,
-        type="sync",
-        fn=random_weibull_impl,
-    ),
-    PlatformFunction(
-        name="random_bernoulli",
-        inputs=[FloatType],
-        output=IntegerType,
-        type="sync",
-        fn=random_bernoulli_impl,
-    ),
-    PlatformFunction(
-        name="random_binomial",
-        inputs=[IntegerType, FloatType],
-        output=IntegerType,
-        type="sync",
-        fn=random_binomial_impl,
-    ),
-    PlatformFunction(
-        name="random_geometric",
-        inputs=[FloatType],
-        output=IntegerType,
-        type="sync",
-        fn=random_geometric_impl,
-    ),
-    PlatformFunction(
-        name="random_poisson",
-        inputs=[FloatType],
-        output=IntegerType,
-        type="sync",
-        fn=random_poisson_impl,
-    ),
-    PlatformFunction(
-        name="random_pareto",
-        inputs=[FloatType],
-        output=FloatType,
-        type="sync",
-        fn=random_pareto_impl,
-    ),
-    PlatformFunction(
-        name="random_log_normal",
-        inputs=[FloatType, FloatType],
-        output=FloatType,
-        type="sync",
-        fn=random_log_normal_impl,
-    ),
-    PlatformFunction(
-        name="random_irwin_hall",
-        inputs=[IntegerType],
-        output=FloatType,
-        type="sync",
-        fn=random_irwin_hall_impl,
-    ),
-    PlatformFunction(
-        name="random_bates",
-        inputs=[IntegerType],
-        output=FloatType,
-        type="sync",
-        fn=random_bates_impl,
-    ),
-    PlatformFunction(
-        name="random_seed",
-        inputs=[IntegerType],
-        output=NullType,
-        type="sync",
-        fn=random_seed_impl,
-    ),
-]
+# Collected from the @platform_function decorations above.
+random_impl = platform_functions(__name__)
 
 
 __all__ = ["random_impl", "_reset_to_crypto"]

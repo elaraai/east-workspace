@@ -11,7 +11,7 @@ import urllib.error
 import urllib.request
 from typing import TypedDict, cast
 
-from east.runtime.platform import PlatformFunction
+from east.runtime.platform import platform_function, platform_functions
 from east.types.types import (
     BlobType,
     BooleanType,
@@ -94,6 +94,7 @@ fetch_response_type = StructType(
 )
 
 
+@platform_function(name="fetch_get", inputs=[StringType], output=StringType)
 async def fetch_get_impl(url: str) -> str:
     """Perform HTTP GET request.
 
@@ -119,6 +120,7 @@ async def fetch_get_impl(url: str) -> str:
     return await loop.run_in_executor(None, _fetch)
 
 
+@platform_function(name="fetch_get_bytes", inputs=[StringType], output=BlobType)
 async def fetch_get_bytes_impl(url: str) -> EastBlob:
     """Perform HTTP GET request and return response as bytes.
 
@@ -144,6 +146,7 @@ async def fetch_get_bytes_impl(url: str) -> EastBlob:
     return await loop.run_in_executor(None, _fetch)
 
 
+@platform_function(name="fetch_post", inputs=[StringType, StringType], output=StringType)
 async def fetch_post_impl(url: str, body: str) -> str:
     """Perform HTTP POST request.
 
@@ -173,6 +176,7 @@ async def fetch_post_impl(url: str, body: str) -> str:
     return await loop.run_in_executor(None, _fetch)
 
 
+@platform_function(name="fetch_request", inputs=[fetch_request_config_type], output=fetch_response_type)
 async def fetch_request_impl(config: EastStruct[FetchRequestConfig]) -> EastStruct[FetchResponse]:
     """Perform HTTP request with custom configuration.
 
@@ -244,37 +248,8 @@ async def fetch_request_impl(config: EastStruct[FetchRequestConfig]) -> EastStru
     return await loop.run_in_executor(None, _fetch)
 
 
-# Platform function implementations
-fetch_impl = [
-    PlatformFunction(
-        name="fetch_get",
-        inputs=[StringType],
-        output=StringType,
-        type="async",
-        fn=fetch_get_impl,
-    ),
-    PlatformFunction(
-        name="fetch_get_bytes",
-        inputs=[StringType],
-        output=BlobType,
-        type="async",
-        fn=fetch_get_bytes_impl,
-    ),
-    PlatformFunction(
-        name="fetch_post",
-        inputs=[StringType, StringType],
-        output=StringType,
-        type="async",
-        fn=fetch_post_impl,
-    ),
-    PlatformFunction(
-        name="fetch_request",
-        inputs=[fetch_request_config_type],
-        output=fetch_response_type,
-        type="async",
-        fn=fetch_request_impl,
-    ),
-]
+# Collected from the @platform_function decorations above.
+fetch_impl = platform_functions(__name__)
 
 
 __all__ = [

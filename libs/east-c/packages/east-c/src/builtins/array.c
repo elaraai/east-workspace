@@ -532,6 +532,47 @@ static EastValue *array_sort_impl(EastValue **args, size_t n)
 }
 
 /* ================================================================== */
+/* ArraySortDefault (arr) -> new array sorted by East's total order   */
+/* No key_fn — sorts elements directly via east_value_compare. Backs  */
+/* east-py's keyless .sort(); not part of the TS builtin set.         */
+/* ================================================================== */
+static _Thread_local EastValue *g_sort_default_arr = NULL;
+static int sort_default_compare_global(const void *a, const void *b)
+{
+    size_t ia = *(const size_t *)a;
+    size_t ib = *(const size_t *)b;
+    return east_value_compare(east_array_get(g_sort_default_arr, ia),
+                              east_array_get(g_sort_default_arr, ib));
+}
+
+static EastValue *array_sort_default_impl(EastValue **args, size_t n)
+{
+    (void)n;
+    EastValue *arr = args[0];
+    size_t len = east_array_len(arr);
+    if (len == 0) return east_array_new(arr->data.array.elem_type);
+
+    size_t *indices = malloc(len * sizeof(size_t));
+    if (!indices) {
+        east_builtin_error("out of memory");
+        return NULL;
+    }
+    for (size_t i = 0; i < len; i++)
+        indices[i] = i;
+
+    g_sort_default_arr = arr;
+    qsort(indices, len, sizeof(size_t), sort_default_compare_global);
+    g_sort_default_arr = NULL;
+
+    EastValue *result = east_array_new(arr->data.array.elem_type);
+    for (size_t i = 0; i < len; i++)
+        east_array_push(result, east_array_get(arr, indices[i]));
+
+    free(indices);
+    return result;
+}
+
+/* ================================================================== */
 /* ArraySortInPlace (arr, key_fn) -> void                             */
 /* ================================================================== */
 static EastValue *array_sort_in_place_impl(EastValue **args, size_t n)
@@ -1386,6 +1427,12 @@ static BuiltinImpl array_sort_factory(EastType **tp, size_t ntp)
     (void)ntp;
     return array_sort_impl;
 }
+static BuiltinImpl array_sort_default_factory(EastType **tp, size_t ntp)
+{
+    (void)tp;
+    (void)ntp;
+    return array_sort_default_impl;
+}
 static BuiltinImpl array_reverse_factory(EastType **tp, size_t ntp)
 {
     (void)tp;
@@ -1570,6 +1617,7 @@ void east_register_array_builtins(BuiltinRegistry *reg)
     builtin_registry_register(reg, "ArraySortInPlace", array_sort_in_place_factory);
     builtin_registry_register(reg, "ArrayReverseInPlace", array_reverse_in_place_factory);
     builtin_registry_register(reg, "ArraySort", array_sort_factory);
+    builtin_registry_register(reg, "ArraySortDefault", array_sort_default_factory);
     builtin_registry_register(reg, "ArrayReverse", array_reverse_factory);
     builtin_registry_register(reg, "ArrayIsSorted", array_is_sorted_factory);
     builtin_registry_register(reg, "ArrayFindSortedFirst", array_find_sorted_first_factory);

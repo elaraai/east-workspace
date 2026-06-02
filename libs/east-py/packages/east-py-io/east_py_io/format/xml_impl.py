@@ -9,7 +9,7 @@ Provides XML parsing and serialization for East programs.
 
 import re
 
-from east.runtime.platform import PlatformFunction
+from east.runtime.platform import platform_function, platform_functions
 from east.types.types import BlobType, StringType, VariantType
 from east.types.values import EastArray, EastBlob, EastDict, EastStruct, EastVariant
 
@@ -331,6 +331,11 @@ def serialize_xml(node: EastStruct, config: EastStruct) -> str:
     return xml
 
 
+@platform_function(
+    name="xml_parse",
+    inputs=[BlobType, XmlParseConfigType],
+    output=XmlNodeType,
+)
 def xml_parse_impl(blob: EastBlob, config: EastStruct) -> EastStruct:
     """Parse XML data from a binary blob."""
     try:
@@ -342,6 +347,11 @@ def xml_parse_impl(blob: EastBlob, config: EastStruct) -> EastStruct:
         raise Exception(f"XML parse failed: {e}") from e
 
 
+@platform_function(
+    name="xml_serialize",
+    inputs=[XmlNodeType, XmlSerializeConfigType],
+    output=BlobType,
+)
 def xml_serialize_impl(node: EastStruct, config: EastStruct) -> EastBlob:
     """Serialize XML node to bytes."""
     try:
@@ -351,23 +361,8 @@ def xml_serialize_impl(node: EastStruct, config: EastStruct) -> EastBlob:
         raise Exception(f"XML serialize failed: {e}") from e
 
 
-# Platform function implementations
-xml_impl = [
-    PlatformFunction(
-        name="xml_parse",
-        inputs=[BlobType, XmlParseConfigType],
-        output=XmlNodeType,
-        type="sync",
-        fn=xml_parse_impl,
-    ),
-    PlatformFunction(
-        name="xml_serialize",
-        inputs=[XmlNodeType, XmlSerializeConfigType],
-        output=BlobType,
-        type="sync",
-        fn=xml_serialize_impl,
-    ),
-]
+# Collected from the @platform_function decorations above.
+xml_impl = platform_functions(__name__)
 
 __all__ = [
     "xml_impl",

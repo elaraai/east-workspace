@@ -12,7 +12,7 @@ import importlib.util
 import warnings
 
 import numpy as np
-from east.runtime.platform import PlatformFunction
+from east.runtime.platform import platform_function, platform_functions
 from east.types.types import FloatType, IntegerType, MatrixType, VectorType
 from east.types.values import EastArray, EastBlob, EastMatrix, EastStruct, EastVariant, EastVector
 
@@ -203,6 +203,11 @@ def _check_xgboost_support() -> None:
 # ============================================================================
 
 
+@platform_function(
+    name="xgboost_train_regressor",
+    inputs=[MatrixType(FloatType), VectorType(FloatType), XGBoostConfigType],
+    output=ModelBlobType,
+)
 def xgboost_train_regressor_impl(
     X: EastArray,
     y: EastArray,
@@ -313,6 +318,11 @@ def xgboost_train_regressor_impl(
     )
 
 
+@platform_function(
+    name="xgboost_train_classifier",
+    inputs=[MatrixType(FloatType), VectorType(IntegerType), XGBoostConfigType],
+    output=ModelBlobType,
+)
 def xgboost_train_classifier_impl(
     X: EastArray,
     y: EastArray,
@@ -434,6 +444,11 @@ def xgboost_train_classifier_impl(
     )
 
 
+@platform_function(
+    name="xgboost_predict",
+    inputs=[ModelBlobType, MatrixType(FloatType)],
+    output=VectorType(FloatType),
+)
 def xgboost_predict_impl(
     model_blob: EastVariant,
     X: EastArray,
@@ -471,6 +486,11 @@ def xgboost_predict_impl(
         ) from e
 
 
+@platform_function(
+    name="xgboost_predict_class",
+    inputs=[ModelBlobType, MatrixType(FloatType)],
+    output=VectorType(IntegerType),
+)
 def xgboost_predict_class_impl(
     model_blob: EastVariant,
     X: EastArray,
@@ -515,6 +535,11 @@ def xgboost_predict_class_impl(
         ) from e
 
 
+@platform_function(
+    name="xgboost_predict_proba",
+    inputs=[ModelBlobType, MatrixType(FloatType)],
+    output=MatrixType(FloatType),
+)
 def xgboost_predict_proba_impl(
     model_blob: EastVariant,
     X: EastArray,
@@ -556,6 +581,11 @@ def xgboost_predict_proba_impl(
         ) from e
 
 
+@platform_function(
+    name="xgboost_train_quantile",
+    inputs=[MatrixType(FloatType), VectorType(FloatType), XGBoostQuantileConfigType],
+    output=ModelBlobType,
+)
 def xgboost_train_quantile_impl(
     X: EastArray,
     y: EastArray,
@@ -689,6 +719,11 @@ def xgboost_train_quantile_impl(
     )
 
 
+@platform_function(
+    name="xgboost_predict_quantile",
+    inputs=[ModelBlobType, MatrixType(FloatType)],
+    output=XGBoostQuantilePredictResultType,
+)
 def xgboost_predict_quantile_impl(
     model_blob: EastVariant,
     X: EastArray,
@@ -748,57 +783,8 @@ def xgboost_predict_quantile_impl(
 # Platform Function Registration
 # ============================================================================
 
-xgboost_impl = [
-    PlatformFunction(
-        name="xgboost_train_regressor",
-        inputs=[MatrixType(FloatType), VectorType(FloatType), XGBoostConfigType],
-        output=ModelBlobType,
-        type="sync",
-        fn=xgboost_train_regressor_impl,
-    ),
-    PlatformFunction(
-        name="xgboost_train_classifier",
-        inputs=[MatrixType(FloatType), VectorType(IntegerType), XGBoostConfigType],
-        output=ModelBlobType,
-        type="sync",
-        fn=xgboost_train_classifier_impl,
-    ),
-    PlatformFunction(
-        name="xgboost_predict",
-        inputs=[ModelBlobType, MatrixType(FloatType)],
-        output=VectorType(FloatType),
-        type="sync",
-        fn=xgboost_predict_impl,
-    ),
-    PlatformFunction(
-        name="xgboost_predict_class",
-        inputs=[ModelBlobType, MatrixType(FloatType)],
-        output=VectorType(IntegerType),
-        type="sync",
-        fn=xgboost_predict_class_impl,
-    ),
-    PlatformFunction(
-        name="xgboost_predict_proba",
-        inputs=[ModelBlobType, MatrixType(FloatType)],
-        output=MatrixType(FloatType),
-        type="sync",
-        fn=xgboost_predict_proba_impl,
-    ),
-    PlatformFunction(
-        name="xgboost_train_quantile",
-        inputs=[MatrixType(FloatType), VectorType(FloatType), XGBoostQuantileConfigType],
-        output=ModelBlobType,
-        type="sync",
-        fn=xgboost_train_quantile_impl,
-    ),
-    PlatformFunction(
-        name="xgboost_predict_quantile",
-        inputs=[ModelBlobType, MatrixType(FloatType)],
-        output=XGBoostQuantilePredictResultType,
-        type="sync",
-        fn=xgboost_predict_quantile_impl,
-    ),
-]
+# Collected from the @platform_function decorations above.
+xgboost_impl = platform_functions(__name__)
 
 __all__ = [
     "xgboost_impl",

@@ -66,13 +66,15 @@ cd libs/e3 && make help
 
 The following `SKILL.md` files back Claude Code plugin skills
 (`east:east`, `east:e3`, `east:east-ui`, `east:e3-ui`,
-`east:east-node-std`, `east:east-node-io`, `east:east-py-datascience`).
+`east:east-node-std`, `east:east-node-io`, `east:east-py`,
+`east:east-py-datascience`).
 Editing them changes plugin behaviour — coordinate before touching. The
 plugin (`libs/east-claude-plugin/skills/<name>/SKILL.md`) holds **symlinks**
 to these files, so the lib copy is the single source of truth; the search
 index (`libs/east-claude-plugin/index.json`) is regenerated from each lib's
 `*.examples.ts` and must be re-run when these change (see the
-`plugin-artifacts` workflow).
+`plugin-artifacts` workflow). `east:east-py` is **skill-file-only** for now —
+no `*.examples.py` are indexed.
 
 - `libs/east/SKILL.md`
 - `libs/e3/SKILL.md`
@@ -80,6 +82,7 @@ index (`libs/east-claude-plugin/index.json`) is regenerated from each lib's
 - `libs/east-ui/packages/e3-ui/SKILL.md`
 - `libs/east-node/packages/east-node-std/SKILL.md`
 - `libs/east-node/packages/east-node-io/SKILL.md`
+- `libs/east-py/packages/east-py/SKILL.md`
 - `libs/east-py/packages/east-py-datascience/SKILL.md`
 
 Further skills are **plugin-native** (not a lib API), with `SKILL.md`
@@ -105,6 +108,9 @@ naming convention, they use `SCREAMING_SNAKE_CASE.md` to signal
 
 - [`docs/conventions/EAST_TS_INTEROP.md`](docs/conventions/EAST_TS_INTEROP.md)
   — `isValueOf`, `compareFor`, `variant()`, `$.let`/`$.const` rules.
+- [`docs/conventions/EAST_PY_INTEROP.md`](docs/conventions/EAST_PY_INTEROP.md)
+  — Python sibling: `compare_for`/`equal_for`, `variant()`/`some`/`none`, eager
+  methods delegate to east-c, `coerce_to`/`assert_value_of` at the boundary.
 - [`docs/conventions/EXAMPLES_AUTHORING.md`](docs/conventions/EXAMPLES_AUTHORING.md)
   — the `*.spec.ts` ↔ `*.examples.ts` pattern.
 - [`docs/conventions/PYTHON_OPTIONAL_DEPS.md`](docs/conventions/PYTHON_OPTIONAL_DEPS.md)

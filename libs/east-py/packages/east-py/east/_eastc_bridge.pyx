@@ -1073,10 +1073,13 @@ cdef _eastc.EastValue* _py_vector_to_c(object val, _eastc.EastType *c_type) exce
     cdef _eastc.EastValue* vec = _eastc.east_vector_new(elem_c, n)
     cdef size_t byte_count
 
-    cdef object data = val.data
-    byte_count = n * data.dtype.itemsize
+    # The C buffer stores the canonical width for the logical element (f64 for
+    # Float, i64 for Integer, bool for Boolean). The Python buffer may use any
+    # compatible runtime dtype (e.g. f32), so cast to canonical before copy.
+    expected_dtype = EAST_ELEMENT_TO_DTYPE[val.element_type.type]
+    cdef object data = np.ascontiguousarray(val.data, dtype=expected_dtype)
+    byte_count = n * expected_dtype.itemsize
     if byte_count > 0:
-        data = np.ascontiguousarray(data)
         memcpy(vec.data.vector.data, PyArray_DATA(<cnp.ndarray>data), byte_count)
 
     return vec
@@ -1089,11 +1092,12 @@ cdef _eastc.EastValue* _py_matrix_to_c(object val, _eastc.EastType *c_type) exce
     cdef _eastc.EastValue* mat = _eastc.east_matrix_new(elem_c, rows, cols)
     cdef size_t byte_count
 
-    cdef object data = val.data
+    # Cast the (possibly f32) runtime buffer to the canonical C storage width.
+    expected_dtype = EAST_ELEMENT_TO_DTYPE[val.element_type.type]
+    cdef object data = np.ascontiguousarray(val.data, dtype=expected_dtype)
     cdef size_t count = rows * cols
-    byte_count = count * data.dtype.itemsize
+    byte_count = count * expected_dtype.itemsize
     if byte_count > 0:
-        data = np.ascontiguousarray(data)
         memcpy(mat.data.matrix.data, PyArray_DATA(<cnp.ndarray>data), byte_count)
 
     return mat
@@ -1451,9 +1455,25 @@ class EastArrayProxy(EastArray):
     def reverse(self):
         _proxy_array_reverse(self._c_ptr)
 
-    def sort(self, *args, **kwargs):
-        items = list(self)
-        items.sort(*args, **kwargs)
+    def sort(self, *, key=None, reverse=False):
+        # Sort by East's total order (not Python's default), in place.
+        if key is None:
+            # Keyless: sort in east-c via ArraySortDefault.
+            from east.runtime._compiler_eastc import call_builtin
+            from east.types.types import ArrayType
+            result = call_builtin("ArraySortDefault", [self.element_type], [self], ArrayType(self.element_type))
+            items = list(result)
+            if reverse:
+                items.reverse()
+        else:
+            # Keyed: project in Python, order keys with East semantics.
+            from east.utils.ordering import make_east_key
+            from east.types.values import type_of
+            items = list(self)
+            sample = key(items[0]) if items else None
+            key_type = type_of(sample) if sample is not None else self.element_type
+            east_key = make_east_key(key_type)
+            items.sort(key=lambda item: east_key(key(item)), reverse=reverse)
         _proxy_array_clear(self._c_ptr)
         for item in items:
             _proxy_array_push(self._c_ptr, self._c_elem_type_ptr, item)
