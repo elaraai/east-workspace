@@ -6,7 +6,7 @@
 import { useMemo } from "react";
 import { Box, type SystemStyleObject } from "@chakra-ui/react";
 import { scaleTime } from "@visx/scale";
-import { timeDay, timeWeek, timeMonth, timeYear, type TimeInterval } from "@visx/vendor/d3-time";
+import { timeDay, timeWeek, timeMonth, timeYear, type TimeInterval } from "d3-time";
 import { formatDatePattern } from "../../charts/spec";
 
 /** Header band granularity — mirrors the IR `GanttTierType` arms. */

@@ -946,6 +946,9 @@ importers:
       '@visx/tooltip':
         specifier: ^3.12.0
         version: 3.12.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      d3-time:
+        specifier: ^3.1.0
+        version: 3.1.0
       react-markdown:
         specifier: ^9.0.0
         version: 9.1.0(@types/react@19.2.14)(react@19.2.4)
@@ -980,6 +983,9 @@ importers:
       '@testing-library/user-event':
         specifier: ^14.6.1
         version: 14.6.1(@testing-library/dom@10.4.1)
+      '@types/d3-time':
+        specifier: ^3.0.4
+        version: 3.0.4
       '@types/node':
         specifier: ^22.18.1
         version: 22.19.15
