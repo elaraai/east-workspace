@@ -523,3 +523,26 @@ export const sliceChartLinearX = example({
     }),
     inputs: [],
 });
+
+export const sliceChartBrush = example({
+    keywords: ["Slice", "Chart", "Line", "brush", "range", "time", "drag", "setRange"],
+    description: "`Slice.Chart.Line` with `brush: true` — drag across the time x-axis to set the slice's range (`setRange`), re-narrowing every bound control in sync; clearing the brush resets the range to none",
+    fn: East.function([], UIComponentType, (_$) => {
+        const EventType = StructType({ day: DateTimeType, sessions: IntegerType });
+        const cfg = Slice.config(EventType, {
+            fields: { day: { label: "Day" }, sessions: { label: "Sessions" } },
+            rangeFieldId: "day",
+        });
+        return Reactive.Root(East.function([], UIComponentType, $ => {
+            const data = $.const([
+                { day: new Date("2025-01-06"), sessions: 30n }, { day: new Date("2025-01-13"), sessions: 42n },
+                { day: new Date("2025-01-20"), sessions: 38n }, { day: new Date("2025-01-27"), sessions: 51n },
+                { day: new Date("2025-02-03"), sessions: 47n }, { day: new Date("2025-02-10"), sessions: 60n },
+                { day: new Date("2025-02-17"), sessions: 55n }, { day: new Date("2025-02-24"), sessions: 68n },
+            ], ArrayType(EventType));
+            const slice = $.let(Slice.bind([EventType], "ex.slice.chart.brush", cfg, Slice.state(), data, none));
+            return Slice.Frame.Root(slice, Slice.Chart.Line(slice, { x: "day", value: "sessions", xScale: "time", brush: true, legend: false, height: 160 }), { affordances: ["range"] });
+        }));
+    }),
+    inputs: [],
+});

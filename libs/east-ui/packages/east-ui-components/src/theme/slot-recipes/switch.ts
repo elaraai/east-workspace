@@ -46,7 +46,7 @@ export const switchSlotRecipe = defineSlotRecipe({
             transitionDuration: "{durations.fast}",
         },
         label: {
-            fontSize: "{fontSizes.sm}",
+            fontSize: "{fontSizes.control}",
             color: "fg",
         },
     },

@@ -4,10 +4,15 @@
  */
 
 /**
- * Gantt slot recipe — spec `.mx-*` grid with horizontal task bars.
+ * Gantt slot recipe — header band, left column pane, timeline rows, task
+ * bars and milestone diamonds.
  *
- * Header bar `bg.panel`, row dividers `border.subtle`, task bars use
- * status palette via the `barStrip` segment colours.
+ * Status / kind colours are runtime East-variant data, so the SVG
+ * renderer resolves them per-event via `useToken` against the semantic
+ * tokens in `palette.ts`; the bar track (`bg.canvas`) and diamond border
+ * (white) are status-independent. The recipe owns everything
+ * colour-and-data-independent: header band, left-pane / cell dividers,
+ * mono eyebrow typography, and the per-density `size` block.
  *
  * @packageDocumentation
  */
@@ -18,27 +23,33 @@ export const ganttSlotRecipe = defineSlotRecipe({
     className: "elara-gantt",
     slots: [
         "root", "header", "headerCell", "leftPanel", "leftPanelHeader",
-        "timeline", "row", "rowHeader", "cell", "axis", "axisTick",
-        "bar", "milestone", "event",
+        "timeline", "row", "rowHeader", "rowHeaderSub", "cell",
+        "axis", "axisTick",
     ],
     base: {
         root: { display: "flex", flexDirection: "column", overflow: "hidden" },
+        // The strong bottom rule lives on the header CELLS (the `table`
+        // columnHeader slot on the left, the EventAxis cells on the timeline) —
+        // not here — so the band shows ONE line, not a container + cell pair.
         header: {
-            background: "bg.panel",
-            borderBottomWidth: "1px",
-            borderBottomColor: "border.subtle",
+            background: "bg.canvas",
             display: "flex",
         },
         headerCell: {
             textStyle: "caption.eyebrow",
-            paddingX: "{spacing.2}",
-            paddingY: "{spacing.2}",
+            paddingX: "{spacing.1}",
+            paddingY: "10px",
             borderRightWidth: "1px",
             borderRightColor: "border.subtle",
-            textAlign: "center",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            minWidth: 0,
         },
         leftPanel: {
-            background: "bg.panel",
+            background: "bg.canvas",
             borderRightWidth: "1px",
             borderRightColor: "border.subtle",
         },
@@ -48,41 +59,38 @@ export const ganttSlotRecipe = defineSlotRecipe({
             paddingY: "{spacing.2}",
             borderBottomWidth: "1px",
             borderBottomColor: "border.subtle",
-            background: "bg.panel",
+            background: "bg.canvas",
         },
         rowHeader: {
-            background: "bg.panel",
+            fontFamily: "mono",
+            fontSize: "{fontSizes.control}",
+            color: "fg.default",
             paddingX: "{spacing.3}",
             paddingY: "{spacing.2}",
             borderRightWidth: "1px",
             borderRightColor: "border.subtle",
             borderBottomWidth: "1px",
             borderBottomColor: "border.subtle",
-            fontSize: "13px",
-            color: "fg",
+        },
+        rowHeaderSub: {
+            fontFamily: "mono",
+            fontSize: "{fontSizes.control}",
+            color: "fg.subtle",
+            textAlign: "right",
         },
         cell: {
-            background: "bg.surface",
-            borderRightWidth: "1px",
-            borderRightColor: "border.subtle",
             borderBottomWidth: "1px",
             borderBottomColor: "border.subtle",
-            minHeight: "32px",
         },
-        bar: {
-            height: "20px",
-            borderRadius: "2px",
-            background: "{colors.brand.600}",
-            color: "white",
-            fontFamily: "mono",
-            fontSize: "10px",
-            paddingX: "{spacing.2}",
-            display: "flex",
-            alignItems: "center",
-            fontWeight: "semibold",
-        },
-        milestone: { color: "{colors.brand.700}", fontFamily: "mono", fontSize: "11px" },
-        axis: { fontFamily: "mono", fontSize: "10px", color: "fg.muted" },
-        axisTick: { fontFamily: "mono", fontSize: "10px", color: "fg.muted" },
+        axis: { textStyle: "caption.eyebrow" },
+        axisTick: { textStyle: "caption.eyebrow" },
     },
+    variants: {
+        size: {
+            sm: { rowHeader: { paddingY: "{spacing.1}" } },
+            md: {},
+            lg: { rowHeader: { paddingY: "{spacing.3}" } },
+        },
+    },
+    defaultVariants: { size: "md" },
 });

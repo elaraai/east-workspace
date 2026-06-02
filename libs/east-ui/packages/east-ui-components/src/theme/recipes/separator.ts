@@ -35,5 +35,5 @@ export const separatorRecipe = defineRecipe({
             vertical:   { borderTopWidth: "0", borderLeftWidth: "1px", borderLeftStyle: "solid", borderLeftColor: "border.subtle" },
         },
     },
-    defaultVariants: { variant: "strong", orientation: "horizontal" },
+    defaultVariants: { variant: "subtle", orientation: "horizontal" },
 });

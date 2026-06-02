@@ -120,6 +120,7 @@ export const tokens = defineTokens({
         },
     },
     radii: {
+        xs:   { value: "3px" },   // small controls / chips (badge, meter, barStrip, checkbox)
         sm:   { value: "4px" },
         md:   { value: "6px" },   // buttons, inputs
         lg:   { value: "8px" },   // cards
@@ -149,6 +150,18 @@ export const tokens = defineTokens({
             md: { value: "800px" },
             lg: { value: "1040px" },
             xl: { value: "1200px" },  // marketing cap
+        },
+        // Density-driven control heights — the single source for the column
+        // header band and one text row, per density (compact / cozy / comfortable
+        // → sm / md / lg). Derived from the Table cell rhythm (cell padding-Y
+        // 6/10/12 + font 12/13/14): 2·padY + round(font·1.25). Consumed by Table
+        // rows, Gantt/Planner header bands, and Planner slot rows — where a
+        // Planner "row" is one bucket (AM/PM/EV). Recipes can reference these
+        // (`{sizes.density.row.md}`); renderers read them as numbers via
+        // `useDensityHeights`.
+        density: {
+            header: { sm: { value: "27px" }, md: { value: "36px" }, lg: { value: "42px" } },
+            row:    { sm: { value: "27px" }, md: { value: "36px" }, lg: { value: "42px" } },
         },
     },
     shadows: {
@@ -182,6 +195,9 @@ export const tokens = defineTokens({
     fontSizes: {
         // Aligned to pattern_spec/colors_and_type.css. Each tier carries the
         // px value the spec assigns (`--fs-xs: 12px` through `--fs-6xl: 60px`).
+        // `control` sits off the tier scale — the spec's form-control / dense
+        // mono size (`.p-input`, `.je-rationale`), between xs (12) and sm (14).
+        control: { value: "13px" },
         xs:    { value: "12px" },
         sm:    { value: "14px" },
         md:    { value: "16px" },

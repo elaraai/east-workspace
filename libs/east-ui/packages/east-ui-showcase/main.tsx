@@ -1,3 +1,7 @@
+// MUST stay first — registers the global error handlers before the eager
+// `catalog` import below can throw, so a load-time crash surfaces as the
+// copyable error alert rather than a blank page.
+import "./install-error-overlay";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { ChakraProvider, CodeBlock } from "@chakra-ui/react";
@@ -9,6 +13,7 @@ import { App } from "./App";
 import { catalog } from "./catalog";
 import { codeBlockAdapter } from "./components/ExampleCard";
 import { IsolatedFileView } from "./components/IsolatedFileView";
+import { AppErrorBoundary } from "./components/ErrorOverlay";
 
 const store = new UIStore();
 
@@ -32,7 +37,9 @@ createRoot(document.getElementById("root")!).render(
             <UIStoreProvider store={store}>
                 <OverlayManagerProvider>
                     <CodeBlock.AdapterProvider value={codeBlockAdapter}>
-                        <Root />
+                        <AppErrorBoundary>
+                            <Root />
+                        </AppErrorBoundary>
                     </CodeBlock.AdapterProvider>
                 </OverlayManagerProvider>
             </UIStoreProvider>

@@ -31,9 +31,14 @@ test:
 lint:
 	pnpm run lint
 
-## Run the showcase dev server
+## Run the showcase dev server. The renderer (east-ui-components) resolves
+## from its source via a dev-only Vite alias — no prebuilt dist, and
+## component/theme edits hot-reload. Only the IR package is built first,
+## since the dev server still loads `@elaraai/east-ui` from dist. Vite's own
+## dep cache is reused (it self-invalidates on lockfile/config change); run
+## `pnpm --filter @elaraai/east-ui-showcase exec vite --force` if ever stale.
 showcase:
-	pnpm --filter @elaraai/east-ui --filter @elaraai/east-ui-components run build && rm -rf ./packages/east-ui-showcase/node_modules/.vite && pnpm run dev
+	pnpm --filter @elaraai/east-ui run build && pnpm run dev
 
 ## Build east-ui-showcase for production deployment (used by GitHub Pages workflow)
 build-showcase:

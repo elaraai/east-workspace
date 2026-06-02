@@ -4,6 +4,22 @@
  */
 
 import { useCallback, useMemo } from "react";
+import { useToken } from "@chakra-ui/react";
+
+/**
+ * The shared density-driven control heights (px) — the column-header band and
+ * one text row — read from the `sizes.density.*` theme tokens (the single
+ * source). In the Planner a "row" is one bucket (AM/PM/EV). Consumed by Table
+ * rows, Gantt/Planner header bands, and Planner slot rows so every text row
+ * aligns across the three components.
+ */
+export function useDensityHeights(size: "sm" | "md" | "lg"): { header: number; row: number } {
+    const [header, row] = useToken("sizes", [`density.header.${size}`, `density.row.${size}`]);
+    return {
+        header: parseInt(header ?? "", 10) || 36,
+        row: parseInt(row ?? "", 10) || 36,
+    };
+}
 
 /**
  * Map a `MatrixSegmentAlign` / shared `Align` variant tag to the

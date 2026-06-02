@@ -5,9 +5,9 @@
 
 import { memo, useMemo, useCallback } from "react";
 import {
+    Box,
     Pagination as ChakraPagination,
-    ButtonGroup,
-    IconButton,
+    useSlotRecipe,
 } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronLeft, faChevronRight } from "@fortawesome/free-solid-svg-icons";
@@ -27,7 +27,7 @@ export interface EastChakraPaginationProps {
 
 /**
  * Renders an East UI Pagination value using Chakra v3's `Pagination`
- * compound.
+ * compound, styled through the `pagination` slot recipe.
  *
  * @remarks
  * Page indices in the East IR are **0-based**. Chakra/Ark expose
@@ -43,8 +43,6 @@ export interface EastChakraPaginationProps {
 export const EastChakraPagination = memo(function EastChakraPagination({ value, storageKey: _storageKey }: EastChakraPaginationProps) {
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
 
-    const sizeTag = style ? getSomeorUndefined(style.size)?.type : undefined;
-    const variantTag = style ? getSomeorUndefined(style.variant)?.type : undefined;
     const color = style ? getSomeorUndefined(style.color) : undefined;
     const background = style ? getSomeorUndefined(style.background) : undefined;
     const activeBackground = style ? getSomeorUndefined(style.activeBackground) : undefined;
@@ -61,19 +59,30 @@ export const EastChakraPagination = memo(function EastChakraPagination({ value, 
         queueMicrotask(() => onPageChangeFn(BigInt(details.page - 1)));
     }, [onPageChangeFn]);
 
-    const triggerCss = useMemo(() => {
-        const base: Record<string, unknown> = {};
-        if (color !== undefined) base.color = color;
-        if (background !== undefined) base.background = background;
-        return base;
-    }, [color, background]);
+    const recipe = useSlotRecipe({ key: "pagination" });
+    const styles = recipe();
 
-    const activeCss = useMemo(() => {
-        const base: Record<string, unknown> = {};
-        if (activeBackground !== undefined) base.background = activeBackground;
-        if (activeColor !== undefined) base.color = activeColor;
-        return base;
-    }, [activeBackground, activeColor]);
+    const triggerOverride = useMemo(() => ({
+        ...(color !== undefined ? { color } : {}),
+    }), [color]);
+
+    const itemCss = useMemo(() => {
+        const item = styles.item as Record<string, unknown>;
+        const activeOverride = {
+            ...(activeBackground !== undefined ? { background: activeBackground } : {}),
+            ...(activeColor !== undefined ? { color: activeColor } : {}),
+        };
+        const hasActiveOverride = Object.keys(activeOverride).length > 0;
+        return {
+            ...item,
+            ...(color !== undefined ? { color } : {}),
+            ...(background !== undefined ? { background } : {}),
+            ...(hasActiveOverride ? {
+                _selected: { ...(item._selected as object), ...activeOverride },
+                "&[data-selected]": { ...(item["&[data-selected]"] as object), ...activeOverride },
+            } : {}),
+        };
+    }, [styles, color, background, activeBackground, activeColor]);
 
     return (
         <ChakraPagination.Root
@@ -83,34 +92,25 @@ export const EastChakraPagination = memo(function EastChakraPagination({ value, 
             siblingCount={siblings !== undefined ? Number(siblings) : undefined}
             onPageChange={handleChange}
         >
-            <ButtonGroup variant="ghost" size={sizeTag ?? "md"}>
+            <Box css={styles.root}>
                 <ChakraPagination.PrevTrigger asChild>
-                    <IconButton aria-label="Previous page" css={triggerCss}>
+                    <Box as="button" aria-label="Previous page" css={{ ...styles.prevTrigger, ...triggerOverride }}>
                         <FontAwesomeIcon icon={faChevronLeft} />
-                    </IconButton>
+                    </Box>
                 </ChakraPagination.PrevTrigger>
 
                 <ChakraPagination.Items
                     render={(page) => (
-                        <IconButton
-                            variant={variantTag === "outline" ? "outline" : "ghost"}
-                            aria-label={`Page ${page.value}`}
-                            css={{
-                                ...triggerCss,
-                                "&[data-selected]": activeCss,
-                            }}
-                        >
-                            {page.value}
-                        </IconButton>
+                        <Box as="button" aria-label={`Page ${page.value}`} css={itemCss}>{page.value}</Box>
                     )}
                 />
 
                 <ChakraPagination.NextTrigger asChild>
-                    <IconButton aria-label="Next page" css={triggerCss}>
+                    <Box as="button" aria-label="Next page" css={{ ...styles.nextTrigger, ...triggerOverride }}>
                         <FontAwesomeIcon icon={faChevronRight} />
-                    </IconButton>
+                    </Box>
                 </ChakraPagination.NextTrigger>
-            </ButtonGroup>
+            </Box>
         </ChakraPagination.Root>
     );
 }, (prev, next) => paginationEqual(prev.value, next.value) && prev.storageKey === next.storageKey);

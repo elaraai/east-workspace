@@ -12,16 +12,16 @@ export const hoverCardSlotRecipe = defineSlotRecipe({
     slots: ["trigger", "positioner", "content", "arrow", "arrowTip"],
     base: {
         content: {
-            background: "{colors.white}",
-            borderRadius: "6px",
+            background: "bg.surface",
+            borderRadius: "{radii.md}",
             borderWidth: "1px",
-            borderColor: "{colors.gray.300}",
+            borderColor: "border.strong",
             boxShadow: "md",
             padding: "14px 16px",
             minWidth: "240px",
             maxWidth: "320px",
-            fontSize: "13px",
-            color: "{colors.gray.900}",
+            fontSize: "{fontSizes.control}",
+            color: "fg",
         },
         arrow: {
             "--arrow-size": "12px",
@@ -29,7 +29,7 @@ export const hoverCardSlotRecipe = defineSlotRecipe({
             "--arrow-shadow-color": "colors.gray.300",
         },
         arrowTip: {
-            borderColor: "{colors.gray.300}",
+            borderColor: "border.strong",
         },
     },
     variants: {

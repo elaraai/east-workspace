@@ -3,247 +3,163 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
+import { East, NullType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Matrix, Text, UIComponentType } from "@elaraai/east-ui";
+import { Matrix } from "@elaraai/east-ui";
 import * as ex from "./matrix.examples.js";
 
 describeEast("Matrix", (test) => {
     Assert.examples(test, {
-        matrixBasic: ex.matrixBasic,
-        matrixMultiSegment: ex.matrixMultiSegment,
-        matrixWithOverlays: ex.matrixWithOverlays,
-        matrixEmphasis: ex.matrixEmphasis,
-        matrixVerticalOrientation: ex.matrixVerticalOrientation,
-        matrixBrushSelection: ex.matrixBrushSelection,
-        matrixReactiveClick: ex.matrixReactiveClick,
-        matrixReactiveSegmentEdit: ex.matrixReactiveSegmentEdit,
-        matrixReactiveSegmentEditMulti: ex.matrixReactiveSegmentEditMulti,
-        matrixReactiveSegmentEditVertical: ex.matrixReactiveSegmentEditVertical,
-        matrixCellPopover: ex.matrixCellPopover,
-        matrixMinLabelSize: ex.matrixMinLabelSize,
+        matrixHeatGrid: ex.matrixHeatGrid,
+        matrixSegments: ex.matrixSegments,
+        matrixVertical: ex.matrixVertical,
+        matrixMarkers: ex.matrixMarkers,
+        matrixPopover: ex.matrixPopover,
+        matrixReactiveAdjust: ex.matrixReactiveAdjust,
     });
 
     // =========================================================================
-    // Matrix.Root - Basic Creation
+    // Root: rows × columns
     // =========================================================================
 
-    test("creates matrix with dict-keyed cells", $ => {
+    test("Root builds the Matrix variant with rows, columns, and default orientation", $ => {
         const m = $.let(Matrix.Root(
-            [{ key: "alice", cells: { mon: { segments: [{ category: "booked", weight: 1.0 }] } } }],
-            [{ key: "mon" }],
-        ), UIComponentType);
-
-        $(Assert.equal(m.unwrap().unwrap("Matrix").rows.size(), 1n));
-        $(Assert.equal(m.unwrap().unwrap("Matrix").columns.size(), 1n));
-    });
-
-    test("creates matrix with rich headers", $ => {
-        const m = $.let(Matrix.Root(
-            [{ key: "alice", header: Text.Root("Alice"), cells: {} }],
-            [{ key: "mon", header: Text.Root("Monday") }],
-        ), UIComponentType);
-
-        $(Assert.equal(m.unwrap().unwrap("Matrix").rows.get(0n).header.hasTag("some"), true));
-        $(Assert.equal(m.unwrap().unwrap("Matrix").columns.get(0n).header.hasTag("some"), true));
-    });
-
-    // =========================================================================
-    // Matrix.Root - Segments
-    // =========================================================================
-
-    test("creates cell with multi-segment fill", $ => {
-        const m = $.let(Matrix.Root(
-            [{ key: "alice", cells: {
-                mon: { segments: [
-                    { category: "booked", weight: 0.6 },
-                    { category: "free", weight: 0.4 },
-                ] },
-            } }],
-            [{ key: "mon" }],
-        ), UIComponentType);
-
-        $(Assert.equal(m.unwrap().unwrap("Matrix").rows.get(0n).cells.get("mon").segments.size(), 2n));
-    });
-
-    test("segment resize constraints are preserved", $ => {
-        const m = $.let(Matrix.Root(
-            [{ key: "alice", cells: {
-                mon: { segments: [{ category: "booked", weight: 0.5, min: 0.1, max: 0.9, step: 0.05 }] },
-            } }],
-            [{ key: "mon" }],
-        ), UIComponentType);
-
-        const seg = m.unwrap().unwrap("Matrix").rows.get(0n).cells.get("mon").segments.get(0n);
-        $(Assert.equal(seg.min.unwrap("some"), 0.1));
-        $(Assert.equal(seg.max.unwrap("some"), 0.9));
-        $(Assert.equal(seg.step.unwrap("some"), 0.05));
-    });
-
-    // =========================================================================
-    // Matrix.Root - Overlays (no kind field)
-    // =========================================================================
-
-    test("creates cell with overlays at multiple positions", $ => {
-        const m = $.let(Matrix.Root(
-            [{ key: "alice", cells: {
-                mon: {
-                    segments: [],
-                    overlays: [
-                        { align: "end", verticalAlign: "start", content: Text.Root("!") },
-                        { align: "start", verticalAlign: "end", content: Text.Root("4h") },
-                    ],
-                },
-            } }],
-            [{ key: "mon" }],
-        ), UIComponentType);
-
-        $(Assert.equal(m.unwrap().unwrap("Matrix").rows.get(0n).cells.get("mon").overlays.size(), 2n));
-    });
-
-    // =========================================================================
-    // Matrix.Root - Emphasis (via emphasisColor presence)
-    // =========================================================================
-
-    test("emphasis expressed via emphasisColor presence", $ => {
-        const m = $.let(Matrix.Root(
-            [{ key: "alice", cells: {
-                mon: { segments: [], emphasisColor: "red.500" },
-                tue: { segments: [] },
-            } }],
-            [{ key: "mon" }, { key: "tue" }],
-        ), UIComponentType);
-
-        $(Assert.equal(m.unwrap().unwrap("Matrix").rows.get(0n).cells.get("mon").emphasisColor.hasTag("some"), true));
-        $(Assert.equal(m.unwrap().unwrap("Matrix").rows.get(0n).cells.get("tue").emphasisColor.hasTag("none"), true));
-    });
-
-    // =========================================================================
-    // Matrix.Root - Note (rich UIComponent tooltip content)
-    // =========================================================================
-
-    test("note is a UIComponent for rich tooltip content", $ => {
-        const m = $.let(Matrix.Root(
-            [{ key: "alice", cells: {
-                mon: { segments: [], tooltip: Text.Root("Conflict with Bob's schedule") },
-            } }],
-            [{ key: "mon" }],
-        ), UIComponentType);
-
-        $(Assert.equal(m.unwrap().unwrap("Matrix").rows.get(0n).cells.get("mon").tooltip.hasTag("some"), true));
-    });
-
-    // =========================================================================
-    // Matrix.Root - Legend + auto-colour
-    // =========================================================================
-
-    test("legend entries carry explicit colours", $ => {
-        const m = $.let(Matrix.Root(
-            [{ key: "alice", cells: {} }],
-            [{ key: "mon" }],
+            [{ name: "Alice", booked: new Map([["mon", 0.7]]) }],
             {
-                legend: [
-                    { category: "booked", color: "blue.400", label: "Booked" },
-                    { category: "free", color: "gray.200", label: "Free" },
-                ],
+                columns: [{ key: "mon", label: "Mon" }],
+                rowKey: r => r.name,
+                cell: (r, col) => Matrix.cell({ segments: [Matrix.segment({ fill: "brand", weight: r.booked.get(col) })] }),
             },
-        ), UIComponentType);
-
-        $(Assert.equal(m.unwrap().unwrap("Matrix").legend.unwrap("some").size(), 2n));
+        ));
+        const root = $.let(m.unwrap().unwrap("Matrix"));
+        $(Assert.equal(root.rows.length(), 1n));
+        $(Assert.equal(root.columns.length(), 1n));
+        $(Assert.equal(root.columns.get(0n).key, "mon"));
+        $(Assert.equal(root.orientation.hasTag("horizontal"), true));
+        $(Assert.equal(root.rows.get(0n).key, "Alice"));
     });
 
-    test("legend auto-derives colour from matching segment when omitted", $ => {
+    test("rowHeader sets the corner header; rowValue/rowSublabel fill the row header", $ => {
         const m = $.let(Matrix.Root(
-            [{ key: "alice", cells: {
-                mon: { segments: [{ category: "booked", weight: 1.0, color: "blue.400" }] },
-            } }],
-            [{ key: "mon" }],
+            [{ name: "Alice", role: "PM", booked: new Map([["mon", 0.5]]) }],
             {
-                legend: [
-                    { category: "booked", label: "Booked" },
-                ],
+                columns: [{ key: "mon" }],
+                rowKey: r => r.name,
+                rowHeader: "Resource",
+                rowValue: r => r.name,
+                rowSublabel: r => r.role,
+                cell: (r, col) => Matrix.cell({ segments: [Matrix.segment({ fill: "brand", weight: r.booked.get(col) })] }),
             },
-        ), UIComponentType);
-
-        $(Assert.equal(m.unwrap().unwrap("Matrix").legend.unwrap("some").get(0n).color, "blue.400"));
+        ));
+        const root = $.let(m.unwrap().unwrap("Matrix"));
+        $(Assert.equal(root.rowHeader.unwrap("some"), "Resource"));
+        $(Assert.equal(root.rows.get(0n).value, "Alice"));
+        $(Assert.equal(root.rows.get(0n).sublabel.unwrap("some"), "PM"));
     });
 
-    // =========================================================================
-    // Matrix.Root - Style
-    // =========================================================================
-
-    test("cellBorderRadius and cellOrientation applied via style", $ => {
+    test("value defaults to the row key when rowValue is omitted", $ => {
         const m = $.let(Matrix.Root(
-            [{ key: "alice", cells: {} }],
-            [{ key: "mon" }],
-            { cellBorderRadius: "4px", cellOrientation: "vertical" },
-        ), UIComponentType);
-
-        const style = m.unwrap().unwrap("Matrix").style.unwrap("some");
-        $(Assert.equal(style.cellBorderRadius.unwrap("some"), "4px"));
-        $(Assert.equal(style.cellOrientation.unwrap("some").hasTag("vertical"), true));
-    });
-
-    test("colour overrides applied via style", $ => {
-        const m = $.let(Matrix.Root(
-            [{ key: "alice", cells: {} }],
-            [{ key: "mon" }],
+            [{ name: "Alice", booked: new Map([["mon", 0.5]]) }],
             {
-                gridColor: "blue.200",
-                headerBackground: "blue.50",
-                headerColor: "blue.900",
-                cellBackground: "white",
-                emphasisColor: "red.500",
-                selectedBackground: "blue.100",
-                selectedBorderColor: "blue.500",
-                hoverHighlightColor: "blue.50",
+                columns: [{ key: "mon" }],
+                rowKey: r => r.name,
+                cell: (r, col) => Matrix.cell({ segments: [Matrix.segment({ fill: "brand", weight: r.booked.get(col) })] }),
             },
-        ), UIComponentType);
+        ));
+        const row = $.let(m.unwrap().unwrap("Matrix").rows.get(0n));
+        $(Assert.equal(row.value, "Alice"));
+        $(Assert.equal(row.sublabel.hasTag("none"), true));
+    });
 
-        const style = m.unwrap().unwrap("Matrix").style.unwrap("some");
-        $(Assert.equal(style.gridColor.unwrap("some"), "blue.200"));
-        $(Assert.equal(style.emphasisColor.unwrap("some"), "red.500"));
-        $(Assert.equal(style.selectedBackground.unwrap("some"), "blue.100"));
-        $(Assert.equal(style.hoverHighlightColor.unwrap("some"), "blue.50"));
+    test("vertical orientation is carried on the root", $ => {
+        const m = $.let(Matrix.Root(
+            [{ name: "A", booked: new Map([["mon", 0.5]]) }],
+            {
+                columns: [{ key: "mon" }],
+                rowKey: r => r.name,
+                orientation: "vertical",
+                cell: (r, col) => Matrix.cell({ segments: [Matrix.segment({ fill: "brand", weight: r.booked.get(col) })] }),
+            },
+        ));
+        $(Assert.equal(m.unwrap().unwrap("Matrix").orientation.hasTag("vertical"), true));
     });
 
     // =========================================================================
-    // Plan 1.10 J — popover + minLabelSize coverage
+    // Segments + fills (the planner-marker-shaped builder)
     // =========================================================================
 
-    test("cell with popover slot round-trips as some(UIComp)", $ => {
-        const m = $.let(Matrix.Root(
-            [{ key: "r1", header: Text.Root("R1"), cells: {
-                c1: {
-                    segments: [{ category: "a", weight: 1.0 }],
-                    popover: Text.Root("clicked"),
-                },
-            } }],
-            [{ key: "c1", header: Text.Root("C1") }],
-        ));
-        const cell = $.let(m.unwrap().unwrap("Matrix").rows.get(0n).cells.get("c1"));
-        $(Assert.equal(cell.popover.hasTag("some"), true));
-        $(Assert.equal(cell.popover.unwrap("some").unwrap().hasTag("Text"), true));
+    test("a segment carries its fill + weight; the fill string shorthand resolves", $ => {
+        const seg = $.let(Matrix.segment({ fill: "warning", weight: 30.0 }));
+        $(Assert.equal(seg.fill.hasTag("warning"), true));
+        $(Assert.equal(seg.weight, 30.0));
+        $(Assert.equal(seg.label.hasTag("none"), true));
     });
 
-    test("cell without popover is none", $ => {
-        const m = $.let(Matrix.Root(
-            [{ key: "r1", header: Text.Root("R1"), cells: {
-                c1: { segments: [{ category: "a", weight: 1.0 }] },
-            } }],
-            [{ key: "c1", header: Text.Root("C1") }],
-        ));
-        const cell = $.let(m.unwrap().unwrap("Matrix").rows.get(0n).cells.get("c1"));
-        $(Assert.equal(cell.popover.hasTag("none"), true));
+    test("a cell holds its segments, and markers default to empty", $ => {
+        const cell = $.let(Matrix.cell({ segments: [
+            Matrix.segment({ fill: "brand", weight: 0.7 }),
+            Matrix.segment({ fill: "free", weight: 0.3 }),
+        ] }));
+        $(Assert.equal(cell.segments.length(), 2n));
+        $(Assert.equal(cell.segments.get(0n).fill.hasTag("brand"), true));
+        $(Assert.equal(cell.segments.get(1n).fill.hasTag("free"), true));
+        $(Assert.equal(cell.markers.length(), 0n));
     });
 
-    test("style.minLabelSize round-trips", $ => {
-        const m = $.let(Matrix.Root(
-            [{ key: "r1", header: Text.Root("R1"), cells: { c1: { segments: [] } } }],
-            [{ key: "c1", header: Text.Root("C1") }],
-            { minLabelSize: "32px" },
-        ));
-        const style = $.let(m.unwrap().unwrap("Matrix").style.unwrap("some"));
-        $(Assert.equal(style.minLabelSize.unwrap("some"), "32px"));
+    // =========================================================================
+    // Markers (the Matrix analogue of Planner.marker)
+    // =========================================================================
+
+    test("a marker carries its status + message; corner and label default", $ => {
+        const mk = $.let(Matrix.marker({ status: "danger", message: "Over capacity" }));
+        $(Assert.equal(mk.at.hasTag("tr"), true));
+        $(Assert.equal(mk.status.hasTag("danger"), true));
+        $(Assert.equal(mk.message, "Over capacity"));
+        $(Assert.equal(mk.label.hasTag("none"), true));
     });
 
+    // =========================================================================
+    // groupBy + callbacks
+    // =========================================================================
+
+    test("groupBy fills the per-row group label", $ => {
+        const m = $.let(Matrix.Root(
+            [{ name: "Alice", team: "Web", booked: new Map([["mon", 0.5]]) }],
+            {
+                columns: [{ key: "mon" }],
+                rowKey: r => r.name,
+                groupBy: r => r.team,
+                cell: (r, col) => Matrix.cell({ segments: [Matrix.segment({ fill: "brand", weight: r.booked.get(col) })] }),
+            },
+        ));
+        $(Assert.equal(m.unwrap().unwrap("Matrix").rows.get(0n).group.unwrap("some"), "Web"));
+    });
+
+    test("onSegmentChange presence is preserved on the root", $ => {
+        const m = $.let(Matrix.Root(
+            [{ name: "A", booked: new Map([["mon", 0.5]]) }],
+            {
+                columns: [{ key: "mon" }],
+                rowKey: r => r.name,
+                cell: (r, col) => Matrix.cell({ segments: [Matrix.segment({ fill: "brand", weight: r.booked.get(col) })] }),
+                onSegmentChange: East.function([Matrix.Types.SegmentChangeEvent], NullType, _$ => null),
+            },
+        ));
+        $(Assert.equal(m.unwrap().unwrap("Matrix").onSegmentChange.hasTag("some"), true));
+    });
+
+    test("legend entries carry fill + label", $ => {
+        const m = $.let(Matrix.Root(
+            [{ name: "A", booked: new Map([["mon", 0.5]]) }],
+            {
+                columns: [{ key: "mon" }],
+                rowKey: r => r.name,
+                cell: (r, col) => Matrix.cell({ segments: [Matrix.segment({ fill: "brand", weight: r.booked.get(col) })] }),
+                legend: [{ fill: "brand", label: "Booked" }],
+            },
+        ));
+        const legend = $.let(m.unwrap().unwrap("Matrix").legend.unwrap("some"));
+        $(Assert.equal(legend.get(0n).fill.hasTag("brand"), true));
+        $(Assert.equal(legend.get(0n).label, "Booked"));
+    });
 }, { platformFns: TestImpl });

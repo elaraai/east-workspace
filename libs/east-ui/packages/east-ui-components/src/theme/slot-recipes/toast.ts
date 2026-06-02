@@ -37,7 +37,7 @@ export const toastSlotRecipe = defineSlotRecipe({
             lineHeight: "1.4",
         },
         title: { fontWeight: "semibold", fontSize: "{fontSizes.sm}", color: "fg" },
-        description: { fontSize: "13px", color: "fg.muted", marginTop: "{spacing.1}" },
+        description: { fontSize: "{fontSizes.control}", color: "fg.muted", marginTop: "{spacing.1}" },
     },
     variants: {
         type: {

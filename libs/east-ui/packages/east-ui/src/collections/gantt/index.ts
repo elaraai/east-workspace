@@ -33,7 +33,8 @@ import {
     TableRowClickEventType,
     TableSortEventType,
 } from "../table/types.js";
-import { TimeStepType } from "./types.js";
+import { TimeStepType, GanttTaskStatusType, GanttMilestoneKindType, GanttAxisType, GanttAxisRangeType, GanttTierType } from "./types.js";
+import type { GanttTaskStatusLiteral, GanttMilestoneKindLiteral, GanttAxisInput, GanttTierLiteral } from "./types.js";
 
 import {
     AlignType,
@@ -41,11 +42,11 @@ import {
     FontWeightType,
     FontStyleType,
     SizeType,
-    ColorSchemeType,
     type AlignLiteral,
     type LabelInput,
 } from "../../style.js";
-import { UIComponentType, OverlayInputType } from "../../component.js";
+import { UIComponentType } from "../../component.js";
+import { DensityType } from "../../style/interaction.js";
 import {
     TableCellType,
     TableColumnType,
@@ -72,6 +73,15 @@ import { StatusTokenType } from "../../style/interaction.js";
 export {
     GanttStyleType,
     TimeStepType,
+    GanttTaskStatusType,
+    GanttMilestoneKindType,
+    GanttAxisType,
+    GanttAxisRangeType,
+    GanttTierType,
+    type GanttTaskStatusLiteral,
+    type GanttMilestoneKindLiteral,
+    type GanttTierLiteral,
+    type GanttAxisInput,
     type GanttStyle,
 } from "./types.js";
 
@@ -83,22 +93,16 @@ export {
  * East StructType for a Gantt task bar.
  *
  * @remarks
- * Spans from `start` to `end`. Per-task colour overrides
- * (`background`, `stroke`, `progressFill`) sit alongside `colorPalette`.
- * Two rich-content slots: `tooltip` (hover-triggered) and `popover`
- * (click-triggered) accept any UIComponent. `overlays` paints axis-
- * aligned UIComp content (badges, status chips) inside the bar.
+ * Spans from `start` to `end`. `status` (committed / proposed /
+ * at-risk) drives the bar's colour, border, and progress-fill from the
+ * canonical status palette. `popover` (click-triggered) accepts any
+ * UIComponent for rich detail content.
  *
  * @property start - Start date/time of the task
  * @property end - End date/time of the task
  * @property label - Optional rich label (text + alignment + typography)
  * @property progress - Optional progress percentage (0-100)
- * @property colorPalette - Optional color scheme for the task bar
- * @property background - Optional explicit fill colour for the task bar
- * @property stroke - Optional explicit stroke/border colour
- * @property progressFill - Optional explicit fill colour for the progress segment
- * @property overlays - Per-task overlay annotations
- * @property tooltip - Optional rich tooltip (hover-triggered, UIComponent)
+ * @property status - Optional schedule status driving the bar colour (default committed)
  * @property popover - Optional rich popover (click-triggered, UIComponent)
  */
 export const GanttTaskType: StructType<{
@@ -106,24 +110,14 @@ export const GanttTaskType: StructType<{
     end: DateTimeType,
     label: OptionType<LabelInputType>,
     progress: OptionType<FloatType>,
-    colorPalette: OptionType<ColorSchemeType>,
-    background: OptionType<StringType>,
-    stroke: OptionType<StringType>,
-    progressFill: OptionType<StringType>,
-    overlays: ArrayType<OverlayInputType>,
-    tooltip: OptionType<UIComponentType>,
+    status: OptionType<GanttTaskStatusType>,
     popover: OptionType<UIComponentType>,
 }> = StructType({
     start: DateTimeType,
     end: DateTimeType,
     label: OptionType(LabelInputType),
     progress: OptionType(FloatType),
-    colorPalette: OptionType(ColorSchemeType),
-    background: OptionType(StringType),
-    stroke: OptionType(StringType),
-    progressFill: OptionType(StringType),
-    overlays: ArrayType(OverlayInputType),
-    tooltip: OptionType(UIComponentType),
+    status: OptionType(GanttTaskStatusType),
     popover: OptionType(UIComponentType),
 });
 
@@ -133,35 +127,24 @@ export type GanttTaskType = typeof GanttTaskType;
  * East StructType for a Gantt milestone marker.
  *
  * @remarks
- * Single point in time (no duration). Same `tooltip` / `popover` /
- * `overlays` rich-content surface as tasks.
+ * Single point in time (no duration). `kind` (interim / release)
+ * drives the diamond's fill. Same `popover` rich-content surface as
+ * tasks.
  *
  * @property date - The date/time of the milestone
  * @property label - Optional rich label
- * @property colorPalette - Optional color scheme for the milestone marker
- * @property fill - Optional explicit fill colour
- * @property stroke - Optional explicit stroke colour
- * @property overlays - Per-milestone overlay annotations
- * @property tooltip - Optional rich tooltip (hover, UIComponent)
+ * @property kind - Optional milestone kind driving the diamond fill (default release)
  * @property popover - Optional rich popover (click, UIComponent)
  */
 export const GanttMilestoneType: StructType<{
     date: DateTimeType,
     label: OptionType<LabelInputType>,
-    colorPalette: OptionType<ColorSchemeType>,
-    fill: OptionType<StringType>,
-    stroke: OptionType<StringType>,
-    overlays: ArrayType<OverlayInputType>,
-    tooltip: OptionType<UIComponentType>,
+    kind: OptionType<GanttMilestoneKindType>,
     popover: OptionType<UIComponentType>,
 }> = StructType({
     date: DateTimeType,
     label: OptionType(LabelInputType),
-    colorPalette: OptionType(ColorSchemeType),
-    fill: OptionType(StringType),
-    stroke: OptionType(StringType),
-    overlays: ArrayType(OverlayInputType),
-    tooltip: OptionType(UIComponentType),
+    kind: OptionType(GanttMilestoneKindType),
     popover: OptionType(UIComponentType),
 });
 
@@ -240,6 +223,7 @@ export const GanttRootType: StructType<{
     rows: ArrayType<GanttRowType>,
     columns: ArrayType<typeof TableColumnType>,
     frozen: ArrayType<StringType>,
+    axis: OptionType<GanttAxisType>,
     dragStep: OptionType<TimeStepType>,
     durationStep: OptionType<TimeStepType>,
     rowStatus: OptionType<FunctionType<[IntegerType], StatusTokenType>>,
@@ -261,6 +245,7 @@ export const GanttRootType: StructType<{
     rows: ArrayType(GanttRowType),
     columns: ArrayType(TableColumnType),
     frozen: ArrayType(StringType),
+    axis: OptionType(GanttAxisType),
     dragStep: OptionType(TimeStepType),
     durationStep: OptionType(TimeStepType),
     rowStatus: OptionType(FunctionType([IntegerType], StatusTokenType)),
@@ -305,12 +290,7 @@ export type GanttRootType = typeof GanttRootType;
  * @property end - End date/time of the task
  * @property label - Plain string shorthand expands to `{ value: <string> }`; or a full {@link LabelInput} for alignment / typography overrides
  * @property progress - Progress percentage (0-100)
- * @property colorPalette - Color scheme for the task bar
- * @property background - Explicit fill colour for the task bar (overrides colorPalette)
- * @property stroke - Explicit stroke/border colour (overrides colorPalette)
- * @property progressFill - Explicit fill colour for the progress segment
- * @property overlays - Axis-aligned UIComponent overlays painted inside the bar
- * @property tooltip - Hover-triggered rich tooltip content (UIComponent)
+ * @property status - Schedule status driving the bar colour (committed / proposed / atRisk). Default committed.
  * @property popover - Click-triggered rich popover content (UIComponent), coexists with `onTaskClick`
  */
 export interface TaskInput {
@@ -322,43 +302,10 @@ export interface TaskInput {
     label?: SubtypeExprOrValue<StringType> | LabelInput;
     /** Progress percentage (0-100) */
     progress?: SubtypeExprOrValue<FloatType>;
-    /** Color scheme for the task bar */
-    colorPalette?: SubtypeExprOrValue<ColorSchemeType> | string;
-    /** Explicit fill colour for the task bar (overrides colorPalette). */
-    background?: SubtypeExprOrValue<StringType>;
-    /** Explicit stroke/border colour (overrides colorPalette). */
-    stroke?: SubtypeExprOrValue<StringType>;
-    /** Explicit fill colour for the progress segment. */
-    progressFill?: SubtypeExprOrValue<StringType>;
-    /** Per-task overlays (badges, status icons) — same axis-aligned positioning as Matrix overlays. */
-    overlays?: GanttOverlayInput[];
-    /** Rich tooltip content (hover-triggered UIComponent). */
-    tooltip?: SubtypeExprOrValue<UIComponentType>;
+    /** Schedule status — drives the bar colour, border, and progress fill from the status palette. Default `"committed"`. */
+    status?: SubtypeExprOrValue<GanttTaskStatusType> | GanttTaskStatusLiteral;
     /** Rich popover content (click-triggered UIComponent). Coexists with `onTaskClick`. */
     popover?: SubtypeExprOrValue<UIComponentType>;
-}
-
-/**
- * TypeScript interface for a Gantt overlay — UIComponent painted at an
- * axis-aligned position inside the task / milestone shape.
- *
- * @remarks
- * Mirrors the Matrix overlay pattern. Defaults (when align /
- * verticalAlign omitted) are `"center"` / `"center"`. Pointer events
- * pass through the overlay so drag / click / popover triggers still
- * hit the underlying shape.
- *
- * @property content - The UIComponent painted at the chosen corner
- * @property align - Horizontal alignment (start / center / end). Default `"center"`.
- * @property verticalAlign - Vertical alignment (start / center / end). Default `"center"`.
- */
-export interface GanttOverlayInput {
-    /** The UIComponent painted at the chosen corner */
-    content: SubtypeExprOrValue<UIComponentType>;
-    /** Horizontal alignment (start / center / end). Default `"center"`. */
-    align?: AlignLiteral | SubtypeExprOrValue<AlignType>;
-    /** Vertical alignment (start / center / end). Default `"center"`. */
-    verticalAlign?: AlignLiteral | SubtypeExprOrValue<AlignType>;
 }
 
 /**
@@ -371,11 +318,7 @@ export interface GanttOverlayInput {
  *
  * @property date - The date/time of the milestone
  * @property label - Plain string shorthand expands to `{ value: <string> }`; or a full {@link LabelInput} for alignment / typography overrides
- * @property colorPalette - Color scheme for the milestone marker
- * @property fill - Explicit fill colour for the milestone marker (overrides colorPalette)
- * @property stroke - Explicit stroke colour for the milestone marker (overrides colorPalette)
- * @property overlays - Axis-aligned UIComponent overlays painted on the marker
- * @property tooltip - Hover-triggered rich tooltip content (UIComponent)
+ * @property kind - Milestone kind driving the diamond fill (interim / release). Default release.
  * @property popover - Click-triggered rich popover content (UIComponent), coexists with `onMilestoneClick`
  */
 export interface MilestoneInput {
@@ -383,16 +326,8 @@ export interface MilestoneInput {
     date: SubtypeExprOrValue<DateTimeType>;
     /** Milestone label. Plain string shorthand expands to `{ value: <string> }`; pass a full {@link LabelInput} for alignment / typography overrides. */
     label?: SubtypeExprOrValue<StringType> | LabelInput;
-    /** Color scheme for the milestone marker */
-    colorPalette?: SubtypeExprOrValue<ColorSchemeType> | string;
-    /** Explicit fill colour for the milestone marker (overrides colorPalette). */
-    fill?: SubtypeExprOrValue<StringType>;
-    /** Explicit stroke colour for the milestone marker (overrides colorPalette). */
-    stroke?: SubtypeExprOrValue<StringType>;
-    /** Per-milestone overlays (badges, status icons). */
-    overlays?: GanttOverlayInput[];
-    /** Rich tooltip content (hover-triggered UIComponent). */
-    tooltip?: SubtypeExprOrValue<UIComponentType>;
+    /** Milestone kind — drives the diamond fill (interim = amber, release = brand teal). Default `"release"`. */
+    kind?: SubtypeExprOrValue<GanttMilestoneKindType> | GanttMilestoneKindLiteral;
     /** Rich popover content (click-triggered UIComponent). Coexists with `onMilestoneClick`. */
     popover?: SubtypeExprOrValue<UIComponentType>;
 }
@@ -458,20 +393,6 @@ function buildLabel(input: SubtypeExprOrValue<StringType> | LabelInput): ExprTyp
     }, LabelInputType);
 }
 
-function buildOverlay(o: GanttOverlayInput): ExprType<OverlayInputType> {
-    const align = o.align !== undefined
-        ? (typeof o.align === "string"
-            ? East.value(variant(o.align as AlignLiteral, null), AlignType)
-            : o.align)
-        : East.value(variant("center", null), AlignType);
-    const verticalAlign = o.verticalAlign !== undefined
-        ? (typeof o.verticalAlign === "string"
-            ? East.value(variant(o.verticalAlign as AlignLiteral, null), AlignType)
-            : o.verticalAlign)
-        : East.value(variant("center", null), AlignType);
-    return East.value({ content: o.content, align, verticalAlign }, OverlayInputType);
-}
-
 /**
  * Builds a single Gantt task East value from an ergonomic TS input.
  *
@@ -498,17 +419,17 @@ function buildOverlay(o: GanttOverlayInput): ExprType<OverlayInputType> {
  *             end: row.end,
  *             label: "Design Phase",
  *             progress: 75,
- *             colorPalette: "blue",
+ *             status: "committed",
  *         })] }),
  *     );
  * });
  * ```
  */
 function createTask(input: TaskInput): ExprType<GanttTaskType> {
-    const colorPaletteValue = input.colorPalette
-        ? (typeof input.colorPalette === "string"
-            ? East.value(variant(input.colorPalette as any, null), ColorSchemeType)
-            : input.colorPalette)
+    const statusValue = input.status
+        ? (typeof input.status === "string"
+            ? East.value(variant(input.status, null), GanttTaskStatusType)
+            : input.status)
         : undefined;
 
     return East.value({
@@ -516,12 +437,7 @@ function createTask(input: TaskInput): ExprType<GanttTaskType> {
         end: input.end,
         label: input.label !== undefined ? some(buildLabel(input.label)) : none,
         progress: input.progress !== undefined ? some(input.progress) : none,
-        colorPalette: colorPaletteValue ? some(colorPaletteValue) : none,
-        background: input.background !== undefined ? some(input.background) : none,
-        stroke: input.stroke !== undefined ? some(input.stroke) : none,
-        progressFill: input.progressFill !== undefined ? some(input.progressFill) : none,
-        overlays: (input.overlays ?? []).map(buildOverlay),
-        tooltip: input.tooltip !== undefined ? some(input.tooltip) : none,
+        status: statusValue ? some(statusValue) : none,
         popover: input.popover !== undefined ? some(input.popover) : none,
     }, GanttTaskType);
 }
@@ -548,29 +464,48 @@ function createTask(input: TaskInput): ExprType<GanttTaskType> {
  *         row => ({ milestones: [Gantt.Milestone({
  *             date: row.date,
  *             label: "Design Complete",
- *             colorPalette: "green",
+ *             kind: "release",
  *         })] }),
  *     );
  * });
  * ```
  */
 function createMilestone(input: MilestoneInput): ExprType<GanttMilestoneType> {
-    const colorPaletteValue = input.colorPalette
-        ? (typeof input.colorPalette === "string"
-            ? East.value(variant(input.colorPalette as any, null), ColorSchemeType)
-            : input.colorPalette)
+    const kindValue = input.kind
+        ? (typeof input.kind === "string"
+            ? East.value(variant(input.kind, null), GanttMilestoneKindType)
+            : input.kind)
         : undefined;
 
     return East.value({
         date: input.date,
         label: input.label !== undefined ? some(buildLabel(input.label)) : none,
-        colorPalette: colorPaletteValue ? some(colorPaletteValue) : none,
-        fill: input.fill !== undefined ? some(input.fill) : none,
-        stroke: input.stroke !== undefined ? some(input.stroke) : none,
-        overlays: (input.overlays ?? []).map(buildOverlay),
-        tooltip: input.tooltip !== undefined ? some(input.tooltip) : none,
+        kind: kindValue ? some(kindValue) : none,
         popover: input.popover !== undefined ? some(input.popover) : none,
     }, GanttMilestoneType);
+}
+
+/**
+ * Builds the Gantt time-axis East value from the ergonomic {@link GanttAxisInput}.
+ *
+ * @remarks
+ * Wraps the optional `range` / `format` / `tier` into their `some` / `none`
+ * envelopes and converts the `tier` string shorthand to an East variant — flat
+ * TS input in, fully-shaped {@link GanttAxisType} value out.
+ */
+function buildGanttAxis(input: GanttAxisInput): ExprType<GanttAxisType> {
+    const tierValue = input.tier
+        ? (typeof input.tier === "string"
+            ? East.value(variant(input.tier as GanttTierLiteral, null), GanttTierType)
+            : input.tier)
+        : undefined;
+    return East.value({
+        range: input.range !== undefined
+            ? some(East.value({ min: input.range.min, max: input.range.max }, GanttAxisRangeType))
+            : none,
+        format: input.format !== undefined ? some(input.format) : none,
+        tier: tierValue ? some(tierValue) : none,
+    }, GanttAxisType);
 }
 
 // ============================================================================
@@ -737,13 +672,11 @@ function createGantt<
         // `Gantt.Milestone(...)`. Default to an empty East array when a
         // key is omitted.
         const spec = rowSpec(datum as any);
-        const tasks = $.let(spec.tasks ?? [], ArrayType(GanttTaskType));
-        const milestones = $.let(spec.milestones ?? [], ArrayType(GanttMilestoneType));
 
         return East.value({
             cells: cells,
-            tasks,
-            milestones,
+            tasks: East.value(spec.tasks ?? [], ArrayType(GanttTaskType)),
+            milestones: East.value(spec.milestones ?? [], ArrayType(GanttMilestoneType)),
         }, GanttRowType);
     });
 
@@ -789,54 +722,39 @@ function createGantt<
             : style.size)
         : undefined;
 
-    const colorPaletteValue = style?.colorPalette
-        ? (typeof style.colorPalette === "string"
-            ? East.value(variant(style.colorPalette as any, null), ColorSchemeType)
-            : style.colorPalette)
+    const densityValue = style?.density
+        ? (typeof style.density === "string"
+            ? East.value(variant(style.density, null), DensityType)
+            : style.density)
         : undefined;
 
     const hasStyle = !!style && (
         style.height !== undefined ||
         style.variant !== undefined ||
         style.size !== undefined ||
+        style.density !== undefined ||
         style.striped !== undefined ||
         style.stickyHeader !== undefined ||
         style.showColumnBorder !== undefined ||
-        style.colorPalette !== undefined ||
-        style.showToday !== undefined ||
-        style.gridColor !== undefined ||
-        style.todayMarkerColor !== undefined ||
-        style.headerBackground !== undefined ||
-        style.headerColor !== undefined ||
-        style.taskBorderRadius !== undefined ||
-        style.labelColor !== undefined ||
-        style.labelFontSize !== undefined ||
-        style.labelFontWeight !== undefined
+        style.showToday !== undefined
     );
 
     const styleValue = hasStyle ? East.value({
         height: style!.height ? some(style!.height) : none,
         variant: variantValue ? some(variantValue) : none,
         size: sizeValue ? some(sizeValue) : none,
+        density: densityValue ? some(densityValue) : none,
         striped: style!.striped !== undefined ? some(style!.striped) : none,
         stickyHeader: style!.stickyHeader !== undefined ? some(style!.stickyHeader) : none,
         showColumnBorder: style!.showColumnBorder !== undefined ? some(style!.showColumnBorder) : none,
-        colorPalette: colorPaletteValue ? some(colorPaletteValue) : none,
         showToday: style!.showToday !== undefined ? some(style!.showToday) : none,
-        gridColor: style!.gridColor !== undefined ? some(style!.gridColor) : none,
-        todayMarkerColor: style!.todayMarkerColor !== undefined ? some(style!.todayMarkerColor) : none,
-        headerBackground: style!.headerBackground !== undefined ? some(style!.headerBackground) : none,
-        headerColor: style!.headerColor !== undefined ? some(style!.headerColor) : none,
-        taskBorderRadius: style!.taskBorderRadius !== undefined ? some(style!.taskBorderRadius) : none,
-        labelColor: style!.labelColor !== undefined ? some(style!.labelColor) : none,
-        labelFontSize: style!.labelFontSize !== undefined ? some(style!.labelFontSize) : none,
-        labelFontWeight: style!.labelFontWeight !== undefined ? some(style!.labelFontWeight) : none,
     }, GanttStyleType) : undefined;
 
     return East.value(variant("Gantt", {
         rows: rows_mapped,
         columns: columns_expr,
         frozen: frozen_expr,
+        axis: style?.axis ? some(buildGanttAxis(style.axis)) : none,
         dragStep: style?.dragStep ? some(style.dragStep) : none,
         durationStep: style?.durationStep ? some(style.durationStep) : none,
         rowStatus: style?.rowStatus !== undefined
@@ -868,6 +786,10 @@ interface GanttTypesShape {
     Row: GanttRowType;
     Task: GanttTaskType;
     Milestone: GanttMilestoneType;
+    TaskStatus: GanttTaskStatusType;
+    MilestoneKind: GanttMilestoneKindType;
+    Axis: GanttAxisType;
+    Tier: GanttTierType;
     Style: GanttStyleType;
     Column: TableColumnType;
     Cell: typeof TableCellType;
@@ -937,12 +859,7 @@ const GanttTypes: GanttTypesShape = {
      * @property end - End date/time of the task
      * @property label - Optional rich label (text + alignment + typography)
      * @property progress - Progress percentage (0-100)
-     * @property colorPalette - Color scheme for the task bar
-     * @property background - Explicit fill colour override
-     * @property stroke - Explicit stroke colour override
-     * @property progressFill - Explicit fill colour for the progress segment
-     * @property overlays - Axis-aligned UIComponent overlays
-     * @property tooltip - Hover-triggered rich tooltip (UIComponent)
+     * @property status - Schedule status driving the bar colour (committed / proposed / atRisk)
      * @property popover - Click-triggered rich popover (UIComponent)
      */
     Task: GanttTaskType,
@@ -956,14 +873,49 @@ const GanttTypes: GanttTypesShape = {
      *
      * @property date - The date/time of the milestone
      * @property label - Optional rich label (text + alignment + typography)
-     * @property colorPalette - Color scheme for the marker
-     * @property fill - Explicit fill colour override
-     * @property stroke - Explicit stroke colour override
-     * @property overlays - Axis-aligned UIComponent overlays
-     * @property tooltip - Hover-triggered rich tooltip (UIComponent)
+     * @property kind - Milestone kind driving the diamond fill (interim / release)
      * @property popover - Click-triggered rich popover (UIComponent)
      */
     Milestone: GanttMilestoneType,
+    /**
+     * East VariantType for a task's schedule status — drives the bar
+     * colour from the canonical status palette.
+     *
+     * @property committed - Agreed/baseline work (green)
+     * @property proposed - In-progress / not-yet-locked work (brand teal)
+     * @property atRisk - Slipping / blocked work (red)
+     */
+    TaskStatus: GanttTaskStatusType,
+    /**
+     * East VariantType for a milestone's kind — drives the diamond fill.
+     *
+     * @property interim - Intermediate checkpoint (amber)
+     * @property release - Shippable deliverable (brand teal)
+     */
+    MilestoneKind: GanttMilestoneKindType,
+    /**
+     * East StructType for the Gantt time-axis configuration.
+     *
+     * @remarks
+     * The Gantt analogue of the Planner `axis`, specialised to the single
+     * time scale. Construct via the `axis` option on `Gantt.Root`.
+     *
+     * @property range - Optional explicit `{ min, max }` window (omitted ⇒ derived from data)
+     * @property format - Optional tick-label date pattern (e.g. `"MMM"`)
+     * @property tier - Optional header band granularity ({@link GanttTierType})
+     */
+    Axis: GanttAxisType,
+    /**
+     * East VariantType for the axis header granularity.
+     *
+     * @property auto - Interval + count chosen automatically
+     * @property day - One band per day
+     * @property week - One band per week
+     * @property month - One band per calendar month
+     * @property quarter - One band per calendar quarter
+     * @property year - One band per calendar year
+     */
+    Tier: GanttTierType,
     /**
      * East StructType holding every visual field for a Gantt.
      *
@@ -975,19 +927,11 @@ const GanttTypes: GanttTypesShape = {
      * @property height - CSS height for the Gantt container
      * @property variant - Table variant (line / outline)
      * @property size - Table size (sm / md / lg)
+     * @property density - Density preset driving row + header height (compact / condensed / comfortable)
      * @property striped - Whether to show zebra stripes on rows
      * @property stickyHeader - Whether the header sticks when scrolling
      * @property showColumnBorder - Whether to show borders between columns
-     * @property colorPalette - Default color scheme for events
-     * @property showToday - Whether to show a today marker line
-     * @property gridColor - Explicit grid colour
-     * @property todayMarkerColor - Explicit today-marker colour
-     * @property headerBackground - Header row background
-     * @property headerColor - Header row text colour
-     * @property taskBorderRadius - CSS border-radius for task bars
-     * @property labelColor - Default text colour for per-task labels
-     * @property labelFontSize - Default CSS font-size for per-task labels
-     * @property labelFontWeight - Default CSS font-weight for per-task labels
+     * @property showToday - Whether to show the now-line
      */
     Style: GanttStyleType,
     /**
@@ -1140,10 +1084,10 @@ const GanttImpl: GanttNamespace = {
      * `tasks` field is `SubtypeExprOrValue<ArrayType<GanttTaskType>>`,
      * so callers pass either an East-side ArrayExpr or a JS array of
      * values built by this factory. The factory normalises optional
-     * fields (`label` / `progress` / `colorPalette` / `tooltip` /
-     * `popover` / `overlays`) into their `OptionType` envelopes and
-     * converts variant string literals (`"blue"`, `"start"`) to East
-     * variant values — flat TS input in, fully-shaped East value out.
+     * fields (`label` / `progress` / `status` / `popover`) into their
+     * `OptionType` envelopes and converts variant string literals
+     * (`"committed"`, `"start"`) to East variant values — flat TS input
+     * in, fully-shaped East value out.
      *
      * @example
      * ```ts
@@ -1159,7 +1103,7 @@ const GanttImpl: GanttNamespace = {
      *             end: row.end,
      *             label: "Design Phase",
      *             progress: 75,
-     *             colorPalette: "blue",
+     *             status: "committed",
      *         })] }),
      *     );
      * });
@@ -1191,7 +1135,7 @@ const GanttImpl: GanttNamespace = {
      *         row => ({ milestones: [Gantt.Milestone({
      *             date: row.date,
      *             label: "Design Complete",
-     *             colorPalette: "green",
+     *             kind: "release",
      *         })] }),
      *     );
      * });

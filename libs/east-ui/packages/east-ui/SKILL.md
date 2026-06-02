@@ -1,6 +1,6 @@
 ---
 name: east-ui
-description: "Type-safe UI component library for the East language. Use when writing East programs that define user interfaces with declarative components. Triggers for: (1) Writing East programs with @elaraai/east-ui, (2) Layout with Box, Flex, Stack, Grid, Splitter, ScrollArea, Sticky, ChipRail, (3) Forms with Input, Textarea, Select, Combobox, Checkbox, Switch, Slider, RadioGroup, RadioCardGroup, TagsInput, FileUpload, Field, DateRangeInput, TimeRangeInput, TimeScaleControl, (4) Data display with Table, TreeView, DataList, Gantt, Planner, Matrix, Pagination, (5) Charts with Chart.Line, Chart.Bar, Chart.Area, Chart.AreaRange, Chart.Scatter, Chart.Pie, Chart.Radar, Chart.Composed, Sparkline, (6) Overlays with Dialog, Drawer, Popover, Menu, Tooltip, HoverCard, ToggleTip, ActionBar, CoachMark, CommandPalette, (7) Feedback with Alert, Banner, Status, Toast, Progress, ProgressCircle, Spinner, Skeleton, EmptyState, (8) Disclosure with Tabs, Accordion, Carousel, Collapsible, SegmentGroup, OptionList, Steps, Timeline, ShowMore, (9) Navigation with Breadcrumb, NavList, (10) Reactive UI via Reactive.Root + State.bind for state-driven re-renders."
+description: "Type-safe UI component library for the East language. Use when writing East programs that define user interfaces with declarative components. Triggers for: (1) Writing East programs with @elaraai/east-ui, (2) Layout with Box, Flex, Stack, Grid, Splitter, ScrollArea, Sticky, ChipRail, (3) Forms with Input, Textarea, Select, Combobox, Checkbox, Switch, Slider, RadioGroup, RadioCardGroup, TagsInput, FileUpload, Field, DateRangeInput, TimeRangeInput, TimeScaleControl, (4) Data display with Table, TreeView, DataList, Gantt, Planner, Matrix, Pagination, (5) Charts with Chart.Root assembling Chart.Line/Bar/Area/Scatter/Band layers plus Chart.refLine/refBand/refDot annotations, Sparkline, (6) Overlays with Dialog, Drawer, Popover, Menu, Tooltip, HoverCard, ToggleTip, ActionBar, CoachMark, CommandPalette, (7) Feedback with Alert, Banner, Status, Toast, Progress, ProgressCircle, Spinner, Skeleton, EmptyState, (8) Disclosure with Tabs, Accordion, Carousel, Collapsible, SegmentGroup, OptionList, Steps, Timeline, ShowMore, (9) Navigation with Breadcrumb, NavList, (10) Reactive UI via Reactive.Root + State.bind for state-driven re-renders."
 ---
 
 # East UI
@@ -134,30 +134,35 @@ Task → What do you need?
 │   │   └─ .Root(nodes, options)
 │   ├─ Gantt — Gantt chart; reuses Table chrome; showToday marker, gridColor, task/milestone defaults
 │   │   └─ .Root(tasks, options)
-│   ├─ Planner — time-grid event planner (day / week); slotMinWidth, slotLineStroke, colorPalette
-│   │   └─ .Root(events, options)
-│   ├─ Matrix — generic row × column grid with a cell renderer slot; showGridLines, header/cell colours, legendPosition, emphasis/selected colours
-│   │   ├─ .Root(rows, cols, cells, options)
-│   │   └─ .CellAddressable(child)          – addressable cell for sparse fills
+│   ├─ Planner — discrete rows × ordered-slot scheduler; reuses Table header chrome; committed / proposed / rejected event states, conflict markers, now-line
+│   │   ├─ .Point(data, config) / .Span(data, config)  – config: axis, columns, events, markers, groupBy, now, density, slotMinWidth, onSelectRow
+│   │   ├─ .axis.time() / .number({ buckets }) / .ordinal({ range })
+│   │   ├─ .event({ slot, endSlot, label, state, bucket, popover })
+│   │   └─ .marker({ slot, status, message })           – conflict / status flag on a slot
+│   ├─ Matrix — row × column grid of status-coloured segment bars; reuses Table header + Slice legend chrome
+│   │   ├─ .Root(data, config)              – config: columns, rowKey, cell, rowHeader/rowValue/rowSublabel, groupBy, orientation, legend, onSegmentChange…
+│   │   ├─ .cell({ segments, markers, slot, popover, orientation })
+│   │   ├─ .segment({ fill, weight, label, min, max, step })  – fill: brand/success/warning/danger/info/neutral/slack/free
+│   │   └─ .marker({ status, message, at, label })            – Planner-parity cell status flag (ring tint + corner icon)
 │   └─ Pagination — page-number control; siblings + boundaries control ellipsis windows; active colour slots
 │       └─ .Root(options)
 │
 ├─ Charts (visualize data) — `import { Chart } from "@elaraai/east-ui"`
-│   ├─ Cartesian (single + multi-series)
-│   │   ├─ Chart.Line / Chart.LineMulti           – line chart; supports dots, area-fill overlay
-│   │   ├─ Chart.Bar / Chart.BarMulti             – bar chart; vertical / horizontal / stacked
-│   │   ├─ Chart.Area / Chart.AreaMulti           – area chart; stacked or overlaid
-│   │   ├─ Chart.AreaRange / Chart.AreaRangeMulti – min/max band area (e.g. p10–p90 envelope)
-│   │   └─ Chart.Scatter / Chart.ScatterMulti     – scatter / bubble plot
-│   ├─ Proportional
-│   │   ├─ Chart.Pie                              – pie / donut chart with inner radius
-│   │   └─ Chart.Radar                            – radar / spider chart
-│   ├─ Composed (mix series types on one axis)
-│   │   ├─ Chart.Composed                         – one Y-axis; mix line + bar + area + scatter
-│   │   └─ Chart.ComposedMulti                    – multi Y-axis composed chart
+│   ├─ Chart.Root(layer | layer[], options?)  – assemble mark + annotation layers into one chart;
+│   │                                            the x-scale is inferred from the x accessor's type
+│   │                                            (String → band, Integer/Float → linear, DateTime → time)
+│   ├─ Marks: Chart.Line / Chart.Bar / Chart.Area / Chart.Scatter (rows, encoding, style?)
+│   │   ├─ encoding: { x, y }  ·  { x, y, by } (one series per category)  ·  { x, columns: { Name: r => r.field } } (wide)
+│   │   ├─ Chart.Scatter encoding also takes { x, y, size } – per-point bubble size (area-proportional)
+│   │   └─ Chart.Band(rows, { x, low, high }, style?) – filled low/high range (e.g. confidence band)
+│   ├─ Annotations: Chart.refLine({ y } | { x })  ·  Chart.refBand({ y:[lo,hi] } | { x:[lo,hi] })  ·  Chart.refDot({ x, y, label })
+│   ├─ style: { color, curve, width, dash, dots, fillOpacity, stack, axis:"left"|"right", order }  (Scatter adds size)
+│   ├─ options: { height, width, x/y/y2:{ label, format, domain, scale }, grid, legend, tooltip, stackOffset:"expand" }
+│   ├─ Chart.format.{ number, currency, percent, compact, date, time, datetime } – axis tick formats
 │   ├─ Sparkline — inline trend visualisation (line | area); 28–36 px tall, fits beside Stat / in a Card row
 │   │   └─ .Root(values, style)
-│   └─ Helpers: `Chart.Series`, `Chart.Sort`, `Chart.TickFormat`
+│   └─ Slice.Chart.{ Line, Bar, Area, Scatter }(slice, { x, value, xScale?, brush?, legend? }) – slice-bound;
+│                                                a brush on a time/linear chart sets the slice's range
 │
 ├─ Display (show information)
 │   ├─ Badge — pill/tag label; colorPalette + variants (solid | subtle | outline); border + sizing controls
@@ -300,7 +305,7 @@ Task → What do you need?
 | Buttons | `Button`, `IconButton`, `CloseButton`, `CopyButton`, `Toggle`, `ButtonGroup` |
 | Forms | `Input`, `Textarea`, `Select`, `Combobox`, `Checkbox`, `Switch`, `Slider`, `RadioGroup`, `RadioCardGroup`, `TagsInput`, `FileUpload`, `Field`, `DateRangeInput`, `TimeRangeInput`, `TimeScaleControl` |
 | Collections | `Table`, `DataList`, `TreeView`, `Gantt`, `Planner`, `Matrix`, `Pagination` |
-| Charts | `Chart.Line/LineMulti`, `Chart.Bar/BarMulti`, `Chart.Area/AreaMulti`, `Chart.AreaRange/AreaRangeMulti`, `Chart.Scatter/ScatterMulti`, `Chart.Pie`, `Chart.Radar`, `Chart.Composed/ComposedMulti`, `Sparkline` |
+| Charts | `Chart.Root` + `Chart.Line/Bar/Area/Scatter/Band` layers, `Chart.refLine/refBand/refDot`, `Chart.format.*`, `Sparkline`, `Slice.Chart.*` |
 | Display | `Badge`, `Tag`, `Avatar`, `AvatarGroup`, `Icon`, `Kbd`, `Stat`, `MetricChip`, `Meter`, `SegmentedMeter`, `BarStrip`, `EditableChip` |
 | Feedback | `Alert`, `Banner`, `Status`, `Toast`, `Progress`, `ProgressCircle`, `Spinner`, `Skeleton`, `EmptyState` |
 | Disclosure | `Tabs`, `Accordion`, `Carousel`, `Collapsible`, `SegmentGroup`, `OptionList`, `Steps`, `Timeline`, `Disclosure (ShowMore)` |
@@ -319,7 +324,7 @@ A short guide for the components that look similar — pick by intent:
 - **Alert vs Banner vs Status vs Toast** – `Alert` is an inline message inside a card. `Banner` is a page-spanning notice for staleness / partial-data / change-since-visit. `Status` is a dot + word (no fill). `Toast` is an ephemeral overlay through the host Toaster.
 - **OptionList vs Select vs Combobox vs RadioGroup** – `OptionList` is a visible single-select list (alternatives explorer). `Select` is a closed dropdown. `Combobox` is a typeahead-filtered Select. `RadioGroup` is a form input.
 - **Meter vs Progress vs SegmentedMeter** – `Progress` shows task completion (determinate / indeterminate). `Meter` shows a static value against a range (with sentiment colour). `SegmentedMeter` decomposes a meter into multiple stacked segments.
-- **BarStrip vs Chart.Bar** – `BarStrip` is a small ranked horizontal-bar list (no axes). `Chart.Bar` is a full chart with axes and legend.
+- **BarStrip vs Chart.Bar** – `BarStrip` is a small ranked horizontal-bar list (no axes). `Chart.Bar` is a bar layer inside `Chart.Root` — a full chart with axes and legend.
 - **Stat vs MetricChip** – `Stat` is a tile with hero number + label + change. `MetricChip` is a compact inline mono delta pill.
 - **Steps vs Timeline** – `Steps` is a horizontal progress rail (linear flow). `Timeline` is a vertical decision-journal log (chronological entries).
 - **Card vs Box** – `Box` is structural-only. `Card` carries chrome (header, body, footer, border).
@@ -392,18 +397,21 @@ const dataTable = East.function([], UIComponentType, $ => {
 ### Line chart
 
 ```typescript
+import { East, ArrayType, StructType, StringType, IntegerType } from "@elaraai/east";
 import { Chart, UIComponentType } from "@elaraai/east-ui";
 
 const chart = East.function([], UIComponentType, $ => {
-    return Chart.Line(
-        [
-            { month: "Jan", revenue: 186.0, profit: 80.0  },
-            { month: "Feb", revenue: 305.0, profit: 120.0 },
-            { month: "Mar", revenue: 237.0, profit: 95.0  },
-        ],
-        { revenue: { color: "teal.solid" }, profit: { color: "purple.solid" } },
-        { xAxis: { dataKey: "month" }, showLegend: true, showDots: true }
-    );
+    const rows = $.const([
+        { month: "Jan", revenue: 186n, profit: 80n },
+        { month: "Feb", revenue: 305n, profit: 120n },
+        { month: "Mar", revenue: 237n, profit: 95n },
+    ], ArrayType(StructType({ month: StringType, revenue: IntegerType, profit: IntegerType })));
+    // Compose layers: revenue bars + a profit line. Encodings bind data by typed
+    // accessor; the x type (String) infers a band scale. Currency-formatted y-axis.
+    return Chart.Root([
+        Chart.Bar(rows, { x: r => r.month, y: r => r.revenue }, { key: "Revenue", color: "teal.solid" }),
+        Chart.Line(rows, { x: r => r.month, y: r => r.profit }, { key: "Profit", color: "purple.solid", dots: true }),
+    ], { y: { format: Chart.format.currency({ compact: true }) }, legend: true, tooltip: true, grid: true });
 });
 ```
 

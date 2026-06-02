@@ -1,0 +1,1547 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>East UI · Strategic · Understand & Explore — production detail</title>
+<link rel="stylesheet" href="./colors_and_type.css">
+<link rel="stylesheet" href="./spec.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<script type="module" src="./charts-visx.js"></script>
+<style>
+  /* ============================================================
+   * Page chrome — overrides spec.css .page max-width
+   * ============================================================ */
+  html, body { margin: 0; background: var(--paper-3); font-family: var(--font-body); color: var(--ink); }
+  .doc { max-width: 1440px; margin: 0 auto; padding: 32px 24px 96px; }
+  .doc-nav {
+    display: flex; gap: 14px; align-items: baseline;
+    padding: 4px 0 20px;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 28px;
+    font-family: var(--font-mono); font-size: 11px;
+    letter-spacing: 0.12em; text-transform: uppercase;
+  }
+  .doc-nav a { color: var(--ink-4); text-decoration: none; }
+  .doc-nav a:hover { color: var(--brand-d); }
+  .doc-nav .sep { color: var(--rule-strong); }
+  .doc-nav .here { color: var(--ink); font-weight: 600; }
+  .doc-title { font-family: var(--font-brand); font-size: 28px; font-weight: 700; letter-spacing: -0.018em; margin: 4px 0 6px; }
+  .doc-lede { font-size: 14px; color: var(--ink-3); max-width: 78ch; line-height: 1.6; margin: 0 0 28px; }
+
+  /* page-divider — between the two screens */
+  .page-divider {
+    margin: 56px 0 24px;
+    display: grid; grid-template-columns: 1fr auto 1fr; gap: 14px; align-items: center;
+  }
+  .page-divider::before, .page-divider::after {
+    content: ""; height: 1px; background: var(--rule-strong);
+  }
+  .page-divider .pd-lbl {
+    font-family: var(--font-mono); font-size: 10.5px; font-weight: 700;
+    letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-3);
+  }
+
+  /* screen marker — sits ABOVE each app frame, names which step is being shown */
+  .screen-head {
+    display: flex; align-items: baseline; gap: 14px;
+    padding: 0 0 12px;
+  }
+  .screen-step {
+    font-family: var(--font-mono); font-size: 12px; font-weight: 700;
+    color: var(--brand-d); padding: 4px 10px;
+    background: var(--brand-tint); border-radius: 3px;
+    letter-spacing: 0.06em;
+  }
+  .screen-title { font-family: var(--font-brand); font-size: 19px; font-weight: 700; letter-spacing: -0.012em; color: var(--ink); }
+  .screen-pat { font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); letter-spacing: 0.04em; }
+  .screen-pat .mono { color: var(--brand-dd); font-weight: 600; }
+
+  /* ============================================================
+   * App frame — production size
+   * ============================================================ */
+  .app {
+    display: grid;
+    grid-template-columns: 220px 1fr 296px;
+    grid-template-rows: auto 1fr auto;
+    grid-template-areas:
+      "side header header"
+      "side main   rail"
+      "side commit commit";
+    background: var(--paper);
+    border: 1px solid var(--rule-strong);
+    border-radius: 6px;
+    overflow: hidden;
+    box-shadow: 0 1px 2px rgba(17, 27, 34, 0.04), 0 4px 16px rgba(17, 27, 34, 0.04);
+  }
+
+  /* ---------- Sidebar ---------- */
+  .app-side {
+    grid-area: side;
+    background: var(--paper-2);
+    border-right: 1px solid var(--rule);
+    display: flex; flex-direction: column;
+    min-height: 720px;
+  }
+  .side-brand {
+    padding: 16px 18px 14px;
+    border-bottom: 1px solid var(--rule);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .side-brand-mark {
+    width: 24px; height: 24px; border-radius: 4px;
+    background: var(--brand-d); color: var(--paper);
+    display: grid; place-items: center;
+    font-family: var(--font-brand); font-size: 13px; font-weight: 700;
+  }
+  .side-brand-name { font-family: var(--font-brand); font-size: 14px; font-weight: 700; color: var(--ink); letter-spacing: -0.005em; }
+  .side-brand-name small { display: block; font-family: var(--font-mono); font-size: 9.5px; font-weight: 500; color: var(--ink-4); letter-spacing: 0.1em; text-transform: uppercase; margin-top: 1px; }
+
+  .side-section { padding: 16px 14px 6px; }
+  .side-lbl {
+    font-family: var(--font-mono); font-size: 9.5px; font-weight: 700;
+    letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4);
+    padding: 0 6px 8px;
+  }
+  .side-link {
+    display: grid; grid-template-columns: 1fr auto;
+    align-items: center; gap: 8px;
+    padding: 7px 10px; margin-bottom: 1px;
+    border-radius: 3px; cursor: pointer;
+    font-size: 13px; color: var(--ink-2);
+    text-decoration: none;
+  }
+  .side-link .num { font-family: var(--font-mono); font-size: 11px; color: var(--ink-4); font-weight: 500; }
+  .side-link:hover { background: var(--paper-3); color: var(--ink); }
+  .side-link.active {
+    background: var(--brand-tint); color: var(--brand-dd); font-weight: 600;
+    box-shadow: inset 2px 0 0 var(--brand-d);
+  }
+  .side-link.active .num { color: var(--brand-d); }
+  .side-link .ico { display: inline-flex; align-items: center; gap: 7px; }
+  .side-link .ico i { color: var(--ink-4); font-size: 11px; width: 12px; text-align: center; }
+  .side-link.active .ico i { color: var(--brand-d); }
+
+  .side-foot { margin-top: auto; padding: 14px; border-top: 1px solid var(--rule); }
+  .side-user {
+    display: grid; grid-template-columns: 28px 1fr auto;
+    align-items: center; gap: 10px;
+  }
+  .side-user-av {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: var(--brand-dd); color: var(--paper);
+    display: grid; place-items: center;
+    font-family: var(--font-mono); font-size: 10.5px; font-weight: 700;
+  }
+  .side-user-name { font-size: 12.5px; color: var(--ink); font-weight: 600; line-height: 1.15; }
+  .side-user-role { font-family: var(--font-mono); font-size: 10px; color: var(--ink-4); letter-spacing: 0.06em; margin-top: 1px; }
+  .side-user-more { color: var(--ink-4); font-size: 12px; }
+
+  /* ---------- Header ---------- */
+  .app-header {
+    grid-area: header;
+    border-bottom: 1px solid var(--rule);
+    padding: 14px 24px 14px;
+    background: var(--paper);
+  }
+  .h-row1 {
+    display: flex; align-items: center; gap: 14px;
+    font-family: var(--font-mono); font-size: 11px; color: var(--ink-4);
+    letter-spacing: 0.04em;
+    margin-bottom: 8px;
+  }
+  .h-crumb a { color: var(--brand-d); text-decoration: none; }
+  .h-crumb a:hover { text-decoration: underline; }
+  .h-crumb .sep { color: var(--rule-strong); padding: 0 4px; }
+  .h-crumb .here { color: var(--ink); font-weight: 600; }
+  .h-meta { color: var(--ink-4); }
+  .h-run { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
+  .h-run .num { color: var(--ink); font-weight: 600; }
+
+  .h-row2 {
+    display: grid; grid-template-columns: 1fr auto;
+    gap: 18px; align-items: end;
+  }
+  .h-title {
+    font-family: var(--font-brand); font-size: 26px; font-weight: 700;
+    letter-spacing: -0.018em; line-height: 1.1; color: var(--ink);
+    display: inline-flex; align-items: baseline; gap: 12px;
+  }
+  .h-title-meta {
+    font-family: var(--font-mono); font-size: 11px; font-weight: 500;
+    color: var(--ink-4); letter-spacing: 0.08em; text-transform: uppercase;
+  }
+
+  /* Header right cluster — Slice.Range + Scenario.Switch */
+  .h-chrome { display: flex; gap: 10px; align-items: center; }
+  .chrome-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 10px;
+    border: 1px solid var(--rule-strong); border-radius: 4px;
+    background: var(--paper);
+    font-family: var(--font-mono); font-size: 11px; color: var(--ink); font-weight: 600;
+    cursor: pointer;
+  }
+  .chrome-pill i { font-size: 10px; color: var(--ink-4); }
+  .chrome-pill .kind {
+    font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+    letter-spacing: 0.14em; text-transform: uppercase; color: var(--brand-d);
+    padding: 2px 5px; background: var(--brand-tint); border-radius: 2px;
+    margin-right: 2px;
+  }
+  .chrome-pill .sub { color: var(--ink-4); font-weight: 500; }
+  .chrome-pill .chev { font-size: 8px; color: var(--ink-4); margin-left: 2px; }
+
+  /* Scenario.Switch — segmented control */
+  .sc-switch {
+    display: inline-flex; align-items: center;
+    border: 1px solid var(--rule-strong); border-radius: 4px;
+    background: var(--paper); overflow: hidden;
+    font-family: var(--font-mono); font-size: 11px;
+  }
+  .sc-switch .kind {
+    padding: 5px 8px;
+    color: var(--brand-d); background: var(--brand-tint);
+    font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; font-size: 9px;
+    border-right: 1px solid var(--rule-strong);
+  }
+  .sc-switch .sc {
+    padding: 5px 11px;
+    color: var(--ink-3); font-weight: 600;
+    border-right: 1px solid var(--rule);
+    cursor: pointer;
+  }
+  .sc-switch .sc:last-child { border-right: 0; }
+  .sc-switch .sc:hover { color: var(--ink); background: var(--paper-2); }
+  .sc-switch .sc.active { background: var(--brand-d); color: var(--paper); }
+  .sc-switch .sc.dirty {
+    background: var(--paper);
+    color: var(--brand-dd);
+    box-shadow: inset 0 -2px 0 var(--warn);
+  }
+  .sc-switch .sc.dirty.active { background: var(--brand-d); color: var(--paper); box-shadow: inset 0 -2px 0 var(--warn); }
+
+  /* ---------- Main ---------- */
+  .app-main {
+    grid-area: main;
+    padding: 22px 24px;
+    background: var(--paper-2);
+    display: flex; flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+  }
+
+  /* ---------- Rail ---------- */
+  .app-rail {
+    grid-area: rail;
+    background: var(--paper-2);
+    border-left: 1px solid var(--rule);
+    padding: 22px 18px 22px;
+    display: flex; flex-direction: column; gap: 14px;
+    min-width: 0;
+  }
+  .rail-lbl {
+    font-family: var(--font-mono); font-size: 9.5px; font-weight: 700;
+    letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4);
+    padding-bottom: 6px; border-bottom: 1px solid var(--rule);
+  }
+  .rail-ref {
+    display: grid; gap: 4px;
+    padding: 10px 11px; background: var(--paper);
+    border: 1px solid var(--rule); border-radius: 3px;
+    text-decoration: none;
+  }
+  .rail-ref:hover { border-color: var(--brand-d); }
+  .rail-ref-meta { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-4); }
+  .rail-ref-title { font-size: 12.5px; color: var(--ink); font-weight: 600; line-height: 1.25; margin-top: 1px; }
+  .rail-ref-stat { font-family: var(--font-mono); font-size: 11px; color: var(--ink-2); margin-top: 4px; }
+  .rail-ref-stat .num { color: var(--ink); font-weight: 600; }
+  .rail-ref-sim { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+  .rail-ref-bar { flex: 1; height: 3px; background: var(--paper-3); border-radius: 1px; overflow: hidden; }
+  .rail-ref-bar-fill { display: block; height: 100%; background: var(--brand); }
+  .rail-ref-sim small { font-family: var(--font-mono); font-size: 9.5px; color: var(--ink-4); letter-spacing: 0.04em; }
+
+  /* ---------- Commit bar ---------- */
+  .app-commit {
+    grid-area: commit;
+    background: var(--paper);
+    border-top: 1px solid var(--rule);
+    padding: 11px 22px;
+    display: flex; align-items: center; gap: 14px;
+  }
+  .commit-status { display: flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); }
+  .commit-status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); display: inline-block; }
+  .commit-status .dot.ok { background: var(--pos); }
+  .commit-status .num { color: var(--ink); font-weight: 600; }
+  .commit-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .c-btn { padding: 7px 14px; font-family: var(--font-body); font-size: 12.5px; font-weight: 600; border-radius: 3px; cursor: pointer; border: 1px solid var(--rule-strong); background: var(--paper); color: var(--ink-2); white-space: nowrap; }
+  .c-btn:hover { border-color: var(--ink-4); color: var(--ink); }
+  .c-btn.primary { background: var(--brand-d); color: var(--paper); border-color: var(--brand-d); }
+  .c-btn.primary:hover { background: var(--brand-dd); border-color: var(--brand-dd); }
+  .c-btn.ghost { border-color: transparent; color: var(--ink-3); }
+  .c-btn.ghost:hover { background: var(--paper-3); }
+  .c-btn[disabled] { opacity: 0.42; cursor: not-allowed; }
+
+  /* ============================================================
+   * Briefing summary card (compressed Scenario.Briefing for the chart-heavy step)
+   * ============================================================ */
+  .brief-card {
+    background: var(--paper);
+    border: 1px solid var(--rule-strong); border-radius: 4px;
+    overflow: hidden;
+  }
+  .brief-hero {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto;
+    gap: 32px; align-items: center;
+    padding: 18px 22px 18px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .brief-hero-l { min-width: 0; }
+  .brief-eyebrow {
+    font-family: var(--font-mono); font-size: 9.5px; font-weight: 700;
+    letter-spacing: 0.18em; text-transform: uppercase; color: var(--brand-d);
+    margin-bottom: 8px;
+  }
+  .brief-title { font-family: var(--font-brand); font-size: 22px; font-weight: 700; letter-spacing: -0.012em; color: var(--ink); line-height: 1.22; text-wrap: balance; max-width: 32ch; }
+  .brief-stakes { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+  .stake-tag {
+    font-family: var(--font-mono); font-size: 9.5px; font-weight: 700;
+    letter-spacing: 0.14em; text-transform: uppercase;
+    padding: 3px 7px; border-radius: 2px;
+    background: var(--brand-tint); color: var(--brand-dd);
+  }
+  .stake-tag.warn { background: #fbf2dc; color: #6b5212; }
+  .stake-chip {
+    font-family: var(--font-mono); font-size: 11px;
+    color: var(--ink-3); padding: 3px 8px;
+    border: 1px solid var(--rule); border-radius: 2px;
+    background: var(--paper);
+  }
+  .stake-chip .num { color: var(--ink); font-weight: 600; margin-left: 2px; }
+  .brief-nums { display: flex; gap: 28px; align-items: flex-end; flex-shrink: 0; }
+  .brief-num-l { text-align: right; }
+  .brief-num-l .cap { font-family: var(--font-mono); font-size: 9.5px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-4); white-space: nowrap; }
+  .brief-num-l .big { font-family: var(--font-brand); font-size: 40px; font-weight: 700; line-height: 1; letter-spacing: -0.02em; color: var(--pos); margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .brief-num-l .big.neutral { color: var(--ink); }
+  .brief-num-l .big.warn { color: var(--warn); }
+  .brief-num-l .sub { font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-4); margin-top: 4px; letter-spacing: 0.04em; white-space: nowrap; }
+  .brief-num-l .sub .num { color: var(--ink); font-weight: 600; }
+
+  /* Briefing body: evidence + judgement */
+  .brief-body {
+    display: grid; grid-template-columns: 1fr 280px; gap: 0;
+  }
+  .brief-main { padding: 16px 20px; display: flex; flex-direction: column; gap: 14px; }
+  .brief-slot-lbl { font-family: var(--font-mono); font-size: 9.5px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); margin-bottom: 8px; }
+  .brief-evi {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+  }
+  .evi {
+    display: flex; flex-direction: column; gap: 4px;
+    padding: 10px 12px;
+    background: var(--paper-2); border: 1px solid var(--rule); border-radius: 2px;
+  }
+  .evi-tag {
+    font-family: var(--font-mono); font-size: 9.5px; font-weight: 700;
+    letter-spacing: 0.14em; text-transform: uppercase; color: var(--brand-d);
+  }
+  .evi-fact { font-size: 13px; color: var(--ink); font-weight: 500; }
+  .evi-fact .num { font-family: var(--font-mono); font-weight: 600; }
+  .evi-fact .num.pos { color: var(--pos); }
+  .evi-fact .num.neg { color: var(--neg); }
+  .evi-sub { font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-4); }
+
+  /* Judgement sidebar (persistent checklist per Strategic tier rules) */
+  .judg {
+    padding: 16px 18px;
+    background: var(--paper-2); border-left: 1px solid var(--rule);
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .judg-head { display: flex; align-items: baseline; gap: 8px; }
+  .judg-head .ttl { font-family: var(--font-mono); font-size: 10px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--warn); }
+  .judg-head .ctr { margin-left: auto; font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-3); }
+  .judg-head .ctr .num { color: var(--ink); font-weight: 600; }
+  .judg-item {
+    display: grid; grid-template-columns: 14px 1fr auto;
+    gap: 8px; align-items: start;
+    padding: 8px 0; border-top: 1px dashed var(--rule);
+    font-size: 12.5px;
+  }
+  .judg-item:first-of-type { border-top: 0; padding-top: 0; }
+  .judg-item .check {
+    width: 14px; height: 14px; border-radius: 2px;
+    border: 1px solid var(--rule-strong); background: var(--paper);
+    display: grid; place-items: center;
+    margin-top: 2px;
+  }
+  .judg-item.attested .check { background: var(--pos); border-color: var(--pos); color: var(--paper); }
+  .judg-item.attested .check i { font-size: 8px; }
+  .judg-item.pending .check { border-color: var(--warn); background: #fbf2dc; }
+  .judg-item .q { color: var(--ink); line-height: 1.35; }
+  .judg-item .q small { display: block; font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-4); margin-top: 2px; letter-spacing: 0.04em; }
+  .judg-item .status { font-family: var(--font-mono); font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+  .judg-item.attested .status { color: var(--pos); }
+  .judg-item.pending .status { color: var(--warn); }
+
+  /* ============================================================
+   * Matrix · 5 levels × 8 capabilities · AI-scope heatmap
+   * ============================================================ */
+  .frame-eyebrow {
+    display: flex; align-items: baseline; gap: 14px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--rule);
+    background: var(--paper);
+  }
+  .frame-eyebrow .lbl {
+    font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+    letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-2);
+  }
+  .frame-eyebrow .meta { margin-left: auto; font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-4); }
+  .frame-eyebrow .meta .num { color: var(--ink); font-weight: 600; }
+  .frame-eyebrow .pat-name {
+    font-family: var(--font-mono); font-size: 10.5px; color: var(--brand-dd); font-weight: 600;
+    padding: 2px 7px; background: var(--brand-tint); border-radius: 2px;
+  }
+  .frame-eyebrow .tools { display: inline-flex; align-items: center; gap: 8px; }
+  .e-tool {
+    font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-3); cursor: pointer;
+    padding: 3px 8px; border: 1px solid var(--rule); border-radius: 3px; background: var(--paper);
+  }
+  .e-tool:hover { border-color: var(--brand-d); color: var(--brand-d); }
+  .e-tool.active { background: var(--brand-tint); border-color: var(--brand-d); color: var(--brand-dd); }
+
+  .frame-box {
+    background: var(--paper);
+    border: 1px solid var(--rule-strong); border-radius: 4px;
+    overflow: hidden;
+  }
+
+  /* Heat-grid styling — overlay on .mx */
+  .mxg { display: grid; grid-template-columns: 168px repeat(8, 1fr); border-top: 1px solid var(--rule); }
+  .mxg-h {
+    padding: 9px 8px; background: var(--paper-2);
+    border-right: 1px solid var(--rule); border-bottom: 1px solid var(--rule);
+    font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+    letter-spacing: 0.08em; color: var(--ink-3);
+    text-align: center; line-height: 1.2;
+  }
+  .mxg-h .sub { display: block; color: var(--ink-4); font-weight: 500; font-size: 9.5px; margin-top: 2px; letter-spacing: 0.06em; }
+  .mxg-rh {
+    padding: 10px 12px;
+    border-right: 1px solid var(--rule); border-bottom: 1px solid var(--rule);
+    background: var(--paper-2);
+    display: grid; grid-template-columns: 1fr auto;
+    align-items: center; gap: 8px;
+  }
+  .mxg-rh-name { font-size: 13px; font-weight: 600; color: var(--ink); letter-spacing: -0.003em; }
+  .mxg-rh-name small { display: block; font-family: var(--font-mono); font-size: 10px; color: var(--ink-4); margin-top: 2px; font-weight: 500; letter-spacing: 0.04em; }
+  .mxg-rh-fte { font-family: var(--font-mono); font-size: 11px; color: var(--ink-2); font-weight: 600; text-align: right; }
+  .mxg-rh-fte small { display: block; font-size: 9.5px; color: var(--ink-4); font-weight: 500; letter-spacing: 0.06em; }
+
+  .mxg-cell {
+    border-right: 1px solid var(--rule); border-bottom: 1px solid var(--rule);
+    padding: 10px 6px;
+    display: grid; grid-template-rows: auto 1fr auto;
+    align-items: stretch; gap: 4px;
+    text-align: center;
+    position: relative;
+    min-height: 76px;
+    cursor: pointer;
+    transition: outline 0.1s;
+  }
+  .mxg-cell:hover { outline: 2px solid var(--brand-d); outline-offset: -2px; z-index: 2; }
+
+  /* AI scope intensity tints */
+  .mxg-cell.s-none { background: var(--paper); }
+  .mxg-cell.s-supported { background: #f3fafa; }
+  .mxg-cell.s-augmented { background: #c9e5e7; }
+  .mxg-cell.s-autonomous { background: #6ca7ad; }
+  .mxg-cell.s-autonomous .mxg-fte,
+  .mxg-cell.s-autonomous .mxg-scope,
+  .mxg-cell.s-autonomous .mxg-delta { color: var(--paper); }
+  .mxg-cell.s-autonomous .mxg-delta { color: rgba(255,255,255,0.78); }
+
+  .mxg-scope {
+    font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--brand-dd); opacity: 0.78;
+  }
+  .mxg-cell.s-none .mxg-scope { color: var(--ink-4); }
+  .mxg-cell.s-supported .mxg-scope { color: var(--brand-d); }
+  .mxg-cell.s-augmented .mxg-scope { color: var(--brand-dd); }
+  .mxg-cell .mxg-fte { font-family: var(--font-mono); font-size: 16px; font-weight: 700; color: var(--ink); line-height: 1; font-variant-numeric: tabular-nums; }
+  .mxg-cell .mxg-delta { font-family: var(--font-mono); font-size: 10px; color: var(--ink-3); font-weight: 600; line-height: 1; }
+  .mxg-cell.s-none .mxg-fte { color: var(--ink-2); }
+
+  /* Editable / dirty / emphasis states */
+  .mxg-cell.dirty {
+    box-shadow: inset 0 0 0 2px var(--warn);
+    background-image: linear-gradient(135deg, rgba(184,134,45,0.04) 0%, rgba(184,134,45,0.10) 100%);
+  }
+  .mxg-cell.dirty::after {
+    content: ""; position: absolute; top: 3px; right: 3px;
+    width: 6px; height: 6px; border-radius: 50%; background: var(--warn);
+  }
+  .mxg-cell.emphasis { box-shadow: inset 0 0 0 2px var(--brand-d); }
+  .mxg-cell.flag {
+    background-image: linear-gradient(135deg, rgba(184,90,74,0.08) 0%, rgba(184,90,74,0.16) 100%);
+  }
+  .mxg-cell.flag::after {
+    content: "!"; position: absolute; top: 2px; right: 4px;
+    width: 12px; height: 12px; border-radius: 50%; background: var(--neg); color: var(--paper);
+    font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+    display: grid; place-items: center;
+  }
+  .mxg-cell.locked { opacity: 0.5; cursor: not-allowed; background-image: repeating-linear-gradient(-45deg, transparent 0 6px, rgba(0,0,0,0.025) 6px 12px); }
+
+  /* Matrix legend */
+  .mxg-legend {
+    display: flex; gap: 18px; align-items: center; flex-wrap: wrap;
+    padding: 10px 16px;
+    border-top: 1px solid var(--rule);
+    background: var(--paper-2);
+    font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-3);
+  }
+  .mxg-legend .li { display: inline-flex; align-items: center; gap: 6px; }
+  .mxg-legend .sw {
+    width: 14px; height: 14px; border-radius: 2px; border: 1px solid var(--rule);
+    display: inline-block;
+  }
+  .mxg-legend .sw.s-none { background: var(--paper); }
+  .mxg-legend .sw.s-supported { background: #f3fafa; }
+  .mxg-legend .sw.s-augmented { background: #c9e5e7; }
+  .mxg-legend .sw.s-autonomous { background: #6ca7ad; border-color: #6ca7ad; }
+  .mxg-legend .li.spaced { margin-left: auto; }
+  .mxg-legend .pip { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--warn); margin-right: 4px; vertical-align: 1px; }
+  .mxg-legend .pip.brand { background: var(--brand-d); }
+
+  /* ============================================================
+   * Chart frames (Line, Tornado)
+   * ============================================================ */
+  .chart-frame {
+    background: var(--paper);
+    border: 1px solid var(--rule-strong); border-radius: 4px;
+    overflow: hidden;
+    display: flex; flex-direction: column;
+  }
+  .chart-body { padding: 14px 18px 18px; flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+  .chart-title { font-family: var(--font-brand); font-size: 15px; font-weight: 700; color: var(--ink); letter-spacing: -0.005em; }
+  .chart-title .num { font-family: var(--font-mono); font-size: 13px; color: var(--ink-2); font-weight: 600; margin-left: 6px; }
+  .chart-key {
+    display: flex; gap: 14px; flex-wrap: wrap;
+    font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-3);
+  }
+  .chart-key .li { display: inline-flex; align-items: center; gap: 6px; }
+  .chart-key .sw { width: 14px; height: 2px; display: inline-block; background: var(--brand-d); border-radius: 1px; }
+  .chart-key .sw.dash { background: repeating-linear-gradient(90deg, var(--ink-4) 0 3px, transparent 3px 6px); height: 2px; }
+  .chart-key .sw.warn { background: var(--warn); }
+  .chart-key .sw.pos { background: var(--pos); }
+
+  /* Tornado axis label hint */
+  .tornado-axis {
+    display: grid; grid-template-columns: 1fr 1fr;
+    font-family: var(--font-mono); font-size: 10px; color: var(--ink-4);
+    letter-spacing: 0.08em; text-transform: uppercase;
+    margin-top: -4px;
+  }
+  .tornado-axis .l { text-align: left; }
+  .tornado-axis .r { text-align: right; }
+  .tornado-driver-list {
+    display: grid; grid-template-columns: 130px 1fr;
+    gap: 4px 12px; align-items: center;
+    font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-2);
+  }
+  .tornado-driver-list .lbl { text-align: right; color: var(--ink-3); font-weight: 500; padding-right: 6px; white-space: nowrap; }
+  .tornado-driver-list .bars {
+    display: grid; grid-template-columns: 1fr 1fr;
+    height: 16px; align-items: center;
+    border-left: 1px solid var(--rule-strong);
+    position: relative;
+  }
+  .tornado-driver-list .bar {
+    height: 12px;
+    background: var(--brand-d);
+    display: block;
+  }
+  .tornado-driver-list .bar.neg { background: var(--neg); justify-self: end; border-radius: 1px 0 0 1px; }
+  .tornado-driver-list .bar.pos { background: var(--pos); justify-self: start; border-radius: 0 1px 1px 0; }
+  .tornado-driver-list .num { font-size: 9.5px; color: var(--ink-3); padding: 0 4px; }
+
+  /* ============================================================
+   * Diff.View · multi-scenario · 4-column compare
+   * ============================================================ */
+  .diff-view { display: flex; flex-direction: column; height: 100%; }
+  .diff-grid {
+    display: grid;
+    grid-template-columns: 138px repeat(4, minmax(0, 1fr));
+    border-top: 1px solid var(--rule);
+    flex: 1; min-height: 0;
+    overflow: hidden;
+  }
+  .diff-h, .diff-rh, .diff-c {
+    border-right: 1px solid var(--rule); border-bottom: 1px solid var(--rule);
+    padding: 9px 10px;
+    font-size: 12px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .diff-h {
+    background: var(--paper-2);
+    font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+    color: var(--ink); letter-spacing: 0.04em;
+    text-align: left; line-height: 1.2;
+    padding: 12px 12px;
+    display: grid; grid-template-rows: auto auto auto; align-content: start;
+    gap: 4px;
+    min-width: 0;
+  }
+  .diff-h .hdr {
+    font-family: var(--font-brand); font-size: 13px; font-weight: 700;
+    color: var(--ink); letter-spacing: -0.005em; line-height: 1.2;
+    margin-top: 2px;
+  }
+  .diff-h.recommended .hdr { color: var(--brand-dd); }
+  .diff-corner { background: var(--paper-2); }
+  .diff-corner .corner-lbl {
+    font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+    letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4);
+    align-self: center;
+  }
+  .diff-h.recommended { background: var(--brand-tint); color: var(--brand-dd); position: relative; padding-top: 22px; }
+  .diff-h.recommended::before {
+    content: "RECOMMENDED";
+    position: absolute; top: 5px; left: 12px;
+    font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+    letter-spacing: 0.18em; color: var(--brand-d);
+  }
+  .diff-h .tag {
+    display: inline-flex; justify-self: start;
+    font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+    padding: 2px 7px; background: var(--paper); border: 1px solid var(--rule-strong);
+    border-radius: 2px; color: var(--ink); letter-spacing: 0.04em;
+    width: fit-content;
+  }
+  .diff-h.recommended .tag { background: var(--brand-d); color: var(--paper); border-color: var(--brand-d); }
+  .diff-h .desc { display: block; font-family: var(--font-mono); font-weight: 500; font-size: 10px; color: var(--ink-4); letter-spacing: 0.04em; line-height: 1.3; text-transform: none; }
+  .diff-h.recommended .desc { color: var(--brand-dd); }
+
+  .diff-rh {
+    background: var(--paper-2);
+    font-family: var(--font-mono); font-size: 10.5px; font-weight: 700;
+    letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-4);
+    display: grid; align-content: center;
+  }
+  .diff-rh small { display: block; font-weight: 500; font-size: 9.5px; letter-spacing: 0.08em; color: var(--ink-5); margin-top: 2px; text-transform: none; }
+
+  .diff-c {
+    background: var(--paper);
+    font-family: var(--font-mono);
+    display: grid; align-content: center;
+    text-align: left;
+  }
+  .diff-c .v { font-size: 15px; color: var(--ink); font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
+  .diff-c .v.pos { color: var(--pos); }
+  .diff-c .v.neg { color: var(--neg); }
+  .diff-c .v.warn { color: var(--warn); }
+  .diff-c .sub { font-size: 10px; color: var(--ink-4); margin-top: 3px; letter-spacing: 0.02em; line-height: 1.3; }
+  .diff-c.rec { background: #f4faf9; }
+
+  .diff-c .pill {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 6px;
+    font-size: 9.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+    border-radius: 2px;
+    width: fit-content;
+  }
+  .diff-c .pill.ok { background: var(--brand-tint); color: var(--brand-dd); }
+  .diff-c .pill.warn { background: #fbf2dc; color: #6b5212; }
+  .diff-c .pill.bad { background: #f5dbd4; color: #6b2014; }
+
+  /* ============================================================
+   * Two-column grid (Explore step main area)
+   * ============================================================ */
+  .explore-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.95fr) minmax(0, 1fr);
+    gap: 16px;
+    align-items: stretch;
+    min-width: 0;
+  }
+  .explore-right { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  .explore-right > .chart-frame { flex: 1 1 0; min-height: 0; }
+
+  /* small helper for tabular nums */
+  .num { font-family: var(--font-mono); font-feature-settings: "tnum" 1; }
+  .text-sm { font-size: 12.5px; }
+</style>
+</head>
+<body>
+
+<div class="doc">
+
+  <nav class="doc-nav" aria-label="Pattern spec categories">
+    <a href="./index.html">&larr; Index</a>
+    <span class="sep">&middot;</span>
+    <a href="./use-cases.html">Use cases</a>
+    <span class="sep">&middot;</span>
+    <a href="./decide.html">Decide</a>
+    <span class="sep">&middot;</span>
+    <a href="./configure.html">Configure</a>
+    <span class="sep">&middot;</span>
+    <span class="here">Strategic detail</span>
+  </nav>
+
+  <h1 class="doc-title">Strategic · Understand &amp; Explore · production detail</h1>
+  <p class="doc-lede">
+    Steps 02 (Understand) and 03 (Explore) of the <a href="./use-cases.html#tier-strategic">Strategic tier</a> decision loop &mdash; <strong>Consulting partner shaping FY27&ndash;FY28 workforce structure</strong>. Both screens render the full app frame at production size (sidebar, header with chrome, main, rail, commit bar). Real component markup pulled wholesale from the pattern spec: <span class="num">Scenario.Briefing</span>, <span class="num">Collections.Matrix</span> (heat-grid), <span class="num">Diff.View</span>, <span class="num">Chart.Line</span>, <span class="num">Chart.Bar</span> tornado, <span class="num">Reference.Similar</span>. 5 levels &times; 8 capabilities &times; 4-state AI scope.
+  </p>
+
+
+  <!-- ============================================================
+       Page 1 · Step 02 · Understand · Scenario.Briefing · chart-heavy
+       ============================================================ -->
+  <div class="screen-head">
+    <span class="screen-step">02</span>
+    <span class="screen-title">Understand</span>
+    <span class="screen-pat"><span class="mono">Scenario.Briefing &middot; chart-heavy</span></span>
+  </div>
+
+  <div class="app" data-screen-label="Strategic / Step 02 / Understand">
+
+    <!-- ─────────── Sidebar ─────────── -->
+    <aside class="app-side">
+      <div class="side-brand">
+        <span class="side-brand-mark">E</span>
+        <div class="side-brand-name">Elara<small>practice planner</small></div>
+      </div>
+
+      <div class="side-section">
+        <div class="side-lbl">Capabilities</div>
+        <a class="side-link active" href="#">
+          <span class="ico"><i class="fa-solid fa-chess-knight"></i>Strategy</span>
+          <span class="num">241</span>
+        </a>
+        <a class="side-link" href="#">
+          <span class="ico"><i class="fa-solid fa-microchip"></i>Tech advisory</span>
+          <span class="num">306</span>
+        </a>
+        <a class="side-link" href="#">
+          <span class="ico"><i class="fa-solid fa-shield-halved"></i>Risk</span>
+          <span class="num">177</span>
+        </a>
+        <a class="side-link" href="#">
+          <span class="ico"><i class="fa-solid fa-magnifying-glass-chart"></i>Audit</span>
+          <span class="num">446</span>
+        </a>
+        <a class="side-link" href="#">
+          <span class="ico"><i class="fa-solid fa-scale-balanced"></i>Tax</span>
+          <span class="num">159</span>
+        </a>
+        <a class="side-link" href="#">
+          <span class="ico"><i class="fa-solid fa-handshake"></i>Deals</span>
+          <span class="num">183</span>
+        </a>
+        <a class="side-link" href="#">
+          <span class="ico"><i class="fa-solid fa-users"></i>People &amp; change</span>
+          <span class="num">56</span>
+        </a>
+        <a class="side-link" href="#">
+          <span class="ico"><i class="fa-solid fa-leaf"></i>Sustainability</span>
+          <span class="num">15</span>
+        </a>
+      </div>
+
+      <div class="side-section">
+        <div class="side-lbl">Workspace</div>
+        <a class="side-link" href="./use-cases.html#tier-strategic"><span class="ico"><i class="fa-solid fa-diagram-project"></i>Decision loop</span></a>
+        <a class="side-link" href="#"><span class="ico"><i class="fa-solid fa-clock-rotate-left"></i>Trust journal</span></a>
+        <a class="side-link" href="#"><span class="ico"><i class="fa-solid fa-bookmark"></i>Saved scenarios</span><span class="num">12</span></a>
+        <a class="side-link" href="#"><span class="ico"><i class="fa-solid fa-sliders"></i>Levers library</span></a>
+      </div>
+
+      <div class="side-foot">
+        <div class="side-user">
+          <span class="side-user-av">RH</span>
+          <div>
+            <div class="side-user-name">R. Hoyland</div>
+            <div class="side-user-role">Managing partner</div>
+          </div>
+          <span class="side-user-more"><i class="fa-solid fa-ellipsis"></i></span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ─────────── Header ─────────── -->
+    <header class="app-header">
+      <div class="h-row1">
+        <span class="h-crumb">
+          <a href="#">Practice</a><span class="sep">/</span>
+          <a href="#">FY27</a><span class="sep">/</span>
+          <span class="here">Strategy</span><span class="sep">/</span>
+          <span class="here">Understand</span>
+        </span>
+        <span class="h-meta">model v4.2 &middot; rebuilt 18m ago</span>
+        <span class="h-run">
+          <span>case</span><span class="num">CASE-FY27-STR-014</span>
+          <span class="sep" style="color: var(--rule-strong); padding: 0 4px;">·</span>
+          <span>run</span><span class="num">#88</span>
+        </span>
+      </div>
+      <div class="h-row2">
+        <div>
+          <h2 class="h-title">
+            +12.4% productivity
+            <span class="h-title-meta">scenario A&prime; &middot; recommended</span>
+          </h2>
+        </div>
+        <div class="h-chrome">
+          <span class="chrome-pill" title="Slice.Range">
+            <span class="kind">Range</span>
+            <i class="fa-solid fa-calendar"></i>
+            <span>Q1 FY27 &rarr; Q4 FY28</span>
+            <span class="sub">8 quarters</span>
+            <i class="fa-solid fa-chevron-down chev"></i>
+          </span>
+          <span class="sc-switch" title="Scenario.Switch">
+            <span class="kind">Scenario</span>
+            <span class="sc">A</span>
+            <span class="sc dirty active">A&prime;</span>
+            <span class="sc">B</span>
+            <span class="sc">C</span>
+          </span>
+        </div>
+      </div>
+    </header>
+
+    <!-- ─────────── Main ─────────── -->
+    <main class="app-main">
+
+      <!-- Briefing summary card (compressed Scenario.Briefing) -->
+      <div class="brief-card">
+        <div class="brief-hero">
+          <div class="brief-hero-l">
+            <div class="brief-eyebrow">FY27&ndash;FY28 Strategy &middot; recommendation</div>
+            <div class="brief-title">Augment Senior + Analyst delivery; reskill 38 Managers.</div>
+            <div class="brief-stakes">
+              <span class="stake-tag">STAGED &middot; 4 QUARTERS</span>
+              <span class="stake-chip">radius <span class="num">241 FTE</span></span>
+              <span class="stake-chip">wage <span class="num">&pound;12.4m</span> <small style="color: var(--ink-4); font-family: var(--font-mono); font-size: 10px;">&minus;&pound;1.0m vs baseline</small></span>
+              <span class="stake-chip">rollout <span class="num">Q1 hire &middot; Q2 promo &middot; Q3 tools &middot; Q4 review</span></span>
+            </div>
+          </div>
+          <div class="brief-nums">
+            <div class="brief-num-l">
+              <div class="cap">Productivity uplift &middot; FY28-Q4</div>
+              <div class="big">+12.4%</div>
+              <div class="sub">82% conf &middot; <span class="num">&plusmn;3.4pp</span> &middot; vs FY26 baseline</div>
+            </div>
+          </div>
+        </div>
+        <div class="brief-body">
+          <div class="brief-main">
+            <div>
+              <div class="brief-slot-lbl">Why this shape</div>
+              <div class="brief-evi">
+                <div class="evi">
+                  <span class="evi-tag">demand</span>
+                  <span class="evi-fact">Strategy mandates <span class="num pos">+18%</span> YoY</span>
+                  <span class="evi-sub">FS &amp; energy clients · cost-out engagements</span>
+                </div>
+                <div class="evi">
+                  <span class="evi-tag">augmentation</span>
+                  <span class="evi-fact">Analyst hours redeployable <span class="num">~38%</span></span>
+                  <span class="evi-sub">draft-deck &middot; benchmark-pull &middot; data-room synth</span>
+                </div>
+                <div class="evi">
+                  <span class="evi-tag">track</span>
+                  <span class="evi-fact"><span class="num">3 / 3</span> similar moves</span>
+                  <span class="evi-sub">Tech FY25 · Risk FY26 · Audit FY24-Q3</span>
+                </div>
+              </div>
+            </div>
+
+            <hr style="border: 0; border-top: 1px solid var(--rule); margin: 0;"/>
+
+            <!-- Confidence breakdown · 3-segment bar -->
+            <div>
+              <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px;">
+                <span class="brief-slot-lbl" style="margin-bottom: 0;">Model confidence</span>
+                <span class="num" style="font-weight: 700; color: var(--ink); font-size: 13px;">82%</span>
+                <span style="font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-4);">&plusmn;3.4 pp</span>
+                <span style="margin-left: auto; font-family: var(--font-mono); font-size: 10.5px;"><a href="#" style="color: var(--brand-d); font-weight: 600;">what drives this &rarr;</a></span>
+              </div>
+              <div style="display: flex; height: 8px; gap: 2px; border-radius: 1px; overflow: hidden; background: var(--paper-2);">
+                <span style="flex: 0.92; background: var(--brand-d); border-radius: 1px;" title="Data quality 92%"></span>
+                <span style="flex: 0.78; background: var(--brand); border-radius: 1px;" title="Similar-FY fit 78%"></span>
+                <span style="flex: 0.71; background: var(--brand-l); border-radius: 1px;" title="Model recency 71%"></span>
+              </div>
+              <div style="display: flex; gap: 18px; margin-top: 8px; font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-3); flex-wrap: wrap;">
+                <span style="display: inline-flex; align-items: center; gap: 6px;"><span style="width: 8px; height: 8px; border-radius: 1px; background: var(--brand-d);"></span>data quality <span class="num" style="color: var(--ink); font-weight: 600;">92%</span></span>
+                <span style="display: inline-flex; align-items: center; gap: 6px;"><span style="width: 8px; height: 8px; border-radius: 1px; background: var(--brand);"></span>similar-FY fit <span class="num" style="color: var(--ink); font-weight: 600;">78%</span></span>
+                <span style="display: inline-flex; align-items: center; gap: 6px;"><span style="width: 8px; height: 8px; border-radius: 1px; background: var(--brand-l);"></span>model recency <span class="num" style="color: var(--ink); font-weight: 600;">71%</span></span>
+              </div>
+            </div>
+
+            <hr style="border: 0; border-top: 1px solid var(--rule); margin: 0;"/>
+
+            <!-- Runner-up · scenario B summary -->
+            <div style="display: flex; align-items: baseline; gap: 12px; padding: 10px 12px; border: 1px solid var(--rule); border-radius: 2px; background: var(--paper-2); flex-wrap: wrap;">
+              <span class="brief-slot-lbl" style="margin-bottom: 0;">Runner-up</span>
+              <strong style="font-size: 13.5px; color: var(--ink);">Scenario B &middot; Aggressive AI</strong>
+              <span class="num" style="color: var(--pos); font-weight: 600;">+18.1%</span>
+              <span style="font-family: var(--font-mono); font-size: 11px; color: var(--ink-4);">reskill load <span class="num" style="color: var(--neg); font-weight: 600;">22 wks</span> &middot; breaches judgement #3</span>
+              <span style="margin-left: auto; font-family: var(--font-mono); font-size: 11px;"><a href="#" style="color: var(--brand-d); font-weight: 600;">compare in Diff.View &rarr;</a></span>
+            </div>
+          </div>
+          <aside class="judg">
+            <div class="judg-head">
+              <span class="ttl">Judgement &middot; persistent</span>
+              <span class="ctr"><span class="num">2 / 4</span> attested</span>
+            </div>
+            <div class="judg-item attested">
+              <span class="check"><i class="fa-solid fa-check"></i></span>
+              <span class="q">Partner &geq; 1 d/wk per engagement<small>load-bearing constraint &middot; commercial &amp; relationship</small></span>
+              <span class="status">held</span>
+            </div>
+            <div class="judg-item attested">
+              <span class="check"><i class="fa-solid fa-check"></i></span>
+              <span class="q">Pyramid shape preserved<small>Senior : Analyst ratio in 1 : 1.4 &ndash; 1.7 band</small></span>
+              <span class="status">1 : 1.50</span>
+            </div>
+            <div class="judg-item pending">
+              <span class="check"></span>
+              <span class="q">Reskilling load &lt; 12 wks per manager<small>see Diff.View &middot; scenario A&prime; vs B</small></span>
+              <span class="status">8.4 wks</span>
+            </div>
+            <div class="judg-item pending">
+              <span class="check"></span>
+              <span class="q">Promotion-window timing<small>FY27-Q2 promo cohort vs proposed Manager re-skill</small></span>
+              <span class="status">unanswered</span>
+            </div>
+          </aside>
+        </div>
+      </div>
+
+
+      <!-- Matrix · hero (full row) — 5 levels × 8 capabilities, AI scope heat -->
+      <div class="frame-box">
+        <div class="frame-eyebrow">
+          <span class="pat-name">Collections.Matrix · Chart.Heatmap</span>
+          <span class="lbl">FY28 proposed shape &middot; AI scope &times; level &times; capability</span>
+          <span class="meta">
+            <span class="num">241</span> FTE in Strategy &middot;
+            <span class="pip brand"></span>autonomous: <span class="num">14</span> cells &middot;
+            cost <span class="num">£11.2m</span>
+          </span>
+        </div>
+
+        <div class="mxg" role="grid" aria-label="5 levels by 8 capabilities AI-scope matrix">
+          <!-- Column headers — 8 capabilities -->
+          <div class="mxg-h"><span></span></div>
+          <div class="mxg-h">Strategy<span class="sub">241 FTE</span></div>
+          <div class="mxg-h">Tech<span class="sub">306</span></div>
+          <div class="mxg-h">Risk<span class="sub">177</span></div>
+          <div class="mxg-h">Audit<span class="sub">446</span></div>
+          <div class="mxg-h">Tax<span class="sub">159</span></div>
+          <div class="mxg-h">Deals<span class="sub">183</span></div>
+          <div class="mxg-h">People<span class="sub">56</span></div>
+          <div class="mxg-h">Sust.<span class="sub">15</span></div>
+
+          <!-- Partner row -->
+          <div class="mxg-rh">
+            <div class="mxg-rh-name">Partner<small>≥ 1 d/wk · client</small></div>
+            <div class="mxg-rh-fte">38<small>FTE</small></div>
+          </div>
+          <div class="mxg-cell s-supported"><span class="mxg-scope">supported</span><span class="mxg-fte">7</span><span class="mxg-delta">+0%</span></div>
+          <div class="mxg-cell s-supported"><span class="mxg-scope">supported</span><span class="mxg-fte">6</span><span class="mxg-delta">+0%</span></div>
+          <div class="mxg-cell s-none"><span class="mxg-scope">none</span><span class="mxg-fte">5</span><span class="mxg-delta">+0%</span></div>
+          <div class="mxg-cell s-supported"><span class="mxg-scope">supported</span><span class="mxg-fte">8</span><span class="mxg-delta">+0%</span></div>
+          <div class="mxg-cell s-none"><span class="mxg-scope">none</span><span class="mxg-fte">4</span><span class="mxg-delta">+0%</span></div>
+          <div class="mxg-cell s-supported"><span class="mxg-scope">supported</span><span class="mxg-fte">4</span><span class="mxg-delta">+0%</span></div>
+          <div class="mxg-cell s-none"><span class="mxg-scope">none</span><span class="mxg-fte">2</span><span class="mxg-delta">+0%</span></div>
+          <div class="mxg-cell s-none"><span class="mxg-scope">none</span><span class="mxg-fte">2</span><span class="mxg-delta">+0%</span></div>
+
+          <!-- Director row -->
+          <div class="mxg-rh">
+            <div class="mxg-rh-name">Director<small>portfolio · ≥ 0.5 d/wk</small></div>
+            <div class="mxg-rh-fte">95<small>FTE</small></div>
+          </div>
+          <div class="mxg-cell s-augmented"><span class="mxg-scope">augmented</span><span class="mxg-fte">16</span><span class="mxg-delta">+8%</span></div>
+          <div class="mxg-cell s-augmented"><span class="mxg-scope">augmented</span><span class="mxg-fte">18</span><span class="mxg-delta">+9%</span></div>
+          <div class="mxg-cell s-supported"><span class="mxg-scope">supported</span><span class="mxg-fte">12</span><span class="mxg-delta">+4%</span></div>
+          <div class="mxg-cell s-augmented"><span class="mxg-scope">augmented</span><span class="mxg-fte">22</span><span class="mxg-delta">+11%</span></div>
+          <div class="mxg-cell s-supported"><span class="mxg-scope">supported</span><span class="mxg-fte">9</span><span class="mxg-delta">+4%</span></div>
+          <div class="mxg-cell s-augmented"><span class="mxg-scope">augmented</span><span class="mxg-fte">11</span><span class="mxg-delta">+6%</span></div>
+          <div class="mxg-cell s-supported"><span class="mxg-scope">supported</span><span class="mxg-fte">4</span><span class="mxg-delta">+3%</span></div>
+          <div class="mxg-cell s-none"><span class="mxg-scope">none</span><span class="mxg-fte">3</span><span class="mxg-delta">+0%</span></div>
+
+          <!-- Manager row -->
+          <div class="mxg-rh">
+            <div class="mxg-rh-name">Manager<small>delivery owner</small></div>
+            <div class="mxg-rh-fte">240<small>FTE</small></div>
+          </div>
+          <div class="mxg-cell s-augmented"><span class="mxg-scope">augmented</span><span class="mxg-fte">38</span><span class="mxg-delta">+14%</span></div>
+          <div class="mxg-cell s-autonomous"><span class="mxg-scope">autonomous</span><span class="mxg-fte">46</span><span class="mxg-delta">+22%</span></div>
+          <div class="mxg-cell s-augmented"><span class="mxg-scope">augmented</span><span class="mxg-fte">28</span><span class="mxg-delta">+16%</span></div>
+          <div class="mxg-cell s-augmented"><span class="mxg-scope">augmented</span><span class="mxg-fte">64</span><span class="mxg-delta">+18%</span></div>
+          <div class="mxg-cell s-augmented"><span class="mxg-scope">augmented</span><span class="mxg-fte">22</span><span class="mxg-delta">+12%</span></div>
+          <div class="mxg-cell s-augmented"><span class="mxg-scope">augmented</span><span class="mxg-fte">28</span><span class="mxg-delta">+14%</span></div>
+          <div class="mxg-cell s-augmented"><span class="mxg-scope">augmented</span><span class="mxg-fte">10</span><span class="mxg-delta">+9%</span></div>
+          <div class="mxg-cell s-supported"><span class="mxg-scope">supported</span><span class="mxg-fte">4</span><span class="mxg-delta">+5%</span></div>
+
+          <!-- Senior row -->
+          <div class="mxg-rh">
+            <div class="mxg-rh-name">Senior<small>workstream lead</small></div>
+            <div class="mxg-rh-fte">480<small>FTE</small></div>
+          </div>
+          <div class="mxg-cell s-autonomous"><span class="mxg-scope">autonomous</span><span class="mxg-fte">72</span><span class="mxg-delta">+24%</span></div>
+          <div class="mxg-cell s-autonomous"><span class="mxg-scope">autonomous</span><span class="mxg-fte">94</span><span class="mxg-delta">+28%</span></div>
+          <div class="mxg-cell s-autonomous"><span class="mxg-scope">autonomous</span><span class="mxg-fte">54</span><span class="mxg-delta">+22%</span></div>
+          <div class="mxg-cell s-autonomous"><span class="mxg-scope">autonomous</span><span class="mxg-fte">134</span><span class="mxg-delta">+31%</span></div>
+          <div class="mxg-cell s-autonomous"><span class="mxg-scope">autonomous</span><span class="mxg-fte">48</span><span class="mxg-delta">+22%</span></div>
+          <div class="mxg-cell s-augmented"><span class="mxg-scope">augmented</span><span class="mxg-fte">56</span><span class="mxg-delta">+19%</span></div>
+          <div class="mxg-cell s-augmented"><span class="mxg-scope">augmented</span><span class="mxg-fte">18</span><span class="mxg-delta">+14%</span></div>
+          <div class="mxg-cell s-augmented"><span class="mxg-scope">augmented</span><span class="mxg-fte">4</span><span class="mxg-delta">+11%</span></div>
+
+          <!-- Analyst row -->
+          <div class="mxg-rh">
+            <div class="mxg-rh-name">Analyst<small>execution &middot; early career</small></div>
+            <div class="mxg-rh-fte">730<small>FTE</small></div>
+          </div>
+          <div class="mxg-cell s-autonomous"><span class="mxg-scope">autonomous</span><span class="mxg-fte">108</span><span class="mxg-delta">+38%</span></div>
+          <div class="mxg-cell s-autonomous"><span class="mxg-scope">autonomous</span><span class="mxg-fte">142</span><span class="mxg-delta">+42%</span></div>
+          <div class="mxg-cell s-autonomous"><span class="mxg-scope">autonomous</span><span class="mxg-fte">78</span><span class="mxg-delta">+34%</span></div>
+          <div class="mxg-cell s-autonomous"><span class="mxg-scope">autonomous</span><span class="mxg-fte">218</span><span class="mxg-delta">+48%</span></div>
+          <div class="mxg-cell s-autonomous"><span class="mxg-scope">autonomous</span><span class="mxg-fte">76</span><span class="mxg-delta">+36%</span></div>
+          <div class="mxg-cell s-autonomous"><span class="mxg-scope">autonomous</span><span class="mxg-fte">84</span><span class="mxg-delta">+38%</span></div>
+          <div class="mxg-cell s-autonomous"><span class="mxg-scope">autonomous</span><span class="mxg-fte">22</span><span class="mxg-delta">+28%</span></div>
+          <div class="mxg-cell s-supported"><span class="mxg-scope">supported</span><span class="mxg-fte">2</span><span class="mxg-delta">+6%</span></div>
+        </div>
+
+        <div class="mxg-legend">
+          <span class="li"><span class="sw s-none"></span>none</span>
+          <span class="li"><span class="sw s-supported"></span>supported</span>
+          <span class="li"><span class="sw s-augmented"></span>augmented</span>
+          <span class="li"><span class="sw s-autonomous"></span>autonomous</span>
+          <span class="li spaced"><span class="pip brand"></span>scope &Delta; vs FY26 &middot; <span class="num" style="color: var(--ink); font-weight: 600;">+18%</span> avg productivity uplift</span>
+        </div>
+      </div>
+
+
+      <!-- Row: Chart.Line projection + Chart.Bar tornado -->
+      <div style="display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 16px; min-width: 0;">
+
+        <div class="chart-frame">
+          <div class="frame-eyebrow">
+            <span class="pat-name">Chart.Line</span>
+            <span class="lbl">Strategy headcount &middot; 8-quarter projection</span>
+            <span class="meta">FY27-Q1 &rarr; FY28-Q4 &middot; <span class="num">241 &rarr; 278</span> FTE</span>
+          </div>
+          <div class="chart-body">
+            <div class="chart-key">
+              <span class="li"><span class="sw" style="background: var(--brand-d);"></span>scenario A&prime; (recommended)</span>
+              <span class="li"><span class="sw dash"></span>baseline (no AI shift)</span>
+              <span class="li"><span class="sw" style="background: var(--ink-5);"></span>FY26 actual</span>
+            </div>
+            <div
+              data-spec-multiline='{"series":[
+                {"data":[228,232,234,238,241,245,246,248,252,260,268,278],"stroke":"#3a7780","strokeWidth":2.4},
+                {"data":[228,232,234,238,241,248,256,264,271,280,289,297],"stroke":"#6b8080","strokeWidth":1.4,"dasharray":"4 3"},
+                {"data":[228,232,234,238,241],"stroke":"#cbd5d5","strokeWidth":1.8}
+              ],"ticks":["FY26-Q1","","","Q4","FY27-Q1","","","Q4","FY28-Q1","","","Q4"],"yTicks":["220","270","320"]}'
+              style="width: 100%; height: 240px;"></div>
+            <div style="font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-4); display: flex; gap: 18px; padding-top: 4px; border-top: 1px dashed var(--rule);">
+              <span>baseline FY28-Q4 <span class="num" style="color: var(--ink); font-weight: 600;">297</span></span>
+              <span>scenario A&prime; FY28-Q4 <span class="num" style="color: var(--brand-dd); font-weight: 700;">278</span> <span class="num" style="color: var(--pos);">−6.4%</span></span>
+              <span style="margin-left: auto;">re-allocated <span class="num" style="color: var(--ink); font-weight: 600;">19 FTE</span> &middot; reskill &middot; attrition &middot; AI substitution</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="chart-frame">
+          <div class="frame-eyebrow">
+            <span class="pat-name">Chart.Bar · Stat.Sensitivity</span>
+            <span class="lbl">Drivers &middot; &plusmn; uplift impact</span>
+            <span class="meta">tornado &middot; <span class="num">±18 pts</span></span>
+          </div>
+          <div class="chart-body">
+            <div
+              data-spec-tornado='{"drivers":[
+                {"label":"AI augment depth","down":-16,"up":18},
+                {"label":"Reskill cycle wks","down":-10,"up":12},
+                {"label":"Promo rate","down":-7,"up":9},
+                {"label":"Analyst intake","down":-6,"up":8},
+                {"label":"Partner util cap","down":-5,"up":4},
+                {"label":"Tooling rollout","down":-3,"up":5},
+                {"label":"Director attr.","down":-3,"up":2}
+              ],"max":18}'
+              style="width: 100%; height: 220px;"></div>
+            <div class="tornado-axis"><span class="l">&minus; productivity</span><span class="r">+ productivity</span></div>
+            <div style="font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-4); padding-top: 6px; border-top: 1px dashed var(--rule); display: flex; gap: 12px; flex-wrap: wrap;">
+              <span><span class="num" style="color: var(--ink); font-weight: 600;">3</span> drivers load-bearing</span>
+              <span class="num" style="color: var(--ink-3);">P50 &plusmn;3.4 pp</span>
+              <span style="margin-left: auto;"><a href="#" style="color: var(--brand-d); font-weight: 600;">probe load-bearing &rarr;</a></span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+    </main>
+
+    <!-- ─────────── Rail ─────────── -->
+    <aside class="app-rail">
+      <div class="rail-lbl">Reference.Similar</div>
+      <a class="rail-ref" href="#">
+        <span class="rail-ref-meta">FY25 &middot; Tech advisory</span>
+        <span class="rail-ref-title">AI scope ramp · Senior &amp; Analyst lift</span>
+        <span class="rail-ref-stat">uplift <span class="num">+11.2%</span> &middot; conf <span class="num">88%</span> &middot; <span class="num">0</span> attestations rejected</span>
+        <span class="rail-ref-sim"><span class="rail-ref-bar"><span class="rail-ref-bar-fill" style="width: 91%;"></span></span><small>91% sim</small></span>
+      </a>
+      <a class="rail-ref" href="#">
+        <span class="rail-ref-meta">FY26 &middot; Risk practice</span>
+        <span class="rail-ref-title">Scenario B chosen · manager reskill</span>
+        <span class="rail-ref-stat">uplift <span class="num">+9.0%</span> &middot; reskill <span class="num">14 wks</span> &middot; <span class="num">1</span> promo rule rewritten</span>
+        <span class="rail-ref-sim"><span class="rail-ref-bar"><span class="rail-ref-bar-fill" style="width: 82%;"></span></span><small>82% sim</small></span>
+      </a>
+      <a class="rail-ref" href="#">
+        <span class="rail-ref-meta">FY24-Q3 &middot; Audit</span>
+        <span class="rail-ref-title">Controls automation · Analyst redeploy</span>
+        <span class="rail-ref-stat">uplift <span class="num">+6.4%</span> &middot; <span class="num">2</span> constraints loosened</span>
+        <span class="rail-ref-sim"><span class="rail-ref-bar"><span class="rail-ref-bar-fill" style="width: 74%;"></span></span><small>74% sim</small></span>
+      </a>
+
+      <div class="rail-lbl" style="margin-top: 8px;">Trust.Stamp</div>
+      <div style="display: grid; gap: 6px; font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-3);">
+        <div style="padding: 8px 10px; background: var(--paper); border: 1px solid var(--rule); border-radius: 3px;">
+          <div style="font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-4); margin-bottom: 4px;">augmentation model</div>
+          <div><span style="font-weight: 700; color: var(--ink);">workforce-shape-v4.2</span> &middot; <span class="num">3.2k</span> prior FYs</div>
+          <div style="margin-top: 3px; color: var(--ink-4);">last refit 14d ago &middot; drift &lt; 0.4%</div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ─────────── Commit bar ─────────── -->
+    <footer class="app-commit">
+      <span class="commit-status">
+        <span class="dot"></span>
+        <span><span class="num">2 / 4</span> judgement items unanswered &middot; Apply gated</span>
+      </span>
+      <span class="commit-actions">
+        <a href="#" class="c-btn ghost"><i class="fa-solid fa-circle-question" style="margin-right: 5px;"></i>Why this?</a>
+        <button class="c-btn">Override</button>
+        <button class="c-btn">Modify</button>
+        <button class="c-btn primary" disabled style="opacity: 0.5; cursor: not-allowed;">Apply rollout</button>
+      </span>
+    </footer>
+  </div>
+
+
+  <!-- ============================================================
+       Page divider
+       ============================================================ -->
+  <div class="page-divider">
+    <span class="pd-lbl">↻ user clicks "Explore" · jumps to step 03</span>
+  </div>
+
+
+  <!-- ============================================================
+       Page 2 · Step 03 · Explore (Probe + Compare) · Workbench + Diff.View
+       ============================================================ -->
+  <div class="screen-head">
+    <span class="screen-step">03</span>
+    <span class="screen-title">Explore · Probe + Compare</span>
+    <span class="screen-pat"><span class="mono">Collections.Matrix (workbench mode) + Diff.View · multi</span></span>
+  </div>
+
+  <div class="app" data-screen-label="Strategic / Step 03 / Explore">
+
+    <!-- Sidebar (identical) -->
+    <aside class="app-side">
+      <div class="side-brand">
+        <span class="side-brand-mark">E</span>
+        <div class="side-brand-name">Elara<small>practice planner</small></div>
+      </div>
+
+      <div class="side-section">
+        <div class="side-lbl">Capabilities</div>
+        <a class="side-link active" href="#"><span class="ico"><i class="fa-solid fa-chess-knight"></i>Strategy</span><span class="num">241</span></a>
+        <a class="side-link" href="#"><span class="ico"><i class="fa-solid fa-microchip"></i>Tech advisory</span><span class="num">306</span></a>
+        <a class="side-link" href="#"><span class="ico"><i class="fa-solid fa-shield-halved"></i>Risk</span><span class="num">177</span></a>
+        <a class="side-link" href="#"><span class="ico"><i class="fa-solid fa-magnifying-glass-chart"></i>Audit</span><span class="num">446</span></a>
+        <a class="side-link" href="#"><span class="ico"><i class="fa-solid fa-scale-balanced"></i>Tax</span><span class="num">159</span></a>
+        <a class="side-link" href="#"><span class="ico"><i class="fa-solid fa-handshake"></i>Deals</span><span class="num">183</span></a>
+        <a class="side-link" href="#"><span class="ico"><i class="fa-solid fa-users"></i>People &amp; change</span><span class="num">56</span></a>
+        <a class="side-link" href="#"><span class="ico"><i class="fa-solid fa-leaf"></i>Sustainability</span><span class="num">15</span></a>
+      </div>
+
+      <div class="side-section">
+        <div class="side-lbl">Workspace</div>
+        <a class="side-link" href="./use-cases.html#tier-strategic"><span class="ico"><i class="fa-solid fa-diagram-project"></i>Decision loop</span></a>
+        <a class="side-link" href="#"><span class="ico"><i class="fa-solid fa-clock-rotate-left"></i>Trust journal</span></a>
+        <a class="side-link" href="#"><span class="ico"><i class="fa-solid fa-bookmark"></i>Saved scenarios</span><span class="num">12</span></a>
+        <a class="side-link" href="#"><span class="ico"><i class="fa-solid fa-sliders"></i>Levers library</span></a>
+      </div>
+
+      <div class="side-foot">
+        <div class="side-user">
+          <span class="side-user-av">RH</span>
+          <div>
+            <div class="side-user-name">R. Hoyland</div>
+            <div class="side-user-role">Managing partner</div>
+          </div>
+          <span class="side-user-more"><i class="fa-solid fa-ellipsis"></i></span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Header -->
+    <header class="app-header">
+      <div class="h-row1">
+        <span class="h-crumb">
+          <a href="#">Practice</a><span class="sep">/</span>
+          <a href="#">FY27</a><span class="sep">/</span>
+          <a href="#">Strategy</a><span class="sep">/</span>
+          <span class="here">Explore</span>
+        </span>
+        <span class="h-meta">workbench live &middot; re-solve <span class="num" style="color: var(--ink); font-weight: 600;">218ms</span></span>
+        <span class="h-run">
+          <span>case</span><span class="num">CASE-FY27-STR-014</span>
+          <span class="sep" style="color: var(--rule-strong); padding: 0 4px;">·</span>
+          <span class="num" style="color: var(--brand-d); font-weight: 700;">4 scenarios in flight</span>
+        </span>
+      </div>
+      <div class="h-row2">
+        <div>
+          <h2 class="h-title">
+            Stage scenarios
+            <span class="h-title-meta">edit matrix &middot; live re-solve &middot; A&prime; selected as base</span>
+          </h2>
+        </div>
+        <div class="h-chrome">
+          <span class="chrome-pill" title="Slice.Range">
+            <span class="kind">Range</span>
+            <i class="fa-solid fa-calendar"></i>
+            <span>Q1 FY27 &rarr; Q4 FY28</span>
+            <span class="sub">8 quarters</span>
+            <i class="fa-solid fa-chevron-down chev"></i>
+          </span>
+          <span class="sc-switch" title="Scenario.Switch">
+            <span class="kind">Scenario</span>
+            <span class="sc">A</span>
+            <span class="sc dirty active">A&prime;</span>
+            <span class="sc">B</span>
+            <span class="sc">C</span>
+          </span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main: Matrix hero on top; Diff.View (2 rows tall left) + Chart.Line/Chart.Bar (right col) below -->
+    <main class="app-main">
+
+      <!-- Matrix · editable workbench hero -->
+      <div class="frame-box">
+        <div class="frame-eyebrow">
+          <span class="pat-name">Collections.Matrix · workbench mode</span>
+          <span class="lbl">Editing scenario A&prime; &middot; drag cells to change AI scope &middot; live re-solve</span>
+          <span class="tools" style="margin-left: auto;">
+            <span class="e-tool active"><i class="fa-solid fa-pen" style="margin-right: 4px;"></i>edit scope</span>
+            <span class="e-tool"><i class="fa-solid fa-arrows-up-down-left-right" style="margin-right: 4px;"></i>shift FTE</span>
+            <span class="e-tool"><i class="fa-solid fa-lock" style="margin-right: 4px;"></i>pin cell</span>
+            <span class="e-tool"><i class="fa-solid fa-wand-magic-sparkles" style="margin-right: 4px;"></i>optimise</span>
+          </span>
+        </div>
+
+        <div class="mxg" role="grid">
+          <div class="mxg-h"><span></span></div>
+          <div class="mxg-h">Strategy<span class="sub">241</span></div>
+          <div class="mxg-h">Tech<span class="sub">306</span></div>
+          <div class="mxg-h">Risk<span class="sub">177</span></div>
+          <div class="mxg-h">Audit<span class="sub">446</span></div>
+          <div class="mxg-h">Tax<span class="sub">159</span></div>
+          <div class="mxg-h">Deals<span class="sub">183</span></div>
+          <div class="mxg-h">People<span class="sub">56</span></div>
+          <div class="mxg-h">Sust.<span class="sub">15</span></div>
+
+          <!-- Partner (locked — judgement constraint) -->
+          <div class="mxg-rh">
+            <div class="mxg-rh-name">Partner<small><i class="fa-solid fa-lock" style="font-size: 9px; color: var(--warn); margin-right: 3px;"></i>locked · ≥ 1 d/wk</small></div>
+            <div class="mxg-rh-fte">38</div>
+          </div>
+          <div class="mxg-cell s-supported locked"><span class="mxg-scope">supported</span><span class="mxg-fte">7</span><span class="mxg-delta">+0%</span></div>
+          <div class="mxg-cell s-supported locked"><span class="mxg-scope">supported</span><span class="mxg-fte">6</span><span class="mxg-delta">+0%</span></div>
+          <div class="mxg-cell s-none locked"><span class="mxg-scope">none</span><span class="mxg-fte">5</span><span class="mxg-delta">+0%</span></div>
+          <div class="mxg-cell s-supported locked"><span class="mxg-scope">supported</span><span class="mxg-fte">8</span><span class="mxg-delta">+0%</span></div>
+          <div class="mxg-cell s-none locked"><span class="mxg-scope">none</span><span class="mxg-fte">4</span><span class="mxg-delta">+0%</span></div>
+          <div class="mxg-cell s-supported locked"><span class="mxg-scope">supported</span><span class="mxg-fte">4</span><span class="mxg-delta">+0%</span></div>
+          <div class="mxg-cell s-none locked"><span class="mxg-scope">none</span><span class="mxg-fte">2</span><span class="mxg-delta">+0%</span></div>
+          <div class="mxg-cell s-none locked"><span class="mxg-scope">none</span><span class="mxg-fte">2</span><span class="mxg-delta">+0%</span></div>
+
+          <!-- Director -->
+          <div class="mxg-rh">
+            <div class="mxg-rh-name">Director<small>≥ 0.5 d/wk</small></div>
+            <div class="mxg-rh-fte">95</div>
+          </div>
+          <div class="mxg-cell s-augmented"><span class="mxg-scope">augmented</span><span class="mxg-fte">16</span><span class="mxg-delta">+8%</span></div>
+          <div class="mxg-cell s-augmented"><span class="mxg-scope">augmented</span><span class="mxg-fte">18</span><span class="mxg-delta">+9%</span></div>
+          <div class="mxg-cell s-supported dirty"><span class="mxg-scope">supported</span><span class="mxg-fte">12</span><span class="mxg-delta">+4%</span></div>
+          <div class="mxg-cell s-augmented"><span class="mxg-scope">augmented</span><span class="mxg-fte">22</span><span class="mxg-delta">+11%</span></div>
+          <div class="mxg-cell s-supported"><span class="mxg-scope">supported</span><span class="mxg-fte">9</span><span class="mxg-delta">+4%</span></div>
+          <div class="mxg-cell s-augmented"><span class="mxg-scope">augmented</span><span class="mxg-fte">11</span><span class="mxg-delta">+6%</span></div>
+          <div class="mxg-cell s-supported"><span class="mxg-scope">supported</span><span class="mxg-fte">4</span><span class="mxg-delta">+3%</span></div>
+          <div class="mxg-cell s-none"><span class="mxg-scope">none</span><span class="mxg-fte">3</span><span class="mxg-delta">+0%</span></div>
+
+          <!-- Manager · 3 dirty cells (operator is exploring) -->
+          <div class="mxg-rh">
+            <div class="mxg-rh-name">Manager<small>delivery owner</small></div>
+            <div class="mxg-rh-fte">240</div>
+          </div>
+          <div class="mxg-cell s-augmented emphasis"><span class="mxg-scope">augmented</span><span class="mxg-fte">38</span><span class="mxg-delta">+14%</span></div>
+          <div class="mxg-cell s-autonomous dirty"><span class="mxg-scope">autonomous</span><span class="mxg-fte">46</span><span class="mxg-delta">+22%</span></div>
+          <div class="mxg-cell s-augmented"><span class="mxg-scope">augmented</span><span class="mxg-fte">28</span><span class="mxg-delta">+16%</span></div>
+          <div class="mxg-cell s-autonomous dirty"><span class="mxg-scope">autonomous</span><span class="mxg-fte">58</span><span class="mxg-delta">+24%</span></div>
+          <div class="mxg-cell s-augmented"><span class="mxg-scope">augmented</span><span class="mxg-fte">22</span><span class="mxg-delta">+12%</span></div>
+          <div class="mxg-cell s-augmented"><span class="mxg-scope">augmented</span><span class="mxg-fte">28</span><span class="mxg-delta">+14%</span></div>
+          <div class="mxg-cell s-augmented"><span class="mxg-scope">augmented</span><span class="mxg-fte">10</span><span class="mxg-delta">+9%</span></div>
+          <div class="mxg-cell s-supported"><span class="mxg-scope">supported</span><span class="mxg-fte">4</span><span class="mxg-delta">+5%</span></div>
+
+          <!-- Senior -->
+          <div class="mxg-rh">
+            <div class="mxg-rh-name">Senior<small>workstream lead</small></div>
+            <div class="mxg-rh-fte">480</div>
+          </div>
+          <div class="mxg-cell s-autonomous"><span class="mxg-scope">autonomous</span><span class="mxg-fte">72</span><span class="mxg-delta">+24%</span></div>
+          <div class="mxg-cell s-autonomous"><span class="mxg-scope">autonomous</span><span class="mxg-fte">94</span><span class="mxg-delta">+28%</span></div>
+          <div class="mxg-cell s-autonomous"><span class="mxg-scope">autonomous</span><span class="mxg-fte">54</span><span class="mxg-delta">+22%</span></div>
+          <div class="mxg-cell s-autonomous"><span class="mxg-scope">autonomous</span><span class="mxg-fte">134</span><span class="mxg-delta">+31%</span></div>
+          <div class="mxg-cell s-autonomous"><span class="mxg-scope">autonomous</span><span class="mxg-fte">48</span><span class="mxg-delta">+22%</span></div>
+          <div class="mxg-cell s-augmented"><span class="mxg-scope">augmented</span><span class="mxg-fte">56</span><span class="mxg-delta">+19%</span></div>
+          <div class="mxg-cell s-augmented"><span class="mxg-scope">augmented</span><span class="mxg-fte">18</span><span class="mxg-delta">+14%</span></div>
+          <div class="mxg-cell s-augmented"><span class="mxg-scope">augmented</span><span class="mxg-fte">4</span><span class="mxg-delta">+11%</span></div>
+
+          <!-- Analyst · 1 dirty + 1 flagged (re-skilling load too high) -->
+          <div class="mxg-rh">
+            <div class="mxg-rh-name">Analyst<small>execution</small></div>
+            <div class="mxg-rh-fte">730</div>
+          </div>
+          <div class="mxg-cell s-autonomous"><span class="mxg-scope">autonomous</span><span class="mxg-fte">108</span><span class="mxg-delta">+38%</span></div>
+          <div class="mxg-cell s-autonomous"><span class="mxg-scope">autonomous</span><span class="mxg-fte">142</span><span class="mxg-delta">+42%</span></div>
+          <div class="mxg-cell s-autonomous"><span class="mxg-scope">autonomous</span><span class="mxg-fte">78</span><span class="mxg-delta">+34%</span></div>
+          <div class="mxg-cell s-autonomous flag" title="reskill load exceeds 12 wks · Judgement #3"><span class="mxg-scope">autonomous</span><span class="mxg-fte">218</span><span class="mxg-delta">+48%</span></div>
+          <div class="mxg-cell s-autonomous"><span class="mxg-scope">autonomous</span><span class="mxg-fte">76</span><span class="mxg-delta">+36%</span></div>
+          <div class="mxg-cell s-autonomous dirty"><span class="mxg-scope">autonomous</span><span class="mxg-fte">84</span><span class="mxg-delta">+38%</span></div>
+          <div class="mxg-cell s-autonomous"><span class="mxg-scope">autonomous</span><span class="mxg-fte">22</span><span class="mxg-delta">+28%</span></div>
+          <div class="mxg-cell s-supported"><span class="mxg-scope">supported</span><span class="mxg-fte">2</span><span class="mxg-delta">+6%</span></div>
+        </div>
+
+        <div class="mxg-legend">
+          <span class="li"><span class="sw s-none"></span>none</span>
+          <span class="li"><span class="sw s-supported"></span>supported</span>
+          <span class="li"><span class="sw s-augmented"></span>augmented</span>
+          <span class="li"><span class="sw s-autonomous"></span>autonomous</span>
+          <span class="li" style="margin-left: 12px;"><span class="pip"></span>dirty: <span class="num" style="color: var(--ink); font-weight: 600;">4 cells</span></span>
+          <span class="li"><span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--neg); margin-right: 4px; vertical-align: 1px;"></span>flagged: <span class="num" style="color: var(--ink); font-weight: 600;">Audit · Analyst</span> (reskill &gt; 12 wks)</span>
+          <span class="li spaced">live re-solve <span class="num" style="color: var(--ink); font-weight: 600;">218ms</span> &middot; <a href="#" style="color: var(--brand-d); font-weight: 600;">discard &amp; revert &rarr;</a></span>
+        </div>
+      </div>
+
+
+      <!-- Below: Diff.View (left, 2 rows) + Chart.Line / Chart.Bar (right column) -->
+      <div class="explore-grid">
+
+        <!-- LEFT · Diff.View · multi · 2 grid-rows high -->
+        <div class="frame-box diff-view" style="display: flex; flex-direction: column;">
+          <div class="frame-eyebrow">
+            <span class="pat-name">Diff.View · multi</span>
+            <span class="lbl">A &middot; A&prime; &middot; B &middot; C side-by-side</span>
+            <span class="meta">4 scenarios &middot; FY28-Q4 endpoints &middot; deltas vs A baseline</span>
+          </div>
+          <div class="diff-grid">
+            <!-- Header row -->
+            <div class="diff-h diff-corner"><span class="corner-lbl">metric</span></div>
+            <div class="diff-h"><span class="tag">A</span><span class="hdr">Baseline</span></div>
+            <div class="diff-h recommended"><span class="tag">A&prime;</span><span class="hdr">Augment + reskill</span></div>
+            <div class="diff-h"><span class="tag">B</span><span class="hdr">Aggressive AI</span></div>
+            <div class="diff-h"><span class="tag">C</span><span class="hdr">Conservative</span></div>
+
+            <!-- Row · productivity uplift -->
+            <div class="diff-rh">Productivity uplift<small>vs FY26 baseline</small></div>
+            <div class="diff-c"><span class="v">+3.1%</span><span class="sub">muted &middot; client retention bound</span></div>
+            <div class="diff-c rec"><span class="v pos">+12.4%</span><span class="sub">staged · 5 prior FY anchors</span></div>
+            <div class="diff-c"><span class="v pos">+18.1%</span><span class="sub">high &middot; reskill load above band</span></div>
+            <div class="diff-c"><span class="v">+5.6%</span><span class="sub">below market growth</span></div>
+
+            <!-- Row · Strategy FY28-Q4 FTE -->
+            <div class="diff-rh">Strategy FTE<small>FY28-Q4</small></div>
+            <div class="diff-c"><span class="v">297</span><span class="sub">+56 vs Q1 FY27</span></div>
+            <div class="diff-c rec"><span class="v">278</span><span class="sub">−19 redeployed</span></div>
+            <div class="diff-c"><span class="v neg">218</span><span class="sub">−79 · re-skilled into Tech</span></div>
+            <div class="diff-c"><span class="v">322</span><span class="sub">+81 · headcount-led</span></div>
+
+            <!-- Row · wage cost -->
+            <div class="diff-rh">Wage cost<small>Strategy · FY28</small></div>
+            <div class="diff-c"><span class="v">£13.4m</span><span class="sub">baseline trajectory</span></div>
+            <div class="diff-c rec"><span class="v">£12.4m</span><span class="sub">−£1.0m vs baseline</span></div>
+            <div class="diff-c"><span class="v pos">£9.8m</span><span class="sub">redundancy provisions</span></div>
+            <div class="diff-c"><span class="v">£14.5m</span><span class="sub">+£1.1m intake heavy</span></div>
+
+            <!-- Row · constraint slack (Partner ≥ 1 d/wk) -->
+            <div class="diff-rh">Partner constraint<small>≥ 1 d/wk per engagement</small></div>
+            <div class="diff-c"><span class="pill ok">+1.4 d slack</span><span class="sub">held with margin</span></div>
+            <div class="diff-c rec"><span class="pill ok">+0.8 d slack</span><span class="sub">held · model + judgement</span></div>
+            <div class="diff-c"><span class="pill warn">+0.2 d slack</span><span class="sub">thin · risk in Audit / Deals</span></div>
+            <div class="diff-c"><span class="pill ok">+1.6 d slack</span><span class="sub">overcomfortable</span></div>
+
+            <!-- Row · reskill load -->
+            <div class="diff-rh">Reskill load<small>avg wks per manager</small></div>
+            <div class="diff-c"><span class="v">0</span><span class="sub">no programme</span></div>
+            <div class="diff-c rec"><span class="v">8.4</span><span class="sub">38 mgrs · staged Q2-Q3</span></div>
+            <div class="diff-c"><span class="v warn">22.0</span><span class="sub">breaches judgement &middot; 64 mgrs</span></div>
+            <div class="diff-c"><span class="v">3.2</span><span class="sub">tooling intro only</span></div>
+
+            <!-- Row · confidence -->
+            <div class="diff-rh">Confidence<small>model · ± band</small></div>
+            <div class="diff-c"><span class="v">79%</span><span class="sub">no AI shift well-fit</span></div>
+            <div class="diff-c rec"><span class="v pos">82%</span><span class="sub">±3.4 pp · 5 anchor FYs</span></div>
+            <div class="diff-c"><span class="v">71%</span><span class="sub">extrapolation beyond samples</span></div>
+            <div class="diff-c"><span class="v">84%</span><span class="sub">±2.1 pp · conservative</span></div>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 14px; padding: 11px 16px; background: var(--paper-2); font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-3); border-top: 1px solid var(--rule);">
+            <span><i class="fa-solid fa-circle-info" style="color: var(--brand-d); margin-right: 5px;"></i>A&prime; wins on uplift &middot; cost &middot; reskill load &middot; constraint slack</span>
+            <span style="margin-left: auto;">
+              <a href="#" style="color: var(--ink-4); margin-right: 16px;">discard B</a>
+              <a href="#" style="color: var(--brand-d); font-weight: 700;">pin A&prime; as base &rarr;</a>
+            </span>
+          </div>
+        </div>
+
+        <!-- RIGHT col · Chart.Line + Chart.Bar Sensitivity stacked -->
+        <div class="explore-right">
+
+          <div class="chart-frame">
+            <div class="frame-eyebrow">
+              <span class="pat-name">Chart.Line</span>
+              <span class="lbl">Live re-solve projection</span>
+              <span class="meta">A&prime; vs A · B · C</span>
+            </div>
+            <div class="chart-body">
+              <div class="chart-key">
+                <span class="li"><span class="sw" style="background: var(--brand-d);"></span>A&prime;</span>
+                <span class="li"><span class="sw dash"></span>A baseline</span>
+                <span class="li"><span class="sw" style="background: var(--neg);"></span>B</span>
+                <span class="li"><span class="sw" style="background: var(--pos);"></span>C</span>
+              </div>
+              <div
+                data-spec-multiline='{"series":[
+                  {"data":[241,245,246,248,252,260,268,278],"stroke":"#3a7780","strokeWidth":2.4},
+                  {"data":[241,248,256,264,271,280,289,297],"stroke":"#6b8080","strokeWidth":1.4,"dasharray":"4 3"},
+                  {"data":[241,232,224,220,218,218,218,218],"stroke":"#b85a4a","strokeWidth":1.8},
+                  {"data":[241,252,264,276,288,300,311,322],"stroke":"#2f7a5b","strokeWidth":1.8}
+                ],"ticks":["FY27-Q1","","","Q4","FY28-Q1","","","Q4"],"yTicks":["210","270","330"]}'
+                style="width: 100%; height: 200px;"></div>
+              <div style="font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-4); padding-top: 4px; border-top: 1px dashed var(--rule); display: flex; gap: 12px; flex-wrap: wrap;">
+                <span>A&prime; Q4 <span class="num" style="color: var(--brand-dd); font-weight: 700;">278</span></span>
+                <span>A <span class="num" style="color: var(--ink); font-weight: 600;">297</span></span>
+                <span>B <span class="num" style="color: var(--neg); font-weight: 600;">218</span></span>
+                <span>C <span class="num" style="color: var(--pos); font-weight: 600;">322</span></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="chart-frame">
+            <div class="frame-eyebrow">
+              <span class="pat-name">Chart.Bar · Stat.Sensitivity</span>
+              <span class="lbl">Sensitivity for A&prime;</span>
+              <span class="meta">recomputes live · ± uplift</span>
+            </div>
+            <div class="chart-body">
+              <div
+                data-spec-tornado='{"drivers":[
+                  {"label":"AI augment depth","down":-16,"up":18},
+                  {"label":"Reskill cycle wks","down":-12,"up":11},
+                  {"label":"Promo rate","down":-7,"up":9},
+                  {"label":"Analyst intake","down":-6,"up":8},
+                  {"label":"Partner util cap","down":-5,"up":4},
+                  {"label":"Tooling rollout","down":-3,"up":6}
+                ],"max":18}'
+                style="width: 100%; height: 180px;"></div>
+              <div class="tornado-axis"><span class="l">&minus;</span><span class="r">+</span></div>
+              <div style="font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-4); padding-top: 4px; border-top: 1px dashed var(--rule); display: flex; gap: 12px;">
+                <span>top driver: <span class="num" style="color: var(--ink); font-weight: 600;">AI depth</span></span>
+                <span style="margin-left: auto;"><a href="#" style="color: var(--brand-d); font-weight: 600;">probe load-bearing &rarr;</a></span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </main>
+
+    <!-- Rail -->
+    <aside class="app-rail">
+      <div class="rail-lbl">Reference.Similar · pinned</div>
+      <a class="rail-ref" href="#">
+        <span class="rail-ref-meta">FY25 &middot; Tech advisory</span>
+        <span class="rail-ref-title">AI scope ramp · A&prime;-shaped scenario</span>
+        <span class="rail-ref-stat">uplift <span class="num">+11.2%</span> &middot; reskill <span class="num">9.2 wks</span></span>
+        <span class="rail-ref-sim"><span class="rail-ref-bar"><span class="rail-ref-bar-fill" style="width: 91%;"></span></span><small>91% sim</small></span>
+      </a>
+      <a class="rail-ref" href="#">
+        <span class="rail-ref-meta">FY26 &middot; Risk practice</span>
+        <span class="rail-ref-title">B chosen · reverted in Q3</span>
+        <span class="rail-ref-stat">aborted &middot; reskill load exceeded · <span class="num">1</span> promo cohort delayed</span>
+        <span class="rail-ref-sim"><span class="rail-ref-bar"><span class="rail-ref-bar-fill" style="width: 82%;"></span></span><small>82% sim</small></span>
+      </a>
+      <a class="rail-ref" href="#">
+        <span class="rail-ref-meta">FY24-Q3 &middot; Audit</span>
+        <span class="rail-ref-title">Conservative shape · C-like</span>
+        <span class="rail-ref-stat">uplift <span class="num">+6.4%</span> &middot; market lost <span class="num">−1.2 pp</span></span>
+        <span class="rail-ref-sim"><span class="rail-ref-bar"><span class="rail-ref-bar-fill" style="width: 74%;"></span></span><small>74% sim</small></span>
+      </a>
+
+      <div class="rail-lbl" style="margin-top: 6px;">Compare · per cell</div>
+      <div style="padding: 10px 11px; background: var(--paper); border: 1px solid var(--rule); border-radius: 3px; font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-3);">
+        <div style="font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-4); margin-bottom: 6px;">Selected cell</div>
+        <div style="color: var(--ink); font-weight: 600; margin-bottom: 4px;">Manager &times; Strategy</div>
+        <div style="display: grid; grid-template-columns: auto auto; gap: 3px 12px;">
+          <span>A</span><span class="num" style="color: var(--ink); font-weight: 600;">supported · 38</span>
+          <span>A&prime;</span><span class="num" style="color: var(--brand-dd); font-weight: 700;">augmented · 38</span>
+          <span>B</span><span class="num" style="color: var(--ink);">autonomous · 38</span>
+          <span>C</span><span class="num" style="color: var(--ink);">supported · 38</span>
+        </div>
+        <div style="margin-top: 8px; padding-top: 6px; border-top: 1px dashed var(--rule); color: var(--ink-4);">
+          <span style="color: var(--brand-d); font-weight: 600;">Δ A&prime;→B</span> +8 pts uplift &middot; +6 wks reskill
+        </div>
+      </div>
+    </aside>
+
+    <!-- Commit bar -->
+    <footer class="app-commit">
+      <span class="commit-status">
+        <span class="dot ok"></span>
+        <span><span class="num">A&prime; ready to pin</span> &middot; 4 dirty cells &middot; 1 flagged (Audit · Analyst reskill &gt; 12 wks)</span>
+      </span>
+      <span class="commit-actions">
+        <a href="#" class="c-btn ghost"><i class="fa-solid fa-rotate-left" style="margin-right: 5px;"></i>Discard edits</a>
+        <button class="c-btn">Save as draft</button>
+        <button class="c-btn">Override flag</button>
+        <button class="c-btn primary">Pin A&prime; &rarr; Judge</button>
+      </span>
+    </footer>
+  </div>
+
+
+  <p style="font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-4); margin-top: 36px; padding-top: 16px; border-top: 1px dashed var(--rule); letter-spacing: 0.04em;">
+    Markup primitives lifted from &middot;
+    <a href="./decide.html#briefing" style="color: var(--brand-d);">decide.html#briefing</a> &middot;
+    <a href="./configure.html#valuematrix" style="color: var(--brand-d);">configure.html#valuematrix</a> &middot;
+    <a href="./configure.html#workbench" style="color: var(--brand-d);">configure.html#workbench</a> &middot;
+    chart hooks via <a href="./charts-visx.js" style="color: var(--brand-d);">charts-visx.js</a> (Chart.Line &middot; Chart.Bar tornado).
+    Composition follows <a href="./index.html#brand-system" style="color: var(--brand-d);">§1.5h layout descriptors</a> &middot; chrome (Slice.Range, Scenario.Switch) sits in the header right cluster, never in Main.
+  </p>
+
+</div>
+</body>
+</html>

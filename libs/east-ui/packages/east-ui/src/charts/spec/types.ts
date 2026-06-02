@@ -17,6 +17,7 @@
 import {
     ArrayType,
     BooleanType,
+    DateTimeType,
     FloatType,
     NullType,
     OptionType,
@@ -26,14 +27,55 @@ import {
 } from "@elaraai/east";
 
 /**
- * One point along a series — an x-axis position and its numeric value.
+ * A typed x-axis coordinate. The arm chooses the scale the renderer builds —
+ * `category` → band, `number` → linear, `time` → time — so the scale kind is
+ * derived from the data rather than declared separately.
  *
- * @property x     - Stringified x-axis position (categorical / band domain)
+ * @remarks
+ * Mark builders wrap an encoding's `x` accessor into the arm matching its East
+ * type (a `DateTime` field → `time`, numeric → `number`, string → `category`).
+ * The renderer derives the domain and range-appropriate ticks from these typed
+ * values, so dates must NOT be pre-formatted into display strings.
+ *
+ * @property category - An ordinal category label (band scale)
+ * @property number   - A continuous numeric position (linear scale)
+ * @property time     - A temporal position (time scale)
+ */
+export const ChartXType = VariantType({
+    category: StringType,
+    number:   FloatType,
+    time:     DateTimeType,
+});
+export type ChartXType = typeof ChartXType;
+
+/**
+ * An explicit axis domain `[min, max]`, typed to the axis's coordinate kind.
+ *
+ * @remarks
+ * Supplied on a `linear` or `time` axis to fix the extent instead of deriving it
+ * from the data; not meaningful for a `band` (categorical) axis.
+ *
+ * @property number - Numeric bounds for a linear axis
+ * @property time   - Temporal bounds for a time axis
+ */
+export const ChartDomainType = VariantType({
+    number: StructType({ min: FloatType, max: FloatType }),
+    time:   StructType({ min: DateTimeType, max: DateTimeType }),
+});
+export type ChartDomainType = typeof ChartDomainType;
+
+/**
+ * One point along a series — a typed x position and its numeric value.
+ *
+ * @property x     - The point's x-axis coordinate (see {@link ChartXType})
  * @property value - Numeric y value at this point
+ * @property size  - Per-point magnitude for scatter bubble sizing; `none` for
+ *                   every other mark (only the scatter pivot populates it)
  */
 export const ChartPointType = StructType({
-    x:     StringType,
+    x:     ChartXType,
     value: FloatType,
+    size:  OptionType(FloatType),
 });
 export type ChartPointType = typeof ChartPointType;
 
@@ -61,6 +103,52 @@ export const ChartSeriesArrayType = ArrayType(ChartSeriesType);
 export type ChartSeriesArrayType = typeof ChartSeriesArrayType;
 
 /**
+ * One point of a band (area-range) series — an x position with a low and high
+ * bound instead of a single value.
+ *
+ * @remarks
+ * Backs `Chart.Band`; the renderer fills the vertical span between `low` and
+ * `high` at each `x`. Both bounds scale on the same y-axis as ordinary
+ * {@link ChartPointType} values.
+ *
+ * @property x    - The point's x-axis coordinate (see {@link ChartXType})
+ * @property low  - Lower bound at this x
+ * @property high - Upper bound at this x
+ */
+export const ChartBandPointType = StructType({
+    x:    ChartXType,
+    low:  FloatType,
+    high: FloatType,
+});
+export type ChartBandPointType = typeof ChartBandPointType;
+
+/** Array of {@link ChartBandPointType}. */
+export const ChartBandPointArrayType = ArrayType(ChartBandPointType);
+export type ChartBandPointArrayType = typeof ChartBandPointArrayType;
+
+/**
+ * One coloured band series — the area-range analogue of {@link ChartSeriesType}.
+ *
+ * @remarks
+ * Structurally parallel to {@link ChartSeriesType} but over band points, so the
+ * shared series pivot can emit either single-value or band series.
+ *
+ * @property key    - Series identity (legend label)
+ * @property color  - Series colour (theme token or CSS; resolved by the renderer)
+ * @property points - The band's points in draw order along the x-axis
+ */
+export const ChartBandSeriesType = StructType({
+    key:    StringType,
+    color:  StringType,
+    points: ChartBandPointArrayType,
+});
+export type ChartBandSeriesType = typeof ChartBandSeriesType;
+
+/** Array of {@link ChartBandSeriesType}. */
+export const ChartBandSeriesArrayType = ArrayType(ChartBandSeriesType);
+export type ChartBandSeriesArrayType = typeof ChartBandSeriesArrayType;
+
+/**
  * Axis-scale kind (visx `scale*`). The renderer derives the domain from the
  * bound data: `band` → distinct x values in data order; `linear` → `[0, max]`
  * (or `[min, max]` for y when negative); `time` → min/max of parsed dates.
@@ -75,6 +163,37 @@ export const ChartScaleType = VariantType({
     time:   NullType,
 });
 export type ChartScaleType = typeof ChartScaleType;
+
+/** String-literal shorthand for {@link ChartScaleType}. */
+export type ChartScaleLiteral = "band" | "linear" | "time";
+
+/**
+ * Axis tick-label format. The renderer formats each tick the scale generates;
+ * the author never pre-formats values (see {@link ChartXType}).
+ *
+ * @remarks
+ * Built with the `Chart.format.*` helpers. `date` / `time` / `datetime` carry a
+ * format pattern; `currency` carries its code and a compact flag; the rest are
+ * flag-only.
+ *
+ * @property number   - Plain number formatting
+ * @property currency - Currency formatting (`code` + `compact`)
+ * @property percent  - Percentage formatting
+ * @property compact  - Compact magnitude formatting (e.g. 1.2k)
+ * @property date     - Date pattern (e.g. `"MMM YYYY"`)
+ * @property time     - Time pattern
+ * @property datetime - Datetime pattern
+ */
+export const ChartTickFormatType = VariantType({
+    number:   NullType,
+    currency: StructType({ code: StringType, compact: BooleanType }),
+    percent:  NullType,
+    compact:  NullType,
+    date:     StringType,
+    time:     StringType,
+    datetime: StringType,
+});
+export type ChartTickFormatType = typeof ChartTickFormatType;
 
 /**
  * Line/area interpolation (visx `@visx/curve`).
@@ -92,6 +211,9 @@ export const ChartCurveType = VariantType({
 });
 export type ChartCurveType = typeof ChartCurveType;
 
+/** String-literal shorthand for {@link ChartCurveType}. */
+export type ChartCurveLiteral = "monotoneX" | "linear" | "natural" | "step";
+
 /** The mark a `series` node draws, one per series. */
 export const ChartMarkType = VariantType({
     line:    NullType,
@@ -100,6 +222,45 @@ export const ChartMarkType = VariantType({
     scatter: NullType,
 });
 export type ChartMarkType = typeof ChartMarkType;
+
+/**
+ * Stack accumulation offset for marks sharing a `stackId`.
+ *
+ * @remarks
+ * Selects how series in one stack combine: `none` accumulates raw values;
+ * `expand` normalises each x position to a proportion of its total (percent
+ * stacking).
+ *
+ * @property none   - Raw cumulative stacking
+ * @property expand - Proportional (100%) stacking
+ */
+export const ChartStackOffsetType = VariantType({
+    none:   NullType,
+    expand: NullType,
+});
+export type ChartStackOffsetType = typeof ChartStackOffsetType;
+
+/** String-literal shorthand for {@link ChartStackOffsetType}. */
+export type ChartStackOffsetLiteral = "none" | "expand";
+
+/**
+ * Which y-axis a series scales against on a dual-axis chart.
+ *
+ * @remarks
+ * `left` binds the series to the frame's primary `yScale`; `right` binds it to
+ * the secondary `yScale2`, drawn by the `axisRight` node. See {@link ChartScaleType}.
+ *
+ * @property left  - Primary (left) y-axis
+ * @property right - Secondary (right) y-axis
+ */
+export const YAxisSideType = VariantType({
+    left:  NullType,
+    right: NullType,
+});
+export type YAxisSideType = typeof YAxisSideType;
+
+/** String-literal shorthand for {@link YAxisSideType}. */
+export type YAxisSideLiteral = "left" | "right";
 
 /** Text anchor (SVG `text-anchor`). */
 export const ChartAnchorType = VariantType({
@@ -134,12 +295,16 @@ export type ChartMarginType = typeof ChartMarginType;
  * @property numTicks  - Suggested tick count (renderer may round to nice values)
  * @property hideTicks - Hide the small tick marks (keep labels)
  * @property hideLine  - Hide the axis baseline rule
+ * @property domain     - Explicit extent for a linear/time axis (see {@link ChartDomainType}); omit to derive from the data, and not meaningful for a `band` scale
+ * @property tickFormat - How tick labels are formatted (see {@link ChartTickFormatType}); omit for the renderer default
  */
 export const ChartAxisType = StructType({
-    label:     OptionType(StringType),
-    numTicks:  OptionType(FloatType),
-    hideTicks: OptionType(BooleanType),
-    hideLine:  OptionType(BooleanType),
+    label:      OptionType(StringType),
+    numTicks:   OptionType(FloatType),
+    hideTicks:  OptionType(BooleanType),
+    hideLine:   OptionType(BooleanType),
+    domain:     OptionType(ChartDomainType),
+    tickFormat: OptionType(ChartTickFormatType),
 });
 export type ChartAxisType = typeof ChartAxisType;
 
@@ -267,14 +432,186 @@ export const ChartTextType = StructType({
 export type ChartTextType = typeof ChartTextType;
 
 /**
- * Multi-series convenience: one `mark` (line / bar / area) per series in `data`,
- * each in its own colour. Expands to the matching leaf marks at render time.
+ * Multi-series mark node — one `mark` (line / bar / area / scatter) per series
+ * in `data`, each in its own colour, plus the styling that applies to the whole
+ * layer. Expands to the matching leaf marks at render time.
  *
- * @property data - The coloured series to draw
- * @property mark - The mark drawn per series
+ * @remarks
+ * A homogeneous layer is one node; a composed chart is sibling nodes with
+ * differing `mark`s. Interpolation ({@link ChartCurveType}), stacking
+ * ({@link ChartStackOffsetType}) and the y-axis binding ({@link YAxisSideType})
+ * ride on the node, so the renderer needs no per-series lookup.
+ *
+ * @property data        - The coloured series to draw
+ * @property mark        - The mark drawn per series
+ * @property curve       - Line/area interpolation (line and area marks)
+ * @property stackId     - Group id; series sharing one stack accumulate together
+ * @property stackOffset - Stacking offset for the group (raw or proportional)
+ * @property axis        - Which y-axis the layer scales against (dual-axis)
+ * @property strokeWidth - Stroke width for line marks and mark outlines
+ * @property dashArray   - SVG dash pattern for line marks; solid when omitted
+ * @property dots        - Draw point markers on line marks
+ * @property fillOpacity - Fill opacity for area and bar marks
+ * @property radius      - Marker radius for scatter marks
  */
 export const ChartSeriesMarkType = StructType({
-    data: ChartSeriesArrayType,
-    mark: ChartMarkType,
+    data:        ChartSeriesArrayType,
+    mark:        ChartMarkType,
+    curve:       OptionType(ChartCurveType),
+    stackId:     OptionType(StringType),
+    stackOffset: OptionType(ChartStackOffsetType),
+    axis:        OptionType(YAxisSideType),
+    strokeWidth: OptionType(FloatType),
+    dashArray:   OptionType(StringType),
+    dots:        OptionType(BooleanType),
+    fillOpacity: OptionType(FloatType),
+    radius:      OptionType(FloatType),
 });
 export type ChartSeriesMarkType = typeof ChartSeriesMarkType;
+
+/**
+ * A band (area-range) layer — fills the vertical span of each band series.
+ *
+ * @remarks
+ * The area-range analogue of the {@link ChartSeriesMarkType} `series` node: it
+ * backs `Chart.Band`, drawing one filled band per series in
+ * {@link ChartBandSeriesArrayType}.
+ *
+ * @property data        - The coloured band series to draw
+ * @property curve       - Interpolation of the band edges
+ * @property fillOpacity - Fill opacity of the band
+ */
+export const ChartBandAreaType = StructType({
+    data:        ChartBandSeriesArrayType,
+    curve:       OptionType(ChartCurveType),
+    fillOpacity: OptionType(FloatType),
+});
+export type ChartBandAreaType = typeof ChartBandAreaType;
+
+/**
+ * A reference dot — a single highlighted marker at a data coordinate.
+ *
+ * @remarks
+ * Annotation layer drawn over the marks (e.g. a peak or outlier). `y` is a value
+ * on the primary y-axis.
+ *
+ * @property x           - The marker's x-axis coordinate (see {@link ChartXType})
+ * @property y           - Value on the y-axis
+ * @property fill        - Marker fill colour
+ * @property radius      - Marker radius
+ * @property stroke      - Optional ring colour
+ * @property strokeWidth - Ring width
+ * @property label       - Optional caption near the marker
+ */
+export const ChartReferenceDotType = StructType({
+    x:           ChartXType,
+    y:           FloatType,
+    fill:        OptionType(StringType),
+    radius:      OptionType(FloatType),
+    stroke:      OptionType(StringType),
+    strokeWidth: OptionType(FloatType),
+    label:       OptionType(StringType),
+});
+export type ChartReferenceDotType = typeof ChartReferenceDotType;
+
+/**
+ * A reference area — a shaded rectangle spanning a range on one or both axes.
+ *
+ * @remarks
+ * Annotation layer for a band or zone (e.g. a target range). A bound left unset
+ * extends to the plot edge: a y-only band spans the full width, an x-only band
+ * the full height. y bounds are values on the primary y-axis.
+ *
+ * @property x1          - Optional start x coordinate (see {@link ChartXType})
+ * @property x2          - Optional end x coordinate (see {@link ChartXType})
+ * @property y1          - Optional lower y value
+ * @property y2          - Optional upper y value
+ * @property fill        - Fill colour of the region
+ * @property fillOpacity - Fill opacity of the region
+ * @property stroke      - Optional border colour
+ * @property label       - Optional caption for the region
+ */
+export const ChartReferenceAreaType = StructType({
+    x1:          OptionType(ChartXType),
+    x2:          OptionType(ChartXType),
+    y1:          OptionType(FloatType),
+    y2:          OptionType(FloatType),
+    fill:        OptionType(StringType),
+    fillOpacity: OptionType(FloatType),
+    stroke:      OptionType(StringType),
+    label:       OptionType(StringType),
+});
+export type ChartReferenceAreaType = typeof ChartReferenceAreaType;
+
+/**
+ * Legend orientation.
+ *
+ * @property horizontal - Swatches laid out in a row
+ * @property vertical   - Swatches stacked in a column
+ */
+export const ChartLegendOrientationType = VariantType({
+    horizontal: NullType,
+    vertical:   NullType,
+});
+export type ChartLegendOrientationType = typeof ChartLegendOrientationType;
+
+/**
+ * Where the legend sits relative to the plot.
+ *
+ * @property top    - Above the plot
+ * @property bottom - Below the plot
+ * @property left   - Left of the plot
+ * @property right  - Right of the plot
+ */
+export const ChartLegendPositionType = VariantType({
+    top:    NullType,
+    bottom: NullType,
+    left:   NullType,
+    right:  NullType,
+});
+export type ChartLegendPositionType = typeof ChartLegendPositionType;
+
+/**
+ * In-chart legend configuration; its presence on the frame enables the legend.
+ *
+ * @remarks
+ * The keys and colours are taken from the drawn series, so the legend stays
+ * colour-matched without a separate data source (unlike `Slice.Legend`, which
+ * reads the slice groups).
+ *
+ * @property orientation - Row or column layout of the swatches
+ * @property position    - Placement relative to the plot
+ */
+export const ChartLegendType = StructType({
+    orientation: OptionType(ChartLegendOrientationType),
+    position:    OptionType(ChartLegendPositionType),
+});
+export type ChartLegendType = typeof ChartLegendType;
+
+/**
+ * Hover cursor drawn behind the tooltip.
+ *
+ * @property none - No cursor indicator
+ * @property line - A vertical guide at the hovered x
+ * @property fill - A filled band over the hovered category
+ */
+export const ChartTooltipCursorType = VariantType({
+    none: NullType,
+    line: NullType,
+    fill: NullType,
+});
+export type ChartTooltipCursorType = typeof ChartTooltipCursorType;
+
+/**
+ * In-chart tooltip configuration; its presence on the frame enables the tooltip.
+ *
+ * @remarks
+ * The contents are derived from the hovered series points; this struct only
+ * tunes the hover affordance.
+ *
+ * @property cursor - The cursor indicator drawn at the hovered position
+ */
+export const ChartTooltipType = StructType({
+    cursor: OptionType(ChartTooltipCursorType),
+});
+export type ChartTooltipType = typeof ChartTooltipType;

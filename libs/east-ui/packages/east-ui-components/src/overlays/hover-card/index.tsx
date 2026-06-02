@@ -62,7 +62,7 @@ export const EastChakraHoverCard = memo(function EastChakraHoverCard({ value, st
             </ChakraHoverCard.Trigger>
             <Portal>
                 <ChakraHoverCard.Positioner>
-                    <ChakraHoverCard.Content padding="14px 16px" minW="240px" maxW="320px">
+                    <ChakraHoverCard.Content>
                         {hasArrow && (
                             <ChakraHoverCard.Arrow>
                                 <ChakraHoverCard.ArrowTip />

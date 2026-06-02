@@ -36,7 +36,7 @@ import {
     type UnitLiteral,
     UnitDisplayType,
     type UnitDisplayLiteral,
-} from "../charts/types.js";
+} from "./types.js";
 
 // ============================================================================
 // Helper coercions

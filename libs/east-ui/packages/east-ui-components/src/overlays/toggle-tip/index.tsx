@@ -4,7 +4,7 @@
  */
 
 import { memo, useMemo, useCallback } from "react";
-import { Popover as ChakraPopover, Portal } from "@chakra-ui/react";
+import { Popover as ChakraPopover, Portal, useSlotRecipe } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { ToggleTip } from "@elaraai/east-ui";
 import { getSomeorUndefined } from "../../utils";
@@ -39,6 +39,10 @@ export const EastChakraToggleTip = memo(function EastChakraToggleTip({ value, st
         }
     }, [onOpenChangeFn]);
 
+    // ToggleTip is a click-triggered tooltip — reuse the tooltip recipe's
+    // dark-chip content + arrow rather than the default white popover surface.
+    const tipStyles = useSlotRecipe({ key: "tooltip" })();
+
     return (
         <ChakraPopover.Root
             positioning={placement ? { placement } : undefined}
@@ -51,8 +55,8 @@ export const EastChakraToggleTip = memo(function EastChakraToggleTip({ value, st
             </ChakraPopover.Trigger>
             <Portal>
                 <ChakraPopover.Positioner>
-                    <ChakraPopover.Content p="1" width="auto">
-                        {hasArrow && <ChakraPopover.Arrow />}
+                    <ChakraPopover.Content css={tipStyles.content} width="auto">
+                        {hasArrow && <ChakraPopover.Arrow css={tipStyles.arrow} />}
                         {value.content}
                     </ChakraPopover.Content>
                 </ChakraPopover.Positioner>

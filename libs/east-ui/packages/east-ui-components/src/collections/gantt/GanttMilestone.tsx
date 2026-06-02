@@ -4,13 +4,13 @@
  */
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import { Box, Popover, Portal, Text, Tooltip, useToken } from "@chakra-ui/react";
+import { Box, Popover, Portal, Text, useToken } from "@chakra-ui/react";
 import { useDrag } from "@use-gesture/react";
 import type { ValueTypeOf } from "@elaraai/east";
 import type { Gantt } from "@elaraai/east-ui";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
-import { alignToCss } from "../shared/helpers";
+import { MILESTONE_KIND } from "./palette";
 
 export type GanttMilestoneValue = ValueTypeOf<typeof Gantt.Types.Milestone>;
 
@@ -19,7 +19,7 @@ export interface GanttMilestoneProps {
     y: number;
     height: number;
     value: GanttMilestoneValue;
-    /** Storage key used by per-milestone UIComp slots (tooltip / popover / overlays). */
+    /** Storage key used by the per-milestone popover UIComp slot. */
     storageKey?: string | undefined;
     onClick?: (() => void) | undefined;
     onDoubleClick?: (() => void) | undefined;
@@ -31,16 +31,11 @@ export interface GanttMilestoneProps {
     timelineEndDate?: Date | undefined;
     /** Width of the timeline in pixels (for position-to-date conversion) */
     timelineWidth?: number | undefined;
-    /** Visual-token defaults from `style` (per-milestone `label.color` etc. override). */
-    labelColor?: string | undefined;
-    labelFontSize?: string | undefined;
-    labelFontWeight?: string | undefined;
 }
 
-const makeDiamondPoints = (x: number, y: number, size: number): string => {
-    const centerX = x;
-    const centerY = y + size / 2;
-    return `${centerX},${y} ${centerX + size / 2},${centerY} ${centerX},${y + size} ${centerX - size / 2},${centerY}`;
+const makeDiamondPoints = (centerX: number, centerY: number, size: number): string => {
+    const half = size / 2;
+    return `${centerX},${centerY - half} ${centerX + half},${centerY} ${centerX},${centerY + half} ${centerX - half},${centerY}`;
 };
 
 export const GanttMilestone = ({
@@ -55,9 +50,6 @@ export const GanttMilestone = ({
     timelineStartDate,
     timelineEndDate,
     timelineWidth,
-    labelColor,
-    labelFontSize,
-    labelFontWeight,
 }: GanttMilestoneProps) => {
     const [isHovered, setIsHovered] = useState(false);
     // In-progress drag offset (px). null when not dragging.
@@ -84,33 +76,25 @@ export const GanttMilestone = ({
         fontSize: getSomeorUndefined(li.fontSize)?.type,
     } : null;
 
-    const colorPalette = getSomeorUndefined(value.colorPalette)?.type ?? "blue";
-    const customFill = getSomeorUndefined(value.fill);
-    const customStroke = getSomeorUndefined(value.stroke);
+    // Milestone kind → spec diamond fill (interim = amber, release = brand teal).
+    const kindTag = getSomeorUndefined(value.kind)?.type ?? "release";
 
-    // Per-milestone tooltip / popover / overlays slots
-    const tooltipContent = getSomeorUndefined(value.tooltip);
+    // Per-milestone popover slot (click-triggered).
     const popoverContent = getSomeorUndefined(value.popover);
-    const hasTooltip = tooltipContent !== undefined;
     const hasPopover = popoverContent !== undefined;
-    const overlays = value.overlays ?? [];
 
-    // Get Chakra color tokens based on color palette
-    const [paletteFill, paletteStroke] = useToken("colors", [
-        `${colorPalette}.500`,
-        `${colorPalette}.600`,
-    ]);
-    const fillColor = customFill ?? paletteFill;
-    const strokeColor = customStroke ?? paletteStroke;
+    // Diamond fill = kind colour; border = paper white (spec).
+    const [fillColor, strokeColor] = useToken("colors", [MILESTONE_KIND[kindTag] ?? "fg.info", "white"]);
 
     // Calculate current position from local state + drag offset
     const currentX = position.x + (dragOffset ?? 0);
 
-    const defaultFontSize = Math.min(height * 0.7, 14);
-    const fontSize = labelProps?.fontSize ?? labelFontSize ?? `${defaultFontSize}px`;
-    const diamondSize = height;
-    const textX = currentX + diamondSize / 2 + 4;
-    const diamondPoints = makeDiamondPoints(currentX, y, diamondSize);
+    // Spec milestone label = mono 10px / 600; per-milestone `label.fontSize` wins.
+    const fontSize = labelProps?.fontSize ?? "10px";
+    // Fixed 14px diamond centred vertically in the row.
+    const diamondSize = 14;
+    const diamondCenterY = y + height / 2;
+    const diamondPoints = makeDiamondPoints(currentX, diamondCenterY, diamondSize);
 
     const handleMouseEnter = useCallback(() => setIsHovered(true), []);
     const handleMouseLeave = useCallback(() => {
@@ -185,7 +169,9 @@ export const GanttMilestone = ({
                 points={diamondPoints}
                 fill={fillColor}
                 stroke={strokeColor}
-                strokeWidth={isHovered || dragOffset !== null ? 3 : 2}
+                strokeWidth={4}
+                paintOrder="stroke"
+                strokeLinejoin="miter"
                 opacity={isHovered || dragOffset !== null ? 1 : 0.9}
                 onDoubleClick={handleDoubleClick}
                 onMouseEnter={handleMouseEnter}
@@ -194,28 +180,28 @@ export const GanttMilestone = ({
                 style={{ cursor, touchAction: "none" }}
             />
 
-            {/* Per-milestone label — LabelInput shape: `value`, `align`,
-                `verticalAlign`, plus typography overrides cascade on top of
-                style-level label* defaults. */}
+            {/* Per-milestone label — centred below the diamond (spec), mono
+                10/600 in the diamond's fill colour; per-label overrides win. */}
             {labelProps && (
                 <foreignObject
-                    x={textX}
-                    y={y}
+                    x={currentX - 100}
+                    y={diamondCenterY + diamondSize / 2 + 4}
                     width={200}
-                    height={height}
-                    style={{ pointerEvents: "none" }}
+                    height={14}
+                    style={{ pointerEvents: "none", overflow: "visible" }}
                 >
                     <Box
                         display="flex"
-                        alignItems={alignToCss(labelProps.verticalAlign)}
-                        justifyContent={alignToCss(labelProps.align)}
+                        alignItems="flex-start"
+                        justifyContent="center"
                         height="100%"
                         opacity={isHovered || dragOffset !== null ? 1 : 0.9}
                     >
                         <Text
+                            fontFamily="mono"
                             fontSize={typeof fontSize === "number" ? `${fontSize}px` : fontSize}
-                            color={labelProps.color ?? labelColor ?? "fg.default"}
-                            fontWeight={labelProps.fontWeight ?? labelFontWeight}
+                            color={labelProps.color ?? fillColor}
+                            fontWeight={labelProps.fontWeight ?? 600}
                             fontStyle={labelProps.fontStyle}
                             whiteSpace="nowrap"
                             cursor={cursor}
@@ -230,57 +216,8 @@ export const GanttMilestone = ({
                 </foreignObject>
             )}
 
-            {/* Per-milestone overlays — axis-aligned UIComponents painted on
-                top of the diamond. The overlay layer extends slightly beyond
-                the diamond's bounding box so corner content (top-right
-                badges, etc.) reads naturally. */}
-            {overlays.map((o, i) => (
-                <foreignObject
-                    key={`ov-${i}`}
-                    x={currentX - diamondSize / 2}
-                    y={y}
-                    width={diamondSize}
-                    height={diamondSize}
-                    style={{ pointerEvents: "none" }}
-                >
-                    <div
-                        style={{
-                            width: "100%",
-                            height: "100%",
-                            display: "flex",
-                            justifyContent: alignToCss(o.align?.type),
-                            alignItems: alignToCss(o.verticalAlign?.type),
-                        }}
-                    >
-                        <EastChakraComponent
-                            value={o.content}
-                            storageKey={`${storageKey}.overlay.${i}`}
-                        />
-                    </div>
-                </foreignObject>
-            ))}
-
-            {/* Per-milestone tooltip */}
-            {hasTooltip && (
-                <Tooltip.Root
-                    open={isHovered}
-                    openDelay={200}
-                    positioning={{ placement: "top", getAnchorRect }}
-                >
-                    <Portal>
-                        <Tooltip.Positioner>
-                            <Tooltip.Content>
-                                <EastChakraComponent
-                                    value={tooltipContent!}
-                                    storageKey={`${storageKey}.tooltip`}
-                                />
-                            </Tooltip.Content>
-                        </Tooltip.Positioner>
-                    </Portal>
-                </Tooltip.Root>
-            )}
-
-            {/* Per-milestone popover */}
+            {/* Per-milestone popover — content chrome matches the general
+                east-ui Popover renderer (padding / min-max width / font-size). */}
             {hasPopover && (
                 <Popover.Root
                     open={popoverOpen}
@@ -289,8 +226,8 @@ export const GanttMilestone = ({
                 >
                     <Portal>
                         <Popover.Positioner>
-                            <Popover.Content>
-                                <Popover.Body p="3">
+                            <Popover.Content padding="14px 16px" minW="240px" maxW="360px" fontSize="13px">
+                                <Popover.Body>
                                     <EastChakraComponent
                                         value={popoverContent!}
                                         storageKey={`${storageKey}.popover`}

@@ -19,11 +19,7 @@ import {
 
 import { TableCellClickEventType, TableRowClickEventType, TableSortEventType } from "../table/types.js";
 
-import {
-    ColorSchemeType,
-    type ColorSchemeLiteral,
-} from "../../style.js";
-import { StatusTokenType } from "../../style/interaction.js";
+import { StatusTokenType, DensityType, type DensityLiteral } from "../../style/interaction.js";
 
 // Re-export shared content primitives for ergonomic discovery via Gantt.Types.*.
 export { AlignType, LabelInputType, type AlignLiteral, type LabelInput } from "../../style.js";
@@ -70,9 +66,140 @@ export const TimeStepType = VariantType({
 
 export type TimeStepType = typeof TimeStepType;
 
+// ============================================================================
+// Task Status / Milestone Kind
+// ============================================================================
+
+/**
+ * Schedule status of a task bar — drives the bar's colour, border, and
+ * progress-fill from the canonical status palette.
+ *
+ * @property committed - Agreed/baseline work (green).
+ * @property proposed - In-progress or not-yet-locked work (brand teal).
+ * @property atRisk - Slipping / blocked work (red).
+ */
+export const GanttTaskStatusType = VariantType({
+    committed: NullType,
+    proposed: NullType,
+    atRisk: NullType,
+});
+
+export type GanttTaskStatusType = typeof GanttTaskStatusType;
+
+/** String shorthand for {@link GanttTaskStatusType}. */
+export type GanttTaskStatusLiteral = "committed" | "proposed" | "atRisk";
+
+/**
+ * Kind of a milestone diamond — drives its fill colour.
+ *
+ * @property interim - Intermediate checkpoint (amber).
+ * @property release - Shippable deliverable (brand teal).
+ */
+export const GanttMilestoneKindType = VariantType({
+    interim: NullType,
+    release: NullType,
+});
+
+export type GanttMilestoneKindType = typeof GanttMilestoneKindType;
+
+/** String shorthand for {@link GanttMilestoneKindType}. */
+export type GanttMilestoneKindLiteral = "interim" | "release";
+
+// ============================================================================
+// Time Axis (domain + tick format + header granularity)
+// ============================================================================
+
+/**
+ * Header granularity for the Gantt time axis — the size of the labelled band
+ * the axis header draws, and the boundary the dashed gridlines snap to.
+ *
+ * @remarks
+ * `auto` lets the renderer pick a sensible interval (and tick count) from the
+ * visible span and pixel width via the visx time scale; the rest force a fixed
+ * calendar interval.
+ *
+ * @property auto - Interval + count chosen automatically from span / width
+ * @property day - One band per day
+ * @property week - One band per week
+ * @property month - One band per calendar month
+ * @property quarter - One band per calendar quarter
+ * @property year - One band per calendar year
+ */
+export const GanttTierType = VariantType({
+    auto: NullType,
+    day: NullType,
+    week: NullType,
+    month: NullType,
+    quarter: NullType,
+    year: NullType,
+});
+
+export type GanttTierType = typeof GanttTierType;
+
+/** String shorthand for {@link GanttTierType}. */
+export type GanttTierLiteral = "auto" | "day" | "week" | "month" | "quarter" | "year";
+
+/**
+ * Explicit time-domain bounds for the Gantt axis.
+ *
+ * @property min - Earliest instant shown (left edge)
+ * @property max - Latest instant shown (right edge)
+ */
+export const GanttAxisRangeType = StructType({
+    min: DateTimeType,
+    max: DateTimeType,
+});
+
+export type GanttAxisRangeType = typeof GanttAxisRangeType;
+
+/**
+ * Declarative time-axis configuration — the Gantt analogue of the Planner's
+ * `axis`, specialised to the single time scale a Gantt always uses.
+ *
+ * @remarks
+ * All three fields are optional: omit `range` to fit the domain to the data
+ * (with padding), omit `format` to let the renderer pick a label pattern for
+ * the tier, omit `tier` (or use `auto`) to let visx choose the tick interval +
+ * count. When set, `range` pins the visible window, `format` is a date pattern
+ * (`MMM` / `MMM YYYY` / `YYYY` — same tokens as Chart tick formats), and `tier`
+ * forces the header band granularity.
+ *
+ * @property range - Explicit `{ min, max }` window; omitted ⇒ derived from data
+ * @property format - Tick-label date pattern (e.g. `"MMM"`, `"MMM d"`, `"YYYY"`)
+ * @property tier - Header band granularity (auto / day / week / month / quarter / year)
+ */
+export const GanttAxisType = StructType({
+    range: OptionType(GanttAxisRangeType),
+    format: OptionType(StringType),
+    tier: OptionType(GanttTierType),
+});
+
+export type GanttAxisType = typeof GanttAxisType;
+
+/**
+ * TypeScript input for the ergonomic `axis` option on {@link GanttStyle}.
+ *
+ * @remarks
+ * Flat JS in, fully-enveloped {@link GanttAxisType} out — the factory wraps the
+ * optional fields in `some` / `none` and converts the `tier` string shorthand
+ * to an East variant. Every field accepts a plain value or an East expression.
+ *
+ * @property range - Explicit `{ min, max }` time window (Dates or expressions)
+ * @property format - Tick-label date pattern string
+ * @property tier - Header band granularity; string shorthand or East variant
+ */
+export interface GanttAxisInput {
+    /** Explicit `{ min, max }` time window. Omit to fit the domain to the data. */
+    range?: { min: SubtypeExprOrValue<DateTimeType>; max: SubtypeExprOrValue<DateTimeType> };
+    /** Tick-label date pattern (e.g. `"MMM"`, `"MMM YYYY"`, `"YYYY"`). Omit for a tier-derived default. */
+    format?: SubtypeExprOrValue<StringType>;
+    /** Header band granularity. String shorthand (`"month"`) or an East variant. Default `"auto"`. */
+    tier?: SubtypeExprOrValue<GanttTierType> | GanttTierLiteral;
+}
+
 // NOTE: `GanttTaskType` and `GanttMilestoneType` are UIComp-coupled
-// (they carry `tooltip` / `popover` UIComponent slots and `overlays`)
-// and live in `./index.ts` alongside the factory. types.ts stays
+// (they carry `tooltip` / `popover` UIComponent slots) and live in
+// `./index.ts` alongside the factory. types.ts stays
 // UIComp-free so it can be imported by `component.ts` without a
 // circular dependency. The previous `GanttEventType` variant has been
 // dropped — Gantt rows now expose `tasks` and `milestones` as separate
@@ -197,35 +324,21 @@ export type GanttMilestoneDragEventType = typeof GanttMilestoneDragEventType;
  * @property height - CSS height for the Gantt container
  * @property variant - Table variant (line or outline)
  * @property size - Table size (sm, md, lg)
+ * @property density - Density preset driving row + header height (compact / condensed / comfortable)
  * @property striped - Whether to show zebra stripes on rows
  * @property stickyHeader - Whether the header sticks when scrolling
  * @property showColumnBorder - Whether to show borders between columns
- * @property colorPalette - Default color scheme for events
- * @property showToday - Whether to show a today marker line
- * @property gridColor - Explicit colour for the timeline grid lines
- * @property todayMarkerColor - Explicit colour for the today-marker line
- * @property headerBackground - Explicit background for the header row
- * @property headerColor - Explicit text colour for the header row
+ * @property showToday - Whether to show the now-line
  */
 export const GanttStyleType = StructType({
     height: OptionType(StringType),
     variant: OptionType(TableVariantType),
     size: OptionType(TableSizeType),
+    density: OptionType(DensityType),
     striped: OptionType(BooleanType),
     stickyHeader: OptionType(BooleanType),
     showColumnBorder: OptionType(BooleanType),
-    colorPalette: OptionType(ColorSchemeType),
     showToday: OptionType(BooleanType),
-    gridColor: OptionType(StringType),
-    todayMarkerColor: OptionType(StringType),
-    headerBackground: OptionType(StringType),
-    headerColor: OptionType(StringType),
-
-    // Visual parity with Matrix — task/milestone chrome + label defaults.
-    taskBorderRadius: OptionType(StringType),
-    labelColor: OptionType(StringType),
-    labelFontSize: OptionType(StringType),
-    labelFontWeight: OptionType(StringType),
 });
 
 /**
@@ -244,16 +357,12 @@ export type GanttStyleType = typeof GanttStyleType;
  * @property height - CSS height
  * @property variant - Table variant — visual
  * @property size - Table size — visual
+ * @property density - Density preset (row + header height) — visual
  * @property striped - Zebra stripes — visual
  * @property interactive - Row hover highlight — main
  * @property stickyHeader - Sticky header — visual
  * @property showColumnBorder - Column borders — visual
- * @property colorPalette - Default event colour scheme — visual
- * @property showToday - Today marker visibility — visual
- * @property gridColor - Grid-line colour override — visual
- * @property todayMarkerColor - Today-marker colour override — visual
- * @property headerBackground - Header background override — visual
- * @property headerColor - Header text-colour override — visual
+ * @property showToday - Now-line visibility — visual
  * @property dragStep - Drag-snap time step — main
  * @property durationStep - Duration-change snap step — main
  * @property onCellClick - Cell click callback — main
@@ -273,38 +382,24 @@ export type GanttStyleType = typeof GanttStyleType;
 export interface GanttStyle<ColumnKeys extends string = string> {
     /** Column keys to freeze (pin left). Frozen columns appear first and stay visible during horizontal scroll. */
     frozen?: ColumnKeys[];
+    /** Time-axis configuration — explicit `{ min, max }` window, tick-label `format`, and header `tier`. Omit to fit the domain to the data with an auto-chosen tick interval. */
+    axis?: GanttAxisInput;
     /** CSS height for the Gantt container (e.g., "500px", "100%") */
     height?: SubtypeExprOrValue<StringType>;
     /** Table variant (line or outline). */
     variant?: SubtypeExprOrValue<TableVariantType> | TableVariantLiteral;
     /** Table size (sm, md, lg). */
     size?: SubtypeExprOrValue<TableSizeType> | TableSizeLiteral;
+    /** Density preset driving row + header height (compact / condensed / comfortable). Overrides `size` when set. */
+    density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
     /** Whether to show zebra stripes on rows. */
     striped?: SubtypeExprOrValue<BooleanType>;
     /** Whether the header sticks when scrolling. */
     stickyHeader?: SubtypeExprOrValue<BooleanType>;
     /** Whether to show borders between columns. */
     showColumnBorder?: SubtypeExprOrValue<BooleanType>;
-    /** Default color scheme for events. */
-    colorPalette?: SubtypeExprOrValue<ColorSchemeType> | ColorSchemeLiteral;
-    /** Whether to show a today marker line. */
+    /** Whether to show the now-line. */
     showToday?: SubtypeExprOrValue<BooleanType>;
-    /** Explicit colour for the timeline grid lines. */
-    gridColor?: SubtypeExprOrValue<StringType>;
-    /** Explicit colour for the today-marker line. */
-    todayMarkerColor?: SubtypeExprOrValue<StringType>;
-    /** Explicit background for the header row. */
-    headerBackground?: SubtypeExprOrValue<StringType>;
-    /** Explicit text colour for the header row. */
-    headerColor?: SubtypeExprOrValue<StringType>;
-    /** CSS border-radius for task bars. Default `"2px"`. */
-    taskBorderRadius?: SubtypeExprOrValue<StringType>;
-    /** Default text colour for per-task / per-milestone labels. Default `"white"`. */
-    labelColor?: SubtypeExprOrValue<StringType>;
-    /** Default CSS `font-size` for per-task / per-milestone labels. Default `"0.75rem"`. */
-    labelFontSize?: SubtypeExprOrValue<StringType>;
-    /** Default CSS `font-weight` for per-task / per-milestone labels. Default `"600"`. */
-    labelFontWeight?: SubtypeExprOrValue<StringType>;
     /** Optional time step for drag snapping (e.g., variant("days", 1) for daily). */
     dragStep?: SubtypeExprOrValue<TimeStepType>;
     /** Optional time step for duration change snapping. */

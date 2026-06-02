@@ -20,6 +20,15 @@ const PKG_ROOT = path.resolve(__dirname, '..');
 export default defineConfig({
     root: __dirname,
     plugins: [react()],
+    // Resolve the renderer from its source so snapshots reflect uncommitted
+    // edits (no dist rebuild between iterations). Regex-anchored so subpaths
+    // (`/fonts`) keep their own mapping.
+    resolve: {
+        alias: [
+            { find: /^@elaraai\/east-ui-components$/, replacement: path.resolve(PKG_ROOT, 'src/index.ts') },
+            { find: /^@elaraai\/east-ui-components\/fonts$/, replacement: path.resolve(PKG_ROOT, 'src/fonts.ts') },
+        ],
+    },
     define: {
         'process.env': {},
         'process.argv': '[]',

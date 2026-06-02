@@ -11,7 +11,7 @@ export const drawerSlotRecipe = defineSlotRecipe({
     className: "elara-drawer",
     slots: ["trigger", "backdrop", "positioner", "content", "title", "description", "header", "body", "footer", "closeTrigger"],
     base: {
-        backdrop: { background: "rgba(17,27,34,0.04)" },
+        backdrop: { background: "{colors.overlay.backdrop}" },
         content: {
             background: "{colors.white}",
             borderLeftWidth: "1px",

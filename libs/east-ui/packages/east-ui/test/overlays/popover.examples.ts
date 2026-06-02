@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, BooleanType, IntegerType, NullType, example } from "@elaraai/east";
+import { East, BooleanType, IntegerType, NullType, StringType, StructType, ArrayType, example } from "@elaraai/east";
 import { Button, Chart, Popover, Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const popoverBasic = example({
@@ -21,26 +21,17 @@ export const popoverBasic = example({
 export const popoverChart = example({
     keywords: ["Popover", "Root", "Chart", "Area", "hasArrow"],
     description: "Rich content with area chart",
-    fn: East.function([], UIComponentType, (_$) => {
+    fn: East.function([], UIComponentType, ($) => {
+        const rows = $.const([
+            { day: "Mon", value: 120n }, { day: "Tue", value: 150n }, { day: "Wed", value: 180n },
+            { day: "Thu", value: 140n }, { day: "Fri", value: 200n },
+        ], ArrayType(StructType({ day: StringType, value: IntegerType })));
         return Popover.Root(
             Button.Root("View Stats", { style: { variant: "solid" } }),
             [
-                Chart.Area(
-                    [
-                        { day: "Mon", value: 120 },
-                        { day: "Tue", value: 150 },
-                        { day: "Wed", value: 180 },
-                        { day: "Thu", value: 140 },
-                        { day: "Fri", value: 200 },
-                    ],
-                    {
-                        value: { color: "brand.500" },
-                    },
-                    {
-                        xAxis: { dataKey: "day" },
-                        fillOpacity: 0.3,
-                        margin: { top: 30n, right: 0n, bottom: 0n, left: -20n },
-                    }
+                Chart.Root(
+                    Chart.Area(rows, { x: r => r.day, y: r => r.value }, { color: "brand.500", fillOpacity: 0.3 }),
+                    { height: 160 },
                 ),
             ],
             { hasArrow: true, title: "Weekly Sales" }

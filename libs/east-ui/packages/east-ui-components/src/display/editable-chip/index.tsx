@@ -4,7 +4,7 @@
  */
 
 import { memo, useMemo, useCallback } from "react";
-import { Box, Button, HStack } from "@chakra-ui/react";
+import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPen } from "@fortawesome/free-solid-svg-icons";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
@@ -18,38 +18,23 @@ const editableChipEqual = equalFor(EditableChip.Types.EditableChip);
 /** East EditableChip value type. */
 export type EditableChipValue = ValueTypeOf<typeof EditableChip.Types.EditableChip>;
 
-const SIZE_PADDING: Record<string, { px: string; py: string; fontSize: string }> = {
-    xs: { px: "1.5", py: "0", fontSize: "xs" },
-    sm: { px: "2", py: "0.5", fontSize: "sm" },
-    md: { px: "2.5", py: "1", fontSize: "sm" },
-    lg: { px: "3", py: "1.5", fontSize: "md" },
-    xl: { px: "3.5", py: "2", fontSize: "md" },
-};
-
 export interface EastChakraEditableChipProps {
     value: EditableChipValue;
     storageKey: string;
 }
 
 /**
- * Renders an East UI EditableChip as a chip-sized clickable `<Box>`
- * matching MetricChip proportions — NOT a Chakra Button.
+ * Renders an East UI EditableChip — a chip-shaped trigger for a
+ * consumer-provided picker / popover, styled through the `editableChip`
+ * slot recipe.
  *
  * @remarks
  * The default trailing icon is `faPen` (pencil) to signal "editable"
  * without looking like a Select (which uses chevron-down). Consumers
- * can override via `value.trigger` (e.g. calendar icon for a date
- * chip, location pin for a location picker, etc.).
+ * override via `value.trigger`.
  *
- * Semantics — EditableChip is the **trigger** for a consumer-provided
- * picker / popover / dialog. The `onClick` callback is what the
- * pattern-layer (ContextSelector / AssumptionsBar) hooks into to open
- * the actual picker UI. The chip itself just shows the current label +
- * an "editable" affordance.
- *
- * Callbacks use the east-ui controlled-component pattern: onClick
- * scheduled via `queueMicrotask` so the Reactive cycle doesn't double-
- * fire under StrictMode.
+ * The `onClick` callback is scheduled via `queueMicrotask` so the
+ * Reactive cycle doesn't double-fire under StrictMode.
  */
 export const EastChakraEditableChip = memo(function EastChakraEditableChip({ value, storageKey }: EastChakraEditableChipProps) {
     const trigger = useMemo(() => getSomeorUndefined(value.trigger), [value.trigger]);
@@ -64,12 +49,28 @@ export const EastChakraEditableChip = memo(function EastChakraEditableChip({ val
     }, [onClickFn, disabled]);
 
     const sizeTag = style ? getSomeorUndefined(style.size)?.type ?? "sm" : "sm";
-    const sizeProps = SIZE_PADDING[sizeTag] ?? SIZE_PADDING["sm"]!;
-    const borderRadius = (style && getSomeorUndefined(style.borderRadius)) ?? "md";
-    const color = (style && getSomeorUndefined(style.color)) ?? "fg";
-    const background = (style && getSomeorUndefined(style.background)) ?? "gray.100";
-    const borderColor = style ? getSomeorUndefined(style.borderColor) : undefined;
-    const triggerIconColor = (style && getSomeorUndefined(style.triggerIconColor)) ?? "fg.muted";
+
+    const recipe = useSlotRecipe({ key: "editableChip" });
+    const styles = recipe({ size: sizeTag });
+
+    const rootCss = useMemo(() => {
+        const borderRadius = style ? getSomeorUndefined(style.borderRadius) : undefined;
+        const color = style ? getSomeorUndefined(style.color) : undefined;
+        const background = style ? getSomeorUndefined(style.background) : undefined;
+        const borderColor = style ? getSomeorUndefined(style.borderColor) : undefined;
+        return {
+            ...styles.root,
+            ...(borderRadius !== undefined ? { borderRadius } : {}),
+            ...(color !== undefined ? { color } : {}),
+            ...(background !== undefined ? { background } : {}),
+            ...(borderColor !== undefined ? { borderColor } : {}),
+        };
+    }, [styles, style]);
+
+    const triggerCss = useMemo(() => {
+        const triggerIconColor = style ? getSomeorUndefined(style.triggerIconColor) : undefined;
+        return { ...styles.trigger, ...(triggerIconColor !== undefined ? { color: triggerIconColor } : {}) };
+    }, [styles, style]);
 
     const triggerIcon = trigger
         ? [trigger.prefix as IconPrefix, trigger.name as IconName] as [IconPrefix, IconName]
@@ -78,57 +79,24 @@ export const EastChakraEditableChip = memo(function EastChakraEditableChip({ val
     const interactive = !!onClickFn && !disabled;
 
     const chipBody = (
-        <HStack gap="1.5" align="center">
+        <>
             <EastChakraComponent value={value.label} storageKey={`${storageKey}.label`} />
-            <Box color={triggerIconColor} fontSize="xs">
+            <Box as="span" css={triggerCss}>
                 <FontAwesomeIcon icon={triggerIcon} aria-hidden />
             </Box>
-        </HStack>
+        </>
     );
 
     if (!interactive) {
         return (
-            <Box
-                display="inline-flex"
-                alignItems="center"
-                borderRadius={borderRadius}
-                borderWidth={borderColor ? "1px" : "0"}
-                borderStyle="solid"
-                borderColor={borderColor}
-                bg={background}
-                color={color}
-                px={sizeProps.px}
-                py={sizeProps.py}
-                fontSize={sizeProps.fontSize}
-                fontWeight="medium"
-                cursor={disabled ? "not-allowed" : undefined}
-                opacity={disabled ? 0.5 : undefined}
-            >
+            <Box css={rootCss} cursor={disabled ? "not-allowed" : "default"} opacity={disabled ? 0.5 : undefined}>
                 {chipBody}
             </Box>
         );
     }
 
     return (
-        <Button
-            unstyled
-            display="inline-flex"
-            alignItems="center"
-            borderRadius={borderRadius}
-            borderWidth={borderColor ? "1px" : "0"}
-            borderStyle="solid"
-            borderColor={borderColor}
-            bg={background}
-            color={color}
-            px={sizeProps.px}
-            py={sizeProps.py}
-            fontSize={sizeProps.fontSize}
-            fontWeight="medium"
-            cursor="pointer"
-            _hover={{ bg: "gray.200" }}
-            _active={{ bg: "gray.300" }}
-            onClick={handleClick}
-        >
+        <Button unstyled css={rootCss} onClick={handleClick}>
             {chipBody}
         </Button>
     );

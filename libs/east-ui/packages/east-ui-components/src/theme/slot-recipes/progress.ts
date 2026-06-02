@@ -22,7 +22,7 @@ export const progressSlotRecipe = defineSlotRecipe({
         label: { textStyle: "caption.eyebrow" },
         track: {
             background: "{colors.gray.100}",
-            borderRadius: "3px",
+            borderRadius: "{radii.xs}",
             height: "6px",
             overflow: "hidden",
         },

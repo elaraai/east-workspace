@@ -45,7 +45,7 @@
  */
 
 import {
-    some, none, type variant,
+    some, none, variant,
     equalFor, lessFor, lessEqualFor, greaterFor, greaterEqualFor,
     StringType, IntegerType, FloatType, DateTimeType, BooleanType,
 } from "@elaraai/east";
@@ -325,20 +325,32 @@ export function sliceSeries(
     xField: string,
     valueField: string,
     now: Date,
-): Array<{ key: string; color: string; points: Array<{ x: string; value: number }> }> {
+): Array<{ key: string; color: string; points: Array<{ x: variant; value: number; size: typeof none }> }> {
     // x key — ISO-encode Dates so a renderer time scale can parse them back; all
     // other field kinds stringify (band categories / numeric linear).
     const xKey = (row: Record<string, unknown>): string => { const xv = row[xField]; return xv instanceof Date ? xv.toISOString() : String(xv); };
+    // Typed x coordinate (band category / linear number / time date) for the
+    // chart's ChartXType; the renderer derives the scale from the arm. Keyed by
+    // xKey so points aggregate per x while keeping the original typed value.
+    const xCoord = (row: Record<string, unknown>): variant => {
+        const xv = row[xField];
+        if (xv instanceof Date) return variant("time", xv);
+        if (typeof xv === "number" || typeof xv === "bigint") return variant("number", Number(xv));
+        return variant("category", String(xv));
+    };
+    const coords = new Map<string, variant>();
     if (state.breakdown.type !== "some") {
         // No active split: one ungrouped series aggregating valueField per x (in
         // data order), labelled by the value field, in the lead palette colour.
         const xs = new Map<string, number>();
         for (const row of data) {
             if (!sliceMatches(state, config, row, now)) continue;
-            xs.set(xKey(row), (xs.get(xKey(row)) ?? 0) + Number(row[valueField] ?? 0));
+            const xk = xKey(row);
+            if (!coords.has(xk)) coords.set(xk, xCoord(row));
+            xs.set(xk, (xs.get(xk) ?? 0) + Number(row[valueField] ?? 0));
         }
         const label = (config.fields.get(valueField)?.value as { label?: string } | undefined)?.label ?? valueField;
-        return [{ key: label, color: seriesColor(0), points: [...xs.entries()].map(([x, value]) => ({ x, value })) }];
+        return [{ key: label, color: seriesColor(0), points: [...xs.entries()].map(([x, value]) => ({ x: coords.get(x)!, value, size: none })) }];
     }
     const keyField = (state.breakdown.value as { fieldId: string }).fieldId;
     const counts = new Map<string, number>();
@@ -347,12 +359,13 @@ export function sliceSeries(
     for (const row of data) {
         if (!sliceMatches(state, config, row, now)) continue;
         const key = String(row[keyField]);
-        const x = xKey(row);
+        const xk = xKey(row);
+        if (!coords.has(xk)) coords.set(xk, xCoord(row));
         const v = Number(row[valueField] ?? 0);
         counts.set(key, (counts.get(key) ?? 0) + 1);
         let xs = byKey.get(key);
         if (xs === undefined) { xs = new Map(); byKey.set(key, xs); }
-        xs.set(x, (xs.get(x) ?? 0) + v);
+        xs.set(xk, (xs.get(xk) ?? 0) + v);
     }
     // Colour order matches sliceBreakdown: by count desc. Colour is assigned over
     // the FULL group order (so a series keeps its legend colour even when others
@@ -363,7 +376,7 @@ export function sliceSeries(
         .map((key, i) => ({
             key,
             color: seriesColor(i),
-            points: [...byKey.get(key)!.entries()].map(([x, value]) => ({ x, value })),
+            points: [...byKey.get(key)!.entries()].map(([x, value]) => ({ x: coords.get(x)!, value, size: none })),
         }))
         .filter(s => visible === undefined || visible.has(s.key));
 }

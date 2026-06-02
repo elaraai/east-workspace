@@ -25,13 +25,6 @@ import { EastChakraCloseButton } from "./buttons/close-button";
 import { EastChakraToggle } from "./buttons/toggle";
 import { EastChakraButtonGroup } from "./buttons/button-group";
 import { EastChakraSparkline } from "./charts/sparkline";
-import { EastChakraAreaChart, EastChakraAreaRangeChart } from "./charts/area";
-import { EastChakraBarChart } from "./charts/bar";
-import { EastChakraLineChart } from "./charts/line";
-import { EastChakraScatterChart } from "./charts/scatter";
-import { EastChakraPieChart } from "./charts/pie";
-import { EastChakraRadarChart } from "./charts/radar";
-import { EastChakraComposedChart } from "./charts/composed";
 import { EastVisxChart } from "./charts/spec";
 import { EastChakraBox } from "./layout/box";
 import { EastChakraFlex } from "./layout/flex";
@@ -68,6 +61,7 @@ import { EastChakraSliceSummary } from "./slice/summary";
 import { EastChakraSliceRange } from "./slice/range";
 import { EastChakraSliceFilter } from "./slice/filter";
 import { EastChakraSliceLegend } from "./slice/legend";
+import { EastSliceChart } from "./slice/chart";
 import { EastChakraSliceBreakdown } from "./slice/breakdown";
 import { EastChakraSliceSearch } from "./slice/search";
 import { EastChakraSliceCohort } from "./slice/cohort";
@@ -217,6 +211,7 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             SliceRange: (v) => <EastChakraSliceRange value={v} />,
             SliceFilter: (v) => <EastChakraSliceFilter value={v} />,
             SliceLegend: (v) => <EastChakraSliceLegend value={v} />,
+            SliceChart: (v) => <EastSliceChart value={v} />,
             SliceBreakdown: (v) => <EastChakraSliceBreakdown value={v} />,
             SliceSearch: (v) => <EastChakraSliceSearch value={v} />,
             SliceCohort: (v) => <EastChakraSliceCohort value={v} />,
@@ -235,14 +230,6 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
 
             // Charts
             Sparkline: (v) => <EastChakraSparkline value={v} />,
-            AreaChart: (v) => <EastChakraAreaChart value={v} />,
-            AreaRangeChart: (v) => <EastChakraAreaRangeChart value={v} />,
-            BarChart: (v) => <EastChakraBarChart value={v} />,
-            LineChart: (v) => <EastChakraLineChart value={v} />,
-            ScatterChart: (v) => <EastChakraScatterChart value={v} />,
-            PieChart: (v) => <EastChakraPieChart value={v} />,
-            RadarChart: (v) => <EastChakraRadarChart value={v} />,
-            ComposedChart: (v) => <EastChakraComposedChart value={v} />,
             VisxChart: (v) => <EastVisxChart value={v} />,
 
             TreeView: (v) => <EastChakraTreeView value={v} storageKey={childKey(storageKey, "TreeView")} />,

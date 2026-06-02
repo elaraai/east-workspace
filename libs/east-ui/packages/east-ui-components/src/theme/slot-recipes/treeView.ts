@@ -4,10 +4,8 @@
  */
 
 /**
- * TreeView slot recipe — pattern_spec `.diff-tree` indented branches.
- *
- * Branches indent at 18 px each. Items use 13 px body font with mono key
- * accents via consumer-side textStyle overrides.
+ * TreeView slot recipe — indented branches (the `.diff-tree` pattern).
+ * Items read as body text with mono key accents applied consumer-side.
  *
  * @packageDocumentation
  */
@@ -30,7 +28,7 @@ export const treeViewSlotRecipe = defineSlotRecipe({
             gap: "{spacing.2}",
             paddingX: "{spacing.2}",
             paddingY: "{spacing.1}",
-            fontSize: "13px",
+            fontSize: "{fontSizes.control}",
             cursor: "pointer",
             color: "fg",
             transitionProperty: "background, color",
@@ -39,7 +37,7 @@ export const treeViewSlotRecipe = defineSlotRecipe({
         },
         branchTrigger: { color: "fg.muted", cursor: "pointer", _hover: { color: "fg" } },
         branchIndicator: { color: "fg.muted", transitionProperty: "transform", transitionDuration: "{durations.fast}" },
-        branchText: { fontSize: "13px", color: "fg" },
+        branchText: { fontSize: "{fontSizes.control}", color: "fg" },
         branchContent: { paddingLeft: "{spacing.4}" },
         item: {
             display: "flex",
@@ -47,13 +45,13 @@ export const treeViewSlotRecipe = defineSlotRecipe({
             gap: "{spacing.2}",
             paddingX: "{spacing.2}",
             paddingY: "{spacing.1}",
-            fontSize: "13px",
+            fontSize: "{fontSizes.control}",
             color: "fg",
             cursor: "pointer",
             _hover: { background: "bg.subtle" },
-            _selected: { background: "bg.brand.subtle", color: "{colors.brand.800}" },
-            "&[data-selected]": { background: "bg.brand.subtle", color: "{colors.brand.800}" },
+            _selected: { background: "bg.brand.subtle", color: "{colors.brand.700}" },
+            "&[data-selected]": { background: "bg.brand.subtle", color: "{colors.brand.700}" },
         },
-        itemText: { fontSize: "13px" },
+        itemText: { fontSize: "{fontSizes.control}" },
     },
 });

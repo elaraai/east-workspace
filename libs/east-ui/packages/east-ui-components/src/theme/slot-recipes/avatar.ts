@@ -58,6 +58,8 @@ export const avatarSlotRecipe = defineSlotRecipe({
                 root: {
                     background: "{colors.brand.600}",
                     color: "white",
+                    fontWeight: "bold",
+                    letterSpacing: "0.05em",
                 },
             },
             ink: {

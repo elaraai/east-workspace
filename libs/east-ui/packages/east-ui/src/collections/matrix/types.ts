@@ -5,10 +5,8 @@
 
 import {
     type SubtypeExprOrValue,
-    ArrayType,
-    BooleanType,
     FloatType,
-    FunctionType,
+    IntegerType,
     NullType,
     OptionType,
     StringType,
@@ -18,289 +16,284 @@ import {
 
 import {
     LabelInputType,
-    SizeType,
-    type SizeLiteral,
+    type LabelInput,
 } from "../../style.js";
+import { StatusValueType, type StatusValueLiteral } from "../../feedback/status/types.js";
 
-// NOTE: Any Matrix type that references `UIComponentType` (row header,
-// column header, cell tooltip, cell overlay content) lives in
-// `collections/matrix/index.ts`, alongside the factory. This file
-// stays UIComp-free so it can be imported from `component.ts` without
-// a circular dependency.
+// NOTE: Any Matrix type that references `UIComponentType` (cell free slot,
+// cell popover) lives in `collections/matrix/index.ts`, alongside the factory.
+// This file stays UIComp-free so it can be imported from `component.ts`
+// without a circular dependency.
 
-// Re-export shared `AlignType` under the historical Matrix name so
-// existing call sites continue to work.
-export { AlignType, type AlignLiteral } from "../../style.js";
+// Re-export shared content primitives for ergonomic discovery via Matrix.Types.*.
+export { AlignType, LabelInputType, type AlignLiteral, type LabelInput } from "../../style.js";
+export { StatusValueType, type StatusValueLiteral } from "../../feedback/status/types.js";
 
 // ============================================================================
-// Cell segment
+// Segment fill — status-leveraged
 // ============================================================================
 
 /**
- * East StructType for a single horizontal slice of a cell's fill.
+ * The fill of a cell-bar segment. A superset of {@link StatusValueType} (the
+ * semantic statuses, identical to Planner markers / Gantt task status) plus the
+ * three matrix-native fills.
+ *
+ * @property brand - Primary utilisation fill (brand teal — the "booked" segment)
+ * @property success - Positive / committed (green)
+ * @property warning - Caution / pending (gold)
+ * @property danger - Negative / at-risk (red)
+ * @property info - Informational (blue)
+ * @property neutral - Muted solid fill
+ * @property slack - Diagonal-hatched remainder (auto-fill slack)
+ * @property free - Transparent track — empty / available capacity
+ */
+export const MatrixFillType = VariantType({
+    brand: NullType,
+    success: NullType,
+    warning: NullType,
+    danger: NullType,
+    info: NullType,
+    neutral: NullType,
+    slack: NullType,
+    free: NullType,
+});
+
+export type MatrixFillType = typeof MatrixFillType;
+
+/** String shorthand for {@link MatrixFillType}. */
+export type MatrixFillLiteral =
+    "brand" | "success" | "warning" | "danger" | "info" | "neutral" | "slack" | "free";
+
+// ============================================================================
+// Segment — a weighted slice of the cell bar
+// ============================================================================
+
+/**
+ * East StructType for a single weighted slice of a cell's bar.
  *
  * @remarks
- * Segments are weighted — the renderer normalizes so `Σ weight = 100%`
- * of the cell's horizontal space. `min` / `max` / `step` are resize
- * constraints honoured by the renderer only when the Matrix has an
- * `onSegmentChange` callback on main (segment handles are shown).
+ * Segments are weighted — the renderer normalises so `Σ weight = 100%` of the
+ * cell axis (width when horizontal, height when vertical). `fill` drives the
+ * colour from the theme (no raw hex needed); `color` is an override-only escape
+ * hatch. `min` / `max` / `step` are honoured only when the Matrix carries an
+ * `onSegmentChange` callback (drag-resize handles shown). `label` paints
+ * in-bar text, suppressed under `minLabelSize`.
  *
- * Per-segment label: when `label` is set, the renderer paints the
- * label's `value` text inside the segment using the shared
- * {@link LabelInputType} alignment + typography fields. The Matrix's
- * `style.segmentLabelColor` / `segmentLabelFontSize` /
- * `segmentLabelFontWeight` / `minLabelSize` act as cascading defaults.
- *
- * @property category - Category name (matches the legend entry)
- * @property weight - Proportional weight (normalized with sibling segments)
- * @property color - Optional explicit swatch colour
- * @property label - Optional rich label (text + alignment + typography)
- * @property min - Optional minimum weight for resize
- * @property max - Optional maximum weight for resize
- * @property step - Optional snap increment for resize
+ * @property fill - Status-leveraged fill ({@link MatrixFillType})
+ * @property weight - Proportional weight (normalised with sibling segments)
+ * @property label - Optional rich in-bar label (text + alignment + typography)
+ * @property color - Optional explicit colour override (bypasses `fill`)
+ * @property min - Optional minimum weight for drag-resize
+ * @property max - Optional maximum weight for drag-resize
+ * @property step - Optional snap increment for drag-resize
  */
-export const MatrixCellSegmentType = StructType({
-    category: StringType,
+export const MatrixSegmentType = StructType({
+    fill: MatrixFillType,
     weight: FloatType,
-    color: OptionType(StringType),
     label: OptionType(LabelInputType),
+    color: OptionType(StringType),
     min: OptionType(FloatType),
     max: OptionType(FloatType),
     step: OptionType(FloatType),
 });
 
-export type MatrixCellSegmentType = typeof MatrixCellSegmentType;
+export type MatrixSegmentType = typeof MatrixSegmentType;
 
 // ============================================================================
-// Brush-selection types
+// Marker — a status flag on a cell (the Matrix analogue of Planner.marker)
 // ============================================================================
 
 /**
- * Rectangular brush-selection coordinate.
+ * The corner a marker's icon / badge sits in.
  *
- * @property row - Row key
- * @property column - Column key
+ * @property tl - Top-left
+ * @property tr - Top-right
+ * @property bl - Bottom-left
+ * @property br - Bottom-right
  */
-export const MatrixBrushCoordType = StructType({
-    row: StringType,
-    column: StringType,
+export const MatrixCornerType = VariantType({
+    tl: NullType,
+    tr: NullType,
+    bl: NullType,
+    br: NullType,
 });
 
-export type MatrixBrushCoordType = typeof MatrixBrushCoordType;
+export type MatrixCornerType = typeof MatrixCornerType;
+
+/** String shorthand for {@link MatrixCornerType}. */
+export type MatrixCornerLiteral = "tl" | "tr" | "bl" | "br";
 
 /**
- * Brush-selection state.
+ * East StructType for a cell status marker — the Matrix analogue of
+ * `Planner.marker`. Reuses the shared {@link StatusValueType}: `status` tints
+ * the cell's emphasis ring and selects the paired corner icon, `message` is the
+ * hover tooltip, and `label` (when set) replaces the status icon with custom
+ * badge text (`"OT"`). `at` chooses the corner the icon/badge sits in.
  *
- * @remarks
- * Controlled-component pattern: `selected` is the source of truth;
- * the renderer reflects it and emits `onChange` when the user drags
- * a new selection on mouse-up.
- *
- * @property enabled - Whether brush selection is active
- * @property selected - Currently-selected cell coordinates
- * @property onChange - Callback fired with the new selected set
+ * @property at - Which corner the marker icon / badge sits in ({@link MatrixCornerType})
+ * @property status - The semantic status — drives the ring tint + paired corner icon
+ * @property message - The marker text surfaced as a hover tooltip
+ * @property label - Optional custom badge text that replaces the status icon
  */
-export const MatrixBrushSelectionType = StructType({
-    enabled: BooleanType,
-    selected: OptionType(ArrayType(MatrixBrushCoordType)),
-    onChange: OptionType(FunctionType([ArrayType(MatrixBrushCoordType)], NullType)),
+export const MatrixMarkerType = StructType({
+    at: MatrixCornerType,
+    status: StatusValueType,
+    message: StringType,
+    label: OptionType(StringType),
 });
 
-export type MatrixBrushSelectionType = typeof MatrixBrushSelectionType;
+export type MatrixMarkerType = typeof MatrixMarkerType;
 
 // ============================================================================
-// Legend position
-// ============================================================================
-
-/**
- * Legend position — where the legend rail sits relative to the grid.
- *
- * @property top - Above the grid
- * @property bottom - Below the grid (default)
- * @property left - To the left of the grid
- * @property right - To the right of the grid
- */
-export const MatrixLegendPositionType = VariantType({
-    top: NullType,
-    bottom: NullType,
-    left: NullType,
-    right: NullType,
-});
-
-export type MatrixLegendPositionType = typeof MatrixLegendPositionType;
-
-export type MatrixLegendPositionLiteral = "top" | "bottom" | "left" | "right";
-
-// ============================================================================
-// Cell orientation
+// Orientation
 // ============================================================================
 
 /**
- * Cell orientation — how segments stack inside a cell.
+ * How a cell's segment bar is laid out.
  *
- * @remarks
- * `horizontal` (default): segments stack left-to-right, each sized by
- * `weight`. `vertical`: segments stack bottom-to-top, so each cell
- * reads like a stacked vertical bar (utilization / capacity
- * dashboards).
- *
- * @property horizontal - Segments flow left-to-right
- * @property vertical - Segments flow bottom-to-top (stacked vertical bar)
+ * @property horizontal - Segments flow left-to-right, sized by width
+ * @property vertical - Segments stack bottom-to-top, sized by height (capacity bar)
  */
-export const MatrixCellOrientationType = VariantType({
+export const MatrixOrientationType = VariantType({
     horizontal: NullType,
     vertical: NullType,
 });
 
-export type MatrixCellOrientationType = typeof MatrixCellOrientationType;
+export type MatrixOrientationType = typeof MatrixOrientationType;
 
-export type MatrixCellOrientationLiteral = "horizontal" | "vertical";
+/** String shorthand for {@link MatrixOrientationType}. */
+export type MatrixOrientationLiteral = "horizontal" | "vertical";
 
 // ============================================================================
-// Segment-change callback event (on main — declared here so `component.ts` can reference it)
+// Legend entry
 // ============================================================================
 
 /**
- * Event payload for `onSegmentChange` — fired when a user drags the
- * trailing edge of a segment to a new weight.
+ * East StructType for one legend swatch — a fill paired with its label.
+ *
+ * @property fill - The segment fill the swatch shows ({@link MatrixFillType})
+ * @property label - The displayed legend label
+ */
+export const MatrixLegendEntryType = StructType({
+    fill: MatrixFillType,
+    label: StringType,
+});
+
+export type MatrixLegendEntryType = typeof MatrixLegendEntryType;
+
+// ============================================================================
+// Callback event payloads
+// ============================================================================
+
+/**
+ * Event payload for `onCellClick`.
  *
  * @property row - Row key
  * @property column - Column key
- * @property category - Category of the resized segment
+ */
+export const MatrixCellClickEventType = StructType({
+    row: StringType,
+    column: StringType,
+});
+
+export type MatrixCellClickEventType = typeof MatrixCellClickEventType;
+
+/**
+ * Event payload for `onSegmentClick`.
+ *
+ * @property row - Row key
+ * @property column - Column key
+ * @property segmentIndex - Index of the clicked segment within the cell (0-based)
+ * @property fill - Fill of the clicked segment
+ */
+export const MatrixSegmentClickEventType = StructType({
+    row: StringType,
+    column: StringType,
+    segmentIndex: IntegerType,
+    fill: MatrixFillType,
+});
+
+export type MatrixSegmentClickEventType = typeof MatrixSegmentClickEventType;
+
+/**
+ * Event payload for `onSegmentChange` — fired when the user drags a segment
+ * boundary to a new weight.
+ *
+ * @property row - Row key
+ * @property column - Column key
+ * @property segmentIndex - Index of the resized segment within the cell (0-based)
  * @property weight - New weight (post-snap, post-clamp)
  */
 export const MatrixSegmentChangeEventType = StructType({
     row: StringType,
     column: StringType,
-    category: StringType,
+    segmentIndex: IntegerType,
     weight: FloatType,
 });
 
 export type MatrixSegmentChangeEventType = typeof MatrixSegmentChangeEventType;
 
-/**
- * Event payload for `onSegmentClick` — fired when the user clicks a
- * specific segment within a cell.
- *
- * @property row - Row key
- * @property column - Column key
- * @property category - Category of the clicked segment
- */
-export const MatrixSegmentClickEventType = StructType({
-    row: StringType,
-    column: StringType,
-    category: StringType,
-});
-
-export type MatrixSegmentClickEventType = typeof MatrixSegmentClickEventType;
-
 // ============================================================================
-// Style — visual-only
+// TypeScript input interfaces (flat JS in — the builders envelope them)
 // ============================================================================
 
 /**
- * East StructType holding every visual field for a Matrix.
+ * Flat input for {@link MatrixSegmentType}, built by `Matrix.segment`.
  *
- * @remarks
- * Visual-only. Content (rows / columns / legend), wiring
- * (brushSelection), and behaviour callbacks live on the main `Matrix`
- * variant in `component.ts`.
- *
- * @property size - Size preset (xs / sm / md / lg)
- * @property showGridLines - Whether to draw grid lines between cells (default false — gutter style)
- * @property gridColor - Explicit grid-line / gutter colour
- * @property headerBackground - Row / column header background
- * @property headerColor - Row / column header text colour
- * @property cellBackground - Default cell background (fallback when no segments)
- * @property cellBorderRadius - Cell corner radius (default `"2px"` for a subtle modern feel)
- * @property rowHeaderWidth - CSS width of the sticky first column
- * @property columnHeaderHeight - CSS height of the column header row
- * @property legendPosition - Position of the legend rail
- * @property emphasisColor - Default ring colour for emphasized cells
- * @property selectedBackground - Background for brush-selected cells
- * @property selectedBorderColor - Ring colour for brush-selected cells
- * @property hoverHighlightColor - Background for cross-highlight on hovered row / column headers
- * @property segmentLabelColor - Default text colour for per-segment labels (default `"white"`); per-segment `label.color` overrides
- * @property segmentLabelFontSize - Default CSS font-size for per-segment labels (default `"0.75rem"`); per-segment `label.fontSize` overrides
- * @property segmentLabelFontWeight - Default CSS font-weight for per-segment labels (default `"600"`); per-segment `label.fontWeight` overrides
- * @property minLabelSize - Minimum rendered segment width (CSS) below which the label is hidden — avoids clipped text on tiny slices. Default `"24px"`.
+ * @property fill - Fill string shorthand (`"warning"`) or an East variant. Default `"brand"`.
+ * @property weight - Proportional weight
+ * @property label - Plain string (shorthand for `{ value }`) or a full {@link LabelInput}
+ * @property color - Explicit colour override (bypasses `fill`)
+ * @property min - Minimum weight for drag-resize
+ * @property max - Maximum weight for drag-resize
+ * @property step - Snap increment for drag-resize
  */
-export const MatrixStyleType = StructType({
-    size: OptionType(SizeType),
-    showGridLines: OptionType(BooleanType),
-    gridColor: OptionType(StringType),
-    headerBackground: OptionType(StringType),
-    headerColor: OptionType(StringType),
-    cellBackground: OptionType(StringType),
-    cellBorderRadius: OptionType(StringType),
-    rowHeaderWidth: OptionType(StringType),
-    columnHeaderHeight: OptionType(StringType),
-    legendPosition: OptionType(MatrixLegendPositionType),
-    emphasisColor: OptionType(StringType),
-    selectedBackground: OptionType(StringType),
-    selectedBorderColor: OptionType(StringType),
-    hoverHighlightColor: OptionType(StringType),
-    cellOrientation: OptionType(MatrixCellOrientationType),
-    segmentLabelColor: OptionType(StringType),
-    segmentLabelFontSize: OptionType(StringType),
-    segmentLabelFontWeight: OptionType(StringType),
-    minLabelSize: OptionType(StringType),
-});
-
-export type MatrixStyleType = typeof MatrixStyleType;
-
-// ============================================================================
-// Style TS options
-// ============================================================================
+export interface MatrixSegmentInput {
+    /** Fill string shorthand (`"warning"`) or an East variant. Default `"brand"`. */
+    fill?: SubtypeExprOrValue<MatrixFillType> | MatrixFillLiteral;
+    /** Proportional weight (normalised with sibling segments). */
+    weight: SubtypeExprOrValue<FloatType>;
+    /** In-bar label. Plain string expands to `{ value }`; or a full {@link LabelInput}. */
+    label?: SubtypeExprOrValue<StringType> | LabelInput;
+    /** Explicit colour override — bypasses `fill`. Avoid; prefer a fill. */
+    color?: SubtypeExprOrValue<StringType>;
+    /** Minimum weight for drag-resize (honoured with `onSegmentChange`). */
+    min?: SubtypeExprOrValue<FloatType>;
+    /** Maximum weight for drag-resize. */
+    max?: SubtypeExprOrValue<FloatType>;
+    /** Snap increment for drag-resize. */
+    step?: SubtypeExprOrValue<FloatType>;
+}
 
 /**
- * TypeScript options bag for `Matrix.Root` (visual-only).
+ * Flat input for {@link MatrixMarkerType}, built by `Matrix.marker` (the Matrix
+ * analogue of `Planner.marker`).
  *
- * @remarks
- * Main-struct fields (legend / brushSelection / callbacks) live in the
- * extended `MatrixOptions` interface in `collections/matrix/index.ts`.
+ * @property status - Status string shorthand (`"danger"`) or an East variant. Default `"danger"`.
+ * @property message - The marker text surfaced as a hover tooltip
+ * @property at - Corner string shorthand (`"tr"`) or an East variant. Default `"tr"`.
+ * @property label - Optional custom badge text that replaces the status icon
  */
-export interface MatrixStyle {
-    /** Size preset (xs / sm / md / lg). Default `"md"`. */
-    size?: SubtypeExprOrValue<SizeType> | SizeLiteral;
-    /** Whether to draw grid lines between cells. Default false (gutter style). */
-    showGridLines?: SubtypeExprOrValue<BooleanType>;
-    /** Explicit grid-line / gutter colour. */
-    gridColor?: SubtypeExprOrValue<StringType>;
-    /** Row / column header background. */
-    headerBackground?: SubtypeExprOrValue<StringType>;
-    /** Row / column header text colour. */
-    headerColor?: SubtypeExprOrValue<StringType>;
-    /** Default cell background (fallback when no segments). */
-    cellBackground?: SubtypeExprOrValue<StringType>;
-    /** Cell corner radius. Default `"2px"` for a subtle modern feel. */
-    cellBorderRadius?: SubtypeExprOrValue<StringType>;
-    /** CSS width of the sticky first column. Default `"180px"`. */
-    rowHeaderWidth?: SubtypeExprOrValue<StringType>;
-    /** CSS height of the column header row. */
-    columnHeaderHeight?: SubtypeExprOrValue<StringType>;
-    /** Position of the legend rail. Default `"bottom"`. */
-    legendPosition?: SubtypeExprOrValue<MatrixLegendPositionType> | MatrixLegendPositionLiteral;
-    /** Default ring colour for emphasized cells (overridden per-cell by `emphasisColor`). */
-    emphasisColor?: SubtypeExprOrValue<StringType>;
-    /** Background applied to brush-selected cells. */
-    selectedBackground?: SubtypeExprOrValue<StringType>;
-    /** Ring colour applied to brush-selected cells. */
-    selectedBorderColor?: SubtypeExprOrValue<StringType>;
-    /** Background applied to hovered row / column headers (cross-highlight). */
-    hoverHighlightColor?: SubtypeExprOrValue<StringType>;
-    /** Cell segment orientation. Default `"horizontal"`. `"vertical"` stacks segments bottom-up (capacity bars). */
-    cellOrientation?: SubtypeExprOrValue<MatrixCellOrientationType> | MatrixCellOrientationLiteral;
-    /** Default text colour for per-segment labels. Default `"white"`. Per-segment `label.color` overrides. */
-    segmentLabelColor?: SubtypeExprOrValue<StringType>;
-    /** Default CSS `font-size` for per-segment labels. Default `"0.75rem"`. Per-segment `label.fontSize` overrides. */
-    segmentLabelFontSize?: SubtypeExprOrValue<StringType>;
-    /** Default CSS `font-weight` for per-segment labels. Default `"600"`. Per-segment `label.fontWeight` overrides. */
-    segmentLabelFontWeight?: SubtypeExprOrValue<StringType>;
-    /**
-     * Minimum rendered segment width (CSS) below which the label is hidden
-     * — avoids clipped text on tiny slices. Default `"24px"`. Set `"0"` to
-     * always render labels regardless of segment size.
-     */
-    minLabelSize?: SubtypeExprOrValue<StringType>;
+export interface MatrixMarkerInput {
+    /** Status colour string shorthand (`"danger"`) or an East variant. Default `"danger"`. */
+    status?: SubtypeExprOrValue<StatusValueType> | StatusValueLiteral;
+    /** The marker text surfaced as a hover tooltip. */
+    message: SubtypeExprOrValue<StringType>;
+    /** Corner string shorthand (`"tr"`) or an East variant. Default `"tr"`. */
+    at?: SubtypeExprOrValue<MatrixCornerType> | MatrixCornerLiteral;
+    /** Optional custom badge text that replaces the status icon (`"OT"`). */
+    label?: SubtypeExprOrValue<StringType>;
+}
+
+/**
+ * One legend swatch input for `Matrix` config.
+ *
+ * @property fill - Fill string shorthand or East variant
+ * @property label - The displayed label
+ */
+export interface MatrixLegendEntryInput {
+    /** Fill string shorthand (`"brand"`) or an East variant. */
+    fill: SubtypeExprOrValue<MatrixFillType> | MatrixFillLiteral;
+    /** The displayed legend label. */
+    label: SubtypeExprOrValue<StringType>;
 }

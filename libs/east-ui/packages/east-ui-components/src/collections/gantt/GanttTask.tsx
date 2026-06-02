@@ -4,13 +4,16 @@
  */
 
 import { useRef, useState, useCallback, useEffect } from "react";
-import { Box, Popover, Portal, Text, Tooltip, useToken } from "@chakra-ui/react";
+import { Box, Popover, Portal, Text, useToken } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faGripVertical } from "@fortawesome/free-solid-svg-icons";
 import { useDrag } from "@use-gesture/react";
 import type { ValueTypeOf } from "@elaraai/east";
 import type { Gantt } from "@elaraai/east-ui";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { alignToCss } from "../shared/helpers";
+import { GANTT_STATUS } from "./palette";
 
 export type GanttTaskValue = ValueTypeOf<typeof Gantt.Types.Task>;
 
@@ -26,7 +29,7 @@ export interface GanttTaskProps {
     width: number;
     height: number;
     value: GanttTaskValue;
-    /** Storage key used by per-task UIComp slots (tooltip / popover / overlays). */
+    /** Storage key used by the per-task popover UIComp slot. */
     storageKey?: string | undefined;
     onClick?: (() => void) | undefined;
     onDoubleClick?: (() => void) | undefined;
@@ -46,11 +49,6 @@ export interface GanttTaskProps {
     dragStep?: TimeStep | undefined;
     /** Optional step size for duration change snapping */
     durationStep?: TimeStep | undefined;
-    /** Visual-token defaults from `style` (per-task `label.color` etc. override). */
-    taskBorderRadius?: string | undefined;
-    labelColor?: string | undefined;
-    labelFontSize?: string | undefined;
-    labelFontWeight?: string | undefined;
 }
 
 /** Convert a time step to milliseconds */
@@ -89,10 +87,6 @@ export const GanttTask = ({
     timelineWidth,
     dragStep,
     durationStep,
-    taskBorderRadius,
-    labelColor,
-    labelFontSize,
-    labelFontWeight,
 }: GanttTaskProps) => {
     const [isHovered, setIsHovered] = useState(false);
     // In-progress drag offsets (px). null when not dragging that axis.
@@ -116,19 +110,13 @@ export const GanttTask = ({
         fontSize: getSomeorUndefined(li.fontSize)?.type,
     } : null;
 
-    // Per-task colour escape hatches
-    const colorPalette = getSomeorUndefined(value.colorPalette)?.type ?? "blue";
+    // Schedule status → spec status palette (committed / proposed / at-risk).
+    const statusTag = getSomeorUndefined(value.status)?.type ?? "committed";
     const propsProgress = getSomeorUndefined(value.progress);
-    const customBackground = getSomeorUndefined(value.background);
-    const customStroke = getSomeorUndefined(value.stroke);
-    const customProgressFill = getSomeorUndefined(value.progressFill);
 
-    // Per-task tooltip / popover / overlays slots
-    const tooltipContent = getSomeorUndefined(value.tooltip);
+    // Per-task popover slot (click-triggered).
     const popoverContent = getSomeorUndefined(value.popover);
-    const hasTooltip = tooltipContent !== undefined;
     const hasPopover = popoverContent !== undefined;
-    const overlays = value.overlays ?? [];
 
     // Local progress state - reset from props, updated on drag end
     const [localProgress, setLocalProgress] = useState(propsProgress ?? 0);
@@ -143,26 +131,25 @@ export const GanttTask = ({
         setLocalProgress(propsProgress ?? 0);
     }, [propsProgress]);
 
-    // Get Chakra color tokens based on color palette
-    const [paletteFill, paletteStroke] = useToken("colors", [
-        `${colorPalette}.500`,
-        `${colorPalette}.600`,
+    // Spec bar = a paper-2 track + 1px status border + a status-coloured
+    // progress fill. Resolve the status colour + track from semantic tokens.
+    // statusColor: bar border + progress fill. trackBg: paper-2 track.
+    // resizeLineColor: the resize line (border.strong reads on the light track;
+    // the spec's white would vanish). The drag grip is a FontAwesome icon whose
+    // colour comes from the wrapper's `color` token (fg.subtle = ink-4).
+    const [statusColor, trackBg, resizeLineColor] = useToken("colors", [
+        GANTT_STATUS[statusTag] ?? "fg.success", "bg.canvas", "border.strong",
     ]);
-
-    const fillColor = customBackground ?? paletteFill;
-    const strokeColor = customStroke ?? paletteStroke;
 
     // Calculate current position from local state + drag offset
     const currentX = position.x + (dragOffset ?? 0);
     const currentWidth = Math.max(position.width + (durationOffset ?? 0), 4);
     const taskWidth = Math.max(currentWidth, 4);
 
-    const defaultFontSize = Math.min(height * 0.7, 14);
-    const fontSize = labelProps?.fontSize ?? labelFontSize ?? `${defaultFontSize}px`;
-
-    // Border-radius parser (accepts "8px", "0.5rem", or "4")
-    const radiusN = taskBorderRadius ? parseInt(taskBorderRadius, 10) : NaN;
-    const radius = Number.isFinite(radiusN) ? radiusN : 4;
+    // Bar label = spec mono 11px / 600; per-task `label.fontSize` still wins.
+    const fontSize = labelProps?.fontSize ?? "11px";
+    // Spec task bar corner radius.
+    const radius = 2;
 
     const currentProgress = progressDelta ?? localProgress;
     const progressWidth = taskWidth * (currentProgress / 100);
@@ -185,9 +172,12 @@ export const GanttTask = ({
         return (durationMs / totalDuration) * timelineWidth;
     }, [timelineStartDate, timelineEndDate, timelineWidth]);
 
-    const isDraggable = onDrag && timelineStartDate && timelineEndDate && timelineWidth;
-    const isDurationDraggable = onDurationChange && timelineStartDate && timelineEndDate && timelineWidth;
-    const isProgressDraggable = onProgressChange && propsProgress !== undefined;
+    // Committed bars are read-only / resize-locked per spec — only
+    // proposed / at-risk bars are editable, regardless of wired callbacks.
+    const isEditable = statusTag !== "committed";
+    const isDraggable = isEditable && onDrag && timelineStartDate && timelineEndDate && timelineWidth;
+    const isDurationDraggable = isEditable && onDurationChange && timelineStartDate && timelineEndDate && timelineWidth;
+    const isProgressDraggable = isEditable && onProgressChange && propsProgress !== undefined;
 
     // Snap a raw pixel offset to the nearest tick of `step`. Returns the
     // snapped pixel offset.
@@ -292,9 +282,9 @@ export const GanttTask = ({
                 y={y}
                 width={taskWidth}
                 height={height}
-                fill={fillColor}
-                stroke={strokeColor}
-                strokeWidth={isActive ? 3 : 2}
+                fill={trackBg}
+                stroke={statusColor}
+                strokeWidth={1}
                 opacity={isActive ? 1 : 0.9}
                 rx={radius}
                 ry={radius}
@@ -312,22 +302,49 @@ export const GanttTask = ({
                     y={y}
                     width={progressWidth}
                     height={height}
-                    fill={customProgressFill ?? "var(--chakra-colors-overlay-highlight)"}
+                    fill={statusColor}
                     rx={radius}
                     ry={radius}
                     style={{ pointerEvents: "none" }}
                 />
             )}
 
-            {/* Per-task label — LabelInput shape: `value`, `align`,
-                `verticalAlign`, plus typography overrides. Style-level
-                `labelColor` / `labelFontSize` / `labelFontWeight` act as
-                cascading defaults; per-task `label.color` etc. win. */}
+            {/* Drag grip — FontAwesome grip at the bar's left, before the
+                label (the spec's ⠿). Hover-revealed (opacity tied to isActive).
+                Colour adapts like the label: white when it sits on the status
+                progress fill, gray.500 (ink-4) when on the empty light track —
+                so it never blends into the fill. Decorative only: the whole-bar
+                bindDrag() owns the drag. */}
+            {isDraggable && (
+                <foreignObject
+                    x={currentX + 4}
+                    y={y + height / 2 - 6}
+                    width={12}
+                    height={12}
+                    style={{ pointerEvents: "none", overflow: "visible" }}
+                >
+                    <Box
+                        display="flex"
+                        alignItems="center"
+                        justifyContent="center"
+                        height="100%"
+                        color={progressWidth >= 14 ? "white" : "gray.500"}
+                        opacity={isActive ? 1 : 0}
+                        transition="opacity 0.2s"
+                    >
+                        <FontAwesomeIcon icon={faGripVertical} style={{ width: 9, height: 9 }} />
+                    </Box>
+                </foreignObject>
+            )}
+
+            {/* Per-task label — mono 11/600 in a status-derived colour by
+                default; the LabelInput (`value` / `align` / `verticalAlign` /
+                typography) overrides per task. */}
             {labelProps && (
                 <foreignObject
-                    x={currentX + 8}
+                    x={currentX + (isDraggable ? 22 : 8)}
                     y={y}
-                    width={Math.max(taskWidth - 16, 0)}
+                    width={Math.max(taskWidth - (isDraggable ? 30 : 16), 0)}
                     height={height}
                     style={{ pointerEvents: "none" }}
                 >
@@ -339,9 +356,13 @@ export const GanttTask = ({
                         opacity={isActive ? 1 : 0.9}
                     >
                         <Text
+                            fontFamily="mono"
                             fontSize={typeof fontSize === "number" ? `${fontSize}px` : fontSize}
-                            color={labelProps.color ?? labelColor ?? "fg.default"}
-                            fontWeight={labelProps.fontWeight ?? labelFontWeight}
+                            // White reads on the status fill; once the fill no
+                            // longer covers the label, switch to ink so it stays
+                            // legible on the paper-2 track.
+                            color={labelProps.color ?? (currentProgress >= 50 ? "white" : "fg.default")}
+                            fontWeight={labelProps.fontWeight ?? 600}
                             fontStyle={labelProps.fontStyle}
                             whiteSpace="nowrap"
                             cursor={cursor}
@@ -358,49 +379,34 @@ export const GanttTask = ({
                 </foreignObject>
             )}
 
-            {/* Per-task overlays — axis-aligned UIComponents painted inside
-                the bar. `pointer-events: none` so drag / click still hit the
-                rect underneath. */}
-            {overlays.map((o, i) => (
-                <foreignObject
-                    key={`ov-${i}`}
-                    x={currentX}
-                    y={y}
-                    width={taskWidth}
-                    height={height}
-                    style={{ pointerEvents: "none" }}
-                >
-                    <div
-                        style={{
-                            width: "100%",
-                            height: "100%",
-                            display: "flex",
-                            justifyContent: alignToCss(o.align?.type),
-                            alignItems: alignToCss(o.verticalAlign?.type),
-                            padding: "4px",
-                        }}
-                    >
-                        <EastChakraComponent
-                            value={o.content}
-                            storageKey={`${storageKey}.overlay.${i}`}
-                        />
-                    </div>
-                </foreignObject>
-            ))}
-
-            {/* Duration resize handle (right edge) */}
+            {/* Duration resize handle (right edge) — spec `.resize-handle`:
+                a 6px ew-resize hit-zone straddling the edge + a 1px line over
+                the middle 40%, hover-revealed (border.strong; the spec's white
+                would vanish on the light paper-2 track). */}
             {isDurationDraggable && (
-                <rect
-                    x={currentX + taskWidth - 6}
-                    y={y}
-                    width={12}
-                    height={height}
-                    fill="transparent"
-                    onMouseEnter={handleMouseEnter}
-                    onMouseLeave={handleMouseLeave}
-                    {...bindDuration()}
-                    style={{ cursor: "ew-resize", touchAction: "none" }}
-                />
+                <>
+                    <line
+                        x1={currentX + taskWidth}
+                        x2={currentX + taskWidth}
+                        y1={y + height * 0.3}
+                        y2={y + height * 0.7}
+                        stroke={resizeLineColor}
+                        strokeWidth={1}
+                        opacity={isActive ? 1 : 0}
+                        style={{ transition: "opacity 0.2s", pointerEvents: "none" }}
+                    />
+                    <rect
+                        x={currentX + taskWidth - 3}
+                        y={y}
+                        width={6}
+                        height={height}
+                        fill="transparent"
+                        onMouseEnter={handleMouseEnter}
+                        onMouseLeave={handleMouseLeave}
+                        {...bindDuration()}
+                        style={{ cursor: "ew-resize", touchAction: "none" }}
+                    />
+                </>
             )}
 
             {/* Progress drag handle */}
@@ -418,27 +424,8 @@ export const GanttTask = ({
                 />
             )}
 
-            {/* Per-task tooltip */}
-            {hasTooltip && (
-                <Tooltip.Root
-                    open={isHovered}
-                    openDelay={200}
-                    positioning={{ placement: "top", getAnchorRect }}
-                >
-                    <Portal>
-                        <Tooltip.Positioner>
-                            <Tooltip.Content>
-                                <EastChakraComponent
-                                    value={tooltipContent!}
-                                    storageKey={`${storageKey}.tooltip`}
-                                />
-                            </Tooltip.Content>
-                        </Tooltip.Positioner>
-                    </Portal>
-                </Tooltip.Root>
-            )}
-
-            {/* Per-task popover */}
+            {/* Per-task popover — content chrome matches the general east-ui
+                Popover renderer (padding / min-max width / font-size). */}
             {hasPopover && (
                 <Popover.Root
                     open={popoverOpen}
@@ -447,8 +434,8 @@ export const GanttTask = ({
                 >
                     <Portal>
                         <Popover.Positioner>
-                            <Popover.Content>
-                                <Popover.Body p="3">
+                            <Popover.Content padding="14px 16px" minW="240px" maxW="360px" fontSize="13px">
+                                <Popover.Body>
                                     <EastChakraComponent
                                         value={popoverContent!}
                                         storageKey={`${storageKey}.popover`}

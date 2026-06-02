@@ -8,8 +8,9 @@
  * (`libs/east-ui/design/index.html`, `#brand-system` section).
  *
  * Sidebar recipe: 240 px paper-2 panel · 1 px right rule · mono 12 px
- * uppercase items @ 36 px height · active state = 3 px brand-d left rule
- * + brand-tint fill. Collapses to a 56 px logo + chevron rail; toggle is
+ * uppercase items @ 36 px height · active state = inset brand-tint pill
+ * (8 px side inset, brand-700 at weight 700). Collapses to a 56 px logo
+ * + chevron rail; toggle is
  * the chevron in the panel header *or* the `[` key. State is persisted to
  * `localStorage` per the spec. The icon column the spec mandates is
  * intentionally omitted (this surface doesn't carry per-item icons) — in
@@ -91,7 +92,7 @@ export function App() {
     return (
         /* h=100vh locks the shell to the viewport — the Main content area
          * scrolls internally; the page itself never overflows. */
-        <Flex h="100vh" w="100vw" overflow="hidden" bg="bg.canvas" align="stretch">
+        <Flex h="100dvh" w="100%" overflow="hidden" bg="bg.canvas" align="stretch">
             <Sidebar selected={selectedCategory} onSelect={setSelectedCategory} />
             <Flex flex="1" minW={0} direction="column" h="100vh">
                 <Header
@@ -276,7 +277,7 @@ function Header({
 function Breadcrumb({ category }: { category: string }) {
     return (
         <Text textStyle="breadcrumb">
-            <Box as="span" color="brand.700">East UI</Box>
+            <Box as="span" color="brand.600">East UI</Box>
             <Box as="span" px="1">/</Box>
             <Box as="span" color="fg">{category}</Box>
         </Text>

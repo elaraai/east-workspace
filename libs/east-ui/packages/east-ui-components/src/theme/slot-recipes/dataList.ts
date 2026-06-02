@@ -20,15 +20,15 @@ export const dataListSlotRecipe = defineSlotRecipe({
     base: {
         root: { display: "flex", flexDirection: "column", gap: "{spacing.3}" },
         item: { display: "flex", flexDirection: "column", gap: "{spacing.1}" },
-        itemLabel: { textStyle: "caption.eyebrow" },
+        itemLabel: { textStyle: "caption.eyebrow", color: "fg.subtle", letterSpacing: "0.14em" },
         itemValue: { fontSize: "13.5px", color: "fg", lineHeight: "{lineHeights.normal}" },
     },
     variants: {
         orientation: {
             vertical:   {},
             horizontal: {
-                item: { flexDirection: "row", alignItems: "baseline", gap: "{spacing.4}" },
-                itemLabel: { minWidth: "120px", flexShrink: 0 },
+                item: { flexDirection: "row", alignItems: "baseline", gap: "14px" },
+                itemLabel: { minWidth: "116px", flexShrink: 0 },
             },
         },
         size: {

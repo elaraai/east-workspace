@@ -11,6 +11,7 @@ import {
     HStack,
     Text,
     Skeleton,
+    useSlotRecipe,
     type TableRootProps,
 } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -32,7 +33,7 @@ import { Table, type UIComponentType } from "@elaraai/east-ui";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { RowStateManager, type RowKey, type RowState } from "../../utils/RowStateManager";
-import { useRowStatusBg } from "../shared/helpers";
+import { useRowStatusBg, useDensityHeights } from "../shared/helpers";
 
 // Pre-define equality function at module level
 const tableRootEqual = equalFor(Table.Types.Root);
@@ -184,7 +185,12 @@ export const EastChakraTable = memo(function EastChakraTable({
     // set, the renderer plumbs it onto the relevant DOM node via
     // inline style.
     const headerBackground = style ? getSomeorUndefined(style.headerBackground) : undefined;
-    const headerColor = style ? getSomeorUndefined(style.headerColor) : undefined;
+    // `gray.500` (= spec --ink-4 #6b8080), NOT the semantic `fg.subtle`:
+    // Chakra's default theme also defines `fg.subtle` (as the lighter
+    // gray.400), and that definition leaks into the table scope and wins,
+    // rendering headers too faint. gray.500 is single-valued, so it resolves
+    // unambiguously to the spec header ink.
+    const headerColor = style ? getSomeorUndefined(style.headerColor) ?? "gray.500" : "gray.500";
     const borderColor = style ? getSomeorUndefined(style.borderColor) : undefined;
     const zebraBackground = style ? getSomeorUndefined(style.zebraBackground) : undefined;
     const hoverBackground = style ? getSomeorUndefined(style.hoverBackground) : undefined;
@@ -202,12 +208,24 @@ export const EastChakraTable = memo(function EastChakraTable({
     const tableSize: "sm" | "md" | "lg" = densityTag === "compact" ? "sm"
         : densityTag === "comfortable" ? "lg"
         : ((props.size as "sm" | "md" | "lg" | undefined) ?? "md");
-    const densityRowHeight = tableSize === "sm" ? 32 : tableSize === "lg" ? 56 : 36;
+    // Row + header height come from the shared `sizes.density` tokens (the
+    // single source, also consumed by Gantt and Planner) — md → 36px, the spec
+    // row height. Pad-Y stays here for the group/footer cells that set padding
+    // via raw inline style outside the recipe's cell slot.
+    const densityPadYPx = tableSize === "sm" ? 6 : tableSize === "lg" ? 12 : 10;
+    const densityRowHeight = useDensityHeights(tableSize).row;
     // Group / footer cells sit outside the recipe's cell/columnHeader slots and
-    // set padding via raw inline `style` (no token resolution there), so these
-    // are px mirrors of the size-variant spacing tokens (8/4 · 14/10 · 16/12).
+    // set padding via raw inline `style`; mirror the same density padding.
     const densityCellPadX = tableSize === "sm" ? "8px" : tableSize === "lg" ? "16px" : "14px";
-    const densityCellPadY = tableSize === "sm" ? "4px" : tableSize === "lg" ? "12px" : "10px";
+    const densityCellPadY = `${densityPadYPx}px`;
+
+    // Chakra does NOT auto-apply our `table` slot recipe to ChakraTable's
+    // sub-components (its built-in Table recipe wins — the slot classNames
+    // attach but the styled hash comes out empty). Consume it explicitly and
+    // spread each slot via `css=`, the way accordion/nav do, so the spec
+    // values (10px mono header, fg.subtle, 13px cells, 1px rules, top-align)
+    // come from the theme rather than per-site inline literals.
+    const tableSlotStyles = useSlotRecipe({ key: "table" })({ size: tableSize });
 
     // Expandable rows — `value.expandedContent` is a `(rowIndex) =>
     // UIComponent` callback. When defined, an extra toggle column is
@@ -798,12 +816,13 @@ export const EastChakraTable = memo(function EastChakraTable({
                                 return (
                                     <ChakraTable.ColumnHeader
                                         key={header.id}
+                                        css={tableSlotStyles.columnHeader}
                                         bg={headerBackground}
                                         color={headerColor}
                                         // Reveal the pin / sort controls only on header-cell
                                         // hover; an actively pinned / sorted column keeps them
                                         // visible (handled by the controls' own opacity below).
-                                        _hover={{ bg: headerBackground ?? 'bg.muted', "& .col-controls": { opacity: 1 } }}
+                                        _hover={{ bg: headerBackground ?? 'bg.muted', "& .col-controls": { opacity: 1 }, "& .col-resizer::before": { opacity: 1 } }}
                                         transition="background 0.2s"
                                         style={{
                                             width: `var(--header-${header.id}-size)`,
@@ -811,14 +830,25 @@ export const EastChakraTable = memo(function EastChakraTable({
                                             ...pinningStyles,
                                             zIndex: isPinned ? 3 : undefined,
                                             borderColor: borderColor,
-                                            // padding comes from the `table` slot recipe (size variant)
+                                            // Clamp the header to the body row height — the inline
+                                            // pin/sort controls would otherwise grow it taller than
+                                            // the spec's single-rule header band.
+                                            height: `${effectiveRowHeight}px`,
+                                            // Center the label + controls vertically (the th is not a
+                                            // flex container by default, so without this the content
+                                            // sits at the top while body cells are centered).
+                                            display: 'flex',
+                                            alignItems: 'center',
                                         }}
                                         position={isPinned ? "sticky" : "relative"}
                                     >
-                                        <HStack justify="space-between" width="100%" pr={enableColumnResizing ? "4px" : "0"}>
-                                            <Text textStyle="caption.eyebrow" color={headerColor} lineHeight="1" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" flex="1">
+                                        <HStack justify="space-between" align="center" width="100%" pr={enableColumnResizing ? "4px" : "0"}>
+                                            {/* Inherit the columnHeader slot's mono/10px/0.16em/uppercase/
+                                                fg.subtle — a bare span so the recipe governs the type,
+                                                not a competing textStyle. */}
+                                            <Box as="span" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" flex="1">
                                                 {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
-                                            </Text>
+                                            </Box>
                                             <HStack className="col-controls" gap={0} flexShrink={0} alignItems="center"
                                                 opacity={isPinned || isSorted ? 1 : 0} transition="opacity 0.15s">
                                                 {/* Pin toggle — always visible */}
@@ -866,11 +896,17 @@ export const EastChakraTable = memo(function EastChakraTable({
                                         </HStack>
                                         {enableColumnResizing && header.column.getCanResize() && (
                                             <Box
-                                                position="absolute" right="0" top="0" bottom="0" width="8px" cursor="col-resize" bg="transparent"
+                                                className="col-resizer"
+                                                position="absolute" right="0" top="0" bottom="0" width="6px" cursor="ew-resize" bg="transparent"
                                                 _hover={{ _before: { opacity: 1, bg: 'fg.muted' } }}
                                                 transition="all 0.2s" zIndex={10}
                                                 onMouseDown={header.getResizeHandler()} onTouchStart={header.getResizeHandler()}
-                                                _before={{ content: '""', position: 'absolute', right: '2px', top: '50%', transform: 'translateY(-50%)', width: '2px', height: '16px', bg: 'gray.300', borderRadius: '1px', opacity: 0.4, transition: 'opacity 0.2s' }}
+                                                // Spec resize grip (.mx-bar .seg .resize-handle): full-height
+                                                // 6px ew-resize hit-zone with a 1px line spanning the middle
+                                                // 40% (top/bottom 30%). Hidden at rest so the static header
+                                                // matches the bare `.dt`; revealed on header-cell hover via
+                                                // the ColumnHeader `_hover`, like the pin/sort controls.
+                                                _before={{ content: '""', position: 'absolute', right: '2px', top: '30%', bottom: '30%', width: '1px', bg: 'gray.300', opacity: 0, transition: 'opacity 0.2s' }}
                                             />
                                         )}
                                     </ChakraTable.ColumnHeader>
@@ -1041,6 +1077,10 @@ export const EastChakraTable = memo(function EastChakraTable({
                                         width: `var(--col-${cell.column.id}-size)`,
                                         flex: hasFrozen ? 'none' : (columnSizing[cell.column.id] || meta?.width) ? 'none' : 1,
                                         display: 'flex',
+                                        // Spec `.dt` reads vertically centered (its rows hug
+                                        // content, so its `vertical-align: top` is moot); our
+                                        // rows have a fixed height, so center is the faithful
+                                        // match — flex-start would float text to the top.
                                         alignItems: 'center',
                                         overflow: 'hidden',
                                         // padding comes from the `table` slot recipe (size variant)
@@ -1065,7 +1105,7 @@ export const EastChakraTable = memo(function EastChakraTable({
 
                                     if (isRowLoading) {
                                         return (
-                                            <ChakraTable.Cell key={cell.id} style={cellStyle}>
+                                            <ChakraTable.Cell key={cell.id} css={tableSlotStyles.cell} style={cellStyle}>
                                                 <Skeleton height="20px" width="80%" />
                                             </ChakraTable.Cell>
                                         );
@@ -1075,7 +1115,7 @@ export const EastChakraTable = memo(function EastChakraTable({
                                         return (
                                             <ChakraTable.Cell
                                                 key={cell.id}
-                                                style={cellStyle}
+                                                css={tableSlotStyles.cell} style={cellStyle}
                                                 onClick={cellClickHandler}
                                                 onDoubleClick={cellDoubleClickHandler}
                                             />
@@ -1092,7 +1132,7 @@ export const EastChakraTable = memo(function EastChakraTable({
                                         return (
                                             <ChakraTable.Cell
                                                 key={cell.id}
-                                                style={cellStyle}
+                                                css={tableSlotStyles.cell} style={cellStyle}
                                                 onClick={cellClickHandler}
                                                 onDoubleClick={cellDoubleClickHandler}
                                             >
@@ -1107,7 +1147,7 @@ export const EastChakraTable = memo(function EastChakraTable({
                                         return (
                                             <ChakraTable.Cell
                                                 key={cell.id}
-                                                style={cellStyle}
+                                                css={tableSlotStyles.cell} style={cellStyle}
                                                 onClick={cellClickHandler}
                                                 onDoubleClick={cellDoubleClickHandler}
                                             >
@@ -1120,7 +1160,7 @@ export const EastChakraTable = memo(function EastChakraTable({
                                     return (
                                         <ChakraTable.Cell
                                             key={cell.id}
-                                            style={cellStyle}
+                                            css={tableSlotStyles.cell} style={cellStyle}
                                             onClick={cellClickHandler}
                                             onDoubleClick={cellDoubleClickHandler}
                                         >
@@ -1213,7 +1253,7 @@ export const EastChakraTable = memo(function EastChakraTable({
                                     // `getSomeorUndefined` would always yield undefined.
                                     const content = cellEntry?.content;
                                     cells.push(
-                                        <ChakraTable.Cell key={`${rowIdx}-${colKey}`} style={cellStyle}>
+                                        <ChakraTable.Cell key={`${rowIdx}-${colKey}`} css={tableSlotStyles.cell} style={cellStyle}>
                                             {content ? (
                                                 <EastChakraComponent
                                                     value={content as Parameters<typeof EastChakraComponent>[0]["value"]}

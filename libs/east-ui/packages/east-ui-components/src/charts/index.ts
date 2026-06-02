@@ -4,12 +4,9 @@
  */
 
 /**
- * Chart components for data visualization.
+ * Chart renderers. `EastVisxChart` renders the unified visx-primitive chart
+ * tree (the `VisxChart` arm backing `Chart.*` and `Slice.Chart.*`); `Sparkline`
+ * is the standalone inline-trend renderer.
  */
 export { EastChakraSparkline, type EastChakraSparklineProps } from "./sparkline/index.js";
-export { EastChakraAreaChart, type EastChakraAreaChartProps, EastChakraAreaRangeChart, type EastChakraAreaRangeChartProps } from "./area/index.js";
-export { EastChakraBarChart, type EastChakraBarChartProps } from "./bar/index.js";
-export { EastChakraLineChart, type EastChakraLineChartProps } from "./line/index.js";
-export { EastChakraScatterChart, type EastChakraScatterChartProps } from "./scatter/index.js";
-export { EastChakraPieChart, type EastChakraPieChartProps } from "./pie/index.js";
-export { EastChakraRadarChart, type EastChakraRadarChartProps } from "./radar/index.js";
+export { EastVisxChart, type EastVisxChartProps } from "./spec/index.js";
