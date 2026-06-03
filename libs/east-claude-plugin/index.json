@@ -1,10 +1,10 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1282,
+    "totalEntries": 1285,
     "totalFiles": 163,
     "packages": {
-      "east": 486,
+      "east": 489,
       "east-node-std": 42,
       "east-node-io": 63,
       "east-py-datascience": 81,
@@ -7243,6 +7243,70 @@
         "import { East, BooleanType, VariantType, NullType, RecursiveType, variant, StructType, StringType, ArrayType, DictType, example } from \"@elaraai/east\";"
       ],
       "source": "// Parse a string into a recursive linked list value\n// inputs: []  returns: variant(\"cons\", { head: true, tail: variant(\"nil\", null) })\nEast.function([], LinkedListType, ($) => {\n        const s = $.const(\".cons (head=true, tail=.nil)\", StringType);\n        return s.parse(LinkedListType);\n    })"
+    },
+    {
+      "id": "east:recursive.examples.ts:recursiveThroughDictEqual",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/recursive.examples.ts",
+      "suite": "Recursion through containers (Dict value / Array element)",
+      "test": "Equality of recursive values that recurse through a Dict value (Dict<String, self>)",
+      "keywords": [
+        "recursive",
+        "RecursiveType",
+        "dict",
+        "DictType",
+        "through",
+        "nested",
+        "json"
+      ],
+      "imports": [
+        "import { East, BooleanType, VariantType, NullType, RecursiveType, variant, StructType, StringType, ArrayType, DictType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Equality of recursive values that recurse through a Dict value (Dict<String, self>)\n// inputs: []  returns: true\nEast.function([], BooleanType, ($) => {\n        const a = $.const(variant(\"obj\", new Map([\n            [\"user\", variant(\"obj\", new Map([[\"name\", variant(\"str\", \"ada\")]]))],\n        ])), JsonValueType);\n        const b = $.const(variant(\"obj\", new Map([\n            [\"user\", variant(\"obj\", new Map([[\"name\", variant(\"str\", \"ada\")]]))],\n        ])), JsonValueType);\n        return East.equal(a, b);\n    })"
+    },
+    {
+      "id": "east:recursive.examples.ts:recursiveThroughDictRoundTrip",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/recursive.examples.ts",
+      "suite": "Recursion through containers (Dict value / Array element)",
+      "test": "Print then parse a value that recurses through a Dict value; the round-trip is equal",
+      "keywords": [
+        "recursive",
+        "RecursiveType",
+        "dict",
+        "print",
+        "parse",
+        "roundtrip",
+        "serialize"
+      ],
+      "imports": [
+        "import { East, BooleanType, VariantType, NullType, RecursiveType, variant, StructType, StringType, ArrayType, DictType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Print then parse a value that recurses through a Dict value; the round-trip is equal\n// inputs: []  returns: true\nEast.function([], BooleanType, ($) => {\n        const v = $.const(variant(\"obj\", new Map([\n            [\"a\", variant(\"obj\", new Map([[\"b\", variant(\"str\", \"x\")]]))],\n        ])), JsonValueType);\n        const parsed = $.let(East.print(v).parse(JsonValueType));\n        return East.equal(v, parsed);\n    })"
+    },
+    {
+      "id": "east:recursive.examples.ts:recursiveThroughArrayRoundTrip",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/recursive.examples.ts",
+      "suite": "Recursion through containers (Dict value / Array element)",
+      "test": "Print then parse a value that recurses through an Array element; the round-trip is equal",
+      "keywords": [
+        "recursive",
+        "RecursiveType",
+        "array",
+        "ArrayType",
+        "print",
+        "parse",
+        "roundtrip",
+        "through"
+      ],
+      "imports": [
+        "import { East, BooleanType, VariantType, NullType, RecursiveType, variant, StructType, StringType, ArrayType, DictType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Print then parse a value that recurses through an Array element; the round-trip is equal\n// inputs: []  returns: true\nEast.function([], BooleanType, ($) => {\n        const v = $.const(variant(\"arr\", [\n            variant(\"arr\", [variant(\"str\", \"x\")]),\n        ]), JsonValueType);\n        const parsed = $.let(East.print(v).parse(JsonValueType));\n        return East.equal(v, parsed);\n    })"
     },
     {
       "id": "east:recursive.examples.ts:recursiveStructBased",

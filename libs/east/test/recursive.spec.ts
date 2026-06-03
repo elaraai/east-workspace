@@ -100,6 +100,14 @@ await describe("Recursive", (test) => {
         $(assert.throws(East.value(".cons (head=false, tail=.cons (head=true, tail=true))").parse(LinkedListType)));
     });
 
+    // Recursion THROUGH a container (Dict value / Array element), not only
+    // Struct/Variant — the shape that broke MongoDB's BsonValue.
+    assert.examples(test, {
+        recursiveThroughDictEqual: ex.recursiveThroughDictEqual,
+        recursiveThroughDictRoundTrip: ex.recursiveThroughDictRoundTrip,
+        recursiveThroughArrayRoundTrip: ex.recursiveThroughArrayRoundTrip,
+    });
+
     // Test recursive type wrapping a struct (not a variant)
     // This is common for tree-like structures like XML nodes
     const XmlNodeType = RecursiveType(self => StructType({

@@ -12,6 +12,16 @@ const LinkedListType = RecursiveType(self => VariantType({
     })
 }));
 
+// A JSON-like value: recurses THROUGH a Dict value (obj) and an Array element
+// (arr), not only through Struct/Variant. This is the shape that broke MongoDB's
+// BsonValue and exercises recursive-context handling for containers.
+const JsonValueType = RecursiveType(self => VariantType({
+    null: NullType,
+    str: StringType,
+    arr: ArrayType(self),
+    obj: DictType(StringType, self),
+}));
+
 // ---------------------------------------------------------------------------
 // Construct and Compare
 // ---------------------------------------------------------------------------
@@ -128,6 +138,54 @@ export const recursiveParse = example({
     }),
     inputs: [],
     returns: variant("cons", { head: true, tail: variant("nil", null) }),
+});
+
+// ---------------------------------------------------------------------------
+// Recursion through containers (Dict value / Array element)
+// ---------------------------------------------------------------------------
+
+export const recursiveThroughDictEqual = example({
+    keywords: ["recursive", "RecursiveType", "dict", "DictType", "through", "nested", "json"],
+    description: "Equality of recursive values that recurse through a Dict value (Dict<String, self>)",
+    fn: East.function([], BooleanType, ($) => {
+        const a = $.const(variant("obj", new Map([
+            ["user", variant("obj", new Map([["name", variant("str", "ada")]]))],
+        ])), JsonValueType);
+        const b = $.const(variant("obj", new Map([
+            ["user", variant("obj", new Map([["name", variant("str", "ada")]]))],
+        ])), JsonValueType);
+        return East.equal(a, b);
+    }),
+    inputs: [],
+    returns: true,
+});
+
+export const recursiveThroughDictRoundTrip = example({
+    keywords: ["recursive", "RecursiveType", "dict", "print", "parse", "roundtrip", "serialize"],
+    description: "Print then parse a value that recurses through a Dict value; the round-trip is equal",
+    fn: East.function([], BooleanType, ($) => {
+        const v = $.const(variant("obj", new Map([
+            ["a", variant("obj", new Map([["b", variant("str", "x")]]))],
+        ])), JsonValueType);
+        const parsed = $.let(East.print(v).parse(JsonValueType));
+        return East.equal(v, parsed);
+    }),
+    inputs: [],
+    returns: true,
+});
+
+export const recursiveThroughArrayRoundTrip = example({
+    keywords: ["recursive", "RecursiveType", "array", "ArrayType", "print", "parse", "roundtrip", "through"],
+    description: "Print then parse a value that recurses through an Array element; the round-trip is equal",
+    fn: East.function([], BooleanType, ($) => {
+        const v = $.const(variant("arr", [
+            variant("arr", [variant("str", "x")]),
+        ]), JsonValueType);
+        const parsed = $.let(East.print(v).parse(JsonValueType));
+        return East.equal(v, parsed);
+    }),
+    inputs: [],
+    returns: true,
 });
 
 // ---------------------------------------------------------------------------
