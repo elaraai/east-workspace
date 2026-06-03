@@ -102,10 +102,7 @@ static EastValue *set_clear_impl(EastValue **args, size_t n)
 {
     (void)n;
     ITER_GUARD_SET(args[0]);
-    EastValue *s = args[0];
-    for (size_t i = 0; i < s->data.set.len; i++)
-        east_value_release(s->data.set.items[i]);
-    s->data.set.len = 0;
+    east_set_clear(args[0]);
     return east_null();
 }
 
@@ -116,7 +113,7 @@ static EastValue *set_union_in_place_impl(EastValue **args, size_t n)
     EastValue *a = args[0];
     EastValue *b = args[1];
     for (size_t i = 0; i < b->data.set.len; i++)
-        east_set_insert(a, b->data.set.items[i]);
+        east_set_insert(a, east_set_at(b, i));
     return east_null();
 }
 
@@ -127,9 +124,9 @@ static EastValue *set_union_impl(EastValue **args, size_t n)
     EastValue *b = args[1];
     EastValue *result = east_set_new(a->data.set.elem_type);
     for (size_t i = 0; i < a->data.set.len; i++)
-        east_set_insert(result, a->data.set.items[i]);
+        east_set_insert(result, east_set_at(a, i));
     for (size_t i = 0; i < b->data.set.len; i++)
-        east_set_insert(result, b->data.set.items[i]);
+        east_set_insert(result, east_set_at(b, i));
     return result;
 }
 
@@ -140,7 +137,7 @@ static EastValue *set_intersect_impl(EastValue **args, size_t n)
     EastValue *b = args[1];
     EastValue *result = east_set_new(a->data.set.elem_type);
     for (size_t i = 0; i < a->data.set.len; i++) {
-        if (east_set_has(b, a->data.set.items[i])) east_set_insert(result, a->data.set.items[i]);
+        if (east_set_has(b, east_set_at(a, i))) east_set_insert(result, east_set_at(a, i));
     }
     return result;
 }
@@ -152,7 +149,7 @@ static EastValue *set_diff_impl(EastValue **args, size_t n)
     EastValue *b = args[1];
     EastValue *result = east_set_new(a->data.set.elem_type);
     for (size_t i = 0; i < a->data.set.len; i++) {
-        if (!east_set_has(b, a->data.set.items[i])) east_set_insert(result, a->data.set.items[i]);
+        if (!east_set_has(b, east_set_at(a, i))) east_set_insert(result, east_set_at(a, i));
     }
     return result;
 }
@@ -164,10 +161,10 @@ static EastValue *set_sym_diff_impl(EastValue **args, size_t n)
     EastValue *b = args[1];
     EastValue *result = east_set_new(a->data.set.elem_type);
     for (size_t i = 0; i < a->data.set.len; i++) {
-        if (!east_set_has(b, a->data.set.items[i])) east_set_insert(result, a->data.set.items[i]);
+        if (!east_set_has(b, east_set_at(a, i))) east_set_insert(result, east_set_at(a, i));
     }
     for (size_t i = 0; i < b->data.set.len; i++) {
-        if (!east_set_has(a, b->data.set.items[i])) east_set_insert(result, b->data.set.items[i]);
+        if (!east_set_has(a, east_set_at(b, i))) east_set_insert(result, east_set_at(b, i));
     }
     return result;
 }
@@ -178,7 +175,7 @@ static EastValue *set_is_subset_impl(EastValue **args, size_t n)
     EastValue *a = args[0];
     EastValue *b = args[1];
     for (size_t i = 0; i < a->data.set.len; i++) {
-        if (!east_set_has(b, a->data.set.items[i])) return east_boolean(false);
+        if (!east_set_has(b, east_set_at(a, i))) return east_boolean(false);
     }
     return east_boolean(true);
 }
@@ -189,7 +186,7 @@ static EastValue *set_is_disjoint_impl(EastValue **args, size_t n)
     EastValue *a = args[0];
     EastValue *b = args[1];
     for (size_t i = 0; i < a->data.set.len; i++) {
-        if (east_set_has(b, a->data.set.items[i])) return east_boolean(false);
+        if (east_set_has(b, east_set_at(a, i))) return east_boolean(false);
     }
     return east_boolean(true);
 }
@@ -200,7 +197,7 @@ static EastValue *set_copy_impl(EastValue **args, size_t n)
     EastValue *s = args[0];
     EastValue *result = east_set_new(s->data.set.elem_type);
     for (size_t i = 0; i < s->data.set.len; i++)
-        east_set_insert(result, s->data.set.items[i]);
+        east_set_insert(result, east_set_at(s, i));
     return result;
 }
 
@@ -245,7 +242,7 @@ static EastValue *set_for_each_impl(EastValue **args, size_t n)
     EastValue *fn = args[1];
     s->iter_lock++;
     for (size_t i = 0; i < s->data.set.len; i++) {
-        EastValue *call_args[] = {s->data.set.items[i]};
+        EastValue *call_args[] = {east_set_at(s, i)};
         EvalResult r = east_call(fn->data.function.compiled, call_args, 1);
         if (r.status != EVAL_OK && r.status != EVAL_RETURN) {
             s->iter_lock--;
@@ -266,13 +263,13 @@ static EastValue *set_map_impl(EastValue **args, size_t n)
     EastValue *fn = args[1];
     EastValue *result = east_dict_new(s->data.set.elem_type, &east_null_type);
     for (size_t i = 0; i < s->data.set.len; i++) {
-        EastValue *call_args[] = {s->data.set.items[i]};
+        EastValue *call_args[] = {east_set_at(s, i)};
         EastValue *val = call_fn(fn, call_args, 1);
         if (!val) {
             east_value_release(result);
             return NULL;
         }
-        east_dict_set(result, s->data.set.items[i], val);
+        east_dict_set(result, east_set_at(s, i), val);
         east_value_release(val);
     }
     return result;
@@ -285,13 +282,13 @@ static EastValue *set_filter_impl(EastValue **args, size_t n)
     EastValue *fn = args[1];
     EastValue *result = east_set_new(s->data.set.elem_type);
     for (size_t i = 0; i < s->data.set.len; i++) {
-        EastValue *call_args[] = {s->data.set.items[i]};
+        EastValue *call_args[] = {east_set_at(s, i)};
         EastValue *pred = call_fn(fn, call_args, 1);
         if (!pred) {
             east_value_release(result);
             return NULL;
         }
-        if (pred->data.boolean) east_set_insert(result, s->data.set.items[i]);
+        if (pred->data.boolean) east_set_insert(result, east_set_at(s, i));
         east_value_release(pred);
     }
     return result;
@@ -304,14 +301,14 @@ static EastValue *set_filter_map_impl(EastValue **args, size_t n)
     EastValue *fn = args[1];
     EastValue *result = east_dict_new(s->data.set.elem_type, &east_null_type);
     for (size_t i = 0; i < s->data.set.len; i++) {
-        EastValue *call_args[] = {s->data.set.items[i]};
+        EastValue *call_args[] = {east_set_at(s, i)};
         EastValue *opt = call_fn(fn, call_args, 1);
         if (!opt) {
             east_value_release(result);
             return NULL;
         }
         if (opt->kind == EAST_VAL_VARIANT && strcmp(east_variant_case_name(opt), "some") == 0)
-            east_dict_set(result, s->data.set.items[i], opt->data.variant.value);
+            east_dict_set(result, east_set_at(s, i), opt->data.variant.value);
         east_value_release(opt);
     }
     return result;
@@ -323,7 +320,7 @@ static EastValue *set_first_map_impl(EastValue **args, size_t n)
     EastValue *s = args[0];
     EastValue *fn = args[1];
     for (size_t i = 0; i < s->data.set.len; i++) {
-        EastValue *call_args[] = {s->data.set.items[i]};
+        EastValue *call_args[] = {east_set_at(s, i)};
         EastValue *opt = call_fn(fn, call_args, 1);
         if (!opt) return NULL;
         if (opt->kind == EAST_VAL_VARIANT && strcmp(east_variant_case_name(opt), "some") == 0)
@@ -343,11 +340,11 @@ static EastValue *set_map_reduce_impl(EastValue **args, size_t n)
         east_builtin_error("Cannot reduce empty set with no initial value");
         return NULL;
     }
-    EastValue *margs0[] = {s->data.set.items[0]};
+    EastValue *margs0[] = {east_set_at(s, 0)};
     EastValue *acc = call_fn(map_fn, margs0, 1);
     if (!acc) return NULL;
     for (size_t i = 1; i < s->data.set.len; i++) {
-        EastValue *margs[] = {s->data.set.items[i]};
+        EastValue *margs[] = {east_set_at(s, i)};
         EastValue *mapped = call_fn(map_fn, margs, 1);
         if (!mapped) {
             east_value_release(acc);
@@ -372,7 +369,7 @@ static EastValue *set_reduce_impl(EastValue **args, size_t n)
     east_value_retain(initial);
     EastValue *acc = initial;
     for (size_t i = 0; i < s->data.set.len; i++) {
-        EastValue *call_args[] = {acc, s->data.set.items[i]};
+        EastValue *call_args[] = {acc, east_set_at(s, i)};
         EastValue *new_acc = call_fn(fn, call_args, 2);
         east_value_release(acc);
         if (!new_acc) return NULL;
@@ -388,7 +385,7 @@ static EastValue *set_to_array_impl(EastValue **args, size_t n)
     EastValue *fn = args[1];
     EastValue *result = east_array_new(s->data.set.elem_type);
     for (size_t i = 0; i < s->data.set.len; i++) {
-        EastValue *call_args[] = {s->data.set.items[i]};
+        EastValue *call_args[] = {east_set_at(s, i)};
         EastValue *mapped = call_fn(fn, call_args, 1);
         if (!mapped) {
             east_value_release(result);
@@ -407,7 +404,7 @@ static EastValue *set_to_set_impl(EastValue **args, size_t n)
     EastValue *fn = args[1];
     EastValue *result = east_set_new(&east_null_type);
     for (size_t i = 0; i < s->data.set.len; i++) {
-        EastValue *call_args[] = {s->data.set.items[i]};
+        EastValue *call_args[] = {east_set_at(s, i)};
         EastValue *mapped = call_fn(fn, call_args, 1);
         if (!mapped) {
             east_value_release(result);
@@ -428,7 +425,7 @@ static EastValue *set_to_dict_impl(EastValue **args, size_t n)
     EastValue *merge_fn = args[3];
     EastValue *result = east_dict_new(&east_null_type, &east_null_type);
     for (size_t i = 0; i < s->data.set.len; i++) {
-        EastValue *elem = s->data.set.items[i];
+        EastValue *elem = east_set_at(s, i);
         EastValue *kargs[] = {elem};
         EastValue *key = call_fn(key_fn, kargs, 1);
         if (!key) {
@@ -470,7 +467,7 @@ static EastValue *set_flatten_to_array_impl(EastValue **args, size_t n)
     EastValue *fn = args[1];
     EastValue *result = east_array_new(&east_null_type);
     for (size_t i = 0; i < s->data.set.len; i++) {
-        EastValue *call_args[] = {s->data.set.items[i]};
+        EastValue *call_args[] = {east_set_at(s, i)};
         EastValue *mapped = call_fn(fn, call_args, 1);
         if (!mapped) {
             east_value_release(result);
@@ -492,7 +489,7 @@ static EastValue *set_flatten_to_set_impl(EastValue **args, size_t n)
     EastValue *fn = args[1];
     EastValue *result = east_set_new(&east_null_type);
     for (size_t i = 0; i < s->data.set.len; i++) {
-        EastValue *call_args[] = {s->data.set.items[i]};
+        EastValue *call_args[] = {east_set_at(s, i)};
         EastValue *mapped = call_fn(fn, call_args, 1);
         if (!mapped) {
             east_value_release(result);
@@ -500,7 +497,7 @@ static EastValue *set_flatten_to_set_impl(EastValue **args, size_t n)
         }
         if (mapped->kind == EAST_VAL_SET) {
             for (size_t j = 0; j < mapped->data.set.len; j++)
-                east_set_insert(result, mapped->data.set.items[j]);
+                east_set_insert(result, east_set_at(mapped, j));
         }
         east_value_release(mapped);
     }
@@ -515,7 +512,7 @@ static EastValue *set_flatten_to_dict_impl(EastValue **args, size_t n)
     EastValue *merge_fn = args[2];
     EastValue *result = east_dict_new(&east_null_type, &east_null_type);
     for (size_t i = 0; i < s->data.set.len; i++) {
-        EastValue *call_args[] = {s->data.set.items[i]};
+        EastValue *call_args[] = {east_set_at(s, i)};
         EastValue *mapped = call_fn(fn, call_args, 1);
         if (!mapped) {
             east_value_release(result);
@@ -523,8 +520,8 @@ static EastValue *set_flatten_to_dict_impl(EastValue **args, size_t n)
         }
         if (mapped->kind == EAST_VAL_DICT) {
             for (size_t j = 0; j < mapped->data.dict.len; j++) {
-                EastValue *k = mapped->data.dict.keys[j];
-                EastValue *v = mapped->data.dict.values[j];
+                EastValue *k = east_dict_key_at(mapped, j);
+                EastValue *v = east_dict_val_at(mapped, j);
                 if (east_dict_has(result, k)) {
                     EastValue *existing = east_dict_get(result, k);
                     EastValue *margs[] = {existing, v, k};
@@ -555,7 +552,7 @@ static EastValue *set_group_fold_impl(EastValue **args, size_t n)
     EastValue *fold_fn = args[3];
     EastValue *result = east_dict_new(&east_null_type, &east_null_type);
     for (size_t i = 0; i < s->data.set.len; i++) {
-        EastValue *elem = s->data.set.items[i];
+        EastValue *elem = east_set_at(s, i);
         EastValue *kargs[] = {elem};
         EastValue *key = call_fn(key_fn, kargs, 1);
         if (!key) {

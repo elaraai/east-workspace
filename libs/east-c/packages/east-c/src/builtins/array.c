@@ -1162,7 +1162,7 @@ static EastValue *array_flatten_to_set_impl(EastValue **args, size_t n)
         /* mapped is a set -- iterate and insert */
         if (mapped->kind == EAST_VAL_SET) {
             for (size_t j = 0; j < mapped->data.set.len; j++)
-                east_set_insert(result, mapped->data.set.items[j]);
+                east_set_insert(result, east_set_at(mapped, j));
         }
         east_value_release(mapped);
         east_value_release(idx);
@@ -1193,8 +1193,8 @@ static EastValue *array_flatten_to_dict_impl(EastValue **args, size_t n)
         /* mapped is a dict -- merge each key/value */
         if (mapped->kind == EAST_VAL_DICT) {
             for (size_t j = 0; j < mapped->data.dict.len; j++) {
-                EastValue *k = mapped->data.dict.keys[j];
-                EastValue *v = mapped->data.dict.values[j];
+                EastValue *k = east_dict_key_at(mapped, j);
+                EastValue *v = east_dict_val_at(mapped, j);
                 if (east_dict_has(result, k)) {
                     EastValue *existing = east_dict_get(result, k);
                     EastValue *margs[] = {existing, v, k};

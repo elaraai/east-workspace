@@ -146,16 +146,11 @@ static void gc_traverse(EastValue *v, gc_visit_fn visit, void *ctx, bool include
         break;
 
     case EAST_VAL_SET:
-        for (size_t i = 0; i < v->data.set.len; i++) {
-            if (v->data.set.items[i]) visit(v->data.set.items[i], ctx);
-        }
+        east_set_visit(v, visit, ctx); /* straight off the tree — `items` may be stale */
         break;
 
     case EAST_VAL_DICT:
-        for (size_t i = 0; i < v->data.dict.len; i++) {
-            if (v->data.dict.keys[i]) visit(v->data.dict.keys[i], ctx);
-            if (v->data.dict.values[i]) visit(v->data.dict.values[i], ctx);
-        }
+        east_dict_visit(v, visit, ctx); /* key+val straight off the tree — caches may be stale */
         break;
 
     case EAST_VAL_STRUCT:
@@ -206,26 +201,11 @@ static void gc_destroy_contents(EastValue *v)
         break;
 
     case EAST_VAL_SET:
-        for (size_t i = 0; i < v->data.set.len; i++)
-            east_value_release(v->data.set.items[i]);
-        east_free(v->data.set.items);
-        if (v->data.set.elem_type) east_type_release(v->data.set.elem_type);
-        v->data.set.items = NULL;
-        v->data.set.len = 0;
+        east_set_release_contents(v); /* releases elements, frees tree + mirror, nulls fields */
         break;
 
     case EAST_VAL_DICT:
-        for (size_t i = 0; i < v->data.dict.len; i++) {
-            east_value_release(v->data.dict.keys[i]);
-            east_value_release(v->data.dict.values[i]);
-        }
-        east_free(v->data.dict.keys);
-        east_free(v->data.dict.values);
-        if (v->data.dict.key_type) east_type_release(v->data.dict.key_type);
-        if (v->data.dict.val_type) east_type_release(v->data.dict.val_type);
-        v->data.dict.keys = NULL;
-        v->data.dict.values = NULL;
-        v->data.dict.len = 0;
+        east_dict_release_contents(v); /* releases key+val, frees tree + caches, nulls fields */
         break;
 
     case EAST_VAL_STRUCT:

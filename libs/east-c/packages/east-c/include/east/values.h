@@ -28,6 +28,10 @@ typedef enum {
 typedef struct EastValue EastValue;
 typedef struct EastCompiledFn EastCompiledFn;
 
+/* tidwall/btree.c — the ordered store backing Set (and, later, Dict). Only
+ * values.c touches the concrete type; everywhere else holds the opaque pointer. */
+struct btree;
+
 struct EastValue {
     EastValueKind kind;
     int ref_count;
@@ -60,16 +64,22 @@ struct EastValue {
             EastType *elem_type;
         } array;
         struct {
-            EastValue **items;
-            size_t len;
-            size_t cap;
+            struct btree *tree; /* authoritative ordered store (item = EastValue*) */
+            EastValue **items;  /* lazy flat cache of `tree` for readers that index in
+                                 * order; rebuilt by east_set_sync when `dirty`. Borrows
+                                 * the tree's elements (holds no reference of its own). */
+            size_t len;         /* element count, maintained eagerly (always valid) */
+            size_t cap;         /* capacity of the `items` cache */
+            bool dirty;         /* `items` is stale and must be resynced before use */
             EastType *elem_type;
         } set;
         struct {
-            EastValue **keys;
-            EastValue **values;
-            size_t len;
-            size_t cap;
+            struct btree *tree; /* authoritative ordered store (item = {key, val} pair) */
+            EastValue **keys;   /* lazy parallel caches of `tree`, rebuilt by east_dict_sync */
+            EastValue **values; /* when `dirty`; borrow the tree's elements (own no ref) */
+            size_t len;         /* entry count, maintained eagerly (always valid) */
+            size_t cap;         /* capacity of the `keys`/`values` caches */
+            bool dirty;         /* caches are stale and must be resynced before use */
             EastType *key_type;
             EastType *val_type;
         } dict;
@@ -130,7 +140,17 @@ EastValue *east_set_new_with_capacity(EastType *elem_type, size_t capacity);
 void east_set_insert(EastValue *set, EastValue *val);
 bool east_set_has(EastValue *set, EastValue *val);
 bool east_set_delete(EastValue *set, EastValue *val);
+void east_set_clear(EastValue *set);
 size_t east_set_len(EastValue *set);
+/* Rebuilds the `items` cache from the tree if it is stale. Call once before
+ * indexing `set->data.set.items[0..len)`. No-op if already in sync. */
+void east_set_sync(EastValue *set);
+/* In-order visit of a set's elements straight off the tree (no `items` cache) —
+ * for the GC traversal, which must see live elements even while `items` is stale. */
+void east_set_visit(EastValue *set, void (*visit)(EastValue *elem, void *ctx), void *ctx);
+/* Releases a set's elements and frees its tree + cache (and elem_type), nulling
+ * the fields. Shared by the refcount release path and the GC cycle-collector. */
+void east_set_release_contents(EastValue *set);
 
 EastValue *east_dict_new(EastType *key_type, EastType *val_type);
 EastValue *east_dict_new_with_capacity(EastType *key_type, EastType *val_type, size_t capacity);
@@ -139,7 +159,37 @@ EastValue *east_dict_get(EastValue *dict, EastValue *key);
 bool east_dict_has(EastValue *dict, EastValue *key);
 bool east_dict_delete(EastValue *dict, EastValue *key);
 EastValue *east_dict_pop(EastValue *dict, EastValue *key);
+void east_dict_clear(EastValue *dict);
 size_t east_dict_len(EastValue *dict);
+/* Rebuilds the `keys`/`values` caches from the tree if stale. Call once before
+ * indexing keys[0..len)/values[0..len). No-op if already in sync. */
+void east_dict_sync(EastValue *dict);
+/* In-order visit of a dict's key AND value straight off the tree (no cache) —
+ * for the GC traversal, which must see live entries even while the cache is stale. */
+void east_dict_visit(EastValue *dict, void (*visit)(EastValue *child, void *ctx), void *ctx);
+/* Releases a dict's keys+values and frees its tree + caches (and key/val types),
+ * nulling the fields. Shared by the refcount release path and the GC collector. */
+void east_dict_release_contents(EastValue *dict);
+
+/* Encapsulated in-order element access. These sync the lazy cache, then return
+ * the element at index `i` (0 <= i < len). Consumers outside values.c use these
+ * instead of indexing data.set.items / data.dict.keys|values directly, so the
+ * cache stays a private detail of the value representation. */
+static inline EastValue *east_set_at(EastValue *set, size_t i)
+{
+    east_set_sync(set);
+    return set->data.set.items[i];
+}
+static inline EastValue *east_dict_key_at(EastValue *dict, size_t i)
+{
+    east_dict_sync(dict);
+    return dict->data.dict.keys[i];
+}
+static inline EastValue *east_dict_val_at(EastValue *dict, size_t i)
+{
+    east_dict_sync(dict);
+    return dict->data.dict.values[i];
+}
 
 EastValue *east_struct_new(const char **names, EastValue **values, size_t count, EastType *type);
 EastValue *east_struct_get_field(EastValue *s, const char *name);

@@ -276,7 +276,7 @@ static void json_encode_value(StrBuf *sb, EastValue *value, EastType *type)
         strbuf_append_char(sb, '[');
         for (size_t i = 0; i < value->data.set.len; i++) {
             if (i > 0) strbuf_append_char(sb, ',');
-            json_encode_value(sb, value->data.set.items[i], elem_type);
+            json_encode_value(sb, east_set_at(value, i), elem_type);
         }
         strbuf_append_char(sb, ']');
         break;
@@ -289,9 +289,9 @@ static void json_encode_value(StrBuf *sb, EastValue *value, EastType *type)
         for (size_t i = 0; i < value->data.dict.len; i++) {
             if (i > 0) strbuf_append_char(sb, ',');
             strbuf_append_str(sb, "{\"key\":");
-            json_encode_value(sb, value->data.dict.keys[i], key_type);
+            json_encode_value(sb, east_dict_key_at(value, i), key_type);
             strbuf_append_str(sb, ",\"value\":");
-            json_encode_value(sb, value->data.dict.values[i], val_type);
+            json_encode_value(sb, east_dict_val_at(value, i), val_type);
             strbuf_append_char(sb, '}');
         }
         strbuf_append_char(sb, ']');

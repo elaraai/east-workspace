@@ -173,9 +173,9 @@ static const char *dict_lookup_string(EastValue *dict, const char *key)
 {
     if (!dict) return NULL;
     for (size_t i = 0; i < dict->data.dict.len; i++) {
-        EastValue *k = dict->data.dict.keys[i];
+        EastValue *k = east_dict_key_at(dict, i);
         if (k && k->kind == EAST_VAL_STRING && strcmp(k->data.string.data, key) == 0) {
-            EastValue *v = dict->data.dict.values[i];
+            EastValue *v = east_dict_val_at(dict, i);
             if (v && v->kind == EAST_VAL_STRING) return v->data.string.data;
             return NULL;
         }

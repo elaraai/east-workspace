@@ -248,12 +248,7 @@ static EastValue *dict_clear_impl(EastValue **args, size_t n)
 {
     (void)n;
     ITER_GUARD_DICT(args[0]);
-    EastValue *d = args[0];
-    for (size_t i = 0; i < d->data.dict.len; i++) {
-        east_value_release(d->data.dict.keys[i]);
-        east_value_release(d->data.dict.values[i]);
-    }
-    d->data.dict.len = 0;
+    east_dict_clear(args[0]);
     return east_null();
 }
 
@@ -265,8 +260,8 @@ static EastValue *dict_union_in_place_impl(EastValue **args, size_t n)
     EastValue *other = args[1];
     EastValue *merge_fn = args[2];
     for (size_t i = 0; i < other->data.dict.len; i++) {
-        EastValue *k = other->data.dict.keys[i];
-        EastValue *v = other->data.dict.values[i];
+        EastValue *k = east_dict_key_at(other, i);
+        EastValue *v = east_dict_val_at(other, i);
         if (east_dict_has(d, k)) {
             EastValue *existing = east_dict_get(d, k);
             EastValue *margs[] = {existing, v, k};
@@ -290,8 +285,8 @@ static EastValue *dict_merge_all_impl(EastValue **args, size_t n)
     EastValue *merge_fn = args[2];
     EastValue *default_fn = args[3];
     for (size_t i = 0; i < other->data.dict.len; i++) {
-        EastValue *k = other->data.dict.keys[i];
-        EastValue *v = other->data.dict.values[i];
+        EastValue *k = east_dict_key_at(other, i);
+        EastValue *v = east_dict_val_at(other, i);
         EastValue *existing;
         bool existing_owned = false;
         if (east_dict_has(d, k)) {
@@ -318,7 +313,7 @@ static EastValue *dict_keys_impl(EastValue **args, size_t n)
     EastValue *d = args[0];
     EastValue *result = east_set_new(d->data.dict.key_type);
     for (size_t i = 0; i < d->data.dict.len; i++)
-        east_set_insert(result, d->data.dict.keys[i]);
+        east_set_insert(result, east_dict_key_at(d, i));
     return result;
 }
 
@@ -330,7 +325,7 @@ static EastValue *dict_get_keys_impl(EastValue **args, size_t n)
     EastValue *default_fn = args[2];
     EastValue *result = east_dict_new(d->data.dict.key_type, d->data.dict.val_type);
     for (size_t i = 0; i < keys_set->data.set.len; i++) {
-        EastValue *k = keys_set->data.set.items[i];
+        EastValue *k = east_set_at(keys_set, i);
         if (east_dict_has(d, k)) {
             east_dict_set(result, k, east_dict_get(d, k));
         } else {
@@ -401,7 +396,7 @@ static EastValue *dict_copy_impl(EastValue **args, size_t n)
     EastValue *d = args[0];
     EastValue *result = east_dict_new(d->data.dict.key_type, d->data.dict.val_type);
     for (size_t i = 0; i < d->data.dict.len; i++)
-        east_dict_set(result, d->data.dict.keys[i], d->data.dict.values[i]);
+        east_dict_set(result, east_dict_key_at(d, i), east_dict_val_at(d, i));
     return result;
 }
 
@@ -412,7 +407,7 @@ static EastValue *dict_for_each_impl(EastValue **args, size_t n)
     EastValue *fn = args[1];
     d->iter_lock++;
     for (size_t i = 0; i < d->data.dict.len; i++) {
-        EastValue *call_args[] = {d->data.dict.values[i], d->data.dict.keys[i]};
+        EastValue *call_args[] = {east_dict_val_at(d, i), east_dict_key_at(d, i)};
         EastValue *ret = call_fn(fn, call_args, 2);
         if (!ret) {
             d->iter_lock--;
@@ -431,13 +426,13 @@ static EastValue *dict_map_impl(EastValue **args, size_t n)
     EastValue *fn = args[1];
     EastValue *result = east_dict_new(d->data.dict.key_type, &east_null_type);
     for (size_t i = 0; i < d->data.dict.len; i++) {
-        EastValue *call_args[] = {d->data.dict.values[i], d->data.dict.keys[i]};
+        EastValue *call_args[] = {east_dict_val_at(d, i), east_dict_key_at(d, i)};
         EastValue *val = call_fn(fn, call_args, 2);
         if (!val) {
             east_value_release(result);
             return NULL;
         }
-        east_dict_set(result, d->data.dict.keys[i], val);
+        east_dict_set(result, east_dict_key_at(d, i), val);
         east_value_release(val);
     }
     return result;
@@ -450,13 +445,13 @@ static EastValue *dict_filter_impl(EastValue **args, size_t n)
     EastValue *fn = args[1];
     EastValue *result = east_dict_new(d->data.dict.key_type, d->data.dict.val_type);
     for (size_t i = 0; i < d->data.dict.len; i++) {
-        EastValue *call_args[] = {d->data.dict.values[i], d->data.dict.keys[i]};
+        EastValue *call_args[] = {east_dict_val_at(d, i), east_dict_key_at(d, i)};
         EastValue *pred = call_fn(fn, call_args, 2);
         if (!pred) {
             east_value_release(result);
             return NULL;
         }
-        if (pred->data.boolean) east_dict_set(result, d->data.dict.keys[i], d->data.dict.values[i]);
+        if (pred->data.boolean) east_dict_set(result, east_dict_key_at(d, i), east_dict_val_at(d, i));
         east_value_release(pred);
     }
     return result;
@@ -469,14 +464,14 @@ static EastValue *dict_filter_map_impl(EastValue **args, size_t n)
     EastValue *fn = args[1];
     EastValue *result = east_dict_new(d->data.dict.key_type, &east_null_type);
     for (size_t i = 0; i < d->data.dict.len; i++) {
-        EastValue *call_args[] = {d->data.dict.values[i], d->data.dict.keys[i]};
+        EastValue *call_args[] = {east_dict_val_at(d, i), east_dict_key_at(d, i)};
         EastValue *opt = call_fn(fn, call_args, 2);
         if (!opt) {
             east_value_release(result);
             return NULL;
         }
         if (opt->kind == EAST_VAL_VARIANT && strcmp(east_variant_case_name(opt), "some") == 0)
-            east_dict_set(result, d->data.dict.keys[i], opt->data.variant.value);
+            east_dict_set(result, east_dict_key_at(d, i), opt->data.variant.value);
         east_value_release(opt);
     }
     return result;
@@ -488,7 +483,7 @@ static EastValue *dict_first_map_impl(EastValue **args, size_t n)
     EastValue *d = args[0];
     EastValue *fn = args[1];
     for (size_t i = 0; i < d->data.dict.len; i++) {
-        EastValue *call_args[] = {d->data.dict.values[i], d->data.dict.keys[i]};
+        EastValue *call_args[] = {east_dict_val_at(d, i), east_dict_key_at(d, i)};
         EastValue *opt = call_fn(fn, call_args, 2);
         if (!opt) return NULL;
         if (opt->kind == EAST_VAL_VARIANT && strcmp(east_variant_case_name(opt), "some") == 0)
@@ -508,11 +503,11 @@ static EastValue *dict_map_reduce_impl(EastValue **args, size_t n)
         east_builtin_error("Cannot reduce empty dictionary with no initial value");
         return NULL;
     }
-    EastValue *margs0[] = {d->data.dict.values[0], d->data.dict.keys[0]};
+    EastValue *margs0[] = {east_dict_val_at(d, 0), east_dict_key_at(d, 0)};
     EastValue *acc = call_fn(map_fn, margs0, 2);
     if (!acc) return NULL;
     for (size_t i = 1; i < d->data.dict.len; i++) {
-        EastValue *margs[] = {d->data.dict.values[i], d->data.dict.keys[i]};
+        EastValue *margs[] = {east_dict_val_at(d, i), east_dict_key_at(d, i)};
         EastValue *mapped = call_fn(map_fn, margs, 2);
         if (!mapped) {
             east_value_release(acc);
@@ -537,7 +532,7 @@ static EastValue *dict_reduce_impl(EastValue **args, size_t n)
     east_value_retain(initial);
     EastValue *acc = initial;
     for (size_t i = 0; i < d->data.dict.len; i++) {
-        EastValue *call_args[] = {acc, d->data.dict.values[i], d->data.dict.keys[i]};
+        EastValue *call_args[] = {acc, east_dict_val_at(d, i), east_dict_key_at(d, i)};
         EastValue *new_acc = call_fn(fn, call_args, 3);
         east_value_release(acc);
         if (!new_acc) return NULL;
@@ -553,7 +548,7 @@ static EastValue *dict_to_array_impl(EastValue **args, size_t n)
     EastValue *fn = args[1];
     EastValue *result = east_array_new(&east_null_type);
     for (size_t i = 0; i < d->data.dict.len; i++) {
-        EastValue *call_args[] = {d->data.dict.values[i], d->data.dict.keys[i]};
+        EastValue *call_args[] = {east_dict_val_at(d, i), east_dict_key_at(d, i)};
         EastValue *val = call_fn(fn, call_args, 2);
         if (!val) {
             east_value_release(result);
@@ -572,7 +567,7 @@ static EastValue *dict_to_set_impl(EastValue **args, size_t n)
     EastValue *fn = args[1];
     EastValue *result = east_set_new(&east_null_type);
     for (size_t i = 0; i < d->data.dict.len; i++) {
-        EastValue *call_args[] = {d->data.dict.values[i], d->data.dict.keys[i]};
+        EastValue *call_args[] = {east_dict_val_at(d, i), east_dict_key_at(d, i)};
         EastValue *val = call_fn(fn, call_args, 2);
         if (!val) {
             east_value_release(result);
@@ -593,8 +588,8 @@ static EastValue *dict_to_dict_impl(EastValue **args, size_t n)
     EastValue *merge_fn = args[3];
     EastValue *result = east_dict_new(&east_null_type, &east_null_type);
     for (size_t i = 0; i < d->data.dict.len; i++) {
-        EastValue *v = d->data.dict.values[i];
-        EastValue *k = d->data.dict.keys[i];
+        EastValue *v = east_dict_val_at(d, i);
+        EastValue *k = east_dict_key_at(d, i);
         EastValue *kargs[] = {v, k};
         EastValue *new_key = call_fn(key_fn, kargs, 2);
         if (!new_key) {
@@ -636,7 +631,7 @@ static EastValue *dict_flatten_to_array_impl(EastValue **args, size_t n)
     EastValue *fn = args[1];
     EastValue *result = east_array_new(&east_null_type);
     for (size_t i = 0; i < d->data.dict.len; i++) {
-        EastValue *call_args[] = {d->data.dict.values[i], d->data.dict.keys[i]};
+        EastValue *call_args[] = {east_dict_val_at(d, i), east_dict_key_at(d, i)};
         EastValue *mapped = call_fn(fn, call_args, 2);
         if (!mapped) {
             east_value_release(result);
@@ -658,7 +653,7 @@ static EastValue *dict_flatten_to_set_impl(EastValue **args, size_t n)
     EastValue *fn = args[1];
     EastValue *result = east_set_new(&east_null_type);
     for (size_t i = 0; i < d->data.dict.len; i++) {
-        EastValue *call_args[] = {d->data.dict.values[i], d->data.dict.keys[i]};
+        EastValue *call_args[] = {east_dict_val_at(d, i), east_dict_key_at(d, i)};
         EastValue *mapped = call_fn(fn, call_args, 2);
         if (!mapped) {
             east_value_release(result);
@@ -666,7 +661,7 @@ static EastValue *dict_flatten_to_set_impl(EastValue **args, size_t n)
         }
         if (mapped->kind == EAST_VAL_SET) {
             for (size_t j = 0; j < mapped->data.set.len; j++)
-                east_set_insert(result, mapped->data.set.items[j]);
+                east_set_insert(result, east_set_at(mapped, j));
         }
         east_value_release(mapped);
     }
@@ -681,7 +676,7 @@ static EastValue *dict_flatten_to_dict_impl(EastValue **args, size_t n)
     EastValue *merge_fn = args[2];
     EastValue *result = east_dict_new(&east_null_type, &east_null_type);
     for (size_t i = 0; i < d->data.dict.len; i++) {
-        EastValue *call_args[] = {d->data.dict.values[i], d->data.dict.keys[i]};
+        EastValue *call_args[] = {east_dict_val_at(d, i), east_dict_key_at(d, i)};
         EastValue *mapped = call_fn(fn, call_args, 2);
         if (!mapped) {
             east_value_release(result);
@@ -689,8 +684,8 @@ static EastValue *dict_flatten_to_dict_impl(EastValue **args, size_t n)
         }
         if (mapped->kind == EAST_VAL_DICT) {
             for (size_t j = 0; j < mapped->data.dict.len; j++) {
-                EastValue *mk = mapped->data.dict.keys[j];
-                EastValue *mv = mapped->data.dict.values[j];
+                EastValue *mk = east_dict_key_at(mapped, j);
+                EastValue *mv = east_dict_val_at(mapped, j);
                 if (east_dict_has(result, mk)) {
                     EastValue *existing = east_dict_get(result, mk);
                     EastValue *margs[] = {existing, mv, mk};
@@ -721,8 +716,8 @@ static EastValue *dict_group_fold_impl(EastValue **args, size_t n)
     EastValue *fold_fn = args[3];
     EastValue *result = east_dict_new(&east_null_type, &east_null_type);
     for (size_t i = 0; i < d->data.dict.len; i++) {
-        EastValue *v = d->data.dict.values[i];
-        EastValue *k = d->data.dict.keys[i];
+        EastValue *v = east_dict_val_at(d, i);
+        EastValue *k = east_dict_key_at(d, i);
         EastValue *kargs[] = {v, k};
         EastValue *group_key = call_fn(key_fn, kargs, 2);
         if (!group_key) {

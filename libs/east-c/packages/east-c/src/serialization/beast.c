@@ -660,7 +660,7 @@ static void beast_encode_value(ByteBuffer *buf, EastValue *value, EastType *type
         size_t count = value->data.set.len;
         for (size_t i = 0; i < count; i++) {
             byte_buffer_write_u8(buf, 0x01);
-            beast_encode_value(buf, value->data.set.items[i], elem_type);
+            beast_encode_value(buf, east_set_at(value, i), elem_type);
         }
         byte_buffer_write_u8(buf, 0x00);
         break;
@@ -673,8 +673,8 @@ static void beast_encode_value(ByteBuffer *buf, EastValue *value, EastType *type
         size_t count = value->data.dict.len;
         for (size_t i = 0; i < count; i++) {
             byte_buffer_write_u8(buf, 0x01);
-            beast_encode_value(buf, value->data.dict.keys[i], key_type);
-            beast_encode_value(buf, value->data.dict.values[i], val_type);
+            beast_encode_value(buf, east_dict_key_at(value, i), key_type);
+            beast_encode_value(buf, east_dict_val_at(value, i), val_type);
         }
         byte_buffer_write_u8(buf, 0x00);
         break;

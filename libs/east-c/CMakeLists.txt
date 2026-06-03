@@ -73,6 +73,28 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(microtar PRIVATE -w)
 endif()
 
+# Fetch tidwall/btree.c — the ordered B-tree that backs the Set/Dict in-memory
+# representation. It ships btree.c + btree.h with a Makefile but no CMake
+# project, so — like microtar above — we fetch the source and build it ourselves.
+# BTREE_NOATOMICS drops its copy-on-write <stdatomic.h> dependency: east-c never
+# shares tree nodes across threads (GC tracking lists are thread-local), so the
+# atomic refcount the library uses only for btree_clone is pure overhead here.
+FetchContent_Declare(
+    btreec
+    GIT_REPOSITORY https://github.com/tidwall/btree.c.git
+    GIT_TAG v0.6.4
+)
+FetchContent_GetProperties(btreec)
+if(NOT btreec_POPULATED)
+    FetchContent_Populate(btreec)
+endif()
+add_library(btreec STATIC ${btreec_SOURCE_DIR}/btree.c)
+target_include_directories(btreec PUBLIC ${btreec_SOURCE_DIR})
+target_compile_definitions(btreec PUBLIC BTREE_NOATOMICS)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(btreec PRIVATE -w)
+endif()
+
 # On Windows there is no system libcurl, so vendor a static curl built against
 # Schannel (Windows-native TLS — no OpenSSL). Linux/macOS use system curl
 # (see packages/east-c-std/CMakeLists.txt). HTTP(S)-only keeps it small.

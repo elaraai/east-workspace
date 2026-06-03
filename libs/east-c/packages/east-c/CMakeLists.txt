@@ -45,6 +45,9 @@ add_library(east-c
 
 target_include_directories(east-c PUBLIC include)
 target_link_libraries(east-c PRIVATE pcre2-8)
+# values.c backs Set with tidwall/btree.c (the btreec target carries btree.h's
+# include dir + BTREE_NOATOMICS as PUBLIC usage requirements).
+target_link_libraries(east-c PRIVATE btreec)
 # libm is part of the CRT on Windows/MSVC; only link the separate libm elsewhere.
 if(NOT WIN32)
     target_link_libraries(east-c PRIVATE m)
@@ -79,3 +82,20 @@ if(WIN32)
     find_package(Threads REQUIRED)
     target_link_libraries(test_compliance Threads::Threads)
 endif()
+
+# B-tree leverage gate: proves tidwall/btree.c integrates with east-c's
+# allocator, east_value_compare, and refcounted-value teardown before the
+# Set/Dict representation is migrated onto it. Not part of the IR compliance
+# suite — run directly (and under ASan) to validate the integration.
+if(TARGET btreec)
+    add_executable(test_btree_gate tests/test_btree_gate.c)
+    target_link_libraries(test_btree_gate east-c btreec)
+endif()
+
+# Beast2 encode/decode timing harnesses (dev profiling — build Release for real
+# numbers). profile_collections builds large Dict/Set values in C and times
+# encode + decode per call; profile_beast2_decode times a given .beast2 file.
+add_executable(profile_collections scripts/profile_collections.c)
+target_link_libraries(profile_collections east-c)
+add_executable(profile_beast2_decode scripts/profile_beast2_decode.c)
+target_link_libraries(profile_beast2_decode east-c)

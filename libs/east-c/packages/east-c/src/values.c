@@ -5,6 +5,8 @@
 #include "east/types.h"
 #include "east/compat.h" /* EAST_PRINTF_FMT */
 
+#include "btree.h" /* tidwall/btree.c — Set's ordered store */
+
 #include <inttypes.h>
 #include <math.h>
 #include <stdarg.h>
@@ -322,20 +324,101 @@ size_t east_array_len(EastValue *arr)
 }
 
 /* ------------------------------------------------------------------ */
-/*  Sorted set                                                         */
+/*  Sorted set — a tidwall/btree.c B-tree of EastValue*, with a flat       */
+/*  `items` mirror kept in sync for readers that still index it.          */
 /* ------------------------------------------------------------------ */
+
+/* The set/dict B-tree stores EastValue* items; a,b point at EastValue* slots. */
+static int btree_cmp_value(const void *a, const void *b, void *udata)
+{
+    (void)udata;
+    return east_value_compare(*(EastValue *const *)a, *(EastValue *const *)b);
+}
+
+/* Installed as the B-tree item_free: releases an element on teardown, delete,
+ * and replace — the single hook serving both the refcount and GC death paths. */
+static void btree_free_value(const void *item, void *udata)
+{
+    (void)udata;
+    east_value_release(*(EastValue *const *)item);
+}
+
+/* east_realloc is 3-arg (ptr, old, new); btree.c's hook is 2-arg. btree.c never
+ * actually calls realloc, but the constructor requires a non-NULL pointer. */
+static void *btree_realloc2(void *ptr, size_t size)
+{
+    return east_realloc(ptr, 0, size);
+}
+
+static struct btree *value_btree_new(void)
+{
+    struct btree *t = btree_new_with_allocator(east_alloc, btree_realloc2, east_free,
+                                               sizeof(EastValue *), 0, btree_cmp_value, NULL);
+    if (t) btree_set_item_callbacks(t, NULL, btree_free_value);
+    return t;
+}
+
+/* Collect tree elements into the `items` cache, in canonical order. The cache
+ * borrows the tree's elements (no retain), so the buffer is freed without
+ * releasing and a stale entry past `len` is never read. */
+static bool set_cache_collect(const void *item, void *udata)
+{
+    EastValue ***cursor = (EastValue ***)udata;
+    **cursor = *(EastValue *const *)item;
+    (*cursor)++;
+    return true;
+}
+
+void east_set_sync(EastValue *set)
+{
+    if (!set || set->kind != EAST_VAL_SET || !set->data.set.dirty) return;
+    size_t n = set->data.set.len;
+    if (n > set->data.set.cap) {
+        size_t new_cap = set->data.set.cap ? set->data.set.cap : 4;
+        while (new_cap < n) new_cap *= 2;
+        EastValue **items = east_realloc(set->data.set.items, set->data.set.cap * sizeof(EastValue *),
+                                         new_cap * sizeof(EastValue *));
+        if (!items) return; /* OOM — stay dirty, try again next read */
+        set->data.set.items = items;
+        set->data.set.cap = new_cap;
+    }
+    EastValue **cursor = set->data.set.items;
+    btree_ascend(set->data.set.tree, NULL, set_cache_collect, &cursor);
+    set->data.set.dirty = false;
+}
+
+typedef struct {
+    void (*visit)(EastValue *elem, void *ctx);
+    void *ctx;
+} SetVisitCtx;
+
+static bool set_visit_cb(const void *item, void *udata)
+{
+    SetVisitCtx *c = (SetVisitCtx *)udata;
+    c->visit(*(EastValue *const *)item, c->ctx);
+    return true;
+}
+
+void east_set_visit(EastValue *set, void (*visit)(EastValue *elem, void *ctx), void *ctx)
+{
+    if (!set || set->kind != EAST_VAL_SET) return;
+    SetVisitCtx c = {visit, ctx};
+    btree_ascend(set->data.set.tree, NULL, set_visit_cb, &c);
+}
 
 EastValue *east_set_new(EastType *elem_type)
 {
     EastValue *v = alloc_value(EAST_VAL_SET);
     if (!v) return NULL;
-    v->data.set.len = 0;
-    v->data.set.cap = 4;
-    v->data.set.items = east_alloc(4 * sizeof(EastValue *));
-    if (!v->data.set.items) {
+    v->data.set.tree = value_btree_new();
+    if (!v->data.set.tree) {
         east_value_slab_free(v);
         return NULL;
     }
+    v->data.set.items = NULL;
+    v->data.set.len = 0;
+    v->data.set.cap = 0;
+    v->data.set.dirty = false; /* empty cache is trivially in sync */
     v->data.set.elem_type = elem_type;
     if (elem_type) east_type_retain(elem_type);
     return v;
@@ -343,101 +426,48 @@ EastValue *east_set_new(EastType *elem_type)
 
 EastValue *east_set_new_with_capacity(EastType *elem_type, size_t capacity)
 {
-    EastValue *v = alloc_value(EAST_VAL_SET);
-    if (!v) return NULL;
-    v->data.set.len = 0;
-    v->data.set.cap = capacity;
-    if (capacity > 0) {
-        v->data.set.items = east_alloc(capacity * sizeof(EastValue *));
-        if (!v->data.set.items) {
-            east_value_slab_free(v);
-            return NULL;
-        }
-    } else {
-        v->data.set.items = NULL;
-    }
-    v->data.set.elem_type = elem_type;
-    if (elem_type) east_type_retain(elem_type);
-    return v;
-}
-
-/*
- * Binary search in sorted items array.
- * Returns the index where `val` was found, or the insertion point if not found.
- * Sets *found to true if the value is already present.
- */
-static size_t sorted_search(EastValue **items, size_t len, EastValue *val, bool *found)
-{
-    size_t lo = 0;
-    size_t hi = len;
-    while (lo < hi) {
-        size_t mid = lo + (hi - lo) / 2;
-        int cmp = east_value_compare(items[mid], val);
-        if (cmp < 0) {
-            lo = mid + 1;
-        } else if (cmp > 0) {
-            hi = mid;
-        } else {
-            *found = true;
-            return mid;
-        }
-    }
-    *found = false;
-    return lo;
+    (void)capacity; /* the tree grows itself; the mirror grows on first sync */
+    return east_set_new(elem_type);
 }
 
 void east_set_insert(EastValue *set, EastValue *val)
 {
     if (!set || set->kind != EAST_VAL_SET) return;
+    if (btree_get(set->data.set.tree, &val)) return; /* already present */
 
-    bool found = false;
-    size_t pos = sorted_search(set->data.set.items, set->data.set.len, val, &found);
-    if (found) return; /* already present */
-
-    /* Grow if needed. */
-    if (set->data.set.len >= set->data.set.cap) {
-        size_t old_cap = set->data.set.cap;
-        size_t new_cap = old_cap * 2;
-        EastValue **new_items = east_realloc(set->data.set.items, old_cap * sizeof(EastValue *),
-                                             new_cap * sizeof(EastValue *));
-        if (!new_items) return;
-        set->data.set.items = new_items;
-        set->data.set.cap = new_cap;
-    }
-
-    /* Shift elements right to make room. */
-    if (pos < set->data.set.len) {
-        memmove(&set->data.set.items[pos + 1], &set->data.set.items[pos],
-                (set->data.set.len - pos) * sizeof(EastValue *));
-    }
-
+    /* The tree takes ownership of one reference; the caller keeps its own. */
     if (val) east_value_retain(val);
-    set->data.set.items[pos] = val;
+    btree_set(set->data.set.tree, &val);
+    if (btree_oom(set->data.set.tree)) {
+        if (val) east_value_release(val); /* insert failed — give the ref back */
+        return;
+    }
     set->data.set.len++;
+    set->data.set.dirty = true;
 }
 
 bool east_set_has(EastValue *set, EastValue *val)
 {
     if (!set || set->kind != EAST_VAL_SET) return false;
-    bool found = false;
-    sorted_search(set->data.set.items, set->data.set.len, val, &found);
-    return found;
+    return btree_get(set->data.set.tree, &val) != NULL;
 }
 
 bool east_set_delete(EastValue *set, EastValue *val)
 {
     if (!set || set->kind != EAST_VAL_SET) return false;
-    bool found = false;
-    size_t pos = sorted_search(set->data.set.items, set->data.set.len, val, &found);
-    if (!found) return false;
-    east_value_release(set->data.set.items[pos]);
-    size_t remaining = set->data.set.len - pos - 1;
-    if (remaining > 0) {
-        memmove(&set->data.set.items[pos], &set->data.set.items[pos + 1],
-                remaining * sizeof(EastValue *));
-    }
+    /* btree_delete's item_free releases the stored element; we must not. */
+    if (!btree_delete(set->data.set.tree, &val)) return false;
     set->data.set.len--;
+    set->data.set.dirty = true;
     return true;
+}
+
+void east_set_clear(EastValue *set)
+{
+    if (!set || set->kind != EAST_VAL_SET) return;
+    btree_clear(set->data.set.tree); /* item_free releases every element */
+    set->data.set.len = 0;
+    set->data.set.dirty = true;
 }
 
 size_t east_set_len(EastValue *set)
@@ -446,24 +476,133 @@ size_t east_set_len(EastValue *set)
     return set->data.set.len;
 }
 
+void east_set_release_contents(EastValue *v)
+{
+    if (v->data.set.tree) {
+        btree_free(v->data.set.tree); /* item_free releases every element */
+        v->data.set.tree = NULL;
+    }
+    east_free(v->data.set.items); /* mirror borrows — free the buffer, release nothing */
+    v->data.set.items = NULL;
+    v->data.set.len = 0;
+    if (v->data.set.elem_type) {
+        east_type_release(v->data.set.elem_type);
+        v->data.set.elem_type = NULL;
+    }
+}
+
 /* ------------------------------------------------------------------ */
-/*  Sorted dict (parallel arrays)                                      */
+/*  Sorted dict — a tidwall/btree.c B-tree of {key, val} pairs ordered    */
+/*  by key, with lazy parallel keys/values caches for readers.            */
 /* ------------------------------------------------------------------ */
+
+/* The dict B-tree stores {key, val} pairs ordered by KEY only. */
+typedef struct {
+    EastValue *key;
+    EastValue *val;
+} DictPair;
+
+static int btree_cmp_dict(const void *a, const void *b, void *udata)
+{
+    (void)udata;
+    return east_value_compare(((const DictPair *)a)->key, ((const DictPair *)b)->key);
+}
+
+/* item_free for the dict tree: releases both the key and the value on teardown,
+ * delete, and replace — the single hook serving both death paths. */
+static void btree_free_dict(const void *item, void *udata)
+{
+    (void)udata;
+    const DictPair *p = (const DictPair *)item;
+    east_value_release(p->key);
+    east_value_release(p->val);
+}
+
+static struct btree *value_btree_new_dict(void)
+{
+    struct btree *t = btree_new_with_allocator(east_alloc, btree_realloc2, east_free,
+                                               sizeof(DictPair), 0, btree_cmp_dict, NULL);
+    if (t) btree_set_item_callbacks(t, NULL, btree_free_dict);
+    return t;
+}
+
+typedef struct {
+    EastValue **keys;
+    EastValue **values;
+    size_t      i;
+} DictCacheCtx;
+
+static bool dict_cache_collect(const void *item, void *udata)
+{
+    DictCacheCtx  *c = (DictCacheCtx *)udata;
+    const DictPair *p = (const DictPair *)item;
+    c->keys[c->i] = p->key;
+    c->values[c->i] = p->val;
+    c->i++;
+    return true;
+}
+
+void east_dict_sync(EastValue *dict)
+{
+    if (!dict || dict->kind != EAST_VAL_DICT || !dict->data.dict.dirty) return;
+    size_t n = dict->data.dict.len;
+    if (n > dict->data.dict.cap) {
+        size_t old = dict->data.dict.cap;
+        size_t new_cap = old ? old : 4;
+        while (new_cap < n) new_cap *= 2;
+        EastValue **k = east_realloc(dict->data.dict.keys, old * sizeof(EastValue *),
+                                     new_cap * sizeof(EastValue *));
+        EastValue **v = east_realloc(dict->data.dict.values, old * sizeof(EastValue *),
+                                     new_cap * sizeof(EastValue *));
+        if (!k || !v) { /* OOM — keep whatever grew, stay dirty, retry next read */
+            if (k) dict->data.dict.keys = k;
+            if (v) dict->data.dict.values = v;
+            return;
+        }
+        dict->data.dict.keys = k;
+        dict->data.dict.values = v;
+        dict->data.dict.cap = new_cap;
+    }
+    DictCacheCtx c = {dict->data.dict.keys, dict->data.dict.values, 0};
+    btree_ascend(dict->data.dict.tree, NULL, dict_cache_collect, &c);
+    dict->data.dict.dirty = false;
+}
+
+typedef struct {
+    void (*visit)(EastValue *child, void *ctx);
+    void *ctx;
+} DictVisitCtx;
+
+static bool dict_visit_cb(const void *item, void *udata)
+{
+    DictVisitCtx  *c = (DictVisitCtx *)udata;
+    const DictPair *p = (const DictPair *)item;
+    if (p->key) c->visit(p->key, c->ctx);
+    if (p->val) c->visit(p->val, c->ctx);
+    return true;
+}
+
+void east_dict_visit(EastValue *dict, void (*visit)(EastValue *child, void *ctx), void *ctx)
+{
+    if (!dict || dict->kind != EAST_VAL_DICT) return;
+    DictVisitCtx c = {visit, ctx};
+    btree_ascend(dict->data.dict.tree, NULL, dict_visit_cb, &c);
+}
 
 EastValue *east_dict_new(EastType *key_type, EastType *val_type)
 {
     EastValue *v = alloc_value(EAST_VAL_DICT);
     if (!v) return NULL;
-    v->data.dict.len = 0;
-    v->data.dict.cap = 4;
-    v->data.dict.keys = east_alloc(4 * sizeof(EastValue *));
-    v->data.dict.values = east_alloc(4 * sizeof(EastValue *));
-    if (!v->data.dict.keys || !v->data.dict.values) {
-        east_free(v->data.dict.keys);
-        east_free(v->data.dict.values);
+    v->data.dict.tree = value_btree_new_dict();
+    if (!v->data.dict.tree) {
         east_value_slab_free(v);
         return NULL;
     }
+    v->data.dict.keys = NULL;
+    v->data.dict.values = NULL;
+    v->data.dict.len = 0;
+    v->data.dict.cap = 0;
+    v->data.dict.dirty = false;
     v->data.dict.key_type = key_type;
     if (key_type) east_type_retain(key_type);
     v->data.dict.val_type = val_type;
@@ -473,138 +612,100 @@ EastValue *east_dict_new(EastType *key_type, EastType *val_type)
 
 EastValue *east_dict_new_with_capacity(EastType *key_type, EastType *val_type, size_t capacity)
 {
-    EastValue *v = alloc_value(EAST_VAL_DICT);
-    if (!v) return NULL;
-    v->data.dict.len = 0;
-    v->data.dict.cap = capacity;
-    if (capacity > 0) {
-        v->data.dict.keys = east_alloc(capacity * sizeof(EastValue *));
-        v->data.dict.values = east_alloc(capacity * sizeof(EastValue *));
-        if (!v->data.dict.keys || !v->data.dict.values) {
-            east_free(v->data.dict.keys);
-            east_free(v->data.dict.values);
-            east_value_slab_free(v);
-            return NULL;
-        }
-    } else {
-        v->data.dict.keys = NULL;
-        v->data.dict.values = NULL;
-    }
-    v->data.dict.key_type = key_type;
-    if (key_type) east_type_retain(key_type);
-    v->data.dict.val_type = val_type;
-    if (val_type) east_type_retain(val_type);
-    return v;
+    (void)capacity; /* the tree grows itself; the caches grow on first sync */
+    return east_dict_new(key_type, val_type);
 }
 
 void east_dict_set(EastValue *dict, EastValue *key, EastValue *val)
 {
     if (!dict || dict->kind != EAST_VAL_DICT) return;
-
-    bool found = false;
-    size_t pos = sorted_search(dict->data.dict.keys, dict->data.dict.len, key, &found);
-
-    if (found) {
-        /* Update existing entry. */
-        if (val) east_value_retain(val);
-        east_value_release(dict->data.dict.values[pos]);
-        dict->data.dict.values[pos] = val;
-        return;
-    }
-
-    /* Grow if needed. */
-    if (dict->data.dict.len >= dict->data.dict.cap) {
-        size_t old_cap = dict->data.dict.cap;
-        size_t new_cap = old_cap * 2;
-        EastValue **new_keys = east_realloc(dict->data.dict.keys, old_cap * sizeof(EastValue *),
-                                            new_cap * sizeof(EastValue *));
-        EastValue **new_vals = east_realloc(dict->data.dict.values, old_cap * sizeof(EastValue *),
-                                            new_cap * sizeof(EastValue *));
-        if (!new_keys || !new_vals) {
-            /* On partial realloc failure, restore what we can. */
-            if (new_keys) dict->data.dict.keys = new_keys;
-            if (new_vals) dict->data.dict.values = new_vals;
-            return;
-        }
-        dict->data.dict.keys = new_keys;
-        dict->data.dict.values = new_vals;
-        dict->data.dict.cap = new_cap;
-    }
-
-    /* Shift elements right. */
-    if (pos < dict->data.dict.len) {
-        memmove(&dict->data.dict.keys[pos + 1], &dict->data.dict.keys[pos],
-                (dict->data.dict.len - pos) * sizeof(EastValue *));
-        memmove(&dict->data.dict.values[pos + 1], &dict->data.dict.values[pos],
-                (dict->data.dict.len - pos) * sizeof(EastValue *));
-    }
-
+    DictPair pair = {key, val};
     if (key) east_value_retain(key);
     if (val) east_value_retain(val);
-    dict->data.dict.keys[pos] = key;
-    dict->data.dict.values[pos] = val;
-    dict->data.dict.len++;
+    const void *replaced = btree_set(dict->data.dict.tree, &pair);
+    if (btree_oom(dict->data.dict.tree)) {
+        if (key) east_value_release(key);
+        if (val) east_value_release(val);
+        return;
+    }
+    /* A replace item_free'd the old key+val; only a fresh key grows len. */
+    if (!replaced) dict->data.dict.len++;
+    dict->data.dict.dirty = true;
 }
 
 EastValue *east_dict_get(EastValue *dict, EastValue *key)
 {
     if (!dict || dict->kind != EAST_VAL_DICT) return NULL;
-    bool found = false;
-    size_t pos = sorted_search(dict->data.dict.keys, dict->data.dict.len, key, &found);
-    if (!found) return NULL;
-    return dict->data.dict.values[pos];
+    DictPair probe = {key, NULL};
+    const DictPair *found = (const DictPair *)btree_get(dict->data.dict.tree, &probe);
+    return found ? found->val : NULL;
 }
 
 bool east_dict_has(EastValue *dict, EastValue *key)
 {
     if (!dict || dict->kind != EAST_VAL_DICT) return false;
-    bool found = false;
-    sorted_search(dict->data.dict.keys, dict->data.dict.len, key, &found);
-    return found;
+    DictPair probe = {key, NULL};
+    return btree_get(dict->data.dict.tree, &probe) != NULL;
 }
 
 bool east_dict_delete(EastValue *dict, EastValue *key)
 {
     if (!dict || dict->kind != EAST_VAL_DICT) return false;
-    bool found = false;
-    size_t pos = sorted_search(dict->data.dict.keys, dict->data.dict.len, key, &found);
-    if (!found) return false;
-    east_value_release(dict->data.dict.keys[pos]);
-    east_value_release(dict->data.dict.values[pos]);
-    size_t remaining = dict->data.dict.len - pos - 1;
-    if (remaining > 0) {
-        memmove(&dict->data.dict.keys[pos], &dict->data.dict.keys[pos + 1],
-                remaining * sizeof(EastValue *));
-        memmove(&dict->data.dict.values[pos], &dict->data.dict.values[pos + 1],
-                remaining * sizeof(EastValue *));
-    }
+    DictPair probe = {key, NULL};
+    /* btree_delete's item_free releases the stored key+val; we must not. */
+    if (!btree_delete(dict->data.dict.tree, &probe)) return false;
     dict->data.dict.len--;
+    dict->data.dict.dirty = true;
     return true;
 }
 
 EastValue *east_dict_pop(EastValue *dict, EastValue *key)
 {
     if (!dict || dict->kind != EAST_VAL_DICT) return NULL;
-    bool found = false;
-    size_t pos = sorted_search(dict->data.dict.keys, dict->data.dict.len, key, &found);
+    DictPair probe = {key, NULL};
+    const DictPair *found = (const DictPair *)btree_get(dict->data.dict.tree, &probe);
     if (!found) return NULL;
-    EastValue *val = dict->data.dict.values[pos]; /* transfer ownership */
-    east_value_release(dict->data.dict.keys[pos]);
-    size_t remaining = dict->data.dict.len - pos - 1;
-    if (remaining > 0) {
-        memmove(&dict->data.dict.keys[pos], &dict->data.dict.keys[pos + 1],
-                remaining * sizeof(EastValue *));
-        memmove(&dict->data.dict.values[pos], &dict->data.dict.values[pos + 1],
-                remaining * sizeof(EastValue *));
-    }
+    EastValue *val = found->val;
+    east_value_retain(val); /* survive the delete's item_free — caller takes this ref */
+    btree_delete(dict->data.dict.tree, &probe);
     dict->data.dict.len--;
+    dict->data.dict.dirty = true;
     return val;
+}
+
+void east_dict_clear(EastValue *dict)
+{
+    if (!dict || dict->kind != EAST_VAL_DICT) return;
+    btree_clear(dict->data.dict.tree); /* item_free releases every key+val */
+    dict->data.dict.len = 0;
+    dict->data.dict.dirty = true;
 }
 
 size_t east_dict_len(EastValue *dict)
 {
     if (!dict || dict->kind != EAST_VAL_DICT) return 0;
     return dict->data.dict.len;
+}
+
+void east_dict_release_contents(EastValue *v)
+{
+    if (v->data.dict.tree) {
+        btree_free(v->data.dict.tree); /* item_free releases every key+val */
+        v->data.dict.tree = NULL;
+    }
+    east_free(v->data.dict.keys); /* caches borrow — free buffers, release nothing */
+    east_free(v->data.dict.values);
+    v->data.dict.keys = NULL;
+    v->data.dict.values = NULL;
+    v->data.dict.len = 0;
+    if (v->data.dict.key_type) {
+        east_type_release(v->data.dict.key_type);
+        v->data.dict.key_type = NULL;
+    }
+    if (v->data.dict.val_type) {
+        east_type_release(v->data.dict.val_type);
+        v->data.dict.val_type = NULL;
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -834,22 +935,11 @@ void east_value_release(EastValue *v)
         break;
 
     case EAST_VAL_SET:
-        for (size_t i = 0; i < v->data.set.len; i++) {
-            east_value_release(v->data.set.items[i]);
-        }
-        east_free(v->data.set.items);
-        if (v->data.set.elem_type) east_type_release(v->data.set.elem_type);
+        east_set_release_contents(v);
         break;
 
     case EAST_VAL_DICT:
-        for (size_t i = 0; i < v->data.dict.len; i++) {
-            east_value_release(v->data.dict.keys[i]);
-            east_value_release(v->data.dict.values[i]);
-        }
-        east_free(v->data.dict.keys);
-        east_free(v->data.dict.values);
-        if (v->data.dict.key_type) east_type_release(v->data.dict.key_type);
-        if (v->data.dict.val_type) east_type_release(v->data.dict.val_type);
+        east_dict_release_contents(v);
         break;
 
     case EAST_VAL_STRUCT:
@@ -940,6 +1030,8 @@ bool east_value_equal(EastValue *a, EastValue *b)
 
     case EAST_VAL_SET:
         if (a->data.set.len != b->data.set.len) return false;
+        east_set_sync(a);
+        east_set_sync(b);
         for (size_t i = 0; i < a->data.set.len; i++) {
             if (!east_value_equal(a->data.set.items[i], b->data.set.items[i])) return false;
         }
@@ -947,6 +1039,8 @@ bool east_value_equal(EastValue *a, EastValue *b)
 
     case EAST_VAL_DICT:
         if (a->data.dict.len != b->data.dict.len) return false;
+        east_dict_sync(a);
+        east_dict_sync(b);
         for (size_t i = 0; i < a->data.dict.len; i++) {
             if (!east_value_equal(a->data.dict.keys[i], b->data.dict.keys[i])) return false;
             if (!east_value_equal(a->data.dict.values[i], b->data.dict.values[i])) return false;
@@ -1133,6 +1227,8 @@ int east_value_compare(EastValue *a, EastValue *b)
     }
 
     case EAST_VAL_SET: {
+        east_set_sync(a);
+        east_set_sync(b);
         size_t min_len = a->data.set.len < b->data.set.len ? a->data.set.len : b->data.set.len;
         for (size_t i = 0; i < min_len; i++) {
             int c = east_value_compare(a->data.set.items[i], b->data.set.items[i]);
@@ -1142,6 +1238,8 @@ int east_value_compare(EastValue *a, EastValue *b)
     }
 
     case EAST_VAL_DICT: {
+        east_dict_sync(a);
+        east_dict_sync(b);
         size_t min_len = a->data.dict.len < b->data.dict.len ? a->data.dict.len : b->data.dict.len;
         for (size_t i = 0; i < min_len; i++) {
             int c = east_value_compare(a->data.dict.keys[i], b->data.dict.keys[i]);
@@ -1313,6 +1411,7 @@ static int print_value(EastValue *v, char *buf, size_t buf_size, int pos)
     }
 
     case EAST_VAL_SET: {
+        east_set_sync(v);
         pos += buf_append(buf, buf_size, pos, "{");
         for (size_t i = 0; i < v->data.set.len; i++) {
             if (i > 0) pos += buf_append(buf, buf_size, pos, ", ");
@@ -1323,6 +1422,7 @@ static int print_value(EastValue *v, char *buf, size_t buf_size, int pos)
     }
 
     case EAST_VAL_DICT: {
+        east_dict_sync(v);
         pos += buf_append(buf, buf_size, pos, "{");
         for (size_t i = 0; i < v->data.dict.len; i++) {
             if (i > 0) pos += buf_append(buf, buf_size, pos, ", ");

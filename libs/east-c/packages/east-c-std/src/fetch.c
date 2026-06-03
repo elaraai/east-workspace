@@ -269,8 +269,8 @@ static EvalResult fetch_request(EastValue **args, size_t num_args, EastType **in
     if (headers_val && headers_val->kind == EAST_VAL_DICT) {
         size_t hdr_count = east_dict_len(headers_val);
         for (size_t i = 0; i < hdr_count; i++) {
-            const char *key = headers_val->data.dict.keys[i]->data.string.data;
-            const char *val = headers_val->data.dict.values[i]->data.string.data;
+            const char *key = east_dict_key_at(headers_val, i)->data.string.data;
+            const char *val = east_dict_val_at(headers_val, i)->data.string.data;
             size_t hdr_len = strlen(key) + strlen(val) + 3;
             char *hdr_line = malloc(hdr_len);
             if (hdr_line) {

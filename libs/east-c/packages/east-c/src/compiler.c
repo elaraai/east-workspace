@@ -369,7 +369,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         for (size_t i = 0; i < len; i++) {
             Environment *iter_env = env_new(env);
 
-            EastValue *elem = set->data.set.items[i];
+            EastValue *elem = east_set_at(set, i);
             /* env_set retains internally, no extra retain needed */
             env_set(iter_env, node->data.for_set.var.name, elem);
 
@@ -429,8 +429,8 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         for (size_t i = 0; i < len; i++) {
             Environment *iter_env = env_new(env);
 
-            EastValue *key = dict->data.dict.keys[i];
-            EastValue *val = dict->data.dict.values[i];
+            EastValue *key = east_dict_key_at(dict, i);
+            EastValue *val = east_dict_val_at(dict, i);
             /* env_set retains internally, no extra retain needed */
             env_set(iter_env, node->data.for_dict.key.name, key);
             env_set(iter_env, node->data.for_dict.val.name, val);
