@@ -20,9 +20,14 @@
  */
 
 import e3 from '@elaraai/e3';
+import type { Runner } from '@elaraai/e3';
 import { ui, Box, VStack, HStack, Text, Heading, Button } from '@elaraai/e3-ui/ui';
 import pkgInfo from '../package.json' with { type: 'json' };
-import { DEFAULT_RUNNER, DEFAULT_OUT_DIR } from './utils.js';
+import { DEFAULT_OUT_DIR } from './utils.js';
+
+// UI tasks only need to produce a UIComponentType value, so the pure-Node
+// east-node runtime runs them without the native east-c toolchain.
+const RUNNER: Runner = { runtime: 'east-node', platforms: ['@elaraai/east-node-std'] };
 
 // A simple panel: heading + body + a button row. Flat style props throughout.
 const hello = ui('hello', () => (
@@ -34,7 +39,7 @@ const hello = ui('hello', () => (
             <Button variant="outline" colorPalette="gray">Cancel</Button>
         </HStack>
     </VStack>
-), { runner: DEFAULT_RUNNER });
+), { runner: RUNNER });
 
 // Nested containers compose exactly like nested factory calls.
 const card = ui('card', () => (
@@ -44,7 +49,7 @@ const card = ui('card', () => (
             <Text>Boxes and stacks nest just like the factory API does.</Text>
         </VStack>
     </Box>
-), { runner: DEFAULT_RUNNER });
+), { runner: RUNNER });
 
 const pkg = e3.package('east-ui-showcase-react-jsx', pkgInfo.version, hello, card);
 await e3.export(pkg, `${DEFAULT_OUT_DIR}/react-jsx.zip`);
