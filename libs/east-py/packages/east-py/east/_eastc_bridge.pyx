@@ -36,6 +36,7 @@ from datetime import datetime as DateTime
 import numpy as np
 import os
 import sys
+import weakref
 
 from east.types.values import (
     EastArray,
@@ -775,6 +776,22 @@ cdef object _c_matrix_to_py(_eastc.EastValue *val, _eastc.EastType *c_type):
     return EastMatrix(py_elem_type, data, rows, cols)
 
 
+def _release_c_function(uintptr_t val_ptr, uintptr_t output_type_ptr, tuple input_type_ptrs):
+    """Release the C function value + its retained input/output types.
+
+    Run as a weakref finalizer when the Python wrapper is collected — the
+    wrapper is a plain closure (it carries IR/handle attributes), so it has no
+    __dealloc__ of its own to return these references to east-c.
+    """
+    if val_ptr != 0:
+        _eastc.east_value_release(<_eastc.EastValue*>val_ptr)
+    if output_type_ptr != 0:
+        _eastc.east_type_release(<_eastc.EastType*>output_type_ptr)
+    for p in input_type_ptrs:
+        if <uintptr_t>p != 0:
+            _eastc.east_type_release(<_eastc.EastType*><uintptr_t>p)
+
+
 cdef object _c_function_to_py(_eastc.EastValue *val, _eastc.EastType *c_type, dict alias_map):
     """Convert a C function value to a Python callable.
 
@@ -806,34 +823,27 @@ cdef object _c_function_to_py(_eastc.EastValue *val, _eastc.EastType *c_type, di
         _eastc.east_type_retain(fn_c_type.data.function.inputs[i])
         input_type_ptrs.append(<uintptr_t>fn_c_type.data.function.inputs[i])
 
-    # Also retain the source_ir for re-serialization
-    cdef _eastc.EastCompiledFn *fn = val.data.function.compiled
-    has_source_ir = fn != NULL and fn.source_ir != NULL
-
     def call_eastc_function(*args):
         """Python wrapper that calls the C function via east_call.
         Delegates to _compiler_eastc.so to share _Thread_local with builtins."""
         from east.runtime._compiler_eastc import _invoke_c_function_py
         return _invoke_c_function_py(val_ptr, input_type_ptrs, output_type_ptr, args)
 
-    # Attach IR for re-serialization
-    cdef _eastc.EastType* ir_type
-    if has_source_ir:
-        if _eastc.east_ir_type == NULL:
-            _eastc.east_type_of_type_init()
-        ir_type = _eastc.east_ir_type
-        if ir_type.kind == _eastc.EAST_TYPE_RECURSIVE:
-            ir_type = ir_type.data.recursive.node
-        py_ir = _c_value_to_py_impl(fn.source_ir, ir_type, alias_map)
-        object.__setattr__(call_eastc_function, EAST_IR_ATTR, py_ir)
-        object.__setattr__(call_eastc_function, EAST_CAPTURES_ATTR, {})
+    # The wrapper owns one retain on the function value + its input/output types
+    # (acquired above). It is a plain closure, so release them when it is
+    # collected. The finalizer holds only the integer pointers, not the wrapper,
+    # so it does not keep the wrapper alive.
+    weakref.finalize(call_eastc_function, _release_c_function,
+                     val_ptr, output_type_ptr, tuple(input_type_ptrs))
 
     # Attach the C-side EastValue* handle so that _py_function_to_c can
-    # round-trip this wrapper back to its original C value (preserving
-    # capture environment and any other internal state) instead of
-    # rebuilding from IR + the empty EAST_CAPTURES_ATTR. The wrapper holds
-    # one retain on the value (acquired above); the encoder will retain
-    # again when re-using the pointer.
+    # round-trip this wrapper back to its original C value (preserving the
+    # capture environment and any other internal state). The wrapper holds one
+    # retain on the value (acquired above), which keeps the handle valid for its
+    # whole lifetime, so the handle fast path always covers the round-trip — no
+    # need to also decode source_ir into a Python value here (that conversion
+    # was never read back, and its container proxies retained IR sub-values for
+    # the wrapper's whole lifetime).
     object.__setattr__(call_eastc_function, EAST_C_HANDLE_ATTR, val_ptr)
 
     return call_eastc_function
