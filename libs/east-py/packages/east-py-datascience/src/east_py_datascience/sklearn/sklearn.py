@@ -537,15 +537,15 @@ def sklearn_split_impl(
     return EastStruct(
         {
             "X_splits": EastArray(
-                ArrayType(MatrixType(FloatType)),
+                MatrixType(FloatType),
                 [EastMatrix(FloatType, np.atleast_2d(x).astype(np.float64)) for x in X_splits]
             ),
             "Y_splits": EastArray(
-                ArrayType(MatrixType(FloatType)),
+                MatrixType(FloatType),
                 [EastMatrix(FloatType, np.atleast_2d(y).astype(np.float64)) for y in Y_splits]
             ),
             "rejected_indices": EastArray(
-                ArrayType("integer"),
+                IntegerType,
                 [int(i) for i in sorted(set(rejected_indices))]
             ),
         }
@@ -632,16 +632,16 @@ def sklearn_overlap_impl(
     return EastStruct(
         {
             "X_filtered": EastArray(
-                ArrayType(MatrixType(FloatType)),
+                MatrixType(FloatType),
                 [EastMatrix(FloatType, np.atleast_2d(x).astype(np.float64)) for x in X_filtered_list]
             ),
             "Y_filtered": EastArray(
-                ArrayType(MatrixType(FloatType)),
+                MatrixType(FloatType),
                 [EastMatrix(FloatType, np.atleast_2d(y).astype(np.float64)) for y in Y_filtered_list]
             ),
             "rejected_counts": EastVector(IntegerType, np.array(rejected_counts, dtype=np.int64)),
             "known_categories": EastArray(
-                ArrayType(VectorType(IntegerType)),
+                VectorType(IntegerType),
                 [
                     EastVector(IntegerType, np.array(cats, dtype=np.int64))
                     for cats in known_categories_list

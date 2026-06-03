@@ -1173,8 +1173,8 @@ def mapie_predict_set_impl(
             "pred": EastVector(IntegerType, y_pred.ravel().astype(np.int64)),
             # Convert boolean mask to class indices (where mask is 1)
             "sets": EastArray(
-                ArrayType(ArrayType(IntegerType)),
-                [EastArray(ArrayType(IntegerType), s) for s in sets_remapped],
+                ArrayType(IntegerType),
+                [EastArray(IntegerType, s) for s in sets_remapped],
             ),
             "probabilities": EastMatrix(FloatType, np.atleast_2d(proba).astype(np.float64)),
             "set_sizes": EastVector(IntegerType, set_sizes.ravel().astype(np.int64)),
