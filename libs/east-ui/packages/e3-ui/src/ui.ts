@@ -14,15 +14,22 @@
  */
 
 import { task, type DatasetDef, type Runner, type TaskDef } from '@elaraai/e3';
-import type { UIComponentType } from '@elaraai/east-ui';
-import type {
-  EastType,
-  CallableFunctionExpr,
-  CallableAsyncFunctionExpr,
+import { UIComponentType } from '@elaraai/east-ui';
+import {
+  East,
+  type EastType,
+  type ExprType,
+  type CallableFunctionExpr,
+  type CallableAsyncFunctionExpr,
 } from '@elaraai/east';
 import type { TreePath } from '@elaraai/e3-types';
 import { encodeManifest } from './manifest.js';
 import { deriveManifest } from './derive.js';
+
+// Re-export the JSX component tags (Box, VStack, Text, Button, …) so the
+// author-side entry `@elaraai/e3-ui/ui` is a single import for both `ui()`
+// and the JSX tags used inside it.
+export * from './jsx.js';
 
 /**
  * Create a UI task — an e3 task that produces a UIComponentType value.
@@ -61,6 +68,18 @@ import { deriveManifest } from './derive.js';
  * // Manifest: { reads: [name.path], writes: [] }
  * ```
  */
+// Closure form — `ui(name, () => <Box…/>)`. The thunk returns a built
+// `UIComponentType` value (e.g. east-ui JSX), which is wrapped in a zero-input
+// `East.function`. No compute-time inputs; reactive `Data.bind` reads are still
+// derived from the IR. Ideal for `.tsx` JSX authoring.
+export function ui(
+  name: string,
+  render: () => ExprType<typeof UIComponentType>,
+  options?: {
+    runner?: Runner,
+  },
+): TaskDef;
+// Function form — `ui(name, [inputs], East.function([...], UIComponentType, …))`.
 export function ui<
   Inputs extends readonly DatasetDef[],
   O extends EastType = typeof UIComponentType,
@@ -71,6 +90,33 @@ export function ui<
   options?: {
     runner?: Runner,
   },
+): TaskDef;
+export function ui(
+  name: string,
+  arg2: unknown,
+  arg3?: unknown,
+  arg4?: unknown,
+): TaskDef {
+  // Discriminate the overloads by `arg2`: the function form always passes an
+  // `inputs` array there, so a function means the closure form.
+  if (typeof arg2 === 'function') {
+    const render = arg2 as () => ExprType<typeof UIComponentType>;
+    const fn = East.function([], UIComponentType, () => render());
+    return buildUiTask(name, [], fn, arg3 as { runner?: Runner } | undefined);
+  }
+  return buildUiTask(
+    name,
+    arg2 as readonly DatasetDef[],
+    arg3 as CallableFunctionExpr<any, EastType> | CallableAsyncFunctionExpr<any, EastType>,
+    arg4 as { runner?: Runner } | undefined,
+  );
+}
+
+function buildUiTask(
+  name: string,
+  inputs: readonly DatasetDef[],
+  fn: CallableFunctionExpr<any, EastType> | CallableAsyncFunctionExpr<any, EastType>,
+  options?: { runner?: Runner },
 ): TaskDef {
   const derived = deriveManifest(fn);
   const inputPaths: TreePath[] = inputs.map(i => i.path);
