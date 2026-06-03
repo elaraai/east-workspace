@@ -909,3 +909,156 @@ helpers, not UI); `events`/`markers` callbacks return sub-tag fragments:
 > is an East `row`/`col` expression; body returns JSX collected into the struct).
 > It's the unifying device for Matrix/Gantt/Planner — confirm it's the design
 > (vs leaving those three as raw factory callbacks returning `Matrix.cell(...)`).
+
+---
+
+## 11. Charts — complete nested reference
+
+Confirmed from `src/charts/chart/index.ts`. Shape:
+**`Chart.Root(layer | layer[], options?)`** — each layer carries its own `rows`:
+`Chart.Line(rows, encoding, style?)`. JSX maps layers to **children**; encoding
+accessors + style become flat props on the layer tag.
+
+Three cross-cutting JSX rules for charts:
+- **Accessors are TS arrows** `r => r.field` returning an East field expression;
+  the wrapper lifts them as-is (no `East.function` needed). `r` is an East row
+  expression (§3).
+- **`name`, not `key`** — the layer's legend label is `MarkStyle.key`, but `key`
+  is JSX-reserved, so the tag prop is `name` (§8 #9).
+- **`<Chart data=>` sugar (proposal)** — a default `data` on `<Chart>` inherited
+  by layers that omit their own; the faithful per-layer `data=` always works.
+
+### 11.1 Layers × encodings
+
+`Chart.Line/Bar/Area` accept any of three encodings; `Chart.Scatter` adds a
+per-point `size`; `Chart.Band` takes `{x, low, high}`.
+
+**Point `{x, y}` — single series.** Before → after:
+```ts
+Chart.Root(Chart.Line(rows, { x: r => r.month, y: r => r.sales }, { color: "teal.solid" }), { grid: true, tooltip: true })
+```
+```tsx
+<Chart grid tooltip><Chart.Line data={rows} x={r => r.month} y={r => r.sales} color="teal.solid" /></Chart>
+```
+
+**Columns `{x, columns:{…}}` — wide → one series per column.**
+```ts
+Chart.Root(Chart.Bar(rows, { x: r => r.week, columns: { Mobile: r => r.mobile, Desktop: r => r.desktop } }, { stack: "traffic" }), { legend: true })
+```
+```tsx
+<Chart legend><Chart.Bar data={rows} x={r => r.week} columns={{ Mobile: r => r.mobile, Desktop: r => r.desktop }} stack="traffic" /></Chart>
+```
+
+**Split `{x, y, by, colors?}` — long → one series per category.**
+```ts
+Chart.Root(Chart.Line(rows, { x: r => r.month, y: r => r.n, by: r => r.os }), { legend: true, grid: true })
+```
+```tsx
+<Chart legend grid><Chart.Line data={rows} x={r => r.month} y={r => r.n} by={r => r.os} /></Chart>
+```
+
+**Scatter — `size` accessor (bubbles) or uniform `size` style.**
+```ts
+Chart.Root(Chart.Scatter(rows, { x: r => r.gdp, y: r => r.life, size: r => r.pop }), { x: { label: "GDP per capita" }, y: { label: "Life expectancy" }, grid: true })
+```
+```tsx
+<Chart grid x={{ label: "GDP per capita" }} y={{ label: "Life expectancy" }}>
+  <Chart.Scatter data={rows} x={r => r.gdp} y={r => r.life} size={r => r.pop} />
+</Chart>
+```
+
+**Band `{x, low, high}` — area range.**
+```tsx
+<Chart><Chart.Band data={rows} x={r => r.month} low={r => r.lo} high={r => r.hi} name="Confidence" color="blue.200" fillOpacity={0.3} /></Chart>
+```
+
+### 11.2 Mark styling (flat props on the layer tag)
+
+`MarkStyle` → flat props: `name` (=key), `color`, `curve`
+(`linear|step|natural|monotone`), `width`, `dash`, `dots` (bool), `fillOpacity`,
+`stack`, `axis` (`left|right`), `order`. `ScatterStyle` adds `size` (uniform px).
+
+```tsx
+<Chart.Line data={rows} x={r => r.t} y={r => r.v}
+  name="Trend" color="red.solid" curve="monotone" width={2} dash="5 5" dots axis="right" order={10} />
+```
+
+### 11.3 Reference annotations (sibling layer tags)
+
+```ts
+Chart.refBand({ y: [120, 200], label: "Normal" })
+Chart.refLine({ y: 220, label: "Target", dash: "4 4" })      // y= horizontal · x= vertical
+Chart.refDot({ x: "Mar", y: 237, label: "Peak" })
+```
+```tsx
+<Chart grid>
+  <Chart.RefBand y={[120, 200]} label="Normal" />
+  <Chart.Line data={rows} x={r => r.month} y={r => r.value} color="teal.solid" />
+  <Chart.RefLine y={220} label="Target" dash="4 4" />
+  <Chart.RefDot x="Mar" y={237} label="Peak" />
+</Chart>
+```
+(`RefLine`/`RefBand` take `y` *or* `x`; `RefBand` x/y are `[lo, hi]` tuples;
+`RefDot` requires both `x` and `y`.)
+
+### 11.4 Axes, formats, dual-axis, stacking (`Chart` options as props)
+
+`ChartOptions` → `<Chart>` props: `grid` (default on), `legend`, `tooltip`,
+`height`, `width`, `stackOffset` (`none|expand`), and `x`/`y`/`y2` axis objects
+`{ label, format, domain:[min,max]|[d0,d1], scale: band|linear|time }`. A `y2`
+(or any layer with `axis="right"`) enables the **dual axis**. `Chart.format.*`:
+`number()`, `currency({code?,compact?})`, `percent()`, `compact()`,
+`date(pat)`, `time(pat)`, `datetime(pat)`.
+
+**Before** (dual-axis composed: stacked area + band + right-axis line + capacity ref):
+```ts
+Chart.Root([
+  Chart.Area(rows, { x: r => r.month, columns: { Mobile: r => r.mobile, Desktop: r => r.desktop } }, { stack: "traffic", fillOpacity: 0.5 }),
+  Chart.Band(rows, { x: r => r.month, low: r => r.lo, high: r => r.hi }, { key: "Confidence", color: "blue.200", fillOpacity: 0.3 }),
+  Chart.Line(rows, { x: r => r.month, y: r => r.trend }, { key: "Trend", color: "red.solid", dash: "5 5", axis: "right" }),
+  Chart.refLine({ y: 200, label: "Capacity", dash: "4 4" }),
+], { y: { label: "Sessions" }, y2: { label: "Trend", format: Chart.format.compact() }, legend: true, tooltip: true })
+```
+**After:**
+```tsx
+<Chart legend tooltip y={{ label: "Sessions" }} y2={{ label: "Trend", format: Chart.format.compact() }}>
+  <Chart.Area data={rows} x={r => r.month} columns={{ Mobile: r => r.mobile, Desktop: r => r.desktop }} stack="traffic" fillOpacity={0.5} />
+  <Chart.Band data={rows} x={r => r.month} low={r => r.lo} high={r => r.hi} name="Confidence" color="blue.200" fillOpacity={0.3} />
+  <Chart.Line data={rows} x={r => r.month} y={r => r.trend} name="Trend" color="red.solid" dash="5 5" axis="right" />
+  <Chart.RefLine y={200} label="Capacity" dash="4 4" />
+</Chart>
+```
+Currency/percent y-axis: `<Chart y={{ format: Chart.format.currency({ compact: true }) }}>…`.
+Quadrant scatter: `x={{ scale: "linear", domain: [0,100] }}` + two `<Chart.RefLine>`.
+
+### 11.5 Sparkline (leaf)
+
+```ts
+Sparkline.Root([142.5, 143.2, 141.8, 144.0], { type: "area", color: "green.500", width: "150px", height: "48px" })
+```
+```tsx
+<Sparkline data={[142.5, 143.2, 141.8, 144.0]} type="area" color="green.500" width="150px" height="48px" />
+```
+
+### 11.6 Chart tags & new factories
+
+- **Tags:** `<Chart>` (options as props), layer children `<Chart.Line>`,
+  `<Chart.Bar>`, `<Chart.Area>`, `<Chart.Scatter>`, `<Chart.Band>`, and refs
+  `<Chart.RefLine>`, `<Chart.RefBand>`, `<Chart.RefDot>`.
+- **New factories:** none — every tag wraps an existing `Chart.*` builder. (Tag
+  names capitalize the ref builders: `Chart.refLine` → `<Chart.RefLine>`; add a
+  capitalized alias or use the member-expression tag `<Chart.refLine>` directly.)
+- **Decisions (already in §8):** #9 `name` vs `key`; #10 accessor/`render`
+  arrow auto-lift. Chart-specific: confirm the `<Chart data=>`-inherited-default
+  sugar (§11 intro) is wanted alongside per-layer `data=`.
+
+### Charts summary
+
+| Tag | Wraps | Key props |
+|---|---|---|
+| `<Chart>` | `Chart.Root` | `grid legend tooltip height width stackOffset x y y2` |
+| `<Chart.Line/Bar/Area>` | `Chart.{Line,Bar,Area}(rows,enc,style)` | `data` + enc(`x`,`y`\|`columns`\|`by`) + `name color curve width dash dots fillOpacity stack axis order` |
+| `<Chart.Scatter>` | `Chart.Scatter` | as above + `size` (accessor=bubble, number=uniform) |
+| `<Chart.Band>` | `Chart.Band` | `data x low high` + style |
+| `<Chart.RefLine/RefBand/RefDot>` | `Chart.ref*` | `y`/`x` (RefBand tuples; RefDot needs both) `label dash` |
+| `<Sparkline>` | `Sparkline.Root` | `data type color width height` |
