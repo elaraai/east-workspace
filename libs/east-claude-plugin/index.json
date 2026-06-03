@@ -6515,18 +6515,19 @@
       "package": "east",
       "file": "east/test/matrix.examples.ts",
       "suite": "Element Access",
-      "test": "Set an element in a matrix by row and column index",
+      "test": "Set an element in a matrix by row and column index, returning a new matrix",
       "keywords": [
         "matrix",
         "MatrixType",
         "set",
         "element",
-        "mutate"
+        "immutable",
+        "functional"
       ],
       "imports": [
         "import { East, ArrayType, FloatType, VectorType, IntegerType, example } from \"@elaraai/east\";"
       ],
-      "source": "// Set an element in a matrix by row and column index\n// inputs: []  returns: 42.0\nEast.function([], FloatType, ($) => {\n        const m = $.let(East.Matrix.zeros(2n, 2n));\n        $(m.set(0n, 1n, 42.0));\n        return m.get(0n, 1n);\n    })"
+      "source": "// Set an element in a matrix by row and column index, returning a new matrix\n// inputs: []  returns: 42.0\nEast.function([], FloatType, ($) => {\n        const m = $.let(East.Matrix.zeros(2n, 2n));\n        const m2 = $.let(m.set(0n, 1n, 42.0));\n        return m2.get(0n, 1n);\n    })"
     },
     {
       "id": "east:matrix.examples.ts:matrixGetRow",
@@ -9253,18 +9254,19 @@
       "package": "east",
       "file": "east/test/vector.examples.ts",
       "suite": "Dimensions and Element Access",
-      "test": "Set an element in a vector by index",
+      "test": "Set an element in a vector by index, returning a new vector",
       "keywords": [
         "vector",
         "VectorType",
         "set",
         "element",
-        "mutate"
+        "immutable",
+        "functional"
       ],
       "imports": [
         "import { East, ArrayType, FloatType, IntegerType, example } from \"@elaraai/east\";"
       ],
-      "source": "// Set an element in a vector by index\n// inputs: []  returns: 42.0\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.zeros(3n));\n        $(v.set(1n, 42.0));\n        return v.get(1n);\n    })"
+      "source": "// Set an element in a vector by index, returning a new vector\n// inputs: []  returns: 42.0\nEast.function([], FloatType, ($) => {\n        const v = $.let(East.Vector.zeros(3n));\n        const v2 = $.let(v.set(1n, 42.0));\n        return v2.get(1n);\n    })"
     },
     {
       "id": "east:vector.examples.ts:vectorSlice",
