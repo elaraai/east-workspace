@@ -494,11 +494,11 @@ def is_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
         return is_blob
 
     if is_vector_type(type_val):
-        # Mutable: identity comparison
+        # `is` compares by identity; value equality is via Equal/equal_for
         return lambda x, y, _ctx=None: x is y
 
     if is_matrix_type(type_val):
-        # Mutable: identity comparison
+        # `is` compares by identity; value equality is via Equal/equal_for
         return lambda x, y, _ctx=None: x is y
 
     if is_array_type(type_val):

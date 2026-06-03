@@ -1077,7 +1077,7 @@ export const Builtins: Record<BuiltinName, BuiltinType> = {
   VectorSet: {
     type_parameters: ["T"],
     inputs: [VectorType("T" as any), IntegerType, "T"] as const,
-    output: NullType,
+    output: VectorType("T" as any),
   },
   VectorSlice: {
     type_parameters: ["T"],
@@ -1149,7 +1149,7 @@ export const Builtins: Record<BuiltinName, BuiltinType> = {
   MatrixSet: {
     type_parameters: ["T"],
     inputs: [MatrixType("T" as any), IntegerType, IntegerType, "T"] as const,
-    output: NullType,
+    output: MatrixType("T" as any),
   },
   MatrixGetRow: {
     type_parameters: ["T"],

@@ -86,8 +86,10 @@ class EastVector:
         )
 
     def __hash__(self) -> int:
-        """Vectors are mutable and cannot be hashed."""
-        raise TypeError("EastVector is mutable and cannot be hashed")
+        """Not hashable (numpy buffer): use as an East Set/Dict key, which orders by value."""
+        raise TypeError(
+            "EastVector is not hashable; use it as an East Set/Dict key (ordered by value via compare_for)"
+        )
 
     # ----- Eager value methods --------------------------------------------
     #
@@ -119,17 +121,22 @@ class EastVector:
         """
         return self.data[index].item()
 
-    def set(self, index: int, value: Any) -> None:
-        """Write ``value`` at ``index`` (numpy).
+    def set(self, index: int, value: Any) -> EastVector:
+        """Return a new vector with ``value`` at ``index`` (numpy).
 
-        Mutates the vector in place. ``value`` is cast into the backing storage
-        dtype.
+        The original vector is unchanged. ``value`` is cast into the backing
+        storage dtype, which is preserved.
 
         Args:
             index: Zero-based position to overwrite.
             value: New value, cast to the storage dtype.
+
+        Returns:
+            A new vector with the element at ``index`` replaced.
         """
-        self.data[index] = value
+        new_data = self.data.copy()
+        new_data[index] = value
+        return EastVector(self.element_type, new_data)
 
     def slice(self, start: int, end: int) -> EastVector:
         """Sub-vector over the half-open range ``[start, end)`` (numpy).
@@ -350,8 +357,10 @@ class EastMatrix:
         )
 
     def __hash__(self) -> int:
-        """Matrices are mutable and cannot be hashed."""
-        raise TypeError("EastMatrix is mutable and cannot be hashed")
+        """Not hashable (numpy buffer): use as an East Set/Dict key, which orders by value."""
+        raise TypeError(
+            "EastMatrix is not hashable; use it as an East Set/Dict key (ordered by value via compare_for)"
+        )
 
     # ----- Eager value methods (numpy on the backing buffer) ---------------
     #
@@ -389,18 +398,24 @@ class EastMatrix:
         """
         return self.data[row, col].item()
 
-    def set(self, row: int, col: int, value: Any) -> None:
-        """Write ``value`` at ``(row, col)`` (numpy).
+    def set(self, row: int, col: int, value: Any) -> EastMatrix:
+        """Return a new matrix with ``value`` at ``(row, col)`` (numpy).
 
-        Mutates the matrix in place. ``value`` is coerced into the backing
-        storage dtype (e.g. a Float written into a float32 buffer is rounded).
+        The original matrix is unchanged. ``value`` is coerced into the backing
+        storage dtype (e.g. a Float written into a float32 buffer is rounded),
+        which is preserved.
 
         Args:
             row: Zero-based row index.
             col: Zero-based column index.
             value: New element value, compatible with ``element_type``.
+
+        Returns:
+            A new matrix with the element at ``(row, col)`` replaced.
         """
-        self.data[row, col] = value
+        new_data = self.data.copy()
+        new_data[row, col] = value
+        return EastMatrix(self.element_type, new_data)
 
     def get_row(self, row: int) -> EastVector:
         """Row ``row`` as a vector (numpy).

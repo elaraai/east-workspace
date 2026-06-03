@@ -19,6 +19,8 @@ import {
     DictType,
     StructType,
     VariantType,
+    VectorType,
+    MatrixType,
     FunctionType,
     AsyncFunctionType,
     OptionType,
@@ -184,6 +186,21 @@ describe("isImmutableType", () => {
 
     test("should return false for variant with mutable case", () => {
         assert.strictEqual(isImmutableType(VariantType({ data: IntegerType, list: ArrayType(IntegerType) })), false);
+    });
+
+    test("should return true for vector and matrix types", () => {
+        assert.strictEqual(isImmutableType(VectorType(FloatType)), true);
+        assert.strictEqual(isImmutableType(VectorType(IntegerType)), true);
+        assert.strictEqual(isImmutableType(MatrixType(FloatType)), true);
+        assert.strictEqual(isImmutableType(MatrixType(BooleanType)), true);
+    });
+
+    test("should allow vectors and matrices as set/dict key types", () => {
+        // Constructors throw unless the key type is immutable
+        assert.doesNotThrow(() => SetType(VectorType(FloatType)));
+        assert.doesNotThrow(() => DictType(VectorType(FloatType), StringType));
+        assert.doesNotThrow(() => SetType(MatrixType(IntegerType)));
+        assert.doesNotThrow(() => DictType(MatrixType(FloatType), StringType));
     });
 
     test("should return false for function types", () => {

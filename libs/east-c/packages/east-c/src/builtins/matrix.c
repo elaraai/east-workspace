@@ -98,16 +98,20 @@ static EastValue *matrix_set_impl(EastValue **args, size_t n)
     int64_t row = args[1]->data.integer;
     int64_t col = args[2]->data.integer;
     EastValue *mat = args[0];
-    if (row < 0 || (size_t)row >= mat->data.matrix.rows || col < 0 ||
-        (size_t)col >= mat->data.matrix.cols) {
+    size_t rows = mat->data.matrix.rows;
+    size_t cols = mat->data.matrix.cols;
+    if (row < 0 || (size_t)row >= rows || col < 0 || (size_t)col >= cols) {
         char msg[128];
         snprintf(msg, sizeof(msg), "Matrix index (%lld, %lld) out of bounds (%zux%zu)",
-                 (long long)row, (long long)col, mat->data.matrix.rows, mat->data.matrix.cols);
+                 (long long)row, (long long)col, rows, cols);
         east_builtin_error(msg);
         return NULL;
     }
-    mat_set_elem(mat, (size_t)row, (size_t)col, args[3]);
-    return east_null();
+    EastType *et = mat->data.matrix.elem_type;
+    EastValue *result = east_matrix_new(et, rows, cols);
+    memcpy(result->data.matrix.data, mat->data.matrix.data, rows * cols * elem_size(et));
+    mat_set_elem(result, (size_t)row, (size_t)col, args[3]);
+    return result;
 }
 
 static EastValue *matrix_get_row_impl(EastValue **args, size_t n)

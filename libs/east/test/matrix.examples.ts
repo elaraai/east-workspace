@@ -108,12 +108,12 @@ export const matrixGet = example({
 });
 
 export const matrixSet = example({
-    keywords: ["matrix", "MatrixType", "set", "element", "mutate"],
-    description: "Set an element in a matrix by row and column index",
+    keywords: ["matrix", "MatrixType", "set", "element", "immutable", "functional"],
+    description: "Set an element in a matrix by row and column index, returning a new matrix",
     fn: East.function([], FloatType, ($) => {
         const m = $.let(East.Matrix.zeros(2n, 2n));
-        $(m.set(0n, 1n, 42.0));
-        return m.get(0n, 1n);
+        const m2 = $.let(m.set(0n, 1n, 42.0));
+        return m2.get(0n, 1n);
     }),
     inputs: [],
     returns: 42.0,

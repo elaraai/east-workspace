@@ -51,10 +51,10 @@ export function isFor(type: EastTypeValue | EastType, typeCtx: TypeContext = new
     // mutable types are compared by identity
     return (x: any[], y: any, _ctx?: ValueContext) => Object.is(x, y);
   } else if (type.type === "Vector") {
-    // mutable types are compared by identity
+    // `is` compares by identity; value equality is via Equal/equalFor
     return (x: any, y: any, _ctx?: ValueContext) => Object.is(x, y);
   } else if (type.type === "Matrix") {
-    // mutable types are compared by identity
+    // `is` compares by identity; value equality is via Equal/equalFor
     return (x: any, y: any, _ctx?: ValueContext) => Object.is(x, y);
   } else if (type.type === "Set") {
     // mutable types are compared by identity

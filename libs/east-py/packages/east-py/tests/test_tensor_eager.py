@@ -1,0 +1,51 @@
+#
+# Copyright (c) 2025 Elara AI Pty Ltd
+# Licensed under the Business Source License 1.1. See LICENSE.md for details.
+#
+"""Eager value-method tests for EastVector / EastMatrix.
+
+Vector and Matrix are immutable value types: ``set`` returns a new tensor and
+leaves the original unchanged, preserving the backing storage dtype.
+"""
+
+import numpy as np
+import pytest
+
+from east import EastMatrix, EastVector, FloatType
+
+
+def test_vector_set_is_functional():
+    v = EastVector(FloatType, np.array([1.0, 2.0, 3.0]))
+    v2 = v.set(1, 42.0)
+    assert v2 is not v
+    assert v2.get(1) == 42.0
+    assert v.get(1) == 2.0  # original unchanged
+    assert v2.element_type.type == v.element_type.type
+    assert v2.data.dtype == v.data.dtype
+
+
+def test_vector_set_preserves_storage_dtype():
+    v = EastVector(FloatType, np.array([1.0, 2.0], dtype=np.float32))
+    v2 = v.set(0, 9.0)
+    assert v2.data.dtype == np.float32
+    assert v.data.dtype == np.float32  # original untouched
+    assert v2.get(0) == 9.0
+
+
+def test_matrix_set_is_functional():
+    m = EastMatrix(FloatType, np.array([[1.0, 2.0], [3.0, 4.0]]))
+    m2 = m.set(0, 1, 99.0)
+    assert m2 is not m
+    assert m2.get(0, 1) == 99.0
+    assert m.get(0, 1) == 2.0  # original unchanged
+    assert (m2.num_rows(), m2.num_cols()) == (2, 2)
+    assert m2.data.dtype == m.data.dtype
+
+
+def test_tensors_are_not_hashable():
+    v = EastVector(FloatType, np.array([1.0, 2.0]))
+    m = EastMatrix(FloatType, np.array([[1.0, 2.0]]))
+    with pytest.raises(TypeError):
+        hash(v)
+    with pytest.raises(TypeError):
+        hash(m)

@@ -70,7 +70,7 @@ Task → What do you need?
     │   │                  to_array/to_dict/group_fold · (mutate) add/remove/discard/clear
     │   ├─ Dict<K,V>     → d[k]/get/has · merge · map(value)/filter(key,value)/reduce(acc,key,value) ·
     │   │                  keys_set/to_array/to_set/group_fold · (mutate) d[k]=v/update/insert_or_update/pop
-    │   ├─ Vector/Matrix → get/set/slice/concat/map/fold · transpose/get_row/get_col · to_array/to_matrix
+    │   ├─ Vector/Matrix → get/set(→new)/slice/concat/map/fold · transpose/get_row/get_col · to_array/to_matrix
     │   └─ Blob          → size/get_uint8 · decode_utf8/utf16 · encode_beast2/decode_beast2/decode_csv
     │
     ├─ A scalar/primitive builtin (you can't method-call a float/int/str/bool/datetime)
@@ -107,8 +107,9 @@ Task → What do you need?
 Every East type has a Python representation. Scalars are plain Python objects (so their
 builtins live on `East.<Type>` namespaces, never as methods); everything else is an
 `East*` container that carries its element type and has real eager methods. Only
-`EastArray`/`EastSet`/`EastDict`/`EastVector`/`EastMatrix`/`EastRef` mutate in place —
-`EastStruct` and `EastVariant` are frozen (transform by building a new value).
+`EastArray`/`EastSet`/`EastDict`/`EastRef` mutate in place — `EastStruct`,
+`EastVariant`, `EastVector`, and `EastMatrix` are immutable value types (transform
+by building a new value; `set` returns a new tensor).
 
 | East Type | Python value | Mutability |
 |-----------|--------------|------------|
@@ -122,8 +123,8 @@ builtins live on `East.<Type>` namespaces, never as methods); everything else is
 | `ArrayType(T)` | `EastArray` (indexable, iterable) | **Mutable** |
 | `SetType(K)` | `EastSet` (East-sorted) | **Mutable** |
 | `DictType(K, V)` | `EastDict` (East-sorted by key) | **Mutable** |
-| `VectorType(T)` | `EastVector`; `.data` is a 1-D numpy buffer | **Mutable** |
-| `MatrixType(T)` | `EastMatrix`; `.data` is a 2-D row-major numpy buffer | **Mutable** |
+| `VectorType(T)` | `EastVector`; `.data` is a 1-D numpy buffer | Immutable |
+| `MatrixType(T)` | `EastMatrix`; `.data` is a 2-D row-major numpy buffer | Immutable |
 | `StructType({...})` | `EastStruct` (index by field name: `s["name"]`) | Immutable (frozen) |
 | `VariantType({...})` | `EastVariant` (`.type` tag, `.value`; compared **by case name**) | Immutable (frozen) |
 | `RefType(T)` | `EastRef` (cell; `.get()` / `.set()` / `.update()`) | **Mutable** |
@@ -220,8 +221,8 @@ buffer (zero-copy view — hand straight to numpy/torch), `.dtype` its runtime d
 
 | Type | Methods |
 |------|---------|
-| `EastVector` | `get(i)` · `set(i, v) -> None` · `length()` · `slice(start, end)` · `concat(other)` · `map(fn(el), out=None)` · `fold(initial, fn(acc, el))` · `to_array()` · `to_matrix(rows, cols)` · props `.data`/`.dtype`/`.element_type` |
-| `EastMatrix` | `get(r, c)` · `set(r, c, v) -> None` · `get_row(r) -> Vector` · `get_col(c) -> Vector` · `num_rows()`/`num_cols()` · `transpose()` · `map_elements(fn(el), out=None)` · `map_rows(fn(row_vector), out=None)` · `to_rows() -> Array<Vector>` · `to_array()` · `to_vector()` · props `.data`/`.dtype`/`.element_type`/`.rows`/`.cols` |
+| `EastVector` | `get(i)` · `set(i, v) -> EastVector` · `length()` · `slice(start, end)` · `concat(other)` · `map(fn(el), out=None)` · `fold(initial, fn(acc, el))` · `to_array()` · `to_matrix(rows, cols)` · props `.data`/`.dtype`/`.element_type` |
+| `EastMatrix` | `get(r, c)` · `set(r, c, v) -> EastMatrix` · `get_row(r) -> Vector` · `get_col(c) -> Vector` · `num_rows()`/`num_cols()` · `transpose()` · `map_elements(fn(el), out=None)` · `map_rows(fn(row_vector), out=None)` · `to_rows() -> Array<Vector>` · `to_array()` · `to_vector()` · props `.data`/`.dtype`/`.element_type`/`.rows`/`.cols` |
 
 ### EastBlob (a `bytes` subclass)
 

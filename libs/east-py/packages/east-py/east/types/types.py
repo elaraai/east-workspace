@@ -755,12 +755,11 @@ def is_immutable_type(typ: EastType, recursive_type: EastType | None = None) -> 
         or is_set_type(typ)
         or is_dict_type(typ)
         or is_ref_type(typ)
-        or is_vector_type(typ)
-        or is_matrix_type(typ)
         or is_function_type(typ)
         or is_async_function_type(typ)
     ):
         return False
+    # Vectors and Matrices are immutable value types (fall through to True).
     if is_struct_type(typ):
         return all(is_immutable_type(field["type"], recursive_type) for field in typ.value)
     if is_variant_type(typ):

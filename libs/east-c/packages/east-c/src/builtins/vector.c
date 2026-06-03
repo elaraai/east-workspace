@@ -91,8 +91,9 @@ static EastValue *vector_get_impl(EastValue **args, size_t n)
 static EastValue *vector_set_impl(EastValue **args, size_t n)
 {
     (void)n;
+    EastValue *vec = args[0];
     int64_t idx = args[1]->data.integer;
-    size_t len = args[0]->data.vector.len;
+    size_t len = vec->data.vector.len;
     if (idx < 0 || (size_t)idx >= len) {
         char msg[128];
         snprintf(msg, sizeof(msg), "Vector index %lld out of bounds (length %zu)", (long long)idx,
@@ -100,8 +101,11 @@ static EastValue *vector_set_impl(EastValue **args, size_t n)
         east_builtin_error(msg);
         return NULL;
     }
-    vec_set_elem(args[0], (size_t)idx, args[2]);
-    return east_null();
+    EastType *et = vec->data.vector.elem_type;
+    EastValue *result = east_vector_new(et, len);
+    memcpy(result->data.vector.data, vec->data.vector.data, len * elem_size(et));
+    vec_set_elem(result, (size_t)idx, args[2]);
+    return result;
 }
 
 static EastValue *vector_slice_impl(EastValue **args, size_t n)

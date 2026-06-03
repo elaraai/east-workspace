@@ -70,15 +70,17 @@ await describe("Matrix", (test) => {
     });
 
     test("Matrix get and set", $ => {
-        const m = $.let(East.Matrix.zeros(2n, 2n));
-        $(m.set(0n, 0n, 1.0))
-        $(m.set(0n, 1n, 2.0))
-        $(m.set(1n, 0n, 3.0))
-        $(m.set(1n, 1n, 4.0))
+        const m0 = $.let(East.Matrix.zeros(2n, 2n));
+        const m1 = $.let(m0.set(0n, 0n, 1.0));
+        const m2 = $.let(m1.set(0n, 1n, 2.0));
+        const m3 = $.let(m2.set(1n, 0n, 3.0));
+        const m = $.let(m3.set(1n, 1n, 4.0));
         $(assert.equal(m.get(0n, 0n), 1.0))
         $(assert.equal(m.get(0n, 1n), 2.0))
         $(assert.equal(m.get(1n, 0n), 3.0))
         $(assert.equal(m.get(1n, 1n), 4.0))
+        // set is functional: the original is unchanged
+        $(assert.equal(m0.get(0n, 0n), 0.0))
     });
 
     test("Matrix bounds checking", $ => {
@@ -167,16 +169,16 @@ await describe("Matrix", (test) => {
         $(assert.equal(m.rows(), 2n))
         $(assert.equal(m.cols(), 2n))
         $(assert.equal(m.get(0n, 0n), 10n))
-        $(m.set(1n, 1n, 99n))
-        $(assert.equal(m.get(1n, 1n), 99n))
+        const m1 = $.let(m.set(1n, 1n, 99n));
+        $(assert.equal(m1.get(1n, 1n), 99n))
     });
 
     test("Matrix boolean type", $ => {
         const m = $.let(East.Matrix.fill(2n, 2n, false));
         $(assert.equal(m.get(0n, 0n), false))
-        $(m.set(0n, 1n, true))
-        $(assert.equal(m.get(0n, 1n), true))
-        $(assert.equal(m.get(1n, 0n), false))
+        const m1 = $.let(m.set(0n, 1n, true));
+        $(assert.equal(m1.get(0n, 1n), true))
+        $(assert.equal(m1.get(1n, 0n), false))
     });
 
     test("Matrix row col bounds", $ => {
@@ -188,9 +190,9 @@ await describe("Matrix", (test) => {
     });
 
     test("Matrix transpose square", $ => {
-        const m = $.let(East.Matrix.zeros(3n, 3n));
-        $(m.set(0n, 1n, 5.0))
-        $(m.set(1n, 0n, 7.0))
+        const m0 = $.let(East.Matrix.zeros(3n, 3n));
+        const m1 = $.let(m0.set(0n, 1n, 5.0));
+        const m = $.let(m1.set(1n, 0n, 7.0));
         const t = $.let(m.transpose());
         $(assert.equal(t.get(1n, 0n), 5.0))
         $(assert.equal(t.get(0n, 1n), 7.0))
