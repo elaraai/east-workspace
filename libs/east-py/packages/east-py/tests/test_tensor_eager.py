@@ -49,3 +49,47 @@ def test_tensors_are_not_hashable():
         hash(v)
     with pytest.raises(TypeError):
         hash(m)
+
+
+def test_to_numpy_default_is_readonly():
+    v = EastVector(FloatType, np.array([1.0, 2.0, 3.0]))
+    a = v.to_numpy()
+    assert not a.flags.writeable
+    with pytest.raises(ValueError):
+        a[0] = 9.0  # cannot mutate the immutable buffer
+
+
+def test_to_numpy_copy_is_writeable_and_isolated():
+    v = EastVector(FloatType, np.array([1.0, 2.0]))
+    a = v.to_numpy(copy=True)
+    assert a.flags.writeable
+    a[0] = 9.0
+    assert v.get(0) == 1.0  # original untouched
+
+
+def test_to_numpy_dtype_cast_copies_and_is_writeable():
+    v = EastVector(FloatType, np.array([1.0, 2.0], dtype=np.float64))
+    a = v.to_numpy(dtype=np.float32)
+    assert a.dtype == np.float32
+    assert a.flags.writeable
+    assert v.dtype == np.float64  # original untouched
+
+
+def test_asarray_uses_array_protocol():
+    v = EastVector(FloatType, np.array([1.0, 2.0]))
+    a = np.asarray(v)
+    assert a.shape == (2,)
+    assert not a.flags.writeable
+
+
+def test_from_numpy_preserves_dtype():
+    v = EastVector.from_numpy(FloatType, np.array([1.0, 2.0, 3.0], dtype=np.float32))
+    assert v.dtype == np.float32
+    assert v.to_numpy().tolist() == [1.0, 2.0, 3.0]
+
+
+def test_matrix_to_numpy_is_2d_readonly():
+    m = EastMatrix(FloatType, np.array([[1.0, 2.0], [3.0, 4.0]]))
+    a = m.to_numpy()
+    assert a.shape == (2, 2)
+    assert not a.flags.writeable

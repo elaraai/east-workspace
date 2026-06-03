@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import numpy.typing as npt
 
 from east.types.values._helpers import (
     EAST_ELEMENT_TO_DTYPE,
@@ -17,6 +18,8 @@ from east.types.values._helpers import (
 from east.types.values.collections import EastArray
 
 if TYPE_CHECKING:
+    import torch
+
     from east.types.types import EastType
 
 
@@ -66,6 +69,62 @@ class EastVector:
     def dtype(self) -> np.dtype:
         """Runtime storage dtype of the backing NumPy buffer."""
         return self.data.dtype
+
+    # ----- NumPy / torch interop -----------------------------------------
+    #
+    # The backing buffer is exposed only through these accessors so the
+    # immutable vector cannot be mutated through an aliased array: the no-copy
+    # path returns a read-only view; any cast or explicit copy is writeable.
+
+    def to_numpy(self, dtype: npt.DTypeLike | None = None, copy: bool = False) -> npt.NDArray[Any]:
+        """Return the backing buffer as a NumPy array.
+
+        Args:
+            dtype: Optional NumPy dtype to cast to (forces a writeable copy).
+            copy: If True, return a writeable copy even when no cast is needed.
+
+        Returns:
+            A 1-D array: a read-only view of the backing buffer by default, or a
+            writeable copy when ``dtype`` differs or ``copy`` is True.
+        """
+        if dtype is not None and np.dtype(dtype) != self.data.dtype:
+            return self.data.astype(dtype, copy=True)
+        if copy:
+            return self.data.copy()
+        view = self.data.view()
+        view.flags.writeable = False
+        return view
+
+    def to_torch(self, dtype: npt.DTypeLike | None = None) -> torch.Tensor:
+        """Return the vector as a 1-D ``torch.Tensor`` (a writeable copy).
+
+        Args:
+            dtype: Optional NumPy dtype to cast to before conversion.
+
+        Returns:
+            A ``torch.Tensor`` that shares no memory with this vector.
+        """
+        import torch
+
+        return torch.from_numpy(self.to_numpy(dtype=dtype, copy=True))
+
+    def __array__(
+        self, dtype: npt.DTypeLike | None = None, copy: bool | None = None
+    ) -> npt.NDArray[Any]:
+        """NumPy array protocol so ``np.asarray(vector)`` returns the buffer."""
+        if copy is False and dtype is not None and np.dtype(dtype) != self.data.dtype:
+            raise ValueError("cannot return a no-copy view with a different dtype")
+        return self.to_numpy(dtype=dtype, copy=bool(copy))
+
+    @classmethod
+    def from_numpy(cls, element_type: EastType, array: npt.ArrayLike) -> EastVector:
+        """Build a vector from a NumPy array; its storage dtype is preserved."""
+        return cls(element_type, np.asarray(array))
+
+    @classmethod
+    def from_torch(cls, element_type: EastType, tensor: torch.Tensor) -> EastVector:
+        """Build a vector from a 1-D ``torch.Tensor`` (copied to host memory)."""
+        return cls(element_type, np.asarray(tensor.detach().cpu().numpy()))
 
     def __len__(self) -> int:
         """Return number of elements."""
@@ -340,6 +399,63 @@ class EastMatrix:
     def dtype(self) -> np.dtype:
         """Runtime storage dtype of the backing NumPy buffer."""
         return self.data.dtype
+
+    # ----- NumPy / torch interop -----------------------------------------
+    #
+    # The backing buffer is exposed only through these accessors so the
+    # immutable matrix cannot be mutated through an aliased array: the no-copy
+    # path returns a read-only view; any cast or explicit copy is writeable.
+
+    def to_numpy(self, dtype: npt.DTypeLike | None = None, copy: bool = False) -> npt.NDArray[Any]:
+        """Return the backing buffer as a 2-D NumPy array.
+
+        Args:
+            dtype: Optional NumPy dtype to cast to (forces a writeable copy).
+            copy: If True, return a writeable copy even when no cast is needed.
+
+        Returns:
+            A 2-D row-major array: a read-only view of the backing buffer by
+            default, or a writeable copy when ``dtype`` differs or ``copy`` is
+            True.
+        """
+        if dtype is not None and np.dtype(dtype) != self.data.dtype:
+            return self.data.astype(dtype, copy=True)
+        if copy:
+            return self.data.copy()
+        view = self.data.view()
+        view.flags.writeable = False
+        return view
+
+    def to_torch(self, dtype: npt.DTypeLike | None = None) -> torch.Tensor:
+        """Return the matrix as a 2-D ``torch.Tensor`` (a writeable copy).
+
+        Args:
+            dtype: Optional NumPy dtype to cast to before conversion.
+
+        Returns:
+            A ``torch.Tensor`` that shares no memory with this matrix.
+        """
+        import torch
+
+        return torch.from_numpy(self.to_numpy(dtype=dtype, copy=True))
+
+    def __array__(
+        self, dtype: npt.DTypeLike | None = None, copy: bool | None = None
+    ) -> npt.NDArray[Any]:
+        """NumPy array protocol so ``np.asarray(matrix)`` returns the buffer."""
+        if copy is False and dtype is not None and np.dtype(dtype) != self.data.dtype:
+            raise ValueError("cannot return a no-copy view with a different dtype")
+        return self.to_numpy(dtype=dtype, copy=bool(copy))
+
+    @classmethod
+    def from_numpy(cls, element_type: EastType, array: npt.ArrayLike) -> EastMatrix:
+        """Build a matrix from a 2-D NumPy array; its storage dtype is preserved."""
+        return cls(element_type, np.asarray(array))
+
+    @classmethod
+    def from_torch(cls, element_type: EastType, tensor: torch.Tensor) -> EastMatrix:
+        """Build a matrix from a 2-D ``torch.Tensor`` (copied to host memory)."""
+        return cls(element_type, np.asarray(tensor.detach().cpu().numpy()))
 
     def __repr__(self) -> str:
         """Return representation."""
