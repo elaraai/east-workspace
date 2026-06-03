@@ -367,6 +367,16 @@ jobs:
           CIBW_SKIP: "*-musllinux_*"
           # macos-14 is Apple Silicon (arm64); also cross-compile Intel wheels.
           CIBW_ARCHS_MACOS: "arm64 x86_64"
+          # The single libeast-c.so is a payload of the core `east` package.
+          # Exclude it from wheel repair on BOTH rows: in the datascience wheel a
+          # grafted copy would recreate the multi-slab duplication; in the core
+          # wheel, relocating it into east_py.libs/ would break datascience's
+          # $ORIGIN/../../east/libeast-c.so RUNPATH. The runtime resolves the one
+          # co-installed copy in east/. (auditwheel/delocate keep NEEDED + RUNPATH.)
+          CIBW_REPAIR_WHEEL_COMMAND_LINUX: >-
+            auditwheel repair --exclude libeast-c.so -w {dest_dir} {wheel}
+          CIBW_REPAIR_WHEEL_COMMAND_MACOS: >-
+            delocate-wheel --exclude libeast-c --require-archs {delocate_archs} -w {dest_dir} {wheel}
       - uses: actions/upload-artifact@v4
         with:
           name: pypi-${{ matrix.pkg.name }}-${{ matrix.os }}
