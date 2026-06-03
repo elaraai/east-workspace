@@ -339,7 +339,7 @@ Dialog), `open`/`defaultOpen`, config (`modal`, `closeOnEscape`, …), and visua
 
 | Component | `.Root` | Notable opts/callbacks |
 |---|---|---|
-| Table | `(rows, columns, options?)` + `.Column(key,…)` | `pagination{pageSize,page,onPageChange}`, `selection{mode,selected,onChange}`, column `render(ctx)`, events: cell/row click, sort |
+| Table | `(rows, columns, options?)` — `columns` is a **keyed config object** `{ field: { header, width?, value?, render? } }`, NOT a factory | `pagination{pageSize,page,onPageChange}`, `selection{mode,selected,onChange}`, `columnGroups`, `footerRows`, per-column `render(ctx)` |
 | DataList | `(items, style?)` | item `{label, value}` |
 | Matrix | `(rows, columns, options?)` + `.cell/.segment/.marker/.legend` | data-driven grid |
 | Pagination | `(page, pageSize, count, onPageChange, options?)` | `siblings`, `boundaries`, `variant`, `size` |
@@ -354,20 +354,29 @@ Dialog), `open`/`defaultOpen`, config (`modal`, `closeOnEscape`, …), and visua
 <Pagination page={page} pageSize={25n} count={total} onPageChange={setPage} />
 ```
 
-### 5.11 Charts (shape 5 — layer children; see §6.4)
+### 5.11 Charts (shape 5 — layer children; see §6.4 + §9.2)
 
-`Chart.Root(rows, layers, options?)` with typed **accessors** (scale inferred
-from the accessor's East type). Layer sub-factories: `Line/Bar/Area/Scatter/
-Band/refLine/refBand/refDot`. `Sparkline(data[], style?)` is a leaf.
+Real API: **`Chart.Root(layer | layer[], options?)`** — `rows` are passed to
+**each layer**, not to `Chart.Root`: `Chart.Line(rows, encoding, style?)`.
+Encodings: `{x,y}` (single), `{x,y,by}` (split), `{x, columns:{…}}` (wide),
+`{x,low,high}` (band). Accessors are TS arrows `r => r.field` returning East
+field expressions; scale is inferred from the field's East type. Layers:
+`Line/Bar/Area/Scatter/Band` + refs `refLine/refBand/refDot`. Options: `grid`,
+`legend`, `tooltip`, `x/y/y2:{label,format,domain,scale}`, `height`, `width`,
+`stackOffset`. `Sparkline(data[], {type,color,width,height})` is a leaf.
 
 ```tsx
-<Chart data={series}>
-  <Chart.Line x={r => r.t} y={r => r.value} color="blue" curve="monotone" />
-  <Chart.Bar  x={r => r.t} y={r => r.count} axis="right" />
-  <Chart.RefLine y={threshold} />
+<Chart legend tooltip grid>
+  {/* data lives on each layer; `name` (not `key` — JSX-reserved) sets legend label */}
+  <Chart.Bar  data={rows} x={r => r.month} y={r => r.revenue} name="Revenue" color="teal.solid" />
+  <Chart.Line data={rows} x={r => r.month} y={r => r.profit}  name="Profit"  color="purple.solid" dots />
+  <Chart.RefLine y={200} label="Capacity" dash="4 4" />
 </Chart>
 <Sparkline data={points} type="area" color="green" />
 ```
+> **`<Chart data=>` sugar (proposal):** allow a default `data` on `<Chart>` that
+> layers inherit when they omit their own — handy since most charts share one
+> rowset. Faithful form (data per layer) always works.
 
 ---
 
@@ -384,32 +393,46 @@ factory (item structs already surveyed). New thin aliases optional (§7).
 - **Open question (§8):** `trigger=` prop (lean) vs `<Dialog.Trigger>` sub-tag.
 
 ### 6.3 Structured tables — `data=` vs `<Table.Row>` markup
-Default is data-prop driven (and the only option for runtime/dynamic rows):
-`<Table data={rows} columns={cols} …/>`. The proposed **markup mode** for
-static tables:
+Default is data-prop driven (and the only option for runtime/dynamic rows) —
+`columns` is a keyed config object today: `<Table data={rows} columns={{…}} />`
+(full example in §9.1). The proposed **markup mode** for static tables:
 ```tsx
 <Table>
-  <Table.Column key="name">Name</Table.Column>
-  <Table.Column key="qty" render={ctx => <Badge>{ctx.value}</Badge>}>Qty</Table.Column>
+  <Table.Column field="name" header="Name" />
+  <Table.Column field="qty"  header="Qty" render={ctx => <Badge>{ctx.cellValue}</Badge>} />
   <Table.Row><Table.Cell>Widget</Table.Cell><Table.Cell>{n}</Table.Cell></Table.Row>
 </Table>
 ```
 Needs **new** `Table.Row(cells)`, `Table.Cell(value, content?)`,
-`Table.Column(key,…)` factories + parent assembly of rows/columns. Static only;
-dynamic stays `data=`. (Same question for Matrix/Gantt/Planner.)
+`Table.Column(field,…)` factories + parent assembly of rows/columns (today
+`columns` is a plain object, not a factory). Static only; dynamic stays `data=`.
+(Same question for Matrix/Gantt/Planner.)
 
 ### 6.4 Chart layers
 Layer factories already return layer values → wrap as children. Accessors are
 plain TS arrows `r => r.field` returning East field expressions.
 
 ### 6.5 Card (compound container)
-`Card.Root(children, options?)` plus `Card.Header/.Title/.Description/.Body/
-.Footer/.Section/.Actions`. JSX:
+Real API: `Card.Root(children[], { header?: Card.Header({eyebrow,title,description,meta}),
+footer?: Card.Footer([…], {actions: Card.Actions([…])}), state? })` — header/footer
+are **option slots holding sub-component values**, not body children. Two JSX
+mappings (decision in §8):
+
 ```tsx
+{/* (A) slot props — closest to the real shape */}
+<Card state="ready"
+  header={<Card.Header eyebrow="Forecast" title="Per plan week" meta="14s ago" />}
+  footer={<Card.Footer actions={<Card.Actions><Button variant="subtle">Export</Button></Card.Actions>}>
+            <Text>Last synced 14:32</Text>
+          </Card.Footer>}>
+  <Text>Scenario vs baseline.</Text>   {/* body = children */}
+</Card>
+
+{/* (B) slotted children — wrapper hoists Card.Header/.Footer out of children into options */}
 <Card state="ready">
-  <Card.Header><Card.Title>Sales</Card.Title><Card.Description>Q3</Card.Description></Card.Header>
-  <Card.Body>{chart}</Card.Body>
-  <Card.Footer><Card.Actions>{buttons}</Card.Actions></Card.Footer>
+  <Card.Header eyebrow="Forecast" title="Per plan week" meta="14s ago" />
+  <Text>Scenario vs baseline.</Text>
+  <Card.Footer><Card.Actions><Button variant="subtle">Export</Button></Card.Actions></Card.Footer>
 </Card>
 ```
 
@@ -443,3 +466,446 @@ Open:
 6. **`Input`/`Field` tags** — `<Input.String/>`/`<Input.Float/>` (matches factory) or add a default `<Input/>` ≙ `Input.String` + typed variants?
 7. **Style prop depth** — expose the *full* box-like style vocabulary on every container tag (big autocomplete surface), or curate a common subset + an escape-hatch `style={{…}}` for the long tail?
 8. **Flat vs nested style for shape-3 components** (Button/Card/overlays) — keep flat JSX props with wrapper-side splitting (proposed), or mirror the factory's nested `style` object in JSX?
+9. **`name` vs `key` for Chart layer legend label** — `key` is JSX-reserved (the compiler strips it from props), so the layer's `key` field must surface under a different prop. Proposed: `name`. (Affects any factory field literally called `key`.)
+10. **Render-callback lifting** — `render={ctx => <Badge/>}` / Chart accessors `x={r => r.month}`: the wrapper auto-wraps these TS arrows into `East.function([...], …)`. Confirm that implicit lift (vs requiring an explicit `East.function`).
+11. **Card header/footer** — slot props (`header={<Card.Header/>}`) vs slotted children (wrapper hoists `<Card.Header>`/`<Card.Footer>` out of body). (§6.5)
+12. **Sub-tag-in-callback (§10)** — for Matrix/Gantt/Planner, the `cell`/`row`/`events` callbacks return JSX sub-tag fragments the wrapper collects (callback param is an East `row`/`col` expression). Adopt this pattern, or leave those three as raw factory callbacks returning `Matrix.cell(...)` etc.?
+
+---
+
+## 9. Worked examples — nested components (before → after)
+
+Real factory code (from the example suites) paired with the proposed JSX. These
+are the load-bearing cases; if the JSX reads well here, the rest follow.
+
+### 9.1 Table
+
+**Before** (`test/collections/table.examples.ts`) — keyed `columns` object, a
+`value` sort accessor, a `render` cell, plus pagination + multi-select:
+```ts
+Table.Root(
+  rows,                                                  // [{ name, email, role, tags }, …]
+  {
+    name:  { header: "Name" },
+    email: { header: "Email" },
+    role:  { header: "Role" },
+    tags:  { header: "Tags", value: tags => tags.size() },
+    status:{ header: "Status",
+             render: East.function([Table.Types.CellRenderContext], UIComponentType,
+               (_$, ctx) => Badge.Root(ctx.cellValue.match({ String: (_$, v) => v }, _$ => ""),
+                                       { variant: "solid", colorPalette: "blue" })) },
+  },
+  { pagination: { pageSize: 20n, page, onPageChange },
+    selection:  { mode: "multiple", selected, onChange } },
+)
+```
+**After** — `columns` stays the keyed object (it's config, not markup); `value`
+and `render` are TS arrows the wrapper lifts into East functions:
+```tsx
+<Table
+  data={rows}
+  columns={{
+    name:  { header: "Name" },
+    email: { header: "Email" },
+    role:  { header: "Role" },
+    tags:  { header: "Tags", value: tags => tags.size() },
+    status:{ header: "Status",
+             render: ctx => <Badge variant="solid" colorPalette="blue">
+               {ctx.cellValue.match({ String: (_$, v) => v }, _$ => "")}
+             </Badge> },
+  }}
+  pagination={{ pageSize: 20n, page, onPageChange }}
+  selection={{ mode: "multiple", selected, onChange }}
+/>
+```
+**Markup mode (proposed, static tables only)** — new `Table.Column/.Row/.Cell`:
+```tsx
+<Table selection={{ mode: "multiple", selected, onChange }}>
+  <Table.Column field="name" header="Name" />
+  <Table.Column field="price" header="Price" render={ctx => <Numeric value={ctx.cellValue} format="currency" />} />
+  {items.map(it => (                                   {/* East .map over an East array */}
+    <Table.Row><Table.Cell>{it.name}</Table.Cell><Table.Cell>{it.price}</Table.Cell></Table.Row>
+  ))}
+</Table>
+```
+
+### 9.2 Chart — composed multi-layer (`rows` live on each layer)
+
+**Before** (`test/charts/chart.examples.ts`, composed bar+line, and band+refs):
+```ts
+Chart.Root([
+  Chart.Bar (rows, { x: r => r.month, y: r => r.revenue }, { key: "Revenue", color: "teal.solid" }),
+  Chart.Line(rows, { x: r => r.month, y: r => r.profit  }, { key: "Profit",  color: "purple.solid", dots: true }),
+], { legend: true, tooltip: true, grid: true })
+
+Chart.Root([
+  Chart.Area(rows, { x: r => r.month, columns: { Mobile: r => r.mobile, Desktop: r => r.desktop } }, { stack: "traffic", fillOpacity: 0.5 }),
+  Chart.Band(rows, { x: r => r.month, low: r => r.lo, high: r => r.hi }, { key: "Confidence", color: "blue.200", fillOpacity: 0.3 }),
+  Chart.Line(rows, { x: r => r.month, y: r => r.trend }, { key: "Trend", color: "red.solid", dash: "5 5", axis: "right" }),
+  Chart.refLine({ y: 200, label: "Capacity", dash: "4 4" }),
+], { y: { label: "Sessions" }, y2: { label: "Trend", format: Chart.format.compact() }, legend: true })
+```
+**After** — layers are children; encoding accessors + style are flat props;
+`key`→`name` (JSX-reserved); `columns`/`low`/`high` stay object/accessor props:
+```tsx
+<Chart legend tooltip grid>
+  <Chart.Bar  data={rows} x={r => r.month} y={r => r.revenue} name="Revenue" color="teal.solid" />
+  <Chart.Line data={rows} x={r => r.month} y={r => r.profit}  name="Profit"  color="purple.solid" dots />
+</Chart>
+
+<Chart legend y={{ label: "Sessions" }} y2={{ label: "Trend", format: Chart.format.compact() }}>
+  <Chart.Area data={rows} x={r => r.month} columns={{ Mobile: r => r.mobile, Desktop: r => r.desktop }} stack="traffic" fillOpacity={0.5} />
+  <Chart.Band data={rows} x={r => r.month} low={r => r.lo} high={r => r.hi} name="Confidence" color="blue.200" fillOpacity={0.3} />
+  <Chart.Line data={rows} x={r => r.month} y={r => r.trend} name="Trend" color="red.solid" dash="5 5" axis="right" />
+  <Chart.RefLine y={200} label="Capacity" dash="4 4" />
+</Chart>
+```
+Split-by-category and scatter follow the same shape:
+```tsx
+<Chart legend grid><Chart.Line data={rows} x={r => r.month} y={r => r.n} by={r => r.os} /></Chart>
+<Chart grid><Chart.Scatter data={rows} x={r => r.gdp} y={r => r.life} size={r => r.pop} /></Chart>
+```
+
+### 9.3 Tabs & Accordion
+
+**Before:**
+```ts
+Tabs.Root([
+  Tabs.Item("overview", "Overview", [Box.Root([Text.Root("…")], { padding: "4" })]),
+  Tabs.Item("features", "Features", [Box.Root([Text.Root("…")], { padding: "4" })]),
+], { defaultValue: "overview" })
+```
+**After:**
+```tsx
+<Tabs defaultValue="overview">
+  <Tab value="overview" title="Overview"><Box padding="4"><Text>…</Text></Box></Tab>
+  <Tab value="features" title="Features"><Box padding="4"><Text>…</Text></Box></Tab>
+</Tabs>
+
+<Accordion>
+  <Accordion.Item value="item-1" title="What is East UI?"><Box padding="4"><Text>…</Text></Box></Accordion.Item>
+  <Accordion.Item value="item-2" title="How do I install it?"><Box padding="4"><Text>…</Text></Box></Accordion.Item>
+</Accordion>
+```
+(`<Tab title=…>` → `Tabs.Item(value, trigger=title, content=children)`; trigger
+can also be rich JSX, not just a string.)
+
+### 9.4 Select & RadioGroup (forms with items)
+
+**Before:**
+```ts
+Select.Root("", [Select.Item("us","United States"), Select.Item("uk","United Kingdom")],
+            { placeholder: "Select a country" })
+RadioGroup.Root("yes", [{ value:"yes", label:"Yes" }, { value:"no", label:"No" }])  // items are JS objects
+```
+**After:**
+```tsx
+<Select value={country} onChange={setCountry} placeholder="Select a country">
+  <Select.Option value="us">United States</Select.Option>
+  <Select.Option value="uk">United Kingdom</Select.Option>
+</Select>
+
+{/* RadioGroup items are plain objects today → either keep an items= prop … */}
+<RadioGroup value={v} onChange={setV} items={[{ value:"yes", label:"Yes" }, { value:"no", label:"No" }]} />
+{/* … or add a new RadioGroup.Item factory to allow sub-tags (§7): */}
+<RadioGroup value={v} onChange={setV}><Radio value="yes">Yes</Radio><Radio value="no">No</Radio></RadioGroup>
+```
+
+### 9.5 Menu, Dialog, Tooltip (trigger + body)
+
+**Before:**
+```ts
+Menu.Root(IconButton.Root("fas","ellipsis","More",{ style:{ variant:"ghost", size:"sm" } }),
+          [Menu.Item("view","View"), Menu.Item("edit","Edit"), Menu.Separator(), Menu.Item("delete","Delete")])
+Dialog.Root(Button.Root("Open Dialog"),
+            [Text.Root("…"), Stack.HStack([Button.Root("Cancel",{style:{variant:"outline"}}), Button.Root("Confirm",{style:{variant:"solid"}})], { gap:"2", justify:"flex-end" })],
+            { title:"Confirm Action", description:"Are you sure you want to proceed?" })
+```
+**After** — `trigger` is a slot prop; body is children; title/desc are props:
+```tsx
+<Menu trigger={<IconButton prefix="fas" name="ellipsis" label="More" variant="ghost" size="sm" />}>
+  <Menu.Item value="view">View</Menu.Item>
+  <Menu.Item value="edit">Edit</Menu.Item>
+  <Menu.Separator />
+  <Menu.Item value="delete">Delete</Menu.Item>
+</Menu>
+
+<Dialog trigger={<Button>Open Dialog</Button>} title="Confirm Action" description="Are you sure you want to proceed?">
+  <Text>…</Text>
+  <HStack gap="2" justify="flex-end">
+    <Button variant="outline">Cancel</Button>
+    <Button variant="solid">Confirm</Button>
+  </HStack>
+</Dialog>
+
+<Tooltip content="This is a tooltip"><Button>Hover me</Button></Tooltip>
+```
+(Tooltip's body is its `trigger` (children) and `content` is the string prop —
+the inverse of Dialog, because `Tooltip.Root(trigger, content)`.)
+
+### 9.6 Grid & Splitter
+
+**Before:**
+```ts
+Grid.Root([Grid.Item(box1), Grid.Item(box2), …], { templateColumns: "repeat(3, 1fr)", gap: "3" })
+Splitter.Root([Splitter.Panel(left,{id:"left"}), Splitter.Panel(right,{id:"right"})], [50,50], { orientation:"horizontal" })
+```
+**After:**
+```tsx
+<Grid templateColumns="repeat(3, 1fr)" gap="3">
+  {cells.map(c => <Grid.Item><Box padding="2" background="blue.100"><Text>{c}</Text></Box></Grid.Item>)}
+</Grid>
+
+<Splitter sizes={[50, 50]} orientation="horizontal">
+  <Splitter.Panel id="left"><Box padding="4" background="blue.50"><Text>Left</Text></Box></Splitter.Panel>
+  <Splitter.Panel id="right"><Box padding="4" background="green.50"><Text>Right</Text></Box></Splitter.Panel>
+</Splitter>
+```
+(`Splitter`'s `defaultSize` positional `[50,50]` → `sizes` prop.)
+
+### 9.7 TreeView (recursive branches)
+
+**Before:**
+```ts
+TreeView.Root([
+  TreeView.Branch("src","src",[ TreeView.Item("idx","index.ts"), TreeView.Branch("comp","components",[ TreeView.Item("btn","Button.tsx") ]) ]),
+  TreeView.Item("pkg","package.json"),
+], { selectionMode: "multiple", defaultExpandedValue: ["src"], onSelectionChange })
+```
+**After** — branches nest naturally; `children` of `<Tree.Branch>` are its nodes:
+```tsx
+<Tree selectionMode="multiple" defaultExpandedValue={["src"]} onSelectionChange={onSel}>
+  <Tree.Branch value="src" label="src">
+    <Tree.Item value="idx" label="index.ts" />
+    <Tree.Branch value="comp" label="components"><Tree.Item value="btn" label="Button.tsx" /></Tree.Branch>
+  </Tree.Branch>
+  <Tree.Item value="pkg" label="package.json" />
+</Tree>
+```
+
+### 9.8 SegmentGroup & OptionList
+
+**Before:**
+```ts
+SegmentGroup.Root("summary", [SegmentGroup.Item("summary","Summary"),
+  SegmentGroup.Item("unmet", Stack.HStack([Text.Root("Unmet"), Badge.Root("2",{colorPalette:"red",variant:"subtle"})],{gap:"2"}))],
+  { style: { size: "sm" } })
+OptionList.Root([OptionList.Option("alt-2","Shift batch to 06:00",{ description:"−£312 overtime", trailing: Badge.Root("−£312",{colorPalette:"green"}) })], { selectedId:"alt-1" })
+```
+**After** — `size` (nested under `options.style`) becomes a flat prop the wrapper
+re-nests; rich item labels are just children:
+```tsx
+<SegmentGroup value="summary" onChange={set} size="sm">
+  <SegmentGroup.Item value="summary">Summary</SegmentGroup.Item>
+  <SegmentGroup.Item value="unmet"><HStack gap="2"><Text>Unmet</Text><Badge colorPalette="red" variant="subtle">2</Badge></HStack></SegmentGroup.Item>
+</SegmentGroup>
+
+<OptionList selectedId="alt-1" onSelect={pick}>
+  <OptionList.Option id="alt-2" description="−£312 overtime" trailing={<Badge colorPalette="green">−£312</Badge>}>
+    Shift batch to 06:00
+  </OptionList.Option>
+</OptionList>
+```
+
+### 9.9 Collections → see §10
+
+All seven collection components get a full nested before→after in §10,
+including the **sub-tag-in-callback** pattern for Matrix/Gantt/Planner.
+
+---
+
+## 10. Collections — complete nested reference (all 7)
+
+Collections split into three JSX shapes:
+
+- **Item/row children** — children are sub-tags (DataList, TreeView, Table
+  markup mode). Static / East `.map` / mixed per §3.
+- **Config + builder-callback** — a `cell`/`row`/`events` callback returns
+  **sub-tags** (a fragment of `<Matrix.segment>`/`<Gantt.Task>`/`<Planner.event>`)
+  that the wrapper collects into the struct the callback must return. The
+  callback's parameter (`row`, `(row,col)`) is an **East expression**, so the
+  body is East code that happens to emit JSX. This is the key pattern that makes
+  the data-heavy collections read well.
+- **Scalar** — Pagination (plain props).
+
+New factories needed for collections: `Table.Row/.Cell/.Column` (markup mode),
+`DataList.Item`. Matrix/Gantt/Planner sub-tags **wrap existing** factories
+(`Matrix.cell/.segment/.marker`, `Gantt.Task/.Milestone`, `Planner.event/.marker`)
+— casing mirrors them; optional Capitalized aliases.
+
+### 10.1 Table — see §9.1
+Data mode (`columns` keyed object, `value`/`render` arrows) and markup mode
+(`<Table.Column>` + `<Table.Row>`/`<Table.Cell>`) are both in §9.1, with
+pagination/selection. Dynamic rows → `data=`; static → markup.
+
+### 10.2 DataList (label/value rows)
+
+**Before** (`test/collections/data-list.examples.ts`):
+```ts
+DataList.Root([
+  { label: "Status",      value: Badge.Root("Active", { variant: "solid", colorPalette: "green" }) },
+  { label: "Assigned To", value: HoverCard.Root(Text.Root("@alice", { color: "blue.500" }),
+                                   [Stack.VStack([Text.Root("Alice Johnson", { fontWeight: "bold" }),
+                                                  Text.Root("Lead Designer", { textStyle: "body-sm" })], { gap: "1" })]) },
+  { label: "Filter",      value: Highlight.Root("name LIKE '%smith%'", ["LIKE"]) },
+])
+```
+**After** — new `DataList.Item(label, valueChildren)`; the value is just children:
+```tsx
+<DataList>
+  <DataList.Item label="Status"><Badge variant="solid" colorPalette="green">Active</Badge></DataList.Item>
+  <DataList.Item label="Assigned To">
+    <HoverCard trigger={<Text color="blue.500">@alice</Text>}>
+      <VStack gap="1"><Text fontWeight="bold">Alice Johnson</Text><Text textStyle="body-sm">Lead Designer</Text></VStack>
+    </HoverCard>
+  </DataList.Item>
+  <DataList.Item label="Filter"><Highlight query={["LIKE"]}>name LIKE '%smith%'</Highlight></DataList.Item>
+  {fields.map(f => <DataList.Item label={f.label}><Text>{f.value}</Text></DataList.Item>)}  {/* East .map */}
+</DataList>
+```
+
+### 10.3 Matrix (heat grid — `cell` callback returns segment/marker sub-tags)
+
+**Before** (`test/collections/matrix.examples.ts`):
+```ts
+Matrix.Root(rows, {
+  columns: [{ key: "mon", label: "Mon" }, { key: "tue", label: "Tue" }, …],
+  rowKey: r => r.name, rowHeader: "Resource", rowSublabel: r => r.role, groupBy: r => r.team,
+  cell: (r, col) => Matrix.cell({ segments: [
+    Matrix.segment({ fill: "brand", weight: r.booked.get(col) }),
+    Matrix.segment({ fill: "free",  weight: East.value(1.0, FloatType).subtract(r.booked.get(col)) }),
+  ] }),
+  markers: (r, col) => [ Matrix.marker({ status: r.booked.get(col).greaterEqual(1.0).ifElse(_$ => variant("danger", null), _$ => variant("success", null)),
+                                          message: East.str`${r.booked.get(col).multiply(100.0)}% booked`, at: "tr" }) ],
+  legend: [{ fill: "brand", label: "Booked" }, { fill: "free", label: "Free" }],
+})
+```
+**After** — config stays props; `cell` is `(r, col) => <Matrix.cell>…segments…</Matrix.cell>`:
+```tsx
+<Matrix
+  data={rows}
+  columns={[{ key: "mon", label: "Mon" }, { key: "tue", label: "Tue" }, …]}
+  rowKey={r => r.name} rowHeader="Resource" rowSublabel={r => r.role} groupBy={r => r.team}
+  legend={[{ fill: "brand", label: "Booked" }, { fill: "free", label: "Free" }]}
+  cell={(r, col) => (
+    <Matrix.cell>
+      <Matrix.segment fill="brand" weight={r.booked.get(col)} />
+      <Matrix.segment fill="free"  weight={East.value(1.0, FloatType).subtract(r.booked.get(col))} />
+    </Matrix.cell>
+  )}
+  marker={(r, col) => (
+    <Matrix.marker at="tr"
+      status={r.booked.get(col).greaterEqual(1.0).ifElse(_$ => variant("danger", null), _$ => variant("success", null))}
+      message={East.str`${r.booked.get(col).multiply(100.0)}% booked`} />
+  )}
+/>
+```
+`<Matrix.cell>` collects its `<Matrix.segment>` children into `segments`; the
+`cell`/`marker` callbacks receive East `r`/`col` expressions (East code emitting
+JSX).
+
+### 10.4 Pagination (scalar — not nested)
+
+**Before:**
+```ts
+Pagination.Root(page, 20n, 500n, onPageChange, { siblings: 1n, variant: "subtle" })
+```
+**After:**
+```tsx
+<Pagination page={page} pageSize={20n} count={500n} onPageChange={onPageChange} siblings={1n} variant="subtle" />
+```
+
+### 10.5 TreeView — see §9.7 (recursive `<Tree.Branch>` / `<Tree.Item>`)
+
+**Before:**
+```ts
+TreeView.Root([
+  TreeView.Branch("src", "src", [TreeView.Item("idx", "index.ts", { prefix: "fas", name: "file-code" })],
+                  { prefix: "fas", name: "folder", color: "yellow.500" }),
+  TreeView.Item("pkg", "package.json"),
+], { selectionMode: "multiple", defaultExpandedValue: ["src"], onSelectionChange })
+```
+**After** — branches nest; the per-node `indicator` icon is a prop:
+```tsx
+<Tree selectionMode="multiple" defaultExpandedValue={["src"]} onSelectionChange={onSel}>
+  <Tree.Branch value="src" label="src" icon={{ prefix: "fas", name: "folder", color: "yellow.500" }}>
+    <Tree.Item value="idx" label="index.ts" icon={{ prefix: "fas", name: "file-code" }} />
+  </Tree.Branch>
+  <Tree.Item value="pkg" label="package.json" />
+</Tree>
+```
+
+### 10.6 Gantt (row → `<Gantt.Task>`/`<Gantt.Milestone>` sub-tags)
+
+**Before:**
+```ts
+Gantt.Root(rows, ["task", "owner"],
+  row => ({
+    tasks: [Gantt.Task({ start: row.start, end: row.end, progress: row.progress })],
+    milestones: [Gantt.Milestone({ date: row.checkpoint, label: "Checkpoint",
+                  kind: row.kind.equal("release").ifElse(_$ => variant("release", null), _$ => variant("interim", null)) })],
+  }),
+  { axis: { range: { min: d0, max: d1 }, tier: "month", format: "MMM" } })
+```
+**After** — the `row` callback returns a fragment of task/milestone sub-tags; the
+wrapper buckets them by type into `{ tasks, milestones }`:
+```tsx
+<Gantt data={rows} columns={["task", "owner"]} axis={{ range: { min: d0, max: d1 }, tier: "month", format: "MMM" }}
+  row={row => <>
+    <Gantt.Task start={row.start} end={row.end} progress={row.progress} />
+    <Gantt.Milestone date={row.checkpoint} label="Checkpoint"
+      kind={row.kind.equal("release").ifElse(_$ => variant("release", null), _$ => variant("interim", null))} />
+  </>} />
+```
+
+### 10.7 Planner (events → `<Planner.event>`/`<Planner.marker>` sub-tags)
+
+**Before** (`Planner.Point`, number axis with buckets):
+```ts
+Planner.Point(rows, {
+  axis: Planner.axis.number({ buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }], range: { min: 1, max: 8 } }),
+  groupBy: r => r.team,
+  columns: [{ key: "name", frozen: true, value: r => r.name, sublabel: r => r.role }],
+  events: r => [
+    Planner.event({ slot: Planner.at.number(1), bucket: "am", label: "✓", state: "committed" }),
+    Planner.event({ slot: Planner.at.number(5), bucket: "am", label: "check", state: "added" }),
+  ],
+  markers: r => [Planner.marker({ slot: Planner.at.number(3), status: "danger", message: "Double-booked" })],
+  now: Planner.at.number(5),
+  onSelectRow,
+})
+```
+**After** — `axis`/`at` builders stay as expression props (they're coordinate
+helpers, not UI); `events`/`markers` callbacks return sub-tag fragments:
+```tsx
+<Planner.Point data={rows}
+  axis={Planner.axis.number({ buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }], range: { min: 1, max: 8 } })}
+  groupBy={r => r.team}
+  columns={[{ key: "name", frozen: true, value: r => r.name, sublabel: r => r.role }]}
+  now={Planner.at.number(5)} onSelectRow={onSelectRow}
+  events={r => <>
+    <Planner.event slot={Planner.at.number(1)} bucket="am" label="✓" state="committed" />
+    <Planner.event slot={Planner.at.number(5)} bucket="am" label="check" state="added" />
+  </>}
+  markers={r => <Planner.marker slot={Planner.at.number(3)} status="danger" message="Double-booked" />}
+/>
+```
+`Planner.Span` is identical with `Planner.at.time(...)` + `endSlot`. (`<Planner.Point>`
+/`<Planner.Span>` are the two entry tags, matching the two factories.)
+
+### Collections summary
+
+| Component | JSX shape | Children / callback | New factories |
+|---|---|---|---|
+| Table | data-prop **or** markup | `columns={{…}}` + `data=` · or `<Table.Column>`/`<Table.Row>`/`<Table.Cell>` | `Table.Row/.Cell/.Column` |
+| DataList | item children | `<DataList.Item label>` | `DataList.Item` |
+| Matrix | config + `cell`/`marker` callback | callback → `<Matrix.cell>`(`<Matrix.segment>`)/`<Matrix.marker>` | — (wrap existing) |
+| Pagination | scalar props | — | — |
+| TreeView | recursive children | `<Tree.Branch>`/`<Tree.Item>` | — (wrap existing) |
+| Gantt | config + `row` callback | callback → `<Gantt.Task>`/`<Gantt.Milestone>` fragment | — (wrap existing) |
+| Planner | config + `events`/`markers` callback | callback → `<Planner.event>`/`<Planner.marker>` fragment | — (wrap existing) |
+
+> **New §8 decision (12):** the **sub-tag-in-callback** pattern (callback param
+> is an East `row`/`col` expression; body returns JSX collected into the struct).
+> It's the unifying device for Matrix/Gantt/Planner — confirm it's the design
+> (vs leaving those three as raw factory callbacks returning `Matrix.cell(...)`).
