@@ -194,45 +194,25 @@ cdef _eastc.EastType* _py_type_to_c_impl(object py_type) except NULL:
         _eastc.east_type_retain(&_eastc.east_never_type)
         return &_eastc.east_never_type
 
-    # Array, Set, Ref, Vector, Matrix — single element type
+    # Array, Set, Ref, Vector, Matrix — single element type. Each nesting level
+    # is counted by replace_markers (types.py), so the helper pushes a recursive
+    # context level too — otherwise Recursive(depth) markers that recurse THROUGH
+    # a container (e.g. BsonValue.document: Dict<String, self>) undercount the
+    # stack and fail with "Invalid recursive type depth".
     elif tag == "Array":
-        elem = py_type_to_c(py_type.value)
-        result = _eastc.east_array_type(elem)
-        _eastc.east_type_release(elem)
-        return result
+        return _convert_single_child_type(py_type.value, 0)
     elif tag == "Set":
-        elem = py_type_to_c(py_type.value)
-        result = _eastc.east_set_type(elem)
-        _eastc.east_type_release(elem)
-        return result
+        return _convert_single_child_type(py_type.value, 1)
     elif tag == "Ref":
-        elem = py_type_to_c(py_type.value)
-        result = _eastc.east_ref_type(elem)
-        _eastc.east_type_release(elem)
-        return result
+        return _convert_single_child_type(py_type.value, 2)
     elif tag == "Vector":
-        elem = py_type_to_c(py_type.value)
-        result = _eastc.east_vector_type(elem)
-        _eastc.east_type_release(elem)
-        return result
+        return _convert_single_child_type(py_type.value, 3)
     elif tag == "Matrix":
-        elem = py_type_to_c(py_type.value)
-        result = _eastc.east_matrix_type(elem)
-        _eastc.east_type_release(elem)
-        return result
+        return _convert_single_child_type(py_type.value, 4)
 
-    # Dict — key + value types
+    # Dict — key + value types (both sit one level deeper, like replace_markers)
     elif tag == "Dict":
-        key_type = py_type_to_c(py_type.value["key"])
-        try:
-            val_type = py_type_to_c(py_type.value["value"])
-        except:
-            _eastc.east_type_release(key_type)
-            raise
-        result = _eastc.east_dict_type(key_type, val_type)
-        _eastc.east_type_release(key_type)
-        _eastc.east_type_release(val_type)
-        return result
+        return _convert_dict_type(py_type.value)
 
     # Struct — named fields (push onto recursive context)
     elif tag == "Struct":
@@ -382,6 +362,96 @@ cdef _eastc.EastType* _convert_variant_type(object cases) except NULL:
         _type_ctx.pop()
         free(c_names)
         free(c_types)
+
+
+cdef _eastc.EastType* _convert_single_child_type(object child_py, int kind) except NULL:
+    """Convert a single-child structural type, managing the recursive _type_ctx
+    level the same way _convert_struct_type does.
+
+    Every nesting level is counted by replace_markers (types.py), so each
+    container must push a level. Without this, a Recursive(depth) marker that
+    recurses through the container resolves against too-shallow a stack.
+    kind: 0=Array 1=Set 2=Ref 3=Vector 4=Matrix.
+    """
+    cdef Py_ssize_t ctx_idx = len(_type_ctx)
+    cdef _eastc.EastType* elem = NULL
+    cdef _eastc.EastType* result
+    cdef uintptr_t rec_ptr
+
+    # Push sentinel — Recursive(depth) may replace it with a placeholder.
+    _type_ctx.append(<uintptr_t>0)
+    try:
+        elem = py_type_to_c(child_py)
+        if kind == 0:
+            result = _eastc.east_array_type(elem)
+        elif kind == 1:
+            result = _eastc.east_set_type(elem)
+        elif kind == 2:
+            result = _eastc.east_ref_type(elem)
+        elif kind == 3:
+            result = _eastc.east_vector_type(elem)
+        else:
+            result = _eastc.east_matrix_type(elem)
+        _eastc.east_type_release(elem)
+        elem = NULL
+
+        # If Recursive replaced the sentinel with a placeholder (this container is
+        # the recursion node), wire it up and return the wrapper.
+        rec_ptr = <uintptr_t>_type_ctx[ctx_idx]
+        if rec_ptr != 0:
+            _eastc.east_recursive_type_set(<_eastc.EastType*>rec_ptr, result)
+            _eastc.east_recursive_type_finalize(<_eastc.EastType*>rec_ptr)
+            return <_eastc.EastType*>rec_ptr
+        return result
+    except:
+        if elem != NULL:
+            _eastc.east_type_release(elem)
+        rec_ptr = <uintptr_t>_type_ctx[ctx_idx]
+        if rec_ptr != 0:
+            _eastc.east_type_release(<_eastc.EastType*>rec_ptr)
+        raise
+    finally:
+        _type_ctx.pop()
+
+
+cdef _eastc.EastType* _convert_dict_type(object value) except NULL:
+    """Convert a Dict type, managing the recursive _type_ctx level. Key and value
+    both sit one level deeper (replace_markers increments both), so a single
+    pushed level covers them."""
+    cdef Py_ssize_t ctx_idx = len(_type_ctx)
+    cdef _eastc.EastType* key_type = NULL
+    cdef _eastc.EastType* val_type = NULL
+    cdef _eastc.EastType* result
+    cdef uintptr_t rec_ptr
+
+    # Push sentinel — Recursive(depth) may replace it with a placeholder.
+    _type_ctx.append(<uintptr_t>0)
+    try:
+        key_type = py_type_to_c(value["key"])
+        val_type = py_type_to_c(value["value"])
+        result = _eastc.east_dict_type(key_type, val_type)
+        _eastc.east_type_release(key_type)
+        key_type = NULL
+        _eastc.east_type_release(val_type)
+        val_type = NULL
+
+        rec_ptr = <uintptr_t>_type_ctx[ctx_idx]
+        if rec_ptr != 0:
+            _eastc.east_recursive_type_set(<_eastc.EastType*>rec_ptr, result)
+            _eastc.east_recursive_type_finalize(<_eastc.EastType*>rec_ptr)
+            return <_eastc.EastType*>rec_ptr
+        return result
+    except:
+        if key_type != NULL:
+            _eastc.east_type_release(key_type)
+        if val_type != NULL:
+            _eastc.east_type_release(val_type)
+        rec_ptr = <uintptr_t>_type_ctx[ctx_idx]
+        if rec_ptr != 0:
+            _eastc.east_type_release(<_eastc.EastType*>rec_ptr)
+        raise
+    finally:
+        _type_ctx.pop()
 
 
 cdef _eastc.EastType* _convert_function_type(object value, bint is_async) except NULL:
