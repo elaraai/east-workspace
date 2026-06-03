@@ -226,7 +226,7 @@ def shap_tree_explainer_create_impl(
         background_data = None
         has_categorical = False
         if config_mode == "interventional":
-            background_data = config_value["background"].data
+            background_data = config_value["background"].to_numpy()
 
             # Check for categorical features — SHAP interventional TreeExplainer
             # doesn't support them, so we fall back to KernelExplainer
@@ -418,8 +418,8 @@ def _extract_from_mapie_data(data_variant):
         model_bytes = inner_struct.get("data")
         cat_opt = _get_option(inner_struct.get("categorical_features"), None)
         cat_n_opt = _get_option(inner_struct.get("categorical_n"), None)
-        cat_features = cat_opt.data.astype(np.int64).tolist() if cat_opt is not None else None
-        cat_n = cat_n_opt.data.astype(np.int64).tolist() if cat_n_opt is not None else None
+        cat_features = cat_opt.to_numpy(dtype=np.int64).tolist() if cat_opt is not None else None
+        cat_n = cat_n_opt.to_numpy(dtype=np.int64).tolist() if cat_n_opt is not None else None
         return model_bytes, cat_features, cat_n
     elif outer_type == "lightgbm":
         inner = data_variant.value  # LightGBMModelBlobType variant
@@ -469,7 +469,7 @@ def _extract_model_from_blob(model_blob: EastVariant, function_name: str):
         # Extract categorical_n from xgboost model blobs
         if model_type in ("xgboost_regressor", "xgboost_classifier", "xgboost_quantile"):
             cat_n_opt = _get_option(model_data.get("categorical_n"), None)
-            categorical_n = cat_n_opt.data.astype(np.int64).tolist() if cat_n_opt is not None else None
+            categorical_n = cat_n_opt.to_numpy(dtype=np.int64).tolist() if cat_n_opt is not None else None
 
     return model, n_features, categorical_features, categorical_n, model_type
 
@@ -497,7 +497,7 @@ def shap_kernel_explainer_create_impl(
         raise RuntimeError(f"{function_name}: Invalid input data - {e}") from e
 
     try:
-        X_bg = X_background.data
+        X_bg = X_background.to_numpy()
     except Exception as e:
         raise RuntimeError(f"{function_name}: Invalid input data - {e}") from e
 
@@ -551,7 +551,7 @@ def shap_compute_values_impl(
         raise RuntimeError(f"{function_name}: Invalid input data - {e}") from e
 
     try:
-        X_np = X.data
+        X_np = X.to_numpy()
     except Exception as e:
         raise RuntimeError(f"{function_name}: Invalid input data - {e}") from e
 
@@ -690,14 +690,14 @@ def shap_feature_importance_impl(
         variant_type = shap_values.type
         if variant_type == "matrix_2d":
             # 2D: (n_samples, n_features)
-            shap_np = shap_values.value.data
+            shap_np = shap_values.value.to_numpy()
             mean_abs_shap = np.abs(shap_np).mean(axis=0)
             std_shap = np.abs(shap_np).std(axis=0)
         elif variant_type == "tensor_3d":
             # 3D: list of (n_features, n_classes) matrices, one per sample
             # Convert to numpy 3D array
             tensor_list = list(shap_values.value)
-            shap_3d = np.stack([m.data for m in tensor_list], axis=0)
+            shap_3d = np.stack([m.to_numpy() for m in tensor_list], axis=0)
             # Shape: (n_samples, n_features, n_classes)
             # Mean across samples and classes to get per-feature importance
             mean_abs_shap = np.abs(shap_3d).mean(axis=(0, 2))

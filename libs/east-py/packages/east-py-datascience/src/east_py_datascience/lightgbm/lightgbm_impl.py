@@ -83,8 +83,8 @@ def lightgbm_train_regressor_impl(
     import lightgbm as lgb
 
     try:
-        X_np = X.data
-        y_np = y.data
+        X_np = X.to_numpy()
+        y_np = y.to_numpy()
     except Exception as e:
         raise RuntimeError(f"lightgbm_train_regressor: Invalid input data - {e}") from e
 
@@ -158,8 +158,8 @@ def lightgbm_train_classifier_impl(
     import lightgbm as lgb
 
     try:
-        X_np = X.data
-        y_np = y.data
+        X_np = X.to_numpy()
+        y_np = y.to_numpy()
     except Exception as e:
         raise RuntimeError(
             f"lightgbm_train_classifier: Invalid input data - {e}"
@@ -241,7 +241,7 @@ def lightgbm_predict_impl(
     model = _deserialize_model(model_blob.value["data"])
 
     try:
-        X_np = X.data
+        X_np = X.to_numpy()
     except Exception as e:
         raise RuntimeError(f"lightgbm_predict: Invalid input data - {e}") from e
 
@@ -277,7 +277,7 @@ def lightgbm_predict_class_impl(
     model = _deserialize_model(model_blob.value["data"])
 
     try:
-        X_np = X.data
+        X_np = X.to_numpy()
     except Exception as e:
         raise RuntimeError(f"lightgbm_predict_class: Invalid input data - {e}") from e
 
@@ -313,7 +313,7 @@ def lightgbm_predict_proba_impl(
     model = _deserialize_model(model_blob.value["data"])
 
     try:
-        X_np = X.data
+        X_np = X.to_numpy()
     except Exception as e:
         raise RuntimeError(f"lightgbm_predict_proba: Invalid input data - {e}") from e
 

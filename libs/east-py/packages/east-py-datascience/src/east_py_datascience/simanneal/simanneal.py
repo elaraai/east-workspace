@@ -219,8 +219,8 @@ def simanneal_optimize_permutation_impl(
     if random_state is not None:
         random.seed(int(random_state))
 
-    # Convert to numpy array for efficient operations (EastVector is not iterable; use .data)
-    state_arr = initial_perm.data.astype(np.int64)
+    # Convert to numpy array for efficient operations
+    state_arr = initial_perm.to_numpy(dtype=np.int64)
 
     # Pre-allocate EastVector for energy function calls (reused each call)
     cached_east_array: EastVector | None = None
@@ -321,8 +321,8 @@ def simanneal_optimize_subset_impl(
     if random_state is not None:
         random.seed(int(random_state))
 
-    # Convert to numpy array for efficient operations (EastVector is not iterable; use .data)
-    state_arr = initial_selection.data.astype(np.bool_)
+    # Convert to numpy array for efficient operations
+    state_arr = initial_selection.to_numpy(dtype=np.bool_)
 
     # Pre-allocate EastVector for energy function calls (reused each call)
     cached_east_array: EastVector | None = None

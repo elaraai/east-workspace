@@ -404,13 +404,13 @@ def _create_base_regressor(base_model_variant: EastVariant, random_state):
         # Get categorical features config
         categorical_features = _get_option(config.get("categorical_features"), None)
         if categorical_features is not None:
-            categorical_features = [int(x) for x in categorical_features.data]
+            categorical_features = [int(x) for x in categorical_features.to_numpy()]
 
         # Get categorical_n config
         categorical_n_opt = _get_option(config.get("categorical_n"), None)
         categorical_n = None
         if categorical_n_opt is not None:
-            categorical_n = categorical_n_opt.data.astype(np.int64).tolist()
+            categorical_n = categorical_n_opt.to_numpy(dtype=np.int64).tolist()
 
         max_cat_to_onehot = _get_option(config.get("max_cat_to_onehot"), None)
         if max_cat_to_onehot is not None:
@@ -490,13 +490,13 @@ def _create_base_classifier(base_model_variant: EastVariant, random_state):
         # Get categorical features config
         categorical_features = _get_option(config.get("categorical_features"), None)
         if categorical_features is not None:
-            categorical_features = [int(x) for x in categorical_features.data]
+            categorical_features = [int(x) for x in categorical_features.to_numpy()]
 
         # Get categorical_n config
         categorical_n_opt = _get_option(config.get("categorical_n"), None)
         categorical_n = None
         if categorical_n_opt is not None:
-            categorical_n = categorical_n_opt.data.astype(np.int64).tolist()
+            categorical_n = categorical_n_opt.to_numpy(dtype=np.int64).tolist()
 
         max_cat_to_onehot = _get_option(config.get("max_cat_to_onehot"), None)
         if max_cat_to_onehot is not None:
@@ -595,10 +595,10 @@ def mapie_train_conformal_regressor_impl(
 
     # Convert inputs
     try:
-        X_train_np = X_train.data
-        y_train_np = y_train.data
-        X_calib_np = X_calib.data
-        y_calib_np = y_calib.data
+        X_train_np = X_train.to_numpy()
+        y_train_np = y_train.to_numpy()
+        X_calib_np = X_calib.to_numpy()
+        y_calib_np = y_calib.to_numpy()
     except Exception as e:
         raise RuntimeError(
             f"mapie_train_conformal_regressor: Invalid input data - {e}"
@@ -643,7 +643,7 @@ def mapie_train_conformal_regressor_impl(
     sample_weight_raw = _get_option(base_config_value.get("sample_weight"), None)
     fit_params = {}
     if sample_weight_raw is not None:
-        fit_params["sample_weight"] = sample_weight_raw.data
+        fit_params["sample_weight"] = sample_weight_raw.to_numpy()
 
     # Prepare categorical features for XGBoost (validates and converts to category dtype)
     X_train_np, categorical_features, _ = _prepare_categorical_features(
@@ -762,10 +762,10 @@ def mapie_train_cqr_impl(
 
     # Convert inputs
     try:
-        X_train_np = X_train.data
-        y_train_np = y_train.data
-        X_calib_np = X_calib.data
-        y_calib_np = y_calib.data
+        X_train_np = X_train.to_numpy()
+        y_train_np = y_train.to_numpy()
+        X_calib_np = X_calib.to_numpy()
+        y_calib_np = y_calib.to_numpy()
     except Exception as e:
         raise RuntimeError(f"mapie_train_cqr: Invalid input data - {e}") from e
 
@@ -851,8 +851,8 @@ def _extract_from_base_model_data(data_variant):
         model_bytes = inner_struct.get("data")
         cat_opt = _get_option(inner_struct.get("categorical_features"), None)
         cat_n_opt = _get_option(inner_struct.get("categorical_n"), None)
-        cat_features = cat_opt.data.astype(np.int64).tolist() if cat_opt is not None else None
-        cat_n = cat_n_opt.data.astype(np.int64).tolist() if cat_n_opt is not None else None
+        cat_features = cat_opt.to_numpy(dtype=np.int64).tolist() if cat_opt is not None else None
+        cat_n = cat_n_opt.to_numpy(dtype=np.int64).tolist() if cat_n_opt is not None else None
         return model_bytes, cat_features, cat_n
     elif outer_type == "lightgbm":
         inner = data_variant.value  # LightGBMModelBlobType variant
@@ -885,7 +885,7 @@ def mapie_predict_interval_impl(
 
     # Convert input
     try:
-        X_np = X.data
+        X_np = X.to_numpy()
     except Exception as e:
         raise RuntimeError(f"mapie_predict_interval: Invalid input data - {e}") from e
 
@@ -955,10 +955,10 @@ def mapie_train_conformal_classifier_impl(
 
     # Convert inputs
     try:
-        X_train_np = X_train.data
-        y_train_np = y_train.data
-        X_calib_np = X_calib.data
-        y_calib_np = y_calib.data
+        X_train_np = X_train.to_numpy()
+        y_train_np = y_train.to_numpy()
+        X_calib_np = X_calib.to_numpy()
+        y_calib_np = y_calib.to_numpy()
     except Exception as e:
         raise RuntimeError(
             f"mapie_train_conformal_classifier: Invalid input data - {e}"
@@ -1012,7 +1012,7 @@ def mapie_train_conformal_classifier_impl(
     sample_weight_raw = _get_option(base_config_value.get("sample_weight"), None)
     fit_params = {}
     if sample_weight_raw is not None:
-        fit_params["sample_weight"] = sample_weight_raw.data
+        fit_params["sample_weight"] = sample_weight_raw.to_numpy()
 
     # Prepare categorical features for XGBoost (validates and converts to category dtype)
     X_train_np, categorical_features, _ = _prepare_categorical_features(
@@ -1114,12 +1114,12 @@ def mapie_predict_set_impl(
     base_clf = combined_model["base_clf"]
     # Get original_classes from outer struct (not cloudpickle)
     original_classes_vec = model_data.get("classes")
-    original_classes = original_classes_vec.data if original_classes_vec is not None else None
+    original_classes = original_classes_vec.to_numpy() if original_classes_vec is not None else None
     n_features = model_data.get("n_features")
 
     # Convert input
     try:
-        X_np = X.data
+        X_np = X.to_numpy()
     except Exception as e:
         raise RuntimeError(f"mapie_predict_set: Invalid input data - {e}") from e
 

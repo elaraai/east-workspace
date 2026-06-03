@@ -53,7 +53,7 @@ def _prepare_categorical_features(X_np, categorical_features, func_name: str, ca
     if categorical_features is None:
         return X_np, None, False
 
-    cat_indices = categorical_features.data.astype(np.int64).tolist()
+    cat_indices = categorical_features.to_numpy(dtype=np.int64).tolist()
 
     # Validate indices
     for idx in cat_indices:
@@ -132,7 +132,7 @@ def _apply_categorical_features(X_np, categorical_features, func_name: str, cate
     if cat_features_opt is None:
         return X_np
 
-    cat_indices = cat_features_opt.data
+    cat_indices = cat_features_opt.to_numpy()
 
     import pandas as pd
 
@@ -218,8 +218,8 @@ def xgboost_train_regressor_impl(
     import xgboost as xgb
 
     try:
-        X_np = X.data
-        y_np = y.data
+        X_np = X.to_numpy()
+        y_np = y.to_numpy()
     except Exception as e:
         raise RuntimeError(f"xgboost_train_regressor: Invalid input data - {e}") from e
 
@@ -235,7 +235,7 @@ def xgboost_train_regressor_impl(
     sample_weight_opt = _get_option(config.get("sample_weight"), None)
     sample_weight_np = None
     if sample_weight_opt is not None:
-        sample_weight_np = sample_weight_opt.data
+        sample_weight_np = sample_weight_opt.to_numpy()
         if sample_weight_np.shape[0] != X_np.shape[0]:
             raise RuntimeError(
                 f"xgboost_train_regressor: sample_weight has {sample_weight_np.shape[0]} "
@@ -247,7 +247,7 @@ def xgboost_train_regressor_impl(
     categorical_n_opt = _get_option(config.get("categorical_n"), None)
     cat_n_list = None
     if categorical_n_opt is not None:
-        cat_n_list = categorical_n_opt.data.astype(np.int64).tolist()
+        cat_n_list = categorical_n_opt.to_numpy(dtype=np.int64).tolist()
     X_train, cat_indices, enable_categorical = _prepare_categorical_features(
         X_np, categorical_features, "xgboost_train_regressor", categorical_n=cat_n_list
     )
@@ -333,8 +333,8 @@ def xgboost_train_classifier_impl(
     import xgboost as xgb
 
     try:
-        X_np = X.data
-        y_np = y.data
+        X_np = X.to_numpy()
+        y_np = y.to_numpy()
     except Exception as e:
         raise RuntimeError(f"xgboost_train_classifier: Invalid input data - {e}") from e
 
@@ -359,7 +359,7 @@ def xgboost_train_classifier_impl(
     sample_weight_opt = _get_option(config.get("sample_weight"), None)
     sample_weight_np = None
     if sample_weight_opt is not None:
-        sample_weight_np = sample_weight_opt.data
+        sample_weight_np = sample_weight_opt.to_numpy()
         if sample_weight_np.shape[0] != X_np.shape[0]:
             raise RuntimeError(
                 f"xgboost_train_classifier: sample_weight has {sample_weight_np.shape[0]} "
@@ -371,7 +371,7 @@ def xgboost_train_classifier_impl(
     categorical_n_opt = _get_option(config.get("categorical_n"), None)
     cat_n_list = None
     if categorical_n_opt is not None:
-        cat_n_list = categorical_n_opt.data.astype(np.int64).tolist()
+        cat_n_list = categorical_n_opt.to_numpy(dtype=np.int64).tolist()
     X_train, cat_indices, enable_categorical = _prepare_categorical_features(
         X_np, categorical_features, "xgboost_train_classifier", categorical_n=cat_n_list
     )
@@ -461,13 +461,13 @@ def xgboost_predict_impl(
         )
 
     try:
-        X_np = X.data
+        X_np = X.to_numpy()
     except Exception as e:
         raise RuntimeError(f"xgboost_predict: Invalid input data - {e}") from e
 
     # Apply categorical features if present
     cat_n_opt = _get_option(model_blob.value.get("categorical_n"), None)
-    cat_n_list = cat_n_opt.data.astype(np.int64).tolist() if cat_n_opt is not None else None
+    cat_n_list = cat_n_opt.to_numpy(dtype=np.int64).tolist() if cat_n_opt is not None else None
     X_pred = _apply_categorical_features(
         X_np, model_blob.value.get("categorical_features"), "xgboost_predict",
         categorical_n=cat_n_list,
@@ -503,13 +503,13 @@ def xgboost_predict_class_impl(
         )
 
     try:
-        X_np = X.data
+        X_np = X.to_numpy()
     except Exception as e:
         raise RuntimeError(f"xgboost_predict_class: Invalid input data - {e}") from e
 
     # Apply categorical features if present
     cat_n_opt = _get_option(model_blob.value.get("categorical_n"), None)
-    cat_n_list = cat_n_opt.data.astype(np.int64).tolist() if cat_n_opt is not None else None
+    cat_n_list = cat_n_opt.to_numpy(dtype=np.int64).tolist() if cat_n_opt is not None else None
     X_pred = _apply_categorical_features(
         X_np, model_blob.value.get("categorical_features"), "xgboost_predict_class",
         categorical_n=cat_n_list,
@@ -552,13 +552,13 @@ def xgboost_predict_proba_impl(
         )
 
     try:
-        X_np = X.data
+        X_np = X.to_numpy()
     except Exception as e:
         raise RuntimeError(f"xgboost_predict_proba: Invalid input data - {e}") from e
 
     # Apply categorical features if present
     cat_n_opt = _get_option(model_blob.value.get("categorical_n"), None)
-    cat_n_list = cat_n_opt.data.astype(np.int64).tolist() if cat_n_opt is not None else None
+    cat_n_list = cat_n_opt.to_numpy(dtype=np.int64).tolist() if cat_n_opt is not None else None
     X_pred = _apply_categorical_features(
         X_np, model_blob.value.get("categorical_features"), "xgboost_predict_proba",
         categorical_n=cat_n_list,
@@ -596,8 +596,8 @@ def xgboost_train_quantile_impl(
     import xgboost as xgb
 
     try:
-        X_np = X.data
-        y_np = y.data
+        X_np = X.to_numpy()
+        y_np = y.to_numpy()
     except Exception as e:
         raise RuntimeError(f"xgboost_train_quantile: Invalid input data - {e}") from e
 
@@ -611,7 +611,7 @@ def xgboost_train_quantile_impl(
 
     # Get quantiles from config
     quantiles_arr = config.get("quantiles")
-    quantiles = quantiles_arr.data.astype(np.float64).tolist()
+    quantiles = quantiles_arr.to_numpy(dtype=np.float64).tolist()
 
     # Validate quantiles
     for q in quantiles:
@@ -624,7 +624,7 @@ def xgboost_train_quantile_impl(
     sample_weight_opt = _get_option(config.get("sample_weight"), None)
     sample_weight_np = None
     if sample_weight_opt is not None:
-        sample_weight_np = sample_weight_opt.data
+        sample_weight_np = sample_weight_opt.to_numpy()
         if sample_weight_np.shape[0] != X_np.shape[0]:
             raise RuntimeError(
                 f"xgboost_train_quantile: sample_weight has {sample_weight_np.shape[0]} "
@@ -636,7 +636,7 @@ def xgboost_train_quantile_impl(
     categorical_n_opt = _get_option(config.get("categorical_n"), None)
     cat_n_list = None
     if categorical_n_opt is not None:
-        cat_n_list = categorical_n_opt.data.astype(np.int64).tolist()
+        cat_n_list = categorical_n_opt.to_numpy(dtype=np.int64).tolist()
     X_train, cat_indices, enable_categorical = _prepare_categorical_features(
         X_np, categorical_features, "xgboost_train_quantile", categorical_n=cat_n_list
     )
@@ -736,13 +736,13 @@ def xgboost_predict_quantile_impl(
         )
 
     try:
-        X_np = X.data
+        X_np = X.to_numpy()
     except Exception as e:
         raise RuntimeError(f"xgboost_predict_quantile: Invalid input data - {e}") from e
 
     # Apply categorical features if present
     cat_n_opt = _get_option(model_blob.value.get("categorical_n"), None)
-    cat_n_list = cat_n_opt.data.astype(np.int64).tolist() if cat_n_opt is not None else None
+    cat_n_list = cat_n_opt.to_numpy(dtype=np.int64).tolist() if cat_n_opt is not None else None
     X_pred = _apply_categorical_features(
         X_np, model_blob.value.get("categorical_features"), "xgboost_predict_quantile",
         categorical_n=cat_n_list,

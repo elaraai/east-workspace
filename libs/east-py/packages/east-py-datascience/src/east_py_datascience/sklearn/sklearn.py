@@ -76,7 +76,7 @@ def _onnx_transform(onnx_blob: EastBlob, X: EastArray) -> EastArray:
     import onnxruntime as ort
 
     onnx_bytes = bytes(onnx_blob)
-    X_np = X.data.astype(np.float32)
+    X_np = X.to_numpy(dtype=np.float32)
 
     session = ort.InferenceSession(onnx_bytes)
     input_name = session.get_inputs()[0].name
@@ -206,8 +206,8 @@ def sklearn_split_impl(
     """
     _check_sklearn_support()
     try:
-        X_np = X.data
-        Y_np = Y.data
+        X_np = X.to_numpy()
+        Y_np = Y.to_numpy()
     except Exception as e:
         raise RuntimeError(f"sklearn_split: Invalid input data - {e}") from e
 
@@ -250,7 +250,7 @@ def sklearn_split_impl(
     stratify_arr = None
     if stratify_columns is not None:
         # stratify_columns is an EastMatrix (rows=columns, cols=samples)
-        stratify_data = stratify_columns.data
+        stratify_data = stratify_columns.to_numpy()
         columns = [stratify_data[i].astype(np.int64) for i in range(stratify_data.shape[0])]
         for i, col in enumerate(columns):
             if len(col) != n_samples:
@@ -265,7 +265,7 @@ def sklearn_split_impl(
     overlap_cols_filtered = None
     if overlap_columns is not None:
         # overlap_columns is an EastMatrix (rows=columns, cols=samples)
-        overlap_data = overlap_columns.data
+        overlap_data = overlap_columns.to_numpy()
         overlap_cols = [overlap_data[i].astype(np.int64) for i in range(overlap_data.shape[0])]
         for i, col in enumerate(overlap_cols):
             if len(col) != n_samples:
@@ -301,7 +301,7 @@ def sklearn_split_impl(
         multi_overlap_cols = []
         for col_idx, col in enumerate(multi_overlap_columns):
             # col is an EastArray of EastVector(IntegerType) - each sample is a vector of values
-            col_as_lists = [sample_vec.data.tolist() for sample_vec in col]
+            col_as_lists = [sample_vec.to_numpy().tolist() for sample_vec in col]
             if len(col_as_lists) != n_samples:
                 raise RuntimeError(
                     f"sklearn_split: multi_overlap column {col_idx} has {len(col_as_lists)} samples "
@@ -600,8 +600,8 @@ def sklearn_overlap_impl(
         OverlapResultType with X_filtered, Y_filtered, rejected_counts, known_categories.
     """
     _check_sklearn_support()
-    cat_indices = [int(v) for v in config["cat_indices"].data]
-    X_ref = X_reference.data
+    cat_indices = [int(v) for v in config["cat_indices"].to_numpy()]
+    X_ref = X_reference.to_numpy()
 
     # 1. Compute known values per categorical column from reference
     known_per_col: dict[int, set[int]] = {}
@@ -615,8 +615,8 @@ def sklearn_overlap_impl(
     n_targets = len(X_targets)
 
     for t in range(n_targets):
-        X_t = X_targets[t].data
-        Y_t = Y_targets[t].data
+        X_t = X_targets[t].to_numpy()
+        Y_t = Y_targets[t].to_numpy()
 
         keep_mask = _filter_by_known_categories(known_per_col, X_t)
 
@@ -662,7 +662,7 @@ def sklearn_standard_scaler_fit_impl(X: EastArray) -> EastVariant:
     from sklearn.preprocessing import StandardScaler
 
     try:
-        X_np = X.data
+        X_np = X.to_numpy()
     except Exception as e:
         raise RuntimeError(
             f"sklearn_standard_scaler_fit: Invalid input data - {e}"
@@ -726,7 +726,7 @@ def sklearn_min_max_scaler_fit_impl(X: EastArray) -> EastVariant:
     from sklearn.preprocessing import MinMaxScaler
 
     try:
-        X_np = X.data
+        X_np = X.to_numpy()
     except Exception as e:
         raise RuntimeError(
             f"sklearn_min_max_scaler_fit: Invalid input data - {e}"
@@ -794,7 +794,7 @@ def sklearn_robust_scaler_fit_impl(X: EastArray) -> EastVariant:
     from sklearn.preprocessing import RobustScaler
 
     try:
-        X_np = X.data
+        X_np = X.to_numpy()
     except Exception as e:
         raise RuntimeError(
             f"sklearn_robust_scaler_fit: Invalid input data - {e}"
@@ -859,7 +859,7 @@ def sklearn_label_encoder_fit_impl(y: EastArray) -> EastVariant:
     from sklearn.preprocessing import LabelEncoder
 
     try:
-        y_np = y.data
+        y_np = y.to_numpy()
     except Exception as e:
         raise RuntimeError(
             f"sklearn_label_encoder_fit: Invalid input data - {e}"
@@ -904,7 +904,7 @@ def sklearn_label_encoder_transform_impl(
         )
 
     try:
-        y_np = y.data
+        y_np = y.to_numpy()
         encoder = cloudpickle.loads(bytes(model_blob.value["data"]))
         y_encoded = encoder.transform(y_np)
     except Exception as e:
@@ -934,7 +934,7 @@ def sklearn_label_encoder_inverse_transform_impl(
         )
 
     try:
-        y_np = y.data
+        y_np = y.to_numpy()
         encoder = cloudpickle.loads(bytes(model_blob.value["data"]))
         y_original = encoder.inverse_transform(y_np)
     except Exception as e:
@@ -957,7 +957,7 @@ def sklearn_ordinal_encoder_fit_impl(X: EastArray) -> EastVariant:
     from sklearn.preprocessing import OrdinalEncoder
 
     try:
-        X_np = X.data
+        X_np = X.to_numpy()
     except Exception as e:
         raise RuntimeError(
             f"sklearn_ordinal_encoder_fit: Invalid input data - {e}"
@@ -1003,7 +1003,7 @@ def sklearn_ordinal_encoder_transform_impl(
         )
 
     try:
-        X_np = X.data
+        X_np = X.to_numpy()
         encoder = cloudpickle.loads(bytes(model_blob.value["data"]))
         X_encoded = encoder.transform(X_np)
     except Exception as e:
@@ -1031,7 +1031,7 @@ def sklearn_compute_class_weight_impl(
     from sklearn.utils.class_weight import compute_class_weight
 
     try:
-        y_np = y.data
+        y_np = y.to_numpy()
     except Exception as e:
         raise RuntimeError(
             f"sklearn_compute_class_weight: Invalid input data - {e}"
@@ -1072,8 +1072,8 @@ def sklearn_confusion_matrix_impl(
     from sklearn.metrics import confusion_matrix
 
     try:
-        y_true_np = y_true.data
-        y_pred_np = y_pred.data
+        y_true_np = y_true.to_numpy()
+        y_pred_np = y_pred.to_numpy()
     except Exception as e:
         raise RuntimeError(
             f"sklearn_confusion_matrix: Invalid input data - {e}"
@@ -1116,8 +1116,8 @@ def sklearn_roc_auc_score_impl(
     from sklearn.metrics import roc_auc_score
 
     try:
-        y_true_np = y_true.data
-        y_proba_np = y_proba.data
+        y_true_np = y_true.to_numpy()
+        y_proba_np = y_proba.to_numpy()
     except Exception as e:
         raise RuntimeError(
             f"sklearn_roc_auc_score: Invalid input data - {e}"
@@ -1179,8 +1179,8 @@ def sklearn_log_loss_impl(
     from sklearn.metrics import log_loss
 
     try:
-        y_true_np = y_true.data
-        y_proba_np = y_proba.data
+        y_true_np = y_true.to_numpy()
+        y_proba_np = y_proba.to_numpy()
     except Exception as e:
         raise RuntimeError(
             f"sklearn_log_loss: Invalid input data - {e}"
@@ -1215,8 +1215,8 @@ def sklearn_silhouette_score_impl(
     from sklearn.metrics import silhouette_score
 
     try:
-        X_np = X.data
-        labels_np = labels.data.astype(int)
+        X_np = X.to_numpy()
+        labels_np = labels.to_numpy(dtype=int)
     except Exception as e:
         raise RuntimeError(
             f"sklearn_silhouette_score: Invalid input data - {e}"
@@ -1327,8 +1327,8 @@ def sklearn_compute_metrics_impl(
     """Compute regression metrics for single-target predictions."""
     _check_sklearn_support()
     try:
-        y_true_np = y_true.data
-        y_pred_np = y_pred.data
+        y_true_np = y_true.to_numpy()
+        y_pred_np = y_pred.to_numpy()
     except Exception as e:
         raise RuntimeError(f"sklearn_compute_metrics: Invalid input data - {e}") from e
 
@@ -1378,8 +1378,8 @@ def sklearn_compute_metrics_multi_impl(
     """Compute regression metrics for multi-target predictions."""
     _check_sklearn_support()
     try:
-        Y_true_np = Y_true.data
-        Y_pred_np = Y_pred.data
+        Y_true_np = Y_true.to_numpy()
+        Y_pred_np = Y_pred.to_numpy()
     except Exception as e:
         raise RuntimeError(
             f"sklearn_compute_metrics_multi: Invalid input data - {e}"
@@ -1495,8 +1495,8 @@ def sklearn_compute_classification_metrics_impl(
     """Compute classification metrics for single-target predictions."""
     _check_sklearn_support()
     try:
-        y_true_np = y_true.data
-        y_pred_np = y_pred.data
+        y_true_np = y_true.to_numpy()
+        y_pred_np = y_pred.to_numpy()
     except Exception as e:
         raise RuntimeError(
             f"sklearn_compute_classification_metrics: Invalid input data - {e}"
@@ -1560,8 +1560,8 @@ def sklearn_compute_classification_metrics_multi_impl(
     """Compute classification metrics for multi-target predictions."""
     _check_sklearn_support()
     try:
-        Y_true_np = Y_true.data.astype(int)
-        Y_pred_np = Y_pred.data.astype(int)
+        Y_true_np = Y_true.to_numpy(dtype=int)
+        Y_pred_np = Y_pred.to_numpy(dtype=int)
     except Exception as e:
         raise RuntimeError(
             f"sklearn_compute_classification_metrics_multi: Invalid input data - {e}"
@@ -1764,9 +1764,9 @@ def sklearn_regressor_chain_train_impl(
     from sklearn.multioutput import RegressorChain
 
     try:
-        X_np = X.data
+        X_np = X.to_numpy()
         # Y is a matrix (n_samples x n_targets)
-        Y_np = Y.data.astype(np.float32)
+        Y_np = Y.to_numpy(dtype=np.float32)
     except Exception as e:
         raise RuntimeError(
             f"sklearn_regressor_chain_train: Invalid input data - {e}"
@@ -1846,7 +1846,7 @@ def sklearn_regressor_chain_predict_impl(
         )
 
     try:
-        X_np = X.data
+        X_np = X.to_numpy()
     except Exception as e:
         raise RuntimeError(
             f"sklearn_regressor_chain_predict: Invalid input data - {e}"
@@ -1883,7 +1883,7 @@ def sklearn_gmm_fit_impl(
     from sklearn.mixture import GaussianMixture
 
     try:
-        X_np = X.data
+        X_np = X.to_numpy()
     except Exception as e:
         raise RuntimeError(
             f"sklearn_gmm_fit: Invalid input data - {e}"
@@ -1948,7 +1948,7 @@ def sklearn_gmm_predict_impl(
         )
 
     try:
-        X_np = X.data
+        X_np = X.to_numpy()
     except Exception as e:
         raise RuntimeError(
             f"sklearn_gmm_predict: Invalid input data - {e}"
@@ -1982,7 +1982,7 @@ def sklearn_gmm_predict_proba_impl(
         )
 
     try:
-        X_np = X.data
+        X_np = X.to_numpy()
     except Exception as e:
         raise RuntimeError(
             f"sklearn_gmm_predict_proba: Invalid input data - {e}"
@@ -2016,7 +2016,7 @@ def sklearn_gmm_score_samples_impl(
         )
 
     try:
-        X_np = X.data
+        X_np = X.to_numpy()
     except Exception as e:
         raise RuntimeError(
             f"sklearn_gmm_score_samples: Invalid input data - {e}"
@@ -2077,7 +2077,7 @@ def sklearn_gmm_bic_impl(
         )
 
     try:
-        X_np = X.data
+        X_np = X.to_numpy()
     except Exception as e:
         raise RuntimeError(
             f"sklearn_gmm_bic: Invalid input data - {e}"
@@ -2109,7 +2109,7 @@ def sklearn_gmm_aic_impl(
         )
 
     try:
-        X_np = X.data
+        X_np = X.to_numpy()
     except Exception as e:
         raise RuntimeError(
             f"sklearn_gmm_aic: Invalid input data - {e}"

@@ -97,8 +97,8 @@ def scipy_curve_fit_impl(
     _check_scipy_support()
     from scipy.optimize import OptimizeWarning, curve_fit
 
-    x_np = x.data
-    y_np = y.data
+    x_np = x.to_numpy()
+    y_np = y.to_numpy()
     max_iter = _get_option(config.get("max_iter"), 5000)
 
     tag = curve_type.type
@@ -201,7 +201,7 @@ def scipy_curve_fit_impl(
         # Initial guess
         initial_guess = _get_option(config.get("initial_guess"), None)
         p0 = (
-            list(initial_guess.data)
+            list(initial_guess.to_numpy())
             if initial_guess
             else [1.0] * n_params
         )
@@ -210,8 +210,8 @@ def scipy_curve_fit_impl(
         bounds_opt = _get_option(custom_config.get("param_bounds"), None)
         if bounds_opt:
             bounds = (
-                list(bounds_opt["lower"].data),
-                list(bounds_opt["upper"].data),
+                list(bounds_opt["lower"].to_numpy()),
+                list(bounds_opt["upper"].to_numpy()),
             )
         else:
             bounds = ([-np.inf] * n_params, [np.inf] * n_params)
@@ -222,7 +222,7 @@ def scipy_curve_fit_impl(
     # Override initial guess if provided in config
     config_guess = _get_option(config.get("initial_guess"), None)
     if config_guess is not None and tag != "custom":
-        p0 = list(config_guess.data)
+        p0 = list(config_guess.to_numpy())
 
     try:
         # Suppress OptimizeWarning about covariance estimation
@@ -266,7 +266,7 @@ def scipy_stats_describe_impl(data: EastVector) -> EastStruct:
     _check_scipy_support()
     from scipy import stats
 
-    data_np = data.data
+    data_np = data.to_numpy()
     result = stats.describe(data_np)
 
     return EastStruct(
@@ -292,8 +292,8 @@ def scipy_stats_pearsonr_impl(x: EastVector, y: EastVector) -> EastStruct:
     _check_scipy_support()
     from scipy import stats
 
-    x_np = x.data
-    y_np = y.data
+    x_np = x.to_numpy()
+    y_np = y.to_numpy()
 
     r, p = stats.pearsonr(x_np, y_np)
 
@@ -315,8 +315,8 @@ def scipy_stats_spearmanr_impl(x: EastVector, y: EastVector) -> EastStruct:
     _check_scipy_support()
     from scipy import stats
 
-    x_np = x.data
-    y_np = y.data
+    x_np = x.to_numpy()
+    y_np = y.to_numpy()
 
     r, p = stats.spearmanr(x_np, y_np)
 
@@ -337,8 +337,8 @@ def scipy_stats_percentile_impl(data: EastVector, percentiles: EastVector) -> Ea
     """Compute percentiles of data."""
     import numpy as np
 
-    data_np = data.data
-    q_np = percentiles.data
+    data_np = data.to_numpy()
+    q_np = percentiles.to_numpy()
     result = np.percentile(data_np, q_np)
     return EastVector(FloatType, result.ravel().astype(np.float64))
 
@@ -353,7 +353,7 @@ def scipy_stats_percentileofscore_impl(data: EastVector, score: float) -> float:
     _check_scipy_support()
     from scipy.stats import percentileofscore
 
-    return float(percentileofscore(data.data, score))
+    return float(percentileofscore(data.to_numpy(), score))
 
 
 @platform_function(
@@ -366,7 +366,7 @@ def scipy_stats_iqr_impl(data: EastVector) -> float:
     _check_scipy_support()
     from scipy import stats
 
-    return float(stats.iqr(data.data))
+    return float(stats.iqr(data.to_numpy()))
 
 
 @platform_function(
@@ -378,7 +378,7 @@ def scipy_stats_median_impl(data: EastVector) -> float:
     """Compute median."""
     import numpy as np
 
-    return float(np.median(data.data))
+    return float(np.median(data.to_numpy()))
 
 
 @platform_function(
@@ -391,7 +391,7 @@ def scipy_stats_mad_impl(data: EastVector) -> float:
     _check_scipy_support()
     from scipy import stats
 
-    return float(stats.median_abs_deviation(data.data))
+    return float(stats.median_abs_deviation(data.to_numpy()))
 
 
 @platform_function(
@@ -405,7 +405,7 @@ def scipy_stats_robust_impl(data: EastVector) -> EastStruct:
     import numpy as np
     from scipy import stats
 
-    data_np = data.data
+    data_np = data.to_numpy()
     q1, q3 = np.percentile(data_np, [25, 75])
 
     return EastStruct(
@@ -433,8 +433,8 @@ def scipy_interpolate_1d_fit_impl(
     _check_scipy_support()
     from scipy import interpolate
 
-    x_np = x.data
-    y_np = y.data
+    x_np = x.to_numpy()
+    y_np = y.to_numpy()
 
     kind_variant = _get_option(config.get("kind"), None)
     kind = _get_enum_tag(kind_variant) if kind_variant else "linear"
@@ -468,7 +468,7 @@ def scipy_interpolate_1d_predict_impl(
         )
 
     interp = _deserialize_native(model_blob.value["data"])
-    x_np = x.data
+    x_np = x.to_numpy()
 
     y_np = interp(x_np)
 
@@ -489,7 +489,7 @@ def scipy_optimize_minimize_impl(
     _check_scipy_support()
     from scipy import optimize
 
-    x0_np = x0.data
+    x0_np = x0.to_numpy()
 
     # Wrap East function for scipy
     def wrapped_objective(x):
@@ -540,9 +540,9 @@ def scipy_optimize_minimize_quadratic_impl(
     _check_scipy_support()
     from scipy import optimize
 
-    x0_np = x0.data
-    A_np = quadratic["A"].data
-    b_np = quadratic["b"].data
+    x0_np = x0.to_numpy()
+    A_np = quadratic["A"].to_numpy()
+    b_np = quadratic["b"].to_numpy()
     c = float(quadratic["c"])
 
     def objective(x):
@@ -607,14 +607,14 @@ def scipy_optimize_dual_annealing_impl(
     from scipy.optimize import dual_annealing
 
     # Convert bounds to list of tuples
-    lower = bounds["lower"].data
-    upper = bounds["upper"].data
+    lower = bounds["lower"].to_numpy()
+    upper = bounds["upper"].to_numpy()
     bounds_list = list(zip(lower, upper, strict=False))
 
     # Optional initial guess
     x0 = None
     if x0_opt is not None and hasattr(x0_opt, "type") and x0_opt.type == "some":
-        x0 = x0_opt.value.data
+        x0 = x0_opt.value.to_numpy()
 
     # Wrapper: numpy -> EastVector -> objective_fn -> float
     def objective_wrapper(x: np.ndarray) -> float:
@@ -688,7 +688,7 @@ def scipy_histogram_impl(
     """Compute histogram using numpy.histogram."""
     _check_scipy_support()
 
-    data_np = data.data
+    data_np = data.to_numpy()
 
     # Extract config
     bins_val = _get_option(config.get("bins"), 10)
@@ -707,7 +707,7 @@ def scipy_histogram_impl(
         hist_range = (float(range_min), float(range_max))
 
     # Weights
-    weights_np = weights.data if weights is not None else None
+    weights_np = weights.to_numpy() if weights is not None else None
 
     counts, bin_edges = np.histogram(
         data_np,
@@ -738,7 +738,7 @@ def scipy_kde_fit_impl(
     _check_scipy_support()
     from scipy import stats
 
-    data_np = data.data
+    data_np = data.to_numpy()
 
     # Extract config
     bandwidth_method = _get_option(config.get("bandwidth"), None)
@@ -754,7 +754,7 @@ def scipy_kde_fit_impl(
         bw_method = "scott"
 
     # Weights
-    weights_np = weights.data if weights is not None else None
+    weights_np = weights.to_numpy() if weights is not None else None
 
     kde = stats.gaussian_kde(data_np, bw_method=bw_method, weights=weights_np)
 
@@ -791,7 +791,7 @@ def scipy_kde_evaluate_impl(
         )
 
     kde = _deserialize_native(model_blob.value["data"])
-    points_np = points.data
+    points_np = points.to_numpy()
 
     densities = kde.evaluate(points_np)
 

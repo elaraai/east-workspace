@@ -169,10 +169,10 @@ def mads_optimize_impl(
     import numpy as np
     import PyNomad
 
-    # Convert East vectors to Python lists (EastVector is not iterable; use .data)
-    x0_list = x0.data.tolist()
-    lb_list = bounds["lower"].data.tolist()
-    ub_list = bounds["upper"].data.tolist()
+    # Convert East vectors to Python lists via the read-only numpy view
+    x0_list = x0.to_numpy().tolist()
+    lb_list = bounds["lower"].to_numpy().tolist()
+    ub_list = bounds["upper"].to_numpy().tolist()
     dim = len(x0_list)
 
     # Extract constraints if provided

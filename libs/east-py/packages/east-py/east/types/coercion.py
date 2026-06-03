@@ -166,9 +166,9 @@ def _explain(
             out.append(
                 (path, f"expected {kind}<{typ['value']['type']}>, got {kind}<{value.element_type.type}>")
             )
-        elif not dtype_matches_element(value.data.dtype, value.element_type):
+        elif not dtype_matches_element(value._data.dtype, value.element_type):
             out.append(
-                (path, f"{kind}<{value.element_type.type}> has incompatible storage dtype {value.data.dtype}")
+                (path, f"{kind}<{value.element_type.type}> has incompatible storage dtype {value._data.dtype}")
             )
         return
     if kind == "Ref":
@@ -340,10 +340,10 @@ def _coerce(value: Any, typ: EastType, path: str, type_ctx: list[EastType]) -> E
         canonical = EAST_ELEMENT_TO_DTYPE[elem["type"]]
         cls = EastVector if kind == "Vector" else EastMatrix
         if isinstance(value, cls):
-            if value.element_type.type == elem["type"] and dtype_matches_element(value.data.dtype, value.element_type):
+            if value.element_type.type == elem["type"] and dtype_matches_element(value._data.dtype, value.element_type):
                 return value
             # Wrong logical element or dtype — re-cast onto the declared element.
-            return cls(elem, np.asarray(value.data).astype(canonical))
+            return cls(elem, np.asarray(value._data).astype(canonical))
         if isinstance(value, (np.ndarray, list, tuple)):
             arr = np.asarray(value)
             if not dtype_matches_element(arr.dtype, elem):

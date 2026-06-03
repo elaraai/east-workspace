@@ -99,8 +99,8 @@ def ngboost_train_regressor_impl(
     from ngboost.distns import LogNormal, Normal
 
     try:
-        X_np = X.data
-        y_np = y.data
+        X_np = X.to_numpy()
+        y_np = y.to_numpy()
     except Exception as e:
         raise RuntimeError(f"ngboost_train_regressor: Invalid input data - {e}") from e
 
@@ -172,7 +172,7 @@ def ngboost_predict_impl(
         )
 
     try:
-        X_np = X.data
+        X_np = X.to_numpy()
     except Exception as e:
         raise RuntimeError(f"ngboost_predict: Invalid input data - {e}") from e
 
@@ -207,7 +207,7 @@ def ngboost_predict_dist_impl(
         )
 
     try:
-        X_np = X.data
+        X_np = X.to_numpy()
     except Exception as e:
         raise RuntimeError(f"ngboost_predict_dist: Invalid input data - {e}") from e
 

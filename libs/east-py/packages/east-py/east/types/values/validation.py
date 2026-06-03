@@ -102,7 +102,7 @@ def is_value_of(
         return (
             isinstance(value, EastVector)
             and value.element_type.type == typ["value"]["type"]
-            and dtype_matches_element(value.data.dtype, value.element_type)
+            and dtype_matches_element(value._data.dtype, value.element_type)
         )
 
     # Handle Matrix type
@@ -110,7 +110,7 @@ def is_value_of(
         return (
             isinstance(value, EastMatrix)
             and value.element_type.type == typ["value"]["type"]
-            and dtype_matches_element(value.data.dtype, value.element_type)
+            and dtype_matches_element(value._data.dtype, value.element_type)
         )
 
     # Handle EastRef type

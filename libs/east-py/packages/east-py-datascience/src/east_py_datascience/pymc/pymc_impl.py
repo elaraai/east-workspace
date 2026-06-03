@@ -298,8 +298,8 @@ def _build_prior(pm, name, prior_spec, shape):
     upper_opt = _get_option(params.get("upper"), None)
 
     # Convert matrix params to numpy, broadcast to shape
-    mu_val = float(mu_opt.data[0, 0]) if mu_opt is not None else 0.0
-    sigma_val = float(sigma_opt.data[0, 0]) if sigma_opt is not None else 1.0
+    mu_val = float(mu_opt.to_numpy()[0, 0]) if mu_opt is not None else 0.0
+    sigma_val = float(sigma_opt.to_numpy()[0, 0]) if sigma_opt is not None else 1.0
 
     if dist_tag == "normal":
         return pm.Normal(name, mu=mu_val, sigma=sigma_val, shape=shape)
@@ -374,8 +374,8 @@ def pymc_train_regression_impl(
     _check_pymc_support()
     import pymc as pm
 
-    X_np = X.data
-    Y_np = Y.data
+    X_np = X.to_numpy()
+    Y_np = Y.to_numpy()
 
     if X_np.shape[0] != Y_np.shape[0]:
         raise RuntimeError(
@@ -454,9 +454,9 @@ def pymc_train_hierarchical_impl(
     _check_pymc_support()
     import pymc as pm
 
-    X_np = X.data
-    Y_np = Y.data
-    groups_np = groups.data.astype(np.int64)
+    X_np = X.to_numpy()
+    Y_np = Y.to_numpy()
+    groups_np = groups.to_numpy(dtype=np.int64)
 
     if X_np.shape[0] != Y_np.shape[0]:
         raise RuntimeError(
@@ -566,7 +566,7 @@ def pymc_train_multi_layer_impl(
     data_dict = {}
     for item in data:
         name = str(item.get("name"))
-        mat = item.get("data").data
+        mat = item.get("data").to_numpy()
         data_dict[name] = mat
 
     # Parse layers
@@ -593,7 +593,7 @@ def pymc_train_multi_layer_impl(
     masks_opt = _get_option(config.get("masks"), None)
     if masks_opt is not None:
         for m in masks_opt:
-            named_masks[str(m.get("name"))] = m.get("mask").data.astype(bool)
+            named_masks[str(m.get("name"))] = m.get("mask").to_numpy(dtype=bool)
 
     samples, tune, chains, target_accept = _get_mcmc_config(config)
     force_full_mcmc = bool(_get_option(config.get("force_full_mcmc"), False))
@@ -693,7 +693,7 @@ def pymc_predict_impl(
     _check_pymc_support()
 
     model_data = _deserialize_model(model_blob.value["data"])
-    X_np = X.data
+    X_np = X.to_numpy()
     n_samples_pred = int(_get_option(config.get("n_samples"), 100))
     layer_name = _get_option(config.get("layer"), None)
     if layer_name is not None:
@@ -793,7 +793,7 @@ def pymc_predict_distribution_impl(
     """Make predictions returning full posterior distribution samples."""
     _check_pymc_support()
     model_data = _deserialize_model(model_blob.value["data"])
-    X_np = X.data
+    X_np = X.to_numpy()
     n_samples_pred = int(_get_option(config.get("n_samples"), 100))
     layer_name = _get_option(config.get("layer"), None)
     if layer_name is not None:
@@ -1156,8 +1156,8 @@ def pymc_posterior_predictive_check_impl(
     """Posterior predictive check against observed data."""
     _check_pymc_support()
     model_data = _deserialize_model(model_blob.value["data"])
-    X_np = X.data
-    Y_np = Y_observed.data
+    X_np = X.to_numpy()
+    Y_np = Y_observed.to_numpy()
     n_targets = Y_np.shape[1]
 
     model_type = model_data["model_type"]

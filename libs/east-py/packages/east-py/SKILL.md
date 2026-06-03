@@ -1,6 +1,6 @@
 ---
 name: east-py
-description: "Use East runtime values as plain Python data and call Python from East. Use when writing Python (not the TypeScript DSL) against the east-py runtime. Triggers for: (1) Constructing/validating East values in Python (EastArray/Set/Dict/Vector/Matrix/Struct/Variant, variant()/some/none/struct/array, coerce_to/assert_value_of), (2) Transforming values with eager methods that delegate to the east-c builtins (sort/map/filter/fold/concat/set-algebra/dict-merge/etc.), (3) Scalar builtins via the East.<Type> namespaces (East.Float.sqrt, East.String.split, East.DateTime.print_format, East.less), (4) Exposing a Python function to East with @platform_function (output validation, sync/async), (5) NumPy/torch interop through EastVector.data / EastMatrix.data, (6) Porting a plain-Python data-science POC into an East platform function."
+description: "Use East runtime values as plain Python data and call Python from East. Use when writing Python (not the TypeScript DSL) against the east-py runtime. Triggers for: (1) Constructing/validating East values in Python (EastArray/Set/Dict/Vector/Matrix/Struct/Variant, variant()/some/none/struct/array, coerce_to/assert_value_of), (2) Transforming values with eager methods that delegate to the east-c builtins (sort/map/filter/fold/concat/set-algebra/dict-merge/etc.), (3) Scalar builtins via the East.<Type> namespaces (East.Float.sqrt, East.String.split, East.DateTime.print_format, East.less), (4) Exposing a Python function to East with @platform_function (output validation, sync/async), (5) NumPy/torch interop through EastVector/EastMatrix to_numpy()/to_torch(), (6) Porting a plain-Python data-science POC into an East platform function."
 ---
 
 # East.py — values as data, and the platform on-ramp
@@ -80,7 +80,7 @@ Task → What do you need?
     │   ├─ Logic → East.Boolean.<op>
     │   └─ Compare / order (East total order) → East.less / compare / equal / …(T, a, b)
     │
-    ├─ Hand a buffer to numpy / torch → EastVector.data / EastMatrix.data   (no arithmetic methods)
+    ├─ Hand a buffer to numpy / torch → EastVector/EastMatrix .to_numpy()/.to_torch()   (no arithmetic methods)
     │
     └─ Let East call your Python function
         ├─ Concrete types → @platform_function(inputs=[…], output=…)  +  platform_functions(__name__)
@@ -214,15 +214,17 @@ take `fn(key, value)`; `reduce` takes `fn(acc, key, value)`; collision `combine`
 
 ### EastVector / EastMatrix (the numpy boundary)
 
-Carry a **logical** element type (`Float`/`Integer`/`Boolean`); `.data` is the contiguous numpy
-buffer (zero-copy view — hand straight to numpy/torch), `.dtype` its runtime dtype (may be f32),
-`.element_type` the logical type. **No arithmetic methods** — do tensor math on `.data`
-(`torch.from_numpy(m.data)`) and wrap the result back.
+Carry a **logical** element type (`Float`/`Integer`/`Boolean`); reach the backing numpy buffer via
+`to_numpy(dtype=None, copy=False)` (a read-only view by default — a cast or `copy=True` is
+writeable) or `to_torch(dtype=None)`, with `.dtype` the runtime storage dtype (may be f32) and
+`.element_type` the logical type. **No arithmetic methods** — do tensor math via
+`to_numpy()`/`to_torch()` (`m.to_torch()`) and wrap the result back (`from_numpy`/`from_torch` or
+the constructor).
 
 | Type | Methods |
 |------|---------|
-| `EastVector` | `get(i)` · `set(i, v) -> EastVector` · `length()` · `slice(start, end)` · `concat(other)` · `map(fn(el), out=None)` · `fold(initial, fn(acc, el))` · `to_array()` · `to_matrix(rows, cols)` · props `.data`/`.dtype`/`.element_type` |
-| `EastMatrix` | `get(r, c)` · `set(r, c, v) -> EastMatrix` · `get_row(r) -> Vector` · `get_col(c) -> Vector` · `num_rows()`/`num_cols()` · `transpose()` · `map_elements(fn(el), out=None)` · `map_rows(fn(row_vector), out=None)` · `to_rows() -> Array<Vector>` · `to_array()` · `to_vector()` · props `.data`/`.dtype`/`.element_type`/`.rows`/`.cols` |
+| `EastVector` | `get(i)` · `set(i, v) -> EastVector` · `length()` · `slice(start, end)` · `concat(other)` · `map(fn(el), out=None)` · `fold(initial, fn(acc, el))` · `to_array()` · `to_matrix(rows, cols)` · numpy/torch `to_numpy(dtype=,copy=)`/`to_torch(dtype=)`/`from_numpy`/`from_torch` · props `.dtype`/`.element_type` |
+| `EastMatrix` | `get(r, c)` · `set(r, c, v) -> EastMatrix` · `get_row(r) -> Vector` · `get_col(c) -> Vector` · `num_rows()`/`num_cols()` · `transpose()` · `map_elements(fn(el), out=None)` · `map_rows(fn(row_vector), out=None)` · `to_rows() -> Array<Vector>` · `to_array()` · `to_vector()` · numpy/torch `to_numpy(dtype=,copy=)`/`to_torch(dtype=)`/`from_numpy`/`from_torch` · props `.dtype`/`.element_type`/`.rows`/`.cols` |
 
 ### EastBlob (a `bytes` subclass)
 
@@ -385,7 +387,7 @@ East.String.split("a,b,c", ",")
 
 ```python
 import torch, numpy as np
-t   = torch.from_numpy(mat.data)                  # .data is the contiguous numpy buffer
+t   = mat.to_torch()                              # writeable torch copy of the buffer
 out = EastMatrix(FloatType, model(t).detach().cpu().numpy())   # bridge canonicalizes dtype
 ```
 

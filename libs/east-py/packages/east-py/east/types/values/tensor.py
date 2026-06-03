@@ -30,7 +30,7 @@ class EastVector:
     contiguous NumPy array for zero-copy interop with ML libraries.
     """
 
-    __slots__ = ("data", "element_type")
+    __slots__ = ("_data", "element_type")
 
     def __init__(
         self, element_type: EastType, data: np.ndarray | None = None, length: int = 0
@@ -61,14 +61,14 @@ class EastVector:
                 )
             if arr.ndim != 1:
                 raise ValueError(f"EastVector data must be 1-D, got a {arr.ndim}-D array")
-            self.data = np.ascontiguousarray(arr)
+            self._data = np.ascontiguousarray(arr)
         else:
-            self.data = np.zeros(length, dtype=EAST_ELEMENT_TO_DTYPE[element_type.type])
+            self._data = np.zeros(length, dtype=EAST_ELEMENT_TO_DTYPE[element_type.type])
 
     @property
     def dtype(self) -> np.dtype:
         """Runtime storage dtype of the backing NumPy buffer."""
-        return self.data.dtype
+        return self._data.dtype
 
     # ----- NumPy / torch interop -----------------------------------------
     #
@@ -87,11 +87,11 @@ class EastVector:
             A 1-D array: a read-only view of the backing buffer by default, or a
             writeable copy when ``dtype`` differs or ``copy`` is True.
         """
-        if dtype is not None and np.dtype(dtype) != self.data.dtype:
-            return self.data.astype(dtype, copy=True)
+        if dtype is not None and np.dtype(dtype) != self._data.dtype:
+            return self._data.astype(dtype, copy=True)
         if copy:
-            return self.data.copy()
-        view = self.data.view()
+            return self._data.copy()
+        view = self._data.view()
         view.flags.writeable = False
         return view
 
@@ -112,7 +112,7 @@ class EastVector:
         self, dtype: npt.DTypeLike | None = None, copy: bool | None = None
     ) -> npt.NDArray[Any]:
         """NumPy array protocol so ``np.asarray(vector)`` returns the buffer."""
-        if copy is False and dtype is not None and np.dtype(dtype) != self.data.dtype:
+        if copy is False and dtype is not None and np.dtype(dtype) != self._data.dtype:
             raise ValueError("cannot return a no-copy view with a different dtype")
         return self.to_numpy(dtype=dtype, copy=bool(copy))
 
@@ -128,11 +128,11 @@ class EastVector:
 
     def __len__(self) -> int:
         """Return number of elements."""
-        return len(self.data)
+        return len(self._data)
 
     def __repr__(self) -> str:
         """Return representation."""
-        return f"EastVector({self.element_type.type}, len={len(self.data)})"
+        return f"EastVector({self.element_type.type}, len={len(self._data)})"
 
     def __eq__(self, other: object) -> bool:
         """Structural equality."""
@@ -140,8 +140,8 @@ class EastVector:
             return NotImplemented
         return (
             self.element_type.type == other.element_type.type
-            and len(self.data) == len(other.data)
-            and np.array_equal(self.data, other.data)
+            and len(self._data) == len(other._data)
+            and np.array_equal(self._data, other._data)
         )
 
     def __hash__(self) -> int:
@@ -154,9 +154,9 @@ class EastVector:
     #
     # Vector/Matrix are the numpy boundary: structural ops use numpy on the
     # backing buffer (cheap, no marshalling), and there are NO arithmetic
-    # methods — do tensor math with numpy/torch on `.data` directly, which is
-    # the whole point of the contiguous buffer (and east-c has no vector/matrix
-    # arithmetic builtins to delegate to).
+    # methods — do tensor math with numpy/torch via to_numpy()/to_torch(), which
+    # is the whole point of the contiguous buffer (and east-c has no
+    # vector/matrix arithmetic builtins to delegate to).
 
     def length(self) -> int:
         """Number of elements (numpy).
@@ -164,7 +164,7 @@ class EastVector:
         Returns:
             The length of the backing buffer.
         """
-        return len(self.data)
+        return len(self._data)
 
     def get(self, index: int) -> Any:
         """Logical scalar at ``index`` (numpy).
@@ -178,7 +178,7 @@ class EastVector:
         Returns:
             The element at ``index`` as a Python scalar.
         """
-        return self.data[index].item()
+        return self._data[index].item()
 
     def set(self, index: int, value: Any) -> EastVector:
         """Return a new vector with ``value`` at ``index`` (numpy).
@@ -193,7 +193,7 @@ class EastVector:
         Returns:
             A new vector with the element at ``index`` replaced.
         """
-        new_data = self.data.copy()
+        new_data = self._data.copy()
         new_data[index] = value
         return EastVector(self.element_type, new_data)
 
@@ -207,7 +207,7 @@ class EastVector:
         Returns:
             A new vector holding a contiguous copy of the selected range.
         """
-        return EastVector(self.element_type, np.ascontiguousarray(self.data[start:end]))
+        return EastVector(self.element_type, np.ascontiguousarray(self._data[start:end]))
 
     def concat(self, other: EastVector) -> EastVector:
         """Concatenate with ``other`` (numpy).
@@ -219,7 +219,7 @@ class EastVector:
             A new vector with ``self`` then ``other`` (this vector's element
             type).
         """
-        return EastVector(self.element_type, np.concatenate([self.data, other.data]))
+        return EastVector(self.element_type, np.concatenate([self._data, other._data]))
 
     def to_array(self) -> EastArray:
         """Convert to an EastArray of logical scalars (numpy).
@@ -228,7 +228,7 @@ class EastVector:
             A new EastArray of the same element type, each entry promoted to its
             Python scalar form (severs the zero-copy buffer link).
         """
-        return EastArray(self.element_type, [x.item() for x in self.data])
+        return EastArray(self.element_type, [x.item() for x in self._data])
 
     def to_matrix(self, rows: int, cols: int) -> EastMatrix:
         """Reshape into a ``rows × cols`` matrix (numpy).
@@ -243,7 +243,7 @@ class EastVector:
         Returns:
             A matrix of the same element type viewing the reshaped buffer.
         """
-        return EastMatrix(self.element_type, self.data.reshape(rows, cols))
+        return EastMatrix(self.element_type, self._data.reshape(rows, cols))
 
     def map(self, fn: Any, out: EastType | None = None) -> EastVector:
         """Apply ``fn`` to each logical scalar (numpy).
@@ -260,7 +260,7 @@ class EastVector:
             A new vector of the ``out`` (or original) element type holding the
             mapped values.
         """
-        results = [fn(x.item()) for x in self.data]
+        results = [fn(x.item()) for x in self._data]
         elem = out if out is not None else self.element_type
         return EastVector(elem, np.asarray(results, dtype=EAST_ELEMENT_TO_DTYPE[elem.type]))
 
@@ -278,7 +278,7 @@ class EastVector:
             The final accumulator (``initial`` if the vector is empty).
         """
         acc = initial
-        for x in self.data:
+        for x in self._data:
             acc = fn(acc, x.item())
         return acc
 
@@ -349,7 +349,7 @@ class EastMatrix:
     contiguous row-major NumPy array for zero-copy interop with ML libraries.
     """
 
-    __slots__ = ("data", "element_type", "rows", "cols")
+    __slots__ = ("_data", "element_type", "rows", "cols")
 
     def __init__(
         self,
@@ -387,18 +387,18 @@ class EastMatrix:
                 arr = arr.reshape(rows, cols)
             elif arr.ndim != 2:
                 raise ValueError(f"EastMatrix data must be 1-D or 2-D, got a {arr.ndim}-D array")
-            self.data = np.ascontiguousarray(arr)
-            self.rows = self.data.shape[0]
-            self.cols = self.data.shape[1]
+            self._data = np.ascontiguousarray(arr)
+            self.rows = self._data.shape[0]
+            self.cols = self._data.shape[1]
         else:
-            self.data = np.zeros((rows, cols), dtype=EAST_ELEMENT_TO_DTYPE[element_type.type], order="C")
+            self._data = np.zeros((rows, cols), dtype=EAST_ELEMENT_TO_DTYPE[element_type.type], order="C")
             self.rows = rows
             self.cols = cols
 
     @property
     def dtype(self) -> np.dtype:
         """Runtime storage dtype of the backing NumPy buffer."""
-        return self.data.dtype
+        return self._data.dtype
 
     # ----- NumPy / torch interop -----------------------------------------
     #
@@ -418,11 +418,11 @@ class EastMatrix:
             default, or a writeable copy when ``dtype`` differs or ``copy`` is
             True.
         """
-        if dtype is not None and np.dtype(dtype) != self.data.dtype:
-            return self.data.astype(dtype, copy=True)
+        if dtype is not None and np.dtype(dtype) != self._data.dtype:
+            return self._data.astype(dtype, copy=True)
         if copy:
-            return self.data.copy()
-        view = self.data.view()
+            return self._data.copy()
+        view = self._data.view()
         view.flags.writeable = False
         return view
 
@@ -443,7 +443,7 @@ class EastMatrix:
         self, dtype: npt.DTypeLike | None = None, copy: bool | None = None
     ) -> npt.NDArray[Any]:
         """NumPy array protocol so ``np.asarray(matrix)`` returns the buffer."""
-        if copy is False and dtype is not None and np.dtype(dtype) != self.data.dtype:
+        if copy is False and dtype is not None and np.dtype(dtype) != self._data.dtype:
             raise ValueError("cannot return a no-copy view with a different dtype")
         return self.to_numpy(dtype=dtype, copy=bool(copy))
 
@@ -469,7 +469,7 @@ class EastMatrix:
             self.element_type.type == other.element_type.type
             and self.rows == other.rows
             and self.cols == other.cols
-            and np.array_equal(self.data, other.data)
+            and np.array_equal(self._data, other._data)
         )
 
     def __hash__(self) -> int:
@@ -481,9 +481,9 @@ class EastMatrix:
     # ----- Eager value methods (numpy on the backing buffer) ---------------
     #
     # Matrix is the numpy boundary (same rule as Vector): structural ops use
-    # numpy on `.data` (cheap, no marshalling), and there are NO arithmetic
-    # methods — do tensor math with numpy/torch on `.data` directly (and east-c
-    # has no matrix arithmetic builtins to delegate to).
+    # numpy on the backing buffer (cheap, no marshalling), and there are NO
+    # arithmetic methods — do tensor math with numpy/torch via
+    # to_numpy()/to_torch() (and east-c has no matrix arithmetic builtins).
 
     def num_rows(self) -> int:
         """Number of rows (numpy).
@@ -512,7 +512,7 @@ class EastMatrix:
             The element as a plain Python scalar (storage dtype unwrapped via
             ``.item()``), i.e. a logical value of ``element_type``.
         """
-        return self.data[row, col].item()
+        return self._data[row, col].item()
 
     def set(self, row: int, col: int, value: Any) -> EastMatrix:
         """Return a new matrix with ``value`` at ``(row, col)`` (numpy).
@@ -529,7 +529,7 @@ class EastMatrix:
         Returns:
             A new matrix with the element at ``(row, col)`` replaced.
         """
-        new_data = self.data.copy()
+        new_data = self._data.copy()
         new_data[row, col] = value
         return EastMatrix(self.element_type, new_data)
 
@@ -543,7 +543,7 @@ class EastMatrix:
             A new ``EastVector`` over a contiguous copy of the row (not a view;
             mutating it does not write back into the matrix).
         """
-        return EastVector(self.element_type, np.ascontiguousarray(self.data[row, :]))
+        return EastVector(self.element_type, np.ascontiguousarray(self._data[row, :]))
 
     def get_col(self, col: int) -> EastVector:
         """Column ``col`` as a vector (numpy).
@@ -555,7 +555,7 @@ class EastMatrix:
             A new ``EastVector`` over a contiguous copy of the column (not a
             view; mutating it does not write back into the matrix).
         """
-        return EastVector(self.element_type, np.ascontiguousarray(self.data[:, col]))
+        return EastVector(self.element_type, np.ascontiguousarray(self._data[:, col]))
 
     def transpose(self) -> EastMatrix:
         """Transpose (numpy).
@@ -564,7 +564,7 @@ class EastMatrix:
             A new ``cols x rows`` matrix; the transposed data is made row-major
             contiguous so the result is a copy, not a view.
         """
-        return EastMatrix(self.element_type, np.ascontiguousarray(self.data.T))
+        return EastMatrix(self.element_type, np.ascontiguousarray(self._data.T))
 
     def to_vector(self) -> EastVector:
         """Flatten (row-major) into a vector (numpy).
@@ -573,7 +573,7 @@ class EastMatrix:
             A new ``EastVector`` of length ``rows * cols`` with elements in
             row-major (C) order.
         """
-        return EastVector(self.element_type, self.data.reshape(-1))
+        return EastVector(self.element_type, self._data.reshape(-1))
 
     def to_array(self) -> EastArray:
         """Nested array of rows of logical scalars (numpy).
@@ -587,7 +587,7 @@ class EastMatrix:
 
         return EastArray(
             ArrayType(self.element_type),
-            [EastArray(self.element_type, [x.item() for x in self.data[r, :]]) for r in range(self.rows)],
+            [EastArray(self.element_type, [x.item() for x in self._data[r, :]]) for r in range(self.rows)],
         )
 
     def to_rows(self) -> EastArray:
@@ -601,7 +601,7 @@ class EastMatrix:
 
         return EastArray(
             VectorType(self.element_type),
-            [EastVector(self.element_type, np.ascontiguousarray(self.data[r, :])) for r in range(self.rows)],
+            [EastVector(self.element_type, np.ascontiguousarray(self._data[r, :])) for r in range(self.rows)],
         )
 
     def map_elements(self, fn: Any, out: EastType | None = None) -> EastMatrix:
@@ -624,7 +624,7 @@ class EastMatrix:
         elem = out if out is not None else self.element_type
         if self.rows == 0 or self.cols == 0:
             return EastMatrix(elem, rows=self.rows, cols=self.cols)
-        results = [[fn(self.data[r, c].item()) for c in range(self.cols)] for r in range(self.rows)]
+        results = [[fn(self._data[r, c].item()) for c in range(self.cols)] for r in range(self.rows)]
         return EastMatrix(elem, np.asarray(results, dtype=EAST_ELEMENT_TO_DTYPE[elem.type]))
 
     def map_rows(self, fn: Any, out: EastType | None = None) -> EastMatrix:
@@ -649,9 +649,9 @@ class EastMatrix:
         elem = out if out is not None else self.element_type
         if self.rows == 0:
             return EastMatrix(elem, rows=0, cols=self.cols)
-        new_rows = [fn(EastVector(self.element_type, np.ascontiguousarray(self.data[r, :]))) for r in range(self.rows)]
+        new_rows = [fn(EastVector(self.element_type, np.ascontiguousarray(self._data[r, :]))) for r in range(self.rows)]
         data = np.asarray(
-            [row.data if isinstance(row, EastVector) else row for row in new_rows],
+            [row._data if isinstance(row, EastVector) else row for row in new_rows],
             dtype=EAST_ELEMENT_TO_DTYPE[elem.type],
         )
         return EastMatrix(elem, data)
@@ -738,7 +738,7 @@ class EastMatrix:
             element type's storage dtype.
         """
         data = np.asarray(
-            [r.data if isinstance(r, EastVector) else r for r in rows],
+            [r._data if isinstance(r, EastVector) else r for r in rows],
             dtype=EAST_ELEMENT_TO_DTYPE[element_type.type],
         )
         return cls(element_type, data)

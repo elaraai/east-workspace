@@ -409,8 +409,8 @@ def torch_mlp_train_impl(
     """Create and train PyTorch MLP model (single output)."""
     _check_torch_support()
     try:
-        X_np = X.data
-        y_np = y.data
+        X_np = X.to_numpy()
+        y_np = y.to_numpy()
     except Exception as e:
         raise RuntimeError(f"torch_mlp_train: Invalid input data - {e}")
 
@@ -437,8 +437,8 @@ def torch_mlp_train_multi_impl(
     """
     _check_torch_support()
     try:
-        X_np = X.data
-        y_np = y.data
+        X_np = X.to_numpy()
+        y_np = y.to_numpy()
     except Exception as e:
         raise RuntimeError(f"torch_mlp_train_multi: Invalid input data - {e}")
 
@@ -472,7 +472,7 @@ def torch_mlp_predict_impl(
         raise RuntimeError(f"torch_mlp_predict: Failed to deserialize model - {e}")
 
     try:
-        X_np = X.data
+        X_np = X.to_numpy()
     except Exception as e:
         raise RuntimeError(f"torch_mlp_predict: Invalid input data - {e}")
 
@@ -535,7 +535,7 @@ def torch_mlp_predict_multi_impl(
         )
 
     try:
-        X_np = X.data
+        X_np = X.to_numpy()
     except Exception as e:
         raise RuntimeError(f"torch_mlp_predict_multi: Invalid input data - {e}")
 
@@ -607,7 +607,7 @@ def torch_mlp_encode_impl(
         raise RuntimeError(f"torch_mlp_encode: Failed to deserialize model - {e}")
 
     try:
-        X_np = X.data
+        X_np = X.to_numpy()
     except Exception as e:
         raise RuntimeError(f"torch_mlp_encode: Invalid input data - {e}")
 
@@ -712,7 +712,7 @@ def torch_mlp_decode_impl(
         raise RuntimeError(f"torch_mlp_decode: Failed to deserialize model - {e}")
 
     try:
-        emb_np = embeddings.data
+        emb_np = embeddings.to_numpy()
     except Exception as e:
         raise RuntimeError(f"torch_mlp_decode: Invalid embeddings data - {e}")
 

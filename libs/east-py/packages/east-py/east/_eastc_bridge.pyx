@@ -1147,7 +1147,7 @@ cdef _eastc.EastValue* _py_vector_to_c(object val, _eastc.EastType *c_type) exce
     # Float, i64 for Integer, bool for Boolean). The Python buffer may use any
     # compatible runtime dtype (e.g. f32), so cast to canonical before copy.
     expected_dtype = EAST_ELEMENT_TO_DTYPE[val.element_type.type]
-    cdef object data = np.ascontiguousarray(val.data, dtype=expected_dtype)
+    cdef object data = np.ascontiguousarray(val._data, dtype=expected_dtype)
     byte_count = n * expected_dtype.itemsize
     if byte_count > 0:
         memcpy(vec.data.vector.data, PyArray_DATA(<cnp.ndarray>data), byte_count)
@@ -1164,7 +1164,7 @@ cdef _eastc.EastValue* _py_matrix_to_c(object val, _eastc.EastType *c_type) exce
 
     # Cast the (possibly f32) runtime buffer to the canonical C storage width.
     expected_dtype = EAST_ELEMENT_TO_DTYPE[val.element_type.type]
-    cdef object data = np.ascontiguousarray(val.data, dtype=expected_dtype)
+    cdef object data = np.ascontiguousarray(val._data, dtype=expected_dtype)
     cdef size_t count = rows * cols
     byte_count = count * expected_dtype.itemsize
     if byte_count > 0:

@@ -115,8 +115,8 @@ def gp_train_impl(
 
     # Data conversion
     try:
-        X_np = X.data
-        y_np = y.data
+        X_np = X.to_numpy()
+        y_np = y.to_numpy()
     except Exception as e:
         raise RuntimeError(f"gp_train: Invalid input data - {e}") from e
 
@@ -198,7 +198,7 @@ def gp_predict_impl(
 
     # Data conversion
     try:
-        X_np = X.data
+        X_np = X.to_numpy()
     except Exception as e:
         raise RuntimeError(f"gp_predict: Invalid input data - {e}") from e
 
@@ -238,7 +238,7 @@ def gp_predict_std_impl(
 
     # Data conversion
     try:
-        X_np = X.data
+        X_np = X.to_numpy()
     except Exception as e:
         raise RuntimeError(f"gp_predict_std: Invalid input data - {e}") from e
 

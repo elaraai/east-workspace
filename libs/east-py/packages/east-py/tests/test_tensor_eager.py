@@ -21,14 +21,14 @@ def test_vector_set_is_functional():
     assert v2.get(1) == 42.0
     assert v.get(1) == 2.0  # original unchanged
     assert v2.element_type.type == v.element_type.type
-    assert v2.data.dtype == v.data.dtype
+    assert v2.dtype == v.dtype
 
 
 def test_vector_set_preserves_storage_dtype():
     v = EastVector(FloatType, np.array([1.0, 2.0], dtype=np.float32))
     v2 = v.set(0, 9.0)
-    assert v2.data.dtype == np.float32
-    assert v.data.dtype == np.float32  # original untouched
+    assert v2.dtype == np.float32
+    assert v.dtype == np.float32  # original untouched
     assert v2.get(0) == 9.0
 
 
@@ -39,7 +39,7 @@ def test_matrix_set_is_functional():
     assert m2.get(0, 1) == 99.0
     assert m.get(0, 1) == 2.0  # original unchanged
     assert (m2.num_rows(), m2.num_cols()) == (2, 2)
-    assert m2.data.dtype == m.data.dtype
+    assert m2.dtype == m.dtype
 
 
 def test_tensors_are_not_hashable():
