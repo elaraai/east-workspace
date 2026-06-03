@@ -61,8 +61,8 @@ static void bench(const char *label, EastValue *value, EastType *type, int iters
 
 int main(int argc, char **argv)
 {
-    int        iters    = argc > 1 ? atoi(argv[1]) : 3;
-    const long sizes[]  = {1000, 10000, 50000};
+    int iters = argc > 1 ? atoi(argv[1]) : 3;
+    const long sizes[] = {1000, 10000, 50000};
     const char *fnames[] = {"a", "b", "c"};
 
     east_type_of_type_init();
@@ -105,19 +105,19 @@ int main(int argc, char **argv)
     }
 
     /* Complex: Dict<String, Struct{a:int, b:float, c:string}> */
-    EastType *ftypes[]    = {&east_integer_type, &east_float_type, &east_string_type};
-    EastType *row_t       = east_struct_type(fnames, ftypes, 3);
+    EastType *ftypes[] = {&east_integer_type, &east_float_type, &east_string_type};
+    EastType *row_t = east_struct_type(fnames, ftypes, 3);
     EastType *dict_struct = east_dict_type(&east_string_type, row_t);
     {
-        long       n = 10000;
+        long n = 10000;
         EastValue *d = east_dict_new(&east_string_type, row_t);
         for (long i = 0; i < n; i++) {
             char kbuf[24], cbuf[24];
             snprintf(kbuf, sizeof kbuf, "key_%08ld", i);
             snprintf(cbuf, sizeof cbuf, "v%ld", i);
-            EastValue *k     = east_string(kbuf);
+            EastValue *k = east_string(kbuf);
             EastValue *fv[3] = {east_integer(i), east_float((double)i * 0.5), east_string(cbuf)};
-            EastValue *row   = east_struct_new(fnames, fv, 3, row_t);
+            EastValue *row = east_struct_new(fnames, fv, 3, row_t);
             east_value_release(fv[0]);
             east_value_release(fv[1]);
             east_value_release(fv[2]);

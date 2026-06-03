@@ -56,7 +56,7 @@ static void *east_realloc2(void *p, size_t n)
 
 struct collect {
     EastValue **out;
-    size_t      n;
+    size_t n;
 };
 
 static bool collect_cb(const void *item, void *udata)
@@ -79,11 +79,11 @@ static struct btree *new_tree(size_t fanout)
  * by field name then field value). Returns ref=1, transferring to the caller. */
 static EastValue *make_day(long day)
 {
-    EastValue  *d        = east_integer(day); /* ref=1 */
+    EastValue *d = east_integer(day); /* ref=1 */
     const char *names[1] = {"day"};
-    EastValue  *vals[1]  = {d};
-    EastValue  *s        = east_struct_new(names, vals, 1, NULL); /* retains d */
-    east_value_release(d);                                        /* struct owns it now */
+    EastValue *vals[1] = {d};
+    EastValue *s = east_struct_new(names, vals, 1, NULL); /* retains d */
+    east_value_release(d);                                /* struct owns it now */
     return s;
 }
 
@@ -97,7 +97,7 @@ int main(void)
      * construction ref (=1) transfers to the tree. */
     struct btree *bt = new_tree(FANOUT);
     for (long i = 0; i < N; i++) {
-        long       k = (i * 7919) % N;
+        long k = (i * 7919) % N;
         EastValue *v = east_integer(k); /* ref=1, GC-tracked */
         const void *replaced = btree_set(bt, &v);
         assert(replaced == NULL); /* all distinct -> never a replace */
@@ -109,7 +109,7 @@ int main(void)
     }
 
     /* in-order traversal == canonical sorted order */
-    EastValue    **seen = malloc(N * sizeof *seen);
+    EastValue **seen = malloc(N * sizeof *seen);
     struct collect c = {seen, 0};
     btree_ascend(bt, NULL, collect_cb, &c);
     if (c.n != (size_t)N) {
@@ -142,10 +142,10 @@ int main(void)
     /* delete the 500 evens. item_free releases each removed value in the
      * library; we must NOT release the returned spare (that would double-free). */
     for (long k = 0; k < N; k += 2) {
-        EastValue  *key     = east_integer(k);
+        EastValue *key = east_integer(k);
         const void *removed = btree_delete(bt, &key);
-        assert(removed != NULL);     /* present */
-        east_value_release(key);     /* our lookup key (NOT the stored value) */
+        assert(removed != NULL); /* present */
+        east_value_release(key); /* our lookup key (NOT the stored value) */
         assert(!btree_oom(bt));
     }
     if (btree_count(bt) != N / 2) {
@@ -156,7 +156,7 @@ int main(void)
     /* overwrite: set an existing key with a NEW equal-compare value. The old
      * stored value is item_free'd (released); the new one's ref transfers in. */
     {
-        EastValue  *dup      = east_integer(1); /* odd -> still present */
+        EastValue *dup = east_integer(1); /* odd -> still present */
         const void *replaced = btree_set(bt, &dup);
         assert(replaced != NULL); /* replaced -> old returned + item_free'd */
     }
@@ -176,8 +176,8 @@ int main(void)
         printf("FAIL load count: %zu != %d\n", btree_count(bt2), N);
         failures++;
     }
-    EastValue    **seen2 = malloc(N * sizeof *seen2);
-    struct collect c2    = {seen2, 0};
+    EastValue **seen2 = malloc(N * sizeof *seen2);
+    struct collect c2 = {seen2, 0};
     btree_ascend(bt2, NULL, collect_cb, &c2);
     for (size_t i = 1; i < c2.n; i++) {
         if (east_value_compare(seen2[i - 1], seen2[i]) >= 0) {
@@ -193,14 +193,14 @@ int main(void)
      * value (struct: field name then field value), not just scalars. */
     struct btree *bt3 = new_tree(FANOUT);
     for (long i = 0; i < N; i++) {
-        long        k        = (i * 7919) % N;
-        EastValue  *s        = make_day(k);
+        long k = (i * 7919) % N;
+        EastValue *s = make_day(k);
         const void *replaced = btree_set(bt3, &s);
         assert(replaced == NULL);
         assert(!btree_oom(bt3));
     }
-    EastValue    **seen3 = malloc(N * sizeof *seen3);
-    struct collect c3    = {seen3, 0};
+    EastValue **seen3 = malloc(N * sizeof *seen3);
+    struct collect c3 = {seen3, 0};
     btree_ascend(bt3, NULL, collect_cb, &c3);
     if (c3.n != (size_t)N) {
         printf("FAIL struct ascend count: %zu != %d\n", c3.n, N);

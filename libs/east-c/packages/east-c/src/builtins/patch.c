@@ -1278,7 +1278,8 @@ static EastValue *do_invert(EastValue *patch, EastType *type)
 static void retype_patch(EastValue *v, EastType *type)
 {
     if (!v || !type) return;
-    while (type->kind == EAST_TYPE_RECURSIVE) type = type->data.recursive.node;
+    while (type->kind == EAST_TYPE_RECURSIVE)
+        type = type->data.recursive.node;
 
     switch (v->kind) {
     case EAST_VAL_VARIANT: {
@@ -1287,7 +1288,8 @@ static void retype_patch(EastValue *v, EastType *type)
         size_t idx = east_variant_type_case_idx(type, v->data.variant.case_tag);
         if (idx == SIZE_MAX) return;
         v->data.variant.case_idx = idx;
-        v->data.variant.case_tag = type->data.variant.cases[idx].name; /* outlives caller's literal */
+        v->data.variant.case_tag =
+            type->data.variant.cases[idx].name; /* outlives caller's literal */
         v->data.variant.type = type;
         east_type_retain(type);
         retype_patch(v->data.variant.value, type->data.variant.cases[idx].type);
@@ -1325,8 +1327,7 @@ static void retype_patch(EastValue *v, EastType *type)
         return;
     }
     case EAST_VAL_REF:
-        if (type->kind == EAST_TYPE_REF)
-            retype_patch(v->data.ref.value, type->data.element);
+        if (type->kind == EAST_TYPE_REF) retype_patch(v->data.ref.value, type->data.element);
         return;
     default:
         return;

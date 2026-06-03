@@ -194,8 +194,7 @@ static bool equal_for_impl(EastType *type, EastValue *a, EastValue *b, CycleCtx 
     case EAST_TYPE_SET:
         if (a->data.set.len != b->data.set.len) return false;
         for (size_t i = 0; i < a->data.set.len; i++)
-            if (!equal_for_impl(type->data.element, east_set_at(a, i), east_set_at(b, i),
-                                ctx))
+            if (!equal_for_impl(type->data.element, east_set_at(a, i), east_set_at(b, i), ctx))
                 return false;
         return true;
 
@@ -397,8 +396,7 @@ static int compare_for_impl(EastType *type, EastValue *a, EastValue *b, CycleCtx
         size_t la = a->data.set.len, lb = b->data.set.len;
         size_t mn = la < lb ? la : lb;
         for (size_t i = 0; i < mn; i++) {
-            int c = compare_for_impl(type->data.element, east_set_at(a, i), east_set_at(b, i),
-                                     ctx);
+            int c = compare_for_impl(type->data.element, east_set_at(a, i), east_set_at(b, i), ctx);
             if (c != 0) return c;
         }
         return la < lb ? -1 : (la > lb ? 1 : 0);

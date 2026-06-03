@@ -451,7 +451,8 @@ static EastValue *dict_filter_impl(EastValue **args, size_t n)
             east_value_release(result);
             return NULL;
         }
-        if (pred->data.boolean) east_dict_set(result, east_dict_key_at(d, i), east_dict_val_at(d, i));
+        if (pred->data.boolean)
+            east_dict_set(result, east_dict_key_at(d, i), east_dict_val_at(d, i));
         east_value_release(pred);
     }
     return result;

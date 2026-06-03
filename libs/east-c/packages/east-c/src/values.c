@@ -375,9 +375,11 @@ void east_set_sync(EastValue *set)
     size_t n = set->data.set.len;
     if (n > set->data.set.cap) {
         size_t new_cap = set->data.set.cap ? set->data.set.cap : 4;
-        while (new_cap < n) new_cap *= 2;
-        EastValue **items = east_realloc(set->data.set.items, set->data.set.cap * sizeof(EastValue *),
-                                         new_cap * sizeof(EastValue *));
+        while (new_cap < n)
+            new_cap *= 2;
+        EastValue **items =
+            east_realloc(set->data.set.items, set->data.set.cap * sizeof(EastValue *),
+                         new_cap * sizeof(EastValue *));
         if (!items) return; /* OOM — stay dirty, try again next read */
         set->data.set.items = items;
         set->data.set.cap = new_cap;
@@ -529,12 +531,12 @@ static struct btree *value_btree_new_dict(void)
 typedef struct {
     EastValue **keys;
     EastValue **values;
-    size_t      i;
+    size_t i;
 } DictCacheCtx;
 
 static bool dict_cache_collect(const void *item, void *udata)
 {
-    DictCacheCtx  *c = (DictCacheCtx *)udata;
+    DictCacheCtx *c = (DictCacheCtx *)udata;
     const DictPair *p = (const DictPair *)item;
     c->keys[c->i] = p->key;
     c->values[c->i] = p->val;
@@ -549,7 +551,8 @@ void east_dict_sync(EastValue *dict)
     if (n > dict->data.dict.cap) {
         size_t old = dict->data.dict.cap;
         size_t new_cap = old ? old : 4;
-        while (new_cap < n) new_cap *= 2;
+        while (new_cap < n)
+            new_cap *= 2;
         EastValue **k = east_realloc(dict->data.dict.keys, old * sizeof(EastValue *),
                                      new_cap * sizeof(EastValue *));
         EastValue **v = east_realloc(dict->data.dict.values, old * sizeof(EastValue *),
@@ -575,7 +578,7 @@ typedef struct {
 
 static bool dict_visit_cb(const void *item, void *udata)
 {
-    DictVisitCtx  *c = (DictVisitCtx *)udata;
+    DictVisitCtx *c = (DictVisitCtx *)udata;
     const DictPair *p = (const DictPair *)item;
     if (p->key) c->visit(p->key, c->ctx);
     if (p->val) c->visit(p->val, c->ctx);

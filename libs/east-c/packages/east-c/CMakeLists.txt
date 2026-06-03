@@ -45,8 +45,29 @@ add_library(east-c
 
 target_include_directories(east-c PUBLIC include)
 target_link_libraries(east-c PRIVATE pcre2-8)
-# values.c backs Set with tidwall/btree.c (the btreec target carries btree.h's
-# include dir + BTREE_NOATOMICS as PUBLIC usage requirements).
+# values.c backs Set/Dict with tidwall/btree.c. Parents that add_subdirectory()
+# this package (standalone east-c, east-py, and each downstream east-py package)
+# may already provide the btreec target; declare it here when they haven't so
+# every consumer resolves btree.h without re-stating the dependency. btreec
+# carries btree.h's include dir + BTREE_NOATOMICS as PUBLIC usage requirements.
+if(NOT TARGET btreec)
+    include(FetchContent)
+    FetchContent_Declare(
+        btreec
+        GIT_REPOSITORY https://github.com/tidwall/btree.c.git
+        GIT_TAG v0.6.4
+    )
+    FetchContent_GetProperties(btreec)
+    if(NOT btreec_POPULATED)
+        FetchContent_Populate(btreec)
+    endif()
+    add_library(btreec STATIC ${btreec_SOURCE_DIR}/btree.c)
+    target_include_directories(btreec PUBLIC ${btreec_SOURCE_DIR})
+    target_compile_definitions(btreec PUBLIC BTREE_NOATOMICS)
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(btreec PRIVATE -w)
+    endif()
+endif()
 target_link_libraries(east-c PRIVATE btreec)
 # libm is part of the CRT on Windows/MSVC; only link the separate libm elsewhere.
 if(NOT WIN32)
