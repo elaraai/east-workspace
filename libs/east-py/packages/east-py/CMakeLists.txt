@@ -64,6 +64,26 @@ set(PCRE2_BUILD_PCRE2GREP OFF CACHE BOOL "" FORCE)
 set(PCRE2_SUPPORT_UNICODE ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(pcre2)
 
+# tidwall/btree.c — east-c's Set/Dict ordered store. east-py add_subdirectory's
+# packages/east-c directly (not the monorepo root), so — like pcre2 above — it
+# must declare btreec itself; packages/east-c links it. BTREE_NOATOMICS drops the
+# copy-on-write stdatomic dependency (nodes are never shared across threads).
+FetchContent_Declare(
+    btreec
+    GIT_REPOSITORY https://github.com/tidwall/btree.c.git
+    GIT_TAG v0.6.4
+)
+FetchContent_GetProperties(btreec)
+if(NOT btreec_POPULATED)
+    FetchContent_Populate(btreec)
+endif()
+add_library(btreec STATIC ${btreec_SOURCE_DIR}/btree.c)
+target_include_directories(btreec PUBLIC ${btreec_SOURCE_DIR})
+target_compile_definitions(btreec PUBLIC BTREE_NOATOMICS)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(btreec PRIVATE -w)
+endif()
+
 # We disable mimalloc (Python has its own allocator) and east-c's tests.
 set(EAST_USE_MIMALLOC OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)

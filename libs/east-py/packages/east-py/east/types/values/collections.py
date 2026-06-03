@@ -6,13 +6,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator
-from typing import TYPE_CHECKING, Any, Generic, SupportsIndex
-
-from sortedcontainers import SortedDict, SortedSet  # type: ignore[import-untyped]
+from collections.abc import MutableSequence
+from typing import TYPE_CHECKING, Any, Generic
 
 import east.types.values as _ev
-from east.types.values._helpers import K, T, V, _call_builtin, _make_east_key
+from east.types.values._helpers import K, T, V, _call_builtin
 from east.types.values.primitives import east_null
 from east.types.values.structural import EastFunction, EastVariant
 
@@ -21,11 +19,31 @@ if TYPE_CHECKING:
     from east.types.values.structural import EastStruct
 
 
-class EastArray(list, Generic[T]):
+# The C-backed proxy classes live in the Cython bridge (_eastc_bridge), which is
+# built/loaded after this pure-Python module and whose proxies subclass the
+# classes defined here — a top-level import would cycle. Import lazily and cache
+# the class object (the same lazy pattern as _call_builtin in _helpers).
+_proxy_classes: dict[str, Any] = {}
+
+
+def _proxy_cls(name: str) -> Any:
+    cls = _proxy_classes.get(name)
+    if cls is None:
+        import east._eastc_bridge as _bridge
+
+        cls = getattr(_bridge, name)
+        _proxy_classes[name] = cls
+    return cls
+
+
+class EastArray(MutableSequence, Generic[T]):
     """East array with element type tracking.
 
-    Arrays are mutable, ordered, 0-indexed collections.
-    They behave like Python lists but track the element type.
+    Arrays are mutable, ordered, 0-indexed collections backed by a live east-c
+    array value — one representation, no Python store. The element ops live on the
+    proxy and route to east-c; ``MutableSequence`` derives the rest (index, count,
+    __reversed__, __iadd__, ...) from the proxy's __getitem__/__setitem__/
+    __delitem__/__len__/insert primitives.
 
     Generic type parameter T is for static type hints only (e.g., EastArray[float]).
     At runtime, element_type provides the actual East type.
@@ -33,19 +51,13 @@ class EastArray(list, Generic[T]):
 
     __slots__ = ("element_type", "_iteration_lock")
 
-    def __init__(self, element_type: EastType, items: list | None = None):
-        """Create an array with a specific element type.
-
-        Args:
-            element_type: The type of elements in this array
-            items: Initial items (optional)
-        """
-        if items is not None:
-            super().__init__(items)
-        else:
-            super().__init__()
-        self.element_type = element_type
-        self._iteration_lock = 0  # Counter for nested iterations
+    def __new__(cls, *args, **kwargs):  # noqa: ARG004 — Python forwards constructor args here; the proxy __init__ consumes them
+        # EastArray(element_type, items) constructs a live C-backed proxy from birth.
+        # Returning an EastArrayProxy makes Python run EastArrayProxy.__init__, which
+        # allocates the east-c array and bulk-pushes. Subclasses construct normally.
+        if cls is EastArray:
+            return object.__new__(_proxy_cls("EastArrayProxy"))
+        return object.__new__(cls)
 
     def _lock_for_iteration(self) -> None:
         """Lock array for iteration (prevents modifications)."""
@@ -60,61 +72,26 @@ class EastArray(list, Generic[T]):
         if self._iteration_lock > 0:
             raise RuntimeError("Cannot modify Array during iteration")
 
-    # Override all mutation methods to check for iteration
+    # ----- MutableSequence primitives -----------------------------------------
+    # Implemented by EastArrayProxy against the live east-c array (see
+    # _eastc_bridge.pyx); MutableSequence derives index/count/__reversed__/__iadd__
+    # from them. Declared here so EastArray reads as a concrete Sequence to static
+    # checkers — the proxy overrides each at runtime, so these bodies never run.
 
-    def append(self, item: Any) -> None:
-        """Add item to end of array."""
-        self._check_not_iterating()
-        super().append(item)
-
-    def extend(self, items: Any) -> None:
-        """Extend array with items."""
-        self._check_not_iterating()
-        super().extend(items)
-
-    def insert(self, index: SupportsIndex, item: Any) -> None:
-        """Insert item at index."""
-        self._check_not_iterating()
-        super().insert(index, item)
-
-    def remove(self, item: Any) -> None:
-        """Remove first occurrence of item."""
-        self._check_not_iterating()
-        super().remove(item)
-
-    def pop(self, index: SupportsIndex = -1) -> Any:
-        """Remove and return item at index."""
-        self._check_not_iterating()
-        return super().pop(index)
-
-    def clear(self) -> None:
-        """Remove all items."""
-        self._check_not_iterating()
-        super().clear()
+    def __getitem__(self, index: Any) -> Any:
+        raise NotImplementedError
 
     def __setitem__(self, index: Any, value: Any) -> None:
-        """Set item at index."""
-        self._check_not_iterating()
-        super().__setitem__(index, value)
+        raise NotImplementedError
 
     def __delitem__(self, index: Any) -> None:
-        """Delete item at index."""
-        self._check_not_iterating()
-        super().__delitem__(index)
+        raise NotImplementedError
 
-    def reverse(self) -> None:
-        """Reverse array in place."""
-        self._check_not_iterating()
-        super().reverse()
+    def __len__(self) -> int:
+        raise NotImplementedError
 
-    def sort(self, *, key: Any = None, reverse: bool = False) -> None:
-        """Sort in place using East's total order (not Python's default ordering).
-
-        Delegates to east-c (``ArraySortDefault`` keyless, ``ArraySort`` keyed)
-        and assigns the result back to keep the in-place list contract.
-        """
-        self._check_not_iterating()
-        self[:] = list(self.sorted(key=key, reverse=reverse))
+    def insert(self, index: int, value: Any) -> None:
+        raise NotImplementedError
 
     # ----- Eager value methods (delegate to east-c; results are live values) ---
 
@@ -609,7 +586,7 @@ class EastArray(list, Generic[T]):
         _call_builtin("ArrayForEach", [self.element_type, NullType], [self, callback], NullType)
 
     def group_by(self, key: Any) -> EastDict:
-        """Group elements into a dict of arrays keyed by ``key(element)``.
+        """Group elements into a dict of arrays keyed by ``key(element)`` (east-c ArrayGroupFold).
 
         Args:
             key: ``fn(element) -> group key``; its result type, sampled on the
@@ -617,24 +594,30 @@ class EastArray(list, Generic[T]):
 
         Returns:
             A dict mapping each group key to an array of its elements, with keys
-            in East total order. Bucketing runs in Python because east-c exposes
-            no single-callback group-by (only the two-callback ArrayGroupFold).
+            in East total order.
         """
-        from east.types.types import ArrayType
+        from east.types.types import ArrayType, DictType, IntegerType
 
-        buckets: dict[Any, list] = {}
-        order: list = []
-        for item in self:
-            k = key(item)
-            if k not in buckets:
-                buckets[k] = []
-                order.append(k)
-            buckets[k].append(item)
-        key_type = _ev.type_of(order[0]) if order else self.element_type
-        result: EastDict = EastDict(key_type, ArrayType(self.element_type))
-        for k in order:
-            result[k] = EastArray(self.element_type, buckets[k])
-        return result
+        bucket_type = ArrayType(self.element_type)
+        if len(self) == 0:
+            return EastDict(self.element_type, bucket_type)
+        k2 = _ev.type_of(key(self[0]))
+
+        def _append(acc: EastArray, el: Any, _idx: int) -> EastArray:
+            acc.append(el)
+            return acc
+
+        # ArrayGroupFold callbacks carry the element index: key(elem, idx),
+        # init(group_key), fold(acc, elem, idx).
+        key_cb = EastFunction(lambda el, _idx: key(el), [self.element_type, IntegerType], k2)
+        init_cb = EastFunction(lambda _gk: EastArray(self.element_type, []), [k2], bucket_type)
+        fold_cb = EastFunction(_append, [bucket_type, self.element_type, IntegerType], bucket_type)
+        return _call_builtin(
+            "ArrayGroupFold",
+            [self.element_type, k2, bucket_type],
+            [self, key_cb, init_cb, fold_cb],
+            DictType(k2, bucket_type),
+        )
 
     def string_join(self, separator: str) -> str:
         """Join an Array<String> into one string (east-c ArrayStringJoin).
@@ -727,21 +710,17 @@ class EastSet(Generic[T]):
     At runtime, element_type provides the actual East type.
     """
 
-    __slots__ = ("element_type", "_data", "_iteration_lock")
+    __slots__ = ("element_type", "_iteration_lock")
 
-    def __init__(self, element_type: EastType, items: Iterable[Any] | None = None):
-        """Create a set with a specific element type.
-
-        Args:
-            element_type: The type of elements in this set
-            items: Initial items (optional)
-        """
-        self.element_type = element_type
-        self._data: SortedSet = SortedSet(key=_make_east_key(element_type))
-        self._iteration_lock = 0  # Counter for nested iterations
-        if items is not None:
-            for item in items:
-                self._data.add(item)
+    def __new__(cls, *args, **kwargs):  # noqa: ARG004 — Python forwards constructor args here; the proxy __init__ consumes them
+        # EastSet(element_type, items) constructs a live C-backed proxy from birth
+        # — one representation, no Python store. Returning an EastSetProxy makes
+        # Python run EastSetProxy.__init__, which allocates the east-c set and
+        # bulk-inserts. The element ops (add/remove/has/iter/len/clear) and equality
+        # all live on the proxy. Subclasses (and _wrap) construct normally.
+        if cls is EastSet:
+            return object.__new__(_proxy_cls("EastSetProxy"))
+        return object.__new__(cls)
 
     def _lock_for_iteration(self) -> None:
         """Lock set for iteration (prevents modifications)."""
@@ -756,43 +735,29 @@ class EastSet(Generic[T]):
         if self._iteration_lock > 0:
             raise RuntimeError("Cannot modify Set during iteration")
 
-    def add(self, item: Any) -> None:
-        """Add an item to the set."""
-        self._check_not_iterating()
-        self._data.add(item)
-
-    def remove(self, item: Any) -> None:
-        """Remove an item from the set."""
-        self._check_not_iterating()
-        self._data.remove(item)
-
-    def discard(self, item: Any) -> None:
-        """Remove an item from the set if present."""
-        self._check_not_iterating()
-        self._data.discard(item)
-
-    def clear(self) -> None:
-        """Remove all items from the set."""
-        self._check_not_iterating()
-        self._data.clear()
-
+    # Membership/len/iter and the in-place mutators are implemented by
+    # EastSetProxy against the live east-c set; declared here so EastSet reads as
+    # a concrete collection to static checkers — the proxy overrides each at runtime.
     def __contains__(self, item: Any) -> bool:
-        """Check if item is in the set."""
-        return item in self._data
+        raise NotImplementedError
 
     def __len__(self) -> int:
-        """Return number of items in the set."""
-        return len(self._data)
+        raise NotImplementedError
 
-    def __iter__(self) -> Iterator[Any]:
-        """Iterate over items in sorted order."""
-        return iter(self._data)
+    def __iter__(self) -> Any:
+        raise NotImplementedError
 
-    def __eq__(self, other: object) -> bool:
-        """Sets are equal if they contain the same elements."""
-        if not isinstance(other, EastSet):
-            return NotImplemented
-        return self._data == other._data
+    def add(self, value: Any) -> None:
+        raise NotImplementedError
+
+    def discard(self, value: Any) -> None:
+        raise NotImplementedError
+
+    def remove(self, value: Any) -> None:
+        raise NotImplementedError
+
+    def clear(self) -> None:
+        raise NotImplementedError
 
     # ----- Eager value methods (delegate to east-c; results are live values) ---
 
@@ -852,20 +817,39 @@ class EastSet(Generic[T]):
         return _call_builtin(name, [self.element_type], [self, other], SetType(self.element_type))
 
     def union_in_place(self, other: EastSet) -> None:
-        """Add every element of ``other`` to self in place.
+        """Add every element of ``other`` to self in place (east-c SetUnionInPlace)."""
+        from east.types.types import NullType
 
-        On a C-backed proxy (``_data is None``) this mutates the live east-c set via
-        ``SetUnionInPlace``. A bare Python-constructed set has no live C value to
-        mutate, so delegate the union to east-c (``SetUnion``) and rebind the local
-        store from the result — both paths run the union in east-c.
-        """
         self._check_not_iterating()
-        if self._data is None:
-            from east.types.types import NullType
+        _call_builtin("SetUnionInPlace", [self.element_type], [self, other], NullType)
 
-            _call_builtin("SetUnionInPlace", [self.element_type], [self, other], NullType)
-        else:
-            self._data = SortedSet(self.union(other), key=_make_east_key(self.element_type))
+    def try_insert(self, value: Any) -> bool:
+        """Insert ``value`` in place, reporting whether it was new (east-c SetTryInsert).
+
+        Args:
+            value: The element to add; its type must match the set's element type.
+
+        Returns:
+            ``True`` if ``value`` was newly added, ``False`` if it was already present.
+        """
+        from east.types.types import BooleanType
+
+        self._check_not_iterating()
+        return _call_builtin("SetTryInsert", [self.element_type], [self, value], BooleanType)
+
+    def try_delete(self, value: Any) -> bool:
+        """Delete ``value`` in place, reporting whether it was present (east-c SetTryDelete).
+
+        Args:
+            value: The element to remove; its type must match the set's element type.
+
+        Returns:
+            ``True`` if ``value`` was present and removed, ``False`` if it was absent.
+        """
+        from east.types.types import BooleanType
+
+        self._check_not_iterating()
+        return _call_builtin("SetTryDelete", [self.element_type], [self, value], BooleanType)
 
     def is_subset(self, other: EastSet) -> bool:
         """Whether every element of self is also in ``other`` (east-c SetIsSubset)."""
@@ -1219,22 +1203,17 @@ class EastDict(Generic[K, V]):
     provide the actual East types.
     """
 
-    __slots__ = ("key_type", "value_type", "_data", "_iteration_lock")
+    __slots__ = ("key_type", "value_type", "_iteration_lock")
 
-    def __init__(
-        self,
-        key_type: EastType,
-        value_type: EastType,
-        items: dict | None = None,
-    ):
-        """Create a dict with specific key and value types."""
-        self.key_type = key_type
-        self.value_type = value_type
-        self._data: SortedDict = SortedDict(_make_east_key(key_type))
-        self._iteration_lock = 0
-        if items is not None:
-            for key, value in items.items():
-                self._data[key] = value
+    def __new__(cls, *args, **kwargs):  # noqa: ARG004 — Python forwards constructor args here; the proxy __init__ consumes them
+        # EastDict(...) constructs a live C-backed proxy from birth — one
+        # representation, no Python store. Returning an EastDictProxy makes Python
+        # run EastDictProxy.__init__, which allocates the east-c dict and bulk-
+        # inserts. The element ops (get/set/del/has/iter/keys/values/items/get/pop/
+        # clear) and equality all live on the proxy. Subclasses (and _wrap) construct normally.
+        if cls is EastDict:
+            return object.__new__(_proxy_cls("EastDictProxy"))
+        return object.__new__(cls)
 
     def _lock_for_iteration(self) -> None:
         """Lock dict for iteration."""
@@ -1249,63 +1228,41 @@ class EastDict(Generic[K, V]):
         if self._iteration_lock > 0:
             raise RuntimeError("Cannot modify Dict during iteration")
 
+    # The mapping protocol is implemented by EastDictProxy against the live east-c
+    # dict; declared here so EastDict reads as a concrete mapping to static
+    # checkers — the proxy overrides each at runtime.
+    def __contains__(self, key: Any) -> bool:
+        raise NotImplementedError
+
     def __getitem__(self, key: Any) -> Any:
-        """Get value for key."""
-        return self._data[key]
+        raise NotImplementedError
 
     def __setitem__(self, key: Any, value: Any) -> None:
-        """Set value for key."""
-        self._check_not_iterating()
-        self._data[key] = value
+        raise NotImplementedError
 
     def __delitem__(self, key: Any) -> None:
-        """Delete key from dict."""
-        self._check_not_iterating()
-        del self._data[key]
-
-    def __contains__(self, key: Any) -> bool:
-        """Check if key is in the dict."""
-        return key in self._data
+        raise NotImplementedError
 
     def __len__(self) -> int:
-        """Return number of key-value pairs."""
-        return len(self._data)
+        raise NotImplementedError
 
-    def __iter__(self) -> Iterator[Any]:
-        """Iterate over keys in sorted order."""
-        return iter(self._data)
+    def __iter__(self) -> Any:
+        raise NotImplementedError
 
-    def __eq__(self, other: object) -> bool:
-        """Dicts are equal if they have the same key-value pairs."""
-        if not isinstance(other, EastDict):
-            return NotImplemented
-        return self._data == other._data
+    def items(self) -> Any:
+        raise NotImplementedError
 
-    def keys(self) -> Iterator[Any]:
-        """Return iterator over keys in sorted order."""
-        return iter(self._data.keys())
+    def keys(self) -> Any:
+        raise NotImplementedError
 
-    def values(self) -> Iterator[Any]:
-        """Get iterator over values."""
-        return iter(self._data.values())
-
-    def items(self) -> Iterator[Any]:
-        """Return iterator over (key, value) pairs in sorted order."""
-        return iter(self._data.items())
-
-    def get(self, key: Any, default: Any = None) -> Any:
-        """Get value for key, returning default if not found."""
-        return self._data.get(key, default)
+    def values(self) -> Any:
+        raise NotImplementedError
 
     def pop(self, key: Any, *args: Any) -> Any:
-        """Remove and return value for key."""
-        self._check_not_iterating()
-        return self._data.pop(key, *args)
+        raise NotImplementedError
 
     def clear(self) -> None:
-        """Remove all key-value pairs."""
-        self._check_not_iterating()
-        self._data.clear()
+        raise NotImplementedError
 
     # ----- Eager value methods (delegate to east-c; results are live values) ---
 
@@ -1339,8 +1296,8 @@ class EastDict(Generic[K, V]):
         Returns:
             The stored value for ``key``, otherwise ``default``.
         """
-        # Use the container protocol (not self.get): on a C-backed proxy `self[key]`/
-        # `key in self` route to the live value, whereas `.get` would read empty _data.
+        # Route through the container protocol (`self[key]` / `key in self`), which
+        # the proxy backs with the live east-c value.
         return self[key] if key in self else default  # noqa: SIM401
 
     def try_get(self, key: Any) -> EastVariant:
@@ -1457,6 +1414,41 @@ class EastDict(Generic[K, V]):
         )
         _call_builtin("DictUnionInPlace", [self.key_type, self.value_type], [result, other, callback], NullType)
         return result
+
+    def merge_all(self, other: EastDict, merge: Any, default: Any) -> None:
+        """Fold every entry of ``other`` into self in place (east-c DictMergeAll).
+
+        For each ``(key, value)`` in ``other``: the base is this dict's existing
+        value for ``key`` if present, otherwise ``default(key)``; the stored
+        result is ``merge(base, value, key)``.
+
+        Args:
+            other: The dict whose entries are folded in. Its key/value types
+                must match this dict's.
+            merge: Called as ``merge(existing, incoming, key) -> value`` to
+                combine the base with ``other``'s value.
+            default: Called as ``default(key) -> value`` to synthesise a base
+                for keys absent from this dict.
+        """
+        from east.types.types import NullType
+
+        self._check_not_iterating()
+        merge_cb = EastFunction(
+            lambda existing, incoming, key: merge(existing, incoming, key),
+            [self.value_type, self.value_type, self.key_type],
+            self.value_type,
+        )
+        default_cb = EastFunction(
+            lambda key: default(key),
+            [self.key_type],
+            self.value_type,
+        )
+        _call_builtin(
+            "DictMergeAll",
+            [self.key_type, self.value_type],
+            [self, other, merge_cb, default_cb],
+            NullType,
+        )
 
     def copy(self) -> EastDict:
         """A shallow copy of this dict (east-c DictCopy).

@@ -299,7 +299,12 @@ cdef extern from "east/values.h":
     void east_set_insert(EastValue *s, EastValue *val)
     bint east_set_has(EastValue *s, EastValue *val)
     bint east_set_delete(EastValue *s, EastValue *val)
+    void east_set_clear(EastValue *s)
     size_t east_set_len(EastValue *s)
+    # Encapsulated element access — sync the lazy cache, then return the element.
+    # Use these instead of indexing data.set.items / data.dict.keys|values, which
+    # are a private cache of the underlying B-tree (stale until synced).
+    EastValue *east_set_at(EastValue *s, size_t i)
 
     EastValue *east_dict_new(EastType *key_type, EastType *val_type)
     void east_dict_set(EastValue *d, EastValue *key, EastValue *val)
@@ -307,7 +312,10 @@ cdef extern from "east/values.h":
     bint east_dict_has(EastValue *d, EastValue *key)
     bint east_dict_delete(EastValue *d, EastValue *key)
     EastValue *east_dict_pop(EastValue *d, EastValue *key)
+    void east_dict_clear(EastValue *d)
     size_t east_dict_len(EastValue *d)
+    EastValue *east_dict_key_at(EastValue *d, size_t i)
+    EastValue *east_dict_val_at(EastValue *d, size_t i)
 
     EastValue *east_struct_new(const char **names, EastValue **values, size_t count, EastType *type)
     EastValue *east_struct_get_field(EastValue *s, const char *name)

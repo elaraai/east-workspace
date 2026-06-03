@@ -26,14 +26,16 @@ from typing import Any
 
 from east.types.types import (
     ArrayType,
+    BlobType,
     BooleanType,
     DateTimeType,
     EastType,
     FloatType,
     IntegerType,
+    PatchType,
     StringType,
 )
-from east.types.values import EastValue, _call_builtin
+from east.types.values import EastValue, _call_builtin, type_of
 
 
 class _FloatNamespace:
@@ -484,6 +486,16 @@ class _StringNamespace:
         return _call_builtin("StringTrimEnd", [], [s], StringType)
 
     @staticmethod
+    def encode_utf8(s: str) -> bytes:
+        """Encode ``s`` to its UTF-8 byte representation as a Blob (east-c StringEncodeUtf8)."""
+        return _call_builtin("StringEncodeUtf8", [], [s], BlobType)
+
+    @staticmethod
+    def encode_utf16(s: str) -> bytes:
+        """Encode ``s`` to its little-endian UTF-16 byte representation as a Blob (east-c StringEncodeUtf16)."""
+        return _call_builtin("StringEncodeUtf16", [], [s], BlobType)
+
+    @staticmethod
     def starts_with(s: str, prefix: str) -> bool:
         """Whether ``s`` begins with ``prefix`` (east-c StringStartsWith).
 
@@ -932,6 +944,54 @@ class _East:
         if _call_builtin("Less", [typ], [a, b], BooleanType):
             return -1
         return 0 if _call_builtin("Equal", [typ], [a, b], BooleanType) else 1
+
+    @staticmethod
+    def is_(typ: EastType, a: EastValue, b: EastValue) -> bool:
+        """East ``Is`` identity of two values of type ``typ`` (east-c Is).
+
+        Reference identity for mutable values (``Ref``/``Array``/``Set``/``Dict``)
+        and structural equality for immutable ones — the type-aware ``===``.
+        """
+        return _call_builtin("Is", [typ], [a, b], BooleanType)
+
+    @staticmethod
+    def diff(before: EastValue, after: EastValue) -> EastValue:
+        """Structural diff producing a patch from ``before`` to ``after`` (east-c Diff).
+
+        ``before`` and ``after`` must share a type; the result is a value of
+        ``PatchType(type_of(before))`` that :meth:`apply_patch` replays onto
+        ``before`` to reconstruct ``after``.
+        """
+        typ = type_of(before)
+        return _call_builtin("Diff", [typ, PatchType(typ)], [before, after], PatchType(typ))
+
+    @staticmethod
+    def apply_patch(value: EastValue, patch: EastValue) -> EastValue:
+        """Apply ``patch`` to ``value``, producing the patched value (east-c ApplyPatch).
+
+        Raises an East runtime error if the patch conflicts with the value
+        (e.g. deleting a key that is not present).
+        """
+        typ = type_of(value)
+        return _call_builtin("ApplyPatch", [typ, PatchType(typ)], [value, patch], typ)
+
+    @staticmethod
+    def compose_patch(typ: EastType, first: EastValue, second: EastValue) -> EastValue:
+        """Compose two patches of value type ``typ`` into one (east-c ComposePatch).
+
+        The result has the same effect as applying ``first`` then ``second``.
+        """
+        return _call_builtin(
+            "ComposePatch", [typ, PatchType(typ)], [first, second], PatchType(typ)
+        )
+
+    @staticmethod
+    def invert_patch(typ: EastType, patch: EastValue) -> EastValue:
+        """Invert ``patch`` (of value type ``typ``) so it undoes its own effect (east-c InvertPatch).
+
+        Applying the inverted patch to the ``after`` value reproduces ``before``.
+        """
+        return _call_builtin("InvertPatch", [typ, PatchType(typ)], [patch], PatchType(typ))
 
 
 East = _East()

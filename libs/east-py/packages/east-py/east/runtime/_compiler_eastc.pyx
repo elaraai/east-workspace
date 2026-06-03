@@ -179,7 +179,7 @@ def call_builtin(str name, list type_params, list args, object output_type):
                 free(err)
             else:
                 msg = f"east-c builtin {name} failed"
-            raise EastError(msg, EastArray(EastVariant("Null", None)))
+            raise EastError(msg, [])
 
         py_result = c_value_to_py(result, c_out)
         _eastc.east_value_release(result)
@@ -615,7 +615,7 @@ def _invoke_c_function_py(uintptr_t val_ptr, list input_type_ptrs, uintptr_t out
             _eastc.east_value_release(result.value)
         from east.runtime.errors import EastError
         from east.types.values import EastArray, EastVariant
-        raise EastError(msg, EastArray(EastVariant("Null", None)))
+        raise EastError(msg, [])
 
     if result.value == NULL:
         return None
@@ -703,25 +703,21 @@ cpdef object _eastc_call(uintptr_t compiled_ptr, list input_type_ptrs,
     if result.error_message != NULL:
         msg = result.error_message.decode("utf-8")
 
-    # Build location array for EastError
+    # Build the location stack for EastError — a plain list of {filename, line,
+    # column} structs (error-reporting data; no need for a C-backed array).
     from east.runtime.errors import EastError
-    from east.types.values import EastArray, EastStruct, EastVariant
+    from east.types.values import EastStruct
 
-    locations = []
+    location_array = []
     if result.num_locations > 0 and result.locations != NULL:
         for i in range(result.num_locations):
             loc = result.locations[i]
             filename = loc.filename.decode("utf-8") if loc.filename != NULL else "<unknown>"
-            locations.append(EastStruct({
+            location_array.append(EastStruct({
                 "filename": filename,
                 "line": loc.line,
                 "column": loc.column,
             }))
-
-    location_array = EastArray(
-        EastVariant("Struct", None),  # element type placeholder
-        locations if locations else [],
-    )
 
     if result.value != NULL:
         _eastc.east_value_release(result.value)
