@@ -23,6 +23,24 @@ if TYPE_CHECKING:
     from east.types.types import EastType
 
 
+def _infer_element_type(dtype: np.dtype) -> EastType:
+    """Infer the logical East element type from a numpy dtype's kind.
+
+    float kinds map to Float, signed/unsigned integers to Integer, and bool to
+    Boolean. The physical width (e.g. float32) is preserved separately as the
+    tensor's storage dtype.
+    """
+    from east.types.types import BooleanType, FloatType, IntegerType
+
+    if dtype.kind == "f":
+        return FloatType
+    if dtype.kind in ("i", "u"):
+        return IntegerType
+    if dtype.kind == "b":
+        return BooleanType
+    raise TypeError(f"cannot infer an East element type from numpy dtype {dtype!r}")
+
+
 class EastVector:
     """East vector - contiguous 1D numeric array backed by NumPy.
 
@@ -117,14 +135,23 @@ class EastVector:
         return self.to_numpy(dtype=dtype, copy=bool(copy))
 
     @classmethod
-    def from_numpy(cls, element_type: EastType, array: npt.ArrayLike) -> EastVector:
-        """Build a vector from a NumPy array; its storage dtype is preserved."""
-        return cls(element_type, np.asarray(array))
+    def from_numpy(cls, array: npt.ArrayLike, element_type: EastType | None = None) -> EastVector:
+        """Build a vector from a NumPy array, preserving its storage dtype.
+
+        The logical element type is inferred from the array's dtype
+        (float→Float, int→Integer, bool→Boolean) unless ``element_type`` is given.
+        """
+        arr = np.asarray(array)
+        return cls(element_type if element_type is not None else _infer_element_type(arr.dtype), arr)
 
     @classmethod
-    def from_torch(cls, element_type: EastType, tensor: torch.Tensor) -> EastVector:
-        """Build a vector from a 1-D ``torch.Tensor`` (copied to host memory)."""
-        return cls(element_type, np.asarray(tensor.detach().cpu().numpy()))
+    def from_torch(cls, tensor: torch.Tensor, element_type: EastType | None = None) -> EastVector:
+        """Build a vector from a 1-D ``torch.Tensor`` (copied to host memory).
+
+        The element type is inferred from the tensor's dtype unless given.
+        """
+        arr = np.asarray(tensor.detach().cpu().numpy())
+        return cls(element_type if element_type is not None else _infer_element_type(arr.dtype), arr)
 
     def __len__(self) -> int:
         """Return number of elements."""
@@ -448,14 +475,22 @@ class EastMatrix:
         return self.to_numpy(dtype=dtype, copy=bool(copy))
 
     @classmethod
-    def from_numpy(cls, element_type: EastType, array: npt.ArrayLike) -> EastMatrix:
-        """Build a matrix from a 2-D NumPy array; its storage dtype is preserved."""
-        return cls(element_type, np.asarray(array))
+    def from_numpy(cls, array: npt.ArrayLike, element_type: EastType | None = None) -> EastMatrix:
+        """Build a matrix from a 2-D NumPy array, preserving its storage dtype.
+
+        The logical element type is inferred from the array's dtype unless given.
+        """
+        arr = np.asarray(array)
+        return cls(element_type if element_type is not None else _infer_element_type(arr.dtype), arr)
 
     @classmethod
-    def from_torch(cls, element_type: EastType, tensor: torch.Tensor) -> EastMatrix:
-        """Build a matrix from a 2-D ``torch.Tensor`` (copied to host memory)."""
-        return cls(element_type, np.asarray(tensor.detach().cpu().numpy()))
+    def from_torch(cls, tensor: torch.Tensor, element_type: EastType | None = None) -> EastMatrix:
+        """Build a matrix from a 2-D ``torch.Tensor`` (copied to host memory).
+
+        The element type is inferred from the tensor's dtype unless given.
+        """
+        arr = np.asarray(tensor.detach().cpu().numpy())
+        return cls(element_type if element_type is not None else _infer_element_type(arr.dtype), arr)
 
     def __repr__(self) -> str:
         """Return representation."""

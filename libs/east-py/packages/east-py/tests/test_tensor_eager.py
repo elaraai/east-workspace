@@ -82,10 +82,20 @@ def test_asarray_uses_array_protocol():
     assert not a.flags.writeable
 
 
-def test_from_numpy_preserves_dtype():
-    v = EastVector.from_numpy(FloatType, np.array([1.0, 2.0, 3.0], dtype=np.float32))
+def test_from_numpy_infers_type_and_preserves_dtype():
+    # element type inferred from the numpy dtype kind; storage dtype preserved
+    v = EastVector.from_numpy(np.array([1.0, 2.0, 3.0], dtype=np.float32))
+    assert v.element_type.type == "Float"
     assert v.dtype == np.float32
     assert v.to_numpy().tolist() == [1.0, 2.0, 3.0]
+
+    vi = EastVector.from_numpy(np.array([1, 2, 3], dtype=np.int32))
+    assert vi.element_type.type == "Integer"
+    assert vi.dtype == np.int32
+
+    # explicit override still works
+    vb = EastVector.from_numpy(np.array([1, 0, 1], dtype=np.bool_))
+    assert vb.element_type.type == "Boolean"
 
 
 def test_matrix_to_numpy_is_2d_readonly():

@@ -14,6 +14,7 @@ Memory management rules:
 """
 
 from cpython.bytes cimport PyBytes_AS_STRING, PyBytes_GET_SIZE
+from cpython.ref cimport Py_INCREF
 from cpython.unicode cimport PyUnicode_AsUTF8AndSize, PyUnicode_DecodeUTF8
 from libc.stddef cimport size_t
 from libc.stdint cimport int64_t, uint8_t, uintptr_t
@@ -24,6 +25,13 @@ cimport numpy as cnp
 
 cdef extern from "numpy/arrayobject.h":
     void *PyArray_DATA(cnp.ndarray arr) nogil
+    object PyArray_SimpleNewFromData(int nd, cnp.npy_intp *dims, int typenum, void *data)
+    int PyArray_SetBaseObject(cnp.ndarray arr, object obj)  # steals a reference to obj
+    void PyArray_CLEARFLAGS(cnp.ndarray arr, int flags)
+    int NPY_ARRAY_WRITEABLE
+
+# Initialise the numpy C-API table (required before PyArray_SimpleNewFromData).
+cnp.import_array()
 
 from east cimport _eastc
 
@@ -31,6 +39,8 @@ from datetime import UTC
 from datetime import datetime as DateTime
 
 import numpy as np
+import os
+import sys
 
 from east.types.values import (
     EastArray,
@@ -665,12 +675,88 @@ cdef object _c_ref_to_py(_eastc.EastValue *val, _eastc.EastType *c_type, dict al
     return result
 
 
+# ---------------------------------------------------------------------------
+# Zero-copy c->py views (EXPERIMENTAL — opt-in).
+#
+# A Vector/Matrix returned from east-c can be exposed to Python as a read-only
+# numpy view over the C buffer instead of a copy: an `_EastBufferOwner` base on
+# the array holds a retained reference to the owning EastValue and releases it
+# when the array (and any view derived from it) is collected, so the bytes stay
+# valid for the view's lifetime. east-c values are immutable, so the borrowed
+# bytes never change underneath the view.
+#
+# OFF by default (the copy path is the default) pending an ASan root-cause of a
+# small (~100 B/call) C-level leak: the EastValue / owner / numpy-array objects
+# all balance (view creations == capsule releases) and `val` is freed, yet RSS
+# grows linearly, so the residual is elsewhere in the SimpleNewFromData/slab
+# interaction. Opt in with EAST_PY_ZEROCOPY=1; also requires the GIL (refcounting
+# on the borrowed EastValue must stay serialized).
+# ---------------------------------------------------------------------------
+
+cdef bint _gil_enabled():
+    try:
+        return sys._is_gil_enabled()
+    except AttributeError:
+        return True
+
+
+cdef bint _ZEROCOPY_C2PY = (os.environ.get("EAST_PY_ZEROCOPY") == "1") and _gil_enabled()
+
+
+cdef long long _ZC_VIEWS = 0
+cdef long long _ZC_RELEASES = 0
+
+
+def _zc_stats():
+    return (_ZC_VIEWS, _ZC_RELEASES)
+
+
+cdef class _EastBufferOwner:
+    """numpy base object that keeps a borrowed C buffer alive.
+
+    Holds a retained reference to the EastValue that owns the buffer; releasing
+    it (on collection of the view and any array derived from it) returns the
+    value, and hence the buffer, to east-c.
+    """
+    cdef _eastc.EastValue *val
+
+    def __cinit__(self):
+        self.val = NULL
+
+    def __dealloc__(self):
+        global _ZC_RELEASES
+        _ZC_RELEASES += 1
+        if self.val != NULL:
+            _eastc.east_value_release(self.val)
+            self.val = NULL
+
+
+cdef object _c_buffer_view(_eastc.EastValue *val, void *buf, int nd, cnp.npy_intp *dims, int typenum):
+    """Read-only numpy view over a C buffer owned by `val`."""
+    global _ZC_VIEWS
+    _ZC_VIEWS += 1
+    cdef cnp.ndarray arr = PyArray_SimpleNewFromData(nd, dims, typenum, buf)
+    cdef _EastBufferOwner owner = _EastBufferOwner.__new__(_EastBufferOwner)
+    _eastc.east_value_retain(val)
+    owner.val = val
+    Py_INCREF(owner)
+    PyArray_SetBaseObject(arr, owner)
+    PyArray_CLEARFLAGS(arr, NPY_ARRAY_WRITEABLE)
+    return arr
+
+
 cdef object _c_vector_to_py(_eastc.EastValue *val, _eastc.EastType *c_type):
     cdef _eastc.EastType *elem_c = c_type.data.element
+    cdef size_t n = val.data.vector.len
+    cdef size_t byte_count
+    cdef cnp.npy_intp dims[1]
     py_elem_type = _c_type_tag_to_py_type(elem_c)
     dtype = np.dtype(EAST_ELEMENT_TO_DTYPE[py_elem_type.type])
-    cdef size_t n = val.data.vector.len
-    cdef size_t byte_count = n * dtype.itemsize
+    if _ZEROCOPY_C2PY and n > 0:
+        dims[0] = <cnp.npy_intp>n
+        data = _c_buffer_view(val, val.data.vector.data, 1, dims, <int>dtype.num)
+        return EastVector(py_elem_type, data)
+    byte_count = n * dtype.itemsize
     data = np.empty(n, dtype=dtype)
     if byte_count > 0:
         memcpy(PyArray_DATA(<cnp.ndarray>data), val.data.vector.data, byte_count)
@@ -679,12 +765,19 @@ cdef object _c_vector_to_py(_eastc.EastValue *val, _eastc.EastType *c_type):
 
 cdef object _c_matrix_to_py(_eastc.EastValue *val, _eastc.EastType *c_type):
     cdef _eastc.EastType *elem_c = c_type.data.element
-    py_elem_type = _c_type_tag_to_py_type(elem_c)
-    dtype = np.dtype(EAST_ELEMENT_TO_DTYPE[py_elem_type.type])
     cdef size_t rows = val.data.matrix.rows
     cdef size_t cols = val.data.matrix.cols
     cdef size_t count = rows * cols
-    cdef size_t byte_count = count * dtype.itemsize
+    cdef size_t byte_count
+    cdef cnp.npy_intp dims[2]
+    py_elem_type = _c_type_tag_to_py_type(elem_c)
+    dtype = np.dtype(EAST_ELEMENT_TO_DTYPE[py_elem_type.type])
+    if _ZEROCOPY_C2PY and count > 0:
+        dims[0] = <cnp.npy_intp>rows
+        dims[1] = <cnp.npy_intp>cols
+        data = _c_buffer_view(val, val.data.matrix.data, 2, dims, <int>dtype.num)
+        return EastMatrix(py_elem_type, data, rows, cols)
+    byte_count = count * dtype.itemsize
     data = np.empty(count, dtype=dtype)
     if byte_count > 0:
         memcpy(PyArray_DATA(<cnp.ndarray>data), val.data.matrix.data, byte_count)
