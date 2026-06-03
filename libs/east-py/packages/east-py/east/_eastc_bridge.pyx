@@ -14,7 +14,6 @@ Memory management rules:
 """
 
 from cpython.bytes cimport PyBytes_AS_STRING, PyBytes_GET_SIZE
-from cpython.ref cimport Py_INCREF
 from cpython.unicode cimport PyUnicode_AsUTF8AndSize, PyUnicode_DecodeUTF8
 from libc.stddef cimport size_t
 from libc.stdint cimport int64_t, uint8_t, uintptr_t
@@ -25,12 +24,8 @@ cimport numpy as cnp
 
 cdef extern from "numpy/arrayobject.h":
     void *PyArray_DATA(cnp.ndarray arr) nogil
-    object PyArray_SimpleNewFromData(int nd, cnp.npy_intp *dims, int typenum, void *data)
-    int PyArray_SetBaseObject(cnp.ndarray arr, object obj)  # steals a reference to obj
-    void PyArray_CLEARFLAGS(cnp.ndarray arr, int flags)
-    int NPY_ARRAY_WRITEABLE
 
-# Initialise the numpy C-API table (required before PyArray_SimpleNewFromData).
+# Initialise the numpy C-API table.
 cnp.import_array()
 
 from east cimport _eastc
@@ -676,21 +671,18 @@ cdef object _c_ref_to_py(_eastc.EastValue *val, _eastc.EastType *c_type, dict al
 
 
 # ---------------------------------------------------------------------------
-# Zero-copy c->py views (EXPERIMENTAL — opt-in).
+# Zero-copy c->py views.
 #
-# A Vector/Matrix returned from east-c can be exposed to Python as a read-only
-# numpy view over the C buffer instead of a copy: an `_EastBufferOwner` base on
-# the array holds a retained reference to the owning EastValue and releases it
-# when the array (and any view derived from it) is collected, so the bytes stay
-# valid for the view's lifetime. east-c values are immutable, so the borrowed
+# A Vector/Matrix returned from east-c is exposed to Python as a read-only numpy
+# view over the C buffer instead of a copy: PyArray_SimpleNewFromData wraps the
+# buffer, and an `_EastBufferOwner` holding a retained reference to the owning
+# EastValue is set as the array's base — so the EastValue (and the buffer) lives
+# exactly as long as the view and anything derived from it. The value is retained
+# once and released in `__dealloc__`. east-c values are immutable, so the borrowed
 # bytes never change underneath the view.
 #
-# OFF by default (the copy path is the default) pending an ASan root-cause of a
-# small (~100 B/call) C-level leak: the EastValue / owner / numpy-array objects
-# all balance (view creations == capsule releases) and `val` is freed, yet RSS
-# grows linearly, so the residual is elsewhere in the SimpleNewFromData/slab
-# interaction. Opt in with EAST_PY_ZEROCOPY=1; also requires the GIL (refcounting
-# on the borrowed EastValue must stay serialized).
+# Requires the GIL (the borrowed EastValue's refcount is non-atomic) — disabled
+# under free-threading. Set EAST_PY_NO_ZEROCOPY=1 to force the copy path.
 # ---------------------------------------------------------------------------
 
 cdef bint _gil_enabled():
@@ -700,23 +692,17 @@ cdef bint _gil_enabled():
         return True
 
 
-cdef bint _ZEROCOPY_C2PY = (os.environ.get("EAST_PY_ZEROCOPY") == "1") and _gil_enabled()
-
-
-cdef long long _ZC_VIEWS = 0
-cdef long long _ZC_RELEASES = 0
-
-
-def _zc_stats():
-    return (_ZC_VIEWS, _ZC_RELEASES)
+cdef bint _ZEROCOPY_C2PY = (os.environ.get("EAST_PY_NO_ZEROCOPY") != "1") and _gil_enabled()
 
 
 cdef class _EastBufferOwner:
-    """numpy base object that keeps a borrowed C buffer alive.
+    """Retained EastValue that anchors the lifetime of a zero-copy numpy view.
 
-    Holds a retained reference to the EastValue that owns the buffer; releasing
-    it (on collection of the view and any array derived from it) returns the
-    value, and hence the buffer, to east-c.
+    The view (a PyArray_SimpleNewFromData array) borrows the C buffer; this owner
+    is set as the array's base, so numpy keeps it alive while the array — and any
+    slice / torch tensor derived from it — lives, releasing the EastValue (and so
+    the buffer) in __dealloc__. east-c values are immutable, so the bytes never
+    change underneath the view.
     """
     cdef _eastc.EastValue *val
 
@@ -724,24 +710,28 @@ cdef class _EastBufferOwner:
         self.val = NULL
 
     def __dealloc__(self):
-        global _ZC_RELEASES
-        _ZC_RELEASES += 1
         if self.val != NULL:
             _eastc.east_value_release(self.val)
             self.val = NULL
 
 
-cdef object _c_buffer_view(_eastc.EastValue *val, void *buf, int nd, cnp.npy_intp *dims, int typenum):
-    """Read-only numpy view over a C buffer owned by `val`."""
-    global _ZC_VIEWS
-    _ZC_VIEWS += 1
-    cdef cnp.ndarray arr = PyArray_SimpleNewFromData(nd, dims, typenum, buf)
+cdef object _east_buffer_view(_eastc.EastValue *val, void *buf, int ndim,
+                              cnp.npy_intp *dims, int typenum):
+    """Read-only zero-copy numpy view over a C buffer owned by `val` (retains val).
+
+    A data-pointer array (not the buffer protocol, which makes numpy cache a
+    per-array buffer-info struct) plus cnp.set_array_base — numpy's own helper
+    that does the INCREF + base-steal behind a function boundary (base is a
+    parameter, so Cython does not also decrement it), avoiding the
+    premature-dealloc / dangling-base bug of a hand-rolled Py_INCREF +
+    PyArray_SetBaseObject.
+    """
+    cdef cnp.ndarray arr = cnp.PyArray_SimpleNewFromData(ndim, dims, typenum, buf)
     cdef _EastBufferOwner owner = _EastBufferOwner.__new__(_EastBufferOwner)
     _eastc.east_value_retain(val)
     owner.val = val
-    Py_INCREF(owner)
-    PyArray_SetBaseObject(arr, owner)
-    PyArray_CLEARFLAGS(arr, NPY_ARRAY_WRITEABLE)
+    cnp.set_array_base(arr, owner)
+    cnp.PyArray_CLEARFLAGS(arr, cnp.NPY_ARRAY_WRITEABLE)
     return arr
 
 
@@ -754,8 +744,8 @@ cdef object _c_vector_to_py(_eastc.EastValue *val, _eastc.EastType *c_type):
     dtype = np.dtype(EAST_ELEMENT_TO_DTYPE[py_elem_type.type])
     if _ZEROCOPY_C2PY and n > 0:
         dims[0] = <cnp.npy_intp>n
-        data = _c_buffer_view(val, val.data.vector.data, 1, dims, <int>dtype.num)
-        return EastVector(py_elem_type, data)
+        return EastVector(py_elem_type, _east_buffer_view(
+            val, val.data.vector.data, 1, dims, <int>dtype.num))
     byte_count = n * dtype.itemsize
     data = np.empty(n, dtype=dtype)
     if byte_count > 0:
@@ -775,8 +765,8 @@ cdef object _c_matrix_to_py(_eastc.EastValue *val, _eastc.EastType *c_type):
     if _ZEROCOPY_C2PY and count > 0:
         dims[0] = <cnp.npy_intp>rows
         dims[1] = <cnp.npy_intp>cols
-        data = _c_buffer_view(val, val.data.matrix.data, 2, dims, <int>dtype.num)
-        return EastMatrix(py_elem_type, data, rows, cols)
+        return EastMatrix(py_elem_type, _east_buffer_view(
+            val, val.data.matrix.data, 2, dims, <int>dtype.num), rows, cols)
     byte_count = count * dtype.itemsize
     data = np.empty(count, dtype=dtype)
     if byte_count > 0:

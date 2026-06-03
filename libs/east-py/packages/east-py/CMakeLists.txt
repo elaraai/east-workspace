@@ -95,6 +95,54 @@ add_subdirectory(
 )
 
 # ────────────────────────────────────────────────────────────────────────
+# Single shared east-c.
+#
+# east-c is built static above. Each Cython extension that needs it must NOT
+# embed its own copy: every *_eastc/*_bridge module carries east-c's global
+# state (the value slab, the IR-type singleton, the builtin error register),
+# and Python loads extension modules with RTLD_LOCAL — so duplicate copies do
+# not interpose. A value allocated in one extension's slab and freed in
+# another's (e.g. a zero-copy buffer view that outlives the decode that built
+# it) lands in the wrong freelist: the origin slab leaks the slot, the freeing
+# slab underflows. Repackaging east-c as one shared library that every
+# extension links gives the process a single slab, one IR-type singleton, one
+# error register.
+#
+# We force the whole static archive into the shared object so none of east-c's
+# API is dropped, and hide the bundled pcre2/btree symbols from the dynamic
+# table so they cannot collide with another copy elsewhere in the process.
+# Linux + macOS use the linker for this; Windows (MSVC) keeps the static link
+# for now and is handled by the separate native-build pivot.
+set(_eastc_shared_stub "${CMAKE_BINARY_DIR}/east_c_shared_stub.c")
+file(WRITE ${_eastc_shared_stub}
+     "/* Repackages the static east-c archive as one shared library. */\n")
+add_library(east-c-shared SHARED ${_eastc_shared_stub})
+set_target_properties(east-c-shared PROPERTIES OUTPUT_NAME east-c)
+add_dependencies(east-c-shared east-c)
+
+if(APPLE)
+    target_link_options(east-c-shared PRIVATE
+        "LINKER:-force_load,$<TARGET_FILE:east-c>")
+    target_link_libraries(east-c-shared PRIVATE pcre2-8 btreec)
+    set(EAST_PY_LINK_EASTC east-c-shared)
+elseif(WIN32)
+    # Static link on Windows — symbol interposition isn't the model there; the
+    # native-build pivot owns the shared-export story for MSVC.
+    set(EAST_PY_LINK_EASTC east-c)
+else()
+    target_link_options(east-c-shared PRIVATE
+        "LINKER:--whole-archive,$<TARGET_FILE:east-c>,--no-whole-archive"
+        "LINKER:--exclude-libs,libpcre2-8.a"
+        "LINKER:--exclude-libs,libbtreec.a")
+    target_link_libraries(east-c-shared PRIVATE pcre2-8 btreec m)
+    set(EAST_PY_LINK_EASTC east-c-shared)
+endif()
+
+if(NOT WIN32)
+    install(TARGETS east-c-shared LIBRARY DESTINATION east)
+endif()
+
+# ────────────────────────────────────────────────────────────────────────
 # Python + NumPy
 # ────────────────────────────────────────────────────────────────────────
 find_package(Python COMPONENTS Interpreter Development.Module NumPy REQUIRED)
@@ -149,11 +197,25 @@ foreach(pyx ${PYX_FILES})
         ${PACKAGE_DIR}
     )
 
-    # _eastc and _eastc_bridge / _platform_bridge link against east-c.
-    # _values_cy and _ordering_cy are pure Cython acceleration — no native
-    # link needed (they only use Python C API + numpy).
+    # _eastc and _eastc_bridge / _platform_bridge link against the single shared
+    # east-c (see above). _values_cy and _ordering_cy are pure Cython
+    # acceleration — no native link needed (Python C API + numpy only).
     if(name MATCHES "_eastc|_bridge")
-        target_link_libraries(${name} PRIVATE east-c)
+        target_link_libraries(${name} PRIVATE ${EAST_PY_LINK_EASTC})
+        # libeast-c.so installs into east/; point each extension's RUNPATH at it.
+        # install_subdir is "" for east/*.so and one level deep for
+        # east/serialization|runtime/*.so.
+        if(install_subdir STREQUAL "")
+            set(_eastc_origin "$ORIGIN")
+        else()
+            set(_eastc_origin "$ORIGIN/..")
+        endif()
+        if(APPLE)
+            string(REPLACE "$ORIGIN" "@loader_path" _eastc_origin "${_eastc_origin}")
+        endif()
+        if(NOT WIN32)
+            set_target_properties(${name} PROPERTIES INSTALL_RPATH "${_eastc_origin}")
+        endif()
     endif()
     # libm is part of the CRT on Windows/MSVC; link the separate libm elsewhere.
     if(NOT WIN32)
