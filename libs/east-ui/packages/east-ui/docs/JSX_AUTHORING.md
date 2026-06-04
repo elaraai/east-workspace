@@ -22,16 +22,24 @@ These govern every decision below.
    same IR as `Box.Root([…], { padding: "4" })`. Same value, same serialization,
    same renderer. The factories never go away.
 
-2. **Every slot is `SubtypeExprOrValue<T>` — expressions are first-class.** A
-   child, a value, a style prop, a chart encoding field — each accepts a plain
-   JS value **or** an East expression of the slot's type, uniformly. An East
-   array expression in a children slot is simply a value of type
-   `SubtypeExprOrValue<ArrayType<UIComponentType>>`; it is **not** a special
-   case. There is no `.map`-specific handling and no JSX-specific map sugar —
-   `rows.map(...)`, a dataset bind, a field access and a conditional are all
-   just expressions that flow into a slot whose type already accepts them. The
-   runtime's only job is to lower JSX's children channel into a value of that
-   real type.
+2. **Every value/prop is the factory's `SubtypeExprOrValue<T>` East type —
+   strictly.** A value, a style prop, a chart encoding field, a child is typed
+   *exactly* as the factory's arg (`SubtypeExprOrValue<T>`) — **never** a JS/TS
+   junk union (no bare `string`/`number`/`boolean`/`null`/`undefined`, no
+   `X | Y` grab-bags, no parallel `XxxJsxProps`). An East expression
+   (`rows.map(...)`, a dataset bind, a field access, `cond.ifElse(...)`) is just
+   a value of that slot's type. The JSX layer never coerces or re-types values
+   at the boundary, and never runtime-introspects a value to *validate* it (see
+   [`feedback_no_runtime_type_introspection`]).
+
+   **The one allowed exception:** an enum/variant style prop adds its
+   string-literal proxy — `SubtypeExprOrValue<XxxType> | XxxLiteral` (so
+   `variant="solid"` works). That proxy lives on the factory's own option
+   interface, not the JSX layer. Nothing else deviates from
+   `SubtypeExprOrValue<T>`.
+
+   **Conditionals are East:** `cond.ifElse(<A/>, <B/>)` (a `UIComponentType`),
+   never JS `{cond && <El/>}` / ternaries / `null` — those aren't East.
 
 3. **The factory is the single lift/coercion site.** String→variant coercion,
    string→`Text.Root` label coercion, and TS-arrow→`East.function` lifting all
@@ -158,27 +166,27 @@ The shipped runtime is correct only for the all-static subset the one showcase
 demo exercises. It is **silently wrong** for expression-valued children and
 *throws* on mixed text. These are fixed before any tag scaling.
 
-### 2.1 Type-aware children coalescer (replaces `flattenElements`)
+### 2.1 Children coalescer (`children.ts`)
 
-The children channel is lowered to a value of the slot's real type,
-`SubtypeExprOrValue<ArrayType<UIComponentType>>`:
+A container factory's children arg is a *list*:
+`SubtypeExprOrValue<ArrayType<UIComponentType>>`. JSX hands that list in one of
+two strict East-typed shapes (`ContainerChildrenType = SubtypeExprOrValue<
+UIComponentType> | SubtypeExprOrValue<ArrayType<UIComponentType>>`): a single
+`UIComponentType` (a lone child, or `cond.ifElse(<A/>, <B/>)`), or an
+`ArrayType<UIComponentType>` (a JS array `[A, B]` of elements, or a dynamic
+`rows.map(...)`). `coalesceChildren` lowers either to the factory arg:
 
-- Walk JS arrays, fragments, and drop `null`/`undefined`/`boolean` (static JSX).
-- A child that is an **East expression** whose East type is
-  `ArrayType<UIComponentType>` is kept whole (it is already a valid slot value).
-  Detect via the East type machinery (the expr's type symbol / `isValueOf`
-  against `ArrayType(UIComponentType)`), **never** `Array.isArray` (an `Expr`
-  is not a JS array — the current bug).
-- Group consecutive static elements into `East.value([...],
-  ArrayType(UIComponentType))`; join all segments (static runs + expression
-  children) with East array `.concat()` into one
-  `ExprType<ArrayType<UIComponentType>>`.
-- Fully-static fast path: return a plain JS array (preserves the factory's
-  "value" branch and current IR shape).
+- `undefined` (empty container) → `East.value([], ArrayType(UIComponentType))`;
+- a JS array (multiple static children) → `East.value(child, ArrayType(UIComponentType))`;
+- an East array expression — detected with
+  `isSubtype(Expr.type(child), ArrayType(UIComponentType))` — passes through;
+- otherwise a single `UIComponentType` → wrapped `East.value([child], ArrayType(UIComponentType))`.
 
-This is the uniform realization of Principle 2 — not a map special case. A lone
-expression child, a static list, and a mix all reduce to "a value of the slot
-type."
+No `boolean`/`null`/nesting, no segment-concat, no `.map` special case. Flat-mixed
+siblings (`<Box><Header/>{rows.map(...)}</Box>`) are a **type error** — compose a
+mixed list East-side (`.concat`) or wrap the dynamic part in its own container.
+The only runtime East read is the `isSubtype` array check (lowering, not
+validation).
 
 ### 2.2 Fragments
 
@@ -205,17 +213,16 @@ Because each sub-tag returns a distinct East type (or TS layer type), the
 bucketer discriminates by type — sound provenance with no JS tag-branding and no
 reliance on tag identity surviving the `jsx()` call.
 
-### 2.4 Text leaves (`joinText` → `East.str`)
+### 2.4 Text leaves (`textLeaf`)
 
-Text children fold into a single `StringType` value. The current throw on mixed
-literal+expression (`<Text>Hi {row.name}!</Text>`) is replaced by an automatic
-`East.str` fold (which also string-converts non-string exprs). Keep the
-all-static `join('')` fast path and the single-child pass-through.
-
-Text-leaf tags additionally accept the value as text children **or** a single
-element child where the factory's value arg is a `UIComponentType` (e.g.
-`<Button>` accepts both `Save` and a rich `<HStack>` label, mirroring
-`ButtonLabelInput`).
+A text leaf's value **is** its children, typed exactly as the factory's value
+arg `SubtypeExprOrValue<StringType>` and forwarded verbatim — no `joinText`, no
+`foldStr`, no JS `string`/`number`/multi-child joining. Interpolate East-side:
+`<Text>{East.str\`Hi ${name}\`}</Text>`, not `<Text>Hi {name}</Text>` (multiple
+children is a type error). A rich label is its own component, not text — and
+`<Button>` is **not** a text leaf: its label is the factory's `ButtonLabelInput`
+(string → `Text.Root`, or any `UIComponentType`), forwarded by the Button tag
+directly, with no text-joining or element-sniffing in the JSX layer.
 
 ### 2.5 Honest typing (remove `never`)
 
@@ -264,8 +271,9 @@ vocabulary (and carries the full TypeDoc). Tag props are mechanically derived
 from the factory signature via the combinator pattern already proven in the
 shipped `jsx.ts`:
 
-- `ContainerProps<F> = NonNullable<Parameters<F>[1]> & { children?: … }`
-- `TextProps<F>     = NonNullable<Parameters<F>[1]> & { children?: TextChild }`
+- `ContainerProps<F> = NonNullable<Parameters<F>[1]> & { children?: ContainerChildrenType }`
+- `TextProps<F>     = NonNullable<Parameters<F>[1]> & { children: Parameters<F>[0] }` (the value)
+- `ValueProps<F,K>  = Record<K, Parameters<F>[0]> & NonNullable<Parameters<F>[1]>`
 - shape-3 (Button/Card/overlays): `FlattenProps<F>` =
   `NonNullable<Parameters<F>[1]>['style']` ⋃ `Omit<NonNullable<Parameters<F>[1]>,
   'style'>` ⋃ `{ children? }`.
@@ -302,15 +310,26 @@ prop may be literally named `children`. Codify in STANDARDS.
 
 ---
 
-## 4. Children & values — the uniform rule
+## 4. Children & values — the strict rule
 
-Container children are typed `ElementChild | SubtypeExprOrValue<ArrayType<
-UIComponentType>>`; value-leaf children are the value's `SubtypeExprOrValue<T>`.
-The author writes static elements, an expression, or a mix; §2.1 lowers all
-three to the slot's real type. The same rule applies to item-children
-components (the item array is `SubtypeExprOrValue<ArrayType<ItemType>>`) and to
-every value/encoding slot. There is no separate `items=` prop and no special map
-path.
+Every slot is the factory's own `SubtypeExprOrValue<T>`, by combinator:
+
+- **container children** → `ContainerChildrenType` = `SubtypeExprOrValue<
+  UIComponentType> | SubtypeExprOrValue<ArrayType<UIComponentType>>` (a single
+  component, or a list — §2.1).
+- **single-content slot** (ScrollArea/Sticky/Card header…) → strictly
+  `SubtypeExprOrValue<UIComponentType>` (its own combinator; no array, no
+  coalescing).
+- **text leaf** → the factory value `SubtypeExprOrValue<StringType>` as children
+  (§2.4); interpolate East-side with `East.str`.
+- **value leaf** → the factory value `SubtypeExprOrValue<T>` under a named prop.
+- **item-children components** → the item array `SubtypeExprOrValue<ArrayType<
+  ItemType>>`.
+
+No JS/TS junk arms (`string`/`number`/`boolean`/`null`), no separate `items=`
+prop, no `.map` special case, no flat-mixed children. The only deviation from
+`SubtypeExprOrValue<T>` anywhere is the enum `| XxxLiteral` style proxy (§3.1),
+which lives on the factory option interface.
 
 ---
 
@@ -415,11 +434,13 @@ wrapper buckets by East type (§2.3):
   factory forms round-trip to identical IR.
 - **New `## JSX Authoring Standards` section:**
   - per-file `/** @jsxImportSource … */` pragma; one tag import from `…/jsx`.
-  - every enum prop is `SubtypeExprOrValue<XType> | XLiteral`; string shorthands
-    are the default authoring form.
-  - children/values/encodings are `SubtypeExprOrValue<T>`; expressions are
-    first-class; never a plain TS object array for East-shaped data; no special
-    map handling.
+  - **every value/prop is the factory's `SubtypeExprOrValue<T>` — strictly; no
+    JS/TS junk unions, no boundary coercion, no runtime introspection to
+    validate.** The ONLY exception is an enum/variant style prop, which adds its
+    `| XxxLiteral` string-union proxy (on the factory option interface).
+  - container children are `SubtypeExprOrValue<UIComponentType> |
+    SubtypeExprOrValue<ArrayType<UIComponentType>>`; conditionals are East
+    (`ifElse`), never JS `{cond && <El/>}`; text interpolates with `East.str`.
   - two callback families: build-time accessors (pass through) vs East-function
     handlers (factory-lifted typed arrows / `East.function`).
   - data-driven components keep structured data on config props (`data=` /
@@ -537,43 +558,50 @@ teaches JSX while the index serves nothing.
 Tracks what has landed on `claude/east-ui-react-types-olfJV`. Update as phases
 complete.
 
+Branch `claude/east-ui-jsx-foundation` (PR #19).
+
 **Done (green + committed):**
-- **Phase 1 — relocation.** Runtime + tags moved to `east-ui/src/jsx/`
-  (`runtime.ts`, `children.ts`, `combinators.ts`, `layout.ts`, `typography.ts`,
-  `display.ts`, `buttons.ts`, `reactive.ts`, `index.ts`); `./jsx`,
-  `./jsx-runtime`, `./jsx-dev-runtime` exports added; e3-ui `jsx.ts` /
-  `jsx-runtime.ts` are passthroughs. e3-ui-showcase compiles unchanged; round-trip
-  demo runs.
-- **Phase 0 — runtime foundation.** East-array-aware `coalesceChildren`
-  (lone `.map` child kept whole; mixed static+expr concat in source order;
-  Fragment routed through the coalescer), `joinText`→`East.str` fold,
-  `never`-casts removed. `test/jsx/runtime.spec.tsx` pins the four dynamic cases
-  + IR/value-equivalence against the factory output, using the self-referential
-  `/** @jsxImportSource @elaraai/east-ui */` pragma (validated on a clean build).
-- **Phase 3 (partial) — tags.** `<Box> <Flex> <Stack> <VStack> <HStack>`,
-  `<Text> <Heading> <Code> <Mark>`, `<Badge> <Tag>`, `<Button>`, and the
-  `<Reactive>{$ => …}</Reactive>` builder-children tag. Generic builder type
-  renamed `Tag<P>`→`JsxTag<P>` (collided with the `<Tag>` component).
-- **Phase 5 (prep) — tooling globs widened** to `*.examples.{ts,tsx}` across the
-  five discovery points (plugin `index.config.json`, `plugin-artifacts.yml`
-  paths, east-ui `Makefile`, showcase `discover-example-files.ts` +
-  `vite-plugin-example-sources.ts`). Verified non-breaking (index byte-identical).
+- **Relocation + mirror tree (§1.1–1.2).** Runtime + tags in `east-ui/src/jsx/`,
+  a parallel tree mirroring `src/`: `runtime.ts`/`children.ts`/`combinators.ts`/
+  `index.ts` + `layout/box.ts`, `typography/text.ts`, `forms/checkbox.ts`,
+  `collections/table.ts` … with per-category `index.ts` barrels. One public
+  `./jsx` (+ `./jsx-runtime`) subpath. e3-ui exports are passthroughs;
+  e3-ui-showcase compiles unchanged; round-trip demo runs.
+- **Strict typing (§0.2, §4).** Every value/prop is the factory's
+  `SubtypeExprOrValue<T>`. `coalesceChildren` lowers `ContainerChildrenType`
+  (single `UIComponentType` | `ArrayType<UIComponentType>`) to the factory arg
+  via `East.value(...)` + `isSubtype(Expr.type(x), ArrayType(UIComponentType))`.
+  `joinText`/`foldStr`/`TextChild`/the Button element-sniff/the `boolean`/`null`
+  children arms are all **deleted**; text is `SubtypeExprOrValue<StringType>`;
+  Button label is the factory's `ButtonLabelInput`. No runtime introspection to
+  validate (see [`feedback_no_runtime_type_introspection`]).
+- **Combinators + tags.** `container` / `textLeaf` / `leaf(factory, key)` (+
+  `ContainerProps`/`TextProps`/`ValueProps` derived from the factory). Tags:
+  `<Box> <Flex> <Stack> <VStack> <HStack>`, `<Text> <Heading> <Code> <Mark>`,
+  `<Badge> <Tag>`, `<Checkbox> <Switch> <Slider>`, `<Button>`,
+  `<Reactive>{$ => …}</Reactive>`.
+- **`ui()` collapsed** to a single typed `ui(name, inputs, fn, options?)` (no
+  closure overload, no `unknown`).
+- **Tests.** `test/jsx/children.spec.tsx` (coalescer) + `combinators.spec.tsx`
+  (one representative per combinator), value-equivalence vs the factory; eslint
+  lints `test/**/*.tsx`.
+- **Tooling globs** widened to `*.examples.{ts,tsx}` across the five discovery
+  points (verified non-breaking).
 
 **Remaining:**
-- **Phase 3 (rest of tags).** A `leaf` combinator (shape-2 value+options:
-  forms `Checkbox/Switch/Slider/Input/Select/…`, display `Avatar/Stat/Meter/…`,
-  feedback `Progress/Status/Banner/…`); the shape-3 generalization
-  (`CloseButton/CopyButton/Toggle/Card/ScrollArea/Sticky/ChipRail`); IconButton +
-  ButtonGroup; items-parent (`Grid/Splitter/Tabs/Accordion/Select/SegmentGroup/…`);
-  trigger+body overlays (`Dialog/Drawer/Popover/Menu/Tooltip/…`); the complex
-  collections/charts with type-driven sub-tag bucketing (§2.3, §5) and the new
-  factories (`DataList.Item`, `Table.Column/.Row/.Cell`).
-- **Phase 2 — factory interface improvements** (§6): arrow-accepting callback
-  aliases at the factory lift site; literal-union backfill; Card child widening;
-  Chart `key`→`name`.
+- **single-content combinator** (`SubtypeExprOrValue<UIComponentType>`, no array)
+  for `ScrollArea`/`Sticky`/`Card` header-footer slots (§4).
+- **Rest of tags:** display/feedback/navigation leaves; shape-3
+  (`CloseButton/CopyButton/Toggle/Card/ChipRail`, IconButton, ButtonGroup);
+  items-parent (`Grid/Splitter/Tabs/Accordion/Select/SegmentGroup/…`);
+  trigger+body overlays; complex collections/charts with type-driven sub-tag
+  bucketing (§2.3, §5) + new factories (`DataList.Item`, `Table.Column/.Row/.Cell`).
+- **Phase 2 — factory interface improvements** (§6): callback arrow aliases at
+  the factory lift site; literal-union backfill; Card child widening; Chart
+  `key`→`name`.
 - **Phase 4 — STANDARDS / SKILL / USAGE / @example** rewrites (§7–8).
-- **Phase 5 — example migration** of every `UIComponentType`-returning example to
-  `.tsx` with snapshot + IR verification (§9), pilot `buttons/button-group` first.
+- **Phase 5 — example migration** of every `UIComponentType` example to `.tsx`
+  with snapshot + IR verification (§9), pilot `buttons/button-group` first.
 
 ## 12. Risks
 
