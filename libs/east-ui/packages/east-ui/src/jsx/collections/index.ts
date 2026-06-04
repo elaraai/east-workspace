@@ -9,3 +9,4 @@ export { TreeView } from "./tree-view.js";
 export { DataList } from "./data-list.js";
 export { Pagination } from "./pagination.js";
 export { Table } from "./table.js";
+export { Matrix } from "./matrix.js";

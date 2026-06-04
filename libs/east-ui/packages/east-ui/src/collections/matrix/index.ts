@@ -386,7 +386,7 @@ export interface MatrixColumnInput {
 }
 
 // Infer the row struct type R from the data argument, mirroring Planner/Gantt.
-type RowElement<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
+export type RowElement<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
     TypeOf<T> extends ArrayType<infer S> ? (S extends StructType ? S : never) : never;
 
 /**
