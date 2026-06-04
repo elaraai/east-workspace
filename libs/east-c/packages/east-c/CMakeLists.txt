@@ -110,6 +110,11 @@ if(EAST_C_BUILD_OBJECT)
     add_library(east-c-obj OBJECT ${EAST_C_SOURCES})
     target_include_directories(east-c-obj PUBLIC include)
     target_link_libraries(east-c-obj PRIVATE pcre2-8 btreec)
+    # Mark east-c's extern DATA singletons (the type/value globals) dllexport so
+    # they're in the DLL's export table; consumers see them as dllimport. Functions
+    # auto-export via WINDOWS_EXPORT_ALL_SYMBOLS and need no marker. (EAST_DATA is a
+    # no-op off Windows, so this define is harmless on the non-Windows object build.)
+    target_compile_definitions(east-c-obj PRIVATE EAST_C_DLL_EXPORTS)
     target_compile_definitions(east-c-obj PRIVATE PCRE2_CODE_UNIT_WIDTH=8)
     if(WIN32)
         target_compile_definitions(east-c-obj PRIVATE _CRT_NONSTDC_NO_WARNINGS _CRT_SECURE_NO_WARNINGS)

@@ -116,7 +116,7 @@ struct EastValue {
 };
 
 // Global null singleton
-extern EastValue east_null_value;
+extern EAST_DATA EastValue east_null_value;
 
 // Constructors
 EastValue *east_null(void);

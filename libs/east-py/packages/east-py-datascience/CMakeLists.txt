@@ -186,6 +186,11 @@ foreach(pyx ${PYX_FILES})
         ${EAST_PY_PXD_DIR}
     )
     target_link_libraries(${name} PRIVATE ${EAST_PY_LINK_EASTC})
+    # Consume east-c's exported DATA singletons as dllimport (Windows DLL); no-op
+    # off Windows.
+    if(WIN32)
+        target_compile_definitions(${name} PRIVATE EAST_C_DLL_IMPORTS)
+    endif()
     # libeast-c.so is shipped by the core `east` package, a sibling of
     # east_py_datascience/ in site-packages. Both .pyx live one subdir deep
     # (optimization/, simulation/), so the hop to the sibling east/ package is

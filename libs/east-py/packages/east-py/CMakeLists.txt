@@ -221,6 +221,11 @@ foreach(pyx ${PYX_FILES})
     # acceleration — no native link needed (Python C API + numpy only).
     if(name MATCHES "_eastc|_bridge")
         target_link_libraries(${name} PRIVATE ${EAST_PY_LINK_EASTC})
+        # Consume east-c's exported DATA singletons as dllimport (Windows DLL).
+        # No-op off Windows (EAST_DATA expands to nothing).
+        if(WIN32)
+            target_compile_definitions(${name} PRIVATE EAST_C_DLL_IMPORTS)
+        endif()
         # libeast-c.so installs into east/; point each extension's RUNPATH at it.
         # install_subdir is "" for east/*.so and one level deep for
         # east/serialization|runtime/*.so.
