@@ -10,3 +10,4 @@ export { Heading } from "./heading.js";
 export { Code } from "./code.js";
 export { CodeBlock } from "./code-block.js";
 export { Mark } from "./mark.js";
+export { Numeric } from "./numeric.js";

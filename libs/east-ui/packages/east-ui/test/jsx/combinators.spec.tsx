@@ -15,7 +15,7 @@
 
 import { East, StringType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Badge, Button, Checkbox, Code, CodeBlock, EditableChip, Flex, HStack, Kbd, Meter, Progress, Reactive, ScrollArea, Slider, Sparkline, Text } from "@elaraai/east-ui/jsx";
+import { Badge, Button, Checkbox, Code, CodeBlock, EditableChip, Flex, HStack, Kbd, Meter, Numeric, Progress, Reactive, ScrollArea, Slider, Sparkline, Text } from "@elaraai/east-ui/jsx";
 import {
     Badge as BadgeF,
     Button as ButtonF,
@@ -26,6 +26,7 @@ import {
     Flex as FlexF,
     Kbd as KbdF,
     Meter as MeterF,
+    Numeric as NumericF,
     Progress as ProgressF,
     ScrollArea as ScrollAreaF,
     Slider as SliderF,
@@ -83,6 +84,7 @@ describeEast("JSX tag combinators", (test) => {
         // scalar-valued leaves
         $(Assert.equal(<Meter value={0.5} />, MeterF.Root(0.5)));
         $(Assert.equal(<Progress value={0.3} />, ProgressF.Root(0.3)));
+        $(Assert.equal(<Numeric value={1234.5} />, NumericF.Root(1234.5)));
         // array-valued leaves
         $(Assert.equal(<Sparkline data={[1.0, 2.0, 3.0]} />, SparklineF.Root([1.0, 2.0, 3.0])));
         $(Assert.equal(<Kbd keys={["Ctrl", "C"]} />, KbdF.Root(["Ctrl", "C"])));
